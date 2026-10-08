@@ -911,6 +911,16 @@ describe('doctorPrompt tier flags', () => {
     expect(p).toContain(`--draft-bin ${draftBinPath()}`);
   });
 
+  test('an empty fix-class allowlist goes out as --fix-classes none', () => {
+    const p = doctorPrompt({
+      mrUrl: 'https://x/mr/1',
+      statePath: '/s',
+      statusBin: statusBinPath(),
+      fixClasses: [],
+    });
+    expect(p).toContain('--fix-classes none');
+  });
+
   test('omits the flags when absent (manual path unchanged)', () => {
     const p = doctorPrompt({
       mrUrl: 'https://x/mr/1',

@@ -56,6 +56,8 @@ export interface ReviewInfo {
   dismissedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
+  /** The highest review round the board has recorded for this MR. */
+  rounds?: number;
 }
 export interface RespondInfo {
   status: RespondStatus;
@@ -85,6 +87,8 @@ export type DoctorStatus =
   | 'error';
 export interface DoctorInfo {
   status: DoctorStatus;
+  /** The rt agent running the doctor, matched against a gone pane. */
+  agentId?: string;
   message?: string;
   origin?: 'auto' | 'manual';
   tabId?: string;
@@ -153,6 +157,9 @@ export type BoardMRWithReview = BoardMR & {
   review?: ReviewInfo;
   respond?: RespondInfo;
   doctor?: DoctorInfo;
+  /** The board tabs a doctor launch on this MR reaches a domain skill from,
+      so it can rebase in a checkout; absent on older servers. */
+  doctorSkillTabs?: string[];
   /** Operator stood auto-doctor down on THIS MR (row-menu toggle); true only
       on the row it was set from, never computed for a descendant -- see
       attachStandDown. */
@@ -221,6 +228,8 @@ export interface BoardData {
   /** Whether auto-doctor (triage) is on for this board; absent on older
       servers. */
   triageEnabled?: boolean;
+  /** The tier a menu-launched doctor runs at; absent on older servers. */
+  doctorTier?: 'api' | 'checkout';
   /** The rt repos whose Code Owner section names carry Slack channels;
       absent on older servers. */
   ownerSlackRepos?: string[];
@@ -310,6 +319,9 @@ export interface RowContext {
   onOpenComments: (mr: BoardMR) => void;
   draftResolved: ReadonlyMap<string, 'posted' | 'dismissed'>;
   onResumeRespond: (mr: BoardMR, note?: string) => void;
+  onResumeReview: (mr: BoardMR) => void;
+  /** Starts a lane over from scratch, after the redo confirm dialog. */
+  onRedo: (mr: BoardMR, lane: 'review' | 'respond' | 'doctor') => void;
   /** Jumps into the pane behind a gate's own domain (review/respond/doctor) --
       the same dedup-and-focus path launching that domain again already takes
       (see the review sheet's and pane notice's "focus pane"), not a

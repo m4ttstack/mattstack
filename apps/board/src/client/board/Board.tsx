@@ -123,6 +123,7 @@ import { mrRef } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
 import { OwnersPostModal } from './OwnersPostModal.tsx';
+import { RedoConfirmDialog, type PendingRedo } from './RedoConfirmDialog.tsx';
 import { RespondModal, ReviewModal } from './ReviewModal.tsx';
 import {
   bulkActions,
@@ -435,6 +436,8 @@ export function Board() {
     subject: string;
     send: (note: string) => void;
   } | null>(null);
+  // A redo waiting on its confirm dialog; run fires it.
+  const [pendingRedo, setPendingRedo] = useState<PendingRedo | null>(null);
   // The MR whose saved review is open in the modal, if any.
   const [reviewModal, setReviewModal] = useState<BoardMRWithReview | null>(
     null
@@ -546,8 +549,8 @@ export function Board() {
   const reReviewAction = useLaunchAction({
     axis: 'review',
     path: '/review',
-    verbing: 're-reviewing',
-    started: 're-review started',
+    verbing: 'starting follow-up review',
+    started: 'follow-up review started',
     noun: 'review',
     optimistic: optimisticLifecycle,
     addToast,
@@ -686,6 +689,20 @@ export function Board() {
   );
   const handleResumeRespond = useCallback(
     (mr: BoardMR, note?: string) => void launch('resume-respond', mr, { note }),
+    [launch]
+  );
+  const handleResumeReview = useCallback(
+    (mr: BoardMR) => void launch('resume-review', mr),
+    [launch]
+  );
+  const handleRedo = useCallback(
+    (mr: BoardMR, lane: 'review' | 'respond' | 'doctor') =>
+      setPendingRedo({
+        lane,
+        count: 1,
+        prior: 1,
+        run: () => void launch(lane, mr),
+      }),
     [launch]
   );
 
@@ -983,6 +1000,16 @@ export function Board() {
   const runRowAction = useCallback(
     (action: RowAction, mr: BoardMR, opts: RunOpts) => {
       const req = action.request;
+      if (action.redo) {
+        const lane = action.redo;
+        setPendingRedo({
+          lane,
+          count: 1,
+          prior: 1,
+          run: () => void dispatchRowAction(req, mr, opts, runner, rowHandlers),
+        });
+        return undefined;
+      }
       if (req.kind !== 'ask') {
         return dispatchRowAction(req, mr, opts, runner, rowHandlers);
       }
@@ -1394,6 +1421,8 @@ export function Board() {
     onOpenComments: setCommentsFor,
     draftResolved,
     onResumeRespond: handleResumeRespond,
+    onResumeReview: handleResumeReview,
+    onRedo: handleRedo,
     onFocusPane: handleFocusPane,
     onLaunch: handleLaunch,
     onReReview: handleReReview,
@@ -1416,6 +1445,8 @@ export function Board() {
     local: data.local,
     slackEnabled: data.slackEnabled,
     triageEnabled: data.triageEnabled,
+    doctorTier: data.doctorTier,
+    tab: state.tab,
     ownerSlackRepos: data.ownerSlackRepos,
     self: seat,
     roster: data.members.map(m => m.username),
@@ -1855,6 +1886,16 @@ export function Board() {
                 const entry = bulkEntries.find(e => e.key === key);
                 if (!entry) return undefined;
                 const req = entry.request;
+                if (entry.redo) {
+                  const lane = entry.redo;
+                  setPendingRedo({
+                    lane,
+                    count: entry.targets.length,
+                    prior: entry.redoCount ?? entry.targets.length,
+                    run: () => void runBulk(entry, opts, runner),
+                  });
+                  return undefined;
+                }
                 if (req.kind !== 'ask') return runBulk(entry, opts, runner);
                 if (!opts.pick) return undefined;
                 const count = entry.pickTargets?.get(opts.pick)?.length ?? 0;
@@ -1883,6 +1924,11 @@ export function Board() {
               onClose={() => setRowMenu(null)}
             />
           ))}
+
+        <RedoConfirmDialog
+          pending={pendingRedo}
+          onDone={() => setPendingRedo(null)}
+        />
 
         <AskConfirmDialog
           open={pendingAsk !== null}

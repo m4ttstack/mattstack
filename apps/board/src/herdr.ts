@@ -227,9 +227,11 @@ function dispatchArgs(o: SkillPromptOpts, skillPath?: string | null): string {
   flag('--skill-path', skillPath);
   if (o.reReview) parts.push('--re-review');
   flag('--tier', o.tier);
+  // An absent flag licenses every class, so an empty allowlist must still
+  // reach the skill, as `none`.
   flag(
     '--fix-classes',
-    o.fixClasses?.length ? o.fixClasses.join(',') : undefined
+    o.fixClasses && (o.fixClasses.length ? o.fixClasses.join(',') : 'none')
   );
   flag('--draft-bin', o.draftBin);
   return parts.join(FLAG_SEPARATOR);

@@ -299,34 +299,31 @@ const THREAD_LABEL: Record<ThreadStatus, string> = {
   awaiting: 'awaiting author',
 };
 
-/** The review launch items for a row, by current review state. `re-review` is
-    available whenever a review isn't actively running — even with no prior board
-    review (it degrades to a generic re-review) — so it covers MRs a human reviewed
-    outside the board. A live review collapses to a single "focus review tab" —
-    or "relaunch review pane" once the sweep says the pane is gone, since the
-    same focus route re-opens a dead pane and "focus" would undersell it. */
-/** The review items for the menu, worded like the row's verbs. Re-review
-    is offered only once a review is logged: the board's own finished one,
-    or a person's on GitLab (`reviewLogged`); cold, it would be a second
-    launch button. */
+export type ReviewMenuKind = 'focus' | 'review' | 'redo' | 'follow-up';
+
+/** The review items for the menu. Focus only while the pane is alive; a
+    review whose pane is gone, or one already logged (the board's own, or a
+    person's on GitLab, see `reviewLogged`), is redone from scratch. A
+    follow-up checks the author's changes since the last round. */
 function reviewMenuItems(
   status?: ReviewStatus,
   interrupted?: boolean,
-  logged = false
-): Array<{ kind: 'launch' | 're-review'; label: string }> {
+  logged = false,
+  rounds?: number
+): Array<{ kind: ReviewMenuKind; label: string }> {
+  const redo = { kind: 'redo' as const, label: 'redo review' };
+  const followUp = {
+    kind: 'follow-up' as const,
+    label: rounds
+      ? `follow-up review (round ${rounds + 1})`
+      : 'follow-up review',
+  };
   if (status === 'queued' || status === 'reviewing')
-    return [
-      {
-        kind: 'launch',
-        label: interrupted ? 'relaunch review' : 'focus review',
-      },
-    ];
-  if (status === 'done') return [{ kind: 're-review', label: 're-review' }];
-  const items: Array<{ kind: 'launch' | 're-review'; label: string }> = [
-    { kind: 'launch', label: 'review' },
-  ];
-  if (logged) items.push({ kind: 're-review', label: 're-review' });
-  return items;
+    return interrupted ? [redo] : [{ kind: 'focus', label: 'focus review' }];
+  if (status === 'done') return [followUp, redo];
+  const fresh = { kind: 'review' as const, label: 'review' };
+  if (!logged) return [fresh];
+  return [status ? redo : fresh, followUp];
 }
 
 /** Whether anyone has reviewed the MR on GitLab: a reviewer who commented,
@@ -348,14 +345,36 @@ function respondItemLabel(
   interrupted?: boolean
 ): string {
   if (!status || status === 'error') return 'respond';
-  if (status === 'done') return 'restart response';
-  return interrupted ? 'relaunch response' : 'focus response';
+  if (status === 'done' || interrupted) return 'redo response';
+  return 'focus response';
 }
 
-function doctorItemLabel(status?: DoctorStatus): string {
-  if (!status || status === 'error') return 'call doctor';
-  if (status === 'done') return 'call doctor again';
+/** A doctor at the api tier never touches a checkout: it retries flaky
+    jobs and watches CI, so its label says that rather than promise fixes. */
+function doctorItemLabel(
+  status?: DoctorStatus,
+  interrupted?: boolean,
+  tier?: 'api' | 'checkout'
+): string {
+  if (!status || status === 'error')
+    return tier === 'api' ? 'call doctor (CI only)' : 'call doctor';
+  if (status === 'done' || interrupted) return 'redo doctor';
   return 'focus doctor';
+}
+
+/** Whether a running doctor's own pane is gone. A doctor with an agent on
+    file must match the gone pane's agent; one without (still queued) only
+    counts when no review or response on the row could own the pane. */
+function doctorInterrupted(mr: BoardMRWithReview): boolean {
+  const orphan = mr.orphan;
+  const d = mr.doctor;
+  if (orphan?.state !== 'gone' || !d || !DOCTOR_ACTIVE.has(d.status))
+    return false;
+  if (d.agentId) return orphan.agentId === d.agentId;
+  return (
+    !['queued', 'reviewing'].includes(mr.review?.status ?? '') &&
+    !(mr.respond && RESPOND_ACTIVE.has(mr.respond.status))
+  );
 }
 
 /** Whether a lane (review/respond) was cut down by its executor pane dying:
@@ -392,6 +411,7 @@ export {
   DOCTOR_ACTIVE,
   NUDGE_RETRYABLE,
   laneInterrupted,
+  doctorInterrupted,
   type SlackMark,
   nudgeTargets,
   askOutstanding,

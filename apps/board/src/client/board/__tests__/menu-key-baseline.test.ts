@@ -93,12 +93,13 @@ const BASELINE: Record<string, string[]> = {
   'own busy draft': [
     'copy',
     'doctor',
-    'focus-respond',
     'focus-review',
     'mark-ready',
     'note',
     'open-gitlab',
     'request-review',
+    // Its response's pane is gone: a redo, never a focus that refuses.
+    'respond',
     'resume-respond',
     'resume-review',
     'stand-down',

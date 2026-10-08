@@ -48,7 +48,11 @@ function makeIo(overrides: Partial<ReopenIo> = {}) {
     [];
   const errors: string[] = [];
   const legacyCalls: Array<Record<string, unknown>> = [];
+  const focused: Array<{ paneId?: string; tabId: string }> = [];
   const io: ReopenIo = {
+    focus: async pane => {
+      focused.push(pane);
+    },
     resumeAgentPane: async () => paneResult(),
     launchLegacyResume: async opts => {
       legacyCalls.push(opts as unknown as Record<string, unknown>);
@@ -62,7 +66,7 @@ function makeIo(overrides: Partial<ReopenIo> = {}) {
     },
     ...overrides,
   };
-  return { io, writes, errors, legacyCalls };
+  return { io, writes, errors, legacyCalls, focused };
 }
 
 describe('launchReopen', () => {
@@ -253,5 +257,46 @@ describe('launchReopen', () => {
     );
     expect(legacyCalls).toEqual([]);
     expect(writes).toHaveLength(1);
+  });
+
+  test('a resume focuses the tab it opened, on either arm', async () => {
+    const daemon = makeIo();
+    await launchReopen(
+      { status: 'done', agentId: 'agent-1' },
+      baseCtx(),
+      daemon.io
+    );
+    expect(daemon.focused).toEqual([{ paneId: 'pane-3', tabId: 'tab-9' }]);
+
+    const legacy = makeIo();
+    await launchReopen(
+      { status: 'done', sessionId: 'sess-1' },
+      baseCtx(),
+      legacy.io
+    );
+    expect(legacy.focused).toEqual([{ tabId: 'tab-9' }]);
+  });
+
+  test('a tab the daemon already focused is not focused twice', async () => {
+    const { io, focused } = makeIo({
+      resumeAgentPane: async () => paneResult({ focusedExisting: true }),
+    });
+    await launchReopen({ status: 'done', agentId: 'agent-1' }, baseCtx(), io);
+    expect(focused).toEqual([]);
+  });
+
+  test('a focus that fails only logs; the resume still counts', async () => {
+    const { io, errors } = makeIo({
+      focus: async () => {
+        throw new Error('herdr gone');
+      },
+    });
+    const result = await launchReopen(
+      { status: 'done', agentId: 'agent-1' },
+      baseCtx(),
+      io
+    );
+    expect(result).toEqual({ kind: 'resumed' });
+    expect(errors.some(e => e.includes('herdr gone'))).toBe(true);
   });
 });
