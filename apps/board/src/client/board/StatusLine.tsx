@@ -16,7 +16,7 @@ export const MERGE_ARM_MS = 4000;
 
 /** The lane an agent verb launches, re-runs or jumps into. The color of the
     verb is the lane, so a reader knows which agent a click starts before
-    reading the word; `relaunch` and `focus` name theirs on the verb. */
+    reading the word; `resume`, `redo` and `focus` name theirs on the verb. */
 const AGENT_LANE: Partial<Record<VerbKind, Lane>> = {
   'launch-review': 'review',
   're-review': 'review',
@@ -27,7 +27,8 @@ const AGENT_LANE: Partial<Record<VerbKind, Lane>> = {
 };
 
 function laneOf(verb: Verb): Lane | undefined {
-  if (verb.kind === 'relaunch' || verb.kind === 'focus') return verb.domain;
+  if (verb.kind === 'resume' || verb.kind === 'redo' || verb.kind === 'focus')
+    return verb.domain;
   return AGENT_LANE[verb.kind];
 }
 
@@ -43,9 +44,15 @@ function ordered(verbs: Verb[]): Array<{ verb: Verb; primary: boolean }> {
 
 function runVerb(verb: Verb, mr: BoardMRWithReview, ctx: RowContext): void {
   switch (verb.kind) {
-    case 'relaunch':
     case 'focus':
       ctx.onFocusPane(mr, verb.domain ?? 'review');
+      return;
+    case 'resume':
+      if (verb.domain === 'respond') ctx.onResumeRespond(mr);
+      else ctx.onResumeReview(mr);
+      return;
+    case 'redo':
+      ctx.onRedo(mr, verb.domain ?? 'review');
       return;
     case 'clear':
       if (verb.agentId) ctx.onClearOrphan(verb.agentId);

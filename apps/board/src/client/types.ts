@@ -317,6 +317,9 @@ export interface RowContext {
   onOpenComments: (mr: BoardMR) => void;
   draftResolved: ReadonlyMap<string, 'posted' | 'dismissed'>;
   onResumeRespond: (mr: BoardMR, note?: string) => void;
+  onResumeReview: (mr: BoardMR) => void;
+  /** Starts a lane over from scratch, after the redo confirm dialog. */
+  onRedo: (mr: BoardMR, lane: 'review' | 'respond' | 'doctor') => void;
   /** Jumps into the pane behind a gate's own domain (review/respond/doctor) --
       the same dedup-and-focus path launching that domain again already takes
       (see the review sheet's and pane notice's "focus pane"), not a

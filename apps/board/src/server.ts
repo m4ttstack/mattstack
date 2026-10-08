@@ -163,6 +163,7 @@ import { gateOrigin } from './gates/wait-meta.ts';
 import {
   closeTab,
   dispatchPrompt,
+  focusTab,
   launchDoctor,
   launchLegacyResume,
   launchRespond,
@@ -4023,6 +4024,7 @@ function reviewReopenIo(): ReopenIo {
         now
       ),
     logError: message => console.error(message),
+    focusTab: tabId => focusTab(tabId),
   };
 }
 
@@ -4037,6 +4039,7 @@ function respondReopenIo(): ReopenIo {
         now
       ),
     logError: message => console.error(message),
+    focusTab: tabId => focusTab(tabId),
   };
 }
 

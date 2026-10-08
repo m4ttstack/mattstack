@@ -77,6 +77,8 @@ function ctx(over: Partial<RowContext> = {}): RowContext {
     onOpenComments: noop,
     draftResolved: new Map(),
     onResumeRespond: noop,
+    onResumeReview: noop,
+    onRedo: noop,
     onFocusPane: noop,
     onOpenGate: noop,
     selected: new Set(),
@@ -171,7 +173,7 @@ test('an interrupted review paints the warn bar and tone on the row', async () =
   expect(row.querySelector('.tui-status-word')!.textContent).toBe(
     'review interrupted'
   );
-  expect(row.querySelector('button[data-verb="relaunch"]')).not.toBeNull();
+  expect(row.querySelector('button[data-verb="redo"]')).not.toBeNull();
   expect(row.querySelector('button[data-verb="clear"]')).not.toBeNull();
 });
 

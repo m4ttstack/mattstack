@@ -691,6 +691,20 @@ export function Board() {
     (mr: BoardMR, note?: string) => void launch('resume-respond', mr, { note }),
     [launch]
   );
+  const handleResumeReview = useCallback(
+    (mr: BoardMR) => void launch('resume-review', mr),
+    [launch]
+  );
+  const handleRedo = useCallback(
+    (mr: BoardMR, lane: 'review' | 'respond' | 'doctor') =>
+      setPendingRedo({
+        lane,
+        count: 1,
+        prior: 1,
+        run: () => void launch(lane, mr),
+      }),
+    [launch]
+  );
 
   // A gate's "focus pane" escape hatch: jump into whichever domain's pane
   // opened the gate, via the exact same launch endpoint a fresh launch from
@@ -1407,6 +1421,8 @@ export function Board() {
     onOpenComments: setCommentsFor,
     draftResolved,
     onResumeRespond: handleResumeRespond,
+    onResumeReview: handleResumeReview,
+    onRedo: handleRedo,
     onFocusPane: handleFocusPane,
     onLaunch: handleLaunch,
     onReReview: handleReReview,

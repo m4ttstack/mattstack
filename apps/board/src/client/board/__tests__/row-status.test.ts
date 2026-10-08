@@ -418,7 +418,7 @@ describe('rowStatus: interrupted executor', () => {
     openGateIds: [],
   };
 
-  test('a gone orphan on a running review is the warn line with relaunch then clear', () => {
+  test('a gone orphan on a running review is the warn line with resume, redo, then clear', () => {
     const s = rowStatus(
       mr({ review: { status: 'reviewing', sessionId: 'sess-1' }, orphan }),
       NOW,
@@ -431,7 +431,8 @@ describe('rowStatus: interrupted executor', () => {
       detail: 'pane closed 12m ago',
     });
     expect(s.line.verbs).toEqual([
-      { kind: 'relaunch', label: 'relaunch', domain: 'review' },
+      { kind: 'resume', label: 'resume', domain: 'review' },
+      { kind: 'redo', label: 'redo', domain: 'review' },
       { kind: 'clear', label: 'clear', agentId: 'ag-1' },
     ]);
     expect(s.bar).toBe('warn');
@@ -447,11 +448,10 @@ describe('rowStatus: interrupted executor', () => {
       ME
     );
     expect(s.line.word).toBe('response interrupted');
-    expect(s.line.verbs[0]).toEqual({
-      kind: 'relaunch',
-      label: 'relaunch',
-      domain: 'respond',
-    });
+    expect(s.line.verbs.slice(0, 2)).toEqual([
+      { kind: 'resume', label: 'resume', domain: 'respond' },
+      { kind: 'redo', label: 'redo', domain: 'respond' },
+    ]);
   });
 
   test('a hidden orphan is a quiet off-screen line with a focus verb', () => {
@@ -491,7 +491,8 @@ describe('rowStatus: interrupted executor', () => {
       ME
     );
     expect(s.line).toMatchObject({ tone: 'warn', word: 'review interrupted' });
-    expect(s.line.verbs.map(v => v.kind)).toEqual(['relaunch', 'clear']);
+    // No session on file yet, so nothing to resume.
+    expect(s.line.verbs.map(v => v.kind)).toEqual(['redo', 'clear']);
     expect(s.more).toEqual([]);
     expect(s.bar).toBe('warn');
   });
@@ -1758,7 +1759,7 @@ describe("author-only verbs stay off someone else's row", () => {
     row: BoardMRWithReview
   ) => {
     if (REVIEWER_VERBS.has(v.kind)) return true;
-    if (v.kind === 'focus' || v.kind === 'relaunch')
+    if (v.kind === 'focus' || v.kind === 'resume' || v.kind === 'redo')
       return v.domain === 'review';
     if (v.kind === 'answer') {
       const kind = row.gates.find(g => g.gateId === v.gateId)?.kind ?? '';
