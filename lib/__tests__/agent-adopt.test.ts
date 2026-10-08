@@ -41,6 +41,29 @@ describe("firstCwd", () => {
     const path = transcript(join(h, ".claude"), "p", [{ type: "summary" }]);
     expect(firstCwd(path)).toBeNull();
   });
+
+  test("reads past a first record larger than one MiB", () => {
+    const h = home();
+    const big = { type: "user", message: "x".repeat(3 * 1024 * 1024) };
+    const path = transcript(join(h, ".claude"), "p", [big, { type: "user", cwd: "/Users/me/src/app" }]);
+    expect(firstCwd(path)).toBe("/Users/me/src/app");
+  });
+
+  test("returns the cwd of a single line larger than one MiB", () => {
+    const h = home();
+    const big = { type: "user", message: "x".repeat(3 * 1024 * 1024), cwd: "/Users/me/src/app" };
+    const path = transcript(join(h, ".claude"), "p", [big]);
+    expect(firstCwd(path)).toBe("/Users/me/src/app");
+  });
+
+  test("a final line with no trailing newline still counts", () => {
+    const h = home();
+    const dir = join(h, ".claude", "projects", "p");
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `${SID}.jsonl`);
+    writeFileSync(path, JSON.stringify({ type: "summary" }) + "\n" + JSON.stringify({ cwd: "/Users/me/src/app" }));
+    expect(firstCwd(path)).toBe("/Users/me/src/app");
+  });
 });
 
 describe("locateTranscript", () => {

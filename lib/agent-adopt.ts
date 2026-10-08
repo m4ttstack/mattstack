@@ -9,25 +9,40 @@ export interface TranscriptDeps {
 }
 
 const SESSION_ID = /^[A-Za-z0-9-]+$/;
-// The first cwd sits within the opening lines; a transcript can run to
-// hundreds of megabytes, so only its head is read.
-const HEAD_BYTES = 1024 * 1024;
+// A transcript can run to hundreds of megabytes and its first record (a
+// summary, a snapshot, a pasted image) can pass a megabyte on its own, so it
+// is read in chunks and stops at the first line that carries a cwd.
+const CHUNK_BYTES = 1024 * 1024;
+
+function lineCwd(line: Buffer): string | null {
+  const text = line.toString("utf8");
+  if (!text.includes('"cwd"')) return null;
+  try {
+    const cwd = (JSON.parse(text) as { cwd?: unknown }).cwd;
+    return typeof cwd === "string" && cwd.startsWith("/") ? cwd : null;
+  } catch {
+    return null;
+  }
+}
 
 export function firstCwd(path: string): string | null {
   const fd = openSync(path, "r");
   try {
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
-    for (const line of buf.subarray(0, n).toString("utf8").split("\n")) {
-      if (!line.includes('"cwd"')) continue;
-      try {
-        const cwd = (JSON.parse(line) as { cwd?: unknown }).cwd;
-        if (typeof cwd === "string" && cwd.startsWith("/")) return cwd;
-      } catch {
-        // the last line can be cut at the buffer edge
+    const chunk = Buffer.alloc(CHUNK_BYTES);
+    let partial: Buffer[] = [];
+    for (;;) {
+      const n = readSync(fd, chunk, 0, CHUNK_BYTES, null);
+      if (n === 0) return partial.length > 0 ? lineCwd(Buffer.concat(partial)) : null;
+      const read = chunk.subarray(0, n);
+      let start = 0;
+      for (let nl = read.indexOf(10, start); nl !== -1; nl = read.indexOf(10, start)) {
+        const cwd = lineCwd(Buffer.concat([...partial, read.subarray(start, nl)]));
+        if (cwd) return cwd;
+        partial = [];
+        start = nl + 1;
       }
+      if (start < n) partial.push(Buffer.from(read.subarray(start)));
     }
-    return null;
   } finally {
     closeSync(fd);
   }
