@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { Commit } from "../../../packages/git-core/src/index.ts";
 import { AppFileStatusKind } from "../../../packages/git-core/src/index.ts";
 import { HistoryStore } from "../history.ts";
-import { buildHistoryModel, commitAuthors, formatByline, formatExpandedAuthor, formatRelative, historyGroupLabel, historyWhen } from "../history-model.ts";
+import { buildHistoryModel, commitAuthors, formatByline, formatExpandedAuthor, formatRelative, historyWhen } from "../history-model.ts";
+import { dateGroupLabel } from "../../date-group.ts";
 
 const NOW = new Date("2026-09-22T12:00:00Z");
 
@@ -58,7 +59,7 @@ describe("buildHistoryModel", () => {
       summary: "fix it",
       byline: "Pat",
       when: "3 hours ago",
-      group: historyGroupLabel(new Date("2026-09-22T09:00:00Z"), NOW),
+      group: dateGroupLabel(new Date("2026-09-22T09:00:00Z"), NOW),
       tags: ["v1"],
       unpushed: true,
       selected: true,
@@ -205,58 +206,58 @@ describe("History rows use formatRelative, agreeing with their date header", () 
 // Every date is built from local calendar fields, so these hold in any
 // machine time zone. 2026-09-23 is a Wednesday; its week starts Monday the
 // 21st and the previous week Monday the 14th.
-describe("historyGroupLabel", () => {
+describe("dateGroupLabel", () => {
   const wed = new Date(2026, 8, 23, 15);
 
   test("same local day, including earlier that morning, is Today", () => {
-    expect(historyGroupLabel(new Date(2026, 8, 23, 0), wed)).toBe("Today");
-    expect(historyGroupLabel(new Date(2026, 8, 23, 14), wed)).toBe("Today");
+    expect(dateGroupLabel(new Date(2026, 8, 23, 0), wed)).toBe("Today");
+    expect(dateGroupLabel(new Date(2026, 8, 23, 14), wed)).toBe("Today");
   });
 
   test("a date after now (clock skew) reads Today", () => {
-    expect(historyGroupLabel(new Date(2026, 8, 23, 18), wed)).toBe("Today");
-    expect(historyGroupLabel(new Date(2026, 8, 26, 9), wed)).toBe("Today");
+    expect(dateGroupLabel(new Date(2026, 8, 23, 18), wed)).toBe("Today");
+    expect(dateGroupLabel(new Date(2026, 8, 26, 9), wed)).toBe("Today");
   });
 
   test("the local day before is Yesterday", () => {
-    expect(historyGroupLabel(new Date(2026, 8, 22, 0), wed)).toBe("Yesterday");
-    expect(historyGroupLabel(new Date(2026, 8, 22, 23), wed)).toBe("Yesterday");
+    expect(dateGroupLabel(new Date(2026, 8, 22, 0), wed)).toBe("Yesterday");
+    expect(dateGroupLabel(new Date(2026, 8, 22, 23), wed)).toBe("Yesterday");
   });
 
   test("earlier in a Monday-start week is Earlier this week", () => {
-    expect(historyGroupLabel(new Date(2026, 8, 21, 0), wed)).toBe("Earlier this week");
-    expect(historyGroupLabel(new Date(2026, 8, 21, 23), wed)).toBe("Earlier this week");
+    expect(dateGroupLabel(new Date(2026, 8, 21, 0), wed)).toBe("Earlier this week");
+    expect(dateGroupLabel(new Date(2026, 8, 21, 23), wed)).toBe("Earlier this week");
   });
 
   test("the Sunday before this week's Monday is Last week", () => {
-    expect(historyGroupLabel(new Date(2026, 8, 20, 23), wed)).toBe("Last week");
-    expect(historyGroupLabel(new Date(2026, 8, 14, 0), wed)).toBe("Last week");
+    expect(dateGroupLabel(new Date(2026, 8, 20, 23), wed)).toBe("Last week");
+    expect(dateGroupLabel(new Date(2026, 8, 14, 0), wed)).toBe("Last week");
   });
 
   test("before the previous week's Monday falls to the month", () => {
-    expect(historyGroupLabel(new Date(2026, 8, 13, 23), wed)).toBe("September 2026");
-    expect(historyGroupLabel(new Date(2026, 7, 31, 9), wed)).toBe("August 2026");
+    expect(dateGroupLabel(new Date(2026, 8, 13, 23), wed)).toBe("September 2026");
+    expect(dateGroupLabel(new Date(2026, 7, 31, 9), wed)).toBe("August 2026");
   });
 
   test("on a Monday, Sunday is Yesterday and the Sunday before is Last week", () => {
     const mon = new Date(2026, 8, 21, 10);
-    expect(historyGroupLabel(new Date(2026, 8, 20, 12), mon)).toBe("Yesterday");
-    expect(historyGroupLabel(new Date(2026, 8, 19, 12), mon)).toBe("Last week");
-    expect(historyGroupLabel(new Date(2026, 8, 14, 0), mon)).toBe("Last week");
-    expect(historyGroupLabel(new Date(2026, 8, 13, 23), mon)).toBe("September 2026");
+    expect(dateGroupLabel(new Date(2026, 8, 20, 12), mon)).toBe("Yesterday");
+    expect(dateGroupLabel(new Date(2026, 8, 19, 12), mon)).toBe("Last week");
+    expect(dateGroupLabel(new Date(2026, 8, 14, 0), mon)).toBe("Last week");
+    expect(dateGroupLabel(new Date(2026, 8, 13, 23), mon)).toBe("September 2026");
   });
 
   test("on a Sunday, Monday of the same week is Earlier this week", () => {
     const sun = new Date(2026, 8, 27, 10);
-    expect(historyGroupLabel(new Date(2026, 8, 21, 0), sun)).toBe("Earlier this week");
-    expect(historyGroupLabel(new Date(2026, 8, 20, 23), sun)).toBe("Last week");
+    expect(dateGroupLabel(new Date(2026, 8, 21, 0), sun)).toBe("Earlier this week");
+    expect(dateGroupLabel(new Date(2026, 8, 20, 23), sun)).toBe("Last week");
   });
 
   test("the year boundary: yesterday and last week cross into December", () => {
     const newYear = new Date(2027, 0, 1, 10);
-    expect(historyGroupLabel(new Date(2026, 11, 31, 22), newYear)).toBe("Yesterday");
-    expect(historyGroupLabel(new Date(2026, 11, 28, 9), newYear)).toBe("Earlier this week");
-    expect(historyGroupLabel(new Date(2026, 11, 21, 9), newYear)).toBe("Last week");
-    expect(historyGroupLabel(new Date(2026, 11, 20, 9), newYear)).toBe("December 2026");
+    expect(dateGroupLabel(new Date(2026, 11, 31, 22), newYear)).toBe("Yesterday");
+    expect(dateGroupLabel(new Date(2026, 11, 28, 9), newYear)).toBe("Earlier this week");
+    expect(dateGroupLabel(new Date(2026, 11, 21, 9), newYear)).toBe("Last week");
+    expect(dateGroupLabel(new Date(2026, 11, 20, 9), newYear)).toBe("December 2026");
   });
 });

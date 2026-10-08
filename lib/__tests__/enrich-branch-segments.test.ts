@@ -1,7 +1,7 @@
 /**
  * formatBranchSegments builds the picker's branch label as segments with
- * tones and hex values. These are golden tests against the glyph vocabulary
- * in docs/design/picker/Enrichment.dc.html.
+ * tones and hex values. MR status reads as words, the same words
+ * `rt worktree list` prints.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -116,46 +116,68 @@ describe("formatBranchSegments", () => {
     ]);
   });
 
-  test("default branch WITH icons never shows the [main branch] tag", () => {
+  test("default branch WITH an MR never shows the [main branch] tag", () => {
     const eb = mkBranch({
       dirName: "harbor",
       branch: "master",
       mr: mkMr({ state: "closed", pipeline: { status: "success" } as any }),
     });
     const { right } = formatBranchSegments(eb);
-    expect(right).toEqual([
-      { text: "✓", tone: "mint" },
-      { text: " " },
-      { text: "○", tone: "coral" },
-    ]);
+    expect(right).toEqual([{ text: "!1 closed", tone: "dim" }]);
   });
 
-  test("pipeline + MR-state icon glyph/tone vocabulary", () => {
+  test("an open MR reads as words: marker, iid, state, then its checks", () => {
     const cases: Array<[string, string, string]> = [
-      ["success", "✓", "mint"],
-      ["success_with_warnings", "✓", "peach"],
-      ["failed", "✗", "coral"],
-      ["running", "⟳", "cyan"],
-      ["pending", "⟳", "faint"],
-      ["created", "○", "faint"],
-      ["canceled", "✗", "faint"],
+      ["success", "checks passed", "mint"],
+      ["success_with_warnings", "checks passed with warnings", "peach"],
+      ["failed", "checks failed", "coral"],
+      ["running", "checks running", "cyan"],
+      ["pending", "checks waiting", "faint"],
+      ["created", "checks waiting", "faint"],
+      ["canceled", "checks canceled", "faint"],
     ];
-    for (const [status, glyph, tone] of cases) {
-      const eb = mkBranch({ mr: mkMr({ state: "opened", pipeline: { status } as any }) });
+    for (const [status, words, tone] of cases) {
+      const eb = mkBranch({ mr: mkMr({ iid: 4, state: "opened", pipeline: { status } as any }) });
       const { right } = formatBranchSegments(eb);
-      expect(right[0]).toEqual({ text: glyph, tone });
+      expect(right).toEqual([{ text: "!4 open", tone: "dim" }, { text: "  " }, { text: words, tone }]);
     }
+  });
 
-    const mrCases: Array<[string, string, string]> = [
-      ["opened", "◉", "mint"],
-      ["merged", "●", "blue"],
-      ["closed", "○", "coral"],
-    ];
-    for (const [state, glyph, tone] of mrCases) {
-      const eb = mkBranch({ mr: mkMr({ state: state as any, pipeline: null }) });
+  test("a merged or closed MR drops its checks, which can no longer change", () => {
+    for (const state of ["merged", "closed"] as const) {
+      const eb = mkBranch({ mr: mkMr({ iid: 8, state, pipeline: { status: "running" } as any }) });
       const { right } = formatBranchSegments(eb);
-      expect(right[0]).toEqual({ text: glyph, tone });
+      expect(right).toEqual([{ text: `!8 ${state}`, tone: "dim" }]);
     }
+  });
+
+  test("a GitHub MR takes the # marker", () => {
+    const eb = mkBranch({ mr: mkMr({ provider: "github", iid: 8, state: "merged" } as any) });
+    const { right } = formatBranchSegments(eb);
+    expect(right).toEqual([{ text: "#8 merged", tone: "dim" }]);
+  });
+
+  test("non-ticket branch with an MR shows the MR title in place of the branch", () => {
+    const eb = mkBranch({ dirName: "happy-oyster", branch: "launcher-at-prompt", mr: mkMr({ title: "Launcher shows at an empty prompt", state: "merged" }) });
+    const { left, match } = formatBranchSegments(eb);
+    expect(left).toEqual([
+      { text: "happy-oyster", bold: true, column: true },
+      { text: "  ", tone: "faint" },
+      { text: "Launcher shows at an empty prompt", tone: "dim" },
+    ]);
+    expect(match).toContain("launcher-at-prompt");
+    expect(match).toContain("Launcher shows at an empty prompt");
+  });
+
+  test("default branch keeps its branch name even with an MR", () => {
+    const eb = mkBranch({ dirName: "harbor", branch: "main", mr: mkMr({ title: "Release", state: "opened" }) });
+    const { left } = formatBranchSegments(eb);
+    expect(left[2]).toEqual({ text: "main", tone: "dim" });
+  });
+
+  test("placeholder tags can be turned off for screens where they mislead", () => {
+    expect(formatBranchSegments(mkBranch({ branch: "feature-x" }), { placeholderTags: false }).right).toEqual([]);
+    expect(formatBranchSegments(mkBranch({ branch: "main" }), { placeholderTags: false }).right).toEqual([]);
   });
 
   test("non-ticket branch with only a linearId (no MR) shows it dimmer, right-pinned", () => {
@@ -164,7 +186,7 @@ describe("formatBranchSegments", () => {
     expect(right).toEqual([{ text: "ACME-1234", tone: "dimmer" }]);
   });
 
-  test("icons AND a linearId (no ticket) both appear, space-joined", () => {
+  test("an MR AND a linearId (no ticket) both appear", () => {
     const eb = mkBranch({
       dirName: "hedwig",
       branch: "acme-token-pipeline",
@@ -173,15 +195,15 @@ describe("formatBranchSegments", () => {
     });
     const { right } = formatBranchSegments(eb);
     expect(right).toEqual([
-      { text: "⟳", tone: "cyan" },
-      { text: " " },
-      { text: "◉", tone: "mint" },
-      { text: " " },
+      { text: "!1 open", tone: "dim" },
+      { text: "  " },
+      { text: "checks running", tone: "cyan" },
+      { text: "  " },
       { text: "ACME-1234", tone: "dimmer" },
     ]);
   });
 
-  test("ticket branch appends its linearId after the icons, dimmer", () => {
+  test("ticket branch appends its linearId after the MR, dimmer", () => {
     const eb = mkBranch({
       dirName: "fleur",
       linearId: "ACME-1841",
@@ -190,10 +212,10 @@ describe("formatBranchSegments", () => {
     });
     const { right } = formatBranchSegments(eb);
     expect(right).toEqual([
-      { text: "✓", tone: "mint" },
-      { text: " " },
-      { text: "◉", tone: "mint" },
-      { text: " " },
+      { text: "!1 open", tone: "dim" },
+      { text: "  " },
+      { text: "checks passed", tone: "mint" },
+      { text: "  " },
       { text: "ACME-1841", tone: "dimmer" },
     ]);
   });
