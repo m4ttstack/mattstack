@@ -68,7 +68,17 @@ function kit(bodyColumns = 40) {
     Button: (props: any) => ({ element: 'Button', props }),
     Input: (props: any) => ({ element: 'Input', props }),
   })
-  const api = { ui: { open: h.$.ui.open, close: (id: string) => h.$.ui.close({ id }), redraw: h.$.ui.invalidate, log: () => {} } } as any
+  const focused: { requestId: string; key: string }[] = []
+  h.$.ui.focus = async (args: { requestId: string; key: string }) => (focused.push(args), {})
+  const api = {
+    ui: {
+      open: h.$.ui.open,
+      close: (id: string) => h.$.ui.close({ id }),
+      redraw: h.$.ui.invalidate,
+      log: () => {},
+      focus: (requestId: string, key: string) => h.$.ui.focus({ requestId, key }),
+    },
+  } as any
   const draw = async (): Promise<any> =>
     h.fire('ui.render', { surface: 'terminal', component: 'Pane', requestId: FORM_PANE_ID, props: { bodyColumns } }, async () => ({ element: 'Box', props: { children: [] } }))
   const press = async (key: string) => {
@@ -81,7 +91,7 @@ function kit(bodyColumns = 40) {
     return answered
   }
   const buttons = async () => walk(await draw()).filter(e => e.element === 'Button')
-  return { h, display, api, opened, closed, draw, press, ask, buttons }
+  return { h, display, api, opened, closed, focused, draw, press, ask, buttons }
 }
 
 describe('display kit', () => {
@@ -327,6 +337,112 @@ describe('display kit', () => {
       ['blocking', 'error'],
       ['the retry queue re-enqueues a failed job.', 'text'],
       ['verdict · valid, low value', 'subtle'],
+    ])
+  })
+
+  test('Back to a single question marks the earlier pick, moves the focus onto it, and keeps the note', async () => {
+    const k = kit()
+    const answered = k.ask({
+      id: 'g-s',
+      questions: [
+        { id: 'ship', label: 'Ship it?', options: ['yes', 'no', 'later'] },
+        { id: 'when', label: 'When?', options: ['now', 'friday'] },
+      ],
+    })
+    await flush()
+    byKey(await k.draw(), 'note').props.onInput('after the tag')
+    await k.press('option-1')
+    expect(k.focused).toEqual([])
+
+    await k.press('back')
+    const again = await k.draw()
+    expect(texts(byKey(again, 'choice-1'))).toEqual(['your answer'])
+    expect(texts(byKey(again, 'choice-0'))).toEqual([])
+    expect(byKey(again, 'option-1').props.autoFocus).toBe(true)
+    expect(byKey(again, 'option-0').props.autoFocus).toBeUndefined()
+    expect(byKey(again, 'note').props.value).toBe('after the tag')
+    // Back is a redraw inside a pane that already holds the keys, where autoFocus no longer applies.
+    expect(k.focused).toEqual([{ requestId: FORM_PANE_ID, key: 'option-1' }])
+
+    await k.press('option-2')
+    await k.press('option-0')
+    expect(await answered).toEqual({ ship: { value: 'later', note: 'after the tag' }, when: 'now' })
+  })
+
+  test('Back to a multi question moves no focus', async () => {
+    const k = kit()
+    void k.ask({
+      id: 'g-m',
+      questions: [
+        { id: 'targets', label: 'Which?', multi: true, options: ['mac', 'win'] },
+        { id: 'ship', label: 'Ship it?', options: ['yes', 'no'] },
+      ],
+    })
+    await flush()
+    await k.press('option-0')
+    await k.press('next')
+    await k.press('back')
+    expect(k.focused).toEqual([])
+  })
+
+  test('post@1 on the gate: reviewer, round, replies and fixes', async () => {
+    const k = kit()
+    void k.ask({
+      id: 'g-p',
+      context: j({ 'gate-ctx': 'post@1', reviewer: 'renee', replies: 1, fixes: [{ sha: 'ab12cd3' }, { sha: 'ef45ab6' }], adjudication: 'both conceded' }),
+      questions: [{ id: 'q', label: 'Post them?', options: ['yes'] }],
+    })
+    await flush()
+    expect(texts(byKey(await k.draw(), 'context'))).toEqual(['renee', '  ·  ', '1 reply', ' · ', '2 fixes', 'both conceded'])
+  })
+
+  /** The rows a question's context adds under its label, as `[text, color]`. */
+  async function questionRows(context: unknown): Promise<[string, string][]> {
+    const k = kit()
+    void k.ask({ id: 'g-q', questions: [{ id: 'q', label: 'Go on?', context: j(context), options: ['yes'] }] })
+    await flush()
+    return walk(byKey(await k.draw(), 'question-context'))
+      .filter(e => e.element === 'Text')
+      .map(t => [t.props.children[0], t.props.color])
+  }
+
+  test('reply@1 on a question: verb and file tail, then the reply', async () => {
+    expect(await questionRows({ 'gate-ctx': 'reply@1', thread: 't-1', file: 'queue/enqueue.ts:88', verb: 'fix', sha: 'ab12cd3', text: 'Fixed, with a test.' })).toEqual([
+      ['fix · …/enqueue.ts:88', 'subtle'],
+      ['Fixed, with a test.', 'text'],
+    ])
+  })
+
+  test('carryover@1 on a question: round and call, then the original', async () => {
+    const carry = { 'gate-ctx': 'carryover@1', thread: 'd-1', round: 2, call: 'not-fixed', original: 'a 204 returns no body.', reply: 'Still open.' }
+    expect(await questionRows(carry)).toEqual([
+      ['round 2 · waiting on author', 'subtle'],
+      ['a 204 returns no body.', 'text'],
+    ])
+  })
+
+  test('skipped@1 and replies@1 on a question: one subtle line per entry', async () => {
+    const skipped = {
+      'gate-ctx': 'skipped@1',
+      skipped: [
+        { id: 'r1-f4', round: 1, severity: 'minor', title: 'Unused import', changed: false },
+        { id: 'r2-f3', round: 2, severity: 'important', title: 'Config defaults live in two files' },
+      ],
+    }
+    expect(await questionRows(skipped)).toEqual([
+      ['Minor Unused import', 'subtle'],
+      ['Important Config defaults live in two files', 'subtle'],
+    ])
+    const replies = {
+      'gate-ctx': 'replies@1',
+      replies: [
+        { thread: 't-1', file: 'queue/enqueue.ts:88', verb: 'fix', text: 'fixed.' },
+        { thread: 't-2', file: 'queue/README.md:12', verb: 'reply', text: 'agreed.' },
+      ],
+    }
+    expect(await questionRows(replies)).toEqual([
+      ['t-1 fix', 'subtle'],
+      ['t-2 reply', 'subtle'],
     ])
   })
 

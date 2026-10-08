@@ -1,7 +1,7 @@
 import type { EngineEventOf, EngineResultOf } from 'claude-code'
 import type { Hub, ModApi } from '../core/hub.ts'
 import type { GateOption } from './gate-form.ts'
-import { choiceSubtext, gateContext, kindOf, questionContext, questionFindings, stripRecommended, subjectTail, text, type El, type Node } from './gate-view.ts'
+import { choiceSubtext, gateContext, HOTKEY_CELLS, kindOf, questionContext, questionFindings, stripRecommended, subjectTail, text, type El, type Node } from './gate-view.ts'
 
 type Render = EngineEventOf['ui.render']
 type RenderResult = EngineResultOf['ui.render']
@@ -19,8 +19,6 @@ export const FORM_PANE_ID = 'mattstack-gate-form'
 
 /** Choice hotkeys in order: `s` is Skip's, and digits are never used, since a repeat of the band's `1` would land on one. */
 const CHOICE_KEYS = 'abcdefghijklmnopqrtuvwxyz'
-/** Cells a plain Button draws ahead of its label: the hotkey and a colon. */
-const HOTKEY_CELLS = 3
 const PANE_MAX_COLUMNS = 80
 const PANE_SHARE = 0.4
 /** The terminal width assumed when no band render has said what it is. */
@@ -80,6 +78,10 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
     if (!form || form.index === 0) return
     form.index -= 1
     api.ui.redraw()
+    // autoFocus applies only when the pane takes the keys, and a pane on Back holds them already.
+    const q = form.gate.questions[form.index]!
+    const chosen = q.multi ? -1 : q.options.findIndex(o => optionValue(o) === form!.drafts[form!.index]!.chosen)
+    if (chosen >= 0) api.ui.focus(pane.id, `option-${chosen}`).catch(() => {})
   }
 
   function header(el: El, open: Form): Node | null {

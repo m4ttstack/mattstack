@@ -289,7 +289,8 @@ question>`, with a plain `1: Answer` Button at its right end and a line
 counting any more behind it. A survey in the band takes precedence.
 Pressing it (`1` at an empty prompt, or a click) opens the `gate-panel`
 pane through the display kit, asking for 40% of the terminal's width (at
-most 80 columns) when it docks. While the pane is open the row reads
+most 80 columns) when it docks. The width is the render's viewport, else
+the band's own columns plus the engine's five, else 80. While the pane is open the row reads
 `Answering in the panel  →` with the question it is on, and draws no
 Button, so a second `1` presses nothing.
 
@@ -306,7 +307,9 @@ option takes a letter hotkey (`a`, `b`, ... never `s`, which is Skip), and
 no pane control takes a digit, since a repeat of the band's `1` would land
 on one. A letter answers a single question and ticks a multi question,
 whose Next (Done on the last) moves on. Back returns to the previous
-question with its picks and note kept. The pane closes by itself when the
+question with its picks and note kept, and on a single question moves the
+focus onto the earlier pick (`ui.focus` through the facade, since
+`autoFocus` only applies when the pane takes the keys). The pane closes by itself when the
 gate is answered elsewhere or withdrawn.
 
 An answer there is `gate:answer { id, answers, by: "pane-person" }`, with

@@ -124,13 +124,15 @@ function harness(rows: Record<string, WaitedGate> = { 'g-1': gate() }, options: 
   attachHub(h.on, hub)
 
   const engineBand = { element: 'Box', props: { children: ['engine band'] } }
-  const band = (over: Record<string, unknown> = {}) =>
+  /** A band render; `envelope` adds event fields beside the props, such as `viewport`. */
+  const band = (over: Record<string, unknown> = {}, envelope: Record<string, unknown> = {}) =>
     h.fire(
       'ui.render',
       {
         surface: 'terminal',
         component: 'AbovePrompt',
         requestId: 'band',
+        ...envelope,
         props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 80, ...over },
       },
       async () => engineBand,
@@ -467,7 +469,7 @@ describe('gate-panel', () => {
     const shown = walk(open).filter((e: any) => e.element === 'Text')
     expect(shown.map((t: any) => [t.props.children[0], t.props.color])).toEqual([
       ['Answering in the panel  →', 'suggestion'],
-      [`question herd:h-1/j1 · 2 questions · ${QUESTION}`, 'text'],
+      [`question herd:h-1/j1 · 2 questions · ${QUESTION}`, 'subtle'],
       [' · question 1 of 2', 'subtle'],
       ['esc back to the prompt', 'subtle'],
     ])
@@ -497,6 +499,40 @@ describe('gate-panel', () => {
     button.props.onPress({})
     await flush()
     expect(h.opened.map(o => o.columns)).toEqual([34, 80])
+  })
+
+  test("the terminal's width comes from the render's viewport first, beside another pane's dock too", async () => {
+    const h = harness()
+    await h.start()
+    await flush()
+    // Another pane holds the dock: the band's column is the transcript's, 75, in a 150-column terminal.
+    const button = walk(await h.band({ bodyColumns: 70 }, { viewport: { columns: 150, rows: 40 } })).find((e: any) => e.element === 'Button')
+    button.props.onPress({})
+    await flush()
+    expect(h.opened.map(o => o.columns)).toEqual([60])
+
+    await h.press('skip')
+    // No viewport measured: the band's own width plus the engine's five.
+    const fallback = walk(await h.band({ bodyColumns: 95 })).find((e: any) => e.element === 'Button')
+    fallback.props.onPress({})
+    await flush()
+    expect(h.opened.map(o => o.columns)).toEqual([60, 40])
+  })
+
+  test('on a narrow band the right end truncates rather than wraps', async () => {
+    const h = harness()
+    await h.start()
+    await flush()
+    const closed = walk(await h.band({ bodyColumns: 6 }))
+    expect(closed.find((e: any) => e.element === 'Button').props.label).toBe('A…')
+    expect(closed.find((e: any) => e.element === 'Text').props.wrap).toBe('truncate-end')
+
+    ;(await h.rowButton()).props.onPress({})
+    await flush()
+    const open = walk(await h.band({ bodyColumns: 10 })).filter((e: any) => e.element === 'Text')
+    const esc = open.at(-1)
+    expect(esc.props).toMatchObject({ color: 'subtle', wrap: 'truncate-end' })
+    expect(esc.props.children[0]).toBe('esc back…')
   })
 
   test("the pane draws the listed gate's kind, subject and context", async () => {

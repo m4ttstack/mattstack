@@ -1,4 +1,4 @@
-import type { Color, TextProps } from 'claude-code'
+import type { TextProps, ThemeKey } from 'claude-code'
 import type { ModApi } from '../core/hub.ts'
 import {
   looksLikeObject,
@@ -20,6 +20,8 @@ import {
 export type El = ReturnType<ModApi['ui']['elements']>
 export type Node = ReturnType<El['Box']>
 
+/** Cells a plain Button draws ahead of its label: the hotkey and a colon. */
+export const HOTKEY_CELLS = 3
 /** Cells a Box with a round border and one cell of padding each side takes from its row. */
 const BOXED = 4
 const GATE_PROSE_ROWS = 8
@@ -36,7 +38,7 @@ export function clip(text: string, cells: number): string {
   return text.length <= cells ? text : `${text.slice(0, cells - 1).trimEnd()}…`
 }
 
-export const text = (el: El, color: Color, children: string, style: Omit<TextProps, 'color'> = {}): Node => el.Text({ color, ...style, children: [children] })
+export const text = (el: El, color: ThemeKey, children: string, style: Omit<TextProps, 'color'> = {}): Node => el.Text({ color, ...style, children: [children] })
 
 /** Interleaves `items` with a subtle separator. */
 function joined(el: El, items: Node[], separator = ' · '): Node[] {
@@ -110,22 +112,22 @@ export function wrapLines(prose: string, width: number, max: number): string[] {
   return out
 }
 
-const proseRows = (el: El, prose: string, width: number, max: number, color: Color) =>
+const proseRows = (el: El, prose: string, width: number, max: number, color: ThemeKey) =>
   wrapLines(prose, width, max).map(line => text(el, color, line, { wrap: 'truncate-end' }))
 
-export const SEVERITY: Record<FindingSeverity, { label: string; color: Color }> = {
+export const SEVERITY: Record<FindingSeverity, { label: string; color: ThemeKey }> = {
   critical: { label: 'Critical', color: 'error' },
   important: { label: 'Important', color: 'warning' },
   minor: { label: 'Minor', color: 'subtle' },
 }
 
-const READINESS: Record<ReviewCtx['readiness'], { label: string; color: Color }> = {
+const READINESS: Record<ReviewCtx['readiness'], { label: string; color: ThemeKey }> = {
   'with-fixes': { label: 'With fixes', color: 'warning' },
   yes: { label: 'Ready', color: 'success' },
   no: { label: 'Not ready', color: 'error' },
 }
 
-const THREAD_SEVERITY: Record<Severity, { label: string; color: Color }> = {
+const THREAD_SEVERITY: Record<Severity, { label: string; color: ThemeKey }> = {
   blocking: { label: 'blocking', color: 'error' },
   'non-blocking': { label: 'non-blocking', color: 'subtle' },
   question: { label: 'question', color: 'warning' },

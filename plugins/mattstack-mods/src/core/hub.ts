@@ -17,6 +17,7 @@ import type {
   SessionVersion,
   Timer,
   UiLogOptions,
+  UiFocusResult,
   UiOpenResult,
 } from 'claude-code'
 import type { ModBlock } from './blocks.ts'
@@ -36,6 +37,8 @@ export type ModApi = {
     close(id: string): Promise<void>
     /** Asks the engine to draw this plugin's render sites again, after their state changed. */
     redraw(): void
+    /** Moves the focus ring of a site of this plugin's that holds the keys onto the element drawn under `key`. */
+    focus(requestId: string, key: string): Promise<UiFocusResult>
   }
   session: {
     version(): Promise<SessionVersion>
@@ -510,6 +513,7 @@ function facade($: EngineInterface): ModApi {
       open: pane => $.ui.open(pane),
       close: id => $.ui.close({ id }),
       redraw: () => $.ui.invalidate('ui.render'),
+      focus: (requestId, key) => $.ui.focus({ requestId, key }),
     },
     session: {
       version: () => $.session.version(),
