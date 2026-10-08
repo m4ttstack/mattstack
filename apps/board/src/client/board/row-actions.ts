@@ -55,7 +55,6 @@ export type ActionRequest =
   | { kind: 'mr'; action: MrAction }
   | { kind: 'draft'; draft: boolean }
   | { kind: 'react'; emoji: string; glyph: string; remove: boolean }
-  | { kind: 'find-thread' }
   | {
       kind: 'ask';
       ask: 'review' | 're-review' | 'respond';
@@ -63,7 +62,6 @@ export type ActionRequest =
       note?: string;
     }
   | { kind: 'post-slack' }
-  | { kind: 'post-owners' }
   | { kind: 'copy' }
   | { kind: 'note' }
   | { kind: 'open'; url: string }
@@ -569,21 +567,6 @@ export function rowActions(
         );
       }
     }
-    // The author of an unposted MR leads with posting it; finding the thread
-    // leads only for everyone else.
-    const postFirst = own && !found;
-    const findThread = (section: Section) =>
-      item(
-        section,
-        'find-thread',
-        s?.status === 'notfound'
-          ? 'no thread, find it again'
-          : 'find slack thread',
-        SLACK,
-        { kind: 'find-thread' },
-        { bulk: 'find slack threads' }
-      );
-    if (!found && !postFirst) top.push(findThread('top'));
     slack.push(
       item(
         'slack',
@@ -594,24 +577,28 @@ export function rowActions(
         block(!found ? 'no thread' : !s.permalink && 'no link yet')
       )
     );
-    if (postFirst) slack.push(findThread('slack'));
-    if (own)
-      (postFirst ? top : slack).push(
+    if (own) {
+      // The author of an MR not yet in Slack leads with posting it. In a repo
+      // whose code owners have channels, a team thread or a partial post
+      // turns the item into the rest of the code owners; with no record of
+      // what the dialog offered, it stays on offer and the dialog checks.
+      const owners =
+        !!mrx.rtRepo && !!env.ownerSlackRepos?.includes(mrx.rtRepo);
+      const left = mrx.ownerPostsLeft;
+      const started = found || !!left;
+      const rest = owners && started && left?.length !== 0;
+      const section = started ? 'slack' : 'top';
+      (started ? slack : top).push(
         item(
-          postFirst ? 'top' : 'slack',
+          section,
           'post-slack',
-          mrx.slackChannel ? `post to #${mrx.slackChannel}` : 'post to slack',
+          rest ? 'post to other codeowners…' : 'post to slack',
           SLACK,
           { kind: 'post-slack' },
-          block(found && 'thread exists')
+          block(started && !rest && 'posted')
         )
       );
-    if (own && !!mrx.rtRepo && env.ownerSlackRepos?.includes(mrx.rtRepo))
-      slack.push(
-        item('slack', 'post-owners', 'post to code owners…', SLACK, {
-          kind: 'post-owners',
-        })
-      );
+    }
   }
   slack.push(item('slack', 'copy', 'copy for slack', COPY, { kind: 'copy' }));
   more.push(
@@ -702,7 +689,6 @@ function alreadyThere(
     case 'review':
     case 'doctor':
     case 'rebase':
-    case 'find-thread':
       return true;
     case 're-review':
       return offered.has('focus-review');
@@ -746,7 +732,6 @@ const BULK_RANK = [
   'mark-draft',
   'merge',
   'react',
-  'find-thread',
 ];
 
 function bulkRank(key: string): number {
@@ -758,8 +743,8 @@ function bulkRank(key: string): number {
   if (emoji !== null) {
     const marks = getSlackMarks();
     const rung = marks.findIndex(m => m.emoji === emoji);
-    // Ladder position lands as a fraction so every mark still sorts between
-    // the react slot and find-thread.
+    // Ladder position lands as a fraction so every mark still sorts after
+    // the react slot.
     return (
       BULK_RANK.indexOf('react') +
       (rung === -1 ? marks.length : rung) / (marks.length + 1)

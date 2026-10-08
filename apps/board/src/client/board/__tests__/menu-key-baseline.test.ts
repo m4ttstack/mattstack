@@ -62,7 +62,6 @@ const BASELINE: Record<string, string[]> = {
   ],
   'own no thread': [
     'copy',
-    'find-thread',
     'mark-draft',
     'merge',
     'note',
@@ -109,7 +108,6 @@ const BASELINE: Record<string, string[]> = {
     'dismiss-doctor',
     'dismiss-review',
     'doctor',
-    'find-thread',
     'mark-draft',
     'note',
     'nudge-kim',
@@ -148,7 +146,6 @@ const BASELINE: Record<string, string[]> = {
   remote: ['copy', 'note', 'open-gitlab', 'stand-down'],
   seatless: [
     'copy',
-    'find-thread',
     'note',
     'open-gitlab',
     'review',
