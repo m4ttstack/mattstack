@@ -286,6 +286,35 @@ jobs:
             exit 1
           }
 
+  # The Claude Code mod, checked by the engine release it targets: validate
+  # reads the manifest and hooks module the way the loader does, and plugin
+  # test runs tests/ against that engine. Neither needs a login. The comma
+  # wrap keeps plugin-mattstack's filter and this one apart.
+  plugin-mattstack-mods:
+    needs: scope
+    if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/mattstack-mods,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DISABLE_AUTOUPDATER: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: plugin.json version bumped
+        if: github.event_name == 'pull_request'
+        run: bun scripts/ci/plugin-version-bumped.ts --base HEAD^1 --plugin plugins/mattstack-mods
+      - name: Install Claude Code 2.1.293
+        run: npm install -g @anthropic-ai/claude-code@2.1.293 && claude --version | grep -F 2.1.293
+      - name: claude plugin validate
+        run: claude plugin validate plugins/mattstack-mods
+      - name: claude plugin test
+        working-directory: plugins/mattstack-mods
+        run: claude plugin test
+
   # Docusaurus fails the build on a broken link, but only a build catches it.
   website:
     needs: scope
@@ -305,7 +334,7 @@ jobs:
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, unit, plugin-herdr-chat, plugin-mattstack, website]
+    needs: [scope, static, go, deck-macos, unit, plugin-herdr-chat, plugin-mattstack, plugin-mattstack-mods, website]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -319,10 +348,11 @@ jobs:
           UNIT: ${{ needs.unit.result }}
           HERDR_CHAT: ${{ needs.plugin-herdr-chat.result }}
           MATTSTACK: ${{ needs.plugin-mattstack.result }}
+          MATTSTACK_MODS: ${{ needs.plugin-mattstack-mods.result }}
           WEBSITE: ${{ needs.website.result }}
           MODE: ${{ needs.scope.outputs.mode }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK website=$WEBSITE mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK mattstack-mods=$MATTSTACK_MODS website=$WEBSITE mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           [ "$GO" = success ] || { echo "go did not succeed"; exit 1; }
@@ -330,6 +360,7 @@ jobs:
           # skipped is the untouched case: a needed job whose if: is false.
           [ "$HERDR_CHAT" = success ] || [ "$HERDR_CHAT" = skipped ] || { echo "plugin-herdr-chat did not succeed"; exit 1; }
           [ "$MATTSTACK" = success ] || [ "$MATTSTACK" = skipped ] || { echo "plugin-mattstack did not succeed"; exit 1; }
+          [ "$MATTSTACK_MODS" = success ] || [ "$MATTSTACK_MODS" = skipped ] || { echo "plugin-mattstack-mods did not succeed"; exit 1; }
           [ "$WEBSITE" = success ] || [ "$WEBSITE" = skipped ] || { echo "website did not succeed"; exit 1; }
           [ "$UNIT" = success ] && exit 0
           [ "$UNIT" = skipped ] && [ "$MODE" = skip ] && exit 0

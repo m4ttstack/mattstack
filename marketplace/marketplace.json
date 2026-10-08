@@ -23,6 +23,11 @@
       "name": "mattstack",
       "source": "./plugins/mattstack",
       "description": "The mattstack skills pack: the work orchestrator and pipeline stages, orchestration skills, the review cluster, the GitLab CI forge adapter, and the parameterized-skill primitive with its authoring skill."
+    },
+    {
+      "name": "mattstack-mods",
+      "source": "./plugins/mattstack-mods",
+      "description": "Claude Code mod for the mattstack harness integrations; installed by rt only when agent integrations are on."
     }
   ]
 }
