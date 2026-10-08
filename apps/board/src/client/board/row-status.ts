@@ -22,6 +22,7 @@ import {
   ago,
   DOCTOR_LABEL,
   draftKey,
+  doctorInterrupted,
   laneInterrupted,
   RESPOND_ACTIVE,
 } from './format.ts';
@@ -564,7 +565,11 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
         word: DOCTOR_LABEL[d.status],
         spin: true,
         detail: d.origin === 'auto' ? 'auto' : d.message || undefined,
-        verbs: [{ kind: 'focus', label: 'focus', domain: 'doctor' }],
+        verbs: [
+          doctorInterrupted(mr)
+            ? { kind: 'redo', label: 'redo', domain: 'doctor' }
+            : { kind: 'focus', label: 'focus', domain: 'doctor' },
+        ],
       };
     case 'done': {
       // A finished doctor is a note, not an achievement: quiet, not go, and

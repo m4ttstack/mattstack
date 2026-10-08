@@ -10,12 +10,12 @@ import type { BoardMRWithReview } from '../types.ts';
 import {
   askOutstanding,
   DOCTOR_ACTIVE,
+  doctorInterrupted,
   doctorItemLabel,
   firstReviewTargets,
   getSlackMarks,
   laneInterrupted,
   nudgeTargets,
-  RESPOND_ACTIVE,
   respondAskBlock,
   respondAskTarget,
   respondItemLabel,
@@ -182,18 +182,6 @@ const block = (
 /** Block reasons that only say there is nothing yet to act on; the session
     rows carrying them are left out rather than shown disabled. */
 const ABSENT = new Set(['no session', 'no report yet', 'nothing to dismiss']);
-
-/** Doctor rows record no session id, so a gone pane counts as the doctor's
-    only while no review or response on the row could own it. */
-function doctorInterrupted(mrx: BoardMRWithReview): boolean {
-  return (
-    mrx.orphan?.state === 'gone' &&
-    !!mrx.doctor &&
-    DOCTOR_ACTIVE.has(mrx.doctor.status) &&
-    !['queued', 'reviewing'].includes(mrx.review?.status ?? '') &&
-    !(mrx.respond && RESPOND_ACTIVE.has(mrx.respond.status))
-  );
-}
 
 /** Every action this MR offers, in menu order, each in one section. A row
     is omitted for who is looking (local board, own MR, seat, Slack on, an

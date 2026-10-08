@@ -870,3 +870,23 @@ test("a gone pane on a row with a running review stays the review's", () => {
     'focus doctor'
   );
 });
+
+test("a stale pane from another run never reads as the doctor's", () => {
+  const mr = mrx(2103, {
+    blockers: { any: true, pipelineFailing: true },
+    doctor: { status: 'watching', agentId: 'doc-1' },
+    orphan: { state: 'gone', agentId: 'old-review' } as never,
+  });
+  const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
+  expect(actions.find(a => a.key === 'focus-doctor')?.label).toBe(
+    'focus doctor'
+  );
+  const dead = {
+    ...mr,
+    orphan: { state: 'gone', agentId: 'doc-1' } as never,
+  };
+  expect(
+    rowActions(dead, actionEnvOf(ownEnv, dead)).find(a => a.key === 'doctor')
+      ?.label
+  ).toBe('redo doctor');
+});

@@ -362,6 +362,21 @@ function doctorItemLabel(
   return 'focus doctor';
 }
 
+/** Whether a running doctor's own pane is gone. A doctor with an agent on
+    file must match the gone pane's agent; one without (still queued) only
+    counts when no review or response on the row could own the pane. */
+function doctorInterrupted(mr: BoardMRWithReview): boolean {
+  const orphan = mr.orphan;
+  const d = mr.doctor;
+  if (orphan?.state !== 'gone' || !d || !DOCTOR_ACTIVE.has(d.status))
+    return false;
+  if (d.agentId) return orphan.agentId === d.agentId;
+  return (
+    !['queued', 'reviewing'].includes(mr.review?.status ?? '') &&
+    !(mr.respond && RESPOND_ACTIVE.has(mr.respond.status))
+  );
+}
+
 /** Whether a lane (review/respond) was cut down by its executor pane dying:
     the row's orphan is `gone` and the lane is the one it ran. When both
     sides recorded a session id, the ids must agree -- a lane relaunched on
@@ -396,6 +411,7 @@ export {
   DOCTOR_ACTIVE,
   NUDGE_RETRYABLE,
   laneInterrupted,
+  doctorInterrupted,
   type SlackMark,
   nudgeTargets,
   askOutstanding,

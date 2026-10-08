@@ -1864,3 +1864,17 @@ describe("author-only verbs stay off someone else's row", () => {
     expect(verbsOf(row, ME).map(v => v.kind)).toContain('answer');
   });
 });
+
+test("a working doctor whose own pane is gone offers redo, not a focus the server refuses", () => {
+  const row = {
+    ...own({
+      doctor: { status: 'watching', agentId: 'doc-1' },
+      orphan: { state: 'gone', agentId: 'doc-1', since: NOW } as never,
+    }),
+  };
+  const lines = candidateLines(row, NOW, NONE, ME);
+  const doctor = lines.find(l => l.word === 'watching CI…');
+  expect(doctor?.verbs).toEqual([
+    { kind: 'redo', label: 'redo', domain: 'doctor' },
+  ]);
+});

@@ -87,6 +87,8 @@ export type DoctorStatus =
   | 'error';
 export interface DoctorInfo {
   status: DoctorStatus;
+  /** The rt agent running the doctor, matched against a gone pane. */
+  agentId?: string;
   message?: string;
   origin?: 'auto' | 'manual';
   tabId?: string;
