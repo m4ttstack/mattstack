@@ -134,7 +134,12 @@ class Linter:
                 if label.strip().lower() in ("here", "this", "link", "this page"):
                     self.add(path, i, "error", f"non-descriptive link text '{label}'")
                 if not target.startswith(("http://", "https://", "mailto:", "/")):
-                    if not (path.parent / target).exists():
+                    base = path.parent / target
+                    # Docusaurus resolves an extensionless link as a page route
+                    candidates = [base, base.with_name(base.name + ".md"),
+                                  base.with_name(base.name + ".mdx"),
+                                  base / "index.md", base / "index.mdx"]
+                    if not any(c.exists() for c in candidates):
                         self.add(path, i, "error", f"broken relative link '{target}'")
             is_step = bool(STEP_ITEM.match(raw))
             for chunk in prose_chunks(raw):
