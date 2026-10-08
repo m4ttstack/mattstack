@@ -165,6 +165,20 @@ is yes once Matt has answered iterate twice.
 From `git log --pretty=%s <last-tag>..HEAD`: any `feat(` or a new module or file is a minor bump;
 only `fix(`, `chore(`, `docs(`, `ci(` and `test(` is a patch bump. Anything else is not clear.
 
+With the version chosen, run `bash scripts/release/minimum-update.sh v<version>`. It reads
+`rt-tray/sparkle-minimum-update`, the declaration that makes Macs install one release before the
+next (`docs/release-and-distribution.md`, "Requiring an intermediate update"), and the release's
+appcast step runs the same check, after the build and notarization:
+
+- prints nothing: no declaration; go on.
+- prints a bundle version: this release requires Macs to reach the declared `minimum` first. The
+  notes get one line saying so, naming that version.
+- refuses because the file names an earlier release: that release has shipped. Run
+  `git rm rt-tray/sparkle-minimum-update` and commit it as
+  `chore(release): clear the Sparkle minimum for <that release>`; the commit rides the notes
+  commit's push.
+- any other refusal: quote it at `Gate: which version bump?`.
+
 ### Gate: which version bump?
 
 Quote the subjects that make the bump unclear and recommend one.
