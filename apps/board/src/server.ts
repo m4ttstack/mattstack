@@ -1694,7 +1694,7 @@ const httpServer = Bun.serve({
             }),
             slackEnabled: !!slackToken,
             triageEnabled: triagePassEnabled(),
-            doctorTier: loadTriageConfig().tier,
+            doctorTier: triageConfigOrDefault().tier,
             ownerSlackRepos: slackToken
               ? config.projects
                   .filter(p => codeownerSlackOn(config, p))
@@ -2150,9 +2150,6 @@ const httpServer = Bun.serve({
           boardTabId: tabId ?? '',
           noPack: !launchPack(tabId),
         });
-        // A fresh review starts the round ledger over: the old rounds belong
-        // to the run it replaces, and the follow-up label counts from here.
-        dropRounds(parsed.mrUrl);
         // Spawn asynchronously; the badge reflects progress via the state file.
         void launchReview({
           mrUrl: parsed.mrUrl,
@@ -2174,6 +2171,9 @@ const httpServer = Bun.serve({
         })
           .then(result => {
             if (result.focusedExisting) return;
+            // A fresh review starts the round ledger over, once its pane is
+            // up: the old rounds belong to the run it replaces.
+            dropRounds(parsed.mrUrl);
             writeReviewState(statePath, {
               status: 'queued',
               tabId: result.tabId,
