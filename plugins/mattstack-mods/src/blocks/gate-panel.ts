@@ -21,6 +21,9 @@ const HOTKEY_CELLS = 3
 type PanelGate = {
   id: string
   status: string
+  kind?: string
+  subject?: string
+  context?: string | null
   questions: FormQuestion[]
   origin?: { presentation?: string; session?: string } | null
 }
@@ -47,7 +50,7 @@ function clip(text: string, cells: number): string {
  * `gate:answer`: the block takes no tool call, delivery or command.
  */
 export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): void {
-  const display = createDisplay(hub, { id: PANEL_PANE_ID, title: 'Gate', hotkeys: false })
+  const display = createDisplay(hub, { id: PANEL_PANE_ID, title: 'Gate' })
   let gates: PanelGate[] = []
   /** The listed gates the row may name: a gate whose AskUserQuestion dialog is up already has its answer surface. */
   const waiting = () => (dialogs ? gates.filter(g => !dialogs.up(g.id)) : gates)
@@ -172,7 +175,8 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
   async function ask(api: ModApi, gate: PanelGate): Promise<void> {
     const token = ++asks
     paneFor = gate.id
-    const answers = await display.formPane(api, { id: gate.id, questions: gate.questions })
+    const asked = { id: gate.id, questions: gate.questions, kind: gate.kind, subject: gate.subject, context: gate.context }
+    const answers = await display.formPane(api, asked)
     if (asks === token) paneFor = null
     if (!answers) return
     const out = await call<{ row?: { answer?: { by?: string } | null }; conflict?: boolean }>(api, 'gate:answer', {

@@ -4,7 +4,7 @@ import { registerGateForm } from '../src/blocks/gate-form.ts'
 import { registerGateWait, type WaitedGate } from '../src/blocks/gate-wait.ts'
 import { attachHub, createHub } from '../src/core/hub.ts'
 import { createLink } from '../src/core/link.ts'
-import { flush, harness as stub, recorder } from './stub.ts'
+import { byKey, flush, harness as stub, recorder, texts, walk } from './stub.ts'
 
 const QUESTION = 'Ship the release?'
 
@@ -142,11 +142,13 @@ function harness(rows: Record<string, WaitedGate> = { 'g-1': gate() }, options: 
     const all = drawn.element === 'Box' ? drawn.props.children : [drawn]
     return all.find((c: any) => c.element === 'Button') ?? null
   }
-  const pane = async () =>
-    (await h.fire('ui.render', { surface: 'terminal', component: 'Pane', requestId: PANEL_PANE_ID, props: {} }, async () => ({ element: 'Box', props: { children: [] } })))
-      .props.children
+  const pane = async (): Promise<any> =>
+    h.fire('ui.render', { surface: 'terminal', component: 'Pane', requestId: PANEL_PANE_ID, props: { bodyColumns: 40 } }, async () => ({
+      element: 'Box',
+      props: { children: [] },
+    }))
   const press = async (key: string) => {
-    ;(await pane()).find((c: any) => c.props.key === key).props.onPress({})
+    byKey(await pane(), key).props.onPress({})
     await flush()
   }
   const turnEnd = async () => {
@@ -274,7 +276,7 @@ describe('gate-panel', () => {
     // The pane is open on g-1 when the board answers it.
     ;(await h.rowButton()).props.onPress({})
     await flush()
-    expect(h.opened).toEqual([{ id: PANEL_PANE_ID, title: 'Gate', focus: true, closeOnEscape: true }])
+    expect(h.opened).toEqual([{ id: PANEL_PANE_ID, title: 'Gate', focus: true, closeOnEscape: true, columns: 32 }])
     h.rows['g-1']!.status = 'answered'
     h.rows['g-1']!.answer = { answers: { ship: 'no' }, by: 'board', answeredAt: 3 }
     h.emit('gate/answered/g-1')
@@ -305,7 +307,14 @@ describe('gate-panel', () => {
 
     ;(await h.rowButton()).props.onPress({})
     await flush()
-    expect((await h.pane()).map((c: any) => c.props.label ?? c.props.children?.[0] ?? c.props.key)).toEqual([QUESTION, 'Yes', 'No', 'note', 'Skip'])
+    const drawn = await h.pane()
+    expect(texts(drawn)).toContain(QUESTION)
+    expect(walk(drawn).filter((e: any) => e.element === 'Button' || e.element === 'Input').map((e: any) => e.props.label ?? e.props.key)).toEqual([
+      'Yes',
+      'No',
+      'Note',
+      'Skip',
+    ])
     await h.press('option-0')
 
     expect(answers(h)).toEqual([{ id: 'g-1', answers: { ship: 'yes' }, by: PANEL_BY }])
@@ -333,7 +342,7 @@ describe('gate-panel', () => {
 
     ;(await h.rowButton()).props.onPress({})
     await flush()
-    ;(await h.pane()).find((c: any) => c.props.key === 'note').props.onInput('only after the tag')
+    byKey(await h.pane(), 'note').props.onInput('only after the tag')
     await h.press('option-1')
     expect(answers(h)).toEqual([{ id: 'g-1', answers: { ship: { value: 'no', note: 'only after the tag' } }, by: 'pane-person' }])
   })
@@ -395,7 +404,7 @@ describe('gate-panel', () => {
     expect(await h.rowButton()).toBeNull()
   })
 
-  test('pressing 1 while the pane is open answers nothing', async () => {
+  test('pressing 1 while the pane is open answers nothing; letters answer and s skips', async () => {
     const h = harness()
     await h.start()
     await flush()
@@ -403,15 +412,43 @@ describe('gate-panel', () => {
     await flush()
 
     // The engine presses whichever element in the focused pane carries the key.
-    const drawn = await h.pane()
-    expect(drawn.filter((c: any) => c.props.hotkey !== undefined)).toEqual([])
-    for (const c of drawn.filter((c: any) => c.props.hotkey === '1')) c.props.onPress({})
+    const keyed = () => h.pane().then(drawn => walk(drawn).filter((e: any) => e.props?.hotkey !== undefined))
+    expect((await keyed()).map((e: any) => [e.props.key, e.props.hotkey])).toEqual([
+      ['option-0', 'a'],
+      ['option-1', 'b'],
+      ['skip', 's'],
+    ])
+    for (const c of (await keyed()).filter((e: any) => /^\d$/.test(e.props.hotkey))) c.props.onPress({})
     await flush()
     expect(answers(h)).toEqual([])
 
-    // Arrows and Enter (or a click) still pick an option.
-    await h.press('option-0')
-    expect(answers(h)).toEqual([{ id: 'g-1', answers: { ship: 'yes' }, by: 'pane-person' }])
+    for (const c of (await keyed()).filter((e: any) => e.props.hotkey === 's')) c.props.onPress({})
+    await flush()
+    expect(answers(h)).toEqual([])
+    expect(h.closed).toEqual([PANEL_PANE_ID])
+
+    ;(await h.rowButton()).props.onPress({})
+    await flush()
+    for (const c of (await keyed()).filter((e: any) => e.props.hotkey === 'b')) c.props.onPress({})
+    await flush()
+    expect(answers(h)).toEqual([{ id: 'g-1', answers: { ship: 'no' }, by: 'pane-person' }])
+  })
+
+  test("the pane draws the listed gate's kind, subject and context", async () => {
+    const review = gate({
+      kind: 'review-post',
+      subject: 'mr:https://gitlab.example.com/acme/web/-/merge_requests/146045',
+      context: JSON.stringify({ 'gate-ctx': 'review@1', readiness: 'yes', summary: 'Ready to post.', findings: { minor: 2 } }),
+    })
+    const h = harness({ 'g-1': review })
+    await h.start()
+    await flush()
+    ;(await h.rowButton()).props.onPress({})
+    await flush()
+
+    const drawn = await h.pane()
+    expect(texts(byKey(drawn, 'header'))).toEqual(['review-post · !146045'])
+    expect(texts(byKey(drawn, 'context'))).toEqual(['Ready', '  ·  ', '2 minor', 'Ready to post.'])
   })
 
   // The second press is a band click: the pane holds the keys once it is open.

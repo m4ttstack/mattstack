@@ -151,6 +151,22 @@ export function harness(options: { version?: string; env?: Record<string, string
   }
 }
 
+/** Every element of a drawn tree, depth first, the root included. */
+export function walk(tree: any): any[] {
+  if (!tree || typeof tree !== 'object') return []
+  if (Array.isArray(tree)) return tree.flatMap(walk)
+  return [tree, ...walk(tree.props?.children)]
+}
+
+/** The element of a drawn tree whose key is `key`, or undefined. */
+export const byKey = (tree: any, key: string): any => walk(tree).find(e => e.props?.key === key)
+
+/** Each Text of a drawn tree as the string it draws, in order. */
+export const texts = (tree: any): string[] =>
+  walk(tree)
+    .filter(e => e.element === 'Text')
+    .map(e => [e.props.children].flat().join(''))
+
 export function recorder(answer: unknown) {
   const seen: unknown[] = []
   const next: Hook = async e => {

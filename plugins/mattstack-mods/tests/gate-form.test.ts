@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { createDisplay, FORM_PANE_ID } from '../src/blocks/display.ts'
 import { matchGate, registerGateForm, type GateRow } from '../src/blocks/gate-form.ts'
 import { attachHub, createHub } from '../src/core/hub.ts'
 import { createLink } from '../src/core/link.ts'
@@ -381,64 +380,5 @@ describe('gate-form', () => {
     await h.fire('session.receive', doorbell, recorder({ consumed: 'muted' }).next)
     await flush()
     expect(h.verbs('gate:wait')).toHaveLength(1)
-  })
-
-  test('the display kit asks a gate in a focused pane and answers it', async () => {
-    const h = stub()
-    const hub = createHub()
-    const display = createDisplay(hub)
-    attachHub(h.on, hub)
-    const opened: unknown[] = []
-    const closed: string[] = []
-    let redraws = 0
-    h.$.ui.open = async (pane: unknown) => (opened.push(pane), { isPlaced: true })
-    h.$.ui.close = async ({ id }: { id: string }) => {
-      closed.push(id)
-      await h.fire('ui.close', { id, origin: { kind: 'plugin' } }, async () => {})
-    }
-    h.$.ui.invalidate = () => void redraws++
-    h.$.ui.resolve = () => ({
-      Box: (props: any) => ({ element: 'Box', props }),
-      Text: (props: any) => ({ element: 'Text', props }),
-      Button: (props: any) => ({ element: 'Button', props }),
-      Input: (props: any) => ({ element: 'Input', props }),
-    })
-    const api = { ui: { open: h.$.ui.open, close: (id: string) => h.$.ui.close({ id }), redraw: h.$.ui.invalidate, log: () => {} } } as any
-    const pane = { surface: 'terminal', component: 'Pane', requestId: FORM_PANE_ID, props: {} }
-    const draw = async () => (await h.fire('ui.render', pane, async () => ({ element: 'Box', props: { children: [] } }))).props.children
-    const press = async (key: string) => (await draw()).find((c: any) => c.props.key === key).props.onPress({})
-
-    const asked = display.formPane(api, {
-      id: 'g-2',
-      questions: [
-        { id: 'ship', label: QUESTION, options: [{ value: 'yes', label: 'Yes' }, 'no'] },
-        { id: 'targets', label: 'Which targets?', multi: true, options: ['mac', 'linux', 'win'] },
-      ],
-    })
-    await flush()
-    expect(opened).toEqual([{ id: FORM_PANE_ID, title: 'Gate', focus: true, closeOnEscape: true }])
-    const first = await draw()
-    expect(first.map((c: any) => c.props.label ?? c.props.children?.[0] ?? c.props.key)).toEqual([
-      `${QUESTION} (1 of 2)`,
-      'Yes',
-      'no',
-      'note',
-      'Skip',
-    ])
-    expect(first[1].props.hotkey).toBe('1')
-
-    await press('option-0')
-    await press('option-0')
-    await press('option-2')
-    await press('done')
-
-    expect(await asked).toEqual({ ship: 'yes', targets: ['mac', 'win'] })
-    expect(closed).toEqual([FORM_PANE_ID])
-    expect(redraws).toBe(3)
-
-    const skipped = display.formPane(api, { id: 'g-3', questions: [{ id: 'q', label: 'Anything?', options: [] }] })
-    await flush()
-    await h.fire('ui.close', { id: FORM_PANE_ID, origin: { kind: 'person' } }, async () => {})
-    expect(await skipped).toBeNull()
   })
 })

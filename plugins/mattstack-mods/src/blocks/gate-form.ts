@@ -8,7 +8,7 @@ type ToolCallResult = EngineResultOf['tool.call']
 type Render = EngineEventOf['ui.render']
 
 /** The parts of rt's gate row (packages/rt-client GateRow) this block reads. */
-export type GateOption = string | { value: string; label?: string }
+export type GateOption = string | { value: string; label?: string; description?: string }
 export type GateQuestion = { id: string; label: string; multi?: boolean; options: GateOption[] }
 export type GateAnswerValue = string | string[] | { value?: string | string[]; note?: string; text?: string }
 export type GateRow = {
