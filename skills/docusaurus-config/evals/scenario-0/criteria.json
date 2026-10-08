@@ -1,0 +1,41 @@
+{
+  "context": "The agent is given a broken docusaurus.config.js with a trailing slash on the url, a malformed baseUrl missing its leading and trailing slashes, and two custom fields placed at the root config level. The scenario tests whether the agent correctly applies Docusaurus config validation rules and moves custom fields into the customFields object.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "url no trailing slash",
+      "description": "The url field does NOT end with a trailing slash (e.g. 'https://docs.acmecorp.io' with no '/' at the end)",
+      "max_score": 20
+    },
+    {
+      "name": "baseUrl leading slash",
+      "description": "The baseUrl field starts with a forward slash '/'",
+      "max_score": 15
+    },
+    {
+      "name": "baseUrl trailing slash",
+      "description": "The baseUrl field ends with a forward slash '/'",
+      "max_score": 15
+    },
+    {
+      "name": "analyticsId in customFields",
+      "description": "The analyticsId value is nested inside a customFields object, not at the root level of the config",
+      "max_score": 15
+    },
+    {
+      "name": "supportEmail in customFields",
+      "description": "The supportEmail value is nested inside a customFields object, not at the root level of the config",
+      "max_score": 15
+    },
+    {
+      "name": "no root-level custom props",
+      "description": "Neither analyticsId nor supportEmail appears as a direct property of the top-level config object (i.e. they are not at root level)",
+      "max_score": 10
+    },
+    {
+      "name": "format preserved",
+      "description": "Output file remains CommonJS JavaScript (uses module.exports and require, not import/export or TypeScript syntax)",
+      "max_score": 10
+    }
+  ]
+}

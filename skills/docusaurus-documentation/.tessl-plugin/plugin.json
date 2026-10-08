@@ -1,0 +1,9 @@
+{
+  "name": "mcclowes/docusaurus-documentation",
+  "description": "Use when looking up the latest Docusaurus documentation at https://docusaurus.io/docs — retrieving config option references, plugin/preset APIs, MDX and markdown-feature syntax, sidebar and routing setup, theming, and deployment instructions. Triggers on tasks involving Docusaurus APIs, markdown/MDX features, configuration options, sidebars, or best practices.",
+  "skills": [
+    "."
+  ],
+  "version": "0.1.0",
+  "license": "MIT"
+}

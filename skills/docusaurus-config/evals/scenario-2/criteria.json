@@ -1,0 +1,81 @@
+{
+  "context": "Tests whether the agent creates a valid TypeScript Docusaurus configuration file with the correct type imports, all required fields, environment variable usage for the URL, custom data in customFields, and documents the correct build validation workflow.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "TypeScript file",
+      "description": "The config is saved as a .ts file (docusaurus.config.ts), not a .js file",
+      "max_score": 8
+    },
+    {
+      "name": "Config type import",
+      "description": "File contains `import {Config} from '@docusaurus/types'` (or equivalent named import of Config from @docusaurus/types)",
+      "max_score": 10
+    },
+    {
+      "name": "Config typed as Config",
+      "description": "The config object is declared with the Config type annotation (e.g. `const config: Config = { ... }`)",
+      "max_score": 8
+    },
+    {
+      "name": "title field present",
+      "description": "Config includes a `title` field at the root level",
+      "max_score": 6
+    },
+    {
+      "name": "url field present",
+      "description": "Config includes a `url` field at the root level",
+      "max_score": 6
+    },
+    {
+      "name": "baseUrl field present",
+      "description": "Config includes a `baseUrl` field at the root level",
+      "max_score": 6
+    },
+    {
+      "name": "url no trailing slash",
+      "description": "The url value does NOT end with a trailing slash (e.g. 'https://example.com' not 'https://example.com/')",
+      "max_score": 7
+    },
+    {
+      "name": "baseUrl slash format",
+      "description": "The baseUrl value starts and ends with a forward slash (e.g. '/')",
+      "max_score": 7
+    },
+    {
+      "name": "URL from env var",
+      "description": "The url field uses `process.env.SITE_URL` (or similar env var reference) rather than a hardcoded production URL string",
+      "max_score": 10
+    },
+    {
+      "name": "Env var fallback",
+      "description": "The url env var expression includes a fallback value for local development (e.g. `process.env.SITE_URL || 'https://localhost:3000'`)",
+      "max_score": 6
+    },
+    {
+      "name": "Tracking ID in customFields",
+      "description": "The analytics tracking ID (NX-2048-DOCS) is placed inside a `customFields` object, not at the root level of the config",
+      "max_score": 10
+    },
+    {
+      "name": "No root-level custom fields",
+      "description": "The tracking ID does NOT appear as a direct property at the root level of the config object (only inside customFields)",
+      "max_score": 5
+    },
+    {
+      "name": "npm run build step",
+      "description": "validation-steps.md includes `npm run build` as a validation command",
+      "max_score": 5
+    },
+    {
+      "name": "Fix and re-run step",
+      "description": "validation-steps.md describes what to do if the build errors: read the error message, fix the offending field, and re-run the build",
+      "max_score": 3
+    },
+    {
+      "name": "npm start step",
+      "description": "validation-steps.md includes restarting the dev server (npm start or equivalent) after a successful build",
+      "max_score": 3
+    }
+  ]
+}
