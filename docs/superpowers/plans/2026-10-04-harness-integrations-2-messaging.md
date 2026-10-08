@@ -404,7 +404,6 @@ section in `sections.ts`; the time-stamp hook stays a shell hook.
 - [ ] Write cases:
   - `mod guard refuses a foreign gate answer with its reason`;
   - `mod stop blocks an open running stage and allows a held or waiting one`;
-  - `with the mod and the shell hook both present, the turn is held and the reason appears twice`;
   - `a mod stop hook that throws leaves the shell hook holding`;
   - `a second stop shortly after a first is evaluated afresh`;
   - `the spill-read section is present for a new conversation`.
@@ -416,5 +415,5 @@ section in `sections.ts`; the time-stamp hook stays a shell hook.
   conversation, so mod sessions read the one-line note twice, which is
   harmless. The stop gate likewise has no stand-down: the shell hook always runs.
 - [ ] Rerun the suites.
-- [ ] Live check in a `--plugin-dir` pane against a sandboxed run: a premature stop is held by both hooks, and held or waiting stops end. Then kill the mod's link and confirm the shell hook alone still holds.
+- [ ] Live check in a `--plugin-dir` pane against a sandboxed daemon and run: a premature stop is held by both hooks, with the reason shown twice, and held or waiting stops end. Then kill the mod's link and confirm the shell hook alone still holds.
 - [ ] Commit `feat: enforce shared policy through the Claude mod`.

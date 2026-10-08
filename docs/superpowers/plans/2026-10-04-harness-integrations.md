@@ -318,7 +318,7 @@ Claude producer or enforcer behind it.
 
 | Ticket | What it gives Claude | Task |
 | --- | --- | --- |
-| RT-384 core mod | The plugin and `$.rt` | C1, C3 |
+| RT-384 core mod | The plugin and its core hub | C1, C3 |
 | RT-405 `session:*` handlers | Link registry on F3's store | C2 |
 | RT-406 daemon link and context | Link, heartbeat, rounds, `/clear` continuation | C3, C5 |
 | RT-407 tool-call policy layer | Hub rules; shared policy enforcement | C1, M6d |

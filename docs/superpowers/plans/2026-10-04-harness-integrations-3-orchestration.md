@@ -267,7 +267,7 @@ the selected policy adapter before launch/relocation.
 - [ ] Mods-first Claude relocation (RT-400, RT-391's announce; proven in mods-02).
   - Add `plugins/mattstack-mods/src/blocks/relocation.ts`: a hub `permit` rule on `EnterWorktree` (`tool.check`) asks `worktree:registered { path }`, a new verb answered by `findTreeByPath`, and allows a registered path. Any other path passes through, so Claude Code's prompt still shows.
   - For sessions with the `relocation` block live, the three key-pressing seams stand down: the herd watchdog's `acceptRelocationModal`, the reconciler's `driveRelocationAccept`, and `createRelocationWatcher`. `trust-dialog.ts` and those seams stay for every other session.
-  - `relocation-announce.sh` exits quietly when `RT_MOD_BLOCKS` names `relocation` and `rt agent mod-owned --session <id> --block relocation` (added in C8) confirms it is live; otherwise it runs as today.
+  - `relocation-announce.sh` is not changed. The verb it already calls, `rt worktree announce-relocation`, which parses the session id, checks `modPath(binding, "relocation")` in-process and returns quietly when the block is live; otherwise it runs as today.
   - Write `a registered path enters with no prompt and no key press`, `an unregistered path keeps the prompt`, and `the seams stand down only for sessions with the block live`.
   - Live-check attended, herd and unattended panes.
   - Commit `feat: answer worktree relocation inside the Claude session`.
