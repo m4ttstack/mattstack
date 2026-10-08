@@ -664,23 +664,26 @@ describe('GateCard: step mode', () => {
     expect(container.querySelector('legend')).toBeNull();
   });
 
-  it('puts focus pane and reset on the left, previous and next on the right', async () => {
+  it('groups focus pane then reset apart from previous then the step button', async () => {
     renderCard(gateRow());
-    await userEvent.click(screen.getByRole('radio', { name: 'pass' }));
-    await userEvent.click(screen.getByTestId('gate-next'));
+    const focus = screen.getByTestId('gate-focus');
+    const reset = screen.getByTestId('gate-reset');
+    const next = screen.getByTestId('gate-next');
+    expect(focus.parentElement).toBe(reset.parentElement);
+    expect(next.parentElement).not.toBe(focus.parentElement);
+    expect(
+      focus.compareDocumentPosition(reset) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
 
-    const order = [
-      'gate-focus',
-      'gate-reset',
-      'gate-previous',
-      'gate-skip',
-    ].map(id => screen.getByTestId(id));
-    for (let i = 1; i < order.length; i++) {
-      expect(
-        order[i - 1]!.compareDocumentPosition(order[i]!) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy();
-    }
+    await userEvent.click(screen.getByRole('radio', { name: 'pass' }));
+    await userEvent.click(next);
+    const previous = screen.getByTestId('gate-previous');
+    const skip = screen.getByTestId('gate-skip');
+    expect(previous.parentElement).toBe(skip.parentElement);
+    expect(previous.parentElement).not.toBe(focus.parentElement);
+    expect(
+      previous.compareDocumentPosition(skip) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it('renders a single-question gate flat: no progress, no Previous, Next, or Reset, and Submit disabled until answered', async () => {

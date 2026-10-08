@@ -123,10 +123,10 @@ export function GateQuestionnaire({
           )}
         />
       )}
-      {display.map(item => {
+      {display.map((item, index) => {
         const current = selections[item.name];
         const picked = new Set(Array.isArray(current) ? current : []);
-        const titleId = `${titleIdPrefix}-${item.name}`;
+        const titleId = `${titleIdPrefix}-${index}`;
         return (
           <Questionnaire.Item
             key={item.name}
