@@ -110,6 +110,9 @@ function FocusPaneAction({ pane }: { pane: string }) {
 function ResumeAction({ repo, runId }: { repo: string; runId: string }) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const [resumed, setResumed] = useState(false);
+
+  if (resumed) return null;
 
   return (
     <Button
@@ -131,6 +134,7 @@ function ResumeAction({ repo, runId }: { repo: string; runId: string }) {
             notifications.error(body?.error ?? "couldn't resume the run");
             return;
           }
+          setResumed(true);
           notifications.success('Resumed the run in a new pane');
           await queryClient.invalidateQueries({
             queryKey: ['run', repo, runId],
@@ -346,7 +350,7 @@ function SummaryCard({
   const showFocusPane = Boolean(run.agent && run.agent.status !== 'done');
   const showResume =
     run.status === 'running' &&
-    !showFocusPane &&
+    !run.agent &&
     Boolean(byKey.get('claude-session')?.value);
   const showAnswerGate = gates.some(
     g => g.status === 'open' || g.status === 'parked'

@@ -151,7 +151,7 @@ export const runs = new Hono()
       return c.json({ error: 'this run already has a live pane' }, 409);
     }
     const prompt = resumePrompt(runId, fields);
-    const adopt = async () => {
+    const adopt = async (): Promise<{ id: string } | { error: string }> => {
       const adopted = await agentAdopt({
         sessionId: session,
         repo,

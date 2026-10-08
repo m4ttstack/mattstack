@@ -1655,6 +1655,51 @@ describe('resume action', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('shows no Resume while a pane exists even if its turn is done', async () => {
+    stubSideQueries();
+    detailGet.mockResolvedValue(
+      detailResponse({
+        ...FIXTURE,
+        run: run({
+          status: 'running',
+          agent: { status: 'done', pane: 'w1:p1' },
+        }),
+        fields: [...FIXTURE.fields, sessionField],
+      })
+    );
+
+    renderDetail();
+    await screen.findByTestId('summary-card');
+    expect(
+      screen.queryByRole('button', { name: 'resume run' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('hides Resume after a successful click', async () => {
+    stubSideQueries();
+    detailGet.mockResolvedValue(
+      detailResponse({
+        ...FIXTURE,
+        run: run({ status: 'running', agent: null }),
+        fields: [...FIXTURE.fields, sessionField],
+      })
+    );
+    resumePost.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ resumed: true, agentId: 'ag-1' }),
+    });
+
+    renderDetail();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume run' })
+    );
+    await screen.findByText('Resumed the run in a new pane');
+    expect(
+      screen.queryByRole('button', { name: 'resume run' })
+    ).not.toBeInTheDocument();
+  });
+
   it('shows no Resume for a finished run or one with no session', async () => {
     stubSideQueries();
     detailGet.mockResolvedValue(
