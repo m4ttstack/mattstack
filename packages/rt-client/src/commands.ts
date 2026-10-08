@@ -883,6 +883,8 @@ export interface Commands {
    * count: none for an engine outside the tested range. With the switch off it
    * fails with `failure.code` "refused". `previousSessionId` continues that
    * session's binding only when `previousLinkId` is the live link that holds it.
+   * While `sessionId` has a live link, a register that does not name it as
+   * `previousLinkId` fails with "transient" until that link lapses.
    */
   "session:register": {
     payload: {

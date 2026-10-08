@@ -351,7 +351,7 @@ describe("presence through the Claude mod", () => {
     await x.mod["session:report"]({ linkId, event: "turn-start" });
 
     // The mod's re-register after a cleared block, mid-turn.
-    const again = await x.register("sess-1");
+    const again = await x.register("sess-1", { previousSessionId: "sess-1", previousLinkId: linkId });
     expect(x.links.execution("sess-1")).toBe("working");
     const continued = await x.register("sess-2", { previousSessionId: "sess-1", previousLinkId: again });
     expect(x.links.execution("sess-2")).toBe("working");

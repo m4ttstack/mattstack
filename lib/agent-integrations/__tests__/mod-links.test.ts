@@ -89,7 +89,7 @@ describe("mod links", () => {
     expect(links.execution("sess-1")).toBe("working");
 
     // A cleared block or a forgotten link re-registers mid-turn: the turn it reported stands.
-    const second = register(links, "sess-1");
+    const second = register(links, "sess-1", { previousSessionId: "sess-1", previousLinkId: first.linkId });
     expect(links.execution("sess-1")).toBe("working");
     expect(links.setExecution(first.linkId, "idle").ok).toBe(false);
 
@@ -103,6 +103,44 @@ describe("mod links", () => {
     const noPresence = register(links, "sess-3", { blocks: ["delivery"] });
     expect(links.setExecution(noPresence.linkId, "working")).toEqual({ ok: true, data: false });
     expect(links.execution("sess-3")).toBeNull();
+  });
+
+  test("a register for a session with a live link and no matching previousLinkId is refused transient and the real link keeps working", () => {
+    const { links } = harness();
+    const real = register(links, "sess-1");
+    expect(links.setExecution(real.linkId, "working").ok).toBe(true);
+
+    for (const over of [{}, { previousSessionId: "sess-1" }, { previousSessionId: "sess-1", previousLinkId: "ml-forged" }]) {
+      const spoof = links.register({
+        sessionId: "sess-1", cwd: "/elsewhere", root: "/elsewhere", claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.1.0", blocks: ALL, ...over,
+      });
+      expect(spoof.ok, JSON.stringify(over)).toBe(false);
+      if (!spoof.ok) expect(spoof.error.code).toBe("transient");
+    }
+
+    expect(links.linkOf("sess-1")).toMatchObject({ linkId: real.linkId, cwd: "/repo" });
+    expect(links.heartbeat(real.linkId).ok).toBe(true);
+    expect(links.ack(real.linkId, "cmd-1").ok).toBe(true);
+    expect(links.execution("sess-1")).toBe("working");
+
+    // The mod's own re-register names its live link, and supersedes it.
+    const again = register(links, "sess-1", { previousSessionId: "sess-1", previousLinkId: real.linkId });
+    expect(links.linkOf("sess-1")?.linkId).toBe(again.linkId);
+    expect(links.heartbeat(real.linkId).ok).toBe(false);
+    expect(links.execution("sess-1")).toBe("working");
+  });
+
+  test("after the link lapses, a fresh register for that session passes", () => {
+    const { links, clock } = harness();
+    const old = register(links, "sess-1");
+    clock.now += 29_000;
+    const early = links.register({ sessionId: "sess-1", cwd: "/repo", root: "/repo", claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.1.0", blocks: ALL });
+    expect(early.ok).toBe(false);
+
+    clock.now += 2_000;
+    const fresh = register(links, "sess-1");
+    expect(fresh.linkId).not.toBe(old.linkId);
+    expect(links.live("sess-1", "delivery")).toBe(true);
   });
 
   test("blocks clear 30 s after the last heartbeat", () => {
@@ -288,10 +326,10 @@ describe("mod links", () => {
     expect(reads).toBe(0);
   });
 
-  test("two links for one session id: the newer wins and the older stops counting", () => {
+  test("two links for one session id: the newer, naming the older, wins and the older stops counting", () => {
     const { links } = harness();
     const older = register(links, "sess-1", { blocks: ["delivery"] });
-    const newer = register(links, "sess-1", { blocks: ["presence"], pane: "w2:p2" });
+    const newer = register(links, "sess-1", { blocks: ["presence"], pane: "w2:p2", previousSessionId: "sess-1", previousLinkId: older.linkId });
 
     expect(links.linkOf("sess-1")).toMatchObject({ linkId: newer.linkId, pane: "w2:p2", blocks: ["presence"] });
     expect(links.live("sess-1", "presence")).toBe(true);
@@ -383,7 +421,7 @@ describe("pushModCommand", () => {
   test("pushModCommand writes the session's live link id into the envelope", async () => {
     const p = push({ ackFrom: () => null });
     const first = p.linkId;
-    const second = register(p.links, "sess-1").linkId;
+    const second = register(p.links, "sess-1", { previousSessionId: "sess-1", previousLinkId: first }).linkId;
     expect(second).not.toBe(first);
 
     await pushModCommand("sess-1", "gate.complete", {}, p.deps);

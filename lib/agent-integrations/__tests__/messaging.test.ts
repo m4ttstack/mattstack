@@ -362,7 +362,7 @@ function consumedWorld() {
   });
   const bindClaude = (value: string): SessionBinding =>
     data(store.bind(store.reserve({ identity: `id-${value}` }), { harness: "claude", profile: "default", kind: "id", value }, { mode: "herdr", pane: `p-${value}` }));
-  const linkFor = (sessionId: string): string => data(links.register({
+  const linkFor = (sessionId: string): string => links.linkOf(sessionId)?.linkId ?? data(links.register({
     sessionId, cwd: "/w/acme", root: "/w/acme", claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.1.0", blocks: ["delivery"],
   })).linkId;
   const delivered = (payload: unknown) => handlers["session:delivered"](payload as never) as Promise<Reply>;

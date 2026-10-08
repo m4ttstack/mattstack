@@ -81,7 +81,12 @@ register turns every block off for the session. Any other register the daemon
 did not take (no answer, `transient`, or a handler that failed) is sent again,
 unchanged, on the next beat. When the hub clears a block, the link
 re-registers the same session with the blocks still live, so the daemon stops
-counting it; clears within 50 ms share one re-register. A SessionStart from a
+counting it; clears within 50 ms share one re-register. Each re-register for
+the same session (a cleared block, or rt forgetting the link) names the link it
+replaces as `previousSessionId` and `previousLinkId`. While a session has a
+live link, rt takes a register for it only when it names that link and answers
+any other `transient`, so a register retried that way goes through once the
+other link lapses (30 s without a heartbeat). A SessionStart from a
 resume or a compaction of the linked session sends `session:report` with the
 event and the session's cwd, root and pane; rt treats that context as a hint.
 An `unknown-link` answer re-registers and sends the report once more.

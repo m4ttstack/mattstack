@@ -191,13 +191,17 @@ export function createLink(hub: Hub): Link {
     log(`rt declined the link (${code}: ${message}); every block is off`)
   }
 
-  /** Re-registers after the daemon forgot `stale` (a restart): same session id, today's blocks. */
+  /**
+   * Re-registers after the daemon forgot `stale` (a restart): same session id,
+   * today's blocks. rt takes a register for a session with a live link only
+   * when it names that link, so every same-session re-register names its own.
+   */
   async function relink(stale: string): Promise<void> {
     if (off || id !== stale) return
     id = null
     await remember(null)
     log(`rt no longer knows link ${stale}; registering again`)
-    await register(pending ?? (await registration(sessionId!)))
+    await register(pending ?? (await registration(sessionId!, { sessionId: sessionId!, linkId: stale })))
   }
 
   async function tick(): Promise<void> {
@@ -285,7 +289,7 @@ export function createLink(hub: Hub): Link {
           if (pending) pending = { ...pending, blocks: hub.liveBlocks() }
           return
         }
-        await register(await registration(sessionId))
+        await register(await registration(sessionId, { sessionId, linkId: id }))
       }).catch(err => log(`re-register after a cleared block failed: ${String(err)}`))
     })
   }

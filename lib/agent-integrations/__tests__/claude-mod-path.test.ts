@@ -54,10 +54,13 @@ function world(enabled = true) {
   return { db, clock, switchOn, links, logged, log, handlers };
 }
 
+/** Registers `sessionId`, naming its live link when it has one, as the mod's own re-register does. */
 function link(links: ModLinks, sessionId = SESSION, over: { pane?: string; blocks?: string[] } = {}): string {
+  const live = links.linkOf(sessionId);
   return data(links.register({
     sessionId, cwd: "/w/acme", root: "/w/acme", pane: over.pane ?? "w1:p1",
     claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.1.0", blocks: (over.blocks ?? ["delivery", "presence"]) as never,
+    ...(live && { previousSessionId: sessionId, previousLinkId: live.linkId }),
   })).linkId;
 }
 

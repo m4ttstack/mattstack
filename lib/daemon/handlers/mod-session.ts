@@ -4,6 +4,8 @@
  * unknown or superseded link with the `unknown-link` failure code, which is the
  * one answer the mod re-registers on. A session:end from a link carrying the
  * presence block also ends the session's sign-in and detaches its binding.
+ * rt.sock does not say who calls, so a register for a session that already
+ * has a live link must name that link, or it is declined `transient`.
  *
  * session:report is the link's lifecycle report (resume, compact) for the one
  * session it registered; its context is a hint, never authority. A turn start

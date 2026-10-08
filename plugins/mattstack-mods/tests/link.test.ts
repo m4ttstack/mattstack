@@ -273,7 +273,7 @@ describe('link', () => {
 
     const registers = h.verbs('session:register').map(s => s.body)
     expect(registers).toHaveLength(2)
-    expect(registers[1]).toEqual(registers[0])
+    expect(registers[1]).toEqual({ ...registers[0], previousSessionId: 'sess-1', previousLinkId: 'ml-1' })
     expect(h.link.linkId()).toBe('ml-2')
     await h.clock.advance(10_000)
     expect(h.verbs('session:heartbeat').map(s => s.body)).toEqual([{ linkId: 'ml-1' }, { linkId: 'ml-2' }])
@@ -289,7 +289,7 @@ describe('link', () => {
     expect(w.verbs('events:wait').map(s => s.body.after)).toEqual([8, 8])
     const again = w.verbs('session:register').map(s => s.body)
     expect(again).toHaveLength(2)
-    expect(again[1]).toEqual(again[0])
+    expect(again[1]).toEqual({ ...again[0], previousSessionId: 'sess-1', previousLinkId: 'ml-1' })
     expect(w.link.linkId()).toBe('ml-2')
   })
 
@@ -512,11 +512,55 @@ describe('link', () => {
 
     const registers = h.verbs('session:register').map(s => s.body)
     expect(registers).toHaveLength(2)
-    expect(registers[1]).toEqual({ ...registers[0], blocks: ['delivery', 'presence'] })
-    expect(registers[1].previousSessionId).toBeUndefined()
+    expect(registers[1]).toEqual({ ...registers[0], blocks: ['delivery', 'presence'], previousSessionId: 'sess-1', previousLinkId: 'ml-1' })
     expect(link.linkId()).toBe('ml-2')
     await h.clock.advance(9_000)
     expect(h.verbs('session:heartbeat').map(s => s.body)).toEqual([{ linkId: 'ml-2' }])
+  })
+
+  test("the mod's own refresh re-register passes", async () => {
+    const h = stub()
+    // rt's rule: while a session has a live link, a register must name it.
+    const live = new Map<string, string>()
+    let minted = 0
+    h.script.respond = (verb, body) => {
+      if (verb !== 'session:register') return h.defaults(verb, body)
+      const held = live.get(body.sessionId)
+      if (held !== undefined && body.previousLinkId !== held) {
+        return { ok: false, error: 'held', failure: { code: 'transient', message: 'session already has a live mod link' } }
+      }
+      const linkId = `ml-${++minted}`
+      live.set(body.sessionId, linkId)
+      return { ok: true, data: { linkId, blocks: body.blocks } }
+    }
+    const hub = createHub()
+    const link = createLink(hub)
+    link.start()
+    hub.block('delivery', async () => {})
+    hub.block('policy', async (_api, b) => {
+      b.onToolCall({ stage: 'guard', tool: 'Bash', run: () => { throw new Error('boom') } })
+    })
+    attachHub(h.on, hub)
+    await h.start()
+
+    await h.fire('tool.call', { tool: 'Bash', command: 'ls' }, async () => ({ result: 'ran' }))
+    await h.clock.advance(1_000)
+
+    const registers = h.verbs('session:register').map(s => s.body)
+    expect(registers).toHaveLength(2)
+    expect(registers[1]).toMatchObject({ sessionId: 'sess-1', previousSessionId: 'sess-1', previousLinkId: 'ml-1', blocks: ['delivery'] })
+    expect(link.linkId()).toBe('ml-2')
+  })
+
+  test('a re-register after rt forgot the link names the forgotten link', async () => {
+    const h = harness()
+    h.script.respond = scripted(h, { 'session:heartbeat': [unknownLink] })
+    await h.start()
+    await h.clock.advance(10_000)
+
+    const registers = h.verbs('session:register').map(s => s.body)
+    expect(registers[1]).toEqual({ ...registers[0], previousSessionId: 'sess-1', previousLinkId: 'ml-1' })
+    expect(h.link.linkId()).toBe('ml-2')
   })
 
   test('two clears in a row cause one re-register', async () => {

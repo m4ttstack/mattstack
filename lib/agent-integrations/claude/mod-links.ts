@@ -6,7 +6,7 @@
  * Blocks are keyed by native Claude session id, so a session with no binding
  * still registers. A block counts as live only while its link is: a link
  * clears when no heartbeat arrives for 30 s, when it ends, when a newer link
- * registers for the same session, and, all at once, when
+ * that names it registers for the same session, and, all at once, when
  * agent.integrations.enabled is off.
  */
 
@@ -206,6 +206,12 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
       sweep();
       if (!deps.integrationsEnabled()) {
         return fail("refused", "agent integrations are off, so rt takes no mod links");
+      }
+      // rt.sock does not say who is calling, so only the holder of a session's
+      // live link (it alone knows the id) may replace that link.
+      const live = current(input.sessionId);
+      if (live !== null && live.linkId !== input.previousLinkId) {
+        return fail("transient", `session ${input.sessionId} already has a live mod link; a register must name it, or wait for it to lapse`);
       }
       const holder = input.previousSessionId !== undefined && input.previousSessionId !== input.sessionId
         ? current(input.previousSessionId)
