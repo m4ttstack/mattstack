@@ -106,7 +106,7 @@ export default function BoardIcon({ name, lane, emoji }: { name?: Name; lane?: L
   if (name === "agentCloud") return <AgentCloud label={label} />;
   if (name === "slack")
     return (
-      <svg className={styles.icon} width={15} height={15} viewBox="0 0 400 400" role="img" aria-label="slack">
+      <svg className={styles.icon} width={16} height={16} viewBox="0 0 400 400" role="img" aria-label="slack">
         {SLACK_TILES.map(([fill, d]) => (
           <path key={fill} fill={fill} d={d} />
         ))}
@@ -116,8 +116,8 @@ export default function BoardIcon({ name, lane, emoji }: { name?: Name; lane?: L
     <svg
       {...STROKE}
       className={`${styles.icon} ${lane ? styles[lane] : ""}`}
-      width={15}
-      height={15}
+      width={17}
+      height={17}
       role="img"
       aria-label={label}
     >

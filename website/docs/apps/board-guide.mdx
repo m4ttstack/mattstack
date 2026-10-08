@@ -4,7 +4,7 @@ sidebar_position: 2.5
 description: Every board right-click action, the Show chips, Group and Sort, the asks inbox and how an ask travels, and Waiting on author.
 ---
 
-import ThemedImage from "@theme/ThemedImage";
+import Screenshot from "@site/src/components/Screenshot";
 import BoardIcon from "@site/src/components/BoardIcon";
 
 # board guide
@@ -13,10 +13,7 @@ This page covers board's controls in depth: every action in a row's right-click 
 
 Every screenshot here is the board's own test fixture: invented people, a made-up `acme/webapp` project and MR titles that never existed.
 
-<ThemedImage
-  alt="board showing the Show chips, the Group and Sort menus, the Team and Needs me tabs, and a list of merge requests"
-  sources={{ light: "/img/board/board-light.png", dark: "/img/board/board-dark.png" }}
-/>
+<Screenshot name="board/board" alt="board showing the Show chips, the Group and Sort menus, the Team and Needs me tabs, and a list of merge requests" />
 
 ## Three things decide what you see
 
@@ -35,10 +32,7 @@ Right-click a row to open its menu. It is titled with the MR's number, and reads
 3. **agent actions**: the agent launches that fit this MR right now.
 4. Four flyouts: **all agent actions**, **gitlab**, **slack** and **more**. A flyout with only one item shows that item in place instead.
 
-<ThemedImage
-  alt="The right-click menu of an MR, with Slack reactions, agent actions and the all agent actions, gitlab, slack and more flyouts"
-  sources={{ light: "/img/board/row-menu-light.png", dark: "/img/board/row-menu-dark.png" }}
-/>
+<Screenshot name="board/row-menu" alt="The right-click menu of an MR, with Slack reactions, agent actions and the all agent actions, gitlab, slack and more flyouts" />
 
 A few behaviors hold across the menu:
 
@@ -196,10 +190,7 @@ Asks need peering: both boards must be in the same [team](/start/teams) and conn
 
 The inbox icon (<BoardIcon name="inbox" />) at the top right of a local board opens **Asks for your agent**. A badge counts the asks waiting on you, and a desktop notification arrives once for each ask that waits: "dev2 asked for a review", with the MR and "Your agent waits for your go ahead." Clicking the notification opens the inbox at that ask.
 
-<ThemedImage
-  alt="The Asks for your agent inbox with waiting asks, each with Decline, a go-ahead button and an always allow checkbox"
-  sources={{ light: "/img/board/inbox-light.png", dark: "/img/board/inbox-dark.png" }}
-/>
+<Screenshot name="board/inbox" alt="The Asks for your agent inbox with waiting asks, each with Decline, a go-ahead button and an always allow checkbox" />
 
 Each waiting ask shows who asked, what they asked for ("asked for a review", "asked for a re-review" or "asked your agent to respond"), the MR and their note, with three controls:
 
@@ -223,7 +214,7 @@ sequenceDiagram
     R->>B: wakes dev2's board
     alt dev2 always allows dev1
         B->>B: starts the agent at once
-    else
+    else dev2 has not allowed dev1
         B->>B: inbox card and notification
         B->>R: waiting
         R->>A: band: waiting for dev2's go ahead
@@ -245,10 +236,7 @@ Before it starts the agent, dev2's board checks the ask still makes sense. It re
 
 dev1's row grows a band at its foot that follows the ask. Click it for the trail of each step, with times.
 
-<ThemedImage
-  alt="A merge request row with a band reading waiting for the teammate's go ahead"
-  sources={{ light: "/img/board/ask-band-light.png", dark: "/img/board/ask-band-dark.png" }}
-/>
+<Screenshot name="board/ask-band" alt="A merge request row with a band reading waiting for the teammate's go ahead" />
 
 | The band reads | Means | Buttons |
 | --- | --- | --- |
