@@ -13,16 +13,21 @@ concurrency:
 
 jobs:
   # What this event's unit shards run: full, changed (--changed=HEAD^1) or
-  # skip. On a pull request every job checks out refs/pull/N/merge, whose
-  # first parent is the base tip, so HEAD^1..HEAD is exactly the PR's diff.
+  # skip, and which path-gated jobs run at all (docs/ci.md has the table).
+  # On a pull request every job checks out refs/pull/N/merge, whose first
+  # parent is the base tip, so HEAD^1..HEAD is exactly the PR's diff.
   scope:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       mode: ${{ steps.scope.outputs.mode }}
+      shards: ${{ steps.scope.outputs.shards }}
+      extra: ${{ steps.scope.outputs.extra }}
       dirs: ${{ steps.scope.outputs.dirs }}
       always: ${{ steps.scope.outputs.always }}
       plugins: ${{ steps.scope.outputs.plugins }}
+      go: ${{ steps.scope.outputs.go }}
+      deck: ${{ steps.scope.outputs.deck }}
       website: ${{ steps.scope.outputs.website }}
     steps:
       - uses: actions/checkout@v4
@@ -102,6 +107,8 @@ jobs:
   # languages golden-test (lib/ui/__tests__/protocol.test.ts runs in the unit
   # shards). Its own job: it is a minute of build time nothing else waits on.
   go:
+    needs: scope
+    if: needs.scope.outputs.go == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -119,6 +126,8 @@ jobs:
   # deck supervises launchd and shells to plutil, both macOS-only, so its suite
   # runs here and nowhere else (scripts/turbo.sh drops it off macOS).
   deck-macos:
+    needs: scope
+    if: needs.scope.outputs.deck == 'true'
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
@@ -148,6 +157,8 @@ jobs:
   # macos-latest, matching e2e.yml: much of the tree is macOS-specific (launchd
   # labels, TCC, codesign, ~/Library paths) and the bunfig preload that isolates
   # HOME for tests is exercised the same way developers run it locally.
+  # A --changed run takes one to three shards, sized by scope from the
+  # selected tests' recorded timings; a full run always takes three.
   unit:
     needs: scope
     if: needs.scope.outputs.mode != 'skip'
@@ -156,7 +167,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ fromJSON(needs.scope.outputs.shards) }}
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
@@ -173,15 +184,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # The always-run guards read source as text, so --changed never selects
-      # them; path arguments intersect with --changed, so they need their own
-      # call, and one shard is enough.
-      - name: Unit tests, shard ${{ matrix.shard }} of 3
+      - name: Unit tests, shard ${{ matrix.shard }} of ${{ strategy.job-total }}
         env:
           MODE: ${{ needs.scope.outputs.mode }}
           DIRS: ${{ needs.scope.outputs.dirs }}
-          ALWAYS: ${{ needs.scope.outputs.always }}
+          EXTRA: ${{ needs.scope.outputs.extra }}
           SHARD: ${{ matrix.shard }}
+          TOTAL: ${{ strategy.job-total }}
         run: |
           # An empty list would make bun test run every file in the repo,
           # e2e included; fail loudly instead.
@@ -190,13 +199,36 @@ jobs:
           changed=""
           if [ "$MODE" = changed ]; then changed="--changed=HEAD^1"; fi
           # shellcheck disable=SC2086
-          bun test $DIRS --shard="$SHARD/3" --timings=test-timings.json $changed
-          if [ "$MODE" = changed ] && [ "$SHARD" = 1 ]; then
-            [ -n "$ALWAYS" ] || { echo "scope produced no always-run guards"; exit 1; }
+          bun test $DIRS --shard="$SHARD/$TOTAL" --timings=test-timings.json $changed
+          # A snapshot's own test, which --changed cannot select. Path
+          # arguments intersect with --changed, so it is its own call.
+          if [ "$MODE" = changed ] && [ "$SHARD" = 1 ] && [ -n "$EXTRA" ]; then
             # shellcheck disable=SC2086
-            bun test $ALWAYS
+            bun test $EXTRA
           fi
-          echo "shard $SHARD: $(( $(date +%s) - start ))s ($MODE)"
+          echo "shard $SHARD of $TOTAL: $(( $(date +%s) - start ))s ($MODE)"
+
+  # The no-* guards read source as text, so --changed never selects them,
+  # and they are what checks docs, the docs site and the apps trees against
+  # rt's rules when the shards skip. The full suite already runs them.
+  guards:
+    needs: scope
+    if: needs.scope.outputs.mode != 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Always-run guards
+        env:
+          ALWAYS: ${{ needs.scope.outputs.always }}
+        run: |
+          [ -n "$ALWAYS" ] || { echo "scope produced no always-run guards"; exit 1; }
+          # shellcheck disable=SC2086
+          bun test $ALWAYS
 
   # herdr-chat is a Rust herdr plugin; build and test it only when its tree
   # changed (every push to main runs it). rt's unit shards never read it.
@@ -305,7 +337,7 @@ jobs:
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, unit, plugin-herdr-chat, plugin-mattstack, website]
+    needs: [scope, static, go, deck-macos, unit, guards, plugin-herdr-chat, plugin-mattstack, website]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -317,17 +349,22 @@ jobs:
           GO: ${{ needs.go.result }}
           DECK: ${{ needs.deck-macos.result }}
           UNIT: ${{ needs.unit.result }}
+          GUARDS: ${{ needs.guards.result }}
           HERDR_CHAT: ${{ needs.plugin-herdr-chat.result }}
           MATTSTACK: ${{ needs.plugin-mattstack.result }}
           WEBSITE: ${{ needs.website.result }}
           MODE: ${{ needs.scope.outputs.mode }}
+          RUN_GO: ${{ needs.scope.outputs.go }}
+          RUN_DECK: ${{ needs.scope.outputs.deck }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK website=$WEBSITE mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK website=$WEBSITE mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
-          [ "$GO" = success ] || { echo "go did not succeed"; exit 1; }
-          [ "$DECK" = success ] || { echo "deck-macos did not succeed"; exit 1; }
           # skipped is the untouched case: a needed job whose if: is false.
+          # go, deck-macos and guards may skip only when scope said so.
+          [ "$GO" = success ] || { [ "$GO" = skipped ] && [ "$RUN_GO" = false ]; } || { echo "go did not succeed"; exit 1; }
+          [ "$DECK" = success ] || { [ "$DECK" = skipped ] && [ "$RUN_DECK" = false ]; } || { echo "deck-macos did not succeed"; exit 1; }
+          [ "$GUARDS" = success ] || { [ "$GUARDS" = skipped ] && [ "$MODE" = full ]; } || { echo "guards did not succeed"; exit 1; }
           [ "$HERDR_CHAT" = success ] || [ "$HERDR_CHAT" = skipped ] || { echo "plugin-herdr-chat did not succeed"; exit 1; }
           [ "$MATTSTACK" = success ] || [ "$MATTSTACK" = skipped ] || { echo "plugin-mattstack did not succeed"; exit 1; }
           [ "$WEBSITE" = success ] || [ "$WEBSITE" = skipped ] || { echo "website did not succeed"; exit 1; }
