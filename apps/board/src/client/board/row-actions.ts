@@ -578,8 +578,8 @@ export function rowActions(
       )
     );
     if (own) {
-      // The author of an MR not yet in Slack leads with posting it. In a repo
-      // whose code owners have channels, a team thread or a partial post
+      // The author leads with posting while anything is left to post. In a
+      // repo whose code owners have channels, a team thread or a partial post
       // turns the item into the rest of the code owners; with no record of
       // what the dialog offered, it stays on offer and the dialog checks.
       const owners =
@@ -587,8 +587,9 @@ export function rowActions(
       const left = mrx.ownerPostsLeft;
       const started = found || !!left;
       const rest = owners && started && left?.length !== 0;
-      const section = started ? 'slack' : 'top';
-      (started ? slack : top).push(
+      const leads = !started || rest;
+      const section = leads ? 'top' : 'slack';
+      (leads ? top : slack).push(
         item(
           section,
           'post-slack',

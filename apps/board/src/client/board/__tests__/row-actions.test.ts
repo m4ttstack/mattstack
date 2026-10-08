@@ -698,13 +698,18 @@ test('an own MR not yet in slack leads with post to slack', () => {
   }
 });
 
-test('posted to only some code owners, the item offers the rest', () => {
+test('posted to only some code owners, the item leads the menu and offers the rest', () => {
   const post = postItem(
     inOptedRepo({ slack: found, ownerPostsLeft: ['pod-docs'] })
   )!;
   expect(post.label).toBe('post to other codeowners…');
-  expect(post.section).toBe('slack');
+  expect(post.section).toBe('top');
   expect(post.blocked).toBeUndefined();
+});
+
+test('posted everywhere, the blocked item stays in the slack flyout', () => {
+  const post = postItem(inOptedRepo({ slack: found, ownerPostsLeft: [] }))!;
+  expect(post.section).toBe('slack');
 });
 
 test('a team thread found outside the dialog still offers the other code owners', () => {
