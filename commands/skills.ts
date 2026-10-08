@@ -2305,12 +2305,13 @@ export async function skillsMaterialize(args: string[]): Promise<void> {
 
   try {
     const result = await materializeSkills(createRealProbes(), { repo, dir });
+    if (result.skipped && result.waiting) refuseLayoutWaiting(new UserActionableError("org-layout-waiting", result.reason), json);
     if (json) out.json(envelope(result));
     else out.print(...materializeBlocks(result));
     const code = materializeExitCode(result, dir !== undefined);
     if (code !== 0) process.exitCode = code;
   } catch (err) {
-    if (err instanceof UserActionableError) return err.code === "org-layout-waiting" ? refuseLayoutWaiting(err, json) : exitUserError(err, json);
+    if (err instanceof UserActionableError) exitUserError(err, json);
     throw err;
   }
 }
