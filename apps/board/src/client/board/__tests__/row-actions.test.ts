@@ -56,6 +56,7 @@ test("a teammate's reviewed MR with a found thread", () => {
     'top:unreact-white_check_mark',
     'agent:re-review',
     'agent:ask-respond',
+    'sessions:review',
     'sessions:resume-review',
     'sessions:view-review',
     'gitlab:open-gitlab',
@@ -79,13 +80,14 @@ test('a remote board drops local-only rows and says why', () => {
   expect(actions[0]?.blocked).toBe('need a local board');
 });
 
-test('review and re-review both stay; re-review is the primary', () => {
+test('follow-up review is the primary; redo review sits under sessions and asks first', () => {
   const mr = MENU_STATES['own broken']!.mr;
   const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
   expect(actions.find(a => a.key === 're-review')?.section).toBe('agent');
   const fresh = actions.find(a => a.key === 'review');
   expect(fresh?.section).toBe('sessions');
-  expect(fresh?.label).toBe('review from scratch');
+  expect(fresh?.label).toBe('redo review');
+  expect(fresh?.redo).toBe('review');
 });
 
 test('each lane shows exactly one primary row in agent, in every state', () => {
@@ -309,9 +311,13 @@ test('running lanes focus their pane and carry no note or bulk', () => {
   });
   expect(focusReview?.notable).toBeUndefined();
   expect(focusReview?.bulk).toBeUndefined();
-  expect(actions.find(a => a.key === 'focus-respond')?.label).toBe(
-    'relaunch response'
-  );
+  // The response's pane is gone: a redo, not a focus that would refuse.
+  expect(actions.find(a => a.key === 'focus-respond')).toBeUndefined();
+  expect(actions.find(a => a.key === 'respond')).toMatchObject({
+    label: 'redo response',
+    redo: 'respond',
+    request: { kind: 'launch', flow: 'respond' },
+  });
   expect(actions.find(a => a.key === 'doctor')).toMatchObject({
     label: 'call doctor',
     lane: 'doctor',
@@ -807,4 +813,53 @@ test('a teammate outside peers gets no re-review item', () => {
 
 test('without a peers list every finished reviewer is offered a re-review', () => {
   expect(rereviewKeys()).toEqual(['nudge-tom', 'nudge-mira']);
+});
+
+test('rebase locally hides when no doctor skill is bound, and stays when unknown', () => {
+  const broken = MENU_STATES['own broken']!.mr;
+  const env = actionEnvOf(ownEnv, broken);
+  expect(keys(broken, ownEnv)).toContain('rebase-local');
+  expect(
+    rowActions({ ...broken, doctorSkill: false }, env).map(a => a.key)
+  ).not.toContain('rebase-local');
+  expect(
+    rowActions({ ...broken, doctorSkill: true }, env).map(a => a.key)
+  ).toContain('rebase-local');
+});
+
+test('call doctor says what it does at the api tier', () => {
+  const broken = MENU_STATES['own broken']!.mr;
+  const doctor = rowActions(
+    broken,
+    actionEnvOf({ ...ownEnv, doctorTier: 'api' }, broken)
+  ).find(a => a.key === 'doctor');
+  expect(doctor?.label).toBe('retry flaky jobs and watch CI');
+  expect(doctor?.bulk).toBe('retry flaky jobs and watch CI');
+});
+
+test('a running doctor whose pane is gone offers redo, not focus', () => {
+  const mr = mrx(2101, {
+    blockers: { any: true, pipelineFailing: true },
+    doctor: { status: 'watching' },
+    orphan: { state: 'gone' } as never,
+  });
+  const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
+  expect(actions.find(a => a.key === 'focus-doctor')).toBeUndefined();
+  expect(actions.find(a => a.key === 'doctor')).toMatchObject({
+    label: 'redo doctor',
+    redo: 'doctor',
+  });
+});
+
+test("a gone pane on a row with a running review stays the review's", () => {
+  const mr = mrx(2102, {
+    blockers: { any: true, pipelineFailing: true },
+    review: { status: 'reviewing' },
+    doctor: { status: 'watching' },
+    orphan: { state: 'gone' } as never,
+  });
+  const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
+  expect(actions.find(a => a.key === 'focus-doctor')?.label).toBe(
+    'focus doctor'
+  );
 });

@@ -299,34 +299,29 @@ const THREAD_LABEL: Record<ThreadStatus, string> = {
   awaiting: 'awaiting author',
 };
 
-/** The review launch items for a row, by current review state. `re-review` is
-    available whenever a review isn't actively running — even with no prior board
-    review (it degrades to a generic re-review) — so it covers MRs a human reviewed
-    outside the board. A live review collapses to a single "focus review tab" —
-    or "relaunch review pane" once the sweep says the pane is gone, since the
-    same focus route re-opens a dead pane and "focus" would undersell it. */
-/** The review items for the menu, worded like the row's verbs. Re-review
-    is offered only once a review is logged: the board's own finished one,
-    or a person's on GitLab (`reviewLogged`); cold, it would be a second
-    launch button. */
+export type ReviewMenuKind = 'focus' | 'review' | 'redo' | 'follow-up';
+
+/** The review items for the menu. Focus only while the pane is alive; a
+    review whose pane is gone, or one already logged (the board's own, or a
+    person's on GitLab, see `reviewLogged`), is redone from scratch. A
+    follow-up checks the author's changes since the last round. */
 function reviewMenuItems(
   status?: ReviewStatus,
   interrupted?: boolean,
-  logged = false
-): Array<{ kind: 'launch' | 're-review'; label: string }> {
+  logged = false,
+  rounds?: number
+): Array<{ kind: ReviewMenuKind; label: string }> {
+  const redo = { kind: 'redo' as const, label: 'redo review' };
+  const followUp = {
+    kind: 'follow-up' as const,
+    label: rounds
+      ? `follow-up review (round ${rounds + 1})`
+      : 'follow-up review',
+  };
   if (status === 'queued' || status === 'reviewing')
-    return [
-      {
-        kind: 'launch',
-        label: interrupted ? 'relaunch review' : 'focus review',
-      },
-    ];
-  if (status === 'done') return [{ kind: 're-review', label: 're-review' }];
-  const items: Array<{ kind: 'launch' | 're-review'; label: string }> = [
-    { kind: 'launch', label: 'review' },
-  ];
-  if (logged) items.push({ kind: 're-review', label: 're-review' });
-  return items;
+    return interrupted ? [redo] : [{ kind: 'focus', label: 'focus review' }];
+  if (status === 'done') return [followUp, redo];
+  return logged ? [redo, followUp] : [{ kind: 'review', label: 'review' }];
 }
 
 /** Whether anyone has reviewed the MR on GitLab: a reviewer who commented,
@@ -348,13 +343,20 @@ function respondItemLabel(
   interrupted?: boolean
 ): string {
   if (!status || status === 'error') return 'respond';
-  if (status === 'done') return 'restart response';
-  return interrupted ? 'relaunch response' : 'focus response';
+  if (status === 'done' || interrupted) return 'redo response';
+  return 'focus response';
 }
 
-function doctorItemLabel(status?: DoctorStatus): string {
-  if (!status || status === 'error') return 'call doctor';
-  if (status === 'done') return 'call doctor again';
+/** A doctor at the api tier never touches a checkout: it retries flaky
+    jobs and watches CI, so its label says that rather than promise fixes. */
+function doctorItemLabel(
+  status?: DoctorStatus,
+  interrupted?: boolean,
+  tier?: 'api' | 'checkout'
+): string {
+  if (!status || status === 'error')
+    return tier === 'api' ? 'retry flaky jobs and watch CI' : 'call doctor';
+  if (status === 'done' || interrupted) return 'redo doctor';
   return 'focus doctor';
 }
 

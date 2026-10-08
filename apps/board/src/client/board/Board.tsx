@@ -132,6 +132,7 @@ import {
   type RunOpts,
 } from './row-actions.ts';
 import { reviewGroupHue, statusGroupHue } from './row-status.ts';
+import { RedoConfirmDialog, type PendingRedo } from './RedoConfirmDialog.tsx';
 import { RowMenu } from './RowMenu.tsx';
 import { RowView } from './RowView.tsx';
 import { SelectionBar } from './SelectionBar.tsx';
@@ -435,6 +436,8 @@ export function Board() {
     subject: string;
     send: (note: string) => void;
   } | null>(null);
+  // A redo waiting on its confirm dialog; run fires it.
+  const [pendingRedo, setPendingRedo] = useState<PendingRedo | null>(null);
   // The MR whose saved review is open in the modal, if any.
   const [reviewModal, setReviewModal] = useState<BoardMRWithReview | null>(
     null
@@ -983,6 +986,16 @@ export function Board() {
   const runRowAction = useCallback(
     (action: RowAction, mr: BoardMR, opts: RunOpts) => {
       const req = action.request;
+      if (action.redo) {
+        const lane = action.redo;
+        setPendingRedo({
+          lane,
+          count: 1,
+          prior: 1,
+          run: () => void dispatchRowAction(req, mr, opts, runner, rowHandlers),
+        });
+        return undefined;
+      }
       if (req.kind !== 'ask') {
         return dispatchRowAction(req, mr, opts, runner, rowHandlers);
       }
@@ -1416,6 +1429,7 @@ export function Board() {
     local: data.local,
     slackEnabled: data.slackEnabled,
     triageEnabled: data.triageEnabled,
+    doctorTier: data.doctorTier,
     ownerSlackRepos: data.ownerSlackRepos,
     self: seat,
     roster: data.members.map(m => m.username),
@@ -1855,6 +1869,16 @@ export function Board() {
                 const entry = bulkEntries.find(e => e.key === key);
                 if (!entry) return undefined;
                 const req = entry.request;
+                if (entry.redo) {
+                  const lane = entry.redo;
+                  setPendingRedo({
+                    lane,
+                    count: entry.targets.length,
+                    prior: entry.redoCount ?? entry.targets.length,
+                    run: () => void runBulk(entry, opts, runner),
+                  });
+                  return undefined;
+                }
                 if (req.kind !== 'ask') return runBulk(entry, opts, runner);
                 if (!opts.pick) return undefined;
                 const count = entry.pickTargets?.get(opts.pick)?.length ?? 0;
@@ -1883,6 +1907,11 @@ export function Board() {
               onClose={() => setRowMenu(null)}
             />
           ))}
+
+        <RedoConfirmDialog
+          pending={pendingRedo}
+          onDone={() => setPendingRedo(null)}
+        />
 
         <AskConfirmDialog
           open={pendingAsk !== null}

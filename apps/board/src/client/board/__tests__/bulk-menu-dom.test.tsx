@@ -184,6 +184,15 @@ const flyoutRows = () => [
 ];
 /** Clicks the item containing `text`. A single-row menu keeps most rows in
     flyouts, so each is opened in turn until the item shows. */
+/** Press a button in the open confirm dialog by its label. */
+async function confirmWith(label: string) {
+  const button = [...document.querySelectorAll('[role="dialog"] button')].find(
+    b => b.textContent?.trim() === label
+  ) as HTMLButtonElement | undefined;
+  if (!button) throw new Error(`no dialog button "${label}"`);
+  await React.act(async () => button.click());
+}
+
 async function click(text: string) {
   const find = () => items().find(el => el.textContent?.includes(text));
   let hit = find();
@@ -250,9 +259,10 @@ test('respond, resume response and call doctor send the board tab they launch fr
   });
   servedData = { ...BOARD_DATA, mrs: [...BOARD_DATA.mrs, mine] };
   await renderBoard();
-  for (const label of ['restart response', 'resume response', 'call doctor']) {
+  for (const label of ['redo response', 'resume response', 'call doctor']) {
     await rightClick(106);
     await click(label);
+    if (label === 'redo response') await confirmWith('Redo response');
   }
   const sent = posts
     .filter(p => p.url === '/respond' || p.url === '/doctor')
@@ -264,13 +274,13 @@ test('respond, resume response and call doctor send the board tab they launch fr
   ]);
 });
 
-test('re-review and resume review send the board tab they launch from', async () => {
+test('follow-up review and resume review send the board tab they launch from', async () => {
   const reviewed = boardMr(107, {
     review: { status: 'done', sessionId: 'sess-1' },
   });
   servedData = { ...BOARD_DATA, mrs: [...BOARD_DATA.mrs, reviewed] };
   await renderBoard();
-  for (const label of ['re-review', 'resume review']) {
+  for (const label of ['follow-up review', 'resume review']) {
     await rightClick(107);
     await click(label);
   }
@@ -285,6 +295,48 @@ test('re-review and resume review send the board tab they launch from', async ()
     { reReview: true, resume: undefined, tabId: 'team' },
     { reReview: undefined, resume: true, tabId: 'team' },
   ]);
+});
+
+test('redo asks first: cancel launches nothing, confirm launches once', async () => {
+  const mine = boardMr(108, {
+    blockers: { any: true, pipelineFailing: true },
+    respond: { status: 'done', sessionId: 'sess-1' },
+  });
+  servedData = { ...BOARD_DATA, mrs: [...BOARD_DATA.mrs, mine] };
+  await renderBoard();
+  await rightClick(108);
+  await click('redo response');
+  const dialog = document.querySelector('[role="dialog"]');
+  expect(dialog?.textContent).toContain(
+    'This will start a new response from scratch.'
+  );
+  expect(dialog?.textContent).toContain(
+    'Another response was already run on this MR. Are you sure?'
+  );
+  await confirmWith('Cancel');
+  expect(posts.filter(p => p.url === '/respond')).toEqual([]);
+  await rightClick(108);
+  await click('redo response');
+  await confirmWith('Redo response');
+  expect(posts.filter(p => p.url === '/respond').length).toBe(1);
+});
+
+test('a bulk redo confirms once for the whole selection', async () => {
+  const done = (iid: number) =>
+    boardMr(iid, { review: { status: 'done', sessionId: `s-${iid}` } });
+  servedData = { ...BOARD_DATA, mrs: [...BOARD_DATA.mrs, done(109), done(110)] };
+  await renderBoard();
+  await check(109);
+  await check(110);
+  await rightClick(110);
+  await click('redo review');
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+    'This will start 2 new reviews from scratch.'
+  );
+  await confirmWith('Redo 2 reviews');
+  expect(
+    posts.filter(p => p.url === '/review' && !p.body.reReview).length
+  ).toBe(2);
 });
 
 test('a selection no bulk action fits says so', async () => {

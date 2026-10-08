@@ -17,6 +17,7 @@ import {
   nudgeTargets,
   respondAskBlock,
   respondAskTarget,
+  RESPOND_ACTIVE,
   respondItemLabel,
   reviewLogged,
   reviewMenuItems,
@@ -82,6 +83,9 @@ export interface MenuEntry {
   /** The first click arms the item and swaps its label for this; the
       second click fires it. */
   confirm?: string;
+  /** A redo starts its lane over from scratch, so it asks first in a
+      dialog (redo-copy.ts) rather than firing on the click. */
+  redo?: Lane;
   /** Shown with this reason under the label, and never clickable. */
   blocked?: string;
   /** Alt-click opens the note box before firing. */
@@ -114,6 +118,8 @@ export interface ActionEnv {
   slackEnabled: boolean;
   /** Auto-doctor on for this board; undefined = unknown. */
   triageEnabled?: boolean;
+  /** The tier a menu-launched doctor runs at; undefined = unknown. */
+  doctorTier?: 'api' | 'checkout';
   /** The rt repos (as stamped on a row's `rtRepo`) whose Code Owner section
       names carry Slack channels; absent means none. */
   ownerSlackRepos?: string[];
@@ -177,6 +183,18 @@ const block = (
     rows carrying them are left out rather than shown disabled. */
 const ABSENT = new Set(['no session', 'no report yet', 'nothing to dismiss']);
 
+/** Doctor rows record no session id, so a gone pane counts as the doctor's
+    only while no review or response on the row could own it. */
+function doctorInterrupted(mrx: BoardMRWithReview): boolean {
+  return (
+    mrx.orphan?.state === 'gone' &&
+    !!mrx.doctor &&
+    DOCTOR_ACTIVE.has(mrx.doctor.status) &&
+    !['queued', 'reviewing'].includes(mrx.review?.status ?? '') &&
+    !(mrx.respond && RESPOND_ACTIVE.has(mrx.respond.status))
+  );
+}
+
 /** Every action this MR offers, in menu order, each in one section. A row
     is omitted for who is looking (local board, own MR, seat, Slack on, an
     opted-in repo) and in these state cases: call doctor on a healthy MR,
@@ -196,16 +214,15 @@ export function rowActions(
   const more: RowAction[] = [];
 
   if (env.local) {
-    const reviewRunning =
-      mrx.review?.status === 'queued' || mrx.review?.status === 'reviewing';
     const reviewItems = reviewMenuItems(
       mrx.review?.status,
       laneInterrupted(mrx.orphan, mrx.review),
-      reviewLogged(mrx)
+      reviewLogged(mrx),
+      mrx.review?.rounds
     );
-    const reReviewOffered = reviewItems.some(it => it.kind === 're-review');
+    const followUpOffered = reviewItems.some(it => it.kind === 'follow-up');
     for (const it of reviewItems) {
-      if (reviewRunning)
+      if (it.kind === 'focus')
         agent.push(
           agentItem('review', 'focus-review', it.label, {
             kind: 'launch',
@@ -213,34 +230,29 @@ export function rowActions(
             intent: 'focus',
           })
         );
-      else if (it.kind === 're-review')
+      else if (it.kind === 'follow-up')
         agent.push(
           agentItem(
             'review',
             're-review',
             it.label,
             { kind: 'launch', flow: 're-review' },
-            { notable: true, bulk: 're-review' }
-          )
-        );
-      else if (reReviewOffered)
-        sessions.push(
-          agentItem(
-            'review',
-            'review',
-            'review from scratch',
-            { kind: 'launch', flow: 'review' },
-            { section: 'sessions', notable: true, bulk: 'review' }
+            { notable: true, bulk: 'follow-up review' }
           )
         );
       else
-        agent.push(
+        (followUpOffered ? sessions : agent).push(
           agentItem(
             'review',
             'review',
             it.label,
             { kind: 'launch', flow: 'review' },
-            { notable: true, bulk: 'review' }
+            {
+              notable: true,
+              bulk: 'review',
+              ...(followUpOffered ? { section: 'sessions' as const } : {}),
+              ...(it.kind === 'redo' ? { redo: 'review' as const } : {}),
+            }
           )
         );
     }
@@ -262,12 +274,8 @@ export function rowActions(
         mrx.respond?.status,
         laneInterrupted(mrx.orphan, mrx.respond)
       );
-      // Both words ride the focus intent: the launch route already re-opens
-      // a dead pane, the label only says which of the two it will do.
-      const focuses =
-        label === 'focus response' || label === 'relaunch response';
       agent.push(
-        focuses
+        label === 'focus response'
           ? agentItem('respond', 'focus-respond', label, {
               kind: 'launch',
               flow: 'respond',
@@ -278,7 +286,12 @@ export function rowActions(
               'respond',
               label,
               { kind: 'launch', flow: 'respond' },
-              { notable: true }
+              {
+                notable: true,
+                ...(label === 'redo response'
+                  ? { redo: 'respond' as const }
+                  : {}),
+              }
             )
       );
       sessions.push(
@@ -296,7 +309,11 @@ export function rowActions(
       );
     }
     if (own && (mrx.blockers?.pipelineFailing || mrx.blockers?.hasConflicts)) {
-      const label = doctorItemLabel(mrx.doctor?.status);
+      const label = doctorItemLabel(
+        mrx.doctor?.status,
+        doctorInterrupted(mrx),
+        env.doctorTier
+      );
       agent.push(
         label === 'focus doctor'
           ? agentItem('doctor', 'focus-doctor', label, {
@@ -309,12 +326,17 @@ export function rowActions(
               'doctor',
               label,
               { kind: 'launch', flow: 'doctor' },
-              { notable: true, bulk: 'call doctor' }
+              {
+                notable: true,
+                bulk: doctorItemLabel(undefined, false, env.doctorTier),
+                ...(label === 'redo doctor' ? { redo: 'doctor' as const } : {}),
+              }
             )
       );
     }
     if (
       own &&
+      mrx.doctorSkill !== false &&
       (mrx.blockers?.hasConflicts ||
         mrx.rebaseButton.visible ||
         (mrx.behindTarget ?? 0) > 0)
@@ -655,6 +677,8 @@ export interface BulkEntry extends MenuEntry {
   selected: number;
   /** request review from…: who can be asked on which of the targets. */
   pickTargets?: Map<string, BoardMRWithReview[]>;
+  /** How many targets already had a run, when any did (see `redo`). */
+  redoCount?: number;
 }
 
 /** Bulk keys someone else's MR can never reach, so it never counts as
@@ -760,7 +784,9 @@ const BULK_CONFIRM: Record<string, (n: number) => string | undefined> = {
   review: n =>
     n > LAUNCH_CONFIRM_OVER ? `really start ${n} reviews?` : undefined,
   're-review': n =>
-    n > LAUNCH_CONFIRM_OVER ? `really start ${n} re-reviews?` : undefined,
+    n > LAUNCH_CONFIRM_OVER
+      ? `really start ${n} follow-up reviews?`
+      : undefined,
   doctor: n =>
     n > LAUNCH_CONFIRM_OVER ? `really call doctor on ${n}?` : undefined,
 };
@@ -818,21 +844,29 @@ export function bulkActions(
       first: RowAction;
       targets: BoardMRWithReview[];
       picks: Map<string, BoardMRWithReview[]>;
+      redo?: Lane;
+      redoCount: number;
     }
   >();
   for (const [key, first] of firstOf) {
     const targets: BoardMRWithReview[] = [];
     const picks = new Map<string, BoardMRWithReview[]>();
+    let redo: Lane | undefined;
+    let redoCount = 0;
     let fits = true;
     for (const { mr, actions, offered, own: isOwn } of rows) {
       const offeredAction = actions.find(a => a.key === key);
       if (offeredAction) {
         targets.push(mr);
+        if (offeredAction.redo) {
+          redo = offeredAction.redo;
+          redoCount++;
+        }
         for (const o of offeredAction.pick?.options ?? [])
           picks.set(o.value, [...(picks.get(o.value) ?? []), mr]);
       } else if (!alreadyThere(key, offered, isOwn)) fits = false;
     }
-    if (fits) groups.set(key, { first, targets, picks });
+    if (fits) groups.set(key, { first, targets, picks, redo, redoCount });
   }
   for (const key of [...groups.keys()])
     if (
@@ -845,13 +879,17 @@ export function bulkActions(
     const entry: BulkEntry = {
       key,
       section: BULK_SECTION[g.first.section],
-      label: g.first.bulk ?? g.first.label,
+      label:
+        g.redo && g.redoCount === g.targets.length
+          ? g.first.label
+          : (g.first.bulk ?? g.first.label),
       glyph: g.first.glyph,
       lane: g.first.lane,
       request: g.first.request,
       targets: g.targets,
       selected: mrs.length,
-      confirm: BULK_CONFIRM[key]?.(g.targets.length),
+      confirm: g.redo ? undefined : BULK_CONFIRM[key]?.(g.targets.length),
+      ...(g.redo ? { redo: g.redo, redoCount: g.redoCount } : {}),
       blocked: key === 'merge' ? mergeBlock(mrs, env.allMrs) : undefined,
     };
     if (g.first.pick) {
