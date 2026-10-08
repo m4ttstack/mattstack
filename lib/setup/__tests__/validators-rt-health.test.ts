@@ -1482,6 +1482,43 @@ describe("orgLayoutRow", () => {
   });
 });
 
+describe("team.sync for a clone waiting on its layout", () => {
+  const waiting = (entry: Record<string, unknown>) => {
+    const calls: string[] = [];
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/.git/config": "",
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"] },
+      daemon: async (cmd) => {
+        calls.push(cmd);
+        return { ok: true, data: [{ slug: "acme", enabled: true, pullOnly: true, unownedDirty: [], conflicted: null, lastPullError: null, lastPushError: null, lastPullAt: 1_000_000, lastPullSkipped: null, layoutHold: null, ...entry }] } as never;
+      },
+    });
+    return { p, calls };
+  };
+  const build = (p: ReturnType<typeof fakeProbes>) => rtHealthRows({ ...p, now: () => new Date(1_000_000) }, { ci: false }, () => ({ enabled: true, pullIntervalSec: 300 }) as never);
+
+  test("a failing fetch draws team.sync with that error", async () => {
+    const { p } = waiting({ lastPullError: "fatal: Authentication failed" });
+    const r = (await build(p)).find((row) => row.id === "team.sync");
+    expect(r).toMatchObject({ status: "needs-you", detail: "acme: fetches are failing: fatal: Authentication failed" });
+  });
+  test("a clean entry draws team.sync calm", async () => {
+    const { p } = waiting({});
+    const r = (await build(p)).find((row) => row.id === "team.sync");
+    expect(r).toMatchObject({ status: "ready", detail: "1 clone in sync. Pull-only, never pushes: acme" });
+  });
+  test("the daemon status is read once per build", async () => {
+    const { p, calls } = waiting({});
+    const rows = await build(p);
+    expect(rows.find((row) => row.id === "org.layout")?.status).toBe("skipped");
+    expect(calls.filter((c) => c === "team:snapshot-status").length).toBe(1);
+  });
+});
+
 describe("held layout and row position", () => {
   const entry = (extra: Record<string, unknown>) => ({ slug: "widgets", enabled: true, pullOnly: true, unownedDirty: [], conflicted: null, lastPullError: null, lastPushError: null, lastPullAt: 1000, ...extra }) as unknown as TeamSnapshotEntry;
   test("team.sync does not call a held pull-only clone stuck or tell it to reset", async () => {

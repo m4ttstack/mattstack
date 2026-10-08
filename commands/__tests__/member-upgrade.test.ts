@@ -275,7 +275,7 @@ describe("member upgrade: app first, org main converts later", () => {
     expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "skipped", detail: "Your org has not moved to its new layout yet. rt finishes the move when it does." });
     // Only the org rows: the rt link, shell, intercepts, home backup and daemon rows read needs-you in a temp HOME with no app.
     expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
-    expect(rows.find((r) => r.id === "team.sync")?.status).not.toBe("error");
+    expect(rows.find((r) => r.id === "team.sync")).toMatchObject({ status: "missing", detail: "The rt daemon is not running. Team clones sync once it is" });
 
     convertOrigin();
     const db = openStateDb(join(home, ".mattstack", "rt", "state.db"), "cli");
@@ -349,7 +349,7 @@ describe("member upgrade: org main converts first, app updates later", () => {
     const rows = await rtHealthRows(p, { ci: false });
     expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 2" });
     expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
-    expect(rows.find((r) => r.id === "team.sync")?.status).not.toBe("error");
+    expect(rows.find((r) => r.id === "team.sync")).toMatchObject({ status: "missing", detail: "The rt daemon is not running. Team clones sync once it is" });
     const drawn = (await composePlan({ p, secrets: { has: async () => null }, ci: false, mode: "status", orgs: ["acme"] })).groups.flatMap((g) => g.rows);
     expect(drawn.filter((r) => ["team.identity", "team.none"].includes(r.id) && r.status === "needs-you").map((r) => r.id)).toEqual([]);
   });

@@ -761,19 +761,23 @@ export async function rtHealthRows(
   const slugs = discoverOrgs(p);
   const oneTeam = oneTeamRow(slugs);
   const orgFolder = orgFolderRow(p, slugs);
+  const layout = orgLayoutState(p);
+  const syncSlugs = layout.kind === "waiting" && !slugs.includes(layout.slug) ? [...slugs, layout.slug] : slugs;
+  let statusRead: Promise<TeamSnapshotEntry[] | null> | null = null;
+  const readStatus = () => (statusRead ??= readTeamSnapshotStatus(p));
   let teamSync: Row | null = null;
-  if (slugs.length > 0) {
+  if (syncSlugs.length > 0) {
     const settings = readSnapshotSettings();
     teamSync = await teamSyncRow(
-      slugs,
-      () => readTeamSnapshotStatus(p),
+      syncSlugs,
+      readStatus,
       () => p.now().getTime(),
       settings?.pullIntervalSec ?? PULL_INTERVAL_FALLBACK_SEC,
       settings?.enabled !== false,
     );
   }
 
-  const orgLayout = await orgLayoutRow(p, () => readTeamSnapshotStatus(p));
+  const orgLayout = await orgLayoutRow(p, readStatus);
 
   return [
     await rtRow(p),
