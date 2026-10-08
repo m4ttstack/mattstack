@@ -81,6 +81,7 @@ async function open(value: unknown[], s = store()) {
   await screen.findByRole('radiogroup', {
     name: 'rt.notify.eventBridges panel',
   });
+  await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
   return s;
 }
 

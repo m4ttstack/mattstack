@@ -98,7 +98,7 @@ Two source kinds:
 Per-tab overrides:
 
 - `slackChannel`: posts and reactions for this tab go to a different channel
-  instead of `slack.channel`.
+  instead of your team's code owners channel from `mattstack.directory`.
 - `reviewSkill`: skill binding for review launches from this tab, instead of
   the pack binding or the empty fallback.
 - `pack`: team pack whose bindings launches from this tab use. The pack is
@@ -143,9 +143,10 @@ rt settings set board.codeowners '{"slack":{"fromSectionName":true}}' \
 
 "post to slack" first reads the MR's approvals. When only your own team's
 sections are waiting, or none are, it posts to the team channel straight
-away. Your team's sections are the codeowners tab's section and any section
-that names the team channel; their channel is where other teams ask you, so
-it is never offered for your own MRs.
+away. Your team's sections are the ones whose channel is one of your team's
+channels in the org's `mattstack.directory`: its code owners channel or any
+channel listed under it. Their channel is where other teams ask you, so it is
+never offered for your own MRs.
 
 When other teams' sections are waiting, a dialog opens before anything is
 sent. The team channel comes first, then one channel per group of sections
@@ -159,10 +160,17 @@ channel left on.
 After posting to only some channels, the menu item reads "post to other
 codeowners…" until the rest are posted. If the approvals cannot be read, the
 item still posts to the team channel and says it could not check the code
-owners.
+owners, unless your team has no review channel. Then it says so and posts
+nothing.
 
 `board.codeowners` is set per repo and holds one property per code owner
 feature, so a repo without it gets none of them.
+
+The team channel is your team's first channel of kind `board.slack.reviewKind`
+(default `review`) in `mattstack.directory`. With none, posting says to add
+one. A codeowners tab watches your team's code owners channel unless you give
+it a `slackChannel` of its own, and `board.ticketPrefixes` defaults to your
+team's Linear key.
 
 ## Tokens and secrets
 

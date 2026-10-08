@@ -174,7 +174,7 @@ function marked() {
 }
 
 describe('SettingsPage', () => {
-  it('opens a row in place on Where it’s set', async () => {
+  it('opens a row in place on Value, with Where it’s set one tab away', async () => {
     const rows = [
       { scope: 'default', file: null, present: false },
       { scope: 'user', file: '/u', present: true, value: 'sonnet' },
@@ -201,8 +201,11 @@ describe('SettingsPage', () => {
       '[data-key="board.agent.model"]'
     )!;
     expect(
-      await within(row).findByRole('radio', { name: "Where it's set" })
+      await within(row).findByRole('radio', { name: 'Value' })
     ).toBeChecked();
+    await userEvent.click(
+      within(row).getByRole('radio', { name: "Where it's set" })
+    );
     expect(
       within(row).getByText('Weakest first. The last layer set wins.')
     ).toBeInTheDocument();
@@ -591,7 +594,7 @@ describe('open rows', () => {
   const chevron = (key: string) =>
     within(rowOf(key)).getByRole('button', { name: new RegExp(` ${key}$`) });
 
-  it('?explain=<key> opens that row on Where it’s set and scrolls it into view', async () => {
+  it('?explain=<key> opens that row on Value and scrolls it into view', async () => {
     window.history.replaceState(
       null,
       '',
@@ -601,7 +604,7 @@ describe('open rows', () => {
     await screen.findByRole('button', { name: 'close board.agent.model' });
     const row = rowOf('board.agent.model');
     expect(
-      await within(row).findByRole('radio', { name: "Where it's set" })
+      await within(row).findByRole('radio', { name: 'Value' })
     ).toBeChecked();
     await waitFor(() => expect(scrolled.mock.contexts).toContain(row));
   });
@@ -641,7 +644,28 @@ describe('open rows', () => {
     expect(window.history.length).toBe(before);
   });
 
-  it('keeps the Value tab in ?tab=value', async () => {
+  it('keeps Where it’s set in ?tab=where', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/settings?explain=board.agent.model&tab=where'
+    );
+    renderPage();
+    await screen.findByRole('button', { name: 'close board.agent.model' });
+    const row = rowOf('board.agent.model');
+    expect(
+      await within(row).findByRole('radio', { name: "Where it's set" })
+    ).toBeChecked();
+    await userEvent.click(within(row).getByRole('radio', { name: 'Value' }));
+    expect(param('tab')).toBeNull();
+    expect(param('explain')).toBe('board.agent.model');
+    await userEvent.click(
+      within(row).getByRole('radio', { name: "Where it's set" })
+    );
+    expect(param('tab')).toBe('where');
+  });
+
+  it('an older ?tab=value link still opens on Value', async () => {
     window.history.replaceState(
       null,
       '',
@@ -649,15 +673,11 @@ describe('open rows', () => {
     );
     renderPage();
     await screen.findByRole('button', { name: 'close board.agent.model' });
-    const row = rowOf('board.agent.model');
     expect(
-      await within(row).findByRole('radio', { name: 'Value' })
+      await within(rowOf('board.agent.model')).findByRole('radio', {
+        name: 'Value',
+      })
     ).toBeChecked();
-    await userEvent.click(
-      within(row).getByRole('radio', { name: "Where it's set" })
-    );
-    expect(param('tab')).toBeNull();
-    expect(param('explain')).toBe('board.agent.model');
   });
 
   it('a link to a key the filter hides clears the filter', async () => {
@@ -803,6 +823,9 @@ describe('open rows', () => {
       await screen.findByRole('checkbox', { name: /Changed/ })
     );
     await userEvent.click(screen.getByRole('button', { name: `open ${KEY}` }));
+    await userEvent.click(
+      await within(rowOf(KEY)).findByRole('radio', { name: "Where it's set" })
+    );
     const layer = await within(rowOf(KEY)).findByTestId('layer-machine');
     await userEvent.click(
       within(layer).getByRole('button', { name: `remove ${KEY} from machine` })

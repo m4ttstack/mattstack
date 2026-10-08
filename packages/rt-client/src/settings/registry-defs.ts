@@ -348,7 +348,7 @@ const ROWS: readonly SettingDef[] = [
     type: "object",
     scopes: ["team"],
     merge: "deep",
-    description: "Team-wide external integration config (forge/slack/linear) the installer provisions; client secrets never live here.",
+    description: "Team-wide external integration config (forge, slack app, linear workspace) the installer provisions; a team's Linear key is in mattstack.directory; client secrets never live here.",
   },
   {
     key: "mattstack.tracking",
@@ -398,6 +398,14 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["org"],
     merge: "replace",
     description: "Who may change shared settings: the org's admins, and each team's owners, by forge username.",
+  },
+  {
+    key: "mattstack.directory",
+    type: "object",
+    scopes: ["org"],
+    merge: "replace",
+    description:
+      "Every team the apps should know about, on mattstack or not: each team's Linear key and Slack channels (the channel other teams ask it in for code owner review, plus channels by kind). Keyed by team name; a name matching a team folder is that mattstack team.",
   },
   {
     key: "mattstack.activeTeam",
@@ -491,7 +499,7 @@ const ROWS: readonly SettingDef[] = [
     type: "object",
     scopes: ["team"],
     merge: "deep",
-    description: "The board's Slack posting config (app id, client id, channel, callback port); channel is the default that a tab's slackChannel overrides per MR. Client secrets stay out of this store.",
+    description: "The board's Slack posting config (app id, client id, templates, callback port, reviewKind). The team's review channel is in mattstack.directory. Client secrets stay out of this store.",
   },
   {
     key: "board.doctorSkill",

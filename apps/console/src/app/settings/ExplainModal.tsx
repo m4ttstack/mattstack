@@ -94,8 +94,8 @@ function Detail({
 }) {
   const writes = useMemo(() => notifying(store, onChanged), [store, onChanged]);
   const row = useRowSave(writes, def);
-  const [asJson, setAsJson] = useState(false);
-  const [tab, setTab] = useState<PanelTab>('where');
+  const [asJson, setAsJson] = useState(true);
+  const [tab, setTab] = useState<PanelTab>(fix ? 'where' : 'value');
   const parts = useRowParts(def, row, { suggestions, asJson, setAsJson });
   return (
     <KeyPanel

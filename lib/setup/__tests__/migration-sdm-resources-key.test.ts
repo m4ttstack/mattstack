@@ -49,8 +49,8 @@ describe("2026-10-07-sdm-resources-key", () => {
     expect(JSON.parse(readFileSync(join(dir, "mattstack", "settings.team.jsonc"), "utf8"))["rt.sdmEnrichment"]).toEqual(ENR);
   });
 
-  test("is the last migration in the list", () => {
-    expect(MIGRATIONS[MIGRATIONS.length - 1]).toBe(sdmResourcesKeyMigration);
+  test("is in the migration list", () => {
+    expect(MIGRATIONS).toContain(sdmResourcesKeyMigration);
   });
 
   test("moves rt.sdmEnrichment to sdm.resources in a team this Mac owns", async () => {

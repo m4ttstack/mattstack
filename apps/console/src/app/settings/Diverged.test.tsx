@@ -82,6 +82,13 @@ function stubExplain(def: SettingDefWire, rows: unknown[]) {
   }));
 }
 
+/** The modal opens on Value; these read the layers. */
+async function toWhere() {
+  await userEvent.click(
+    await screen.findByRole('radio', { name: "Where it's set" })
+  );
+}
+
 function findConfirm(title: string): Promise<HTMLElement> {
   return screen
     .findByText(title)
@@ -171,6 +178,7 @@ describe('a diverged older name', () => {
         />
       </QueryClientProvider>
     );
+    await toWhere();
     await screen.findByTestId('layer-user');
     expect(
       screen.queryByRole('button', { name: 'Remove the older name' })
@@ -262,6 +270,7 @@ describe('a diverged older name', () => {
         />
       </QueryClientProvider>
     );
+    await toWhere();
     const layer = await screen.findByTestId('layer-user');
     const use = within(layer).getByRole('button', {
       name: 'Use the older value',
@@ -316,6 +325,7 @@ describe('a diverged older name', () => {
         />
       </QueryClientProvider>
     );
+    await toWhere();
     const layer = await screen.findByTestId('layer-user');
     expect(
       within(layer).queryByRole('button', { name: 'Use the older value' })
@@ -348,6 +358,7 @@ describe('a diverged older name', () => {
       </QueryClientProvider>
     );
     const layer = await screen.findByTestId('layer-user');
+    await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     expect(within(layer).getByTestId('entry-dev')).toBeInTheDocument();
     await userEvent.click(
       within(layer).getByRole('button', { name: 'Use the older value' })
@@ -391,6 +402,7 @@ describe('a diverged older name', () => {
         </QueryClientProvider>
       </SettingsRepoContext.Provider>
     );
+    await toWhere();
     await userEvent.click(
       await screen.findByRole('button', { name: 'Remove the older name' })
     );
@@ -422,6 +434,7 @@ describe('a diverged older name', () => {
         />
       </QueryClientProvider>
     );
+    await toWhere();
     await userEvent.click(
       await screen.findByRole('button', { name: 'Remove the older name' })
     );
@@ -451,8 +464,8 @@ describe('a diverged older name', () => {
       </QueryClientProvider>
     );
     const layer = await screen.findByTestId('layer-user');
-    // No switch to JSON: the layer opens in form mode already, since the
-    // older value still fits the form.
+    await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
+    // The form keeps its mode: the older value still fits it.
     await userEvent.click(
       within(layer).getByRole('button', { name: 'Use the older value' })
     );
@@ -485,6 +498,7 @@ describe('a diverged older name', () => {
       </QueryClientProvider>
     );
     const layer = await screen.findByTestId('layer-user');
+    await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     await userEvent.click(
       within(layer).getByRole('button', { name: 'Use the older value' })
     );
@@ -556,6 +570,7 @@ describe('a diverged older name', () => {
       </QueryClientProvider>
     );
     const layer = await screen.findByTestId('layer-user');
+    await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     expect(within(layer).getByTestId('item-0')).toBeInTheDocument();
     expect(within(layer).queryByTestId('item-1')).toBeNull();
     await userEvent.click(
@@ -597,6 +612,7 @@ describe('a diverged older name', () => {
         <Harness />
       </QueryClientProvider>
     );
+    await toWhere();
     await userEvent.click(
       await screen.findByRole('button', { name: 'Remove the older name' })
     );

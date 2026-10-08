@@ -61,6 +61,7 @@ async function openRow(def: SettingDefWire, s = store()) {
     screen.getByRole('button', { name: `open ${def.key}` })
   );
   await screen.findByRole('radiogroup', { name: `${def.key} panel` });
+  await userEvent.click(await screen.findByRole('radio', { name: 'Form' }));
   return s;
 }
 

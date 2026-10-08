@@ -321,6 +321,7 @@ describe("settings/registry", () => {
         "mattstack.integrations",
         "mattstack.tracking",
         "mattstack.appPath",
+        "mattstack.directory",
         "setup.waived",
         "mattstack.roster",
         "mattstack.org",
@@ -405,7 +406,7 @@ describe("settings/registry", () => {
         "sdm.carriers",
         "sdm.resources",
       ];
-      expect(suiteKeys).toHaveLength(86);
+      expect(suiteKeys).toHaveLength(87);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
