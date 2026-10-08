@@ -44,6 +44,9 @@ Matt made these choices on 2026-10-07; they are not open here.
    under Matt's login in a throwaway repo. Matt's dev-app trial stays the
    final end-to-end check.
 9. RT-390's reply rule is an always-on prompt section (see Delivery).
+10. A session waiting on its own quiet gate shows it in a band row above
+    the prompt, and a person can answer it from that pane (see Gates).
+    This is new work with its own ticket.
 
 ## Evidence
 
@@ -84,7 +87,7 @@ Both spikes ran Claude Code 2.1.293 under Matt's login with his plugins.
 
 ## Scope
 
-In scope (19 tickets):
+In scope (19 tickets and one new one):
 
 | Ticket | What it gives Claude | Where it lands |
 | --- | --- | --- |
@@ -101,6 +104,7 @@ In scope (19 tickets):
 | RT-387 | Chat sign-in through the session | Mods package |
 | RT-385 | The mod owns the gate form | Mods package |
 | RT-402 | Wait gates without `rt gate wait` | Mods package |
+| New ticket | Answer a quiet gate from the waiting session's pane | Mods package |
 | RT-391 | Shell hooks ported | M6 (stop gate, spill note), H6 (announce) |
 | RT-395 | Session state feed | H3 |
 | RT-397 | Watchdog reads the feed, nudges in session | H3 |
@@ -152,7 +156,7 @@ engine themselves.
 `session:*` handlers write into F3's session store. There is one registry.
 
 A registration records the session's mod blocks on the Claude session
-record: `delivery`, `gate-form`, `gate-wait`, `presence`, `policy`,
+record: `delivery`, `gate-form`, `gate-wait`, `gate-panel`, `presence`, `policy`,
 `stop-gate`, `relocation` and `observe`. These are Claude-internal; the
 shared `Capability` vocabulary does not change. A block counts as live only
 while the link is: a missed heartbeat, a session end or a refused
@@ -230,6 +234,29 @@ in rounds and, once the gate is answered, starts a turn with
 branches on that reply; shared skill text names no Claude-only mechanism.
 Without the block, skills run `rt gate wait` as today, and the
 `Bash(rt gate *)` and `Bash(rt events wait *)` allow rules stay.
+
+**Answering a quiet gate from the waiting pane.** A session that opens a
+quiet gate (registers it, ends its turn and waits, as herd workers do so
+the shepherd can raise it) shows that gate in its own pane while it is
+open:
+
+- A band row above the prompt: "Waiting on your answer: <question>", with
+  a `1` hotkey that works without leaving the prompt, and a click target.
+- Pressing it opens a focused pane with the question, one button per
+  option and a free-text field.
+- An answer there goes through the gate service as a person's answer from
+  that pane, the same way a board answer does. The model cannot press a
+  mod's buttons, so this path is never the worker answering its own gate.
+- The waiting session wakes through its usual path (the `gate-wait` block,
+  or `rt gate wait`), and the shepherd and board learn of the answer
+  through the existing fan-out.
+- The row disappears, and an open pane closes, when the gate is answered
+  anywhere or withdrawn.
+
+This applies to any session with the `gate-panel` block live that is
+waiting on its own quiet gate, herd workers being the main case. It adds
+a way to answer and replaces nothing, so it needs no fallback: without the
+block, the gate is answered through the shepherd or the board as today.
 
 **Completion record.** A gate completed through the mod gets the same kind
 of completion record M4 keeps, naming the winner and the path (`mod-result`
@@ -333,7 +360,9 @@ gap carried from M5c.
 - After this spec is approved, each in-scope ticket's "Harness
   integrations" paragraph is rewritten to match it, without the wrap-first
   wording and with the spike facts that matter to it. RT-389 gains RT-406 as
-  a blocker. RT-384 gets a comment with the mods-02 results. No new tickets.
+  a blocker. RT-384 gets a comment with the mods-02 results. One new
+  ticket in the mods project, "Answer a quiet gate from the waiting
+  session's pane", blocked by RT-409 and RT-402.
 
 This document authorizes no implementation. The plan revision follows its
 approval.
