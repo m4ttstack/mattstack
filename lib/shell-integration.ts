@@ -13,6 +13,7 @@
 import { constants, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { LEGACY_RT_DIR_IN_RC } from "./rt-paths.ts";
 
 // Call-time HOME (mirrors lib/rt-paths.ts's home()): resolved on every call,
 // not baked in at module load. A module-load-time HOME let a test's temp-HOME
@@ -109,7 +110,7 @@ function zshenvBlock(): string {
 
 // ─── History hook blocks (also callable standalone for existing installs) ──────
 
-/** `stateDir` is where `rt run` leaves its last command; it moved from ~/.rt to ~/.mattstack/rt, and rc files written before the move still carry the old path. */
+/** `stateDir` is where `rt run` leaves its last command; it moved in RT-33, and rc files written before the move still carry LEGACY_RT_DIR_IN_RC. */
 function posixHistoryHook(stateDir = "~/.mattstack/rt"): string {
   return [
     HISTORY_HOOK_MARKER,
@@ -351,7 +352,7 @@ const LEGACY_LEAD_LINES = [
 
 /** Every history hook rt has appended, as lines, without the trailing empty line `split` leaves. */
 function knownHistoryHooks(): string[][] {
-  return [posixHistoryHook(), posixHistoryHook("~/.rt")].map((hook) => hook.split("\n").slice(0, -1));
+  return [posixHistoryHook(), posixHistoryHook(LEGACY_RT_DIR_IN_RC)].map((hook) => hook.split("\n").slice(0, -1));
 }
 
 /**
