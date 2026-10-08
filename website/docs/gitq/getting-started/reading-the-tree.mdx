@@ -42,7 +42,7 @@ demo:
   feat-docs: local-only
 ```
 
-One block per stack, one line per branch, in stack order: `  <branch>: <situation>`. A branch that is currently checked out in a sibling worktree (never a work slot: those run detached) gets a suffix naming it, `  feat-api: behind-parent [in feature-tree]`, which is how you find out why a cascade is about to refuse to move that branch.
+One block per stack, one line per branch, in stack order: `  <branch>: <situation>`. A branch that is currently checked out in a sibling worktree (never a work slot: those run detached) gets a suffix naming it: `  feat-api: behind-parent [in feature-tree]`. That is how you find out why a cascade is about to refuse to move that branch.
 
 Reach for it as the default "where am I" command, and always before `sync`, so you know what the cascade is going to change.
 
@@ -85,7 +85,7 @@ demo: dirty=false
   no predicted conflicts
 ```
 
-One line per stack with the working tree state, then either the predicted conflicts (per branch, each conflicted file with its two-letter git status code) or `no predicted conflicts`. When a stack branch is checked out in one of your worktrees, a `slot conflicts:` section is appended naming the branch, the worktree, and whether that worktree is dirty, because a dirty checkout is what will make a cascade refuse to move that branch.
+One line per stack with the working tree state, then either the predicted conflicts (per branch, each conflicted file with its two-letter git status code) or `no predicted conflicts`. When a stack branch is checked out in one of your worktrees, a `slot conflicts:` section is appended. It names the branch, the worktree, and whether that worktree is dirty. A dirty checkout is what will make a cascade refuse to move that branch.
 
 Reach for it before a `sync` you are not sure about, especially a long stack or one you have not touched in a while. It is the difference between finding out about a conflict now and finding out halfway through a cascade.
 
@@ -95,4 +95,4 @@ See [`gitq preflight`](/gitq/reference/read-only/preflight) for the full flag an
 
 ## Machine readable output
 
-All three take `--json` and emit a structured document on stdout instead of the human summary, and the JSON is a superset: `diagnose --json` carries the per node `statusLine`, `badge`, `primaryAction`, `blocked`, and `removal` fields that drive the board, plus the stack's `edges`, `banner`, and `globalBlocks`. All three also include a `worktrees` array. See [JSON output](/gitq/reference/json-output) for the shapes, and [Global flags](/gitq/reference/global-flags) for `--json` and `-C`.
+All three take `--json` and emit a structured document on stdout instead of the human summary. The JSON is a superset. `diagnose --json` carries the per node `statusLine`, `badge`, `primaryAction`, `blocked`, and `removal` fields that drive the board, plus the stack's `edges`, `banner`, and `globalBlocks`. All three also include a `worktrees` array. See [JSON output](/gitq/reference/json-output) for the shapes, and [Global flags](/gitq/reference/global-flags) for `--json` and `-C`.

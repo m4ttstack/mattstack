@@ -12,8 +12,6 @@ import BoardIcon from "@site/src/components/BoardIcon";
 
 board is one page of your team's open GitLab merge requests that are ready for review, so you can drop a single link in Slack instead of pasting MR URLs. Each row shows a status dot, the title, the branch, one review-state phrase, the diff size, the age and a Linear ticket link when the branch or title carries a ticket id. Merge conflicts and red CI show as their own flag chips, so the phrase always says where the MR sits in review.
 
-Every screenshot on this page is the board's own test fixture: invented people, a made-up `acme/webapp` project and MR titles that never existed.
-
 <Screenshot name="board/board" alt="board showing the Show chips, the Group and Sort menus, the Team and Needs me tabs, and a list of merge requests" />
 
 ## Open it
@@ -56,6 +54,8 @@ A few behaviors hold across the menu:
 - Hold <kbd>Option</kbd> over an agent launch that takes a note and its hint reads "+ note". <kbd>Option</kbd>-click it to type an extra instruction for the agent (up to 2000 characters) before it starts.
 - **merge** asks twice: the first click changes its label to "really merge?" and the second merges.
 - The Slack reactions keep the menu open, so you can set several.
+- GitLab and Slack actions act as you. The board uses your GitLab token and your Slack user token, so a merge, a post or a reaction shows under your name.
+- The board itself refuses author actions on someone else's MR.
 
 ### Slack reactions
 
@@ -63,37 +63,41 @@ These show on a local board with Slack connected, once the MR's thread is found.
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon emoji="👀" /> | mark as looking / unmark looking | Adds or removes the looking reaction on the MR's Slack post. |
-| <BoardIcon emoji="💬" /> | mark as commented / unmark commented | Adds or removes the commented reaction. |
-| <BoardIcon emoji="✅" /> | mark as approved / unmark approved | Adds or removes the approved reaction. |
+| <BoardIcon emoji="👀" /> | mark as looking / unmark looking | Adds or removes your looking reaction on the MR's Slack post. |
+| <BoardIcon emoji="💬" /> | mark as commented / unmark commented | Adds or removes your commented reaction. |
+| <BoardIcon emoji="✅" /> | mark as approved / unmark approved | Adds or removes your approved reaction. |
 
-The emoji come from the board's `slack.emoji` config; the defaults are shown.
+When one Slack post links several MRs, the first mark on an MR replies in that post's thread with just the MR's link, and reacts on the reply. Unmark never posts.
+
+The emoji come from the `emoji` key of the `board.slack` setting; the defaults are shown.
 
 ### Slack shortcuts
 
 | Icon | Label | What it does | Shows when |
 | --- | --- | --- | --- |
-| <BoardIcon name="slack" /> | find slack thread | Looks for the MR's post in the team channel. After a miss it reads "no thread, find it again". | The thread is not found yet. On your own unposted MR it moves into the **slack** flyout. |
-| <BoardIcon name="slack" /> | post to #channel | Posts the MR to its Slack channel ("post to slack" when it has none). | Your own MR, not yet posted. Once posted it moves into the **slack** flyout, greyed: "thread exists". |
+| <BoardIcon name="slack" /> | find slack thread | Reads the MR's Slack channel for the first post that contains the MR's link, and links the row to it. It reads only, and posts nothing. After a miss it reads "no thread, find it again". | The thread is not found yet. On your own unposted MR it moves into the **slack** flyout. |
+| <BoardIcon name="slack" /> | post to #channel | Posts the MR to its Slack channel under your name ("post to slack" when it has none). If a post with the MR's link is already there, it posts nothing and links the row to that post instead. | Your own MR, not yet posted. Once posted it moves into the **slack** flyout, greyed: "thread exists". |
+
+The MR's channel is the board's Slack channel, or a code owners tab's own channel for an MR that tab collects. The board searches top-level posts from the last 90 days, and checks again every 15 minutes on its own.
 
 ### agent actions
 
-Every item here needs a local board. Each launches or focuses a Claude Code agent in a herdr pane.
+Every item here needs a local board. Each row links to what that agent does.
 
 | Icon | Label | What it does | Shows when |
 | --- | --- | --- | --- |
-| <BoardIcon name="agent" lane="review" /> | review | Starts a review of the MR. | Nobody has reviewed it yet. |
-| <BoardIcon name="agent" lane="review" /> | re-review | Starts a re-review, which checks what changed since the last review. | The board's review finished, or someone reviewed the MR on GitLab. |
-| <BoardIcon name="agent" lane="review" /> | focus review | Brings the running review's pane forward. Reads "relaunch review" when that pane is gone, and opens it again. | A review is queued or running. |
-| <BoardIcon name="agent" lane="respond" /> | respond | Starts an agent that answers the review comments on your MR. Reads "restart response" after a finished one. | Your own MR. |
-| <BoardIcon name="agent" lane="respond" /> | focus response | Brings the running response's pane forward. Reads "relaunch response" when the pane is gone. | A response is running on your MR. |
-| <BoardIcon name="agent" lane="doctor" /> | call doctor | Starts the doctor, which fixes failing CI or merge conflicts. Reads "call doctor again" after a finished one. | Your own MR, with failing CI or conflicts. |
-| <BoardIcon name="agent" lane="doctor" /> | focus doctor | Brings the running doctor's pane forward. | The doctor is running on your MR. |
-| <BoardIcon name="agent" lane="doctor" /> | rebase locally | Starts the doctor to rebase your branch in a local checkout. | Your own MR, when it has conflicts or is behind its target. |
-| <BoardIcon name="agentCloud" /> | request review from… | Opens a list of teammates' agents ("dev2's agent") to ask for a review. See [Asks between boards](#asks-between-boards). | Your own MR, when there is a teammate left to ask. |
-| <BoardIcon name="people" /> | ask dev1's agent to respond | Asks the MR author's agent to answer your review comments. Greyed with "ask already sent", "no finished review with comments" or "author's board isn't taking asks" when it cannot go. | Someone else's MR, on a board with a seat. |
+| <BoardIcon name="agent" lane="review" /> | review | Launches an agentic review. See [Review](#review). | The board has not reviewed the MR, or its last review failed. |
+| <BoardIcon name="agent" lane="review" /> | re-review | Launches a follow-up review, once the author has responded to yours. See [Re-review](#re-review). | The board's review finished, or someone already reviewed the MR. |
+| <BoardIcon name="agent" lane="review" /> | focus review | Shows the running review's pane. Once that pane is closed it reads "relaunch review", but it still only tries to show the pane and starts nothing. | A review is queued or running. |
+| <BoardIcon name="agent" lane="respond" /> | respond | Launches an agent that answers the review on your MR. See [Respond](#respond). Reads "restart response" after a finished one. | Your own MR. |
+| <BoardIcon name="agent" lane="respond" /> | focus response | Shows the running response's pane. Reads "relaunch response" once that pane is closed, and still starts nothing. | A response is running on your MR. |
+| <BoardIcon name="agent" lane="doctor" /> | call doctor | Launches the doctor on failing CI or conflicts. See [Doctor](#doctor). Reads "call doctor again" after a finished one. | Your own MR, with failing CI or conflicts. |
+| <BoardIcon name="agent" lane="doctor" /> | focus doctor | Shows the running doctor's pane. | The doctor is running, and the MR still has failing CI or conflicts. |
+| <BoardIcon name="agent" lane="doctor" /> | rebase locally | Launches the doctor to rebase your branch onto its target. See [Doctor](#doctor). | Your own MR, when it has conflicts or is behind its target. |
+| <BoardIcon name="agentCloud" /> | request review from… | Asks a teammate's agent to review your MR. See [Asks between boards](#asks-between-boards). | Your own MR, when there is a teammate left to ask. Otherwise it sits greyed in **all agent actions**. |
+| <BoardIcon name="people" /> | ask dev1's agent to respond | Asks the author's agent to answer your review. See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
 
-When re-review is offered and nobody ran the board's own review yet, a plain review moves into **all agent actions** as **review from scratch**.
+**ask dev1's agent to respond** is greyed with "ask already sent", "author's board isn't taking asks" or "no finished review with comments". A review left by hand on the MR does not count as a finished review here.
 
 ### all agent actions
 
@@ -101,16 +105,63 @@ The rest of the agent work. Items with nothing to act on (no saved session, no r
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="agent" lane="review" /> | review from scratch | Starts a fresh review even though one is already logged. |
-| <BoardIcon name="agent" lane="review" /> | resume review | Reopens the last review's session where it stopped. |
-| <BoardIcon name="agent" lane="respond" /> | resume response | Reopens the last response's session, on your own MR. |
-| <BoardIcon name="file" /> | view agent review | Opens the review's report. |
-| <BoardIcon name="file" /> | view agent response | Opens the response's report. |
-| <BoardIcon name="dismiss" /> | dismiss review line | Clears a failed review's line from the row. The review keeps its state and report. |
+| <BoardIcon name="agent" lane="review" /> | review from scratch | Launches a new first review instead of a re-review. See [Review](#review). Offered when someone already reviewed the MR and the board's own review never ran or failed. |
+| <BoardIcon name="agent" lane="review" /> | resume review | Reopens the last review's session so you can talk to it. It starts no new work; a note becomes your first message. |
+| <BoardIcon name="agent" lane="respond" /> | resume response | The same for the last response, on your own MR. |
+| <BoardIcon name="file" /> | view agent review | Opens the review's full report on the board. |
+| <BoardIcon name="file" /> | view agent response | Opens the response's full report on the board. |
+| <BoardIcon name="dismiss" /> | dismiss review line | Clears a failed review's line from the row. The next run brings the line back. |
 | <BoardIcon name="dismiss" /> | dismiss respond line | The same for a failed response. |
 | <BoardIcon name="dismiss" /> | dismiss doctor line | The same for a failed doctor. |
-| <BoardIcon name="people" /> | ask dev2's agent to re-review | Asks a teammate whose agent left comments to review again. One item per such teammate, on your own MR. |
+| <BoardIcon name="people" /> | ask dev2's agent to re-review | Asks a teammate whose review left comments to review again. See [Asks between boards](#asks-between-boards). One item per such teammate, on your own MR. |
 | <BoardIcon name="agentCloud" /> | request review from… | Shown here, greyed, when there is nobody left to ask: "ask already sent" or "everyone engaged". |
+
+### What each agent does
+
+Review, respond and doctor each run as a Claude Code agent in their own herdr pane on this Mac, in the `reviews`, `responses` or `doctors` workspace. They use the account and model set in `board.agent.account` and `board.agent.model`, and work in the folder `board.cwds` sets for that kind of work. When an agent needs a decision from you, it asks on the board and waits. Anything it posts to the MR is posted as you.
+
+#### Review
+
+The agent reads the MR and compares its changes with the target branch. A team pack can supply its own review skill for this step.
+
+When it finishes, its findings come back to you on the board. You decide which findings to post and what the review result is: approve or comment. Nothing is posted until you decide.
+
+It then posts the findings you chose as inline comments with a summary, and approves the MR if you chose approve. It never changes code. **view agent review** opens its full report.
+
+With Slack connected, the board marks the MR's Slack post as looking while the review runs, then commented or approved. After a comment result, with `board.reReview` on, the board also adds a thread asking the author to resolve it once everything is addressed. The board takes another pass when they do.
+
+#### Re-review
+
+Use it once the author has responded to your review: replied to your comments, resolved threads or pushed new commits.
+
+It picks up the session from your first review, so it remembers what it found. For each of your open threads, it checks the latest code and decides whether the point was fixed, not fixed, or pushed back on, and whether that pushback holds. It drafts a reply for each one and leaves other reviewers' threads alone. Then it looks for new problems, mostly in the commits since its last pass.
+
+Back on the board, you choose which replies to post, which threads to resolve, which new findings to post and the review result. It posts them together.
+
+If you have no open threads on the MR, it does a full review instead.
+
+#### Respond
+
+The agent reads every open review thread on your MR and drafts a reply to each.
+
+It then asks how to handle each thread: reply only, fix the code, or skip it. You also approve the code changes it proposes.
+
+For each approved fix, it edits code in the board's respond folder, on whatever branch that folder has checked out; it never switches branches. It runs the tests, type check and lint, and commits once per thread. A fix that still fails after three tries is undone.
+
+Before posting, it asks again: for each thread, whether to post the reply and whether to resolve the thread. When a thread you picked has a code fix and the folder is on the MR's branch, it pushes, never with force. Otherwise it keeps the fixes and tells you. Threads you only replied to stay open.
+
+#### Doctor
+
+**call doctor** works without stopping to ask, using auto-doctor's settings in `board.triage`. As shipped, it:
+
+- never edits code, commits or pushes.
+- retries a job that looks flaky, once, then watches CI.
+- drafts a note for a failure the MR inherited from its target branch, for you to post.
+- ends with an error and its diagnosis on the row when CI really fails or the MR has conflicts.
+
+To let it do more, change those settings. `cleanApiRebase` lets it start a rebase on the server. The `checkout` tier with `mechanicalLint` or `codeFix` lets it fix code and push, usually through a team pack's doctor skill. If it needs a decision, it asks on the board. The board closes its pane when it is done.
+
+**rebase locally** launches the doctor with one job: rebase the branch onto its target, resolve conflicts and push. With a team pack's doctor skill, it rebases in a local checkout and force-pushes with lease. Without one, it starts a rebase on the server instead. Conflicts the server cannot rebase end in an error, and an MR that is only behind, with green CI, is left as it is.
 
 ### gitlab
 
@@ -118,34 +169,61 @@ Everything but **open in gitlab** needs a local board and your own MR. On anyone
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="merge" /> | merge | Merges the MR, after a second click on "really merge?". Greyed with GitLab's reason when it cannot merge yet, such as "pipeline must pass", "needs approval" or "open threads". |
-| <BoardIcon name="branch" /> | rebase on target | Asks GitLab to rebase the branch on its target. Greyed "up to date" when it already is. |
-| <BoardIcon name="autoMerge" /> | set auto-merge | Turns on GitLab's merge when the pipeline succeeds. |
+| <BoardIcon name="merge" /> | merge | Merges the MR on GitLab, after a second click on "really merge?". It sends no squash or delete-branch choice, so the project's own merge settings decide, the same as GitLab's button. Greyed with GitLab's reason when it cannot merge yet, such as "pipeline must pass", "needs approval" or "open threads". |
+| <BoardIcon name="branch" /> | rebase on target | Asks GitLab to rebase the branch on its target, on GitLab's side. Nothing changes on this Mac. Greyed "up to date" when it already is. |
+| <BoardIcon name="autoMerge" /> | set auto-merge | Turns on GitLab's merge when the pipeline succeeds. Greyed "draft" or "not mergeable yet" when GitLab does not offer it. |
 | <BoardIcon name="autoMerge" /> | cancel auto-merge | Turns it off again. Takes the place of set auto-merge while auto-merge is on. |
-| <BoardIcon name="draft" /> | mark as draft / mark ready | Flips the MR between draft and ready for review. |
+| <BoardIcon name="draft" /> | mark as draft / mark ready | Adds `Draft: ` to the MR's title, or removes it. |
 | <BoardIcon name="out" /> | open in gitlab | Opens the MR in GitLab in a new tab. |
+
+For rebasing your branch in a local checkout instead, see **rebase locally** under [agent actions](#agent-actions).
 
 ### slack
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="slack" /> | open MR post in slack | Opens the MR's Slack post. Greyed "no thread" until the thread is found. |
-| <BoardIcon name="slack" /> | post to #channel | Posts your MR to the channel. Greyed "thread exists" once it is posted. |
-| <BoardIcon name="slack" /> | post to code owners… | Opens a dialog to post your MR to each code owners section's channel that still has to approve. Shows only for a repo whose settings turn on `board.codeowners.slack.fromSectionName`. |
-| <BoardIcon name="copy" /> | copy for slack | Copies a one-line link to the MR, in the team's Slack format, to the clipboard. Always offered. |
+| <BoardIcon name="slack" /> | open MR post in slack | Opens the MR's Slack post in a new browser tab. Greyed "no thread" until the thread is found. |
+| <BoardIcon name="slack" /> | post to #channel | The same post as in [Slack shortcuts](#slack-shortcuts). Greyed "thread exists" once it is posted. |
+| <BoardIcon name="slack" /> | post to code owners… | Opens a dialog to post your MR to the channel of each code owners section that still has to approve. See [Post to code owners](#post-to-code-owners). |
+| <BoardIcon name="copy" /> | copy for slack | Copies one line, the MR's title and link, to the clipboard. The copy drops a `Draft: ` prefix and a leading ticket id from the title; a post keeps them. Nothing is sent. Always offered. |
 
-Everything here but **copy for slack** needs a local board with Slack connected.
+Everything here but **copy for slack** needs a local board with Slack connected. A post's text comes from the `singleTemplate` key of the `board.slack` setting, `{title}: {url}` by default.
+
+#### Post to code owners
+
+Shows on your own MR when the repo's `board.codeowners` setting turns on `slack.fromSectionName`. Each code owners section names its channel as the last `#channel` in the section's name.
+
+The dialog checks the MR's approvals on GitLab, then lists one switch for each channel still to post to. Below them, it lists the sections it will not post for, each with its reason:
+
+- already approved.
+- no channel in its name.
+- already posted to that channel.
+- Slack has no such channel.
+- you are not in the channel.
+
+**post to N channels** posts the message once in each channel you leave on, under your name. The board remembers those posts, so a second visit shows them as already posted.
 
 ### more
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="note" /> | add a note / edit note | Opens a private note on the row, for you only. |
-| <BoardIcon name="dismiss" /> | auto-doctor: ignore this MR | Stops auto-doctor acting on your MR, or on the whole stack ("ignore this stack") when other MRs sit on it. The row then carries an "auto-doctor off" flag. Reads "re-enable auto-doctor" to turn it back on. |
+| <BoardIcon name="note" /> | add a note / edit note | Opens a note on the row, up to 2000 characters. It is saved on this Mac only and never sent to GitLab, Slack or an agent. Save it empty to delete it. |
+| <BoardIcon name="dismiss" /> | auto-doctor: ignore this MR | Stops auto-doctor, the board's automatic doctor runs, on your MR, or on the whole stack ("ignore this stack") when other MRs sit on it. A doctor already running on them is told to stop, and its pane is not resumed. The row then carries an "auto-doctor off" flag. Greyed "auto-doctor is off" when auto-doctor is turned off for the board. |
+| <BoardIcon name="dismiss" /> | re-enable auto-doctor | Lets auto-doctor act on the MR again. It starts nothing by itself. |
 
 ### Several rows at once
 
-Checking a row swaps the tabs for a selection bar. Check two or more rows and right-click one of them, or press **actions** in the selection bar, for the bulk menu; with one row checked, both open that row's own menu. It is titled "N selected" and offers, under **agent actions**, **gitlab** and **slack**, only what every checked MR's own menu offers: review, re-review, call doctor, request review from…, rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft, merge, the three Slack reactions and find slack threads. Merging asks "really merge N?", and starting more than three reviews, re-reviews or doctors asks too. When nothing fits all of them it says so.
+Checking a row swaps the tabs for a selection bar. To open the bulk menu, check two or more rows, then right-click one of them or press **actions** in the selection bar. With one row checked, both open that row's own menu.
+
+The bulk menu is titled "N selected". It offers only what every checked MR's own menu offers:
+
+- **agent actions**: review, re-review, call doctor and request review from….
+- **gitlab**: rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft and merge.
+- **slack**: the three Slack reactions and find slack threads.
+
+An MR that is already where an action would take it, such as already rebased, is skipped. Merging asks "really merge N?", and refuses while a checked MR sits on another MR that is still open. Starting more than three reviews, re-reviews or doctors asks first too. When nothing fits every checked MR, the menu says "nothing fits all N".
+
+The board runs the action on four MRs at a time, then shows one summary, for example "merge accepted on !1, !2 · couldn't merge !3 (not approved yet) · 1 didn't need it".
 
 ## Show chips, Group and Sort
 
@@ -203,7 +281,7 @@ Asks need peering: both boards must be in the same [team](/start/teams) and conn
 
 ### The inbox
 
-The inbox icon (<BoardIcon name="inbox" />) at the top right of a local board opens **Asks for your agent**. A badge counts the asks waiting on you, and a desktop notification arrives once for each ask that waits: "dev2 asked for a review", with the MR and "Your agent waits for your go ahead." Clicking the notification opens the inbox at that ask.
+The inbox icon (<BoardIcon name="inbox" />) at the top right of a local board opens **Asks for your agent**. A badge counts the asks waiting on you. Each waiting ask also sends one desktop notification, such as "dev2 asked for a review", with the MR and "Your agent waits for your go ahead." Click the notification to open the inbox at that ask.
 
 <Screenshot name="board/inbox" alt="The Asks for your agent inbox with waiting asks, each with Decline, a go-ahead button and an always allow checkbox" />
 
@@ -245,7 +323,15 @@ sequenceDiagram
 4. **dev2 decides.** Going ahead starts dev2's agent in a herdr pane on dev2's Mac. Declining sends dev2's reason and note back. An ask nobody answers in 48 hours expires.
 5. **The agent's progress travels back.** Each change in the agent's state goes back through the relay, until it finishes with a verdict or stops.
 
-Before it starts the agent, dev2's board checks the ask still makes sense. It refuses, with the reason shown on both boards, when the ask is over 48 hours old, a review or response is already running, dev2 already reviewed (for a first review), there is no earlier review with comments (for a re-review) or the MR is not dev2's (for respond). An always-allowed ask also counts against dev2's automatic limits, `board.triage`'s cooldown (30 minutes) and daily budget (3 runs); going ahead by hand lifts those two.
+Before it starts the agent, dev2's board checks the ask still makes sense. It refuses, and shows the reason on both boards, when:
+
+- the ask is over 48 hours old.
+- a review or response is already running.
+- dev2 already reviewed the MR (for a first review).
+- there is no earlier review with comments (for a re-review).
+- the MR is not dev2's (for respond).
+
+An always-allowed ask also counts against two automatic limits in `board.triage`: a 30 minute cooldown and a daily budget of 3 runs. Going ahead by hand skips both.
 
 ### What the sender sees
 
@@ -322,7 +408,7 @@ These are registry keys, so you can read them with `rt settings get <key>`. The 
 | `board.defaultMember` | Which member this developer's local board opens as. |
 | `board.hiddenMembers` | Usernames you hide from the authors tab's roster. |
 | `board.staleAfterDays` | Days of MR inactivity before the board flags it stale, for you. |
-| `board.gateGraceMinutes` | Minutes an unanswered review gate stays open before the board parks the review. Default 90. |
+| `board.gateGraceMinutes` | Minutes a review waits for your decision before the board parks it. Default 90. |
 | `board.reReview` | Turns the automatic re-review sweep on or off. |
 | `board.agent.account` | The cswap account the board's review, respond and doctor panes launch under. |
 | `board.agent.model` | Default model for those panes. |

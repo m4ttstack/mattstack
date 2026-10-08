@@ -19,8 +19,8 @@ For each tracked stack, checks whether the working tree is dirty (untracked, sta
 
 - **`preflight` skips prediction entirely when the working tree is dirty.** `no predicted conflicts` next to `dirty=true` means "not checked," not "clean."
 - It predicts against the tree as it is right now, one branch at a time. It cannot see a conflict that would only appear once an earlier branch in the same cascade has actually been rewritten, so a clean `preflight` does not guarantee a clean `sync`.
-- When a stack branch is checked out in one of your worktrees, a `slot conflicts:` section is appended naming the branch, the worktree, and whether that worktree is dirty, since a dirty checkout there is what will make a cascade refuse to move that branch.
-- Takes no flags beyond the global ones. Under `--json`, each stack carries a `report` (the full `PreFlightReport`: `dirty`, `hasStagedChanges`, `conflictBranches`, `threadWarnings`, and `driftWarnings`) and `slotConflicts`, plus the shared `worktrees` array. **`driftWarnings`, branches whose merged parent's tombstone is not in their ancestry, only surface under `--json`**; the human output does not print them. See [JSON output](/gitq/reference/json-output).
+- When a stack branch is checked out in one of your worktrees, a `slot conflicts:` section is appended. It names the branch, the worktree, and whether that worktree is dirty, since a dirty checkout there is what will make a cascade refuse to move that branch.
+- Takes no flags beyond the global ones. Under `--json`, each stack carries a `report` and `slotConflicts`, plus the shared `worktrees` array. The `report` is the full `PreFlightReport`: `dirty`, `hasStagedChanges`, `conflictBranches`, `threadWarnings`, and `driftWarnings`. **`driftWarnings`, branches whose merged parent's tombstone is not in their ancestry, only surface under `--json`**; the human output does not print them. See [JSON output](/gitq/reference/json-output).
 
 ## Exit codes
 
@@ -30,7 +30,7 @@ See [Exit codes](/gitq/reference/exit-codes) for the general contract.
 
 ## See also
 
-- [Reading the tree](/gitq/getting-started/reading-the-tree): `preflight` in context, with a real run.
+- [Reading the tree](/gitq/getting-started/reading-the-tree): `preflight` in context.
 - [The cascade](/gitq/concepts/cascade): what the reconciliation `driftWarnings` points at actually does.
 - [Work slots and leases](/gitq/concepts/work-slots): what a slot conflict means.
 - [`gitq sync`](/gitq/reference/cascade/sync): the command `preflight` is checking before you run it.

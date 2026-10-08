@@ -82,14 +82,22 @@ Pipeline runs record their stages, fields and decisions through these tools. `ru
 | `mr_job_trace` | Part of one CI job's trace: the tail, the head, a line range, or lines matching text; ANSI escapes stripped, capped at 64 KiB (GitLab only). |
 | `pipeline_list` | Pipelines for a branch, a commit or an MR, newest first; works with no MR (GitLab only). |
 | `project_labels` | The project's labels, optionally searched by name (GitLab only). |
-| `gitlab_get` | One read-only GET against GitLab's REST API for a fact no other tool returns; paths that return credentials, query keys that carry credentials and impersonation are refused, the body is capped at 256 KiB, redirects are not followed, and token values are redacted (GitLab only). |
+| `gitlab_get` | One read-only GET against GitLab's REST API for a fact no other tool returns. It refuses paths that return credentials, and query keys that carry credentials and impersonation. It caps the body at 256 KiB, does not follow redirects, and redacts token values (GitLab only). |
 | `branch_stack` | Whether a tree's branch is in a tracked stack, and its parent. Takes `tree`, the absolute root of a registered checkout or worktree; reads no forge. |
 
 `pipeline_list`, `project_labels` and `gitlab_get` name their target with `repoName`, like the `mr_*` tools. `mr_view`, `mr_list`, `mr_for_branch`, `mr_threads`, `mr_pipeline`, `mr_job_trace`, `pipeline_list`, `project_labels` and `gitlab_get` ask GitLab on each call and none uses the daemon's open-MR cache, so an agent can read any MR its token can see. `mr_map` is the exception: it reads the daemon's synced MR list. A refusal comes back as GitLab's own status and text. `mr_list` with `targetBranch` also returns `full`, true when nothing was cut, so an empty full list proves the branch has no open MRs targeting it.
 
-Every `mr_*` tool names its target with `repoName` (the repo's serialized identity such as `remote:gitlab.com%2Fexample%2Fapp`, an absolute path to a checkout or worktree, or a repo label that matches exactly one registered repo); the tools that act on one MR also take `mrUrl` (the MR's URL; its project must be registered with rt, and the URL supplies the iid). A URL is matched to a registered repo by identity first, then by the registered checkouts' origin remotes, so a repo pinned to another identity through `rt.repoIdentityOverrides` still resolves; a URL matching two checkouts is refused as ambiguous. Given both, they must agree. `mr_map` takes `repo` (identity or label).
+Every `mr_*` tool names its target with `repoName`. That value is the repo's serialized identity such as `remote:gitlab.com%2Fexample%2Fapp`, an absolute path to a checkout or worktree, or a repo label that matches exactly one registered repo. The tools that act on one MR also take `mrUrl` (the MR's URL; its project must be registered with rt, and the URL supplies the iid). A URL is matched to a registered repo by identity first, then by the registered checkouts' origin remotes. That way, a repo pinned to another identity through `rt.repoIdentityOverrides` still resolves. A URL matching two checkouts is refused as ambiguous. Given both, they must agree. `mr_map` takes `repo` (identity or label).
 
-`mr_upload` reads only regular files with no other hard links under the target repo's worktrees, your Claude Code temp root (`/private/tmp/claude-<uid>/`, where session scratchpads live), rt's evidence folder (`~/.mattstack/evidence/`, for screenshots you want to upload), a pipeline run's own evidence folder (`~/.mattstack/work/<run id>/evidence/`, for a run that exists on this machine), or a directory listed in the machine-scoped `rt.mcp.uploadRoots` setting, and only png, jpg, jpeg, gif, webp, mp4, mov or webm files up to 50 MB whose bytes match their extension. To allow another folder on this machine:
+`mr_upload` reads only regular files with no other hard links. The file must sit under one of these:
+
+- The target repo's worktrees.
+- Your Claude Code temp root (`/private/tmp/claude-<uid>/`, where session scratchpads live).
+- rt's evidence folder (`~/.mattstack/evidence/`, for screenshots you want to upload).
+- A pipeline run's own evidence folder (`~/.mattstack/work/<run id>/evidence/`, for a run that exists on this machine).
+- A directory listed in the machine-scoped `rt.mcp.uploadRoots` setting.
+
+It reads only png, jpg, jpeg, gif, webp, mp4, mov or webm files up to 50 MB whose bytes match their extension. To allow another folder on this machine:
 
 ```bash
 rt settings set rt.mcp.uploadRoots '["/Users/you/Screenshots"]' --scope machine
@@ -111,7 +119,16 @@ What they refuse:
 - `git_push` pushes exactly one ref (no tags, no submodules) to the same-named branch on its upstream's remote, and forces only with `--force-with-lease --force-if-includes`. It never pushes a detached HEAD, `main`, `master` or origin's default branch, and refuses outright when origin's default cannot be read. It refuses a branch with no upstream, an upstream with a different branch name, and an upstream that is its own remote's default branch or whose remote's default cannot be read. `setUpstream: true` pushes to `origin/<branch>` instead and makes that the upstream; the refusal of origin's default branch still applies.
 - `git_pull` never merges or rebases; a diverged branch is an error.
 - `git_rebase` takes only a branch or ref name for `onto`, never an option. On a conflict it returns the conflicted files and leaves the rebase paused for you to resolve and finish with `git rebase --continue`.
-- `branch_sync` refuses to reset over a local commit with no equivalent on origin (unpushed work), refuses to force-push over commits only origin has (a branch only behind origin: run `git_pull` first), and names the commits when it can. It also refuses a rebase already in progress, a detached HEAD, `main`, `master` or the default branch, a branch name that is unsafe or ambiguous with a tag or other ref, a local ref shadowing `origin/<branch>` or `origin/<default>`, a push that config would redirect to another ref, and a gitq stack member. A branch only ahead of origin is not refused, but it is pushed only when the reset or rebase changed it; use `git_push` to publish new commits.
+- `branch_sync` refuses to reset over a local commit with no equivalent on origin (unpushed work). It refuses to force-push over commits only origin has (a branch only behind origin: run `git_pull` first). It names the commits when it can. It also refuses:
+
+  - A rebase already in progress.
+  - A detached HEAD, `main`, `master` or the default branch.
+  - A branch name that is unsafe or ambiguous with a tag or other ref.
+  - A local ref shadowing `origin/<branch>` or `origin/<default>`.
+  - A push that config would redirect to another ref.
+  - A gitq stack member.
+
+  A branch only ahead of origin is not refused, but it is pushed only when the reset or rebase changed it. Use `git_push` to publish new commits.
 
 `git commit` and `git add` are not tools; they stay in Bash.
 
@@ -152,7 +169,7 @@ Shepherd side:
 | `herd_status` | One herd: jobs, panes, gates, subscription, unread. |
 | `herd_list` | Active herds, or every herd with `all: true`. |
 
-`herd_start` refuses in a worker pane. `herd_spawn`, `herd_close`, `herd_follow_up`, `herd_attend` and `herd_wrap_up` run only from the session the daemon records as the herd's shepherd (the one that ran `herd_start`, or took the herd over with `herd_resume`), and never from a worker pane. The files these tools read or write are confined: `herd_brief`'s `out` must sit in your Claude Code temp root, and a brief, template, strategies file or method file must be an existing `.md` file in the temp root or an installed plugin or pack root.
+`herd_start` refuses in a worker pane. Only the herd's shepherd can run `herd_spawn`, `herd_close`, `herd_follow_up`, `herd_attend` and `herd_wrap_up`, never a worker pane. The daemon records the shepherd as the session that ran `herd_start`, or took the herd over with `herd_resume`. The files these tools read or write are confined. `herd_brief`'s `out` must sit in your Claude Code temp root. A brief, template, strategies file or method file must be an existing `.md` file in the temp root or an installed plugin or pack root.
 
 ### Chat
 
@@ -185,7 +202,7 @@ Every chat tool except `chat_sign_in`, `chat_away`, `chat_back`, `chat_sign_out`
 
 | Tool | What it does |
 | --- | --- |
-| `whoami` | Report this session's identity as the other tools see it: its Claude Code session id, herdr pane, the chat handle the chat tools act as (null, with a sign-in hint, when this session is not signed in), and the herd id, job and room in a herd worker pane. |
+| `whoami` | Report this session's identity as the other tools see it. That covers its Claude Code session id, its herdr pane, and the chat handle the chat tools act as. The handle is null, with a sign-in hint, when this session is not signed in. In a herd worker pane it also reports the herd id, job and room. |
 
 `whoami` takes no input and reads only the server's environment and this session's chat session file. It makes no daemon call, so it shows what the tools would act as, not live presence.
 

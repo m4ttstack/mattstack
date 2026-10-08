@@ -5,7 +5,7 @@ sidebar_position: 7
 
 # Recover from a mistake
 
-This page is a decision list. Find the situation you're in, run the command next to it, and read the section below for what it actually does and does not undo. Every claim here is verified against source, and every terminal block came from a real run in a throwaway repo, with `/Users/you/demo` standing in for the repo and a fictional hash standing in for the real one in cache paths.
+Find the situation you're in and run the command next to it. Each section says what that command undoes and what it leaves alone. In the examples, `/Users/you/demo` is the repo.
 
 | Situation | Command |
 | --- | --- |
@@ -37,7 +37,7 @@ It reads the same global `operation-log.json` that `undo` reads, filtered to thi
 gitq undo
 ```
 
-`undo` takes the **most recent operation-log entry that belongs to this repo**: not a specific one you name, and not filtered by branch or stack, just "the last thing that happened here." If that entry isn't reversible, it says so and stops:
+`undo` takes the **most recent operation-log entry that belongs to this repo**. It is not a specific one you name, and it is not filtered by branch or stack: it is "the last thing that happened here". If that entry isn't reversible, it says so and stops:
 
 ```
 gitq: cannot undo "split" (not reversible)
@@ -246,7 +246,7 @@ Something claims a stack is mid-cascade (`stack has a parked sync lease on ...` 
 
 **The supported fix is finishing or aborting the cascade the lease belongs to**: `gitq continue` or `gitq abort`, exactly as in [the pause protocol](/gitq/concepts/pause-protocol#the-resolve-loop). That's true even if you're certain the process is dead and the conflict is unrecoverable: `gitq abort` doesn't care whether anything is still running, it just aborts the rebase where it lives and releases the lease.
 
-Editing or deleting `leases.json` by hand while a cascade is genuinely running or parked is how you actually lose track of things: the pause file is still on disk, the rebase is still half-done in the slot, and now neither `gitq continue` nor `gitq abort` can find it, since both start from a parked lease and answer `nothing to continue (no parked cascade)` without one. If you've done this, run `git rebase --abort` in the slot named by the pause file's `worktreePath`, then delete that `gitq-pause.json`. `gitq abort` does handle the opposite split, a parked lease whose pause file is missing. See [Where state lives](/gitq/concepts/state#inside-the-repo) for the rest of what's safe and not safe to touch by hand.
+Editing or deleting `leases.json` by hand while a cascade is genuinely running or parked is how you actually lose track of things. The pause file is still on disk, and the rebase is still half-done in the slot. Now neither `gitq continue` nor `gitq abort` can find it. Both start from a parked lease, and without one they answer `nothing to continue (no parked cascade)`. If you've done this, run `git rebase --abort` in the slot named by the pause file's `worktreePath`, then delete that `gitq-pause.json`. `gitq abort` does handle the opposite split, a parked lease whose pause file is missing. See [Where state lives](/gitq/concepts/state#inside-the-repo) for the rest of what's safe and not safe to touch by hand.
 
 ## Next
 
