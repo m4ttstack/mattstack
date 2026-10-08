@@ -395,6 +395,26 @@ describe('gate-panel', () => {
     expect(await h.rowButton()).toBeNull()
   })
 
+  test('pressing 1 while the pane is open answers nothing', async () => {
+    const h = harness()
+    await h.start()
+    await flush()
+    ;(await h.rowButton()).props.onPress({})
+    await flush()
+
+    // The engine presses whichever element in the focused pane carries the key.
+    const drawn = await h.pane()
+    expect(drawn.filter((c: any) => c.props.hotkey !== undefined)).toEqual([])
+    for (const c of drawn.filter((c: any) => c.props.hotkey === '1')) c.props.onPress({})
+    await flush()
+    expect(answers(h)).toEqual([])
+
+    // Arrows and Enter (or a click) still pick an option.
+    await h.press('option-0')
+    expect(answers(h)).toEqual([{ id: 'g-1', answers: { ship: 'yes' }, by: 'pane-person' }])
+  })
+
+  // The second press is a band click: the pane holds the keys once it is open.
   test('a second press while the pane is open keeps the open pane tracked, so an answer elsewhere still closes it', async () => {
     const h = harness()
     await h.start()

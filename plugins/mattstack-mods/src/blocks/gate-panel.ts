@@ -47,7 +47,7 @@ function clip(text: string, cells: number): string {
  * `gate:answer`: the block takes no tool call, delivery or command.
  */
 export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): void {
-  const display = createDisplay(hub, { id: PANEL_PANE_ID, title: 'Gate' })
+  const display = createDisplay(hub, { id: PANEL_PANE_ID, title: 'Gate', hotkeys: false })
   let gates: PanelGate[] = []
   /** The listed gates the row may name: a gate whose AskUserQuestion dialog is up already has its answer surface. */
   const waiting = () => (dialogs ? gates.filter(g => !dialogs.up(g.id)) : gates)

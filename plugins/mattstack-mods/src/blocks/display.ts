@@ -35,7 +35,15 @@ const optionLabel = (o: GateOption) => (typeof o === 'string' ? o : o.label || o
  * The display kit: draws its pane through the hub's core render and close
  * hooks, so it never lapses with a block. Each kit owns one pane id.
  */
-export function createDisplay(hub: Hub, pane: { id: string; title: string } = { id: FORM_PANE_ID, title: 'Gate' }): Display {
+export function createDisplay(
+  hub: Hub,
+  pane: {
+    id: string
+    title: string
+    /** Off, options are picked with the arrows and Enter or a click: a focused pane's live hotkeys answer a stray key. */
+    hotkeys?: boolean
+  } = { id: FORM_PANE_ID, title: 'Gate' },
+): Display {
   let form: Form | null = null
 
   function finish(api: ModApi, answer: Answer | null, closing: boolean): void {
@@ -71,7 +79,7 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
         el.Button({
           key: `option-${i}`,
           label: `${mark}${optionLabel(o)}`,
-          ...(i < 9 && { hotkey: String(i + 1) }),
+          ...(pane.hotkeys !== false && i < 9 && { hotkey: String(i + 1) }),
           onPress: () => {
             if (!q.multi) return answer(api, value)
             open.picked = open.picked.includes(value) ? open.picked.filter(v => v !== value) : [...open.picked, value]

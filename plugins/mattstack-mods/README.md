@@ -273,7 +273,10 @@ While a gate is open the band above the prompt shows a plain Button,
 `1: Waiting on your answer: <question>`, with a dim line counting any more
 behind it. A survey in the band takes precedence. Pressing it (`1` at an
 empty prompt, or a click) opens the `gate-panel` pane through the display
-kit: one Button per option, a note field, and Skip. The pane closes by
+kit: one Button per option, a note field, and Skip. The option Buttons
+carry no hotkeys (`hotkeys: false`), since the focused pane would turn a
+stray digit into an answer; a person picks with the arrows and Enter, or a
+click. The pane closes by
 itself when the gate is answered elsewhere or withdrawn.
 
 An answer there is `gate:answer { id, answers, by: "pane-person" }`, with
