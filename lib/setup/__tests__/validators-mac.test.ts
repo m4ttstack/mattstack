@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { macRows } from "../validators/mac.ts";
-import { fakeProbes, ok, missing } from "./fakes.ts";
+import { fakeProbes, memberShell, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 
 async function pickRow(rowsP: ReturnType<typeof macRows>, id: string) {
@@ -114,11 +114,17 @@ describe("macRows: tool.arch", () => {
 });
 
 describe("macRows — tool.path", () => {
-  test("~/.local/bin first on PATH and the precedence marker present -> ready", async () => {
+  // The app's own PATH (launchd's) never decides this row: every case below
+  // gives the app a PATH that disagrees with the member's shell.
+  const APP_ENV = { SHELL: "/bin/zsh", PATH: "/usr/bin:/bin" };
+  const DIRS = { "/opt/homebrew/bin": [], "/fake-home/.local/bin": [], "/usr/bin": [] };
+
+  test("the member's shell has ~/.local/bin first and the marker is present -> ready, even when the app's PATH lacks it", async () => {
     const p = fakeProbes({
-      env: { PATH: "/fake-home/.local/bin:/usr/bin" },
+      env: APP_ENV,
+      exec: memberShell("/fake-home/.local/bin:/usr/bin"),
       files: { [RC]: `\n${MARKER}\nexport PATH=...\n` },
-      dirs: { "/fake-home/.local/bin": [], "/usr/bin": [] },
+      dirs: DIRS,
     });
     const r = await pickRow(macRows(p), "tool.path");
     expect(r.status).toBe("ready");
@@ -128,11 +134,23 @@ describe("macRows — tool.path", () => {
     expect(r.detail).toContain(".zshenv");
   });
 
-  test("PATH starting with /opt/homebrew/bin and a rc block present -> needs-you", async () => {
+  test("the member's shell has ~/.local/bin first -> ready, even when the app's PATH has it later", async () => {
     const p = fakeProbes({
-      env: { PATH: "/opt/homebrew/bin:/fake-home/.local/bin:/usr/bin" },
+      env: { ...APP_ENV, PATH: "/opt/homebrew/bin:/fake-home/.local/bin:/usr/bin" },
+      exec: memberShell("/fake-home/.local/bin:/opt/homebrew/bin:/usr/bin"),
       files: { [RC]: `${MARKER}\n` },
-      dirs: { "/opt/homebrew/bin": [], "/fake-home/.local/bin": [], "/usr/bin": [] },
+      dirs: DIRS,
+    });
+    const r = await pickRow(macRows(p), "tool.path");
+    expect(r.status).toBe("ready");
+  });
+
+  test("the member's shell has /opt/homebrew/bin first and the marker is present -> needs-you, even when the app's PATH has ~/.local/bin first", async () => {
+    const p = fakeProbes({
+      env: { ...APP_ENV, PATH: "/fake-home/.local/bin:/usr/bin" },
+      exec: memberShell("/opt/homebrew/bin:/fake-home/.local/bin:/usr/bin"),
+      files: { [RC]: `${MARKER}\n` },
+      dirs: DIRS,
     });
     const r = await pickRow(macRows(p), "tool.path");
     expect(r.status).toBe("needs-you");
@@ -141,33 +159,47 @@ describe("macRows — tool.path", () => {
     expect(r.action).toBeNull();
   });
 
-  test("~/.local/bin first but no marker -> needs-you: precedence holds, rt is not what holds it", async () => {
-    const p = fakeProbes({
-      env: { PATH: "/fake-home/.local/bin:/usr/bin" },
-      dirs: { "/fake-home/.local/bin": [], "/usr/bin": [] },
-    });
+  test("the member's shell lacks ~/.local/bin entirely and the marker is present -> needs-you saying it is not on PATH, never \"not first\"", async () => {
+    const p = fakeProbes({ env: APP_ENV, exec: memberShell("/opt/homebrew/bin:/usr/bin"), files: { [RC]: `${MARKER}\n` }, dirs: DIRS });
+    const r = await pickRow(macRows(p), "tool.path");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("~/.local/bin is not on your shell's PATH, so team intercepts will not fire. Check ~/.zshenv");
+    expect(r.action).toBeNull();
+  });
+
+  test("~/.local/bin first in the member's shell but no marker -> needs-you: precedence holds, rt is not what holds it", async () => {
+    const p = fakeProbes({ env: APP_ENV, exec: memberShell("/fake-home/.local/bin:/usr/bin"), dirs: DIRS });
     const r = await pickRow(macRows(p), "tool.path");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("not through rt's own");
   });
 
   test("the unowned-precedence row offers the step that makes rt own it", async () => {
-    const p = fakeProbes({
-      env: { PATH: "/fake-home/.local/bin:/usr/bin" },
-      dirs: { "/fake-home/.local/bin": [], "/usr/bin": [] },
-    });
+    const p = fakeProbes({ env: APP_ENV, exec: memberShell("/fake-home/.local/bin:/usr/bin"), dirs: DIRS });
     const r = await pickRow(macRows(p), "tool.path");
     expect(r.action).toEqual({ type: "run", label: "Add rt's PATH entry", verb: ["setup", "apply", "--only", "path.link"] });
   });
 
   test("neither first nor marked -> missing", async () => {
-    const p = fakeProbes({
-      env: { PATH: "/opt/homebrew/bin:/fake-home/.local/bin:/usr/bin" },
-      dirs: { "/opt/homebrew/bin": [], "/fake-home/.local/bin": [], "/usr/bin": [] },
-    });
+    const p = fakeProbes({ env: APP_ENV, exec: memberShell("/opt/homebrew/bin:/fake-home/.local/bin:/usr/bin"), dirs: DIRS });
     const r = await pickRow(macRows(p), "tool.path");
     expect(r.status).toBe("missing");
     expect(r.detail).toContain("Install adds ~/.local/bin");
+    expect(r.action).toEqual({ type: "run", label: "Set up PATH", verb: ["setup", "apply", "--only", "path.link"] });
+  });
+
+  test("the shell probe fails and the marker is present -> error with a Re-check, never a guess from the app's PATH", async () => {
+    const p = fakeProbes({ env: { ...APP_ENV, PATH: "/fake-home/.local/bin:/usr/bin" }, exec: memberShell(null), files: { [RC]: `${MARKER}\n` }, dirs: DIRS });
+    const r = await pickRow(macRows(p), "tool.path");
+    expect(r.status).toBe("error");
+    expect(r.detail).toBe("Could not read your shell's PATH to check its order");
+    expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
+  });
+
+  test("the shell probe fails and there is no marker -> missing: Install still adds rt's entry", async () => {
+    const p = fakeProbes({ env: APP_ENV, exec: memberShell(null), dirs: DIRS });
+    const r = await pickRow(macRows(p), "tool.path");
+    expect(r.status).toBe("missing");
     expect(r.action).toEqual({ type: "run", label: "Set up PATH", verb: ["setup", "apply", "--only", "path.link"] });
   });
 });

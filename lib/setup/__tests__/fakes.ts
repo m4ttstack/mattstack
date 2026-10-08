@@ -6,6 +6,7 @@
 
 import { basename, dirname } from "path";
 import type { TrayClient } from "../../daemon-client.ts";
+import { MEMBER_PATH_SENTINEL } from "../member-path.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 
 export type ExecScript = (argv: string[], opts?: Parameters<Probes["exec"]>[1]) => ExecResult | Promise<ExecResult>;
@@ -334,3 +335,11 @@ export function fakeTray(routes: Record<string, (body?: unknown, init?: Paramete
 
 export const ok = (stdout = ""): ExecResult => ({ code: 0, stdout, stderr: "" });
 export const missing = (bin: string): ExecResult => ({ code: 127, stdout: "", stderr: `ENOENT: ${bin}` });
+
+/** Answers the member's login-shell PATH probe (lib/setup/member-path.ts) with `path`, or as a shell that printed nothing when `path` is null; any other argv goes to `rest`. */
+export function memberShell(path: string | null, rest: ExecScript = () => ok()): ExecScript {
+  return (argv, opts) => {
+    if (!argv.some((arg) => arg.includes(MEMBER_PATH_SENTINEL))) return rest(argv, opts);
+    return path === null ? ok("") : ok(`Last login: today\n${MEMBER_PATH_SENTINEL}${path}${MEMBER_PATH_SENTINEL}\n`);
+  };
+}
