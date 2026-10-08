@@ -290,11 +290,11 @@ describe('loadConfigFrom: store values get the same normalization/validation the
     const p = tmpConfig();
     const cfg = loadConfigFrom(
       p,
-      fakeResolve({ 'board.slack': { channel: 'store-channel' } })
+      fakeResolve({ 'board.slack': { singleTemplate: '{url}' } })
     );
     expect(cfg.slack).toEqual({
-      channel: 'store-channel',
-      singleTemplate: '{title}: {url}',
+      channel: '',
+      singleTemplate: '{url}',
       multiHeader: "{count} MR's ready for review :pray:",
       multiItem: '- {title}: {url}',
       autoResolveIntervalMinutes: 15,
@@ -1308,5 +1308,110 @@ describe('applyRosterEdit: pure roster mutation', () => {
     );
     applyRosterEdit(roster, { action: 'remove', username: 'bo' }, 'ann');
     expect(roster).toEqual(snapshot);
+  });
+});
+
+describe('loadConfigFrom: mattstack.directory', () => {
+  const DIRECTORY = {
+    teams: {
+      claim: {
+        linear: { team: 'CV' },
+        slack: {
+          codeOwnersChannel: 'pod-claim',
+          channels: [{ name: 'Claim-Internal', kind: 'review' }],
+        },
+      },
+    },
+  };
+  const realTeam = teamView.team;
+  afterEach(() => {
+    teamView.team = realTeam;
+  });
+
+  test("my team's review channel is the slack channel, and its channels are mine", () => {
+    teamView.team = () => 'claim';
+    const cfg = loadConfigFrom(
+      tmpConfig(),
+      fakeResolve({ 'mattstack.directory': DIRECTORY })
+    );
+    expect(cfg.slack.channel).toBe('claim-internal');
+    expect(cfg.ownChannels).toEqual(['pod-claim', 'claim-internal']);
+  });
+
+  test('board.slack.reviewKind picks the kind', () => {
+    teamView.team = () => 'claim';
+    const dir = structuredClone(DIRECTORY);
+    dir.teams.claim.slack.channels.push({ name: 'claim-pr', kind: 'pr' });
+    const cfg = loadConfigFrom(
+      tmpConfig(),
+      fakeResolve({
+        'mattstack.directory': dir,
+        'board.slack': { reviewKind: 'pr' },
+      })
+    );
+    expect(cfg.slack.channel).toBe('claim-pr');
+  });
+
+  test('no review channel in my entry means no channel, not a default', () => {
+    teamView.team = () => 'claim';
+    const cfg = loadConfigFrom(
+      tmpConfig(),
+      fakeResolve({
+        'mattstack.directory': {
+          teams: { claim: { slack: { codeOwnersChannel: 'pod-claim' } } },
+        },
+      })
+    );
+    expect(cfg.slack.channel).toBe('');
+  });
+
+  test('a codeowners tab without its own channel takes my code owners channel; a set one wins', () => {
+    teamView.team = () => 'claim';
+    const tab = (id: string, slackChannel?: string) => ({
+      id,
+      label: id,
+      source: { kind: 'codeowners', section: 'Claim - #pod-claim' },
+      ...(slackChannel ? { slackChannel } : {}),
+    });
+    const cfg = loadConfigFrom(
+      tmpConfig(),
+      fakeResolve({
+        'mattstack.directory': DIRECTORY,
+        'board.tabs': [tab('a'), tab('b', 'watch-elsewhere')],
+      })
+    );
+    expect(cfg.tabs.map(t => t.slackChannel)).toEqual([
+      'pod-claim',
+      'watch-elsewhere',
+    ]);
+  });
+
+  test("ticket prefixes default to my team's Linear key; a set value wins", () => {
+    teamView.team = () => 'claim';
+    expect(
+      loadConfigFrom(
+        tmpConfig(),
+        fakeResolve({ 'mattstack.directory': DIRECTORY })
+      ).ticketPrefixes
+    ).toEqual(['CV']);
+    expect(
+      loadConfigFrom(
+        tmpConfig(),
+        fakeResolve({
+          'mattstack.directory': DIRECTORY,
+          'board.ticketPrefixes': ['CV', 'PLA'],
+        })
+      ).ticketPrefixes
+    ).toEqual(['CV', 'PLA']);
+  });
+
+  test('on no team there is no channel and nothing is mine', () => {
+    teamView.team = () => null;
+    const cfg = loadConfigFrom(
+      tmpConfig(),
+      fakeResolve({ 'mattstack.directory': DIRECTORY })
+    );
+    expect(cfg.slack.channel).toBe('');
+    expect(cfg.ownChannels).toEqual([]);
   });
 });
