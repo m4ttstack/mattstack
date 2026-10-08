@@ -1,6 +1,7 @@
 import type { EngineEventOf, EngineResultOf } from 'claude-code'
 import type { Hub, ModApi } from '../core/hub.ts'
 import type { GateOption } from './gate-form.ts'
+import { joinChunks, splitAnswers } from './gate-chunks.ts'
 import {
   choiceSubtext,
   gateContext,
@@ -328,14 +329,16 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
       if (gate.questions.length === 0) return {}
       finish(api, null, false)
       const columns = paneColumns(terminalColumns)
+      // Chunks of one multi question are one page here; rt takes the answer per chunk.
+      const { questions: pages, groups } = joinChunks(gate.questions)
       const answered = new Promise<Answer | null>(resolve => {
         form = {
-          gate,
+          gate: { ...gate, questions: pages },
           index: 0,
           answers: {},
-          drafts: gate.questions.map(() => ({ picked: [], note: '' })),
+          drafts: pages.map(() => ({ picked: [], note: '' })),
           columns,
-          settle: resolve,
+          settle: answer => resolve(answer && splitAnswers(groups, gate.questions, answer)),
           stops: [],
           ring: null,
           moved: null,

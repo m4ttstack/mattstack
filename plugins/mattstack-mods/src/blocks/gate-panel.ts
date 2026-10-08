@@ -3,6 +3,7 @@ import type { Hub, ModApi } from '../core/hub.ts'
 import type { Link } from '../core/link.ts'
 import { call } from '../core/rpc.ts'
 import { createDisplay, type FormQuestion } from './display.ts'
+import { joinChunks } from './gate-chunks.ts'
 import { surface, type FormDialogs } from './gate-form.ts'
 import { clip, HOTKEY_CELLS, kindOf, oneLine, subjectTail, text, type El, type Node } from './gate-view.ts'
 
@@ -43,8 +44,10 @@ const isQuestion = (q: unknown): q is FormQuestion => {
 /** The summary's parts: `<kind> <subject tail>`, `<N> questions`, and question `index`'s label, each '' where a gate lacks it. */
 function parts(gate: PanelGate, index: number): [string, string, string] {
   const named = [kindOf(gate.kind), subjectTail(gate.subject)].filter(Boolean).join(' ')
-  const count = gate.questions.length > 1 ? `${gate.questions.length} questions` : ''
-  return [named, count, oneLine((gate.questions[index] ?? gate.questions[0]!).label)]
+  // The pages the pane draws, with chunks of one question joined, as `index` counts them.
+  const pages = joinChunks(gate.questions).questions
+  const count = pages.length > 1 ? `${pages.length} questions` : ''
+  return [named, count, oneLine((pages[index] ?? pages[0]!).label)]
 }
 
 const joinParts = (...said: string[]) => said.filter(Boolean).join(' · ')
@@ -258,7 +261,7 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
     if (open) {
       // No Button while the pane is open, so a second `1` at the prompt presses nothing.
       const at = display.progress()
-      const count = open.questions.length
+      const count = at?.count ?? joinChunks(open.questions).questions.length
       const long = count > 1 && at ? ` · question ${at.index + 1} of ${count}` : ''
       const short = count > 1 && at ? ` · ${at.index + 1}/${count}` : ''
       // Beside a docked pane the band is narrow. The hint, then the counter,

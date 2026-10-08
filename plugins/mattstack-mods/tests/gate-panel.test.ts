@@ -539,6 +539,27 @@ describe('gate-panel', () => {
     expect(esc.props.children[0]).toBe('esc back')
   })
 
+  test('the band counts the pages the pane draws, joined chunks as one, and the answer goes back per chunk', async () => {
+    const chunk = (n: number, ids: string[]) => ({ id: `findings-${n}`, label: `Post which findings? (${n} of 3)`, multi: true, options: ids })
+    const chunked = gate({
+      kind: 'review-post',
+      questions: [chunk(1, ['f1', 'f2']), chunk(2, ['f3']), chunk(3, ['f4']), { id: 'outcome', label: 'Post as', multi: false, options: ['comment'] }],
+    })
+    const h = harness({ 'g-1': chunked })
+    await h.start()
+    await flush()
+    expect(texts(await h.band({ bodyColumns: 200 }))[1]).toBe('review-post herd:h-1/j1 · 2 questions · Post which findings? (1 of 3)')
+
+    ;(await h.rowButton()).props.onPress({})
+    await flush()
+    expect(texts(await h.band({ bodyColumns: 200 })).slice(1, 3)).toEqual(['review-post herd:h-1/j1 · 2 questions · Post which findings? (1 of 3)', ' · question 1 of 2'])
+    await h.press('option-3')
+    await h.press('next')
+    expect(texts(await h.band({ bodyColumns: 200 })).slice(1, 3)).toEqual(['review-post herd:h-1/j1 · 2 questions · Post as', ' · question 2 of 2'])
+    await h.press('option-0')
+    expect(answers(h)).toEqual([{ id: 'g-1', answers: { 'findings-1': [], 'findings-2': [], 'findings-3': ['f4'], outcome: 'comment' }, by: 'pane-person' }])
+  })
+
   test('a narrow open band drops kind and subject, then the count, and keeps the current question', async () => {
     const labels = ['Post which findings? (1 of 4)', 'Post which findings? (2 of 4)', 'Post which findings? (3 of 4)', 'Post which findings? (4 of 4)', 'Post the review as']
     const review = gate({

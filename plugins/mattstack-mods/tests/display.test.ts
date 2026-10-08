@@ -678,6 +678,42 @@ describe('display kit', () => {
     ])
   })
 
+  test('chunked findings questions draw as one page, and the answer goes back per chunk', async () => {
+    const chunk = (n: number, ids: string[]) => ({
+      id: `findings-${n}`,
+      label: `Post which findings? (${n} of 2)`,
+      multi: true,
+      context: j({ 'gate-ctx': 'findings@1', findings: ids.map(id => ({ id, severity: 'important', title: `title ${id}`, body: 'b', fix: `fix ${id}` })) }),
+      options: ids.map(id => ({ value: id, label: `title ${id}` })),
+    })
+    const k = kit()
+    const answered = k.ask({
+      id: 'g-c',
+      kind: 'review-post',
+      questions: [chunk(1, ['f1', 'f2']), chunk(2, ['f3']), { id: 'outcome', label: 'Post as', options: ['comment', 'approve'] }],
+    })
+    await flush()
+    const page = await k.draw()
+    expect(texts(byKey(page, 'header'))).toEqual(['review-post', 'question 1 of 2', '●', '○'])
+    expect(k.display.progress()).toEqual({ index: 0, count: 2 })
+    expect(texts(page)).toContain('Post which findings? (1 of 2)')
+    expect(walk(page).filter(e => e.element === 'Button' && e.props.key.startsWith('option-')).map(b => [b.props.label, b.props.hotkey])).toEqual([
+      ['[ ] title f1', 'a'],
+      ['[ ] title f2', 'b'],
+      ['[ ] title f3', 'c'],
+    ])
+    expect(texts(byKey(page, 'choice-2'))).toContain('fix f3')
+
+    await k.press('option-0')
+    await k.press('option-2')
+    byKey(await k.draw(), 'note').props.onInput('only these two')
+    expect(byKey(await k.draw(), 'next').props.label).toBe('Next: 2 picked →')
+    await k.press('next')
+    expect(texts(byKey(await k.draw(), 'header')).slice(1)).toEqual(['question 2 of 2', '●', '●'])
+    await k.press('option-0')
+    expect(await answered).toEqual({ 'findings-1': { value: ['f1'], note: 'only these two' }, 'findings-2': ['f3'], outcome: 'comment' })
+  })
+
   test('every Text names its color, and secondary text is inactive: subtle is for borders only', async () => {
     const k = kit()
     void k.ask({ ...REVIEW, context: j({ 'gate-ctx': 'review@1', readiness: 'yes', summary: 'ok', findings: { minor: 2 }, re_review: true, round: 3 }) })

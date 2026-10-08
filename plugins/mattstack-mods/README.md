@@ -300,6 +300,15 @@ docked pane) its hint and counter shorten to `esc back` and `i/N` first,
 then the summary drops the kind and subject, then the question count,
 and last the current question's label is clipped.
 
+Chunks of one multi question (`findings-1`, `findings-2`, ..., which a
+skill splits only because the native dialog caps a question at four
+options) are joined into one page, as the board joins them
+(`src/blocks/gate-chunks.ts`, a port of gate-kit's `chunks.ts`). The page
+takes the first chunk's label and every chunk's findings@1 entries. Its
+picks go back to rt per chunk, `[]` for a chunk with none, with the page's
+note on the first chunk. The counter, the dots and the band's question
+count all count pages. Chunks that are not adjacent draw unjoined.
+
 The pane draws the gate the way the board's gate sheets do: a header with
 the kind, the subject and the progress, the gate's context on the first
 question (review@1, plan@1 and post@1 drawn as their facts, prose clipped
