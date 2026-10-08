@@ -95,16 +95,21 @@ describe("rt uninstall", () => {
   // regardless of the Probes seam (same posture as steps-b/c.test.ts) — a
   // real per-test temp HOME, never the real machine's.
   const origHome = process.env.HOME;
+  const origShell = process.env.SHELL;
   let home: string;
 
   beforeEach(() => {
     bundleLayoutTest.resetBundleLayoutMemo();
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-uninstall-home-")));
     process.env.HOME = home;
+    // shell.remove finds the rc file from SHELL; an earlier file in the same run may have left it unrecognised.
+    process.env.SHELL = "/bin/zsh";
   });
 
   afterEach(() => {
     process.env.HOME = origHome;
+    if (origShell === undefined) delete process.env.SHELL;
+    else process.env.SHELL = origShell;
     rmSync(home, { recursive: true, force: true });
     bundleLayoutTest.resetBundleLayoutMemo();
   });

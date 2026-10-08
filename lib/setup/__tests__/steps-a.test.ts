@@ -941,6 +941,28 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(p.exists(linkPath(home, "gitq"))).toBe(true);
   });
 
+  test("path.link: an old rt block is updated only when run on request, never by the launch-time update run", async () => {
+    const origShell = process.env.SHELL;
+    process.env.SHELL = "/bin/zsh";
+    try {
+      const rcPath = join(home, ".zshrc");
+      const legacy = `\n# rt — repo tools\nexport PATH="$HOME/.local/bin:$PATH"\nexport MEMBER_VAR=placeholder\n`;
+      writeFileSync(rcPath, legacy);
+
+      const { ctx: updateCtx } = makeCtx(bundleProbe(), { update: true });
+      await pathLinkStep.run(updateCtx);
+      expect(readFileSync(rcPath, "utf8")).toBe(legacy);
+
+      const { ctx: buttonCtx, logs } = makeCtx(bundleProbe());
+      await pathLinkStep.run(buttonCtx);
+      expect(readFileSync(rcPath, "utf8")).toContain("# rt — end");
+      expect(readFileSync(rcPath, "utf8")).toContain("export MEMBER_VAR=placeholder");
+      expect(logs.some((l) => l.line.includes("the previous file is at"))).toBe(true);
+    } finally {
+      process.env.SHELL = origShell;
+    }
+  });
+
   test("settings.seed: writes mattstack.appPath from ctx.appPath, never touches rt.repoRoots", async () => {
     const p = fakeProbes({ home });
     const { ctx } = makeCtx(p, { appPath: appRoot });

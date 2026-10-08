@@ -10,9 +10,10 @@
  * All writes are idempotent (guarded by a marker comment).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { chmodSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { LEGACY_RT_DIR_IN_RC } from "./rt-paths.ts";
 
 // Call-time HOME (mirrors lib/rt-paths.ts's home()): resolved on every call,
 // not baked in at module load. A module-load-time HOME let a test's temp-HOME
@@ -109,14 +110,15 @@ function zshenvBlock(): string {
 
 // ─── History hook blocks (also callable standalone for existing installs) ──────
 
-function posixHistoryHook(): string {
+/** `stateDir` is where `rt run` leaves its last command; it moved in RT-33, and rc files written before the move still carry LEGACY_RT_DIR_IN_RC. */
+function posixHistoryHook(stateDir = "~/.mattstack/rt"): string {
   return [
     HISTORY_HOOK_MARKER,
     "# Replay rt run commands in shell history so up-arrow recalls the actual",
     "# command (e.g. \"npm run test\") instead of \"rt run\".",
     "_rt_history_hook() {",
-    '  if [[ -f ~/.mattstack/rt/last-run-command ]]; then',
-    '    local cmd=$(<~/.mattstack/rt/last-run-command)',
+    `  if [[ -f ${stateDir}/last-run-command ]]; then`,
+    `    local cmd=$(<${stateDir}/last-run-command)`,
     '    if [[ -n "$cmd" ]]; then',
     '      if [[ -n "$ZSH_VERSION" ]]; then',
     '        print -s "$cmd"',
@@ -124,7 +126,7 @@ function posixHistoryHook(): string {
     '        history -s "$cmd"',
     "      fi",
     "    fi",
-    '    rm -f ~/.mattstack/rt/last-run-command',
+    `    rm -f ${stateDir}/last-run-command`,
     "  fi",
     "}",
     'if [[ -n "$ZSH_VERSION" ]]; then',
@@ -166,14 +168,18 @@ export interface ShellIntegrationResult {
   rcPath: string;
   alreadyInstalled: boolean;
   written: boolean;
+  /** Set when an old block was repaired: the copy of the rc file taken before it was rewritten. */
+  backupPath?: string;
   error?: string;
 }
 
 /**
  * Write rt shell integration to the user's rc file.
  * Safe to call multiple times — idempotent via the MARKER string.
+ * `repair` lets it rewrite an old block with no end marker; only a run the
+ * member asked for passes it, never the unattended update run.
  */
-export function installShellIntegration(): ShellIntegrationResult {
+export function installShellIntegration(opts: { repair?: boolean } = {}): ShellIntegrationResult {
   const shell = detectShell();
   const rcPath = shellRcPath(shell);
 
@@ -183,17 +189,22 @@ export function installShellIntegration(): ShellIntegrationResult {
   }
 
   let existing = existsSync(rcPath) ? readFileSync(rcPath, "utf8") : "";
-
   // `rtcd` is what the tool.shell row checks for; a marked block without it
   // predates the alias and is replaced, or the row's remedy never lands.
   if (existing.includes(MARKER)) {
     if (existing.includes("rtcd")) return { shell, rcPath, alreadyInstalled: true, written: false };
-    const stripped = stripMarkedBlock(existing, MARKER);
-    if (stripped === null) {
+    const bounded = stripMarkedBlock(existing, MARKER);
+    const repaired = bounded === null && shell !== "fish" ? repairLegacyBlock(existing) : null;
+    if (bounded === null && repaired === null) {
       return { shell, rcPath, alreadyInstalled: false, written: false,
                error: `an older rt block in ${rcPath} has no end marker; remove it by hand, then retry` };
     }
-    existing = stripped;
+    if (repaired !== null && !opts.repair) {
+      return { shell, rcPath, alreadyInstalled: false, written: false,
+               error: `an older rt block in ${rcPath} needs updating; rt updates it only when you ask` };
+    }
+    if (repaired !== null) return writeRepaired(shell, rcPath, repaired + posixBlock());
+    existing = bounded!;
   }
 
   const block = shell === "fish" ? fishBlock() : posixBlock();
@@ -208,6 +219,30 @@ export function installShellIntegration(): ShellIntegrationResult {
   } catch (err: any) {
     return { shell, rcPath, alreadyInstalled: false, written: false,
              error: err?.message ?? String(err) };
+  }
+}
+
+/** Backs `rcPath` up beside itself, then swaps `content` in by rename over the real file, so a symlinked rc keeps its link and a failed write leaves the file whole. */
+function writeRepaired(shell: ShellType, rcPath: string, content: string): ShellIntegrationResult {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupPath = `${rcPath}.rt-backup-${stamp}`;
+  let tmpPath: string | undefined;
+  let backedUp = false;
+  try {
+    copyFileSync(rcPath, backupPath, constants.COPYFILE_EXCL);
+    backedUp = true;
+    const realPath = realpathSync(rcPath);
+    tmpPath = `${realPath}.rt-tmp-${stamp}`;
+    // The rename replaces the file, so the member's mode (a private 0600 rc) has to ride on the temp file; chmod beats the umask.
+    const mode = statSync(realPath).mode & 0o777;
+    writeFileSync(tmpPath, content, { mode });
+    chmodSync(tmpPath, mode);
+    renameSync(tmpPath, realPath);
+    return { shell, rcPath, alreadyInstalled: false, written: true, backupPath };
+  } catch (err: any) {
+    if (tmpPath) rmSync(tmpPath, { force: true });
+    return { shell, rcPath, alreadyInstalled: false, written: false,
+             ...(backedUp ? { backupPath } : {}), error: err?.message ?? String(err) };
   }
 }
 
@@ -309,6 +344,50 @@ function stripMarkedBlock(content: string, marker: string): string | null {
   if (content[end] === "\n") end += 1; // the block's own trailing newline
 
   return content.slice(0, start) + content.slice(end);
+}
+
+/** The lines rt's old block carried under its marker, in the order it wrote them. */
+const LEGACY_LEAD_LINES = [
+  'export PATH="$HOME/.local/bin:$PATH"',
+  'rt-cd() { local dir=$(rt cd 2>/dev/null); [ -n "$dir" ] && cd "$dir"; }',
+  "alias rtcd='rt-cd'",
+];
+
+/** Every history hook rt has appended, as lines, without the trailing empty line `split` leaves. */
+function knownHistoryHooks(): string[][] {
+  return [posixHistoryHook(), posixHistoryHook(LEGACY_RT_DIR_IN_RC)].map((hook) => hook.split("\n").slice(0, -1));
+}
+
+/**
+ * `content` without the lines an end-markerless rt block left in a posix rc
+ * file, or null when that cannot be done without guessing. Only lines rt
+ * wrote go: the marker (and the blank line its block opened with), the
+ * PATH, rt-cd and rtcd lines straight under it in the order rt wrote them,
+ * and each history hook whose every line matches one rt wrote.
+ * The member's own lines between them stay, and so does rt cd's wrapper,
+ * which commands/cd.ts manages. More than one marker, or a history hook rt
+ * did not write word for word, returns null.
+ */
+export function repairLegacyBlock(content: string): string | null {
+  const lines = content.split("\n");
+  const markers = lines.flatMap((line, i) => (line === MARKER ? [i] : []));
+  if (markers.length !== 1) return null;
+  const markerAt = markers[0]!;
+
+  const drop = new Set<number>([markerAt]);
+  if (markerAt > 0 && lines[markerAt - 1] === "") drop.add(markerAt - 1);
+  let i = markerAt + 1;
+  for (const lead of LEGACY_LEAD_LINES) if (lines[i] === lead) drop.add(i++);
+
+  const hooks = knownHistoryHooks();
+  for (let at = 0; at < lines.length; at++) {
+    if (lines[at] !== HISTORY_HOOK_MARKER) continue;
+    const hook = hooks.find((h) => h.every((line, k) => lines[at + k] === line));
+    if (!hook) return null;
+    for (let k = 0; k < hook.length; k++) drop.add(at + k);
+  }
+
+  return lines.filter((_, at) => !drop.has(at)).join("\n");
 }
 
 /** The inverse of `installShellIntegration` — removes exactly what it wrote, leaving unrelated rc-file content untouched. A block installed before END_MARKER existed can't be located precisely; that case reports `manual: true` instead of guessing. */

@@ -409,8 +409,16 @@ describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
     expect(r.detail).toContain(".zshrc");
   });
 
-  test("an old rt block with no end marker -> needs-you naming the rc file to fix by hand, re-check only (path.link cannot rewrite it)", async () => {
-    const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/zsh" }, files: { "/fake-home/.zshrc": `\n${MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\n` } });
+  test("an old rt block with no end marker that rt can bound -> needs-you, with a row action that runs path.link to update it", async () => {
+    const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/zsh" }, files: { "/fake-home/.zshrc": `\n${MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\nexport MEMBER_VAR=placeholder\n` } });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("An old rt block in /fake-home/.zshrc needs updating");
+    expect(r.action).toEqual({ type: "run", label: "Update shell block", verb: ["setup", "apply", "--only", "path.link"] });
+  });
+
+  test("an old rt block rt cannot bound -> needs-you naming the rc file to fix by hand, re-check only (path.link would refuse it)", async () => {
+    const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/zsh" }, files: { "/fake-home/.zshrc": `\n${MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\n\n${MARKER}\n` } });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("Remove the old rt block from /fake-home/.zshrc by hand, then Re-check");
