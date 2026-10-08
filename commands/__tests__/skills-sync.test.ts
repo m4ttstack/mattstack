@@ -275,6 +275,14 @@ describe("syncBlocks", () => {
     expect(pulled.steps[0]!.status).toBe("refused");
   });
 
+  test("a pull held on an org layout this app does not read is a refusal by policy, never a failure", () => {
+    const detail = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const held = report({ ok: false, steps: [{ name: "pull-pack", status: "refused", detail }] });
+    expect(renderPlain(syncRefusal(held)!)).toBe(`[refused] rt did not sync acme  it stopped at: Pull the pack\n  why: ${detail}\n`);
+    expect(syncFailure(held)).toBeNull();
+    expect(held.steps[0]).toEqual({ name: "pull-pack", status: "refused", detail });
+  });
+
   test("a strict lint refusal names the check to run", () => {
     const refused = report({ ok: false, steps: [{ name: "check", status: "refused", detail: "This pack is strict, and mcp lint found 2 hits. Fix them before syncing" }] });
     expect(renderPlain(syncRefusal(refused)!)).toBe(

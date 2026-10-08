@@ -68,6 +68,10 @@ type World = {
   prefix?: Record<string, string>;
   /** Git subcommands that fail, keyed by subcommand name. */
   gitFail?: Record<string, string>;
+  /** The org marker each checkout holds at its origin ref's fetched tip, by checkout dir; null means the tip has none. */
+  originMarker?: Record<string, string | null>;
+  /** What `git show` at an origin ref prints to stderr when it fails for another reason. */
+  originShowFail?: string;
 };
 
 /**
@@ -127,6 +131,13 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
         if (stderr) return { code: 1, stdout: "", stderr };
         const value = world.branchByDir ? (world.branchByDir[cwd] ?? "main") : (world.branch ?? "main");
         return { code: 0, stdout: value, stderr: "" };
+      }
+      if (args[0] === "show" && args[1]!.startsWith("refs/remotes/origin/")) {
+        const [ref, path] = args[1]!.split(/:(.*)/s);
+        if (world.originShowFail) return { code: 128, stdout: "", stderr: world.originShowFail };
+        const marker = world.originMarker?.[cwd];
+        if (marker === undefined || marker === null) return { code: 128, stdout: "", stderr: `fatal: path '${path}' does not exist in '${ref}'` };
+        return { code: 0, stdout: marker, stderr: "" };
       }
       if (args[0] === "show") {
         const [ref, path] = args[1]!.split(/:(.*)/s);
@@ -1009,6 +1020,99 @@ describe("syncPack", () => {
     expect(checkStep.status).toBe("ran");
     expect(checkStep.detail).not.toContain("mcp lint");
     expect(checkStep.detail).toMatch(/^the compiled skills are (current|out of date)$/);
+  });
+});
+
+/** A team pack at <clone>/mattstack/teams/widgets/plugin, in a clone whose checked-out marker is layout 2. */
+function orgClonePack(): { clone: string; pack: PackInfo } {
+  const clone = tmp("rt-sync-org-");
+  mkdirSync(join(clone, ".git"), { recursive: true });
+  writeFileSync(join(clone, ".git", "config"), "");
+  mkdirSync(join(clone, "mattstack"), { recursive: true });
+  writeFileSync(join(clone, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme", "layout": 2 }\n`);
+  const pack = fixturePack("plugin", "local", "1.0.0", join(clone, "mattstack", "teams", "widgets"));
+  return { clone, pack };
+}
+
+describe("pull-pack in an org clone", () => {
+  const pulls = (calls: Call[], dir: string) => calls.filter((c) => c.cmd === "git" && c.args[0] === "pull" && c.cwd === dir);
+
+  test("a fetched tip on a layout this rt does not read refuses the pull with the update sentence", async () => {
+    const { clone, pack } = orgClonePack();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 3 }` } }), orgsRoot: dirname(clone) };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "pull-pack")).toEqual({ name: "pull-pack", status: "refused", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+    expect(calls.some((c) => c.args[0] === "fetch" && c.cwd === clone)).toBe(true);
+    expect(calls.some((c) => c.args[0] === "show" && c.args[1] === "refs/remotes/origin/main:mattstack/mattstack.jsonc" && c.cwd === clone)).toBe(true);
+    expect(pulls(calls, pack.dir)).toEqual([]);
+  });
+
+  test("a fetched tip at layout 2 pulls", async () => {
+    const { clone, pack } = orgClonePack();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, drift: [false], originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 2 }` } }), orgsRoot: dirname(clone) };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "pull-pack")!.status).toBe("ran");
+    expect(pulls(calls, pack.dir)).toHaveLength(1);
+  });
+
+  test("a fetched tip with no marker pulls", async () => {
+    const { clone, pack } = orgClonePack();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, drift: [false], originMarker: { [clone]: null } }), orgsRoot: dirname(clone) };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "pull-pack")!.status).toBe("ran");
+    expect(calls.some((c) => c.args[0] === "show" && c.cwd === clone)).toBe(true);
+    expect(pulls(calls, pack.dir)).toHaveLength(1);
+  });
+
+  test("a pack outside an org clone pulls with no fetch or show", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, { calls, drift: [false] }));
+
+    expect(report.steps.find((s) => s.name === "pull-pack")!.status).toBe("ran");
+    expect(calls.some((c) => c.args[0] === "fetch" || c.args[0] === "show")).toBe(false);
+    expect(pulls(calls, pack.dir)).toHaveLength(1);
+  });
+
+  test("a show that fails for another reason refuses without pulling", async () => {
+    const { clone, pack } = orgClonePack();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, originShowFail: "fatal: bad object refs/remotes/origin/main" }), orgsRoot: dirname(clone) };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const step = report.steps.find((s) => s.name === "pull-pack")!;
+    expect(step.status).toBe("refused");
+    expect(step.detail).toBe(`Pulling ${pack.dir} failed: fatal: bad object refs/remotes/origin/main. Sort it out by hand, then run this again`);
+    expect(pulls(calls, pack.dir)).toEqual([]);
+  });
+
+  test("a fetch that fails refuses without pulling", async () => {
+    const { clone, pack } = orgClonePack();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, gitFail: { fetch: "fatal: unable to access origin" } }), orgsRoot: dirname(clone) };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "pull-pack")).toEqual({ name: "pull-pack", status: "refused", detail: `Pulling ${pack.dir} failed: fatal: unable to access origin. Sort it out by hand, then run this again` });
+    expect(calls.some((c) => c.args[0] === "show" && c.cwd === clone)).toBe(false);
+    expect(pulls(calls, pack.dir)).toEqual([]);
   });
 });
 

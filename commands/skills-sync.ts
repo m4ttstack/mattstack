@@ -27,6 +27,7 @@ import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { readDevModeConfig } from "./settings.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { orgsDir } from "../lib/rt-paths.ts";
+import { isUpdateSentence } from "../lib/team/org-layout.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
@@ -157,7 +158,8 @@ export function syncBlocks(report: SyncReport): Block[] {
  */
 const REFUSED_ON_FAILED_COMMAND: ReadonlySet<string> = new Set(["pull-engine", "pull-pack", "update-engine", "compile"]);
 
-const isPolicyRefusal = (step: SyncStep): boolean => step.status === "refused" && !REFUSED_ON_FAILED_COMMAND.has(step.name);
+/** A pull held on an org layout this app does not read is a refusal by policy, though pull-pack otherwise refuses only on a failed command. */
+const isPolicyRefusal = (step: SyncStep): boolean => step.status === "refused" && (!REFUSED_ON_FAILED_COMMAND.has(step.name) || isUpdateSentence(step.detail));
 
 const textLines = (text: string): string[] => text.split(/\r\n|\r|\n/);
 
