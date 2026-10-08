@@ -309,14 +309,39 @@ describe('link', () => {
     expect(handled).toHaveLength(0)
   })
 
-  test('the core answers a ping command with an ack', async () => {
+  test('the core answers a probe.ping command with an ack', async () => {
     const h = harness()
     await h.start()
 
-    await h.fire('session.receive', { origin: { kind: 'peer' }, text: '<rt-mod-command id="p-1" kind="ping">null</rt-mod-command>' }, recorder({}).next)
+    await h.fire('session.receive', { origin: { kind: 'peer' }, text: '<rt-mod-command id="p-1" kind="probe.ping">null</rt-mod-command>' }, recorder({}).next)
     await flush()
 
     expect(h.verbs('session:ack').map(s => s.body)).toEqual([{ linkId: 'ml-1', id: 'p-1' }])
+    expect(h.logs.some(l => l.to === 'debug' && l.text === 'mattstack-mods: probe.ping p-1')).toBe(true)
+  })
+
+  test('a probe.wait command is acked and runs a wait that logs where it ended', async () => {
+    const h = harness()
+    h.script.respond = scripted(h, {
+      'events:wait': [
+        new Error('ECONNRESET'),
+        { ok: true, data: { events: [{ id: 42, topic: 'mods-c3/probe' }], cursor: 42 } },
+      ],
+    })
+    await h.start()
+
+    await h.fire(
+      'session.receive',
+      { origin: { kind: 'peer' }, text: '<rt-mod-command id="w-1" kind="probe.wait">{"pattern":"mods-c3/probe","after":40}</rt-mod-command>' },
+      recorder({}).next,
+    )
+    await h.clock.advance(5_000)
+
+    expect(h.verbs('session:ack').map(s => s.body)).toEqual([{ linkId: 'ml-1', id: 'w-1' }])
+    expect(h.verbs('events:wait').map(s => s.body.after)).toEqual([40, 40])
+    const debug = h.logs.filter(l => l.to === 'debug').map(l => l.text)
+    expect(debug).toContain('mattstack-mods: events:wait on mods-c3/probe from 40 failed (transport: ECONNRESET); retrying from the same cursor')
+    expect(debug).toContain('mattstack-mods: probe.wait on mods-c3/probe from 40 ended at cursor 42 with 1 event(s)')
   })
 
   test('an aborted wait rejects and sends no further round', async () => {

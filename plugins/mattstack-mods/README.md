@@ -78,6 +78,11 @@ A block reaches the daemon through the link:
   `session:ack`. A command that fails, or whose block is not live, is not
   acked, so rt takes its fallback.
 
+The core answers two diagnostic commands, which `rt.sock`'s `session:push`
+reaches: `probe.ping` logs and acks, and `probe.wait` (`{ pattern, after }`)
+runs a wait of up to 5 minutes and logs where it ended. Every link line goes to
+the debug log, prefixed `mattstack-mods:`.
+
 ## Checks
 
 ```bash

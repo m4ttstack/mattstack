@@ -11,6 +11,7 @@ export const ROUND_MS = 20_000
 const ROUND_CALL_MS = 25_000
 /** session.end runs under one short wall-clock bound for the whole chain. */
 const END_CALL_MS = 2_000
+const PROBE_WAIT_MS = 300_000
 const COMMAND_ENVELOPE = /^<rt-mod-command id="([^"<>]+)" kind="([^"<>]+)">([\s\S]*)<\/rt-mod-command>$/
 
 export type Command = { id: string; kind: string; data: unknown }
@@ -239,9 +240,61 @@ export function createLink(hub: Hub): Link {
     return { consumed: `mattstack-mods command ${kind} ${cmdId}` }
   }
 
-  handlers.set('ping', {
+  async function wait(pattern: string, after: number, until: (events: unknown[]) => boolean, signal: AbortSignal): Promise<WaitResult> {
+    const a = api
+    if (!a) throw new Error('mattstack-mods: the link has not started')
+    let cursor = after
+    const events: unknown[] = []
+    let failures = 0
+    for (;;) {
+      if (signal.aborted) throw abortReason(signal)
+      const stale = id
+      const out = await abortable(
+        call<{ events?: unknown[]; cursor?: number }>(a, 'events:wait', { pattern, after: cursor, waitMs: ROUND_MS }, ROUND_CALL_MS),
+        signal,
+      )
+      if (out.ok) {
+        failures = 0
+        if (Array.isArray(out.data?.events)) events.push(...out.data.events)
+        if (typeof out.data?.cursor === 'number') cursor = out.data.cursor
+        if (until(events)) return { cursor, events }
+        continue
+      }
+      const { code, message } = out.error
+      if (code !== 'transport' && code !== 'transient' && code !== 'unknown-link') {
+        throw new Error(`mattstack-mods: events:wait on ${pattern} failed (${code}): ${message}`)
+      }
+      failures += 1
+      log(`events:wait on ${pattern} from ${cursor} failed (${code}: ${message}); retrying from the same cursor`)
+      if (code === 'unknown-link' && stale) await serial(() => relink(stale))
+      if (code !== 'unknown-link' || failures > 1) {
+        const pause = new Promise<void>(resolve => {
+          a.clock.after(backoff(failures), resolve)
+        })
+        await abortable(pause, signal)
+      }
+    }
+  }
+
+  // Diagnostics a person or a live check reaches with `session:push`.
+  handlers.set('probe.ping', {
     handler: async cmd => {
-      log(`ping ${cmd.id}`)
+      log(`probe.ping ${cmd.id}`)
+    },
+  })
+  handlers.set('probe.wait', {
+    handler: async cmd => {
+      const input = (cmd.data ?? {}) as { pattern?: unknown; after?: unknown }
+      if (typeof input.pattern !== 'string' || typeof input.after !== 'number') throw new Error('probe.wait takes { pattern, after }')
+      const { pattern, after } = input
+      const stop = new AbortController()
+      const limit = api?.clock.after(PROBE_WAIT_MS, () => stop.abort(new Error(`probe.wait on ${pattern} saw nothing in ${PROBE_WAIT_MS} ms`)))
+      wait(pattern, after, events => events.length > 0, stop.signal)
+        .then(
+          got => log(`probe.wait on ${pattern} from ${after} ended at cursor ${got.cursor} with ${got.events.length} event(s)`),
+          err => log(err instanceof Error ? err.message : String(err)),
+        )
+        .finally(() => limit?.cancel())
     },
   })
 
@@ -282,40 +335,7 @@ export function createLink(hub: Hub): Link {
       handlers.set(kind, owner ? { handler, owner } : { handler })
     },
 
-    async wait(pattern, after, until, signal) {
-      const a = api
-      if (!a) throw new Error('mattstack-mods: the link has not started')
-      let cursor = after
-      const events: unknown[] = []
-      let failures = 0
-      for (;;) {
-        if (signal.aborted) throw abortReason(signal)
-        const stale = id
-        const out = await abortable(
-          call<{ events?: unknown[]; cursor?: number }>(a, 'events:wait', { pattern, after: cursor, waitMs: ROUND_MS }, ROUND_CALL_MS),
-          signal,
-        )
-        if (out.ok) {
-          failures = 0
-          if (Array.isArray(out.data?.events)) events.push(...out.data.events)
-          if (typeof out.data?.cursor === 'number') cursor = out.data.cursor
-          if (until(events)) return { cursor, events }
-          continue
-        }
-        const { code, message } = out.error
-        if (code !== 'transport' && code !== 'transient' && code !== 'unknown-link') {
-          throw new Error(`mattstack-mods: events:wait on ${pattern} failed (${code}): ${message}`)
-        }
-        failures += 1
-        if (code === 'unknown-link' && stale) await serial(() => relink(stale))
-        if (code !== 'unknown-link' || failures > 1) {
-          const pause = new Promise<void>(resolve => {
-            a.clock.after(backoff(failures), resolve)
-          })
-          await abortable(pause, signal)
-        }
-      }
-    },
+    wait,
 
     linkId() {
       return id
