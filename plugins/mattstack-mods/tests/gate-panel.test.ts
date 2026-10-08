@@ -539,26 +539,36 @@ describe('gate-panel', () => {
     expect(esc.props.children[0]).toBe('esc back')
   })
 
-  test('a docked pane narrows the open band: the summary still shows, clipped, with the counter', async () => {
-    const five = gate({ questions: Array.from({ length: 5 }, (_, i) => ({ id: `q${i}`, label: i === 0 ? QUESTION : `Q${i}`, multi: false, options: ['a', 'b'] })) })
-    const h = harness({ 'g-1': five })
+  test('a narrow open band drops kind and subject, then the count, and keeps the current question', async () => {
+    const labels = ['Post which findings? (1 of 4)', 'Post which findings? (2 of 4)', 'Post which findings? (3 of 4)', 'Post which findings? (4 of 4)', 'Post the review as']
+    const review = gate({
+      kind: 'review-post',
+      subject: 'mr:https://gitlab.example.com/acme/web/-/merge_requests/46065',
+      questions: labels.map((label, i) => ({ id: `q${i}`, label, multi: false, options: ['a', 'b'] })),
+    })
+    const h = harness({ 'g-1': review })
     await h.start()
     await flush()
     ;(await h.rowButton()).props.onPress({})
     await flush()
 
-    const docked = texts(await h.band({ bodyColumns: 71 }))
-    expect(docked[0]).toBe('Answering in the panel  →')
-    expect(docked[1]!.startsWith('question herd:h')).toBe(true)
-    expect(docked[1]!.endsWith('…')).toBe(true)
-    expect(docked[1]!.length).toBeGreaterThanOrEqual(12)
-    expect(docked.slice(2)).toEqual([' · question 1 of 5', 'esc back'])
-    expect(docked.join('').length + 3 + 1).toBeLessThanOrEqual(71)
+    const fits = (row: string[], columns: number) => expect(row.join('').length + 3 + 1).toBeLessThanOrEqual(columns)
+    const wide = texts(await h.band({ bodyColumns: 160 }))
+    expect(wide).toEqual(['Answering in the panel  →', `review-post !46065 · 5 questions · ${labels[0]}`, ' · question 1 of 5', 'esc back to the prompt'])
+    fits(wide, 160)
 
-    const tighter = texts(await h.band({ bodyColumns: 55 }))
-    expect(tighter[1]!.length).toBeGreaterThanOrEqual(12)
-    expect(tighter.slice(2)).toEqual([' · 1/5', 'esc back'])
-    expect(tighter.join('').length + 3 + 1).toBeLessThanOrEqual(55)
+    const middle = texts(await h.band({ bodyColumns: 100 }))
+    expect(middle).toEqual(['Answering in the panel  →', `5 questions · ${labels[0]}`, ' · question 1 of 5', 'esc back'])
+    fits(middle, 100)
+
+    const docked = texts(await h.band({ bodyColumns: 71 }))
+    expect(docked).toEqual(['Answering in the panel  →', 'Post which findings? (1 of…', ' · 1/5', 'esc back'])
+    fits(docked, 71)
+
+    // The band names the question the pane is on, not the gate's first.
+    await h.press('option-0')
+    expect(texts(await h.band({ bodyColumns: 71 })).slice(1)).toEqual(['Post which findings? (2 of…', ' · 2/5', 'esc back'])
+    expect(texts(await h.band({ bodyColumns: 100 }))[1]).toBe(`5 questions · ${labels[1]}`)
   })
 
   test("the pane draws the listed gate's kind, subject and context", async () => {

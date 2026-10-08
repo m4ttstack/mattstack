@@ -267,6 +267,17 @@ describe('display kit', () => {
     expect(texts(box)).not.toContain('0 minor')
     expect(texts(box).at(-1)).toBe('The badge works; two states read wrong.')
 
+    // A wrapping row whose items are the readiness, then each separator with
+    // the count after it, so a line never ends on a separator.
+    const first = box.props.children[0]
+    expect(first.props).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap' })
+    const items = first.props.children
+    expect(items[0].element).toBe('Text')
+    expect(items.slice(1).map((i: any) => [i.element, i.props.flexShrink, texts(i)])).toEqual([
+      ['Box', 0, ['  ·  ', '1 critical']],
+      ['Box', 0, [' · ', '3 important']],
+    ])
+
     await k.press('option-0')
     await k.press('next')
     expect(byKey(await k.draw(), 'context')).toBeUndefined()
@@ -305,6 +316,33 @@ describe('display kit', () => {
     expect(tail.props.children[0].endsWith('FileName.tsx:120')).toBe(true)
     // The pane's 40 cells, less the 3 of the choice's indent and the severity's 14.
     expect(tail.props.children[0].length).toBeLessThanOrEqual(40 - 3 - 14)
+  })
+
+  test('a matched finding with no fix shows its body, clipped to three rows', async () => {
+    const k = kit(40)
+    const body = Array.from({ length: 30 }, (_, i) => `drop${i}`).join(' ')
+    const findings = j({
+      'gate-ctx': 'findings@1',
+      findings: [
+        { id: 'f1', severity: 'minor', title: 't', body, file: 'a/b.tsx:3' },
+        { id: 'f2', severity: 'minor', title: 'u', body: 'Drop the override.' },
+      ],
+    })
+    void k.ask({
+      id: 'g-b',
+      questions: [{ id: 'q', label: 'Post?', multi: true, context: findings, options: [{ value: 'f1', label: 't', description: 'not this' }, { value: 'f2', label: 'u' }] }],
+    })
+    await flush()
+    const tree = await k.draw()
+    const rows = walk(byKey(tree, 'choice-0')).filter(e => e.element === 'Text').slice(3)
+    expect(rows).toHaveLength(3)
+    expect(rows.every(r => r.props.color === 'inactive')).toBe(true)
+    // The pane's 40 cells less the choice's indent of 3.
+    expect(rows.every(r => r.props.children[0].length <= 37)).toBe(true)
+    expect(rows.at(-1).props.children[0].endsWith('…')).toBe(true)
+    expect(rows[0].props.children[0].startsWith('drop0 drop1')).toBe(true)
+    expect(JSON.stringify(byKey(tree, 'choice-0'))).not.toContain('not this')
+    expect(texts(byKey(tree, 'choice-1'))).toEqual(['Minor', 'Drop the override.'])
   })
 
   test("a matched finding's label drops the severity tags its subtext already shows", async () => {

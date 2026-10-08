@@ -292,7 +292,10 @@ pane through the display kit, asking for 40% of the terminal's width (at
 most 80 columns) when it docks. The width is the render's viewport, else
 the band's own columns plus the engine's five, else 80. While the pane is open the row reads
 `Answering in the panel  →` with the question it is on, and draws no
-Button, so a second `1` presses nothing.
+Button, so a second `1` presses nothing. On a narrow band (beside the
+docked pane) its hint and counter shorten to `esc back` and `i/N` first,
+then the summary drops the kind and subject, then the question count,
+and last the current question's label is clipped.
 
 The pane draws the gate the way the board's gate sheets do: a header with
 the kind, the subject and the progress, the gate's context on the first
@@ -300,8 +303,9 @@ question (review@1, plan@1 and post@1 drawn as their facts, prose clipped
 to eight rows), the question with its own context (thread@1, reply@1,
 carryover@1, skipped@1, replies@1, or prose clipped to six rows), then one
 Button per option with what it means under it: a `recommended` tag lifted
-off the label, its findings@1 finding matched by option value, or its
-description. A JSON context of any other shape is not shown. The gate-ctx
+off the label, its findings@1 finding matched by option value (severity,
+file, and its fix, or its body clipped to three rows when it has no fix),
+or its description. A JSON context of any other shape is not shown. The gate-ctx
 shapes are a port of the board's parser (`src/blocks/gate-ctx.ts`). A
 matched finding's label drops the `[Critical]`-style tags its subtext
 already shows. Secondary text is the `inactive` theme key; `subtle` is

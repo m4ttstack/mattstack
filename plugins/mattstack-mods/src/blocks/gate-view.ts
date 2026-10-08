@@ -26,6 +26,7 @@ export const HOTKEY_CELLS = 3
 const BOXED = 4
 const GATE_PROSE_ROWS = 8
 const QUESTION_PROSE_ROWS = 6
+const FINDING_BODY_ROWS = 3
 const SUBJECT_CELLS = 32
 
 /** `kind` as one line, or '' for a row that carries none. */
@@ -40,9 +41,12 @@ export function clip(text: string, cells: number): string {
 
 export const text = (el: El, color: ThemeKey, children: string, style: Omit<TextProps, 'color'> = {}): Node => el.Text({ color, ...style, children: [children] })
 
-/** Interleaves `items` with a subtle separator. */
-function joined(el: El, items: Node[], separator = ' · '): Node[] {
-  return items.flatMap((item, i) => (i === 0 ? [item] : [text(el, 'inactive', separator), item]))
+/**
+ * Each of `items` led by its separator in one unshrinking Box (`lead` before
+ * the first, ` · ` before the rest), so a wrapping row never ends a line on one.
+ */
+function led(el: El, items: Node[], lead = '  ·  '): Node[] {
+  return items.map((item, i) => el.Box({ flexDirection: 'row', flexShrink: 0, children: [text(el, 'inactive', i === 0 ? lead : ' · '), item] }))
 }
 
 const row = (el: El, children: Node[]): Node => el.Box({ flexDirection: 'row', flexWrap: 'wrap', children })
@@ -158,7 +162,7 @@ function reviewRows(el: El, ctx: ReviewCtx): Node[] {
   const counts = (['critical', 'important', 'minor'] as const)
     .filter(s => ctx.findings[s] > 0)
     .map(s => text(el, SEVERITY[s].color, `${ctx.findings[s]} ${s}`))
-  if (counts.length > 0) head.push(text(el, 'inactive', '  ·  '), ...joined(el, counts))
+  head.push(...led(el, counts))
   if (ctx.round !== undefined && (ctx.round > 1 || ctx.re_review)) head.push(text(el, 'inactive', ` · round ${ctx.round}`))
   return [row(el, head), text(el, 'text', ctx.summary, { wrap: 'wrap' })]
 }
@@ -170,7 +174,7 @@ function respondRows(el: El, ctx: PlanCtx | PostCtx): Node[] {
     ctx.shape === 'plan@1'
       ? [text(el, 'text', plural(ctx.threads.total, 'thread', 'threads')), ...(ctx.threads.blocking > 0 ? [text(el, 'warning', `${ctx.threads.blocking} blocking`)] : [])]
       : [text(el, 'text', plural(ctx.replies, 'reply', 'replies')), ...(ctx.fixes.length > 0 ? [text(el, 'text', plural(ctx.fixes.length, 'fix', 'fixes'))] : [])]
-  head.push(text(el, 'inactive', '  ·  '), ...joined(el, counts))
+  head.push(...led(el, counts))
   return [row(el, head), ...(ctx.adjudication ? [text(el, 'text', ctx.adjudication, { wrap: 'wrap' })] : [])]
 }
 
@@ -259,7 +263,9 @@ export function choiceSubtext(el: El, recommended: boolean, finding: FindingEntr
       head.push(el.Box({ flexShrink: 1, children: [text(el, 'inactive', clipStart(fileTail(finding.file), room), { wrap: 'truncate-start' })] }))
     }
     rows.push(el.Box({ flexDirection: 'row', children: head }))
+    // With no fix, the body is what says what to do (the board shows it too).
     if (finding.fix) rows.push(text(el, 'inactive', finding.fix, { wrap: 'wrap' }))
+    else rows.push(...proseRows(el, finding.body, width, FINDING_BODY_ROWS, 'inactive'))
   } else if (typeof description === 'string' && description.trim()) {
     rows.push(text(el, 'inactive', description, { wrap: 'wrap' }))
   }

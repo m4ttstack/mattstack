@@ -19,8 +19,6 @@ const ANSWERING = 'Answering in the panel  →'
 const ANSWER = 'Answer'
 const ESC_BACK = 'esc back to the prompt'
 const ESC_SHORT = 'esc back'
-/** The fewest summary cells the open band keeps before its hint and counter shorten. */
-const SUMMARY_MIN = 12
 /** Cells between the band's title and its summary. */
 const TITLE_GAP = 3
 /** The cells the engine keeps at the band's right end for its `[-]`, outside `bodyColumns`. */
@@ -42,11 +40,24 @@ const isQuestion = (q: unknown): q is FormQuestion => {
   return !!x && typeof x.id === 'string' && typeof x.label === 'string' && Array.isArray(x.options)
 }
 
-/** `<kind> <subject tail> · <N> questions · <first question label>`, leaving out what a gate lacks. */
-function summary(gate: PanelGate): string {
+/** The summary's parts: `<kind> <subject tail>`, `<N> questions`, and question `index`'s label, each '' where a gate lacks it. */
+function parts(gate: PanelGate, index: number): [string, string, string] {
   const named = [kindOf(gate.kind), subjectTail(gate.subject)].filter(Boolean).join(' ')
   const count = gate.questions.length > 1 ? `${gate.questions.length} questions` : ''
-  return [named, count, oneLine(gate.questions[0]!.label)].filter(Boolean).join(' · ')
+  return [named, count, oneLine((gate.questions[index] ?? gate.questions[0]!).label)]
+}
+
+const joinParts = (...said: string[]) => said.filter(Boolean).join(' · ')
+
+/** `<kind> <subject tail> · <N> questions · <first question label>`, leaving out what a gate lacks. */
+function summary(gate: PanelGate): string {
+  return joinParts(...parts(gate, 0))
+}
+
+/** The open band's summaries, fullest first: all of it, then without kind and subject, then the current question alone. */
+function openSummaries(gate: PanelGate, index: number): string[] {
+  const [named, count, label] = parts(gate, index)
+  return [joinParts(named, count, label), joinParts(count, label), label]
 }
 
 /**
@@ -250,17 +261,28 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
       const count = open.questions.length
       const long = count > 1 && at ? ` · question ${at.index + 1} of ${count}` : ''
       const short = count > 1 && at ? ` · ${at.index + 1}/${count}` : ''
-      // Beside a docked pane the band is narrow: the hint, then the counter,
-      // give way to their short forms before the summary does.
+      // Beside a docked pane the band is narrow. The hint, then the counter,
+      // take their short forms; then the summary drops the kind and subject,
+      // then the question count, and last the question it is on is clipped.
       const plans: [string, string][] = [
         [ESC_BACK, long],
         [ESC_SHORT, long],
         [ESC_SHORT, short],
       ]
       const fixed = ANSWERING.length + TITLE_GAP + 1
-      const [hint, where] = plans.find(([h, w]) => columns - fixed - h.length - w.length >= SUMMARY_MIN) ?? plans.at(-1)!
+      const summaries = openSummaries(open, at?.index ?? 0)
+      let chosen: [string, string, string] = [summaries.at(-1)!, ...plans.at(-1)!]
+      search: for (const said of summaries) {
+        for (const [h, w] of plans) {
+          if (said.length <= columns - fixed - h.length - w.length) {
+            chosen = [said, h, w]
+            break search
+          }
+        }
+      }
+      const [said, hint, where] = chosen
       const esc = clip(hint, columns - 1)
-      first = line(el, ANSWERING, summary(open), 'inactive', where, text(el, 'inactive', esc, { wrap: 'truncate-end' }), esc.length, columns)
+      first = line(el, ANSWERING, said, 'inactive', where, text(el, 'inactive', esc, { wrap: 'truncate-end' }), esc.length, columns)
     } else {
       const label = clip(ANSWER, columns - HOTKEY_CELLS - 1)
       const button = el.Button({ key: 'gate-panel', label, hotkey: '1', plain: true, onPress: () => void ask(api, shown) })
