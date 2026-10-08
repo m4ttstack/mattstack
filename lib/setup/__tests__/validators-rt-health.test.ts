@@ -9,7 +9,7 @@ import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
 import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
-import { fakeProbes, ok, missing } from "./fakes.ts";
+import { fakeProbes, memberShell, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
 import type { Probes } from "../probes.ts";
@@ -334,6 +334,53 @@ describe("rtHealthRows — tool.intercepts", () => {
     const r = await pickRow(rtHealthRows(fakeProbes({ home }), { ci: false }), "tool.intercepts");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("check failed");
+  });
+
+  /** One installed, current shim, so only PATH can decide the row. */
+  async function installCurrentShim(): Promise<void> {
+    const { renderInterceptShim, shimPath, writeInterceptRules } = await import("../../endpoint/shim.ts");
+    writeInterceptRules([{ command: "ghosttool", repo: "acme", repoRemote: null, matches: [] }]);
+    mkdirSync(join(home, ".local", "bin"), { recursive: true });
+    writeFileSync(shimPath("ghosttool"), renderInterceptShim("ghosttool"), { mode: 0o755 });
+  }
+
+  // The app's own PATH (launchd's) lacks ~/.local/bin in every case below.
+  const appEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin:/bin" };
+
+  test("the member's shell has ~/.local/bin on PATH -> ready, whatever the app's own PATH is", async () => {
+    await installCurrentShim();
+    const p = fakeProbes({ home, env: appEnv, exec: memberShell(`${home}/.local/bin:/usr/bin`) });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.intercepts");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("1 installed and up to date");
+  });
+
+  test("the member's shell lacks ~/.local/bin -> needs-you with the shell fix, never Re-install shims", async () => {
+    await installCurrentShim();
+    const p = fakeProbes({ home, env: { ...appEnv, PATH: `${home}/.local/bin:/usr/bin` }, exec: memberShell("/usr/bin:/bin") });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.intercepts");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe(`Installed, but ${home}/.local/bin is not on your shell's PATH, so intercepts will not fire`);
+    expect(r.action).toEqual({ type: "run", label: "Set up PATH", verb: ["setup", "apply", "--only", "path.link"] });
+  });
+
+  test("the shell probe fails -> error with a Re-check, never a verdict from the app's PATH", async () => {
+    await installCurrentShim();
+    const p = fakeProbes({ home, env: appEnv, exec: memberShell(null) });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.intercepts");
+    expect(r.status).toBe("error");
+    expect(r.detail).toBe("Installed, but rt could not read your shell's PATH to check that intercepts will fire");
+    expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
+  });
+
+  test("a missing shim still offers Re-install shims, and names the shell's PATH problem beside it", async () => {
+    const { writeInterceptRules } = await import("../../endpoint/shim.ts");
+    writeInterceptRules([{ command: "ghosttool", repo: "acme", repoRemote: null, matches: [] }]);
+    const p = fakeProbes({ home, env: appEnv, exec: memberShell("/usr/bin:/bin") });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.intercepts");
+    expect(r.status).toBe("needs-you");
+    expect(r.action).toEqual({ type: "run", label: "Re-install shims", verb: ["intercept", "install"] });
+    expect(r.detail).toStartWith("Not installed yet: ghosttool. Run rt intercept install");
   });
 });
 

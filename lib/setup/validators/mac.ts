@@ -7,6 +7,7 @@
 
 import type { Action, Row } from "../contract.ts";
 import { row } from "../contract.ts";
+import { memberPath } from "../member-path.ts";
 import type { Probes } from "../probes.ts";
 
 const CLT_INSTALL_ACTION: Action = { type: "install", label: "Install…", tool: "apple-clt", via: "apple-clt" };
@@ -17,6 +18,7 @@ function pathLinkAction(label: string): Action {
   return { type: "run", label, verb: ["setup", "apply", "--only", "path.link"] };
 }
 const RC_FILE_DISPLAY = "~/.zshenv";
+const RECHECK_ACTION: Action = { type: "run", label: "Re-check", verb: ["setup", "status"] };
 
 async function macosVersionRow(p: Probes): Promise<Row> {
   const base = { id: "tool.macos", kind: "tool" as const, title: "macOS version", why: "rt and mattstack.app require macOS 14 or newer.", required: true };
@@ -71,13 +73,17 @@ async function archRow(p: Probes): Promise<Row> {
   return row({ ...base, status: "invalid", detail: `This Mac is ${arch}; rt needs Apple silicon` });
 }
 
-function pathRow(p: Probes): Row {
+async function pathRow(p: Probes): Promise<Row> {
   const base = { id: "tool.path", kind: "info" as const, title: "PATH precedence", why: "Makes sure your shell finds rt's shims and team intercepts before any conflicting binary.", required: false };
   const localBin = `${p.home}/.local/bin`;
-  const entries = (p.env.PATH ?? "").split(":").filter(Boolean);
-  const firstExisting = entries.find((entry) => p.exists(entry));
   const rc = p.readFile(`${p.home}/.zshenv`) ?? "";
   const hasMarker = rc.includes(PATH_PRECEDENCE_MARKER);
+  const entries = await memberPath(p);
+  if (!entries) {
+    if (hasMarker) return row({ ...base, status: "error", detail: "Could not read your shell's PATH to check its order", action: RECHECK_ACTION });
+    return row({ ...base, status: "missing", detail: `Install adds ~/.local/bin to your PATH in ${RC_FILE_DISPLAY}`, action: pathLinkAction("Set up PATH") });
+  }
+  const firstExisting = entries.find((entry) => p.exists(entry));
 
   if (firstExisting === localBin && hasMarker) {
     return row({ ...base, status: "ready", detail: `~/.local/bin is first on your PATH, set in ${RC_FILE_DISPLAY}` });
@@ -96,6 +102,5 @@ function pathRow(p: Probes): Row {
 }
 
 export async function macRows(p: Probes): Promise<Row[]> {
-  const [macos, clt, arch] = await Promise.all([macosVersionRow(p), cltRow(p), archRow(p)]);
-  return [macos, clt, arch, pathRow(p)];
+  return Promise.all([macosVersionRow(p), cltRow(p), archRow(p), pathRow(p)]);
 }
