@@ -186,7 +186,7 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
 
   if (key === "mattstack.directory") {
     for (const u of directoryIssues(value as never).unknownKinds)
-      notify({ text: `#${u.channel} on ${u.team} has kind "${u.kind}", which no app reads yet.` });
+      notify({ text: `#${u.channel.replace(/^#/, "")} on ${u.team} has kind "${u.kind}", which no app reads yet.` });
   }
 
   shareTip("saved", key, scope, storePath);

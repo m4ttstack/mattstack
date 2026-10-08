@@ -250,11 +250,12 @@ describe("settings/write", () => {
       const lines: string[] = [];
       const prev = setSettingsNoticeSink((line) => lines.push(line));
       try {
-        setSetting("mattstack.directory", { teams: { a: { slack: { channels: [{ name: "a-x", kind: "oncall" }] } } } }, "org");
+        setSetting("mattstack.directory", { teams: { a: { slack: { channels: [{ name: "a-x", kind: "oncall" }, { name: "#a-y", kind: "pr" }] } } } }, "org");
       } finally {
         setSettingsNoticeSink(prev);
       }
       expect(lines).toContain('#a-x on a has kind "oncall", which no app reads yet.');
+      expect(lines).toContain('#a-y on a has kind "pr", which no app reads yet.');
     });
 
     test("scope team writes the active team's store", () => {
