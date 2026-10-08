@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -69,6 +69,20 @@ describe("materializeSkills", () => {
     write(join(dir, "pack", "skills.jsonc"), "{}");
     return dir;
   }
+
+  test("a clone on the one-team layout is a waiting skip that writes nothing and sets nothing aside", async () => {
+    const dir = join(home, ".mattstack", "orgs", "acme");
+    write(join(dir, ".git", "config"), "");
+    write(join(dir, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }));
+    seedRepo("https://gitlab.example.com/acme/widgets.git");
+    const bindings = join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+    write(bindings, '{ "board-review": "widgets:board-review" }');
+    const p = { ...createRealProbes(), home, env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+    const result = await materializeSkills(p, {});
+    expect(result).toEqual({ skipped: true, waiting: true, reason: "Your org has not moved to its new layout yet. rt finishes the move when it does.", repos: [] });
+    expect(readFileSync(bindings, "utf8")).toBe('{ "board-review": "widgets:board-review" }');
+    expect(existsSync(`${bindings}.stale`)).toBe(false);
+  });
 
   test("skips with the engine-pack code when the mattstack plugin is not installed", async () => {
     const result = await materializeSkills(createRealProbes(), {});

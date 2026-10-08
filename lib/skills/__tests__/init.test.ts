@@ -72,6 +72,21 @@ describe("readZones", () => {
     expect(readZones(fs, HOME).map((z) => z.slug)).toEqual(["acme/widgets"]);
   });
 
+  test("a clone whose marker is on a layout above ORG_LAYOUT throws the update sentence", () => {
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "org", "org": "acme", "layout": 3 }' });
+    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org uses layout 3 and this app reads up to 2. Update the app.");
+  });
+
+  test("a one-team marker throws the waiting sentence rather than skipping the clone", () => {
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "team", "namespace": "widgets", "org": "acme" }' });
+    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org has not moved to its new layout yet. rt finishes the move when it does.");
+  });
+
+  test("a folder with no marker or a marker of another role is still skipped", () => {
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "pack", "org": "acme" }' });
+    expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toEqual([]);
+  });
+
   test("one zone per team folder, named <org>/<team>", () => {
     const fs = memFs(orgFiles("acme", {}, { widgets: {}, gadgets: {} }));
     const zones = readZonesFrom(fs, `${HOME}/.mattstack/orgs`);
@@ -170,10 +185,8 @@ describe("readZones", () => {
     expect(readZones(fs, HOME).map((z) => z.team)).toEqual(["widgets"]);
   });
 
-  test("an old-layout clone and a user zone are skipped", () => {
+  test("a user zone is skipped", () => {
     const fs = memFs({
-      [`${HOME}/.mattstack/orgs/old/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "old", "org": "x" }`,
-      [`${HOME}/.mattstack/orgs/old/mattstack/settings.team.jsonc`]: `{}`,
       [`${HOME}/.mattstack/orgs/me/mattstack/mattstack.jsonc`]: `{ "role": "user" }`,
     });
     expect(readZones(fs, HOME)).toEqual([]);

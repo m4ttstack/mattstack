@@ -19,6 +19,7 @@ import { awaitNeed, SERVICE_PLISTS } from "../need.ts";
 import { ENGINE_PACK_MISSING_CODE } from "../skills-materialize.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import { materializeWorld } from "./materialize-world.ts";
+import { WAITING_SENTENCE } from "../../team/org-layout.ts";
 import type { Probes } from "../probes.ts";
 
 import { servicesRegisterStep, proxyInstallStep, PORTLESS_LAUNCHD_PLIST, PROXY_VERSION_PATH } from "../steps/services.ts";
@@ -872,6 +873,17 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const outcome = await skillsMaterializeStep.run(ctx);
       expect(outcome.state).toBe("skipped");
       expect(detailOf(outcome)).toContain(ENGINE_PACK_MISSING_CODE);
+    });
+
+    test("an org still on the one-team layout is a skip that says it is waiting", async () => {
+      const world = materializeWorld(home);
+      const org = `${home}/.mattstack/orgs/acme`;
+      const p = fakeProbes({
+        home,
+        ...world,
+        files: { ...world.files, [`${org}/.git/config`]: "", [`${org}/mattstack/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }) },
+      });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "skipped", detail: WAITING_SENTENCE });
     });
 
     test("engine pack present + a registered repo a zone declares -> done, per-repo summary", async () => {

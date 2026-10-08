@@ -10,6 +10,8 @@ import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
+import { ORG_LAYOUT, parseMarker } from "../team/org-marker.ts";
+import { orgLayoutWaitingError } from "../team/org-layout.ts";
 import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, teamPackSource, unconvertedTeamPackError } from "../team/team-pack-path.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
@@ -155,8 +157,9 @@ export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
   for (const org of [...fs.readDir(teams)].sort()) {
     if (!isOrgSlug(org)) continue;
     const orgDir = join(teams, org);
-    const marker = readJsonc(fs, join(orgDir, "mattstack", "mattstack.jsonc"));
-    if (marker?.role !== "org") continue;
+    const state = parseMarker(fs.readFile(join(orgDir, "mattstack", "mattstack.jsonc")));
+    if (state.kind !== "org") continue;
+    if (state.layout !== ORG_LAYOUT) throw orgLayoutWaitingError({ kind: "waiting", slug: org, dir: orgDir, layout: state.layout });
     const orgSettings = storeGlobal(fs, join(orgDir, "mattstack", "org", "settings.org.jsonc"));
     const market = readJsonc(fs, join(orgDir, ".claude-plugin", "marketplace.json"));
     const marketplace = typeof market?.name === "string" ? market.name : null;
