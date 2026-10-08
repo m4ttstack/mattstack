@@ -338,21 +338,38 @@ These show only when herdr-chat is available, and sit in their own Chat menu.
 
 flock has no keys in the mattstack settings registry. Its own Settings (<kbd>⌘</kbd><kbd>,</kbd>) has four tabs: General, Views, Tools and herdr.
 
-| Tab | Section | Setting | Choices |
-| --- | --- | --- | --- |
-| General | Starting Folder | New Workspace, New Tab, New Pane | Current Pane's Folder, Repo's Main Checkout (home outside a git repo), Home Folder or Custom Folder…. New workspaces and panes start in the current pane's folder and new tabs in the repo's main checkout. |
-| General | Notifications | Show in sidebar | Until seen (the default), For 5 seconds or Never. A question stays until you answer it. |
-| General | Titles | One title for a one-pane tab | On by default: a tab holding one pane shows one title everywhere. |
-| General | Title Bar Workspaces | Show | Icon only (the default) or Icon and name. |
-| General | Closing | Warn before closing a tab running an agent, Warn before closing a pane running an agent | Both on by default. |
-| Views | Overview | Card detail | Branch (the default), Repo and branch, or Hidden. |
-| Views | Overview | Coming back shows | The lanes (the default) or The pane you had open. |
-| Views | Overview | Include Board reviews, Include herds | Both on by default. Off, those workspaces leave the lanes and the tab's count. |
-| Views | Rearrange Mode | After a move | Exit (the default) or Stay. |
-| Tools | rt Modal Text Size | rt cd, rt nav, rt glitter, rt run, rt runner | Compact, Regular (the default) or Large. |
-| Tools | Command Line | Shell command | Installs a `flock` command on your `PATH`, to control flock from a terminal or over ssh. |
-| herdr | herdr | Version | The connected herdr's version, or Not connected. |
-| herdr | herdr | Mouse support | Installs a build of your herdr version that passes clicks and scrolling through to panes, or restores the original. |
+### General tab
+
+| Section | Setting | Choices |
+| --- | --- | --- |
+| Starting Folder | New Workspace, New Tab, New Pane | New workspaces and panes start in the current pane's folder, and new tabs in the repo's main checkout. The choices are Current Pane's Folder, Repo's Main Checkout (home outside a git repo), Home Folder and Custom Folder… |
+| Notifications | Show in sidebar | Until seen (the default), For 5 seconds or Never. A question stays until you answer it. |
+| Titles | One title for a one-pane tab | On by default: a tab holding one pane shows one title everywhere. |
+| Title Bar Workspaces | Show | Icon only (the default) or Icon and name. |
+| Closing | Warn before closing a tab running an agent, Warn before closing a pane running an agent | Both on by default. |
+
+### Views tab
+
+| Section | Setting | Choices |
+| --- | --- | --- |
+| Overview | Card detail | Branch (the default), Repo and branch, or Hidden. |
+| Overview | Coming back shows | The lanes (the default) or The pane you had open. |
+| Overview | Include Board reviews, Include herds | Both on by default. Off, those workspaces leave the lanes and the tab's count. |
+| Rearrange Mode | After a move | Exit (the default) or Stay. |
+
+### Tools tab
+
+| Section | Setting | Choices |
+| --- | --- | --- |
+| rt Modal Text Size | rt cd, rt nav, rt glitter, rt run, rt runner | Compact, Regular (the default) or Large. |
+| Command Line | Shell command | Installs a `flock` command on your `PATH`, to control flock from a terminal or over ssh. |
+
+### herdr tab
+
+| Section | Setting | Choices |
+| --- | --- | --- |
+| herdr | Version | The connected herdr's version, or Not connected. |
+| herdr | Mouse support | Installs a build of your herdr version that passes clicks and scrolling through to panes, or restores the original. |
 
 The View menu holds the rest: Theme (Tokyo Night by default, among 17), Terminal Text, Option as Alt (Left Option by default) and Scroll Speed.
 
