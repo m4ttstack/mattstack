@@ -15,7 +15,7 @@ rt ships inside **mattstack.app**, the mattstack menu bar app. Installing the ap
 
 ## Install the app
 
-1. Download `mattstack-<version>.dmg` from [GitHub Releases](https://github.com/m4ttstack/mattstack/releases).
+1. Download the `.dmg` from the [latest release](https://github.com/m4ttstack/mattstack/releases/latest).
 2. Drag **mattstack.app** to `/Applications` and open it.
 3. The setup window opens and walks you through five steps.
 
@@ -36,11 +36,11 @@ See [Teams and invites](/start/teams) for how teams, invites, and team packs wor
 
 ### Before we begin
 
-The checklist of everything setup needs, grouped into Your Mac, Accounts, Access, and Tools. A row that needs you carries its own button: grant a permission, choose a folder, connect an account, or show the steps to take. **Re-check** refreshes every row. **Install** unlocks once every required row is ready, and **Continue in limited mode** goes ahead while optional rows are still outstanding.
+The checklist of everything setup needs, grouped into Your Mac, Accounts, Access, and Tools. A row that needs you carries its own button. The button grants a permission, chooses a folder, connects an account, or shows the steps to take. Click **Re-check** to refresh every row. Once every required row is ready, **Install** unlocks. To go ahead while optional rows are still outstanding, click **Continue in limited mode**.
 
 **Your Mac** covers macOS, the Command Line Tools, PATH precedence, and three permissions: Full Disk Access, Login Items, and Notifications. Each permission row asks for it or opens the matching pane in System Settings.
 
-**Accounts** has one row for each integration your team or its packs use: the team's GitHub or GitLab, plus Linear, Slack, StrongDM, and others when the team declares them. **Connect** opens a sheet with a **Create a token on GitLab…** (or GitHub) link to the forge's new-token page, with the scopes your role needs already checked and the token named `mattstack`:
+**Accounts** has one row for each integration your team or its packs use. That covers the team's GitHub or GitLab, plus Linear, Slack, StrongDM, and others when the team declares them. **Connect** opens a sheet with a **Create a token on GitLab…** (or GitHub) link to the forge's new-token page. The page opens with the scopes your role needs already checked and the token named `mattstack`:
 
 | Forge | Joining a team | Owning a team |
 |---|---|---|
@@ -67,7 +67,7 @@ The last screen confirms the checklist again and shows where things live: the **
 **Before you finish** holds the two rows that gate **Finish**:
 
 - **Writing style**: the voice agents use for the reviews, replies, and PR descriptions they post under your name. **Choose style…** offers the mattstack presets or any skill of your own.
-- **Fast Browser extension**: Fast Browser drives your real Chrome session through a Chrome extension that you load yourself. **Show steps…** walks through it: open `chrome://extensions`, turn on Developer mode, **Load unpacked** from `~/.fast-browser/extension/current/unpacked`, then pair it and confirm with `fast-browser doctor`. **Skip for now** skips it on this Mac; Settings → Fast Browser shows **Un-skip** to bring it back. Without Chrome installed, this row is skipped.
+- **Fast Browser extension**: Fast Browser drives your real Chrome session through a Chrome extension that you load yourself. **Show steps…** walks through it. Open `chrome://extensions` and turn on Developer mode. Use **Load unpacked** on `~/.fast-browser/extension/current/unpacked`. Then pair it and confirm with `fast-browser doctor`. **Skip for now** skips it on this Mac; Settings → Fast Browser shows **Un-skip** to bring it back. Without Chrome installed, this row is skipped.
 
 **Still to do** lists any optional rows left open. Owners also get **Invite teammates…**.
 
@@ -104,7 +104,14 @@ Until setup has run, other `rt` commands print a one-line hint pointing at matts
 
 ## Claude Code setup
 
-Install seeds a baseline `permissions.allow` list into every Claude Code config dir so agents don't stall on per-tool prompts for calls rt already trusts: the mattstack MCP server and the Fast Browser plugin, `EnterWorktree`, `claude plugin update`, and the few rt commands skills still run in a shell (`rt gate` and `rt events wait`). Everything else a skill runs routinely is a tool on the [MCP server](/skills/mcp). Existing entries stay; only missing ones are added. A config dir with no `permissions.defaultMode` gets `auto`, and a mode you already chose stays.
+Install seeds a baseline `permissions.allow` list into every Claude Code config dir. Agents then don't stall on per-tool prompts for calls rt already trusts:
+
+- The mattstack MCP server and the Fast Browser plugin.
+- `EnterWorktree`.
+- `claude plugin update`.
+- The few rt commands skills still run in a shell (`rt gate` and `rt events wait`).
+
+Everything else a skill runs routinely is a tool on the [MCP server](/skills/mcp). Existing entries stay; only missing ones are added. A config dir with no `permissions.defaultMode` gets `auto`, and a mode you already chose stays.
 
 It installs the `mattstack`, `fast-browser`, and `chat` plugins from the mattstack marketplace, and `superpowers` from `claude-plugins-official`, which the mattstack skills and every team pack call. An existing `superpowers-marketplace` install counts.
 

@@ -5,14 +5,14 @@ sidebar_position: 5
 
 # Pause file
 
-`gitq-pause.json` is what a cascade writes the instant it stops on a conflict. This page is its full schema, field by field, from the types that define it, plus a real capture straight off disk. For the protocol around it, the resolve loop, what refuses, what `continue` and `abort` each do, see [The pause protocol](/gitq/concepts/pause-protocol); this page only covers the file itself.
+`gitq-pause.json` is what a cascade writes the instant it stops on a conflict. For the resolve loop around it (what refuses, and what `continue` and `abort` each do), see [The pause protocol](/gitq/concepts/pause-protocol).
 
 ## Where it lives
 
 `pausePath(gitDir)` is `join(gitDir, 'gitq-pause.json')` (`src/cli/pause-file.ts:13-15`): always a specific git dir, never a fixed path.
 
 - **During a normal cascade** (`sync`, `continue`, most `reparent` conflicts), the rebase runs detached in a leased work slot, and `pauseInfo.worktreePath` is set to that slot. The file sits at that slot's own git dir, typically `<commonDir>/worktrees/gitq-1/gitq-pause.json`, not anywhere in your own checkout.
-- **During a native pause** (the reconcile phase that brings a branch into line with a merged parent before the cascade proper, or reparent's cascade: the descendant restack that follows a successful move), `pauseInfo.treePath` is set instead, and the file sits in the git dir of the tree the command was actually launched from. Reparent's own `--onto` rebase never pauses this way: a conflict there is a hard refusal before anything moves, since there is no pause protocol for the pre-move phase (`src/core/reparent.ts:74-95`).
+- **During a native pause**, `pauseInfo.treePath` is set instead, and the file sits in the git dir of the tree the command was actually launched from. A native pause is the reconcile phase that brings a branch into line with a merged parent before the cascade proper. It is also reparent's cascade: the descendant restack that follows a successful move. Reparent's own `--onto` rebase never pauses this way: a conflict there is a hard refusal before anything moves, since there is no pause protocol for the pre-move phase (`src/core/reparent.ts:74-95`).
 
 `finishCascade` reads `pauseInfo.worktreePath ?? pauseInfo.treePath ?? ctx.repoRoot` to name the tree in its own message (`src/cli/commands/cascade.ts:39`), and `continueCommand`/`abortCommand` resolve the same way to find where to run `git rebase --continue` or `git rebase --abort` (`src/cli/commands/cascade.ts:93`, `:118`). Both fall back to `ctx.repoRoot` only for legacy pauses written before either field existed.
 
@@ -22,11 +22,11 @@ The write itself happens **before** the stack store is saved (`src/cli/commands/
 
 Not the file's mere presence. The **lease**.
 
-A cascade that exits `2` leaves its lease on the work slot in the `parked` state, and `requireStackFree` (`src/cli/slots.ts:19-27`) is what every mutating command actually checks, from any worktree of the repo. `readPause`/`requireNoPause` (`src/cli/pause-file.ts:17-20,40-45`) is legacy, superseded by the lease for every command with a resolvable stack, and the source says so directly:
+A cascade that exits `2` leaves its lease on the work slot in the `parked` state, and `requireStackFree` (`src/cli/slots.ts:19-27`) is what every mutating command actually checks, from any worktree of the repo. `readPause`/`requireNoPause` (`src/cli/pause-file.ts:17-20,40-45`) is legacy, superseded by the lease for every command with a resolvable stack.
 
-> Legacy guard, superseded by `requireStackFree` (slots.ts) for every command with a resolvable stack: those now refuse on a per-stack LEASE (running or parked), not on this local pause file, since a cascade pauses in a leased work slot rather than in `ctx.gitDir`.
+Those commands refuse on a per-stack lease (running or parked), not on the local pause file, because a cascade pauses in a leased work slot rather than in `ctx.gitDir`.
 
-It is kept for exactly one caller: `undo` runs it first (`src/cli/commands/undo.ts:33-34`), before it even knows which stack it is dealing with, since it has not yet read the operation log entry to find out. That check reads `ctx.gitDir`, the tree `gitq undo` was invoked from, so it only catches a native pause anchored in that same tree; a detached cascade paused in a work slot elsewhere in the repo is invisible to it, and `undo` relies on `requireStackFree` for that case once it does know the stack. See [The pause protocol](/gitq/concepts/pause-protocol#what-refuses-while-a-cascade-is-paused) for the full guard table.
+It is kept for exactly one caller: `undo` runs it first (`src/cli/commands/undo.ts:33-34`), before it even knows which stack it is dealing with, since it has not yet read the operation log entry to find out. That check reads `ctx.gitDir`, the tree `gitq undo` was invoked from, so it only catches a native pause anchored in that same tree. A detached cascade paused in a work slot elsewhere in the repo is invisible to it. `undo` relies on `requireStackFree` for that case once it does know the stack. See [The pause protocol](/gitq/concepts/pause-protocol#what-refuses-while-a-cascade-is-paused) for the full guard table.
 
 ## The schema
 
@@ -56,7 +56,7 @@ The file on disk is a `PauseFile` (`src/cli/pause-file.ts:8-11`):
 | `commitIndex` | number | No | 1-indexed position in the current rebase, read from git's own rebase state. |
 | `commitTotal` | number | No | Total commits being applied in the current rebase. |
 
-`treePath` and `mergedBranch` are both defined on the type and read by the code that resolves a pause; setting code for both exists in the reconcile/tombstone-merge path of `src/core/rebase-engine.ts`. But no command in today's CLI reaches that path when driving a real cascade: every pause produced by `sync`, `continue`, or `reparent` through the shipped command set has `worktreePath` set, `mergedBranch` null, and `phase` either `'cascade'` or absent, which both real captures on this page confirm. Take this as a description of the schema, not a claim about which command populates the fields left over from it.
+`treePath` and `mergedBranch` are both defined on the type and read by the code that resolves a pause; setting code for both exists in the reconcile/tombstone-merge path of `src/core/rebase-engine.ts`. But no command in today's CLI reaches that path when driving a real cascade: every pause produced by `sync`, `continue`, or `reparent` through the shipped command set has `worktreePath` set, `mergedBranch` null, and `phase` either `'cascade'` or absent.
 
 ## A real capture
 

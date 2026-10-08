@@ -5,8 +5,6 @@ title: Logging
 
 # Logging
 
-This page is for the curious, or for anyone hacking on `rt` itself: how logging is structured across the codebase, and where to find the log files.
-
 ## The seams model
 
 Logging in `rt` is structural, not per-feature: outcomes are logged at a small number of central seams, and feature code only logs domain events invisible at those seams. Concretely:

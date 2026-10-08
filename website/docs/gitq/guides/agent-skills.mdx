@@ -20,7 +20,7 @@ None of them mutate git directly. All four run the real `gitq` CLI for every git
 
 ## Installing them
 
-mattstack.app ships the skills alongside the bundled `gitq` CLI, and its setup links them into `~/.claude/skills` (the "Link bundled skills" step), so `/gitq:sync` and the others are available as slash commands in any Claude Code session, not just ones launched by the board. With the app installed there is nothing to run, and an app update brings skills that match the CLI it ships.
+mattstack.app ships the skills alongside the bundled `gitq` CLI. Its setup links them into `~/.claude/skills` (the "Link bundled skills" step). So `/gitq:sync` and the others are available as slash commands in any Claude Code session, not only ones launched by the board. With the app installed there is nothing to run, and an app update brings skills that match the CLI it ships.
 
 ### From a checkout
 
@@ -52,9 +52,20 @@ Every skill accepts the same shape:
 <status-bin> job-status <state> <status> [detail]
 ```
 
-with `<status>` one of five lifecycle values: **`starting`**, **`working`**, **`conflict`**, **`done`**, **`error`**. `starting` is special: the board itself writes it, twice: once to seed the job file before the pane even spawns (so a crash-on-launch still shows up as a job, not silence), and again once the herdr tab exists to record `tabId`/`workspaceId`. Every status after that is the skill's own: `working` right after it starts, `conflict` if it hits one, and always a terminal `done` or `error` before it finishes (every skill's Rules section calls out ending on a terminal status so a board badge can never get stuck mid-run), except while genuinely parked at a human gate with no answer yet.
+with `<status>` one of five lifecycle values: **`starting`**, **`working`**, **`conflict`**, **`done`**, **`error`**. `starting` is special: the board itself writes it, twice:
 
-**When `--state`/`--status-bin` are absent, a skill skips every status write and just talks to you.** That's what happens invoking any of the four by hand from an interactive Claude Code session: `/gitq:sync /Users/you/repos/myrepo demo`, no flags, and it runs the exact same steps, it just narrates them in the conversation instead of updating a file. Nothing else about the skill's behavior changes.
+- Once to seed the job file before the pane even spawns (so a crash-on-launch still shows up as a job, not silence).
+- Again once the herdr tab exists, to record `tabId`/`workspaceId`.
+
+Every status after that is the skill's own:
+
+- `working` right after it starts.
+- `conflict` if it hits one.
+- Always a terminal `done` or `error` before it finishes, except while parked at a human gate with no answer yet.
+
+Every skill's Rules section calls out ending on a terminal status, so a board badge can never get stuck mid-run.
+
+**When `--state`/`--status-bin` are absent, a skill skips every status write and talks to you instead.** That's what happens when you invoke any of the four by hand from an interactive Claude Code session. Run `/gitq:sync /Users/you/repos/myrepo demo` with no flags, and it runs the exact same steps. It narrates them in the conversation instead of updating a file. Nothing else about the skill's behavior changes.
 
 ## How the board wires it up
 
@@ -64,7 +75,7 @@ Right-clicking a stack action on the board does three things, in order (`src/ser
 2. **Builds the slash command**: `/gitq:<action> <repoPath> <stack> --state <statePath> --status-bin <path/to/gitq>`, and launches a herdr tab running `claude` with that as the initial prompt.
 3. **Updates the job file** with the new tab's id once the pane exists.
 
-From there the skill takes over and the board just polls: `/data.json` reads every job file under `<app root>/state/jobs/`, so as the skill runs `working` → maybe `conflict` → `done`, the badge on the board updates without anything else in the loop. Relaunching an action that's already live re-focuses that tab instead of spawning a duplicate: the dedup key is the same `(repoPath, stack, action)` triple.
+From there the skill takes over and the board polls. `/data.json` reads every job file under `<app root>/state/jobs/`. As the skill runs `working` → maybe `conflict` → `done`, the badge on the board updates without anything else in the loop. Relaunching an action that's already live re-focuses that tab instead of spawning a duplicate: the dedup key is the same `(repoPath, stack, action)` triple.
 
 Job files older than 24 hours are pruned, but only once they've reached a terminal status; one parked at `conflict` (or sitting at a gate) keeps its file indefinitely, exactly because that's the state a human still needs to see. See [The board](/gitq/getting-started/the-board#reading-the-board) and [Where state lives](/gitq/concepts/state#the-board).
 

@@ -29,7 +29,7 @@ gitq publish [--stack <name>] [--mr-meta <path>]
 
 A node needing neither is left untouched and does not appear in the results at all. The retarget goes through `ForgeSync.retargetMR` (`src/core/forge-sync.ts:534-544`), the same function you can call on a single branch.
 
-**The target is the nearest live ancestor, not the raw parent.** gitq keeps a merged branch in the tree with its children still pointing at it, so `publish` walks up past any node whose `status` is `merged` and targets the first one that is not (`resolveLiveTarget`, `src/core/forge-sync.ts:626-634`, the same rule [the cascade](/gitq/concepts/cascade#when-the-parent-was-merged) rebases by). Both the comparison and the write use it: without that, a child would be retargeted onto a branch the forge deleted when it merged the parent, and an MR the forge had already auto-retargeted to the trunk would be dragged back onto the merged branch.
+**The target is the nearest live ancestor, not the raw parent.** gitq keeps a merged branch in the tree with its children still pointing at it. So `publish` walks up past any node whose `status` is `merged` and targets the first one that is not. That is `resolveLiveTarget` (`src/core/forge-sync.ts:626-634`), the same rule [the cascade](/gitq/concepts/cascade#when-the-parent-was-merged) rebases by. Both the comparison and the write use it. Without that, a child would be retargeted onto a branch the forge deleted when it merged the parent. An MR the forge had already auto-retargeted to the trunk would be dragged back onto the merged branch.
 
 Order of checks, before any network call:
 
@@ -82,6 +82,6 @@ Never exits `2`.
 
 ## See also
 
-- [Publish a stack](/gitq/guides/publish): the full walkthrough, verified line by line against source, including the token lookup and `--mr-meta` shape.
+- [Publish a stack](/gitq/guides/publish): the full walkthrough, including the token lookup and `--mr-meta` shape.
 - [Drive gitq with agents](/gitq/guides/agent-skills): the human gate that sits in front of this command in the `gitq:publish` skill, not in the CLI itself.
 - [`gitq import`](/gitq/reference/forge/import): the reverse direction.

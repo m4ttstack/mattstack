@@ -28,7 +28,7 @@ $ gitq track demo --root main
 gitq: stack demo already exists
 ```
 
-Under `--json` the shape is identical, verified directly: the message still goes to stderr as plain text, and stdout is empty rather than an empty JSON object or an error object.
+Under `--json` the shape is identical: the message still goes to stderr as plain text, and stdout is empty rather than an empty JSON object or an error object.
 
 ```
 $ gitq track demo --root main --json
@@ -61,7 +61,7 @@ Some commands can run all the way to completion and still exit `1`, because the 
 | `absorb` | `src/cli/commands/surgery.ts:113-124`: exits `1` when `result.attributions.some((a) => !a.success)`, and also when `result.recovery` is set, which means work of yours is sitting somewhere you have to go get | `result.attributions[].success`, each a `{ branch, files, success, error? }` |
 | `publish` | `src/cli/commands/forge.ts:131-139`: `result.results.every((r) => r.success)` | `results[].success`, each a `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }` |
 
-`reparent` follows this same pattern in source even though it is easy to miss: its own `--onto` rebase is a hard refusal if it fails (nothing moves), but the descendant cascade that follows a successful reparent reports per branch results exactly like `sync`, and a completed cascade with one failed branch there exits `1` too.
+`reparent` follows this same pattern in source even though it is easy to miss. Its own `--onto` rebase is a hard refusal if it fails (nothing moves). But the descendant cascade that follows a successful reparent reports per branch results exactly like `sync`. A completed cascade with one failed branch there exits `1` too.
 
 `absorb` has a second, different way to reach exit `1`. If the restack it runs after committing conflicts, absorb has no pause protocol of its own, unlike `sync` and `reparent`, so it aborts the in progress rebase and returns a **hard failure** instead of pausing, pointing you at `gitq sync`:
 

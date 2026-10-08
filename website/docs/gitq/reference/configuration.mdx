@@ -9,7 +9,7 @@ gitq has two independent local configuration surfaces, read by two different pro
 
 ## The app root
 
-One root holds everything gitq owns: **`~/.mattstack/gitq`**, whether gitq runs from a checkout or as the bundled binary in mattstack.app (`src/core/app-root.ts`). Running both forms against one root is what makes `gitq stacks` answer the same whichever copy is on PATH, and it is the mattstack rule for a bundled helper — a helper never writes inside the read-only app bundle, and never anywhere cwd-relative.
+One root holds everything gitq owns: **`~/.mattstack/gitq`**, whether gitq runs from a checkout or as the bundled binary in mattstack.app (`src/core/app-root.ts`). Running both forms against one root is what makes `gitq stacks` answer the same whichever copy is on PATH. It is also the mattstack rule for a bundled helper: a helper never writes inside the read-only app bundle, and never anywhere cwd-relative.
 
 **`GITQ_APP_ROOT`** moves the root, resolved to an absolute path. `GITQ_CONFIG_DIR` still moves the CLI's own subset within it and wins where they overlap (below).
 
@@ -27,7 +27,7 @@ Three keys, read through `@mattstack/rt-client`'s `getSetting`, each falling bac
 
 A resolver throw (an unreadable or malformed store file — never the daemon) degrades to the file after one warning, for every key. Until a key (or, for `workSlots`, a field of it) is imported into the store, its file remains the only place to edit it — the transition is opt-in, not a flag day.
 
-Set a key with `rt settings set <key> <json-value> --scope user|team|machine`. **This replaces the whole value stored at that key and scope** — it is not a merge, so a multi-field value (`workSlots`) or a multi-host map (`forges`) needs every field or host you want to keep in the JSON you send. Check what's already there first with `rt settings explain <key>`.
+Set a key with `rt settings set <key> <json-value> --scope user|team|machine`. **This replaces the whole value stored at that key and scope.** It is not a merge. For a multi-field value (`workSlots`) or a multi-host map (`forges`), put every field or host you want to keep in the JSON you send. Check what's already there first with `rt settings explain <key>`.
 
 ## The CLI: `settings.json`
 
@@ -43,7 +43,7 @@ Inside it, `settings.json` holds the three keys the CLI reads today, `maxWorkSlo
 { "maxWorkSlots": 5 }
 ```
 
-Read by `getMaxWorkSlots` (`src/core/worktrees.ts`), which checks the `gitq.workSlots` store field first: the value must be a number of at least `1`, and it is floored; anything else, or nothing in either the store or the file, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value without the store. It caps how many cascades can run per repo at once, one work slot each; see [Work slots and leases](/gitq/concepts/work-slots) for what the cap actually gates (a stack with a running or parked cascade already blocks other mutations regardless of the cap, so raising it only helps when several *different* stacks want to cascade at the same time).
+Read by `getMaxWorkSlots` (`src/core/worktrees.ts`), which checks the `gitq.workSlots` store field first. The value must be a number of at least `1`, and it is floored. Anything else, or nothing in either the store or the file, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value without the store. It caps how many cascades can run per repo at once, one work slot each. See [Work slots and leases](/gitq/concepts/work-slots) for what the cap actually gates. A stack with a running or parked cascade already blocks other mutations regardless of the cap. So raising it only helps when several *different* stacks want to cascade at the same time.
 
 The second key, `workSlotLocation`, decides where a new work slot is created:
 
@@ -53,7 +53,7 @@ The second key, `workSlotLocation`, decides where a new work slot is created:
 
 Two values. `auto`, the default, keeps the pool-aware placement: a repo whose primary worktree has a sibling worktree of its own gets its slots next to them, everything else gets them under the work-slot root. `root` skips the pool detection and always uses the work-slot root, wherever the config directory puts it. Read by `getWorkSlotLocation` (`src/core/worktrees.ts`), which checks the `gitq.workSlots` store field first, same as `maxWorkSlots` above; anything other than `"root"`, including nothing in either place, is `auto`.
 
-Reach for `root` when the pool detection is technically right but practically wrong: a clone that lives directly in a directory of unrelated repos (`~/repos/myrepo`, next to twenty other checkouts) reads as a pool the moment you add one sibling worktree of it, and `gitq-1` then appears in that directory alongside the repos. The setting only governs slots gitq *creates*: an existing slot is still reused wherever it already sits, so remove it with `git worktree remove` if you want it relocated.
+Reach for `root` when the pool detection is technically right but practically wrong. Take a clone that lives directly in a directory of unrelated repos (`~/repos/myrepo`, next to twenty other checkouts). It reads as a pool the moment you add one sibling worktree of it, and `gitq-1` then appears in that directory alongside the repos. The setting only governs slots gitq *creates*: an existing slot is still reused wherever it already sits, so remove it with `git worktree remove` if you want it relocated.
 
 The third key, `forges`, tells gitq which forge a self-hosted host is running. It is keyed by the host of the repo's git remote:
 
@@ -71,19 +71,19 @@ The third key, `forges`, tells gitq which forge a self-hosted host is running. I
 
 You need an entry only for a host gitq cannot identify on its own. `github.com` and `gitlab.com` are known outright (`src/core/forges.ts:38-41`), and an entry for either still wins, which is how you route one through a proxy. The third example above is an `~/.ssh/config` alias: a remote like `git@work:acme/web.git` names no domain at all, so an alias entry has to give a `baseUrl` and is refused without one.
 
-Do not look for other keys: the stack stores and the operation log live in this directory too, but those are state gitq writes for itself, not settings you configure; see [Where state lives](/gitq/concepts/state) for the full inventory of what is written and when.
+Do not look for other keys. The stack stores and the operation log live in this directory too, but those are state gitq writes for itself, not settings you configure. See [Where state lives](/gitq/concepts/state) for the full inventory of what is written and when.
 
 ## The forge token
 
 `publish` and `import` both need a token, and which one they need follows from the repo's remote rather than from configuration. gitq reads the remote's host, resolves the forge from it, and then resolves that forge's credential (`createForgeProvider`, `src/cli/provider.ts:44-78`). A GitHub remote is never offered a GitLab token.
 
-`resolveForgeToken` (`src/core/secrets.ts`) takes the forge's environment variable first — **`GITLAB_TOKEN`** for `gitlab`, **`GITHUB_TOKEN`** for `github` — and, if that is unset, asks the rt daemon for a grant-gated token instead (the `secrets:forge-token` verb, backed by rt's own encrypted store — set with `rt secrets set rt gitlabToken`, not a plaintext file gitq reads itself). The daemon lookup needs the repo tracked with rt (`rt daemon track <repo> live branches`); gitq never reads or writes any secrets file directly, at either step.
+`resolveForgeToken` (`src/core/secrets.ts`) takes the forge's environment variable first: **`GITLAB_TOKEN`** for `gitlab`, **`GITHUB_TOKEN`** for `github`. If that is unset, it asks the rt daemon for a grant-gated token instead. That is the `secrets:forge-token` verb, backed by rt's own encrypted store (set with `rt secrets set rt gitlabToken`), not a plaintext file gitq reads itself. The daemon lookup needs the repo tracked with rt (`rt daemon track <repo> live branches`); gitq never reads or writes any secrets file directly, at either step.
 
 Missing both is a hard failure before any network call is made, naming the forge, the host, and why: for a repo not tracked with rt, `gitq: no github token for github.com (set GITHUB_TOKEN or track the repo with rt (rt daemon track <repo> live branches); <repoPath> is not registered with rt (~/.mattstack/rt/repos.json))` (`src/cli/provider.ts`, `src/core/secrets.ts`).
 
 A self-hosted instance can carry its own credential with `tokenEnv` on its `forges` entry, since a github.com token is not a GitHub Enterprise token. When an entry names a variable, that variable is the only place gitq looks: it does **not** fall back to `GITHUB_TOKEN` or the rt daemon, because falling back would hand the instance a credential it never issued. The error then names just that variable: `no github token for ghe.acme.com (set GHE_ACME_TOKEN)`.
 
-Two failures happen before the token is ever considered, both from the remote alone. A host with no `forges` entry that gitq does not know is refused rather than guessed at, since defaulting an enterprise GitHub host to GitLab fails somewhere a long way from the cause: `cannot tell which forge "git.acme.com" is (from remote ...); check the current map with rt settings explain gitq.forges, then set it with rt settings set gitq.forges '{"git.acme.com": {"provider": "gitlab"}, ...}' --scope user ...` (`src/cli/provider.ts:61-74`; the full message spells out that the write replaces the whole host-keyed map and gives the `settings.json` fallback too). A remote that names no host at all, a local path or a bare clone directory, gets `no forge host in remote "..."` (`src/cli/provider.ts:49-53`).
+Two failures happen before the token is ever considered, both from the remote alone. A host with no `forges` entry that gitq does not know is refused rather than guessed at. Defaulting an enterprise GitHub host to GitLab would fail somewhere a long way from the cause. The refusal reads: `cannot tell which forge "git.acme.com" is (from remote ...); check the current map with rt settings explain gitq.forges, then set it with rt settings set gitq.forges '{"git.acme.com": {"provider": "gitlab"}, ...}' --scope user ...` (`src/cli/provider.ts:61-74`; the full message spells out that the write replaces the whole host-keyed map and gives the `settings.json` fallback too). A remote that names no host at all, a local path or a bare clone directory, gets `no forge host in remote "..."` (`src/cli/provider.ts:49-53`).
 
 ## The board: `config.json`
 

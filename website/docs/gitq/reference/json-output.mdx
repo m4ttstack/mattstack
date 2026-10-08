@@ -5,7 +5,7 @@ sidebar_position: 3
 
 # JSON output
 
-Every command accepts `--json` (see [Global flags](/gitq/reference/global-flags)) and prints one JSON document to stdout instead of its human summary, through a single shared function, `emit()` (`src/cli/output.ts:4-7`). The shapes on this page come from the actual value each command passes to `emit()`, read at the source, not from a written schema. Most are real captures against a scratch repo, trimmed for length where the real output is long; a few, noted as such, are described from the source type they are built from rather than a live run, because reaching that exact state (a real publish, a specific per branch failure) either needs a real forge API, which this task did not touch, or a lengthy setup for a shape already fully specified in source.
+Every command accepts `--json` (see [Global flags](/gitq/reference/global-flags)) and prints one JSON document to stdout instead of its human summary, through a single shared function, `emit()` (`src/cli/output.ts:4-7`). The shapes on this page come from the actual value each command passes to `emit()`, read at the source, not from a written schema. Examples marked "Real capture" are actual output against a scratch repo, trimmed where the output is long. Sections with no example give the shape from its source type.
 
 Hard failures never reach `emit()`; nothing is printed to stdout for those, under `--json` or not. See [Exit codes and errors](/gitq/reference/exit-codes).
 
@@ -48,7 +48,15 @@ Real capture, a single primary worktree, nothing running:
 }
 ```
 
-Once nodes exist, each is a plain `StackNode`: `branch`, `parent`, `mrIid`, `mrUrl`, `mrTitle`, `status` (`local-only | synced | drift | merged`), `lastKnownHead`, `forkPoint`, `diffStats`, `pipelineStatus`, `unresolvedThreads` (a number, or `null` when the forge would not report a count, which is not the same as zero), and `unmanaged?` (boolean, `src/core/types.ts:73`; true when the node is context-only and skipped during cascade rebase, absent or false otherwise). `stacks` does no per-node enrichment of its own, so `unmanaged` passes straight through from the store. `stacks` does not add `checkedOutIn`, or any other worktree information, to a node; that enrichment belongs to `diagnose`, below. To learn where a branch from `stacks` is checked out, cross reference the top level `worktrees` array's own `branch` field yourself.
+Once nodes exist, each is a plain `StackNode` with these fields:
+
+- `branch`, `parent`, `mrIid`, `mrUrl`, `mrTitle`.
+- `status` (`local-only | synced | drift | merged`).
+- `lastKnownHead`, `forkPoint`, `diffStats`, `pipelineStatus`.
+- `unresolvedThreads`: a number, or `null` when the forge would not report a count, which is not the same as zero.
+- `unmanaged?` (boolean, `src/core/types.ts:73`): true when the node is context-only and skipped during cascade rebase, absent or false otherwise.
+
+`stacks` does no per-node enrichment of its own, so `unmanaged` passes straight through from the store. `stacks` does not add `checkedOutIn`, or any other worktree information, to a node; that enrichment belongs to `diagnose`, below. To learn where a branch from `stacks` is checked out, cross reference the top level `worktrees` array's own `branch` field yourself.
 
 ## `gitq diagnose`
 
@@ -74,7 +82,7 @@ Real capture, an unpublished branch, checked out nowhere:
 }
 ```
 
-Real capture, a node whose parent was marked `merged` with a tombstone that is not an ancestor of the child (produced by editing the local stack store to set that status directly, the same shape gitq itself writes after detecting a real merge, then running the real `diagnose --json` against it):
+Real capture: a node whose parent was marked `merged` with a tombstone that is not an ancestor of the child. It was produced by editing the local stack store to set that status directly, the same shape gitq itself writes after detecting a real merge. Then the real `diagnose --json` ran against it:
 
 ```json
 {
@@ -90,7 +98,7 @@ Real capture, a node whose parent was marked `merged` with a tombstone that is n
 }
 ```
 
-(`statusLine` and the `removal.reason` above paraphrase the literal source strings, which use an em dash; this page does not reproduce that character.)
+In real output, `statusLine` and `removal.reason` separate their two parts with a dash, where this example shows parentheses.
 
 `edges` is one `EdgeDirective` per node (`source`, `target`, `color`, `dashed`, `dimmed`, `badge`); `banner` is a single stack wide directive or `null`, one of `{ kind: 'merged', branches, canDismiss }`, `{ kind: 'drift', branches }`, `{ kind: 'behind-trunk', message }`, or `{ kind: 'rebase-in-progress' }`; `globalBlocks` is a plain string array, for example `"Working tree has uncommitted changes"`.
 
@@ -258,7 +266,17 @@ Completed (`state: "completed"`, exit `0` if every branch succeeded, `1` otherwi
 }
 ```
 
-A committing (non `--preview`) `absorb` emits `{ stack: updatedStack, result }`, where `result` is an `AbsorbResult` (`src/core/absorb.ts:20-34`): `absorbed` (boolean), `reason` (`'no-changes' | 'nothing-attributable'`, optional), `attributions` (`AbsorbAttribution[]`: `{ branch, files, success, error? }`), `unattributed` (`string[]`, always present, the files absorb left in the worktree), `cascadeResult` (optional `CascadeResult`, the same shape `sync` produces, for the restack absorb runs afterward), `updatedStack` (optional), `recovery` (optional string, present only when the run left work for you to fetch by hand — a retained stash entry, a branch it could not leave — and the run exits `1` when it is). Real capture, a dirty tree holding one file no branch owns:
+A committing (non `--preview`) `absorb` emits `{ stack: updatedStack, result }`, where `result` is an `AbsorbResult` (`src/core/absorb.ts:20-34`):
+
+- `absorbed` (boolean).
+- `reason` (`'no-changes' | 'nothing-attributable'`, optional).
+- `attributions` (`AbsorbAttribution[]`: `{ branch, files, success, error? }`).
+- `unattributed` (`string[]`, always present): the files absorb left in the worktree.
+- `cascadeResult` (optional `CascadeResult`): the same shape `sync` produces, for the restack absorb runs afterward.
+- `updatedStack` (optional).
+- `recovery` (optional string): present only when the run left work for you to fetch by hand (a retained stash entry, a branch it could not leave). The run exits `1` when it is.
+
+Real capture, a dirty tree holding one file no branch owns:
 
 ```json
 {
@@ -278,7 +296,7 @@ A committing (non `--preview`) `absorb` emits `{ stack: updatedStack, result }`,
 
 ## `gitq split` / `gitq fold` / `gitq reparent` / `gitq rename` / `gitq reset`
 
-None of these five were run live for this page; each shape below is the exact type its command emits under `{ stack: ..., result }` or `{ stack: ..., result: ... }`, read from source rather than captured.
+Each command emits its result under `{ stack: ..., result }` or `{ stack: ..., result: ... }`.
 
 | Command | Result type (source) | Fields |
 | --- | --- | --- |
@@ -292,8 +310,6 @@ None of these five were run live for this page; each shape below is the exact ty
 `reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:270-309`).
 
 ## `gitq publish` / `gitq import`
-
-Neither was run for this page: both talk to a real forge API, which this project's isolation rules keep off limits. Shapes below are from source.
 
 `publish` (`src/cli/commands/forge.ts:104-140`) emits `{ results, skipped, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:45-57`): `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }`.
 

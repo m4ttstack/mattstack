@@ -11,13 +11,13 @@ title: The daemon
 
 The daemon is a long-lived process (a launchd LaunchAgent, `com.mattstack.daemon`, registered by mattstack.app) that:
 
-- **Caches MR/branch data.** It keeps branch and merge-request caches warm for the repos you've granted background tracking, and consumers like the board app and rt's own pickers (`rt cd` and friends) read those caches instead of re-fetching from GitLab/Linear on every invocation. Tracking is opt-in per repo, set with [`rt daemon track`](/rt/reference/daemon/track) (or `rt repos register --track`): `live` repos (GitLab only) add an events watcher that polls roughly every 15 seconds on top of the 5-minute refresh cycle, `poll` repos get only the 5-minute cycle, and `off` repos (the default) make no background API calls, though on-demand reads still work. The team-wide open-MR list (the `project-mrs` cache) also gets a full reconcile once a day. Consumers can also demand freshness explicitly (a max-age on reads), so a stale cache is refreshed on the spot instead of served as-is.
-- **Scans ports.** It scans listening ports roughly every 30 seconds while something has asked for port or process data in the last 5 minutes (mattstack.app polls every 10 seconds, so in practice whenever the app is running), so `rt port` can show you what's running across your repos with zero configuration.
+- **Caches MR/branch data.** It keeps branch and merge-request caches warm for the repos you've granted background tracking. Consumers like the board app and rt's own pickers (`rt cd` and friends) read those caches instead of re-fetching from GitLab/Linear on every invocation. Tracking is opt-in per repo, set with [`rt daemon track`](/rt/reference/daemon/track) (or `rt repos register --track`). `live` repos (GitLab only) add an events watcher that polls roughly every 15 seconds on top of the 5-minute refresh cycle. `poll` repos get only the 5-minute cycle. `off` repos (the default) make no background API calls, though on-demand reads still work. The team-wide open-MR list (the `project-mrs` cache) also gets a full reconcile once a day. Consumers can also demand freshness explicitly (a max-age on reads), so a stale cache is refreshed on the spot instead of served as-is.
+- **Scans ports.** It scans listening ports roughly every 30 seconds while something has asked for port or process data in the last 5 minutes. mattstack.app polls every 10 seconds, so in practice this means whenever the app is running. That lets `rt port` show you what's running across your repos with zero configuration.
 - **Guards git hooks.** For repos where rt manages hooks, it watches each repo's `.git/config` (with a 60-second rescan as a fallback) and re-applies rt's hooks shim path whenever it's missing or points anywhere else. Tools like husky rewrite `core.hooksPath` on every install; rt points it back, and its shims still run the repo's `.husky/<hook>` scripts, so your `rt hooks` toggles keep working.
 - **Answers status polls.** CLI commands and mattstack.app both query the daemon over a local Unix socket (and a REST/WebSocket API) for cached data and health.
 - **Runs the worktree lifecycle.** [`rt worktree`](/rt/reference/worktree)'s provision/dispose/freshen verbs execute in the daemon, which owns the worktree registry, keeps the on-deck pool replenished, and reacts to merged MRs (auto-return plus guarded auto-dispose of the finished tree).
-- **Kills a worktree's workload on dispose.** When a worktree is disposed (its feature is done), the daemon finds the dev servers, watchers, and compilers rooted in that worktree, SIGTERMs them, and escalates any survivor to SIGKILL after about 5 seconds. It deliberately spares AI agent sessions (Claude, Codex, and the like) and everything they spawned, plus shells and `.app` bundle processes, since those aren't workload.
-- **Scans for and notifies on runaway processes.** Roughly every 10 seconds (under the same "something asked recently" rule as the port scan) it scans system processes for anything rooted in a tracked repo, tracks a rolling CPU sample window per process, and notifies once a process has sustained high CPU for long enough (5 minutes above 80% by default, after a 2-minute grace period). AI agent sessions are excluded from this too.
+- **Kills a worktree's workload on dispose.** When a worktree is disposed (its feature is done), the daemon finds the dev servers, watchers, and compilers rooted in that worktree. It SIGTERMs them, and escalates any survivor to SIGKILL after about 5 seconds. It deliberately spares AI agent sessions (Claude, Codex, and the like) and everything they spawned, plus shells and `.app` bundle processes, since those aren't workload.
+- **Scans for and notifies on runaway processes.** Roughly every 10 seconds (under the same "something asked recently" rule as the port scan) it scans system processes for anything rooted in a tracked repo. It tracks a rolling CPU sample window per process. It notifies once a process has sustained high CPU for long enough (5 minutes above 80% by default, after a 2-minute grace period). AI agent sessions are excluded from this too.
 
 mattstack.app's menu bar icon shows the daemon's health at a glance, polling its status so you can tell at a look whether it's up. See the [menu bar app guide](/start/menu-bar-app).
 
@@ -64,7 +64,13 @@ Agents launched with `rt agent start --bg` run on the background server instead 
 
 ## Stale-claim sweep
 
-The daemon also cleans up claims nobody released. A claimed worktree with no open MR that has been inactive longer than its repo's `staleClaimDays` (in `rt.worktrees`; default 7, `0` turns the sweep off) goes through the same guarded dispose as a merged tree: a dirty or unpushed tree is refused and stays claimed, a tree with any live process sitting inside it is skipped, and a disposed tree lands in the 14-day trash. On the background server, a claim is released once its pane is gone, its runner process has exited, or its herd has wrapped up with no live pane.
+The daemon also cleans up claims nobody released. A claimed worktree with no open MR that has been inactive longer than its repo's `staleClaimDays` (in `rt.worktrees`; default 7, `0` turns the sweep off) goes through the same guarded dispose as a merged tree:
+
+- A dirty or unpushed tree is refused and stays claimed.
+- A tree with any live process sitting inside it is skipped.
+- A disposed tree lands in the 14-day trash.
+
+On the background server, a claim is released once its pane is gone, its runner process has exited, or its herd has wrapped up with no live pane.
 
 ## Gates
 
@@ -97,4 +103,4 @@ A memory-pressure SIGKILL can remove the Claude process while leaving the pane's
 
 ### Gate-fork hook
 
-Herd spawns stamp the gate subject on the worker environment so each worker gets the gate-fork hook (a Claude Code hook that routes questions through the daemon's gate registry). The hook asks the daemon (`rt gate fork-check`), which resolves the pane's subject the same way `rt gate ask` does, so a worker's own open gate (its launch subject, a form gate asked from its live pane and session, a run gate for its worktree, or its session's run) is allowed through and it doesn't block on its own question.
+Herd spawns stamp the gate subject on the worker environment so each worker gets the gate-fork hook (a Claude Code hook that routes questions through the daemon's gate registry). The hook asks the daemon (`rt gate fork-check`), which resolves the pane's subject the same way `rt gate ask` does. A worker's own open gate is allowed through, so the worker doesn't block on its own question. Its own gates are its launch subject, a form gate asked from its live pane and session, a run gate for its worktree, or its session's run.

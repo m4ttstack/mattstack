@@ -75,7 +75,7 @@ feat-new: skipped (no MR; use gitq publish)
 pushed 2, current 1, failed 1, skipped 2
 ```
 
-Under `--json`, `results` carries one record per branch with `branch`, `action` (`pushed`, `current`, `failed`, or `skipped`), `before` and `after` (the remote head before, and the local head that is now on it), plus `detail` on a skip and `error` on a failure. `--preview` emits `plan` instead, whose entries carry `branch`, `action` (`push`, `current`, or `skip`), `localHead`, and `remoteHead`.
+Under `--json`, `results` carries one record per branch. Each has `branch`, `action` (`pushed`, `current`, `failed`, or `skipped`), and `before` and `after` (the remote head before, and the local head that is now on it). A skip adds `detail`, and a failure adds `error`. `--preview` emits `plan` instead, whose entries carry `branch`, `action` (`push`, `current`, or `skip`), `localHead`, and `remoteHead`.
 
 ## Exit codes
 

@@ -5,4 +5,4 @@ result=$(rt runs run-start --repo acme-dev --work-type feature --pipeline featur
 export RT_RUN_DB=$(echo "$result" | jq -r .runDb)
 ```
 
-From here, `rt runs stage-start`, `field`, `decision`, and the rest all read `$RT_RUN_DB` to find the open run. When it is unset (each agent Bash call is a fresh shell), they fall back to the running run this Claude Code session recorded, else the newest running run whose worktree holds the cwd, and the JSON envelope gains `runDbResolved` (`session` or `worktree`). With no match they exit 2.
+From here, `rt runs stage-start`, `field`, `decision`, and the rest all read `$RT_RUN_DB` to find the open run. When it is unset (each agent Bash call is a fresh shell), they fall back to the running run this Claude Code session recorded. Failing that, they use the newest running run whose worktree holds the cwd. On either fallback, the JSON envelope gains `runDbResolved` (`session` or `worktree`). With no match they exit 2.

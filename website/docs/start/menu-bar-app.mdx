@@ -61,7 +61,13 @@ Settings opens as a native tabbed window (General, Permissions, Fast Browser, Te
 
 mattstack.app updates itself through Sparkle, which verifies the release signature, stages the install, and relaunches the app. It checks every 6 hours and downloads a new release on its own. When a release is ready, the menu item changes to **Update Available: &lt;version&gt;**; the update installs right away when none of the app's windows are open and setup isn't running, and otherwise when you quit the app.
 
-An update never re-runs Install. Instead, the first launch on a new version runs [`rt setup update`](/rt/reference/setup/update) once setup has been finished on this Mac: it runs any one-time migrations the release carries, re-applies the setup steps that are safe to repeat (PATH, settings, skills, intercepts, plugins, Claude permissions, Fast Browser, herdr and the browser extension), then runs the setup check. It never asks you anything and never replaces a value you chose. When the check finds something only you can fix, you get a notification that opens the Setup status window.
+An update never re-runs Install. Instead, the first launch on a new version runs [`rt setup update`](/rt/reference/setup/update) once setup has been finished on this Mac. That run does three things:
+
+1. Runs any one-time migrations the release carries.
+2. Re-applies the setup steps that are safe to repeat (PATH, settings, skills, intercepts, plugins, Claude permissions, Fast Browser, herdr and the browser extension).
+3. Runs the setup check.
+
+It never asks you anything and never replaces a value you chose. When the check finds something only you can fix, you get a notification that opens the Setup status window.
 
 **Check for Updates…** checks on demand. The dev build (mattstack-dev.app) runs from source and never updates through Sparkle.
 

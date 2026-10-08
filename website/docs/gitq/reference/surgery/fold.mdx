@@ -27,7 +27,7 @@ Guarded by the stack lease, and always runs detached in a leased [work slot](/gi
 2. **The branch is deleted**, from git and from the stack tree.
 3. **Its children are reparented** onto the parent.
 
-**Fold does not cascade the reparented children.** When the replay produced no new commits (the usual case, the parent was already sitting at the folded branch's base), the children are already on the right head and there is nothing to do. When the parent had moved ahead and the replay produced new commits, the children are left behind their new parent and want a `gitq sync`.
+**Fold does not cascade the reparented children.** Usually the replay produces no new commits, because the parent was already sitting at the folded branch's base. Then the children are already on the right head and there is nothing to do. When the parent had moved ahead and the replay produced new commits, the children are left behind their new parent and want a `gitq sync`.
 
 ### The one exception to checkout neutrality
 

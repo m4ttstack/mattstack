@@ -1,0 +1,9 @@
+{
+  "name": "mcclowes/docusaurus-config",
+  "description": "Use when working with docusaurus.config.js/ts files — validate the config structure, set required fields (title/url/baseUrl), fix URL and baseUrl formats, add presets and plugins, configure navbar/footer/theme settings, and move unknown keys into customFields. Triggers on tasks involving docusaurus.config.js, docusaurus.config.ts, site configuration, URL formats, presets, or theme config.",
+  "skills": [
+    "."
+  ],
+  "version": "0.1.0",
+  "license": "MIT"
+}

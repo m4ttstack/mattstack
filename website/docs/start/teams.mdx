@@ -130,7 +130,7 @@ Until then their clone keeps the old folder name and everything keeps working. T
 
 ### Moving from the old folder
 
-Older versions of mattstack kept the org under `~/.mattstack/teams/<org>/`. The first setup check after an update moves it to `~/.mattstack/orgs/<org>/`, along with rt's record of it, the repo list and the Claude marketplace that serves your packs. Nothing in the org repo changes. When the move cannot run (uncommitted changes to tracked files in the clone, a rebase in progress; untracked files move with the folder), the setup check's notification and the output of `rt setup update --force` say what is in the way, while the **Org folder** row only says the folder has not moved yet. Fix it and run `rt setup update --force`.
+Older versions of mattstack kept the org under `~/.mattstack/teams/<org>/`. The first setup check after an update moves it to `~/.mattstack/orgs/<org>/`, along with rt's record of it, the repo list and the Claude marketplace that serves your packs. Nothing in the org repo changes. The move cannot run while the clone has uncommitted changes to tracked files or a rebase in progress. Untracked files move with the folder. When the move is blocked, the setup check's notification and the output of `rt setup update --force` say what is in the way. The **Org folder** row only says the folder has not moved yet. Fix it and run `rt setup update --force`.
 
 ## Forge grants
 

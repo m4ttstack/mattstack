@@ -1,0 +1,33 @@
+{
+  "skill_name": "doc-standards",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Write a complete README.md (user documentation) for the CLI tool at <fixture>/imgshrink.py. Read the script first. Cover: what it is, install, usage for the common cases, and a full options reference. Audience: developers who just found the tool.",
+      "expected_output": "A README that passes the doc-standards machine gate (0 errors), documents every CLI option with type/default, places a warning admonition before the destructive --overwrite usage, and uses one term per concept.",
+      "files": ["fixture/imgshrink.py"],
+      "assertions": [
+        "check_docs.py reports 0 error-level findings on the README",
+        "check_docs.py total findings (errors+warnings) lower than the baseline README's",
+        "All 6 CLI inputs (files, --width, --quality, --format, --out-dir, --overwrite) documented with defaults where they exist",
+        "A Warning/Caution admonition appears BEFORE the --overwrite step, in command form",
+        "No positional references ('as mentioned above') and no 'click here' links",
+        "Headings: single h1, no skipped levels, sentence case"
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "This README smells AI-written. Rewrite it so it doesn't, without losing information: <file>",
+      "expected_output": "Rewrite applies STE100 + style-guide constraints; gate finding count drops to 0 errors; no information lost.",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 2,
+      "prompt": "Add an llms.txt for the docs/ folder of this project.",
+      "expected_output": "llms.txt matching the llmstxt.org format: h1, blockquote summary, linked sections with one-line descriptions, Optional section.",
+      "files": [],
+      "assertions": []
+    }
+  ]
+}

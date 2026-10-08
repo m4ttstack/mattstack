@@ -20,7 +20,9 @@ Running detached in a slot removes all of that:
 
 ## What a slot is
 
-An ordinary git worktree whose directory is named `gitq-1`, `gitq-2`, and so on. gitq recognises its own slots purely by that name pattern (`gitq-` followed by digits), which is also why the `[in <worktree>]` suffix in `gitq diagnose` only ever names one of *your* worktrees: work slots are filtered out of that report, and they run detached anyway, so they never hold a branch.
+An ordinary git worktree whose directory is named `gitq-1`, `gitq-2`, and so on.
+
+gitq recognises its own slots purely by that name pattern (`gitq-` followed by digits). That is also why the `[in <worktree>]` suffix in `gitq diagnose` only ever names one of *your* worktrees. Work slots are filtered out of that report. They run detached anyway, so they never hold a branch.
 
 Slots live in one of two places:
 
@@ -61,9 +63,9 @@ Where new slots are created, read from `workSlotLocation` in the same `settings.
 { "workSlotLocation": "root" }
 ```
 
-The pool test is a plain directory comparison: *does any other worktree of this repo live in the primary's parent directory*. That is exactly right for a parent directory that holds nothing but worktrees of one repo, and wrong for a clone sitting directly in a directory of unrelated repos, where the "pool" is your whole repos folder and `gitq-1` lands in the middle of it. `root` is the opt-out for the second shape.
+The pool test is a plain directory comparison: *does any other worktree of this repo live in the primary's parent directory*. That is exactly right for a parent directory that holds nothing but worktrees of one repo. It is wrong for a clone sitting directly in a directory of unrelated repos. There, the "pool" is your whole repos folder and `gitq-1` lands in the middle of it. The `root` value is the opt-out for the second shape.
 
-It governs creation only. A slot that already exists is still found and reused where it is, so switching to `root` does not move the slots you already have; remove them (`git worktree remove`, once nothing is leased) and the next cascade creates their replacement under the root.
+It governs creation only. A slot that already exists is still found and reused where it is, so switching to `root` does not move the slots you already have. Remove them (`git worktree remove`, once nothing is leased), and the next cascade creates their replacement under the root.
 
 ## `maxWorkSlots`
 
@@ -92,7 +94,7 @@ A lease is a claim on a slot by a stack, recorded in `<commonDir>/gitq/leases.js
 
 Two rules govern the registry, and both are enforced atomically under a file lock: **one lease per stack**, and **one lease per slot**.
 
-`running` means a cascade is actively working. `parked` means it stopped on a conflict and is waiting for you. The distinction is what decides staleness: a `running` lease is only as real as the process holding it, so once that pid is gone every reader looks straight through it (`listLeases`, `src/core/leases.ts:62-69`) and the next acquisition clears the row from the file. A killed cascade should not block the next one. `parked` leases are never reaped on their own. A conflict waiting on human judgment is legitimately long-lived, and throwing it away would strand a real mid-rebase state.
+`running` means a cascade is actively working. `parked` means it stopped on a conflict and is waiting for you. The distinction is what decides staleness. A `running` lease is only as real as the process holding it. Once that pid is gone, every reader looks straight through it (`listLeases`, `src/core/leases.ts:62-69`). The next acquisition clears the row from the file. A killed cascade should not block the next one. `parked` leases are never reaped on their own. A conflict waiting on human judgment is legitimately long-lived, and throwing it away would strand a real mid-rebase state.
 
 ### What a lease blocks
 
@@ -116,7 +118,7 @@ A cascade rebases detached, but the branch ref it finally moves might be checked
 
 The dirty check is re-run at the moment of the move, not read from a cached scan, so a worktree that got dirty during the cascade is caught rather than clobbered.
 
-A few commands refuse up front instead of at the end: `absorb` (for every branch its preview attributes changes to), `rename`, and `reset` all refuse immediately if the branch is checked out in a worktree other than the current one. `absorb` needs it because it really does rewrite the branch in the worktree you ran it from; `rename` and `reset` are ref-only, and refuse early so the message names the worktree holding the branch rather than surfacing later from the ref move.
+A few commands refuse up front instead of at the end. `absorb` (for every branch its preview attributes changes to), `rename`, and `reset` all refuse immediately if the branch is checked out in a worktree other than the current one. The `absorb` command needs it because it really does rewrite the branch in the worktree you ran it from. The `rename` and `reset` commands are ref-only, and refuse early so the message names the worktree holding the branch rather than surfacing later from the ref move.
 
 `gitq preflight` reports this ahead of time as a `slot conflicts:` section, which is the cheapest way to find out before a sync. See [Reading the tree](/gitq/getting-started/reading-the-tree).
 

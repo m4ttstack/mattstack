@@ -23,3 +23,9 @@ rt-build-dev-app
 # Running or debugging the mattstack.app build and publish pipeline by hand.
 # Maintainer action.
 mattstack-release
+
+# Vendored docs-writing skills (doc-standards, Docusaurus). Read by path from
+# website/AGENTS.md and the rt-docs skill.
+doc-standards
+docusaurus-config
+docusaurus-documentation
