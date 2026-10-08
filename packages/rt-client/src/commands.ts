@@ -445,6 +445,8 @@ export interface AgentRecord {
   pack?: string;
   paneId?: string; tabId?: string; workspaceId?: string;
   extraArgs?: string; exitCode?: number; resultPath?: string; yolo?: boolean;
+  /** Recorded by agent:adopt from an existing session; off the reconciler's roster until first resumed. */
+  adopted?: boolean;
   createdAt: number; lastResumedAt?: number; finishedAt?: number;
 }
 

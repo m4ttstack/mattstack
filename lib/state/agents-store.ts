@@ -27,12 +27,14 @@ export interface AgentRecord {
   pack?: string;
   paneId?: string; tabId?: string; workspaceId?: string;
   extraArgs?: string; exitCode?: number; resultPath?: string; yolo?: boolean;
+  /** Recorded by agent:adopt from an existing session; off the reconciler's roster until first resumed. */
+  adopted?: boolean;
   createdAt: number; lastResumedAt?: number; finishedAt?: number;
 }
 
 const COLUMNS =
   "id, repo, cwd, provider, surface, session_id, model, effort, account, label, caller, handle, subject, pack, " +
-  "pane_id, tab_id, workspace_id, extra_args, exit_code, result_path, yolo, " +
+  "pane_id, tab_id, workspace_id, extra_args, exit_code, result_path, yolo, adopted, " +
   "created_at, last_resumed_at, finished_at";
 
 const INSERT_SQL = `INSERT INTO agents (${COLUMNS}) VALUES (${COLUMNS.split(",").map(() => "?").join(", ")});`;
@@ -62,6 +64,7 @@ interface AgentRow {
   subject: string | null; pack: string | null;
   pane_id: string | null; tab_id: string | null; workspace_id: string | null;
   extra_args: string | null; exit_code: number | null; result_path: string | null; yolo: number | null;
+  adopted: number;
   created_at: number; last_resumed_at: number | null; finished_at: number | null;
 }
 
@@ -86,6 +89,7 @@ function rowToRecord(r: AgentRow): AgentRecord {
   if (r.exit_code !== null) rec.exitCode = r.exit_code;
   if (r.result_path !== null) rec.resultPath = r.result_path;
   if (r.yolo !== null) rec.yolo = r.yolo === 1;
+  if (r.adopted === 1) rec.adopted = true;
   if (r.last_resumed_at !== null) rec.lastResumedAt = r.last_resumed_at;
   if (r.finished_at !== null) rec.finishedAt = r.finished_at;
   return rec;
@@ -103,7 +107,7 @@ export function insertAgent(rec: AgentRecord, db: Database = getStateDb()): void
       rec.label ?? null, rec.caller ?? null, rec.handle ?? null, rec.subject ?? null, rec.pack ?? null,
       rec.paneId ?? null, rec.tabId ?? null, rec.workspaceId ?? null,
       rec.extraArgs ?? null, rec.exitCode ?? null, rec.resultPath ?? null,
-      rec.yolo === undefined ? null : (rec.yolo ? 1 : 0),
+      rec.yolo === undefined ? null : (rec.yolo ? 1 : 0), rec.adopted ? 1 : 0,
       rec.createdAt, rec.lastResumedAt ?? null, rec.finishedAt ?? null,
     );
   runCriticalWrite("insertAgent", run, { id: rec.id });

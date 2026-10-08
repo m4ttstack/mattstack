@@ -23,8 +23,8 @@ import { rtDir } from "../rt-paths.ts";
 
 export type DbFlavor = "cli" | "daemon";
 
-/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14, plus v15's agents.pack column; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
-export const SCHEMA_VERSION = 15;
+/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14, plus v15's agents.pack and v16's agents.adopted columns; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
+export const SCHEMA_VERSION = 16;
 
 // busy_timeout is per-process, not per-store (spec "The database"): a CLI
 // command may block briefly; the daemon's event loop must never block long,
@@ -432,6 +432,14 @@ function addPackColumnIfMissing(db: Database): void {
   db.exec("ALTER TABLE agents ADD COLUMN pack TEXT;");
 }
 
+/** agents.adopted (v16): set by agent:adopt, which records a session rt did
+    not launch. Same conditional-exec rule as the agents columns above. */
+function addAdoptedColumnIfMissing(db: Database): void {
+  const columns = db.query("PRAGMA table_info(agents);").all() as { name: string }[];
+  if (columns.some((c) => c.name === "adopted")) return;
+  db.exec("ALTER TABLE agents ADD COLUMN adopted INTEGER NOT NULL DEFAULT 0;");
+}
+
 /**
  * endpoint_claims.start_time (S068): the claiming pid's start-time, so a
  * recycled pid across a reboot reads as dead rather than pinning a port
@@ -629,6 +637,7 @@ function runMigrations(db: Database, dir: string): void {
     addSubjectColumnIfMissing(db);
     addYoloColumnIfMissing(db);
     addPackColumnIfMissing(db);
+    addAdoptedColumnIfMissing(db);
     // Legacy-JSON import is single-shot and only correct from a true
     // v0 (never-migrated) database: branch-cache's UPSERT would silently
     // overwrite current rows with stale ones, and project-mrs-store's

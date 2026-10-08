@@ -58,16 +58,17 @@ function userVersion(db: Database): number {
 }
 
 describe("openStateDb — fresh open", () => {
-  test("a fresh database reaches v15 directly, gaining every v1 through v15 change", () => {
+  test("a fresh database reaches v16 directly, gaining every v1 through v16 change", () => {
     const dbPath = join(dir, "state.db");
     const db = openStateDb(dbPath, "cli");
-    expect(SCHEMA_VERSION).toBe(15);
+    expect(SCHEMA_VERSION).toBe(16);
     expect(userVersion(db)).toBe(SCHEMA_VERSION);
     const cols = (db.query("PRAGMA table_info(chat_rooms);").all() as { name: string }[]).map(c => c.name);
     expect(cols).toContain("archived_at");
     const agentCols = (db.query("PRAGMA table_info(agents);").all() as { name: string }[]).map(c => c.name);
     expect(agentCols).toContain("handle");
     expect(agentCols).toContain("pack");
+    expect(agentCols).toContain("adopted");
     const claimCols = (db.query("PRAGMA table_info(endpoint_claims);").all() as { name: string }[]).map(c => c.name);
     expect(claimCols).toContain("start_time");
     const identityCols = (db.query("PRAGMA table_info(chat_identities);").all() as { name: string }[]).map(c => c.name);
@@ -112,7 +113,7 @@ describe("openStateDb — fresh open", () => {
     db.close();
 
     const migrated = openStateDb(dbPath, "cli");
-    expect(userVersion(migrated)).toBe(15);
+    expect(userVersion(migrated)).toBe(SCHEMA_VERSION);
     expect(migrated.query("SELECT id, pack FROM agents;").all()).toEqual([{ id: "ag-1", pack: null }]);
     migrated.close();
 
@@ -128,10 +129,34 @@ describe("openStateDb — fresh open", () => {
     db.close();
 
     const healed = openStateDb(dbPath, "cli");
-    expect(userVersion(healed)).toBe(15);
+    expect(userVersion(healed)).toBe(SCHEMA_VERSION);
     const columns = (healed.query("PRAGMA table_info(agents);").all() as { name: string }[]).map(c => c.name);
     expect(columns).toContain("pack");
     healed.close();
+  });
+
+  test("v16 adds agents.adopted to a v15 database, reads old rows as not adopted, and reopens cleanly", () => {
+    const dbPath = join(dir, "state.db");
+    const db = openStateDb(dbPath, "cli");
+    db.exec(
+      "INSERT INTO agents (id, repo, cwd, provider, surface, session_id, created_at) VALUES ('ag-1', 'r', '/c', 'claude', 'herdr', 's-1', 1);",
+    );
+    db.exec("ALTER TABLE agents DROP COLUMN adopted;");
+    db.exec("PRAGMA user_version = 15;");
+    db.close();
+
+    const migrated = openStateDb(dbPath, "cli");
+    expect(userVersion(migrated)).toBe(16);
+    expect(migrated.query("SELECT id, adopted FROM agents;").all()).toEqual([{ id: "ag-1", adopted: 0 }]);
+    migrated.close();
+
+    expect(() => openStateDb(dbPath, "cli").close()).not.toThrow();
+    const raw = new Database(dbPath);
+    raw.exec("PRAGMA user_version = 15;");
+    raw.close();
+    const replayed = openStateDb(dbPath, "cli");
+    expect(userVersion(replayed)).toBe(16);
+    replayed.close();
   });
 
   test("the db file exists on disk after open", () => {
@@ -774,7 +799,7 @@ describe("getStateDb / closeStateDb — lazy singleton", () => {
     // unrelated exports (reading SCHEMA_VERSION, pushing to LEGACY_IMPORTS)
     // never opens or creates a db file on its own.
     const before = SCHEMA_VERSION;
-    expect(before).toBe(15);
+    expect(before).toBe(16);
     LEGACY_IMPORTS.push({ file: "x.json", import: () => {} });
     LEGACY_IMPORTS.length = 0;
     // No db.ts function that touches disk was called above; nothing to assert
