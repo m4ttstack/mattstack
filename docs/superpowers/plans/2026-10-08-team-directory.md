@@ -95,22 +95,41 @@ Expected: FAIL. `mattstack.directory` has no schema or registry row.
 
 - [ ] **Step 4: Add the schemas.** In `registry-schemas.ts`, after `"mattstack.org"`:
 
+The console edits this key in its JSON editor: the shape has more nesting than its forms draw. The `.meta` titles and descriptions are the help that editor shows.
+
 ```ts
   "mattstack.directory": z.looseObject({
     teams: z
       .record(
         z.string(),
         z.looseObject({
-          linear: z.looseObject({ team: z.string().min(1).optional() }).optional(),
+          linear: z
+            .looseObject({
+              team: z.string().min(1).optional().meta({ title: "Linear team key", description: "The team's own Linear key, e.g. CV.", placeholder: "CV" }),
+            })
+            .optional(),
           slack: z
             .looseObject({
-              codeOwnersChannel: z.string().min(1).optional(),
-              channels: z.array(z.looseObject({ name: z.string().min(1), kind: z.string().min(1) })).optional(),
+              codeOwnersChannel: z.string().min(1).optional().meta({
+                title: "Code owners channel",
+                description: "Where other teams ask this team for code owner review. A CODEOWNERS section naming this channel belongs to this team.",
+                placeholder: "pod-acme",
+              }),
+              channels: z
+                .array(
+                  z.looseObject({
+                    name: z.string().min(1).meta({ title: "Channel", description: "Slack channel name, no #." }),
+                    kind: z.string().min(1).meta({ title: "Kind", description: "What the channel is for. The board reads review; teams may add their own kinds." }),
+                  }),
+                )
+                .optional()
+                .meta({ title: "Other channels" }),
             })
             .optional(),
         }),
       )
-      .optional(),
+      .optional()
+      .meta({ title: "Teams", description: "One entry per team, keyed by team name. A name matching a team folder is that mattstack team." }),
   }),
 ```
 
@@ -870,7 +889,265 @@ git commit -m "setup: the team directory's Linear key wins"
 
 ---
 
-### Task 7: Whole-branch verification
+### Task 7: Seed the directory with a setup migration (admin only)
+
+**Files:**
+- Create: `lib/setup/migrations/seed-team-directory.ts`
+- Modify: `lib/setup/migrations/index.ts` (append to `MIGRATIONS`)
+- Modify: `lib/setup/__tests__/migration-sdm-resources-key.test.ts`. Its "is the last migration in the list" test must change to `expect(MIGRATIONS).toContain(sdmResourcesKeyMigration)`.
+- Test: `lib/setup/__tests__/migration-seed-team-directory.test.ts`
+
+**Interfaces:**
+- Consumes:
+  - `orgLayoutState(p)` from `lib/team/org-layout.ts`;
+  - `listTeamFolders` and `readStore` from rt-client `settings/stores.ts`;
+  - `orgSettingsPath` and `teamSettingsPath` from rt-client `settings/paths.ts`;
+  - `setSetting` and `SettingsOwnershipRefusal` from `lib/settings/write.ts`;
+  - `normalizeChannel`, `DirectoryTeam` and `TeamDirectory` from Task 2.
+- Produces:
+  - `seedTeamDirectoryMigration: MigrationDef`, with id `2026-10-08-seed-team-directory`.
+  - `entryFromTeamStore(values: Record<string, unknown>): DirectoryTeam | null`.
+
+What it does:
+- For each team folder with no directory entry yet, build an entry from that team's own store:
+  - `linear.team` from `mattstack.integrations.linear.teamKey`;
+  - a `review` channel from `board.slack.channel`;
+  - `codeOwnersChannel` from the first codeowners tab in `board.tabs` that has a `slackChannel`.
+- It never overwrites an existing entry.
+- It skips a team whose code owners channel another entry already claims. Without that, the write gate would refuse and the migration would fail on every run.
+- It writes once, at org scope. On a Mac that cannot write the org store, it returns `skipped`.
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+// lib/setup/__tests__/migration-seed-team-directory.test.ts
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { orgSettingsPath } from "../../../packages/rt-client/src/settings/paths.ts";
+import { readStore } from "../../../packages/rt-client/src/settings/stores.ts";
+import { seedOrg, type SeedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
+import type { ApplyContext } from "../apply.ts";
+import { MIGRATIONS } from "../migrations/index.ts";
+import { entryFromTeamStore, seedTeamDirectoryMigration } from "../migrations/seed-team-directory.ts";
+import { createRealProbes } from "../probes.ts";
+
+const run = () =>
+  seedTeamDirectoryMigration.run({ p: { ...createRealProbes(), home: process.env.HOME! } } as Partial<ApplyContext> as ApplyContext);
+function seedClone(opts: SeedOrg) {
+  const seeded = seedOrg(opts);
+  const dir = join(process.env.HOME!, ".mattstack", "orgs", seeded.org);
+  mkdirSync(join(dir, ".git"), { recursive: true });
+  writeFileSync(join(dir, ".git", "config"), "");
+  return seeded;
+}
+const directory = (org: string) => readStore(orgSettingsPath(org)).global["mattstack.directory"];
+const CLAIM_STORE = {
+  "mattstack.integrations": { linear: { teamKey: "CV" } },
+  "board.slack": { channel: "claim-internal" },
+  "board.tabs": [
+    { id: "team", label: "Team", source: { kind: "authors" } },
+    { id: "q", label: "Q", source: { kind: "codeowners", section: "Claim - #pod-claim" }, slackChannel: "pod-claim" },
+  ],
+};
+const adminRoles = { admins: ["me"], teams: { claim: { owners: ["me"] } } };
+const roster = [{ username: "me", teams: ["claim"] }];
+
+describe("entryFromTeamStore", () => {
+  test("builds an entry from the Linear key, the board channel and the codeowners tab channel", () => {
+    expect(entryFromTeamStore(CLAIM_STORE)).toEqual({
+      linear: { team: "CV" },
+      slack: { codeOwnersChannel: "pod-claim", channels: [{ name: "claim-internal", kind: "review" }] },
+    });
+  });
+  test("a store with none of them gives no entry", () => {
+    expect(entryFromTeamStore({})).toBeNull();
+  });
+});
+
+describe("2026-10-08-seed-team-directory", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "dir-mig-")));
+    process.env.HOME = home;
+  });
+  afterEach(() => {
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("is the last migration in the list", () => {
+    expect(MIGRATIONS[MIGRATIONS.length - 1]).toBe(seedTeamDirectoryMigration);
+  });
+
+  test("an admin's Mac fills the directory from each team's store", async () => {
+    const { org } = seedClone({ username: "me", roles: adminRoles, roster, teams: { claim: CLAIM_STORE } });
+    const result = await run();
+    expect(result.state).toBe("done");
+    expect(directory(org)).toEqual({ teams: { claim: entryFromTeamStore(CLAIM_STORE) } });
+  });
+
+  test("an existing entry is never overwritten", async () => {
+    const { org } = seedClone({
+      username: "me",
+      roles: adminRoles,
+      roster,
+      settings: { "mattstack.directory": { teams: { claim: { linear: { team: "KEEP" } } } } },
+      teams: { claim: CLAIM_STORE },
+    });
+    expect((await run()).state).toBe("skipped");
+    expect(directory(org)).toEqual({ teams: { claim: { linear: { team: "KEEP" } } } });
+  });
+
+  test("a Mac that cannot write the org store skips and writes nothing", async () => {
+    const { org } = seedClone({
+      username: "me",
+      roles: { admins: ["someone-else"], teams: { claim: { owners: ["me"] } } },
+      roster,
+      teams: { claim: CLAIM_STORE },
+    });
+    const result = await run();
+    expect(result.state).toBe("skipped");
+    expect(result.detail).toBe("Only an org admin's Mac fills in the team directory");
+    expect(directory(org)).toBeUndefined();
+  });
+});
+```
+
+`seedOrg` (`packages/rt-client/test/org-fixture.ts`) takes org-store values as `settings` and team stores as `teams`, and returns `{ org, orgStore, teamStores }`.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run (repo root): `bun test lib/setup/__tests__/migration-seed-team-directory.test.ts`
+Expected: FAIL, "Cannot find module '../migrations/seed-team-directory.ts'".
+
+- [ ] **Step 3: Implement**
+
+```ts
+// lib/setup/migrations/seed-team-directory.ts
+import { orgSettingsPath, teamSettingsPath } from "../../../packages/rt-client/src/settings/paths.ts";
+import { listTeamFolders, readStore } from "../../../packages/rt-client/src/settings/stores.ts";
+import {
+  normalizeChannel,
+  type DirectoryTeam,
+  type TeamDirectory,
+} from "../../../packages/rt-client/src/settings/team-directory.ts";
+import { SettingsOwnershipRefusal, setSetting } from "../../settings/write.ts";
+import { orgLayoutState } from "../../team/org-layout.ts";
+import type { MigrationDef } from "./index.ts";
+
+type Tab = { source?: { kind?: string }; slackChannel?: string };
+
+export function entryFromTeamStore(values: Record<string, unknown>): DirectoryTeam | null {
+  const linear = (values["mattstack.integrations"] as { linear?: { teamKey?: string } } | undefined)?.linear?.teamKey;
+  const review = (values["board.slack"] as { channel?: string } | undefined)?.channel;
+  const tabs = (values["board.tabs"] as Tab[] | undefined) ?? [];
+  const codeOwners = tabs.find((t) => t.source?.kind === "codeowners" && t.slackChannel)?.slackChannel;
+  if (!linear && !review && !codeOwners) return null;
+  return {
+    ...(linear ? { linear: { team: linear } } : {}),
+    ...(review || codeOwners
+      ? {
+          slack: {
+            ...(codeOwners ? { codeOwnersChannel: codeOwners } : {}),
+            ...(review ? { channels: [{ name: review, kind: "review" }] } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+export const seedTeamDirectoryMigration: MigrationDef = {
+  id: "2026-10-08-seed-team-directory",
+  title: "Fill in the team directory from your teams' settings",
+  async run(ctx) {
+    const layout = orgLayoutState(ctx.p);
+    if (layout.kind === "none") return { state: "skipped", detail: "This Mac is in no org" };
+    if (layout.kind === "waiting")
+      return { state: "skipped", detail: "Your org has not moved to its new layout yet; nothing to fill in on this Mac" };
+    const org = layout.slug;
+    const existing = (readStore(orgSettingsPath(org)).global["mattstack.directory"] ?? {}) as TeamDirectory;
+    const teams = { ...(existing.teams ?? {}) };
+    const claimed = new Set(
+      Object.values(teams).flatMap((t) => (t.slack?.codeOwnersChannel ? [normalizeChannel(t.slack.codeOwnersChannel)] : [])),
+    );
+    let added = 0;
+    for (const team of listTeamFolders(org)) {
+      if (teams[team]) continue;
+      const entry = entryFromTeamStore(readStore(teamSettingsPath(org, team)).global);
+      if (!entry) continue;
+      const own = entry.slack?.codeOwnersChannel;
+      if (own && claimed.has(normalizeChannel(own))) continue;
+      if (own) claimed.add(normalizeChannel(own));
+      teams[team] = entry;
+      added++;
+    }
+    if (added === 0) return { state: "skipped", detail: "Every team is already in the directory, or has nothing to fill in" };
+    try {
+      setSetting("mattstack.directory", { ...existing, teams }, "org");
+    } catch (err) {
+      if (err instanceof SettingsOwnershipRefusal) return { state: "skipped", detail: "Only an org admin's Mac fills in the team directory" };
+      throw err;
+    }
+    return { state: "done", detail: `Added ${added} ${added === 1 ? "team" : "teams"} to the team directory` };
+  },
+};
+```
+
+In `lib/setup/migrations/index.ts`, import `seedTeamDirectoryMigration` and append it after `sdmResourcesKeyMigration`. In `migration-sdm-resources-key.test.ts`, change its "is the last migration in the list" test to `expect(MIGRATIONS).toContain(sdmResourcesKeyMigration);`.
+
+- [ ] **Step 4: Run the tests**
+
+Run (repo root): `bun test lib/setup/__tests__/migration-seed-team-directory.test.ts lib/setup/__tests__/migration-sdm-resources-key.test.ts lib/setup/__tests__/migrations.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/setup/migrations/ lib/setup/__tests__/migration-seed-team-directory.test.ts lib/setup/__tests__/migration-sdm-resources-key.test.ts
+git commit -m "setup: an admin's Mac seeds the team directory from each team's settings"
+```
+
+---
+
+### Task 8: Console shows the directory
+
+**Files:**
+- Test: `apps/console/src/app/settings/groups.test.ts` (an assertion only, if the existing every-key check does not already pin it)
+
+**Interfaces:**
+- Consumes: the `mattstack.directory` registry row and lock (Task 1). The console reads the registry through rt-client, so no console code changes are expected.
+
+- [ ] **Step 1: Pin where it shows.** In `groups.test.ts`, add:
+
+```ts
+it('puts the team directory in the Suite group', () => {
+  expect(GROUPS.find(g => g.match('mattstack.directory'))?.id).toBe('suite');
+});
+```
+
+Run (repo root): `bun run console:test`
+Expected: PASS. `mattstack.*` keys already land in `suite`; this pins it.
+
+- [ ] **Step 2: Look at it in both schemes.** Start the console from this worktree on a spare port (from `apps/console`): `PORT=11091 bun run dev`. It reads this Mac's real settings, so view only and save nothing. With Fast Browser, open `http://localhost:11091/settings?explain=mattstack.directory` and screenshot it in light and in dark. Check that:
+  - the row sits under Suite;
+  - the JSON editor opens with the schema's titles and descriptions in its help;
+  - the value reads as unset, or shows the seeded entry if Task 7 has run on this Mac.
+
+  Say plainly what looks wrong. Stop the dev server afterwards.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add apps/console/src/app/settings/groups.test.ts
+git commit -m "console: pin the team directory to the Suite group"
+```
+
+---
+
+### Task 9: Whole-branch verification
 
 - [ ] **Step 1: Typecheck everything touched**
 
