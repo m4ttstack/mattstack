@@ -1123,7 +1123,13 @@ async function postReviewRequest(
   }
 }
 
-/** Resolves a review channel, reloading config once when none is found:
+/** A team that truly has no review channel refuses on every menu open, so the
+    recheck reloads at most once per window. BOARD_REVIEW_RECHECK_MS is the
+    test seam. */
+const REVIEW_RECHECK_MS = Number(process.env.BOARD_REVIEW_RECHECK_MS ?? 30_000);
+let lastReviewRecheckAt = 0;
+
+/** Resolves a review channel, reloading config when none is found:
     the team directory can land after boot (a setup migration, a team pull)
     with no config.json change to trigger the watcher. */
 function withReviewChannel<T>(
@@ -1132,6 +1138,9 @@ function withReviewChannel<T>(
 ): T {
   const first = resolve();
   if (found(first) || FIXTURE_DIR) return first;
+  const now = Date.now();
+  if (now - lastReviewRecheckAt < REVIEW_RECHECK_MS) return first;
+  lastReviewRecheckAt = now;
   reloadConfig('no review channel, rechecking the team directory');
   return resolve();
 }

@@ -154,7 +154,15 @@ const forgeSeen: Array<{ repoName: string; path: string }> = [];
 
 /** A board on its own temp HOME, its own fake rt daemon and the Slack mock,
     whose org directory is `directory`. */
-function bootBoard({ port, directory }: { port: number; directory: unknown }) {
+function bootBoard({
+  port,
+  directory,
+  recheckMs,
+}: {
+  port: number;
+  directory: unknown;
+  recheckMs?: number;
+}) {
   const home = mkdtempSync(join(tmpdir(), 'board-slack-owners-'));
   const orgDir = join(home, '.mattstack', 'orgs', 'testteam', 'mattstack');
   mkdirSync(join(orgDir, 'org'), { recursive: true });
@@ -233,6 +241,9 @@ function bootBoard({ port, directory }: { port: number; directory: unknown }) {
         SLACK_TOKEN: 'fake-slack-token',
         SWITCHBOARD_TOKEN: '',
         SWITCHBOARD_ADMIN_TOKEN: '',
+        ...(recheckMs === undefined
+          ? {}
+          : { BOARD_REVIEW_RECHECK_MS: String(recheckMs) }),
         SLACK_MOCK_POST_LOG: join(home, 'slack-posts.ndjson'),
         SLACK_MOCK_HISTORY: JSON.stringify({
           C_ACME: [url('g/p', 708)],
@@ -243,9 +254,15 @@ function bootBoard({ port, directory }: { port: number; directory: unknown }) {
       stderr: 'pipe',
     }
   );
+  let output = '';
+  for (const stream of [proc.stdout, proc.stderr])
+    void (async () => {
+      for await (const chunk of stream) output += Buffer.from(chunk).toString();
+    })();
   return {
     port,
     home,
+    output: () => output,
     stop: () => {
       proc.kill();
       rtDaemon.stop(true);
@@ -328,7 +345,11 @@ const noChannelBoard = bootBoard({
     teams: { web: { slack: { codeOwnersChannel: 'ours-channel' } } },
   },
 });
-const lateDirectoryBoard = bootBoard({ port: 47973, directory: undefined });
+const lateDirectoryBoard = bootBoard({
+  port: 47973,
+  directory: undefined,
+  recheckMs: 0,
+});
 const PORT = board.port;
 const NO_CHANNEL_PORT = noChannelBoard.port;
 const fakeHome = board.home;
@@ -722,6 +743,24 @@ test('a team with no review channel is refused whole, naming the fix', async () 
       'Add a review channel for your team to the team directory'
     );
   }
+}, 15_000);
+
+test('refusals inside the recheck window reload the config only once', async () => {
+  await ready(NO_CHANNEL_PORT);
+  for (let i = 0; i < 2; i++)
+    expect(
+      (
+        await postTo(NO_CHANNEL_PORT, '/slack/post', {
+          mrUrls: [url('g/p', 701)],
+        })
+      ).status
+    ).toBe(400);
+  const rechecks = () =>
+    noChannelBoard
+      .output()
+      .split('no review channel, rechecking the team directory').length - 1;
+  for (let i = 0; i < 50 && rechecks() === 0; i++) await Bun.sleep(100);
+  expect(rechecks()).toBe(1);
 }, 15_000);
 
 test('a directory written after the board started is read before a post is refused', async () => {
