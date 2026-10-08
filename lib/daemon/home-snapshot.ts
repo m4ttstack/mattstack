@@ -104,6 +104,8 @@ export interface SnapshotStatus {
   lastPullError: string | null;
   /** The most recent pull's skip reason (e.g. a rebase refused for a dirty `src/`); null after any non-skipped pull. */
   lastPullSkipped: string | null;
+  /** A fetched tip on a layout above what this rt reads: the pull stays at the last commit it can read until the app updates. Absent from a daemon that predates it. */
+  layoutHold?: { layout: number; reads: number } | null;
   /** A rebase that stopped mid-way. Cleared once the clone is no longer ahead of origin (a hand rebase then `rt team publish`, or a reset to origin); pushes and the applying of pulls stay suspended until then, while the fetch itself keeps running, since that is what observes the clearing condition. */
   conflicted: { at: number; detail: string } | null;
   /** True when this clone only fetches and fast-forwards. */
@@ -1522,6 +1524,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       lastPullAt,
       lastPullError,
       lastPullSkipped,
+      layoutHold: null,
       conflicted,
       pullOnly: current.pullOnly,
       unownedDirty: [...unownedDirty],

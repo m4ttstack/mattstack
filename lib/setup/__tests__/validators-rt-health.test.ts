@@ -8,11 +8,12 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
 import type { Probes } from "../probes.ts";
+import type { TeamSnapshotEntry } from "../../daemon/team-snapshots.ts";
 
 const ROW_ORDER = [
   "tool.rt",
@@ -1436,5 +1437,47 @@ describe("rtHealthRows: team.sync wiring", () => {
     const rows = await rtHealthRows(p, { ci: false });
     const r = rows.find((x) => x.id === "team.sync");
     expect(r?.status).toBe("missing");
+  });
+});
+
+describe("orgLayoutRow", () => {
+  const legacy = JSON.stringify({ role: "team", namespace: "widgets", org: "acme" });
+  const converted = JSON.stringify({ role: "org", org: "acme" });
+  const status = (hold: { layout: number; reads: number } | null) => async () => [{ slug: "acme", layoutHold: hold } as unknown as TeamSnapshotEntry];
+  const at = (marker: string, store: boolean) =>
+    fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/.git/config": "",
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": marker,
+        ...(store ? { "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" } : {}),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"] },
+    });
+
+  test("null with no clone", async () => {
+    expect(await orgLayoutRow(fakeProbes({ home: "/h" }), status(null))).toBeNull();
+  });
+  test("ready names the org and layout", async () => {
+    const r = await orgLayoutRow(at(converted, true), status(null));
+    expect(r).toMatchObject({ id: ORG_LAYOUT_ROW_ID, status: "ready", detail: "acme on layout 2" });
+  });
+  test("a one-team clone is skipped with the waiting sentence and no action", async () => {
+    const r = await orgLayoutRow(at(legacy, false), status(null));
+    expect(r).toMatchObject({ status: "skipped", detail: "Your org has not moved to its new layout yet. rt finishes the move when it does." });
+    expect(r?.action ?? null).toBeNull();
+  });
+  test("a clone above ORG_LAYOUT is needs-you with the update step", async () => {
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true), status(null));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Update mattstack from its menu bar icon, then reopen Setup status"] });
+  });
+  test("a daemon hold reads needs-you even though the clone itself is ready", async () => {
+    const r = await orgLayoutRow(at(converted, true), status({ layout: 3, reads: 2 }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+  });
+  test("a daemon that is not running does not hide a ready clone", async () => {
+    const r = await orgLayoutRow(at(converted, true), async () => null);
+    expect(r?.status).toBe("ready");
   });
 });
