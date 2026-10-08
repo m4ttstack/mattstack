@@ -141,6 +141,7 @@ import { ShowChips } from './ShowChips.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import {
   needsThreadLookup,
+  slackRefusal,
   startSlackPost,
   type SlackRefBody,
 } from './slack-post-flow.ts';
@@ -977,10 +978,10 @@ export function Board() {
         header ? { mrUrls: urls, header } : { mrUrls: urls }
       )
         .then(result => {
-          const body: unknown = result.body;
           if (!result.ok)
             return toast.fail(
-              `slack post failed (${result.status})${typeof body === 'string' ? `: ${body}` : ''}`
+              slackRefusal(result) ??
+                `slack post failed (${result.status})${result.text ? `: ${result.text}` : ''}`
             );
           toast.done(
             `posted ${urls.length} MR${urls.length === 1 ? '' : 's'} to slack`
@@ -1552,7 +1553,7 @@ export function Board() {
             off: state.off,
             counts: showCounts,
             // BoardData carries no board-wide channel; a row's resolved
-            // slackChannel is the tab's override or slack.channel.
+            // slackChannel is the tab's override or the team's review channel.
             channel:
               activeTab.slackChannel ??
               memberFiltered.find(mr => mr.slackChannel)?.slackChannel ??

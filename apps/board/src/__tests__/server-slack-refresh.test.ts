@@ -29,8 +29,22 @@ writeFileSync(
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],
     'mattstack.roster': [{ username: 'alice' }],
-    'board.slack': { channel: 'code-review', autoResolveIntervalMinutes: 0 },
+    'board.slack': { autoResolveIntervalMinutes: 0 },
+    'mattstack.directory': {
+      teams: {
+        web: { slack: { channels: [{ name: 'code-review', kind: 'review' }] } },
+      },
+    },
   })
+);
+const webTeamDir = join(teamDir, '..', 'teams', 'web');
+mkdirSync(webTeamDir, { recursive: true });
+writeFileSync(join(webTeamDir, 'settings.team.jsonc'), '{}');
+const userDir = join(fakeHome, '.mattstack', 'user');
+mkdirSync(userDir, { recursive: true });
+writeFileSync(
+  join(userDir, 'settings.user.jsonc'),
+  JSON.stringify({ 'mattstack.activeTeam': 'web' })
 );
 
 writeFileSync(join(fakeHome, '.mattstack', 'machine-key'), 'testmachine');

@@ -33,4 +33,8 @@ describe('GROUPS', () => {
         'strongdm',
       ]);
   });
+
+  it('puts the team directory in the Suite group', () => {
+    expect(GROUPS.find(g => g.match('mattstack.directory'))?.id).toBe('suite');
+  });
 });

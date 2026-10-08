@@ -498,6 +498,8 @@ function LayerLine({
             def={def}
             form={formOf(def)}
             initial={row.present ? row.value : undefined}
+            // Fix's bad field is highlighted and scrolled to only in the form.
+            startIn={reveal ? 'form' : 'json'}
             targetLabel={layerLabel(scope as LayerScope, team, org)}
             saving={busy}
             replaceWith={replaceWith}

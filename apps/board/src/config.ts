@@ -4,15 +4,20 @@ import { join } from 'path';
 import {
   activeTeam,
   activeTeamPack,
+  channelsOfKind,
+  directoryEntry,
   getSetting,
   identityFromRemote,
   mergeTeamRoster,
+  normalizeChannel,
   orgStoreRefusal,
   serializeIdentity,
   setSetting,
   switchboardUrl,
+  teamChannels,
   type RepoIdentity,
   type RosterEntry,
+  type TeamDirectory,
 } from '@mattstack/rt-client';
 import { APP_ROOT } from './app-root.ts';
 import {
@@ -135,7 +140,7 @@ export interface TabConfig {
     | { kind: 'authors' }
     | { kind: 'codeowners'; section: string; excludeMembers?: boolean }
     | { kind: 'needs-me' };
-  /** Overrides slack.channel for this tab's index, reactions, and posts. */
+  /** Overrides the team's review channel for this tab's index, reactions, and posts. */
   slackChannel?: string;
   /** Overrides review-launch skill resolution for this tab. Empty/absent = normal resolution. */
   reviewSkill?: string;
@@ -189,6 +194,8 @@ export interface BoardConfig {
    * MRs with no detectable ticket key are hidden when this is set. Empty = show all.
    */
   ticketPrefixes: string[];
+  /** My team's channels from mattstack.directory, normalized; a code owners section naming one is my team's. */
+  ownChannels?: string[];
   title: string;
   /** Absolute path the review agent's herdr pane starts in (a repo checkout). Empty disables review launch. */
   reviewCwd: string;
@@ -240,7 +247,7 @@ export interface SwitchboardBoardConfig {
 export { DEFAULT_SLACK_EMOJI, type SlackEmojiConfig };
 
 export interface SlackConfig {
-  /** Channel name (no #) where MR review requests live and where "post to slack" posts. */
+  /** The team's review channel from mattstack.directory; '' when it names none. */
   channel: string;
   /** Template for a single MR — used for both clipboard copy and "post to slack". */
   singleTemplate: string;
@@ -255,7 +262,7 @@ export interface SlackConfig {
 }
 
 const DEFAULT_SLACK: SlackConfig = {
-  channel: 'code-review',
+  channel: '',
   singleTemplate: '{title}: {url}',
   multiHeader: "{count} MR's ready for review :pray:",
   multiItem: '- {title}: {url}',
@@ -501,12 +508,7 @@ function parseSlack(raw: unknown, source: string): SlackConfig {
     throw new Error(`${source} "slack" must be an object`);
   }
   const s = raw as Partial<SlackConfig>;
-  for (const key of [
-    'channel',
-    'singleTemplate',
-    'multiHeader',
-    'multiItem',
-  ] as const) {
+  for (const key of ['singleTemplate', 'multiHeader', 'multiItem'] as const) {
     if (s[key] !== undefined && (typeof s[key] !== 'string' || !s[key])) {
       throw new Error(`${source} "slack.${key}" must be a non-empty string`);
     }
@@ -521,7 +523,7 @@ function parseSlack(raw: unknown, source: string): SlackConfig {
     );
   }
   return {
-    channel: s.channel ?? DEFAULT_SLACK.channel,
+    channel: DEFAULT_SLACK.channel,
     singleTemplate: s.singleTemplate ?? DEFAULT_SLACK.singleTemplate,
     multiHeader: s.multiHeader ?? DEFAULT_SLACK.multiHeader,
     multiItem: s.multiItem ?? DEFAULT_SLACK.multiItem,
@@ -745,6 +747,36 @@ function withBoardStoreFallback(
     return hiddenUsernames.has(m.username) ? { ...rest, hidden: true } : rest;
   });
 
+  const mine = directoryEntry(
+    storeValue<TeamDirectory>('mattstack.directory', resolve),
+    teamView.team()
+  );
+  const {
+    reviewKind,
+    channel: _retired,
+    ...slackFields
+  } = storeValue<Partial<SlackConfig> & { reviewKind?: string }>(
+    'board.slack',
+    resolve
+  ) ?? {};
+  const reviewChannel = mine
+    ? (channelsOfKind(mine, reviewKind ?? 'review')[0] ?? '')
+    : '';
+  const ownersChannel = mine?.slack?.codeOwnersChannel;
+  const codeOwnersChannel = ownersChannel && normalizeChannel(ownersChannel);
+  const tabs = (
+    storeValue<TabConfig[]>('board.tabs', resolve) ?? fileConfig.tabs
+  ).map(t =>
+    t.source.kind === 'codeowners' && !t.slackChannel && codeOwnersChannel
+      ? { ...t, slackChannel: codeOwnersChannel }
+      : t
+  );
+  const defaultPrefixes = fileConfig.ticketPrefixes.length
+    ? fileConfig.ticketPrefixes
+    : mine?.linear?.team
+      ? [mine.linear.team]
+      : [];
+
   const merged: BoardConfig = {
     ...fileConfig,
     gitlabHost:
@@ -755,8 +787,8 @@ function withBoardStoreFallback(
     botUsernames:
       storeValue('board.botUsernames', resolve) ?? fileConfig.botUsernames,
     ticketPrefixes:
-      storeValue('board.ticketPrefixes', resolve) ?? fileConfig.ticketPrefixes,
-    slack: storeValue('board.slack', resolve) ?? fileConfig.slack,
+      storeValue('board.ticketPrefixes', resolve) ?? defaultPrefixes,
+    slack: { ...fileConfig.slack, ...slackFields },
     doctorSkill:
       storeValue('board.doctorSkill', resolve) ?? fileConfig.doctorSkill,
     staleAfterDays:
@@ -780,14 +812,19 @@ function withBoardStoreFallback(
     // Explicit entries only: the reparse below validates gitlabHost/projects
     // and derives the full map from them.
     rtRepos: fileConfig.rtRepoOverrides,
-    tabs: storeValue('board.tabs', resolve) ?? fileConfig.tabs,
+    tabs,
   };
 
   const parsed = parseConfig(
     JSON.stringify(merged),
     'a board.* team settings-store value'
   );
-  return { ...parsed, teamPack: teamView.pack() ?? '' };
+  return {
+    ...parsed,
+    slack: { ...parsed.slack, channel: reviewChannel },
+    teamPack: teamView.pack() ?? '',
+    ownChannels: mine ? teamChannels(mine) : [],
+  };
 }
 
 /** Structurally satisfies parseConfig's required-field check without being a

@@ -22,7 +22,7 @@ export const LEGACY_SHAPES = {
   "board.slack": {
     kind: "leaves",
     fields: {
-      channel: "string", singleTemplate: "string", multiHeader: "string", multiItem: "string",
+      reviewKind: "string", singleTemplate: "string", multiHeader: "string", multiItem: "string",
       autoResolveIntervalMinutes: "number",
       "emoji.looking": "string", "emoji.commented": "string", "emoji.approved": "string",
     },

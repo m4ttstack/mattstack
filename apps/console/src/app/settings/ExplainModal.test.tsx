@@ -102,6 +102,13 @@ function renderModal(s: ExplainStore, settingKey: string | null = KEY) {
 
 afterEach(() => explainGet.mockReset());
 
+/** The modal opens on Value; most of these read the layers. */
+async function toWhere() {
+  await userEvent.click(
+    await screen.findByRole('radio', { name: "Where it's set" })
+  );
+}
+
 describe('ExplainModal', () => {
   it('a repo-only key hides empty global layers and offers only Remove on a stray global value', async () => {
     const repoOnly: SettingDefWire = {
@@ -132,6 +139,7 @@ describe('ExplainModal', () => {
     ];
     explainGet.mockResolvedValue(ok({ def: repoOnly, rows }));
     renderModal(store({ defs: [repoOnly] }), 'rt.logDir');
+    await toWhere();
 
     const user = await screen.findByTestId('layer-user');
     expect(screen.queryByTestId('layer-team')).toBeNull();
@@ -144,9 +152,36 @@ describe('ExplainModal', () => {
     ).toBeInTheDocument();
   });
 
+  it('opens on the Value tab', async () => {
+    explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
+    renderModal(store());
+    expect(await screen.findByRole('radio', { name: 'Value' })).toBeChecked();
+    expect(
+      await screen.findByRole('textbox', { name: KEY })
+    ).toBeInTheDocument();
+  });
+
+  it('opens on Where it’s set when it is asked to fix a layer', async () => {
+    explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
+    renderWithProviders(
+      <QueryClientProvider client={new QueryClient()}>
+        <ExplainModal
+          settingKey={KEY}
+          fix="machine"
+          store={store()}
+          onClose={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+    expect(
+      await screen.findByRole('radio', { name: "Where it's set" })
+    ).toBeChecked();
+  });
+
   it('renders the header and every layer', async () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     renderModal(store());
+    await toWhere();
 
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('model')).toBeInTheDocument();
@@ -203,6 +238,7 @@ describe('ExplainModal', () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     const s = store();
     renderModal(s);
+    await toWhere();
 
     const remove = await screen.findByRole('button', {
       name: `remove ${KEY} from machine`,
@@ -217,6 +253,7 @@ describe('ExplainModal', () => {
   it('offers no remove on unset or disallowed layers', async () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     renderModal(store());
+    await toWhere();
 
     await screen.findByTestId('layer-machine');
     expect(
@@ -231,6 +268,7 @@ describe('ExplainModal', () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     const s = store({ unset: vi.fn(async () => 'store is read-only') });
     renderModal(s);
+    await toWhere();
 
     await userEvent.click(
       await screen.findByRole('button', { name: `remove ${KEY} from user` })
@@ -245,6 +283,7 @@ describe('ExplainModal', () => {
     );
     const s = store();
     renderModal(s);
+    await toWhere();
 
     await userEvent.click(
       await screen.findByRole('button', { name: `set ${KEY} at user` })
@@ -268,6 +307,7 @@ describe('ExplainModal', () => {
   it('Escape inside an edit reverts it without closing the modal', async () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     const { onClose } = renderModal(store());
+    await toWhere();
 
     await userEvent.click(
       await screen.findByRole('button', { name: `set ${KEY} at user` })
@@ -304,6 +344,7 @@ describe('ExplainModal', () => {
     );
     const s = store({ defs: [days] });
     const { onClose } = renderModal(s, 'rt.runsPruneDays');
+    await toWhere();
 
     await userEvent.click(
       await screen.findByRole('button', {
@@ -324,6 +365,7 @@ describe('ExplainModal', () => {
   it('Escape outside a field closes', async () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     const { onClose } = renderModal(store());
+    await toWhere();
     await screen.findByTestId('layer-machine');
     await userEvent.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalled();
@@ -352,6 +394,7 @@ describe('ExplainModal', () => {
       store({ defs: [BRIDGES] }),
       'rt.notify.eventBridges'
     );
+    await toWhere();
 
     await userEvent.click(
       await screen.findByRole('button', {
@@ -390,6 +433,7 @@ describe('ExplainModal', () => {
     );
     const s = store({ defs: [FLAG] });
     const { onClose } = renderModal(s, 'rt.flag');
+    await toWhere();
 
     await userEvent.click(
       await screen.findByRole('button', { name: 'set rt.flag at user' })
@@ -436,6 +480,7 @@ describe('ExplainModal', () => {
         <ExplainModal settingKey={KEY} onClose={onClose} />
       </QueryClientProvider>
     );
+    await toWhere();
     expect(
       within(await screen.findByTestId('layer-machine')).getByText('in effect')
     ).toBeInTheDocument();
@@ -486,6 +531,7 @@ describe('ExplainModal', () => {
       })
     );
     renderModal(store({ defs: [CRON] }), 'rt.cron');
+    await toWhere();
     const layer = await screen.findByTestId('layer-machine');
     expect(within(layer).getByTestId('layer-value-machine')).toHaveTextContent(
       '1 field'
@@ -499,7 +545,7 @@ describe('ExplainModal', () => {
     expect(json).toHaveValue(JSON.stringify(LONG, null, 2));
   });
 
-  it('Set at an unset objectList layer opens the form, not JSON', async () => {
+  it('Set at an unset objectList layer opens JSON, with the form one click away', async () => {
     const BRIDGES: SettingDefWire = {
       ...DEF,
       key: 'rt.notify.eventBridges',
@@ -520,6 +566,7 @@ describe('ExplainModal', () => {
       })
     );
     renderModal(store({ defs: [BRIDGES] }), 'rt.notify.eventBridges');
+    await toWhere();
 
     await userEvent.click(
       await screen.findByRole('button', {
@@ -530,6 +577,10 @@ describe('ExplainModal', () => {
     expect(
       within(layer).getByText('Editing the user layer')
     ).toBeInTheDocument();
+    expect(within(layer).getByRole('textbox', { name: 'JSON' })).toHaveValue(
+      '[]'
+    );
+    await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     expect(
       within(layer).getByRole('button', { name: 'Add item' })
     ).toBeInTheDocument();
@@ -571,6 +622,7 @@ describe('ExplainModal', () => {
       })
     );
     renderModal(store({ defs: [APPROVAL] }), APPROVAL.key);
+    await toWhere();
 
     const layer = await screen.findByTestId('layer-user');
     expect(
@@ -647,6 +699,7 @@ describe('with a repo picked', () => {
         </QueryClientProvider>
       </SettingsRepoContext.Provider>
     );
+    await toWhere();
 
     const globalRemove = await screen.findByRole('button', {
       name: `remove ${REPO_KEY} from team`,
@@ -677,6 +730,7 @@ describe('with a repo picked', () => {
         </QueryClientProvider>
       </SettingsRepoContext.Provider>
     );
+    await toWhere();
 
     await userEvent.click(
       await screen.findByRole('button', {
@@ -693,7 +747,7 @@ describe('with a repo picked', () => {
     );
   });
 
-  it('Fix opens the repo-rung layer in the form, Save off, and the explain fetch carries the repo', async () => {
+  it('Fix opens the repo-rung layer’s editor, Save off, and the explain fetch carries the repo', async () => {
     const ROLES: SettingDefWire = {
       ...REPO_DEF,
       merge: 'deep',
@@ -807,6 +861,7 @@ describe('with a repo picked', () => {
         />
       </QueryClientProvider>
     );
+    await toWhere();
     const section = await screen.findByTestId(`repo-${REPO}`);
     expect(within(section).getByText('acme/app')).toBeInTheDocument();
     expect(within(section).getByText('team')).toBeInTheDocument();

@@ -37,7 +37,7 @@ describe("legacyDeclaredForge", () => {
 
 describe("readTeamSnapshot — injected read seam", () => {
   test("assembles integrations/marketplaces/plugins/trackingIdentities from the reader, never touching getSetting", async () => {
-    const integrations: TeamIntegrations = { forge: { host: "gitlab.example.com", provider: "gitlab" }, linear: { teamKey: "RT" } };
+    const integrations: TeamIntegrations = { forge: { host: "gitlab.example.com", provider: "gitlab" } };
     const read = fakeReader({
       "mattstack.integrations": integrations,
       "mattstack.tracking": { repos: { "github.com/acme/repo": {}, "gitlab.example.com/acme/other": {} } },
@@ -46,7 +46,7 @@ describe("readTeamSnapshot — injected read seam", () => {
       "board.projects": ["acme/app"],
     });
     const p = fakeProbes({ home: "/fake-home" });
-    const snapshot = readTeamSnapshot(p, "acme", { read });
+    const snapshot = readTeamSnapshot(p, "acme", { read, team: null });
     expect(snapshot).toEqual({
       slug: "acme",
       integrations,
@@ -56,6 +56,21 @@ describe("readTeamSnapshot — injected read seam", () => {
       remote: null,
       boardProjects: true,
     });
+  });
+
+  test("the Linear key comes from the active team's directory entry", () => {
+    const read = fakeReader({
+      "mattstack.integrations": { forge: { host: "gitlab.example.com", provider: "gitlab" } },
+      "mattstack.directory": { teams: { claim: { linear: { team: "CV" } } } },
+    });
+    const snapshot = readTeamSnapshot(fakeProbes({ home: "/fake-home" }), "acme", { read, team: "claim" });
+    expect(snapshot.integrations.linear).toEqual({ teamKey: "CV" });
+  });
+
+  test("a stray integrations teamKey is ignored", () => {
+    const read = fakeReader({ "mattstack.integrations": { linear: { teamKey: "OLD" } } });
+    const snapshot = readTeamSnapshot(fakeProbes({ home: "/fake-home" }), "acme", { read, team: "claim" });
+    expect(snapshot.integrations.linear).toBeUndefined();
   });
 
   test("every key absent -> honest empty defaults, never a throw", async () => {

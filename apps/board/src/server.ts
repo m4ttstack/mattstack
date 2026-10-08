@@ -52,6 +52,7 @@ import {
   type TabIdResolver,
 } from './close-on-done.ts';
 import {
+  NO_REVIEW_CHANNEL,
   ownerRulesFromApprovalState,
   planOwnersPost,
   type OwnersPostPlan,
@@ -992,9 +993,6 @@ async function ownersPostPlan(
     );
   }
   const rules = ownerRulesFromApprovalState(res.data.body);
-  const ownSections = config.tabs.flatMap(t =>
-    t.source.kind === 'codeowners' ? [t.source.section] : []
-  );
   const posted = Object.fromEntries(
     Object.entries(readOwnerPosts(mr.webUrl!)).map(([channel, post]) => [
       channel,
@@ -1004,8 +1002,7 @@ async function ownersPostPlan(
   const first = planOwnersPost(rules, {
     posted,
     slack: channels,
-    ownSections,
-    teamChannel: channelForMR(config, mr),
+    ownChannels: config.ownChannels ?? [],
   });
   // A request someone posted by hand counts as posted. When a channel cannot
   // be read it is still offered, and the preview says it went unchecked.
@@ -1023,8 +1020,7 @@ async function ownersPostPlan(
     plan: planOwnersPost(rules, {
       posted,
       slack: channels,
-      ownSections,
-      teamChannel: channelForMR(config, mr),
+      ownChannels: config.ownChannels ?? [],
     }),
     channels,
     unchecked,
@@ -1127,6 +1123,28 @@ async function postReviewRequest(
   }
 }
 
+/** A team that truly has no review channel refuses on every menu open, so the
+    recheck reloads at most once per window. BOARD_REVIEW_RECHECK_MS is the
+    test seam. */
+const REVIEW_RECHECK_MS = Number(process.env.BOARD_REVIEW_RECHECK_MS ?? 30_000);
+let lastReviewRecheckAt = 0;
+
+/** Resolves a review channel, reloading config when none is found:
+    the team directory can land after boot (a setup migration, a team pull)
+    with no config.json change to trigger the watcher. */
+function withReviewChannel<T>(
+  resolve: () => T,
+  found: (value: T) => boolean
+): T {
+  const first = resolve();
+  if (found(first) || FIXTURE_DIR) return first;
+  const now = Date.now();
+  if (now - lastReviewRecheckAt < REVIEW_RECHECK_MS) return first;
+  lastReviewRecheckAt = now;
+  reloadConfig('no review channel, rechecking the team directory');
+  return resolve();
+}
+
 /** Confirms run one at a time per MR: the plan is read before the posts and
     the record is written after each, so two at once would both post. */
 const ownerPostsRunning = new Set<string>();
@@ -1140,6 +1158,8 @@ async function ownersPreviewOrPost(
   slackToken: string,
   request: { team?: unknown; channels?: unknown } | null
 ): Promise<Response> {
+  if (!withReviewChannel(() => channelForMR(config, mr), Boolean))
+    return new Response(NO_REVIEW_CHANNEL, { status: 400 });
   const planned = await ownersPostPlan(mr, slackToken);
   if (planned instanceof Response) return planned;
   const team = await teamThread(mr, slackToken);
@@ -3768,12 +3788,17 @@ const httpServer = Bun.serve({
         try {
           const snapshot = await cache.get();
           const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
-          const resolvedChannel =
-            typeof channel === 'string'
-              ? channel
-              : mr
-                ? channelForMR(config, mr)
-                : config.slack.channel;
+          const resolvedChannel = withReviewChannel(
+            () =>
+              typeof channel === 'string'
+                ? channel
+                : mr
+                  ? channelForMR(config, mr)
+                  : config.slack.channel,
+            Boolean
+          );
+          if (!resolvedChannel)
+            return new Response(NO_REVIEW_CHANNEL, { status: 400 });
           const ref = await resolveSlackRef(
             slackToken,
             resolvedChannel,
@@ -3900,7 +3925,10 @@ const httpServer = Bun.serve({
         if (typeof channel === 'string') {
           targetChannel = channel;
         } else {
-          const resolved = new Set(picked.map(m => channelForMR(config, m)));
+          const resolved = withReviewChannel(
+            () => new Set(picked.map(m => channelForMR(config, m))),
+            channels => !channels.has('')
+          );
           if (resolved.size > 1) {
             return new Response('MRs span Slack channels; post them per tab', {
               status: 400,
@@ -3908,6 +3936,8 @@ const httpServer = Bun.serve({
           }
           targetChannel = [...resolved][0]!;
         }
+        if (!targetChannel)
+          return new Response(NO_REVIEW_CHANNEL, { status: 400 });
         const result = await postReviewRequest(
           slackToken,
           picked,
@@ -4078,11 +4108,10 @@ async function sweepOnce(
   });
   const result = await sweepSlackRefs(
     slackToken,
-    targets.map(mr => ({
-      mrUrl: mr.webUrl!,
-      iid: mr.iid,
-      channel: channelForMR(config, mr),
-    }))
+    targets.flatMap(mr => {
+      const channel = channelForMR(config, mr);
+      return channel ? [{ mrUrl: mr.webUrl!, iid: mr.iid, channel }] : [];
+    })
   );
   for (const e of result.errors) console.error(`auto-resolve ${e}`);
   return { resolved: result.resolved, failed: result.failed };
@@ -4519,6 +4548,7 @@ async function handleAgentSignal(
     const signalChannel = signalMr
       ? channelForMR(config, signalMr)
       : config.slack.channel;
+    if (!signalChannel) return;
     const existing = readSlackRefs().get(signal.mrUrl);
     if (existing?.status !== 'found' || !existing.messageTs) {
       await resolveSlackRef(

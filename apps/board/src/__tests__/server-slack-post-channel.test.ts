@@ -50,8 +50,16 @@ writeFileSync(
         slackChannel: 'other-channel',
       },
     ],
+    'mattstack.directory': {
+      teams: {
+        web: { slack: { channels: [{ name: 'code-review', kind: 'review' }] } },
+      },
+    },
   })
 );
+const webTeamDir = join(teamDir, '..', 'teams', 'web');
+mkdirSync(webTeamDir, { recursive: true });
+writeFileSync(join(webTeamDir, 'settings.team.jsonc'), '{}');
 
 // board.rtRepos is machine-scoped (registry-defs.ts), not team-scoped -- a
 // team-store value for it is silently ignored, which would leave
@@ -61,7 +69,10 @@ const userDir = join(fakeHome, '.mattstack', 'user');
 mkdirSync(userDir, { recursive: true });
 writeFileSync(
   join(userDir, 'settings.user.jsonc'),
-  JSON.stringify({ 'board.defaultMember': 'alice' })
+  JSON.stringify({
+    'board.defaultMember': 'alice',
+    'mattstack.activeTeam': 'web',
+  })
 );
 
 writeFileSync(join(fakeHome, '.mattstack', 'machine-key'), 'testmachine');

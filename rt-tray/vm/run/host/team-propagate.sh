@@ -83,8 +83,8 @@ echo "$PULL_JSON"
 echo "joiner clone at $(git rev-parse --short HEAD)"
 
 # Connect runs after team pull: the verb validates the key against the
-# team's declared mattstack.integrations.linear.teamKey, which only exists
-# once the clone has landed. The key must not outlive its use on the guest,
+# team's Linear key in the org's team directory, which only exists once the
+# clone has landed. The key must not outlive its use on the guest,
 # so rm -f runs whether or not the connect succeeded; its own output is
 # suppressed since a failure envelope could carry the value back into the log.
 if [ -f "$HOME/.vmtest-key/linear-key.txt" ]; then
