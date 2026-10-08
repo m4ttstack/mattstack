@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
@@ -72,10 +73,13 @@ function quietLog(): Logger {
 
 describe("v2.21.1 member whose origin converts", () => {
   let handle: TeamSnapshotsHandle | null = null;
+  let db: Database | null = null;
   let root: string | null = null;
   afterEach(() => {
     handle?.stop();
     handle = null;
+    db?.close();
+    db = null;
     if (root) rmSync(root, { recursive: true, force: true });
     root = null;
   });
@@ -88,15 +92,19 @@ describe("v2.21.1 member whose origin converts", () => {
 
     const probes = { ...createRealProbes(), home: fx.home };
     let converged = 0;
+    db = openStateDb(join(fx.root, "state.db"), "cli");
     handle = startTeamSnapshots({
       log: quietLog(),
       broadcast: () => {},
       teamsDir: join(fx.home, ".mattstack", "teams"),
       probes,
-      db: openStateDb(join(fx.root, "state.db"), "cli"),
+      db,
       readSettings: () => ({ enabled: true, debounceSec: 20, pushDelaySec: 60, janitorThresholdHours: 6, janitorIntervalMin: 30, pullIntervalSec: 300 }),
       watch: () => ({ close() {} }),
-      converge: async () => { converged++; },
+      converge: async () => {
+        converged++;
+        return { updated: [], installed: [], rolledBack: [], current: [], skipped: [], failed: [] };
+      },
     });
     await handle.ready;
 
