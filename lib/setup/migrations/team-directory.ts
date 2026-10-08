@@ -2,7 +2,7 @@ import { readSection } from "../../../packages/rt-client/src/settings/migrate.ts
 import { orgSettingsPath, teamSettingsPath } from "../../../packages/rt-client/src/settings/paths.ts";
 import { getDef } from "../../../packages/rt-client/src/settings/registry-machinery.ts";
 import { listTeamFolders, readStore } from "../../../packages/rt-client/src/settings/stores.ts";
-import { normalizeChannel, type DirectoryTeam, type TeamDirectory } from "../../../packages/rt-client/src/settings/team-directory.ts";
+import { directoryIssues, normalizeChannel, type DirectoryTeam, type TeamDirectory } from "../../../packages/rt-client/src/settings/team-directory.ts";
 import { pruneStoreName, SettingsOwnershipRefusal, setSetting, unsetSetting } from "../../settings/write.ts";
 import { orgLayoutState } from "../../team/org-layout.ts";
 import type { MigrationDef } from "./index.ts";
@@ -94,6 +94,13 @@ export const teamDirectoryMigration: MigrationDef = {
     const org = layout.slug;
     const orgValues = readStore(orgSettingsPath(org)).global;
     const existing = (orgValues["mattstack.directory"] ?? {}) as TeamDirectory;
+    const duplicate = directoryIssues(existing).duplicates[0];
+    if (duplicate) {
+      return {
+        state: "failed",
+        detail: `Teams ${duplicate.teams.join(" and ")} both claim #${duplicate.channel} as their code owners channel. Fix the team directory and the move runs at the next update`,
+      };
+    }
     const teams = { ...(existing.teams ?? {}) };
     const claimed = new Set(Object.values(teams).flatMap((t) => (t.slack?.codeOwnersChannel ? [normalizeChannel(t.slack.codeOwnersChannel)] : [])));
     const folders = listTeamFolders(org);

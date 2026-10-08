@@ -159,6 +159,24 @@ describe("2026-10-08-team-directory", () => {
     expect(tabsIn(teamStores.claim!).map((t) => t.slackChannel)).toEqual([undefined, "pod-claim", "pod-acme"]);
   });
 
+  test("a directory that already has two teams on one code owners channel fails, naming it, and deletes nothing", async () => {
+    const dup = { teams: { a: { slack: { codeOwnersChannel: "pod-x" } }, b: { slack: { codeOwnersChannel: "pod-x" } } } };
+    const { orgStore, teamStores } = seedClone({
+      username: "me",
+      roles: adminRoles,
+      roster,
+      settings: { "mattstack.directory": dup },
+      teams: { claim: CLAIM_STORE },
+    });
+    const result = await run();
+    expect(result.state).toBe("failed");
+    expect(result.detail).toContain("pod-x");
+    expect(result.detail).toContain("a");
+    expect(result.detail).toContain("b");
+    expect(store(orgStore)["mattstack.directory"]).toEqual(dup);
+    expect(store(teamStores.claim!)["mattstack.integrations"]).toEqual(CLAIM_STORE["mattstack.integrations"]);
+  });
+
   test("a Mac that cannot write the org store leaves every shared store alone", async () => {
     const { orgStore, teamStores } = seedClone({
       username: "me",
