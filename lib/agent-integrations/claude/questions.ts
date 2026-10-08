@@ -229,18 +229,20 @@ export function createClaudeQuestions(deps: ClaudeQuestionDeps = defaultDeps()):
       if (row.status === "answered" && (answeredByNudgedPane(row) || answeredBySession(row, session))) {
         return { ok: true, data: "completed" };
       }
-      // Read now, before the mod's ack wait: a form drawn during that wait is
-      // a newer one (RT-357), and the fallback's Escape must never reach it.
-      const paneRef = await formOnScreen(target);
-      if (!mod.owns({ ...binding, native: { ...binding.native, value: session } })) return doorbell(target, paneRef);
+      if (!mod.owns({ ...binding, native: { ...binding.native, value: session } })) {
+        return doorbell(target, await formOnScreen(target));
+      }
       // The gate-form block closes its dialog from the gate's own events; the
       // ack only confirms it owns the gate, so no doorbell or Escape follows.
       if (await confirmed(session, row)) {
         record(row, "mod-result", "completed");
         return { ok: true, data: "completed" };
       }
+      // Doorbell only: in a gate-form session the form on screen may be
+      // another gate's dialog, which an Escape would kill, and a queued
+      // doorbell is read once the person finishes that dialog.
       log?.warn({ gateId: row.id, session }, "gate-push: the mod did not confirm gate-complete; ringing the doorbell once");
-      const rung = await doorbell(target, paneRef);
+      const rung = await doorbell(target, null);
       if (rung.ok) record(row, "doorbell", rung.data);
       return rung;
     },

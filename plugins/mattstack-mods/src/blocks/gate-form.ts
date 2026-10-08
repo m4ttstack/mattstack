@@ -125,6 +125,21 @@ export function resultFromRow(e: { questions: readonly Asked[] }, row: GateRow):
   return { result: { questions, answers }, context: [context] }
 }
 
+/**
+ * Whether the dialog's result carries an answer. The engine resolves (never
+ * rejects) a dialog the person dismissed with Escape: as an errored call
+ * (`isError`), or as a result with no answers and no typed response. The
+ * 2.1.293 types give no declined flag, so the shape is what is matched.
+ */
+export function answered(out: ToolCallResult): boolean {
+  if (out.deny !== undefined || out.isError === true) return false
+  const result = out.result as { answers?: unknown; response?: unknown } | null | undefined
+  if (!result || typeof result !== 'object') return false
+  const answers = result.answers
+  if (answers && typeof answers === 'object' && Object.keys(answers).length > 0) return true
+  return typeof result.response === 'string' && result.response.trim().length > 0
+}
+
 function idOf(data: unknown): string | null {
   const id = (data as { id?: unknown } | null)?.id
   return typeof id === 'string' && GATE_ID.test(id) ? id : null
@@ -180,9 +195,9 @@ export function registerGateForm(hub: Hub, link: Link): void {
       stop.signal,
     )
     try {
-      const out = await settle(api, e, gate.id, session, shown, ended, stop.signal)
-      remember(linked, gate.id, 'closed')
-      return out
+      const { result, read } = await settle(api, e, gate.id, session, shown, ended, stop.signal)
+      remember(linked, gate.id, read ? 'closed' : 'dismissed')
+      return result
     } catch (err) {
       remember(linked, gate.id, 'dismissed')
       throw err
@@ -192,7 +207,11 @@ export function registerGateForm(hub: Hub, link: Link): void {
     }
   }
 
-  /** The first of the dialog's own answer and the gate's ending; the gate's is read back from its row. */
+  /**
+   * The first of the dialog's own answer and the gate's ending; the gate's is
+   * read back from its row. `read` says whether the model got an answer or an
+   * ending to act on, rather than a dialog the person declined.
+   */
   async function settle(
     api: ModApi,
     e: ToolCall,
@@ -201,7 +220,8 @@ export function registerGateForm(hub: Hub, link: Link): void {
     shown: Promise<ToolCallResult>,
     ended: Promise<unknown>,
     stopped: AbortSignal,
-  ): Promise<ToolCallResult> {
+  ): Promise<{ result: ToolCallResult; read: boolean }> {
+    const fromDialog = (result: ToolCallResult) => ({ result, read: answered(result) })
     const first = await Promise.race([
       shown.then(result => ({ kind: 'dialog' as const, result })),
       ended.then(
@@ -209,19 +229,19 @@ export function registerGateForm(hub: Hub, link: Link): void {
         err => ({ kind: 'lost' as const, err }),
       ),
     ])
-    if (first.kind === 'dialog') return first.result
+    if (first.kind === 'dialog') return fromDialog(first.result)
     if (first.kind === 'lost') {
       if (!stopped.aborted) log(api, `gate ${id}: the wait ended (${first.err instanceof Error ? first.err.message : String(first.err)}); the dialog stays`)
-      return shown
+      return fromDialog(await shown)
     }
     const row = await readRow(api, session, id)
     const out = row ? resultFromRow(e as { questions: readonly Asked[] }, row) : null
     if (!out) {
       log(api, `gate ${id}: its row could not be read back; the dialog stays`)
-      return shown
+      return fromDialog(await shown)
     }
     log(api, `gate ${id} ${row!.status} elsewhere; closing its dialog with the row's ${row!.status === 'answered' ? 'answer' : 'ending'}`)
-    return out
+    return { result: out, read: true }
   }
 
   function leftover(e: Render): boolean {

@@ -176,13 +176,21 @@ AskUserQuestion:
      naming the surface that answered. A closed or superseded gate closes
      it with no answers and a withdrawn line.
    - An interrupt aborts the wait with the call.
+   - The wait ends as soon as the dialog settles. A round already in
+     flight runs out on the daemon, since `$.http.fetch` takes no signal.
+
+The person dismissing the dialog (Escape) does not reject `next(e)`: the
+engine resolves it, as an errored call or a result with no answers and no
+typed response. The block counts either shape, or a rejection, as dismissed.
 
 rt completes a gate in a session with this block live by pushing
-`gate-complete { id }` instead of ringing the doorbell and sending Escape.
-The block acks it for any gate it linked, whether or not the dialog is still
-up, since its own wait is what closes the dialog. It does not ack a gate
-whose dialog the person dismissed: the model has nothing to read there, so
-rt rings the doorbell as it would without the mod. Doorbell rows
+`gate-complete { id }` instead of reading the pane, ringing the doorbell and
+sending Escape. The block acks it for any gate it linked, whether or not the
+dialog is still up, since its own wait is what closes the dialog. It does
+not ack a gate whose dialog the person dismissed, or one it never linked:
+the model has nothing to read there, so rt rings the doorbell once. It never
+sends Escape in this session, since the form on screen may be another
+gate's dialog; the queued doorbell is read once that dialog ends. Doorbell rows
 (`[gate] <id> answered by ...`, superseded, closed) left over for a linked
 gate draw as nothing, except for a dismissed one.
 

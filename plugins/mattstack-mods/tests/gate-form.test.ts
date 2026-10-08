@@ -264,6 +264,50 @@ describe('gate-form', () => {
     expect(drawn.seen).toHaveLength(1)
   })
 
+  test('a dialog the engine resolves as declined counts as dismissed: not acked, and its doorbell shows', async () => {
+    // Claude Code 2.1.293 resolves next(e) on Escape ("User declined to answer
+    // questions"); it does not reject. Both resolved shapes count as declined.
+    const declined = [
+      { isError: true, result: 'User declined to answer questions', text: 'User declined to answer questions' },
+      { result: { questions: ASK.questions, answers: {} } },
+      { deny: 'declined' },
+    ]
+    for (const shape of declined) {
+      const h = harness()
+      await h.start()
+      const d = dialog()
+      const call = h.fire('tool.call', ASK, d.next)
+      await flush()
+      d.answer.resolve(shape)
+      expect(await call).toEqual(shape)
+
+      const engine = recorder({ text: 'unused' })
+      await h.fire('session.receive', command('c-1', { id: 'g-1' }), engine.next)
+      await flush()
+      expect(h.verbs('session:ack'), JSON.stringify(shape)).toHaveLength(0)
+
+      const drawn = recorder({ element: 'Box', props: { children: ['drawn'] } })
+      await h.fire('ui.render', row('[gate] g-1 answered by board; re-read the registry and proceed on the recorded answer.'), drawn.next)
+      expect(drawn.seen, JSON.stringify(shape)).toHaveLength(1)
+    }
+  })
+
+  test('once the dialog settles the block asks for no further wait round', async () => {
+    const h = harness()
+    await h.start()
+    const d = dialog()
+    const call = h.fire('tool.call', ASK, d.next)
+    await flush()
+    expect(h.rounds).toHaveLength(1)
+    d.answer.resolve(ANSWERED_BY_PANE)
+    await call
+    // The round in flight cannot be cut ($.http.fetch takes no signal); when it
+    // comes back, nothing follows it.
+    h.rounds[0]!.answer([])
+    await h.clock.advance(30_000)
+    expect(h.rounds).toHaveLength(1)
+  })
+
   test('gate-complete is acked for a linked gate even after its dialog closed', async () => {
     const h = harness()
     await h.start()

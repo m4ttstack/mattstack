@@ -198,12 +198,11 @@ describe("Claude question completion through the mod", () => {
     return { ...f, deps, recorded };
   }
 
-  test("a session with gate-form live gets no doorbell and no Escape", async () => {
+  test("the owned ack path sends no probe, no doorbell and no Escape", async () => {
     const m = modded();
     const row = formGate(store());
     expect(await complete(m.deps, row)).toEqual({ ok: true, data: "completed" });
-    // The pane is read at completion time, before the ack wait, as M5a reads it before the doorbell.
-    expect(m.calls).toEqual(["probe", `mod:sess-1:${row.id}`]);
+    expect(m.calls).toEqual([`mod:sess-1:${row.id}`]);
     expect(m.escapes).toHaveLength(0);
     expect(m.recorded).toEqual([{ gateId: row.id, path: "mod-result", state: "completed" }]);
   });
@@ -226,7 +225,8 @@ describe("Claude question completion through the mod", () => {
       const m = modded({ ack });
       const row = formGate(store());
       expect(await complete(m.deps, row), String(ack)).toEqual({ ok: true, data: "completed" });
-      expect(m.calls, String(ack)).toEqual(["probe", `mod:sess-1:${row.id}`, `notify:${row.id}`, "escape:w1:p-sess-1"]);
+      expect(m.calls, String(ack)).toEqual([`mod:sess-1:${row.id}`, `notify:${row.id}`]);
+      expect(m.escapes, String(ack)).toEqual([]);
       expect(m.recorded, String(ack)).toEqual([{ gateId: row.id, path: "doorbell", state: "completed" }]);
     }
 
@@ -275,9 +275,20 @@ describe("Claude question completion through the mod", () => {
       },
     };
     expect(await complete(deps, closed)).toEqual({ ok: true, data: "completed" });
-    expect(m.calls).toEqual(["probe:idle", `mod:sess-1:${g1.id}`, `notify:${g1.id}`]);
+    expect(m.calls).toEqual([`mod:sess-1:${g1.id}`, `notify:${g1.id}`]);
     expect(m.escapes).toEqual([]);
     expect(m.recorded).toEqual([{ gateId: g1.id, path: "doorbell", state: "completed" }]);
+  });
+
+  test("an unlinked gate answered while another gate's dialog is up sends no Escape and rings the doorbell", async () => {
+    // The pane reads blocked, but the form on screen is another, linked gate's
+    // dialog; the block does not own this gate, so gate-complete goes unacked.
+    const m = modded({ ack: false, reading: "blocked" });
+    const row = formGate(store());
+    expect(await complete(m.deps, row)).toEqual({ ok: true, data: "completed" });
+    expect(m.calls).toEqual([`mod:sess-1:${row.id}`, `notify:${row.id}`]);
+    expect(m.escapes).toEqual([]);
+    expect(m.recorded).toEqual([{ gateId: row.id, path: "doorbell", state: "completed" }]);
   });
 
   test("a gate the pane answered itself is neither pushed nor recorded", async () => {
@@ -292,7 +303,7 @@ describe("Claude question completion through the mod", () => {
     const m = modded({ live: ["sess-2"], moves: { "sess-1": "sess-2" } });
     const row = formGate(store());
     expect(await complete(m.deps, row)).toEqual({ ok: true, data: "completed" });
-    expect(m.calls).toEqual(["probe", `mod:sess-2:${row.id}`]);
+    expect(m.calls).toEqual([`mod:sess-2:${row.id}`]);
 
     const notified: Array<string | undefined> = [];
     const fallback = modded({ live: [], moves: { "sess-1": "sess-2" } });
@@ -341,7 +352,7 @@ describe("Claude question completion through the mod", () => {
       const deps: ClaudeQuestionDeps = { ...m.deps, mod: seam, record: () => {} };
       expect(await complete(deps, row)).toEqual({ ok: true, data: "completed" });
       expect(pushed).toEqual([{ session: "sess-2", kind: "gate-complete", data: { id: row.id } }]);
-      expect(m.calls).toEqual(["probe"]);
+      expect(m.calls).toEqual([]);
 
       expect(claudeModSeam(null).owns(nudgedQuestion(row)!.binding)).toBe(false);
     } finally {
