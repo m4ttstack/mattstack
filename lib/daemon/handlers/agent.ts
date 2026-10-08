@@ -811,6 +811,7 @@ export function createAgentHandlers(opts: {
         id: newAgentId(),
         repo: payload.repo, cwd: hit.cwd, provider: "claude", surface: "herdr",
         sessionId: payload.sessionId,
+        adopted: true,
         createdAt: Date.now(),
       };
       if (hit.account !== undefined) rec.account = hit.account;

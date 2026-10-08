@@ -82,6 +82,12 @@ export interface Reconciler {
   agentIdFor(gate: GateRow): string | null;
 }
 
+/** An adopted record describes a pane rt did not launch, so it drives no
+    attention gate, relocation accept or executor join until rt resumes it. */
+export function onReconcilerRoster(rec: AgentRecord): boolean {
+  return !rec.adopted || rec.lastResumedAt != null;
+}
+
 export interface ReconcilerDeps {
   store: GatesStore;
   listAgents: () => AgentRecord[];

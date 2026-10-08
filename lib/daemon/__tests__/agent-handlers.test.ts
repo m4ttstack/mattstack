@@ -1577,6 +1577,7 @@ describe("agent:adopt", () => {
     });
     expect(calls).toEqual([]);
     expect(getAgent(res.data.id, h.db)?.sessionId).toBe(SID);
+    expect(getAgent(res.data.id, h.db)?.adopted).toBe(true);
   });
 
   test("a second adopt of the same session returns the same record", async () => {
