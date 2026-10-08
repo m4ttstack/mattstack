@@ -22,7 +22,7 @@ so every feature takes its existing path.
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
 | `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane. |
-| `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane. Each kit owns one pane id: the gate form's, or the gate panel's. |
+| `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane. Each kit owns one pane id: the gate form's, or the gate panel's. `gate-view.ts` holds its drawing parts, and `gate-ctx.ts` the port of the board's gate-ctx parser. |
 | `src/blocks/sections.ts` | The reply rule section's text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
 | `tests/` | `claude plugin test` cases. They drive the hub and link with the stubbed `$` in `tests/stub.ts`. |
@@ -283,15 +283,31 @@ is left out of the row while the dialog stays: it already has its answer
 surface. `registerGateForm` returns that fact (`up(id)`, `onChange`), and
 the row is drawn again whenever a linked dialog's state changes.
 
-While a gate is open the band above the prompt shows a plain Button,
-`1: Waiting on your answer: <question>`, with a dim line counting any more
-behind it. A survey in the band takes precedence. Pressing it (`1` at an
-empty prompt, or a click) opens the `gate-panel` pane through the display
-kit: one Button per option, a note field, and Skip. The option Buttons
-carry no hotkeys (`hotkeys: false`), since the focused pane would turn a
-stray digit into an answer; a person picks with the arrows and Enter, or a
-click. The pane closes by
-itself when the gate is answered elsewhere or withdrawn.
+While a gate is open the band above the prompt shows one row,
+`Waiting on your answer   <kind> <subject> · <N> questions · <first
+question>`, with a plain `1: Answer` Button at its right end and a line
+counting any more behind it. A survey in the band takes precedence.
+Pressing it (`1` at an empty prompt, or a click) opens the `gate-panel`
+pane through the display kit, asking for 40% of the terminal's width (at
+most 80 columns) when it docks. While the pane is open the row reads
+`Answering in the panel  →` with the question it is on, and draws no
+Button, so a second `1` presses nothing.
+
+The pane draws the gate the way the board's gate sheets do: a header with
+the kind, the subject and the progress, the gate's context on the first
+question (review@1, plan@1 and post@1 drawn as their facts, prose clipped
+to eight rows), the question with its own context (thread@1, reply@1,
+carryover@1, skipped@1, replies@1, or prose clipped to six rows), then one
+Button per option with what it means under it: a `recommended` tag lifted
+off the label, its findings@1 finding matched by option value, or its
+description. A JSON context of any other shape is not shown. The gate-ctx
+shapes are a port of the board's parser (`src/blocks/gate-ctx.ts`). Each
+option takes a letter hotkey (`a`, `b`, ... never `s`, which is Skip), and
+no pane control takes a digit, since a repeat of the band's `1` would land
+on one. A letter answers a single question and ticks a multi question,
+whose Next (Done on the last) moves on. Back returns to the previous
+question with its picks and note kept. The pane closes by itself when the
+gate is answered elsewhere or withdrawn.
 
 An answer there is `gate:answer { id, answers, by: "pane-person" }`, with
 no session, so rt records it as a person's answer from this pane

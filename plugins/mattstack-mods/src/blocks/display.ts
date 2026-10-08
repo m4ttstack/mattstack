@@ -1,7 +1,7 @@
 import type { EngineEventOf, EngineResultOf } from 'claude-code'
 import type { Hub, ModApi } from '../core/hub.ts'
 import type { GateOption } from './gate-form.ts'
-import { choiceSubtext, gateContext, oneLine, questionContext, questionFindings, stripRecommended, subjectTail, text, type El, type Node } from './gate-view.ts'
+import { choiceSubtext, gateContext, kindOf, questionContext, questionFindings, stripRecommended, subjectTail, text, type El, type Node } from './gate-view.ts'
 
 type Render = EngineEventOf['ui.render']
 type RenderResult = EngineResultOf['ui.render']
@@ -85,7 +85,7 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
   function header(el: El, open: Form): Node | null {
     const { gate, index } = open
     const count = gate.questions.length
-    const name = [gate.kind ? oneLine(gate.kind) : '', subjectTail(gate.subject)].filter(Boolean).join(' · ')
+    const name = [kindOf(gate.kind), subjectTail(gate.subject)].filter(Boolean).join(' · ')
     if (!name && count < 2) return null
     const left = name ? text(el, 'subtle', name, { wrap: 'truncate-end' }) : el.Box({})
     if (count < 2) return el.Box({ key: 'header', flexDirection: 'row', children: [left] })

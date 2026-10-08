@@ -26,6 +26,9 @@ const GATE_PROSE_ROWS = 8
 const QUESTION_PROSE_ROWS = 6
 const SUBJECT_CELLS = 32
 
+/** `kind` as one line, or '' for a row that carries none. */
+export const kindOf = (kind: unknown) => (typeof kind === 'string' ? oneLine(kind) : '')
+
 export const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
 
 export function clip(text: string, cells: number): string {
@@ -43,8 +46,8 @@ function joined(el: El, items: Node[], separator = ' · '): Node[] {
 const row = (el: El, children: Node[]): Node => el.Box({ flexDirection: 'row', flexWrap: 'wrap', children })
 
 /** `!<iid>` for an MR or PR subject, the id for a run, else the subject clipped. */
-export function subjectTail(subject: string | undefined): string {
-  const s = oneLine(subject ?? '')
+export function subjectTail(subject: unknown): string {
+  const s = oneLine(typeof subject === 'string' ? subject : '')
   if (s.startsWith('mr:')) {
     const iid = /\/(?:merge_requests|pull|pulls)\/(\d+)/.exec(s)?.[1] ?? /!(\d+)$/.exec(s)?.[1]
     if (iid) return `!${iid}`
@@ -233,7 +236,7 @@ export function choiceSubtext(el: El, recommended: boolean, finding: FindingEntr
     if (finding.file) head.push(text(el, 'subtle', '  ·  '), text(el, 'subtle', fileTail(finding.file), { wrap: 'truncate-start' }))
     rows.push(el.Box({ flexDirection: 'row', children: head }))
     if (finding.fix) rows.push(text(el, 'subtle', finding.fix, { wrap: 'wrap' }))
-  } else if (description?.trim()) {
+  } else if (typeof description === 'string' && description.trim()) {
     rows.push(text(el, 'subtle', description, { wrap: 'wrap' }))
   }
   return rows

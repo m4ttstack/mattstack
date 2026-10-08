@@ -4,6 +4,7 @@ import type { Link } from '../core/link.ts'
 import { call } from '../core/rpc.ts'
 import { createDisplay, type FormQuestion } from './display.ts'
 import { surface, type FormDialogs } from './gate-form.ts'
+import { clip, kindOf, oneLine, subjectTail, text, type El, type Node } from './gate-view.ts'
 
 type Render = EngineEventOf['ui.render']
 type RenderResult = EngineResultOf['ui.render']
@@ -13,9 +14,16 @@ export const PANEL_PANE_ID = 'gate-panel'
 export const PANEL_BY = 'pane-person'
 
 const GATE_ID = /^[A-Za-z0-9_-]{1,128}$/
-const ROW_PREFIX = 'Waiting on your answer: '
+const WAITING = 'Waiting on your answer'
+const ANSWERING = 'Answering in the panel  →'
+const ANSWER = 'Answer'
+const ESC_BACK = 'esc back to the prompt'
+/** Cells between the band's title and its summary. */
+const TITLE_GAP = 3
 /** What a plain Button draws ahead of its label: the hotkey and a colon. */
 const HOTKEY_CELLS = 3
+/** The cells the engine keeps at the band's right end for its `[-]`, outside `bodyColumns`. */
+const BAND_MARK_CELLS = 5
 
 /** The parts of rt's gate row (packages/rt-client GateRow) this block reads. */
 type PanelGate = {
@@ -33,11 +41,11 @@ const isQuestion = (q: unknown): q is FormQuestion => {
   return !!x && typeof x.id === 'string' && typeof x.label === 'string' && Array.isArray(x.options)
 }
 
-const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
-
-function clip(text: string, cells: number): string {
-  if (cells <= 1) return text.slice(0, Math.max(cells, 0))
-  return text.length <= cells ? text : `${text.slice(0, cells - 1).trimEnd()}…`
+/** `<kind> <subject tail> · <N> questions · <first question label>`, leaving out what a gate lacks. */
+function summary(gate: PanelGate): string {
+  const named = [kindOf(gate.kind), subjectTail(gate.subject)].filter(Boolean).join(' ')
+  const count = gate.questions.length > 1 ? `${gate.questions.length} questions` : ''
+  return [named, count, oneLine(gate.questions[0]!.label)].filter(Boolean).join(' · ')
 }
 
 /**
@@ -52,6 +60,8 @@ function clip(text: string, cells: number): string {
 export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): void {
   const display = createDisplay(hub, { id: PANEL_PANE_ID, title: 'Gate' })
   let gates: PanelGate[] = []
+  /** The terminal's width as the band's most recent render gave it, for the pane's width request. */
+  let terminalColumns: number | undefined
   /** The listed gates the row may name: a gate whose AskUserQuestion dialog is up already has its answer surface. */
   const waiting = () => (dialogs ? gates.filter(g => !dialogs.up(g.id)) : gates)
   const watches = new Map<string, AbortController>()
@@ -175,9 +185,11 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
   async function ask(api: ModApi, gate: PanelGate): Promise<void> {
     const token = ++asks
     paneFor = gate.id
+    api.ui.redraw()
     const asked = { id: gate.id, questions: gate.questions, kind: gate.kind, subject: gate.subject, context: gate.context }
-    const answers = await display.formPane(api, asked)
+    const answers = await display.formPane(api, asked, terminalColumns)
     if (asks === token) paneFor = null
+    api.ui.redraw()
     if (!answers) return
     const out = await call<{ row?: { answer?: { by?: string } | null }; conflict?: boolean }>(api, 'gate:answer', {
       id: gate.id,
@@ -198,17 +210,49 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
     api.ui.redraw()
   }
 
+  /**
+   * One band row: the title, the gate's summary and `aside` clipped to the
+   * cells left, and `right` at the right end. With no room the summary goes.
+   */
+  function line(el: El, title: string, said: string, aside: string, right: Node, rightCells: number, columns: number): Node {
+    const room = columns - title.length - TITLE_GAP - rightCells - 1 - aside.length
+    const left = [text(el, 'suggestion', title, { bold: true, wrap: 'truncate-end' })]
+    if (room > 1) {
+      const summed = [text(el, 'text', clip(said, room), { wrap: 'truncate-end' })]
+      if (aside) summed.push(text(el, 'subtle', aside))
+      left.push(el.Box({ flexDirection: 'row', flexShrink: 1, children: summed }))
+    }
+    return el.Box({
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      children: [el.Box({ flexDirection: 'row', columnGap: TITLE_GAP, flexShrink: 1, children: left }), right],
+    })
+  }
+
   function row(api: ModApi, e: Render, next: (e: Render) => Promise<RenderResult>): Promise<RenderResult> {
-    const listed = waiting()
-    const shown = listed[0]
-    if (e.component !== 'AbovePrompt' || !shown || e.props.hasSurvey) return next(e)
-    const el = api.ui.elements(e)
+    if (e.component !== 'AbovePrompt') return next(e)
     const columns = Number.isFinite(e.props.bodyColumns) && e.props.bodyColumns > 0 ? e.props.bodyColumns : Infinity
-    const label = clip(`${ROW_PREFIX}${oneLine(shown.questions[0]!.label)}`, Math.max(columns - HOTKEY_CELLS, 1))
-    const button = el.Button({ key: 'gate-panel', label, hotkey: '1', plain: true, onPress: () => void ask(api, shown) })
-    if (listed.length === 1) return Promise.resolve(button)
-    const more = el.Text({ dimColor: true, children: [clip(`${listed.length - 1} more waiting after this one`, columns)] })
-    return Promise.resolve(el.Box({ flexDirection: 'column', children: [button, more] }))
+    if (columns !== Infinity) terminalColumns = columns + BAND_MARK_CELLS
+    const listed = waiting()
+    const open = paneFor === null ? undefined : listed.find(g => g.id === paneFor)
+    const shown = open ?? listed[0]
+    // The pane's gate just left the list: draw no Button until the pane closes.
+    if (!shown || e.props.hasSurvey || (paneFor !== null && !open)) return next(e)
+    const el = api.ui.elements(e)
+    let first: Node
+    if (open) {
+      // No Button while the pane is open, so a second `1` at the prompt presses nothing.
+      const at = display.progress()
+      const count = open.questions.length
+      const where = count > 1 && at ? ` · question ${at.index + 1} of ${count}` : ''
+      first = line(el, ANSWERING, summary(open), where, text(el, 'subtle', ESC_BACK), ESC_BACK.length, columns)
+    } else {
+      const button = el.Button({ key: 'gate-panel', label: ANSWER, hotkey: '1', plain: true, onPress: () => void ask(api, shown) })
+      first = line(el, WAITING, summary(shown), '', button, HOTKEY_CELLS + ANSWER.length, columns)
+    }
+    if (listed.length === 1) return Promise.resolve(first)
+    const more = text(el, 'subtle', clip(`${listed.length - 1} more waiting after this one`, columns))
+    return Promise.resolve(el.Box({ flexDirection: 'column', children: [first, more] }))
   }
 
   dialogs?.onChange(api => {
