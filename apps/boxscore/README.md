@@ -83,7 +83,7 @@ rt settings list | grep boxscore
 ```
 
 The scope and roster come from the shared `mattstack.roster` and `mattstack.integrations`
-keys (GitLab host under `forge.host`, Linear team key under `linear.teamKey`); everything
+keys (GitLab host under `forge.host`); the team's Linear key is in `mattstack.directory`; everything
 boxscore-specific (`boxscore.projects`, `boxscore.hiddenMembers`, `boxscore.sizeBand`,
 `boxscore.linearDoneStates`, `boxscore.excludeFilePatterns`, `boxscore.ignoredMrs`,
 `boxscore.botPatterns`, `boxscore.defaultRange`) is set the same way. See the `rt:settings`
