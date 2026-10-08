@@ -122,7 +122,7 @@ import { MemberInvadr, MemberLooksProvider } from './MemberInvadr.tsx';
 import { mrRef } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
-import { OwnersPostModal } from './OwnersPostModal.tsx';
+import { OwnersPostModal, type SlackPostPreview } from './OwnersPostModal.tsx';
 import { RedoConfirmDialog, type PendingRedo } from './RedoConfirmDialog.tsx';
 import { RespondModal, ReviewModal } from './ReviewModal.tsx';
 import {
@@ -139,6 +139,11 @@ import { SelectionBar } from './SelectionBar.tsx';
 import { SettingsModal } from './SettingsModal.tsx';
 import { ShowChips } from './ShowChips.tsx';
 import { Sidebar } from './Sidebar.tsx';
+import {
+  needsThreadLookup,
+  startSlackPost,
+  type SlackRefBody,
+} from './slack-post-flow.ts';
 import { useStaleTabTitle } from './stale-tab-title.ts';
 import { TabBar } from './TabBar.tsx';
 import { turnSummary } from './turn-summary.ts';
@@ -452,7 +457,10 @@ export function Board() {
     mr: BoardMRWithReview;
     draft: DraftInfo;
   } | null>(null);
-  const [ownersPost, setOwnersPost] = useState<BoardMR | null>(null);
+  const [ownersPost, setOwnersPost] = useState<{
+    mr: BoardMR;
+    preview: SlackPostPreview;
+  } | null>(null);
   const [draftResolved, setDraftResolved] = useState<
     ReadonlyMap<string, 'posted' | 'dismissed'>
   >(new Map());
@@ -905,24 +913,53 @@ export function Board() {
   const [postingSummary, setPostingSummary] = useState(false);
 
   const handlePostSlack = useCallback(
-    (mr: BoardMR) => {
-      if (!mr.webUrl) return;
-      const toast = startToast(`posting !${mr.iid} to slack…`);
-      postAction('/slack/post', { mrUrls: [mr.webUrl] }).then(result => {
-        if (!result.ok)
-          return toast.fail(
-            `slack post failed for !${mr.iid} (${result.status})`
-          );
-        toast.done(
-          result.body?.linked
-            ? `!${mr.iid} already in slack... linked`
-            : `posted !${mr.iid} to slack`
-        );
-        load();
-      });
-    },
-    [startToast, load]
+    (mr: BoardMR) =>
+      void startSlackPost(mr, {
+        post: postAction,
+        ownerRepos: data?.ownerSlackRepos ?? [],
+        startToast,
+        openDialog: (target, preview) => setOwnersPost({ mr: target, preview }),
+        reload: load,
+      }),
+    [startToast, load, data?.ownerSlackRepos]
   );
+
+  // Opening a row's menu looks for its Slack thread in the background when
+  // the board has none on record, so a thread posted since the last sweep
+  // shows in the open menu without anyone asking.
+  const threadLookups = useRef(new Set<string>());
+  const menuMrUrl = rowMenu?.mr.webUrl;
+  useEffect(() => {
+    const mr = rowMenu?.mr as BoardMRWithReview | undefined;
+    const url = mr?.webUrl;
+    if (!mr || !url || !data || threadLookups.current.has(url)) return;
+    if (!needsThreadLookup(mr, Date.now(), data)) return;
+    threadLookups.current.add(url);
+    void postAction('/slack/resolve', { mrUrl: url, iid: mr.iid })
+      .then(result => {
+        const ref = result.body as SlackRefBody | null;
+        if (!result.ok || !ref) return;
+        setRowMenu(open =>
+          open?.mr.webUrl === url
+            ? {
+                ...open,
+                mr: {
+                  ...open.mr,
+                  slack: {
+                    status: ref.status,
+                    permalink: ref.permalink,
+                    reactions: ref.reactions ?? [],
+                    posted: ref.status === 'found',
+                    checkedAt: ref.checkedAt,
+                  },
+                } as BoardMR,
+              }
+            : open
+        );
+        if (ref.status === 'found') load();
+      })
+      .finally(() => threadLookups.current.delete(url));
+  }, [menuMrUrl, !!data]);
 
   /** `onPosted` runs only when the message actually landed -- the selection bar
       uses it to clear the selection, and a failed post must leave the selection
@@ -979,7 +1016,6 @@ export function Board() {
       dismiss: handleDismissLane,
       standDown: handleStandDown,
       postSlack: handlePostSlack,
-      postOwners: setOwnersPost,
     }),
     [handleCopy, handleDismissLane, handleStandDown, handlePostSlack]
   );
@@ -2009,12 +2045,14 @@ export function Board() {
 
         {ownersPost && (
           <OwnersPostModal
-            mr={ownersPost}
+            mr={ownersPost.mr}
+            initial={ownersPost.preview}
             onPosted={channels => {
               addToast(
-                `posted !${ownersPost.iid} to ${channels.map(c => `#${c}`).join(', ')}`
+                `posted !${ownersPost.mr.iid} to ${channels.map(c => `#${c}`).join(', ')}`
               );
               setOwnersPost(null);
+              load();
             }}
             onClose={() => setOwnersPost(null)}
           />

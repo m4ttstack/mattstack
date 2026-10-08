@@ -13,6 +13,7 @@ const CHANNEL_IDS: Record<string, string> = {
   'other-channel': 'C_OTHER',
   'outside-channel': 'C_OUTSIDE',
   'flaky-channel': 'C_FLAKY',
+  'ours-channel': 'C_OURS',
 };
 /** Channels the token's user has not joined; posting there fails. */
 const NOT_MEMBER = new Set(['C_OUTSIDE']);
@@ -43,10 +44,21 @@ function slackApi(method: string, params: Record<string, string>): Response {
       // SLACK_MOCK_MR_URL: the one MR url this test's channel index should
       // already show a review-request message for.
       const mrUrl = process.env.SLACK_MOCK_MR_URL;
+      // SLACK_MOCK_HISTORY: JSON of channel id to the MR urls someone has
+      // already posted there by hand.
+      const byChannel = JSON.parse(
+        process.env.SLACK_MOCK_HISTORY ?? '{}'
+      ) as Record<string, string[]>;
+      const urls = [
+        ...(mrUrl ? [mrUrl] : []),
+        ...(byChannel[params.channel!] ?? []),
+      ];
       return ok({
-        messages: mrUrl
-          ? [{ ts: '100.000001', user: 'U1', text: `please review ${mrUrl}` }]
-          : [],
+        messages: urls.map((u, i) => ({
+          ts: `100.00000${i + 1}`,
+          user: 'U1',
+          text: `please review ${u}`,
+        })),
         has_more: false,
       });
     }

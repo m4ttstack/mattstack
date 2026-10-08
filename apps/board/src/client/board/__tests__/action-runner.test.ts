@@ -163,15 +163,6 @@ test('runOne react has no pending toast and returns the reactions', async () => 
   expect(result?.body?.reactions).toEqual(['eyes']);
 });
 
-test('runOne find-thread says whether it found one', async () => {
-  const a = fakeDeps(() => ok({ status: 'found' }));
-  await runOne({ kind: 'find-thread' }, mr(7), a.deps);
-  expect(a.events).toContain('done found slack thread for !7');
-  const b = fakeDeps(() => ok({ status: 'notfound' }));
-  await runOne({ kind: 'find-thread' }, mr(7), b.deps);
-  expect(b.events).toContain('done no slack thread found for !7');
-});
-
 test("runOne ask prefers the server's refusal text, and says when it queued", async () => {
   const a = fakeDeps(() => fail(409, 'kim has no board on the switchboard'));
   await runOne({ kind: 'ask', ask: 'review', reviewer: 'kim' }, mr(7), a.deps);
@@ -209,7 +200,7 @@ test('runOne launch hands off to the launch flow with the note and intent', asyn
 test('runOne without a url does nothing', async () => {
   const { deps, events } = fakeDeps();
   const result = await runOne(
-    { kind: 'find-thread' },
+    { kind: 'draft', draft: true },
     { iid: 7, webUrl: null } as unknown as BoardMR,
     deps
   );
@@ -289,14 +280,6 @@ test('runMany keeps at most four requests in flight', async () => {
   expect(peak).toBe(4);
 });
 
-test('runMany find-thread says where it found a thread and where it did not', async () => {
-  const { deps, events } = fakeDeps(p =>
-    p.iid === 1 ? ok({ status: 'found' }) : ok({ status: 'notfound' })
-  );
-  await runMany({ kind: 'find-thread' }, [mr(1), mr(2)], deps);
-  expect(events).toContain('toast slack thread found on !1 · no thread on !2');
-});
-
 test('mapLimit never runs more than the limit at once', async () => {
   let live = 0;
   let peak = 0;
@@ -368,7 +351,6 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
     dismiss: (m, lane) => calls.push(`dismiss ${lane} !${m.iid}`),
     standDown: (m, on) => calls.push(`stand-down ${on} !${m.iid}`),
     postSlack: m => calls.push(`post !${m.iid}`),
-    postOwners: m => calls.push(`owners !${m.iid}`),
   };
   const { deps, events } = fakeDeps();
   dispatchRowAction({ kind: 'copy' }, mr(7), {}, deps, h);
@@ -388,7 +370,6 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
     h
   );
   dispatchRowAction({ kind: 'stand-down', on: true }, mr(7), {}, deps, h);
-  dispatchRowAction({ kind: 'post-owners' }, mr(7), {}, deps, h);
   await dispatchRowAction(
     { kind: 'ask', ask: 'review' },
     mr(7),
@@ -401,7 +382,6 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
     'open https://x.example',
     'view respond !7',
     'stand-down true !7',
-    'owners !7',
   ]);
   expect(events).toContain(
     `post /nudge {"mrUrl":"${mr(7).webUrl}","iid":7,"reviewer":"jo","kind":"review"}`

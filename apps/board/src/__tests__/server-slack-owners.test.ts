@@ -35,6 +35,19 @@ writeFileSync(
     'board.projects': ['g/p', 'g/q'],
     'mattstack.roster': [{ username: 'alice' }, { username: 'bob' }],
     'board.slack': { channel: 'code-review', autoResolveIntervalMinutes: 0 },
+    'board.tabs': [
+      { id: 'team', label: 'Team', source: { kind: 'authors' } },
+      {
+        id: 'owners',
+        label: 'Owners',
+        source: {
+          kind: 'codeowners',
+          section: 'Ours - #ours-channel',
+          excludeMembers: true,
+        },
+        slackChannel: 'ours-channel',
+      },
+    ],
     repos: {
       'gitlab.example.com/g/p': {
         'board.codeowners': { slack: { fromSectionName: true } },
@@ -122,6 +135,10 @@ const PRS: Record<string, ReturnType<typeof fakePr>[]> = {
     fakePr('g/p', 703, 'alice'),
     fakePr('g/p', 704, 'alice'),
     fakePr('g/p', 705, 'alice'),
+    fakePr('g/p', 706, 'alice'),
+    fakePr('g/p', 707, 'alice'),
+    fakePr('g/p', 708, 'alice'),
+    fakePr('g/p', 709, 'alice'),
   ],
   'g/q': [fakePr('g/q', 801, 'alice')],
 };
@@ -170,6 +187,21 @@ const APPROVAL_BY_IID: Record<string, unknown> = {
     rules: [rule('Acme - #acme-channel'), rule('Flaky - #flaky-channel')],
   },
   '705': { rules: [rule('Acme - #acme-channel')] },
+  // 706 needs our team and another; 707 only ours; 708 was posted to
+  // #acme-channel by hand; 709 already has a team thread.
+  '706': {
+    rules: [rule('Ours - #ours-channel'), rule('Acme - #acme-channel')],
+  },
+  '707': {
+    rules: [
+      rule('Ours - #ours-channel'),
+      { ...rule('Acme - #acme-channel'), approved: true },
+    ],
+  },
+  '708': {
+    rules: [rule('Ours - #ours-channel'), rule('Acme - #acme-channel')],
+  },
+  '709': { rules: [rule('Acme - #acme-channel')] },
 };
 
 const forgeSeen: Array<{ repoName: string; path: string }> = [];
@@ -255,6 +287,10 @@ const proc = Bun.spawn(
       SWITCHBOARD_TOKEN: '',
       SWITCHBOARD_ADMIN_TOKEN: '',
       SLACK_MOCK_POST_LOG: postLog,
+      SLACK_MOCK_HISTORY: JSON.stringify({
+        C_ACME: [url('g/p', 708)],
+        C_DEFAULT: [url('g/p', 709)],
+      }),
     },
     stdout: 'pipe',
     stderr: 'pipe',
@@ -296,6 +332,9 @@ function sent(): Array<{ channel: string; text: string }> {
 
 interface Preview {
   text: string;
+  team: { channel: string; posted: boolean; permalink?: string };
+  direct: boolean;
+  ownSections: string[];
   channels: Array<{ channel: string; sections: string[] }>;
   skipped: Array<{
     section: string;
@@ -448,7 +487,9 @@ test('post sends once per confirmed channel, remembers it, and leaves the review
   expect(sent()).toHaveLength(1);
 
   const db = openStateDb(dbPathForRoot(fakeHome));
-  const refs = db.query('SELECT mr_url FROM slack_refs').all();
+  const refs = (
+    db.query('SELECT ref FROM slack_refs').all() as Array<{ ref: string }>
+  ).filter(r => (JSON.parse(r.ref) as { status: string }).status === 'found');
   db.close();
   expect(refs).toEqual([]);
 }, 20_000);
@@ -497,4 +538,125 @@ test('a second confirm while the first is still running is refused, so nothing p
   expect(second.status).toBe(409);
   expect((await first).status).toBe(200);
   expect(sentFor(705)).toHaveLength(1);
+}, 15_000);
+
+interface Outcome {
+  posted: Array<{ channel: string; permalink: string; team?: boolean }>;
+  failed: Array<{ channel: string; error: string }>;
+}
+
+async function boardMr(iid: number) {
+  const data = (await (
+    await fetch(`http://127.0.0.1:${PORT}/data.json`)
+  ).json()) as { mrs: Array<{ iid: number; ownerPostsLeft?: string[] }> };
+  return data.mrs.find(m => m.iid === iid)!;
+}
+
+test('our own section is the team row, never our code owner channel', async () => {
+  await ready();
+  const body = (await (
+    await post('/slack/owners/preview', { mrUrl: url('g/p', 706) })
+  ).json()) as Preview;
+  expect(body.team).toEqual({ channel: 'code-review', posted: false });
+  expect(body.ownSections).toEqual(['Ours - #ours-channel']);
+  expect(body.channels).toEqual([
+    { channel: 'acme-channel', sections: ['Acme - #acme-channel'] },
+  ]);
+  expect(body.skipped).toEqual([]);
+  expect(body.direct).toBe(false);
+}, 15_000);
+
+test('posting only the team row leaves the other channels to post later', async () => {
+  await ready();
+  expect((await boardMr(706)).ownerPostsLeft).toBeUndefined();
+  const res = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 706),
+    team: true,
+    channels: [],
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Outcome;
+  expect(body.posted.map(p => [p.channel, p.team])).toEqual([
+    ['code-review', true],
+  ]);
+  expect(sentFor(706).map(m => m.channel)).toEqual(['C_DEFAULT']);
+  expect((await boardMr(706)).ownerPostsLeft).toEqual(['acme-channel']);
+
+  const again = (await (
+    await post('/slack/owners/preview', { mrUrl: url('g/p', 706) })
+  ).json()) as Preview;
+  expect(again.team.posted).toBe(true);
+  expect(again.team.permalink).toContain('C_DEFAULT');
+
+  const rest = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 706),
+    channels: ['acme-channel'],
+  });
+  expect(rest.status).toBe(200);
+  expect((await boardMr(706)).ownerPostsLeft).toEqual([]);
+}, 20_000);
+
+test('an MR needing only our own approval posts straight to the team channel', async () => {
+  await ready();
+  const body = (await (
+    await post('/slack/owners/preview', { mrUrl: url('g/p', 707) })
+  ).json()) as Preview;
+  expect(body.channels).toEqual([]);
+  expect(body.direct).toBe(true);
+  const res = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 707),
+    team: true,
+  });
+  expect(res.status).toBe(200);
+  expect(sentFor(707).map(m => m.channel)).toEqual(['C_DEFAULT']);
+  expect((await boardMr(707)).ownerPostsLeft).toEqual([]);
+}, 15_000);
+
+test('a post someone made by hand in a code owner channel counts as posted', async () => {
+  await ready();
+  const body = (await (
+    await post('/slack/owners/preview', { mrUrl: url('g/p', 708) })
+  ).json()) as Preview;
+  expect(body.channels).toEqual([]);
+  expect(body.skipped).toEqual([
+    {
+      section: 'Acme - #acme-channel',
+      reason: 'already-posted',
+      channel: 'acme-channel',
+      permalink: expect.stringContaining('C_ACME'),
+    },
+  ]);
+  expect(body.direct).toBe(true);
+  const res = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 708),
+    channels: ['acme-channel'],
+  });
+  expect(res.status).toBe(400);
+  expect(sentFor(708)).toEqual([]);
+}, 15_000);
+
+test('a team thread that already exists is shown as posted and never posted again', async () => {
+  await ready();
+  const body = (await (
+    await post('/slack/owners/preview', { mrUrl: url('g/p', 709) })
+  ).json()) as Preview;
+  expect(body.team.posted).toBe(true);
+  expect(body.team.permalink).toContain('C_DEFAULT');
+  expect(body.direct).toBe(false);
+  const res = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 709),
+    team: true,
+  });
+  expect(res.status).toBe(400);
+  expect(sentFor(709)).toEqual([]);
+}, 15_000);
+
+test('a post naming nothing is refused', async () => {
+  await ready();
+  const res = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 706),
+    team: false,
+    channels: [],
+  });
+  expect(res.status).toBe(400);
 }, 15_000);

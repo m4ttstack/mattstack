@@ -49,6 +49,7 @@ describe('planOwnersPost', () => {
     ).toEqual({
       channels: [{ channel: 'pod-acme', sections: ['Acme - #pod-acme'] }],
       skipped: [],
+      ownSections: [],
     });
   });
 
@@ -106,6 +107,7 @@ describe('planOwnersPost', () => {
     ).toEqual({
       channels: [],
       skipped: [{ section: 'Docs', reason: 'no-channel' }],
+      ownSections: [],
     });
   });
 
@@ -124,6 +126,7 @@ describe('planOwnersPost', () => {
           permalink: 'https://team.slack.com/archives/C1/p1',
         },
       ],
+      ownSections: [],
     });
   });
 
@@ -153,5 +156,42 @@ describe('planOwnersPost', () => {
       },
       { section: 'Ops - #pod-ops', reason: 'not-member', channel: 'pod-ops' },
     ]);
+  });
+
+  test("our own team's sections go to the team row, never their channel", () => {
+    const plan = planOwnersPost(
+      [
+        { section: 'Ours - #pod-ours', approved: false },
+        { section: 'Ours Jobs - #pod-ours', approved: true },
+        { section: 'Acme - #pod-acme', approved: false },
+      ],
+      { posted: {}, ownSections: ['Ours - #pod-ours', 'Ours Jobs - #pod-ours'] }
+    );
+    expect(plan.channels).toEqual([
+      { channel: 'pod-acme', sections: ['Acme - #pod-acme'] },
+    ]);
+    expect(plan.skipped).toEqual([]);
+    expect(plan.ownSections).toEqual(['Ours - #pod-ours']);
+  });
+
+  test('a plan with no own sections says so', () => {
+    expect(
+      planOwnersPost([{ section: 'Acme - #pod-acme', approved: false }], none)
+        .ownSections
+    ).toEqual([]);
+  });
+
+  test('a section naming the team channel rides on the team row, never posts twice there', () => {
+    const plan = planOwnersPost(
+      [
+        { section: 'Payments Web - #payments', approved: false },
+        { section: 'Acme - #pod-acme', approved: false },
+      ],
+      { posted: {}, teamChannel: 'payments' }
+    );
+    expect(plan.channels).toEqual([
+      { channel: 'pod-acme', sections: ['Acme - #pod-acme'] },
+    ]);
+    expect(plan.ownSections).toEqual(['Payments Web - #payments']);
   });
 });

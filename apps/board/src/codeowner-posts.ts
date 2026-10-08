@@ -22,6 +22,10 @@ export interface OwnerSkip {
 export interface OwnersPostPlan {
   channels: Array<{ channel: string; sections: string[] }>;
   skipped: OwnerSkip[];
+  /** The poster's own team's sections still waiting on approval. Their
+      channel is where other teams ask this team for review, so the request
+      goes to the team's own channel instead. */
+  ownSections: string[];
 }
 
 /** The Code Owner rules in GitLab's REST `approval_state` body. */
@@ -50,8 +54,12 @@ export function planOwnersPost(
   opts: {
     posted: Record<string, string>;
     slack?: Map<string, { member: boolean }>;
+    ownSections?: readonly string[];
+    /** The team request's channel: a section naming it is the team's own. */
+    teamChannel?: string;
   }
 ): OwnersPostPlan {
+  const own = new Set(opts.ownSections ?? []);
   const approvedBySection = new Map<string, boolean>();
   for (const rule of rules) {
     approvedBySection.set(
@@ -61,7 +69,16 @@ export function planOwnersPost(
   }
   const byChannel = new Map<string, string[]>();
   const skipped: OwnerSkip[] = [];
+  const ownSections: string[] = [];
   for (const [section, approved] of approvedBySection) {
+    if (
+      own.has(section) ||
+      (!!opts.teamChannel &&
+        channelFromCodeownerSection(section) === opts.teamChannel)
+    ) {
+      if (!approved) ownSections.push(section);
+      continue;
+    }
     const channel = channelFromCodeownerSection(section);
     if (!channel) {
       skipped.push({ section, reason: 'no-channel' });
@@ -88,5 +105,6 @@ export function planOwnersPost(
       sections,
     })),
     skipped,
+    ownSections,
   };
 }

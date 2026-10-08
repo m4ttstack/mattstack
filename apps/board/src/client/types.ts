@@ -111,6 +111,8 @@ export interface SlackInfo {
   permalink?: string;
   reactions: string[];
   posted: boolean;
+  /** When the board last looked for the thread (ms). */
+  checkedAt?: number;
 }
 /** How a peer's board says their review of one of our MRs is going. `status`
     and `outcome` stay loose strings: they're another board's lifecycle words,
@@ -167,6 +169,9 @@ export type BoardMRWithReview = BoardMR & {
   slack?: SlackInfo;
   /** The channel "post to slack" sends this MR to. */
   slackChannel?: string;
+  /** Channels the last "post to slack" offered and did not post to. Absent
+      when the MR was never posted through the dialog. */
+  ownerPostsLeft?: string[];
   drafts?: DraftInfo[];
   /** The seat's own note on this MR (B10), kept in the board's state db and
       shown as the row's last line. */

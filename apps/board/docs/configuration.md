@@ -131,8 +131,8 @@ needs a restart.
 ## Posting to code owners
 
 Some teams put the owning team's Slack channel in each CODEOWNERS section
-name, like `[Acme - #pod-acme]`. Tell the board a repo does this and your own
-MRs there get a "post to code owners" action:
+name, like `[Acme - #pod-acme]`. Tell the board a repo does this and "post to
+slack" on your own MRs there also asks the code owners:
 
 ```sh
 rt settings set board.codeowners '{"slack":{"fromSectionName":true}}' \
@@ -141,13 +141,25 @@ rt settings set board.codeowners '{"slack":{"fromSectionName":true}}' \
 
 `--repo` takes the repo's name as rt knows it, or a path to its checkout.
 
-The action opens a dialog before it sends anything. It lists one channel per
-group of sections still waiting on approval, each with a switch, and the
-sections it leaves out with the reason: already approved, no channel in the
-name, already posted, a channel Slack does not list, or one you have not
-joined. Slack only lets you post where you are a member, so join a channel
-first to post there. Confirming sends the review request once to each
+"post to slack" first reads the MR's approvals. When only your own team's
+sections are waiting, or none are, it posts to the team channel straight
+away. Your team's sections are the codeowners tab's section and any section
+that names the team channel; their channel is where other teams ask you, so
+it is never offered for your own MRs.
+
+When other teams' sections are waiting, a dialog opens before anything is
+sent. The team channel comes first, then one channel per group of sections
+still waiting on approval, each with a switch. Below them are the sections it
+leaves out, with the reason: already approved, no channel in the name, already
+posted (by the board or by hand), a channel Slack does not list, or one you
+have not joined. Slack only lets you post where you are a member, so join a
+channel first to post there. Confirming sends the review request once to each
 channel left on.
+
+After posting to only some channels, the menu item reads "post to other
+codeowners…" until the rest are posted. If the approvals cannot be read, the
+item still posts to the team channel and says it could not check the code
+owners.
 
 `board.codeowners` is set per repo and holds one property per code owner
 feature, so a repo without it gets none of them.

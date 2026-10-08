@@ -1,4 +1,11 @@
-import { describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from 'bun:test';
 
 import type { PullRequest } from '@mattstack/glance';
 import { SnapshotCache, type FetchResult } from '../cache.ts';
@@ -248,6 +255,11 @@ describe('stripDraftPrefix', () => {
 });
 
 describe('buildBoard', () => {
+  // The fixture MRs are dated July 2026; the stale window is measured from
+  // now, so a real clock ages them out.
+  beforeAll(() => setSystemTime(new Date('2026-07-13T00:00:00Z')));
+  afterAll(() => setSystemTime());
+
   test('keeps only member-authored, open, non-draft MRs in configured projects', () => {
     const mrs = buildBoard(
       [
