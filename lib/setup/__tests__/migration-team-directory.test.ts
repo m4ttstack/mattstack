@@ -5,6 +5,7 @@ import { join } from "path";
 import { readSection } from "../../../packages/rt-client/src/settings/migrate.ts";
 import { getDef } from "../../../packages/rt-client/src/settings/registry-machinery.ts";
 import { readStore } from "../../../packages/rt-client/src/settings/stores.ts";
+import { setSettingsNoticeSink } from "../../../packages/rt-client/src/settings/write.ts";
 import { seedOrg, type SeedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import type { ApplyContext } from "../apply.ts";
 import { MIGRATIONS } from "../migrations/index.ts";
@@ -54,6 +55,12 @@ describe("entryFromTeamStore", () => {
       slack: { channels: [{ name: "org-review", kind: "review" }] },
     });
   });
+  test("copies legacy channel names bare, in their own case", () => {
+    const tabs = [{ ...TABS[1]!, slackChannel: "#pod-claim" }];
+    expect(entryFromTeamStore({ "board.slack": { channel: " #Claim-Internal " }, "board.tabs": tabs }, {})).toEqual({
+      slack: { codeOwnersChannel: "pod-claim", channels: [{ name: "Claim-Internal", kind: "review" }] },
+    });
+  });
   test("a store with nothing to move gives no entry", () => {
     expect(entryFromTeamStore({}, {})).toBeNull();
   });
@@ -68,6 +75,10 @@ describe("withoutRetired", () => {
       { key: "board.ticketPrefixes", value: undefined },
     ]);
   });
+  test("drops a tab channel that names the entry's channel with a leading #", () => {
+    const tabs = [{ ...TABS[1]!, slackChannel: "#Pod-Claim" }];
+    expect(withoutRetired({ "board.tabs": tabs }, ENTRY)).toEqual([{ key: "board.tabs", value: [{ id: "q", label: "Q", source: TABS[1]!.source }] }]);
+  });
   test("keeps ticket prefixes that add to the Linear key", () => {
     expect(withoutRetired({ "board.ticketPrefixes": ["CV", "PLA"] }, ENTRY).find((w) => w.key === "board.ticketPrefixes")).toBeUndefined();
   });
@@ -79,8 +90,10 @@ describe("2026-10-08-team-directory", () => {
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "dir-mig-")));
     process.env.HOME = home;
+    setSettingsNoticeSink(() => {});
   });
   afterEach(() => {
+    setSettingsNoticeSink(null);
     process.env.HOME = origHome;
     rmSync(home, { recursive: true, force: true });
   });
@@ -139,5 +152,29 @@ describe("2026-10-08-team-directory", () => {
     expect(result.state).toBe("skipped");
     expect(store(orgStore)["mattstack.directory"]).toBeUndefined();
     expect(store(teamStores.claim!)["board.slack"]).toEqual(CLAIM_STORE["board.slack"]);
+  });
+
+  test("a team owner who is not an admin moves nothing, even in their own team", async () => {
+    const { orgStore, teamStores } = seedClone({
+      username: "me",
+      roles: { admins: ["someone-else"], teams: { claim: { owners: ["me"] } } },
+      roster,
+      teams: { claim: CLAIM_STORE },
+    });
+    const result = await run();
+    expect(result.state).toBe("skipped");
+    expect(store(orgStore)["mattstack.directory"]).toBeUndefined();
+    const team = store(teamStores.claim!);
+    expect((team["board.slack"] as Record<string, unknown>).channel).toBe("claim-internal");
+    expect(team["mattstack.integrations"]).toEqual({ linear: { teamKey: "CV" } });
+    expect(tabsIn(teamStores.claim!).map((t) => t.slackChannel)).toEqual([undefined, "pod-claim", "pod-acme"]);
+  });
+
+  test("a legacy channel with a leading # seeds the bare name and is still deleted from its tab", async () => {
+    const tabs = [TABS[0], { ...TABS[1]!, slackChannel: "#pod-claim" }, TABS[2]];
+    const { orgStore, teamStores } = seedClone({ username: "me", roles: adminRoles, roster, teams: { claim: { ...CLAIM_STORE, "board.tabs": tabs } } });
+    await run();
+    expect(store(orgStore)["mattstack.directory"]).toEqual({ teams: { claim: ENTRY } });
+    expect(tabsIn(teamStores.claim!).map((t) => t.slackChannel)).toEqual([undefined, undefined, "pod-acme"]);
   });
 });

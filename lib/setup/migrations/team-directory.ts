@@ -14,11 +14,13 @@ type Values = Record<string, unknown>;
 const slackOf = (v: Values) => v["board.slack"] as ({ channel?: string } & Values) | undefined;
 /** board.tabs is versioned; a store may hold it under either name. */
 const tabsOf = (v: Values) => readSection(getDef("board.tabs")!, v, { layer: false }).value as Tab[] | undefined;
+/** The directory holds bare names in their own case; legacy values may carry a leading "#". */
+const bare = (channel: string | undefined) => channel?.trim().replace(/^#/, "") || undefined;
 
 export function entryFromTeamStore(values: Values, orgValues: Values): DirectoryTeam | null {
   const linear = (values["mattstack.integrations"] as { linear?: { teamKey?: string } } | undefined)?.linear?.teamKey;
-  const review = slackOf(values)?.channel ?? slackOf(orgValues)?.channel;
-  const codeOwners = (tabsOf(values) ?? []).find((t) => t.source?.kind === "codeowners" && t.slackChannel)?.slackChannel;
+  const review = bare(slackOf(values)?.channel ?? slackOf(orgValues)?.channel);
+  const codeOwners = bare((tabsOf(values) ?? []).find((t) => t.source?.kind === "codeowners" && bare(t.slackChannel))?.slackChannel);
   if (!linear && !review && !codeOwners) return null;
   return {
     ...(linear ? { linear: { team: linear } } : {}),
