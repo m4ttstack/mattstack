@@ -7,8 +7,9 @@ delivery, gates, presence, policy and supervision. rt installs it only when
 hook or CLI path when its block is not live.
 
 It needs Claude Code 2.1.293 or newer (`MIN_CLAUDE_CODE` in
-`src/core/version.ts`). On an older engine the plugin loads but starts no
-block, so every feature takes its existing path.
+`src/core/version.ts`). On an older engine, or in a session with no person
+at the prompt (`claude -p`, the SDK), the plugin loads but starts no block,
+so every feature takes its existing path.
 
 ## Layout
 

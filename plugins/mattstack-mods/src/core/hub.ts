@@ -77,7 +77,7 @@ export type Hub = {
 type Owned<T> = T & { owner: ModBlock | null; label: string }
 
 type Core = {
-  start(api: ModApi): Promise<void>
+  start(api: ModApi, e: EngineEventOf['session.start']): Promise<void>
   toolCall(api: ModApi, e: ToolCall, next: (e: ToolCall) => Promise<ToolCallResult>): Promise<ToolCallResult>
   toolCheck(api: ModApi, e: ToolCheck, next: (e: ToolCheck) => Promise<ToolCheckResult>): Promise<ToolCheckResult>
   receive(api: ModApi, e: Receive, next: (e: Receive) => Promise<ReceiveResult>): Promise<ReceiveResult>
@@ -140,9 +140,13 @@ export function createHub(): Hub {
       if (!sub) return bottom(e)
       if (!active(sub)) return step(i + 1, e)
       let inner: Promise<R> | undefined
+      let beneath: { error: unknown } | undefined
       const rest = (next: E): Promise<R> => {
         if (!inner) {
-          inner = step(i + 1, next)
+          inner = step(i + 1, next).catch(error => {
+            beneath = { error }
+            throw error
+          })
           // A subscriber may settle while this is still pending; the engine
           // then aborts it, and that rejection has nobody awaiting it.
           inner.catch(() => {})
@@ -152,6 +156,9 @@ export function createHub(): Hub {
       try {
         return await sub.run(api, e, rest)
       } catch (err) {
+        // A rejection that came up through next (an interrupt, an abort, a
+        // failure beneath) is not this subscriber's fault and keeps its block.
+        if (beneath && beneath.error === err) throw err
         fail(api, sub, where, err)
         return inner ?? step(i + 1, e)
       }
@@ -160,9 +167,13 @@ export function createHub(): Hub {
   }
 
   const core: Core = {
-    async start(api) {
+    async start(api, e) {
       if (started) return
       started = true
+      if (!e.isInteractive) {
+        api.ui.log('mattstack-mods: not an interactive session; no block started', { to: 'debug' })
+        return
+      }
       let version: SessionVersion
       try {
         version = await api.session.version()
@@ -319,7 +330,7 @@ export function attachHub(on: On, hub: Hub): void {
 
   on('session.start', async ($, e, next) => {
     const api = facade($)
-    await core.start(api)
+    await core.start(api, e)
     await core.lifecycle(api, 'session-start', e)
     return next(e)
   })

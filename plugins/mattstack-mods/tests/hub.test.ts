@@ -21,7 +21,8 @@ function harness(version = '2.1.293') {
     if (!hook) throw new Error(`the hub registered no ${event} hook`)
     return hook($, e, next)
   }
-  const start = () => fire('session.start', { cwd: '/repo', surface: null, isInteractive: false }, async () => ({}))
+  const start = (isInteractive = true) =>
+    fire('session.start', { cwd: '/repo', surface: isInteractive ? 'terminal' : null, isInteractive }, async () => ({}))
   return { hub, logs, fire, start }
 }
 
@@ -148,6 +149,40 @@ describe('hub', () => {
 
     expect(started).toBe(false)
     expect(h.hub.liveBlocks()).toEqual([])
+  })
+
+  test('a non-interactive session (claude -p) starts no block', async () => {
+    const h = harness()
+    let started = false
+    h.hub.block('delivery', async () => {
+      started = true
+    })
+    await h.start(false)
+
+    expect(started).toBe(false)
+    expect(h.hub.liveBlocks()).toEqual([])
+  })
+
+  test('a rejection from next under a pass-through permit keeps the block', async () => {
+    const h = harness()
+    h.hub.block('gate-form', async () => {
+      h.hub.onToolCall({ stage: 'permit', tool: 'AskUserQuestion', run: (_api, e, next) => next(e) })
+    })
+    await h.start()
+
+    const interrupted = new Error('interrupted')
+    let thrown: unknown
+    try {
+      await h.fire('tool.call', { tool: 'AskUserQuestion', questions: [] }, async () => {
+        throw interrupted
+      })
+    } catch (err) {
+      thrown = err
+    }
+
+    expect(thrown).toBe(interrupted)
+    expect(h.hub.liveBlocks()).toEqual(['gate-form'])
+    expect(h.logs).toHaveLength(0)
   })
 
   test('a permit rule can race next(e) against its own promise and return the first result', async () => {
