@@ -219,6 +219,53 @@ real 2.8.1 build. The prod-Mac leg (Create Release → appcast → an installed
 app on real hardware) still awaits the first real tag; treat that first run
 as a verification exercise, not a routine.
 
+### Requiring an intermediate update
+
+When one release must be installed before the next (a safety patch that
+migrates something the next release relies on), commit
+`rt-tray/sparkle-minimum-update` with the release being cut and the version
+every Mac must reach first:
+
+```
+release=2.22.0
+minimum=2.21.1
+```
+
+`appcast.sh` passes the minimum to `generate_appcast --minimum-update-version`,
+which writes `<sparkle:minimumUpdateVersion>` on the new item only. Sparkle
+2.10.0 drops an item whose minimum is above the running app's
+`CFBundleVersion` before it picks the newest (`filterAppcast` in
+`SUAppcastDriver.m`, via `isMinimumUpdateVersionOK` in
+`SPUAppcastItemStateResolver.m`), so a Mac on 2.21.0 is offered 2.21.1, and
+once on 2.21.1 it is offered 2.22.0. Four rules make that hold:
+
+- The minimum is written as a bundle version (`2021001`), because Sparkle
+  compares it with `CFBundleVersion`, which `build.sh`'s `numeric_build`
+  sets. A plain `2.21.1` would compare below every build and do nothing.
+  `scripts/release/minimum-update.sh <tag>` does the conversion.
+- The minimum's own item must already be in the feed the release extends,
+  so publish the intermediate release first and let it become the latest
+  GitHub release. `appcast.sh` fails when the previous feed has no item for
+  the minimum, or when the new feed dropped it.
+- The new item sits on its own Sparkle update branch, so
+  `--maximum-versions 3` keeps up to three items with no minimum beside it,
+  and the intermediate item stays as the fallback.
+- `appcast.sh` fetches no older zip below the minimum as a delta source:
+  Sparkle builds no delta from below it into the new item, and such an
+  archive makes `generate_appcast` rebuild the fallback item's deltas under
+  the new tag.
+
+The declaration applies to the named release and to any earlier version (a
+dispatch dry run rehearses a patch bump of the live feed, so it exercises the
+minimum too), and the resolver refuses any later release. A file left behind
+fails the next release's appcast step instead of shipping again: delete it
+once the named release is out. While the intermediate release is not yet
+published, a dry run from main fails by design: it rehearses a patch bump of
+the live feed, which is the minimum itself (`2.21.1-ciN`), and the resolver
+refuses a minimum that is not below the release being cut. A real tag cut
+before then fails the appcast step's feed check instead, after the build, so
+the release skill checks the latest release before tagging.
+
 ## App builds in release.yml (build-apps)
 
 The apps are built in-tree by `build-apps`, and deps.lock's tree rows carry

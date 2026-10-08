@@ -28,6 +28,9 @@ GEN="$ROOT/rt-tray/deps/tools/sparkle/bin/generate_appcast"
 REPO="${GITHUB_REPOSITORY:-m4ttstack/mattstack}"
 PREFIX="https://github.com/$REPO/releases/download/$TAG/"
 
+# Empty unless rt-tray/sparkle-minimum-update declares one for this release.
+MIN_BUILD="$("$ROOT/scripts/release/minimum-update.sh" "$TAG")"
+
 MATCH_COUNT="$(ls "$ARCHIVES"/mattstack-*.zip 2>/dev/null | wc -l | tr -d ' ')" || true
 [ "$MATCH_COUNT" = "1" ] || { echo "✗ expected exactly one mattstack-*.zip in $ARCHIVES, found $MATCH_COUNT" >&2; exit 1; }
 NEW_ZIP="$(ls "$ARCHIVES"/mattstack-*.zip)"
@@ -96,11 +99,41 @@ else
     echo "→ no previous appcast (first release)"
 fi
 
+# A Mac below the minimum is offered only the items without one, so the item
+# for the minimum itself must already be in the feed this release extends.
+feed_has_build() {
+    grep -q -e "<sparkle:version>$2</sparkle:version>" -e "sparkle:version=\"$2\"" "$1"
+}
+
+if [ -n "$MIN_BUILD" ]; then
+    if [ "$HAVE_PREV" -eq 0 ] || ! feed_has_build "$ARCHIVES/appcast.xml" "$MIN_BUILD"; then
+        echo "✗ rt-tray/sparkle-minimum-update requires bundle version $MIN_BUILD, but the latest published appcast has no item for it. Publish that release first." >&2
+        exit 1
+    fi
+    echo "→ new item requires bundle version $MIN_BUILD before it is offered"
+fi
+
+# Bundle version of a mattstack-X.Y.Z.zip, or nothing for any other name.
+zip_build() {
+    local v
+    v="$(basename "$1" .zip)"; v="${v#mattstack-}"
+    if [[ "$v" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        echo $(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+    fi
+}
+
 if [ "$HAVE_PREV" -eq 1 ]; then
     # Enclosure URLs, newest first; the two newest become delta sources.
     for url in $(grep -o 'url="[^"]*\.zip"' "$ARCHIVES/appcast.xml" | sed 's/url="//; s/"$//' | head -2); do
         f="$ARCHIVES/$(basename "$url")"
         [ "$f" = "$NEW_ZIP" ] && continue
+        # Sparkle builds no delta into the new item from below its minimum, and
+        # an archive that old makes generate_appcast rebuild the older items'
+        # deltas under this tag, rewriting items a stranded Mac falls back to.
+        if [ -n "$MIN_BUILD" ]; then
+            build="$(zip_build "$url")"
+            [ -n "$build" ] && [ "$build" -ge "$MIN_BUILD" ] || continue
+        fi
         if fetch_or_abort "$url" "$f" "old enclosure $(basename "$url")"; then
             OLD_FILES+=("$f")
             OLD_URLS+=("$url")
@@ -135,10 +168,12 @@ if ls "$ARCHIVES"/*.dmg >/dev/null 2>&1; then
     echo "  → dmg set aside for appcast generation (Sparkle updates from the zip)"
 fi
 
-GEN_OUTPUT="$(printf '%s' "$SPARKLE_ED_KEY" | env -u SPARKLE_ED_KEY "$GEN" --ed-key-file - \
-    --download-url-prefix "$PREFIX" \
-    --maximum-versions 3 \
-    --link "https://github.com/$REPO/releases" \
+# A minimum puts the new item on its own update branch, so --maximum-versions
+# keeps three items per branch and the items without a minimum stay.
+GEN_ARGS=(--ed-key-file - --download-url-prefix "$PREFIX" --maximum-versions 3 --link "https://github.com/$REPO/releases")
+[ -z "$MIN_BUILD" ] || GEN_ARGS+=(--minimum-update-version "$MIN_BUILD")
+
+GEN_OUTPUT="$(printf '%s' "$SPARKLE_ED_KEY" | env -u SPARKLE_ED_KEY "$GEN" "${GEN_ARGS[@]}" \
     "$ARCHIVES" 2>&1)" || { printf '%s\n' "$GEN_OUTPUT" >&2; echo "✗ generate_appcast failed" >&2; exit 1; }
 printf '%s\n' "$GEN_OUTPUT"
 
@@ -175,5 +210,10 @@ case "$NEW_ZIP_LINE" in
     *sparkle:edSignature=*) ;;
     *) echo "✗ new enclosure for $(basename "$NEW_ZIP") is missing sparkle:edSignature" >&2; exit 1 ;;
 esac
+
+if [ -n "$MIN_BUILD" ] && ! feed_has_build "$ARCHIVES/appcast.xml" "$MIN_BUILD"; then
+    echo "✗ appcast.xml dropped the item for bundle version $MIN_BUILD, the one Macs below the minimum must update to first" >&2
+    exit 1
+fi
 
 echo "✓ appcast.xml updated; deltas: $(ls "$ARCHIVES"/*.delta 2>/dev/null | wc -l | tr -d ' ')"
