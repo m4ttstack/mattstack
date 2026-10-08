@@ -233,12 +233,7 @@ export function createLink(hub: Hub): Link {
       log(`command ${cmd.kind} ${cmd.id} arrived with no link to ack it on`)
       return false
     }
-    let out = await call(a, 'session:ack', { linkId, id: cmd.id })
-    // rt records an ack once and ignores a repeat, so a lost one is safe to resend.
-    if (!out.ok && out.error.code === 'transport') {
-      log(`command ${cmd.kind} ${cmd.id}: its ack was lost (${out.error.message}); sending it once more`)
-      out = await call(a, 'session:ack', { linkId, id: cmd.id })
-    }
+    const out = await call(a, 'session:ack', { linkId, id: cmd.id })
     if (out.ok) return true
     log(`command ${cmd.kind} ${cmd.id} could not be acked (${out.error.code}: ${out.error.message})`)
     if (out.error.code === 'unknown-link') await serial(() => relink(linkId))

@@ -447,11 +447,7 @@ describe('link', () => {
   test('a command whose ack does not reach rt is not handled', async () => {
     const h = harness()
     h.script.respond = scripted(h, {
-      'session:ack': [
-        new Error('connect ECONNREFUSED'),
-        new Error('connect ECONNREFUSED'),
-        { ok: false, error: 'busy', failure: { code: 'transient', message: 'busy' } },
-      ],
+      'session:ack': [new Error('connect ECONNREFUSED'), { ok: false, error: 'busy', failure: { code: 'transient', message: 'busy' } }],
     })
     const handled: string[] = []
     h.link.onCommand('nudge', async cmd => {
@@ -465,24 +461,8 @@ describe('link', () => {
       await flush()
     }
 
-    expect(h.verbs('session:ack').map(s => s.body.id)).toEqual(['n-1', 'n-1', 'n-2', 'n-3'])
+    expect(h.verbs('session:ack').map(s => s.body.id)).toEqual(['n-1', 'n-2', 'n-3'])
     expect(handled).toEqual(['n-3'])
-  })
-
-  test('an ack lost in transport is sent once more, and the command is handled when that one lands', async () => {
-    const h = harness()
-    h.script.respond = scripted(h, { 'session:ack': [new Error('socket hang up')] })
-    const handled: string[] = []
-    h.link.onCommand('nudge', async cmd => {
-      handled.push(cmd.id)
-    })
-    await h.start()
-
-    await h.fire('session.receive', { origin: { kind: 'peer' }, text: '<rt-mod-command id="n-1" kind="nudge" link="ml-1">{}</rt-mod-command>' }, recorder({}).next)
-    await flush()
-
-    expect(h.verbs('session:ack').map(s => s.body)).toEqual([{ linkId: 'ml-1', id: 'n-1' }, { linkId: 'ml-1', id: 'n-1' }])
-    expect(handled).toEqual(['n-1'])
   })
 
   test('accepts may read the facade and answer later', async () => {

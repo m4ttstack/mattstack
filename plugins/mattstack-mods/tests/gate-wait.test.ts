@@ -144,8 +144,7 @@ describe('gate-wait', () => {
     await handOver(h)
     await h.clock.advance(60_000)
 
-    // Lost in transport, the ack is sent once more; that one is lost too.
-    expect(h.verbs('session:ack')).toHaveLength(2)
+    expect(h.verbs('session:ack')).toHaveLength(1)
     expect(h.verbs('events:head')).toHaveLength(0)
     expect(h.rounds).toHaveLength(0)
     expect(h.submitted).toHaveLength(0)
