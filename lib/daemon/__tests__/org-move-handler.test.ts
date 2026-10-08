@@ -130,16 +130,40 @@ describe("org:move", () => {
     expect(order).toEqual(["pause", "hold-start", "emit:org:moved", "hold-end", "resume"]);
   });
 
-  test("a relocation refusal fails the move after the rename, and the engine still resumes", async () => {
+  test("a working checkout of the same repo keeps its index row, and the clone still moves", async () => {
     const from = clone("teams", "widgets", "acme");
-    const identity = await register(from);
-    // The registered row still points at a folder that exists: planLocate answers old-path-exists for this identity.
-    const decoy = join(home, "decoy");
-    mkdirSync(decoy, { recursive: true });
-    setKvValue("repo-index", identity, decoy);
+    mkdirSync(recordsDir(), { recursive: true });
+    writeFileSync(join(recordsDir(), "widgets.json"), JSON.stringify({ forgeUsername: "dev1" }));
+    const checkout = join(home, "src", "org");
+    mkdirSync(checkout, { recursive: true });
+    execSync("git init -q -b main", { cwd: checkout, stdio: "pipe" });
+    execSync("git remote add origin https://gitlab.example.com/acme/org.git", { cwd: checkout, stdio: "pipe" });
+    const identity = await register(checkout);
+    const to = join(home, ".mattstack", "orgs", "acme");
+
+    const res = await handlers["org:move"]({ from, to });
+    expect(res.ok).toBe(true);
+    expect(res.data).toMatchObject({ ok: true, folderMoved: true, index: "already", removed: [join(recordsDir(), "widgets.json")] });
+    expect(existsSync(to)).toBe(true);
+    expect(getKvValue<string | null>("repo-index", identity, null)).toBe(checkout);
+    expect(loadRegistry(identity)[0]?.path).toBe(checkout);
+    expect(order).toEqual(["pause", "hold-start", "emit:org:moved", "hold-end", "resume"]);
+  });
+
+  test("a relocation failure fails the move after the rename, and the engine still resumes", async () => {
+    const from = clone("teams", "widgets", "acme");
+    await register(from);
+    // A registry row under the clone that is a worktree of another repo: repair leaves it be, and the relocation's verification refuses it.
+    const other = join(home, "other");
+    mkdirSync(other, { recursive: true });
+    execSync("git init -q -b main && git -c user.email=dev1@gitlab.example.com -c user.name=dev1 commit --allow-empty -q -m init", { cwd: other, stdio: "pipe" });
+    const ghost = join(from, ".worktrees", "ghost");
+    execSync(`git worktree add -q -b ghost ${ghost}`, { cwd: other, stdio: "pipe" });
+    const identity = serializeIdentity(await deriveRepoIdentity(from));
+    saveRegistry(identity, [...loadRegistry(identity), { name: "ghost", path: ghost, kind: "ephemeral", branch: "ghost", createdAt: "2026-01-01T00:00:00.000Z" }]);
     const res = await handlers["org:move"]({ from, to: join(home, ".mattstack", "orgs", "acme") });
     expect(res).toMatchObject({ ok: false, failure: { code: "move-failed" } });
-    expect(res.failure.message).toContain("old-path-exists");
+    expect(res.failure.message).toContain("git does not list it as a worktree");
     expect(order).toEqual(["pause", "hold-start", "hold-end", "resume"]);
   });
 

@@ -206,10 +206,11 @@ For each marked clone under `orgsDir()` and under `legacyTeamsDir()`:
    and wait on the hold `org:move` already holds). Without a daemon the step
    calls `locateMovedRepo({ newPath, repo })` from
    `lib/repo-locate-dispatch.ts`, `repo` being that same identity.
-   It runs on every pass: a row that already carries the current path and a
+   It runs on every pass: a row that already carries the current path, a
    `nothing-lost` refusal (rt never registered the clone, as on a member's
-   Mac) both count as done; `identity-mismatch` and `old-path-exists` are
-   failures.
+   Mac) and an `old-path-exists` refusal (the row names a working checkout
+   of the org repo, which keeps it) all count as done; `identity-mismatch`
+   and a failed apply are failures.
 8. **Claude marketplace**: for every Claude config dir
    (`claudeConfigDirs`), read the registered marketplaces
    (`parseMarketplaceList` in `lib/setup/steps/plugins.ts` over
