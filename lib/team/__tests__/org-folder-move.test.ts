@@ -93,10 +93,10 @@ describe("cleanupMovedRecords", () => {
 });
 
 describe("classifyLocate", () => {
-  test("nothing-lost is done; identity-mismatch and old-path-exists fail", () => {
+  test("nothing-lost and old-path-exists are done; identity-mismatch fails", () => {
     expect(classifyLocate("nothing-lost: rt never registered it")).toBe("done");
+    expect(classifyLocate("old-path-exists: acme/org is still at ~/src/org, so this folder is a second copy, not a move")).toBe("done");
     expect(classifyLocate("identity-mismatch: another repo")).toBe("failed");
-    expect(classifyLocate("old-path-exists: still there")).toBe("failed");
     expect(classifyLocate("locate failed")).toBe("failed");
   });
 });
@@ -143,6 +143,11 @@ describe("runOrgMove", () => {
     const p = probes({ [`${from}/.git/config`]: "[core]\n" }, dirsFor(`${MS}/teams`, "widgets"));
     const result = await runOrgMove(p, { from, to, locate: async () => ({ ok: false, error: "nothing-lost: rt never registered it" }) });
     expect(result).toMatchObject({ ok: true, index: "already" });
+  });
+  test("a repo index row held by another checkout that still exists counts as done, and the old records are removed", async () => {
+    const p = probes({ [`${RT}/teams/widgets.json`]: record, [`${from}/.git/config`]: "[core]\n" }, dirsFor(`${MS}/teams`, "widgets"));
+    const result = await runOrgMove(p, { from, to, locate: async () => ({ ok: false, error: "old-path-exists: acme/org is still at ~/src/org, so this folder is a second copy, not a move" }) });
+    expect(result).toMatchObject({ ok: true, folderMoved: true, index: "already", removed: [`${RT}/teams/widgets.json`] });
   });
   test("a folder already at its target is not renamed again and only the other pieces run", async () => {
     const p = probes({ [`${RT}/teams/widgets.json`]: record, [`${to}/.git/config`]: "[core]\n" }, dirsFor(`${MS}/orgs`, "acme"));
