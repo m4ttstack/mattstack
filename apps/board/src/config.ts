@@ -140,7 +140,7 @@ export interface TabConfig {
     | { kind: 'authors' }
     | { kind: 'codeowners'; section: string; excludeMembers?: boolean }
     | { kind: 'needs-me' };
-  /** Overrides slack.channel for this tab's index, reactions, and posts. */
+  /** Overrides the team's review channel for this tab's index, reactions, and posts. */
   slackChannel?: string;
   /** Overrides review-launch skill resolution for this tab. Empty/absent = normal resolution. */
   reviewSkill?: string;
