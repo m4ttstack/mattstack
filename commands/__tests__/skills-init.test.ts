@@ -342,7 +342,7 @@ describe("skillsInit", () => {
 
   for (const json of [false, true]) test(`a clone on another layout is a refusal ${json ? "as JSON" : "note"} with the waiting sentence, never a failure`, async () => {
     const HOME = "/h";
-    const fs = memFs({ [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "widgets", "org": "acme" }` });
+    const fs = memFs({ [`${HOME}/.mattstack/orgs/acme/.git/config`]: "", [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "widgets", "org": "acme" }` });
     await skillsInit(json ? ["--json"] : [], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
     const sentence = "Your org has not moved to its new layout yet. rt finishes the move when it does.";
     if (json) {

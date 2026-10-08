@@ -91,6 +91,8 @@ const WAITING = "Your org has not moved to its new layout yet. rt finishes the m
 function seedOneTeamClone(): void {
   const marker = join(root, "orgs", "acme", "mattstack");
   mkdirSync(marker, { recursive: true });
+  mkdirSync(join(root, "orgs", "acme", ".git"), { recursive: true });
+  writeFileSync(join(root, "orgs", "acme", ".git", "config"), "");
   writeFileSync(join(marker, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }));
 }
 

@@ -73,13 +73,34 @@ describe("readZones", () => {
   });
 
   test("a clone whose marker is on a layout above ORG_LAYOUT throws the update sentence", () => {
-    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "org", "org": "acme", "layout": 3 }' });
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/.git/config`]: "", [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "org", "org": "acme", "layout": 3 }' });
     expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org uses layout 3 and this app reads up to 2. Update the app.");
   });
 
   test("a one-team marker throws the waiting sentence rather than skipping the clone", () => {
-    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "team", "namespace": "widgets", "org": "acme" }' });
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/.git/config`]: "", [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "team", "namespace": "widgets", "org": "acme" }' });
     expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org has not moved to its new layout yet. rt finishes the move when it does.");
+  });
+
+  test("a ready clone beside a stale one-team clone still yields its zones", () => {
+    const fs = memFs({
+      ...orgFiles("acme", {}, { widgets: {} }),
+      [`${ORG_ROOT("acme")}/.git/config`]: "",
+      ...orgFiles("beta", {}, { gadgets: {} }),
+      [`${ORG_ROOT("beta")}/.git/config`]: "",
+      [`${ORG_ROOT("beta")}/mattstack/mattstack.jsonc`]: '{ "role": "team", "namespace": "gadgets", "org": "beta" }',
+    });
+    expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`).map((z) => z.slug)).toEqual(["acme/widgets"]);
+  });
+
+  test("a one-team folder that is not a clone is skipped beside a ready clone", () => {
+    const fs = memFs({
+      ...orgFiles("acme", {}, { widgets: {} }),
+      [`${ORG_ROOT("acme")}/.git/config`]: "",
+      ...orgFiles("beta", {}, { gadgets: {} }),
+      [`${ORG_ROOT("beta")}/mattstack/mattstack.jsonc`]: '{ "role": "team", "namespace": "gadgets", "org": "beta" }',
+    });
+    expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`).map((z) => z.slug)).toEqual(["acme/widgets"]);
   });
 
   test("a folder with no marker or a marker of another role is still skipped", () => {

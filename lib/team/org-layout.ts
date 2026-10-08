@@ -9,7 +9,7 @@ import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { orgDirUnder, orgsDirUnder } from "../rt-paths.ts";
 import type { Probes } from "../setup/probes.ts";
-import { markerState, ORG_LAYOUT } from "./org-marker.ts";
+import { markerState, ORG_LAYOUT, type MarkerState } from "./org-marker.ts";
 
 export type OrgLayoutState =
   | { kind: "none" }
@@ -30,25 +30,44 @@ export function orgLayoutWaitingError(state: Extract<OrgLayoutState, { kind: "wa
   return new UserActionableError("org-layout-waiting", layoutSentence(state));
 }
 
+export interface OrgCandidate {
+  slug: string;
+  /** The folder holds .git/config. */
+  isClone: boolean;
+  marker: MarkerState;
+  /** The folder holds mattstack/org/settings.org.jsonc. */
+  hasStore: boolean;
+}
+
 /**
- * Classifies the clone currentOrg would pick: the first by name, among folders
- * with .git/config and an org-kind marker, that holds the org store. When none
- * holds a store, the first by name with an org-kind marker.
+ * The one clone every reader agrees on: among candidates (in the caller's
+ * name order) that are clones with an org-kind marker, the first holding the
+ * org store; when none holds one, the first org-kind clone.
  */
+export function pickOrgClone(candidates: OrgCandidate[]): { slug: string; layout: number; hasStore: boolean } | null {
+  let fallback: { slug: string; layout: number; hasStore: boolean } | null = null;
+  for (const c of candidates) {
+    if (!c.isClone || c.marker.kind !== "org") continue;
+    if (c.hasStore) return { slug: c.slug, layout: c.marker.layout, hasStore: true };
+    fallback ??= { slug: c.slug, layout: c.marker.layout, hasStore: false };
+  }
+  return fallback;
+}
+
+/** Classifies the clone pickOrgClone would pick. */
 export function orgLayoutState(p: Pick<Probes, "readDir" | "readFile" | "exists" | "home">): OrgLayoutState {
   const root = orgsDirUnder(p.home);
-  let fallback: { slug: string; dir: string; layout: number } | null = null;
-  for (const slug of [...p.readDir(root)].sort()) {
+  const candidates = [...p.readDir(root)].sort().map((slug): OrgCandidate => {
     const dir = orgDirUnder(p.home, slug);
-    if (!p.exists(join(dir, ".git", "config"))) continue;
-    const marker = markerState(p, dir);
-    if (marker.kind !== "org") continue;
-    if (!p.exists(join(dir, "mattstack", "org", "settings.org.jsonc"))) {
-      fallback ??= { slug, dir, layout: marker.layout };
-      continue;
-    }
-    if (marker.layout === ORG_LAYOUT) return { kind: "ready", slug };
-    return { kind: "waiting", slug, dir, layout: marker.layout };
-  }
-  return fallback ? { kind: "waiting", ...fallback } : { kind: "none" };
+    return {
+      slug,
+      isClone: p.exists(join(dir, ".git", "config")),
+      marker: markerState(p, dir),
+      hasStore: p.exists(join(dir, "mattstack", "org", "settings.org.jsonc")),
+    };
+  });
+  const picked = pickOrgClone(candidates);
+  if (!picked) return { kind: "none" };
+  if (picked.hasStore && picked.layout === ORG_LAYOUT) return { kind: "ready", slug: picked.slug };
+  return { kind: "waiting", slug: picked.slug, dir: orgDirUnder(p.home, picked.slug), layout: picked.layout };
 }

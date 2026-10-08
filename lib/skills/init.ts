@@ -11,7 +11,7 @@ import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
 import { ORG_LAYOUT, parseMarker } from "../team/org-marker.ts";
-import { orgLayoutWaitingError } from "../team/org-layout.ts";
+import { orgLayoutWaitingError, pickOrgClone } from "../team/org-layout.ts";
 import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, teamPackSource, unconvertedTeamPackError } from "../team/team-pack-path.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
@@ -154,12 +154,21 @@ export function zoneTeamConfigReads(fs: InitFs, zoneDir: string): boolean {
  */
 export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
   const zones: ZoneInfo[] = [];
-  for (const org of [...fs.readDir(teams)].sort()) {
-    if (!isOrgSlug(org)) continue;
+  const names = [...fs.readDir(teams)].sort().filter(isOrgSlug);
+  const markers = new Map(names.map((org) => [org, parseMarker(fs.readFile(join(teams, org, "mattstack", "mattstack.jsonc")))]));
+  const picked = pickOrgClone(
+    names.map((org) => ({
+      slug: org,
+      isClone: fs.exists(join(teams, org, ".git", "config")),
+      marker: markers.get(org)!,
+      hasStore: fs.exists(join(teams, org, "mattstack", "org", "settings.org.jsonc")),
+    })),
+  );
+  if (picked && picked.layout !== ORG_LAYOUT) throw orgLayoutWaitingError({ kind: "waiting", slug: picked.slug, dir: join(teams, picked.slug), layout: picked.layout });
+  for (const org of names) {
     const orgDir = join(teams, org);
-    const state = parseMarker(fs.readFile(join(orgDir, "mattstack", "mattstack.jsonc")));
-    if (state.kind !== "org") continue;
-    if (state.layout !== ORG_LAYOUT) throw orgLayoutWaitingError({ kind: "waiting", slug: org, dir: orgDir, layout: state.layout });
+    const state = markers.get(org)!;
+    if (state.kind !== "org" || state.layout !== ORG_LAYOUT) continue;
     const orgSettings = storeGlobal(fs, join(orgDir, "mattstack", "org", "settings.org.jsonc"));
     const market = readJsonc(fs, join(orgDir, ".claude-plugin", "marketplace.json"));
     const marketplace = typeof market?.name === "string" ? market.name : null;
