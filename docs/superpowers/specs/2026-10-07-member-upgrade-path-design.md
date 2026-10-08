@@ -167,9 +167,10 @@ the Mac exactly as it is:
   per-repo skills files from v2.21.0 stay as they are until the converted
   layout is pulled. Today the same clone reads as "no org", every repo comes
   back undeclared, and `setAsideStale` renames the member's board bindings
-  to `.stale`; that is the bug this closes. The `skills.materialize` step and
-  the materialize tail of `plugins.install` report `skipped` with the
-  reason.
+  to `.stale`; that is the bug this closes. The `skills.materialize` step
+  reports `skipped` with the reason; `plugins.install` still ends `done`,
+  with "Skills were not materialized: <the reason>" in its detail, as its
+  materialize tail already words a skip.
 - The skills verbs (`rt skills check`, `compile`, `sync`, `bind`,
   `materialize`) see `readZonesFrom` throw a `UserActionableError` with
   code `org-layout-waiting`, and `commands/skills.ts` maps that one code to
@@ -256,17 +257,18 @@ once "Who you are" is answered; that is the existing `team.identity` row.
 
 The daemon's pull gains a gate so an rt never fast-forwards a clone onto a
 layout it does not read. `SnapshotSpec.pull` gains an optional
-`gate?: (ref: string) => Promise<string | null>`; `doPull` calls it after
-the fetch and before any fast-forward or rebase, with
-`refs/remotes/origin/<branch>`. A non-null answer is a hold: the pull
-returns `{ outcome: "skipped", detail }` with that sentence, `lastPullAt`
-is stamped (the fetch reached the remote), and the status gains
-`layoutHold: { layout, reads } | null`, set on a hold and cleared by any
-later pull that passed the gate. The home snapshot sets no gate.
+`gate?: (ref: string) => Promise<{ layout: number } | null>`; `doPull`
+calls it after the fetch and before any fast-forward or rebase, with
+`refs/remotes/origin/<branch>`. A non-null answer is a hold: `doPull`
+composes the sentence with `updateSentence(layout)` and returns
+`{ outcome: "skipped", detail, hold: { layout, reads: ORG_LAYOUT } }`,
+`lastPullAt` is stamped (the fetch reached the remote), and the status
+gains `layoutHold: { layout, reads } | null`, set on a hold and cleared by
+any later pull that passed the gate. The home snapshot sets no gate.
 
 `teamSnapshotSpec` supplies the gate: `git show <ref>:mattstack/mattstack.jsonc`
-parsed through `markerState`. A layout above `ORG_LAYOUT` holds, with the
-update sentence from section 4 naming both numbers. A marker that is
+parsed through `parseMarker`. A layout above `ORG_LAYOUT` answers
+`{ layout }` and holds. A marker that is
 missing, `none` or `invalid` at the tip does not hold: the gate guards one
 thing, and a clone with no readable marker is already a `team.sync`
 problem. A layout at or below `ORG_LAYOUT` passes.

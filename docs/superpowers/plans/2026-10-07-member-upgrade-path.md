@@ -331,7 +331,8 @@ In `lib/setup/__tests__/apply.test.ts` replace the test at line 1547 with:
 ```ts
   test("org.folder and org.pull precede the migrations, which precede identity, the rest and verify", async () => {
     const ran: string[] = [];
-    const step = (id: StepId) => updateStep(id, { state: "done" }, () => { ran.push(id); });
+    // The same inline factory the current test uses: a StepDef with updateSafe: true whose run records its id.
+    const step = (id: StepId): StepDef => ({ id, title: id, kind: "rt", updateSafe: true, applies: () => true, run: async () => { ran.push(id); return { state: "done" }; } });
     await runUpdateWith(
       [step("org.folder"), step("org.pull"), step("team.identity"), step("plugins.install"), step("skills.materialize"), step("verify")],
       [fakeMigration("2026-10-01-example", async () => { ran.push("migration"); return { state: "done" }; })],
@@ -341,7 +342,7 @@ In `lib/setup/__tests__/apply.test.ts` replace the test at line 1547 with:
   });
 ```
 
-Read how `updateStep` and `fakeMigration` are defined earlier in that file and keep their signatures; if `updateStep` takes no `onRun` callback, add an optional third argument that the fake's `run` calls before returning.
+`updateStep`'s third parameter is already `updateSafe`, so do not pass a callback to it; the inline `step` factory above is what the current test at line 1547 uses (copy its exact shape, including the `StepDef` import). `fakeMigration` keeps its signature.
 
 Also update the test at line 1553 ("runs pending migrations, then update-safe steps..."): its expected event order `["migration.2026-09-30-move-file", "path.link", "claude.permissions", "verify"]` stays the same because it has no org steps; add a comment that org steps would lead.
 
@@ -428,14 +429,14 @@ At the top of `run(ctx)`:
 
 ```ts
   async run(ctx) {
-    const layout = orgLayoutState(ctx.p ?? createRealProbes());
+    const layout = orgLayoutState(ctx.p);
     if (layout.kind === "none") return { state: "skipped", detail: "This Mac is in no org" };
     if (layout.kind === "waiting") return { state: "skipped", detail: "Your org has not moved to its new layout yet; nothing to move on this Mac" };
     const org = layout.slug;
     ...
 ```
 
-Remove the `currentOrg()` call (keep its import only if still used). Import `orgLayoutState` from `../../team/org-layout.ts` and `createRealProbes` from `../probes.ts`.
+Remove the `currentOrg()` call (keep its import only if still used). Import `orgLayoutState` from `../../team/org-layout.ts`. `MigrationDef.run` receives the full `ApplyContext`, so `ctx.p` is always set; the existing test's `run()` helper passes `{} as ApplyContext`, so give it a real-probes context for the new test: `sdmResourcesKeyMigration.run({ p: { ...createRealProbes(), home } } as Partial<ApplyContext> as ApplyContext)` and update the older tests' helper the same way (import `createRealProbes` from `../probes.ts` in the test).
 
 - [ ] **Step 4: Run the migration tests**
 
@@ -567,7 +568,7 @@ git commit -m "materialize: a clone on another layout is a waiting skip, never a
 
 - [ ] **Step 1: Write the failing test**
 
-In `commands/__tests__/skills-failures.test.ts`, following the file's existing pattern for driving a verb against a temp HOME and reading stderr through `captureOut()` (copy a neighbouring test's setup for HOME, the exit spy and the capture):
+In `commands/__tests__/skills-failures.test.ts`, following the file's own pattern: it drives verbs through `runExpectingCleanExit` (which returns `{ exitCode, errors }`) and reads output through `captureSkills`, not `captureOut()` and an exit sentinel. Rewrite the snippet below to that shape (copy a neighbouring test's setup for HOME and the two helpers); the assertions to keep are the sentence on stderr, the word `refused`, no `[failed]`, exit 2, and the `--json` envelope's `error`:
 
 ```ts
   test("a clone on another layout is a refused note with the sentence, exit 2, never a failure", async () => {
