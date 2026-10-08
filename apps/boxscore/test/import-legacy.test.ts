@@ -62,7 +62,9 @@ describe('mergeIntegrations', () => {
 
   it('fills a missing forge host and preserves unrelated blocks', () => {
     const current = { slack: { appId: 'A1' } };
-    const { merged, changed } = mergeIntegrations(current, { host: 'gitlab.com' });
+    const { merged, changed } = mergeIntegrations(current, {
+      host: 'gitlab.com',
+    });
     expect(changed).toBe(true);
     expect(merged).toEqual({
       slack: { appId: 'A1' },
