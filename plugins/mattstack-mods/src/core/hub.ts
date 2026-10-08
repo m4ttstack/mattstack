@@ -19,6 +19,8 @@ import type {
   UiLogOptions,
   UiFocusResult,
   UiOpenResult,
+  UiScrollArgs,
+  UiScrollResult,
 } from 'claude-code'
 import type { ModBlock } from './blocks.ts'
 import { supportedEngine } from './version.ts'
@@ -39,6 +41,8 @@ export type ModApi = {
     redraw(): void
     /** Moves the focus ring of a site of this plugin's that holds the keys onto the element drawn under `key`. */
     focus(requestId: string, key: string): Promise<UiFocusResult>
+    /** Moves the window of a site of this plugin's: to an element, or to its start or end. */
+    scroll(args: UiScrollArgs): Promise<UiScrollResult>
   }
   session: {
     version(): Promise<SessionVersion>
@@ -86,6 +90,12 @@ type StopResult = ClassicResultOf['classic.Stop']
 type Render = EngineEventOf['ui.render']
 type RenderResult = EngineResultOf['ui.render']
 type PaneClose = OpEventOf['ui.close']
+type Press = EngineEventOf['ui.press']
+type PressResult = EngineResultOf['ui.press']
+type Scroll = EngineEventOf['ui.scroll']
+type ScrollResult = EngineResultOf['ui.scroll']
+type Focus = EngineEventOf['ui.focus']
+type FocusResult = EngineResultOf['ui.focus']
 
 type Maybe<T> = T | void | Promise<T | void>
 type ToolMatch = string | RegExp
@@ -115,6 +125,15 @@ export type StopHandler = (api: ModApi, e: Stop) => Maybe<{ block: string }>
 export type RenderHandler = (api: ModApi, e: Render, next: (e: Render) => Promise<RenderResult>) => Promise<RenderResult>
 /** Hears that one of this plugin's panes closed: by its own `close`, the person, or an unload. */
 export type CloseHandler = (api: ModApi, e: PaneClose) => void | Promise<void>
+/**
+ * A pane's presses, window moves and focus moves, as middleware: return
+ * `next(e)` to let one through, or an answer of the handler's own to take it.
+ */
+export type PaneHandlers = {
+  press?(api: ModApi, e: Press, next: (e: Press) => Promise<PressResult>): Promise<PressResult>
+  scroll?(api: ModApi, e: Scroll, next: (e: Scroll) => Promise<ScrollResult>): Promise<ScrollResult>
+  focus?(api: ModApi, e: Focus, next: (e: Focus) => Promise<FocusResult>): Promise<FocusResult>
+}
 
 export type LifecycleInputs = {
   'session-start': EngineEventOf['session.start']
@@ -135,6 +154,8 @@ export type Subscriptions = {
   onLifecycle<K extends Lifecycle>(event: K, handler: LifecycleHandler<K>): void
   onRender(component: string, handler: RenderHandler): void
   onClose(pane: string, handler: CloseHandler): void
+  /** Handles the presses, window moves and focus moves in pane `pane`. */
+  onPane(pane: string, handlers: PaneHandlers): void
   section(id: string, text: () => string | null): void
 }
 
@@ -165,6 +186,9 @@ type Core = {
   lifecycle<K extends Lifecycle>(api: ModApi, event: K, e: LifecycleInputs[K]): Promise<void>
   render(api: ModApi, e: Render, next: (e: Render) => Promise<RenderResult>): Promise<RenderResult>
   close(api: ModApi, e: PaneClose): Promise<void>
+  press(api: ModApi, e: Press, next: (e: Press) => Promise<PressResult>): Promise<PressResult>
+  scroll(api: ModApi, e: Scroll, next: (e: Scroll) => Promise<ScrollResult>): Promise<ScrollResult>
+  focus(api: ModApi, e: Focus, next: (e: Focus) => Promise<FocusResult>): Promise<FocusResult>
   conversation(api: ModApi, source: ClassicEventOf['classic.SessionStart']['source']): Promise<void>
   sections(api: ModApi, e: EngineEventOf['prompt.compose']): Promise<{ id: string; text: string }[]>
 }
@@ -221,6 +245,7 @@ export function createHub(): Hub {
   const lifecycles: Owned<{ event: Lifecycle; handler: LifecycleHandler<any> }>[] = []
   const renderers: Owned<{ component: string; handler: RenderHandler }>[] = []
   const closers: Owned<{ pane: string; handler: CloseHandler }>[] = []
+  const panes: Owned<{ pane: string; handlers: PaneHandlers }>[] = []
   const sectionList: Owned<{ id: string; text: () => string | null }>[] = []
 
   const owned = <T extends object>(owner: ModBlock | null, label: string, value: T): Owned<T> => ({ ...value, owner, label })
@@ -303,6 +328,21 @@ export function createHub(): Hub {
       }
     }
     return e => step(0, e)
+  }
+
+  /** Runs the handlers subscribed to the pane `e` names, picked by `pick`, as a chain over `next`. */
+  function paneChain<E extends { requestId: string }, R>(
+    api: ModApi,
+    where: string,
+    pick: (handlers: PaneHandlers) => ((api: ModApi, e: E, next: (e: E) => Promise<R>) => Promise<R>) | undefined,
+    e: E,
+    next: (e: E) => Promise<R>,
+  ): Promise<R> {
+    const subs = panes.flatMap(s => {
+      const run = s.pane === e.requestId ? pick(s.handlers) : undefined
+      return run ? [{ ...s, run }] : []
+    })
+    return subs.length === 0 ? next(e) : chain(api, where, subs, next)(e)
   }
 
   function note(api: ModApi, text: string): void {
@@ -419,6 +459,10 @@ export function createHub(): Hub {
       }
     },
 
+    press: (api, e, next) => paneChain(api, 'ui.press', h => h.press, e, next),
+    scroll: (api, e, next) => paneChain(api, 'ui.scroll', h => h.scroll, e, next),
+    focus: (api, e, next) => paneChain(api, 'ui.focus', h => h.focus, e, next),
+
     async conversation(api, source) {
       if (source === 'compact') return
       opening = source === 'startup' || source === 'clear'
@@ -472,6 +516,9 @@ export function createHub(): Hub {
       onClose(pane, handler) {
         closers.push(owned(owner, `${pane} close handler`, { pane, handler }))
       },
+      onPane(pane, handlers) {
+        panes.push(owned(owner, `${pane} pane handler`, { pane, handlers }))
+      },
       section(id, text) {
         sectionList.push(owned(owner, `section ${id}`, { id, text }))
       },
@@ -514,6 +561,7 @@ function facade($: EngineInterface): ModApi {
       close: id => $.ui.close({ id }),
       redraw: () => $.ui.invalidate('ui.render'),
       focus: (requestId, key) => $.ui.focus({ requestId, key }),
+      scroll: args => $.ui.scroll(args),
     },
     session: {
       version: () => $.session.version(),
@@ -590,6 +638,9 @@ export function attachHub(on: On, hub: Hub): void {
   on('session.receive', async ($, e, next) => core.receive(facade($), e, next))
   on('classic.Stop', async ($, e, next) => core.stop(facade($), e, next))
   on('ui.render', async ($, e, next) => core.render(facade($), e, next))
+  on('ui.press', async ($, e, next) => core.press(facade($), e, next))
+  on('ui.scroll', async ($, e, next) => core.scroll(facade($), e, next))
+  on('ui.focus', async ($, e, next) => core.focus(facade($), e, next))
   on('ui.close', async ($, e, next) => {
     await core.close(facade($), e)
     return next(e)
