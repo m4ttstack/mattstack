@@ -380,7 +380,9 @@ describe('doctorSkillBound', () => {
     const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsDoctor);
     const tabbed = {
       ...noDoctor,
-      tabs: [{ id: 't1', label: 'T', source: { kind: 'authors' }, pack: 'widgets' }],
+      tabs: [
+        { id: 't1', label: 'T', source: { kind: 'authors' }, pack: 'widgets' },
+      ],
     } as typeof noDoctor;
     expect(doctorSkillBound('org/repo', tabbed, home)).toBe(true);
   });

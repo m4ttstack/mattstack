@@ -123,6 +123,7 @@ import { mrRef } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
 import { OwnersPostModal } from './OwnersPostModal.tsx';
+import { RedoConfirmDialog, type PendingRedo } from './RedoConfirmDialog.tsx';
 import { RespondModal, ReviewModal } from './ReviewModal.tsx';
 import {
   bulkActions,
@@ -132,7 +133,6 @@ import {
   type RunOpts,
 } from './row-actions.ts';
 import { reviewGroupHue, statusGroupHue } from './row-status.ts';
-import { RedoConfirmDialog, type PendingRedo } from './RedoConfirmDialog.tsx';
 import { RowMenu } from './RowMenu.tsx';
 import { RowView } from './RowView.tsx';
 import { SelectionBar } from './SelectionBar.tsx';

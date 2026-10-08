@@ -231,8 +231,7 @@ function dispatchArgs(o: SkillPromptOpts, skillPath?: string | null): string {
   // reach the skill, as `none`.
   flag(
     '--fix-classes',
-    o.fixClasses &&
-      (o.fixClasses.length ? o.fixClasses.join(',') : 'none')
+    o.fixClasses && (o.fixClasses.length ? o.fixClasses.join(',') : 'none')
   );
   flag('--draft-bin', o.draftBin);
   return parts.join(FLAG_SEPARATOR);

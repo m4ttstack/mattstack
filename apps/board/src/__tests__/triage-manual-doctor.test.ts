@@ -82,8 +82,6 @@ describe('manualDoctorFields', () => {
   });
 
   test('carries the draft bin, as the auto and resume paths do', () => {
-    expect(manualDoctorFields(TRIAGE, 'a', null).draftBin).toBe(
-      draftBinPath()
-    );
+    expect(manualDoctorFields(TRIAGE, 'a', null).draftBin).toBe(draftBinPath());
   });
 });

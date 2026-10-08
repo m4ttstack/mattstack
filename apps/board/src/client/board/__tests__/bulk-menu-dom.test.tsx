@@ -324,7 +324,10 @@ test('redo asks first: cancel launches nothing, confirm launches once', async ()
 test('a bulk redo confirms once for the whole selection', async () => {
   const done = (iid: number) =>
     boardMr(iid, { review: { status: 'done', sessionId: `s-${iid}` } });
-  servedData = { ...BOARD_DATA, mrs: [...BOARD_DATA.mrs, done(109), done(110)] };
+  servedData = {
+    ...BOARD_DATA,
+    mrs: [...BOARD_DATA.mrs, done(109), done(110)],
+  };
   await renderBoard();
   await check(109);
   await check(110);

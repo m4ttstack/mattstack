@@ -101,9 +101,7 @@ export function readRounds(
 }
 
 /** Each MR's highest recorded round, for the board's follow-up label. */
-export function latestRounds(
-  db: Database = getStateDb()
-): Map<string, number> {
+export function latestRounds(db: Database = getStateDb()): Map<string, number> {
   const rows = db
     .query(
       'SELECT mr_url, MAX(round) AS round FROM review_rounds GROUP BY mr_url'

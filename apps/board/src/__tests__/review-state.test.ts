@@ -236,7 +236,11 @@ describe('attachReviews', () => {
         },
       ],
     ]);
-    const [a] = attachReviews([{ webUrl: URL_A }], reviews, new Map([[URL_A, 2]]));
+    const [a] = attachReviews(
+      [{ webUrl: URL_A }],
+      reviews,
+      new Map([[URL_A, 2]])
+    );
     expect(a!.review?.rounds).toBe(2);
   });
 });

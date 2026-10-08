@@ -273,6 +273,7 @@ import {
   type RespondStatus,
 } from './respond-state.ts';
 import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
+import { latestRounds } from './review-rounds.ts';
 import {
   attachReviews,
   parseReviewRequestBody,
@@ -286,7 +287,6 @@ import {
   type ReviewState,
   type ReviewStatus,
 } from './review-state.ts';
-import { latestRounds } from './review-rounds.ts';
 import { attachNotes, MAX_NOTE_LEN, readNotes, writeNote } from './row-note.ts';
 import {
   attachSlack,
