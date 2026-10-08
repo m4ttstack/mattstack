@@ -1,0 +1,41 @@
+.icon {
+  display: inline-block;
+  vertical-align: -2px;
+  flex-shrink: 0;
+}
+
+/* The bot mark takes its lane's color, as in the board's menu. */
+.review {
+  color: rgb(46, 125, 233);
+}
+
+.respond {
+  color: rgb(88, 117, 57);
+}
+
+.doctor {
+  color: rgb(177, 92, 0);
+}
+
+.cloudBot {
+  stroke: rgb(46, 125, 233);
+}
+
+html[data-theme="dark"] .review,
+html[data-theme="dark"] .cloudBot {
+  color: rgb(122, 162, 247);
+  stroke: rgb(122, 162, 247);
+}
+
+html[data-theme="dark"] .respond {
+  color: rgb(158, 206, 106);
+}
+
+html[data-theme="dark"] .doctor {
+  color: rgb(255, 158, 100);
+}
+
+.emoji {
+  font-size: 1rem;
+  line-height: 1;
+}

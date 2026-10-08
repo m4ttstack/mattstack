@@ -15,15 +15,15 @@ Open board from the mattstack window, or at `https://board.mattstack`. It is a t
 
 ## What you do in it
 
-**Find what needs a look.** A sidebar switches between everyone and a single member. The header groups rows by age, author, status or your reviews, sorts them by oldest or by progress, and switches between rows and grid and between light, dark and system themes. Your view lives in the page address, so you can share it.
+**Find what needs a look.** A sidebar switches between everyone and a single member. Show chips pick which MRs appear, the Group and Sort menus split them by age, author, status or your reviews, and the theme follows your system or stays light or dark. Your view lives in the page address, so you can share it. The [board guide](/apps/board-guide#show-chips-group-and-sort) covers every chip and choice.
 
-**Open or act on an MR.** A click opens the MR in GitLab. Right-click a row for its menu: open in GitLab, copy for Slack, mark or unmark a Slack reaction, and flip your own MR between draft and ready.
+**Open or act on an MR.** A click opens the MR in GitLab. Right-click a row for its menu: agent actions, GitLab actions such as merge and draft, Slack reactions and posting, and a private note. The [board guide](/apps/board-guide#the-row-menu) lists every action.
 
 **Hand an MR to an agent.** From a local address, the row menu can start a Claude Code agent in a herdr pane to review someone else's MR, to respond to review on your own, or to look into merge conflicts and red CI. The row shows a live badge while the agent works. These actions are not offered on a board opened through a public address.
 
 **Run reviews through Slack.** board follows a channel convention: a review request is a message with the MR link, and review state is signalled with three reactions (looking, commented, approved). You can post a request and set the reactions from a row.
 
-**Ask a teammate's board for a review.** If teammates run their own boards, an optional relay lets boards ask each other for reviews and re-reviews. Skip it and board works without it.
+**Ask a teammate's agent.** If teammates run their own boards, boards can ask each other's agents for a review, a re-review or a response. Asks wait in an inbox for a go-ahead. The [board guide](/apps/board-guide#asks-between-boards) follows an ask from start to finish.
 
 ## Settings that matter
 
@@ -40,12 +40,15 @@ These are registry keys, so you can read them with `rt settings get <key>`.
 | `board.staleAfterDays` | Days of MR inactivity before the board flags it stale, for you. |
 | `board.gateGraceMinutes` | Minutes an unanswered review gate stays open before the board parks the review. Default 90. |
 | `board.reReview` | Turns the automatic re-review sweep on or off. |
-| `board.peerAsks` | Turns on starting the agent when a teammate's board asks yours for a review. |
+| `board.peerAsks` | Whether teammates' boards can ask your agent for a review, re-review or response. Asks wait in your inbox for a go-ahead. |
+| `board.peerAsksAlwaysAllow` | Teammates whose asks start your agent without waiting for you. |
+| `board.turn` | What counts as the author's move (Waiting on author) and as a reviewer's (Needs me). |
 | `board.agent.account` | The cswap account the board's review, respond and doctor panes launch under. |
 | `board.agent.model` | Default model for those panes. |
 
 ## Related
 
+- [board guide](/apps/board-guide) covers the row menu, the chips, asks between boards and Waiting on author in depth.
 - [`rt apps`](/rt/reference/apps) turns board on or off.
 - [`rt settings`](/rt/reference/settings) reads and writes the keys above.
 - [Gates](/skills/gates) explains the decisions an agent pauses on, which board shows for you to answer.
