@@ -656,6 +656,36 @@ describe('GateCard: step mode', () => {
     expect(screen.getByTestId('gate-progress')).toHaveTextContent('1 of 2');
   });
 
+  it('names each question group by its prompt without a legend', () => {
+    const { container } = renderCard(gateRow());
+    expect(
+      screen.getByRole('group', { name: 'What happened?' })
+    ).toBeInTheDocument();
+    expect(container.querySelector('legend')).toBeNull();
+  });
+
+  it('groups focus pane then reset apart from previous then the step button', async () => {
+    renderCard(gateRow());
+    const focus = screen.getByTestId('gate-focus');
+    const reset = screen.getByTestId('gate-reset');
+    const next = screen.getByTestId('gate-next');
+    expect(focus.parentElement).toBe(reset.parentElement);
+    expect(next.parentElement).not.toBe(focus.parentElement);
+    expect(
+      focus.compareDocumentPosition(reset) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    await userEvent.click(screen.getByRole('radio', { name: 'pass' }));
+    await userEvent.click(next);
+    const previous = screen.getByTestId('gate-previous');
+    const skip = screen.getByTestId('gate-skip');
+    expect(previous.parentElement).toBe(skip.parentElement);
+    expect(previous.parentElement).not.toBe(focus.parentElement);
+    expect(
+      previous.compareDocumentPosition(skip) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('renders a single-question gate flat: no progress, no Previous, Next, or Reset, and Submit disabled until answered', async () => {
     renderCard(gateRow({ questions: [gateRow().questions[0]!] }));
     expect(screen.queryByTestId('gate-progress')).not.toBeInTheDocument();
