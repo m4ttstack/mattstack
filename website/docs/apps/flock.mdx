@@ -3,11 +3,13 @@ title: flock
 sidebar_position: 8
 ---
 
+import FlockStatus from "@site/src/components/FlockStatus";
+
 # flock
 
 ## What it is
 
-flock is a native macOS window onto your [herdr](https://github.com/herdrdev/herdr) session. It is the mattstack way to use herdr: drag and drop anything you see to move or rearrange it, with a workspaces view for rearranging across workspaces. It also supports keyboard navigation and improves how you interact with herdr notifications. The project is in continual development.
+flock is a native macOS window onto your [herdr](https://github.com/herdrdev/herdr) session. It is the mattstack way to use herdr: drag and drop anything you see to move or rearrange it. It also supports keyboard navigation and improves how you interact with herdr notifications. The project is in continual development.
 
 ## Open it
 
@@ -15,30 +17,297 @@ Download `Flock-<version>.dmg` from the [latest release](https://github.com/m4tt
 
 ## What you do in it
 
-**Rearrange panes, tabs and workspaces.** Drag to move them. `Cmd R` enters rearrange mode and `Esc` leaves it. `Cmd Z` and `Shift Cmd Z` undo and redo a move. `Cmd 1`, `Cmd 2` and `Cmd 3` switch between the Workspaces, Overview and Arrange views; Arrange is where you rearrange across workspaces.
+**Rearrange.** Drag panes, tabs and workspaces to move them, inside a workspace or across workspaces in [Arrange](#arrange).
 
-**Jump around.** The workspace switcher works like macOS Cmd Tab: hold Ctrl and press Tab. The tab switcher is Option Tab. `Cmd K` opens the command palette, which lists every command with its key.
+**See what needs you.** Every pane carries a [status](#statuses), and [Overview](#overview) sorts every pane by what it needs from you.
 
-**Split and move panes from the keyboard.** `Cmd D` splits right and Shift Cmd D splits down. Option Cmd with an arrow key focuses the pane on that side, and adding Shift moves the focused pane that way.
+**Work from the keyboard.** Every command has a key, listed under [Key commands](#key-commands), and the command palette (<kbd>⌘</kbd><kbd>K</kbd>) finds any of them by name.
 
-**Handle notifications.** `Cmd J` opens the oldest notification and `Shift Cmd U` clears them. A question from an agent stays in the sidebar until you answer it.
+**Use rt from a pane.** If you run agents with rt, each pane gets an rt button that opens `rt nav`, `rt glitter`, `rt run` and `rt runner` in a modal. Herds get their own sidebar section with progress read from rt, and rt chat is a click away. None of it is needed to use flock with plain herdr.
 
-**Use rt from a pane.** If you run agents with rt, each pane gets an rt button that opens `rt nav`, `rt glitter`, `rt run` and `rt runner` in a modal. Herds get their own sidebar section with progress read from rt, and rt chat is a click away. None of it is needed to use Flock with plain herdr.
+## The three views
+
+The tabs at the top of the window switch between three views of the same session: Workspaces, Overview and Arrange. The View menu, the palette and <kbd>⌘</kbd><kbd>1</kbd> to <kbd>⌘</kbd><kbd>3</kbd> switch them too.
+
+### Workspaces
+
+The live window, where you work. The sidebar on the left lists your workspaces in sections: PINNED, WORKSPACES, and, when you use rt, BOARD for the board app's workspaces and HERDS for running herds. Notifications stack at the foot of the sidebar. The tab strip runs along the top, and the selected tab's panes fill the rest.
+
+Drag sidebar rows, tabs and panes to move them, right-click any of them for its menu, and double-click a name to rename it. Clicking empty space in the sidebar or the tab strip opens a new workspace or tab.
+
+### Overview
+
+Every pane as a card, sorted into three lanes by what it needs from you:
+
+- **NEEDS YOU** holds blocked panes, then done ones. When it is empty it says "Nothing needs you".
+- **WORKING** holds working panes, then BACKGROUND: Claude Code panes still running something behind their prompt (see [the mauve ring](#the-mauve-ring)).
+- **AT REST** holds everything else, by when it last changed: Last hour, Earlier today, Yesterday, This week, Older and Unknown.
+
+Cards are grouped under their workspace's symbol and name. Each card shows the pane's status mark, its title, how long it has been in that state (for example "blocked 12m"), its branch and a timeline of its status over the last hour. Settings > Overview > Bottom line chooses whether that line shows the branch, the repo and branch, or nothing.
+
+Click a card, or select it and press <kbd>↩</kbd>, to open it. The pane opens on its own and live, so you can type into it. The header has a "‹ Overview" button back, and a NEXT chip naming the next pane waiting on you, or a "Queue clear" badge when nothing is. While Overview is not the view you are on, its tab carries a red count of the cards that need you.
+
+### Arrange
+
+One island per workspace, holding a live thumbnail of each tab's split layout. Drag panes, tabs and whole workspaces between islands: drop on the middle of a pane to swap or move it there, on a pane's edge to split, on a tab to move into that tab, or on empty space to make a new tab. Hover a tab or workspace during a drag and it springs open.
+
+Click a pane to select it and double-click (or press <kbd>↩</kbd>) to open it in Workspaces. Zoom into one workspace from its island's Zoom button, by double-clicking its header, or with <kbd>Space</kbd>. Right-click a pane for Rename Pane, Copy Output and Close Pane. Typing never reaches a terminal from Arrange.
+
+## Statuses
+
+flock draws one status mark per pane from what herdr reports about the agent running in it, and draws it the same way everywhere: the sidebar, tabs, cards, switchers and notifications. A tab, workspace or herd shows its loudest pane, in the order blocked, done, working, idle.
+
+The colors below are from Tokyo Night (Tokyo Night Day on a light page), flock's default theme; other themes use their own shades of the same colors.
+
+| Mark | Status | What it means |
+| --- | --- | --- |
+| <FlockStatus status="working" /> | working | The agent is working. |
+| <FlockStatus status="blocked" /> | blocked | The agent stopped and is waiting for you. Its notification stays until you answer it, and its card stays in NEEDS YOU until it is unblocked. |
+| <FlockStatus status="done" /> | done | The agent finished. It clears to idle once you look at the pane. |
+| <FlockStatus status="idle" /> | idle | An agent is in the pane, idle. |
+| <FlockStatus status="background" /> | background work | See [the mauve ring](#the-mauve-ring). |
+| <FlockStatus status="unknown" /> | no agent | A plain shell, or anything else herdr detects no agent in. Its pane label reads "idle", dimmed. |
+
+A pane's label carries the status word in the same color: working, blocked, done or idle.
+
+### The mauve ring
+
+herdr calls a Claude Code pane idle or done as soon as Claude Code is back at its prompt, even when it is still running background shells, monitors or subagents. flock reads the footer Claude Code draws under its prompt every 10 seconds, and when it counts any of those, the pane gets a mauve ring in place of its idle or done mark.
+
+The pane label shows the reason in place of the status word, for example "1 shell", "2 monitors" or "1 subagent". In Overview the card moves to WORKING under BACKGROUND, with the reason and its age, such as "1 shell · 3m". When the work ends, the pane goes back to idle or done.
+
+### Plain shells
+
+flock has no statuses of its own for a plain shell: a shell running a long build looks the same as one sitting at its prompt, the small muted dot. Closing such a pane does not ask first, because only working and blocked agents count as busy.
+
+A new pane, or one you just cleared, shows its launcher until you type or its screen changes: buttons for rt cd, claude and codex, with <kbd>⌘</kbd><kbd>1</kbd> to <kbd>⌘</kbd><kbd>3</kbd>.
+
+### Other marks
+
+- A tab marked complete (right-click a tab > Mark Complete) shows a mauve checkmark, dims and moves to the right end of the strip.
+- A zoomed pane shows a mauve "Zoomed" badge in its label.
+- An empty pinned workspace shows no mark, with its symbol and name dimmed.
+- rt runs listed in a pane's rt menu show a green dot while running, grey once finished and red once exited.
+
+## Pinned workspaces
+
+A pinned workspace keeps its place at the top of the sidebar, under PINNED, and comes back when you click it after its last tab closes.
+
+### Pin a workspace
+
+Right-click the workspace in the sidebar and choose **Pin**. Once you have one pin, the PINNED section exists and you can also drag a row from WORKSPACES into it; the first pin has to come from the menu, because PINNED is not drawn until a pin exists.
+
+Pinning saves the workspace's name and one folder: the folder of the first pane in the workspace's first tab, as it is at that moment. If that pane is an agent sitting in a worktree, or a shell you have `cd`'d somewhere temporary, that is the folder the pin keeps. Pin names are unique: pinning a second workspace with the same name is refused.
+
+### Set the pinned workspace's folder
+
+Because the folder is whatever the first pane happened to be in, check it after you pin:
+
+1. Right-click the pinned workspace in the sidebar.
+2. Choose **Change Folder…**.
+3. In the folder picker, which opens on the current folder and asks where the workspace opens, pick the folder you want and click **Choose**.
+
+You can do this any time, on a live pinned workspace or an empty one. The folder only matters when flock opens the workspace again: it does not move the panes that are already open.
+
+### What a pin does
+
+- A pinned workspace's menu has no Close. Closing its last tab closes the herdr workspace without asking and leaves an empty pin, dimmed in the sidebar.
+- Clicking an empty pin (in the sidebar, the <kbd>⌃</kbd><kbd>Tab</kbd> switcher or the title bar) opens a new workspace with one shell in the pin's folder, under the pin's name. Tabs, splits and commands are not restored. If the folder no longer exists, it opens in your home folder and tells you to pick another with Change Folder….
+- flock does not reopen pins when it starts. An empty pin whose name matches a workspace herdr already has links to it.
+- Renaming a pinned workspace in herdr renames the pin.
+- Drag pins to reorder them. PINNED comes first in the sidebar, and in the workspace keys and switcher too.
+- Pins are kept on this Mac only.
+
+### Unpin
+
+Right-click the pinned workspace and choose **Unpin**, or drag it down into WORKSPACES. It stays open as an ordinary workspace. An empty pin's menu offers **Remove** instead.
+
+### Title bar workspaces
+
+**Move to Top Bar** in a workspace's menu pins it and moves it to an icon in the title bar, beside the view tabs. Clicking the icon opens that workspace in an overlay, and the icon's color is the workspace's status. Only a workspace with one tab can move there. Right-click the icon for Move to Sidebar, Rename, Change Icon… and Unpin. Settings > Title Bar Workspaces chooses Icon only or Icon and name.
+
+## Workspace symbols
+
+Every workspace wears an SF Symbol beside its name: in the sidebar, Overview's group headers, Arrange's island headers and the header of an opened card. flock gives each new workspace the least-used symbol on its own, so no two look alike until you have many.
+
+To choose one, click the symbol, or right-click the workspace and choose **Change Symbol…**. The picker lists 216 symbols in eight groups (Engineering, Work, Tools, Nature, Things, Travel and sport, Shapes, Animals), with the current one highlighted. **Automatic** at the top hands the choice back to flock.
+
+No symbol is a check, exclamation mark, clock, bell, cross or plain circle, since those shapes belong to statuses, and color in the sidebar only ever means status. A workspace keeps its symbol when you rename it, pin it or unpin it. The board app's workspaces wear the board logo and herds wear the ram mark; neither can be changed.
+
+## Key commands
+
+Keys are written the way the macOS menus write them: <kbd>⌃</kbd> Control, <kbd>⌥</kbd> Option, <kbd>⇧</kbd> Shift, <kbd>⌘</kbd> Command. Most of them also sit in the menu bar and in the command palette (<kbd>⌘</kbd><kbd>K</kbd>), which shows each command's key beside it.
+
+Pane commands use <kbd>⌘</kbd> because it is the one modifier a pane's program never receives, so they never collide with what runs inside a pane.
+
+### Panes
+
+<div className="keys-table">
+
+| Keys | Command | What it does |
+| --- | --- | --- |
+| <kbd>⌘</kbd><kbd>D</kbd> | Split Right | Splits the focused pane to the right. |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>D</kbd> | Split Down | Splits the focused pane downward. |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>↩</kbd> | Zoom Pane | Zooms the focused pane to fill its tab. The menu reads Unzoom Pane while it is zoomed. |
+| <kbd>⌘</kbd><kbd>W</kbd> | Close Pane | Closes the focused pane. In a window such as Settings it closes that window. |
+| <kbd>F2</kbd> | Rename | Renames the focused pane, else the selected tab, else the selected workspace. |
+| <kbd>⌥</kbd><kbd>⌘</kbd> + arrow | Focus Pane | Focuses the pane on that side. |
+| <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd> + arrow | Move Pane | Moves the focused pane past its neighbor on that side, the same move a drag makes. |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + arrow | Swap Pane | Swaps the focused pane with its neighbor on that side. |
+| <kbd>⌘</kbd><kbd>1</kbd>, <kbd>⌘</kbd><kbd>2</kbd>, <kbd>⌘</kbd><kbd>3</kbd> | rt cd, Launch claude, Launch codex | While a new pane shows its launcher, types that command into the pane's shell. rt cd is offered only when `rt` is on your `PATH`, and each agent only when its CLI is. |
+| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd> | Send Right-Clicks to Program / Give Right-Clicks to Flock | Chooses whether a plain right-click in the focused pane goes to its program or opens flock's pane menu. <kbd>⌥</kbd> + right-click always does the other one. |
+| <kbd>⌘</kbd><kbd>F</kbd> | Find | Opens the find bar over the pane's terminal. <kbd>↩</kbd> finds the next match and <kbd>⇧</kbd><kbd>↩</kbd> the previous one. |
+| <kbd>⌘</kbd><kbd>G</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>G</kbd> | Next Match / Previous Match | Steps through the find bar's matches. <kbd>Esc</kbd> returns to the terminal with the matches still lit, and <kbd>Esc</kbd> on an empty field closes the bar. |
+| <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>-</kbd> | Terminal Text > Bigger / Smaller | Steps the panes' text between Compact, Regular and Large. While an rt modal is open, it sizes that modal instead. |
+
+</div>
+
+### Tabs
+
+<div className="keys-table">
+
+| Keys | Command | What it does |
+| --- | --- | --- |
+| <kbd>⌘</kbd><kbd>T</kbd> | New Tab | Opens a tab in the selected workspace. |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close Tab | Closes the selected tab. |
+| <kbd>⌥</kbd><kbd>Tab</kbd> | Tab switcher | Hold <kbd>⌥</kbd> and tap <kbd>Tab</kbd> to step through the workspace's tabs, most recent first. Add <kbd>⇧</kbd> to step back, and let go of <kbd>⌥</kbd> to open the one you are on. |
+| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd> / <kbd>⌃</kbd><kbd>⌘</kbd><kbd>→</kbd> | Previous Tab / Next Tab | Steps along the tab strip, wrapping at the ends. |
+| <kbd>⌃</kbd><kbd>1</kbd> … <kbd>⌃</kbd><kbd>9</kbd> | Go to Tab | Jumps to that tab in the strip. |
+
+</div>
+
+### Workspace keys
+
+<div className="keys-table">
+
+| Keys | Command | What it does |
+| --- | --- | --- |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> | New Workspace | Opens a new workspace. |
+| <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close Workspace | Closes the selected workspace. |
+| <kbd>⌃</kbd><kbd>Tab</kbd> | Workspace switcher | Works like macOS app switching: hold <kbd>⌃</kbd> and tap <kbd>Tab</kbd>, with <kbd>⇧</kbd> to step back, and let go to open. Pinned workspaces come first, and choosing an empty pin opens it again. |
+| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>↑</kbd> / <kbd>⌃</kbd><kbd>⌘</kbd><kbd>↓</kbd> | Previous Workspace / Next Workspace | Steps through the sidebar in order, skipping folded sections. |
+| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>1</kbd> … <kbd>⌃</kbd><kbd>⌘</kbd><kbd>9</kbd> | Go to Workspace | Jumps to that row of the sidebar. |
+| <kbd>⌘</kbd> + click | Select several | Selects several sidebar rows to drag as one block. <kbd>Esc</kbd> clears the selection. |
+
+</div>
+
+### Views and rearranging
+
+<div className="keys-table">
+
+| Keys | Command | What it does |
+| --- | --- | --- |
+| <kbd>⌘</kbd><kbd>1</kbd> | Workspaces | Shows the Workspaces view. |
+| <kbd>⌘</kbd><kbd>2</kbd> | Overview | Shows the Overview. |
+| <kbd>⌘</kbd><kbd>3</kbd> | Arrange | Shows Arrange. |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> | All Workspaces | Opens or closes the grid, in whichever of Overview and Arrange you used last. |
+| <kbd>⌘</kbd><kbd>R</kbd> | Rearrange Mode | Turns rearrange mode on or off. While it is on, a drag can start anywhere on a pane and the mouse no longer reaches the pane's program. <kbd>Esc</kbd> leaves it. |
+| <kbd>⌘</kbd><kbd>Z</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd> | Undo / Redo | Undoes or redoes a move. |
+| <kbd>Esc</kbd> during a drag | Cancel | Cancels the drag. With rearrange mode on, a second <kbd>Esc</kbd> leaves the mode. |
+| <kbd>Space</kbd> during a drag | Spring-load | Opens the tab or workspace under the pointer at once, without waiting for it to spring open. |
+
+</div>
+
+### Overview keys
+
+<div className="keys-table">
+
+| Keys | What it does |
+| --- | --- |
+| Arrow keys | Move the card selection: up and down within a lane, left and right to the next lane. |
+| <kbd>↩</kbd> | Opens the selected card. |
+| <kbd>⌘</kbd><kbd>[</kbd> | Back to Overview, from a card you opened. |
+| <kbd>⌘</kbd><kbd>]</kbd> | Open Next Card: opens the oldest other card that is waiting on you. |
+
+</div>
+
+### Arrange keys
+
+<div className="keys-table">
+
+| Keys | What it does |
+| --- | --- |
+| <kbd>Space</kbd> | Zooms into the selected workspace's island, or back out. |
+| <kbd>↩</kbd> | Opens the selected pane in Workspaces. |
+| <kbd>Esc</kbd> | Zooms out, or leaves Arrange. |
+
+</div>
+
+### Notifications
+
+<div className="keys-table">
+
+| Keys | Command | What it does |
+| --- | --- | --- |
+| <kbd>⌘</kbd><kbd>J</kbd> | Open Oldest Notification | Jumps to the pane that has waited longest. In Overview it opens that card. |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>U</kbd> | Clear Notifications | Dismisses every notification. |
+
+</div>
+
+### Command palette
+
+<div className="keys-table">
+
+| Keys | What it does |
+| --- | --- |
+| <kbd>⌘</kbd><kbd>K</kbd> | Opens or closes the palette. Recent commands sit at the top, then every command, each tagged with its area. |
+| <kbd>↑</kbd> <kbd>↓</kbd>, or <kbd>⌃</kbd><kbd>P</kbd> <kbd>⌃</kbd><kbd>N</kbd> | Move through the list. |
+| <kbd>↩</kbd> | Runs the highlighted command. |
+| <kbd>Esc</kbd> | Closes the palette. |
+
+</div>
+
+The palette also lists the rt commands when `rt` is installed (cd, nav, glitter, run and runner), which have no key of their own. While an rt modal is open, <kbd>⌘</kbd><kbd>W</kbd> closes it.
+
+### Chat
+
+These show only when herdr-chat is available, and sit in their own Chat menu.
+
+<div className="keys-table">
+
+| Keys | Command |
+| --- | --- |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>C</kbd> | Chat Panel |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>B</kbd> | Broadcast to Panes… |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd> | Chat Peek |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>S</kbd> | Quick Send… |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>V</kbd> | Open Viewer |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>I</kbd> | Sign In This Pane |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd> | Sign Out This Pane |
+| <kbd>⌘</kbd><kbd>↩</kbd> | Sends the message you are writing. |
+
+</div>
+
+### App
+
+<div className="keys-table">
+
+| Keys | Command |
+| --- | --- |
+| <kbd>⌘</kbd><kbd>,</kbd> | Settings |
+
+</div>
 
 ## Settings that matter
 
-flock has no keys in the mattstack settings registry. Its own Settings (`Cmd ,`) hold these:
+flock has no keys in the mattstack settings registry. Its own Settings (<kbd>⌘</kbd><kbd>,</kbd>) hold these sections:
 
-| Setting | Meaning |
-| --- | --- |
-| Notifications > Show in sidebar | Until seen (the default), for 5 seconds, or never. |
-| Rearrange Mode > After a move | Turn rearrange mode off after a drag changes the layout (the default), or keep it on. |
-| rt Modal Text Size | The size each rt command's modal opens at. |
-| herdr > Mouse support | Installs a build of the same herdr version that passes clicks and scrolling through to its panes. |
+| Section | Setting | Choices |
+| --- | --- | --- |
+| Starting Folder | New Workspace, New Tab, New Pane | Current Pane's Folder, Repo's Main Checkout (home outside a git repo), Home Folder or Custom Folder…. New workspaces and panes start in the current pane's folder and new tabs in the repo's main checkout. |
+| Notifications | Show in sidebar | Until seen (the default), For 5 seconds or Never. A question stays until you answer it. |
+| Titles | One title for a one-pane tab | On by default: a tab holding one pane shows one title everywhere. |
+| Title Bar Workspaces | Show | Icon only (the default) or Icon and name. |
+| Overview | Bottom line | Branch (the default), Repo and branch, or Hidden. |
+| Rearrange Mode | After a move | Exit (the default) or Stay. |
+| rt Modal Text Size | rt cd, rt nav, rt glitter, rt run, rt runner | Compact, Regular (the default) or Large. |
+| herdr | Mouse support | Installs a build of your herdr version that passes clicks and scrolling through to panes, or restores the original. |
+| Command Line | Shell command | Installs a `flock` command on your `PATH`, to control flock from a terminal or over ssh. |
+
+The View menu holds the rest: Theme (Tokyo Night by default, among 17), Terminal Text, Option as Alt (Left Option by default) and Scroll Speed.
 
 ## Related
 
-- [rt runner](/rt/guides/runner) and [glitter](/rt/guides/glitter) are two of the commands Flock's rt button opens.
-- [Chat guide](/rt/guides/chat) covers the rt chat that Flock links to.
-- [flock guide](/apps/flock-guide) lists every key command and covers the three views, statuses, pinned workspaces and workspace symbols.
+- [rt runner](/rt/guides/runner) and [glitter](/rt/guides/glitter) are two of the commands a pane's rt button opens.
+- [Chat guide](/rt/guides/chat) covers the rt chat behind flock's Chat menu.
 - [flock on GitHub](https://github.com/m4ttstack/flock) has the full README, including known issues.
