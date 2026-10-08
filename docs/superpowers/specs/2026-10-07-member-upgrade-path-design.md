@@ -31,9 +31,10 @@ sees one calm line and nothing else.
   It moves only when the repo's shape changes in a way an older rt cannot
   read. Each rt knows the highest layout it reads; the daemon holds a clone
   at the last commit it can read when `main` moves above that.
-- **Designed and built against today's `main` first.** A patch release from
-  the v2.21.0 tag carrying only the gate is a later, separate job; this
-  spec gives it the exact rule to copy.
+- **The gate ships to the old app first.** It is designed and built against
+  today's `main` in this job, then copied to a patch release cut from the
+  v2.21.0 tag (a separate job). Members take that patch before the layout
+  release, so even this upgrade has no old-app window.
 - **Org repo migrations (the admin side) are the named follow-up**, not
   built here. This job builds the member half of that feature for the one
   upgrade in front of us.
@@ -312,24 +313,22 @@ team store, and no `failed` or `needs-you` row.
 
 ## 8. Rollout for the two members
 
-1. Merge this job and cut the release.
-2. Right after, merge the converted branch to the org repo's `main` and
-   push, or ask the two members to update first; either order converges,
-   the difference is only the old-app window on a Mac that has not updated.
-3. Once both members are on the release and `main` is merged, delete the
-   converted branch.
+1. Merge this job. Copy the gate (section 6) and the `org.layout` row to a
+   patch branch cut from the v2.21.0 tag, with `ORG_LAYOUT` at 1 and the
+   marker reader as it was at the tag, and release it as v2.21.1. `main`
+   already carries the breaking change, so the patch cannot come from it.
+2. Both members take v2.21.1. This is the one time the admin needs to know
+   they updated; from here on the order never matters.
+3. Cut the layout release from `main` and merge the converted branch to the
+   org repo's `main`, in either order. A Mac on v2.21.1 holds the copy and
+   shows the update line; a Mac on the layout release converts.
+4. Once both members are on the layout release and `main` is merged, delete
+   the converted branch.
 
-From the next release on, the gate is on every Mac, and the order stops
-mattering: the admin merges a layout-3 `main` whenever it is ready, an rt
-that reads layout 2 holds with the update sentence, and an rt that reads
-layout 3 converts.
-
-**The v2.21.1 patch** (a later job): the gate of section 6 written against
-the v2.21.0 daemon, where `ORG_LAYOUT` is 1 and the marker reader is
-`lib/team/org-marker.ts` as it was at the tag, plus the `org.layout` row.
-With it on both members' Macs before the layout-2 release, even this
-upgrade has no old-app window. It is cut from the tag on a patch branch,
-since `main` already carries the breaking change.
+From then on, a breaking layout change is the same three steps: bump
+`ORG_LAYOUT` in the release that reads the new shape, ship it, merge the
+converted `main` whenever it is ready. An rt that reads the old layout holds
+with the update sentence; an rt that reads the new one converts.
 
 ## 9. Testing
 
@@ -408,7 +407,7 @@ real HOME.
   optional staging. The conversion scripts become its first entries, and
   nobody runs a script from a checkout again. `ORG_LAYOUT`, `markerState`
   and `orgLayoutState` are its member half.
-- **The v2.21.1 patch** from section 8.
+- **The v2.21.1 patch** from section 8, step 1.
 - **Member version reporting**, so an admin sees who is on what rt before
   a contract step. Not needed while the gate holds old apps safely.
 - **The release skill's clean-room update leg**, from section 10.
