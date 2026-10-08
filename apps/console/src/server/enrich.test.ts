@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // See runs.test.ts for why every export any sub-app under `routes.ts` touches
 // must be present here, even the ones these tests never call.
 vi.mock('@mattstack/rt-client', () => ({
+  agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  paneList: vi.fn(async () => ({ ok: true, data: { panes: [] } })),
   listRuns: vi.fn(async () => ({ ok: true, data: { runs: [] } })),
   getRun: vi.fn(async () => ({ ok: false, error: 'no such run' })),
   abandonRun: vi.fn(async () => ({ ok: true, data: { ok: true } })),

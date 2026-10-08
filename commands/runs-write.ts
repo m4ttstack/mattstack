@@ -26,6 +26,7 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 import { flagValue, required, Usage } from "../lib/cli-args.ts";
+import { adoptRunSession, adoptRunSessionAt } from "../lib/runs/adopt.ts";
 import { emitRunUpdated } from "../lib/runs/emit.ts";
 import { resolveRunDb, type RunDbSource } from "../lib/runs/resolve-db.ts";
 import { runStart } from "../lib/runs/start.ts";
@@ -99,6 +100,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
       });
       if (!r.ok) return fail(r);
       await emitted(env, { repo, runId: r.runId }, null, "run-start");
+      await adoptRunSessionAt(r.runDb, env);
       return { out: json({ ok: true, runId: r.runId, runDb: r.runDb }), code: 0 };
     }
     case "run-status": {
@@ -116,6 +118,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
         const r = stageStart(db, stage, env);
         if (!r.ok) return fail(r);
         await emitted(env, runIdentity(db), stage, "stage-start");
+        await adoptRunSession(db, env);
         return ok(resolved);
       });
     }

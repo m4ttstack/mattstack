@@ -3,6 +3,9 @@ import type { EventBridgeRule } from '@mattstack/app-server/event-bridge';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@mattstack/rt-client', () => ({
+  agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  paneList: vi.fn(async () => ({ ok: true, data: { panes: [] } })),
   getSetting: vi.fn(),
   setSetting: vi.fn(),
 }));

@@ -445,6 +445,8 @@ export interface AgentRecord {
   pack?: string;
   paneId?: string; tabId?: string; workspaceId?: string;
   extraArgs?: string; exitCode?: number; resultPath?: string; yolo?: boolean;
+  /** Recorded by agent:adopt from an existing session; off the reconciler's roster until first resumed. */
+  adopted?: boolean;
   createdAt: number; lastResumedAt?: number; finishedAt?: number;
 }
 
@@ -818,6 +820,8 @@ export interface Commands {
   "agent:resume": { payload: { id: string; prompt?: string; surface?: AgentSurface; workspace?: string; tab?: string; env?: Record<string, string> }; data: AgentRecord };
   "agent:get": { payload: { id: string }; data: AgentRecord };
   "agent:list": { payload: { repo?: string }; data: { agents: AgentRecord[] } };
+  /** Records an existing Claude session as an agent so `agent:resume` can reopen it; launches nothing. Idempotent per session. */
+  "agent:adopt": { payload: { sessionId: string; repo: string; subject?: string; label?: string }; data: AgentRecord };
   "chat:invite": { payload: { paneId: string; room: string; note?: string; from: string; callerPane?: string }; data: InviteResult };
   "pane:list": { payload: Record<string, never>; data: { panes: ChatPane[] } };
   "pane:peek": { payload: { paneId: string; lines?: number }; data: { paneId: string; lines: string[] } };
@@ -1164,6 +1168,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "agent:resume",
   "agent:get",
   "agent:list",
+  "agent:adopt",
   "chat:invite",
   "pane:list",
   "pane:peek",

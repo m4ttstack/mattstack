@@ -2,9 +2,14 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   abandonRun,
+  agentAdopt,
+  agentResume,
   getRun,
   listRuns,
+  paneList,
   serializeIdentity,
+  type ChatPane,
+  type RunFieldRow,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -23,6 +28,40 @@ function canonicalRepo(raw: string): string {
   return m
     ? serializeIdentity({ kind: m[1] as 'remote' | 'path', id: m[2]! })
     : raw;
+}
+
+function cwdInside(cwd: string, worktree: string): boolean {
+  const root = worktree.endsWith('/') ? worktree : `${worktree}/`;
+  return cwd === worktree || cwd.startsWith(root);
+}
+
+/** Matches the way the daemon's liveness mirror attributes a pane to a run:
+    by the recorded Claude session, else by a cwd inside the run's worktree.
+    pane:list returns only panes herdr runs Claude in, so a plain shell never
+    matches; an agent whose status reads `unknown` still does, as in liveness. */
+function runHasPane(
+  panes: ChatPane[],
+  session: string,
+  worktree: string | undefined
+): boolean {
+  return panes.some(
+    p =>
+      p.sessionId === session ||
+      (worktree !== undefined &&
+        p.cwd !== undefined &&
+        cwdInside(p.cwd, worktree))
+  );
+}
+
+export function resumePrompt(runId: string, fields: RunFieldRow[]): string {
+  const value = (key: string) => fields.find(f => f.key === key)?.value;
+  const hold = value('hold');
+  const worktree = value('worktree');
+  const held = `Run \`${runId}\` is no longer held${hold ? ` (${hold})` : ''}.`;
+  const next = worktree
+    ? `Re-enter the worktree \`${worktree}\` and pick the run back up.`
+    : 'Pick the run back up.';
+  return `${held} ${next}`;
 }
 
 /**
@@ -116,6 +155,73 @@ export const runs = new Hono()
       return c.json(res.data, 200);
     }
   )
+  .post('/api/runs/:repo/:runId/resume', async c => {
+    const { repo: rawRepo, runId } = c.req.param();
+    const repo = canonicalRepo(rawRepo);
+    const detail = await getRun(runId, repo);
+    if (!detail.ok) {
+      const status: 404 | 502 = detail.error === 'run not found' ? 404 : 502;
+      return c.json({ error: detail.error ?? 'run read failed' }, status);
+    }
+    const { run, fields } = detail.data!;
+    const value = (key: string) => fields.find(f => f.key === key)?.value;
+    const session = value('claude-session');
+    if (!session) {
+      return c.json({ error: 'this run recorded no Claude session' }, 404);
+    }
+    if (run.status !== 'running') {
+      return c.json({ error: 'this run has finished' }, 409);
+    }
+    // run.agent comes from a cached mirror that also reads null when herdr
+    // was unreachable, so a launch needs a fresh read that answered.
+    const livePane = { error: 'this run already has a live pane' };
+    if (run.agent) return c.json(livePane, 409);
+    const panes = await paneList();
+    if (!panes.ok || !panes.data) {
+      return c.json(
+        {
+          error:
+            "couldn't check whether this run already has a live pane, so it wasn't resumed",
+        },
+        502
+      );
+    }
+    if (runHasPane(panes.data.panes, session, value('worktree'))) {
+      return c.json(livePane, 409);
+    }
+    const prompt = resumePrompt(runId, fields);
+    const adopt = async (): Promise<{ id: string } | { error: string }> => {
+      const adopted = await agentAdopt({
+        sessionId: session,
+        repo,
+        subject: `run:${runId}`,
+        label: value('ticket') ?? runId,
+      });
+      return adopted.ok && adopted.data
+        ? { id: adopted.data.id }
+        : { error: adopted.error ?? 'adopt failed' };
+    };
+    let agentId = value('agent');
+    if (!agentId) {
+      const adopted = await adopt();
+      if (!('id' in adopted)) return c.json({ error: adopted.error }, 502);
+      agentId = adopted.id;
+    }
+    let resumed = await agentResume({ id: agentId, prompt });
+    // The daemon prunes agent records after a long absence. This prefix is the
+    // message of agent:resume's missing-record refusal in
+    // lib/daemon/handlers/agent.ts; no shared constant exists.
+    if (!resumed.ok && resumed.error?.startsWith('no agent record for')) {
+      const adopted = await adopt();
+      if (!('id' in adopted)) return c.json({ error: adopted.error }, 502);
+      agentId = adopted.id;
+      resumed = await agentResume({ id: agentId, prompt });
+    }
+    if (!resumed.ok) {
+      return c.json({ error: resumed.error ?? 'resume failed' }, 502);
+    }
+    return c.json({ resumed: true as const, agentId }, 200);
+  })
   .get('/api/seen', async c => c.json(readSeen(), 200))
   .post('/api/seen/:runId', async c =>
     c.json(markSeen(c.req.param('runId')), 200)

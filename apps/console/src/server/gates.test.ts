@@ -3,6 +3,8 @@ import type { GateRow, RunSummary } from '@mattstack/rt-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@mattstack/rt-client', () => ({
+  agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   gateList: vi.fn(),
   gateAnswer: vi.fn(),
   paneList: vi.fn(),

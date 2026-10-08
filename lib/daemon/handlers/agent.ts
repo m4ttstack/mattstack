@@ -21,6 +21,7 @@
 
 import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
+import { homedir } from "os";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 import {
@@ -28,6 +29,8 @@ import {
   newAgentId, reserveAgentHandle, updateAgentPack, updateAgentPane, updateAgentSessionId, type AgentRecord, type AgentSurface,
 } from "../../state/index.ts";
 import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, pointerPrompt, writePromptFile, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
+import { locateTranscript as defaultLocateTranscript, type TranscriptHit } from "../../agent-adopt.ts";
+import { cswapAccountNumbers } from "../../cswap.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
 import { defaultHerdrRunner, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
@@ -369,6 +372,8 @@ export function createAgentHandlers(opts: {
   trustBudgets?: { registerBudgetMs?: number; waitBudgetMs?: number; settleMs?: number; stepMs?: number };
   spawnHeadless?: (argv: string[], cwd: string, env: Record<string, string>, opts?: { captureSessionId?: boolean; stdin?: string }) => HeadlessChild;
   insertAgentFn?: typeof insertAgent;
+  /** Finds a session's transcript for agent:adopt; tests pass a fake. */
+  locateTranscript?: (sessionId: string, preferredAccount: string | undefined) => Promise<TranscriptHit | null>;
   /** The daemon-owned background herdr server `--bg` launches onto (spec "The bg service"). Omitted, `bg: true` is refused. */
   bg?: Pick<BgService, "ensure" | "reprobe">;
   bgClaims?: Pick<BgClaimsStore, "claim" | "releaseByPane">;
@@ -389,12 +394,16 @@ export function createAgentHandlers(opts: {
   & { "agent:start": (payload: unknown) => Promise<CommandResult<"agent:start">> }
   & { "agent:resume": (payload: unknown) => Promise<CommandResult<"agent:resume">> }
   & { "agent:get": (payload: unknown) => Promise<CommandResult<"agent:get">> }
-  & { "agent:list": (payload: unknown) => Promise<CommandResult<"agent:list">> } {
+  & { "agent:list": (payload: unknown) => Promise<CommandResult<"agent:list">> }
+  & { "agent:adopt": (payload: unknown) => Promise<CommandResult<"agent:adopt">> } {
   const { db, emitEvent } = opts;
   const log = opts.log ?? lazyChildLogger("agent");
   const spawnHeadless = opts.spawnHeadless ?? defaultSpawnHeadless;
   const insertAgentFn = opts.insertAgentFn ?? insertAgent;
   const skipSessionCapture = opts.skipSessionCapture ?? false;
+  // os.homedir() is frozen at process start; HOME is what tests repoint.
+  const locate = opts.locateTranscript ?? ((sessionId: string, preferred: string | undefined) =>
+    defaultLocateTranscript(sessionId, preferred, { home: process.env.HOME ?? homedir(), cswapAccounts: () => cswapAccountNumbers() }));
 
   async function launch(
     rec: AgentRecord,
@@ -785,6 +794,33 @@ export function createAgentHandlers(opts: {
     "agent:list": async (rawPayload: unknown): Promise<CommandResult<"agent:list">> => {
       const payload = rawPayload as Commands["agent:list"]["payload"];
       return { ok: true, data: { agents: listAgents({ ...(payload.repo !== undefined && { repo: payload.repo }) }, db).map((r) => withName(r, db)) } };
+    },
+
+    "agent:adopt": async (rawPayload: unknown): Promise<CommandResult<"agent:adopt">> => {
+      const payload = (rawPayload ?? {}) as Partial<Commands["agent:adopt"]["payload"]>;
+      if (typeof payload.repo !== "string" || payload.repo.length === 0) return { ok: false, error: "repo is required" };
+      if (typeof payload.sessionId !== "string" || !/^[A-Za-z0-9-]+$/.test(payload.sessionId)) {
+        return { ok: false, error: "invalid sessionId" };
+      }
+      const existing = getAgent(payload.sessionId, db);
+      if (existing && existing.sessionId === payload.sessionId) return { ok: true, data: withName(existing, db) };
+      const account = fromSetting("agent.claude.account", log);
+      const hit = await locate(payload.sessionId, account);
+      if (!hit) return { ok: false, error: "no transcript for this session on this Mac" };
+      const rec: AgentRecord = {
+        id: newAgentId(),
+        repo: payload.repo, cwd: hit.cwd, provider: "claude", surface: "herdr",
+        sessionId: payload.sessionId,
+        adopted: true,
+        createdAt: Date.now(),
+      };
+      if (hit.account !== undefined) rec.account = hit.account;
+      if (typeof payload.subject === "string" && payload.subject.length > 0) rec.subject = payload.subject;
+      if (typeof payload.label === "string" && payload.label.length > 0) rec.label = payload.label;
+      insertAgentFn(rec, db);
+      const saved = getAgent(rec.id, db);
+      if (!saved) return { ok: false, error: "state.db busy: agent not recorded" };
+      return { ok: true, data: withName(saved, db) };
     },
   };
 }

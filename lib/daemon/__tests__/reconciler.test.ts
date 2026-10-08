@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import pino from "pino";
 import { createGatesStore, type GateQuestion, type GatesStore } from "../gates-store.ts";
-import { createReconciler, type Reconciler } from "../reconciler.ts";
+import { createReconciler, onReconcilerRoster, type Reconciler } from "../reconciler.ts";
 import type { AgentRecord } from "../../state/agents-store.ts";
 import type { LivePane } from "../pane-resolve-live.ts";
 import { getKvValue } from "../../state/kv-blob.ts";
@@ -582,5 +582,20 @@ describe("reconciler.executorFor", () => {
     const result = reconciler.executorFor({ sessionId: "s-1" });
     expect(result.state).toBe("live");
     expect(result.pane?.paneRef).toBe("w1:p1");
+  });
+});
+
+describe("onReconcilerRoster", () => {
+  test("an adopted record that was never resumed stays off the roster", () => {
+    expect(onReconcilerRoster(buildAgent("a", { adopted: true, paneId: "w1:p1" }))).toBe(false);
+  });
+
+  test("an adopted record joins the roster once it has been resumed", () => {
+    expect(onReconcilerRoster(buildAgent("a", { adopted: true, lastResumedAt: 5 }))).toBe(true);
+  });
+
+  test("a started record is on the roster even before it has a pane", () => {
+    expect(onReconcilerRoster(buildAgent("a"))).toBe(true);
+    expect(onReconcilerRoster(buildAgent("b", { surface: "headless" }))).toBe(true);
   });
 });
