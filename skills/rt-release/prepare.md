@@ -171,8 +171,11 @@ next (`docs/release-and-distribution.md`, "Requiring an intermediate update"), a
 appcast step runs the same check, after the build and notarization:
 
 - prints nothing: no declaration; go on.
-- prints a bundle version: this release requires Macs to reach the declared `minimum` first. The
-  notes get one line saying so, naming that version.
+- prints a bundle version: this release requires Macs to reach the declared `minimum` first. Run
+  `gh api repos/m4ttstack/mattstack/releases/latest --jq .tag_name`: it must print
+  `v<minimum>`, or the appcast step fails after the build. Anything else is a refusal for
+  `Gate: which version bump?`, before any tag. The notes get one line saying Macs update to the
+  minimum first, naming that version.
 - refuses because the file names an earlier release: that release has shipped. Run
   `git rm rt-tray/sparkle-minimum-update` and commit it as
   `chore(release): clear the Sparkle minimum for <that release>`; the commit rides the notes

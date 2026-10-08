@@ -260,7 +260,11 @@ dispatch dry run rehearses a patch bump of the live feed, so it exercises the
 minimum too), and the resolver refuses any later release. A file left behind
 fails the next release's appcast step instead of shipping again: delete it
 once the named release is out. While the intermediate release is not yet
-published, a dry run fails the same check, by design.
+published, a dry run from main fails by design: it rehearses a patch bump of
+the live feed, which is the minimum itself (`2.21.1-ciN`), and the resolver
+refuses a minimum that is not below the release being cut. A real tag cut
+before then fails the appcast step's feed check instead, after the build, so
+the release skill checks the latest release before tagging.
 
 ## App builds in release.yml (build-apps)
 
