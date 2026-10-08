@@ -143,7 +143,15 @@ Everything here but **copy for slack** needs a local board with Slack connected.
 
 ### Several rows at once
 
-Checking a row swaps the tabs for a selection bar. Check two or more rows and right-click one of them, or press **actions** in the selection bar, for the bulk menu; with one row checked, both open that row's own menu. It is titled "N selected" and offers, under **agent actions**, **gitlab** and **slack**, only what every checked MR's own menu offers: review, re-review, call doctor, request review from…, rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft, merge, the three Slack reactions and find slack threads. Merging asks "really merge N?", and starting more than three reviews, re-reviews or doctors asks too. When nothing fits all of them it says so.
+Checking a row swaps the tabs for a selection bar. To open the bulk menu, check two or more rows, then right-click one of them or press **actions** in the selection bar. With one row checked, both open that row's own menu.
+
+The bulk menu is titled "N selected". It offers only what every checked MR's own menu offers:
+
+- **agent actions**: review, re-review, call doctor and request review from….
+- **gitlab**: rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft and merge.
+- **slack**: the three Slack reactions and find slack threads.
+
+Merging asks "really merge N?". Starting more than three reviews, re-reviews or doctors asks first too. When nothing fits every checked MR, the menu says so.
 
 ## Show chips, Group and Sort
 
@@ -201,7 +209,7 @@ Asks need peering: both boards must be in the same [team](/start/teams) and conn
 
 ### The inbox
 
-The inbox icon (<BoardIcon name="inbox" />) at the top right of a local board opens **Asks for your agent**. A badge counts the asks waiting on you, and a desktop notification arrives once for each ask that waits: "dev2 asked for a review", with the MR and "Your agent waits for your go ahead." Clicking the notification opens the inbox at that ask.
+The inbox icon (<BoardIcon name="inbox" />) at the top right of a local board opens **Asks for your agent**. A badge counts the asks waiting on you. Each waiting ask also sends one desktop notification, such as "dev2 asked for a review", with the MR and "Your agent waits for your go ahead." Click the notification to open the inbox at that ask.
 
 <Screenshot name="board/inbox" alt="The Asks for your agent inbox with waiting asks, each with Decline, a go-ahead button and an always allow checkbox" />
 
@@ -243,7 +251,15 @@ sequenceDiagram
 4. **dev2 decides.** Going ahead starts dev2's agent in a herdr pane on dev2's Mac. Declining sends dev2's reason and note back. An ask nobody answers in 48 hours expires.
 5. **The agent's progress travels back.** Each change in the agent's state goes back through the relay, until it finishes with a verdict or stops.
 
-Before it starts the agent, dev2's board checks the ask still makes sense. It refuses, with the reason shown on both boards, when the ask is over 48 hours old, a review or response is already running, dev2 already reviewed (for a first review), there is no earlier review with comments (for a re-review) or the MR is not dev2's (for respond). An always-allowed ask also counts against dev2's automatic limits, `board.triage`'s cooldown (30 minutes) and daily budget (3 runs); going ahead by hand lifts those two.
+Before it starts the agent, dev2's board checks the ask still makes sense. It refuses, and shows the reason on both boards, when:
+
+- the ask is over 48 hours old.
+- a review or response is already running.
+- dev2 already reviewed the MR (for a first review).
+- there is no earlier review with comments (for a re-review).
+- the MR is not dev2's (for respond).
+
+An always-allowed ask also counts against two automatic limits in `board.triage`: a 30 minute cooldown and a daily budget of 3 runs. Going ahead by hand skips both.
 
 ### What the sender sees
 
