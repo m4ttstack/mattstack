@@ -76,6 +76,23 @@ function originOf(dir: string): string | null {
   }
 }
 
+/** The converge first, then the post-pull hooks, which run even when the converge threw. */
+export function createOnPulled(opts: {
+  probes: Probes;
+  slug: string;
+  log: Logger;
+  converge: typeof convergePackCache;
+  afterPull?: (slug: string) => Promise<void>;
+}): () => Promise<void> {
+  return async () => {
+    try {
+      await opts.converge(opts.probes, opts.slug, opts.log);
+    } finally {
+      await opts.afterPull?.(opts.slug);
+    }
+  };
+}
+
 export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHandle {
   const orgsRoot = rawDeps.orgsDir ?? orgsDir();
   const probes = rawDeps.probes ?? createRealProbes();
@@ -179,13 +196,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
           originUrl,
           probes,
           ownedRoots: roots,
-          onPulled: async () => {
-            try {
-              await converge(probes, slug, rawDeps.log.child({ team: slug }));
-            } finally {
-              await rawDeps.afterPull?.(slug);
-            }
-          },
+          onPulled: createOnPulled({ probes, slug, log: rawDeps.log.child({ team: slug }), converge, afterPull: rawDeps.afterPull }),
         });
         const handle = start(spec, {
           log: rawDeps.log.child({ team: slug }),

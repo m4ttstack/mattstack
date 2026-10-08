@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
+import { createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
 import type { SnapshotSpec } from "../home-snapshot.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { writeTeamLocal } from "../../team/team-local.ts";
@@ -344,6 +344,19 @@ describe("startTeamSnapshots", () => {
 
     handle.stop();
     h.cleanup();
+  });
+
+  test("createOnPulled runs the converge, then afterPull, even when the converge throws", async () => {
+    const order: string[] = [];
+    const onPulled = createOnPulled({
+      probes: fakeProbes({ home: "/h" }),
+      slug: "acme",
+      log: fakeLog(),
+      converge: async () => { order.push("converge"); throw new Error("broke"); },
+      afterPull: async (slug) => { order.push(`after:${slug}`); },
+    });
+    await expect(onPulled()).rejects.toThrow("broke");
+    expect(order).toEqual(["converge", "after:acme"]);
   });
 
   describe("the role decides the mode", () => {
