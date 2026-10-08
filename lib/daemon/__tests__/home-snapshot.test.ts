@@ -2744,6 +2744,72 @@ describe("the layout gate", () => {
     handle.stop();
   });
 
+  test("a held pull keeps the push for later with no error, no broadcast and no retry; once the gate passes the next cycle pushes", async () => {
+    let holding = true;
+    const pushes: string[][] = [];
+    const exec = makeSwitchableExec([
+      (argv) => gitVerb(argv) === "push" ? (pushes.push(argv), { stdout: "", stderr: holding ? "! [rejected] main -> main (non-fast-forward)" : "", exitCode: holding ? 1 : 0 }) : undefined,
+      ...pullResponders({ behind: 1, ahead: 1 }),
+      ...defaultResponders({ statusZ: " M mattstack/settings.team.jsonc\0" }),
+    ]);
+    const { deps, timers, broadcasts } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...specDeps } = deps;
+    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? { layout: 3 } : null) } }, specDeps);
+    await handle.ready;
+    await flushAsync();
+
+    await handle.runNow("manual");
+    const pushDelayMs = DEFAULT_SETTINGS.pushDelaySec * 1000;
+    timers.fire((t) => t.ms === pushDelayMs);
+    await flushAsync();
+
+    expect(pushes).toHaveLength(0);
+    const held = handle.status();
+    expect(held.pushPending).toBe(true);
+    expect(held.lastPushError).toBeNull();
+    expect(broadcasts.some((b) => b.type === "team:push-failed")).toBe(false);
+    expect([...timers.pending.values()].some((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 5 * 1000)).toBe(false);
+
+    holding = false;
+    await handle.runNow("manual");
+    timers.fire((t) => t.ms === pushDelayMs);
+    await flushAsync();
+
+    expect(pushes).toHaveLength(1);
+    expect(handle.status().pushPending).toBe(false);
+    expect(handle.status().lastPushError).toBeNull();
+    handle.stop();
+  });
+
+  test("a rejected push whose inline replay is held stops there: one push, no error, no broadcast, push kept", async () => {
+    let holding = false;
+    const dirty = " M mattstack/settings.team.jsonc\0";
+    const pushes: string[][] = [];
+    const rejecting: Responder = (argv) => {
+      if (gitVerb(argv) !== "push") return undefined;
+      pushes.push(argv);
+      holding = true;
+      exec.setResponders([rejecting, ...pullResponders({ behind: 1, ahead: 1 }), ...defaultResponders({ statusZ: dirty })]);
+      return { stdout: "", stderr: "! [rejected] main -> main (fetch first)", exitCode: 1 };
+    };
+    const exec = makeSwitchableExec([rejecting, ...pullResponders({ behind: 0, ahead: 1 }), ...defaultResponders({ statusZ: dirty })]);
+    const { deps, timers, broadcasts } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...specDeps } = deps;
+    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? { layout: 3 } : null) } }, specDeps);
+    await handle.ready;
+    await flushAsync();
+
+    await handle.runNow("manual");
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+
+    expect(pushes).toHaveLength(1);
+    expect(handle.status().pushPending).toBe(true);
+    expect(handle.status().lastPushError).toBeNull();
+    expect(broadcasts.some((b) => b.type === "team:push-failed")).toBe(false);
+    handle.stop();
+  });
+
   test("nothing to pull runs no gate", async () => {
     let asked = 0;
     const { handle } = start(async () => { asked++; return { layout: 3 }; }, 0);

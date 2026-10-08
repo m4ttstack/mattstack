@@ -1136,6 +1136,12 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     return true;
   }
 
+  /** A held pull leaves the branch behind origin, so a push would only be rejected: wait for the hold to clear, with no error, no broadcast and no retry ladder. */
+  function holdPush(): void {
+    pushPending = true;
+    deps.log.debug(`${label}: the pull is held on the org layout; keeping the push for later`);
+  }
+
   async function doPushInner(): Promise<void> {
     // Kill switch, second door: doRun's own enabled check cancels a
     // scheduled push timer, but only when doRun ITSELF runs — a push
@@ -1172,13 +1178,15 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // to react to content, and it runs inside pushInFlight.
       const pulled = await pullNow({ converge: false });
       if (pulled.outcome === "conflict" || conflicted) return;
+      if (pulled.hold) return holdPush();
     }
     if (!(await mayPush())) return;
     let result = await remoteGit(["push", "-q", "origin", "HEAD"], PUSH_TIMEOUT_MS);
     if (result.exitCode !== 0 && spec.pull && pushRetryAttempt === 0 && /\[rejected\]|non-fast-forward|fetch first/i.test(result.stderr)) {
       // The remote moved between the pull above and this push; one inline
       // replay beats waiting out a whole retry-backoff window.
-      await pullNow({ converge: false });
+      const repulled = await pullNow({ converge: false });
+      if (repulled.hold) return holdPush();
       if (conflicted || !(await mayPush())) return;
       result = await remoteGit(["push", "-q", "origin", "HEAD"], PUSH_TIMEOUT_MS);
     }
