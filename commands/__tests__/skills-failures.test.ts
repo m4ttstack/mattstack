@@ -85,3 +85,30 @@ test("the enclosing-pack note goes to stderr and stdout stays one JSON line", as
   expect(text.slice(0, -1)).not.toContain("\n");
   expect(JSON.parse(text).pack).toBe("acme");
 });
+
+const WAITING = "Your org has not moved to its new layout yet. rt finishes the move when it does.";
+
+function seedOneTeamClone(): void {
+  const marker = join(root, "orgs", "acme", "mattstack");
+  mkdirSync(marker, { recursive: true });
+  writeFileSync(join(marker, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }));
+}
+
+test("a clone on another layout is a refused note with the sentence, exit 2, never a failure", async () => {
+  seedOneTeamClone();
+  process.chdir(root);
+  const { exitCode, errors } = await runExpectingCleanExit(() => skillsCheck(["--team", "widgets", "--mattstack-dir", root]));
+  expect(exitCode).toBe(2);
+  const stderr = errors.join("\n");
+  expect(stderr).toContain(WAITING);
+  expect(stderr).toContain("refused");
+  expect(stderr).not.toContain("[failed]");
+});
+
+test("under --json the envelope carries the sentence as its error", async () => {
+  seedOneTeamClone();
+  process.chdir(root);
+  const { exitCode } = await runExpectingCleanExit(() => skillsCheck(["--team", "widgets", "--json", "--mattstack-dir", root]));
+  expect(exitCode).toBe(2);
+  expect(JSON.parse(io.stdout())).toMatchObject({ error: { code: "org-layout-waiting", message: WAITING } });
+});

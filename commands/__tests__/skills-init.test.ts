@@ -340,6 +340,21 @@ describe("skillsInit", () => {
     expect(process.exitCode).toBe(2);
   });
 
+  for (const json of [false, true]) test(`a clone on another layout is a refusal ${json ? "as JSON" : "note"} with the waiting sentence, never a failure`, async () => {
+    const HOME = "/h";
+    const fs = memFs({ [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "widgets", "org": "acme" }` });
+    await skillsInit(json ? ["--json"] : [], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
+    const sentence = "Your org has not moved to its new layout yet. rt finishes the move when it does.";
+    if (json) {
+      expect(JSON.parse(io.lines()[0]!).error).toEqual({ code: "org-layout-waiting", message: sentence, refused: true });
+    } else {
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toContain(`[refused] ${sentence}`);
+      expect(io.stderr()).not.toContain("[failed]");
+    }
+    expect(process.exitCode).toBe(2);
+  });
+
   for (const json of [false, true]) test(`--zone naming the Mac's other org refuses ${json ? "as JSON" : "for a person"} and names the org it uses`, async () => {
     const HOME = "/h";
     const org = (slug: string) => ({

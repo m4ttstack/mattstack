@@ -259,6 +259,8 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
     if (err instanceof UserActionableError) {
       if (parsed.json) {
         ui.json(userErrorPayload(new UserActionableError(err.code, err.message, { ...err.extra, refused: true })));
+      } else if (err.code === "org-layout-waiting") {
+        ui.note(ui.line("refused", err.message));
       } else {
         logFailureDetail(err);
         ui.fail(failureFor(err));
