@@ -28,6 +28,7 @@ import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.t
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
 import { discoverTeams } from "../team-settings.ts";
+import { markerState, ORG_LAYOUT, updateSentence } from "../../team/org-marker.ts";
 import { ONE_TEAM_RULE } from "../../team/one-team.ts";
 import { named } from "./tools.ts";
 
@@ -577,7 +578,10 @@ export async function teamSyncRow(
     // the stderr as lastPullError and returns it as a skip, whose detail pullNow then copies
     // into lastPullSkipped. Without this, a revoked token reads as "cannot fast-forward, reset
     // it to origin", which is both the wrong diagnosis and advice that cannot help.
-    if (e.pullOnly === true && e.lastPullError == null && e.lastPullSkipped) {
+    //
+    // A layout hold or a gate error also sets lastPullSkipped, but a reset would land the member
+    // on the tip their app cannot read, so those skips are never this branch's remedy.
+    if (e.pullOnly === true && e.lastPullError == null && e.lastPullSkipped && !e.layoutHold && !e.layoutGateError) {
       problems.push(`${slug}: cannot fast-forward (${e.lastPullSkipped}); reset it to origin or ask the team's owner`);
       continue;
     }
@@ -615,7 +619,10 @@ export async function teamSyncRow(
   // A pull skipped every tick (a dirty src/ refusing the rebase) is not a
   // failure, but it is why a member's store edits are not moving; say so
   // without changing the status.
-  const skips = slugs.map((slug) => entries.find((x) => x.slug === slug)?.lastPullSkipped).filter((d): d is string => !!d);
+  const skips = slugs
+    .map((slug) => entries.find((x) => x.slug === slug))
+    .map((e) => (e?.layoutHold || e?.layoutGateError ? undefined : e?.lastPullSkipped))
+    .filter((d): d is string => !!d);
   const pullOnlySlugs = slugs.filter((slug) => entries.find((x) => x.slug === slug)?.pullOnly === true);
   const pullOnlyNote = pullOnlySlugs.length ? `. Pull-only, never pushes: ${pullOnlySlugs.join(", ")}` : "";
   const detail = `${slugs.length} clone${slugs.length === 1 ? "" : "s"} in sync${pullOnlyNote}${skips.length ? `. Last pull skipped: ${skips.join("; ")}` : ""}`;
@@ -649,6 +656,41 @@ export function oneTeamRow(slugs: string[]): Row | null {
   });
 }
 
+export const ORG_LAYOUT_ROW_ID = "org.layout";
+const UPDATE_APP_ACTION: Action = { type: "steps", label: "Show steps…", steps: ["Update mattstack from its menu bar icon, then reopen Setup status"] };
+
+/** The team clone's layout against what this rt reads. A daemon holding the pull, or a clone already past this rt, needs the app update. */
+export async function orgLayoutRow(
+  p: Pick<Probes, "home" | "readDir" | "readFile" | "exists">,
+  readStatus: () => Promise<TeamSnapshotEntry[] | null>,
+): Promise<Row | null> {
+  const teamsDir = join(p.home, ".mattstack", "teams");
+  let folder: string | null = null;
+  let layout = 0;
+  for (const name of [...p.readDir(teamsDir)].sort()) {
+    const dir = join(teamsDir, name);
+    if (!p.exists(join(dir, ".git"))) continue;
+    const marker = markerState(p, dir);
+    if (marker.kind !== "org") continue;
+    folder = name;
+    layout = marker.layout;
+    break;
+  }
+  if (folder === null) return null;
+  const base = {
+    id: ORG_LAYOUT_ROW_ID,
+    kind: "tool" as const,
+    title: "Org layout",
+    why: "The org repo says what shape its files are in, and rt reads the shapes it knows. A newer shape waits for an app update.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  const hold = (await readStatus())?.find((e) => e.slug === folder)?.layoutHold ?? null;
+  if (hold) return row({ ...base, status: "needs-you", detail: updateSentence(hold.layout), action: UPDATE_APP_ACTION });
+  if (layout > ORG_LAYOUT) return row({ ...base, status: "needs-you", detail: updateSentence(layout), action: UPDATE_APP_ACTION });
+  return row({ ...base, status: "ready", detail: `${folder} on layout ${ORG_LAYOUT}` });
+}
+
 // ─── entry point ────────────────────────────────────────────────────────────
 
 function readTeamSnapshotSettings(): TeamSnapshotSettings | undefined {
@@ -665,21 +707,25 @@ export async function rtHealthRows(
   // stays behind the only condition that needs it.
   const slugs = discoverTeams(p);
   const oneTeam = oneTeamRow(slugs);
+  let statusRead: Promise<TeamSnapshotEntry[] | null> | null = null;
+  const readStatus = () =>
+    (statusRead ??= (async () => {
+      const res = await p.daemon("team:snapshot-status");
+      if (!res || !res.ok) return null;
+      return res.data as TeamSnapshotEntry[];
+    })());
   let teamSync: Row | null = null;
   if (slugs.length > 0) {
     const settings = readSnapshotSettings();
     teamSync = await teamSyncRow(
       slugs,
-      async () => {
-        const res = await p.daemon("team:snapshot-status");
-        if (!res || !res.ok) return null;
-        return res.data as TeamSnapshotEntry[];
-      },
+      readStatus,
       () => p.now().getTime(),
       settings?.pullIntervalSec ?? PULL_INTERVAL_FALLBACK_SEC,
       settings?.enabled !== false,
     );
   }
+  const orgLayout = await orgLayoutRow(p, readStatus);
 
   return [
     await rtRow(p),
@@ -695,5 +741,6 @@ export async function rtHealthRows(
     await homeBackupRow(join(p.home, ".mattstack", "user"), p.exec),
     ...(teamSync ? [teamSync] : []),
     ...(oneTeam ? [oneTeam] : []),
+    ...(orgLayout ? [orgLayout] : []),
   ];
 }
