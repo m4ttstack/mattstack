@@ -71,7 +71,8 @@ export interface ModLinks {
   execution(sessionId: string): ModExecution | null;
   /**
    * The native id `sessionId` continues as after every link-reported /clear
-   * since this daemon started, or `sessionId` itself. Held in memory only.
+   * since this daemon started, or `sessionId` itself. Held in memory only,
+   * and forgotten while agent.integrations.enabled is off.
    */
   continuedAs(sessionId: string): string;
 }
@@ -153,10 +154,11 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
 
   function sweep(): number {
     // With nothing held, the switch is not read: a daemon that never sees a mod pays nothing.
-    if (links.size === 0 && acks.size === 0) return 0;
+    if (links.size === 0 && acks.size === 0 && moves.size === 0) return 0;
     const now = deps.now();
     for (const [id, ack] of acks) if (now - ack.at >= ACK_RETENTION_MS) acks.delete(id);
     const enabled = deps.integrationsEnabled();
+    if (!enabled) moves.clear();
     let dropped = 0;
     const lapsed: ModLinkView[] = [];
     for (const link of [...links.values()]) {
@@ -296,6 +298,7 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
     },
 
     continuedAs(sessionId) {
+      sweep();
       let at = sessionId;
       const seen = new Set([at]);
       for (let next = moves.get(at); next !== undefined && !seen.has(next); next = moves.get(at)) {

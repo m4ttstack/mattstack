@@ -161,8 +161,10 @@ AskUserQuestion:
 
 1. Reads the event cursor (`events:head`), then this session's own live form
    gates (`gate:list { open: true, session, presentation: "form" }`), and
-   links the call to the newest one whose question labels cover every asked
-   question's text. With no match it passes the call through untouched.
+   links the call to one with as many questions as were asked, each asked
+   question its own: the newest whose labels match the asked text exactly,
+   else the one whose labels the asked text holds that are longest together.
+   With no match it passes the call through untouched.
 2. Shows the dialog with `next(e)`, and at the same time waits on
    `gate/{answered,closed}/<id>` from that cursor with `link.wait`.
 3. The first to finish wins:

@@ -181,9 +181,8 @@ export function createClaudeQuestions(deps: ClaudeQuestionDeps = defaultDeps()):
     }
   }
 
-  /** Today's path: the doorbell, then an Escape for a form still on screen. */
-  async function doorbell(row: GateRow): Promise<Outcome<"completed" | "pending" | "gone">> {
-    const paneRef = await formOnScreen(row);
+  /** Today's path: the doorbell, then an Escape for the form `paneRef` read on screen at completion time. */
+  async function doorbell(row: GateRow, paneRef: string | null): Promise<Outcome<"completed" | "pending" | "gone">> {
     const rung = await deps.notify(row);
     // Escape only ever follows an ACCEPTED doorbell: the dismissed form's
     // next input must be the queued frame, and a dead pane has nothing
@@ -230,7 +229,10 @@ export function createClaudeQuestions(deps: ClaudeQuestionDeps = defaultDeps()):
       if (row.status === "answered" && (answeredByNudgedPane(row) || answeredBySession(row, session))) {
         return { ok: true, data: "completed" };
       }
-      if (!mod.owns({ ...binding, native: { ...binding.native, value: session } })) return doorbell(target);
+      // Read now, before the mod's ack wait: a form drawn during that wait is
+      // a newer one (RT-357), and the fallback's Escape must never reach it.
+      const paneRef = await formOnScreen(target);
+      if (!mod.owns({ ...binding, native: { ...binding.native, value: session } })) return doorbell(target, paneRef);
       // The gate-form block closes its dialog from the gate's own events; the
       // ack only confirms it owns the gate, so no doorbell or Escape follows.
       if (await confirmed(session, row)) {
@@ -238,7 +240,7 @@ export function createClaudeQuestions(deps: ClaudeQuestionDeps = defaultDeps()):
         return { ok: true, data: "completed" };
       }
       log?.warn({ gateId: row.id, session }, "gate-push: the mod did not confirm gate-complete; ringing the doorbell once");
-      const rung = await doorbell(target);
+      const rung = await doorbell(target, paneRef);
       if (rung.ok) record(row, "doorbell", rung.data);
       return rung;
     },

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { createDisplay, FORM_PANE_ID } from '../src/blocks/display.ts'
-import { registerGateForm, type GateRow } from '../src/blocks/gate-form.ts'
+import { matchGate, registerGateForm, type GateRow } from '../src/blocks/gate-form.ts'
 import { attachHub, createHub } from '../src/core/hub.ts'
 import { createLink } from '../src/core/link.ts'
 import { flush, harness as stub, recorder } from './stub.ts'
@@ -112,6 +112,34 @@ describe('gate-form', () => {
     expect(engine.seen).toEqual([ASK])
     expect(h.verbs('gate:list').map(s => s.body)).toEqual([{ open: true, session: 'sess-1', presentation: 'form' }])
     expect(h.verbs('events:wait')).toHaveLength(0)
+  })
+
+  test('two open form gates with overlapping labels each link to their own question', async () => {
+    const ship = gate({ id: 'g-ship' })
+    const short = gate({ id: 'g-short', questions: [{ id: 'q', label: 'Ship', options: ['a', 'b'] }] })
+    const wider = gate({
+      id: 'g-wider',
+      questions: [
+        { id: 'ship', label: QUESTION, options: ['yes', 'no'] },
+        { id: 'targets', label: 'Which targets?', multi: true, options: ['mac', 'linux'] },
+      ],
+    })
+    const gates = [ship, short, wider]
+    expect(matchGate(gates, [{ question: QUESTION }])?.id).toBe('g-ship')
+    expect(matchGate(gates, [{ question: 'Ship' }])?.id).toBe('g-short')
+    expect(matchGate(gates, [{ question: 'Ship the release?' }, { question: 'Which targets?' }])?.id).toBe('g-wider')
+    expect(matchGate(gates, [{ question: 'Ship it now, after the freeze?' }])?.id).toBe('g-short')
+    expect(matchGate([ship, short], [{ question: `Context: the freeze ends today. ${QUESTION}` }])?.id).toBe('g-ship')
+    expect(matchGate(gates, [{ question: QUESTION }, { question: QUESTION }])).toBeNull()
+
+    const h = harness({ open: gates })
+    await h.start()
+    const d = dialog()
+    const call = h.fire('tool.call', ASK, d.next)
+    await flush()
+    expect(h.rounds.map(r => r.body.pattern)).toEqual(['gate/{answered,closed}/g-ship'])
+    d.answer.resolve(ANSWERED_BY_PANE)
+    await call
   })
 
   test('a pane answer goes through and is recorded as a pane answer', async () => {

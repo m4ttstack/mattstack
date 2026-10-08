@@ -46,22 +46,46 @@ function remember(linked: Map<string, Dialog>, id: string, dialog: Dialog): void
   while (linked.size > REMEMBERED) linked.delete(linked.keys().next().value!)
 }
 
-/** Whether the asked question's text is the gate question's: the same label, or the label with its context flattened in. */
-function asks(text: string, q: GateQuestion): boolean {
-  const label = q.label.trim()
-  const asked = text.trim()
-  return label.length > 0 && (asked === label || asked.includes(label))
+type Fits = (text: string, q: GateQuestion) => boolean
+
+const label = (q: GateQuestion) => (typeof q.label === 'string' ? q.label.trim() : '')
+/** The asked text is the gate question's label exactly. */
+const same: Fits = (text, q) => label(q).length > 0 && text.trim() === label(q)
+/** Or holds it, with the question's context flattened in around it. */
+const holds: Fits = (text, q) => label(q).length > 0 && text.trim().includes(label(q))
+
+/** Whether each asked question takes a different one of the gate's questions under `fits`. */
+function pairs(gate: GateRow, asked: readonly Asked[], fits: Fits): boolean {
+  const taken = new Set<GateQuestion>()
+  for (const a of asked) {
+    const q = gate.questions.find(q => !taken.has(q) && fits(a.question, q))
+    if (!q) return false
+    taken.add(q)
+  }
+  return true
 }
 
-/** The newest of `gates` whose questions cover every asked question. */
+/**
+ * Of `gates` with as many questions as were asked, each asked question its
+ * own: the newest matching every label exactly, else the one whose labels the
+ * questions' text holds that are longest together (the newest on a tie).
+ */
 export function matchGate(gates: readonly GateRow[], asked: readonly Asked[]): GateRow | null {
   if (asked.length === 0) return null
-  for (let i = gates.length - 1; i >= 0; i--) {
-    const gate = gates[i]!
-    if (!GATE_ID.test(gate.id) || !Array.isArray(gate.questions)) continue
-    if (asked.every(a => gate.questions.some(q => asks(a.question, q)))) return gate
+  const sized = gates.filter(g => GATE_ID.test(g.id) && Array.isArray(g.questions) && g.questions.length === asked.length).reverse()
+  const exact = sized.find(g => pairs(g, asked, same))
+  if (exact) return exact
+  let best: GateRow | null = null
+  let bestLength = -1
+  for (const g of sized) {
+    if (!pairs(g, asked, (text, q) => same(text, q) || holds(text, q))) continue
+    const length = g.questions.reduce((n, q) => n + label(q).length, 0)
+    if (length > bestLength) {
+      best = g
+      bestLength = length
+    }
   }
-  return null
+  return best
 }
 
 /** One gate answer as the AskUserQuestion result spells it: option labels, comma-joined for several. */
@@ -94,7 +118,7 @@ export function resultFromRow(e: { questions: readonly Asked[] }, row: GateRow):
   for (const q of row.questions) {
     const raw = row.answer.answers[q.id]
     if (raw === undefined) continue
-    const key = e.questions.find(a => asks(a.question, q))?.question ?? q.label
+    const key = (e.questions.find(a => same(a.question, q)) ?? e.questions.find(a => holds(a.question, q)))?.question ?? q.label
     answers[key] = spell(q, raw)
   }
   const context = `[gate] ${row.id} was answered by ${surface(row.answer.by)} while this form was open: the answers above are its recorded answers, and the gate is already answered.`

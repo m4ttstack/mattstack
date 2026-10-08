@@ -202,7 +202,8 @@ describe("Claude question completion through the mod", () => {
     const m = modded();
     const row = formGate(store());
     expect(await complete(m.deps, row)).toEqual({ ok: true, data: "completed" });
-    expect(m.calls).toEqual([`mod:sess-1:${row.id}`]);
+    // The pane is read at completion time, before the ack wait, as M5a reads it before the doorbell.
+    expect(m.calls).toEqual(["probe", `mod:sess-1:${row.id}`]);
     expect(m.escapes).toHaveLength(0);
     expect(m.recorded).toEqual([{ gateId: row.id, path: "mod-result", state: "completed" }]);
   });
@@ -225,7 +226,7 @@ describe("Claude question completion through the mod", () => {
       const m = modded({ ack });
       const row = formGate(store());
       expect(await complete(m.deps, row), String(ack)).toEqual({ ok: true, data: "completed" });
-      expect(m.calls, String(ack)).toEqual([`mod:sess-1:${row.id}`, "probe", `notify:${row.id}`, "escape:w1:p-sess-1"]);
+      expect(m.calls, String(ack)).toEqual(["probe", `mod:sess-1:${row.id}`, `notify:${row.id}`, "escape:w1:p-sess-1"]);
       expect(m.recorded, String(ack)).toEqual([{ gateId: row.id, path: "doorbell", state: "completed" }]);
     }
 
@@ -233,6 +234,50 @@ describe("Claude question completion through the mod", () => {
     const deadRow = formGate(store());
     expect(await complete(dead.deps, deadRow)).toEqual({ ok: true, data: "gone" });
     expect(dead.recorded).toEqual([{ gateId: deadRow.id, path: "doorbell", state: "gone" }]);
+  });
+
+  test("a fallback never sends Escape into a dialog drawn during the ack wait", async () => {
+    // G1's dialog was dismissed, so the pane reads idle when G1 completes; the
+    // model then re-asks, superseding G1, and draws G2's dialog while rt waits
+    // on the unacked gate-complete for G1.
+    const s = store();
+    const g1 = s.open({
+      subject: "mr:https://gitlab.example.com/x/1", kind: "review-post",
+      questions: [{ id: "q", label: "Pick", multi: false, options: ["a", "b"] }],
+      nudge: { session: "sess-1" }, pane: "w1:p-sess-1",
+      origin: { presentation: "form", paneId: "w1:p-sess-1", session: "sess-1" },
+    }).row;
+    const g2 = s.open({
+      subject: "mr:https://gitlab.example.com/x/1", kind: "review-post",
+      questions: [{ id: "q", label: "Pick", multi: false, options: ["a", "b"] }],
+      nudge: { session: "sess-1" }, pane: "w1:p-sess-1",
+      origin: { presentation: "form", paneId: "w1:p-sess-1", session: "sess-1" },
+    });
+    expect(g2.supersededId).toBe(g1.id);
+    const closed = s.get(g1.id)!;
+
+    let screen: "idle" | "blocked" = "idle";
+    const m = modded({ ack: false });
+    const deps: ClaudeQuestionDeps = {
+      ...m.deps,
+      paneStatus: async (row) => {
+        m.calls.push(`probe:${screen}`);
+        return { paneRef: `w1:p-${row.nudge?.session}`, status: screen };
+      },
+      mod: {
+        current: (session) => session,
+        owns: () => true,
+        async complete(session, gateId) {
+          m.calls.push(`mod:${session}:${gateId}`);
+          screen = "blocked";
+          return false;
+        },
+      },
+    };
+    expect(await complete(deps, closed)).toEqual({ ok: true, data: "completed" });
+    expect(m.calls).toEqual(["probe:idle", `mod:sess-1:${g1.id}`, `notify:${g1.id}`]);
+    expect(m.escapes).toEqual([]);
+    expect(m.recorded).toEqual([{ gateId: g1.id, path: "doorbell", state: "completed" }]);
   });
 
   test("a gate the pane answered itself is neither pushed nor recorded", async () => {
@@ -247,7 +292,7 @@ describe("Claude question completion through the mod", () => {
     const m = modded({ live: ["sess-2"], moves: { "sess-1": "sess-2" } });
     const row = formGate(store());
     expect(await complete(m.deps, row)).toEqual({ ok: true, data: "completed" });
-    expect(m.calls).toEqual([`mod:sess-2:${row.id}`]);
+    expect(m.calls).toEqual(["probe", `mod:sess-2:${row.id}`]);
 
     const notified: Array<string | undefined> = [];
     const fallback = modded({ live: [], moves: { "sess-1": "sess-2" } });
@@ -296,9 +341,47 @@ describe("Claude question completion through the mod", () => {
       const deps: ClaudeQuestionDeps = { ...m.deps, mod: seam, record: () => {} };
       expect(await complete(deps, row)).toEqual({ ok: true, data: "completed" });
       expect(pushed).toEqual([{ session: "sess-2", kind: "gate-complete", data: { id: row.id } }]);
-      expect(m.calls).toEqual([]);
+      expect(m.calls).toEqual(["probe"]);
 
       expect(claudeModSeam(null).owns(nudgedQuestion(row)!.binding)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("with the switch off, a /clear's move is forgotten and the doorbell targets exactly as in M5a", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-claude-questions-"));
+    try {
+      let enabled = true;
+      const links = createModLinks({
+        now: () => 1_000_000, integrationsEnabled: () => enabled,
+        store: createSessionStore(openStateDb(join(dir, "state.db"))),
+      });
+      const reg = (sessionId: string, previous?: { sessionId: string; linkId: string }) => {
+        const out = links.register({
+          sessionId, cwd: "/repo", root: "/repo", claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.1.0", blocks: ["gate-form"],
+          ...(previous && { previousSessionId: previous.sessionId, previousLinkId: previous.linkId }),
+        });
+        if (!out.ok) throw new Error(out.error.message);
+        return out.data.linkId;
+      };
+      reg("sess-2", { sessionId: "sess-1", linkId: reg("sess-1") });
+      expect(links.continuedAs("sess-1")).toBe("sess-2");
+
+      enabled = false;
+      const pushed: string[] = [];
+      const seam = claudeModSeam(links, async (session) => {
+        pushed.push(session);
+        return { ok: true, data: { acked: true } };
+      });
+      const m = fakes();
+      const row = formGate(store());
+      expect(await complete({ ...m.deps, mod: seam, record: () => {} }, row)).toEqual({ ok: true, data: "completed" });
+      expect(pushed).toEqual([]);
+      expect(m.calls).toEqual(["probe", `notify:${row.id}`, "escape:w1:p-sess-1"]);
+
+      enabled = true;
+      expect(links.continuedAs("sess-1")).toBe("sess-1");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -111,7 +111,7 @@ const questionContextBytes = (questions: GateQuestion[]): number =>
 const withoutQuestionContexts = (questions: GateQuestion[]): GateQuestion[] =>
   questions.map(({ context: _dropped, ...q }) => q);
 
-const ORIGIN_STRING_KEYS: ReadonlySet<string> = new Set(["paneId", "tabId", "runId", "worktree", "surface", "session"]);
+const ORIGIN_STRING_KEYS: ReadonlySet<string> = new Set(["paneId", "tabId", "runId", "worktree", "surface"]);
 
 /** Kinds whose gates legitimately carry no context: a milestone's artifact IS
     the material, and the reconciler's wait-path gate asks about a pane, not
@@ -479,105 +479,113 @@ export function createGateHandlers(
       .catch((err) => log?.warn({ err, gateId: row.id, kind: row.kind }, "gate:answer: retry executor guarantee failed"));
   };
 
+  // `askedBy` is the asking session gate:ask resolved: only the daemon stamps
+  // origin.session, so a caller's own claim is dropped on the way in.
+  const openGate = async (rawPayload: unknown, askedBy?: string): Promise<CommandResult<"gate:open">> => {
+    const sent = rawPayload as Commands["gate:open"]["payload"] | undefined;
+    const payload = sent && isPlainObject(sent.origin) && "session" in sent.origin
+      ? { ...sent, origin: Object.fromEntries(Object.entries(sent.origin).filter(([key]) => key !== "session")) as GateOrigin }
+      : sent;
+    const subject = typeof payload?.subject === "string" ? payload.subject.trim() : "";
+    const kind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
+    const colonAt = subject.indexOf(":");
+    if (!subject || colonAt === -1 || colonAt === subject.length - 1) return { ok: false as const, error: "invalid subject" };
+    if (!kind) return { ok: false as const, error: "missing kind" };
+    const questions = payload?.questions;
+    if (!Array.isArray(questions) || questions.length === 0 || !questions.every(isValidQuestion)) {
+      return { ok: false as const, error: "invalid questions" };
+    }
+    const ids = questions.map((q) => q.id);
+    if (new Set(ids).size !== ids.length) return { ok: false as const, error: "duplicate question id" };
+    if (payload?.meta !== undefined && !isPlainObject(payload.meta)) {
+      return { ok: false as const, error: "meta must be a plain object" };
+    }
+    if (payload?.agent !== undefined && typeof payload.agent !== "string") {
+      return { ok: false as const, error: "agent must be a string" };
+    }
+    if (payload?.pane !== undefined && typeof payload.pane !== "string") {
+      return { ok: false as const, error: "pane must be a string" };
+    }
+    if (payload?.nudge !== undefined && !isValidNudge(payload.nudge)) {
+      return { ok: false as const, error: "nudge must be an object with a string session" };
+    }
+    const optionTextError = oversizedOptionText(questions);
+    if (optionTextError) return { ok: false as const, error: optionTextError };
+    if (payload?.context !== undefined && typeof payload.context !== "string") {
+      return { ok: false as const, error: "context must be a string" };
+    }
+    const gateContextBytes = payload?.context === undefined ? 0 : Buffer.byteLength(payload.context, "utf8");
+    if (gateContextBytes + questionContextBytes(questions) > CONTEXT_CAP_BYTES) {
+      return { ok: false as const, error: `context exceeds ${CONTEXT_CAP_BYTES} bytes (gate context plus question contexts share the budget)` };
+    }
+    if (payload?.origin !== undefined) {
+      const originError = invalidOrigin(payload.origin);
+      if (originError) return { ok: false as const, error: originError };
+      // A form-presentation gate answered from another surface is
+      // completed by doorbell-then-Escape; without a nudge session and an
+      // injectable pane it opens as a gate no surface can ever unblock
+      // (SKILLS-60), so refuse it here instead of blocking a pane forever.
+      if (payload.origin.presentation === "form") {
+        if (!payload.origin.paneId && !payload.pane) {
+          return { ok: false as const, error: 'presentation "form" requires an injectable pane: set origin.paneId or the top-level pane' };
+        }
+        if (payload.nudge === undefined) {
+          return { ok: false as const, error: 'presentation "form" requires a nudge session: the doorbell the Escape follows has no target without it' };
+        }
+      }
+    }
+
+    // Non-pane origins (run/tab/worktree-only) have no Escape seam to
+    // guard, so they default to "wait" rather than forcing every caller
+    // to spell it out; an explicit value always wins (spread order).
+    const opened = payload?.origin ? { presentation: "wait" as const, ...payload.origin } : undefined;
+    const origin = askedBy ? { presentation: "wait" as const, ...opened, session: askedBy } : opened;
+
+    const owner = deriveOwner(origin, runSpawnedBy);
+    const { row, supersededId } = store.open({
+      subject, kind, questions,
+      meta: payload?.meta, agent: payload?.agent, pane: payload?.pane, nudge: payload?.nudge,
+      context: payload?.context, origin, owner,
+    });
+
+    // One timestamp for both the journal row and the broadcast frame (events:emit idiom).
+    const emittedAt = Date.now();
+    const label = typeof row.meta?.label === "string" ? row.meta.label : row.kind;
+    const eventPayload = {
+      id: row.id, subject: row.subject, kind: row.kind, questions: row.questions,
+      meta: row.meta, agent: row.agent, paneId: row.pane, label,
+      context: row.context, origin: row.origin, owner: row.owner,
+    };
+    emitGateEvent(`gate/opened/${row.id}`, eventPayload, emittedAt);
+
+    // The supersede rule closes the old gate in the SAME store transaction;
+    // its closed event fires here, alongside the opener's, sharing the
+    // timestamp -- same subject/kind as the new gate (supersede only ever
+    // matches on both), so no extra row fetch is needed.
+    if (supersededId) {
+      emitGateEvent(`gate/closed/${supersededId}`, {
+        id: supersededId, subject: row.subject, kind: row.kind,
+        reason: "superseded", supersededBy: row.id,
+      }, emittedAt);
+      // Fetched fresh (unlike the event payload above): a form-blocked pane
+      // on the superseded gate never gets an answer, so it needs the same
+      // doorbell-then-Escape delivery onAnswered gives a real answer.
+      // A native question still has to be ended when its own pane asks
+      // again; its integration gets the closed row, which names the
+      // superseding gate, and decides what the pane is sent.
+      const supersededRow = store.get(supersededId);
+      if (supersededRow && (!sameOpenerPane(row, supersededRow) || push.nativeOwns?.(supersededRow))) {
+        firePush(push.onClosed(supersededRow), { verb: "gate:open", gateId: supersededRow.id });
+      }
+    }
+
+    firePush(push.onOpened(row), { verb: "gate:open", gateId: row.id });
+
+    return { ok: true as const, data: { id: row.id, supersededId } };
+  };
+
   const handlers: GateSiblingHandlers = {
-    "gate:open": async (rawPayload: unknown) => {
-      const payload = rawPayload as Commands["gate:open"]["payload"] | undefined;
-      const subject = typeof payload?.subject === "string" ? payload.subject.trim() : "";
-      const kind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
-      const colonAt = subject.indexOf(":");
-      if (!subject || colonAt === -1 || colonAt === subject.length - 1) return { ok: false as const, error: "invalid subject" };
-      if (!kind) return { ok: false as const, error: "missing kind" };
-      const questions = payload?.questions;
-      if (!Array.isArray(questions) || questions.length === 0 || !questions.every(isValidQuestion)) {
-        return { ok: false as const, error: "invalid questions" };
-      }
-      const ids = questions.map((q) => q.id);
-      if (new Set(ids).size !== ids.length) return { ok: false as const, error: "duplicate question id" };
-      if (payload?.meta !== undefined && !isPlainObject(payload.meta)) {
-        return { ok: false as const, error: "meta must be a plain object" };
-      }
-      if (payload?.agent !== undefined && typeof payload.agent !== "string") {
-        return { ok: false as const, error: "agent must be a string" };
-      }
-      if (payload?.pane !== undefined && typeof payload.pane !== "string") {
-        return { ok: false as const, error: "pane must be a string" };
-      }
-      if (payload?.nudge !== undefined && !isValidNudge(payload.nudge)) {
-        return { ok: false as const, error: "nudge must be an object with a string session" };
-      }
-      const optionTextError = oversizedOptionText(questions);
-      if (optionTextError) return { ok: false as const, error: optionTextError };
-      if (payload?.context !== undefined && typeof payload.context !== "string") {
-        return { ok: false as const, error: "context must be a string" };
-      }
-      const gateContextBytes = payload?.context === undefined ? 0 : Buffer.byteLength(payload.context, "utf8");
-      if (gateContextBytes + questionContextBytes(questions) > CONTEXT_CAP_BYTES) {
-        return { ok: false as const, error: `context exceeds ${CONTEXT_CAP_BYTES} bytes (gate context plus question contexts share the budget)` };
-      }
-      if (payload?.origin !== undefined) {
-        const originError = invalidOrigin(payload.origin);
-        if (originError) return { ok: false as const, error: originError };
-        // A form-presentation gate answered from another surface is
-        // completed by doorbell-then-Escape; without a nudge session and an
-        // injectable pane it opens as a gate no surface can ever unblock
-        // (SKILLS-60), so refuse it here instead of blocking a pane forever.
-        if (payload.origin.presentation === "form") {
-          if (!payload.origin.paneId && !payload.pane) {
-            return { ok: false as const, error: 'presentation "form" requires an injectable pane: set origin.paneId or the top-level pane' };
-          }
-          if (payload.nudge === undefined) {
-            return { ok: false as const, error: 'presentation "form" requires a nudge session: the doorbell the Escape follows has no target without it' };
-          }
-        }
-      }
-
-      // Non-pane origins (run/tab/worktree-only) have no Escape seam to
-      // guard, so they default to "wait" rather than forcing every caller
-      // to spell it out; an explicit value always wins (spread order).
-      const origin = payload?.origin ? { presentation: "wait" as const, ...payload.origin } : undefined;
-
-      const owner = deriveOwner(origin, runSpawnedBy);
-      const { row, supersededId } = store.open({
-        subject, kind, questions,
-        meta: payload?.meta, agent: payload?.agent, pane: payload?.pane, nudge: payload?.nudge,
-        context: payload?.context, origin, owner,
-      });
-
-      // One timestamp for both the journal row and the broadcast frame (events:emit idiom).
-      const emittedAt = Date.now();
-      const label = typeof row.meta?.label === "string" ? row.meta.label : row.kind;
-      const eventPayload = {
-        id: row.id, subject: row.subject, kind: row.kind, questions: row.questions,
-        meta: row.meta, agent: row.agent, paneId: row.pane, label,
-        context: row.context, origin: row.origin, owner: row.owner,
-      };
-      emitGateEvent(`gate/opened/${row.id}`, eventPayload, emittedAt);
-
-      // The supersede rule closes the old gate in the SAME store transaction;
-      // its closed event fires here, alongside the opener's, sharing the
-      // timestamp -- same subject/kind as the new gate (supersede only ever
-      // matches on both), so no extra row fetch is needed.
-      if (supersededId) {
-        emitGateEvent(`gate/closed/${supersededId}`, {
-          id: supersededId, subject: row.subject, kind: row.kind,
-          reason: "superseded", supersededBy: row.id,
-        }, emittedAt);
-        // Fetched fresh (unlike the event payload above): a form-blocked pane
-        // on the superseded gate never gets an answer, so it needs the same
-        // doorbell-then-Escape delivery onAnswered gives a real answer.
-        // A native question still has to be ended when its own pane asks
-        // again; its integration gets the closed row, which names the
-        // superseding gate, and decides what the pane is sent.
-        const supersededRow = store.get(supersededId);
-        if (supersededRow && (!sameOpenerPane(row, supersededRow) || push.nativeOwns?.(supersededRow))) {
-          firePush(push.onClosed(supersededRow), { verb: "gate:open", gateId: supersededRow.id });
-        }
-      }
-
-      firePush(push.onOpened(row), { verb: "gate:open", gateId: row.id });
-
-      return { ok: true as const, data: { id: row.id, supersededId } };
-    },
+    "gate:open": (rawPayload: unknown) => openGate(rawPayload),
 
     "gate:answer": async (rawPayload: unknown) => {
       const payload = rawPayload as Commands["gate:answer"]["payload"] | undefined;
@@ -848,13 +856,12 @@ export function createGateHandlers(
     );
     const derivedOrigin: GateOrigin = { presentation };
     if (paneId) derivedOrigin.paneId = paneId;
-    if (sessionId) derivedOrigin.session = sessionId;
     if (resolved.runId) derivedOrigin.runId = resolved.runId;
     const runWorktree = resolved.runWorktree ?? (resolved.runId ? deps.runWorktree?.(resolved.runId) ?? undefined : undefined);
     if (runWorktree) derivedOrigin.worktree = runWorktree;
     const origin: GateOrigin = { ...passthroughOrigin, ...derivedOrigin } as GateOrigin;
 
-    const opened = await handlers["gate:open"]({
+    const opened = await openGate({
       subject: resolved.subject,
       kind,
       questions: storedQuestions,
@@ -864,7 +871,7 @@ export function createGateHandlers(
       ...(paneId ? { pane: paneId } : {}),
       ...(presentation === "form" && sessionId ? { nudge: nudgeFor(sessionId, harness) } : {}),
       origin,
-    });
+    }, sessionId);
     if (!opened.ok) return opened;
     return {
       ok: true as const,

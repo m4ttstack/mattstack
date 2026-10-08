@@ -616,6 +616,18 @@ describe("gate:ask records the asking session, and gate:list filters on it", () 
     expect(store.get(resolved.data.id)!.origin?.session).toBe("sess-1");
   });
 
+  test("a raw gate:open never records a caller-chosen origin.session", async () => {
+    const { handlers, store } = harness();
+    const opened = await handlers["gate:open"]({
+      subject: "run:r1", kind: "plain", questions: twoOptionQuestion(),
+      origin: { presentation: "wait", surface: "board", session: "someone-else" },
+    });
+    if (!opened.ok) throw new Error(String(opened.error));
+    expect(store.get(opened.data.id)!.origin).toEqual({ presentation: "wait", surface: "board" });
+    const listed = await handlers["gate:list"]({ session: "someone-else" });
+    expect(listed.ok && listed.data.gates).toEqual([]);
+  });
+
   test("gate:list session and presentation filters, and unfiltered results unchanged", async () => {
     const { handlers, store } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }) });
     const mine = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1", paneId: "w1:p1" });
