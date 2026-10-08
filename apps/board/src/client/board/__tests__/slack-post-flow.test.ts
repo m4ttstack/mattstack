@@ -107,13 +107,14 @@ test('other code owners to ask: opens the dialog with the preview', async () => 
   expect(events).toContain('done !7 needs code owners too, pick channels');
 });
 
-test('a failed preview says why and opens nothing', async () => {
+test('a failed check and a failed team post say both, and open nothing', async () => {
   const { done, events, opened } = run({
     '/slack/owners/preview': fail(502, 'could not read approvals'),
+    '/slack/post': fail(502, ''),
   });
   await done;
   expect(events).toContain(
-    'fail could not check slack for !7 (502): could not read approvals'
+    'fail slack post failed for !7 (502); could not check code owners (502): could not read approvals'
   );
   expect(opened).toEqual([]);
 });
@@ -130,6 +131,48 @@ test('a failed direct post says why', async () => {
   expect(events).toContain(
     'fail slack post failed for !7: #code-review failed: not_in_channel'
   );
+});
+
+test('a failed code owner check still posts the team request', async () => {
+  const { done, events, opened } = run({
+    '/slack/owners/preview': fail(502, 'could not read approvals'),
+    '/slack/post': ok({ ok: true, posted: 1 }),
+  });
+  await done;
+  expect(events).toContain(`post /slack/post {"mrUrls":["${URL}"]}`);
+  expect(events).toContain(
+    'done posted !7 to slack; could not check code owners (502): could not read approvals'
+  );
+  expect(events).toContain('reload');
+  expect(opened).toEqual([]);
+});
+
+test('nothing left to post says so instead of opening an empty dialog', async () => {
+  const { done, events, opened } = run({
+    '/slack/owners/preview': ok(
+      preview({
+        team: { channel: 'code-review', posted: true },
+        channels: [],
+      })
+    ),
+  });
+  await done;
+  expect(events).toContain('done nothing left to post for !7');
+  expect(opened).toEqual([]);
+});
+
+test('a team request found while posting is linked, not called posted', async () => {
+  const { done, events } = run({
+    '/slack/owners/preview': ok(preview({ direct: true, channels: [] })),
+    '/slack/owners/post': ok({
+      posted: [
+        { channel: 'code-review', permalink: 'p', team: true, linked: true },
+      ],
+      failed: [],
+    }),
+  });
+  await done;
+  expect(events).toContain('done !7 already in slack... linked');
 });
 
 const NOW = 1_000_000;

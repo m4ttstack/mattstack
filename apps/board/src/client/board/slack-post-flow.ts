@@ -43,13 +43,14 @@ export function needsThreadLookup(
 }
 
 interface PostOutcome {
-  posted: Array<{ channel: string }>;
+  posted: Array<{ channel: string; linked?: true }>;
   failed: Array<{ channel: string; error: string }>;
 }
 
 /** "post to slack" on one MR. Where code owners have channels, the board
     first reads which of them still need asking: with only the team channel
-    left it posts there at once, and otherwise opens the dialog. */
+    left it posts there at once, and otherwise opens the dialog. When that
+    read fails the team request still goes out, as it always could. */
 export async function startSlackPost(
   mr: BoardMR,
   deps: SlackPostDeps
@@ -57,24 +58,22 @@ export async function startSlackPost(
   if (!mr.webUrl) return;
   if (!mr.rtRepo || !deps.ownerRepos.includes(mr.rtRepo)) {
     const toast = deps.startToast(`posting !${mr.iid} to slack…`);
-    const result = await deps.post('/slack/post', { mrUrls: [mr.webUrl] });
-    if (!result.ok)
-      return toast.fail(`slack post failed for !${mr.iid} (${result.status})`);
-    toast.done(
-      result.body?.linked
-        ? `!${mr.iid} already in slack... linked`
-        : `posted !${mr.iid} to slack`
-    );
-    deps.reload();
-    return;
+    return postTeam(mr, deps, toast);
   }
   const toast = deps.startToast(`checking where !${mr.iid} goes in slack…`);
   const read = await deps.post('/slack/owners/preview', { mrUrl: mr.webUrl });
   if (!read.ok)
-    return toast.fail(
-      `could not check slack for !${mr.iid} (${read.status})${read.text ? `: ${read.text}` : ''}`
+    return postTeam(
+      mr,
+      deps,
+      toast,
+      `could not check code owners (${read.status})${read.text ? `: ${read.text}` : ''}`
     );
   const preview = read.body as unknown as SlackPostPreview;
+  if (preview.team.posted && preview.channels.length === 0) {
+    toast.done(`nothing left to post for !${mr.iid}`);
+    return;
+  }
   if (!preview.direct) {
     toast.done(`!${mr.iid} needs code owners too, pick channels`);
     deps.openDialog(mr, preview);
@@ -93,6 +92,28 @@ export async function startSlackPost(
           .join(', ') || `${sent.status}${sent.text ? ` ${sent.text}` : ''}`
       }`
     );
-  toast.done(`posted !${mr.iid} to #${preview.team.channel}`);
+  toast.done(
+    outcome.posted.some(p => p.linked)
+      ? `!${mr.iid} already in slack... linked`
+      : `posted !${mr.iid} to #${preview.team.channel}`
+  );
+  deps.reload();
+}
+
+async function postTeam(
+  mr: BoardMR,
+  deps: SlackPostDeps,
+  toast: ToastHandle,
+  note?: string
+): Promise<void> {
+  const result = await deps.post('/slack/post', { mrUrls: [mr.webUrl] });
+  if (!result.ok)
+    return toast.fail(
+      `slack post failed for !${mr.iid} (${result.status})${note ? `; ${note}` : ''}`
+    );
+  const said = result.body?.linked
+    ? `!${mr.iid} already in slack... linked`
+    : `posted !${mr.iid} to slack`;
+  toast.done(note ? `${said}; ${note}` : said);
   deps.reload();
 }

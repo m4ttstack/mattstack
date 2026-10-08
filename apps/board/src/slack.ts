@@ -92,7 +92,10 @@ export function matchReviewMessage(
   messages: SlackMessage[],
   webUrl: string
 ): SlackMessage | null {
-  const hits = messages.filter(m => m.text.includes(webUrl));
+  // The url must end where it does in the text, or !12 would match !123.
+  const escaped = webUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const whole = new RegExp(`${escaped}(?![\\w-])`);
+  const hits = messages.filter(m => whole.test(m.text));
   if (!hits.length) return null;
   return hits.reduce((a, b) => (parseFloat(a.ts) <= parseFloat(b.ts) ? a : b));
 }

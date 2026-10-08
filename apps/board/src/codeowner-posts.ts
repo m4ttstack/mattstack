@@ -55,6 +55,8 @@ export function planOwnersPost(
     posted: Record<string, string>;
     slack?: Map<string, { member: boolean }>;
     ownSections?: readonly string[];
+    /** The team request's channel: a section naming it is the team's own. */
+    teamChannel?: string;
   }
 ): OwnersPostPlan {
   const own = new Set(opts.ownSections ?? []);
@@ -69,7 +71,11 @@ export function planOwnersPost(
   const skipped: OwnerSkip[] = [];
   const ownSections: string[] = [];
   for (const [section, approved] of approvedBySection) {
-    if (own.has(section)) {
+    if (
+      own.has(section) ||
+      (!!opts.teamChannel &&
+        channelFromCodeownerSection(section) === opts.teamChannel)
+    ) {
       if (!approved) ownSections.push(section);
       continue;
     }

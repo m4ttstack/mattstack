@@ -74,6 +74,28 @@ describe('matchReviewMessage', () => {
     expect(m?.ts).toBe('10');
   });
 
+  test('does not match a longer MR number that starts with this one', () => {
+    expect(
+      matchReviewMessage([msg('5', `review <${URL_A}1|!48211>`)], URL_A)
+    ).toBeNull();
+    expect(
+      matchReviewMessage([msg('6', `review ${URL_A}2`)], URL_A)
+    ).toBeNull();
+  });
+
+  test('matches the url before a link bar, a path, a query or the end', () => {
+    for (const text of [
+      `<${URL_A}|!4821>`,
+      `<${URL_A}>`,
+      `${URL_A}/diffs`,
+      `${URL_A}?tab=x`,
+      `${URL_A}#note_1`,
+      `see ${URL_A}`,
+      `${URL_A}, thanks`,
+    ])
+      expect(matchReviewMessage([msg('7', text)], URL_A)?.ts).toBe('7');
+  });
+
   test("does not match a different MR's url", () => {
     expect(matchReviewMessage([msg('5', `review ${URL_B}`)], URL_A)).toBeNull();
   });

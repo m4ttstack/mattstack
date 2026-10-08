@@ -707,20 +707,29 @@ test('posted to only some code owners, the item leads the menu and offers the re
   expect(post.blocked).toBeUndefined();
 });
 
-test('posted everywhere, the blocked item stays in the slack flyout', () => {
+test('posted everywhere, the item stays on offer in the slack flyout, since approvals can reset', () => {
   const post = postItem(inOptedRepo({ slack: found, ownerPostsLeft: [] }))!;
   expect(post.section).toBe('slack');
+  expect(post.label).toBe('post to slack');
+  expect(post.blocked).toBeUndefined();
+});
+
+test('with only the team channel left, the item is the plain post and leads', () => {
+  const post = postItem(
+    inOptedRepo({
+      slackChannel: 'code-review',
+      slack: notFound,
+      ownerPostsLeft: ['code-review'],
+    })
+  )!;
+  expect(post.label).toBe('post to slack');
+  expect(post.section).toBe('top');
 });
 
 test('a team thread found outside the dialog still offers the other code owners', () => {
   const post = postItem(inOptedRepo({ slack: found }))!;
   expect(post.label).toBe('post to other codeowners…');
   expect(post.blocked).toBeUndefined();
-});
-
-test('posted everywhere the dialog offered, the item is blocked', () => {
-  const post = postItem(inOptedRepo({ slack: found, ownerPostsLeft: [] }))!;
-  expect(post.blocked).toBe('posted');
 });
 
 test('outside an opted-in repo a found thread blocks the post', () => {

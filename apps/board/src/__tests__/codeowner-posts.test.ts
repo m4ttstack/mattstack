@@ -180,4 +180,18 @@ describe('planOwnersPost', () => {
         .ownSections
     ).toEqual([]);
   });
+
+  test('a section naming the team channel rides on the team row, never posts twice there', () => {
+    const plan = planOwnersPost(
+      [
+        { section: 'Payments Web - #payments', approved: false },
+        { section: 'Acme - #pod-acme', approved: false },
+      ],
+      { posted: {}, teamChannel: 'payments' }
+    );
+    expect(plan.channels).toEqual([
+      { channel: 'pod-acme', sections: ['Acme - #pod-acme'] },
+    ]);
+    expect(plan.ownSections).toEqual(['Payments Web - #payments']);
+  });
 });

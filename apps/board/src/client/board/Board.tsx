@@ -956,10 +956,10 @@ export function Board() {
               }
             : open
         );
-        load();
+        if (ref.status === 'found') load();
       })
       .finally(() => threadLookups.current.delete(url));
-  }, [menuMrUrl]);
+  }, [menuMrUrl, !!data]);
 
   /** `onPosted` runs only when the message actually landed -- the selection bar
       uses it to clear the selection, and a failed post must leave the selection

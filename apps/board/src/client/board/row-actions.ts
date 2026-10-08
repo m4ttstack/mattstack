@@ -579,24 +579,24 @@ export function rowActions(
     );
     if (own) {
       // The author leads with posting while anything is left to post. In a
-      // repo whose code owners have channels, a team thread or a partial post
-      // turns the item into the rest of the code owners; with no record of
-      // what the dialog offered, it stays on offer and the dialog checks.
+      // repo whose code owners have channels the item is never blocked: a
+      // push can reset approvals, and the dialog reads them fresh. With no
+      // record of what the dialog offered, a team thread still offers the
+      // code owners.
       const owners =
         !!mrx.rtRepo && !!env.ownerSlackRepos?.includes(mrx.rtRepo);
       const left = mrx.ownerPostsLeft;
-      const started = found || !!left;
-      const rest = owners && started && left?.length !== 0;
-      const leads = !started || rest;
-      const section = leads ? 'top' : 'slack';
+      const othersLeft =
+        owners && (left ? left.some(c => c !== mrx.slackChannel) : found);
+      const leads = !found || othersLeft;
       (leads ? top : slack).push(
         item(
-          section,
+          leads ? 'top' : 'slack',
           'post-slack',
-          rest ? 'post to other codeowners…' : 'post to slack',
+          othersLeft ? 'post to other codeowners…' : 'post to slack',
           SLACK,
           { kind: 'post-slack' },
-          block(started && !rest && 'posted')
+          block(!owners && found && 'posted')
         )
       );
     }

@@ -1001,7 +1001,12 @@ async function ownersPostPlan(
       post.permalink,
     ])
   );
-  const first = planOwnersPost(rules, { posted, slack: channels, ownSections });
+  const first = planOwnersPost(rules, {
+    posted,
+    slack: channels,
+    ownSections,
+    teamChannel: channelForMR(config, mr),
+  });
   // A request someone posted by hand counts as posted. When a channel cannot
   // be read it is still offered, and the preview says it went unchecked.
   const unchecked: string[] = [];
@@ -1015,7 +1020,12 @@ async function ownersPostPlan(
     }
   }
   return {
-    plan: planOwnersPost(rules, { posted, slack: channels, ownSections }),
+    plan: planOwnersPost(rules, {
+      posted,
+      slack: channels,
+      ownSections,
+      teamChannel: channelForMR(config, mr),
+    }),
     channels,
     unchecked,
   };
@@ -1165,7 +1175,12 @@ async function ownersPreviewOrPost(
       { status: 400 }
     );
   }
-  const posted: Array<{ channel: string; permalink: string; team?: true }> = [];
+  const posted: Array<{
+    channel: string;
+    permalink: string;
+    team?: true;
+    linked?: true;
+  }> = [];
   const failed: Array<{ channel: string; error: string }> = [];
   if (wantsTeam) {
     const result = await postReviewRequest(
@@ -1179,6 +1194,7 @@ async function ownersPreviewOrPost(
         channel: team.channel,
         permalink: result.permalink ?? '',
         team: true,
+        ...(result.kind === 'linked' ? { linked: true as const } : {}),
       });
     else
       failed.push({
@@ -3770,6 +3786,7 @@ const httpServer = Bun.serve({
               status: ref.status,
               permalink: ref.permalink,
               reactions: ref.reactions ?? [],
+              checkedAt: ref.checkedAt,
             }),
             { headers: { 'content-type': 'application/json' } }
           );
