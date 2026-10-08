@@ -141,6 +141,24 @@ describe("2026-10-08-team-directory", () => {
     expect(store(teamStores.claim!)["mattstack.integrations"]).toBeUndefined();
   });
 
+  test("a team whose code owners channel another entry claims is skipped, and keeps its values", async () => {
+    const other = { slack: { codeOwnersChannel: "#Pod-Claim" } };
+    const { orgStore, teamStores } = seedClone({
+      username: "me",
+      roles: adminRoles,
+      roster,
+      settings: { "mattstack.directory": { teams: { other } } },
+      teams: { claim: CLAIM_STORE },
+    });
+    await run();
+    expect(store(orgStore)["mattstack.directory"]).toEqual({ teams: { other } });
+    const team = store(teamStores.claim!);
+    expect(team["board.slack"]).toEqual(CLAIM_STORE["board.slack"]);
+    expect(team["mattstack.integrations"]).toEqual(CLAIM_STORE["mattstack.integrations"]);
+    expect(team["board.ticketPrefixes"]).toEqual(CLAIM_STORE["board.ticketPrefixes"]);
+    expect(tabsIn(teamStores.claim!).map((t) => t.slackChannel)).toEqual([undefined, "pod-claim", "pod-acme"]);
+  });
+
   test("a Mac that cannot write the org store leaves every shared store alone", async () => {
     const { orgStore, teamStores } = seedClone({
       username: "me",
