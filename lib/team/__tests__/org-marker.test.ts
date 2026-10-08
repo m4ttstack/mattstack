@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { markerOrg, markerState, ORG_MARKER_REL } from "../org-marker.ts";
+import { markerOrg, markerState, ORG_LAYOUT, ORG_MARKER_REL, parseMarker } from "../org-marker.ts";
 
 const dir = "/h/.mattstack/orgs/acme";
 const at = (raw: string) => fakeProbes({ home: "/h", files: { [`${dir}/${ORG_MARKER_REL}`]: raw } });
@@ -29,6 +29,28 @@ describe("markerState", () => {
     expect(markerState(at("[]"), dir)).toEqual({ kind: "invalid", why: "it is not a JSON object" });
     expect(markerState(at('{ "role": "org" }'), dir)).toEqual({ kind: "invalid", why: "it names no org" });
     expect(markerState(at('{ "role": "org", "org": "Not A Slug" }'), dir)).toEqual({ kind: "invalid", why: '"Not A Slug" is not a valid org name' });
-    expect(markerState(at('{ "role": "org", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme" });
+    expect(markerState(at('{ "role": "org", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: 2 });
+  });
+});
+
+describe("layout", () => {
+  test("an org marker without the field reads as ORG_LAYOUT, a one-team marker as 1", () => {
+    expect(markerState(at('{ "role": "org", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: ORG_LAYOUT });
+    expect(markerState(at('{ "role": "team", "namespace": "widgets", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: 1 });
+  });
+  test("an explicit positive integer wins over the default", () => {
+    expect(parseMarker('{ "role": "org", "org": "acme", "layout": 3 }')).toEqual({ kind: "org", org: "acme", layout: 3 });
+    expect(parseMarker('{ "role": "team", "org": "acme", "layout": 2 }')).toEqual({ kind: "org", org: "acme", layout: 2 });
+  });
+  test("a layout that is not a positive integer is invalid", () => {
+    for (const bad of ['"2"', "0", "-1", "2.5", "null", "[]"]) {
+      expect(parseMarker(`{ "role": "org", "org": "acme", "layout": ${bad} }`)).toEqual({ kind: "invalid", why: "its layout is not a positive whole number" });
+    }
+  });
+  test("parseMarker of null is none", () => {
+    expect(parseMarker(null)).toEqual({ kind: "none" });
+  });
+  test("ORG_LAYOUT is 2", () => {
+    expect(ORG_LAYOUT).toBe(2);
   });
 });

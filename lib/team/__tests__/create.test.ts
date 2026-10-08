@@ -81,7 +81,7 @@ describe("scaffoldFiles", () => {
   test("writes the org layout: marker, org store, one team folder, marketplace, sops rule", () => {
     const files = scaffoldFiles("acme", "Acme", "https://gitlab.example.com/g/acme.git");
     expect(Object.keys(files).sort()).toEqual([".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", "mattstack/mattstack.jsonc", ORG_SETTINGS, TEAM_SETTINGS].sort());
-    expect(JSON.parse(files["mattstack/mattstack.jsonc"]!)).toEqual({ role: "org", org: "acme" });
+    expect(JSON.parse(files["mattstack/mattstack.jsonc"]!)).toEqual({ role: "org", org: "acme", layout: 2 });
   });
 
   test("gitlab remote: the org store holds the forge and board.gitlabHost", () => {
