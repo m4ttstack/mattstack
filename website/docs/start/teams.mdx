@@ -48,6 +48,44 @@ rt team members set dev3 --teams gadgets
 
 `rt team add` writes the team's folder and pack and shares them with the org.
 
+## Team directory
+
+The team directory tells every mattstack app which Slack channels and Linear team belong to each team. It is one org setting, `mattstack.directory`, and only an org admin can change it.
+
+List every team the apps should know about, including teams that do not use mattstack. A name that matches one of your org's teams is that team; any other name is a team outside mattstack.
+
+```json
+{
+  "teams": {
+    "widgets": {
+      "linear": { "team": "WID" },
+      "slack": {
+        "codeOwnersChannel": "pod-widgets",
+        "channels": [{ "name": "widgets-review", "kind": "review" }]
+      }
+    },
+    "gadgets": {
+      "slack": { "codeOwnersChannel": "pod-gadgets" }
+    }
+  }
+}
+```
+
+| Field | What it means |
+| --- | --- |
+| `teams.<name>` | One entry per team. |
+| `linear.team` | The team's Linear team key. The board links tickets with this prefix, and setup reads it when connecting Linear. |
+| `slack.codeOwnersChannel` | Where other teams ask this team for code owner review. The board matches a CODEOWNERS section to this team by it. |
+| `slack.channels` | The team's other channels, each with a `name` and a `kind`. The board reads the `review` kind as the team's review channel. Teams can add kinds of their own. |
+
+Channel names leave off the `#`. Two teams cannot share a code owners channel, and a kind no app reads is accepted with a notice.
+
+To change the directory, edit it in the console's settings page, or run:
+
+```bash
+rt settings set mattstack.directory '<json>' --scope org
+```
+
 ## Inviting a member
 
 Only an admin invites. Open **Settings → Team** (or **Invite teammates…** on setup's last screen), pick the team when the org has more than one, type the teammate's GitHub or GitLab handle, and click **Invite…**. You get an invite link to copy or share, plus a paste block for chat clients that mangle links, with the invite's expiry and the forge access it grants. When rt can't grant forge access itself, the steps to do it by hand appear underneath.
