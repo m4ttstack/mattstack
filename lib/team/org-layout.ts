@@ -22,12 +22,6 @@ export function updateSentence(layout: number): string {
   return `Your org uses layout ${layout} and this app reads up to ${ORG_LAYOUT}. Update the app.`;
 }
 
-/** Whether a refusal's text is updateSentence's, so a reader can tell the layout hold from a failed command. */
-export function isUpdateSentence(text: string): boolean {
-  const m = /^Your org uses layout (\d+) /.exec(text);
-  return m !== null && text === updateSentence(Number(m[1]));
-}
-
 /** The `git show` argument that prints the org marker at `ref`. */
 export function markerAtRef(ref: string): string {
   return `${ref}:${ORG_MARKER_REL}`;
