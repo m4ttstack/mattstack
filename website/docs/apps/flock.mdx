@@ -43,9 +43,20 @@ Every pane as a card, sorted into three lanes by what it needs from you:
 - **WORKING** holds working panes, then BACKGROUND: Claude Code panes still running something behind their prompt (see [Background work](#background-work)).
 - **AT REST** holds everything else, by when it last changed: Last hour, Earlier today, Yesterday, This week, Older and Unknown.
 
-Cards are grouped under their workspace's symbol and name. Each card shows the pane's status mark, its title, how long it has been in that state (for example "blocked 12m"), its branch and a timeline of its status over the last hour. Settings > Overview > Bottom line chooses whether that line shows the branch, the repo and branch, or nothing.
+Cards are grouped under their workspace's symbol and name. Each card shows:
 
-Click a card, or select it and press <kbd>↩</kbd>, to open it. The pane opens on its own and live, so you can type into it. The header has a "‹ Overview" button back, and a NEXT chip naming the next pane waiting on you, or a "Queue clear" badge when nothing is. While Overview is not the view you are on, its tab carries a red count of the cards that need you.
+- the pane's status mark and title.
+- how long it has been in that state, for example "blocked 12m".
+- its branch.
+- a timeline of its status over the last hour.
+
+**Card detail** in Settings chooses what the branch line shows: the branch, the repo and branch, or nothing. Branch leaves out the repo when it matches the workspace's name.
+
+Board review workspaces and herds' agent workspaces show in the lanes too. Turn either off in Settings with **Include Board reviews** or **Include herds**.
+
+Click a card, or select it and press <kbd>↩</kbd>, to open it. The pane opens on its own and live, so you can type into it. The header has a "‹ Overview" button back, and a NEXT chip naming the next pane waiting on you, or a "Queue clear" badge when nothing is. While Overview is not the view you are on, its tab carries a red count of blocked panes.
+
+When you leave Overview with a pane open and come back, you see the lanes. **Coming back shows** in Settings can reopen the pane you had open instead.
 
 ### Arrange
 
@@ -54,7 +65,9 @@ One island per workspace, holding a live thumbnail of each tab's split layout. D
 - on the middle of a pane to swap with it, or move there.
 - on a pane's edge to split it.
 - on a tab to move into that tab.
-- on empty space to make a new tab. Hover a tab or workspace during a drag and it springs open.
+- on empty space to make a new tab.
+
+Hover a tab or workspace during a drag and it springs open.
 
 Click a pane to select it and double-click (or press <kbd>↩</kbd>) to open it in Workspaces. Zoom into one workspace from its island's Zoom button, by double-clicking its header, or with <kbd>Space</kbd>. Right-click a pane for Rename Pane, Copy Output and Close Pane. Typing never reaches a terminal from Arrange.
 
@@ -83,9 +96,11 @@ The pane label shows the reason in place of the status word, for example "1 shel
 
 ### Plain shells
 
-flock has no statuses of its own for a plain shell: a shell running a long build looks the same as one sitting at its prompt, the small muted dot. Closing such a pane does not ask first, because only working and blocked agents count as busy.
+flock has no statuses of its own for a plain shell: a shell running a long build looks the same as one sitting at its prompt, the small muted dot. Closing a plain shell never asks first, since no agent runs in it.
 
-A new pane, or one you just cleared, shows its launcher until you type or its screen changes: buttons for rt cd, claude and codex, with <kbd>⌘</kbd><kbd>1</kbd> to <kbd>⌘</kbd><kbd>3</kbd>.
+### The launcher
+
+When a pane's shell sits at an empty prompt, a launcher bar shows over it: in a new pane, after <kbd>⌃</kbd><kbd>L</kbd> or `clear`, after rt cd, and in a pane flock sees for the first time after it restarts. The bar offers rt cd, claude and codex on <kbd>⌘</kbd><kbd>1</kbd> to <kbd>⌘</kbd><kbd>3</kbd>, and hides on your first keystroke or when the pane prints anything. rt cd runs `rt cd --repo`, so it picks from every repo.
 
 ### Other marks
 
@@ -93,6 +108,14 @@ A new pane, or one you just cleared, shows its launcher until you type or its sc
 - A zoomed pane shows a mauve "Zoomed" badge in its label.
 - An empty pinned workspace shows no mark, with its symbol and name dimmed.
 - rt runs listed in a pane's rt menu show a green dot while running, grey once finished and red once exited.
+
+## Closing a pane or tab
+
+Closing a pane or tab that runs an agent asks first: Claude Code, Codex or any other agent herdr detects, idle or busy. The prompt reads "Close this pane?" or "Close this tab?", says how many agent sessions the close ends, and offers **Close Pane** or **Close Tab** and **Cancel**. When the close also takes its tab or workspace, the prompt names that instead.
+
+Tick **Don't warn me next time** to stop the prompt for that kind of close, tabs or panes, whichever button you press. Turn it back on in Settings under **Closing**. A busy pane, or a workspace's last tab, asks either way.
+
+Close Workspace (<kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd>) does not check for agents.
 
 ## Pinned workspaces
 
@@ -102,11 +125,15 @@ A pinned workspace keeps its place at the top of the sidebar, under PINNED, and 
 
 Right-click the workspace in the sidebar and choose **Pin**. Once you have one pin, the PINNED section exists and you can also drag a row from WORKSPACES into it; the first pin has to come from the menu, because PINNED is not drawn until a pin exists.
 
-Pinning saves the workspace's name and one folder: the folder of the first pane in the workspace's first tab, as it is at that moment. If that pane is an agent sitting in a worktree, or a shell you have `cd`'d somewhere temporary, that is the folder the pin keeps. Pin names are unique: pinning a second workspace with the same name is refused.
+A pin keeps the workspace's name and one folder. When you pin, a popover titled "*name* opens in" asks which folder:
 
-### Set the pinned workspace's folder
+- **where the shell is now**: the folder the shell is in at that moment. It reads "where the shell was last seen" when flock cannot ask the shell.
+- **where it started**: the folder the shell started in.
+- **Other…**: any folder you pick.
 
-Because the folder is whatever the first pane happened to be in, check it after you pin:
+Close the popover without choosing to keep the folder it highlights. Pin names are unique: pinning a second workspace with the same name is refused.
+
+### Change the pinned workspace's folder
 
 1. Right-click the pinned workspace in the sidebar.
 2. Choose **Change Folder…**.
@@ -116,8 +143,10 @@ You can do this any time, on a live pinned workspace or an empty one. The folder
 
 ### What a pin does
 
-- A pinned workspace's menu has no Close. Closing its last tab closes the herdr workspace without asking and leaves an empty pin, dimmed in the sidebar.
-- Clicking an empty pin (in the sidebar, the <kbd>⌃</kbd><kbd>Tab</kbd> switcher or the title bar) opens a new workspace with one shell in the pin's folder, under the pin's name. Tabs, splits and commands are not restored. If the folder no longer exists, it opens in your home folder and tells you to pick another with Change Folder….
+- A pinned workspace's menu has no Close. Closing its last tab closes the herdr workspace and leaves an empty pin, dimmed in the sidebar. flock asks first only when that tab runs an agent (see [Closing a pane or tab](#closing-a-pane-or-tab)). If you were on the workspace, its empty pin stays on screen.
+- Choosing an empty pin in the sidebar or the <kbd>⌃</kbd><kbd>Tab</kbd> switcher shows it: its symbol, name and folder, "Pinned · no tabs open", and a launcher bar of shell, rt cd, claude and codex. Nothing opens yet.
+- To open it, press <kbd>↩</kbd> for a shell, choose a launcher item (or press <kbd>⌘</kbd><kbd>1</kbd> to <kbd>⌘</kbd><kbd>3</kbd>), or press <kbd>⌘</kbd><kbd>T</kbd>. flock opens a new workspace in the pin's folder, under the pin's name. Tabs, splits and commands are not restored.
+- If the pin's folder no longer exists, the workspace opens in your home folder and tells you to pick another with Change Folder….
 - flock does not reopen pins when it starts. An empty pin whose name matches a workspace herdr already has links to it.
 - Renaming a pinned workspace in herdr renames the pin.
 - Drag pins to reorder them. PINNED comes first in the sidebar, and in the workspace keys and switcher too.
@@ -125,17 +154,27 @@ You can do this any time, on a live pinned workspace or an empty one. The folder
 
 ### Unpin
 
-Right-click the pinned workspace and choose **Unpin**, or drag it down into WORKSPACES. It stays open as an ordinary workspace. An empty pin's menu offers **Remove** instead.
+Right-click the pinned workspace and choose **Unpin**, or drag it down into WORKSPACES. It stays open as an ordinary workspace. An empty pin cannot be dragged out; its menu offers **Remove** instead.
 
 ### Title bar workspaces
 
-**Move to Top Bar** in a workspace's menu pins it and moves it to an icon in the title bar, beside the view tabs. Clicking the icon opens that workspace in an overlay, and the icon's color is the workspace's status. Only a workspace with one tab can move there. Right-click the icon for Move to Sidebar, Rename, Change Icon… and Unpin. Settings > Title Bar Workspaces chooses Icon only or Icon and name.
+**Move to Top Bar** in a workspace's menu pins it and moves it to an icon in the title bar, beside the view tabs. The menu of a pinned or empty pinned workspace offers it too. The icon's color is the workspace's status.
+
+- Click the icon to open the workspace in an overlay. Close the overlay with its close button, a click on the backdrop, or the icon again. <kbd>Esc</kbd> goes to the pane's program.
+- The overlay's size control offers Small, Medium and Large, remembered for each workspace.
+- A top-bar workspace holds one tab. A workspace with more tabs cannot move there until you close the extras.
+- A top-bar workspace leaves the sidebar, Overview, Arrange, the switcher and notifications.
+- Drag icons to reorder them, or drag a pin between the title bar and PINNED.
+- While the overlay is open, New Tab, New Workspace, Close Tab, Close Workspace and the pane direction keys are off.
+- Right-click the icon for Move to Sidebar, Rename, Change Icon… and Unpin.
+
+**Title Bar Workspaces** in Settings chooses Icon only or Icon and name.
 
 ## Workspace symbols
 
 Every workspace wears an SF Symbol beside its name. It shows in the sidebar, Overview's group headers, Arrange's island headers and an opened card's header. flock gives each new workspace the least-used symbol on its own, so no two look alike until you have many.
 
-To choose one, click the symbol, or right-click the workspace and choose **Change Symbol…**. The picker lists 216 symbols in eight groups (Engineering, Work, Tools, Nature, Things, Travel and sport, Shapes, Animals), with the current one highlighted. **Automatic** at the top hands the choice back to flock.
+To choose one, click the symbol, or right-click the workspace and choose **Change Symbol…**. The picker lists 216 symbols in eight groups (Engineering, Work, Tools, Nature, Things, Travel and sport, Shapes, Animals), with the current one highlighted. Type in **Search symbols** to filter by name or group; <kbd>↩</kbd> picks the first match. **Automatic** hands the choice back to flock.
 
 No symbol is a check, exclamation mark, clock, bell, cross or plain circle, since those shapes belong to statuses, and color in the sidebar only ever means status. A workspace keeps its symbol when you rename it, pin it or unpin it. The board app's workspaces wear the board logo and herds wear the ram mark; neither can be changed.
 
@@ -154,12 +193,12 @@ Pane commands use <kbd>⌘</kbd> because it is the one modifier a pane's program
 | <kbd>⌘</kbd><kbd>D</kbd> | Split Right | Splits the focused pane to the right. |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>D</kbd> | Split Down | Splits the focused pane downward. |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>↩</kbd> | Zoom Pane | Zooms the focused pane to fill its tab. The menu reads Unzoom Pane while it is zoomed. |
-| <kbd>⌘</kbd><kbd>W</kbd> | Close Pane | Closes the focused pane. In a window such as Settings it closes that window. |
+| <kbd>⌘</kbd><kbd>W</kbd> | Close Pane | Closes the focused pane. In a window such as Settings it closes that window. Asks first when the pane runs an agent. |
 | <kbd>F2</kbd> | Rename | Renames the focused pane, else the selected tab, else the selected workspace. |
 | <kbd>⌥</kbd><kbd>⌘</kbd> + arrow | Focus Pane | Focuses the pane on that side. |
 | <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd> + arrow | Move Pane | Moves the focused pane past its neighbor on that side, the same move a drag makes. |
 | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + arrow | Swap Pane | Swaps the focused pane with its neighbor on that side. |
-| <kbd>⌘</kbd><kbd>1</kbd>, <kbd>⌘</kbd><kbd>2</kbd>, <kbd>⌘</kbd><kbd>3</kbd> | rt cd, Launch claude, Launch codex | While a new pane shows its launcher, types that command into the pane's shell. rt cd is offered only when `rt` is on your `PATH`, and each agent only when its CLI is. |
+| <kbd>⌘</kbd><kbd>1</kbd>, <kbd>⌘</kbd><kbd>2</kbd>, <kbd>⌘</kbd><kbd>3</kbd> | rt cd, Launch claude, Launch codex | While [the launcher](#the-launcher) shows, types that command into the pane's shell. Otherwise these keys switch views. rt cd is offered only when `rt` is on your `PATH`, and each agent only when its CLI is. |
 | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd> | Send Right-Clicks to Program / Give Right-Clicks to Flock | Chooses whether a plain right-click in the focused pane goes to its program or opens flock's pane menu. <kbd>⌥</kbd> + right-click always does the other one. |
 | <kbd>⌘</kbd><kbd>F</kbd> | Find | Opens the find bar over the pane's terminal. <kbd>↩</kbd> finds the next match and <kbd>⇧</kbd><kbd>↩</kbd> the previous one. |
 | <kbd>⌘</kbd><kbd>G</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>G</kbd> | Next Match / Previous Match | Steps through the find bar's matches. <kbd>Esc</kbd> returns to the terminal with the matches still lit, and <kbd>Esc</kbd> on an empty field closes the bar. |
@@ -174,7 +213,7 @@ Pane commands use <kbd>⌘</kbd> because it is the one modifier a pane's program
 | Keys | Command | What it does |
 | --- | --- | --- |
 | <kbd>⌘</kbd><kbd>T</kbd> | New Tab | Opens a tab in the selected workspace. |
-| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close Tab | Closes the selected tab. |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close Tab | Closes the selected tab. Asks first when the tab runs an agent. |
 | <kbd>⌥</kbd><kbd>Tab</kbd> | Tab switcher | Hold <kbd>⌥</kbd> and tap <kbd>Tab</kbd> to step through the workspace's tabs, most recent first. Add <kbd>⇧</kbd> to step back, and let go of <kbd>⌥</kbd> to open the one you are on. |
 | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd> / <kbd>⌃</kbd><kbd>⌘</kbd><kbd>→</kbd> | Previous Tab / Next Tab | Steps along the tab strip, wrapping at the ends. |
 | <kbd>⌃</kbd><kbd>1</kbd> … <kbd>⌃</kbd><kbd>9</kbd> | Go to Tab | Jumps to that tab in the strip. |
@@ -189,7 +228,7 @@ Pane commands use <kbd>⌘</kbd> because it is the one modifier a pane's program
 | --- | --- | --- |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> | New Workspace | Opens a new workspace. |
 | <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close Workspace | Closes the selected workspace. |
-| <kbd>⌃</kbd><kbd>Tab</kbd> | Workspace switcher | Works like macOS app switching: hold <kbd>⌃</kbd> and tap <kbd>Tab</kbd>, with <kbd>⇧</kbd> to step back, and let go to open. Pinned workspaces come first, and choosing an empty pin opens it again. |
+| <kbd>⌃</kbd><kbd>Tab</kbd> | Workspace switcher | Works like macOS app switching: hold <kbd>⌃</kbd> and tap <kbd>Tab</kbd>, with <kbd>⇧</kbd> to step back, and let go to open. Pinned workspaces come first, and choosing an empty pin shows it. |
 | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>↑</kbd> / <kbd>⌃</kbd><kbd>⌘</kbd><kbd>↓</kbd> | Previous Workspace / Next Workspace | Steps through the sidebar in order, skipping folded sections. |
 | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>1</kbd> … <kbd>⌃</kbd><kbd>⌘</kbd><kbd>9</kbd> | Go to Workspace | Jumps to that row of the sidebar. |
 | <kbd>⌘</kbd> + click | Select several | Selects several sidebar rows to drag as one block. <kbd>Esc</kbd> clears the selection. |
@@ -207,11 +246,13 @@ Pane commands use <kbd>⌘</kbd> because it is the one modifier a pane's program
 | <kbd>⌘</kbd><kbd>3</kbd> | Arrange | Shows Arrange. |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> | All Workspaces | Opens or closes the grid, in whichever of Overview and Arrange you used last. |
 | <kbd>⌘</kbd><kbd>R</kbd> | Rearrange Mode | Turns rearrange mode on or off. While it is on, a drag can start anywhere on a pane and the mouse no longer reaches the pane's program. <kbd>Esc</kbd> leaves it. |
-| <kbd>⌘</kbd><kbd>Z</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd> | Undo / Redo | Undoes or redoes a move. |
+| <kbd>⌘</kbd><kbd>Z</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd> | Undo / Redo | Undoes or redoes a move. Off in Overview. |
 | <kbd>Esc</kbd> during a drag | Cancel | Cancels the drag. With rearrange mode on, a second <kbd>Esc</kbd> leaves the mode. |
 | <kbd>Space</kbd> during a drag | Spring-load | Opens the tab or workspace under the pointer at once, without waiting for it to spring open. |
 
 </div>
+
+While Overview or Arrange covers the window, the tab, workspace and pane layout keys do nothing. Close Pane and the right-click toggle act on the pane Overview has open.
 
 ### Overview keys
 
@@ -295,19 +336,23 @@ These show only when herdr-chat is available, and sit in their own Chat menu.
 
 ## Settings that matter
 
-flock has no keys in the mattstack settings registry. Its own Settings (<kbd>⌘</kbd><kbd>,</kbd>) hold these sections:
+flock has no keys in the mattstack settings registry. Its own Settings (<kbd>⌘</kbd><kbd>,</kbd>) has four tabs: General, Views, Tools and herdr.
 
-| Section | Setting | Choices |
-| --- | --- | --- |
-| Starting Folder | New Workspace, New Tab, New Pane | Current Pane's Folder, Repo's Main Checkout (home outside a git repo), Home Folder or Custom Folder…. New workspaces and panes start in the current pane's folder and new tabs in the repo's main checkout. |
-| Notifications | Show in sidebar | Until seen (the default), For 5 seconds or Never. A question stays until you answer it. |
-| Titles | One title for a one-pane tab | On by default: a tab holding one pane shows one title everywhere. |
-| Title Bar Workspaces | Show | Icon only (the default) or Icon and name. |
-| Overview | Bottom line | Branch (the default), Repo and branch, or Hidden. |
-| Rearrange Mode | After a move | Exit (the default) or Stay. |
-| rt Modal Text Size | rt cd, rt nav, rt glitter, rt run, rt runner | Compact, Regular (the default) or Large. |
-| herdr | Mouse support | Installs a build of your herdr version that passes clicks and scrolling through to panes, or restores the original. |
-| Command Line | Shell command | Installs a `flock` command on your `PATH`, to control flock from a terminal or over ssh. |
+| Tab | Section | Setting | Choices |
+| --- | --- | --- | --- |
+| General | Starting Folder | New Workspace, New Tab, New Pane | Current Pane's Folder, Repo's Main Checkout (home outside a git repo), Home Folder or Custom Folder…. New workspaces and panes start in the current pane's folder and new tabs in the repo's main checkout. |
+| General | Notifications | Show in sidebar | Until seen (the default), For 5 seconds or Never. A question stays until you answer it. |
+| General | Titles | One title for a one-pane tab | On by default: a tab holding one pane shows one title everywhere. |
+| General | Title Bar Workspaces | Show | Icon only (the default) or Icon and name. |
+| General | Closing | Warn before closing a tab running an agent, Warn before closing a pane running an agent | Both on by default. |
+| Views | Overview | Card detail | Branch (the default), Repo and branch, or Hidden. |
+| Views | Overview | Coming back shows | The lanes (the default) or The pane you had open. |
+| Views | Overview | Include Board reviews, Include herds | Both on by default. Off, those workspaces leave the lanes and the tab's count. |
+| Views | Rearrange Mode | After a move | Exit (the default) or Stay. |
+| Tools | rt Modal Text Size | rt cd, rt nav, rt glitter, rt run, rt runner | Compact, Regular (the default) or Large. |
+| Tools | Command Line | Shell command | Installs a `flock` command on your `PATH`, to control flock from a terminal or over ssh. |
+| herdr | herdr | Version | The connected herdr's version, or Not connected. |
+| herdr | herdr | Mouse support | Installs a build of your herdr version that passes clicks and scrolling through to panes, or restores the original. |
 
 The View menu holds the rest: Theme (Tokyo Night by default, among 17), Terminal Text, Option as Alt (Left Option by default) and Scroll Speed.
 
