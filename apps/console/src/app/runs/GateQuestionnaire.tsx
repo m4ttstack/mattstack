@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react';
+import { useId, useMemo, type ReactNode } from 'react';
 import {
   Badge,
   Button,
@@ -62,6 +62,7 @@ export function GateQuestionnaire({
     () => gateItems(gate, selections),
     [gate, selections]
   );
+  const titleIdPrefix = useId();
   const stepped = display.length > 1;
   const activeStep = step ?? display[0]?.name;
   // The morph below swaps next/submit for the skip control while a
@@ -125,6 +126,7 @@ export function GateQuestionnaire({
       {display.map(item => {
         const current = selections[item.name];
         const picked = new Set(Array.isArray(current) ? current : []);
+        const titleId = `${titleIdPrefix}-${item.name}`;
         return (
           <Questionnaire.Item
             key={item.name}
@@ -132,9 +134,18 @@ export function GateQuestionnaire({
             required={item.required}
             multiple={item.multiple}
             className={classes.item}
+            aria-labelledby={titleId}
             data-testid={`gate-item-${item.name}`}
           >
-            <Questionnaire.Title className={classes.title}>
+            {/* WebKit sizes a just-unhidden fieldset with a rendered legend
+                too tall until its next style change, so the first click
+                after a step shifted the buttons and was lost. A plain div
+                named through aria-labelledby keeps the group's name. */}
+            <Questionnaire.Title
+              id={titleId}
+              className={classes.title}
+              render={props => <div {...props} />}
+            >
               {item.prompt}
             </Questionnaire.Title>
             <Questionnaire.Choices className={classes.choices}>
@@ -235,21 +246,7 @@ export function GateQuestionnaire({
         );
       })}
       <Group className={classes.actions} gap="xs" align="center" wrap="wrap">
-        <Questionnaire.Previous
-          render={(props, state) =>
-            state.visible ? (
-              <Button
-                {...props}
-                size="xs"
-                variant="default"
-                disabled={busy}
-                data-testid="gate-previous"
-              />
-            ) : null
-          }
-        >
-          previous
-        </Questionnaire.Previous>
+        {focus}
         {stepped && (
           <Button
             size="xs"
@@ -264,7 +261,21 @@ export function GateQuestionnaire({
         )}
         <Group gap="xs" ml="auto" align="center">
           {status}
-          {focus}
+          <Questionnaire.Previous
+            render={(props, state) =>
+              state.visible ? (
+                <Button
+                  {...props}
+                  size="xs"
+                  variant="default"
+                  disabled={busy}
+                  data-testid="gate-previous"
+                />
+              ) : null
+            }
+          >
+            previous
+          </Questionnaire.Previous>
           {/* While a skippable multi has nothing picked, the skip control IS
               the primary button ("next · none" / "submit · none") and
               next/submit render null -- skipping submits an explicit [].

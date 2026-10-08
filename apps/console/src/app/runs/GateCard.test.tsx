@@ -656,6 +656,33 @@ describe('GateCard: step mode', () => {
     expect(screen.getByTestId('gate-progress')).toHaveTextContent('1 of 2');
   });
 
+  it('names each question group by its prompt without a legend', () => {
+    const { container } = renderCard(gateRow());
+    expect(
+      screen.getByRole('group', { name: 'What happened?' })
+    ).toBeInTheDocument();
+    expect(container.querySelector('legend')).toBeNull();
+  });
+
+  it('puts focus pane and reset on the left, previous and next on the right', async () => {
+    renderCard(gateRow());
+    await userEvent.click(screen.getByRole('radio', { name: 'pass' }));
+    await userEvent.click(screen.getByTestId('gate-next'));
+
+    const order = [
+      'gate-focus',
+      'gate-reset',
+      'gate-previous',
+      'gate-skip',
+    ].map(id => screen.getByTestId(id));
+    for (let i = 1; i < order.length; i++) {
+      expect(
+        order[i - 1]!.compareDocumentPosition(order[i]!) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    }
+  });
+
   it('renders a single-question gate flat: no progress, no Previous, Next, or Reset, and Submit disabled until answered', async () => {
     renderCard(gateRow({ questions: [gateRow().questions[0]!] }));
     expect(screen.queryByTestId('gate-progress')).not.toBeInTheDocument();
