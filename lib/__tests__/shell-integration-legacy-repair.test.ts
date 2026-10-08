@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { END_MARKER, installShellIntegration, MARKER, repairLegacyBlock } from "../shell-integration.ts";
+import { rtHealthRows } from "../setup/validators/rt-health.ts";
+import { fakeProbes } from "../setup/__tests__/fakes.ts";
 
 const PATH_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
 
@@ -63,7 +65,7 @@ describe("shell-integration — repairing an old rt block with no end marker", (
   let rcPath: string;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), "rt-shell-legacy-"));
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-shell-legacy-")));
     process.env.HOME = home;
     process.env.SHELL = "/bin/zsh";
     rcPath = join(home, ".zshrc");
@@ -82,7 +84,7 @@ describe("shell-integration — repairing an old rt block with no end marker", (
   test("a member's rc keeps their lines and the wrapper byte for byte, loses rt's old lines, and gains the current block once", () => {
     writeFileSync(rcPath, MEMBER_RC);
 
-    const result = installShellIntegration();
+    const result = installShellIntegration({ repair: true });
 
     expect(result.written).toBe(true);
     expect(result.error).toBeUndefined();
@@ -100,7 +102,7 @@ describe("shell-integration — repairing an old rt block with no end marker", (
   test("the rc file is backed up, unchanged, before it is rewritten", () => {
     writeFileSync(rcPath, MEMBER_RC);
 
-    const result = installShellIntegration();
+    const result = installShellIntegration({ repair: true });
 
     const found = backups();
     expect(found).toHaveLength(1);
@@ -110,11 +112,11 @@ describe("shell-integration — repairing an old rt block with no end marker", (
 
   test("an rc holding only rt's own old lines repairs to exactly what a fresh install writes", () => {
     writeFileSync(rcPath, `\n${MARKER}\n${PATH_LINE}\nrt-cd() { local dir=$(rt cd 2>/dev/null); [ -n "$dir" ] && cd "$dir"; }\n${OLD_HISTORY_HOOK}`);
-    installShellIntegration();
+    installShellIntegration({ repair: true });
     const repaired = readFileSync(rcPath, "utf8");
 
     rmSync(rcPath);
-    installShellIntegration();
+    installShellIntegration({ repair: true });
     const fresh = readFileSync(rcPath, "utf8");
 
     expect(repaired).toBe(fresh);
@@ -122,10 +124,10 @@ describe("shell-integration — repairing an old rt block with no end marker", (
 
   test("a second run after a repair changes nothing and writes no second backup", () => {
     writeFileSync(rcPath, MEMBER_RC);
-    installShellIntegration();
+    installShellIntegration({ repair: true });
     const afterFirst = readFileSync(rcPath, "utf8");
 
-    const second = installShellIntegration();
+    const second = installShellIntegration({ repair: true });
 
     expect(second).toMatchObject({ alreadyInstalled: true, written: false });
     expect(readFileSync(rcPath, "utf8")).toBe(afterFirst);
@@ -137,7 +139,7 @@ describe("shell-integration — repairing an old rt block with no end marker", (
     const rc = `\n${MARKER}\n${PATH_LINE}\n${MEMBER_LINES}${edited}`;
     writeFileSync(rcPath, rc);
 
-    const result = installShellIntegration();
+    const result = installShellIntegration({ repair: true });
 
     expect(result.written).toBe(false);
     expect(result.alreadyInstalled).toBe(false);
@@ -150,7 +152,7 @@ describe("shell-integration — repairing an old rt block with no end marker", (
     const rc = `\n${MARKER}\n${PATH_LINE}\n${MEMBER_LINES}\n${MARKER}\n${PATH_LINE}\n`;
     writeFileSync(rcPath, rc);
 
-    const result = installShellIntegration();
+    const result = installShellIntegration({ repair: true });
 
     expect(result.written).toBe(false);
     expect(readFileSync(rcPath, "utf8")).toBe(rc);
@@ -158,7 +160,126 @@ describe("shell-integration — repairing an old rt block with no end marker", (
   });
 });
 
+describe("shell-integration — repair shapes and safety", () => {
+  const origHome = process.env.HOME;
+  const origShell = process.env.SHELL;
+  let home: string;
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-shell-legacy-shapes-")));
+    process.env.HOME = home;
+    process.env.SHELL = "/bin/zsh";
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    process.env.SHELL = origShell;
+    chmodSync(home, 0o755);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  function backups(prefix = ".zshrc.rt-backup-"): string[] {
+    return readdirSync(home).filter((name) => name.startsWith(prefix));
+  }
+
+  test("without repair (the launch-time update run) an old block is left alone and reported, with no backup", () => {
+    const rcPath = join(home, ".zshrc");
+    writeFileSync(rcPath, MEMBER_RC);
+
+    const result = installShellIntegration();
+
+    expect(result.written).toBe(false);
+    expect(result.alreadyInstalled).toBe(false);
+    expect(result.error).toContain("needs updating");
+    expect(readFileSync(rcPath, "utf8")).toBe(MEMBER_RC);
+    expect(backups()).toHaveLength(0);
+  });
+
+  test("a bash rc repairs the same way", () => {
+    process.env.SHELL = "/bin/bash";
+    const rcPath = join(home, ".bash_profile");
+    writeFileSync(rcPath, MEMBER_RC);
+
+    const result = installShellIntegration({ repair: true });
+
+    expect(result.written).toBe(true);
+    expect(readFileSync(rcPath, "utf8").startsWith(`${TOP}${MEMBER_LINES}${OLD_WRAPPER}`)).toBe(true);
+    expect(backups(".bash_profile.rt-backup-")).toHaveLength(1);
+  });
+
+  test("a symlinked rc keeps its link; the file it points at is repaired", () => {
+    mkdirSync(join(home, "dotfiles"));
+    const target = join(home, "dotfiles", "zshrc");
+    writeFileSync(target, MEMBER_RC);
+    const rcPath = join(home, ".zshrc");
+    symlinkSync(target, rcPath);
+
+    const result = installShellIntegration({ repair: true });
+
+    expect(result.written).toBe(true);
+    expect(lstatSync(rcPath).isSymbolicLink()).toBe(true);
+    expect(readFileSync(target, "utf8")).toContain(END_MARKER);
+    expect(readdirSync(join(home, "dotfiles"))).toEqual(["zshrc"]);
+  });
+
+  test("a failed write still names the backup, so the member can find the previous file", () => {
+    mkdirSync(join(home, "dotfiles"));
+    const target = join(home, "dotfiles", "zshrc");
+    writeFileSync(target, MEMBER_RC);
+    const rcPath = join(home, ".zshrc");
+    symlinkSync(target, rcPath);
+    chmodSync(join(home, "dotfiles"), 0o555);
+
+    try {
+      const result = installShellIntegration({ repair: true });
+      expect(result.written).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.backupPath).toBe(join(home, backups()[0]!));
+      expect(readFileSync(target, "utf8")).toBe(MEMBER_RC);
+    } finally {
+      chmodSync(join(home, "dotfiles"), 0o755);
+    }
+  });
+
+  test("the repaired file reads ready on the Shell integration row", async () => {
+    const rcPath = join(home, ".zshrc");
+    writeFileSync(rcPath, MEMBER_RC);
+    installShellIntegration({ repair: true });
+
+    const p = fakeProbes({ home, env: { SHELL: "/bin/zsh" }, files: { [rcPath]: readFileSync(rcPath, "utf8") } });
+    const shellRow = (await rtHealthRows(p, { ci: false })).find((r) => r.id === "tool.shell")!;
+
+    expect(shellRow.status).toBe("ready");
+  });
+});
+
 describe("repairLegacyBlock (pure)", () => {
+  test("a CRLF marker line is not rt's marker, so it refuses", () => {
+    expect(repairLegacyBlock(`\r\n${MARKER}\r\n${PATH_LINE}\r\n${MEMBER_LINES}`)).toBeNull();
+  });
+
+  test("a marker with a trailing space is not rt's marker, so it refuses", () => {
+    expect(repairLegacyBlock(`\n${MARKER} \n${PATH_LINE}\n${MEMBER_LINES}`)).toBeNull();
+  });
+
+  test("an indented PATH line under the marker is the member's, so it stays", () => {
+    expect(repairLegacyBlock(`\n${MARKER}\n  ${PATH_LINE}\n${MEMBER_LINES}`)).toBe(`  ${PATH_LINE}\n${MEMBER_LINES}`);
+  });
+
+  test("a member's own copy of the PATH line stays, under the block or later", () => {
+    expect(repairLegacyBlock(`\n${MARKER}\n${PATH_LINE}\n${PATH_LINE}\n${MEMBER_LINES}`)).toBe(`${PATH_LINE}\n${MEMBER_LINES}`);
+    expect(repairLegacyBlock(`\n${MARKER}\n${PATH_LINE}\n${MEMBER_LINES}${PATH_LINE}\n`)).toBe(`${MEMBER_LINES}${PATH_LINE}\n`);
+  });
+
+  test("an rt-cd line away from the block's lead is left alone", () => {
+    const rtCd = 'rt-cd() { local dir=$(rt cd 2>/dev/null); [ -n "$dir" ] && cd "$dir"; }';
+    expect(repairLegacyBlock(`\n${MARKER}\n${PATH_LINE}\n${MEMBER_LINES}${rtCd}\n`)).toBe(`${MEMBER_LINES}${rtCd}\n`);
+  });
+
+  test("member content after the history hook stays", () => {
+    expect(repairLegacyBlock(`${MEMBER_RC}export AFTER_VAR=1\n`)).toBe(`${TOP}${MEMBER_LINES}${OLD_WRAPPER}export AFTER_VAR=1\n`);
+  });
+
   test("returns the content without rt's old lines", () => {
     expect(repairLegacyBlock(MEMBER_RC)).toBe(`${TOP}${MEMBER_LINES}${OLD_WRAPPER}`);
   });

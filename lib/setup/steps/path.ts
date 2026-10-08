@@ -72,8 +72,9 @@ async function pathLinkRun(ctx: ApplyContext): Promise<StepOutcome> {
   // dropped or turned into a step failure that would undo real progress.
   const notes: string[] = [];
 
-  const shellResult = installShellIntegration();
-  if (shellResult.backupPath) ctx.log("path.link", `updated an old rt block in ${shellResult.rcPath}; the previous file is at ${shellResult.backupPath}`);
+  // The unattended update run never rewrites an old block; the row's button runs this step without `update`.
+  const shellResult = installShellIntegration({ repair: !ctx.update });
+  if (shellResult.backupPath) ctx.log("path.link", `${shellResult.written ? "updated" : "tried to update"} an old rt block in ${shellResult.rcPath}; the previous file is at ${shellResult.backupPath}`);
   if (!shellResult.written && !shellResult.alreadyInstalled) {
     const note = `shell integration not installed (${shellResult.shell}): ${shellResult.error ?? "unknown reason"}`;
     ctx.log("path.link", note);
