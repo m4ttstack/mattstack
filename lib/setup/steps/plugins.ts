@@ -22,7 +22,7 @@ import { stripJsonc } from "../../jsonc.ts";
 import { getSetting, isSharedScope, type Provenance } from "../../settings/resolve.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
-import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
+import { BASE_PLUGINS, MODS_PLUGIN, modsPluginWanted, resolveBasePlugin } from "../base-plugins.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { childOutput, isAlready, isNotFound, parsePluginList, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
@@ -196,7 +196,7 @@ interface ComputedPlugins {
   teamAuthored: string[];
 }
 
-export function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): ComputedPlugins {
+export function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null, modsWanted = false): ComputedPlugins {
   const items = getSetting<unknown>("claude.plugins").items ?? [];
   const named = items.filter((item): item is typeof item & { value: string } => typeof item.value === "string");
   if (named.length !== items.length) {
@@ -213,7 +213,7 @@ export function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketpla
     .filter((name): name is string => typeof name === "string" && name.length > 0 && name === active)
     .map((name) => `${name}@${marketplaceName}`);
 
-  const trusted = dedupe([...own, ...BASE_PLUGINS]);
+  const trusted = dedupe([...own, ...BASE_PLUGINS, ...(modsWanted ? [MODS_PLUGIN] : [])]);
   const teamAuthored = dedupe([...shared, ...teamPlugins]).filter((p) => !trusted.includes(p));
   return { trusted, teamAuthored };
 }
@@ -246,8 +246,14 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   const teamMarketplace = ctx.team.slug ? readTeamMarketplace(ctx, ctx.team.slug) : null;
   const marketplaces = computeMarketplaces(ctx, teamMarketplace);
   const mattstackSource = mattstackMarketplaceSource(ctx.p.env);
-  const { trusted: trustedPlugins, teamAuthored: teamAuthoredPlugins } = computePlugins(ctx, teamMarketplace);
+  const modsWanted = modsPluginWanted();
+  const { trusted: trustedPlugins, teamAuthored: teamAuthoredPlugins } = computePlugins(ctx, teamMarketplace, modsWanted);
   const allPlugins = dedupe([...trustedPlugins, ...teamAuthoredPlugins]);
+  // With the switch off, the mods plugin leaves only when rt installed it and
+  // no layer of the member's or the team's still lists it.
+  const removeMods = !modsWanted && !allPlugins.includes(MODS_PLUGIN) && readSetupState(ctx.p).plugins.includes(MODS_PLUGIN);
+  let modsRemoved = false;
+  let modsRemoveFailed = false;
   const configDirs = claudeConfigDirs(ctx.p, []);
   // Setup-state holds only what rt itself added, so under an update run a
   // recorded id that is now absent is one the member removed, while an
@@ -325,6 +331,18 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     }
     const byId = new Map(installedBefore.map((e) => [e.id, e]));
     const knownNames = known ? new Set(known.map((m) => m.name)) : null;
+
+    // Best-effort: a mod left behind finds the daemon refusing its link while
+    // the switch is off, and the kept record makes the next run try again.
+    if (removeMods && byId.has(MODS_PLUGIN)) {
+      const removed = await runner.run(["plugin", "uninstall", MODS_PLUGIN], PACK_EXEC_TIMEOUT_MS);
+      if (removed.code === 0 || isNotFound(removed)) {
+        modsRemoved = true;
+      } else {
+        modsRemoveFailed = true;
+        ctx.log("plugins.install", `${MODS_PLUGIN} (${dir}): plugin uninstall exited ${removed.code}: ${childOutput(removed) || "no output"} ... left for the next run`);
+      }
+    }
 
     for (const listed of allPlugins) {
       const teamAuthored = teamAuthoredPlugins.includes(listed);
@@ -406,7 +424,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   updateSetupState(ctx.p, (s) => ({
     ...s,
     marketplaces: [...new Set([...s.marketplaces, ...addedMarketplaces])],
-    plugins: [...new Set([...s.plugins, ...installedPlugins])],
+    plugins: [...new Set([...s.plugins, ...installedPlugins])].filter((id) => !(id === MODS_PLUGIN && modsRemoved && !modsRemoveFailed)),
   }));
 
   // A rolled-back pack is not installed, so naming it here would tell the

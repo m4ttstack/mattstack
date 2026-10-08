@@ -4,6 +4,9 @@
  * without a validator importing a step (or a second copy of the list drifting
  * from the first).
  */
+
+import { integrationsEnabled } from "../agent-integrations/switch.ts";
+
 export const BASE_PLUGINS: string[] = [
   "mattstack@mattstack",
   "fast-browser@mattstack",
@@ -12,6 +15,14 @@ export const BASE_PLUGINS: string[] = [
   // skills; without it a pipeline dies mid-run on a missing skill.
   "superpowers@claude-plugins-official",
 ];
+
+/** The Claude Code mod that carries mattstack's harness integrations. It is not baseline: it follows `agent.integrations.enabled`. */
+export const MODS_PLUGIN = "mattstack-mods@mattstack";
+
+/** Read at call time, since the switch can flip between two setup runs. */
+export function modsPluginWanted(): boolean {
+  return integrationsEnabled();
+}
 
 /**
  * Other ids that ARE the same plugin. Installing the baseline id beside one
