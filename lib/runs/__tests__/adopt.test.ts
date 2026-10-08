@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { DAEMON_SOCK_PATH } from "../../daemon-config.ts";
 import { runWriteVerb } from "../../../commands/runs-write.ts";
-import { adoptRunSession } from "../adopt.ts";
+import { adoptRunSession, adoptRunSessionAt } from "../adopt.ts";
 import { createRunDb } from "../write.ts";
 
 type Seen = { path: string; body: Record<string, unknown> };
@@ -124,5 +124,15 @@ describe("run write verbs adopt the session", () => {
       expect(r.code).toBe(0);
       expect(seen.filter((s) => s.path === "agent:adopt").map((s) => s.body.sessionId)).toEqual(["sess-1"]);
     });
+  });
+});
+
+describe("adoptRunSessionAt", () => {
+  test("swallows a run db path that cannot be opened", async () => {
+    await expect(adoptRunSessionAt("/nonexistent-dir/run.db", {})).resolves.toBeUndefined();
+  });
+
+  test("never opens the db under RT_RUN_EMIT=0", async () => {
+    await expect(adoptRunSessionAt("/nonexistent-dir/run.db", { RT_RUN_EMIT: "0" })).resolves.toBeUndefined();
   });
 });

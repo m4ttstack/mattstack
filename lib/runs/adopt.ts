@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { daemonSocketQuery } from "../daemon-client.ts";
-import { runIdentity } from "./write.ts";
+import { openRunDb, runIdentity } from "./write.ts";
 
 function field(db: Database, key: string): { value: string; at: number } | undefined {
   return (db.query("SELECT value, at FROM fields WHERE key = ?").get(key) as { value: string; at: number } | null) ?? undefined;
@@ -28,6 +28,21 @@ export async function adoptRunSession(db: Database, env: NodeJS.ProcessEnv = pro
       "INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at) SELECT id, 'agent', ?, 'run', ? FROM runs",
       [id, Date.now()],
     );
+  } catch {
+    // best effort by contract
+  }
+}
+
+/** For a caller holding only the run db's path: opens it, adopts, closes. Any failure, the open included, is swallowed. */
+export async function adoptRunSessionAt(runDbPath: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  if (env.RT_RUN_EMIT === "0") return;
+  try {
+    const db = openRunDb(runDbPath);
+    try {
+      await adoptRunSession(db, env);
+    } finally {
+      db.close();
+    }
   } catch {
     // best effort by contract
   }
