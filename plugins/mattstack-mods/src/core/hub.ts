@@ -135,7 +135,7 @@ type Core = {
   lifecycle<K extends Lifecycle>(api: ModApi, event: K, e: LifecycleInputs[K]): Promise<void>
   render(api: ModApi, e: Render, next: (e: Render) => Promise<RenderResult>): Promise<RenderResult>
   conversation(api: ModApi, source: ClassicEventOf['classic.SessionStart']['source']): Promise<void>
-  sections(api: ModApi): Promise<{ id: string; text: string }[]>
+  sections(api: ModApi, e: EngineEventOf['prompt.compose']): Promise<{ id: string; text: string }[]>
 }
 
 const cores = new WeakMap<Hub, Core>()
@@ -376,12 +376,16 @@ export function createHub(): Hub {
       await markComposed(api, false)
     },
 
-    async sections(api) {
+    async sections(api, e) {
       if (!engaged) return []
+      // A teammate's render of its lead's prompt (SendMessage is how it
+      // reports to the lead) and a /context render (sends nothing) get no
+      // core section, and so never mark a conversation.
+      const coreless = e.traits.includes('teammate') || e.traits.includes('analysis')
       const out: { id: string; text: string }[] = []
       let fromCore = false
       for (const sub of sectionList) {
-        if (!active(sub)) continue
+        if (!active(sub) || (coreless && sub.owner === null)) continue
         try {
           const text = sub.text()
           if (text === null) continue
@@ -527,7 +531,7 @@ export function attachHub(on: On, hub: Hub): void {
   on('ui.render', async ($, e, next) => core.render(facade($), e, next))
   on('prompt.compose', async ($, e, next) => {
     const beneath = await next(e)
-    const added = await core.sections(facade($))
+    const added = await core.sections(facade($), e)
     if (added.length === 0) return beneath
     return { sections: [...beneath.sections, ...added.map(s => ({ ...s, scope: 'session' as const }))] }
   })

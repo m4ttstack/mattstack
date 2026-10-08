@@ -129,7 +129,10 @@ have no delivery id, so they pass through untouched.
 The core adds one prompt section, `mattstack-mods:reply-rule`, to every
 prompt in a session where the blocks started: the chat reply rule, word for
 word as rt's sign-in frame states it. A session on an older engine, or with
-nobody at the prompt, gets no section.
+nobody at the prompt, gets no section. Two renders also go without it: an
+in-process teammate's view of its lead's prompt (`teammate`), since
+SendMessage is how a teammate reports to its lead, and a `/context` render
+(`analysis`), which sends nothing and never sets the value below.
 
 The `sectionComposed` state value is true only in a conversation whose
 prompt has carried the section since it started. A SessionStart from startup

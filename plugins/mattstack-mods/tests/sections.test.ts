@@ -24,8 +24,8 @@ const ENGINE_SECTIONS = [
 ]
 const REPLY_SECTION = { id: 'mattstack-mods:reply-rule', text: REPLY_RULE_SECTION, scope: 'session' }
 
-function compose(h: ReturnType<typeof stub>) {
-  const e = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal'], tools: [], outputStyle: null, traits: [] }
+function compose(h: ReturnType<typeof stub>, traits: string[] = []) {
+  const e = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal'], tools: [], outputStyle: null, traits }
   return h.fire('prompt.compose', e, async () => ({ sections: ENGINE_SECTIONS }))
 }
 
@@ -101,6 +101,31 @@ describe('reply rule section', () => {
     expect(late.state.get('sectionComposed')).not.toBe(true)
     const midway = await deliver(late)
     expect(midway.queued).toBe(midway.delivery)
+  })
+
+  test('a teammate compose gets no reply-rule section', async () => {
+    // SendMessage is how an in-process teammate reports to its lead.
+    const h = harness()
+    await h.start()
+    await h.sessionStart('startup')
+    expect(await compose(h, ['teammate'])).toEqual({ sections: ENGINE_SECTIONS })
+    expect(await compose(h, ['skills', 'teammate'])).toEqual({ sections: ENGINE_SECTIONS })
+    expect(h.state.get('sectionComposed')).not.toBe(true)
+    expect(await compose(h, ['skills'])).toEqual({ sections: [...ENGINE_SECTIONS, REPLY_SECTION] })
+    expect(h.state.get('sectionComposed')).toBe(true)
+  })
+
+  test('an analysis compose neither carries the section nor sets the marker', async () => {
+    const h = harness()
+    await h.start()
+    await h.sessionStart('startup')
+    expect(await compose(h, ['analysis'])).toEqual({ sections: ENGINE_SECTIONS })
+    expect(h.state.get('sectionComposed')).not.toBe(true)
+    const { delivery, queued } = await deliver(h)
+    expect(queued).toBe(delivery)
+
+    expect(await compose(h)).toEqual({ sections: [...ENGINE_SECTIONS, REPLY_SECTION] })
+    expect(h.state.get('sectionComposed')).toBe(true)
   })
 
   test('trim removes only the Claude-only tail', () => {
