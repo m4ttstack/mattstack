@@ -27,9 +27,10 @@ run board's list rows.
 A new daemon verb that turns an existing Claude session into an agent record
 without launching anything.
 
-- Payload `{ sessionId, repo, subject?, label?, paneId? }`; data `AgentRecord`.
+- Payload `{ sessionId, repo, subject?, label? }`; data `AgentRecord`.
 - Idempotent per session: when a record already carries `sessionId`, it
-  returns that record, and refreshes `paneId` when the payload names one.
+  returns that record unchanged. No pane is stored: the run's live agent
+  mirror (`RunSummary.agent`) already answers whether a pane is open.
 - Otherwise it locates the transcript `<sessionId>.jsonl` under
   `<config dir>/projects/*/` for `~/.claude` and each `cswapConfigDirs()`
   entry (`lib/cswap.ts`). The record's `cwd` is the transcript's first `cwd`
@@ -44,7 +45,9 @@ without launching anything.
   the account email `cswap run` takes. Account hops copy the transcript, so
   several dirs often hold it.
 - Saves `{ provider: "claude", surface: "herdr", sessionId, repo, cwd,
-  account?, subject?, label?, paneId? }` through `insertAgent`.
+  account?, subject?, label? }` through `insertAgent`.
+- The session id must match `^[A-Za-z0-9-]+$` before it is joined into a
+  path.
 - No transcript found: refuse with "no transcript for this session on this
   Mac". Launching anyway would silently start a fresh session.
 - Not an MCP tool and not `agentSafe`. Its callers are rt's own run writes
@@ -63,7 +66,7 @@ verbs that call `recordIdentity` (`run-start` and `stage-start` in
   recorded and either no `agent` field exists or the session field is newer
   than the `agent` field, it calls `agent:adopt` with that session, the
   run's repo, `subject: "run:<runId>"`, the ticket (else the run id) as
-  label, and the `herdr-pane` value.
+  label.
 - On success it writes the returned id as the run field `agent`
   (`produced_by: "run"`).
 - Best effort, on `emitRunUpdated`'s contract: `RT_RUN_EMIT=0` skips it, a
@@ -112,8 +115,8 @@ Pressing Resume disables the button while the request runs; a failure shows
 ## Testing
 
 - `agent:adopt`: first-`cwd` extraction, account choice across several
-  copies, setting preference, missing transcript refusal, idempotence and
-  `paneId` refresh. Fixtures build transcripts in a temp HOME.
+  copies, setting preference, missing transcript refusal, a session id with
+  a slash refused, and idempotence. Fixtures build transcripts in a temp HOME.
 - `recordIdentity` returns the session only on change; `adoptRunSession`
   writes `agent` on success and leaves the write intact on a refused or
   unreachable daemon.
