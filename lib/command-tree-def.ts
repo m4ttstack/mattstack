@@ -1627,6 +1627,16 @@ export const TREE: Record<string, CommandNode> = {
       { name: "Background", flag: "--bg", type: "boolean", default: false, hint: "Launch onto the daemon-owned background herdr server instead of the visible one (herdr surface only; requires the rt daemon)" },
       { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the record as JSON" },
     ],
+    subcommands: {
+      integrations: {
+        description: "Show which agent integrations are on and what each session supports",
+        module: "./commands/agent.ts",
+        fn: "agentIntegrationsReport",
+        args: [
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the report as JSON" },
+        ],
+      },
+    },
   },
 
   // Self-dispatching leaf: chat() routes its own verbs (join/leave/archive/

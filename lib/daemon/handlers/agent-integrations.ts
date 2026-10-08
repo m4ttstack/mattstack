@@ -8,11 +8,13 @@
  */
 
 import type {
-  AgentOptions, CapabilityReport, IntegrationSummary, Mode, OptionDescriptor,
+  AgentOptions, CapabilityReport, IntegrationDiagnostics, IntegrationSummary, Mode, OptionDescriptor,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import type { HarnessIntegration, IntegrationRegistry } from "../../agent-integrations/contracts.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
+import type { ModLinks } from "../../agent-integrations/claude/mod-links.ts";
+import { codexExperimentalApi } from "../../agent-integrations/codex/link.ts";
 import { getSetting } from "../../settings/resolve.ts";
 
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
@@ -22,6 +24,11 @@ export type IntegrationListDeps = {
   integrations?: IntegrationRegistry;
   /** Whether the user enabled a harness; defaults to the reading an absent enabled-set setting has. */
   enabled?: (id: string) => boolean;
+  /** The daemon's mod-link registry; defaults to the installed one, null outside the daemon. */
+  modLinks?: () => Promise<ModLinks | null> | ModLinks | null;
+  now?: () => number;
+  /** What the live Codex connection negotiated; undefined while there is none. */
+  experimentalApi?: () => boolean | undefined;
 };
 
 const MODES: readonly Mode[] = ["herdr", "headless"];
@@ -61,7 +68,33 @@ function validOptions(descriptors: unknown): OptionDescriptor[] {
   return out;
 }
 
-async function summarize(integration: HarnessIntegration, mode: Mode, enabled: boolean): Promise<IntegrationSummary> {
+/** Imported on demand: the registry module reaches daemon code a metadata listing must not load. */
+async function installedLinks(): Promise<ModLinks | null> {
+  return (await import("../../agent-integrations/claude/mod-links.ts")).installedModLinks();
+}
+
+async function diagnose(integration: HarnessIntegration, deps: IntegrationListDeps): Promise<IntegrationDiagnostics | undefined> {
+  if (integration.id === "claude") {
+    const links = await (deps.modLinks ?? installedLinks)();
+    if (!links) return undefined;
+    const now = (deps.now ?? Date.now)();
+    return {
+      claudeLinks: links.list().map((link) => ({
+        sessionId: link.sessionId, claudeCode: link.claudeCode, plugin: link.plugin,
+        blocks: link.blocks, lastHeartbeatAgoMs: Math.max(0, now - link.lastHeartbeatAt),
+      })),
+    };
+  }
+  if (integration.id === "codex") {
+    const experimentalApi = (deps.experimentalApi ?? codexExperimentalApi)();
+    return experimentalApi === undefined ? undefined : { experimentalApi };
+  }
+  return undefined;
+}
+
+async function summarize(
+  integration: HarnessIntegration, mode: Mode, enabled: boolean, deps: IntegrationListDeps,
+): Promise<IntegrationSummary> {
   let report: CapabilityReport;
   try {
     report = await integration.capabilities(mode);
@@ -74,18 +107,25 @@ async function summarize(integration: HarnessIntegration, mode: Mode, enabled: b
   } catch {
     options = [];
   }
+  let diagnostics: IntegrationDiagnostics | undefined;
+  try {
+    diagnostics = await diagnose(integration, deps);
+  } catch {
+    diagnostics = undefined;
+  }
   return {
     id: integration.id, label: integration.label, enabled,
     readiness: report.readiness,
     capabilities: [...report.supported],
     options: validOptions(options),
+    ...(diagnostics && { diagnostics }),
   };
 }
 
 export async function listAgentIntegrations(mode: Mode, deps: IntegrationListDeps = {}): Promise<IntegrationSummary[]> {
   const registry = deps.integrations ?? builtinRegistry();
   const enabled = deps.enabled ?? defaultEnabled();
-  return Promise.all(registry.list().map((integration) => summarize(integration, mode, enabled(integration.id))));
+  return Promise.all(registry.list().map((integration) => summarize(integration, mode, enabled(integration.id), deps)));
 }
 
 export function createAgentIntegrationHandlers(deps: IntegrationListDeps = {}):

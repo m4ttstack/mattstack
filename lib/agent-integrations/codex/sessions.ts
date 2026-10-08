@@ -75,7 +75,7 @@ import { listQueuedFrames } from "../delivery-store.ts";
 import { codexEventHub } from "./events.ts";
 import type { CodexMessagingDeps } from "./messaging.ts";
 import { createCodexQuestions, type CodexQuestionDeps } from "./questions.ts";
-import { setCodexLinkProbe, setCodexThreadProbe } from "./link.ts";
+import { setCodexExperimentalProbe, setCodexLinkProbe, setCodexThreadProbe } from "./link.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { CODEX_STATUS_ENUMS, isRecord, type CodexEvent, type CodexThreadStatus } from "./protocol.ts";
 import { codexConfigPath, codexFolderTrust } from "./trust.ts";
@@ -977,6 +977,8 @@ export type CodexSessionLoader = {
   status(): LoaderStatus;
   /** The live connection's id, or null; never connects. */
   connection(): string | null;
+  /** Whether the live connection negotiated experimentalApi; undefined without one. Never connects. */
+  experimentalApi(): boolean | undefined;
   /** Whether the binding can take input, as the live connection knows it; undefined without a connection for its profile. Never connects. */
   bindingLive(binding: SessionBinding): boolean | undefined;
 };
@@ -1115,6 +1117,9 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     connection() {
       return current && !current.control.closed ? current.control.connection : null;
     },
+    experimentalApi() {
+      return current && !current.control.closed ? current.control.experimental : undefined;
+    },
     bindingLive(binding) {
       if (!current || current.control.closed || current.control.profile !== binding.native.profile) return undefined;
       return current.adapter.live(binding);
@@ -1130,6 +1135,7 @@ function sharedLoader(): CodexSessionLoader {
     shared = loader;
     setCodexLinkProbe(() => loader.connection());
     setCodexThreadProbe((binding) => loader.bindingLive(binding));
+    setCodexExperimentalProbe(() => loader.experimentalApi());
   }
   return shared;
 }

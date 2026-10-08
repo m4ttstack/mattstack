@@ -29,10 +29,11 @@ import { getSetting } from "../lib/settings/resolve.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import {
-  agentGet, agentList, agentResume, agentStart,
+  agentGet, agentIntegrations, agentList, agentResume, agentStart,
   type AgentRecord, type AgentSurface,
 } from "../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../packages/rt-client/src/index.ts";
+import type { IntegrationSummary } from "../packages/rt-client/src/agent-integrations.ts";
 
 const integrations = builtinRegistry();
 
@@ -303,6 +304,53 @@ async function runList(args: string[]): Promise<void> {
   );
 }
 
+const secondsAgo = (ms: number): string => `${Math.round(ms / 1000)}s ago`;
+
+function integrationsBlocks(summaries: IntegrationSummary[]): Block[] {
+  return summaries.flatMap((s): Block[] => {
+    const status = !s.enabled ? "off" : s.readiness.ready ? "done" : "pending";
+    const hint = !s.enabled ? "turned off" : s.readiness.ready ? "ready" : s.readiness.reason;
+    const blocks: Block[] = [out.line(status, s.label, hint)];
+    const links = s.diagnostics?.claudeLinks;
+    if (links) {
+      blocks.push(links.length === 0
+        ? out.line("skipped", "No Claude sessions have a mod linked")
+        : out.table(
+          links.map((l) => [out.strong(l.sessionId), l.claudeCode, l.blocks.join(", "), out.dim(secondsAgo(l.lastHeartbeatAgoMs))]),
+          ["Session", "Claude Code", "Blocks", "Heartbeat"],
+        ));
+    }
+    if (s.diagnostics?.experimentalApi !== undefined) {
+      blocks.push(out.kv("Experimental API", s.diagnostics.experimentalApi ? "negotiated" : "not negotiated"));
+    }
+    return blocks;
+  });
+}
+
+function integrationsPlain(summaries: IntegrationSummary[]): string {
+  return summaries.flatMap((s) => {
+    const state = !s.enabled ? "off" : s.readiness.ready ? "ready" : `not ready${s.readiness.reason ? `: ${s.readiness.reason}` : ""}`;
+    const rows = [`${s.id}  ${state}`];
+    for (const l of s.diagnostics?.claudeLinks ?? []) {
+      rows.push(`  ${l.sessionId}  claude ${l.claudeCode}  ${l.blocks.join(",") || "no blocks"}  ${secondsAgo(l.lastHeartbeatAgoMs)}`);
+    }
+    if (s.diagnostics?.experimentalApi !== undefined) rows.push(`  experimental API ${s.diagnostics.experimentalApi ? "negotiated" : "not negotiated"}`);
+    return rows;
+  }).join("\n");
+}
+
+export async function agentIntegrationsReport(args: string[]): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  if (!(await isDaemonRunning())) fail("the rt daemon is not running, so there are no live links to report");
+  const data = unwrap(await agentIntegrations({ mode: "herdr" }), "integrations");
+  if (json) {
+    out.json({ ok: true, integrations: data.integrations });
+    return;
+  }
+  show(() => integrationsBlocks(data.integrations), () => integrationsPlain(data.integrations));
+}
+
 const USAGE = "usage: rt agent <start|resume|show|list> ...";
 
 /** Stdout usage printer, shared by the --help guard below (fail() covers the error path). */
@@ -351,4 +399,4 @@ export async function agent(args: string[]): Promise<void> {
   await handler(rest);
 }
 
-export const __test__ = { parseStartArgs, parseResumeArgs, withCallerAccount, renderRecord, agentListBlocks };
+export const __test__ = { parseStartArgs, parseResumeArgs, withCallerAccount, renderRecord, agentListBlocks, integrationsBlocks, integrationsPlain };

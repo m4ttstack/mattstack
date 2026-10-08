@@ -13,6 +13,17 @@ export function setCodexLinkProbe(read: () => string | null): void {
   probe = read;
 }
 
+let experimentalProbe: (() => boolean | undefined) | undefined;
+
+export function setCodexExperimentalProbe(read: () => boolean | undefined): void {
+  experimentalProbe = read;
+}
+
+/** Whether the live connection negotiated experimentalApi; undefined while there is none. */
+export function codexExperimentalApi(): boolean | undefined {
+  return experimentalProbe?.();
+}
+
 export function setCodexThreadProbe(read: (binding: SessionBinding) => boolean | undefined): void {
   bindingProbe = read;
 }

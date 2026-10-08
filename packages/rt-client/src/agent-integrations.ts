@@ -46,6 +46,12 @@ export type IntegrationSummary = {
   readiness: Readiness;
   capabilities: Capability[];
   options: OptionDescriptor[];
+  /** Claude lists its live mod links; Codex says whether its connection negotiated experimentalApi. Each is absent while unknown. */
+  diagnostics?: IntegrationDiagnostics;
+};
+export type IntegrationDiagnostics = {
+  claudeLinks?: { sessionId: string; claudeCode: string; plugin: string; blocks: ModBlock[]; lastHeartbeatAgoMs: number }[];
+  experimentalApi?: boolean;
 };
 export type PeerInput = { id: string; body: string; sender: string; recipient: string };
 export type DeliveryReceipt = {

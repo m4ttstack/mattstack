@@ -59,6 +59,8 @@ export interface ModLinks {
   view(linkId: string): ModLinkView | null;
   live(sessionId: string, block: ModBlock): boolean;
   linkOf(sessionId: string): ModLinkView | null;
+  /** Every live link, oldest registration first; empty while the switch is off. */
+  list(): ModLinkView[];
   /** Records the first ack of `commandId` from `linkId`'s session; a later one for the same pair changes nothing. */
   ack(linkId: string, commandId: string): Outcome<void>;
   /** Removes and returns `sessionId`'s ack of `commandId`, or null when that session has not acked it. */
@@ -263,6 +265,11 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
     linkOf(sessionId) {
       const link = current(sessionId);
       return link ? { ...link, blocks: [...link.blocks] } : null;
+    },
+
+    list() {
+      sweep();
+      return [...links.values()].map((link) => ({ ...link, blocks: [...link.blocks] }));
     },
 
     ack(linkId, commandId) {
