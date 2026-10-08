@@ -144,13 +144,7 @@ const BASELINE: Record<string, string[]> = {
     'review',
   ],
   remote: ['copy', 'note', 'open-gitlab', 'stand-down'],
-  seatless: [
-    'copy',
-    'note',
-    'open-gitlab',
-    'review',
-    'seat-hint',
-  ],
+  seatless: ['copy', 'note', 'open-gitlab', 'review', 'seat-hint'],
   'slack off': [
     'copy',
     'mark-draft',

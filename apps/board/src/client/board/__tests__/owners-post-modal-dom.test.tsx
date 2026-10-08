@@ -10,7 +10,7 @@ import { createRoot, type Root } from 'react-dom/client';
 
 import type { ActionResult } from '../../api.ts';
 import type { BoardMRWithReview } from '../../types.ts';
-import { OwnersPostModal } from '../OwnersPostModal.tsx';
+import { OwnersPostModal, type SlackPostPreview } from '../OwnersPostModal.tsx';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
 
@@ -43,7 +43,7 @@ const mr = {
   webUrl: MR_URL,
 } as unknown as BoardMRWithReview;
 
-const PREVIEW = {
+const PREVIEW: SlackPostPreview = {
   text: `please review ${MR_URL}`,
   team: { channel: 'code-review', posted: false },
   direct: false,
@@ -94,7 +94,7 @@ async function open(
   handlers: {
     onPosted?: (channels: string[]) => void;
     onClose?: () => void;
-    initial?: typeof PREVIEW;
+    initial?: SlackPostPreview;
   } = {}
 ): Promise<Call[]> {
   const calls: Call[] = [];
@@ -251,7 +251,7 @@ test('a team thread already posted shows its link and is not sent again', async 
   });
 });
 
-test("our own code owner sections ride on the team row", async () => {
+test('our own code owner sections ride on the team row', async () => {
   await open({
     '/slack/owners/preview': ok({
       ...PREVIEW,
