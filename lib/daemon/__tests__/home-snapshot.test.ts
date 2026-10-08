@@ -3070,6 +3070,20 @@ describe("startSnapshot: pull", () => {
       handle.stop();
     });
 
+    test("an up-to-date pull clears a gate error", async () => {
+      const exec = makeSwitchableExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]);
+      const { deps } = baseDeps({ exec: exec.fn });
+      const { repoDir: _r, ...specDeps } = deps;
+      const handle = startSnapshot(gatedSpec(async () => { throw new Error("fatal: bad object"); }), specDeps);
+      await handle.ready;
+      await handle.pullNow();
+      expect(handle.status().layoutGateError).toContain("fatal: bad object");
+      exec.setResponders([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders()]);
+      expect((await handle.pullNow()).outcome).toBe("up-to-date");
+      expect(handle.status().layoutGateError).toBeNull();
+      handle.stop();
+    });
+
     test("a hold logs once at info, again only when the held layout changes, and again after it cleared", async () => {
       let answer: { layout: number } | null = { layout: 2 };
       const { fn } = makeFakeExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]);

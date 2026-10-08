@@ -580,7 +580,8 @@ export async function teamSyncRow(
     // it to origin", which is both the wrong diagnosis and advice that cannot help.
     //
     // A layout hold or a gate error also sets lastPullSkipped, but a reset would land the member
-    // on the tip their app cannot read, so those skips are never this branch's remedy.
+    // on the tip their app cannot read, so those skips are never this branch's remedy. The hold
+    // has its own org.layout row; a gate error has none, so the note below still names it.
     if (e.pullOnly === true && e.lastPullError == null && e.lastPullSkipped && !e.layoutHold && !e.layoutGateError) {
       problems.push(`${slug}: cannot fast-forward (${e.lastPullSkipped}); reset it to origin or ask the team's owner`);
       continue;
@@ -621,7 +622,7 @@ export async function teamSyncRow(
   // without changing the status.
   const skips = slugs
     .map((slug) => entries.find((x) => x.slug === slug))
-    .map((e) => (e?.layoutHold || e?.layoutGateError ? undefined : e?.lastPullSkipped))
+    .map((e) => (e?.layoutHold ? undefined : e?.lastPullSkipped))
     .filter((d): d is string => !!d);
   const pullOnlySlugs = slugs.filter((slug) => entries.find((x) => x.slug === slug)?.pullOnly === true);
   const pullOnlyNote = pullOnlySlugs.length ? `. Pull-only, never pushes: ${pullOnlySlugs.join(", ")}` : "";

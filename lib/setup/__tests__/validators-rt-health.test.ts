@@ -1328,6 +1328,9 @@ describe("teamSyncRow with a layout hold", () => {
     const skipped = "could not read the org layout at origin: fatal: bad object";
     const errored = { slug: "widgets", lastPullAt: 1_000_000, lastPullError: null, lastPullSkipped: skipped, layoutHold: null, layoutGateError: "fatal: bad object", pullOnly: true, conflicted: null, lastPushError: null };
     const r = await teamSyncRow(["widgets"], async () => [errored] as never, () => 1_000_000, 300);
+    expect(r?.status).toBe("ready");
+    expect(r?.detail).toContain("Last pull skipped");
+    expect(r?.detail).toContain(skipped);
     expect(r?.detail).not.toContain("reset it to origin");
   });
 });

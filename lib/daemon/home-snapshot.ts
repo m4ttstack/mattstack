@@ -382,7 +382,6 @@ const TEAM_STANDING_ZONES: Owners["zones"] = {
   "mattstack/packs/": { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" },
 };
 
-/** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
 /** The org layout at `ref`, when it is one this rt does not read. A tip with no marker, a marker rt cannot parse, or a layout at or below ORG_LAYOUT passes. */
 export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string): Promise<{ layout: number } | null> {
   const shown = await exec(["git", "-C", repoDir, "show", `${ref}:${ORG_MARKER_REL}`], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } });
@@ -394,6 +393,7 @@ export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: str
   return marker.kind === "org" && marker.layout > ORG_LAYOUT ? { layout: marker.layout } : null;
 }
 
+/** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
 export function teamSnapshotSpec(
   slug: string,
   repoDir: string,
@@ -884,6 +884,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (behind === 0) {
       layoutHold = null;
       loggedHold = null;
+      layoutGateError = null;
+      loggedGateError = null;
       return { outcome: "up-to-date", detail: null };
     }
     if (spec.pull?.gate) {
