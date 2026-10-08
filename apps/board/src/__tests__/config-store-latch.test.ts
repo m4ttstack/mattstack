@@ -1386,6 +1386,26 @@ describe('loadConfigFrom: mattstack.directory', () => {
     ]);
   });
 
+  test('the code owners channel a tab takes is bare, like the review channel', () => {
+    teamView.team = () => 'claim';
+    const cfg = loadConfigFrom(
+      tmpConfig(),
+      fakeResolve({
+        'mattstack.directory': {
+          teams: { claim: { slack: { codeOwnersChannel: '#Pod-Claim' } } },
+        },
+        'board.tabs': [
+          {
+            id: 'a',
+            label: 'a',
+            source: { kind: 'codeowners', section: 'Claim - #pod-claim' },
+          },
+        ],
+      })
+    );
+    expect(cfg.tabs.map(t => t.slackChannel)).toEqual(['pod-claim']);
+  });
+
   test("ticket prefixes default to my team's Linear key; a set value wins", () => {
     teamView.team = () => 'claim';
     expect(

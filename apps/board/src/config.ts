@@ -9,6 +9,7 @@ import {
   getSetting,
   identityFromRemote,
   mergeTeamRoster,
+  normalizeChannel,
   orgStoreRefusal,
   serializeIdentity,
   setSetting,
@@ -507,11 +508,7 @@ function parseSlack(raw: unknown, source: string): SlackConfig {
     throw new Error(`${source} "slack" must be an object`);
   }
   const s = raw as Partial<SlackConfig>;
-  for (const key of [
-    'singleTemplate',
-    'multiHeader',
-    'multiItem',
-  ] as const) {
+  for (const key of ['singleTemplate', 'multiHeader', 'multiItem'] as const) {
     if (s[key] !== undefined && (typeof s[key] !== 'string' || !s[key])) {
       throw new Error(`${source} "slack.${key}" must be a non-empty string`);
     }
@@ -765,7 +762,8 @@ function withBoardStoreFallback(
   const reviewChannel = mine
     ? (channelsOfKind(mine, reviewKind ?? 'review')[0] ?? '')
     : '';
-  const codeOwnersChannel = mine?.slack?.codeOwnersChannel;
+  const ownersChannel = mine?.slack?.codeOwnersChannel;
+  const codeOwnersChannel = ownersChannel && normalizeChannel(ownersChannel);
   const tabs = (
     storeValue<TabConfig[]>('board.tabs', resolve) ?? fileConfig.tabs
   ).map(t =>
