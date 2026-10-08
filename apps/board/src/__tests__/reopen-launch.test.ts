@@ -48,10 +48,10 @@ function makeIo(overrides: Partial<ReopenIo> = {}) {
     [];
   const errors: string[] = [];
   const legacyCalls: Array<Record<string, unknown>> = [];
-  const focused: string[] = [];
+  const focused: Array<{ paneId?: string; tabId: string }> = [];
   const io: ReopenIo = {
-    focusTab: async tabId => {
-      focused.push(tabId);
+    focus: async pane => {
+      focused.push(pane);
     },
     resumeAgentPane: async () => paneResult(),
     launchLegacyResume: async opts => {
@@ -266,7 +266,7 @@ describe('launchReopen', () => {
       baseCtx(),
       daemon.io
     );
-    expect(daemon.focused).toEqual(['tab-9']);
+    expect(daemon.focused).toEqual([{ paneId: 'pane-3', tabId: 'tab-9' }]);
 
     const legacy = makeIo();
     await launchReopen(
@@ -274,7 +274,7 @@ describe('launchReopen', () => {
       baseCtx(),
       legacy.io
     );
-    expect(legacy.focused).toEqual(['tab-9']);
+    expect(legacy.focused).toEqual([{ tabId: 'tab-9' }]);
   });
 
   test('a tab the daemon already focused is not focused twice', async () => {
@@ -287,7 +287,7 @@ describe('launchReopen', () => {
 
   test('a focus that fails only logs; the resume still counts', async () => {
     const { io, errors } = makeIo({
-      focusTab: async () => {
+      focus: async () => {
         throw new Error('herdr gone');
       },
     });

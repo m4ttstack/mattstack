@@ -163,7 +163,6 @@ import { gateOrigin } from './gates/wait-meta.ts';
 import {
   closeTab,
   dispatchPrompt,
-  focusTab,
   launchDoctor,
   launchLegacyResume,
   launchRespond,
@@ -273,7 +272,7 @@ import {
   type RespondStatus,
 } from './respond-state.ts';
 import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
-import { latestRounds } from './review-rounds.ts';
+import { dropRounds, latestRounds } from './review-rounds.ts';
 import {
   attachReviews,
   parseReviewRequestBody,
@@ -2151,6 +2150,9 @@ const httpServer = Bun.serve({
           boardTabId: tabId ?? '',
           noPack: !launchPack(tabId),
         });
+        // A fresh review starts the round ledger over: the old rounds belong
+        // to the run it replaces, and the follow-up label counts from here.
+        dropRounds(parsed.mrUrl);
         // Spawn asynchronously; the badge reflects progress via the state file.
         void launchReview({
           mrUrl: parsed.mrUrl,
@@ -4055,7 +4057,7 @@ function reviewReopenIo(): ReopenIo {
         now
       ),
     logError: message => console.error(message),
-    focusTab: tabId => focusTab(tabId),
+    focus: pane => focusPane(pane),
   };
 }
 
@@ -4070,7 +4072,7 @@ function respondReopenIo(): ReopenIo {
         now
       ),
     logError: message => console.error(message),
-    focusTab: tabId => focusTab(tabId),
+    focus: pane => focusPane(pane),
   };
 }
 

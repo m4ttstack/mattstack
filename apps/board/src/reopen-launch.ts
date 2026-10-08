@@ -1,5 +1,6 @@
 import { resumeAgentPane, resumePackEnv } from './agent-launch.ts';
-import { focusTab, launchLegacyResume } from './herdr.ts';
+import { focusPane } from './focus-pane.ts';
+import { launchLegacyResume } from './herdr.ts';
 
 /** How the reopen actually started. `no-session` means nothing on file to
     resume -- the HTTP handler maps it to a 400 before dispatching. */
@@ -63,9 +64,9 @@ export interface ReopenIo {
   launchLegacyResume: typeof launchLegacyResume;
   writeState(path: string, patch: ReopenStatePatch, now?: number): unknown;
   logError(message: string): void;
-  /** Brings the reopened tab forward: nobody resumes a pane to leave it in
+  /** Brings the reopened pane forward: nobody resumes a pane to leave it in
       the background. */
-  focusTab(tabId: string): Promise<unknown>;
+  focus(pane: { paneId?: string; tabId: string }): Promise<unknown>;
 }
 
 /** The real resume arms, for callers that add their domain's writeState and
@@ -74,7 +75,7 @@ export interface ReopenIo {
 export const reopenLaunchers = {
   resumeAgentPane,
   launchLegacyResume,
-  focusTab,
+  focus: focusPane,
 };
 
 /** Reopen a finished pane at the operator's request, without restarting its
@@ -107,9 +108,9 @@ export async function launchReopen(
     );
   };
 
-  const focus = async (tabId: string) => {
+  const focus = async (pane: { paneId?: string; tabId: string }) => {
     try {
-      await io.focusTab(tabId);
+      await io.focus(pane);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       io.logError(`${ctx.workspaceKind} resume focus failed: ${message}`);
@@ -132,7 +133,7 @@ export async function launchReopen(
           agentId: result.agentId,
           paneId: result.paneId,
         });
-        await focus(result.tabId);
+        await focus({ paneId: result.paneId, tabId: result.tabId });
       }
       return { kind: 'resumed' };
     } catch (err) {
@@ -159,7 +160,7 @@ export async function launchReopen(
       pack: ctx.pack,
     });
     writeReopened({ tabId, workspaceId });
-    await focus(tabId);
+    await focus({ tabId });
     return { kind: 'resumed' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
