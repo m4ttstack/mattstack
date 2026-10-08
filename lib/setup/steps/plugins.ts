@@ -365,6 +365,9 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
       // flip a deliberately disabled pack back on.
       if (byId.has(plugin)) {
         const disabled = !byId.get(plugin)!.enabled;
+        // No row offers `rt setup pack` for the mods plugin, and the member
+        // controls the switch it follows, so its disable is theirs to keep.
+        const keepDisabled = update || plugin === MODS_PLUGIN;
         const updated = await runner.run(["plugin", "update", plugin, "-y"], PACK_EXEC_TIMEOUT_MS);
         if (updated.code === 0) {
           // Trusted plugins keep the best-effort re-enable they get today. The
@@ -372,7 +375,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
           // lands here: without this, the one command offered for an
           // installed-but-disabled baseline plugin does nothing. An update run
           // is unattended, so a disabled plugin stays the member's choice.
-          if (!teamAuthored && disabled && !update) await enableTrusted(runner, plugin, dir);
+          if (!teamAuthored && disabled && !keepDisabled) await enableTrusted(runner, plugin, dir);
           settled.push(plugin);
           if (needsEnable) awaitingEnable.add(plugin);
           continue;
@@ -386,7 +389,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
           ctx.log("plugins.install", `${plugin}: plugin update exited ${updated.code}: ${childOutput(updated) || "no output"}`);
           return { state: "failed", detail: `Updating plugins failed (exit ${updated.code})`, remedy: RETRY_REMEDY };
         }
-        if (update && disabled) {
+        if (keepDisabled && disabled) {
           settled.push(plugin);
           if (needsEnable) awaitingEnable.add(plugin);
           continue;

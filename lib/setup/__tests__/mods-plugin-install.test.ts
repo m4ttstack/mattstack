@@ -68,7 +68,7 @@ const MARKETPLACES = [
 ];
 
 /** A claude whose plugin list is `installed` (id to enabled), changed by every install, enable, disable and uninstall it is asked to run. */
-function memberClaude(installed: Record<string, boolean>) {
+function memberClaude(installed: Record<string, boolean>, opts: { noUpdateCommand?: boolean } = {}) {
   const execCalls: string[][] = [];
   const p = fakeProbes({
     home: process.env.HOME!,
@@ -77,6 +77,7 @@ function memberClaude(installed: Record<string, boolean>) {
     exec: async (argv) => {
       execCalls.push(argv);
       const [, , verb, id] = argv;
+      if (verb === "update" && opts.noUpdateCommand) return { code: 1, stdout: "", stderr: "error: unknown command 'update'" };
       if (verb === "list") return ok(JSON.stringify(Object.entries(installed).map(([pid, on]) => ({ id: pid, version: "1.0.0", enabled: on, scope: "user" }))));
       if (verb === "marketplace") return ok(JSON.stringify(MARKETPLACES));
       if (verb === "install") installed[id!] = true;
@@ -164,6 +165,18 @@ describe("the mods plugin in plugins.install", () => {
 
     expect(withMods.execCalls).toEqual(without.execCalls);
     expect(a).toEqual(b);
+  });
+
+  test.each([false, true])("a disabled mods copy is not re-enabled by a full apply (claude without plugin update: %s)", async (noUpdateCommand) => {
+    switchOn();
+    const installed = { ...baseline(), [MODS_PLUGIN]: false };
+    const { p, execCalls } = memberClaude(installed, { noUpdateCommand });
+    updateSetupState(p, (s) => ({ ...s, plugins: [MODS_PLUGIN] }));
+
+    expect((await pluginsInstallStep.run(makeCtx(p))).state).toBe("done");
+    expect(naming(execCalls, "install")).toEqual([]);
+    expect(naming(execCalls, "enable")).toEqual([]);
+    expect(installed[MODS_PLUGIN]).toBe(false);
   });
 
   test("a user who disabled it is not re-enabled", async () => {
