@@ -770,7 +770,7 @@ export function createWorktreeHandlers(
           path: outcome.path,
           tree: outcome.tree.name,
           ...(outcome.readyFailed ? { readyFailed: true, failedStep: outcome.failedStep } : {}),
-          ...(outcome.submodulesFailed ? { submodulesFailed: true } : {}),
+          ...(outcome.submodulesFailed ? { submodulesFailed: outcome.submodulesFailed } : {}),
         },
       };
     },

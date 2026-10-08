@@ -12,11 +12,12 @@
 import { cpSync, existsSync } from "fs";
 import { legacyWorktreePoolRoots } from "../rt-paths.ts";
 import { readdir } from "fs/promises";
-import { join } from "path";
+import { basename, join, sep } from "path";
 import { loadRegistry, saveRegistry, type TreeRecord } from "./registry.ts";
 import { loadWorktreeRepoConfig, evaluateReadyGate, type WorktreeRepoConfig } from "./config.ts";
 import { runReadySteps } from "./ready.ts";
 import { branchExistsLocalAsync, runGit, MUTATING_TIMEOUT_MS } from "./git-async.ts";
+import { runGitOrigin } from "./fetch-auth.ts";
 import {
   readDisposalManifest,
   reapTrashDir,
@@ -32,7 +33,7 @@ export interface RestoreDeps {
 }
 
 export type RestoreResult =
-  | { ok: true; tree: TreeRecord; path: string; readyFailed?: boolean; failedStep?: string; submodulesFailed?: boolean }
+  | { ok: true; tree: TreeRecord; path: string; readyFailed?: boolean; failedStep?: string; submodulesFailed?: string[] }
   | {
       ok: false;
       reason:
@@ -186,28 +187,31 @@ async function removeCreatedWorktree(
   }
 }
 
+/** The submodules HEAD actually records (gitlinks), which `.gitmodules` can disagree with. */
+async function submodulePaths(path: string): Promise<string[]> {
+  const r = await runGit(path, ["ls-files", "--stage", "-z"]);
+  if (r.exitCode !== 0) return [];
+  return r.stdout.split("\0").flatMap((l) => (l.startsWith("160000 ") ? [l.slice(l.indexOf("\t") + 1)] : []));
+}
+
 /**
  * A submodule's git data lives in the worktree's admin dir
  * (`.git/worktrees/<name>/modules/`), which disposal deletes, so the retained
  * copy's submodules point at nothing. Re-initialising them in the fresh
  * checkout rebuilds that data; each borrows objects from the main checkout's
  * own copy of the submodule when it has one, so a large vendored repo is not
- * downloaded again. On success `paths` is every submodule, nested ones
- * included; on failure it is the top-level ones.
+ * downloaded again. Each is tried on its own so one that cannot be fetched
+ * does not hold back the rest.
  */
-async function initSubmodules(repoPath: string, path: string): Promise<{ paths: string[]; initialized: boolean }> {
-  if (!existsSync(join(path, ".gitmodules"))) return { paths: [], initialized: true };
-  const top = await runGit(path, ["config", "--file", ".gitmodules", "--get-regexp", "^submodule\\..*\\.path$"]);
-  const paths = top.stdout.split("\n").map((l) => l.split(" ").slice(1).join(" ")).filter(Boolean);
+async function initSubmodules(repoPath: string, path: string): Promise<{ paths: string[]; failed: string[] }> {
+  const paths = await submodulePaths(path);
+  const failed: string[] = [];
   for (const sub of paths) {
     const reference = existsSync(join(repoPath, sub, ".git")) ? ["--reference", join(repoPath, sub)] : [];
-    const r = await runGit(path, ["submodule", "update", "--init", "--recursive", ...reference, "--", sub], { timeoutMs: MUTATING_TIMEOUT_MS });
-    if (r.exitCode !== 0) return { paths, initialized: false };
+    const r = await runGitOrigin(path, ["submodule", "update", "--init", "--recursive", ...reference, "--", sub], { timeoutMs: MUTATING_TIMEOUT_MS });
+    if (r.exitCode !== 0) failed.push(sub);
   }
-  const all = await runGit(path, ["submodule", "status", "--recursive"]);
-  if (all.exitCode !== 0) return { paths, initialized: false };
-  const nested = all.stdout.split("\n").map((l) => /^[ +\-U]?[0-9a-f]+ (.+?)(?: \(.*\))?$/.exec(l)?.[1]).filter((p): p is string => !!p);
-  return { paths: nested, initialized: true };
+  return { paths, failed };
 }
 
 /**
@@ -217,18 +221,13 @@ async function initSubmodules(repoPath: string, path: string): Promise<{ paths: 
  * `.local-dev`, `.env`, anything a build didn't regenerate (the reinstallable
  * dirs were already stripped at dispose time and are simply absent here).
  * `.git` and `manifest.json` are the entry's own bookkeeping and must never
- * be copied over the worktree's real git admin file. Neither may a
- * submodule's `.git`, which would point it back at the deleted git data;
- * when the submodules could not be set up, their folders stay empty so a
- * later `git submodule update --init` can still fill them.
+ * be copied over the worktree's real git admin file. Neither may any `.git`
+ * inside a submodule, which would point it back at the deleted git data; the
+ * submodule's files themselves always come back, set up or not.
  */
-async function copyRetainedContent(
-  entryPath: string,
-  destPath: string,
-  submodules: { paths: string[]; initialized: boolean },
-): Promise<{ ok: boolean; err?: string }> {
-  const skip = new Set(submodules.paths.map((p) => (submodules.initialized ? join(entryPath, p, ".git") : join(entryPath, p))));
-  const filter = (src: string) => !skip.has(src);
+async function copyRetainedContent(entryPath: string, destPath: string, submodules: string[]): Promise<{ ok: boolean; err?: string }> {
+  const roots = submodules.map((p) => join(entryPath, p) + sep);
+  const filter = (src: string) => !(basename(src) === ".git" && roots.some((r) => src.startsWith(r)));
   let entries: string[];
   try {
     entries = await readdir(entryPath);
@@ -272,11 +271,11 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
   if (!added.ok) return { ok: false, reason: "worktree-add-failed", detail: added.output };
 
   const submodules = await initSubmodules(repoPath, path);
-  if (!submodules.initialized) {
-    log.warn({ repo: repoName, tree: treeName, path }, "worktree restore: submodules could not be set up");
+  if (submodules.failed.length > 0) {
+    log.warn({ repo: repoName, tree: treeName, path, failed: submodules.failed }, "worktree restore: submodules could not be set up");
   }
 
-  const copied = await copyRetainedContent(found.path, path, submodules);
+  const copied = await copyRetainedContent(found.path, path, submodules.paths);
   if (!copied.ok) {
     log.warn(
       { repo: repoName, tree: treeName, path, err: copied.err },
@@ -321,6 +320,6 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
     tree: rec,
     path,
     ...(readyResult.ok ? {} : { readyFailed: true, failedStep: readyResult.failedStep }),
-    ...(submodules.initialized ? {} : { submodulesFailed: true }),
+    ...(submodules.failed.length > 0 ? { submodulesFailed: submodules.failed } : {}),
   };
 }

@@ -348,6 +348,16 @@ function setupFailedLine(failedStep: string | undefined, tree?: string): Block {
   return out.line("warn", tree ? `${what} in ${tree}` : what, STALE_DEPS);
 }
 
+/** git will not set a submodule up in a folder that already has files, and restore puts the files back so nothing is lost. */
+function submodulesFailedBlocks(paths: string[]): Block[] {
+  return lineWithNext(
+    "warn",
+    `Git could not fetch ${paths.length === 1 ? "this submodule" : "these submodules"}: ${paths.join(", ")}`,
+    "Their files are back, but git does not track them yet. Move each folder aside, run this, then copy back anything you need.",
+    out.cmd("git submodule update --init --recursive"),
+  );
+}
+
 export const __test__ = { copyForCode, readyStepsBlock, disposeReason };
 
 function requireQueryResult(json: boolean, res: DaemonResponse | null): DaemonResponse {
@@ -754,11 +764,11 @@ export async function worktreeRestore(args: string[], _ctx: unknown): Promise<vo
 
   if (parsed.json) { out.json(ok.data, 2); return; }
 
-  const d = ok.data as { restored: boolean; path: string; tree: string; readyFailed?: boolean; failedStep?: string; submodulesFailed?: boolean };
+  const d = ok.data as { restored: boolean; path: string; tree: string; readyFailed?: boolean; failedStep?: string; submodulesFailed?: string[] };
   out.print(
     out.line("done", `${d.tree} restored`, d.path),
     ...(d.readyFailed ? [setupFailedLine(d.failedStep)] : []),
-    ...(d.submodulesFailed ? lineWithNext("warn", "Its submodules could not be fetched, so their folders are empty", undefined, out.cmd("git submodule update --init --recursive")) : []),
+    ...(d.submodulesFailed?.length ? submodulesFailedBlocks(d.submodulesFailed) : []),
   );
   await maybeOfferClaudeHook(parsed.json);
 }

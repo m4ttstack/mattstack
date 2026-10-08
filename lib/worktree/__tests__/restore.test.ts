@@ -172,53 +172,75 @@ describe("restoreTree", () => {
       for (const k of Object.keys(allowFile)) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
     }
 
-    /** Adds `vendor/lib` as a submodule on main and pushes it, so a tree branched from origin/main carries it. */
+    // A space in the path: `.gitmodules` keys the submodule by it too.
+    const SUB = "vendor/my lib";
+
+    /** Adds SUB as a submodule on main and pushes it, so a tree branched from origin/main carries it. */
     function addSubmodule(): void {
       const lib = realpathSync(mkdtempSync(join(tmpdir(), "rtrestore-sub-")));
       writeFileSync(join(lib, "lib.txt"), "lib\n");
       execSync(`git init -q -b main && git add lib.txt && git ${GIT_ID} commit -q -m lib`, { cwd: lib, shell: "/bin/zsh", stdio: "pipe" });
-      execSync(`git submodule add -q ${lib} vendor/lib && git ${GIT_ID} commit -q -m sub && git push -q origin main`, { cwd: repo, shell: "/bin/zsh", stdio: "pipe" });
+      execSync(`git submodule add -q ${lib} "${SUB}" && git ${GIT_ID} commit -q -m sub && git push -q origin main`, { cwd: repo, shell: "/bin/zsh", stdio: "pipe" });
+    }
+
+    /** Branches a tree from main with its submodule set up, then cleans it up. */
+    async function disposeTreeWithSubmodule(name: string): Promise<void> {
+      const path = addTree(repo, name, `feature-${name}`);
+      execSync("git submodule update -q --init", { cwd: path, shell: "/bin/zsh", stdio: "pipe" });
+      // Local work inside the submodule; only a forced cleanup takes a tree that has some.
+      writeFileSync(join(path, SUB, "build.log"), "local output\n");
+      const rec = register(repoName, ephemeral(name, path, `feature-${name}`));
+      const disposed = await disposeTree(disposeDeps(), rec, { force: true });
+      expect(disposed.disposed).toBe(true);
     }
 
     test("restore gives the submodule its git data back, so git works in the tree", async () => {
       try {
         addSubmodule();
-        const path = addTree(repo, "tree-s", "feature-s");
-        execSync("git submodule update -q --init", { cwd: path, shell: "/bin/zsh", stdio: "pipe" });
-        const rec = register(repoName, ephemeral("tree-s", path, "feature-s"));
-        const disposed = await disposeTree(disposeDeps(), rec, { auto: true });
-        expect(disposed.disposed).toBe(true);
+        await disposeTreeWithSubmodule("tree-s");
 
         const result = await restoreTree(restoreDeps(), "tree-s");
         if (!result.ok) throw new Error(`expected ok, got ${result.reason}: ${result.detail ?? ""}`);
 
         // Throws when the submodule's .git points at git data that is gone.
         execSync("git status --porcelain", { cwd: result.path, stdio: "pipe" });
-        const pinned = execSync("git ls-tree HEAD vendor/lib", { cwd: result.path, encoding: "utf8" }).split(/\s+/)[2];
-        expect(execSync("git rev-parse HEAD", { cwd: join(result.path, "vendor", "lib"), encoding: "utf8" }).trim()).toBe(pinned!);
-        expect(readFileSync(join(result.path, "vendor", "lib", "lib.txt"), "utf8")).toBe("lib\n");
+        const pinned = execSync(`git ls-tree HEAD "${SUB}"`, { cwd: result.path, encoding: "utf8" }).split(/\s+/)[2];
+        expect(execSync("git rev-parse HEAD", { cwd: join(result.path, SUB), encoding: "utf8" }).trim()).toBe(pinned!);
+        expect(readFileSync(join(result.path, SUB, "build.log"), "utf8")).toBe("local output\n");
         expect(result.submodulesFailed).toBeUndefined();
       } finally {
         restoreEnv();
       }
     });
 
-    test("a submodule that cannot be fetched still restores the tree, says so, and leaves the folder empty to fill later", async () => {
+    test("a .gitmodules entry HEAD does not record is left alone", async () => {
       try {
         addSubmodule();
-        const path = addTree(repo, "tree-f", "feature-f");
-        execSync("git submodule update -q --init", { cwd: path, shell: "/bin/zsh", stdio: "pipe" });
-        const rec = register(repoName, ephemeral("tree-f", path, "feature-f"));
-        const disposed = await disposeTree(disposeDeps(), rec, { auto: true });
-        expect(disposed.disposed).toBe(true);
+        execSync(`git config --file .gitmodules submodule.gone.path gone/dir && git config --file .gitmodules submodule.gone.url https://example.invalid/gone.git && git add .gitmodules && git ${GIT_ID} commit -q -m stale && git push -q origin main`, { cwd: repo, shell: "/bin/zsh", stdio: "pipe" });
+        await disposeTreeWithSubmodule("tree-g");
+
+        const result = await restoreTree(restoreDeps(), "tree-g");
+        if (!result.ok) throw new Error(`expected ok, got ${result.reason}: ${result.detail ?? ""}`);
+        expect(result.submodulesFailed).toBeUndefined();
+        execSync("git status --porcelain", { cwd: result.path, stdio: "pipe" });
+      } finally {
+        restoreEnv();
+      }
+    });
+
+    test("a submodule that cannot be fetched still restores the tree, names it, and keeps its files", async () => {
+      try {
+        addSubmodule();
+        await disposeTreeWithSubmodule("tree-f");
       } finally {
         restoreEnv();
       }
 
       const result = await restoreTree(restoreDeps(), "tree-f");
       if (!result.ok) throw new Error(`expected ok, got ${result.reason}: ${result.detail ?? ""}`);
-      expect(result.submodulesFailed).toBe(true);
-      expect(fsSync.readdirSync(join(result.path, "vendor", "lib"))).toEqual([]);
+      expect(result.submodulesFailed).toEqual([SUB]);
+      expect(readFileSync(join(result.path, SUB, "build.log"), "utf8")).toBe("local output\n");
+      expect(existsSync(join(result.path, SUB, ".git"))).toBe(false);
       execSync("git status --porcelain", { cwd: result.path, stdio: "pipe" });
     });
   });
