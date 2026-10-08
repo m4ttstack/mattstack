@@ -99,7 +99,7 @@ describe("createPaneStatusProbe", () => {
       snapshot: async () => [pane({ paneRef: "wE2:p8", sessionId: "s-1", agentStatus: "idle" })],
       readScreen: async () => "",
     });
-    expect(await probe({ paneId: "wE2:p6", sessionId: "s-1" })).toEqual({ paneRef: "wE2:p8", status: "idle" });
+    expect(await probe({ paneId: "wE2:p6", sessionId: "s-1" })).toEqual({ paneRef: "wE2:p8", status: "idle", lastLine: "" });
   });
   test("a question form on screen reads blocked whatever herdr's status says", async () => {
     const reads: string[] = [];
@@ -107,7 +107,9 @@ describe("createPaneStatusProbe", () => {
       snapshot: async () => [pane({ paneRef: "wE2:p8", agentStatus: "idle" })],
       readScreen: async (p) => { reads.push(p.paneRef); return "│ Pick one\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"; },
     });
-    expect(await probe({ paneId: "wE2:p8" })).toEqual({ paneRef: "wE2:p8", status: "blocked" });
+    expect(await probe({ paneId: "wE2:p8" })).toEqual({
+      paneRef: "wE2:p8", status: "blocked", lastLine: "Enter to select · ↑/↓ to navigate · Esc to cancel",
+    });
     expect(reads).toEqual(["wE2:p8"]);
   });
   test("no form on screen keeps herdr's status, and an unreadable screen falls back to it", async () => {
@@ -115,12 +117,19 @@ describe("createPaneStatusProbe", () => {
       snapshot: async () => [pane({ agentStatus: "idle" })],
       readScreen: async () => "❯ \n",
     });
-    expect(await idle({ paneId: "wE2:p8" })).toEqual({ paneRef: "wE2:p8", status: "idle" });
+    expect(await idle({ paneId: "wE2:p8" })).toEqual({ paneRef: "wE2:p8", status: "idle", lastLine: "❯" });
     const unreadable = createPaneStatusProbe({
       snapshot: async () => [pane({ agentStatus: "blocked" })],
       readScreen: async () => { throw new Error("pane.read failed"); },
     });
     expect(await unreadable({ paneId: "wE2:p8" })).toEqual({ paneRef: "wE2:p8", status: "blocked" });
+  });
+  test("the last line is capped so a log never carries a whole wide row", async () => {
+    const probe = createPaneStatusProbe({
+      snapshot: async () => [pane({ agentStatus: "working" })],
+      readScreen: async () => `${"x".repeat(500)}\n\n`,
+    });
+    expect((await probe({ paneId: "wE2:p8" }))?.lastLine).toBe("x".repeat(160));
   });
   test("null when no herdr server answers or nothing resolves", async () => {
     expect(await createPaneStatusProbe({ snapshot: async () => null })({ paneId: "wE2:p8" })).toBeNull();
