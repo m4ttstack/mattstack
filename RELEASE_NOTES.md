@@ -1,53 +1,59 @@
-A board and teams release: the board gets sub-groups, distinct member looks and settings in a console modal, a team creator connects their own board with `rt team peer`, and the daemon boots without waiting on a slow fseventsd.
+An organizations release: one org can hold several teams with shared settings, the org's skills and board fills live in an org base pack, each team's pack moves to its own `plugin/` folder, and members move onto the new layout on their own. The board gets an asks inbox, the docs site gets board and flock guides, and the StrongDM picker groups by tags.
 
-### Teams
+Macs update to v2.21.1 first, then to this release: Sparkle offers v2.21.1 to a Mac still on v2.21.0 and this release only after it.
 
-- `rt team peer` connects a team creator's own board to the switchboard, and `rt team create` runs it when this Mac holds the switchboard admin token (#707)
-- `rt team members remove` also disconnects the member's board, and says plainly when only the switchboard owner can (#707)
-- `rt team status` counts the members with a connected board, and its `--json` marks each member as peered or not (#707)
-- the board's roster is read-only: inviting, re-inviting, removing and joining live in the CLI, and the Board peering row's steps name `rt team peer` or a fresh invite (#707)
+### Organizations and teams
 
-### Daemon
+- one org can hold several teams, with org and team settings and shared write permissions decided by role (#667)
+- the org clone lives under `~/.mattstack/orgs/<org>`, and `rt setup update` moves an older clone there and keeps its folder named after the org (#727, #731)
+- `rt team rename` renames your org on this Mac and for every member at their next update (#730)
+- rt follows whatever branch the org clone has checked out, so an admin can try a breaking change on a branch (#722)
+- `rt team join` refuses a stale invite and clones only the folders rt uses (#728, #741)
+- the org marker carries a layout version: a member's Mac holds a pull onto a layout it cannot read, shows one calm row asking to update, and moves itself onto the new layout when the app and the org are both ready, in either order (#744)
+- the org folder step no longer reports a clone already in place as a second copy (#739)
+- `rt dev setup` and `rt dev update` for collaborators (#715)
 
-- the daemon no longer waits on its repo watches at boot, so a slow fseventsd cannot stall it for a minute (#712)
-- the home and team snapshot watchers retry a git check that timed out, instead of staying off until the next daemon restart (#712)
+### Skills
+
+- an org base pack shares its attachments and board fills with every team pack that extends it, and compile copies them in with their provenance (#729, #733)
+- a team's pack lives at `mattstack/teams/<team>/plugin/`, beside its settings; an older layout is converted once by the org admin (#737)
+- compile warns about a link in a copied base attachment that the team pack cannot satisfy (#740)
+
+### Console
+
+- the Wiring page tells an org base pack apart from installed plugins, badges base copies and shows their history (#734)
 
 ### Board
 
-- sort splits each group into labelled sub-groups by a second grouping, with rows always oldest first (#707)
-- a fresh board groups by status, and leaving Needs me brings back the grouping you had before it (#700, #707)
-- every author gets a distinct avatar colour and creature, so neighbours in a list never share a hue (#707)
-- a selection replaces the tab band with its own bar (#707)
-- whose turn, a Show menu of checkbox chips with explaining tooltips, and card surfaces (#702)
-- settings open console's board group in a modal; Whose turn has checkboxes and Settings opens at the top (#706, #710)
-- tabs dock into the header card, group labels become tinted bands in the status hue, and a polish round on cards, tooltips and focus rings
+- an asks inbox: an agent from another member's board asks before it acts on your MR, and waits for your OK (#721)
+- one re-review latch per reviewer, and a bot's resolvable thread no longer waits on the author (#724, #738)
+- your drafts stay off the All view and out of every count, and Show chip counts match what each chip shows (#714, #719)
+- a long gate question collapses to a count on the row, and a thread's outcome chip stays whole beside a long path
 
-### Settings
+### Boxscore
 
-- board, chat, boxscore and deck show their own settings group from console in a modal instead of a settings page of their own (#706)
-
-### Deck
-
-- a deck self-deploy no longer kills other apps' redeploys (#709)
-- inside a run, deck never resends its own restart (#711)
+- viewer roles, and a preview of a member's Self view (#713, #717)
 
 ### Chat
 
-- a pane signed in to chat keeps its identity when its session id changes, so a forked session no longer posts as a new phantom name (#708)
+- every speaker gets a distinct avatar colour and creature (#735, #736)
 
-### Also
+### StrongDM
 
-- `rt sync all` exits 1 when any branch failed or was refused (#704)
-- the rt-ui background probe answers Ctrl-C live, ignores late replies and leaves no lock files (#703)
-- RT-369 closes: the output-layer migration is complete, with no change to output, envelopes or exit codes (#701)
-- boxscore card scrollbars fade in on hover, clear of the values
+- the sdm picker groups resources by StrongDM tags, read from the team's `sdm.*` settings (#742)
 
-### Settings store versions
+### Gates
 
-- `board.tabs` moves to `board.tabs@2`: a tab board would refuse to start with is dropped on migration (#706)
+- no false "answer not delivered", and focusing an MR's gate opens its live pane (#725)
 
-### Held pins
+### Docs
 
-- glab stays at 1.120.0 (1.121.0 is out), cloudflared at 2026.9.3 (2026.10.0 is out) and portless at 0.15.6 (0.15.7 is out); they move in a later release
+- docs.mattstack.dev, with new board and flock guide pages (#716, #720, #748)
+- the orgs root, `rt team rename` and base pack attachments are documented (#732)
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.20.1...v2.21.0
+### Release
+
+- a release can require an intermediate update, so Sparkle never skips it (#747)
+- fast-browser 0.1.10, glab 1.121.0, cloudflared 2026.10.0 and portless 0.15.7 (#743)
+
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.21.0...v2.22.0
