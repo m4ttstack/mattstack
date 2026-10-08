@@ -24,9 +24,13 @@ export async function adoptRunSession(db: Database, env: NodeJS.ProcessEnv = pro
     );
     const id = res?.ok ? (res.data as { id?: unknown } | undefined)?.id : undefined;
     if (typeof id !== "string") return;
+    // A newer session can be recorded while the daemon answers; its own
+    // adoption owns the agent field then, so the write is conditional.
     db.run(
-      "INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at) SELECT id, 'agent', ?, 'run', ? FROM runs",
-      [id, Date.now()],
+      `INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at)
+       SELECT id, 'agent', ?, 'run', ? FROM runs
+       WHERE EXISTS (SELECT 1 FROM fields WHERE key = 'claude-session' AND value = ?)`,
+      [id, Date.now(), session.value],
     );
   } catch {
     // best effort by contract

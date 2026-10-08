@@ -72,6 +72,18 @@ describe("adoptRunSession", () => {
     });
   });
 
+  test("a session recorded while the daemon answers keeps the agent field unwritten", async () => {
+    const db = dbWithRun({ "claude-session": ["sess-1", 100] });
+    const reply = (path: string) => {
+      db.run("INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at) VALUES ('r1', 'claude-session', 'sess-2', 'run', 300)");
+      return ADOPTED(path);
+    };
+    await withFakeDaemon(reply, async () => {
+      await adoptRunSession(db, {});
+      expect(agentField(db)).toBeUndefined();
+    });
+  });
+
   test("no session recorded, no call", async () => {
     await withFakeDaemon(ADOPTED, async (seen) => {
       await adoptRunSession(dbWithRun(), {});
