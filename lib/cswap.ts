@@ -50,6 +50,20 @@ export async function callerCswapAccount(
   }
 }
 
+/** Account number to email, the pairing a cswap config dir's `<number>-` prefix needs. Empty when cswap is missing or answers garbage. */
+export async function cswapAccountNumbers(exec: typeof runCapture = runCapture): Promise<{ number: number; email: string }[]> {
+  const res = await exec([cswapBin(), "list", "--json"], { timeoutMs: 5_000 });
+  if (res.exitCode !== 0) return [];
+  try {
+    const parsed = JSON.parse(res.stdout) as { accounts?: Array<{ number?: unknown; email?: unknown }> };
+    return (parsed.accounts ?? []).flatMap((a) =>
+      typeof a.number === "number" && typeof a.email === "string" ? [{ number: a.number, email: a.email }] : [],
+    );
+  } catch {
+    return [];
+  }
+}
+
 export async function listCswapAccounts(exec: typeof runCapture = runCapture): Promise<PaneAccount[]> {
   const res = await exec([cswapBin(), "list"], { timeoutMs: 5_000 });
   if (res.exitCode !== 0) return [];

@@ -18,6 +18,7 @@ const abandonPost = vi.fn();
 const enrichPost = vi.fn();
 const linearWorkspaceGet = vi.fn();
 const focusPost = vi.fn();
+const resumePost = vi.fn();
 const gatesGet = vi.fn();
 const answerPost = vi.fn();
 
@@ -30,6 +31,7 @@ vi.mock('../api', () => ({
             $get: (...args: unknown[]) => detailGet(...args),
             artifact: { $get: (...args: unknown[]) => artifactGet(...args) },
             abandon: { $post: (...args: unknown[]) => abandonPost(...args) },
+            resume: { $post: (...args: unknown[]) => resumePost(...args) },
           },
         },
         enrich: { $post: (...args: unknown[]) => enrichPost(...args) },
@@ -1558,5 +1560,172 @@ describe('RunDetail: chrome', () => {
       '#page-shell-header h2'
     ) as HTMLElement;
     expect(heading.style.getPropertyValue('--title-fz')).toContain('h5');
+  });
+});
+
+describe('resume action', () => {
+  const sessionField = {
+    key: 'claude-session',
+    value: 'sess-1',
+    produced_by: 'run',
+    at: 1,
+  };
+  const stubSideQueries = () => {
+    notifications.clean();
+    artifactGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ lines: [], truncated: false }),
+    });
+    seenPost.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    });
+  };
+
+  it('offers Resume for a running run with a session and no live pane', async () => {
+    stubSideQueries();
+    detailGet.mockResolvedValue(
+      detailResponse({
+        ...FIXTURE,
+        run: run({ status: 'running', agent: null }),
+        fields: [...FIXTURE.fields, sessionField],
+      })
+    );
+    resumePost.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ resumed: true, agentId: 'ag-1' }),
+    });
+
+    renderDetail();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume run' })
+    );
+
+    expect(resumePost).toHaveBeenCalledWith({
+      param: { repo: 'repo-tools', runId: 'run-1' },
+    });
+    await screen.findByText('Resumed the run in a new pane');
+  });
+
+  it('shows the server message when resume fails', async () => {
+    stubSideQueries();
+    detailGet.mockResolvedValue(
+      detailResponse({
+        ...FIXTURE,
+        run: run({ status: 'running', agent: null }),
+        fields: [...FIXTURE.fields, sessionField],
+      })
+    );
+    resumePost.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      json: async () => ({
+        error: 'no transcript for this session on this Mac',
+      }),
+    });
+
+    renderDetail();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume run' })
+    );
+
+    await screen.findByText('no transcript for this session on this Mac');
+  });
+
+  it('shows Focus pane, not Resume, while a live agent holds the pane', async () => {
+    stubSideQueries();
+    detailGet.mockResolvedValue(
+      detailResponse({
+        ...FIXTURE,
+        run: run({
+          status: 'running',
+          agent: { status: 'idle', pane: 'w1:p1' },
+        }),
+        fields: [...FIXTURE.fields, sessionField],
+      })
+    );
+
+    renderDetail();
+    await screen.findByRole('button', { name: 'focus pane' });
+    expect(
+      screen.queryByRole('button', { name: 'resume run' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows no Resume while a pane exists even if its turn is done', async () => {
+    stubSideQueries();
+    detailGet.mockResolvedValue(
+      detailResponse({
+        ...FIXTURE,
+        run: run({
+          status: 'running',
+          agent: { status: 'done', pane: 'w1:p1' },
+        }),
+        fields: [...FIXTURE.fields, sessionField],
+      })
+    );
+
+    renderDetail();
+    await screen.findByTestId('summary-card');
+    expect(
+      screen.queryByRole('button', { name: 'resume run' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('hides Resume after a successful click', async () => {
+    stubSideQueries();
+    detailGet.mockResolvedValue(
+      detailResponse({
+        ...FIXTURE,
+        run: run({ status: 'running', agent: null }),
+        fields: [...FIXTURE.fields, sessionField],
+      })
+    );
+    resumePost.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ resumed: true, agentId: 'ag-1' }),
+    });
+
+    renderDetail();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume run' })
+    );
+    await screen.findByText('Resumed the run in a new pane');
+    expect(
+      screen.queryByRole('button', { name: 'resume run' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows no Resume for a finished run or one with no session', async () => {
+    stubSideQueries();
+    detailGet.mockResolvedValue(
+      detailResponse({
+        ...FIXTURE,
+        run: run({ status: 'done' }),
+        fields: [...FIXTURE.fields, sessionField],
+      })
+    );
+    const { unmount } = renderDetail();
+    await screen.findByTestId('summary-card');
+    expect(
+      screen.queryByRole('button', { name: 'resume run' })
+    ).not.toBeInTheDocument();
+    unmount();
+
+    detailGet.mockResolvedValue(
+      detailResponse({
+        ...FIXTURE,
+        run: run({ status: 'running', agent: null }),
+      })
+    );
+    renderDetail();
+    await screen.findByTestId('summary-card');
+    expect(
+      screen.queryByRole('button', { name: 'resume run' })
+    ).not.toBeInTheDocument();
   });
 });

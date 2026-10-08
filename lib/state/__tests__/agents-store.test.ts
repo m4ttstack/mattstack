@@ -109,3 +109,13 @@ test("agents.pack round-trips, reads back undefined when unset, and updateAgentP
   updateAgentPack(withPack.id, null, db);
   expect(getAgent(withPack.id, db)?.pack).toBeUndefined();
 });
+
+test("agents.adopted reads back true when set, and is absent on a normal record", () => {
+  const db = freshDb();
+  const adopted = rec({ adopted: true });
+  const normal = rec();
+  insertAgent(adopted, db);
+  insertAgent(normal, db);
+  expect(getAgent(adopted.id, db)?.adopted).toBe(true);
+  expect("adopted" in getAgent(normal.id, db)!).toBe(false);
+});

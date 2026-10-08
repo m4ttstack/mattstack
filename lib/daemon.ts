@@ -124,7 +124,7 @@ import { createBgClaimsStore, type BgClaimsStore } from "./daemon/bg-claims-stor
 import { createGatePush, type GatePush } from "./daemon/gate-push.ts";
 import { createGateEscalation, type GateEscalation } from "./daemon/gate-escalation.ts";
 import { createEscapeInjector, createPaneStatusProbe, readVisibleScreen } from "./daemon/gate-escape.ts";
-import { createReconciler, type Reconciler } from "./daemon/reconciler.ts";
+import { createReconciler, onReconcilerRoster, type Reconciler } from "./daemon/reconciler.ts";
 import { createPaneDriveGuard, createRelocationWatcher, type RelocationWatcher } from "./daemon/relocation-announce.ts";
 import { snapshotPanes, type LivePane } from "./daemon/pane-resolve-live.ts";
 import type { CommandResult } from "./daemon/handlers/types.ts";
@@ -742,7 +742,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         };
         reconciler = createReconciler({
           store: gatesStore,
-          listAgents: () => listAgents({}, getStateDb("daemon")),
+          listAgents: () => listAgents({}, getStateDb("daemon")).filter(onReconcilerRoster),
           snapshot: snapshotPanes,
           peek: (pane: LivePane) => readVisibleScreen(pane),
           emit: (topic, payload) => {

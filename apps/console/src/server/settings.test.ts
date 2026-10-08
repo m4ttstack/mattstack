@@ -2,6 +2,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@mattstack/rt-client', () => ({
+  agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  paneList: vi.fn(async () => ({ ok: true, data: { panes: [] } })),
   getSetting: vi.fn((key: string) => {
     if (key === 'rt.runsPruneDays') return { value: 45, provenance: [] };
     if (key === 'rt.workspacePrefs')

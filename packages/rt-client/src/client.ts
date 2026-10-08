@@ -400,6 +400,15 @@ export function agentResume(
   return rtCommand<AgentRecord>("agent:resume", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
 }
 
+export function agentAdopt(
+  a: Commands["agent:adopt"]["payload"], o: RtClientOptions = {},
+): Promise<RtResponse<AgentRecord>> {
+  const payload: Record<string, unknown> = { sessionId: a.sessionId, repo: a.repo };
+  if (a.subject !== undefined) payload.subject = a.subject;
+  if (a.label !== undefined) payload.label = a.label;
+  return rtCommand<AgentRecord>("agent:adopt", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
 export function agentGet(a: { id: string }, o: RtClientOptions = {}): Promise<RtResponse<AgentRecord>> {
   return rtCommand<AgentRecord>("agent:get", { id: a.id }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
