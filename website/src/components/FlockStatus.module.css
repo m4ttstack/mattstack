@@ -1,0 +1,52 @@
+/* Tokyo Night Day and Tokyo Night, flock's light and default themes. */
+.mark {
+  --flock-yellow: rgb(140, 108, 62);
+  --flock-red: rgb(245, 42, 101);
+  --flock-teal: rgb(17, 140, 116);
+  --flock-green: rgb(88, 117, 57);
+  --flock-mauve: rgb(120, 71, 189);
+  --flock-overlay0: rgb(137, 144, 179);
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  vertical-align: -1px;
+  box-sizing: border-box;
+}
+
+html[data-theme="dark"] .mark {
+  --flock-yellow: rgb(224, 175, 104);
+  --flock-red: rgb(247, 118, 142);
+  --flock-teal: rgb(125, 207, 255);
+  --flock-green: rgb(158, 206, 106);
+  --flock-mauve: rgb(187, 154, 247);
+  --flock-overlay0: rgb(86, 95, 137);
+}
+
+.working {
+  background: var(--flock-yellow);
+}
+
+.blocked {
+  background: var(--flock-red);
+}
+
+.done {
+  background: var(--flock-teal);
+}
+
+.idle {
+  border: 2.5px solid var(--flock-green);
+}
+
+.background {
+  border: 2.5px solid var(--flock-mauve);
+}
+
+.unknown {
+  width: 5px;
+  height: 5px;
+  margin: 0 2.5px;
+  vertical-align: 1px;
+  background: var(--flock-overlay0);
+}
