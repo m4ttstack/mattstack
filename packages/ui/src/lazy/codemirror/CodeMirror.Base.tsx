@@ -18,6 +18,7 @@ import {
   hoverTooltip,
   keymap,
   placeholder as placeholderExtension,
+  tooltips,
 } from '@codemirror/view';
 import type { ViewUpdate } from '@codemirror/view';
 import { useComputedColorScheme } from '@mantine/core';
@@ -131,7 +132,9 @@ const GRIP_BAR_STYLE = {
 const editorTheme = (height: string, dark: boolean): Extension =>
   EditorView.theme(
     {
-      '&': {
+      // `&` alone would also match the tooltip container, which carries the
+      // editor's theme classes outside the editor (see `tooltips` below).
+      '&.cm-editor': {
         height,
         backgroundColor: 'var(--ui-bg-4)',
         color: 'var(--mantine-color-text)',
@@ -189,6 +192,30 @@ const editorTheme = (height: string, dark: boolean): Extension =>
       },
       '.cm-lintPoint-warning': {
         '&:after': { borderBottomColor: 'var(--tk-text-warn-vivid)' },
+      },
+      // Same surface as a Mantine dropdown, in place of CodeMirror's fixed
+      // grey and blue.
+      '.cm-tooltip': {
+        backgroundColor: 'var(--mantine-color-body)',
+        color: 'var(--mantine-color-text)',
+        border: '1px solid var(--mantine-color-default-border)',
+        borderRadius: 'var(--mantine-radius-default)',
+        boxShadow: 'var(--mantine-shadow-md)',
+      },
+      '.cm-tooltip-section:not(:first-child)': {
+        borderTopColor: 'var(--mantine-color-default-border)',
+      },
+      '.cm-tooltip-autocomplete > ul': {
+        borderRadius: 'inherit',
+      },
+      '.cm-tooltip-autocomplete ul li[aria-selected]': {
+        background: 'var(--mantine-primary-color-light)',
+        color: 'var(--mantine-primary-color-light-color)',
+      },
+      '.cm-completionInfo': {
+        color: 'var(--mantine-color-dimmed)',
+        maxWidth: '22rem',
+        whiteSpace: 'normal',
       },
     },
     { dark }
@@ -379,6 +406,9 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
 
     const allExtensions: Extension[] = [
       basicSetup,
+      // The editor clips its own overflow and a one-line value makes it one
+      // line tall, so tooltips mounted inside it would be cut off.
+      tooltips({ parent: parentRef.current.ownerDocument.body }),
       keymap.of([indentWithTab]),
       languageCompartment.of(languageExtensionFor(language)),
       schemaCompartment.of(

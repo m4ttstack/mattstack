@@ -221,6 +221,7 @@ function hintDom({ title, description }: SchemaHelp): HTMLElement {
   }
   if (description) {
     const el = dom.appendChild(document.createElement('div'));
+    el.className = 'cm-json-hint-description';
     el.textContent = description;
   }
   return dom;
@@ -240,14 +241,14 @@ export function jsonSchemaHover(schema: Schema) {
   };
 }
 
-/** Layout only: the box colors come from CodeMirror's own tooltip theme,
-    which follows the editor's light or dark flag. */
+/** The box itself is the editor theme's `.cm-tooltip`. */
 export const jsonSchemaHintTheme = /* @__PURE__ */ EditorView.baseTheme({
   '.cm-json-hint': {
     padding: 'calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs)',
     maxWidth: '22rem',
   },
   '.cm-json-hint-title': { fontWeight: 600 },
+  '.cm-json-hint-description': { color: 'var(--mantine-color-dimmed)' },
 });
 
 function enumValues(s: Schema | undefined): unknown[] {
