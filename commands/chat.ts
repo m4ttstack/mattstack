@@ -1456,7 +1456,9 @@ async function presenceOwnedByMod(sessionId: string): Promise<boolean> {
  * under that session's own Claude Code process, it goes through the shared
  * presence service, which signs out only the session's current attachment:
  * a process that ends after its session moved elsewhere signs nothing out.
- * A verified end whose session's mod owns presence comes back `owned`.
+ * An end whose session's mod owns presence comes back `owned` before the
+ * process check, since a /clear may have rewritten Claude Code's record of
+ * this process before the mod's continuation reached rt.
  */
 async function endedSession(sessionId: string): Promise<"applied" | "stale" | "unbound" | "unverified" | "owned"> {
   const [{ reportClaudeLifecycle }, { processAncestry }] = await Promise.all([

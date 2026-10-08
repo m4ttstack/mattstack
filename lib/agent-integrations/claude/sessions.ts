@@ -591,17 +591,21 @@ export async function reportClaudeLifecycle(
   sessionId: string, event: "resume" | "compact" | "end", reporter: LifecycleReporter,
   overrides: SignInDeps & {
     enabled?: () => boolean; now?: () => number; deleteSessionFile?: (sessionId: string) => void;
-    /** Asked only once the report is verified as the session's own: true leaves the session to its mod, as `owned`. */
+    /**
+     * Asked before the report is verified: true leaves the session to its mod,
+     * as `owned`. Standing aside changes nothing, so it needs no proof, and a
+     * /clear may already have rewritten Claude Code's record of the process.
+     */
     standAside?: () => Promise<boolean>;
   } = {},
 ): Promise<ClaudeLifecycleOutcome> {
   const enabled = overrides.enabled ?? (await import("../context.ts")).integrationsEnabled;
   if (!enabled()) return "unbound";
+  if (overrides.standAside && (await overrides.standAside())) return "owned";
   const registry = overrides.registry ?? defaultRegistry;
   const alive = overrides.processAlive ?? isAlive;
   const pid = reporter.ancestry.find((p) => alive(p) && registry.sessionForPid(p) === sessionId);
   if (pid === undefined) return "unverified";
-  if (overrides.standAside && (await overrides.standAside())) return "owned";
   const db = overrides.db ?? (await import("../../state/db.ts")).getStateDb();
   const recorded = listBindingsByNativeValue(db, sessionId).filter((b) => b.native.harness === HARNESS && b.native.kind === "id");
   if (recorded.length !== 1) return "unbound";

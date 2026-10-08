@@ -2025,7 +2025,7 @@ describe("integrations on: chat follows the harness session", () => {
     expect(existsSync(sessionFilePath("s-end"))).toBe(false);
   });
 
-  test("the --ended path asks session:owned only with the switch on, no-ops when owned, and is byte-identical otherwise", async () => {
+  test("the --ended path asks session:owned first, only with the switch on, no-ops when owned, and is byte-identical otherwise", async () => {
     await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
     delete process.env.CLAUDE_CODE_SESSION_ID;
     claudeParentRuns("s-end");
@@ -2043,17 +2043,25 @@ describe("integrations on: chat follows the harness session", () => {
     expect(bindingOf("s-end").attachment).toEqual(bound.attachment);
     expect(seen.map((s) => s.cmd)).not.toContain("chat:sign-out");
 
-    // A hand-run --ended from a process that is not the session's own: never asked, and an ordinary sign-out as today.
-    claudeParentRuns("someone-else");
-    const forged = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
-    expect(forged).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    // A hand-run sign-out without --ended: never asked, and an ordinary sign-out as today.
+    const hand = await runChatRaw(["sign-out", "--quiet", "--session", "s-end"]);
+    expect(hand).toMatchObject({ code: 0, stdout: "", stderr: "" });
     expect(asked()).toHaveLength(1);
     expect(seen.filter((s) => s.cmd === "chat:sign-out").map((s) => s.payload)).toEqual([{ sessionId: "s-end" }]);
     expect(existsSync(sessionFilePath("s-end"))).toBe(false);
     expect(bindingOf("s-end").attachment).toEqual(bound.attachment);
-    claudeParentRuns("s-end");
     await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
     delete process.env.CLAUDE_CODE_SESSION_ID;
+
+    // An --ended from a process that is not the session's own is asked too; owned, it stands aside, which changes nothing.
+    claudeParentRuns("someone-else");
+    const forged = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
+    expect(forged).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(asked()).toHaveLength(2);
+    expect(seen.filter((s) => s.cmd === "chat:sign-out")).toHaveLength(1);
+    expect(existsSync(sessionFilePath("s-end"))).toBe(true);
+    expect(bindingOf("s-end").attachment).toEqual(bound.attachment);
+    claudeParentRuns("s-end");
 
     // Not owned, or a daemon that does not know the verb: today's path.
     for (const reply of [{ ok: true, data: { owned: false } }, undefined]) {
@@ -2066,7 +2074,7 @@ describe("integrations on: chat follows the harness session", () => {
       await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
       delete process.env.CLAUDE_CODE_SESSION_ID;
     }
-    expect(asked()).toHaveLength(3);
+    expect(asked()).toHaveLength(4);
 
     // Switch off: the verb is never asked, and the bytes are the hook's own.
     setSetting("agent.integrations.enabled", false, "machine");
@@ -2076,6 +2084,25 @@ describe("integrations on: chat follows the harness session", () => {
     expect(off).toMatchObject({ code: 0, stdout: '{"ok":true}', stderr: "" });
     expect(seen.slice(before).map((s) => s.cmd)).toEqual(["chat:sign-out"]);
     expect(existsSync(sessionFilePath("s-end"))).toBe(false);
+  });
+
+  test("--ended with owned true signs nothing out even when the ancestry check would fail", async () => {
+    await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    setSetting("agent.integrations.enabled", true, "machine");
+    const bound = bindClaudeAt("s-end", { pid: process.ppid }, handleIn("s-end"));
+    // A /clear rewrote Claude Code's session file to the new id before the mod's continuation landed.
+    claudeParentRuns("s-new");
+    canned["session:owned"] = { ok: true, data: { owned: true } };
+
+    const r = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
+
+    expect(r).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(seen.filter((s) => s.cmd === "session:owned").map((s) => s.payload)).toEqual([{ sessionId: "s-end", block: "presence" }]);
+    expect(seen.map((s) => s.cmd)).not.toContain("chat:sign-out");
+    expect(existsSync(sessionFilePath("s-end"))).toBe(true);
+    expect(presenceForSession("s-end", getStateDb())?.signedOutAt).toBeUndefined();
+    expect(bindingOf("s-end").attachment).toEqual(bound.attachment);
   });
 
   test("a /clear SessionEnd with the presence block live leaves the binding attached, so the continuation succeeds", async () => {
