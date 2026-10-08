@@ -175,12 +175,13 @@ export function createLink(hub: Hub): Link {
       return
     }
     const { code, message } = out.error
-    if (code === 'transport' || code === 'transient') {
+    // `failed` is a handler that threw, which a later beat may not repeat.
+    if (code === 'transport' || code === 'transient' || code === 'failed') {
       pending = reg
       log(`register not taken (${code}: ${message}); retrying on the next beat`)
       return
     }
-    // refused (the switch is off), invalid, or a daemon without the verb: no retry helps.
+    // refused (the switch is off) or invalid: no retry helps.
     pending = null
     off = true
     id = null

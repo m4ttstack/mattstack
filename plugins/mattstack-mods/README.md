@@ -76,9 +76,10 @@ new session id, naming the old id and link. Any other session end sends
 session in place (`/resume`), its SessionStart registers that session fresh,
 with no previous ids, offering every block that started and has not failed
 since. An `unknown-link` answer (the daemon
-restarted) registers again with the same session id; a refused register turns
-every block off for the session. A register the daemon could not take is sent
-again, unchanged, on the next beat. When the hub clears a block, the link
+restarted) registers again with the same session id; a `refused` or `invalid`
+register turns every block off for the session. Any other register the daemon
+did not take (no answer, `transient`, or a handler that failed) is sent again,
+unchanged, on the next beat. When the hub clears a block, the link
 re-registers the same session with the blocks still live, so the daemon stops
 counting it; clears within 50 ms share one re-register. A SessionStart from a
 resume or a compaction of the linked session sends `session:report` with the

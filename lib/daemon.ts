@@ -153,8 +153,7 @@ import { backgroundUnit, runUnits, stopUnits, type DaemonUnit } from "./daemon/l
 import { integrationsEnabled } from "./agent-integrations/context.ts";
 import { createDeliveryService, type DeliveryService } from "./agent-integrations/delivery.ts";
 import { createModLinks, installModLinks, type ModLinks } from "./agent-integrations/claude/mod-links.ts";
-import { continueSessionPresence } from "./agent-integrations/presence.ts";
-import { reportClaudeLinkLapsed } from "./agent-integrations/claude/sessions.ts";
+import { modLinkHooks } from "./daemon/mod-link-hooks.ts";
 import { createSessionStore } from "./agent-integrations/session-store.ts";
 import { createGateQuestions, gateCommandsVia, setGateQuestions, type GateQuestions } from "./agent-integrations/questions.ts";
 
@@ -1339,21 +1338,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         const bgService: BgService = createBgService({ log });
         modLinks = createModLinks({
           now: Date.now, integrationsEnabled, store: createSessionStore(getStateDb("daemon")),
-          continued: (sessionKey, from, to) => { gatesStore.nativeQuestions().carryGeneration(sessionKey, from, to); },
-          sessionMoved: (from, to) => {
-            // The binding has already moved; a failed presence move must not fail the register the mod is waiting on.
-            try {
-              continueSessionPresence(from, to, { db: getStateDb("daemon") });
-            } catch (err) {
-              log.warn({ err, from, to }, "mod link: the continued session's chat presence did not move");
-            }
-          },
-          lapsed: (link) => {
-            reportClaudeLinkLapsed(link, { db: getStateDb("daemon") }).then(
-              (outcome) => { if (outcome === "applied") log.info({ session: link.sessionId }, "mod link lapsed with its process gone; session signed out"); },
-              (err) => log.warn({ err, session: link.sessionId }, "mod link: a lapsed link's session could not be signed out"),
-            );
-          },
+          ...modLinkHooks({ log, gates: gatesStore, db: () => getStateDb("daemon") }),
         });
         installModLinks(modLinks);
         routedHandlers = buildRoutedHandlers({

@@ -338,6 +338,33 @@ describe('link', () => {
     expect(h.verbs('session:heartbeat')).toHaveLength(0)
   })
 
+  test('register answers failed once, then ok, and the link comes up', async () => {
+    const h = harness()
+    // A handler that throws reaches the mod with no failure code.
+    h.script.respond = scripted(h, { 'session:register': [{ ok: false, error: 'carryGeneration exploded' }] })
+    await h.start()
+    expect(h.link.linkId()).toBeNull()
+    expect(h.hub.liveBlocks()).toEqual(['delivery', 'presence'])
+
+    await h.clock.advance(10_000)
+
+    const registers = h.verbs('session:register').map(s => s.body)
+    expect(registers).toHaveLength(2)
+    expect(registers[1]).toEqual(registers[0])
+    expect(h.link.linkId()).toBe('ml-1')
+    expect(h.hub.liveBlocks()).toEqual(['delivery', 'presence'])
+  })
+
+  test('an invalid register leaves every block off, as a refused one does', async () => {
+    const h = harness()
+    h.script.respond = scripted(h, { 'session:register': [{ ok: false, error: 'bad', failure: { code: 'invalid', message: 'cwd must be a non-empty string' } }] })
+    await h.start()
+    await h.clock.advance(30_000)
+
+    expect(h.verbs('session:register')).toHaveLength(1)
+    expect(h.hub.liveBlocks()).toEqual([])
+  })
+
   test('a session with no blocks started never registers', async () => {
     const h = harness()
     await h.start(false)
