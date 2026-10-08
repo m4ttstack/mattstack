@@ -43,6 +43,13 @@ export function needsThreadLookup(
   );
 }
 
+/** The server's no-review-channel refusal, when that is why a post failed. */
+export function slackRefusal(result: ActionResult): string | null {
+  return result.status === 400 && result.text === NO_REVIEW_CHANNEL
+    ? NO_REVIEW_CHANNEL
+    : null;
+}
+
 interface PostOutcome {
   posted: Array<{ channel: string; linked?: true }>;
   failed: Array<{ channel: string; error: string }>;
@@ -65,8 +72,8 @@ export async function startSlackPost(
   const toast = deps.startToast(`checking where !${mr.iid} goes in slack…`);
   const read = await deps.post('/slack/owners/preview', { mrUrl: mr.webUrl });
   if (!read.ok) {
-    if (read.status === 400 && read.text === NO_REVIEW_CHANNEL)
-      return toast.fail(NO_REVIEW_CHANNEL);
+    const refusal = slackRefusal(read);
+    if (refusal) return toast.fail(refusal);
     return postTeam(
       mr,
       deps,
@@ -114,7 +121,8 @@ async function postTeam(
   const result = await deps.post('/slack/post', { mrUrls: [mr.webUrl] });
   if (!result.ok)
     return toast.fail(
-      `slack post failed for !${mr.iid} (${result.status})${note ? `; ${note}` : ''}`
+      slackRefusal(result) ??
+        `slack post failed for !${mr.iid} (${result.status})${note ? `; ${note}` : ''}`
     );
   const said = result.body?.linked
     ? `!${mr.iid} already in slack... linked`
