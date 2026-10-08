@@ -1089,11 +1089,15 @@ export interface Commands {
         have presented an in-pane form and one or more questions exceeded
         its 4-option cap, which is the one thing that forced this gate to
         `wait`: the gate still opens, and the advisory names the structural
-        fix so the caller can re-author. */
+        fix so the caller can re-author.
+        `wake: "mod"` appears only on a wait gate the asking Claude session's
+        mod took over: it wakes the session with the answer, so the caller
+        ends its turn without running `rt gate wait`. */
     data: {
       id: string; presentation: "form" | "wait"; subject: string; supersededId: string | null; contextOmitted?: true;
       formCapExceeded?: Array<{ question: string; options: number }>;
       formCapAdvisory?: string;
+      wake?: "mod";
     };
   };
   /** The AskUserQuestion hook's verdict for the calling pane: allow only

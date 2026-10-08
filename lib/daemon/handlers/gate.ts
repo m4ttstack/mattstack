@@ -410,6 +410,10 @@ export function createGateHandlers(
         run: gate with no origin.worktree and invisible to the hook's
         per-worktree match. */
     runWorktree?: (runId: string) => string | null;
+    /** Hands a wait gate to the asking Claude session's mod, true once its
+        gate-wait block acked. Omitted (every other harness, tests), no wait
+        gate is handed over and gate:ask's reply is unchanged. */
+    waitHandover?: (sessionId: string, gateId: string) => Promise<boolean>;
   } = {},
 ): GateSiblingHandlers
   & { "gate:ask": (payload: unknown) => Promise<CommandResult<"gate:ask">> }
@@ -873,6 +877,11 @@ export function createGateHandlers(
       origin,
     }, sessionId);
     if (!opened.ok) return opened;
+    // Before the reply, so the caller learns from it whether to run its own
+    // `rt gate wait`: only an acked handover says the session will be woken.
+    const wake = presentation === "wait" && sessionId && !harness && deps.waitHandover
+      ? await deps.waitHandover(sessionId, opened.data.id).catch(() => false)
+      : false;
     return {
       ok: true as const,
       data: {
@@ -882,6 +891,7 @@ export function createGateHandlers(
           formCapExceeded: overCap.map((q) => ({ question: q.id, options: q.options.length })),
           formCapAdvisory: FORM_CAP_ADVISORY,
         } : {}),
+        ...(wake ? { wake: "mod" as const } : {}),
       },
     };
   };

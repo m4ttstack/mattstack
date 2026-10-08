@@ -15,7 +15,7 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.30.15"
+  compiled: "mattstack:gate-protocol@0.30.20"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
@@ -2099,7 +2099,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.15 path=attachments/gate-protocol/SKILL.md lines=7-456 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.20 path=attachments/gate-protocol/SKILL.md lines=7-472 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -2140,9 +2140,10 @@ digraph gate_protocol {
     "Holding an open gate: under a run?" [shape=diamond];
     "Under a run: set waiting-gate?" [shape=diamond];
     "run_field_set {key: waiting-gate, value: <id>, stage}" [shape=plaintext];
+    "gate_ask reply has wake: mod?" [shape=diamond];
     "rt gate wait <id> as a background Bash task" [shape=plaintext];
     "End the turn: holding at gate <id>" [shape=box];
-    "Trigger: the gate wait finished and re-invoked this pane" [shape=ellipse];
+    "Trigger: the gate wait finished, or a wake brought its result" [shape=ellipse];
     "Gate wait result for an already reconciled gate?" [shape=diamond];
     "Trigger: the human answers in words at a held gate" [shape=ellipse];
     "Words answer for an already reconciled gate?" [shape=diamond];
@@ -2204,11 +2205,13 @@ digraph gate_protocol {
     "Holding an open gate: under a run?" -> "run_field_set {key: waiting-gate, value: <id>, stage}" [label="yes"];
     "Holding an open gate: under a run?" -> "No run: held at the open gate, turn ends" [label="no"];
     "Under a run: set waiting-gate?" -> "run_field_set {key: waiting-gate, value: <id>, stage}" [label="yes"];
-    "Under a run: set waiting-gate?" -> "rt gate wait <id> as a background Bash task" [label="no"];
-    "run_field_set {key: waiting-gate, value: <id>, stage}" -> "rt gate wait <id> as a background Bash task";
+    "Under a run: set waiting-gate?" -> "gate_ask reply has wake: mod?" [label="no"];
+    "run_field_set {key: waiting-gate, value: <id>, stage}" -> "gate_ask reply has wake: mod?";
+    "gate_ask reply has wake: mod?" -> "End the turn: holding at gate <id>" [label="yes: the session is woken with the answer"];
+    "gate_ask reply has wake: mod?" -> "rt gate wait <id> as a background Bash task" [label="no"];
     "rt gate wait <id> as a background Bash task" -> "End the turn: holding at gate <id>";
-    "End the turn: holding at gate <id>" -> "Trigger: the gate wait finished and re-invoked this pane" [style=dashed];
-    "Trigger: the gate wait finished and re-invoked this pane" -> "Gate wait result for an already reconciled gate?";
+    "End the turn: holding at gate <id>" -> "Trigger: the gate wait finished, or a wake brought its result" [style=dashed];
+    "Trigger: the gate wait finished, or a wake brought its result" -> "Gate wait result for an already reconciled gate?";
     "Gate wait result for an already reconciled gate?" -> "Late gate signal discarded" [label="yes"];
     "Gate wait result for an already reconciled gate?" -> "waiting-gate set on this run?" [label="no"];
     "Trigger: the human answers in words at a held gate" -> "Words answer for an already reconciled gate?";
@@ -2241,8 +2244,9 @@ opening ceremony (subject resolution, presentation, nudge, origin, the
 context size cap): `questions` (each `{"id", "label", "multi",
 "options"}`), `kind` = the gate's scope, and optional `context` and
 `subject`. Success returns `id` (`gt-...`), `presentation` (`form` or
-`wait`), `subject`, and `supersededId` (null or the superseded gate's id).
-Keep `id` and `presentation`: every node after it acts on them.
+`wait`), `subject`, and `supersededId` (null or the superseded gate's id),
+plus `wake: "mod"` when this session will be woken with the answer.
+Keep `id`, `presentation` and `wake`: every node after it acts on them.
 
 - **Subject.** The daemon resolves it; never build one by hand. Your
   session's running run wins (`run:<id>`), else your agent record (its
@@ -2360,19 +2364,31 @@ answer, say in the pane in one line which answer won and from where
 is needed. On the words path the discarded answer is the human's words,
 not a form's.
 
+### gate_ask reply has wake: mod?
+
+Read it off the `gate_ask` reply for this gate, after `waiting-gate` is set.
+With `wake: "mod"`, the session itself is woken when the gate is answered or
+withdrawn: launch nothing and end the turn. With no `wake` key, launch the
+one background `rt gate wait <id>` and end the turn. A gate that presented
+as `form` never carries `wake`.
+
 ### End the turn: holding at gate <id>
 
-The node before launched the one background `rt gate wait <id>` (the
-shell tool's run-in-background mode; the wait is never a tool call, since
-no tool blocks on a gate); never launch a second while one for this gate
-runs. End the turn in one line: `holding at gate <id>`. The wait
-loops internally around the daemon clamp, survives daemon restarts, and
-exits only on answered or closed, printing
+On the no-`wake` path the node before launched the one background
+`rt gate wait <id>` (the shell tool's run-in-background mode; the wait is
+never a tool call, since no tool blocks on a gate); never launch a second
+while one for this gate runs. End the turn in one line: `holding at gate
+<id>`. The wait loops internally around the daemon clamp, survives daemon
+restarts, and exits only on answered or closed, printing
 `{"ok":true,"status":"answered","row":{...}}` as its last stdout. The pane
 is idle but armed: the wait's completion re-invokes this pane with the
-answer as the tool result. Under a run a turn ends only with
-`waiting-gate` or `hold` set; the pipeline gate stop hook blocks any other
-ending, which is why every hold under a run arms the marker and the wait.
+answer as the tool result. On the `wake` path the next turn opens with a
+`[gate] gate <id> ...` message carrying the same result, or saying the gate
+was withdrawn; treat it as that wait's result. A wake that says its wait
+was lost names the `rt gate wait <id>` to launch instead. Under a run a
+turn ends only with `waiting-gate` or `hold` set; the pipeline gate stop
+hook blocks any other ending, which is why every hold under a run arms the
+marker before it ends.
 
 ### Take the winning gate answer and its by
 

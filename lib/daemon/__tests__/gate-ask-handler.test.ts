@@ -7,6 +7,8 @@ import { createGatesStore, type GatesStore, type GateQuestion } from "../gates-s
 import { createGateHandlers } from "../handlers/gate.ts";
 import type { EventsBus } from "../events-bus.ts";
 import type { GateSubjectResult } from "../gate-subject.ts";
+import { handOverWaitGate } from "../../agent-integrations/claude/questions.ts";
+import type { pushModCommand } from "../../agent-integrations/claude/mod-links.ts";
 
 const log = pino({ level: "silent" });
 
@@ -29,6 +31,7 @@ function harness(opts: {
   resolveSubject?: (args: { subject?: string; sessionId?: string }) => GateSubjectResult;
   runSpawnedBy?: (runId: string) => string | null;
   runWorktree?: (runId: string) => string | null;
+  waitHandover?: (sessionId: string, gateId: string) => Promise<boolean>;
 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "rt-gate-ask-handler-"));
   dirs.push(dir);
@@ -39,6 +42,7 @@ function harness(opts: {
     resolveSubject: opts.resolveSubject,
     runSpawnedBy: opts.runSpawnedBy,
     runWorktree: opts.runWorktree,
+    ...(opts.waitHandover && { waitHandover: opts.waitHandover }),
   });
   return { handlers, store };
 }
@@ -655,5 +659,71 @@ describe("gate:ask records the asking session, and gate:list filters on it", () 
 
     const bad = await handlers["gate:list"]({ presentation: "modal" });
     expect(bad.ok).toBe(false);
+  });
+});
+
+describe("gate:ask hands a wait gate to the session's gate-wait block", () => {
+  const ask = (handlers: ReturnType<typeof harness>["handlers"], payload: Record<string, unknown>) =>
+    handlers["gate:ask"]({ subject: "mr:https://x/1", context: "why this decision", ...payload } as never);
+  type Push = typeof pushModCommand;
+
+  /** The daemon's seam with the gate-wait block live on `live` only and a mod that answers `push`. */
+  function withMod(live: string[], push: Push) {
+    const pushed: unknown[][] = [];
+    const recording: Push = async (...args) => {
+      pushed.push(args.slice(0, 3));
+      return push(...args);
+    };
+    const waitHandover = (sessionId: string, gateId: string) =>
+      handOverWaitGate(sessionId, gateId, { owns: (s) => live.includes(s), push: recording });
+    return { pushed, ...harness({ resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }), waitHandover }) };
+  }
+  const acked: Push = async () => ({ ok: true, data: { acked: true } });
+
+  test("wake is present only with the block live and the handover acked", async () => {
+    const { handlers, store, pushed } = withMod(["sess-1"], acked);
+
+    const wait = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1" });
+    if (!wait.ok) throw new Error(String(wait.error));
+    expect(wait.data.presentation).toBe("wait");
+    expect(wait.data.wake).toBe("mod");
+    expect(pushed).toEqual([["sess-1", "gate-wait", { id: wait.data.id }]]);
+    expect(store.get(wait.data.id)!.status).toBe("open");
+
+    const form = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1", paneId: "w1:p1", kind: "form" });
+    const otherSession = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-2", kind: "other" });
+    const anonymous = await ask(handlers, { questions: twoOptionQuestion(), kind: "anonymous" });
+    const codex = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1", harness: "codex", kind: "codex" });
+    for (const res of [form, otherSession, anonymous, codex]) {
+      if (!res.ok) throw new Error(String(res.error));
+      expect("wake" in res.data).toBe(false);
+    }
+    expect(pushed).toHaveLength(1);
+  });
+
+  test("an unacked handover omits wake", async () => {
+    const unacked: Push = async () => ({ ok: true, data: { acked: false } });
+    const unreachable: Push = async () => ({ ok: false, error: "no live inbox", failure: { code: "not-ready", message: "no live inbox" } } as never);
+    const throws: Push = async () => { throw new Error("inbox write blew up"); };
+    for (const push of [unacked, unreachable, throws]) {
+      const { handlers, store, pushed } = withMod(["sess-1"], push);
+      const res = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1" });
+      if (!res.ok) throw new Error(String(res.error));
+      expect(pushed).toHaveLength(1);
+      expect(Object.keys(res.data).sort()).toEqual(["id", "presentation", "subject", "supersededId"]);
+      expect(store.get(res.data.id)!.status).toBe("open");
+    }
+  });
+
+  test("without the block the reply bytes and the skill path are today's", async () => {
+    const today = harness({ resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }) });
+    const unowned = withMod([], acked);
+    const payload = { questions: twoOptionQuestion(), sessionId: "sess-1" };
+    const before = await ask(today.handlers, payload);
+    const after = await ask(unowned.handlers, payload);
+    if (!before.ok || !after.ok) throw new Error("ask failed");
+    expect(unowned.pushed).toEqual([]);
+    expect(JSON.stringify({ ...after.data, id: "<id>" })).toBe(JSON.stringify({ ...before.data, id: "<id>" }));
+    expect(JSON.stringify(before.data)).toBe(JSON.stringify({ id: before.data.id, presentation: "wait", subject: "mr:https://x/1", supersededId: null }));
   });
 });

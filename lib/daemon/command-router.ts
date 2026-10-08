@@ -32,7 +32,9 @@ import { createAgentService } from "./handlers/agent.ts";
 import { createPaneHandlers } from "./handlers/pane.ts";
 import { createAgentIntegrationHandlers } from "./handlers/agent-integrations.ts";
 import { createModSessionHandlers } from "./handlers/mod-session.ts";
-import type { ModLinks } from "../agent-integrations/claude/mod-links.ts";
+import { pushModCommand, type ModLinks } from "../agent-integrations/claude/mod-links.ts";
+import { handOverWaitGate } from "../agent-integrations/claude/questions.ts";
+import { claudeModOwns } from "../agent-integrations/claude/sessions.ts";
 import { builtinRegistry } from "../agent-integrations/builtins.ts";
 import type { DeliveryService } from "../agent-integrations/delivery.ts";
 import type { RelocationWatcher } from "./relocation-announce.ts";
@@ -206,6 +208,11 @@ export function buildRoutedHandlers(opts: {
     resumeAgent: opts.resumeAgent,
     getAgentRecord: opts.getAgentRecord,
     runWorktree,
+    waitHandover: (sessionId, gateId) => handOverWaitGate(sessionId, gateId, {
+      owns: (session) => claudeModOwns(session, "gate-wait", opts.stateDb, opts.modLinks),
+      push: (session, kind, data) => pushModCommand(session, kind, data, { links: opts.modLinks }),
+      log: ctx.log,
+    }),
     resolveSubject: async (args) => {
       const liveness = await (opts.runLiveness ?? getRunLiveness)();
       return resolveGateSubject({

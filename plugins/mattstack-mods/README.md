@@ -21,7 +21,7 @@ so every feature takes its existing path.
 | `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
-| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer. |
+| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer. |
 | `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane, for where the built-in dialog cannot be drawn. |
 | `src/blocks/sections.ts` | The reply rule section's text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
@@ -103,7 +103,9 @@ A block reaches the daemon through the link:
   envelope before the model sees it, acks it with `session:ack` at once
   (the ack means the mod owns it), then runs the handler. A command with no
   handler, or whose block is not live, is not acked, so rt takes its fallback.
-  So is one the handler's `accepts` check answers false for.
+  So is one the handler's `accepts` check answers false for. The handler
+  gets the command and the link's own facade, for work that outlives the
+  delivery that carried the command.
 
 The core answers two diagnostic commands, the only kinds `rt.sock`'s
 `session:push` will send: `probe.ping` logs and acks, and `probe.wait` (`{ pattern, after }`)
@@ -193,6 +195,41 @@ sends Escape in this session, since the form on screen may be another
 gate's dialog; the queued doorbell is read once that dialog ends. Doorbell rows
 (`[gate] <id> answered by ...`, superseded, closed) left over for a linked
 gate draw as nothing, except for a dismissed one.
+
+## Wait gates
+
+The `gate-wait` block (`src/blocks/gate-wait.ts`) stands in for the
+background `rt gate wait` a skill runs after `gate_ask` opens a wait gate.
+When this session asks for a wait gate, rt pushes `gate-wait { id }` before
+it answers `gate_ask`. The block acks any readable gate id, and rt then adds
+`wake: "mod"` to the reply. The skill sets its `waiting-gate` run field,
+sees `wake`, and ends the turn without running the wait. With no ack, rt
+leaves `wake` out and the skill runs `rt gate wait` as it does without the
+mod. The block then:
+
+1. Reads the event cursor (`events:head`), then the gate's row
+   (`gate:wait { id, waitMs: 0 }`), so a gate answered before the wait began
+   still ends it.
+2. Waits on `gate/{answered,closed}/<id>` from that cursor with `link.wait`,
+   and reads the row again after each event for the gate.
+3. Starts the next turn with `$.prompt.submit`, framed as this plugin's
+   message. The engine queues it while a turn runs.
+   - An answer: `[gate] gate <id> was answered by <surface>. Its gate wait
+     result: <json>`, where the JSON is what `rt gate wait` prints, less the
+     gate's context.
+   - A close: `[gate] gate <id> was withdrawn (<reason>). Its gate wait
+     status is closed.`
+   - A gate the registry no longer has: a "not found" line.
+   - An answer this session recorded itself (`answer.session` is its id,
+     before or after a `/clear`) starts no turn: the model already holds it.
+
+The wait lives in this process, not in the conversation, so a `/clear`
+while waiting keeps it, and the turn it starts lands in the new
+conversation. A session end drops every wait. A submit the engine refuses
+or a hook drops is asked again twice; after that the text goes to the
+transcript, so the person still sees the answer. A wait the daemon will not
+serve (a read that keeps failing, or a round it refuses) starts a turn that
+names the gate and asks the session to run `rt gate wait <id>` itself.
 
 ## The reply rule section
 

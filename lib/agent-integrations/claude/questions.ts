@@ -26,6 +26,7 @@ import { modPath } from "./mod-path.ts";
 
 const HARNESS = "claude";
 const MOD_COMPLETE = "gate-complete";
+const MOD_WAIT = "gate-wait";
 
 /** How a completion reaches the mattstack-mods `gate-form` block in the nudged session. */
 export type ClaudeModSeam = {
@@ -51,6 +52,31 @@ export function claudeModSeam(links?: ModLinks | null, push: typeof pushModComma
       return out.ok && out.data.acked;
     },
   };
+}
+
+export type WaitHandoverDeps = {
+  /** Whether the session's `gate-wait` block is live now. */
+  owns(sessionId: string): boolean;
+  push?: typeof pushModCommand;
+  log?: Pick<Logger, "warn">;
+};
+
+/**
+ * Hands a wait gate the session just opened to its mattstack-mods `gate-wait`
+ * block, which wakes the session with the answer. True only once the block
+ * acked; anything else leaves the session on `rt gate wait`.
+ */
+export async function handOverWaitGate(sessionId: string, gateId: string, deps: WaitHandoverDeps): Promise<boolean> {
+  if (!deps.owns(sessionId)) return false;
+  try {
+    const out = await (deps.push ?? pushModCommand)(sessionId, MOD_WAIT, { id: gateId });
+    if (out.ok && out.data.acked) return true;
+    deps.log?.warn({ gateId, sessionId, reason: out.ok ? "unacked" : out.error }, "gate:ask: the gate-wait handover was not confirmed; the session waits with rt gate wait");
+    return false;
+  } catch (err) {
+    deps.log?.warn({ err, gateId, sessionId }, "gate:ask: the gate-wait handover threw; the session waits with rt gate wait");
+    return false;
+  }
 }
 
 /** Claude Code's AskUserQuestion footer. The navigate hint varies with the

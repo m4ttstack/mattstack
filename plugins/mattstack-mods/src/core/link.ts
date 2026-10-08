@@ -17,7 +17,8 @@ const REFRESH_DELAY_MS = 50
 const COMMAND_ENVELOPE = /^<rt-mod-command id="([^"<>]+)" kind="([^"<>]+)"(?: link="([^"<>]*)")?>([\s\S]*)<\/rt-mod-command>$/
 
 export type Command = { id: string; kind: string; data: unknown }
-export type CommandHandler = (cmd: Command) => Promise<void>
+/** `api` is the link's own facade, for a handler whose work outlives the delivery that carried the command. */
+export type CommandHandler = (cmd: Command, api: ModApi) => Promise<void>
 export type WaitResult = { cursor: number; events: unknown[] }
 
 export type Link = {
@@ -243,7 +244,7 @@ export function createLink(hub: Hub): Link {
     // under a handler that is slow or straddles a /clear.
     await ack(a, cmd)
     try {
-      await entry.handler(cmd)
+      await entry.handler(cmd, a)
     } catch (err) {
       log(`command ${cmd.kind} ${cmd.id} failed after its ack: ${err instanceof Error ? err.message : String(err)}`)
     }

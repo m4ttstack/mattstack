@@ -29,7 +29,7 @@ const DOORBELL = /^\[gate\] (\S+) (?:answered by .+; re-read the registry and pr
 
 // `by` is free text a caller chose; only a known surface is named back to the model.
 const SURFACES: Record<string, string> = { pane: 'pane', console: 'console', board: 'board', shepherd: 'shepherd', human: 'human' }
-const surface = (by: string | undefined) => SURFACES[(by ?? '').trim()] ?? 'another surface'
+export const surface = (by: string | undefined) => SURFACES[(by ?? '').trim()] ?? 'another surface'
 
 const optionValue = (o: GateOption) => (typeof o === 'string' ? o : o.value)
 const optionLabel = (o: GateOption) => (typeof o === 'string' ? o : o.label || o.value)

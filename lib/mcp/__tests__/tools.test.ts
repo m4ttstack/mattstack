@@ -140,8 +140,8 @@ describe("mcpTools", () => {
       expect(tool.description).toContain("form: ask it in the pane with AskUserQuestion");
       expect(tool.description).toContain("then answer with the gate_answer tool");
       expect(tool.description).not.toContain("--by pane");
-      expect(tool.description).toContain("wait: run `rt gate wait <id>` as background bash and end the turn");
-      expect(tool.description.indexOf("rt gate wait")).toBeGreaterThan(tool.description.indexOf("wait:"));
+      expect(tool.description).toContain("wait: when the reply has wake, end the turn: the session is woken with the answer. With no wake, run `rt gate wait <id>` as background bash and end the turn");
+      expect(tool.description.indexOf("rt gate wait")).toBeGreaterThan(tool.description.indexOf("With no wake"));
     });
 
     // RT-177: the description is where a caller learns not to self-censor the

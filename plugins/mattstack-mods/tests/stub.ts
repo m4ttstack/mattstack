@@ -7,6 +7,8 @@ export type Hook = (...args: any[]) => Promise<any>
 export type Reply = Record<string, unknown> | Error
 export type Respond = (verb: string, body: any) => Reply | Promise<Reply>
 export type Sent = { verb: string; socketPath: string | undefined; body: any }
+/** What `$.prompt.submit` answers: the prompt that entered, a drop, or an Error it rejects with. */
+export type Submit = (input: { text: string }) => Record<string, unknown> | Error | Promise<Record<string, unknown> | Error>
 
 export async function flush(): Promise<void> {
   for (let i = 0; i < 200; i++) await Promise.resolve()
@@ -65,7 +67,8 @@ export function harness(options: { version?: string; env?: Record<string, string
     if (verb === 'events:wait') return { ok: true, data: { events: [], cursor: body.after ?? 0 } }
     return { ok: true, data: {} }
   }
-  const script = { respond: options.respond ?? defaults }
+  const submitted: { text: string }[] = []
+  const script: { respond: Respond; submit: Submit } = { respond: options.respond ?? defaults, submit: input => ({ text: input.text }) }
   const $: any = {
     ui: {
       log: (text: string, opts?: { to?: string }) => logs.push({ text, to: opts?.to }),
@@ -91,6 +94,14 @@ export function harness(options: { version?: string; env?: Record<string, string
       },
     },
     clock: { now: async () => clock.now(), after: clock.after, every: clock.every },
+    prompt: {
+      submit: async (input: { text: string }) => {
+        submitted.push(input)
+        const answer = await script.submit(input)
+        if (answer instanceof Error) throw answer
+        return answer
+      },
+    },
     env: { get: async (name: string) => env[name] },
     state: {
       get: async (ref: { key: string }) => ({ value: state.get(ref.key), version: state.has(ref.key) ? 1 : 0 }),
@@ -111,6 +122,7 @@ export function harness(options: { version?: string; env?: Record<string, string
     logs,
     clock,
     sent,
+    submitted,
     state,
     session,
     defaults,

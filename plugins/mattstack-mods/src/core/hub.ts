@@ -11,6 +11,8 @@ import type {
   OpEventOf,
   PaneOpenArgs,
   PluginState,
+  PromptSubmitArgs,
+  PromptSubmitResult,
   RenderSurface,
   SessionVersion,
   Timer,
@@ -42,6 +44,10 @@ export type ModApi = {
     root(): Promise<string>
   }
   http: { fetch(url: string, init?: HttpInit): Promise<HttpResponse> }
+  prompt: {
+    /** Starts a turn of its own with `text`, framed as this plugin's message; queued while a turn runs. */
+    submit(input: PromptSubmitArgs): Promise<PromptSubmitResult>
+  }
   clock: {
     now(): Promise<number>
     after(ms: number, fn: () => void): Timer
@@ -508,6 +514,7 @@ function facade($: EngineInterface): ModApi {
       root: () => $.session.root(),
     },
     http: { fetch: (url, init) => $.http.fetch(url, init) },
+    prompt: { submit: input => $.prompt.submit(input) },
     clock: {
       now: () => $.clock.now(),
       after: (ms, fn) => $.clock.after(ms, fn),
