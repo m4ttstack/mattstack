@@ -9,7 +9,7 @@
  * built on that name and this restore is not the tree that owns it anymore.
  */
 
-import { cpSync, existsSync } from "fs";
+import { cpSync, existsSync, lstatSync } from "fs";
 import { legacyWorktreePoolRoots } from "../rt-paths.ts";
 import { readdir } from "fs/promises";
 import { basename, join, sep } from "path";
@@ -17,7 +17,6 @@ import { loadRegistry, saveRegistry, type TreeRecord } from "./registry.ts";
 import { loadWorktreeRepoConfig, evaluateReadyGate, type WorktreeRepoConfig } from "./config.ts";
 import { runReadySteps } from "./ready.ts";
 import { branchExistsLocalAsync, runGit, MUTATING_TIMEOUT_MS } from "./git-async.ts";
-import { runGitOrigin } from "./fetch-auth.ts";
 import {
   readDisposalManifest,
   reapTrashDir,
@@ -187,10 +186,10 @@ async function removeCreatedWorktree(
   }
 }
 
-/** The submodules HEAD actually records (gitlinks), which `.gitmodules` can disagree with. */
-async function submodulePaths(path: string): Promise<string[]> {
+/** The submodules HEAD actually records (gitlinks), which `.gitmodules` can disagree with; null when git cannot list them. */
+async function submodulePaths(path: string): Promise<string[] | null> {
   const r = await runGit(path, ["ls-files", "--stage", "-z"]);
-  if (r.exitCode !== 0) return [];
+  if (r.exitCode !== 0) return null;
   return r.stdout.split("\0").flatMap((l) => (l.startsWith("160000 ") ? [l.slice(l.indexOf("\t") + 1)] : []));
 }
 
@@ -201,14 +200,19 @@ async function submodulePaths(path: string): Promise<string[]> {
  * checkout rebuilds that data; each borrows objects from the main checkout's
  * own copy of the submodule when it has one, so a large vendored repo is not
  * downloaded again. Each is tried on its own so one that cannot be fetched
- * does not hold back the rest.
+ * does not hold back the rest. The fetch uses only the user's own git
+ * credentials: a submodule URL comes from the repo's contents, so rt's
+ * origin token is never offered to it.
  */
-async function initSubmodules(repoPath: string, path: string): Promise<{ paths: string[]; failed: string[] }> {
+async function initSubmodules(repoPath: string, path: string): Promise<{ paths: string[] | null; failed: string[] }> {
   const paths = await submodulePaths(path);
   const failed: string[] = [];
-  for (const sub of paths) {
+  for (const sub of paths ?? []) {
     const reference = existsSync(join(repoPath, sub, ".git")) ? ["--reference", join(repoPath, sub)] : [];
-    const r = await runGitOrigin(path, ["submodule", "update", "--init", "--recursive", ...reference, "--", sub], { timeoutMs: MUTATING_TIMEOUT_MS });
+    const r = await runGit(path, ["submodule", "update", "--init", "--recursive", ...reference, "--", sub], {
+      timeoutMs: MUTATING_TIMEOUT_MS,
+      env: { GIT_TERMINAL_PROMPT: "0" },
+    });
     if (r.exitCode !== 0) failed.push(sub);
   }
   return { paths, failed };
@@ -223,11 +227,18 @@ async function initSubmodules(repoPath: string, path: string): Promise<{ paths: 
  * `.git` and `manifest.json` are the entry's own bookkeeping and must never
  * be copied over the worktree's real git admin file. Neither may any `.git`
  * inside a submodule, which would point it back at the deleted git data; the
- * submodule's files themselves always come back, set up or not.
+ * submodule's files themselves always come back, set up or not. When git
+ * could not say where the submodules are (`submodules` null), every nested
+ * `.git` link file is left out instead; a nested `.git` folder is a repo of
+ * its own and still comes back.
  */
-async function copyRetainedContent(entryPath: string, destPath: string, submodules: string[]): Promise<{ ok: boolean; err?: string }> {
-  const roots = submodules.map((p) => join(entryPath, p) + sep);
-  const filter = (src: string) => !(basename(src) === ".git" && roots.some((r) => src.startsWith(r)));
+async function copyRetainedContent(entryPath: string, destPath: string, submodules: string[] | null): Promise<{ ok: boolean; err?: string }> {
+  const roots = submodules?.map((p) => join(entryPath, p) + sep);
+  const filter = (src: string) => {
+    if (basename(src) !== ".git") return true;
+    if (roots) return !roots.some((r) => src.startsWith(r));
+    return !lstatSync(src).isFile();
+  };
   let entries: string[];
   try {
     entries = await readdir(entryPath);
