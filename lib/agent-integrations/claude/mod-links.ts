@@ -18,7 +18,7 @@ import { deliverToInbox } from "../../daemon/inbox.ts";
 import type { SessionStore } from "../session-store.ts";
 
 /** The Claude Code releases this daemon has tested the plugin against. Only a test run widens it. */
-export const TESTED_CLAUDE_CODE = { min: "2.1.293", max: "2.1.293" } as const;
+export const TESTED_CLAUDE_CODE = { min: "2.1.293", max: "2.1.294" } as const;
 
 export const LINK_EXPIRY_MS = 30_000;
 const ACK_RETENTION_MS = 60_000;

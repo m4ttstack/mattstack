@@ -154,7 +154,7 @@ describe("mod links", () => {
 
   test("an engine outside the tested range registers with no blocks", () => {
     const { links } = harness();
-    for (const [sessionId, claudeCode] of [["new", "9.0.0"], ["old", "2.1.292"], ["odd", "unknown"]] as const) {
+    for (const [sessionId, claudeCode] of [["new", "9.0.0"], ["next", "2.1.295"], ["old", "2.1.292"], ["odd", "unknown"]] as const) {
       const out = register(links, sessionId, { claudeCode });
       expect(out.blocks).toEqual([]);
       expect(links.live(sessionId, "delivery")).toBe(false);
@@ -163,6 +163,7 @@ describe("mod links", () => {
     }
     const inRange = register(links, "in", { claudeCode: `${TESTED_CLAUDE_CODE.min} (Claude Code)` });
     expect(inRange.blocks).toEqual(ALL);
+    expect(register(links, "top", { claudeCode: TESTED_CLAUDE_CODE.max }).blocks).toEqual(ALL);
   });
 
   test("a link-reported id change keeps the binding key and identity and advances the generation", () => {

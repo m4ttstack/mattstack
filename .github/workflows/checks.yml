@@ -307,8 +307,8 @@ jobs:
       - name: plugin.json version bumped
         if: github.event_name == 'pull_request'
         run: bun scripts/ci/plugin-version-bumped.ts --base HEAD^1 --plugin plugins/mattstack-mods
-      - name: Install Claude Code 2.1.293
-        run: npm install -g @anthropic-ai/claude-code@2.1.293 && claude --version | grep -F 2.1.293
+      - name: Install Claude Code 2.1.294
+        run: npm install -g @anthropic-ai/claude-code@2.1.294 && claude --version | grep -F 2.1.294
       - name: claude plugin validate
         run: claude plugin validate plugins/mattstack-mods
       - name: claude plugin test

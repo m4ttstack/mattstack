@@ -320,7 +320,7 @@ claude plugin validate plugins/mattstack-mods
 (cd plugins/mattstack-mods && claude plugin test)
 ```
 
-CI runs both, pinned to Claude Code 2.1.293, in the `plugin-mattstack-mods`
+CI runs both, pinned to Claude Code 2.1.294, in the `plugin-mattstack-mods`
 job. A pull request that changes this folder has to bump the version in
 `.claude-plugin/plugin.json`.
 
