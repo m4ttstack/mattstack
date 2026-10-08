@@ -26,7 +26,7 @@ M6a.
 - Mod block names, exactly: `delivery`, `gate-form`, `gate-wait`, `gate-panel`, `presence`, `policy`, `stop-gate`, `relocation`, `observe`. They are Claude-internal; the shared `Capability` type does not change.
 - No `SCHEMA_VERSION` bump: link and block state is in-memory in the daemon. Persisted changes are C2's session-store operation, C6's delivery evidence and C9's completion `path` column (a guarded `ALTER` in `gates-store.ts`'s own migration block, in `gates.db`).
 - Every live check from C3 on runs against a sandboxed foreground rt daemon under its own HOME, with the pane's `RT_DAEMON_SOCK` and `rt` pointed at it, as in `.harness-spike/live-01/report.md`. Never the real daemon.
-- A shell hook never decides whether the mod owns a feature. The rt verb the hook already calls checks `modPath` in-process and no-ops when the block is live. With the switch off that check is a settings read inside a process that already runs, so nothing new is spawned.
+- A shell hook never decides whether the mod owns a feature. Link state lives in daemon memory, so the check always runs in the daemon. A daemon handler a hook already reaches (for example `pane:announce-relocation`) calls `modPath` directly. A CLI-local path (the chat `--ended` path) first reads the switch in-process and, only when it is on, asks the daemon `session:owned { sessionId, block }`. With the switch off nothing new is spawned or sent.
 - Frozen fixtures (`chat-bytes.json`, `agent-verbs-bytes.json`, `herd-pane-agent-bytes.json`) are never regenerated.
 - Every task's live check runs in a dedicated `claude --plugin-dir plugins/mattstack-mods` pane under Matt's login in a throwaway repo, with the mods-01 rules: no plugin installs, no settings edits, Matt accepts any trust prompt himself, and the controller removes that trust key afterwards.
 - Targeted tests only, from the repo root. Run `bun run typecheck` before each commit.
@@ -130,7 +130,8 @@ modify `plugins/mattstack-mods/hooks/register.ts`, `plugins/mattstack-mods/types
   - `registers on start with the live blocks`;
   - `re-registers after classic.SessionStart source clear with previousSessionId`;
   - `heartbeats every 10 s from $.clock.every`;
-  - `ends on session end`;
+  - `ends on session end, except reason clear`;
+  - `session.end with reason clear keeps the link and heartbeat until the classic.SessionStart source clear re-registration`;
   - `a wait chains rounds of at most 25 s and passes the cursor`;
   - `ECONNRESET retries the round with the same cursor`;
   - `an unknown-link answer to a heartbeat or a wait re-registers with the same session id and blocks`;
@@ -243,7 +244,7 @@ bun test that imports the plugin's `sections.ts` and `blocks.ts`).
 modify `lib/agent-integrations/claude/mod-links.ts`,
 `lib/agent-integrations/claude/sessions.ts`, `lib/state/presence-store.ts`,
 `lib/daemon/handlers/chat.ts`, `lib/daemon/handlers/mod-session.ts`,
-`commands/chat.ts`.
+`packages/rt-client/src/commands.ts`, `commands/chat.ts`.
 
 **Interfaces:**
 - The presence block reports `session:report { event: "turn-start" | "turn-end" }`; a session end arrives through `session:end` only (C3).
@@ -251,7 +252,8 @@ modify `lib/agent-integrations/claude/mod-links.ts`,
 - `buddyStatus` (`lib/state/presence-store.ts:182`) derives live and idle from the registry binding's herdr `status` today. Its `RegistryDeps.resolve` consults `modExecution` first and uses herdr's status only when that is `null`. The store gets no new column.
 - `session:end` with the presence block live applies `applySessionPresence(binding, "end")`, as the `--ended` path does today.
 - Sign-in: when `modPath(binding, "presence")` holds, the Flock button path, `/chat:sign-in` and `rt chat sign-in` send `pushModCommand(sessionId, "chat-sign-in", { room? })`. The mod answers by calling `chat:sign-in` with its own session id and `root()`.
-- The `--ended` path in `commands/chat.ts` (`endedSession`, which `session-end.sh` already calls) checks `modPath` in-process and returns quietly when the presence block is live. The chat plugin's hook script is not changed.
+- `session:owned { sessionId, block }` is a new daemon verb in `mod-session.ts` that returns `{ owned: boolean }` from `modPath`.
+- The `--ended` path in `commands/chat.ts` (`endedSession`, which `session-end.sh` already calls, also on `/clear`) runs in the rt process and cannot read link state. With the switch on, it asks `session:owned { sessionId, block: "presence" }` first and returns quietly when owned, so a `/clear` never detaches the binding before the mod's continuation. With the switch off, or the daemon unreachable, it runs as today. The chat plugin's hook script is not changed.
 
 - [ ] Write the cases:
   - `turn start and end flip the buddy list between live and idle`;
@@ -260,7 +262,8 @@ modify `lib/agent-integrations/claude/mod-links.ts`,
   - `sign-in survives /clear through the link continuation`;
   - `an unacked sign-in command falls back once to today's daemon-side sign-in`;
   - `without the block, herdr status and the session-end path are used`;
-  - `the --ended path no-ops only while the presence block is live, and is byte-identical otherwise`.
+  - `the --ended path asks session:owned only with the switch on, no-ops when owned, and is byte-identical otherwise`;
+  - `a /clear SessionEnd with the presence block live leaves the binding attached, so the continuation succeeds`.
 - [ ] Run `bun test lib/agent-integrations/__tests__/claude-mod-presence.test.ts lib/daemon/__tests__/chat-harness-continuity.test.ts lib/state/__tests__/presence-store.test.ts` and the plugin tests; expect red.
 - [ ] Implement.
 - [ ] Rerun the suites, the chat bytes test and `sh marketplace/plugins/chat/hooks/tests/test-session-end.sh` (unchanged, green).
@@ -277,14 +280,14 @@ modify `lib/agent-integrations/claude/questions.ts`, `lib/daemon/gate-push.ts`,
 `lib/agent-integrations/__tests__/claude-questions.test.ts`.
 
 **Interfaces:**
-- **The asking session on every gate.** `gateAsk` records the caller's resolved native session id as `origin.session` for every presentation, not only `form`, which already sets `nudge`. `origin` is stored as JSON, so no column is added.
+- **The asking session on every gate.** `gateAsk` records the caller's resolved native session id as `origin.session` for every presentation, not only `form`, which already sets `nudge`. `origin` is stored as JSON, so no column is added. Add `session` to `CEREMONY_ORIGIN_KEYS` in `handlers/gate.ts`, so a caller-supplied `origin.session` never passes through when the daemon cannot resolve one.
 - **New `gate:list` filters.** The payload (`commands.ts:1091`) gains optional `session` (matches `origin.session`) and `presentation` (matches `origin.presentation`). They combine with the existing `open: true`, and every existing caller's results are unchanged.
 - **Completion path.** The completion table in `gates.db` gains a `path` column (`"mod-result" | "doorbell"`), added by a guarded `ALTER` in `gates-store.ts`'s existing migration block.
 - **The tool rule.** Today an agent opens a form gate with `gate_ask` and then draws AskUserQuestion, which the `rt gate fork-check` hook admits. The block never opens gates. Its tool rule on `AskUserQuestion` (stage `permit`):
   1. Links the call to the live form gate this session asked: `gate:list { open: true, session: <own id>, presentation: "form" }`, matched on the question text. With no match, it passes the call through untouched.
   2. Runs `next(e)` to show the dialog.
   3. Concurrently waits on `gate/answered/<id>` and `gate/closed/<id>` with `link.wait`.
-- **Closing the dialog.** When a gate event wins, the block reads the authoritative row (`gate:list` filtered to that id) and returns `{ result: { questions: e.questions, answers } }` built from the row. A closed or superseded gate returns a `withdrawn` result. When the dialog answer wins, the block records it with `gate:answer { by: "pane" }`.
+- **Closing the dialog.** When a gate event wins, the block reads the authoritative row (`gate:list` filtered to that id) and returns `{ result: { questions: e.questions, answers } }` built from the row. A closed or superseded gate returns a `withdrawn` result. When the dialog answer wins, the block records nothing: the model's own `gate_answer` after the form stays the one record, as today.
 - **The confirmation handshake.** `onCommand("gate-complete", { id })` acks whenever `id` is a gate this block linked, whether or not its dialog is still up. The event path closes the dialog; the command only confirms ownership.
 - **Display kit.** `display.ts` exports `formPane($, gate): Promise<Answer | null>`, used only where `next(e)` cannot draw the dialog.
 
