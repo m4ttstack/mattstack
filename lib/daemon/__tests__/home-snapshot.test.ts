@@ -2710,6 +2710,19 @@ describe("the layout gate", () => {
     handle.stop();
   });
 
+  test("the real gate failing on git show warns once across pulls and still fast-forwards", async () => {
+    const probes = fakeProbes({ exec: async () => ({ code: 128, stdout: "", stderr: "fatal: bad object" }) });
+    const spec = { ...teamSpecFor(null), pull: { intervalSec: 300, gate: (ref: string) => layoutGate(probes.exec, FAKE_REPO_DIR, ref) } };
+    const { deps, log } = baseDeps({ exec: makeFakeExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]).fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(spec, rest);
+    await handle.ready;
+    expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
+    expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
+    expect(log.calls.filter((c) => c.level === "warn" && JSON.stringify(c.args).includes("layout gate")).length).toBe(1);
+    handle.stop();
+  });
+
   test("nothing to pull runs no gate", async () => {
     let asked = 0;
     const { handle } = start(async () => { asked++; return { layout: 3 }; }, 0);
@@ -2723,20 +2736,22 @@ describe("the layout gate", () => {
 describe("layoutGate", () => {
   const exec = (res: { code: number; stdout: string; stderr: string }) => (async () => res) as unknown as Probes["exec"];
   test("reads the marker at the ref through git show", async () => {
-    expect(await layoutGate(exec({ code: 0, stdout: '{ "role": "org", "org": "acme", "layout": 3 }', stderr: "" }), "/clone", "refs/remotes/origin/main", fakeLog())).toEqual({ layout: 3 });
+    expect(await layoutGate(exec({ code: 0, stdout: '{ "role": "org", "org": "acme", "layout": 3 }', stderr: "" }), "/clone", "refs/remotes/origin/main")).toEqual({ layout: 3 });
   });
   test("a one-team marker, an org marker at ORG_LAYOUT or an unparsable one passes", async () => {
     for (const stdout of ['{ "role": "team", "org": "acme" }', '{ "role": "org", "org": "acme" }', "{ nope"]) {
-      expect(await layoutGate(exec({ code: 0, stdout, stderr: "" }), "/clone", "ref", fakeLog())).toBeNull();
+      expect(await layoutGate(exec({ code: 0, stdout, stderr: "" }), "/clone", "ref")).toBeNull();
     }
   });
-  test("a missing marker passes silently; any other git failure passes with a warning", async () => {
-    const quiet = fakeLog();
-    expect(await layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'refs/remotes/origin/main'" }), "/clone", "ref", quiet)).toBeNull();
-    expect(quiet.calls.filter((c) => c.level === "warn").length).toBe(0);
-    const loud = fakeLog();
-    expect(await layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: bad object" }), "/clone", "ref", loud)).toBeNull();
-    expect(loud.calls.filter((c) => c.level === "warn").length).toBe(1);
+  test("a missing marker passes without throwing; any other git failure rejects with the stderr", async () => {
+    expect(await layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'refs/remotes/origin/main'" }), "/clone", "ref")).toBeNull();
+    await expect(layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: bad object\n" }), "/clone", "ref")).rejects.toThrow("fatal: bad object");
+  });
+  test("runs git show under LC_ALL=C", async () => {
+    let env: Record<string, string> | undefined;
+    const spy = (async (_argv: string[], opts?: { env?: Record<string, string> }) => { env = opts?.env; return { code: 0, stdout: "", stderr: "" }; }) as unknown as Probes["exec"];
+    await layoutGate(spy, "/clone", "ref");
+    expect(env).toEqual({ LC_ALL: "C" });
   });
 });
 

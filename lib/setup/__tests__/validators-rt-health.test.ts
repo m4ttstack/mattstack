@@ -1481,3 +1481,28 @@ describe("orgLayoutRow", () => {
     expect(r?.status).toBe("ready");
   });
 });
+
+describe("held layout and row position", () => {
+  const entry = (extra: Record<string, unknown>) => ({ slug: "widgets", enabled: true, pullOnly: true, unownedDirty: [], conflicted: null, lastPullError: null, lastPushError: null, lastPullAt: 1000, ...extra }) as unknown as TeamSnapshotEntry;
+  test("team.sync does not call a held pull-only clone stuck or tell it to reset", async () => {
+    const sentence = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const r = await teamSyncRow(["widgets"], async () => [entry({ lastPullSkipped: sentence, layoutHold: { layout: 3, reads: 2 } })], () => 1000, 300, true);
+    expect(r?.detail).not.toContain("reset it to origin");
+    expect(r?.detail).not.toContain("cannot fast-forward");
+    expect(r?.status).toBe("ready");
+  });
+  test("org.layout sits right after org.folder", async () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/.git/config": "",
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme" }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}",
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"] },
+    });
+    const ids = (await rtHealthRows(p, { ci: false }, () => ({ enabled: false }) as never)).map((r) => r.id);
+    expect(ids.indexOf("org.layout")).toBe(ids.indexOf("org.folder") + 1);
+    expect(ids.indexOf("org.folder")).toBeGreaterThan(-1);
+  });
+});

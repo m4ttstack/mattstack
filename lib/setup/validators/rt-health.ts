@@ -587,7 +587,7 @@ export async function teamSyncRow(
     // the stderr as lastPullError and returns it as a skip, whose detail pullNow then copies
     // into lastPullSkipped. Without this, a revoked token reads as "cannot fast-forward, reset
     // it to origin", which is both the wrong diagnosis and advice that cannot help.
-    if (e.pullOnly === true && e.lastPullError == null && e.lastPullSkipped) {
+    if (e.pullOnly === true && e.lastPullError == null && e.lastPullSkipped && !e.layoutHold) {
       problems.push(`${slug}: cannot fast-forward (${e.lastPullSkipped}); reset it to origin or ask an org admin`);
       continue;
     }
@@ -630,7 +630,7 @@ export async function teamSyncRow(
   // A pull skipped every tick (a dirty src/ refusing the rebase) is not a
   // failure, but it is why a member's store edits are not moving; say so
   // without changing the status.
-  const skips = slugs.map((slug) => entries.find((x) => x.slug === slug)?.lastPullSkipped).filter((d): d is string => !!d);
+  const skips = slugs.map((slug) => entries.find((x) => x.slug === slug)).map((e) => (e?.layoutHold ? undefined : e?.lastPullSkipped)).filter((d): d is string => !!d);
   const pullOnlySlugs = slugs.filter((slug) => entries.find((x) => x.slug === slug)?.pullOnly === true);
   const pullOnlyNote = pullOnlySlugs.length ? `. Pull-only, never pushes: ${pullOnlySlugs.join(", ")}` : "";
   const detail = `${slugs.length} clone${slugs.length === 1 ? "" : "s"} in sync${pullOnlyNote}${skips.length ? `. Last pull skipped: ${skips.join("; ")}` : ""}`;

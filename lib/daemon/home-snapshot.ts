@@ -432,13 +432,11 @@ function marketplaceOwed(shares: PendingPackShare[], repoDir: string, dirty: rea
 }
 
 /** The org layout at `ref`, when it is one this rt does not read. A tip with no marker, a marker rt cannot parse, or a layout at or below ORG_LAYOUT passes. */
-export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string, log: Pick<Logger, "warn">): Promise<{ layout: number } | null> {
-  const shown = await exec(["git", "-C", repoDir, "show", `${ref}:${ORG_MARKER_REL}`], { timeoutMs: GIT_TIMEOUT_MS });
+export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string): Promise<{ layout: number } | null> {
+  const shown = await exec(["git", "-C", repoDir, "show", `${ref}:${ORG_MARKER_REL}`], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } });
   if (shown.code !== 0) {
-    if (!/does not exist|exists on disk, but not in|not in the index/i.test(shown.stderr)) {
-      log.warn({ repoDir, ref, stderr: shown.stderr.trim() }, "layout gate: could not read the marker at the fetched tip; passing");
-    }
-    return null;
+    if (/does not exist|exists on disk, but not in|not in the index/i.test(shown.stderr)) return null;
+    throw new Error(shown.stderr.trim() || `git show exited ${shown.code}`);
   }
   const marker = parseMarker(shown.stdout);
   return marker.kind === "org" && marker.layout > ORG_LAYOUT ? { layout: marker.layout } : null;
@@ -455,10 +453,8 @@ export function teamSnapshotSpec(
     ownedRoots: string[];
     readToken?: (p: Probes, remote: string) => Promise<string | null>;
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
-    log?: Pick<Logger, "warn">;
   },
 ): SnapshotSpec {
-  const log = opts.log ?? { warn() {} };
   const readToken = opts.readToken ?? storedForgeToken;
   const owns = (path: string) => opts.ownedRoots.some((root) => path === root || path.startsWith(`${root}/`));
   return {
@@ -478,7 +474,7 @@ export function teamSnapshotSpec(
       };
     },
     watch: teamScope,
-    pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, gate: (ref) => layoutGate(opts.probes.exec, repoDir, ref, log) },
+    pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, gate: (ref) => layoutGate(opts.probes.exec, repoDir, ref) },
     pullOnly: opts.ownedRoots.length === 0,
     tokenFor: () => readToken(opts.probes, opts.originUrl),
     originUrl: opts.originUrl,
@@ -954,9 +950,11 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (conflicted) return { outcome: "skipped", detail: conflicted.detail };
     if (spec.pull?.gate && behind !== 0) {
       let hold: { layout: number } | null = null;
+      let threw = false;
       try {
         hold = await spec.pull.gate(`refs/remotes/origin/${branch}`);
       } catch (err) {
+        threw = true;
         if (loggedGateError !== String(err)) {
           deps.log.warn({ err, id: spec.id }, `${label}: layout gate threw; passing`);
           loggedGateError = String(err);
@@ -972,6 +970,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       }
       layoutHold = null;
       loggedHold = null;
+      if (!threw) loggedGateError = null;
     }
     if (behind === 0) return { outcome: "up-to-date", detail: null };
     if (ahead === 0) {
