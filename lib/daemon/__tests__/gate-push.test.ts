@@ -349,6 +349,18 @@ describe("gate-push escape injection (W4)", () => {
     });
   });
 
+  test("a form gate whose pane does not resolve logs that, not a missing form", async () => {
+    const lines: Array<Record<string, unknown>> = [];
+    const captured = pino({ level: "info" }, { write: (l: string) => lines.push(JSON.parse(l)) });
+    const { push, store } = w4Harness({ paneStatus: null, log: captured });
+    const row = answeredFormGate(store, "console");
+    await push.onAnswered(row);
+    expect(lines.map((l) => l.msg)).not.toContain("gate-push: no form on screen; doorbell-only");
+    expect(lines.find((l) => l.msg === "gate-push: no live pane resolved; doorbell-only")).toMatchObject({
+      level: 30, gateId: row.id, hints: { paneId: "pane-7", sessionId: "sess-1" },
+    });
+  });
+
   test("the pane is probed before the doorbell, then Escape follows it", async () => {
     const { push, store, events } = w4Harness({ traceProbe: true });
     await push.onAnswered(answeredFormGate(store, "console"));

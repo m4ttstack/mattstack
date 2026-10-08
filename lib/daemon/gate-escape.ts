@@ -1,3 +1,4 @@
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { herdrRequest } from "../herdr/client.ts";
 import { hasQuestionForm, lastScreenLine } from "./question-form.ts";
 import { resolveLivePane, snapshotPanes, type LivePane, type PaneHints } from "./pane-resolve-live.ts";
@@ -83,7 +84,16 @@ export function createPaneStatusProbe(deps: {
     return {
       paneRef: pane.paneRef,
       status: hasQuestionForm(screen) ? "blocked" : pane.agentStatus,
-      lastLine: lastScreenLine(screen).slice(0, LAST_LINE_CAP),
+      lastLine: loggableLine(lastScreenLine(screen)),
     };
   };
+}
+
+// The line is whatever the pane shows (a prompt, typed text, tool output)
+// and lands in a log that is rendered and kept for days.
+const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁩﻿]/g;
+
+function loggableLine(line: string): string {
+  const clean = redactCredentials(line.replace(UNSAFE_CHARS, ""));
+  return Array.from(clean).slice(0, LAST_LINE_CAP).join("");
 }

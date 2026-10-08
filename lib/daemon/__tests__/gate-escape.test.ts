@@ -131,6 +131,20 @@ describe("createPaneStatusProbe", () => {
     });
     expect((await probe({ paneId: "wE2:p8" }))?.lastLine).toBe("x".repeat(160));
   });
+  test("the last line is cut by code point, never mid-emoji", async () => {
+    const probe = createPaneStatusProbe({
+      snapshot: async () => [pane({ agentStatus: "working" })],
+      readScreen: async () => `${"x".repeat(159)}😀tail\n`,
+    });
+    expect((await probe({ paneId: "wE2:p8" }))?.lastLine).toBe(`${"x".repeat(159)}😀`);
+  });
+  test("the last line drops terminal controls, bidi and zero-width characters, and redacts tokens", async () => {
+    const probe = createPaneStatusProbe({
+      snapshot: async () => [pane({ agentStatus: "working" })],
+      readScreen: async () => "$ \u001b]0;title\u0007echo‮ glpat-abcdefghijklmnopqrstu​ done\r\n",
+    });
+    expect((await probe({ paneId: "wE2:p8" }))?.lastLine).toBe("$ ]0;titleecho [redacted] done");
+  });
   test("null when no herdr server answers or nothing resolves", async () => {
     expect(await createPaneStatusProbe({ snapshot: async () => null })({ paneId: "wE2:p8" })).toBeNull();
     expect(await createPaneStatusProbe({ snapshot: async () => [] })({ paneId: "wE2:p8" })).toBeNull();
