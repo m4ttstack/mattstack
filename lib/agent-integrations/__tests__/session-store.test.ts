@@ -132,6 +132,48 @@ describe("session store", () => {
     const reopened = createSessionStore(openStateDb(join(dir, "state.db")));
     expect(reopened.get(original.key)?.attachment.generation).toBe(2);
   });
+
+  test("continuing a native session keeps the key and identity and advances the generation", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const original = bound(db, "remy.ab12", ref(), "w1:p1");
+
+    const continued = store.continueNative(original.key, original.attachment.generation, ref({ value: "sess-2" }));
+    expect(continued.ok).toBe(true);
+    if (continued.ok) {
+      expect(continued.data.key).toBe(original.key);
+      expect(continued.data.identity).toBe("remy.ab12");
+      expect(continued.data.native).toEqual(ref({ value: "sess-2" }));
+      expect(continued.data.attachment).toEqual({ generation: 2, mode: "herdr", pane: "w1:p1" });
+    }
+    expect(store.find(ref())).toBeNull();
+    expect(store.find(ref({ value: "sess-2" }))?.key).toBe(original.key);
+    expect(store.listByNativeValue("sess-2").map((b) => b.key)).toEqual([original.key]);
+
+    const stale = store.continueNative(original.key, original.attachment.generation, ref({ value: "sess-3" }));
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.error.code).toBe("stale-binding");
+  });
+
+  test("a continuation stays in its harness and profile and never takes another binding's session", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const original = bound(db, "remy.ab12", ref());
+    const other = bound(db, "kai.cd34", ref({ value: "sess-2" }));
+
+    const taken = store.continueNative(original.key, 1, ref({ value: "sess-2" }));
+    expect(taken.ok).toBe(false);
+    if (!taken.ok) expect(taken.error.code).toBe("refused");
+    const otherProfile = store.continueNative(original.key, 1, ref({ profile: "work", value: "sess-9" }));
+    expect(otherProfile.ok).toBe(false);
+    if (!otherProfile.ok) expect(otherProfile.error.code).toBe("invalid");
+    const missing = store.continueNative("sk-missing", 1, ref({ value: "sess-9" }));
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error.code).toBe("invalid");
+
+    expect(store.get(original.key)).toEqual(original);
+    expect(store.get(other.key)).toEqual(other);
+  });
 });
 
 function agent(over: Partial<AgentRecord>): AgentRecord {

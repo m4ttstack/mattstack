@@ -5,7 +5,7 @@
  * plus one function, never a change to the transport itself.
  */
 import type { PullRequest, MRDetail, Pipeline, PipelineJob } from "@mattstack/glance";
-import type { HarnessId, IntegrationSummary, Mode } from "./agent-integrations.ts";
+import type { HarnessId, IntegrationSummary, ModBlock, Mode } from "./agent-integrations.ts";
 
 export type Discussion = MRDetail["discussions"][number];
 
@@ -865,6 +865,26 @@ export interface Commands {
     data: { scheduled: boolean; pane: string | null; reason?: "no-pane" | "herd-pane" | "disabled" | "awaiting-path" };
   };
 
+  // ─── Claude mod links (the mattstack-mods plugin) ────────────────────────
+  /**
+   * Opens a link for one Claude Code session. `blocks` answers the blocks that
+   * count: none for an engine outside the tested range. With the switch off it
+   * fails with `failure.code` "refused". `previousSessionId` continues that
+   * session's binding only when a live link holds it.
+   */
+  "session:register": {
+    payload: {
+      sessionId: string; previousSessionId?: string; cwd: string; root: string; pane?: string;
+      claudeCode: string; plugin: string; blocks: ModBlock[];
+    };
+    data: { linkId: string; blocks: ModBlock[] };
+  };
+  /** Every 10 s; after 30 s without one the link's blocks stop counting. Fails with "unknown-link" for an unknown or superseded link. */
+  "session:heartbeat": { payload: { linkId: string }; data: Record<string, never> };
+  "session:end": { payload: { linkId: string }; data: Record<string, never> };
+  /** Confirms the pushed command `id` arrived. */
+  "session:ack": { payload: { linkId: string; id: string }; data: Record<string, never> };
+
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read": { payload: { branches?: string[]; maxAgeMs?: number; repoIdentity?: string }; data: Record<string, BranchEnrichment> };
   /** `source` ("cache"|"fresh"|"empty") rides alongside `data` on the wire, not nested under it. */
@@ -1208,6 +1228,10 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "pane:send",
   "pane:focus",
   "pane:announce-relocation",
+  "session:register",
+  "session:heartbeat",
+  "session:end",
+  "session:ack",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",

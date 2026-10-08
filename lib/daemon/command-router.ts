@@ -31,6 +31,10 @@ import { createChatHandlers } from "./handlers/chat.ts";
 import { createAgentService } from "./handlers/agent.ts";
 import { createPaneHandlers } from "./handlers/pane.ts";
 import { createAgentIntegrationHandlers } from "./handlers/agent-integrations.ts";
+import { createModSessionHandlers } from "./handlers/mod-session.ts";
+import { createModLinks, type ModLinks } from "../agent-integrations/claude/mod-links.ts";
+import { createSessionStore } from "../agent-integrations/session-store.ts";
+import { integrationsEnabled } from "../agent-integrations/switch.ts";
 import { builtinRegistry } from "../agent-integrations/builtins.ts";
 import type { DeliveryService } from "../agent-integrations/delivery.ts";
 import type { RelocationWatcher } from "./relocation-announce.ts";
@@ -150,6 +154,8 @@ export function buildRoutedHandlers(opts: {
   accountsSweep?: () => Promise<void>;
   /** Drives the relocation dialog for pane:announce-relocation; omitted, the handler reports `disabled`. */
   relocation?: RelocationWatcher;
+  /** The live mod-link registry behind session:*, shared with the daemon's reconcile sweep; omitted, the router makes its own. */
+  modLinks?: ModLinks;
 }): Record<string, Handler> {
   const { ctx, broadcast, systemProcessScanner } = opts;
   // The bus owns frame-building + persistence (R020, events-bus.ts); this
@@ -284,6 +290,9 @@ export function buildRoutedHandlers(opts: {
     ...chatHandlers,
     ...agentHandlers,
     ...createAgentIntegrationHandlers({ integrations }),
+    ...createModSessionHandlers({
+      links: opts.modLinks ?? createModLinks({ now: Date.now, integrationsEnabled, store: createSessionStore(opts.stateDb) }),
+    }),
     ...paneHandlers,
     ...createEndpointHandlers({ log: ctx.log, repoIndex: ctx.repoIndex }),
     ...createSettingsHandlers(),

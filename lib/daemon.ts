@@ -152,6 +152,8 @@ import type { PortEntry } from "./port-scanner.ts";
 import { backgroundUnit, runUnits, stopUnits, type DaemonUnit } from "./daemon/lifecycle.ts";
 import { integrationsEnabled } from "./agent-integrations/context.ts";
 import { createDeliveryService, type DeliveryService } from "./agent-integrations/delivery.ts";
+import { createModLinks, type ModLinks } from "./agent-integrations/claude/mod-links.ts";
+import { createSessionStore } from "./agent-integrations/session-store.ts";
 import { createGateQuestions, gateCommandsVia, setGateQuestions, type GateQuestions } from "./agent-integrations/questions.ts";
 
 // Legacy state migration (RT-46). Must run BEFORE the logger's first write can
@@ -387,6 +389,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   let handlerCtx: HandlerContext;
   let freshnessEnv: FreshnessEnv;
   let routedHandlers: ReturnType<typeof buildRoutedHandlers> | undefined;
+  let modLinks: ModLinks | undefined;
   let bootIdentityMigration: Promise<unknown> = Promise.resolve();
   let stopRenameDetector: (() => void) | undefined;
   let pollersHandle: ReturnType<typeof startPollers> | null = null;
@@ -925,7 +928,10 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         ));
         sweepHandles.push(scheduleSweep(
           "reconciler-sweep",
-          async () => { await reconciler.sweep(); },
+          async () => {
+            modLinks?.sweep();
+            await reconciler.sweep();
+          },
           { bootDelayMs: 30_000, intervalMs: 60_000 },
           log,
         ));
@@ -1329,6 +1335,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         };
         freshnessEnv = { ctx: handlerCtx, broadcast: emit };
         const bgService: BgService = createBgService({ log });
+        modLinks = createModLinks({ now: Date.now, integrationsEnabled, store: createSessionStore(getStateDb("daemon")) });
         routedHandlers = buildRoutedHandlers({
           ctx: handlerCtx,
           broadcast: emit,
@@ -1372,6 +1379,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           chatDelivery,
           accountsSweep: accountsSweepFn,
           relocation: relocationWatcher,
+          modLinks,
         });
         herdLifecycle = createHerdLifecycle({
           store: herdStore,

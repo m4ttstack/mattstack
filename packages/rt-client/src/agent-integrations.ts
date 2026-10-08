@@ -52,6 +52,19 @@ export type DeliveryReceipt = {
   id: string; evidence: "submitted" | "queued" | "consumed";
   nativeId?: string; turnId?: string; itemId?: string;
 };
+/**
+ * A Claude Code mod block the mattstack-mods plugin reports at registration.
+ * Claude-internal: it never widens `Capability`. The plugin keeps its own copy
+ * (`plugins/mattstack-mods/src/core/blocks.ts`), and a parity test holds the
+ * two lists equal.
+ */
+export type ModBlock =
+  | "delivery" | "gate-form" | "gate-wait" | "gate-panel" | "presence"
+  | "policy" | "stop-gate" | "relocation" | "observe";
+export const MOD_BLOCKS: readonly ModBlock[] = [
+  "delivery", "gate-form", "gate-wait", "gate-panel", "presence",
+  "policy", "stop-gate", "relocation", "observe",
+];
 export type QuestionBinding = {
   gateId: string; sessionKey: string; generation: number;
   nativeThread?: string; nativeTurn?: string; nativeItem?: string;

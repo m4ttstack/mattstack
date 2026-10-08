@@ -38,6 +38,15 @@ export interface SessionStore {
   replaceAttachment(key: string, expectedGeneration: number, attachment: AttachmentInput): Outcome<SessionBinding>;
   /** Advances the generation to a detached attachment: no pane, socket or process, in the same mode. */
   detach(key: string, expectedGeneration: number): Outcome<SessionBinding>;
+  /**
+   * Moves a binding to the native session that continues it (a Claude
+   * `/clear`): the native value changes, the key, identity and attachment are
+   * kept, and the generation advances. Only an authorized continuation may
+   * call this; the store does not judge that.
+   */
+  continueNative(key: string, expectedGeneration: number, next: NativeSessionRef): Outcome<SessionBinding>;
+  /** Every binding whose native value is `value`, across harnesses, profiles and kinds. */
+  listByNativeValue(value: string): SessionBinding[];
 }
 
 const BINDING_COLUMNS =
@@ -70,6 +79,8 @@ SET generation = generation + 1, mode = ?, pane = ?, socket = ?, pid = ?, attach
 WHERE key = ?;`;
 const REPLACE_ATTACHMENT_SQL = `UPDATE agent_session_bindings
 SET generation = generation + 1, mode = ?, pane = ?, socket = ?, pid = ?, attachment_state = ?, attached_at = ?
+WHERE key = ? AND generation = ?;`;
+const CONTINUE_NATIVE_SQL = `UPDATE agent_session_bindings SET generation = generation + 1, native_value = ?
 WHERE key = ? AND generation = ?;`;
 
 interface ReservationRow {
@@ -260,6 +271,30 @@ export function createSessionStore(db: Database): SessionStore {
       const row = byKey(key);
       if (!row) return fail("invalid", "no session binding has that key");
       return replace(key, expectedGeneration, { mode: row.mode as Mode }, "detached");
+    },
+
+    continueNative(key, expectedGeneration, next) {
+      const problem = nativeProblem(next);
+      if (problem) return fail("invalid", problem);
+      return guarded(() => writeTransaction(db, () => {
+        const row = byKey(key);
+        if (!row) return fail("invalid", "no session binding has that key");
+        if (row.harness !== next.harness || row.profile !== next.profile || row.native_kind !== next.kind) {
+          return fail("invalid", "a session continues only in its own harness and profile, named the same way");
+        }
+        if (row.generation !== expectedGeneration) {
+          return fail("stale-binding", `attachment generation ${expectedGeneration} was replaced; the current one is ${row.generation}`);
+        }
+        const holder = byNative(next);
+        if (holder && holder.key !== key) return fail("refused", "that native session already has its own binding");
+        if (holder) return { ok: true, data: toBinding(row) };
+        db.query(CONTINUE_NATIVE_SQL).run(next.value, key, expectedGeneration);
+        return { ok: true, data: toBinding(byKey(key)!) };
+      }));
+    },
+
+    listByNativeValue(value) {
+      return listBindingsByNativeValue(db, value);
     },
   };
 }
