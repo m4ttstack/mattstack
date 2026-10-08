@@ -1,6 +1,7 @@
 import { AppFileStatusKind, type Commit, type CommittedFileChange, type GitAuthor } from "../../packages/git-core/src/index.ts";
 import type { MissionChangeRow, MissionHistoryFileRow, MissionHistoryHeader, MissionHistoryModel } from "../ui/protocol.ts";
 import type { HistoryStore } from "./history.ts";
+import { dateGroupLabel } from "../date-group.ts";
 
 export const EMPTY_HISTORY_MODEL: MissionHistoryModel = { commits: [], hasMore: false, loading: false, header: null, files: [], selectedFile: "" };
 
@@ -113,20 +114,6 @@ export function historyWhen(then: Date, now: Date): string {
   return formatRelative(diff);
 }
 
-/**
- * The date header a commit sits under in the History list, on the machine's
- * local calendar with weeks starting Monday. A date after now (clock skew)
- * reads "Today".
- */
-export function historyGroupLabel(date: Date, now: Date): string {
-  const startOfDay = (offset: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
-  const sinceMonday = (now.getDay() + 6) % 7;
-  if (date >= startOfDay(0)) return "Today";
-  if (date >= startOfDay(1)) return "Yesterday";
-  if (date >= startOfDay(sinceMonday)) return "Earlier this week";
-  if (date >= startOfDay(sinceMonday + 7)) return "Last week";
-  return date.toLocaleString("en-US", { month: "long", year: "numeric" });
-}
 
 export function buildHistoryModel(
   store: HistoryStore,
@@ -141,7 +128,7 @@ export function buildHistoryModel(
       summary: c.summary,
       byline: formatByline(commitAuthors(c)),
       when: historyWhen(c.author.date, opts.now),
-      group: historyGroupLabel(c.author.date, opts.now),
+      group: dateGroupLabel(c.author.date, opts.now),
       tags: c.tags,
       unpushed: store.localShas.has(c.sha),
       selected: selected.has(c.sha),

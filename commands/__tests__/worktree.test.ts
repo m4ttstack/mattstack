@@ -1,4 +1,6 @@
 import { runningRunDetail } from "../../lib/worktree/running-run.ts";
+import { restoreListBlock } from "../../lib/worktree/restore-rows.ts";
+import type { MRInfo } from "../../lib/enrich.ts";
 /**
  * The worktree CLI is the SENDER side of the identity re-key — it must
  * serialize identities into daemon payloads and reverse-resolve `--repo`
@@ -918,18 +920,18 @@ describe("restore --list", () => {
   });
   afterEach(() => io.restore());
 
-  test("restore --list says who cleaned each worktree up, in words", () => {
-    ui.print(
-      worktreeTest.restorableEntriesBlock([
-        { name: "alpha", path: "/t/alpha", branch: "feature/one", reason: "manual", disposedAt: "2026-09-30T10:00:00.000Z", keptUntil: "2026-10-07T10:00:00.000Z" },
-        { name: "beta", path: "/t/beta", branch: null, reason: "auto", disposedAt: "2026-09-29T10:00:00.000Z", keptUntil: "2026-10-06T10:00:00.000Z" },
-        { name: "gamma", path: "/t/gamma", branch: "fix/two", reason: "force", disposedAt: "2026-09-28T10:00:00.000Z", keptUntil: "2026-10-05T10:00:00.000Z" },
-      ]),
-    );
-    expect(io.lines().map((l) => l.split(/ {2,}/))).toEqual([
-      ["alpha", "feature/one", "cleaned up 2026-09-30 by you", "kept until 2026-10-07"],
-      ["beta", "(detached)", "cleaned up 2026-09-29 by rt after its merge", "kept until 2026-10-06"],
-      ["gamma", "fix/two", "cleaned up 2026-09-28 by you, with force", "kept until 2026-10-05"],
+  test("restore --list groups trees by cleanup date, with the MR title and days left", () => {
+    const now = new Date(2026, 9, 8, 9, 0);
+    const alpha = { name: "alpha", path: "/t/alpha", branch: "feature/one", reason: "manual", disposedAt: new Date(2026, 9, 8, 7).toISOString(), keptUntil: new Date(2026, 9, 22, 7).toISOString() };
+    const beta = { name: "beta", path: "/t/beta", branch: null, reason: "auto", disposedAt: new Date(2026, 9, 7, 7).toISOString(), keptUntil: new Date(2026, 9, 21, 7).toISOString() };
+    const mr = { provider: "github", iid: 8, title: "Ship the thing", state: "merged", pipeline: null } as unknown as MRInfo;
+    const enriched = new Map([[alpha.path, { path: alpha.path, dirName: "alpha.1", branch: "feature/one", linearId: null, ticket: null, mr }]]);
+    ui.print(restoreListBlock([alpha, beta], enriched, now));
+    expect(io.lines().map((l) => l.trim().split(/ {2,}/))).toEqual([
+      ["Today:"],
+      ["alpha", "Ship the thing", "#8 merged", "14d left"],
+      ["Yesterday:"],
+      ["beta", "(detached)", "13d left"],
     ]);
   });
 });
