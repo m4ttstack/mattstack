@@ -171,8 +171,14 @@ the Mac exactly as it is:
   the materialize tail of `plugins.install` report `skipped` with the
   reason.
 - The skills verbs (`rt skills check`, `compile`, `sync`, `bind`,
-  `materialize`) refuse with a `refused` note carrying the same sentence,
-  the way the unconverted-team-pack detector refuses today.
+  `materialize`) see `readZonesFrom` throw a `UserActionableError` with
+  code `org-layout-waiting`, and `commands/skills.ts` maps that one code to
+  a `refused` note on stderr (`out.note(out.line("refused", <sentence>))`,
+  exit 2, the way `withCleanErrors` already draws a `SkillsRefusal`), never
+  a coral failure: a layout the admin has not moved yet is a refusal by
+  policy. Under `--json` the error envelope carries the sentence as its
+  `error`, through `exitUserError`. The unconverted-team-pack detector
+  keeps its failure drawing; it names a fix for an admin to run.
 - `plugins.install` installs the trusted plugins as today and leaves the
   team plugin alone: with no org store there is no active team, so
   `computePlugins` names none, which is already its behaviour. The
@@ -265,11 +271,18 @@ missing, `none` or `invalid` at the tip does not hold: the gate guards one
 thing, and a clone with no readable marker is already a `team.sync`
 problem. A layout at or below `ORG_LAYOUT` passes.
 
-`rt team pull` runs through the same engine, so it holds the same way and
-prints the sentence. The `team.sync` row keeps reporting the skip detail as
-today; the `org.layout` row reads the hold from the daemon status and draws
-`needs-you` with the update sentence, so the member learns it once, in
-plain words, with the app update as the step.
+`PullResult` gains an optional `hold?: { layout: number; reads: number }`
+beside `outcome` and `detail`, set only on a held pull, so a caller can
+tell a hold from any other skip without parsing the sentence. `rt team pull`
+runs through the same engine, so it holds the same way and prints the
+sentence. The `org.pull` step today turns every skipped pull into a
+`partial` outcome whose remedy is `rt team status`; a held pull is not that.
+`orgPullRun` reads `hold` and ends `skipped` with the update sentence as its
+detail and no remedy, so the update run ends `ok` and no member is handed a
+command. The `team.sync` row keeps reporting the skip detail as today; the
+`org.layout` row reads the hold from the daemon status and draws `needs-you`
+with the update sentence, so the member learns it once, in plain words, with
+the app update as the step.
 
 A hold is not an error: the daemon keeps fetching on its timer and logs the
 hold once at `info` and again only when the held layout changes, so a
@@ -313,10 +326,32 @@ team store, and no `failed` or `needs-you` row.
 
 ## 8. Rollout for the two members
 
-1. Merge this job. Copy the gate (section 6) and the `org.layout` row to a
-   patch branch cut from the v2.21.0 tag, with `ORG_LAYOUT` at 1 and the
-   marker reader as it was at the tag, and release it as v2.21.1. `main`
-   already carries the breaking change, so the patch cannot come from it.
+1. Merge this job. Release v2.21.1 from a patch branch cut from the
+   v2.21.0 tag (`main` already carries the breaking change, so the patch
+   cannot come from it). The patch is its own small contract against the
+   tag's code, not a copy of this job's files:
+   - **The marker reader.** v2.21.0 has no `lib/team/org-marker.ts`. The
+     patch adds `parseMarker` with the defaults of section 2 (`role: "org"`
+     reads as 2, `role: "team"` as 1, an explicit positive integer wins) and
+     `ORG_LAYOUT = 1`. The converted branch's marker carries no `layout`
+     field, so the default for `role: "org"` is what the gate detects.
+   - **The gate.** v2.21.0's daemon scans `~/.mattstack/teams/` and keys
+     each engine by folder name. The patch adds `pull.gate` to that engine's
+     `doPull` exactly as section 6 describes, wired from the tag's
+     `teamSnapshotSpec` with `git show <ref>:mattstack/mattstack.jsonc`
+     through the clone's own probes, holding when the tip reads above 1, and
+     `layoutHold` on its status, logged once.
+   - **The row.** The patch adds an `org.layout` row to the tag's
+     `rt-health.ts` that scans the legacy root, reads the clone's marker,
+     and matches the daemon's status entry by folder (the slug there is the
+     folder, `widgets`, not the org). `needs-you` with the update sentence on
+     a hold or a local marker above 1; `ready` ("widgets on layout 1")
+     otherwise. No waiting state exists at layout 1.
+   - **Tests.** The gate and the row get the tests of section 9 adapted to
+     the tag's fixtures, plus one end-to-end: a v2.21.0-shaped home whose
+     origin converts; `pullNow` holds, the working tree stays on the
+     one-team commit, the board keeps its settings, and the row names the
+     update.
 2. Both members take v2.21.1. This is the one time the admin needs to know
    they updated; from here on the order never matters.
 3. Cut the layout release from `main` and merge the converted branch to the
@@ -324,6 +359,13 @@ team store, and no `failed` or `needs-you` row.
    shows the update line; a Mac on the layout release converts.
 4. Once both members are on the layout release and `main` is merged, delete
    the converted branch.
+
+Before step 3, two checks on the converted branch, since a member's Mac
+can never make either change itself: its `.claude-plugin/marketplace.json`
+keeps the marketplace name and the plugin name the members have installed,
+and its team store already carries `sdm.resources` in place of
+`rt.sdmEnrichment` (the admin's update run moved it; a member's migration
+only ever reads the result).
 
 From then on, a breaking layout change is the same three steps: bump
 `ORG_LAYOUT` in the release that reads the new shape, ship it, merge the
@@ -346,7 +388,10 @@ it, and the fake claude's state holding the `widgets` marketplace at the
 legacy directory with `widgets@widgets` installed. `convertOrigin()` pushes
 the org layout (marker, split stores, `teams/widgets/plugin` with a bumped
 version, the base pack, the new marketplace source) onto the origin's
-`main`.
+`main`. It writes `sdm.resources` into the team store by hand: the fixture
+stands in for the admin's conversion commit, which is where that key moves;
+the test proves the member reads it after the pull, not that anything on
+the member's Mac moved it.
 
 **The two orders.**
 
@@ -369,8 +414,9 @@ Both orders assert the migration ledger holds `sdm-resources-key` with a
 `skipped` outcome whose detail is the honest one for that order, and that
 the per-repo `sdm.resources` value resolves after conversion.
 
-**The gate.** In `lib/daemon/__tests__/home-snapshot.test.ts`'s real-git
-style: an origin whose tip marker reads `layout: 3`; `pullNow` returns
+**The gate.** In `lib/daemon/__tests__/home-snapshot.test.ts`'s fake-exec
+style, plus an `org.pull` step test where the daemon answers a held pull
+and the step ends `skipped` with the update sentence and no remedy: an origin whose tip marker reads `layout: 3`; `pullNow` returns
 `skipped` with the update sentence, the working tree stays at the old
 commit, `lastPullAt` is stamped, `layoutHold` is set; pushing a `layout: 2`
 tip clears it on the next pull. A tip with no marker passes. The

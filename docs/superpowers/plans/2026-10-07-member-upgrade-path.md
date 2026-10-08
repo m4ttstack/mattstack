@@ -168,7 +168,6 @@ export function orgLayoutState(p: Pick<Probes, "readDir" | "readFile" | "exists"
 export function layoutSentence(state: Extract<OrgLayoutState, { kind: "waiting" }>): string;
 export const WAITING_SENTENCE = "Your org has not moved to its new layout yet. rt finishes the move when it does.";
 export function updateSentence(layout: number): string; // "Your org uses layout 3 and this app reads up to 2. Update the app."
-export class OrgLayoutWaiting extends UserActionableError  // code "org-layout-waiting", message = layoutSentence(state)
 export function orgLayoutWaitingError(state: Extract<OrgLayoutState, { kind: "waiting" }>): UserActionableError;
 ```
 
@@ -556,6 +555,84 @@ git commit -m "materialize: a clone on another layout is a waiting skip, never a
 
 ---
 
+### Task 5b: The skills verbs refuse a waiting org, never fail it
+
+**Files:**
+- Modify: `commands/skills.ts` (`withCleanErrors` at line 129; the `skillsMaterialize` catch at line 2305)
+- Test: `commands/__tests__/skills-failures.test.ts`
+
+**Interfaces:**
+- Consumes: `UserActionableError` code `org-layout-waiting` thrown by `readZonesFrom` (Task 5); `out.note`, `out.line` from `lib/ui/out.ts`; `captureOut` from the test helpers the file already uses.
+- Produces: `function refuseLayoutWaiting(err: UserActionableError, json: boolean): never` in `commands/skills.ts`.
+
+- [ ] **Step 1: Write the failing test**
+
+In `commands/__tests__/skills-failures.test.ts`, following the file's existing pattern for driving a verb against a temp HOME and reading stderr through `captureOut()` (copy a neighbouring test's setup for HOME, the exit spy and the capture):
+
+```ts
+  test("a clone on another layout is a refused note with the sentence, exit 2, never a failure", async () => {
+    const dir = join(home, ".mattstack", "orgs", "acme");
+    mkdirSync(join(dir, ".git"), { recursive: true });
+    writeFileSync(join(dir, ".git", "config"), "");
+    mkdirSync(join(dir, "mattstack"), { recursive: true });
+    writeFileSync(join(dir, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }));
+    const captured = captureOut();
+    await expect(skillsCheck(["--team", "widgets"])).rejects.toThrow("exit 2");
+    const stderr = captured.stderr();
+    expect(stderr).toContain("Your org has not moved to its new layout yet. rt finishes the move when it does.");
+    expect(stderr).toContain("refused");
+    expect(stderr).not.toContain("[failed]");
+  });
+  test("under --json the envelope carries the sentence as its error", async () => {
+    // same fixture
+    const captured = captureOut();
+    await expect(skillsCheck(["--team", "widgets", "--json"])).rejects.toThrow("exit 2");
+    expect(JSON.parse(captured.stdout())).toMatchObject({ ok: false, error: expect.stringContaining("has not moved to its new layout") });
+  });
+```
+
+Use whichever verb the file already drives (`skillsCheck`, `skillsCompile` or `skillsMaterialize`); the fixture is the same. Read how that file spies `process.exit` (it throws an "exit N" sentinel) and match it.
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `bun test commands/__tests__/skills-failures.test.ts -t "another layout"`
+Expected: FAIL (a coral failure block is drawn, and `[failed]` or the failure title appears).
+
+- [ ] **Step 3: Implement**
+
+In `commands/skills.ts`:
+
+```ts
+/** A layout the admin has not moved yet is a refusal by policy, never a failure: one refused line with the sentence, no command. */
+function refuseLayoutWaiting(err: UserActionableError, json: boolean): never {
+  if (json) exitUserError(err, json);
+  out.note(out.line("refused", err.message));
+  process.exit(2);
+}
+```
+
+In `withCleanErrors`, before the `SkillsRefusal` branch:
+
+```ts
+    if (err instanceof UserActionableError && err.code === "org-layout-waiting") refuseLayoutWaiting(err, args.includes("--json"));
+```
+
+`withCleanErrors` has no `args` today: give it an optional second parameter `opts: { json?: boolean } = {}` and pass `{ json }` from each verb that parses a `--json` flag (`skillsCheck`, `skillsCompile`, `skillsSurface`, `skillsBind`, `skillsChanges`, `skillsDiscard`, `skillsComposition`, `skillsAnatomy`); a verb that passes nothing draws the note. In `skillsMaterialize`'s catch (line 2305) replace `exitUserError(err, json)` with `err.code === "org-layout-waiting" ? refuseLayoutWaiting(err, json) : exitUserError(err, json)`.
+
+- [ ] **Step 4: Run the skills tests**
+
+Run: `bun test commands/__tests__/skills-failures.test.ts commands/__tests__/skills.test.ts commands/__tests__/skills-json-frozen.test.ts commands/__tests__/skills-check-strict.test.ts`
+Expected: PASS (the frozen `--json` bytes are untouched: a waiting org is a new input, not a changed envelope).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add commands/skills.ts commands/__tests__/skills-failures.test.ts
+git commit -m "skills verbs: refuse a waiting org layout with one note, never a failure"
+```
+
+---
+
 ### Task 6: The `org.layout` status row
 
 **Files:**
@@ -686,7 +763,7 @@ git commit -m "setup status: an org.layout row that waits calmly or asks for the
 
 **Interfaces:**
 - Consumes: `parseMarker`, `ORG_LAYOUT` (Task 1); `updateSentence` (Task 2).
-- Produces: `SnapshotSpec.pull.gate?: (ref: string) => Promise<{ layout: number } | null>` (a non-null answer holds); `PullResult` unchanged; `SnapshotStatus.layoutHold` set on a hold and cleared on a passing pull; `export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string, log: Pick<Logger, "warn">): Promise<{ layout: number } | null>`.
+- Produces: `SnapshotSpec.pull.gate?: (ref: string) => Promise<{ layout: number } | null>` (a non-null answer holds); `PullResult` gains `hold?: { layout: number; reads: number }`, set only on a held pull; `SnapshotStatus.layoutHold` set on a hold and cleared on a passing pull; `export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string, log: Pick<Logger, "warn">): Promise<{ layout: number } | null>`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -701,7 +778,7 @@ describe("the layout gate", () => {
     const handle = startSnapshot(gated(async () => ({ layout: 3 })), deps);
     await handle.ready;
     const result = await handle.pullNow();
-    expect(result).toEqual({ outcome: "skipped", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+    expect(result).toEqual({ outcome: "skipped", detail: "Your org uses layout 3 and this app reads up to 2. Update the app.", hold: { layout: 3, reads: 2 } });
     expect(execCalls.some((argv) => gitVerb(argv) === "merge")).toBe(false);
     const status = handle.status();
     expect(status.lastPullAt).toBe(1_000_000);
@@ -777,6 +854,17 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
+`PullResult` (line 83):
+
+```ts
+export interface PullResult {
+  outcome: "up-to-date" | "fast-forwarded" | "rebased" | "conflict" | "skipped";
+  detail: string | null;
+  /** Set only on a pull the layout gate held; a caller tells a hold from any other skip by this, never by the sentence. */
+  hold?: { layout: number; reads: number };
+}
+```
+
 `SnapshotSpec.pull`:
 
 ```ts
@@ -826,7 +914,7 @@ In the engine state add `let layoutHold: { layout: number; reads: number } | nul
           deps.log.info({ id: spec.id, layout: hold.layout, reads: ORG_LAYOUT }, `${label}: holding the pull; the org is on a layout this rt does not read`);
           loggedHold = hold.layout;
         }
-        return { outcome: "skipped", detail: updateSentence(hold.layout) };
+        return { outcome: "skipped", detail: updateSentence(hold.layout), hold: layoutHold };
       }
       layoutHold = null;
       loggedHold = null;
@@ -1070,10 +1158,20 @@ Find the existing `org.pull` tests in `steps-org.test.ts` and copy their fixture
 
 The fake daemon's `team:pull` handler writes the new marker through `p.writeFile` before returning `{ ok: true, data: { outcome: "fast-forwarded", detail: null } }`; `fakeProbes` reads back what `writeFile` wrote.
 
+Also add:
+
+```ts
+  test("a held pull ends skipped with the update sentence and no remedy", async () => {
+    // the fake daemon's team:pull answers { ok: true, data: { outcome: "skipped", detail: "Your org uses layout 3 and this app reads up to 2. Update the app.", hold: { layout: 3, reads: 2 } } }
+    const outcome = await orgPullStep.run(ctx);
+    expect(outcome).toEqual({ state: "skipped", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+  });
+```
+
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `bun test lib/setup/__tests__/steps-org.test.ts -t "org layout"`
-Expected: FAIL (detail is "Pulled acme").
+Run: `bun test lib/setup/__tests__/steps-org.test.ts -t "org layout|held pull"`
+Expected: FAIL (the layout detail is "Pulled acme"; the hold ends `partial` with the `rt team status` remedy).
 
 - [ ] **Step 3: Implement**
 
@@ -1089,6 +1187,16 @@ In `orgPullRun`, record `before` as the full marker state (`markerState`) per sl
 ```
 
 Adjust `renamed` to read `after.org !== slug && after.org !== prior.org` from the states. Import `markerState, ORG_LAYOUT` (drop `markerOrg` if unused).
+
+The hold branch goes before the `stuck` mapping. Widen `PullReply.data` to `{ outcome: string; detail: string | null; hold?: { layout: number; reads: number } }` and add a `held: string[]` list:
+
+```ts
+      else if (res.ok && res.data?.hold) held.push(res.data.detail ?? updateSentence(res.data.hold.layout));
+      else if (!res.ok || !res.data || ["conflict", "skipped"].includes(res.data.outcome))
+        stuck.push(...)
+```
+
+and before the final returns: `if (held.length && stuck.length === 0 && !converge) return { state: "skipped", detail: [...notes, ...skips, ...held].join("; ") };`. A hold beside a real stuck clone keeps the `partial` path, with the hold sentence in the detail. Import `updateSentence` from `../../team/org-layout.ts`.
 
 - [ ] **Step 4: Run the step tests**
 
@@ -1128,6 +1236,7 @@ import { readSetupState, updateSetupState } from "../../lib/setup/state.ts";
 import { updateRepoIndex } from "../../lib/repo-index.ts";
 import { writeTeamLocal } from "../../lib/team/team-local.ts";
 import { rtHealthRows } from "../../lib/setup/validators/rt-health.ts";
+import { composePlan } from "../../lib/setup/plan.ts";
 import { startSnapshot, teamSnapshotSpec } from "../../lib/daemon/home-snapshot.ts";
 import { createOnPulled } from "../../lib/daemon/team-snapshots.ts";
 import { convergePackCache } from "../../lib/setup/pack-cache.ts";
@@ -1163,7 +1272,7 @@ function seedOrigin(): void {
   rmSync(work, { recursive: true, force: true });
 }
 
-/** The converted org layout pushed onto origin main. */
+/** The converted org layout pushed onto origin main. Stands in for the admin's conversion commit: sdm.resources is written here because that is where the key moves; a member's Mac only reads it. */
 function convertOrigin(): void {
   const work = join(home, "convert");
   execFileSync("git", ["clone", "-q", origin, work], { env: GIT_ENV });
@@ -1201,7 +1310,7 @@ function legacyMemberHome(): { clone: string; bindings: string } {
 }
 ```
 
-Check `updateSetupState`'s probe type (`StateWriteProbes`) and `updateRepoIndex`'s identity argument shape (`serializeIdentity({ kind: "remote", id: "gitlab.example.com/acme/widgets" })` is the safe way; import `serializeIdentity` from `lib/settings/identity.ts`). Build `probes()` exactly as `onboarding-org.test.ts:100-146` does (spread `createRealProbes()`, set `home`, `env: { HOME: home, PATH: join(home, "bin"), USER: "dev1", RT_ENGINE_PACK_DIR: <repo>/plugins/mattstack }`, intercept `claude` argv against `marketplaces`/`installed`, answer `gh`/`glab` login as `dev1`, and make `daemon` answer `null` for every command so `org.folder` moves in process and `org.pull` reports "The rt daemon is not running"). Give the fake `claude` these answers: `plugin list --json` from `installed`; `plugin marketplace list --json` from `marketplaces` as `{ name, source: "directory", path }`; `plugin marketplace add <dir>` registers the name from that dir's `marketplace.json`; `plugin marketplace remove <name>` deletes it and every installed id ending `@<name>`; `plugin install <id>` sets enabled true at the served version read from the marketplace dir; `plugin update <id> -y` bumps the version to the served one; `plugin disable|enable <id>` flips `enabled`.
+Check `updateSetupState`'s probe type (`StateWriteProbes`) and `updateRepoIndex`'s identity argument shape (`serializeIdentity({ kind: "remote", id: "gitlab.example.com/acme/widgets" })` is the safe way; import `serializeIdentity` from `lib/settings/identity.ts`). Build `probes()` in the shape of `onboarding-org.test.ts:100-146` (spread `createRealProbes()`, set `home`, `env: { HOME: home, PATH: join(home, "bin"), USER: "dev1", RT_ENGINE_PACK_DIR: <this checkout>/plugins/mattstack }`, make `daemon` answer `null` for every command so `org.folder` moves in process and `org.pull` reports "The rt daemon is not running"), but with one difference that matters: **every `git` invocation passes through to the real `exec`** (`return real.exec(argv, opts)`), because this fixture uses real repositories and the one-team clone; only `claude`, `gh` and `glab` are intercepted (`gh`/`glab` answer the login `dev1`). Do not copy that file's `expect()`s on git argv. Give the fake `claude` these answers: `plugin list --json` from `installed`; `plugin marketplace list --json` from `marketplaces` as `{ name, source: "directory", path }`; `plugin marketplace add <dir>` registers the name from that dir's `marketplace.json`; `plugin marketplace remove <name>` deletes it and every installed id ending `@<name>`; `plugin install <id>` sets enabled true at the served version read from the marketplace dir; `plugin update <id> -y` bumps the version to the served one; `plugin disable|enable <id>` flips `enabled`.
 
 The first order:
 
@@ -1212,7 +1321,7 @@ describe("member upgrade: app first, org main converts later", () => {
     const before = readFileSync(bindings, "utf8");
     const events: ApplyEvent[] = [];
     const p = probes();
-    const ctx = await context(p, events);
+    const ctx = await context(p, events, { update: true });
     const run1 = await runUpdate(ctx);
 
     expect(run1.failedSteps).toEqual([]);
@@ -1234,7 +1343,9 @@ describe("member upgrade: app first, org main converts later", () => {
     expect(existsSync(`${bindings}.stale`)).toBe(false);
     const rows = await rtHealthRows(p, { ci: false });
     expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "skipped", detail: "Your org has not moved to its new layout yet. rt finishes the move when it does." });
-    expect(rows.filter((r) => r.status === "error" || r.status === "needs-you").map((r) => r.id)).toEqual([]);
+    // Only the org rows: the rt link, shell, intercepts, home backup and daemon rows read needs-you in a temp HOME with no app.
+    expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
+    expect(rows.find((r) => r.id === "team.sync")?.status).not.toBe("error");
 
     convertOrigin();
     const db = openStateDb(join(home, ".mattstack", "rt", "state.db"), "cli");
@@ -1255,14 +1366,14 @@ describe("member upgrade: app first, org main converts later", () => {
     const after = await rtHealthRows(p, { ci: false });
     expect(after.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 2" });
 
-    const run2 = await runUpdate(await context(p, []));
+    const run2 = await runUpdate(await context(p, [], { update: true }));
     expect(run2.failedSteps).toEqual([]);
     expect(readSetupState(p).migrations).toContain("2026-10-07-sdm-resources-key");
   });
 });
 ```
 
-The `fakeLog` and `context` helpers are copied from `team-snapshots.test.ts:11-14` and `onboarding-org.test.ts:188-198`. If the real `startSnapshot` needs more deps than listed (check `HomeSnapshotDeps`), supply them from `home-snapshot.test.ts`'s own `deps()` helper. The bindings assertion checks what materialize writes in this checkout's format: run `rt skills materialize` once by hand on a converted fixture, read the file, and pin the real shape (the `widgets:board-review` id must appear).
+The `fakeLog` and `context` helpers are copied from `team-snapshots.test.ts:11-14` and `onboarding-org.test.ts:188-198`; `context` takes `{ update: true }` so the run is the launch-time update, not an apply. Check `composePlan`'s input type in `lib/setup/plan.ts` and pass what it needs (the `secrets` seam is `SecretPresence`). If the real `startSnapshot` needs more deps than listed (check `HomeSnapshotDeps`), supply them from `home-snapshot.test.ts`'s own `deps()` helper. The bindings assertion checks what materialize writes in this checkout's format: run `rt skills materialize` once by hand on a converted fixture, read the file, and pin the real shape (the `widgets:board-review` id must appear).
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1279,7 +1390,7 @@ describe("member upgrade: org main converts first, app updates later", () => {
     git(clone, ["pull", "-q", "--ff-only"]);
     const events: ApplyEvent[] = [];
     const p = probes();
-    const run = await runUpdate(await context(p, events));
+    const run = await runUpdate(await context(p, events, { update: true }));
     expect(run.failedSteps).toEqual([]);
     const states = Object.fromEntries(run.outcomes.map((o) => [o.id, o.state]));
     expect(states["org.folder"]).toBe("done");
@@ -1293,7 +1404,10 @@ describe("member upgrade: org main converts first, app updates later", () => {
     expect(readSetupState(p).migrations).toContain("2026-10-07-sdm-resources-key");
     const rows = await rtHealthRows(p, { ci: false });
     expect(rows.find((r) => r.id === "org.layout")?.status).toBe("ready");
-    expect(rows.filter((r) => r.status === "error" || r.status === "needs-you").map((r) => r.id)).toEqual([]);
+    expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
+    expect(rows.find((r) => r.id === "team.sync")?.status).not.toBe("error");
+    const orgRowsDrawn = (await composePlan({ p, secrets: { has: async () => null }, ci: false, mode: "status", orgs: ["acme"] })).groups.flatMap((g) => g.rows);
+    expect(orgRowsDrawn.filter((r) => ["team.identity", "team.none"].includes(r.id) && r.status === "needs-you").map((r) => r.id)).toEqual([]);
   });
 });
 ```
