@@ -95,7 +95,7 @@ const tab = z.looseObject({
       z.looseObject({ kind: z.literal("authors").meta({ title: "Team roster" }) }),
     ])
     .meta({ title: "Shows" }),
-  slackChannel: z.string().optional().meta({ title: "Slack channel", inherits: "board.slack.channel" }),
+  slackChannel: z.string().optional().meta({ title: "Slack channel", description: "Only for a tab that watches a channel other than your team's code owners channel." }),
   reviewSkill: z.string().optional().meta({ title: "Review skill", placeholder: "inherits the repo's review skill" }),
   pack: z.string().optional().meta({ title: "Pack", placeholder: "inherits your team's pack" }),
   dimEmpty: z.boolean().optional().meta({
@@ -180,7 +180,7 @@ export const SCHEMAS = {
   "mattstack.integrations": z.looseObject({
     // A team scaffolded from a remote rt does not recognize as a forge stores forge: null.
     forge: z.looseObject({ host: z.string(), provider: z.enum(["github", "gitlab"]) }).nullable().optional(),
-    linear: z.looseObject({ teamKey: z.string().optional() }).optional(),
+    linear: z.looseObject({ workspace: z.string().optional() }).optional(),
     slack: z.looseObject({ clientId: z.string().optional(), appId: z.string().optional(), channel: z.string().optional(), callbackPort: z.number().optional() }).optional(),
   }),
   "mattstack.tracking": z.looseObject({ repos: z.record(z.string(), z.looseObject({ caches: z.array(z.string()).optional() })).optional() }),
@@ -188,6 +188,39 @@ export const SCHEMAS = {
   "mattstack.roster": z.array(
     z.looseObject({ username: z.string(), name: z.string().optional(), agePublicKey: z.string().optional(), teams: z.array(z.string()).optional() }),
   ),
+  "mattstack.directory": z.looseObject({
+    teams: z
+      .record(
+        z.string(),
+        z.looseObject({
+          linear: z
+            .looseObject({
+              team: z.string().min(1).optional().meta({ title: "Linear team key", description: "The team's own Linear key, e.g. CV.", placeholder: "CV" }),
+            })
+            .optional(),
+          slack: z
+            .looseObject({
+              codeOwnersChannel: z.string().min(1).optional().meta({
+                title: "Code owners channel",
+                description: "Where other teams ask this team for code owner review. A CODEOWNERS section naming this channel belongs to this team.",
+                placeholder: "pod-acme",
+              }),
+              channels: z
+                .array(
+                  z.looseObject({
+                    name: z.string().min(1).meta({ title: "Channel", description: "Slack channel name, no #." }),
+                    kind: z.string().min(1).meta({ title: "Kind", description: "What the channel is for. The board reads review; teams may add their own kinds." }),
+                  }),
+                )
+                .optional()
+                .meta({ title: "Other channels" }),
+            })
+            .optional(),
+        }),
+      )
+      .optional()
+      .meta({ title: "Teams", description: "One entry per team, keyed by team name. A name matching a team folder is that mattstack team." }),
+  }),
   "mattstack.org": z.looseObject({
     admins: z.array(z.string()),
     teams: z.record(z.string(), z.looseObject({ owners: z.array(z.string()) })),
@@ -216,7 +249,7 @@ export const SCHEMAS = {
   "board.botUsernames": z.array(z.string()),
   "board.ticketPrefixes": z.array(z.string()),
   "board.slack": z.looseObject({
-    channel: z.string().optional(),
+    reviewKind: z.string().optional(),
     singleTemplate: z.string().optional(),
     multiHeader: z.string().optional(),
     multiItem: z.string().optional(),

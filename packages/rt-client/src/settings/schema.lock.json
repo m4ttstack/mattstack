@@ -109,7 +109,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "channel": {
+        "reviewKind": {
           "type": "string"
         },
         "singleTemplate": {
@@ -218,7 +218,7 @@
           },
           "slackChannel": {
             "title": "Slack channel",
-            "inherits": "board.slack.channel",
+            "description": "Only for a tab that watches a channel other than your team's code owners channel.",
             "type": "string"
           },
           "reviewSkill": {
@@ -853,6 +853,82 @@
       "additionalProperties": {}
     }
   },
+  "mattstack.directory": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "teams": {
+          "title": "Teams",
+          "description": "One entry per team, keyed by team name. A name matching a team folder is that mattstack team.",
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "linear": {
+                "type": "object",
+                "properties": {
+                  "team": {
+                    "title": "Linear team key",
+                    "description": "The team's own Linear key, e.g. CV.",
+                    "placeholder": "CV",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": {}
+              },
+              "slack": {
+                "type": "object",
+                "properties": {
+                  "codeOwnersChannel": {
+                    "title": "Code owners channel",
+                    "description": "Where other teams ask this team for code owner review. A CODEOWNERS section naming this channel belongs to this team.",
+                    "placeholder": "pod-acme",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "channels": {
+                    "title": "Other channels",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "title": "Channel",
+                          "description": "Slack channel name, no #."
+                        },
+                        "kind": {
+                          "type": "string",
+                          "minLength": 1,
+                          "title": "Kind",
+                          "description": "What the channel is for. The board reads review; teams may add their own kinds."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "kind"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  }
+                },
+                "additionalProperties": {}
+              }
+            },
+            "additionalProperties": {}
+          }
+        }
+      },
+      "additionalProperties": {}
+    }
+  },
   "mattstack.integrations": {
     "storeVersion": 1,
     "schema": {
@@ -889,7 +965,7 @@
         "linear": {
           "type": "object",
           "properties": {
-            "teamKey": {
+            "workspace": {
               "type": "string"
             }
           },

@@ -192,7 +192,7 @@ export const EXAMPLES: Record<string, Example> = {
       { forge: null },
       {
         forge: { host: "gitlab.example.com", provider: "gitlab" },
-        linear: { teamKey: "ACME" },
+        linear: { workspace: "acme" },
         slack: { appId: "A0123", clientId: "123.456", channel: "#acme-dev", callbackPort: 53682 },
       },
       { linear: {} },
@@ -219,6 +219,25 @@ export const EXAMPLES: Record<string, Example> = {
       { value: [{ name: "Dev One" }], path: [0, "username"] },
       { value: ["dev1"], path: [0] },
       { value: [{ username: "dev1", teams: "widgets" }], path: [0, "teams"] },
+    ],
+  },
+  "mattstack.directory": {
+    good: [
+      {},
+      { teams: {} },
+      {
+        teams: {
+          widgets: {
+            linear: { team: "WID" },
+            slack: { codeOwnersChannel: "pod-widgets", channels: [{ name: "widgets-internal", kind: "review" }] },
+          },
+          gadgets: { slack: { codeOwnersChannel: "pod-gadgets" } },
+        },
+      },
+    ],
+    bad: [
+      { value: { teams: { widgets: { slack: { channels: [{ name: "widgets-internal" }] } } } }, path: ["teams", "widgets", "slack", "channels", 0, "kind"] },
+      { value: { teams: { widgets: { slack: { codeOwnersChannel: 4 } } } }, path: ["teams", "widgets", "slack", "codeOwnersChannel"] },
     ],
   },
   "mattstack.org": {
@@ -265,7 +284,7 @@ export const EXAMPLES: Record<string, Example> = {
     good: [
       {},
       {
-        channel: "acme-review",
+        reviewKind: "review",
         singleTemplate: "{title}: {url}",
         multiHeader: "{count} MRs ready for review",
         multiItem: "- {title}: {url}",
