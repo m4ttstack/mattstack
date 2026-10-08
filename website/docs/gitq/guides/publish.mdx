@@ -7,8 +7,6 @@ sidebar_position: 5
 
 `gitq publish` turns the local-only branches in a stack into a chain of merge requests, each one targeting the branch below it, and keeps the MRs that already exist pointing at the right branch. Which forge it opens them on comes from the git remote's host, so the same command covers GitLab and GitHub. It is the only gitq command that talks to a network API, the only one that needs a token, and (inside the agent skill flow) the only one with a human gate in front of it.
 
-This page is verified line by line against `src/cli/commands/forge.ts`, `src/core/forge-sync.ts`, `src/cli/provider.ts`, and `src/core/secrets.ts`, not against a live run: publishing hits a real forge API, so there is no throwaway repo to demonstrate it against the way the other guides do. The command shapes and JSON below are the actual interfaces, not a captured transcript.
-
 ## The token
 
 For a GitLab remote, gitq looks in two places, in order, and stops at the first hit:

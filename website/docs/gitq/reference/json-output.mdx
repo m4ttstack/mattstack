@@ -90,8 +90,6 @@ Real capture, a node whose parent was marked `merged` with a tombstone that is n
 }
 ```
 
-(`statusLine` and the `removal.reason` above paraphrase the literal source strings, which use an em dash; this page does not reproduce that character.)
-
 `edges` is one `EdgeDirective` per node (`source`, `target`, `color`, `dashed`, `dimmed`, `badge`); `banner` is a single stack wide directive or `null`, one of `{ kind: 'merged', branches, canDismiss }`, `{ kind: 'drift', branches }`, `{ kind: 'behind-trunk', message }`, or `{ kind: 'rebase-in-progress' }`; `globalBlocks` is a plain string array, for example `"Working tree has uncommitted changes"`.
 
 **On `checkedOutDirty`:** it does not exist on `diagnose`'s node objects, or on `stacks`'s. It exists only on the gitq board's internal `/data.json` payload, a separate JSON contract served by `src/server/data.ts`'s `BoardNode` type (`checkedOutIn: string | null`, `checkedOutDirty: boolean`, `src/server/data.ts:30-39`) and consumed by the React client, not by the CLI. If you are integrating against the CLI directly, only `checkedOutIn` is available, and only from `diagnose`.
@@ -278,7 +276,7 @@ A committing (non `--preview`) `absorb` emits `{ stack: updatedStack, result }`,
 
 ## `gitq split` / `gitq fold` / `gitq reparent` / `gitq rename` / `gitq reset`
 
-None of these five were run live for this page; each shape below is the exact type its command emits under `{ stack: ..., result }` or `{ stack: ..., result: ... }`, read from source rather than captured.
+Each command emits its result under `{ stack: ..., result }` or `{ stack: ..., result: ... }`.
 
 | Command | Result type (source) | Fields |
 | --- | --- | --- |
@@ -292,8 +290,6 @@ None of these five were run live for this page; each shape below is the exact ty
 `reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:270-309`).
 
 ## `gitq publish` / `gitq import`
-
-Neither was run for this page: both talk to a real forge API, which this project's isolation rules keep off limits. Shapes below are from source.
 
 `publish` (`src/cli/commands/forge.ts:104-140`) emits `{ results, skipped, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:45-57`): `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }`.
 

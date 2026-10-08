@@ -5,11 +5,11 @@ sidebar_position: 4
 
 # Work in a worktree pool
 
-Some setups do not have one checkout of a repo. They have a parent directory full of them: a primary worktree plus a dozen or more siblings, one per branch someone is actively looking at, all sharing the same `.git`. This page is for that setup: what gitq does differently when it detects a pool, and what changes when a stack's branches are spread across several worktrees instead of living only in the one you happen to be sitting in.
+Some setups do not have one checkout of a repo. They have a parent directory full of them: a primary worktree plus a dozen or more siblings, one per branch someone is actively looking at, all sharing the same `.git`. gitq detects a pool and works across it: a stack's branches can live in several worktrees, not only the one you are in.
 
-Everything here builds on [Work slots and leases](/gitq/concepts/work-slots) and [Where state lives](/gitq/concepts/state). This page is the worked version; those are the reference.
+For how slots and state work, see [Work slots and leases](/gitq/concepts/work-slots) and [Where state lives](/gitq/concepts/state).
 
-Every block below came from a real run, with `/Users/you/repos/myrepo` standing in for the pool's parent directory.
+In the examples, `/Users/you/repos/myrepo` is the pool's parent directory.
 
 ## One store, every worktree
 
@@ -262,6 +262,6 @@ Three commands carry worktree state in their `--json`, all through the same `wor
 
 ## Next
 
-- [Work slots and leases](/gitq/concepts/work-slots): the mechanism this page walks through.
+- [Work slots and leases](/gitq/concepts/work-slots): how slots are leased and released.
 - [The pause protocol](/gitq/concepts/pause-protocol) and [Resolve a conflict](/gitq/guides/resolve-a-conflict): the conflict loop itself, worktree pool or not.
 - [Recover](/gitq/guides/recover): what to do when a lease or a slot gets stuck.

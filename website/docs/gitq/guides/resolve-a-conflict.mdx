@@ -5,11 +5,11 @@ sidebar_position: 1
 
 # Resolve a conflict
 
-A `gitq sync` that hits a conflict does not fail. It stops, writes down where it stopped, and waits. This page is one real run of that loop, start to finish: a two branch stack, two separate conflicts, and the exact output at every step.
+A `gitq sync` that hits a conflict does not fail. It stops, writes down where it stopped, and waits. Here is that loop start to finish: a two branch stack, two separate conflicts, and the output at every step.
 
-[The pause protocol](/gitq/concepts/pause-protocol) is the contract behind all of this. This page is the walkthrough.
+[The pause protocol](/gitq/concepts/pause-protocol) has the full contract.
 
-Every block below came from a real run. Your commit hashes and your work slot hash will differ, and paths are shown with `/Users/you` standing in for your home directory.
+Your commit hashes and work slot hash will differ, and `/Users/you` stands for your home directory.
 
 ## The setup
 

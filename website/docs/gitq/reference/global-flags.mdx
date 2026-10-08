@@ -5,7 +5,7 @@ sidebar_position: 1
 
 # Global flags
 
-gitq parses its own command line in one place, `src/cli/main.ts`, with node's `parseArgs`, in non-strict mode. This page is the complete list of what it recognizes, which commands read what, and what non-strict mode actually does with a flag you typo.
+gitq parses its own command line in one place, `src/cli/main.ts`, with node's `parseArgs`, in non-strict mode.
 
 ## Flags every command accepts
 
@@ -64,7 +64,7 @@ The synopsis for each command lives in `USAGE` (`src/cli/main.ts:49-70`), and a 
 
 ## `parseArgs` runs non-strict, and a typo is silent
 
-`main.ts` calls `parseArgs` with `strict: false` (`src/cli/main.ts:90-108`). Verified directly rather than assumed: an unrecognized flag is never an error. It does not throw, it does not print a warning, and gitq behaves exactly as if you had not passed it at all. There is no "did you mean" and no strict-mode rejection, for any command. `--help` and `-h` are the one exception, and they are matched off the raw argv rather than through `parseArgs`.
+`main.ts` calls `parseArgs` with `strict: false` (`src/cli/main.ts:90-108`). An unrecognized flag is never an error. It does not throw, it does not print a warning, and gitq behaves exactly as if you had not passed it at all. There is no "did you mean" and no strict-mode rejection, for any command. `--help` and `-h` are the one exception, and they are matched off the raw argv rather than through `parseArgs`.
 
 `--json` typo'd as `--jsonn`, run against a real scratch repo:
 

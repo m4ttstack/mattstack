@@ -5,7 +5,7 @@ sidebar_position: 3
 
 # Restructure a stack
 
-`sync` rebases a stack. It never changes its shape. Changing the shape is surgery: six commands in total, though this page covers five of them, the ones that split a branch in two, merge one into another, move a subtree, rename a node, or snap a branch back to its remote. The sixth, `absorb`, gets its own guide: [Absorb uncommitted changes](/gitq/guides/absorb-changes).
+`sync` rebases a stack. It never changes its shape. Changing the shape is surgery, and five commands do it: they split a branch in two, merge one into another, move a subtree, rename a node, or snap a branch back to its remote. A sixth, `absorb`, has its own guide: [Absorb uncommitted changes](/gitq/guides/absorb-changes).
 
 All of them update gitq's tree and the git refs together, and none of them replays a commit inside the worktree you launched them from. Most refuse outright rather than half-finish; `reparent` is the exception, because its descendant cascade can pause partway through, with the branch itself already moved and its descendants still catching up (see [reparent](#reparent) below). Every block below came from a real run.
 
@@ -564,7 +564,7 @@ Like `split --at`, `reset` is pure ref surgery: it compare-and-swaps `<branch>` 
 
 It still refuses up front if the branch is checked out somewhere other than your launch worktree, dirty or not, but which message you get depends on where. Another ordinary worktree gets `rename`'s message verbatim, the same `refuseIfCheckedOutElsewhere` guard. A `gitq-N` [work slot](/gitq/concepts/work-slots) gets a `reset`-local one instead, `branch "<branch>" is checked out in work slot "<name>" (<path>); free that slot before resetting`, because the shared worktree lookup skips work slots and would otherwise let the ref move out from under a slot's tree. See [`gitq reset`](/gitq/reference/surgery/reset) for both.
 
-`reset` is the one surgery command the warning at the top of this page already calls out as unrecorded: it is never written to the operation log, so `gitq undo` has nothing to give back after it. Whatever the branch pointed at before is gone unless you remember the sha yourself.
+`reset` is the one surgery command that is unrecorded: it is never written to the operation log, so `gitq undo` has nothing to give back after it. Whatever the branch pointed at before is gone unless you remember the sha yourself.
 
 ## Next
 
