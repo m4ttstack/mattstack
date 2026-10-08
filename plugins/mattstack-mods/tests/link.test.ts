@@ -194,6 +194,44 @@ describe('link', () => {
     expect(h.verbs('events:wait').map(s => s.body.after)).toEqual([100, 100])
   })
 
+  test('a wait round lost in transport beats at once, so a restarted daemon is linked again before the next 10 s beat', async () => {
+    const h = harness()
+    h.script.respond = scripted(h, {
+      'events:wait': [
+        new Error('ECONNRESET: socket hang up'),
+        { ok: true, data: { events: [{ id: 101, topic: 'gate/g1' }], cursor: 101 } },
+      ],
+      'session:heartbeat': [unknownLink],
+    })
+    await h.start()
+
+    const waiting = h.link.wait('gate/g1', 100, events => events.length > 0, never())
+    await h.clock.advance(250)
+    const got = await waiting
+
+    expect(got).toEqual({ cursor: 101, events: [{ id: 101, topic: 'gate/g1' }] })
+    expect(h.verbs('session:heartbeat').map(s => s.body)).toEqual([{ linkId: 'ml-1' }])
+    expect(h.verbs('session:register')).toHaveLength(2)
+    expect(h.link.linkId()).toBe('ml-2')
+  })
+
+  test('a wait round the daemon declined for a passing reason sends no extra beat', async () => {
+    const h = harness()
+    h.script.respond = scripted(h, {
+      'events:wait': [
+        { ok: false, error: 'busy', failure: { code: 'transient', message: 'busy' } },
+        { ok: true, data: { events: [{ id: 101 }], cursor: 101 } },
+      ],
+    })
+    await h.start()
+
+    const waiting = h.link.wait('gate/g1', 100, events => events.length > 0, never())
+    await h.clock.advance(250)
+    await waiting
+
+    expect(h.verbs('session:heartbeat')).toHaveLength(0)
+  })
+
   test('an unknown-link answer to a heartbeat or a wait re-registers with the same session id and blocks', async () => {
     const h = harness()
     h.script.respond = scripted(h, { 'session:heartbeat': [unknownLink] })

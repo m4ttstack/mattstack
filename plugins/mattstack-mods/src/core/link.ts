@@ -1,7 +1,7 @@
 import type { EngineEventOf, EngineResultOf, Timer } from 'claude-code'
 import type { ModBlock } from './blocks.ts'
 import type { Hub, ModApi, ModContext } from './hub.ts'
-import { call } from './rpc.ts'
+import { call, type Outcome } from './rpc.ts'
 import { PLUGIN_VERSION } from './version.ts'
 
 /** The daemon clears a link's blocks 30 s after its last heartbeat. */
@@ -36,6 +36,12 @@ export type Link = {
    * reason once `signal` aborts.
    */
   wait(pattern: string, after: number, until: (events: unknown[]) => boolean, signal: AbortSignal): Promise<WaitResult>
+  /**
+   * Calls a daemon verb that names this link, adding `linkId` to `payload`.
+   * An `unknown-link` answer registers again and sends the call once more on
+   * the new link. Answers `no-link` without sending while there is no link.
+   */
+  call<T>(verb: string, payload: Record<string, unknown>): Promise<Outcome<T>>
   linkId(): string | null
 }
 
@@ -313,6 +319,9 @@ export function createLink(hub: Hub): Link {
       }
       failures += 1
       log(`events:wait on ${pattern} from ${cursor} failed (${code}: ${message}); retrying from the same cursor`)
+      // A lost round is most often a daemon restart, which forgot this link:
+      // beat now rather than leave its blocks uncounted until the next beat.
+      if (code === 'transport') onBeat()
       if (code === 'unknown-link' && stale) await serial(() => relink(stale))
       if (code !== 'unknown-link' || failures > 1) {
         const pause = new Promise<void>(resolve => {
@@ -390,6 +399,18 @@ export function createLink(hub: Hub): Link {
     },
 
     wait,
+
+    async call<T>(verb: string, payload: Record<string, unknown>): Promise<Outcome<T>> {
+      const a = api
+      const linkId = id
+      if (off || !a || !linkId) return { ok: false, error: { code: 'no-link', message: `no link to send ${verb} on` } }
+      const first = await call<T>(a, verb, { ...payload, linkId })
+      if (first.ok || first.error.code !== 'unknown-link') return first
+      await serial(() => relink(linkId))
+      const relinked = id
+      if (!relinked || relinked === linkId) return first
+      return call<T>(a, verb, { ...payload, linkId: relinked })
+    },
 
     linkId() {
       return id

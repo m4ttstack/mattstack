@@ -67,7 +67,13 @@ export function harness(options: { version?: string; env?: Record<string, string
   }
   const script = { respond: options.respond ?? defaults }
   const $: any = {
-    ui: { log: (text: string, opts?: { to?: string }) => logs.push({ text, to: opts?.to }) },
+    ui: {
+      log: (text: string, opts?: { to?: string }) => logs.push({ text, to: opts?.to }),
+      resolve: () => ({
+        Box: (props: Record<string, unknown>) => ({ element: 'Box', props }),
+        Text: (props: Record<string, unknown>) => ({ element: 'Text', props }),
+      }),
+    },
     session: {
       version: async () => ({ version, base: version, builtAt: '2026-10-07T00:00:00.000Z' }),
       id: async () => session.id,

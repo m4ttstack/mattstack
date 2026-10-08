@@ -19,7 +19,11 @@ import { supportedEngine } from './version.ts'
 // received it, never across an import or into a stored callback, so blocks
 // get this facade instead. A member is added here when a block needs it.
 export type ModApi = {
-  ui: { log(text: string, options?: UiLogOptions): void }
+  ui: {
+    log(text: string, options?: UiLogOptions): void
+    /** An empty drawing for a render site: the row is skipped on screen, its stored message untouched. */
+    blank(e: EngineEventOf['ui.render']): EngineResultOf['ui.render']
+  }
   session: {
     version(): Promise<SessionVersion>
     id(): Promise<string>
@@ -76,7 +80,12 @@ export type ToolRule =
   | { stage: 'tap'; tool: ToolMatch; run(api: ModApi, e: ToolCall, result: ToolCallResult): void | Promise<void> }
   | { stage: 'check'; tool: ToolMatch; run(api: ModApi, e: ToolCheck): Maybe<ToolCheckResult> }
 
-export type ReceiveHandler = (api: ModApi, e: Receive) => Maybe<ReceiveResult>
+/**
+ * Answers a delivery itself (consumed), passes it down edited or unchanged with
+ * `next` (its result is what was queued), or answers nothing to hand the
+ * delivery as it came to the next receiver.
+ */
+export type ReceiveHandler = (api: ModApi, e: Receive, next: (e: Receive) => Promise<ReceiveResult>) => Maybe<ReceiveResult>
 export type StopHandler = (api: ModApi, e: Stop) => Maybe<{ block: string }>
 export type RenderHandler = (api: ModApi, e: Render, next: (e: Render) => Promise<RenderResult>) => Promise<RenderResult>
 
@@ -209,9 +218,11 @@ export function createHub(): Hub {
   function chain<E, R>(
     api: ModApi,
     where: string,
-    subs: Owned<{ run: (api: ModApi, e: E, next: (e: E) => Promise<R>) => Promise<R> }>[],
+    subs: Owned<{ run: (api: ModApi, e: E, next: (e: E) => Promise<R>) => Maybe<R> }>[],
     bottom: (e: E) => Promise<R>,
   ): (e: E) => Promise<R> {
+    // A subscriber that answers nothing has passed: what it handed next, if
+    // it called next, else the event as it came, goes on down.
     const step = async (i: number, e: E): Promise<R> => {
       const sub = subs[i]
       if (!sub) return bottom(e)
@@ -231,7 +242,9 @@ export function createHub(): Hub {
         return inner
       }
       try {
-        return await sub.run(api, e, rest)
+        const answer = await sub.run(api, e, rest)
+        if (answer) return answer
+        return inner ?? step(i + 1, e)
       } catch (err) {
         // A rejection that came up through next (an interrupt, an abort, a
         // failure beneath) is not this subscriber's fault and keeps its block.
@@ -314,13 +327,9 @@ export function createHub(): Hub {
       return next(e)
     },
 
-    async receive(api, e, next) {
-      for (const sub of receivers) {
-        if (!active(sub)) continue
-        const out = await attempt(api, sub, 'session.receive', () => sub.handler(api, e))
-        if (out.ok && out.value) return out.value
-      }
-      return next(e)
+    receive(api, e, next) {
+      const subs = receivers.map(s => ({ ...s, run: s.handler }))
+      return chain(api, 'session.receive', subs, next)(e)
     },
 
     async stop(api, e, next) {
@@ -411,7 +420,10 @@ export function createHub(): Hub {
 
 function facade($: EngineInterface): ModApi {
   return {
-    ui: { log: (text, options) => $.ui.log(text, options) },
+    ui: {
+      log: (text, options) => $.ui.log(text, options),
+      blank: e => $.ui.resolve(e).Box({ children: [] }),
+    },
     session: {
       version: () => $.session.version(),
       id: () => $.session.id(),

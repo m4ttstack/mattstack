@@ -11,6 +11,12 @@ import {
 } from "../codex/control.ts";
 import { createCodexMessaging, type CodexMessagingDeps } from "../codex/messaging.ts";
 import { createCodexSessionLoader, createCodexSessions, type CodexSessionAdapter } from "../codex/sessions.ts";
+import { createModLinks, TESTED_CLAUDE_CODE } from "../claude/mod-links.ts";
+import { createModSessionHandlers } from "../../daemon/handlers/mod-session.ts";
+import { openStateDb } from "../../state/db.ts";
+import { createDeliveryService, type DeliveryInput } from "../delivery.ts";
+import { readDelivery, settleEvidence } from "../delivery-store.ts";
+import { createSessionStore } from "../session-store.ts";
 
 type Message = Record<string, any>;
 type Handler = (socket: FakeSocket, message: Message) => void;
@@ -310,6 +316,95 @@ describe("claude messaging", () => {
     expect(await c.messaging.submit(claudeBinding(), input({ id: "" }))).toMatchObject({ ok: false, error: { code: "invalid" } });
     c.stop();
     expect(c.delivered).toHaveLength(0);
+  });
+});
+
+type Reply = { ok: boolean; data?: unknown; error?: string; failure?: { code: string; message: string } };
+const SESSION_A = "6e225e74-4cb7-4aea-8807-6aa9011d4112";
+const SESSION_B = "0b3f1d2e-5a6b-4c7d-8e9f-a0b1c2d3e4f5";
+
+/** The real delivery service, Claude adapter, link registry and session:delivered handler over one state.db. */
+function consumedWorld() {
+  const db = openStateDb(join(mkdtempSync(join(tmpdir(), "rt-consumed-")), "state.db"));
+  const store = createSessionStore(db);
+  const clock = { now: 50_000 };
+  const links = createModLinks({ now: () => clock.now, integrationsEnabled: () => true, store });
+  const handlers = createModSessionHandlers({ links, delivery: { db, now: () => clock.now } });
+  const writes: string[] = [];
+  const messaging = createClaudeMessaging({
+    inbox: () => ({ socketPath: "/run/claude/inbox.sock" }),
+    deliver: async (_path, content) => {
+      writes.push(content);
+      return { ok: true };
+    },
+    currentBinding: (key) => store.get(key),
+  });
+  const service = createDeliveryService({
+    db: () => db, messagingFor: async () => messaging, connectionOf: () => undefined, now: () => clock.now, sleep: async () => {},
+  });
+  const bindClaude = (value: string): SessionBinding =>
+    data(store.bind(store.reserve({ identity: `id-${value}` }), { harness: "claude", profile: "default", kind: "id", value }, { mode: "herdr", pane: `p-${value}` }));
+  const linkFor = (sessionId: string): string => data(links.register({
+    sessionId, cwd: "/w/acme", root: "/w/acme", claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.1.0", blocks: ["delivery"],
+  })).linkId;
+  const delivered = (payload: unknown) => handlers["session:delivered"](payload as never) as Promise<Reply>;
+  const state = (id: string) => readDelivery(db, id)?.state;
+  const chat = (id: string, constituents?: string[]): DeliveryInput => ({
+    id, sender: "max (#general)", body: "[#general] max #17: ship it", recipient: "remy",
+    ...(constituents && { constituents: constituents.map((c, i) => ({ id: c, room: "general", messageId: 5 + i })) }),
+  });
+  return { db, store, clock, service, writes, bindClaude, linkFor, delivered, state, chat };
+}
+
+describe("claude consumed evidence from the mod's delivery block", () => {
+  test("a consumed report upgrades submitted to consumed", async () => {
+    const w = consumedWorld();
+    const a = w.bindClaude(SESSION_A);
+    expect(data(await w.service.deliverPeerInput(a, w.chat("d-6-remy", ["d-5-remy", "d-6-remy"])))).toMatchObject({ evidence: "submitted" });
+    expect([w.state("d-5-remy"), w.state("d-6-remy")]).toEqual(["submitted", "submitted"]);
+    expect(w.writes[0]).toContain('delivery-id="d-6-remy"');
+
+    const reply = await w.delivered({ linkId: w.linkFor(SESSION_A), deliveryId: "d-6-remy" });
+
+    expect(reply).toEqual({ ok: true, data: {} });
+    expect([w.state("d-5-remy"), w.state("d-6-remy")]).toEqual(["consumed", "consumed"]);
+  });
+
+  test("a report for another session or generation is refused", async () => {
+    const w = consumedWorld();
+    const a = w.bindClaude(SESSION_A);
+    w.bindClaude(SESSION_B);
+    data(await w.service.deliverPeerInput(a, w.chat("d-17-remy")));
+
+    const otherSession = await w.delivered({ linkId: w.linkFor(SESSION_B), deliveryId: "d-17-remy" });
+    expect(otherSession).toMatchObject({ ok: false, failure: { code: "refused" } });
+    expect(w.state("d-17-remy")).toBe("submitted");
+
+    data(w.store.replaceAttachment(a.key, a.attachment.generation, { mode: "herdr", pane: "p-moved" }));
+    const otherGeneration = await w.delivered({ linkId: w.linkFor(SESSION_A), deliveryId: "d-17-remy" });
+    expect(otherGeneration).toMatchObject({ ok: false, failure: { code: "refused" } });
+    expect(w.state("d-17-remy")).toBe("submitted");
+
+    expect(await w.delivered({ linkId: "ml-nope", deliveryId: "d-17-remy" })).toMatchObject({ ok: false, failure: { code: "unknown-link" } });
+    expect(await w.delivered({ linkId: w.linkFor(SESSION_A), deliveryId: "d-404-remy" })).toMatchObject({ ok: false, failure: { code: "invalid" } });
+    expect(await w.delivered({ linkId: w.linkFor(SESSION_A) })).toMatchObject({ ok: false, failure: { code: "invalid" } });
+    expect(w.state("d-17-remy")).toBe("submitted");
+  });
+
+  test("a consumed row never reverts", async () => {
+    const w = consumedWorld();
+    const a = w.bindClaude(SESSION_A);
+    data(await w.service.deliverPeerInput(a, w.chat("d-17-remy")));
+    const linkId = w.linkFor(SESSION_A);
+    expect((await w.delivered({ linkId, deliveryId: "d-17-remy" })).ok).toBe(true);
+    const row = readDelivery(w.db, "d-17-remy")!;
+
+    settleEvidence(w.db, row, { id: "d-17-remy", evidence: "submitted" }, w.clock.now + 1);
+    expect(w.state("d-17-remy")).toBe("consumed");
+    expect(await w.service.deliverPeerInput(a, w.chat("d-17-remy"))).toEqual({ ok: true, data: { id: "d-17-remy", evidence: "consumed", nativeId: SESSION_A } });
+    expect(w.writes).toHaveLength(1);
+    expect(await w.delivered({ linkId, deliveryId: "d-17-remy" })).toEqual({ ok: true, data: {} });
+    expect(readDelivery(w.db, "d-17-remy")).toEqual(row);
   });
 });
 

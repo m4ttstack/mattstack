@@ -21,7 +21,7 @@ so every feature takes its existing path.
 | `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
-| `src/blocks/` | One file per feature block (none yet). |
+| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router. |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
 | `tests/` | `claude plugin test` cases. They drive the hub and link with the stubbed `$` in `tests/stub.ts`. |
 
@@ -44,6 +44,13 @@ log, clears the block for the session and passes the event through as if the
 mod were not there. What is subscribed on the hub itself belongs to the core
 and never lapses. A `start` that has not settled after 3 s counts as failed,
 and the next block starts.
+
+Delivery receivers run in the order they subscribed, as middleware. A
+receiver answers `{ consumed }` to take the delivery, calls `next` with the
+delivery (edited or not) to pass it down, and gets back `{ text }`, the text
+actually queued. A receiver that answers nothing passes the delivery on as it
+came. As with tool rules, a rejection that comes up through `next` keeps the
+block live.
 
 Tool rules run in five stages:
 
@@ -76,6 +83,10 @@ A block reaches the daemon through the link:
 - `link.wait(pattern, after, until, signal)` long-polls `events:wait` in
   20 s rounds, passing the cursor, and retries a dropped round with the same
   cursor.
+- `link.wait` beats at once when a round is lost in transport, so a daemon
+  that restarted learns of the link again without waiting for the next beat.
+- `link.call(verb, payload)` sends a verb that names the link, adding
+  `linkId`. An `unknown-link` answer registers again and sends it once more.
 - `link.onCommand(kind, handler, block)` takes the commands rt sends with
   `pushModCommand`. Each arrives as an inbox delivery that is exactly
   `<rt-mod-command id="..." kind="..." link="<link id>">json</rt-mod-command>`.
@@ -90,6 +101,27 @@ The core answers two diagnostic commands, the only kinds `rt.sock`'s
 `session:push` will send: `probe.ping` logs and acks, and `probe.wait` (`{ pattern, after }`)
 runs a wait of up to 5 minutes and logs where it ended. Every link line goes to
 the debug log, prefixed `mattstack-mods:`.
+
+## The delivery router
+
+The `delivery` block (`src/blocks/delivery.ts`) takes each delivery that is
+wholly one rt envelope carrying a delivery id:
+`<cross-session-message from-name="..." delivery-id="...">`, then the body,
+then `</cross-session-message>`. Gate notices and other sessions' messages
+have no delivery id, so they pass through untouched.
+
+- It passes the delivery to the model through `next`. Each edit in
+  `registerDelivery(hub, link, { edits })` rewrites only the body, in order,
+  and the router rebuilds the envelope around it. An edit can never put text
+  after the closing tag, where the model reads it as outside the message.
+  With no edit, or one that changes nothing, the original event goes down.
+- Once the delivery is queued, it sends `session:delivered` with the delivery
+  id, which makes rt's record of it `consumed`. A delivery is reported once.
+  A delivery a hook beneath consumed is not reported.
+- It draws the delivery's row as nothing (`UserMessage`), matched on the
+  queued body and a peer origin. ctrl+o (`isExpanded`) shows the row in full,
+  and the stored message the model reads does not change. The router keeps
+  the last 200 bodies.
 
 ## Checks
 

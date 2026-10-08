@@ -7,18 +7,25 @@
  * session:report is the link's lifecycle report (resume, compact) for the one
  * session it registered; its context is a hint, never authority.
  *
+ * session:delivered is the delivery block's report that its session handed a
+ * delivery to the model. It settles only a delivery sent to the link's own
+ * session at its binding's current generation.
+ *
  * session:push sends a diagnostic `probe.*` command to a session's mod and
  * reports whether it was acked. Every other kind is refused: a real command
  * comes only from daemon code that has authorized its action, calling
  * pushModCommand in-process.
  */
 
+import type { Database } from "bun:sqlite";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import type { Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { pushModCommand, UNKNOWN_LINK, type ModLinks } from "../../agent-integrations/claude/mod-links.ts";
+import { reportClaudeDelivered } from "../../agent-integrations/claude/messaging.ts";
 import { reportClaudeLinkLifecycle, type LinkContext, type LinkLifecycleDeps } from "../../agent-integrations/claude/sessions.ts";
 
-type Verb = "session:register" | "session:heartbeat" | "session:end" | "session:ack" | "session:push" | "session:report";
+type Verb = "session:register" | "session:heartbeat" | "session:end" | "session:ack" | "session:push" | "session:report"
+  | "session:delivered";
 type Push = (sessionId: string, kind: string, data: unknown) => Promise<Outcome<{ acked: boolean }>>;
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
 type Result<K extends Verb> =
@@ -56,7 +63,9 @@ function reportContext(v: unknown): LinkContext | string {
   return { cwd: c.cwd, root: c.root, ...(isText(c.pane) && { pane: c.pane }) };
 }
 
-export function createModSessionHandlers(deps: { links: ModLinks; push?: Push; lifecycle?: LinkLifecycleDeps }): {
+export function createModSessionHandlers(deps: {
+  links: ModLinks; push?: Push; lifecycle?: LinkLifecycleDeps; delivery?: { db?: Database; now?: () => number };
+}): {
   [K in Verb]: (payload: unknown) => Promise<Result<K>>;
 } {
   const { links } = deps;
@@ -102,6 +111,16 @@ export function createModSessionHandlers(deps: { links: ModLinks; push?: Push; l
       if (!link) return unknownLink();
       const outcome = await reportClaudeLinkLifecycle(link, event as "resume" | "compact", where, deps.lifecycle);
       return { ok: true, data: { outcome } };
+    },
+
+    "session:delivered": async (payload) => {
+      const { linkId, deliveryId } = record(payload);
+      if (!isText(linkId)) return invalid("linkId must be a non-empty string");
+      if (!isText(deliveryId)) return invalid("deliveryId must be a non-empty string");
+      const link = links.view(linkId);
+      if (!link) return unknownLink();
+      const settled = reportClaudeDelivered(link, deliveryId, deps.delivery);
+      return settled.ok ? { ok: true, data: {} } : declined(settled.error.code, settled.error.message);
     },
 
     "session:push": async (payload) => {

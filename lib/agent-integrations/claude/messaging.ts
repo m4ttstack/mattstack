@@ -6,11 +6,15 @@
  * behaviour; nothing here changes it.
  *
  * The writer reports success once the frame is written and never awaits a
- * receiver, so a receipt here is only ever `submitted`, and there is no later
- * evidence to reconcile. The logical delivery id rides inside the envelope and
- * derives the frame's transport id, so a retry carries the same ids.
+ * receiver, so a receipt here is only ever `submitted`. The logical delivery
+ * id rides inside the envelope and derives the frame's transport id, so a
+ * retry carries the same ids. A session whose mattstack-mods `delivery` block
+ * is live reads that id back when it hands the delivery to the model and
+ * reports it over its link (`session:delivered`), which makes the row
+ * `consumed`; without the block a row stays `submitted`.
  */
 
+import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
 import type {
   DeliveryReceipt, FaultCode, Outcome, PeerInput, SessionBinding,
@@ -19,7 +23,8 @@ import { resolveLiveInbox } from "../../claude-registry.ts";
 import { deliverToInbox, wrapCrossSession } from "../../daemon/inbox.ts";
 import { getStateDb } from "../../state/db.ts";
 import type { MessageAdapter } from "../contracts.ts";
-import { createSessionStore, isDetachedAttachment, type SessionStore } from "../session-store.ts";
+import { recordConsumedByDeliveryId } from "../delivery-store.ts";
+import { createSessionStore, isDetachedAttachment, listBindingsByNativeValue, type SessionStore } from "../session-store.ts";
 
 const HARNESS = "claude";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -83,4 +88,20 @@ export function createClaudeMessaging(overrides: Partial<ClaudeMessagingDeps> = 
       return { ok: true, data: { id: input.id, evidence: "submitted", nativeId: native.value } };
     },
   };
+}
+
+/**
+ * A live link's report that its session handed `deliveryId` to the model. It
+ * settles only a delivery sent to the one attached Claude binding for the
+ * link's session, at that binding's current generation.
+ */
+export function reportClaudeDelivered(
+  link: { sessionId: string }, deliveryId: string, overrides: { db?: Database; now?: () => number } = {},
+): Outcome<void> {
+  const db = overrides.db ?? getStateDb();
+  const bindings = listBindingsByNativeValue(db, link.sessionId)
+    .filter((b) => b.native.harness === HARNESS && b.native.kind === "id" && !isDetachedAttachment(b));
+  if (bindings.length !== 1) return fail("refused", `no single attached binding names session ${link.sessionId}, so delivery ${deliveryId} was not recorded`);
+  const binding = bindings[0]!;
+  return recordConsumedByDeliveryId(db, deliveryId, binding.key, binding.attachment.generation, (overrides.now ?? Date.now)());
 }

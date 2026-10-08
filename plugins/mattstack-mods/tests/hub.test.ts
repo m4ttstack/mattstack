@@ -98,6 +98,82 @@ describe('hub', () => {
     expect(result).toEqual({ text: delivery.text })
   })
 
+  test('a receiver can pass an edited delivery down through next and gets back what was queued', async () => {
+    const h = harness()
+    h.hub.block('delivery', async (_api, b) => {
+      b.onReceive('rt-delivery', async (_api, e, next) => {
+        const queued = await next({ ...e, text: `${e.text} (edited)` })
+        return queued
+      })
+    })
+    await h.start()
+
+    const seen: unknown[] = []
+    const result = await h.fire('session.receive', { origin: { kind: 'peer' }, text: 'hello' }, async e => {
+      seen.push(e)
+      return { text: e.text }
+    })
+
+    expect(seen).toEqual([{ origin: { kind: 'peer' }, text: 'hello (edited)' }])
+    expect(result).toEqual({ text: 'hello (edited)' })
+    expect(h.hub.liveBlocks()).toEqual(['delivery'])
+  })
+
+  test('a receiver that answers nothing after calling next still returns what was queued', async () => {
+    const h = harness()
+    h.hub.block('delivery', async (_api, b) => {
+      b.onReceive('rt-delivery', async (_api, e, next) => {
+        await next({ ...e, text: 'edited' })
+      })
+    })
+    await h.start()
+
+    const engine = recorder({ text: 'edited' })
+    const result = await h.fire('session.receive', { origin: { kind: 'peer' }, text: 'x' }, engine.next)
+
+    expect(engine.seen).toHaveLength(1)
+    expect(result).toEqual({ text: 'edited' })
+  })
+
+  test('a rejection from next beneath a receiver keeps the block', async () => {
+    const h = harness()
+    h.hub.block('delivery', async (_api, b) => {
+      b.onReceive('rt-delivery', (_api, e, next) => next({ ...e, text: 'edited' }))
+    })
+    await h.start()
+
+    const interrupted = new Error('interrupted')
+    let thrown: unknown
+    try {
+      await h.fire('session.receive', { origin: { kind: 'peer' }, text: 'x' }, async () => {
+        throw interrupted
+      })
+    } catch (err) {
+      thrown = err
+    }
+
+    expect(thrown).toBe(interrupted)
+    expect(h.hub.liveBlocks()).toEqual(['delivery'])
+  })
+
+  test('a receiver that throws after passing an edit is cleared and the queued delivery stands', async () => {
+    const h = harness()
+    h.hub.block('delivery', async (_api, b) => {
+      b.onReceive('rt-delivery', async (_api, e, next) => {
+        await next({ ...e, text: 'edited' })
+        throw new Error('boom')
+      })
+    })
+    await h.start()
+
+    const engine = recorder({ text: 'edited' })
+    const result = await h.fire('session.receive', { origin: { kind: 'peer' }, text: 'x' }, engine.next)
+
+    expect(engine.seen).toHaveLength(1)
+    expect(result).toEqual({ text: 'edited' })
+    expect(h.hub.liveBlocks()).toEqual([])
+  })
+
   test('liveBlocks lists only blocks whose start resolved', async () => {
     const h = harness()
     h.hub.block('delivery', async () => {})

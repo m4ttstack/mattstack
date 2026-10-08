@@ -206,6 +206,28 @@ export function settleEvidence(
   ), undefined);
 }
 
+/**
+ * The recipient's own report that it handed the delivery under `deliveryId`
+ * (the envelope's `delivery-id`, its frame's id) to the model: every row of
+ * that frame becomes consumed. Refused unless the frame was sent to
+ * `sessionKey` at `generation`, so a report can only settle what was sent to
+ * the reporter's own attachment. A consumed row stays as it is.
+ */
+export function recordConsumedByDeliveryId(
+  db: Database, deliveryId: string, sessionKey: string, generation: number, now: number,
+): Outcome<void> {
+  const row = readDelivery(db, deliveryId);
+  if (!row) return fail("invalid", `no delivery ${deliveryId} is on record`);
+  if (row.sessionKey !== sessionKey) return fail("refused", `delivery ${deliveryId} was not sent to this session`);
+  if (row.generation !== generation) {
+    return fail("refused", `delivery ${deliveryId} was sent to generation ${row.generation}, not the current ${generation}`);
+  }
+  if (row.state !== "consumed") {
+    settleEvidence(db, row, { id: deliveryId, evidence: "consumed" }, now);
+  }
+  return { ok: true, data: undefined };
+}
+
 /** The frames still queued under one attachment: the deliveries awaiting confirmation there. */
 export function listQueuedFrames(db: Database, sessionKey: string, generation: number): string[] {
   return (db.query(SELECT_QUEUED_FRAMES_SQL).all(sessionKey, generation) as Array<{ frame_id: string }>).map((r) => r.frame_id);

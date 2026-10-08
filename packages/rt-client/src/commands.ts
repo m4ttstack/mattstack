@@ -893,6 +893,12 @@ export interface Commands {
     payload: { linkId: string; event: "resume" | "compact"; context: { cwd: string; root: string; pane?: string | null } };
     data: { outcome: "applied" | "unbound" };
   };
+  /**
+   * The delivery block's report that its session handed the delivery under
+   * `deliveryId` to the model, which makes it consumed. Fails with "refused"
+   * for a delivery sent to another session or an earlier attachment generation.
+   */
+  "session:delivered": { payload: { linkId: string; deliveryId: string }; data: Record<string, never> };
   /** Sends the command `kind` to the session's mod; `acked` is false when no ack came within 5 s. */
   "session:push": { payload: { sessionId: string; kind: string; data?: unknown }; data: { acked: boolean } };
 
@@ -1245,6 +1251,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "session:ack",
   "session:push",
   "session:report",
+  "session:delivered",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",
