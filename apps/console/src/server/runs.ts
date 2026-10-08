@@ -147,26 +147,37 @@ export const runs = new Hono()
     if (run.status !== 'running') {
       return c.json({ error: 'this run has finished' }, 409);
     }
-    if (run.agent && run.agent.status !== 'done') {
+    if (run.agent) {
       return c.json({ error: 'this run already has a live pane' }, 409);
     }
-    let agentId = value('agent');
-    if (!agentId) {
+    const prompt = resumePrompt(runId, fields);
+    const adopt = async () => {
       const adopted = await agentAdopt({
         sessionId: session,
         repo,
         subject: `run:${runId}`,
         label: value('ticket') ?? runId,
       });
-      if (!adopted.ok || !adopted.data) {
-        return c.json({ error: adopted.error ?? 'adopt failed' }, 502);
-      }
-      agentId = adopted.data.id;
+      return adopted.ok && adopted.data
+        ? { id: adopted.data.id }
+        : { error: adopted.error ?? 'adopt failed' };
+    };
+    let agentId = value('agent');
+    if (!agentId) {
+      const adopted = await adopt();
+      if (!('id' in adopted)) return c.json({ error: adopted.error }, 502);
+      agentId = adopted.id;
     }
-    const resumed = await agentResume({
-      id: agentId,
-      prompt: resumePrompt(runId, fields),
-    });
+    let resumed = await agentResume({ id: agentId, prompt });
+    // The daemon prunes agent records after a long absence. This prefix is the
+    // message of agent:resume's missing-record refusal in
+    // lib/daemon/handlers/agent.ts; no shared constant exists.
+    if (!resumed.ok && resumed.error?.startsWith('no agent record for')) {
+      const adopted = await adopt();
+      if (!('id' in adopted)) return c.json({ error: adopted.error }, 502);
+      agentId = adopted.id;
+      resumed = await agentResume({ id: agentId, prompt });
+    }
     if (!resumed.ok) {
       return c.json({ error: resumed.error ?? 'resume failed' }, 502);
     }

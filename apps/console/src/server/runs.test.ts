@@ -379,6 +379,42 @@ describe('POST /api/runs/:repo/:runId/resume', () => {
     expect((await post()).status).toBe(409);
   });
 
+  it('409 when a pane still exists after its turn finished', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(
+      detail({ agent: { status: 'done', pane: 'w1:p1' } }) as never
+    );
+    expect((await post()).status).toBe(409);
+  });
+
+  it('adopts afresh and retries once when the recorded agent record was pruned', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
+    vi.mocked(rt.agentResume)
+      .mockResolvedValueOnce({
+        ok: false,
+        error: 'no agent record for "ag-1"',
+      } as never)
+      .mockResolvedValueOnce({ ok: true, data: { id: 'ag-9' } } as never);
+    vi.mocked(rt.agentAdopt).mockResolvedValueOnce({
+      ok: true,
+      data: { id: 'ag-9' },
+    } as never);
+    const res = await post();
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      resumed: true,
+      agentId: 'ag-9',
+    });
+    expect(rt.agentAdopt).toHaveBeenCalledWith({
+      sessionId: 'sess-1',
+      repo: 'demo',
+      subject: 'run:run-1',
+      label: 'run-1',
+    });
+    expect(vi.mocked(rt.agentResume).mock.calls.at(-1)?.[0]).toMatchObject({
+      id: 'ag-9',
+    });
+  });
+
   it('502 with the daemon message when adopt or resume fails', async () => {
     vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
     vi.mocked(rt.agentResume).mockResolvedValueOnce({
