@@ -15,6 +15,7 @@ import { Annotation, Compartment, EditorState } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
 import {
   EditorView,
+  hoverTooltip,
   keymap,
   placeholder as placeholderExtension,
 } from '@codemirror/view';
@@ -26,6 +27,8 @@ import { kitHighlightStyle } from './highlightStyle';
 import {
   jsonDiagnostics,
   jsonSchemaCompletion,
+  jsonSchemaHintTheme,
+  jsonSchemaHover,
   type JsonSchemaCheck,
 } from './jsonSchema';
 
@@ -79,7 +82,9 @@ export interface CodeMirrorBaseProps {
    */
   theme?: 'light' | 'dark' | Extension;
   /** A JSON Schema for `language="json"`: completes property names and
-      enum, const and boolean values. Reconfigures live. */
+      enum, const and boolean values, and shows a property's `title` and
+      `description` beside its completion and on hovering its name.
+      Reconfigures live. */
   jsonSchema?: Record<string, unknown>;
   /** Lints `language="json"`: a parse error, else each returned issue
       underlined at its path. The caller supplies the checker so the kit
@@ -226,7 +231,13 @@ function schemaExtensions(
               ? jsonSchemaCompletion(schemaRef.current)(ctx)
               : null,
         ],
-      })
+      }),
+      hoverTooltip((view, pos, side) =>
+        schemaRef.current
+          ? jsonSchemaHover(schemaRef.current)(view, pos, side)
+          : null
+      ),
+      jsonSchemaHintTheme
     );
   if (checkRef.current)
     out.push(

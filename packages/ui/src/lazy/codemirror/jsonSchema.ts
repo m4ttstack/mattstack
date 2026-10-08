@@ -6,7 +6,7 @@ import type {
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import type { Diagnostic } from '@codemirror/lint';
 import type { EditorState } from '@codemirror/state';
-import type { EditorView } from '@codemirror/view';
+import { EditorView, type Tooltip } from '@codemirror/view';
 
 export type JsonPath = (string | number)[];
 export interface JsonPathIssue {
@@ -173,6 +173,83 @@ function valueTarget(node: Node): Node | null {
     : null;
 }
 
+interface SchemaHelp {
+  title?: string;
+  description?: string;
+}
+
+function helpOf(s: Schema | undefined): SchemaHelp {
+  const out: SchemaHelp = {};
+  if (typeof s?.title === 'string' && s.title) out.title = s.title;
+  if (typeof s?.description === 'string' && s.description)
+    out.description = s.description;
+  return out;
+}
+
+export interface JsonSchemaHint extends SchemaHelp {
+  from: number;
+  to: number;
+}
+
+/** The schema title and description of the property name at `pos`, or
+    null when the schema gives that property neither. */
+export function jsonSchemaHint(
+  state: EditorState,
+  pos: number,
+  schema: Schema,
+  side: -1 | 1 = 1
+): JsonSchemaHint | null {
+  const name = syntaxTree(state).resolveInner(pos, side);
+  const prop = name.parent;
+  const obj = prop?.parent;
+  if (name.name !== 'PropertyName' || !prop || obj?.name !== 'Object')
+    return null;
+  const key = propertyName(state, prop);
+  if (key === null) return null;
+  const help = helpOf(schemaFor(schema, [...pathOf(state, obj), key]));
+  if (!help.title && !help.description) return null;
+  return { from: name.from, to: name.to, ...help };
+}
+
+function hintDom({ title, description }: SchemaHelp): HTMLElement {
+  const dom = document.createElement('div');
+  dom.className = 'cm-json-hint';
+  if (title) {
+    const el = dom.appendChild(document.createElement('div'));
+    el.className = 'cm-json-hint-title';
+    el.textContent = title;
+  }
+  if (description) {
+    const el = dom.appendChild(document.createElement('div'));
+    el.textContent = description;
+  }
+  return dom;
+}
+
+/** A `hoverTooltip` source showing a property name's schema help. */
+export function jsonSchemaHover(schema: Schema) {
+  return (view: EditorView, pos: number, side: -1 | 1): Tooltip | null => {
+    const hint = jsonSchemaHint(view.state, pos, schema, side);
+    if (!hint) return null;
+    return {
+      pos: hint.from,
+      end: hint.to,
+      above: true,
+      create: () => ({ dom: hintDom(hint) }),
+    };
+  };
+}
+
+/** Layout only: the box colors come from CodeMirror's own tooltip theme,
+    which follows the editor's light or dark flag. */
+export const jsonSchemaHintTheme = /* @__PURE__ */ EditorView.baseTheme({
+  '.cm-json-hint': {
+    padding: 'calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs)',
+    maxWidth: '22rem',
+  },
+  '.cm-json-hint-title': { fontWeight: 600 },
+});
+
 function enumValues(s: Schema | undefined): unknown[] {
   if (!s) return [];
   if (Array.isArray(s.enum)) return s.enum;
@@ -204,8 +281,9 @@ function applyQuoted(literal: string) {
   };
 }
 
-/** Property names the schema allows at the cursor's object, and enum,
-    const or boolean values at a property's value. */
+/** Property names the schema allows at the cursor's object, each with its
+    title and description, and enum, const or boolean values at a
+    property's value. */
 export function jsonSchemaCompletion(schema: Schema) {
   return (ctx: CompletionContext): CompletionResult | null => {
     const node = syntaxTree(ctx.state).resolveInner(ctx.pos, -1);
@@ -218,7 +296,7 @@ export function jsonSchemaCompletion(schema: Schema) {
         : ctx.pos;
     // `to` is left undefined (tracks the cursor) rather than the token's
     // own end, even inside a quoted token -- see `applyQuoted` above.
-    const option = (literal: string, type: string) =>
+    const option = (literal: string, type: string): Completion =>
       quotedToken
         ? { label: literal, type, apply: applyQuoted(literal) }
         : { label: literal, type };
@@ -235,7 +313,13 @@ export function jsonSchemaCompletion(schema: Schema) {
       );
       const options = Object.keys(props)
         .filter(k => !taken.has(k))
-        .map(k => option(JSON.stringify(k), 'property'));
+        .map(k => {
+          const o = option(JSON.stringify(k), 'property');
+          const { title, description } = helpOf(props[k]);
+          if (title) o.detail = title;
+          if (description) o.info = description;
+          return o;
+        });
       return options.length > 0 ? { from, options } : null;
     }
 
