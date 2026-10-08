@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef } from 'react';
+import { Component, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Anchor,
@@ -103,6 +103,46 @@ function FocusPaneAction({ pane }: { pane: string }) {
       }}
     >
       Focus pane
+    </Button>
+  );
+}
+
+function ResumeAction({ repo, runId }: { repo: string; runId: string }) {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Button
+      size="xs"
+      variant="light"
+      leftSection={<Icons.rotateCcw size={16} />}
+      aria-label="resume run"
+      loading={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          const res = await client.api.runs[':repo'][':runId'].resume.$post({
+            param: { repo, runId },
+          });
+          if (!res.ok) {
+            const body = (await res.json().catch(() => null)) as {
+              error?: string;
+            } | null;
+            notifications.error(body?.error ?? "couldn't resume the run");
+            return;
+          }
+          notifications.success('Resumed the run in a new pane');
+          await queryClient.invalidateQueries({
+            queryKey: ['run', repo, runId],
+          });
+        } catch {
+          notifications.error("couldn't resume the run");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      Resume
     </Button>
   );
 }
@@ -304,6 +344,10 @@ function SummaryCard({
 
   const showAbandon = run.attention.needs && run.attention.reason === 'stale';
   const showFocusPane = Boolean(run.agent && run.agent.status !== 'done');
+  const showResume =
+    run.status === 'running' &&
+    !showFocusPane &&
+    Boolean(byKey.get('claude-session')?.value);
   const showAnswerGate = gates.some(
     g => g.status === 'open' || g.status === 'parked'
   );
@@ -368,6 +412,7 @@ function SummaryCard({
           <LivenessChip run={run} size="md" />
           {showAnswerGate && <AnswerGateAction />}
           {showFocusPane && <FocusPaneAction pane={run.agent!.pane} />}
+          {showResume && <ResumeAction repo={repo} runId={run.id} />}
           {showAbandon && <AbandonAction repo={repo} runId={run.id} />}
         </Group>
       </Group>
