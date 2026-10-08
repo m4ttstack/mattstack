@@ -86,11 +86,14 @@ the next one.
 
 1. Read the run (`getRun`). 404 when it is missing or recorded no
    `claude-session`; 409 when `status` is not `running`, or when
-   `run.agent` is a live agent (status other than `done`), since Focus
-   pane already covers that case.
+   `run.agent` is set at all: herdr lists only panes that exist, and
+   `done` there is a finished turn on a live pane, so a resume would
+   start a second Claude on the same transcript.
 2. Agent id: the run's `agent` field, else `agentAdopt` with the run's
    session (a run that predates part 2). Console never writes a run DB, so
    nothing is written back; adopt's idempotence makes a second press cheap.
+   When resume answers that the recorded agent no longer exists (the daemon
+   prunes long-gone records), adopt again and resume once more.
 3. `agentResume({ id, prompt })`, the prompt naming the run and its
    worktree and quoting the `hold` field when set: "Run `<id>` is no longer
    held (`<hold>`). Re-enter the worktree `<path>` and pick the run back
@@ -104,11 +107,13 @@ read field is added.
 
 | State | Shown when | Button |
 | --- | --- | --- |
-| live | `run.agent` set and not `done` | the existing Focus pane |
-| resumable | run `running`, `claude-session` recorded, no live agent | Resume |
+| live | `run.agent` set | the existing Focus pane (not while it reads `done`) |
+| resumable | run `running`, `claude-session` recorded, `run.agent` unset | Resume |
 | neither | no session, or run finished | none |
 
-Pressing Resume disables the button while the request runs; a failure shows
+Pressing Resume disables the button while the request runs, and a success
+hides it until the page remounts, since the live agent mirror refreshes on a
+short cache; a failure shows
 `notifications.error` with the server's message, a success
 `notifications.success("Resumed the run in a new pane")`.
 
