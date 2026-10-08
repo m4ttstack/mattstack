@@ -1,6 +1,7 @@
-/** The code owners post is confirmed, never fired: the dialog lists the
-    channels it will post to and the sections it leaves out, and sends only
-    what is still checked when the user confirms. */
+/** Posting to Slack across code owners is confirmed, never fired: the
+    dialog lists the team channel first, then the code owner channels it will
+    post to and the sections it leaves out, and sends only what is still
+    checked when the user confirms. */
 
 import React from 'react';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
@@ -44,6 +45,10 @@ const mr = {
 
 const PREVIEW = {
   text: `please review ${MR_URL}`,
+  team: { channel: 'code-review', posted: false },
+  direct: false,
+  ownSections: [] as string[],
+  unchecked: [] as string[],
   channels: [
     {
       channel: 'pod-acme',
@@ -89,6 +94,7 @@ async function open(
   handlers: {
     onPosted?: (channels: string[]) => void;
     onClose?: () => void;
+    initial?: typeof PREVIEW;
   } = {}
 ): Promise<Call[]> {
   const calls: Call[] = [];
@@ -102,6 +108,7 @@ async function open(
         }}
         onPosted={handlers.onPosted ?? (() => {})}
         onClose={handlers.onClose ?? (() => {})}
+        initial={handlers.initial}
       />
     );
   });
@@ -126,13 +133,16 @@ test('asks for the preview on open and lists each channel, checked, with its sec
   expect(calls).toEqual([
     { path: '/slack/owners/preview', payload: { mrUrl: MR_URL } },
   ]);
+  expect(toggle('code-review').checked).toBe(true);
   expect(toggle('pod-acme').checked).toBe(true);
   expect(toggle('pod-docs').checked).toBe(true);
   const text = document.body.textContent ?? '';
+  expect(text).toContain('post to slack');
+  expect(text).toContain('team review');
   expect(text).toContain('#pod-acme');
   expect(text).toContain('Acme, Acme Jobs');
   expect(text).toContain(`please review ${MR_URL}`);
-  expect(confirmButton()!.textContent).toBe('post to 2 channels');
+  expect(confirmButton()!.textContent).toBe('post to 3 channels');
   expect(confirmButton()!.disabled).toBe(false);
 });
 
@@ -154,6 +164,8 @@ test('says why each skipped section is left out, and links a post already made',
 test('unchecking a channel changes the count, and unchecking all disables the confirm', async () => {
   await open({ '/slack/owners/preview': ok(PREVIEW) });
   await click(toggle('pod-docs'));
+  expect(confirmButton()!.textContent).toBe('post to 2 channels');
+  await click(toggle('code-review'));
   expect(confirmButton()!.textContent).toBe('post to 1 channel');
   await click(toggle('pod-acme'));
   const none = [...document.querySelectorAll('button')].find(
@@ -180,7 +192,7 @@ test('confirm sends only the channels still checked, then reports them', async (
   await click(confirmButton()!);
   expect(calls[1]).toEqual({
     path: '/slack/owners/post',
-    payload: { mrUrl: MR_URL, channels: ['pod-acme'] },
+    payload: { mrUrl: MR_URL, team: true, channels: ['pod-acme'] },
   });
   expect(posted).toEqual([['pod-acme']]);
 });
@@ -201,7 +213,11 @@ test('cancel closes without sending', async () => {
 
 test('with nothing to post there is no confirm, only the reasons', async () => {
   await open({
-    '/slack/owners/preview': ok({ ...PREVIEW, channels: [] }),
+    '/slack/owners/preview': ok({
+      ...PREVIEW,
+      team: { channel: 'code-review', posted: true },
+      channels: [],
+    }),
   });
   expect(confirmButton()).toBeUndefined();
   const text = document.body.textContent ?? '';
@@ -209,14 +225,55 @@ test('with nothing to post there is no confirm, only the reasons', async () => {
   expect(text).toContain('already approved');
 });
 
-test('an MR with no code owner sections says so', async () => {
+test('a team thread already posted shows its link and is not sent again', async () => {
+  const calls = await open({
+    '/slack/owners/preview': ok({
+      ...PREVIEW,
+      team: {
+        channel: 'code-review',
+        posted: true,
+        permalink: 'https://team.slack.example/archives/C9/p9',
+      },
+    }),
+    '/slack/owners/post': ok({ posted: [], failed: [] }),
+  });
+  expect(toggle('code-review')).toBeNull();
+  const link = document.querySelector(
+    'a[href="https://team.slack.example/archives/C9/p9"]'
+  );
+  expect(link?.textContent).toBe('already posted to #code-review');
+  expect(confirmButton()!.textContent).toBe('post to 2 channels');
+  await click(confirmButton()!);
+  expect(calls[1]!.payload).toEqual({
+    mrUrl: MR_URL,
+    team: false,
+    channels: ['pod-acme', 'pod-docs'],
+  });
+});
+
+test("our own code owner sections ride on the team row", async () => {
   await open({
-    '/slack/owners/preview': ok({ text: 'x', channels: [], skipped: [] }),
+    '/slack/owners/preview': ok({
+      ...PREVIEW,
+      ownSections: ['Ours - #pod-ours'],
+    }),
+  });
+  expect(document.body.textContent).toContain('team review, Ours');
+});
+
+test('a channel the board could not read for an earlier post says so', async () => {
+  await open({
+    '/slack/owners/preview': ok({ ...PREVIEW, unchecked: ['pod-docs'] }),
   });
   expect(document.body.textContent).toContain(
-    'this MR has no code owner sections'
+    'could not check for an earlier post'
   );
-  expect(confirmButton()).toBeUndefined();
+});
+
+test('a preview handed in is shown without asking again', async () => {
+  const calls = await open({}, { initial: PREVIEW });
+  expect(calls).toEqual([]);
+  expect(toggle('pod-acme').checked).toBe(true);
 });
 
 test('a failed preview shows the reason and offers no confirm', async () => {
