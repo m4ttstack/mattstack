@@ -257,7 +257,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "layout-gate", "pull-pack", "update-engine", "materialize", "check"]);
     expect(report.ok).toBe(true);
     expect(report.restartNeeded).toBe(false);
     expect(calls.some((c) => c.args.includes("update"))).toBe(false);
@@ -321,7 +321,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check", "bump", "compile", "recheck"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "layout-gate", "pull-pack", "update-engine", "materialize", "check", "bump", "compile", "recheck"]);
     const recheck = report.steps.find((s) => s.name === "recheck")!;
     expect(recheck.status).toBe("refused");
     expect(recheck.detail).toContain("mattstack:editing-skills");
@@ -688,7 +688,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "layout-gate", "pull-pack", "update-engine", "materialize"]);
     expect(report.steps.at(-1)).toEqual({ name: "materialize", status: "failed", detail: "widgets: widgets extends acme-base@acme, which is not installed" });
     expect(report.ok).toBe(false);
   });
@@ -705,7 +705,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "layout-gate", "pull-pack", "update-engine", "materialize", "check"]);
     const check = report.steps.find((s) => s.name === "check")!;
     expect(check.status).toBe("failed");
     expect(check.detail).toContain("manifest discovery found nothing");
@@ -1232,7 +1232,7 @@ describe("commit-pending", () => {
     expect(steps["update-pack"]!.status).toBe("ran");
     expect(steps["verify-installed"]!.status).toBe("ran");
     expect(readVersion(pack.dir)).toBe("1.0.1");
-    expect(stepNames(report.steps).slice(0, 4)).toEqual(["guards", "pull-engine", "pull-pack", "commit-pending"]);
+    expect(stepNames(report.steps).slice(0, 5)).toEqual(["guards", "pull-engine", "layout-gate", "pull-pack", "commit-pending"]);
 
     const order = world.calls
       .filter((c) => c.cmd === "checkPack" || (c.cwd === pack.dir && ["pull", "add", "commit", "push"].includes(c.args[0]!)))
@@ -2478,7 +2478,7 @@ describe("--expect against real git", () => {
   }, REAL_GIT_TIMEOUT_MS);
 });
 
-describe("pull-pack layout gate", () => {
+describe("layout-gate step", () => {
   const MARKER_SHOW = "show FETCH_HEAD:mattstack/mattstack.jsonc";
   function gated(answer: { code: number; stdout?: string; stderr?: string }) {
     const engine = fixturePack("mattstack", "mattstack", "1.2.3");
@@ -2500,8 +2500,9 @@ describe("pull-pack layout gate", () => {
   test("a fetched tip on a layout above this rt refuses with the update sentence and never pulls", async () => {
     const { pack, engine, world, deps } = gated({ code: 0, stdout: JSON.stringify({ role: "org", org: "acme" }) });
     const report = await syncPack(pack, engine, deps);
-    expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "refused" });
-    expect(report.steps.find((s) => s.name === "pull-pack")?.detail).toContain(updateSentence(2));
+    expect(report.steps.find((s) => s.name === "layout-gate")).toMatchObject({ status: "refused" });
+    expect(report.steps.find((s) => s.name === "layout-gate")?.detail).toContain(updateSentence(2));
+    expect(report.steps.some((s) => s.name === "pull-pack")).toBe(false);
     expect(world.calls.some((c) => c.cmd === "git" && c.cwd === pack.dir && c.args[0] === "fetch")).toBe(true);
     expect(pulled(world, pack.dir)).toBe(false);
   });
@@ -2513,27 +2514,28 @@ describe("pull-pack layout gate", () => {
     ]) {
       const { pack, engine, world, deps } = gated(answer);
       const report = await syncPack(pack, engine, deps);
+      expect(report.steps.find((s) => s.name === "layout-gate")).toMatchObject({ status: "ran" });
       expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "ran" });
       expect(pulled(world, pack.dir)).toBe(true);
     }
   });
 
-  test("a marker rt cannot read at the fetched tip refuses without pulling", async () => {
+  test("a marker rt cannot read at the fetched tip fails without pulling", async () => {
     const { pack, engine, world, deps } = gated({ code: 128, stderr: "fatal: bad object FETCH_HEAD" });
     const report = await syncPack(pack, engine, deps);
-    expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "refused" });
-    expect(report.steps.find((s) => s.name === "pull-pack")?.detail).toContain("bad object");
+    expect(report.steps.find((s) => s.name === "layout-gate")).toMatchObject({ status: "failed" });
+    expect(report.steps.find((s) => s.name === "layout-gate")?.detail).toContain("bad object");
     expect(pulled(world, pack.dir)).toBe(false);
   });
 
-  test("a failed fetch refuses the way a failed pull does, without pulling", async () => {
+  test("a failed fetch fails without pulling", async () => {
     const { pack, engine, world, deps } = gated({ code: 0, stdout: "" });
     const run = deps.run;
     deps.run = async (cmd, args, opts) =>
       cmd === "git" && opts?.cwd === pack.dir && args[0] === "fetch" ? { code: 1, stdout: "", stderr: "fatal: unable to access remote" } : run(cmd, args, opts);
     const report = await syncPack(pack, engine, deps);
-    expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "refused" });
-    expect(report.steps.find((s) => s.name === "pull-pack")?.detail).toContain("unable to access remote");
+    expect(report.steps.find((s) => s.name === "layout-gate")).toMatchObject({ status: "failed" });
+    expect(report.steps.find((s) => s.name === "layout-gate")?.detail).toContain("unable to access remote");
     expect(pulled(world, pack.dir)).toBe(false);
   });
 });

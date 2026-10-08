@@ -108,6 +108,7 @@ export function syncMaterializeVerdict(r: MaterializeSkillsResult, pack: string)
 const STEP_TITLE: Record<string, string> = {
   guards: "Safety checks",
   "pull-engine": "Pull the engine",
+  "layout-gate": "Check the org layout",
   "pull-pack": "Pull the pack",
   "commit-pending": "Stage your pack edits",
   "update-engine": "Update the installed engine",
