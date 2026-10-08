@@ -435,7 +435,7 @@ describe("onboarding in an org", () => {
     expect(readForgeUsername("acme")).toBe("dev2");
     expect(activeTeam()).toMatchObject({ team: "gadgets", reason: "first-team" });
 
-    const expectedOrder = ["org.pull", "migration.2026-10-01-board-peer-trigger", "migration.2026-10-01-unset-board-default-pack", "migration.2026-10-02-retire-switchboard-url", "migration.2026-10-07-sdm-resources-key", "team.identity", "plugins.install", "verify"];
+    const expectedOrder = ["org.pull", "migration.2026-10-01-board-peer-trigger", "migration.2026-10-01-unset-board-default-pack", "migration.2026-10-02-retire-switchboard-url", "migration.2026-10-07-sdm-resources-key", "migration.2026-10-08-team-directory", "team.identity", "plugins.install", "verify"];
     const order = events.filter((e) => e.event === "step" && e.state === "running").map((e) => (e as { id: string }).id);
     expect(order).toEqual(expectedOrder);
     expect(events.find((e) => e.event === "plan")).toMatchObject({ steps: expectedOrder.map((id) => ({ id })) });
