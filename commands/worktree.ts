@@ -691,10 +691,17 @@ async function enrichRestorableEntries(entries: RestorableEntry[], repoPath: str
   return new Map(enriched.map((eb) => [eb.path, eb]));
 }
 
+/** `--list` reads local files; a slow forge may cost it the titles, never the list. */
+const LIST_ENRICH_DEADLINE_MS = 3_000;
+
 async function printRestorableEntries(entries: RestorableEntry[], repoPath: string): Promise<void> {
   if (entries.length === 0) { out.print(out.line("skipped", "Nothing to bring back")); return; }
   const { restoreListBlock } = await import("../lib/worktree/restore-rows.ts");
-  out.print(restoreListBlock(entries, await enrichRestorableEntries(entries, repoPath).catch(() => new Map()), new Date()));
+  const enriched = await Promise.race([
+    enrichRestorableEntries(entries, repoPath).catch(() => new Map<string, EnrichedBranch>()),
+    Bun.sleep(LIST_ENRICH_DEADLINE_MS).then(() => new Map<string, EnrichedBranch>()),
+  ]);
+  out.print(restoreListBlock(entries, enriched, new Date()));
 }
 
 async function pickRestorableEntry(entries: RestorableEntry[], repoName: string, repoPath: string): Promise<string | null> {
