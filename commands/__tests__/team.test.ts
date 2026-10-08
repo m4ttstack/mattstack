@@ -737,6 +737,15 @@ describe("teamPull", () => {
     expect(body).toEqual({ contract: 1, slug: "acme", outcome: "fast-forwarded", detail: null });
   });
 
+  test("--json carries a layout hold beside the existing keys", async () => {
+    const hold = { layout: 3, reads: 2 };
+    const detail = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const deps = depsWithZone({ daemon: async (cmd) => (cmd === "team:pull" ? { ok: true, data: { outcome: "skipped", detail, hold } } : { ok: false }) });
+    await teamPull(["--team", "acme", "--json"], {}, deps);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(body).toEqual({ contract: 1, slug: "acme", outcome: "skipped", detail, hold });
+  });
+
   test("the pull carries a timeout that fits a real fetch and rebase, not the status default", async () => {
     let seen: number | undefined = -1;
     const deps = depsWithZone({

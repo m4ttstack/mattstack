@@ -19,7 +19,7 @@ import { currentRole, mayWritePath } from "../packages/rt-client/src/settings/or
 import { discoverPacks, packFromDir, solePack, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
-import { syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
+import { LAYOUT_HOLD, syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
 import { checkPack, compilePackAll, NO_PACKS_WHY } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
@@ -157,7 +157,8 @@ export function syncBlocks(report: SyncReport): Block[] {
  */
 const REFUSED_ON_FAILED_COMMAND: ReadonlySet<string> = new Set(["pull-engine", "pull-pack", "update-engine", "compile"]);
 
-const isPolicyRefusal = (step: SyncStep): boolean => step.status === "refused" && !REFUSED_ON_FAILED_COMMAND.has(step.name);
+/** A pull held on an org layout this app does not read is a refusal by policy, though pull-pack otherwise refuses only on a failed command. */
+const isPolicyRefusal = (step: SyncStep): boolean => step.status === "refused" && (!REFUSED_ON_FAILED_COMMAND.has(step.name) || step[LAYOUT_HOLD] === true);
 
 const textLines = (text: string): string[] => text.split(/\r\n|\r|\n/);
 

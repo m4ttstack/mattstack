@@ -58,6 +58,7 @@ describe("parseRemote", () => {
 const HOME = "/h";
 const ORG_ROOT = (org: string) => `${HOME}/.mattstack/orgs/${org}`;
 const orgFiles = (org: string, orgSettings: Record<string, unknown>, teams: Record<string, Record<string, unknown>>, extra: Record<string, string> = {}) => ({
+  [`${ORG_ROOT(org)}/.git/config`]: "",
   [`${ORG_ROOT(org)}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "${org}" }`,
   [`${ORG_ROOT(org)}/mattstack/org/settings.org.jsonc`]: `// org\n${JSON.stringify(orgSettings)}`,
   [`${ORG_ROOT(org)}/.claude-plugin/marketplace.json`]: `{ "name": "${org}-market", "owner": { "name": "x" }, "plugins": [] }`,
@@ -70,6 +71,64 @@ describe("readZones", () => {
     const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), ...orgFiles("Bad_Org", {}, { widgets: {} }), ...orgFiles("..", {}, { gadgets: {} }) });
     expect(readOrgSlugs(fs, HOME)).toEqual(["acme"]);
     expect(readZones(fs, HOME).map((z) => z.slug)).toEqual(["acme/widgets"]);
+  });
+
+  test("a clone whose marker is on a layout above ORG_LAYOUT throws the update sentence", () => {
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/.git/config`]: "", [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "org", "org": "acme", "layout": 3 }' });
+    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org uses layout 3 and this app reads up to 2. Update the app.");
+  });
+
+  test("a one-team marker throws the waiting sentence rather than skipping the clone", () => {
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/.git/config`]: "", [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "team", "namespace": "widgets", "org": "acme" }' });
+    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org has not moved to its new layout yet. rt finishes the move when it does.");
+  });
+
+  test("a picked layout-2 clone with no org store throws the waiting sentence", () => {
+    const { [`${ORG_ROOT("acme")}/mattstack/org/settings.org.jsonc`]: _store, ...noStore } = orgFiles("acme", {}, { widgets: {} });
+    const fs = memFs(noStore);
+    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org has not moved to its new layout yet. rt finishes the move when it does.");
+  });
+
+  test("a ready clone beside a stale one-team clone still yields its zones", () => {
+    const fs = memFs({
+      ...orgFiles("acme", {}, { widgets: {} }),
+      [`${ORG_ROOT("acme")}/.git/config`]: "",
+      ...orgFiles("beta", {}, { gadgets: {} }),
+      [`${ORG_ROOT("beta")}/.git/config`]: "",
+      [`${ORG_ROOT("beta")}/mattstack/mattstack.jsonc`]: '{ "role": "team", "namespace": "gadgets", "org": "beta" }',
+    });
+    expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`).map((z) => z.slug)).toEqual(["acme/widgets"]);
+  });
+
+  test("a one-team folder that is not a clone is skipped beside a ready clone", () => {
+    const fs = memFs({
+      ...orgFiles("acme", {}, { widgets: {} }),
+      [`${ORG_ROOT("acme")}/.git/config`]: "",
+      ...orgFiles("beta", {}, { gadgets: {} }),
+      [`${ORG_ROOT("beta")}/mattstack/mattstack.jsonc`]: '{ "role": "team", "namespace": "gadgets", "org": "beta" }',
+    });
+    expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`).map((z) => z.slug)).toEqual(["acme/widgets"]);
+  });
+
+  test("a ready clone beside a layout-2 folder that is not a clone yields only the clone's zones", () => {
+    const { [`${ORG_ROOT("beta")}/.git/config`]: _notAClone, ...stale } = orgFiles("beta", {}, { gadgets: {} });
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), ...stale });
+    expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`).map((z) => z.slug)).toEqual(["acme/widgets"]);
+  });
+
+  test("a ready clone beside a second layout-2 clone sorting later yields only the picked clone's zones", () => {
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), ...orgFiles("beta", {}, { gadgets: {} }) });
+    expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`).map((z) => z.slug)).toEqual(["acme/widgets"]);
+  });
+
+  test("no clone to pick yields no zones, even beside a layout-2 folder", () => {
+    const { [`${ORG_ROOT("acme")}/.git/config`]: _notAClone, ...stale } = orgFiles("acme", {}, { widgets: {} });
+    expect(readZonesFrom(memFs(stale), `${HOME}/.mattstack/orgs`)).toEqual([]);
+  });
+
+  test("a folder with no marker or a marker of another role is still skipped", () => {
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "pack", "org": "acme" }' });
+    expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toEqual([]);
   });
 
   test("one zone per team folder, named <org>/<team>", () => {
@@ -170,10 +229,8 @@ describe("readZones", () => {
     expect(readZones(fs, HOME).map((z) => z.team)).toEqual(["widgets"]);
   });
 
-  test("an old-layout clone and a user zone are skipped", () => {
+  test("a user zone is skipped", () => {
     const fs = memFs({
-      [`${HOME}/.mattstack/orgs/old/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "old", "org": "x" }`,
-      [`${HOME}/.mattstack/orgs/old/mattstack/settings.team.jsonc`]: `{}`,
       [`${HOME}/.mattstack/orgs/me/mattstack/mattstack.jsonc`]: `{ "role": "user" }`,
     });
     expect(readZones(fs, HOME)).toEqual([]);

@@ -2,7 +2,8 @@ import { join } from "path";
 import { claimPendingAdmin } from "../../team/create.ts";
 import { tokenLookupRemoteForHost } from "../../team/forge-token.ts";
 import { forgeLogin } from "../../team/forge.ts";
-import { markerOrg } from "../../team/org-marker.ts";
+import { markerState, ORG_LAYOUT, type MarkerState } from "../../team/org-marker.ts";
+import { updateSentence } from "../../team/org-layout.ts";
 import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
@@ -16,7 +17,7 @@ const PULL_TIMEOUT_MS = 180_000;
 
 interface PullReply {
   ok: boolean;
-  data?: { outcome: string; detail: string | null };
+  data?: { outcome: string; detail: string | null; hold?: { layout: number; reads: number } };
   error?: string;
   failure?: { code: string; message: string };
 }
@@ -37,23 +38,34 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
   const notes: string[] = [];
   const skips: string[] = [];
   const stuck: string[] = [];
-  const before = new Map(slugs.map((slug) => [slug, markerOrg(ctx.p, orgDirUnder(ctx.p.home, slug))]));
+  const held: string[] = [];
+  const stateOf = (slug: string): MarkerState => markerState(ctx.p, orgDirUnder(ctx.p.home, slug));
+  const before = new Map(slugs.map((slug) => [slug, stateOf(slug)]));
   for (const slug of slugs) {
     try {
       const res = (await ctx.p.daemon("team:pull", { slug }, PULL_TIMEOUT_MS)) as PullReply | null;
       if (res === null)
         skips.push((await ctx.p.daemon("ping")) === null ? "The rt daemon is not running, so the org is pulled once it is" : "The pull is still running in the daemon");
       else if (!res.ok && res.failure?.code === "no-team") skips.push(`Team sync has not started for ${slug} yet, so it is pulled once it does`);
+      else if (res.ok && res.data?.hold) held.push(res.data.detail ?? updateSentence(res.data.hold.layout));
       else if (!res.ok || !res.data || ["conflict", "skipped"].includes(res.data.outcome))
         stuck.push(`${slug} was not pulled: ${res.data?.detail ?? res.failure?.message ?? res.error ?? res.data?.outcome ?? "the daemon gave no reason"}`);
-      else notes.push(res.data.outcome === "up-to-date" ? `${slug} is already up to date` : `Pulled ${slug}`);
+      else {
+        const after = stateOf(slug);
+        const prior = before.get(slug);
+        const moved = after.kind === "org" && prior?.kind === "org" && after.layout !== prior.layout;
+        const layoutName = after.kind === "org" && after.layout === ORG_LAYOUT ? "the org layout" : `layout ${after.kind === "org" ? after.layout : ""}`;
+        notes.push(res.data.outcome === "up-to-date" ? `${slug} is already up to date` : moved ? `Pulled ${slug}, now on ${layoutName}` : `Pulled ${slug}`);
+      }
     } catch (err) {
       stuck.push(`${slug} was not pulled: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   const renamed = slugs.filter((slug) => {
-    const after = markerOrg(ctx.p, orgDirUnder(ctx.p.home, slug));
-    return after !== null && after !== slug && after !== before.get(slug);
+    const after = stateOf(slug);
+    const prior = before.get(slug);
+    const priorOrg = prior?.kind === "org" ? prior.org : null;
+    return after.kind === "org" && after.org !== slug && after.org !== priorOrg;
   });
   let converge: StepOutcome | null = null;
   if (renamed.length) {
@@ -63,10 +75,10 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
   ctx.reloadTeam?.();
   if (converge && (converge.state === "failed" || converge.state === "partial")) {
-    return { state: "partial", detail: [...notes, ...skips, ...stuck].join("; "), ...(converge.remedy !== undefined ? { remedy: converge.remedy } : {}) };
+    return { state: "partial", detail: [...notes, ...skips, ...held, ...stuck].join("; "), ...(converge.remedy !== undefined ? { remedy: converge.remedy } : {}) };
   }
-  if (stuck.length) return { state: "partial", detail: [...notes, ...skips, ...stuck].join("; "), remedy: "Run rt team status to see what is in the way" };
-  if (skips.length) return { state: "skipped", detail: [...notes, ...skips].join("; ") };
+  if (stuck.length) return { state: "partial", detail: [...notes, ...skips, ...held, ...stuck].join("; "), remedy: "Run rt team status to see what is in the way" };
+  if (skips.length || held.length) return { state: "skipped", detail: [...notes, ...skips, ...held].join("; ") };
   return { state: "done", detail: notes.join("; ") };
 }
 

@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
-import { SkillsUsageError, skillsCheck, skillsCompile, skillsFailure } from "../skills.ts";
+import { SkillsUsageError, skillsCheck, skillsCompile, skillsFailure, skillsMaterialize } from "../skills.ts";
 
 let io: CapturedOut;
 let root: string;
@@ -84,4 +84,70 @@ test("the enclosing-pack note goes to stderr and stdout stays one JSON line", as
   expect(text.endsWith("\n")).toBe(true);
   expect(text.slice(0, -1)).not.toContain("\n");
   expect(JSON.parse(text).pack).toBe("acme");
+});
+
+const WAITING = "Your org has not moved to its new layout yet. rt finishes the move when it does.";
+
+function seedOneTeamClone(): void {
+  const marker = join(root, "orgs", "acme", "mattstack");
+  mkdirSync(marker, { recursive: true });
+  mkdirSync(join(root, "orgs", "acme", ".git"), { recursive: true });
+  writeFileSync(join(root, "orgs", "acme", ".git", "config"), "");
+  writeFileSync(join(marker, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }));
+}
+
+test("a clone on another layout is a refused note with the sentence, exit 2, never a failure", async () => {
+  seedOneTeamClone();
+  process.chdir(root);
+  const { exitCode, errors } = await runExpectingCleanExit(() => skillsCheck(["--team", "widgets", "--mattstack-dir", root]));
+  expect(exitCode).toBe(2);
+  const stderr = errors.join("\n");
+  expect(stderr).toContain(WAITING);
+  expect(stderr).toContain("refused");
+  expect(stderr).not.toContain("[failed]");
+});
+
+test("under --json the envelope carries the sentence as its error", async () => {
+  seedOneTeamClone();
+  process.chdir(root);
+  const { exitCode } = await runExpectingCleanExit(() => skillsCheck(["--team", "widgets", "--json", "--mattstack-dir", root]));
+  expect(exitCode).toBe(2);
+  expect(JSON.parse(io.stdout())).toMatchObject({ error: { code: "org-layout-waiting", message: WAITING } });
+});
+
+describe("rt skills materialize while the org waits", () => {
+  const savedHome = process.env.HOME;
+  let dir: string;
+
+  beforeEach(() => {
+    process.env.HOME = root;
+    const clone = join(root, ".mattstack", "orgs", "acme");
+    mkdirSync(join(clone, "mattstack"), { recursive: true });
+    mkdirSync(join(clone, ".git"), { recursive: true });
+    writeFileSync(join(clone, ".git", "config"), "");
+    writeFileSync(join(clone, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }));
+    dir = join(root, "checkout");
+    mkdirSync(dir);
+  });
+  afterEach(() => {
+    process.env.HOME = savedHome;
+  });
+
+  for (const [label, args] of [["the every-repo sweep", []], ["one --dir checkout", ["--dir", "DIR"]]] as const) {
+    test(`${label} is a refused note with the sentence, exit 2, never a failure`, async () => {
+      const { exitCode, errors } = await runExpectingCleanExit(() => skillsMaterialize(args.map((a) => (a === "DIR" ? dir : a))));
+      expect(exitCode).toBe(2);
+      const stderr = errors.join("\n");
+      expect(stderr).toContain(WAITING);
+      expect(stderr).toContain("refused");
+      expect(stderr).not.toContain("[failed]");
+      expect(io.stdout()).toBe("");
+    });
+  }
+
+  test("under --json the envelope carries the sentence as its error, exit 2", async () => {
+    const { exitCode } = await runExpectingCleanExit(() => skillsMaterialize(["--dir", dir, "--json"]));
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(io.stdout())).toMatchObject({ error: { code: "org-layout-waiting", message: WAITING } });
+  });
 });

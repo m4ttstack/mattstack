@@ -359,7 +359,7 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
     // for status reads) aborts mid-pull and reports an unreachable daemon for
     // a pull that then succeeds.
     const res = (await call("team:pull", { slug }, PULL_TIMEOUT_MS)) as
-      | { ok: boolean; data?: { outcome: string; detail: string | null }; error?: string; failure?: { code: string; message: string } }
+      | { ok: boolean; data?: { outcome: string; detail: string | null; hold?: { layout: number; reads: number } }; error?: string; failure?: { code: string; message: string } }
       | null;
     if (!res) {
       throw new UserActionableError("daemon-unreachable", "The rt daemon is not running", {}, {
@@ -371,7 +371,8 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
       throw new UserActionableError(res.failure?.code ?? "team-pull-failed", res.failure?.message ?? res.error ?? "team pull failed");
     }
     if (json) {
-      deps.print(JSON.stringify(envelope({ slug, outcome: res.data.outcome, detail: res.data.detail })));
+      const { outcome, detail, hold } = res.data;
+      deps.print(JSON.stringify(envelope({ slug, outcome, detail, ...(hold ? { hold } : {}) })));
       return;
     }
     const outcome = res.data.outcome;

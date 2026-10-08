@@ -11,6 +11,7 @@
 
 import { applyEdits, modify, parse } from "jsonc-parser";
 import { orgStoreFile } from "./org-store.ts";
+import { ORG_LAYOUT } from "./org-marker.ts";
 import { publishTeam } from "./publish.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { dirname, join } from "path";
@@ -178,7 +179,7 @@ export function scaffoldFiles(slug: string, name: string, remote: string, recipi
   const marketplace = { name: slug, owner: { name }, plugins: [] };
 
   return {
-    [SCAFFOLD_MARKER]: `${JSON.stringify({ role: "org", org: slug }, null, 2)}\n`,
+    [SCAFFOLD_MARKER]: `${JSON.stringify({ role: "org", org: slug, layout: ORG_LAYOUT }, null, 2)}\n`,
     [ORG_STORE_RELATIVE]: `${ORG_SETTINGS_HEADER}${JSON.stringify(orgSettings, null, 2)}\n`,
     [teamStoreRelative(team)]: `${TEAM_SETTINGS_HEADER}${JSON.stringify(teamSettings, null, 2)}\n`,
     ".claude-plugin/marketplace.json": `${JSON.stringify(marketplace, null, 2)}\n`,

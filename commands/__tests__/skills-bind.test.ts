@@ -954,6 +954,7 @@ describe("applyBind", () => {
       process.env.RT_ENGINE_PACK_DIR = join(root, "engine");
       writeFile(join(root, "engine", "pack", "skills.jsonc"), "{}");
       const orgDir = join(home, ".mattstack", "orgs", "acme", "mattstack");
+      writeFile(join(home, ".mattstack", "orgs", "acme", ".git", "config"), "");
       writeFile(join(orgDir, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
       writeFile(join(orgDir, "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets", "acme/gadgets"] }));
       writeFile(join(orgDir, "teams", "widgets", "settings.team.jsonc"), "{}");

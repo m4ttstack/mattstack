@@ -354,16 +354,22 @@ interface UpdateItem {
   migrationId?: string;
 }
 
+const LEADS_UPDATE: readonly StepId[] = ["org.folder", "org.pull"];
+
 function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: readonly string[]): UpdateItem[] {
+  const item = (s: StepDef): UpdateItem => ({ id: s.id, title: s.title, run: (ctx) => s.run(ctx) });
+  const safe = steps.filter((s) => s.updateSafe && s.id !== "verify");
+  const leads = safe.filter((s) => LEADS_UPDATE.includes(s.id)).map(item);
   const pending = migrations.filter((m) => !applied.includes(m.id)).map<UpdateItem>((m) => ({ id: migrationEventId(m.id), title: m.title, run: (ctx) => m.run(ctx), migrationId: m.id }));
-  const safe = steps.filter((s) => s.updateSafe && s.id !== "verify").map<UpdateItem>((s) => ({ id: s.id, title: s.title, run: (ctx) => s.run(ctx) }));
+  const rest = safe.filter((s) => !LEADS_UPDATE.includes(s.id)).map(item);
   const verify = steps.find((s) => s.id === "verify" && s.updateSafe);
-  return [...pending, ...safe, ...(verify ? [{ id: verify.id, title: verify.title, run: (ctx: ApplyContext) => verify.run(ctx) }] : [])];
+  return [...leads, ...pending, ...rest, ...(verify ? [item(verify)] : [])];
 }
 
 /**
- * The update run: pending migrations, then every update-safe step in
- * contract order, then verify. No failed outcome stops the run; every
+ * The update run: org.folder and org.pull first, so a migration reads the
+ * org where the resolver looks and as main holds it now; then pending
+ * migrations, then every other update-safe step in contract order, then verify. No failed outcome stops the run; every
  * item's outcome is collected and `done` names every failure. A migration
  * that throws a plain Error is one more failed outcome, but a step that does
  * is a bug: the run stops there and rethrows after `done`. Migrations that
@@ -395,7 +401,7 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
           const remedy = typeof err.extra.remedy === "string" ? err.extra.remedy : undefined;
           outcome = { state: "failed", detail: err.message, ...(remedy !== undefined ? { remedy } : {}) };
         } else if (item.migrationId !== undefined) {
-          // Migrations run first, so rethrowing here would skip every step and
+          // Migrations run before most steps, so rethrowing here would skip every step and
           // verify; a buggy one fails alone and stays unrecorded instead.
           ctx.log(item.id, `warn: bug: ${message}`);
           outcome = { state: "failed", detail: `bug: ${message}` };

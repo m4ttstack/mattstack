@@ -403,7 +403,7 @@ describe("onboarding in an org", () => {
     });
   }
 
-  test("the update run from the old layout: the migration, then the pull that brings the org layout, then identity, then the install against what the pull brought", async () => {
+  test("the update run from the old layout: the pull that brings the org layout, then the migrations, then identity, then the install against what the pull brought", async () => {
     const p = probes();
     setSetting("board.peerAsks", { enabled: false }, "user");
     const user = readStore(userSettingsPath()).global;
@@ -418,7 +418,7 @@ describe("onboarding in an org", () => {
     login = "dev2";
     daemon = async (cmd) => {
       if (cmd !== "team:pull") return null;
-      expect(readStore(userSettingsPath()).global["board.defaultPack"]).toBeUndefined();
+      expect(readStore(userSettingsPath()).global["board.defaultPack"]).toBe("widgets");
       rmSync(join(dir, "mattstack"), { recursive: true, force: true });
       cpSync(converted, dir, { recursive: true });
       return { ok: true, data: { outcome: "fast-forwarded", detail: null } };
@@ -435,7 +435,7 @@ describe("onboarding in an org", () => {
     expect(readForgeUsername("acme")).toBe("dev2");
     expect(activeTeam()).toMatchObject({ team: "gadgets", reason: "first-team" });
 
-    const expectedOrder = ["migration.2026-10-01-board-peer-trigger", "migration.2026-10-01-unset-board-default-pack", "migration.2026-10-02-retire-switchboard-url", "migration.2026-10-07-sdm-resources-key", "org.pull", "team.identity", "plugins.install", "verify"];
+    const expectedOrder = ["org.pull", "migration.2026-10-01-board-peer-trigger", "migration.2026-10-01-unset-board-default-pack", "migration.2026-10-02-retire-switchboard-url", "migration.2026-10-07-sdm-resources-key", "team.identity", "plugins.install", "verify"];
     const order = events.filter((e) => e.event === "step" && e.state === "running").map((e) => (e as { id: string }).id);
     expect(order).toEqual(expectedOrder);
     expect(events.find((e) => e.event === "plan")).toMatchObject({ steps: expectedOrder.map((id) => ({ id })) });

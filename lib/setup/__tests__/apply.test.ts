@@ -1544,13 +1544,18 @@ describe("runUpdateWith and the finished state", () => {
 });
 
 describe("runUpdateWith", () => {
-  test("migrations precede org pull and identity, which precede plugins and verify", async () => {
+  test("org.folder and org.pull precede the migrations, which precede identity, the rest and verify", async () => {
     const ran: string[] = [];
     const step = (id: StepId): StepDef => ({ id, title: id, kind: "rt", updateSafe: true, applies: () => true, run: async () => { ran.push(id); return { state: "done" }; } });
-    await runUpdateWith([step("org.pull"), step("team.identity"), step("plugins.install"), step("skills.materialize"), step("verify")], [fakeMigration("2026-10-01-example", async () => { ran.push("migration"); return { state: "done" }; })], testCtx().ctx);
-    expect(ran).toEqual(["migration", "org.pull", "team.identity", "plugins.install", "skills.materialize", "verify"]);
+    await runUpdateWith(
+      [step("org.folder"), step("org.pull"), step("team.identity"), step("plugins.install"), step("skills.materialize"), step("verify")],
+      [fakeMigration("2026-10-01-example", async () => { ran.push("migration"); return { state: "done" }; })],
+      testCtx().ctx,
+    );
+    expect(ran).toEqual(["org.folder", "org.pull", "migration", "team.identity", "plugins.install", "skills.materialize", "verify"]);
   });
   test("runs pending migrations, then update-safe steps in order, then verify; non-safe steps never run", async () => {
+    // No org steps here; org.folder and org.pull would lead the migration.
     const { ctx, events } = testCtx();
     const ran: string[] = [];
     const steps: StepDef[] = [

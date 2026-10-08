@@ -38,6 +38,7 @@ type TeamSpec = { projects?: string[]; pack?: object };
 
 function org(root: string, name: string, opts: { projects: string[]; teams: Record<string, TeamSpec>; base?: Record<string, object> }): void {
   const dir = join(root, "orgs", name);
+  write(join(dir, ".git", "config"), "");
   write(join(dir, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: name }));
   write(join(dir, "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": opts.projects }));
   for (const [team, spec] of Object.entries(opts.teams)) {
@@ -197,17 +198,14 @@ describe("materializeRepo", () => {
     expect(body(widgets.path).bindings["mattstack:stage-ship"]!.policy).toBe("acme-base:squash");
   });
 
-  test("one team name in two orgs that both claim the repo is refused in both", () => {
+  test("a second org clone is never read: the picked clone's pack alone is written", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
     org(root, "initech", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
-    expect(out.packs.map((p) => [p.pack, p.zone, p.ok])).toEqual([["widgets", "acme/widgets", false], ["widgets", "initech/widgets", false]]);
-    for (const p of out.packs) {
-      if (!p.ok) expect(p.detail).toContain('pack "widgets" is in 2 zones (acme/widgets, initech/widgets) that all claim gitlab.example.com/acme/widgets');
-    }
-    expect(existsSync(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc"))).toBe(false);
+    expect(out.packs.map((p) => [p.pack, p.zone, p.ok])).toEqual([["widgets", "acme/widgets", true]]);
+    expect(existsSync(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc"))).toBe(true);
   });
 
   test("a declaring team folder with no pack writes nothing", () => {
