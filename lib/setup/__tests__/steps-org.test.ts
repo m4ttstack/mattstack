@@ -129,6 +129,55 @@ describe("org.pull", () => {
     expect(out.detail).toContain("Moved widgets");
   });
 
+  test("a pull that moved the clone onto the org layout says so", async () => {
+    let marker = JSON.stringify({ role: "team", org: "acme" });
+    const p = fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
+      daemon: async () => {
+        marker = JSON.stringify({ role: "org", org: "acme" });
+        return { ok: true, data: { outcome: "fast-forwarded", detail: null } };
+      },
+    });
+    const read = p.readFile.bind(p);
+    p.readFile = (path) => (path === `${CLONE}/mattstack/mattstack.jsonc` ? marker : read(path));
+    const outcome = await orgPullStep.run(makeCtx(p).ctx);
+    expect(outcome.state).toBe("done");
+    expect(outcome.detail).toBe("Pulled acme, now on the org layout");
+  });
+
+  test("a held pull ends skipped with the update sentence and no remedy", async () => {
+    const sentence = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const outcome = await orgPullStep.run(makeCtx(fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
+      daemon: async () => ({ ok: true, data: { outcome: "skipped", detail: sentence, hold: { layout: 3, reads: 2 } } }),
+    })).ctx);
+    expect(outcome).toEqual({ state: "skipped", detail: sentence });
+  });
+
+  test("a hold beside a stuck clone stays partial and keeps the hold sentence", async () => {
+    const sentence = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const p = fakeProbes({
+      home: HOME,
+      dirs: { [`${HOME}/.mattstack/orgs`]: ["acme", "widgets"] },
+      files: {
+        [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"),
+        [`${HOME}/.mattstack/orgs/widgets/.git/config`]: gitConfig("https://github.com/acme/widgets.git"),
+      },
+      daemon: async (_cmd, payload) =>
+        (payload as { slug: string }).slug === "acme"
+          ? { ok: true, data: { outcome: "skipped", detail: sentence, hold: { layout: 3, reads: 2 } } }
+          : { ok: false, error: "offline" },
+    });
+    const outcome = await orgPullStep.run(makeCtx(p).ctx);
+    expect(outcome.state).toBe("partial");
+    expect(outcome.detail).toContain(sentence);
+    expect(outcome.detail).toContain("widgets was not pulled: offline");
+  });
+
   test("a marker that appears with the folder's own name is not a rename", async () => {
     let marker: string | null = null;
     const converged: string[] = [];
