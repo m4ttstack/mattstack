@@ -428,6 +428,7 @@ git commit -m "rt-client: team directory reads"
 **Interfaces:**
 - Consumes: `directoryIssues` (Task 2). Also the existing `validateWrite`, `getDef`, `setSetting` and `setSettingsNoticeSink`.
 - Produces: a `kind: "schema"` refusal for a code owners channel claimed twice, and one notice per unknown kind after a successful write.
+- The notice goes through `setSetting`'s notice sink, which `rt settings set` prints. A console save does not show it; the console shows the refusal only. The spec's "Validation" says the same.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -541,7 +542,7 @@ git commit -m "settings: refuse a shared code owners channel, note unknown chann
   - each codeowners tab without its own `slackChannel` gets my `codeOwnersChannel`;
   - `ticketPrefixes` defaults to `[mine.linear.team]` when neither `board.ticketPrefixes` nor `config.json` sets them.
 
-- [ ] **Step 1: Write the failing tests.** Add at the end of `config-store-latch.test.ts`. `tmpConfig()` and `fakeResolve()` are already defined in that file. Add `afterEach` to the `bun:test` import, and import `teamView` from `../config.ts`.
+- [ ] **Step 1: Write the failing tests.** Add at the end of `config-store-latch.test.ts`. `tmpConfig()`, `fakeResolve()`, `afterEach` and `teamView` are already defined or imported there; do not import them again.
 
 ```ts
 describe('loadConfigFrom: mattstack.directory', () => {
@@ -660,7 +661,9 @@ Expected: FAIL. `slack.channel` is `code-review` and `ownChannels` is undefined.
 - [ ] **Step 3: Implement.** In `config.ts`:
   - Import `channelsOfKind`, `directoryEntry`, `teamChannels` and `type TeamDirectory` from `@mattstack/rt-client`.
   - In `DEFAULT_SLACK`, set `channel: ''`.
-  - In `parseSlack`, change `channel: s.channel ?? DEFAULT_SLACK.channel,` to `channel: DEFAULT_SLACK.channel,`. The channel is never read from a file or store any more; `withBoardStoreFallback` sets it.
+  - In `parseSlack`:
+    - remove `'channel'` from the non-empty-string check loop (`for (const key of ['channel', 'singleTemplate', ...])`, around L505). The round trip through `parseConfig` carries `channel: ''`, and that check would throw on every load.
+    - change `channel: s.channel ?? DEFAULT_SLACK.channel,` to `channel: DEFAULT_SLACK.channel,`. The channel is never read from a file or store any more; `withBoardStoreFallback` sets it.
   - Change the `SlackConfig.channel` doc comment to `/** The team's review channel from mattstack.directory; '' when it names none. */`.
   - Add `ownChannels?: string[];` to `BoardConfig`, with the doc comment `/** My team's channels from mattstack.directory, normalized; a code owners section naming one is my team's. */`.
 
@@ -671,11 +674,14 @@ Expected: FAIL. `slack.channel` is `code-review` and `ownChannels` is undefined.
     storeValue<TeamDirectory>('mattstack.directory', resolve),
     teamView.team()
   );
-  const { reviewKind, ...slackFields } =
-    storeValue<Partial<SlackConfig> & { reviewKind?: string }>(
-      'board.slack',
-      resolve
-    ) ?? {};
+  const {
+    reviewKind,
+    channel: _retired,
+    ...slackFields
+  } = storeValue<Partial<SlackConfig> & { reviewKind?: string }>(
+    'board.slack',
+    resolve
+  ) ?? {};
   const reviewChannel = mine
     ? (channelsOfKind(mine, reviewKind ?? 'review')[0] ?? '')
     : '';
@@ -731,7 +737,9 @@ git commit -m "board: the team directory is the only source of the review channe
 ### Task 5: Board routes by the directory and refuses with no review channel
 
 **Files:**
-- Modify: `apps/board/src/codeowner-posts.ts`. The `planOwnersPost` opts become `{ posted, slack?, ownChannels? }`; drop `ownSections` and `teamChannel`.
+- Modify: `apps/board/src/codeowner-posts.ts`:
+  - the `planOwnersPost` opts become `{ posted, slack?, ownChannels? }`; drop `ownSections` and `teamChannel`;
+  - export `NO_REVIEW_CHANNEL`. Server and client both import it, and both already import this module.
 - Modify: `apps/board/src/server.ts`:
   - `ownersPostPlan`;
   - `ownersPreviewOrPost`;
@@ -739,14 +747,17 @@ git commit -m "board: the team directory is the only source of the review channe
   - `sweepOnce`;
   - a new `NO_REVIEW_CHANNEL` constant.
 - Modify: `apps/board/src/data.ts`. `configuredSlackChannels` filters out `''`.
-- Modify: `apps/board/src/client/board/slack-post-flow.ts`. A 400 from the preview is a refusal: show it, and do not fall back.
-- Modify: `apps/board/docs/configuration.md` ("Posting to code owners")
+- Modify: `apps/board/src/client/board/slack-post-flow.ts`. A preview refused with exactly `NO_REVIEW_CHANNEL` is shown, with no fallback. Every other preview failure (5xx, a missing rtRepos mapping) still falls back to the team post, as today.
+- Modify:
+  - `apps/board/docs/configuration.md`: the "Posting to code owners" section, L100-101 (tab `slackChannel` overriding `slack.channel`) and L161 (a failed check still posts);
+  - `apps/board/docs/slack.md`: L66 and L80 document `slack.channel` with `code-review`.
 - Tests:
   - `apps/board/src/__tests__/codeowner-posts.test.ts`
   - `apps/board/src/__tests__/server-slack-owners.test.ts`
   - `apps/board/src/__tests__/server-slack-post-channel.test.ts`
   - `apps/board/src/__tests__/server-slack-channel.test.ts`
   - `apps/board/src/__tests__/server-slack-refresh.test.ts`
+  - `apps/board/src/__tests__/server-own-mr.test.ts`. Its "/slack/post posts it" case at ~L608 relied on the old `code-review` default.
   - `apps/board/src/client/board/__tests__/slack-post-flow.test.ts`
 
 **Interfaces:**
@@ -796,7 +807,17 @@ git commit -m "board: the team directory is the only source of the review channe
 
   The existing expectations (team channel `code-review`, `ours-channel` riding on the team row) stay unchanged.
 
-  Then add a second server boot that has no review channel. Copy the file's `Bun.spawn` block with its own `PORT` and its own temp HOME whose org settings hold `'mattstack.directory': { teams: { web: { slack: { codeOwnersChannel: 'ours-channel' } } } }`. Assert:
+  Then add a second server boot that has no review channel. First factor the file's setup into one function, `bootBoard({ port, directory })`, which the file calls twice. It writes everything the routes need, under a fresh temp HOME:
+  - the org store: `board.gitlabHost`, `board.projects`, the roster, `board.slack` (no channel), `board.tabs`, the `board.codeowners` repo section, and `mattstack.directory` set to the given `directory`;
+  - the team folder, `teams/web/settings.team.jsonc`;
+  - the user store: `board.defaultMember: 'alice'` and `mattstack.activeTeam: 'web'`;
+  - the machine key and the machine store's `board.rtRepos`;
+  - its own fake rt daemon on `<HOME>/.mattstack/rt/rt.sock`, answering `project-mrs:read` and `forge:get` as the file's daemon does;
+  - the `Bun.spawn` of `server.ts` on `port`, with the Slack mock preload.
+
+  It returns `{ port, stop }`.
+
+  Call it once with the directory above (the existing tests), and once on another port with `{ teams: { web: { slack: { codeOwnersChannel: 'ours-channel' } } } }`. Assert:
 
 ```ts
 for (const path of ['/slack/owners/preview', '/slack/owners/post', '/slack/post']) {
@@ -808,18 +829,33 @@ for (const path of ['/slack/owners/preview', '/slack/owners/post', '/slack/post'
 
 `postTo(port, path, body)` is the file's `post` helper with the port as a parameter. Kill the second server in `afterAll`.
 
-  Make the same fixture move in `server-slack-post-channel.test.ts`, `server-slack-channel.test.ts` and `server-slack-refresh.test.ts`: a team folder, `mattstack.activeTeam`, the review channel in `mattstack.directory`, and no `board.slack.channel`.
+  Make the same fixture move in these four files: a team folder, `mattstack.activeTeam`, the review channel in `mattstack.directory`, and no `board.slack.channel`.
+  - `server-slack-post-channel.test.ts`
+  - `server-slack-channel.test.ts`
+  - `server-slack-refresh.test.ts`
+  - `server-own-mr.test.ts`
+
+  Also delete the `ownSections: []` arguments in `codeowner-posts.test.ts` (around L52, L110, L129). That option no longer exists, so typecheck would flag them as excess properties.
 
 - [ ] **Step 3: Add the flow test.** In `slack-post-flow.test.ts`, add:
 
 ```ts
-test('a preview refused for setup reasons shows the refusal and posts nothing', async () => {
+test('no review channel shows the refusal and posts nothing', async () => {
   const { done, events } = run({
     '/slack/owners/preview': fail(400, 'Add a review channel for your team to the team directory'),
   });
   await done;
   expect(events).toContain('fail Add a review channel for your team to the team directory');
   expect(events.filter(e => e.startsWith('post /slack/post'))).toEqual([]);
+});
+
+test('any other refused preview still falls back to the team post', async () => {
+  const { done, events } = run({
+    '/slack/owners/preview': fail(400, 'g/p: no rtRepos mapping in config.json'),
+    '/slack/post': ok({ ok: true, posted: 1 }),
+  });
+  await done;
+  expect(events).toContain(`post /slack/post {"mrUrls":["${URL}"]}`);
 });
 ```
 
@@ -851,8 +887,17 @@ Expected: FAIL.
     if (sectionChannel && own.has(sectionChannel.toLowerCase())) {
 ```
 
+  Also in `codeowner-posts.ts`:
+
+```ts
+/** The refusal when the active team has no review channel in the directory; the client matches it exactly. */
+export const NO_REVIEW_CHANNEL =
+  'Add a review channel for your team to the team directory';
+```
+
   In `server.ts`:
-  - Add `const NO_REVIEW_CHANNEL = 'Add a review channel for your team to the team directory';` near `ownerPostsRunning`.
+  - Import `NO_REVIEW_CHANNEL` from `./codeowner-posts.ts`.
+  - In `/slack/resolve` (~L3776) and the signal-reaction path (~L4521), both of which fall back to `config.slack.channel`, return early with no lookup when the resolved channel is `''`. `/slack/resolve` answers `400 NO_REVIEW_CHANNEL`; the reaction path does nothing.
   - In `ownersPostPlan`, delete the `ownSections` computation. Pass `ownChannels: config.ownChannels ?? []` in both `planOwnersPost` calls, dropping `ownSections` and `teamChannel`.
   - At the top of `ownersPreviewOrPost`, add: `if (!channelForMR(config, mr)) return new Response(NO_REVIEW_CHANNEL, { status: 400 });`.
   - In `/slack/post`, right after `targetChannel` is resolved, add: `if (!targetChannel) return new Response(NO_REVIEW_CHANNEL, { status: 400 });`.
@@ -860,12 +905,12 @@ Expected: FAIL.
 
   In `data.ts` `configuredSlackChannels`, return `[...channels].filter(Boolean)`.
 
-  In `slack-post-flow.ts`, change the failed-preview branch to:
+  In `slack-post-flow.ts`, import `NO_REVIEW_CHANNEL` from `../../codeowner-posts.ts` and change the failed-preview branch to:
 
 ```ts
   if (!read.ok) {
-    if (read.status === 400)
-      return toast.fail(read.text || `could not check slack for !${mr.iid} (400)`);
+    if (read.status === 400 && read.text === NO_REVIEW_CHANNEL)
+      return toast.fail(NO_REVIEW_CHANNEL);
     return postTeam(
       mr,
       deps,
@@ -894,6 +939,11 @@ it a `slackChannel` of its own, and `board.ticketPrefixes` defaults to your
 team's Linear key.
 ```
 
+  Fix the other stale lines:
+  - **`configuration.md` L100-101:** a tab's `slackChannel` overrides "your team's code owners channel from `mattstack.directory`", no longer `slack.channel`.
+  - **`configuration.md` L161:** when the approvals cannot be read, the item still posts to the team channel, unless the team has no review channel. Then it says so and posts nothing.
+  - **`slack.md` L66 and L80:** replace the `slack.channel` / `code-review` lines with: "The channel the board posts to is your team's `review` channel in the org's `mattstack.directory` (`rt settings set mattstack.directory ... --scope org`). The board has no default channel."
+
 - [ ] **Step 7: Run the board suite**
 
 Run (from `apps/board`): `bun test`
@@ -916,6 +966,9 @@ git commit -m "board: route code owner sections by the team directory; no review
 **Files:**
 - Modify: `lib/setup/team-settings.ts` (`TeamIntegrations`, `readTeamSnapshot`)
 - Modify: `apps/boxscore/scripts/import-legacy-settings.ts`. It no longer writes `linear.teamKey` (lines ~87-100 and ~212).
+- Modify: `apps/boxscore/test/import-legacy.test.ts` (L50-78). Its `mergeIntegrations(current, { teamKey })` cases go away; the remaining host cases stay.
+- Modify: `apps/boxscore/README.md` (L86). Drop the `linear.teamKey` mention, and say the team's Linear key is in `mattstack.directory`.
+- Modify: `lib/setup/integrations.ts` (the L47 comment). It names `mattstack.directory`'s `linear.team` instead of `mattstack.integrations.linear.teamKey`.
 - Test: `lib/setup/__tests__/team-settings.test.ts`
 
 **Interfaces:**
@@ -971,13 +1024,13 @@ In `apps/boxscore/scripts/import-legacy-settings.ts`:
 - [ ] **Step 4: Run the tests**
 
 Run (repo root): `bun test lib/setup/__tests__/`
-Run: `bun test apps/boxscore/scripts` (only if that directory has tests: `ls apps/boxscore/scripts/__tests__` first)
+Run (repo root): `bun run boxscore:test` (vitest)
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/setup/team-settings.ts lib/setup/__tests__/team-settings.test.ts apps/boxscore/scripts/import-legacy-settings.ts
+git add lib/setup/team-settings.ts lib/setup/integrations.ts lib/setup/__tests__/team-settings.test.ts apps/boxscore/scripts/import-legacy-settings.ts apps/boxscore/test/import-legacy.test.ts apps/boxscore/README.md
 git commit -m "setup: the team's Linear key comes from the team directory"
 ```
 
@@ -989,19 +1042,26 @@ git commit -m "setup: the team's Linear key comes from the team directory"
 - Create: `lib/setup/migrations/team-directory.ts`
 - Modify: `lib/setup/migrations/index.ts` (append to `MIGRATIONS`)
 - Modify: `lib/setup/__tests__/migration-sdm-resources-key.test.ts`. Its "is the last migration in the list" becomes `expect(MIGRATIONS).toContain(sdmResourcesKeyMigration)`.
+- Modify: `commands/__tests__/onboarding-org.test.ts` (~L438). Add `"migration.2026-10-08-team-directory"` to `expectedOrder` after `"migration.2026-10-07-sdm-resources-key"`.
+- Check: `commands/__tests__/member-upgrade.test.ts`. If it pins the migration list or the last migration, add the new id the same way.
 - Test: `lib/setup/__tests__/migration-team-directory.test.ts`
 
 **Interfaces:**
 - Consumes:
-  - `orgLayoutState(p)` (`lib/team/org-layout.ts`);
+  - `orgLayoutState(p)` (`lib/team/org-layout.ts`); its kinds are `none`, `ready` and `waiting`;
   - `listTeamFolders` and `readStore` (rt-client `settings/stores.ts`);
-  - `orgSettingsPath`, `teamSettingsPath`, `userSettingsPath` and `machineSettingsPath` (rt-client `settings/paths.ts`);
-  - `setSetting`, `unsetSetting` and `SettingsOwnershipRefusal` (`lib/settings/write.ts`);
+  - `orgSettingsPath` and `teamSettingsPath` (rt-client `settings/paths.ts`);
+  - `getDef` (rt-client `settings/registry-machinery.ts`) and `readSection` (rt-client `settings/migrate.ts`);
+  - `setSetting`, `unsetSetting`, `pruneStoreName` and `SettingsOwnershipRefusal` (`lib/settings/write.ts`, which re-exports rt-client's);
   - `normalizeChannel`, `DirectoryTeam` and `TeamDirectory` (Task 2).
 - Produces:
   - `teamDirectoryMigration: MigrationDef` (id `2026-10-08-team-directory`);
-  - `entryFromTeamStore(values: Record<string, unknown>, orgValues: Record<string, unknown>): DirectoryTeam | null`;
-  - `withoutRetired(values: Record<string, unknown>, entry: DirectoryTeam): Array<{ key: string; value: unknown | undefined }>`. These are the writes that delete the moved values from one store; `value: undefined` means unset the key.
+  - `entryFromTeamStore(values, orgValues): DirectoryTeam | null`;
+  - `withoutRetired(values, entry): Array<{ key: string; value: unknown | undefined }>`. These writes delete one store's moved values; `value: undefined` means unset.
+
+Constraints:
+- `board.tabs` has `storeVersion: 2`, so a store may hold it as `board.tabs` (v1) or `board.tabs@2`. Always read it with `readSection(getDef("board.tabs")!, values, { layer: false }).value`. After writing it, prune every older name with `pruneStoreName(..., { force: true })`. Without the prune, the stale v1 value stays behind and a second run sees it again.
+- `board.slack` and `mattstack.integrations` allow only `team` and `org` scopes. User and machine stores can't hold them, and the resolver skips any such value, so there is no per-Mac cleanup.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1011,6 +1071,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { readSection } from "../../../packages/rt-client/src/settings/migrate.ts";
+import { getDef } from "../../../packages/rt-client/src/settings/registry-machinery.ts";
 import { readStore } from "../../../packages/rt-client/src/settings/stores.ts";
 import { seedOrg, type SeedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -1027,12 +1089,14 @@ function seedClone(opts: SeedOrg) {
   return seeded;
 }
 const store = (file: string) => readStore(file).global as Record<string, unknown>;
+const tabsIn = (file: string) => readSection(getDef("board.tabs")!, store(file), { layer: false }).value as Array<Record<string, unknown>>;
 
 const TABS = [
   { id: "team", label: "Team", source: { kind: "authors" } },
   { id: "q", label: "Q", source: { kind: "codeowners", section: "Claim - #pod-claim" }, slackChannel: "pod-claim" },
   { id: "w", label: "W", source: { kind: "codeowners", section: "Acme - #pod-acme" }, slackChannel: "pod-acme" },
 ];
+// The v1 store name, as the live team store holds it today.
 const CLAIM_STORE = {
   "mattstack.integrations": { linear: { teamKey: "CV" } },
   "board.slack": { channel: "claim-internal", singleTemplate: "{title}: {url}" },
@@ -1050,6 +1114,10 @@ describe("entryFromTeamStore", () => {
   test("builds an entry from the Linear key, the board channel and the first codeowners tab channel", () => {
     expect(entryFromTeamStore(CLAIM_STORE, {})).toEqual(ENTRY);
   });
+  test("reads tabs stored under the current versioned name too", () => {
+    const { "board.tabs": tabs, ...rest } = CLAIM_STORE;
+    expect(entryFromTeamStore({ ...rest, "board.tabs@2": tabs }, {})).toEqual(ENTRY);
+  });
   test("takes the org's board channel when the team has none", () => {
     expect(entryFromTeamStore({}, { "board.slack": { channel: "org-review" } })).toEqual({
       slack: { channels: [{ name: "org-review", kind: "review" }] },
@@ -1065,13 +1133,12 @@ describe("withoutRetired", () => {
     expect(withoutRetired(CLAIM_STORE, ENTRY)).toEqual([
       { key: "board.slack", value: { singleTemplate: "{title}: {url}" } },
       { key: "mattstack.integrations", value: undefined },
-      { key: "board.tabs", value: [TABS[0], { ...TABS[1], slackChannel: undefined }, TABS[2]].map((t) => JSON.parse(JSON.stringify(t))) },
+      { key: "board.tabs", value: [TABS[0], { id: "q", label: "Q", source: TABS[1]!.source }, TABS[2]] },
       { key: "board.ticketPrefixes", value: undefined },
     ]);
   });
   test("keeps ticket prefixes that add to the Linear key", () => {
-    const writes = withoutRetired({ "board.ticketPrefixes": ["CV", "PLA"] }, ENTRY);
-    expect(writes.find((w) => w.key === "board.ticketPrefixes")).toBeUndefined();
+    expect(withoutRetired({ "board.ticketPrefixes": ["CV", "PLA"] }, ENTRY).find((w) => w.key === "board.ticketPrefixes")).toBeUndefined();
   });
 });
 
@@ -1107,7 +1174,8 @@ describe("2026-10-08-team-directory", () => {
     expect(team["board.slack"]).toEqual({ singleTemplate: "{title}: {url}" });
     expect(team["mattstack.integrations"]).toBeUndefined();
     expect(team["board.ticketPrefixes"]).toBeUndefined();
-    expect((team["board.tabs"] as Array<{ slackChannel?: string }>).map((t) => t.slackChannel)).toEqual([undefined, undefined, "pod-acme"]);
+    expect(team["board.tabs"]).toBeUndefined();
+    expect(tabsIn(teamStores.claim!).map((t) => t.slackChannel)).toEqual([undefined, undefined, "pod-acme"]);
   });
 
   test("a second run changes nothing", async () => {
@@ -1129,7 +1197,7 @@ describe("2026-10-08-team-directory", () => {
     expect(store(teamStores.claim!)["mattstack.integrations"]).toBeUndefined();
   });
 
-  test("a Mac that cannot write the org store leaves shared stores alone", async () => {
+  test("a Mac that cannot write the org store leaves every shared store alone", async () => {
     const { orgStore, teamStores } = seedClone({
       username: "me",
       roles: { admins: ["someone-else"], teams: { claim: { owners: ["someone-else"] } } },
@@ -1140,21 +1208,6 @@ describe("2026-10-08-team-directory", () => {
     expect(result.state).toBe("skipped");
     expect(store(orgStore)["mattstack.directory"]).toBeUndefined();
     expect(store(teamStores.claim!)["board.slack"]).toEqual(CLAIM_STORE["board.slack"]);
-  });
-
-  test("every Mac drops board.slack.channel from its own user store", async () => {
-    seedClone({
-      username: "me",
-      roles: { admins: ["someone-else"], teams: { claim: { owners: ["someone-else"] } } },
-      roster,
-      teams: { claim: {} },
-    });
-    const userStore = join(home, ".mattstack", "user", "settings.user.jsonc");
-    mkdirSync(join(home, ".mattstack", "user"), { recursive: true });
-    writeFileSync(userStore, JSON.stringify({ "board.slack": { channel: "mine", emoji: { commented: "comment" } } }));
-    const result = await run();
-    expect(result.state).toBe("done");
-    expect(store(userStore)["board.slack"]).toEqual({ emoji: { commented: "comment" } });
   });
 });
 ```
@@ -1168,10 +1221,12 @@ Expected: FAIL, "Cannot find module '../migrations/team-directory.ts'".
 
 ```ts
 // lib/setup/migrations/team-directory.ts
-import { machineSettingsPath, orgSettingsPath, teamSettingsPath, userSettingsPath } from "../../../packages/rt-client/src/settings/paths.ts";
+import { readSection } from "../../../packages/rt-client/src/settings/migrate.ts";
+import { orgSettingsPath, teamSettingsPath } from "../../../packages/rt-client/src/settings/paths.ts";
+import { getDef } from "../../../packages/rt-client/src/settings/registry-machinery.ts";
 import { listTeamFolders, readStore } from "../../../packages/rt-client/src/settings/stores.ts";
 import { normalizeChannel, type DirectoryTeam, type TeamDirectory } from "../../../packages/rt-client/src/settings/team-directory.ts";
-import { SettingsOwnershipRefusal, setSetting, unsetSetting } from "../../settings/write.ts";
+import { pruneStoreName, SettingsOwnershipRefusal, setSetting, unsetSetting } from "../../settings/write.ts";
 import { orgLayoutState } from "../../team/org-layout.ts";
 import type { MigrationDef } from "./index.ts";
 
@@ -1180,12 +1235,13 @@ type Write = { key: string; value: unknown | undefined };
 type Values = Record<string, unknown>;
 
 const slackOf = (v: Values) => v["board.slack"] as ({ channel?: string } & Values) | undefined;
+/** board.tabs is versioned; a store may hold it under either name. */
+const tabsOf = (v: Values) => readSection(getDef("board.tabs")!, v, { layer: false }).value as Tab[] | undefined;
 
 export function entryFromTeamStore(values: Values, orgValues: Values): DirectoryTeam | null {
   const linear = (values["mattstack.integrations"] as { linear?: { teamKey?: string } } | undefined)?.linear?.teamKey;
   const review = slackOf(values)?.channel ?? slackOf(orgValues)?.channel;
-  const tabs = (values["board.tabs"] as Tab[] | undefined) ?? [];
-  const codeOwners = tabs.find((t) => t.source?.kind === "codeowners" && t.slackChannel)?.slackChannel;
+  const codeOwners = (tabsOf(values) ?? []).find((t) => t.source?.kind === "codeowners" && t.slackChannel)?.slackChannel;
   if (!linear && !review && !codeOwners) return null;
   return {
     ...(linear ? { linear: { team: linear } } : {}),
@@ -1216,12 +1272,13 @@ export function withoutRetired(values: Values, entry: DirectoryTeam): Write[] {
     writes.push({ key: "mattstack.integrations", value: Object.keys(next).length ? next : undefined });
   }
   const own = entry.slack?.codeOwnersChannel;
-  const tabs = values["board.tabs"] as Tab[] | undefined;
-  if (own && tabs?.some((t) => t.source?.kind === "codeowners" && t.slackChannel && normalizeChannel(t.slackChannel) === normalizeChannel(own))) {
+  const tabs = tabsOf(values);
+  const isOwn = (t: Tab) => t.source?.kind === "codeowners" && !!t.slackChannel && !!own && normalizeChannel(t.slackChannel) === normalizeChannel(own);
+  if (tabs?.some(isOwn)) {
     writes.push({
       key: "board.tabs",
       value: tabs.map((t) => {
-        if (t.source?.kind !== "codeowners" || !t.slackChannel || normalizeChannel(t.slackChannel) !== normalizeChannel(own)) return t;
+        if (!isOwn(t)) return t;
         const { slackChannel: _s, ...rest } = t;
         return rest;
       }),
@@ -1235,10 +1292,15 @@ export function withoutRetired(values: Values, entry: DirectoryTeam): Write[] {
   return writes;
 }
 
-function apply(writes: Write[], scope: "org" | "team" | "user" | "machine", opts: { team?: string } = {}): number {
+function apply(org: string, writes: Write[], scope: "org" | "team", opts: { team?: string } = {}): number {
   for (const w of writes) {
     if (w.value === undefined) unsetSetting(w.key, scope, opts);
     else setSetting(w.key, w.value, scope, opts);
+    if (w.key === "board.tabs") {
+      const file = scope === "team" ? teamSettingsPath(org, opts.team!) : orgSettingsPath(org);
+      for (const older of readSection(getDef("board.tabs")!, readStore(file).global, { layer: false }).older)
+        pruneStoreName("board.tabs", older.name, scope, { ...opts, force: true });
+    }
   }
   return writes.length;
 }
@@ -1247,22 +1309,17 @@ export const teamDirectoryMigration: MigrationDef = {
   id: "2026-10-08-team-directory",
   title: "Move your teams' channels and Linear keys into the team directory",
   async run(ctx) {
-    let changed = 0;
-    // Every Mac: its own user and machine stores.
-    for (const scope of ["user", "machine"] as const) {
-      const slack = readScope(scope)["board.slack"] as Values | undefined;
-      if (slack && "channel" in slack) changed += apply(withoutRetired({ "board.slack": slack }, {}), scope);
-    }
-
     const layout = orgLayoutState(ctx.p);
-    if (layout.kind !== "ready") return outcome(changed, layout.kind === "none" ? "This Mac is in no org" : "Your org has not moved to its new layout yet");
+    if (layout.kind === "none") return { state: "skipped", detail: "This Mac is in no org" };
+    if (layout.kind === "waiting") return { state: "skipped", detail: "Your org has not moved to its new layout yet; nothing to move on this Mac" };
     const org = layout.slug;
     const orgValues = readStore(orgSettingsPath(org)).global;
     const existing = (orgValues["mattstack.directory"] ?? {}) as TeamDirectory;
     const teams = { ...(existing.teams ?? {}) };
     const claimed = new Set(Object.values(teams).flatMap((t) => (t.slack?.codeOwnersChannel ? [normalizeChannel(t.slack.codeOwnersChannel)] : [])));
+    const folders = listTeamFolders(org);
     let added = 0;
-    for (const team of listTeamFolders(org)) {
+    for (const team of folders) {
       if (teams[team]) continue;
       const entry = entryFromTeamStore(readStore(teamSettingsPath(org, team)).global, orgValues);
       if (!entry) continue;
@@ -1272,50 +1329,45 @@ export const teamDirectoryMigration: MigrationDef = {
       teams[team] = entry;
       added++;
     }
+    let changed = 0;
     try {
       if (added > 0) {
         setSetting("mattstack.directory", { ...existing, teams }, "org");
         changed += added;
       }
       for (const [team, entry] of Object.entries(teams)) {
-        if (!listTeamFolders(org).includes(team)) continue;
-        changed += apply(withoutRetired(readStore(teamSettingsPath(org, team)).global, entry), "team", { team });
+        if (!folders.includes(team)) continue;
+        changed += apply(org, withoutRetired(readStore(teamSettingsPath(org, team)).global, entry), "team", { team });
       }
-      const orgSlack = orgValues["board.slack"] as Values | undefined;
-      if (orgSlack && "channel" in orgSlack) changed += apply(withoutRetired({ "board.slack": orgSlack }, {}), "org");
+      const orgSlack = slackOf(orgValues);
+      if (orgSlack && "channel" in orgSlack) changed += apply(org, withoutRetired({ "board.slack": orgSlack }, {}), "org");
     } catch (err) {
       if (!(err instanceof SettingsOwnershipRefusal)) throw err;
+      if (changed === 0) return { state: "skipped", detail: "Only an org admin's Mac moves the team settings" };
     }
-    return outcome(changed, "Nothing left to move on this Mac");
+    return changed > 0
+      ? { state: "done", detail: `Moved ${changed} ${changed === 1 ? "setting" : "settings"} into the team directory` }
+      : { state: "skipped", detail: "Nothing left to move on this Mac" };
   },
 };
-
-function outcome(changed: number, nothing: string) {
-  return changed > 0
-    ? { state: "done" as const, detail: `Moved ${changed} ${changed === 1 ? "setting" : "settings"} into the team directory` }
-    : { state: "skipped" as const, detail: nothing };
-}
 ```
 
-Add `readScope`, with `userSettingsPath` and `machineSettingsPath` added to the `paths.ts` import:
-
-```ts
-function readScope(scope: "user" | "machine"): Values {
-  return readStore(scope === "user" ? userSettingsPath() : machineSettingsPath()).global;
-}
-```
-
-In `index.ts`, import `teamDirectoryMigration` and append it after `sdmResourcesKeyMigration`. In `migration-sdm-resources-key.test.ts`, change "is the last migration in the list" to `expect(MIGRATIONS).toContain(sdmResourcesKeyMigration);`.
+In `index.ts`, import `teamDirectoryMigration` and append it after `sdmResourcesKeyMigration`. Then make the two test edits from the Files list:
+- the sdm test's "last migration" assertion;
+- `onboarding-org.test.ts`'s `expectedOrder`.
 
 - [ ] **Step 4: Run the tests**
 
-Run (repo root): `bun test lib/setup/__tests__/migration-team-directory.test.ts lib/setup/__tests__/migration-sdm-resources-key.test.ts lib/setup/__tests__/migrations.test.ts`
+Run (repo root):
+- `bun test lib/setup/__tests__/migration-team-directory.test.ts lib/setup/__tests__/migration-sdm-resources-key.test.ts lib/setup/__tests__/migrations.test.ts`
+- `bun test commands/__tests__/onboarding-org.test.ts commands/__tests__/member-upgrade.test.ts`
+
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/setup/migrations/ lib/setup/__tests__/migration-team-directory.test.ts lib/setup/__tests__/migration-sdm-resources-key.test.ts
+git add lib/setup/migrations/ lib/setup/__tests__/migration-team-directory.test.ts lib/setup/__tests__/migration-sdm-resources-key.test.ts commands/__tests__/onboarding-org.test.ts commands/__tests__/member-upgrade.test.ts
 git commit -m "setup: move team channels and Linear keys into the team directory, delete the old settings"
 ```
 
@@ -1327,7 +1379,7 @@ git commit -m "setup: move team channels and Linear keys into the team directory
 - Test: `apps/console/src/app/settings/groups.test.ts`
 
 **Interfaces:**
-- Consumes: the `mattstack.directory` row and lock (Task 1). No console code changes are expected: the console reads the registry, and the key's shape falls to its JSON editor.
+- Consumes: the `mattstack.directory` row and lock (Task 1). No console code changes are expected: the console reads the registry, and this key's shape falls to its JSON editor.
 
 - [ ] **Step 1: Pin the group.** In `groups.test.ts`, add:
 
@@ -1340,12 +1392,16 @@ it('puts the team directory in the Suite group', () => {
 Run (repo root): `bun run console:test`
 Expected: PASS.
 
-- [ ] **Step 2: Look at it in both schemes.** Start the console from this worktree (from `apps/console`): `PORT=11091 bun run dev`. It reads this Mac's real settings, so view only and save nothing. With Fast Browser, open `http://localhost:11091/settings?explain=mattstack.directory` and screenshot it in light and dark. Check that:
-  - the row sits under Suite;
-  - the JSON editor opens with the schema's titles and descriptions;
-  - the value reads as unset. Task 7 has not run on this Mac yet.
+- [ ] **Step 2: Look at it in both schemes.** Run this branch's console server, not the deck-served one; `bun run dev` alone proxies `/api` to the shared checkout's console on 11011. From `apps/console`, following `apps/console/scripts/parity/run.md`:
+  1. Start `PORT=11091 bun run src/server/index.ts`.
+  2. Start `CONSOLE_API_PORT=11091 bunx vite --port 5191 --strictPort`.
+  3. With Fast Browser, open `http://localhost:5191/settings?explain=mattstack.directory` and screenshot it in light and dark. Check that:
+     - the row sits under Suite;
+     - the JSON editor opens with the schema's titles and descriptions;
+     - the value reads as unset.
+  4. Open `?explain=board.slack` and check that `channel` is no longer a field.
 
-  Also open `?explain=board.slack` and check that `channel` no longer shows as a field. Say plainly what looks wrong. Stop the dev server.
+  It reads this Mac's real settings, so view only and save nothing. Say plainly what looks wrong. Stop both processes.
 
 - [ ] **Step 3: Commit**
 

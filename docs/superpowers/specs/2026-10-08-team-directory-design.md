@@ -115,9 +115,10 @@ with deep merge. The board reads a missing value as `"review"`, app-side,
 since `board.*` rows carry no default.
 
 The directory is the only source:
-- With no review channel for my team, posting refuses with "Add a review
-  channel for your team to the team directory", and the code owners dialog
-  has no team row.
+- With no review channel for my team, the whole post refuses with "Add a
+  review channel for your team to the team directory": the team post and the
+  code owners dialog alike. A team without a review channel is
+  misconfigured, and the refusal names the fix.
 - The codeowners tab no longer decides which sections are mine.
 
 ### Board: the codeowners tab's channel
@@ -147,8 +148,9 @@ the write gate:
 - Two teams claiming the same `codeOwnersChannel` is refused, since matching
   would be ambiguous.
 - A `kind` that no app reads is accepted with a notice. That catches typos
-  (`reveiw`) without banning team-defined kinds. The known kinds list lives in
-  rt-client beside the directory reads: `review` today.
+  (`reveiw`) without banning team-defined kinds. `rt settings set` prints
+  the notice; a console save shows only refusals. The known kinds list lives
+  in rt-client beside the directory reads: `review` today.
 
 ## Editing
 
@@ -185,8 +187,13 @@ are worse than a one-time cutover. One dated `MigrationDef`,
 
    Then delete `board.slack.channel` from the org store.
 
-**On every Mac:** delete `board.slack.channel` from that Mac's user and
-machine stores.
+There is no per-Mac cleanup. `board.slack` and `mattstack.integrations`
+allow only the team and org scopes, so user and machine stores cannot hold
+them, and the resolver skips any such value.
+
+`board.tabs` is stored versioned (`board.tabs@2`), so the migration reads it
+under either name. After rewriting it, the migration prunes the older name, so
+no stale copy stays behind.
 
 Rules:
 - A value is deleted only after its team's entry is in the directory.
@@ -219,7 +226,7 @@ after the admin's Mac migrates loses their posting channel until they update.
   - seeding, and never overwriting an existing entry;
   - deleting each moved value;
   - a Mac that cannot write shared stores;
-  - user and machine store cleanup.
+  - `board.tabs` read under either store name, and the old name pruned.
 
 ## Open questions
 
