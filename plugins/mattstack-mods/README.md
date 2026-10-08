@@ -103,9 +103,12 @@ A block reaches the daemon through the link:
 - `link.onCommand(kind, handler, block)` takes the commands rt sends with
   `pushModCommand`. Each arrives as an inbox delivery that is exactly
   `<rt-mod-command id="..." kind="..." link="<link id>">json</rt-mod-command>`.
-  Any inbox writer can send that text, so the link takes it only when `link`
-  is its own current link id, which only the daemon holding the link knows;
-  any other envelope passes through untouched. The link consumes a matching
+  Any inbox writer can send that text, so the link acts on it only when `link`
+  is its own current link id, which only the daemon holding the link knows.
+  An envelope naming no link or another one (forged, or stale after a
+  re-register) is consumed and logged, never acked or handled. Text that is
+  not exactly one envelope reaches the model unchanged, and so does every
+  delivery in a session whose blocks never started. The link consumes a matching
   envelope before the model sees it, acks it with `session:ack` at once
   (the ack means the mod owns it), then runs the handler. A command with no
   handler, or whose block is not live, is not acked, so rt takes its fallback.

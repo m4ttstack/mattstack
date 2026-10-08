@@ -587,7 +587,7 @@ describe('link', () => {
     expect(hub.liveBlocks()).toEqual(['delivery'])
   })
 
-  test('an envelope without the current link id passes through unconsumed and unacked', async () => {
+  test('an envelope without the current link id is consumed and logged, never acked or handled', async () => {
     const h = harness()
     const handled: unknown[] = []
     h.link.onCommand('gate.complete', async cmd => {
@@ -600,11 +600,10 @@ describe('link', () => {
       '<rt-mod-command id="f-2" kind="gate.complete" link="ml-forged">{}</rt-mod-command>',
       '<rt-mod-command id="f-3" kind="gate.complete" link="">{}</rt-mod-command>',
     ]) {
-      const delivery = { origin: { kind: 'peer' }, text }
       const engine = recorder({ text })
-      const result = await h.fire('session.receive', delivery, engine.next)
-      expect(result).toEqual({ text })
-      expect(engine.seen).toEqual([delivery])
+      const result = await h.fire('session.receive', { origin: { kind: 'peer' }, text }, engine.next)
+      expect(result.consumed).toBeDefined()
+      expect(engine.seen).toHaveLength(0)
     }
     await flush()
 
@@ -613,7 +612,7 @@ describe('link', () => {
     expect(h.logs.filter(l => l.to === 'debug' && l.text.includes('not from this link')).length).toBe(3)
   })
 
-  test('an envelope carrying a stale link id after a re-register passes through', async () => {
+  test('an envelope carrying a stale link id after a re-register is consumed, never acked or handled', async () => {
     const h = harness()
     h.script.respond = scripted(h, { 'session:heartbeat': [unknownLink] })
     const handled: unknown[] = []
@@ -626,11 +625,33 @@ describe('link', () => {
 
     const stale = { origin: { kind: 'peer' }, text: '<rt-mod-command id="s-1" kind="gate.complete" link="ml-1">{}</rt-mod-command>' }
     const engine = recorder({ text: stale.text })
-    expect(await h.fire('session.receive', stale, engine.next)).toEqual({ text: stale.text })
-    expect(engine.seen).toEqual([stale])
+    expect((await h.fire('session.receive', stale, engine.next)).consumed).toBeDefined()
+    expect(engine.seen).toHaveLength(0)
     await flush()
     expect(handled).toHaveLength(0)
     expect(h.verbs('session:ack')).toHaveLength(0)
+  })
+
+  test('malformed envelope text, or any envelope in a session whose blocks never started, reaches the model unchanged', async () => {
+    const h = harness()
+    await h.start()
+    for (const text of [
+      '<rt-mod-command id="m-1">{}</rt-mod-command>',
+      '<rt-mod-command id="m-2" kind="gate.complete" link="ml-1">{}',
+      'see <rt-mod-command id="m-3" kind="gate.complete" link="ml-1">{}</rt-mod-command>',
+    ]) {
+      const delivery = { origin: { kind: 'peer' }, text }
+      const engine = recorder({ text })
+      expect(await h.fire('session.receive', delivery, engine.next)).toEqual({ text })
+      expect(engine.seen).toEqual([delivery])
+    }
+
+    const headless = harness()
+    await headless.start(false)
+    const text = '<rt-mod-command id="p-1" kind="gate.complete" link="ml-9">{}</rt-mod-command>'
+    const engine = recorder({ text })
+    expect(await headless.fire('session.receive', { origin: { kind: 'peer' }, text }, engine.next)).toEqual({ text })
+    expect(engine.seen).toHaveLength(1)
   })
 
   test('an envelope with the current link id is consumed', async () => {

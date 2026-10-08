@@ -297,14 +297,16 @@ export function createLink(hub: Hub): Link {
   // Only a delivery that is wholly one envelope is a command: a chat message
   // quoting an envelope arrives wrapped in its cross-session-message. Any
   // inbox writer can send one, so it must also carry this session's current
-  // link id, which only the daemon holding the link knows.
+  // link id, which only the daemon holding the link knows. In a session whose
+  // blocks never started, the mod is not there, so every delivery passes.
   function receive(a: ModApi, e: Receive): ReceiveResult | undefined {
+    if (!api) return undefined
     const match = COMMAND_ENVELOPE.exec(e.text.trim())
     if (!match) return undefined
     const [, cmdId, kind, link, raw] = match as unknown as [string, string, string, string | undefined, string]
     if (id === null || link !== id) {
-      log(`command ${kind} ${cmdId} is not from this link (it names ${link === undefined ? 'no link' : `link ${link || '""'}`}); passing it through`)
-      return undefined
+      log(`command ${kind} ${cmdId} is not from this link (it names ${link === undefined ? 'no link' : `link ${link || '""'}`}); dropped unacked`)
+      return { consumed: `mattstack-mods command ${kind} ${cmdId} not from this link` }
     }
     let data: unknown
     try {
