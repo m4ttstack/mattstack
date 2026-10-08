@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { auditJsonPayload, buildAuditInvocation, buildAuditPrompt, buildAuditRun, resolveAuditInputs, skillsAudit } from "../skills-audit.ts";
@@ -108,5 +108,27 @@ describe("skillsAudit exit paths", () => {
     );
     expect(exitCode).toBe(2);
     expect(errors).toEqual(["That pack folder does not exist", "  /definitely/does/not/exist/rt-skills-audit-test"]);
+  });
+
+  test("an org waiting on its layout is a refused note, exit 2, never a failure", async () => {
+    const home = mkdtempSync(join(tmpdir(), "rt-skills-audit-home-"));
+    const prevHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const clone = join(home, ".mattstack", "orgs", "acme");
+      mkdirSync(join(clone, "mattstack"), { recursive: true });
+      mkdirSync(join(clone, ".git"), { recursive: true });
+      writeFileSync(join(clone, ".git", "config"), "");
+      writeFileSync(join(clone, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }));
+      const { exitCode, errors } = await runExpectingCleanExit(() => skillsAudit(["--pack", "widgets"]));
+      expect(exitCode).toBe(2);
+      const stderr = errors.join("\n");
+      expect(stderr).toContain("Your org has not moved to its new layout yet. rt finishes the move when it does.");
+      expect(stderr).toContain("refused");
+      expect(stderr).not.toContain("[failed]");
+    } finally {
+      process.env.HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

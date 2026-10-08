@@ -15,6 +15,7 @@ import { parseRemote } from "../skills/init.ts";
 import { ENGINE_PACK_REF, findInstalledPluginDir } from "../skills/installed-plugins.ts";
 import { materializeRepo, type MaterializeRepoOutcome, type PackOutcome } from "../skills/materialize.ts";
 import { UserActionableError } from "../errors.ts";
+import { layoutSentence, orgLayoutState } from "../team/org-layout.ts";
 import { remedySentence } from "../team/team-pack-path.ts";
 import type { Probes } from "./probes.ts";
 
@@ -47,7 +48,8 @@ export interface MaterializeRepoResult {
 }
 
 export type MaterializeSkillsResult =
-  | { skipped: true; reason: string; repos: [] }
+  | { skipped: true; waiting?: undefined; reason: string; repos: [] }
+  | { skipped: true; waiting: true; reason: string; repos: [] }
   | { skipped: false; repos: MaterializeRepoResult[] };
 
 /** One wording for every step that reports a materialize run: a repo nothing declares is its own count, never a failure. */
@@ -127,6 +129,8 @@ function describe(packs: PackOutcome[]): string {
 
 export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: string }): Promise<MaterializeSkillsResult> {
   if (opts.repo && opts.dir) throw new UserActionableError("flags-conflict", "pass --repo or --dir, not both");
+  const layout = orgLayoutState(p);
+  if (layout.kind === "waiting") return { skipped: true, waiting: true, reason: layoutSentence(layout), repos: [] };
   const enginePackDir = findEnginePackDir(p);
   if (!enginePackDir) {
     return { skipped: true, reason: `${ENGINE_PACK_MISSING_CODE}: install the mattstack plugin first, then run this again`, repos: [] };

@@ -1,7 +1,9 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "fs";
-import { join, posix, relative, sep } from "path";
+import { dirname, join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
+import { layoutAbove, markerAtRef, updateSentence } from "../team/org-layout.ts";
+import { ORG_MARKER_REL, parseMarker } from "../team/org-marker.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -23,7 +25,14 @@ export type SyncDeps = {
   orgsRoot?: string | null;
 };
 
-export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string };
+/**
+ * Set only on a pull-pack the org layout gate held; a caller tells the hold
+ * from a failed pull by this, never by the sentence. A symbol key, so the
+ * --json envelope (JSON.stringify) never carries it.
+ */
+export const LAYOUT_HOLD: unique symbol = Symbol("layoutHold");
+
+export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string; [LAYOUT_HOLD]?: true };
 
 /** `expect` is the signature `rt skills changes` printed: the sync refuses when the pack's pending changes no longer match it. */
 export type SyncOptions = { commitPending?: boolean; expect?: string };
@@ -57,7 +66,7 @@ export function bumpPatchVersion(packDir: string): { before: string; after: stri
   return { before: before as string, after };
 }
 
-type Outcome = Pick<SyncStep, "status" | "detail">;
+type Outcome = Pick<SyncStep, "status" | "detail" | typeof LAYOUT_HOLD>;
 
 function ran(detail: string): Outcome {
   return { status: "ran", detail };
@@ -139,6 +148,23 @@ function realRoot(root: string | null): string | null {
     return realpathSync(root);
   } catch {
     return null;
+  }
+}
+
+/**
+ * The top of the git checkout holding dir, when that checkout carries an org
+ * marker: its pull must pass the same layout gate the daemon's team pull does.
+ */
+function orgCloneTop(dir: string): string | null {
+  let at = realRoot(dir) ?? dir;
+  for (;;) {
+    if (existsSync(join(at, ".git"))) {
+      const marker = join(at, ORG_MARKER_REL);
+      return existsSync(marker) && parseMarker(readFileSync(marker, "utf8")).kind === "org" ? at : null;
+    }
+    const up = dirname(at);
+    if (up === at) return null;
+    at = up;
   }
 }
 
@@ -533,8 +559,29 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       if (sameCheckout) engineSourceVersion = packSourceVersion;
       return skipped(`The pack is in the shared checkout at ${pack.dir}, which rt keeps current when it updates this Mac${branchNote}`);
     }
-    const res = await deps.run("git", ["pull", "--ff-only"], { cwd: pack.dir });
-    if (res.code !== 0) return refused(`Pulling ${pack.dir} failed: ${res.stderr.trim()}. Sort it out by hand, then run this again`);
+    const pullFailed = (stderr: string) => refused(`Pulling ${pack.dir} failed: ${stderr.trim()}. Sort it out by hand, then run this again`);
+    const clone = orgCloneTop(pack.dir);
+    let res: RunResult;
+    if (clone !== null) {
+      const fetched = await deps.run("git", ["fetch"], { cwd: clone });
+      if (fetched.code !== 0) return pullFailed(fetched.stderr);
+      const branch = await deps.run("git", ["branch", "--show-current"], { cwd: clone });
+      if (branch.code !== 0) return pullFailed(branch.stderr);
+      const tip = `refs/remotes/origin/${branch.stdout.trim()}`;
+      const shown = await deps.run("git", ["show", markerAtRef(tip)], { cwd: clone });
+      let hold: { layout: number } | null;
+      try {
+        hold = layoutAbove(shown);
+      } catch (e) {
+        return pullFailed(e instanceof Error ? e.message : String(e));
+      }
+      if (hold) return { ...refused(updateSentence(hold.layout)), [LAYOUT_HOLD]: true };
+      // A merge of the gated ref, not a pull: a pull fetches again and could land a newer tip the gate never read.
+      res = await deps.run("git", ["merge", "--ff-only", tip], { cwd: clone });
+    } else {
+      res = await deps.run("git", ["pull", "--ff-only"], { cwd: pack.dir });
+    }
+    if (res.code !== 0) return pullFailed(res.stderr);
     packSourceVersion = readManifestVersion(pack.dir);
     if (sameCheckout) engineSourceVersion = packSourceVersion;
     return ran(res.stdout.trim() || "up to date");

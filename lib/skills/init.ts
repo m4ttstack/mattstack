@@ -10,6 +10,8 @@ import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
+import { parseMarker } from "../team/org-marker.ts";
+import { orgLayoutWaitingError, pickedCloneReady, pickOrgClone } from "../team/org-layout.ts";
 import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, teamPackSource, unconvertedTeamPackError } from "../team/team-pack-path.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
@@ -146,36 +148,44 @@ export function zoneTeamConfigReads(fs: InitFs, zoneDir: string): boolean {
 }
 
 /**
- * One zone per team folder of every org clone. A team's pack claims the
+ * One zone per team folder of the org clone pickOrgClone picks; any other
+ * folder under the root is never read. A team's pack claims the
  * projects in board.projects as that team resolves it (the team's own list,
  * else the org's), on board.gitlabHost, else the forge host.
  */
 export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
   const zones: ZoneInfo[] = [];
-  for (const org of [...fs.readDir(teams)].sort()) {
-    if (!isOrgSlug(org)) continue;
-    const orgDir = join(teams, org);
-    const marker = readJsonc(fs, join(orgDir, "mattstack", "mattstack.jsonc"));
-    if (marker?.role !== "org") continue;
-    const orgSettings = storeGlobal(fs, join(orgDir, "mattstack", "org", "settings.org.jsonc"));
-    const market = readJsonc(fs, join(orgDir, ".claude-plugin", "marketplace.json"));
-    const marketplace = typeof market?.name === "string" ? market.name : null;
-    const teamsRoot = join(orgDir, "mattstack", "teams");
-    for (const team of [...fs.readDir(teamsRoot)].sort()) {
-      if (!TEAM_NAME_RE.test(team)) continue;
-      const dir = join(teamsRoot, team);
-      const teamSettings = storeGlobal(fs, join(dir, "settings.team.jsonc"));
-      if (teamSettings === null) continue;
-      const projects = [stored("board.projects", teamSettings), stored("board.projects", orgSettings)].find(isStringList) ?? [];
-      const host =
-        hostOnly(stored("board.gitlabHost", teamSettings)) ??
-        hostOnly(stored("board.gitlabHost", orgSettings)) ??
-        hostOnly(forgeHost(teamSettings)) ??
-        hostOnly(forgeHost(orgSettings));
-      if (isUnconvertedTeamPack(fs, dir, team)) throw unconvertedTeamPackError(orgDir, team);
-      const packDir = zonePackDir({ dir });
-      zones.push({ slug: `${org}/${team}`, org, team, orgDir, dir, host, projects, marketplace, hasPack: isPackDir(fs, packDir) && !isBasePack(fs, packDir), packCompiled: packIsCompiled(fs, packDir) });
-    }
+  const names = [...fs.readDir(teams)].sort().filter(isOrgSlug);
+  const picked = pickOrgClone(
+    names.map((org) => ({
+      slug: org,
+      isClone: fs.exists(join(teams, org, ".git", "config")),
+      marker: parseMarker(fs.readFile(join(teams, org, "mattstack", "mattstack.jsonc"))),
+      hasStore: fs.exists(join(teams, org, "mattstack", "org", "settings.org.jsonc")),
+    })),
+  );
+  if (!picked) return zones;
+  if (!pickedCloneReady(picked)) throw orgLayoutWaitingError({ kind: "waiting", slug: picked.slug, dir: join(teams, picked.slug), layout: picked.layout });
+  const org = picked.slug;
+  const orgDir = join(teams, org);
+  const orgSettings = storeGlobal(fs, join(orgDir, "mattstack", "org", "settings.org.jsonc"));
+  const market = readJsonc(fs, join(orgDir, ".claude-plugin", "marketplace.json"));
+  const marketplace = typeof market?.name === "string" ? market.name : null;
+  const teamsRoot = join(orgDir, "mattstack", "teams");
+  for (const team of [...fs.readDir(teamsRoot)].sort()) {
+    if (!TEAM_NAME_RE.test(team)) continue;
+    const dir = join(teamsRoot, team);
+    const teamSettings = storeGlobal(fs, join(dir, "settings.team.jsonc"));
+    if (teamSettings === null) continue;
+    const projects = [stored("board.projects", teamSettings), stored("board.projects", orgSettings)].find(isStringList) ?? [];
+    const host =
+      hostOnly(stored("board.gitlabHost", teamSettings)) ??
+      hostOnly(stored("board.gitlabHost", orgSettings)) ??
+      hostOnly(forgeHost(teamSettings)) ??
+      hostOnly(forgeHost(orgSettings));
+    if (isUnconvertedTeamPack(fs, dir, team)) throw unconvertedTeamPackError(orgDir, team);
+    const packDir = zonePackDir({ dir });
+    zones.push({ slug: `${org}/${team}`, org, team, orgDir, dir, host, projects, marketplace, hasPack: isPackDir(fs, packDir) && !isBasePack(fs, packDir), packCompiled: packIsCompiled(fs, packDir) });
   }
   return zones;
 }

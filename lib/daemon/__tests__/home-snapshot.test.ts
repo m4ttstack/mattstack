@@ -12,7 +12,8 @@ import { closeStateDb, getKvValue } from "../../state/index.ts";
 import { readHomePushRecord } from "../../home/push-record.ts";
 import { rtDir } from "../../rt-paths.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { homeSnapshotSpec, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
+import type { Probes } from "../../setup/probes.ts";
+import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
 
 // ─── test doubles ────────────────────────────────────────────────────────────
 
@@ -2663,6 +2664,183 @@ function pullResponders(opts: { behind: number; ahead: number; rebase?: "ok" | "
     (argv) => gitVerb(argv) === "rebase" && argv.includes("--abort") ? (rmSync(rebaseDir, { recursive: true, force: true }), { stdout: "", stderr: "", exitCode: 0 }) : undefined,
   ];
 }
+
+describe("the layout gate", () => {
+  const gated = (gate: () => Promise<{ layout: number } | null>) => ({ ...teamSpecFor(null), pull: { intervalSec: 300, gate } });
+  const start = (gate: () => Promise<{ layout: number } | null>, behind: number) => {
+    const { deps, execCalls, log } = baseDeps({ exec: makeFakeExec([...pullResponders({ behind, ahead: 0 }), ...defaultResponders()]).fn });
+    const { repoDir: _r, ...rest } = deps;
+    return { handle: startSnapshot(gated(gate), rest), execCalls, log };
+  };
+
+  test("a hold: skipped with the update sentence, no merge, lastPullAt stamped, layoutHold set", async () => {
+    const { handle, execCalls, log } = start(async () => ({ layout: 3 }), 1);
+    await handle.ready;
+    const result = await handle.pullNow();
+    expect(result).toEqual({ outcome: "skipped", detail: "Your org uses layout 3 and this app reads up to 2. Update the app.", hold: { layout: 3, reads: 2 } });
+    expect(execCalls.some((argv) => gitVerb(argv) === "merge")).toBe(false);
+    const status = handle.status();
+    expect(status.lastPullAt).toBe(1_000_000);
+    expect(status.layoutHold).toEqual({ layout: 3, reads: 2 });
+    expect(status.lastPullSkipped).toBe(result.detail);
+    await handle.pullNow();
+    expect(log.calls.filter((c) => c.level === "info" && JSON.stringify(c.args).includes("holding the pull")).length).toBe(1);
+    handle.stop();
+  });
+
+  test("a passing gate fast-forwards and clears an earlier hold", async () => {
+    let layout: number | null = 3;
+    const { handle } = start(async () => (layout === null ? null : { layout }), 1);
+    await handle.ready;
+    await handle.pullNow();
+    expect(handle.status().layoutHold).toEqual({ layout: 3, reads: 2 });
+    layout = null;
+    const result = await handle.pullNow();
+    expect(result.outcome).toBe("fast-forwarded");
+    expect(handle.status().layoutHold).toBeNull();
+    handle.stop();
+  });
+
+  test("a gate that throws passes the pull and warns once", async () => {
+    const { handle, log } = start(async () => { throw new Error("object corrupt"); }, 1);
+    await handle.ready;
+    expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
+    await handle.pullNow();
+    expect(log.calls.filter((c) => c.level === "warn" && JSON.stringify(c.args).includes("layout gate")).length).toBe(1);
+    handle.stop();
+  });
+
+  test("a gate that throws after a hold keeps the hold, then a passing gate clears it", async () => {
+    let mode: "hold" | "throw" | "pass" = "hold";
+    const { handle, execCalls, log } = start(async () => {
+      if (mode === "throw") throw new Error("object corrupt");
+      return mode === "hold" ? { layout: 3 } : null;
+    }, 1);
+    await handle.ready;
+    await handle.pullNow();
+    mode = "throw";
+    const held = await handle.pullNow();
+    expect(held).toEqual({ outcome: "skipped", detail: "Your org uses layout 3 and this app reads up to 2. Update the app.", hold: { layout: 3, reads: 2 } });
+    await handle.pullNow();
+    expect(execCalls.some((argv) => gitVerb(argv) === "merge")).toBe(false);
+    expect(handle.status().layoutHold).toEqual({ layout: 3, reads: 2 });
+    expect(log.calls.filter((c) => c.level === "warn" && JSON.stringify(c.args).includes("layout gate")).length).toBe(1);
+    mode = "pass";
+    expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
+    expect(handle.status().layoutHold).toBeNull();
+    handle.stop();
+  });
+
+  test("the real gate failing on git show warns once across pulls and still fast-forwards", async () => {
+    const probes = fakeProbes({ exec: async () => ({ code: 128, stdout: "", stderr: "fatal: bad object" }) });
+    const spec = { ...teamSpecFor(null), pull: { intervalSec: 300, gate: (ref: string) => layoutGate(probes.exec, FAKE_REPO_DIR, ref) } };
+    const { deps, log } = baseDeps({ exec: makeFakeExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]).fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(spec, rest);
+    await handle.ready;
+    expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
+    expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
+    expect(log.calls.filter((c) => c.level === "warn" && JSON.stringify(c.args).includes("layout gate")).length).toBe(1);
+    handle.stop();
+  });
+
+  test("a held pull keeps the push for later with no error, no broadcast and no retry; once the gate passes the next cycle pushes", async () => {
+    let holding = true;
+    const pushes: string[][] = [];
+    const exec = makeSwitchableExec([
+      (argv) => gitVerb(argv) === "push" ? (pushes.push(argv), { stdout: "", stderr: holding ? "! [rejected] main -> main (non-fast-forward)" : "", exitCode: holding ? 1 : 0 }) : undefined,
+      ...pullResponders({ behind: 1, ahead: 1 }),
+      ...defaultResponders({ statusZ: " M mattstack/settings.team.jsonc\0" }),
+    ]);
+    const { deps, timers, broadcasts } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...specDeps } = deps;
+    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? { layout: 3 } : null) } }, specDeps);
+    await handle.ready;
+    await flushAsync();
+
+    await handle.runNow("manual");
+    const pushDelayMs = DEFAULT_SETTINGS.pushDelaySec * 1000;
+    timers.fire((t) => t.ms === pushDelayMs);
+    await flushAsync();
+
+    expect(pushes).toHaveLength(0);
+    const held = handle.status();
+    expect(held.pushPending).toBe(true);
+    expect(held.lastPushError).toBeNull();
+    expect(broadcasts.some((b) => b.type === "team:push-failed")).toBe(false);
+    expect([...timers.pending.values()].some((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 5 * 1000)).toBe(false);
+
+    holding = false;
+    await handle.runNow("manual");
+    timers.fire((t) => t.ms === pushDelayMs);
+    await flushAsync();
+
+    expect(pushes).toHaveLength(1);
+    expect(handle.status().pushPending).toBe(false);
+    expect(handle.status().lastPushError).toBeNull();
+    handle.stop();
+  });
+
+  test("a rejected push whose inline replay is held stops there: one push, no error, no broadcast, push kept", async () => {
+    let holding = false;
+    const dirty = " M mattstack/settings.team.jsonc\0";
+    const pushes: string[][] = [];
+    const rejecting: Responder = (argv) => {
+      if (gitVerb(argv) !== "push") return undefined;
+      pushes.push(argv);
+      holding = true;
+      exec.setResponders([rejecting, ...pullResponders({ behind: 1, ahead: 1 }), ...defaultResponders({ statusZ: dirty })]);
+      return { stdout: "", stderr: "! [rejected] main -> main (fetch first)", exitCode: 1 };
+    };
+    const exec = makeSwitchableExec([rejecting, ...pullResponders({ behind: 0, ahead: 1 }), ...defaultResponders({ statusZ: dirty })]);
+    const { deps, timers, broadcasts } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...specDeps } = deps;
+    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? { layout: 3 } : null) } }, specDeps);
+    await handle.ready;
+    await flushAsync();
+
+    await handle.runNow("manual");
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+
+    expect(pushes).toHaveLength(1);
+    expect(handle.status().pushPending).toBe(true);
+    expect(handle.status().lastPushError).toBeNull();
+    expect(broadcasts.some((b) => b.type === "team:push-failed")).toBe(false);
+    handle.stop();
+  });
+
+  test("nothing to pull runs no gate", async () => {
+    let asked = 0;
+    const { handle } = start(async () => { asked++; return { layout: 3 }; }, 0);
+    await handle.ready;
+    expect((await handle.pullNow()).outcome).toBe("up-to-date");
+    expect(asked).toBe(0);
+    handle.stop();
+  });
+});
+
+describe("layoutGate", () => {
+  const exec = (res: { code: number; stdout: string; stderr: string }) => (async () => res) as unknown as Probes["exec"];
+  test("reads the marker at the ref through git show", async () => {
+    expect(await layoutGate(exec({ code: 0, stdout: '{ "role": "org", "org": "acme", "layout": 3 }', stderr: "" }), "/clone", "refs/remotes/origin/main")).toEqual({ layout: 3 });
+  });
+  test("a one-team marker, an org marker at ORG_LAYOUT or an unparsable one passes", async () => {
+    for (const stdout of ['{ "role": "team", "org": "acme" }', '{ "role": "org", "org": "acme" }', "{ nope"]) {
+      expect(await layoutGate(exec({ code: 0, stdout, stderr: "" }), "/clone", "ref")).toBeNull();
+    }
+  });
+  test("a missing marker passes without throwing; any other git failure rejects with the stderr", async () => {
+    expect(await layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'refs/remotes/origin/main'" }), "/clone", "ref")).toBeNull();
+    await expect(layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: bad object\n" }), "/clone", "ref")).rejects.toThrow("fatal: bad object");
+  });
+  test("runs git show under LC_ALL=C", async () => {
+    let env: Record<string, string> | undefined;
+    const spy = (async (_argv: string[], opts?: { env?: Record<string, string> }) => { env = opts?.env; return { code: 0, stdout: "", stderr: "" }; }) as unknown as Probes["exec"];
+    await layoutGate(spy, "/clone", "ref");
+    expect(env).toEqual({ LC_ALL: "C" });
+  });
+});
 
 describe("role-scoped snapshot ownership", () => {
   test("a pull reports unowned rename sources but not unchanged copy sources, and clears repaired edits", async () => {

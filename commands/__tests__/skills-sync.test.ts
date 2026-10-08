@@ -9,7 +9,7 @@ import { join } from "path";
 import type { PackInfo } from "../../lib/skills/packs.ts";
 import type { MaterializeSkillsResult } from "../../lib/setup/skills-materialize.ts";
 import { TREE } from "../../lib/command-tree-def.ts";
-import type { SyncDeps, SyncReport } from "../../lib/skills/sync.ts";
+import { LAYOUT_HOLD, type SyncDeps, type SyncReport } from "../../lib/skills/sync.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
 import { deriveEngine, skillsSync, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
@@ -273,6 +273,21 @@ describe("syncBlocks", () => {
       "The sync stopped at: Pull the pack\n  why: Pulling /z/packs/acme failed: not possible to fast-forward. Sort it out by hand, then run this again\n",
     );
     expect(pulled.steps[0]!.status).toBe("refused");
+  });
+
+  test("a pull held on an org layout this app does not read is a refusal by policy, never a failure", () => {
+    const detail = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const held = report({ ok: false, steps: [{ name: "pull-pack", status: "refused", detail, [LAYOUT_HOLD]: true }] });
+    expect(renderPlain(syncRefusal(held)!)).toBe(`[refused] rt did not sync acme  it stopped at: Pull the pack\n  why: ${detail}\n`);
+    expect(syncFailure(held)).toBeNull();
+    expect(JSON.stringify(held.steps[0])).toBe(JSON.stringify({ name: "pull-pack", status: "refused", detail }));
+  });
+
+  test("the same sentence without the hold flag still reads as a failed pull", () => {
+    const detail = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const pulled = report({ ok: false, steps: [{ name: "pull-pack", status: "refused", detail }] });
+    expect(syncRefusal(pulled)).toBeNull();
+    expect(syncFailure(pulled)).not.toBeNull();
   });
 
   test("a strict lint refusal names the check to run", () => {

@@ -8,11 +8,12 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
 import type { Probes } from "../probes.ts";
+import type { TeamSnapshotEntry } from "../../daemon/team-snapshots.ts";
 
 const ROW_ORDER = [
   "tool.rt",
@@ -1436,5 +1437,109 @@ describe("rtHealthRows: team.sync wiring", () => {
     const rows = await rtHealthRows(p, { ci: false });
     const r = rows.find((x) => x.id === "team.sync");
     expect(r?.status).toBe("missing");
+  });
+});
+
+describe("orgLayoutRow", () => {
+  const legacy = JSON.stringify({ role: "team", namespace: "widgets", org: "acme" });
+  const converted = JSON.stringify({ role: "org", org: "acme" });
+  const status = (hold: { layout: number; reads: number } | null) => async () => [{ slug: "acme", layoutHold: hold } as unknown as TeamSnapshotEntry];
+  const at = (marker: string, store: boolean) =>
+    fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/.git/config": "",
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": marker,
+        ...(store ? { "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" } : {}),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"] },
+    });
+
+  test("null with no clone", async () => {
+    expect(await orgLayoutRow(fakeProbes({ home: "/h" }), status(null))).toBeNull();
+  });
+  test("ready names the org and layout", async () => {
+    const r = await orgLayoutRow(at(converted, true), status(null));
+    expect(r).toMatchObject({ id: ORG_LAYOUT_ROW_ID, status: "ready", detail: "acme on layout 2" });
+  });
+  test("a one-team clone is skipped with the waiting sentence and no action", async () => {
+    const r = await orgLayoutRow(at(legacy, false), status(null));
+    expect(r).toMatchObject({ status: "skipped", detail: "Your org has not moved to its new layout yet. rt finishes the move when it does." });
+    expect(r?.action ?? null).toBeNull();
+  });
+  test("a clone above ORG_LAYOUT is needs-you with the update step", async () => {
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true), status(null));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Update mattstack from its menu bar icon, then reopen Setup status"] });
+  });
+  test("a daemon hold reads needs-you even though the clone itself is ready", async () => {
+    const r = await orgLayoutRow(at(converted, true), status({ layout: 3, reads: 2 }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+  });
+  test("a daemon that is not running does not hide a ready clone", async () => {
+    const r = await orgLayoutRow(at(converted, true), async () => null);
+    expect(r?.status).toBe("ready");
+  });
+});
+
+describe("team.sync for a clone waiting on its layout", () => {
+  const waiting = (entry: Record<string, unknown>) => {
+    const calls: string[] = [];
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/.git/config": "",
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"] },
+      daemon: async (cmd) => {
+        calls.push(cmd);
+        return { ok: true, data: [{ slug: "acme", enabled: true, pullOnly: true, unownedDirty: [], conflicted: null, lastPullError: null, lastPushError: null, lastPullAt: 1_000_000, lastPullSkipped: null, layoutHold: null, ...entry }] } as never;
+      },
+    });
+    return { p, calls };
+  };
+  const build = (p: ReturnType<typeof fakeProbes>) => rtHealthRows({ ...p, now: () => new Date(1_000_000) }, { ci: false }, () => ({ enabled: true, pullIntervalSec: 300 }) as never);
+
+  test("a failing fetch draws team.sync with that error", async () => {
+    const { p } = waiting({ lastPullError: "fatal: Authentication failed" });
+    const r = (await build(p)).find((row) => row.id === "team.sync");
+    expect(r).toMatchObject({ status: "needs-you", detail: "acme: fetches are failing: fatal: Authentication failed" });
+  });
+  test("a clean entry draws team.sync calm", async () => {
+    const { p } = waiting({});
+    const r = (await build(p)).find((row) => row.id === "team.sync");
+    expect(r).toMatchObject({ status: "ready", detail: "1 clone in sync. Pull-only, never pushes: acme" });
+  });
+  test("the daemon status is read once per build", async () => {
+    const { p, calls } = waiting({});
+    const rows = await build(p);
+    expect(rows.find((row) => row.id === "org.layout")?.status).toBe("skipped");
+    expect(calls.filter((c) => c === "team:snapshot-status").length).toBe(1);
+  });
+});
+
+describe("held layout and row position", () => {
+  const entry = (extra: Record<string, unknown>) => ({ slug: "widgets", enabled: true, pullOnly: true, unownedDirty: [], conflicted: null, lastPullError: null, lastPushError: null, lastPullAt: 1000, ...extra }) as unknown as TeamSnapshotEntry;
+  test("team.sync does not call a held pull-only clone stuck or tell it to reset", async () => {
+    const sentence = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const r = await teamSyncRow(["widgets"], async () => [entry({ lastPullSkipped: sentence, layoutHold: { layout: 3, reads: 2 } })], () => 1000, 300, true);
+    expect(r?.detail).not.toContain("reset it to origin");
+    expect(r?.detail).not.toContain("cannot fast-forward");
+    expect(r?.status).toBe("ready");
+  });
+  test("org.layout sits right after org.folder", async () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/.git/config": "",
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme" }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}",
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"] },
+    });
+    const ids = (await rtHealthRows(p, { ci: false }, () => ({ enabled: false }) as never)).map((r) => r.id);
+    expect(ids.indexOf("org.layout")).toBe(ids.indexOf("org.folder") + 1);
+    expect(ids.indexOf("org.folder")).toBeGreaterThan(-1);
   });
 });

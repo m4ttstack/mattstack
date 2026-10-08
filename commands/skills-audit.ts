@@ -4,7 +4,8 @@ import { buildClaudeArgv } from "../lib/agent-argv/claude.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import type { AgentInvocation } from "../lib/agent-argv/types.ts";
 import { mcpToolsPayload } from "./mcp.ts";
-import { checkPack, SkillsUsageError, skillsFailure, type CheckPayload } from "./skills.ts";
+import { checkPack, refuseLayoutWaiting, SkillsUsageError, skillsFailure, type CheckPayload } from "./skills.ts";
+import { UserActionableError } from "../lib/errors.ts";
 import { lintedMarkdownFiles } from "../lib/skills/mcp-lint.ts";
 import { runCapture } from "../lib/subprocess.ts";
 import * as out from "../lib/ui/out.ts";
@@ -99,7 +100,13 @@ export async function resolveAuditInputs(
 
 export async function skillsAudit(args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const inputs = await resolveAuditInputs(args);
+  let inputs: AuditInputsResult;
+  try {
+    inputs = await resolveAuditInputs(args);
+  } catch (err) {
+    if (err instanceof UserActionableError && err.code === "org-layout-waiting") refuseLayoutWaiting(err, json);
+    throw err;
+  }
   if (!inputs.ok) {
     out.fail(inputs.failure);
     process.exit(2);

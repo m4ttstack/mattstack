@@ -14,6 +14,7 @@ export function materializeWorld(home: string, opts: { fragment?: string; remote
     },
     files: {
       [`${engine}/pack/skills.jsonc`]: "{}",
+      [`${home}/.mattstack/orgs/acme/.git/config`]: "",
       [`${org}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
       [`${org}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
       [`${org}/teams/widgets/settings.team.jsonc`]: "{}",

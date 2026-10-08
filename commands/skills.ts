@@ -126,10 +126,18 @@ export function skillsFailure(err: SkillsUsageError): out.FailureInput {
   return { title: title ?? err.message, ...(rest.length > 0 ? { details: rest.join("\n") } : {}) };
 }
 
-async function withCleanErrors(fn: () => Promise<void>): Promise<void> {
+/** A layout the admin has not moved yet is a refusal by policy, never a failure: one refused line with the sentence, no command. */
+export function refuseLayoutWaiting(err: UserActionableError, json: boolean): never {
+  if (json) exitUserError(err, json);
+  out.note(out.line("refused", err.message));
+  process.exit(2);
+}
+
+async function withCleanErrors(args: string[], fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (err) {
+    if (err instanceof UserActionableError && err.code === "org-layout-waiting") refuseLayoutWaiting(err, args.includes("--json"));
     if (err instanceof SkillsRefusal) {
       const shown = skillsFailure(err);
       out.note(out.line("refused", shown.title), ...(shown.why ? [out.callout("why", shown.why)] : []));
@@ -1088,7 +1096,7 @@ export function misplacedFailure(names: string[]): out.FailureInput {
 }
 
 export async function skillsCompile(args: string[]): Promise<void> {
-  await withCleanErrors(async () => {
+  await withCleanErrors(args, async () => {
     const flags = parseFlags(args);
 
     // Flag-shape errors before resolve(): pack resolution can open a picker
@@ -1510,7 +1518,7 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
 }
 
 export async function skillsCheck(args: string[]): Promise<void> {
-  await withCleanErrors(async () => {
+  await withCleanErrors(args, async () => {
     const flags = parseFlags(args);
     const payload = await computeCheck(flags);
 
@@ -1878,7 +1886,7 @@ export function compositionBlocks(payload: CompositionPayload): Block[] {
 }
 
 export async function skillsComposition(args: string[]): Promise<void> {
-  await withCleanErrors(async () => {
+  await withCleanErrors(args, async () => {
     // composition never takes --verb: resolved.roster is selectVerbs-filtered,
     // and binders[]/fills[] are always complete, so a filtered verbs[] would
     // contradict them inside the same payload. Use fullRoster unconditionally.
@@ -1937,7 +1945,7 @@ function spanText(span: [number, number] | null): string {
 }
 
 export async function skillsAnatomy(args: string[]): Promise<void> {
-  await withCleanErrors(async () => {
+  await withCleanErrors(args, async () => {
     const at = args.indexOf("--skill");
     if (at < 0) throw new SkillsUsageError("rt skills anatomy needs --skill <name>", usageFailure("Which skill?", "rt skills anatomy --skill <name>"));
     const skill = requireFlagValue("--skill", args[at + 1]);
@@ -2092,7 +2100,7 @@ function shownPath(f: PendingFile): string {
 }
 
 export async function skillsChanges(args: string[]): Promise<void> {
-  await withCleanErrors(async () => {
+  await withCleanErrors(args, async () => {
     const flags = parseFlags(args);
     const { team, packDir } = await resolvePack(flags);
 
@@ -2204,7 +2212,7 @@ function takeExpect(args: string[]): { expect: string | null; rest: string[] } {
 }
 
 export async function skillsDiscard(args: string[], io: DiscardIo = REAL_DISCARD_IO): Promise<void> {
-  await withCleanErrors(async () => {
+  await withCleanErrors(args, async () => {
     const { expect, rest } = takeExpect(args);
     const flags = parseFlags(rest);
     if (!flags.team) {
@@ -2290,13 +2298,14 @@ export async function skillsMaterialize(args: string[]): Promise<void> {
   const flag = (name: string) => (args.includes(name) ? requireFlagValue(name, skillsFlagValue(args, name)) : undefined);
   let repo: string | undefined;
   let dir: string | undefined;
-  await withCleanErrors(async () => {
+  await withCleanErrors(args, async () => {
     repo = flag("--repo");
     dir = flag("--dir");
   });
 
   try {
     const result = await materializeSkills(createRealProbes(), { repo, dir });
+    if (result.skipped && result.waiting) refuseLayoutWaiting(new UserActionableError("org-layout-waiting", result.reason), json);
     if (json) out.json(envelope(result));
     else out.print(...materializeBlocks(result));
     const code = materializeExitCode(result, dir !== undefined);
@@ -2802,7 +2811,7 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
 }
 
 export async function skillsSurface(args: string[]): Promise<void> {
-  await withCleanErrors(async () => {
+  await withCleanErrors(args, async () => {
     const mode = args[0];
 
     if (mode === "list") {
@@ -3141,7 +3150,7 @@ export function shadowWarning(verb: string, slot: string, layer: string, manifes
 }
 
 export async function skillsBind(args: string[]): Promise<void> {
-  await withCleanErrors(async () => {
+  await withCleanErrors(args, async () => {
     // Positionals, not raw args, so an interleaved flag (bind verb --pack x slot
     // fill) doesn't read as a filled <slot>/<fill> and skip the picker.
     const { positionals, flagArgs } = separateBindArgs(args);
