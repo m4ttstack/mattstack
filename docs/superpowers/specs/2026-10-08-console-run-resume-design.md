@@ -42,14 +42,19 @@ without launching anything.
   reads); else none when `~/.claude` holds it (a bare `claude` reads that
   dir); else the account whose cswap dir holds the newest copy. A cswap dir
   is named `<number>-<slug>`, and `cswap list --json` maps the number to
-  the account email `cswap run` takes. Account hops copy the transcript, so
-  several dirs often hold it.
+  the account email `cswap run` takes. Most cswap dirs symlink `projects`
+  to `~/.claude/projects`, so they all hold the one file; only an account
+  with its own `projects` folder holds a separate copy.
 - Saves `{ provider: "claude", surface: "herdr", sessionId, repo, cwd,
   account?, subject?, label? }` through `insertAgent`.
 - The session id must match `^[A-Za-z0-9-]+$` before it is joined into a
   path.
 - No transcript found: refuse with "no transcript for this session on this
   Mac". Launching anyway would silently start a fresh session.
+- An adopted record stays off the daemon reconciler's roster until it
+  first launches a pane (a resume), because until then it describes a pane
+  you opened yourself: no attention gates, relocation key presses or
+  answer-time relaunches for it.
 - Not an MCP tool and not `agentSafe`. Its callers are rt's own run writes
   and console's server.
 - Registered in `Commands` (`packages/rt-client/src/commands.ts`) with an
