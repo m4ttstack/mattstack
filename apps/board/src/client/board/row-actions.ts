@@ -103,7 +103,7 @@ export interface MenuEntry {
 export interface RowAction extends MenuEntry {
   request: ActionRequest;
   /** Present only when the action can join the bulk menu: its grouped
-      wording ("call doctor" covers "call doctor again" too). */
+      wording ("review" covers a first review and a redo). */
   bulk?: string;
 }
 

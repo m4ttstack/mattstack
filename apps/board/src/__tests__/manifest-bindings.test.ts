@@ -367,7 +367,12 @@ describe('doctorSkillTabs', () => {
   const tabbed = {
     ...noDoctor,
     tabs: [
-      { id: 'packed', label: 'P', source: { kind: 'authors' }, pack: 'widgets' },
+      {
+        id: 'packed',
+        label: 'P',
+        source: { kind: 'authors' },
+        pack: 'widgets',
+      },
       { id: 'plain', label: 'Q', source: { kind: 'authors' } },
     ],
   } as typeof noDoctor;
@@ -379,7 +384,7 @@ describe('doctorSkillTabs', () => {
     );
   });
 
-  test("only the tabs whose pack binds a doctor for the project", () => {
+  test('only the tabs whose pack binds a doctor for the project', () => {
     const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsDoctor);
     expect(doctorSkillTabs('org/repo', tabbed, IDS, home)).toEqual(['packed']);
   });

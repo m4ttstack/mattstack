@@ -1865,7 +1865,7 @@ describe("author-only verbs stay off someone else's row", () => {
   });
 });
 
-test("a working doctor whose own pane is gone offers redo, not a focus the server refuses", () => {
+test('a working doctor whose own pane is gone offers redo, not a focus the server refuses', () => {
   const row = {
     ...own({
       doctor: { status: 'watching', agentId: 'doc-1' },

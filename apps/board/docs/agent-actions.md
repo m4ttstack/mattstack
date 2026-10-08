@@ -9,7 +9,7 @@ Three launches share one shape:
 
 | action                                | what it does                                         | herdr workspace     |
 | ------------------------------------- | ---------------------------------------------------- | ------------------- |
-| **launch review** (and **re-review**) | reviews someone else's MR                            | `reviewsWorkspace`  |
+| **launch review** (and **follow-up review**) | reviews someone else's MR                            | `reviewsWorkspace`  |
 | **respond to review**                 | processes review feedback on your own MR             | `respondsWorkspace` |
 | **call the doctor**                   | repairs mechanical breakage: merge conflicts, red CI | `doctorsWorkspace`  |
 
@@ -200,7 +200,7 @@ is allowed, it launches only if every guardrail clears:
   (`dailyAttemptBudget`, default 3) cap how often triage acts.
 
 A nudge that clears the guardrails launches through the same resume-or-fresh
-path as the manual re-review button; a first-look ask launches a plain review
+path as the menu's follow-up review; a first-look ask launches a plain review
 instead of the re-review framing. Every disposal (launched, rejected, or
 expired) publishes an outcome back to the asker's board so their chip resolves.
 Launches, guardrail rejections, and expiries also raise a desktop notification;

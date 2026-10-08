@@ -549,8 +549,8 @@ export function Board() {
   const reReviewAction = useLaunchAction({
     axis: 'review',
     path: '/review',
-    verbing: 're-reviewing',
-    started: 're-review started',
+    verbing: 'starting follow-up review',
+    started: 'follow-up review started',
     noun: 'review',
     optimistic: optimisticLifecycle,
     addToast,

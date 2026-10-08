@@ -21,8 +21,8 @@ import {
   activeReviewers,
   ago,
   DOCTOR_LABEL,
-  draftKey,
   doctorInterrupted,
+  draftKey,
   laneInterrupted,
   RESPOND_ACTIVE,
 } from './format.ts';
