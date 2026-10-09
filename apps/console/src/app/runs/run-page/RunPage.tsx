@@ -188,6 +188,7 @@ export function RunPage({
             evidenceField={parts.evidenceField}
             pathHref={pathHref}
             linkedGateId={linkedGateId}
+            ticket={parts.facts.hero.ticket}
           />
         </Stack>
         <SideCards

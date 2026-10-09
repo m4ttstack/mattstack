@@ -92,7 +92,7 @@
     },
     {
       "key": "evidence",
-      "value": "{\"v\":1,\"before\":\"/fixture/evidence/web-412/before.png\",\"beforeAnnotated\":\"/fixture/evidence/web-412/before-annotated.png\",\"case\":\"An order with one linked parcel, tracking unknown\",\"attach\":\"ship\"}",
+      "value": "{\"v\":1,\"before\":\"/fixture/evidence/web-412/web-412-before.png\",\"beforeAnnotated\":\"/fixture/evidence/web-412/web-412-before-annotated.png\",\"case\":\"An order with one linked parcel, tracking unknown\",\"url\":\"http://localhost:4001/orders/4821#parcels\",\"attach\":\"ship\"}",
       "produced_by": "evidence",
       "at": "2026-10-08T15:30:00-05:00"
     },

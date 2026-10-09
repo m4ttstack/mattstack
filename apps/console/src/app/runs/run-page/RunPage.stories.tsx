@@ -147,7 +147,7 @@ export const NowNothingYet: S = {
 
 const legacy = field(
   'evidence',
-  '/Users/acme/.mattstack/evidence/web-412/before.png http://localhost:4001/orders/4821'
+  '/Users/acme/.mattstack/evidence/web-412/web-412-before.png http://localhost:4001/orders/4821'
 );
 
 export const StoryEdges: S = {

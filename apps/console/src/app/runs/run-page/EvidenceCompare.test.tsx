@@ -2,10 +2,11 @@ import '../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { parseEvidence } from '@mattstack/rt-client/evidence';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import type { EvidenceV1Parsed } from './evidenceImages';
+import type { CompareMode, EvidenceV1Parsed } from './evidenceImages';
 
 const { EvidenceCompare } = await import('./EvidenceCompare');
 
@@ -24,66 +25,95 @@ const BOTH = v1({
   afterAnnotated: '/x/after-annotated.png',
 });
 
-function compare(evidence = BOTH, initialPhase?: 'before' | 'after') {
-  return renderWithProviders(
+function compare(
+  evidence = BOTH,
+  initialMode?: CompareMode,
+  onClose = vi.fn()
+) {
+  renderWithProviders(
     <EvidenceCompare
       repo={REPO}
       runId="r1"
+      title="WEB-409"
       evidence={evidence}
-      initialPhase={initialPhase}
+      initialMode={initialMode}
+      onClose={onClose}
     />
   );
+  return screen.findByRole('dialog');
 }
 
-function src(container: HTMLElement) {
-  return container.querySelector('img')?.getAttribute('src');
-}
+const srcs = (dialog: HTMLElement) =>
+  within(dialog)
+    .getAllByRole('img')
+    .map(i => i.getAttribute('src'));
 
 describe('EvidenceCompare', () => {
-  it('starts on Before and names the file', () => {
-    const { container, getByText } = compare();
-    expect(src(container)).toBe(`${BASE}/before`);
-    expect(getByText('before.png')).toBeInTheDocument();
+  it('opens side by side, each image under its phase', async () => {
+    const dialog = await compare();
+    expect(srcs(dialog)).toEqual([`${BASE}/before`, `${BASE}/afterAnnotated`]);
+    expect(within(dialog).getByText('WEB-409')).toBeInTheDocument();
   });
 
-  it('starts on the phase it is asked for', () => {
-    const { container } = compare(BOTH, 'after');
-    expect(src(container)).toBe(`${BASE}/afterAnnotated`);
+  it('has one control with Before, After and Side by side, and no arrows', async () => {
+    const dialog = await compare();
+    expect(
+      within(dialog)
+        .getAllByRole('radio')
+        .map(r => r.getAttribute('value'))
+    ).toEqual(['before', 'after', 'side']);
+    expect(
+      within(dialog).queryByRole('button', {
+        name: /previous|next|earlier|later/i,
+      })
+    ).toBeNull();
+    expect(within(dialog).queryByText('Plain')).toBeNull();
   });
 
-  it('flips with the Before/After toggle', async () => {
+  it('starts on the mode it is asked for and names the file', async () => {
+    const dialog = await compare(BOTH, 'after');
+    expect(srcs(dialog)).toEqual([`${BASE}/afterAnnotated`]);
+    expect(within(dialog).getByText('after-annotated.png')).toBeInTheDocument();
+  });
+
+  it('switches with the control', async () => {
     const user = userEvent.setup();
-    const { container, getByText } = compare();
-    await user.click(getByText('After'));
-    expect(src(container)).toBe(`${BASE}/afterAnnotated`);
-    await user.click(getByText('Before'));
-    expect(src(container)).toBe(`${BASE}/before`);
+    const dialog = await compare();
+    await user.click(within(dialog).getByRole('radio', { name: 'Before' }));
+    expect(srcs(dialog)).toEqual([`${BASE}/before`]);
+    await user.click(
+      within(dialog).getByRole('radio', { name: 'Side by side' })
+    );
+    expect(srcs(dialog)).toHaveLength(2);
   });
 
-  it('flips with the arrows, which stop at the ends', async () => {
+  it('shows the plain image when it was opened on one', async () => {
+    renderWithProviders(
+      <EvidenceCompare
+        repo={REPO}
+        runId="r1"
+        title="WEB-409"
+        evidence={BOTH}
+        initialMode="after"
+        initialVariant="plain"
+        onClose={vi.fn()}
+      />
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(srcs(dialog)).toEqual([`${BASE}/after`]);
+  });
+
+  it('has nothing to switch with one phase', async () => {
+    const dialog = await compare(v1({ before: '/x/before.png' }));
+    expect(within(dialog).queryAllByRole('radio')).toHaveLength(0);
+    expect(srcs(dialog)).toEqual([`${BASE}/before`]);
+  });
+
+  it('closes from its close button', async () => {
     const user = userEvent.setup();
-    const { container, getByRole } = compare();
-    expect(getByRole('button', { name: 'Nothing earlier' })).toBeDisabled();
-    await user.click(getByRole('button', { name: 'Show after' }));
-    expect(src(container)).toBe(`${BASE}/afterAnnotated`);
-    expect(getByRole('button', { name: 'Nothing later' })).toBeDisabled();
-    await user.click(getByRole('button', { name: 'Show before' }));
-    expect(src(container)).toBe(`${BASE}/before`);
-  });
-
-  it('offers Plain and Annotated only where both exist', async () => {
-    const user = userEvent.setup();
-    const { container, getByText, queryByText } = compare();
-    expect(queryByText('Plain')).toBeNull();
-    await user.click(getByText('After'));
-    await user.click(getByText('Plain'));
-    expect(src(container)).toBe(`${BASE}/after`);
-  });
-
-  it('has nothing to flip to with one phase', () => {
-    const { queryByText, getByRole } = compare(v1({ before: '/x/before.png' }));
-    expect(queryByText('After')).toBeNull();
-    expect(getByRole('button', { name: 'Nothing later' })).toBeDisabled();
-    expect(getByRole('button', { name: 'Nothing earlier' })).toBeDisabled();
+    const onClose = vi.fn();
+    const dialog = await compare(BOTH, undefined, onClose);
+    await user.click(within(dialog).getByRole('button', { name: /close/i }));
+    expect(onClose).toHaveBeenCalled();
   });
 });

@@ -80,50 +80,68 @@ afterEach(() => {
 });
 
 describe('EvidenceCard story variant', () => {
-  it('shows the annotated image first, with its file name as the caption', () => {
-    const { container, getByText } = story();
-    expect(shownSrcs(container)).toEqual([`${BASE}/beforeAnnotated`]);
-    expect(getByText('before-annotated.png')).toBeInTheDocument();
-    expect(getByText('EVIDENCE')).toBeInTheDocument();
-  });
-
-  it('switches between Plain and Annotated', async () => {
-    const user = userEvent.setup();
-    const { container, getByText } = story();
-    await user.click(getByText('Plain'));
-    expect(shownSrcs(container)).toEqual([`${BASE}/before`]);
+  it('shows the phase as thumbnails, plain then annotated, each named under it', () => {
+    const { container, getByText } = story({ phase: 'before' });
+    expect(shownSrcs(container)).toEqual([
+      `${BASE}/before`,
+      `${BASE}/beforeAnnotated`,
+    ]);
     expect(getByText('before.png')).toBeInTheDocument();
-    await user.click(getByText('Annotated'));
-    expect(shownSrcs(container)).toEqual([`${BASE}/beforeAnnotated`]);
+    expect(getByText('before-annotated.png')).toBeInTheDocument();
+    expect(container.querySelector('[data-parity="Evidence card"]')).toBeNull();
   });
 
-  it('switches between Before and After when both exist', async () => {
-    const user = userEvent.setup();
-    const { container, getByText } = story();
-    await user.click(getByText('After'));
-    expect(shownSrcs(container)).toEqual([`${BASE}/afterAnnotated`]);
-    expect(getByText('after-annotated.png')).toBeInTheDocument();
-  });
-
-  it('offers only the variants that exist', () => {
-    const only = evidenceOf({ before: '/x/before.png' });
-    const { queryByText, container } = story({ evidence: only });
-    expect(queryByText('Plain')).toBeNull();
-    expect(queryByText('Annotated')).toBeNull();
-    expect(queryByText('Before')).toBeNull();
-    expect(shownSrcs(container)).toEqual([`${BASE}/before`]);
-  });
-
-  it('shows one phase when asked, with no Before/After control', () => {
-    const { container, queryByText } = story({ phase: 'after' });
-    expect(queryByText('Before')).toBeNull();
-    expect(shownSrcs(container)).toEqual([`${BASE}/afterAnnotated`]);
+  it('shows the asked phase only', () => {
+    const { container } = story({ phase: 'after' });
+    expect(shownSrcs(container)).toEqual([
+      `${BASE}/after`,
+      `${BASE}/afterAnnotated`,
+    ]);
   });
 
   it('renders nothing for a phase that has no image', () => {
     const only = evidenceOf({ before: '/x/before.png' });
     const { container } = story({ evidence: only, phase: 'after' });
     expect(drawn(container)).toHaveLength(0);
+  });
+
+  it('links the url the evidence names on the before phase, without its scheme', () => {
+    const withUrl = evidenceOf({
+      before: '/x/before.png',
+      url: 'http://localhost:4001/orders/4821#parcels',
+    });
+    const { container } = story({ evidence: withUrl, phase: 'before' });
+    const links = [...container.querySelectorAll('a')];
+    expect(links.map(a => [a.textContent, a.getAttribute('href')])).toEqual([
+      [
+        'localhost:4001/orders/4821#parcels',
+        'http://localhost:4001/orders/4821#parcels',
+      ],
+    ]);
+  });
+
+  it('opens the compare modal full size from "Open full size"', async () => {
+    const user = userEvent.setup();
+    const { getByRole } = story({ phase: 'before' });
+    await user.click(getByRole('button', { name: /open full size/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog)
+        .getAllByRole('img')
+        .map(i => i.getAttribute('src'))
+    ).toEqual([`${BASE}/beforeAnnotated`, `${BASE}/afterAnnotated`]);
+  });
+
+  it('opens the compare modal on the thumbnail clicked', async () => {
+    const user = userEvent.setup();
+    const { getByRole } = story({ phase: 'before' });
+    await user.click(getByRole('button', { name: /open before\.png/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog)
+        .getAllByRole('img')
+        .map(i => i.getAttribute('src'))
+    ).toEqual([`${BASE}/before`]);
   });
 
   it('replaces a broken image with a placeholder and does not request it again', () => {
@@ -137,77 +155,89 @@ describe('EvidenceCard story variant', () => {
       });
     try {
       const client = new QueryClient();
+      const only = evidenceOf({ before: '/x/before.png' });
       const card = (
         <QueryClientProvider client={client}>
           <EvidenceCard
             repo={REPO}
             runId={RUN}
-            evidence={BOTH}
+            evidence={only}
             variant="story"
+            phase="before"
           />
         </QueryClientProvider>
       );
       const { container, getByText, rerender } = renderWithProviders(card);
-      expect(requested).toEqual([`${BASE}/beforeAnnotated`]);
+      expect(requested).toEqual([`${BASE}/before`]);
       fireEvent.error(container.querySelector('img')!);
       expect(getByText('image unavailable')).toBeInTheDocument();
       expect(container.querySelector('img')).toBeNull();
       rerender(card);
-      expect(requested).toEqual([`${BASE}/beforeAnnotated`]);
+      expect(requested).toEqual([`${BASE}/before`]);
     } finally {
       spy.mockRestore();
     }
   });
-
-  it('gives the next image a fresh try after a failure', async () => {
-    const user = userEvent.setup();
-    const { container, getByText } = story();
-    fireEvent.error(container.querySelector('img')!);
-    await user.click(getByText('Plain'));
-    expect(shownSrcs(container)).toEqual([`${BASE}/before`]);
-  });
-
-  it('opens the image full size in a modal', async () => {
-    const user = userEvent.setup();
-    const { getByRole } = story();
-    await user.click(
-      getByRole('button', { name: /open before-annotated.png/i })
-    );
-    const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByRole('img')).toHaveAttribute(
-      'src',
-      `${BASE}/beforeAnnotated`
-    );
-  });
 });
 
 describe('EvidenceCard legacy and empty evidence', () => {
-  it('lists the links of legacy evidence and requests no image', () => {
-    vi.stubGlobal('fetch', fetchMock);
-    const legacy = parseEvidence(
-      '/Users/acme/.mattstack/evidence/web-412/before.png http://localhost:4001/orders/4821'
+  const DIR = '/Users/acme/.mattstack/evidence/web-377';
+  const LEGACY = parseEvidence(
+    `${DIR}/before.png ${DIR}/after.png http://localhost:4001/orders/4821#parcels 12/12 cards`
+  );
+  const fileSrc = (path: string) =>
+    `/api/runs/${REPO}/${RUN}/evidence-file?path=${encodeURIComponent(path)}`;
+
+  it.each(['story', 'record'] as const)(
+    'shows legacy screenshots as images and the url as a link (%s)',
+    variant => {
+      const { container } = mount(
+        <EvidenceCard
+          repo={REPO}
+          runId={RUN}
+          evidence={LEGACY}
+          variant={variant}
+        />
+      );
+      expect(shownSrcs(container)).toEqual([
+        fileSrc(`${DIR}/before.png`),
+        fileSrc(`${DIR}/after.png`),
+      ]);
+      expect(container.textContent).toContain('before.png');
+      const links = [...container.querySelectorAll('a')];
+      expect(links.map(a => [a.textContent, a.getAttribute('href')])).toEqual([
+        [
+          'localhost:4001/orders/4821#parcels',
+          'http://localhost:4001/orders/4821#parcels',
+        ],
+      ]);
+      expect(container.textContent).not.toContain('/12');
+    }
+  );
+
+  it('opens a legacy screenshot full size', async () => {
+    const user = userEvent.setup();
+    const { getByRole } = story({ evidence: LEGACY });
+    await user.click(getByRole('button', { name: /open after\.png/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('img')).toHaveAttribute(
+      'src',
+      fileSrc(`${DIR}/after.png`)
     );
-    const { container } = story({ evidence: legacy });
-    expect(container.querySelectorAll('img')).toHaveLength(0);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(container.textContent).toContain(
-      '/Users/acme/.mattstack/evidence/web-412/before.png'
-    );
-    expect(
-      [...container.querySelectorAll('a')].map(a => a.textContent)
-    ).toEqual(['http://localhost:4001/orders/4821']);
   });
 
-  it('links web addresses and shows a file path as plain text', () => {
-    const legacy = parseEvidence(
-      '/Users/acme/before.png http://localhost:4001/orders/4821'
+  it('opens a file path in the editor when it can, else shows it as text', () => {
+    const legacy = parseEvidence('/Users/acme/notes.md /Users/acme/run.log');
+    const { container, getByText } = story({
+      evidence: legacy,
+      pathHref: p => (p.endsWith('.md') ? `vscode://file${p}` : null),
+    });
+    expect(container.querySelectorAll('img')).toHaveLength(0);
+    expect(getByText('/Users/acme/notes.md').closest('a')).toHaveAttribute(
+      'href',
+      'vscode://file/Users/acme/notes.md'
     );
-    const { container, getByText } = story({ evidence: legacy });
-    const anchors = [...container.querySelectorAll('a')];
-    expect(anchors.map(a => a.getAttribute('href'))).toEqual([
-      'http://localhost:4001/orders/4821',
-    ]);
-    expect(getByText('/Users/acme/before.png').closest('a')).toBeNull();
+    expect(getByText('/Users/acme/run.log').closest('a')).toBeNull();
   });
 
   it('renders nothing when there is no evidence', () => {
@@ -275,17 +305,35 @@ describe('EvidenceCard record variant', () => {
     expect(fetchMock).toHaveBeenCalledWith(`${BASE}/transcript`);
   });
 
-  it('opens the compare modal from the button, on Before first', async () => {
+  it('opens the compare modal from the button, side by side', async () => {
     const user = userEvent.setup();
     const { getByRole } = record();
     await user.click(getByRole('button', { name: /compare full size/i }));
     const dialog = await screen.findByRole('dialog');
     await waitFor(() =>
+      expect(
+        within(dialog)
+          .getAllByRole('img')
+          .map(i => i.getAttribute('src'))
+      ).toEqual([`${BASE}/beforeAnnotated`, `${BASE}/afterAnnotated`])
+    );
+  });
+
+  it('opens the compare modal from a ?compare= link and drops the param on close', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/run?compare=after');
+    try {
+      record();
+      const dialog = await screen.findByRole('dialog');
       expect(within(dialog).getByRole('img')).toHaveAttribute(
         'src',
-        `${BASE}/beforeAnnotated`
-      )
-    );
+        `${BASE}/afterAnnotated`
+      );
+      await user.click(within(dialog).getByRole('button', { name: /close/i }));
+      await waitFor(() => expect(window.location.search).toBe(''));
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
   });
 
   it('opens the compare modal on the phase and variant of the thumbnail clicked', async () => {

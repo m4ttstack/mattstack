@@ -262,7 +262,9 @@ describe('RunDetail: live work run', () => {
     expect(page).not.toHaveTextContent('session-412');
     expect(page).not.toHaveTextContent('3 of 5');
     expect(page).not.toHaveTextContent('"v":1');
-    expect(within(page).getByText('EVIDENCE')).toBeInTheDocument();
+    expect(
+      within(page).getByRole('button', { name: 'Open before.png full size' })
+    ).toBeInTheDocument();
   });
 
   it('puts an open gate at the top of the main column instead of the Now card', async () => {
@@ -1015,6 +1017,22 @@ describe('RunDetail: finished run', () => {
     ).toBeInTheDocument();
     expect(within(log).queryByText('Post which findings to !412?')).toBeNull();
     expect(within(record).getByTestId('review-side')).toBeInTheDocument();
+  });
+
+  it('drops the Evidence tab when the run recorded none', async () => {
+    render(
+      workRun({
+        run: summary({ status: 'done', ended_at: at(90), agent: null }),
+        fields: [
+          field('pipeline-stages', 'provision plan implement', 0),
+          field('evidence', 'checked 12/12 cards by hand', 1.6),
+        ],
+      })
+    );
+    const record = await screen.findByTestId('run-record');
+    await waitFor(() =>
+      expect(tabsOf(record).map(([name]) => name)).toEqual(['Story', 'Inputs'])
+    );
   });
 
   it('opens on the Story when nothing was answered', async () => {

@@ -1,23 +1,22 @@
 import { useState } from 'react';
 import {
-  ActionIcon,
   Group,
+  Modal,
   SegmentedControl,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
-import { Icon } from '@mattstack/app-kit/icons';
-import { modals } from '@mattstack/app-kit/modals';
 
+import classes from './EvidenceCompare.module.css';
 import { EvidenceImage } from './EvidenceImage';
 import {
   evidenceUrl,
+  MODE_LABEL,
   PHASE_LABEL,
   phasesIn,
   shotFor,
   shotsOf,
-  VARIANT_LABEL,
-  variantsIn,
+  type CompareMode,
   type EvidencePhase,
   type EvidenceV1Parsed,
   type EvidenceVariant,
@@ -27,99 +26,90 @@ export interface EvidenceCompareProps {
   repo: string;
   runId: string;
   evidence: EvidenceV1Parsed;
-  initialPhase?: EvidencePhase;
+  /** The run it belongs to, e.g. its ticket and the case it was captured on. */
+  title: string;
+  /** Side by side when the evidence has both phases and none is asked for. */
+  initialMode?: CompareMode;
+  /** The variant a thumbnail showed; annotated otherwise. */
   initialVariant?: EvidenceVariant;
+  onClose: () => void;
 }
 
-/** The full-size view: one image at a time, flipped between Before and After
-    by the toggle or the arrows. */
+/** The evidence full size: Before, After, or both side by side, picked by one
+    control. The image keeps its aspect ratio inside the frame. */
 export function EvidenceCompare({
   repo,
   runId,
   evidence,
-  initialPhase,
-  initialVariant,
+  title,
+  initialMode,
+  initialVariant = 'annotated',
+  onClose,
 }: EvidenceCompareProps) {
   const shots = shotsOf(evidence);
   const phases = phasesIn(shots);
-  const [phase, setPhase] = useState<EvidencePhase>(
-    initialPhase && phases.includes(initialPhase)
-      ? initialPhase
-      : (phases[0] ?? 'before')
+  const modes: CompareMode[] = phases.length > 1 ? [...phases, 'side'] : phases;
+  const [mode, setMode] = useState<CompareMode>(
+    initialMode && modes.includes(initialMode)
+      ? initialMode
+      : (modes.at(-1) ?? 'before')
   );
-  const [wanted, setWanted] = useState<EvidenceVariant>(
-    initialVariant ?? 'annotated'
-  );
-
-  const shot = shotFor(shots[phase], wanted);
-  const variants = variantsIn(shots[phase]);
-  const shownVariant: EvidenceVariant =
-    shots[phase].annotated === shot ? 'annotated' : 'plain';
-  const at = phases.indexOf(phase);
-  const earlier = phases[at - 1];
-  const later = phases[at + 1];
+  const shown: EvidencePhase[] = mode === 'side' ? phases : [mode];
 
   return (
-    <Stack gap="sm" data-testid="evidence-compare">
-      <Group justify="space-between" wrap="nowrap">
-        <Group gap="xs" wrap="nowrap">
-          <ActionIcon
-            variant="default"
-            aria-label={earlier ? `Show ${earlier}` : 'Nothing earlier'}
-            disabled={!earlier}
-            onClick={() => earlier && setPhase(earlier)}
-          >
-            <Icon name="arrowLeft" size={16} />
-          </ActionIcon>
-          <ActionIcon
-            variant="default"
-            aria-label={later ? `Show ${later}` : 'Nothing later'}
-            disabled={!later}
-            onClick={() => later && setPhase(later)}
-          >
-            <Icon name="arrowRight" size={16} />
-          </ActionIcon>
-          {phases.length > 1 && (
-            <SegmentedControl
-              size="xs"
-              aria-label="Before or after"
-              value={phase}
-              onChange={v => setPhase(v as EvidencePhase)}
-              data={phases.map(p => ({ value: p, label: PHASE_LABEL[p] }))}
-            />
-          )}
-        </Group>
-        {variants.length > 1 && (
-          <SegmentedControl
-            size="xs"
-            aria-label="Plain or annotated"
-            value={shownVariant}
-            onChange={v => setWanted(v as EvidenceVariant)}
-            data={variants.map(v => ({ value: v, label: VARIANT_LABEL[v] }))}
-          />
-        )}
-      </Group>
-      {shot && (
-        <>
-          <EvidenceImage
-            src={evidenceUrl(repo, runId, shot.key)}
-            name={shot.fileName}
-            maxHeight="70vh"
-          />
-          <Text size="sm" c="dimmed">
-            {shot.fileName}
-          </Text>
-        </>
-      )}
-    </Stack>
+    <Modal.Root opened onClose={onClose} size="calc(100vw - 48px)">
+      <Modal.Overlay />
+      <Modal.Content data-parity="Compare modal">
+        <div data-parity="modal">
+          <Modal.Header data-parity="head">
+            <Modal.Title data-parity="t">{title}</Modal.Title>
+            <Group gap="sm" wrap="nowrap">
+              {modes.length > 1 && (
+                <SegmentedControl
+                  aria-label="Before, after or side by side"
+                  value={mode}
+                  onChange={v => setMode(v as CompareMode)}
+                  data={modes.map(m => ({ value: m, label: MODE_LABEL[m] }))}
+                  data-parity="seg"
+                />
+              )}
+              <Modal.CloseButton aria-label="Close" />
+            </Group>
+          </Modal.Header>
+          <Modal.Body>
+            <div
+              className={classes.images}
+              data-side={mode === 'side' ? 'true' : 'false'}
+            >
+              {shown.map(p => {
+                const shot = shotFor(shots[p], initialVariant);
+                if (!shot) return null;
+                return (
+                  <Stack key={p} gap={6} className={classes.column}>
+                    <div className={classes.frame} data-parity="img">
+                      <EvidenceImage
+                        src={evidenceUrl(repo, runId, shot.key)}
+                        name={shot.fileName}
+                        maxHeight="100%"
+                      />
+                    </div>
+                    <Text
+                      fz={12}
+                      fw={500}
+                      lh="normal"
+                      c="dimmed"
+                      truncate
+                      data-parity="cap"
+                    >
+                      {mode === 'side' ? PHASE_LABEL[p] : shot.fileName}
+                    </Text>
+                  </Stack>
+                );
+              })}
+            </div>
+          </Modal.Body>
+        </div>
+      </Modal.Content>
+    </Modal.Root>
   );
-}
-
-export function openEvidenceCompare(props: EvidenceCompareProps) {
-  modals.open({
-    title: 'Compare full size',
-    size: 'xl',
-    centered: true,
-    children: <EvidenceCompare {...props} />,
-  });
 }

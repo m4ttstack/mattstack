@@ -1,0 +1,28 @@
+.images {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.images[data-side='true'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.column {
+  min-width: 0;
+}
+
+/* The modal leaves 5dvh above and below; the head, the body's padding and the
+   caption take the rest of the frame's share. */
+.frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(90dvh - 150px);
+  min-height: 200px;
+  border-radius: 6px;
+  overflow: hidden;
+  background-color: var(--tk-panel);
+  outline: 1px solid var(--tk-line-3);
+  outline-offset: -0.5px;
+}

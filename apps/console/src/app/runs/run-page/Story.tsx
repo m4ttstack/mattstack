@@ -18,6 +18,7 @@ export interface StoryProps {
   /** The gate a deep link names: its stage and its decision open, and the
       decision rings until the next click or key. */
   linkedGateId?: string | null;
+  ticket?: string | null;
 }
 
 const keyOfGate = (entries: StoryEntry[], gateId: string | null) =>
@@ -35,6 +36,7 @@ export function Story({
   evidenceField,
   pathHref,
   linkedGateId = null,
+  ticket = null,
 }: StoryProps) {
   const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(
     () => new Map()
@@ -86,6 +88,7 @@ export function Story({
             evidenceField={evidenceField}
             pathHref={pathHref}
             linkedGateId={linkedGateId}
+            ticket={ticket}
           />
         ))}
       </Paper>
@@ -104,6 +107,7 @@ export function RunStory({
   evidenceField,
   pathHref,
   linkedGateId,
+  ticket,
 }: {
   repo: string;
   runId: string;
@@ -116,6 +120,7 @@ export function RunStory({
   evidenceField: RunFieldRow | null;
   pathHref?: (path: string) => string | null;
   linkedGateId?: string | null;
+  ticket?: string | null;
 }) {
   const entries = story ? story.entries : block ? [block] : [];
   return (
@@ -127,6 +132,7 @@ export function RunStory({
       evidenceField={evidenceField}
       pathHref={pathHref}
       linkedGateId={linkedGateId}
+      ticket={ticket}
     />
   );
 }

@@ -76,6 +76,8 @@ export interface StageRowProps {
   pathHref?: (path: string) => string | null;
   /** The gate a deep link names: its decision opens and rings. */
   linkedGateId?: string | null;
+  /** The run's ticket, which heads the evidence's full-size view. */
+  ticket?: string | null;
 }
 
 /** One stage attempt of the story as a row: what it was and a one-line
@@ -89,6 +91,7 @@ export function StageRow({
   evidenceField,
   pathHref,
   linkedGateId = null,
+  ticket = null,
 }: StageRowProps) {
   const bodyId = useId();
   const bullet = STAGE_BULLET[entry.attempt.status];
@@ -233,24 +236,15 @@ export function StageRow({
               />
             ))
           )}
-          {entry.evidence === 'legacy' && evidence ? (
-            <StageField label="Evidence">
-              <EvidenceCard
-                repo={repo}
-                runId={runId}
-                evidence={evidence}
-                variant="story"
-                pathHref={pathHref}
-              />
-            </StageField>
-          ) : null}
-          {evidence && entry.evidence && entry.evidence !== 'legacy' ? (
+          {evidence && entry.evidence ? (
             <EvidenceCard
               repo={repo}
               runId={runId}
               evidence={evidence}
               variant="story"
-              phase={entry.evidence}
+              ticket={ticket}
+              phase={entry.evidence === 'legacy' ? undefined : entry.evidence}
+              pathHref={pathHref}
             />
           ) : null}
         </Stack>

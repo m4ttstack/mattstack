@@ -350,13 +350,19 @@ export const BOARDS: Board<Scenario>[] = [
     ['Stage doc drawer', 'Compare', 'Abandon dialog', 'Setting inline'],
     962,
     {
+      // The record rail's Compare button is also keyed `Compare`.
+      appRoots: { Compare: 'Compare modal' },
       panels: [
         {
           label: 'stage doc drawer',
           route: `${RUN}/20261008-1338`,
           root: 'Stage doc drawer',
         },
-        { label: 'compare', route: `${RUN}/20261008-1142`, root: 'Compare' },
+        {
+          label: 'compare',
+          route: `${RUN}/20261008-1142?compare=side`,
+          root: 'Compare',
+        },
         {
           label: 'abandon dialog',
           route: `${RUN}/20261007-1310`,

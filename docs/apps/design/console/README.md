@@ -470,18 +470,18 @@ compared.
 
 ### Boards
 
-| slug                    | frame (light)                         | light id | dark id  | route                                     | roots                                                       |
-| ----------------------- | ------------------------------------- | -------- | -------- | ----------------------------------------- | ----------------------------------------------------------- |
-| `runs-p2-live`          | `After · Live run page (quiet story)` | `BqEgW`  | `viNUJ`  | `/runs/remote%3Aacme%2Fweb/20261008-1338` | `Hero`, `Story`, `Side`                                     |
-| `runs-p2-gate`          | `After · Gate open`                   | `Q6YEx`  | `HbRPU`  | `/runs/remote%3Aacme%2Fweb/20261008-1340` | `Hero`, `Gate mine`, `Side`                                 |
-| `runs-p2-record`        | `After · Record (finished run)`       | `P1gMvv` | `sbDKY`  | `/runs/remote%3Aacme%2Fweb/20261008-1142` | `Hero`, `Tabs`, `Decision log`, `Evidence rail`             |
-| `runs-p2-inputs`        | `After · Effective inputs drawer`     | `aJIIw`  | `f8Bru`  | `/runs/remote%3Aacme%2Fweb/20261008-1338?inputs` | `Drawer`                                                    |
-| `runs-p2-states`        | `After · states`                      | `kxHe1`  | `YunJz`  | one route per panel                       | `Run load error`, `Runs outage`, `Gate refused`, `Toasts`   |
-| `runs-p2-runs`          | `After · Runs page`                   | `dX37S`  | `MHMfu`  | `/`                                       | `Title row`, `Summary`, `Banner waiting`, `Live cards`, `History` |
-| `runs-p2-review`        | `After · Review run record`           | `tsWMv`  | `P1PkfE` | `/runs/remote%3Aacme%2Fweb/20261008-0940` | `Hero`, `Tabs`, `Review column`, `Side`                     |
-| `runs-p2-story-details` | `After · Story details`               | `yFl93`  | `lV4r8`  | `/runs/remote%3Aacme%2Fweb/20261008-1338` | `Hero`, `Story`, `Side`                                     |
-| `runs-p2-overlays`      | `After · overlays`                    | `OID6c`  | `VEOxV`  | one route per panel                       | `Stage doc drawer`, `Compare`, `Abandon dialog`, `Setting inline` |
-| `runs-p2-search`        | `After · search etc`                  | `n2WWXe` | `mFvLi`  | one route per panel                       | `Search`, `Palette`, `Not found`, `Timeline hover`          |
+| slug                    | frame (light)                         | light id | dark id  | route                                            | roots                                                             |
+| ----------------------- | ------------------------------------- | -------- | -------- | ------------------------------------------------ | ----------------------------------------------------------------- |
+| `runs-p2-live`          | `After · Live run page (quiet story)` | `BqEgW`  | `viNUJ`  | `/runs/remote%3Aacme%2Fweb/20261008-1338`        | `Hero`, `Story`, `Side`                                           |
+| `runs-p2-gate`          | `After · Gate open`                   | `Q6YEx`  | `HbRPU`  | `/runs/remote%3Aacme%2Fweb/20261008-1340`        | `Hero`, `Gate mine`, `Side`                                       |
+| `runs-p2-record`        | `After · Record (finished run)`       | `P1gMvv` | `sbDKY`  | `/runs/remote%3Aacme%2Fweb/20261008-1142`        | `Hero`, `Tabs`, `Decision log`, `Evidence rail`                   |
+| `runs-p2-inputs`        | `After · Effective inputs drawer`     | `aJIIw`  | `f8Bru`  | `/runs/remote%3Aacme%2Fweb/20261008-1338?inputs` | `Drawer`                                                          |
+| `runs-p2-states`        | `After · states`                      | `kxHe1`  | `YunJz`  | one route per panel                              | `Run load error`, `Runs outage`, `Gate refused`, `Toasts`         |
+| `runs-p2-runs`          | `After · Runs page`                   | `dX37S`  | `MHMfu`  | `/`                                              | `Title row`, `Summary`, `Banner waiting`, `Live cards`, `History` |
+| `runs-p2-review`        | `After · Review run record`           | `tsWMv`  | `P1PkfE` | `/runs/remote%3Aacme%2Fweb/20261008-0940`        | `Hero`, `Tabs`, `Review column`, `Side`                           |
+| `runs-p2-story-details` | `After · Story details`               | `yFl93`  | `lV4r8`  | `/runs/remote%3Aacme%2Fweb/20261008-1338`        | `Hero`, `Story`, `Side`                                           |
+| `runs-p2-overlays`      | `After · overlays`                    | `OID6c`  | `VEOxV`  | one route per panel                              | `Stage doc drawer`, `Compare`, `Abandon dialog`, `Setting inline` |
+| `runs-p2-search`        | `After · search etc`                  | `n2WWXe` | `mFvLi`  | one route per panel                              | `Search`, `Palette`, `Not found`, `Timeline hover`                |
 
 Every board uses the `runs` scenario except the outage panel of
 `runs-p2-states`, which needs `runs-outage`. The tile boards (`states`,
@@ -575,10 +575,10 @@ Live run page (runs-p2-live, runs-p2-story-details `Hero`, `Story`, `Side`):
   decisions at all.
 - A stage's summary is its decision count and first pick, or its first
   field. A stage that holds evidence counts what it captured instead of the
-  pick, in runs-p2-story-details' words. WEB-412's evidence is two
-  screenshots and no link, so the app reads "2 decisions · 2 screenshots",
-  where runs-p2-live says "screenshot captured" and runs-p2-story-details
-  (drawn on legacy evidence) "2 screenshots, 1 link".
+  pick, in runs-p2-story-details' words. The fixture's WEB-412 evidence
+  carries the board's two screenshots and its link, so the app reads
+  "2 decisions · 2 screenshots, 1 link" as runs-p2-story-details does;
+  runs-p2-live says "screenshot captured".
 - Stage names are 500 and an opened decision's answer is 700: the boards
   set 600, which the type rules leave out.
 - An opened decision is the kit `Paper variant="panel-outline"` (the
@@ -629,8 +629,48 @@ Finished run record (runs-p2-record `Hero`, `Tabs`, `Decision log`,
   row's mark names it.
 - A stage head leaves out a part it has none of: a stage with no answered
   question reads no count.
-- The evidence card, its thumbnails, Compare and transcript belong to the
-  evidence pass (section E); their mismatches are not this section's.
+- The evidence card, its thumbnails, Compare and transcript are listed
+  under "Evidence" below.
+
+Evidence (runs-p2-story-details' evidence row, runs-p2-record
+`Evidence rail`, runs-p2-overlays `Compare`):
+
+- The first pass's evidence entries still apply to the record rail: the
+  board draws each screenshot as shapes (`a`-`d`, `line`) on a tinted
+  placeholder where the console shows the image on the panel surface;
+  "Compare full size" is a kit default `Button` with icon arrows; the
+  transcript renders through the markdown renderer; and the board's
+  "shipping panel" names have no data source, so the captions name the
+  file.
+- The story's evidence (v1 or legacy) is the board's row of 240 x 144
+  thumbnails, each with its file name under it in mono, then the link with
+  its external-link icon, read without its scheme. Its keys follow the
+  board's last row, which is unnamed: they compare under `Stage evidence`
+  (see the live run page entries), and sit 49.5px lower by the two evidence
+  decisions the board leaves out.
+- A v1 story row adds "Open full size →" after the link, which opens the
+  compare modal; the board draws no such control, so it is not keyed. The
+  link row already holds the url, so the row is no taller.
+- The fixture's WEB-412 screenshots are named as the board names them
+  (`web-412-before.png`, `web-412-before-annotated.png`) and its evidence
+  records the board's `url`.
+- Legacy evidence shows its screenshots the same way in the story and the
+  record, served by the evidence-file route; other files stay editor links
+  and urls stay links. A legacy record card reads "EVIDENCE · N", N its
+  items, as the tab count does.
+- The compare tile draws a 664px modal in a 696px frame; the console's is
+  the kit `Modal` at `calc(100vw - 48px)` with frames as tall as the
+  window allows, so every box in the tile differs in size and place. The
+  kit header is 60px with no rule (the board's is 47.5px and ruled), its
+  title is the kit's type, the close button is the kit `CloseButton`
+  (no `x` layer), and the control is the kit `SegmentedControl` at its
+  default size (options not keyed). The title names the ticket and the
+  case used ("WEB-409 · Rush order, Sep 14 delay, Denver"); the board's
+  "shipping panel" has no data source.
+- `?compare=side` (or `before`, `after`) on a record opens the compare
+  modal, which is how runs-p2-overlays reaches the tile. The modal's
+  focus trap lands on the control's first option, so a modal opened from
+  a link shows a focus ring there; one opened by a click does not.
 
 Review run record (runs-p2-review `Hero`, `Tabs`, `Review column`, `Side`):
 

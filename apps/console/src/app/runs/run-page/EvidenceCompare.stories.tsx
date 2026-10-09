@@ -21,18 +21,13 @@ const EVIDENCE: EvidenceV1Parsed = parsed;
 const meta = {
   title: 'Runs/Run page/EvidenceCompare',
   component: EvidenceCompare,
-  decorators: [
-    Story => (
-      <div style={{ padding: '1.5rem', maxWidth: 820 }}>
-        <Story />
-      </div>
-    ),
-  ],
-  parameters: { layout: 'padded' },
+  parameters: { layout: 'fullscreen' },
   args: {
     repo: 'remote:acme%2Fweb',
     runId: '20261008-1142',
     evidence: EVIDENCE,
+    title: 'WEB-409 · Rush order, Sep 14 delay, Denver',
+    onClose: () => {},
   },
 } satisfies Meta<typeof EvidenceCompare>;
 
@@ -40,6 +35,10 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const OnBefore: Story = {};
+export const SideBySide: Story = {};
 
-export const OnAfter: Story = { args: { initialPhase: 'after' } };
+export const OnAfter: Story = { args: { initialMode: 'after' } };
+
+export const OnBeforePlain: Story = {
+  args: { initialMode: 'before', initialVariant: 'plain' },
+};

@@ -3,15 +3,25 @@ import type { EvidenceImageKey, ParsedEvidence } from '@mattstack/rt-client';
 export type EvidenceV1Parsed = Extract<ParsedEvidence, { version: 1 }>;
 export type EvidencePhase = 'before' | 'after';
 export type EvidenceVariant = 'plain' | 'annotated';
+export type CompareMode = EvidencePhase | 'side';
 
 export const PHASE_LABEL: Record<EvidencePhase, string> = {
   before: 'Before',
   after: 'After',
 };
-export const VARIANT_LABEL: Record<EvidenceVariant, string> = {
-  plain: 'Plain',
-  annotated: 'Annotated',
+export const MODE_LABEL: Record<CompareMode, string> = {
+  ...PHASE_LABEL,
+  side: 'Side by side',
 };
+
+export function isCompareMode(value: string | null): value is CompareMode {
+  return value === 'before' || value === 'after' || value === 'side';
+}
+
+/** A web link as a person reads it: no scheme. */
+export function urlLabel(url: string): string {
+  return url.replace(/^https?:\/\//i, '');
+}
 
 export interface EvidenceShot {
   key: EvidenceImageKey;

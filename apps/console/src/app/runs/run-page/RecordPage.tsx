@@ -94,6 +94,7 @@ export function RecordPage({
         runId={runId}
         evidence={evidence}
         variant="record"
+        ticket={facts.hero.ticket}
         mrIid={mrIid}
         pathHref={parts.pathHref}
       />
@@ -102,7 +103,7 @@ export function RecordPage({
   const tabs: RecordTab[] = [
     'story',
     ...(withDecisions ? (['decisions'] as const) : []),
-    ...(kind === 'work' ? (['evidence'] as const) : []),
+    ...(evidenceColumn ? (['evidence'] as const) : []),
     'inputs',
   ];
   const counts: Partial<Record<RecordTab, number>> = {
@@ -160,6 +161,7 @@ export function RecordPage({
                   block={parts.block}
                   evidenceField={parts.evidenceField}
                   pathHref={parts.pathHref}
+                  ticket={facts.hero.ticket}
                 />
                 {!parts.story?.entries.length && !parts.block ? (
                   <Text fz={13} lh="normal" c="dimmed">
@@ -199,14 +201,8 @@ export function RecordPage({
               )}
             </Tabs.Panel>
           ) : null}
-          {kind === 'work' ? (
-            <Tabs.Panel value="evidence">
-              {evidenceColumn ?? (
-                <Text fz={13} lh="normal" c="dimmed">
-                  This run recorded no evidence.
-                </Text>
-              )}
-            </Tabs.Panel>
+          {evidenceColumn ? (
+            <Tabs.Panel value="evidence">{evidenceColumn}</Tabs.Panel>
           ) : null}
           <Tabs.Panel value="inputs">
             <EffectiveInputs repo={repo} runId={runId} decisions={decisions} />
