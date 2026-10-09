@@ -1,4 +1,7 @@
-import { renderWithProviders } from '@mattstack/app-kit/test-utils';
+import {
+  renderWithProviders,
+  stubVirtualLayout,
+} from '@mattstack/app-kit/test-utils';
 import type {
   ExplainRowWire,
   SettingDefWire,
@@ -12,6 +15,7 @@ import {
   describe,
   expect,
   it,
+  onTestFinished,
   vi,
   type Mock,
 } from 'vitest';
@@ -1007,13 +1011,19 @@ describe('the context bar', () => {
   });
 
   it('picking another team reads it, notes where edits go, and Back returns', async () => {
+    const restore = stubVirtualLayout({
+      rowHeight: 40,
+      viewportHeight: 200,
+      contentHeight: 120,
+    });
+    onTestFinished(restore);
     answer(ADMIN);
     renderPage();
     await userEvent.click(
       await screen.findByRole('button', { name: 'team: widgets, switch team' })
     );
     await userEvent.click(
-      await screen.findByRole('menuitem', { name: 'gadgets' })
+      await screen.findByRole('menuitem', { name: /gadgets/ })
     );
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get('team')).toBe(

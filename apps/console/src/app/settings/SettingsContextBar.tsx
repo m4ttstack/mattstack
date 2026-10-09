@@ -3,7 +3,7 @@ import {
   Badge,
   Button,
   Group,
-  Menu,
+  SearchableMenu,
   Text,
 } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
@@ -21,11 +21,6 @@ const ROLE_BADGE: Record<
   owner: { label: 'team owner', color: 'purple', variant: 'light' },
   member: { label: 'member', color: 'gray', variant: 'outline' },
   unknown: { label: 'not connected', color: 'gray', variant: 'light' },
-};
-
-const ROLE_NOTE: Partial<Record<Role, string>> = {
-  admin: 'As an org admin you can edit every team.',
-  owner: 'You can edit the teams you own.',
 };
 
 export function RoleBadge({ role }: { role: Role }) {
@@ -69,25 +64,25 @@ function Who({ viewer }: { viewer: Viewer }) {
   );
 }
 
+type TeamItem = { name: string; own: boolean };
+
 function TeamMenu({
   teams,
   ownTeam,
   team,
-  role,
   other,
   onPick,
 }: {
   teams: string[];
   ownTeam: string | null;
   team: string;
-  role: Role;
   other: boolean;
   onPick: (team: string | null) => void;
 }) {
-  const note = ROLE_NOTE[role];
+  const items: TeamItem[] = teams.map(t => ({ name: t, own: t === ownTeam }));
   return (
-    <Menu position="bottom-start" offset={6} width={260} shadow="md">
-      <Menu.Target>
+    <SearchableMenu<TeamItem>
+      menuTrigger={
         <Button
           size="sm"
           variant={other ? 'light' : 'default'}
@@ -98,33 +93,20 @@ function TeamMenu({
         >
           {team}
         </Button>
-      </Menu.Target>
-      <Menu.Dropdown>
-        <Menu.Label>Teams</Menu.Label>
-        {teams.map(t => (
-          <Menu.Item
-            key={t}
-            onClick={() => onPick(t === ownTeam ? null : t)}
-            rightSection={t === team ? <Icons.check size={15} /> : undefined}
-          >
-            <Group gap={8} wrap="nowrap">
-              <span>{t}</span>
-              {t === ownTeam && (
-                <Badge size="xs" radius="xl" color="gray" variant="outline">
-                  your team
-                </Badge>
-              )}
-            </Group>
-          </Menu.Item>
-        ))}
-        {note && (
-          <>
-            <Menu.Divider />
-            <Menu.Label>{note}</Menu.Label>
-          </>
-        )}
-      </Menu.Dropdown>
-    </Menu>
+      }
+      items={items}
+      title="Teams"
+      titleIcon={<Icons.users size={14} />}
+      itemTitle={item => item.name}
+      itemSubtitle={item => (item.own ? 'your team' : 'shared team settings')}
+      isSelectedItem={item => item.name === team}
+      showItemBadge={item => item.name === team}
+      itemBadgeText="Selected"
+      onItemClick={item => onPick(item.own ? null : item.name)}
+      filterPlaceholder={() => 'Find team…'}
+      emptyMessage="No team matches"
+      position="bottom-start"
+    />
   );
 }
 
@@ -168,7 +150,6 @@ export function SettingsContextBar({
                 teams={viewer.teams}
                 ownTeam={ownTeam}
                 team={team}
-                role={viewer.role}
                 other={other}
                 onPick={onPickTeam}
               />
