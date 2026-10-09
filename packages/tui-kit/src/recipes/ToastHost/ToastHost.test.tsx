@@ -1,11 +1,11 @@
-import { createTheme } from "@soribashi/core";
+import { createTheme, SoribashiProvider } from "@soribashi/core";
 import { describe, expect, it } from "vitest";
 import { renderWithTheme } from "../../../test/test-utils.tsx";
 import { animationResolution } from "../../../test/keyframes.ts";
 import type { Toast } from "../../hooks/index.ts";
 import { tuiTheme } from "../../theme.ts";
 import { CHECK_ICON, CROSS_ICON } from "../Icon/Icon.tsx";
-import { TOASTHOST_PARTS, ToastHost } from "./ToastHost.tsx";
+import { TOAST_EXIT_MS, TOASTHOST_PARTS, ToastHost } from "./ToastHost.tsx";
 
 /**
  * Browser tier for the ToastHost recipe.
@@ -95,10 +95,31 @@ describe("ToastHost (browser)", () => {
     const { name, found } = animationResolution(first as HTMLElement);
     expect(found, `no @keyframes rule named "${name}" in any loaded sheet`).toBe(true);
     expect(name).toBe("toasthost-in");
-    // Slower than mr-board's 140ms, which read as a jump; see docs/decisions.md.
+    // Mantine's notification transition: 250ms on its overshooting curve.
     const style = getComputedStyle(first as HTMLElement);
-    expect(style.animationDuration).toBe("0.22s");
-    expect(style.animationTimingFunction).toBe("ease-out");
+    expect(style.animationDuration).toBe("0.25s");
+    expect(style.animationTimingFunction).toBe("cubic-bezier(0.51, 0.3, 0, 1.21)");
+  });
+
+  it("a dropped toast stays for TOAST_EXIT_MS, flagged leaving and playing its exit, then goes", async () => {
+    const wrap = (toasts: Toast[]) => (
+      <SoribashiProvider theme={tuiTheme}>
+        <ToastHost toasts={toasts} />
+      </SoribashiProvider>
+    );
+    const screen = await renderWithTheme(<ToastHost toasts={TOASTS} />);
+    await screen.rerender(wrap([TOASTS[1]!]));
+
+    const [leaving, staying] = toastsOf(screen.container);
+    expect(leaving?.textContent).toBe("posted to slack");
+    expect(leaving?.hasAttribute("data-leaving")).toBe(true);
+    expect(staying?.hasAttribute("data-leaving")).toBe(false);
+    expect(getComputedStyle(leaving as HTMLElement).animationName).toBe(
+      "toasthost-out, toasthost-collapse",
+    );
+
+    await new Promise((r) => setTimeout(r, TOAST_EXIT_MS + 50));
+    expect(toastsOf(screen.container).map((el) => el.textContent)).toEqual(["copied"]);
   });
 
   it("a consumer can override the default role via {...rest}", async () => {

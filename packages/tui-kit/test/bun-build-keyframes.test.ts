@@ -124,7 +124,9 @@ describe("Bun.build: every animation ident resolves inside the emitted bundle", 
       "sidedrawer-in",
       "sidedrawer-out",
       "toasthost-check",
+      "toasthost-collapse",
       "toasthost-in",
+      "toasthost-out",
       "tooltip-in",
     ]);
   });
