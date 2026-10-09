@@ -277,6 +277,8 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
       return true;
     },
 
+    sleepSync() {},
+
     async fetch(url, init) {
       calls.fetch.push(url);
       calls.fetchInits.push({ url, init });

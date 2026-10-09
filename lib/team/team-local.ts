@@ -122,18 +122,14 @@ export function writeTeamLocal(p: RecordWriter, slug: string, record: TeamLocalR
 const LOCK_TRIES = 50;
 const LOCK_WAIT_MS = 20;
 
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 /** Several rt processes update one record (a share, setup, a publish); without the lock a read-modify-write can drop another's field. A lock still there after a second is a dead writer's, so it is taken over. */
-export function withRecordLock<T>(p: RecordWriter & Pick<Probes, "mkdirExclusive" | "removeDir">, slug: string, fn: () => T): T {
+export function withRecordLock<T>(p: RecordWriter & Pick<Probes, "mkdirExclusive" | "removeDir" | "sleepSync">, slug: string, fn: () => T): T {
   const lock = `${teamLocalPath(p.home, slug)}.lock`;
   p.mkdirp(dirname(lock));
   let held = false;
   for (let i = 0; i < LOCK_TRIES && !held; i++) {
     held = p.mkdirExclusive(lock);
-    if (!held) sleepSync(LOCK_WAIT_MS);
+    if (!held) p.sleepSync(LOCK_WAIT_MS);
   }
   if (!held) {
     p.removeDir(lock);
@@ -157,7 +153,7 @@ export function assertCurrentOrg(slug: string, current: string | null, verb: str
 
 /** Merges one field without clobbering the rest — callers set `createdByRt` and the operator sets the permission, at different times. */
 export function updateTeamLocal(
-  p: RecordWriter & Pick<Probes, "readFile" | "mkdirExclusive" | "removeDir">,
+  p: RecordWriter & Pick<Probes, "readFile" | "mkdirExclusive" | "removeDir" | "sleepSync">,
   slug: string,
   patch: Partial<TeamLocalRecord>,
 ): TeamLocalRecord {
@@ -166,7 +162,7 @@ export function updateTeamLocal(
 
 /** Like updateTeamLocal, with the patch computed from the record as it stands under the lock. */
 export function editTeamLocal(
-  p: RecordWriter & Pick<Probes, "readFile" | "mkdirExclusive" | "removeDir">,
+  p: RecordWriter & Pick<Probes, "readFile" | "mkdirExclusive" | "removeDir" | "sleepSync">,
   slug: string,
   edit: (current: TeamLocalRecord) => Partial<TeamLocalRecord>,
 ): TeamLocalRecord {
