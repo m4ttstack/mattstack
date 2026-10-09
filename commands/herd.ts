@@ -324,13 +324,24 @@ export async function answer(args: string[]): Promise<void> {
   emit(json, data, renderAnswer(gate, data));
 }
 
-/** With agent.integrations.enabled on, the bound session this command runs in, which the daemon authorizes a report by; off, nothing is sent. */
-async function reportCaller(args: string[]): Promise<{ session?: string; harness?: string }> {
+export type ReportCaller = { session?: string; harness?: string; bound: boolean };
+
+/**
+ * The session a report is authorized by. Off, none is sent. On, the bound
+ * session this command runs in, else an unbound Claude worker's own
+ * CLAUDE_CODE_SESSION_ID (one spawned with the switch off, which its job row
+ * records).
+ */
+export function reportSession(switchOn: boolean, native: { harness: string; value: string } | undefined, env: Record<string, string | undefined>): ReportCaller {
+  if (!switchOn) return { bound: false };
+  if (native) return { session: native.value, ...(native.harness !== "claude" && { harness: native.harness }), bound: true };
+  return env.CLAUDE_CODE_SESSION_ID ? { session: env.CLAUDE_CODE_SESSION_ID, bound: false } : { bound: false };
+}
+
+async function reportCaller(args: string[]): Promise<ReportCaller> {
   const { integrationsEnabled, resolveCliBinding } = await import("../lib/agent-integrations/context.ts");
-  if (!integrationsEnabled()) return {};
-  const native = resolveCliBinding(args, process.env)?.native;
-  if (!native) return {};
-  return { session: native.value, ...(native.harness !== "claude" && { harness: native.harness }) };
+  if (!integrationsEnabled()) return { bound: false };
+  return reportSession(true, resolveCliBinding(args, process.env)?.native, process.env);
 }
 
 /**
@@ -339,11 +350,11 @@ async function reportCaller(args: string[]): Promise<{ session?: string; harness
  * resolved (integrations on), so the daemon takes the job from that
  * session's attempt.
  */
-export function reportJob(env: Record<string, string | undefined>, caller: { session?: string }): Partial<ReturnType<typeof jobEnv>> | { error: string } {
+export function reportJob(env: Record<string, string | undefined>, caller: ReportCaller): Partial<ReturnType<typeof jobEnv>> | { error: string } {
   try {
     return jobEnv(env);
   } catch (e) {
-    return caller.session === undefined ? { error: (e as Error).message } : {};
+    return caller.bound ? {} : { error: (e as Error).message };
   }
 }
 
@@ -364,7 +375,7 @@ export async function report(args: string[]): Promise<void> {
     body = await Bun.stdin.text();
   }
   if (!body.trim()) fail("empty report body (pass --file <path> or pipe the body on stdin)");
-  const data = unwrap(await herdReport({ ...w, body, ...caller }), "report");
+  const data = unwrap(await herdReport({ ...w, body, ...(caller.session !== undefined && { session: caller.session }), ...(caller.harness !== undefined && { harness: caller.harness }) }), "report");
   emit(json, data, `reported (message #${data.message})`);
 }
 

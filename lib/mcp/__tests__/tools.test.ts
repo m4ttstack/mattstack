@@ -1580,6 +1580,18 @@ describe("resolved caller sessions", () => {
     expect(calls).toEqual([]);
   });
 
+  test("herd_report from an unbound Claude worker sends its own session only while integrations are on", async () => {
+    const unbound: ToolContext = { caller: async () => null };
+    const env = { HERD_ID: "hd-1", HERD_JOB: "j", CLAUDE_CODE_SESSION_ID: "sess-legacy" } as NodeJS.ProcessEnv;
+    expect((await tool("herd_report").handler({ body: "done" }, env, undefined, unbound)).ok).toBe(true);
+    setSetting("agent.integrations.enabled", true, "machine");
+    expect((await tool("herd_report").handler({ body: "done" }, env, undefined, unbound)).ok).toBe(true);
+    expect(calls.map((c) => c.payload)).toEqual([
+      { herd: "hd-1", job: "j", body: "done" },
+      { herd: "hd-1", job: "j", body: "done", session: "sess-legacy" },
+    ]);
+  });
+
   test("the rt-client herd wrappers carry the worker selection and the caller's harness onto the wire", async () => {
     const { herdSpawn, herdMilestone } = await import("../../../packages/rt-client/src/index.ts");
     await herdSpawn({ herd: "h", job: "j", harness: "codex", model: "m", mode: "headless", assignment: { harness: "claude" }, callerAccount: "a@example.com" });

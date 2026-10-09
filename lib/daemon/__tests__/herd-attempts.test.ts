@@ -19,6 +19,7 @@ import { createAgentService } from "../handlers/agent.ts";
 import { createHerdHandlers, type HerdDeps } from "../handlers/herd.ts";
 import { createHerdStore, type HerdStore } from "../herd-store.ts";
 import { __test__ as attemptsInProcess, createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
+import { reportJob, reportSession } from "../../../commands/herd.ts";
 
 const log = pino({ level: "silent" });
 const HERD = "demo-20261008-120000";
@@ -546,6 +547,38 @@ describe("herd:spawn and herd:report with the switch on", () => {
       expect(stale, verb).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
     }
     expect((await h["herd:report"]({ ...named, session: respawned.data.sessionId, body: "done" })).ok).toBe(true);
+  });
+
+  test("the CLI's report from a switch-off worker reaches the daemon with its session: allowed for the job's session, refused for another, stale after a switch-off respawn", async () => {
+    switchOn = false;
+    const svc = attempts();
+    const posted: unknown[] = [];
+    let n = 0;
+    const legacy = {
+      handlers: { "agent:start": async () => ({ ok: true as const, data: { id: `ag-${++n}`, sessionId: `sess-legacy-${n}`, paneId: "w9:p1", repo: "r", cwd: "/w/job-a", surface: "herdr", provider: "claude" } }) },
+      startAttempt: async () => { throw new Error("unused"); },
+    } as unknown as ReturnType<typeof createAgentService>;
+    const h = herdHandlers(svc, legacy, posted);
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!spawned.ok) throw new Error(spawned.error);
+
+    const cliPayload = (session: string) => {
+      const env = { HERD_ID: HERD, HERD_JOB: JOB, CLAUDE_CODE_SESSION_ID: session };
+      const caller = reportSession(true, undefined, env);
+      const job = reportJob(env, caller);
+      if ("error" in job) throw new Error(job.error);
+      return { ...job, body: "done", ...(caller.session !== undefined && { session: caller.session }) };
+    };
+    switchOn = true;
+    expect((await h["herd:report"](cliPayload("sess-legacy-1"))).ok).toBe(true);
+    expect(await h["herd:report"](cliPayload("sess-other"))).toMatchObject({ ok: false, failure: { code: "refused" } });
+
+    switchOn = false;
+    const respawned = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a" });
+    if (!respawned.ok) throw new Error(respawned.error);
+    switchOn = true;
+    expect(await h["herd:report"](cliPayload("sess-legacy-1"))).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
+    expect((await h["herd:report"](cliPayload("sess-legacy-2"))).ok).toBe(true);
   });
 
   test("switch off: a question and a milestone name their job and trust the session as before", async () => {

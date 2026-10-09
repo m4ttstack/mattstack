@@ -2,7 +2,7 @@ import { describe, test, expect, spyOn } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildAskPayload, buildBriefInputs, buildSpawnPayload, buildWrapUpPayload, brief, jobEnv, renderAnswer, renderHerdRow, renderResumed, renderStatus, reportJob, soleHerdId, withCallerAccount, workerEnv } from "../../commands/herd.ts";
+import { buildAskPayload, buildBriefInputs, buildSpawnPayload, buildWrapUpPayload, brief, jobEnv, renderAnswer, renderHerdRow, renderResumed, renderStatus, reportJob, reportSession, soleHerdId, withCallerAccount, workerEnv } from "../../commands/herd.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import type { Commands, HerdListRow, HerdStatusData } from "../../packages/rt-client/src/index.ts";
@@ -66,9 +66,20 @@ describe("rt herd payload builders", () => {
   });
 
   test("reportJob: HERD_* names the job; a bound headless worker with none names nothing; an unbound caller gets today's error", () => {
-    expect(reportJob({ HERD_ID: "h", HERD_JOB: "j" }, {})).toEqual({ herd: "h", job: "j" });
-    expect(reportJob({}, { session: "thread-one" })).toEqual({});
-    expect(reportJob({}, {})).toEqual({ error: "HERD_ID and HERD_JOB are not set; this verb runs inside a herd worker pane" });
+    const unbound = { bound: false };
+    expect(reportJob({ HERD_ID: "h", HERD_JOB: "j" }, unbound)).toEqual({ herd: "h", job: "j" });
+    expect(reportJob({}, { session: "thread-one", harness: "codex", bound: true })).toEqual({});
+    expect(reportJob({}, unbound)).toEqual({ error: "HERD_ID and HERD_JOB are not set; this verb runs inside a herd worker pane" });
+    expect(reportJob({}, { session: "sess-legacy", bound: false })).toEqual({ error: "HERD_ID and HERD_JOB are not set; this verb runs inside a herd worker pane" });
+  });
+
+  test("reportSession: off sends no session; on sends the bound session, else an unbound Claude worker's own", () => {
+    const env = { CLAUDE_CODE_SESSION_ID: "sess-legacy" };
+    expect(reportSession(false, undefined, env)).toEqual({ bound: false });
+    expect(reportSession(false, { harness: "claude", value: "sess-x" }, env)).toEqual({ bound: false });
+    expect(reportSession(true, undefined, env)).toEqual({ session: "sess-legacy", bound: false });
+    expect(reportSession(true, { harness: "codex", value: "thread-one" }, env)).toEqual({ session: "thread-one", harness: "codex", bound: true });
+    expect(reportSession(true, undefined, {})).toEqual({ bound: false });
   });
 
   test("buildSpawnPayload: --harness is the user's explicit assignment and carries the options; --mode rides beside it", () => {

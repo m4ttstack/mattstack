@@ -264,14 +264,16 @@ export function createHerdHandlers(deps: HerdDeps) {
   function authorizeWorker(w: WorkerCall, herdId: string, name: string, job: HerdJobRow, what: string): WorkerRefusal | null {
     const refuse = (code: string, error: string): WorkerRefusal => ({ ok: false, error, failure: { code, message: error } });
     const active = store.activeAttempt(herdId, name);
+    const replaced = w.session !== undefined && !w.caller?.ok
+      ? store.attempts(herdId, name).find((a) => a.id !== active?.id && a.bindingKey === undefined && a.legacySession === w.session)
+      : undefined;
+    const stale = (id: string) => refuse("stale-binding", `job "${name}" did not accept this ${what}: attempt ${id} no longer holds job ${name}; a newer worker replaced it`);
     if (active && active.bindingKey === undefined) {
       if (w.named && w.harness === undefined && w.session !== undefined && w.session === job.agentSession) return null;
+      if (replaced) return stale(replaced.id);
       return refuse("refused", `job "${name}" did not accept this ${what}: it is not from the session that works the job`);
     }
-    if (w.session !== undefined && !w.caller?.ok) {
-      const replaced = store.attempts(herdId, name).find((a) => a.id !== active?.id && a.bindingKey === undefined && a.legacySession === w.session);
-      if (replaced) return refuse("stale-binding", `job "${name}" did not accept this ${what}: attempt ${replaced.id} no longer holds job ${name}; a newer worker replaced it`);
-    }
+    if (replaced) return stale(replaced.id);
     if (!w.caller) return refuse("ambiguous", `this ${what} cannot be attributed to a session, so its job did not accept it`);
     if (!w.caller.ok) return refuse(w.caller.error.code, `this ${what} cannot be attributed to a session: ${w.caller.error.message}`);
     const held = attempts.authorizeJobReport(w.caller.data, herdId, name);

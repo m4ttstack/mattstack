@@ -39,6 +39,7 @@ import {
   resolveSoleHerd, withLandingHint,
   type McpToolDef, type ToolResult,
 } from "./shared.ts";
+import { integrationsEnabled } from "../agent-integrations/switch.ts";
 
 export type { McpToolDef } from "./shared.ts";
 
@@ -872,6 +873,9 @@ export function mcpTools(): McpToolDef[] {
           const { native } = caller.data.binding;
           payload.session = native.value;
           if (native.harness !== "claude") payload.harness = native.harness;
+        } else if (integrationsEnabled() && env.CLAUDE_CODE_SESSION_ID) {
+          // An unbound Claude worker (spawned with the switch off) is authorized by the session its job row records.
+          payload.session = env.CLAUDE_CODE_SESSION_ID;
         }
         return fromResponse(await herdReport(payload));
       },
