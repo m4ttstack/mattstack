@@ -222,6 +222,26 @@ describe('buildSections', () => {
     expect(where(true, 'board.mixed')).toBe('org');
   });
 
+  it('a store filter keeps a per-project key any of whose repo sections live there', () => {
+    const perProject = def('board.intercepts', {
+      type: 'object',
+      scopes: ['user', 'team', 'machine'],
+      repoScoped: true,
+      effective: { scope: null, file: null, value: undefined },
+      repos: [
+        { identity: 'h/a', scopes: ['org'] },
+        { identity: 'h/b', scopes: ['machine'] },
+      ],
+    });
+    const keys = (scope: 'org' | 'machine' | 'team') =>
+      buildSections([perProject], { ...NO_FILTER, scope })[0]!.subsections.map(
+        s => [s.scope, s.defs.map(d => d.key)]
+      );
+    expect(keys('org')).toEqual([['org', ['board.intercepts']]]);
+    expect(keys('machine')).toEqual([['machine', ['board.intercepts']]]);
+    expect(keys('team')).toEqual([]);
+  });
+
   it('puts a key served from a shared repo section under that store, whatever its first scope', () => {
     const roles = (key: string, scope: string) =>
       def(key, {

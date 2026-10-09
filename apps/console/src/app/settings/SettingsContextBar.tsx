@@ -196,15 +196,16 @@ export function SettingsContextBar({
   return (
     <Group justify="space-between" wrap="nowrap" w="100%" gap={16}>
       <Group gap={10} wrap="nowrap" miw={0}>
-        {/* The org in its scope's gold, the same as its org badges. */}
+        {/* The org in its scope's gold, sized like the team button beside it. */}
         <Badge
-          size="md"
-          h={22}
+          size="lg"
+          h={26}
+          fz="sm"
           color="gold"
           variant="light"
           tt="none"
           fw={500}
-          leftSection={<Icon name="building" size={13} />}
+          leftSection={<Icon name="building" size={14} />}
           style={{ flex: 'none' }}
         >
           {org}
