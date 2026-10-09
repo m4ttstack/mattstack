@@ -603,6 +603,47 @@ test('a running command shows busy, its tooltip reads the phase, and a second cl
   });
 }, 12000);
 
+test('on a touch screen the row gear shows without hover or focus', async () => {
+  await withBoard(
+    async page => {
+      expect(
+        await page.evaluate(() => matchMedia('(hover: none)').matches)
+      ).toBe(true);
+      expect(await settledOpacity(gearFor(page, 'atlas'), '1')).toBe('1');
+    },
+    {
+      context: {
+        hasTouch: true,
+        isMobile: true,
+        viewport: { width: 390, height: 844 },
+      },
+    }
+  );
+});
+
+test('site mark: a row with an icon shows its brand image, a row without shows its letter tile', async () => {
+  await withBoard(
+    async page => {
+      const atlasSite = rowFor(page, 'atlas')
+        .locator('[data-part="table-cell"]')
+        .first();
+      expect(await atlasSite.locator('img.site-mark').getAttribute('src')).toBe(
+        '/favicon.svg'
+      );
+      expect(await atlasSite.locator('.site-mark-letter').count()).toBe(0);
+
+      const orbitSite = rowFor(page, 'orbit')
+        .locator('[data-part="table-cell"]')
+        .first();
+      expect(await orbitSite.locator('img').count()).toBe(0);
+      expect(
+        (await orbitSite.locator('.site-mark-letter').textContent())?.trim()
+      ).toBe('o');
+    },
+    { fixture: 'status-newcode.json' }
+  );
+});
+
 test('public host: no write controls in the table', async () => {
   await withBoard(
     async page => {

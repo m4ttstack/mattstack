@@ -35,6 +35,7 @@
       "publicFollowsOverride": false,
       "self": false,
       "managedBy": "mattstack",
+      "icon": "/favicon.svg",
       "issues": [],
       "record": {
         "kind": "service",
@@ -79,6 +80,7 @@
       "publicFollowsOverride": false,
       "self": false,
       "managedBy": "mattstack",
+      "icon": "/favicon.svg",
       "issues": [],
       "record": {
         "kind": "service",
@@ -123,6 +125,7 @@
       "publicFollowsOverride": false,
       "self": false,
       "managedBy": "mattstack",
+      "icon": "/favicon.svg",
       "issues": [],
       "record": {
         "kind": "service",
@@ -166,6 +169,7 @@
       "publicFollowsOverride": false,
       "self": true,
       "managedBy": "deck",
+      "icon": "/favicon.svg",
       "issues": [],
       "record": {
         "kind": "service",
@@ -208,6 +212,7 @@
       "publicFollowsOverride": false,
       "self": false,
       "managedBy": "mattstack",
+      "icon": "/favicon.svg",
       "issues": [
         {
           "source": "cloudflare",

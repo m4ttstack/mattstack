@@ -8,7 +8,7 @@
    canvas, replicated by hand rather than importing canvas.css -- that file
    also resets `* { box-sizing: border-box }`, which this app's drawer rows
    are deliberately written without, see .drawer-toggle-row below).
-   Each apps table sits on a raised --card panel below -- see .apps-grid --
+   Each apps table sits on a raised --card panel below -- see .apps-panel --
    which is where the on-card ink roles apply. */
 body {
   margin: 0;
@@ -89,15 +89,25 @@ body {
   line-height: 0;
 }
 
-/* The app icon (mattstack mark) leads a managed row's identity; unmanaged
-   rows carry none and start at the name. */
-.app-icon {
-  width: 22px;
-  height: 22px;
-  display: inline-block;
+/* Every row's identity leads with a tile: the brand mark when the row has
+   one, else the name's first letter on a neutral wash. */
+.site-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--spacing-rem120);
+  height: var(--spacing-rem120);
+  border-radius: var(--radius-sm);
   vertical-align: middle;
   margin-right: var(--spacing-sm);
   flex: none;
+}
+.site-mark-letter {
+  background: var(--surface-wash-fg-8);
+  color: var(--text-4);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
 }
 
 /* Cloudflare tunnel health, collapsed from its own row to a header badge that
@@ -275,13 +285,23 @@ body {
   color: var(--text-warn-vivid);
 }
 
-/* The gear stays in the tab order and only shows while its row is hovered
-   or holds focus. */
+/* The gear stays in the tab order and, on a pointer that can hover, only
+   shows while its row is hovered or holds focus. A touch screen cannot
+   hover, so there it always shows. The transition list repeats the kit
+   Button's own, which this rule would otherwise replace. */
 .row-gear {
   opacity: 0;
   transition:
     opacity 120ms ease,
-    background 120ms ease;
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease,
+    transform 0.08s ease;
+}
+@media (hover: none) {
+  .row-gear {
+    opacity: 1;
+  }
 }
 @media (hover: hover) {
   .apps-grid [data-part='table-row']:hover .row-gear {

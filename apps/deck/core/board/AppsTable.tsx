@@ -173,12 +173,24 @@ export function servicePid(
   return service.unmanaged ? service.unmanaged.pid : service.pid;
 }
 
+/** The row's brand mark, or a letter tile when it has none (user apps,
+    strays). */
+function SiteMark({ row }: { row: Row }) {
+  if (row.icon)
+    return (
+      <img className="site-mark" src={row.icon} alt="" aria-hidden="true" />
+    );
+  return (
+    <span className="site-mark site-mark-letter" aria-hidden="true">
+      {row.name.charAt(0)}
+    </span>
+  );
+}
+
 function SiteCell({ row }: { row: Row }) {
   return (
     <>
-      {row.icon && (
-        <img className="app-icon" src={row.icon} alt="" aria-hidden="true" />
-      )}
+      <SiteMark row={row} />
       {row.url ? (
         <span className="site-name">
           <a className="unstyled" href={row.url}>
