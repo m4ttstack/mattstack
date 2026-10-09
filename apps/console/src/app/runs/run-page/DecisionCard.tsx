@@ -7,33 +7,29 @@ import {
   Paper,
   Stack,
   Text,
+  UnstyledButton,
   VisuallyHidden,
 } from '@mattstack/app-kit/core';
 import { useDisclosure } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { GateQuestion, GateRow } from '@mattstack/rt-client';
 
-import { answerStamp, structuredContextSummary } from '../derive/answers';
+import {
+  answerStamp,
+  contextMeta,
+  prettyContext,
+  structuredContextSummary,
+} from '../derive/answers';
 import {
   gateEndNote,
   optionViews,
   questionAnswer,
   tookRecommendation,
+  type OptionView,
 } from '../derive/gates';
 import { GateContext } from '../GateContext';
 import classes from './DecisionCard.module.css';
-
-function prettyJson(text: string): string {
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2);
-  } catch {
-    return text;
-  }
-}
-
-function lineCount(text: string): number {
-  return text.trimEnd().split('\n').length;
-}
+import { PassedOnList } from './PassedOnList';
 
 /** A collapsed context: a prose context renders as markdown, a structured one
     shows its summary line over the raw JSON in a monospace block, never as
@@ -49,8 +45,7 @@ function ContextDisclosure({
 }) {
   const [open, { toggle }] = useDisclosure(false);
   const summary = structuredContextSummary(context);
-  const lines = lineCount(context);
-  const meta = summary ?? `${lines} ${lines === 1 ? 'line' : 'lines'}`;
+  const meta = contextMeta(context);
   return (
     <Stack gap="xs">
       <Anchor
@@ -76,7 +71,7 @@ function ContextDisclosure({
       </Anchor>
       <Collapse expanded={open} id={id}>
         {summary ? (
-          <Code block>{prettyJson(context)}</Code>
+          <Code block>{prettyContext(context)}</Code>
         ) : (
           <GateContext text={context} />
         )}
@@ -85,55 +80,92 @@ function ContextDisclosure({
   );
 }
 
-function Option({
-  value,
-  text,
-  recommended,
-  picked,
-  muted,
-}: {
-  value: string;
-  text: string;
-  recommended: boolean;
-  picked: boolean;
-  muted: boolean;
-}) {
+function RecommendedMark() {
+  return (
+    <Badge size="xs" variant="outline" color="gray" tt="none" data-parity="rec">
+      <span data-parity="label">recommended</span>
+    </Badge>
+  );
+}
+
+function Pick({ option }: { option: OptionView }) {
   return (
     <div
       className={classes.option}
-      data-option={value}
-      data-picked={picked ? 'true' : 'false'}
-      aria-current={picked ? 'true' : undefined}
-      data-parity={picked ? 'opt' : undefined}
+      data-option={option.value}
+      data-picked="true"
+      aria-current="true"
+      data-parity="opt"
     >
       <Icon
-        name={picked ? 'circleCheck' : 'circle'}
+        name="circleCheck"
         size={15}
-        color={picked ? 'var(--tk-text-ok-vivid)' : 'var(--tk-text-3)'}
-        data-parity={picked ? 'circle-check' : 'circle'}
+        color="var(--tk-text-ok-vivid)"
+        data-parity="circle-check"
       />
-      <Text
-        fz={13}
-        lh="normal"
-        fw={picked ? 500 : 400}
-        c={picked && !muted ? undefined : 'dimmed'}
-        data-parity="label"
-      >
-        {text}
+      <Text fz={13} lh="normal" fw={500} data-parity="label">
+        {option.text}
       </Text>
-      {picked ? <VisuallyHidden>selected</VisuallyHidden> : null}
-      {recommended ? (
-        <Badge
-          size="xs"
-          variant="outline"
-          color="gray"
-          tt="none"
-          data-parity="rec"
-        >
-          <span data-parity="label">recommended</span>
-        </Badge>
-      ) : null}
+      <VisuallyHidden>selected</VisuallyHidden>
+      {option.recommended ? <RecommendedMark /> : null}
     </div>
+  );
+}
+
+const quoted = (options: OptionView[]) =>
+  options.map(o => `“${o.text}”`).join(', ');
+
+/** The options the answer passed on, folded to one line that opens to list
+    them. While folded, the line names the recommendation the pick went
+    against; once open, the listed row's mark names it. */
+function OtherOptions({
+  id,
+  others,
+  picked,
+  overrode,
+}: {
+  id: string;
+  others: OptionView[];
+  picked: boolean;
+  overrode: boolean;
+}) {
+  const [open, { toggle }] = useDisclosure(false);
+  const n = others.length;
+  const count = picked
+    ? `${n} other ${n === 1 ? 'option' : 'options'}`
+    : `${n} ${n === 1 ? 'option' : 'options'}`;
+  const passedRecommended = others.filter(o => o.recommended);
+  const line =
+    !open && overrode && passedRecommended.length > 0
+      ? `${count} · recommended was ${quoted(passedRecommended)}`
+      : count;
+  return (
+    <>
+      <UnstyledButton
+        className={classes.others}
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={toggle}
+      >
+        <Icon
+          name={open ? 'chevronDown' : 'chevronRight'}
+          size={13}
+          color="var(--tk-text-3)"
+          data-parity="i"
+        />
+        <Text fz={12.5} lh="normal" c="dimmed" data-parity="t">
+          {line}
+        </Text>
+      </UnstyledButton>
+      {open ? (
+        <PassedOnList
+          id={id}
+          options={others}
+          recommendedMark={<RecommendedMark />}
+          className={classes.passed}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -150,7 +182,12 @@ function QuestionBlock({
   const answer = questionAnswer(gate.answer, question);
   const stamp = first && !ended ? answerStamp(gate) : null;
   const overrode = tookRecommendation(question, gate.answer) === false;
-  const ctxId = `decision-${gate.id}-${question.id}-ctx`;
+  const options = optionViews(question);
+  const picks = answer
+    ? options.filter(o => answer.picked.includes(o.value))
+    : [];
+  const others = options.filter(o => !picks.includes(o));
+  const idOf = (part: string) => `decision-${gate.id}-${question.id}-${part}`;
   return (
     <Stack gap={12} data-question={question.id}>
       <Group wrap="nowrap" gap={10}>
@@ -187,16 +224,21 @@ function QuestionBlock({
           </Text>
         ) : null}
       </Group>
-      <Stack gap={6}>
-        {optionViews(question).map(o => (
-          <Option
-            key={o.value}
-            {...o}
-            picked={answer?.picked.includes(o.value) ?? false}
-            muted={ended !== null}
-          />
-        ))}
-      </Stack>
+      {picks.length > 0 || others.length > 0 ? (
+        <Stack gap={6} align="flex-start">
+          {picks.map(o => (
+            <Pick key={o.value} option={o} />
+          ))}
+          {others.length > 0 ? (
+            <OtherOptions
+              id={idOf('others')}
+              others={others}
+              picked={picks.length > 0}
+              overrode={overrode}
+            />
+          ) : null}
+        </Stack>
+      ) : null}
       {answer?.note ? (
         <div className={classes.note} data-parity="note">
           <Icon name="messageSquare" size={13} data-parity="message-square" />
@@ -226,7 +268,7 @@ function QuestionBlock({
       ) : null}
       {question.context ? (
         <ContextDisclosure
-          id={ctxId}
+          id={idOf('ctx')}
           label="What this turns on"
           context={question.context}
         />
@@ -235,11 +277,12 @@ function QuestionBlock({
   );
 }
 
-/** One gate in the record view: each question with every option, the pick
-    highlighted, the recommended badge and a mark when the pick went against
-    it, the note or edited reply, and who answered when. The gate's own
-    context sits once under the questions, collapsed. A closed or superseded
-    gate draws muted with why it ended. */
+/** One gate in the record view: each question with its pick highlighted
+    (marked when it was the recommendation), the options passed on folded to
+    one line, a mark when the pick went against the recommendation, the note
+    or edited reply, and who answered when. The gate's own context sits once
+    under the questions, collapsed. A closed or superseded gate draws muted
+    with why it ended. */
 export function DecisionCard({ gate }: { gate: GateRow }) {
   const ended = gateEndNote(gate);
   const muted = ended !== null;

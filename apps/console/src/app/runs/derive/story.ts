@@ -4,10 +4,15 @@ import type {
   RunFieldRow,
   RunStageRow,
 } from '@mattstack/rt-client';
-import { parseEvidence } from '@mattstack/rt-client/evidence';
+import {
+  legacyItems,
+  parseEvidence,
+  type ParsedEvidence,
+} from '@mattstack/rt-client/evidence';
 
-import { placeFields, storyFields } from './fields';
+import { fieldLabel, placeFields, storyFields } from './fields';
 import { gateStage, pickedText, questionAnswer } from './gates';
+import { answeredQuestionCount } from './record';
 import { stageAttempts, type StageAttempt } from './stages';
 
 export type StoryEvidence = 'before' | 'after' | 'legacy';
@@ -32,6 +37,9 @@ export interface StoryEntry {
   /** "back to implement: <reason>" for a redirected attempt. */
   redirect: string | null;
   evidence: StoryEvidence | null;
+  /** The row that shows the evidence's url: the first phase the story
+      places, so the link appears once. */
+  evidenceUrl?: boolean;
 }
 
 export interface StoryInput {
@@ -194,6 +202,7 @@ export function liveStory(input: StoryInput): LiveStory {
     if (target && !evidenceAt.has(keyOf(target)))
       evidenceAt.set(keyOf(target), phase);
   }
+  const urlAt = [...evidenceAt].find(([, phase]) => phase !== 'legacy')?.[0];
 
   const entries: StoryEntry[] = story.map(a => {
     const key = keyOf(a);
@@ -215,6 +224,7 @@ export function liveStory(input: StoryInput): LiveStory {
           : null,
       redirect: a.status === 'redirected' ? (redirects.get(key) ?? null) : null,
       evidence: evidenceAt.get(key) ?? null,
+      evidenceUrl: key === urlAt,
     };
   });
 
@@ -262,35 +272,67 @@ export function runBlock(input: StoryInput): StoryEntry | null {
   };
 }
 
-export interface DecisionEntry {
-  gateId: string;
-  questionId: string;
-  stage: string | null;
-  /** The picked options' labels, as the story's decision row reads them. */
-  pick: string;
+/** A stage row's one line: "3 decisions · <first pick>" when the attempt
+    has answered questions, else its first field as "<Label>: <value>", else
+    why it failed, else nothing. A stage that holds evidence says what it
+    captured ("2 screenshots, 1 link") in place of the pick, which its
+    opened body already shows. */
+export function stageSummary(
+  entry: StoryEntry,
+  evidence: ParsedEvidence | null = null
+): string {
+  const count = answeredQuestionCount(entry.gates);
+  const captured =
+    entry.evidence && evidence
+      ? evidenceSummary(evidence, entry.evidence, entry.evidenceUrl ?? false)
+      : null;
+  if (count > 0) {
+    const detail = captured ?? firstPick(entry.gates);
+    const head = `${count} ${count === 1 ? 'decision' : 'decisions'}`;
+    return detail ? `${head} · ${detail}` : head;
+  }
+  if (captured) return captured;
+  const field = entry.fields[0];
+  if (field) return `${fieldLabel(field.key)}: ${oneLine(field.value)}`;
+  return entry.failure?.reason ?? '';
 }
 
-/** One row per answered question on the run's answered gates, in the order
-    they were answered. */
-export function decisionEntries(
-  gates: GateRow[],
-  stages: RunStageRow[]
-): DecisionEntry[] {
-  return gates
-    .filter(g => g.status === 'answered' && g.answer)
-    .sort((x, y) => x.answer!.answeredAt - y.answer!.answeredAt)
-    .flatMap(g =>
-      g.questions.flatMap(q => {
-        const answer = questionAnswer(g.answer, q);
-        if (!answer || answer.picked.length === 0) return [];
-        return [
-          {
-            gateId: g.id,
-            questionId: q.id,
-            stage: gateStage(g, stages),
-            pick: pickedText(q, answer.picked),
-          },
-        ];
-      })
-    );
+const counted = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+
+/** "2 screenshots, 1 link": what one phase of a run's evidence captured. */
+function evidenceSummary(
+  evidence: ParsedEvidence,
+  phase: StoryEvidence,
+  entryUrl: boolean
+): string | null {
+  let shots = 0;
+  let links = 0;
+  if (evidence.version === 0) {
+    for (const item of legacyItems(evidence.links))
+      if (item.kind === 'image') shots += 1;
+      else links += 1;
+  } else if (evidence.version === 1) {
+    shots = evidence.images.filter(i => i.key.startsWith(phase)).length;
+    if (entryUrl && evidence.evidence.url) links = 1;
+  }
+  const parts = [
+    shots > 0 ? counted(shots, 'screenshot') : null,
+    links > 0 ? counted(links, 'link') : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
+const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+function firstPick(gates: GateRow[]): string | null {
+  for (const g of gates) {
+    if (g.status !== 'answered') continue;
+    for (const q of g.questions) {
+      const answer = questionAnswer(g.answer, q);
+      if (!answer) continue;
+      if (answer.picked.length > 0) return pickedText(q, answer.picked);
+      if (answer.text) return oneLine(answer.text);
+    }
+  }
+  return null;
 }

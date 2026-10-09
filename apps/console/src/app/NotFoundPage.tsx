@@ -1,30 +1,40 @@
-import { Box, Button, Stack, Text, Title } from '@mattstack/app-kit/core';
-import { Icon } from '@mattstack/app-kit/icons';
+import { Button, PageShell, Stack, Text } from '@mattstack/app-kit/core';
 import { Link } from 'wouter';
+
+import classes from './NotFoundPage.module.css';
+import { useRunsPruneDays } from './runs/useRuns';
+
+/** Why an address can be empty, naming rt's prune window once it is known. */
+export function notFoundReason(days: number | undefined): string {
+  const pruned =
+    days === undefined
+      ? 'the run was pruned'
+      : `the run was pruned after ${days} day${days === 1 ? '' : 's'}`;
+  return `The link may be from an older console, or ${pruned}.`;
+}
 
 /** Rendered for any path the route table doesn't recognize. */
 export function NotFoundPage() {
+  const days = useRunsPruneDays().data;
   return (
-    <Box px="md" py={{ base: 80, md: 120 }}>
-      <Stack align="center" gap="md" maw={480} mx="auto" ta="center">
-        <Text fz={64} fw={700} lh={1} c="dimmed" ff="monospace" aria-hidden>
-          404
-        </Text>
-        <Title order={1} fz="h2">
-          Page not found
-        </Title>
-        <Text c="dimmed">
-          Nothing lives at this address. The run board is one click away.
-        </Text>
-        <Button
-          component={Link}
-          href="/"
-          mt="xs"
-          leftSection={<Icon name="arrowLeft" size={16} />}
-        >
-          Back to the run board
-        </Button>
-      </Stack>
-    </Box>
+    <PageShell>
+      <PageShell.Main>
+        <PageShell.Content bg="var(--tk-panel)" contentContainer={false}>
+          <div className={classes.page} data-parity="Not found">
+            <Stack align="center" gap={8} ta="center">
+              <Text fz={18} fw={700} lh="normal" data-parity="h">
+                Nothing at this address
+              </Text>
+              <Text fz={13} lh="normal" c="dimmed" data-parity="p">
+                {notFoundReason(days)}
+              </Text>
+              <Button component={Link} href="/" data-parity="btn">
+                <span data-parity="l">Back to runs</span>
+              </Button>
+            </Stack>
+          </div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
   );
 }

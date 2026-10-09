@@ -1,0 +1,54 @@
+.doc {
+  --gate-context-fz: 13px;
+  --gate-context-lh: 20px;
+  max-width: none;
+}
+
+.doc h1,
+.doc h2 {
+  margin: 0 0 10px;
+  line-height: normal;
+  font-weight: 700;
+  color: var(--tk-text-1);
+}
+
+.doc h1 {
+  font-size: 16px;
+}
+
+.doc h2 {
+  font-size: 13.5px;
+}
+
+.doc * + h2 {
+  margin-top: 14px;
+}
+
+.doc ul,
+.doc ol {
+  padding-left: 0;
+  list-style: none;
+}
+
+.doc li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 19px;
+  color: var(--tk-text-2);
+}
+
+.doc li + li {
+  margin-top: 8px;
+}
+
+.bullet {
+  flex: none;
+  line-height: normal;
+  color: var(--tk-text-3);
+}
+
+.preview p,
+.preview ul {
+  margin-bottom: 8px;
+}

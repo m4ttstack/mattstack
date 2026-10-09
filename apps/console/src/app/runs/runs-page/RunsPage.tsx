@@ -1,27 +1,25 @@
 import { useMemo } from 'react';
 import {
-  GenericError,
+  Alert,
+  Button,
   Group,
   PageShell,
   Paper,
   SegmentedControl,
   Select,
+  Skeleton,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
-import type {
-  BranchEnrichment,
-  GateRow,
-  RunSummary,
-} from '@mattstack/rt-client';
+import type { GateRow, RunSummary } from '@mattstack/rt-client';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { PAGE_ROW_HEIGHT } from '../../chrome';
 import { agingWarning } from '../aging';
 import { CommandProvenance } from '../CommandProvenance';
 import { nowOf } from '../derive/clock';
-import { runTitle } from '../derive/kind';
 import {
   dayGroups,
   filterView,
@@ -30,21 +28,20 @@ import {
   statCards,
   type RunsFilter,
 } from '../derive/lanes';
-import { answeredGates } from '../derive/record';
 import { repoPath } from '../repoLabel';
 import type { RunPageData } from '../run-page/useRunParts';
 import {
   useRunChrome,
   useRunEvents,
   useRunList,
-  useRunsEnrich,
   useRunsPruneDays,
 } from '../useRuns';
+import { useRunTitles, type TitleOf } from '../useRunTitles';
 import { EarlierList, type EarlierRowInfo } from './EarlierList';
 import { LiveLane } from './LiveLane';
 import { runHref, ticketOf } from './runLinks';
 import classes from './RunsPage.module.css';
-import { StatCards } from './StatCards';
+import { StatLine } from './StatLine';
 import { TimelineView, ViewToggle } from './TimelineView';
 import { useLinkedGates } from './useLinkedGates';
 import { useRunsUrl } from './useRunsUrl';
@@ -103,23 +100,71 @@ function EmptyCard({ title, sub }: { title: string; sub: string }) {
   );
 }
 
+/** The runs' rows before rt has answered, so a slow or failed read never
+    draws as an empty day. */
+function ListSkeleton() {
+  return (
+    <Paper
+      variant="ground"
+      withBorder
+      radius={12}
+      className={classes.empty}
+      aria-busy="true"
+      data-testid="runs-skeleton"
+      data-parity="list"
+    >
+      <Stack gap={10}>
+        <Skeleton h={8} w="82%" radius="xl" data-parity="skel" />
+        <Skeleton h={8} w="68%" radius="xl" data-parity="skel" />
+        <Skeleton h={8} w="74%" radius="xl" data-parity="skel" />
+      </Stack>
+    </Paper>
+  );
+}
+
+/** The runs read failed: what that means for the numbers, and Retry. */
+function OutageBanner({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Alert
+      color="warn"
+      variant="light"
+      icon={<Icon name="unplug" size={16} data-parity="i" />}
+      classNames={{
+        wrapper: classes.outageWrapper,
+        icon: classes.bannerIcon,
+        message: classes.outageMessage,
+      }}
+      data-testid="runs-outage"
+      data-parity="banner"
+    >
+      <Text fz={13} lh="normal" c="warn" data-parity="t">
+        Can&apos;t reach the rt daemon, so these numbers are unknown, not zero.
+      </Text>
+      <Button variant="default" onClick={onRetry} data-parity="btn Retry">
+        <span data-parity="l">Retry</span>
+      </Button>
+    </Alert>
+  );
+}
+
 function LaneSlot({
   run,
   gates,
-  title,
+  titleOf,
   now,
 }: {
   run: RunSummary;
   gates: GateRow[];
-  title: string;
+  titleOf: TitleOf;
   now: number;
 }) {
   const detail = useRunChrome(run.repo, run.id).data as RunPageData | undefined;
+  const mrField = detail?.fields.find(f => f.key === 'mr')?.value;
   return (
     <LiveLane
       runId={run.id}
       ticket={ticketOf(run)}
-      title={title}
+      title={titleOf(run, mrField)}
       href={runHref(run)}
       facts={laneFacts({ run, detail, gates, now })}
     />
@@ -130,6 +175,7 @@ function LaneSlot({
     before, filtered by state and repo; or one day's runs on a timeline. */
 export function RunsPage() {
   useRunEvents();
+  const queryClient = useQueryClient();
   const [url, setUrl] = useRunsUrl();
   const runsQuery = useRunList();
   const linked = useLinkedGates();
@@ -163,25 +209,12 @@ export function RunsPage() {
     [runs, gates, view.allLanes, now]
   );
 
-  const branches = useMemo(
-    () =>
-      runs.map(r => r.branch).filter((b): b is string => typeof b === 'string'),
-    [runs]
-  );
-  const enrich = useRunsEnrich(branches).data;
-  const titleOf = (run: RunSummary) =>
-    runTitle(run, {
-      ticketTitle: run.branch
-        ? (enrich as Record<string, BranchEnrichment> | undefined)?.[run.branch]
-            ?.ticket?.title
-        : null,
-    });
+  const titleOf = useRunTitles(runs);
   const gatesOf = (run: RunSummary) => linked.byRun.get(run.id) ?? NO_GATES;
   const info = (run: RunSummary): EarlierRowInfo => ({
     ticket: ticketOf(run),
     title: titleOf(run),
     href: runHref(run),
-    decisions: answeredGates(gatesOf(run)).length,
     inBoard: view.inBoard.has(run.id),
     aging: agingWarning(run, pruneDays, now),
   });
@@ -194,17 +227,17 @@ export function RunsPage() {
         ? `${repos.length} repos`
         : null;
 
-  if (runsQuery.isError) {
-    return (
-      <PageShell title="Runs" headerHeight={PAGE_ROW_HEIGHT} compactHeader>
-        <GenericError
-          title="Couldn't load runs"
-          message={(runsQuery.error as Error).message}
-          onRetry={() => void runsQuery.refetch()}
-        />
-      </PageShell>
-    );
-  }
+  // A refetch with no data resets the query to pending, so a poll after a
+  // failed read would otherwise flash the skeleton.
+  const outage =
+    runsQuery.isError ||
+    (runsQuery.isFetching &&
+      runsQuery.errorUpdatedAt > runsQuery.dataUpdatedAt);
+  const settled = !runsQuery.isPending && !outage;
+  const retry = () => {
+    void queryClient.refetchQueries({ queryKey: ['runs'] });
+    void queryClient.refetchQueries({ queryKey: ['gates'] });
+  };
 
   const { banner, lanes, earlier } = view;
   const groups = earlier ? dayGroups(earlier, now) : [];
@@ -234,11 +267,12 @@ export function RunsPage() {
         >
           {url.view === 'timeline' ? (
             <div className={classes.page} data-testid="runs-page">
+              {outage ? <OutageBanner onRetry={retry} /> : null}
               <TimelineView
                 runs={runs}
                 gates={gates}
                 gatesByRun={linked.byRun}
-                loading={runsQuery.isPending || !linked.loaded}
+                loading={!settled || !linked.loaded}
                 repoName={url.repo ? repoPath(url.repo) : null}
                 now={now}
                 day={url.day}
@@ -252,7 +286,7 @@ export function RunsPage() {
               data-parity="Content"
               data-testid="runs-page"
             >
-              <div className={classes.titleRow}>
+              <div className={classes.titleRow} data-parity="Title row">
                 <Stack gap={4} className={classes.titleBlock}>
                   <Text fz={24} fw={700} lh="normal" data-parity="title">
                     Runs
@@ -292,9 +326,18 @@ export function RunsPage() {
                 </Group>
               </div>
 
-              <StatCards cards={cards} />
+              {outage ? <OutageBanner onRetry={retry} /> : null}
 
-              {banner ? (
+              <StatLine
+                cards={cards}
+                state={
+                  outage ? 'unknown' : runsQuery.isPending ? 'loading' : 'ready'
+                }
+              />
+
+              {!settled ? <ListSkeleton /> : null}
+
+              {settled && banner ? (
                 <WaitingBanner
                   gate={banner.gate}
                   ticket={ticketOf(banner.run)}
@@ -304,26 +347,28 @@ export function RunsPage() {
                 />
               ) : null}
 
-              {nothingWaiting ? (
+              {settled && nothingWaiting ? (
                 <EmptyCard
                   title="Nothing is waiting on you."
                   sub="Gates that need your answer show up here."
                 />
               ) : null}
 
-              {lanes && !(url.filter === 'waiting' && lanes.length === 0) ? (
+              {settled &&
+              lanes &&
+              !(url.filter === 'waiting' && lanes.length === 0) ? (
                 <>
                   <SectionLabel parity="Live label">
                     {`Live · ${lanes.length}`}
                   </SectionLabel>
                   {lanes.length > 0 ? (
-                    <div className={classes.lanes}>
+                    <div className={classes.lanes} data-parity="Live cards">
                       {lanes.map(run => (
                         <LaneSlot
                           key={run.id}
                           run={run}
                           gates={gatesOf(run)}
-                          title={titleOf(run)}
+                          titleOf={titleOf}
                           now={now}
                         />
                       ))}
@@ -337,14 +382,15 @@ export function RunsPage() {
                 </>
               ) : null}
 
-              {earlier &&
+              {settled &&
+              earlier &&
               !(url.filter === 'waiting' && earlier.length === 0) ? (
                 <>
                   <div className={classes.label}>
                     <SectionLabel parity="Earlier label">Earlier</SectionLabel>
                   </div>
                   {groups.length > 0 ? (
-                    <EarlierList groups={groups} info={info} now={now} />
+                    <EarlierList groups={groups} info={info} now={now} paged />
                   ) : (
                     <EmptyCard
                       title="No earlier runs."

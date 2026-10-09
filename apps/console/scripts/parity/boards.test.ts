@@ -18,16 +18,33 @@ const exportOf = (slug: string, scheme: 'light' | 'dark') =>
 const layerCount = (html: string, name: string) =>
   html.split(`data-pencil-name="${name}"`).length - 1;
 
-const actionLayers = (board: (typeof app.boards)[number]) => {
-  const a = board.action;
+type Action = NonNullable<(typeof app.boards)[number]['action']>;
+
+const layersOf = (a: Action | undefined): string[] => {
   if (!a) return [];
   if (a.kind === 'clicks') return [...a.layers, a.waitFor];
   if (a.kind === 'waitText') return [a.layer, a.until.layer];
+  if (a.kind === 'type') return [a.waitFor];
   return [a.layer, a.waitFor, ...(a.until ? [a.until.layer] : [])];
 };
 
+const actionLayers = (board: (typeof app.boards)[number]) => [
+  ...layersOf(board.action),
+  ...(board.panels ?? []).flatMap(p => layersOf(p.action)),
+];
+
+/** A clicked control the board's tile leaves out (the hero's "..." menu
+    over the abandon dialog) is drawn on another board's export. */
+const drawnElsewhere = (layer: string, scheme: 'light' | 'dark') =>
+  app.boards.some(b => layerCount(exportOf(b.slug, scheme), layer) > 0);
+
+const clickedLayers = (board: (typeof app.boards)[number]) =>
+  [board.action, ...(board.panels ?? []).map(p => p.action)].flatMap(a =>
+    a?.kind === 'clicks' ? a.layers : []
+  );
+
 describe('console parity boards', () => {
-  it('lists the twenty boards of the design README', () => {
+  it('lists the thirty boards of the design README', () => {
     expect(app.boards.map(b => b.slug)).toEqual([
       'template-work',
       'template-plan',
@@ -49,6 +66,16 @@ describe('console parity boards', () => {
       'run-story-edges',
       'run-record-abandoned',
       'run-record-review',
+      'runs-p2-live',
+      'runs-p2-gate',
+      'runs-p2-record',
+      'runs-p2-inputs',
+      'runs-p2-states',
+      'runs-p2-runs',
+      'runs-p2-review',
+      'runs-p2-story-details',
+      'runs-p2-overlays',
+      'runs-p2-search',
     ]);
   });
 
@@ -71,8 +98,13 @@ describe('console parity boards', () => {
         const html = exportOf(board.slug, scheme);
         for (const t of targetsOf(board))
           expect([t.root, layerCount(html, t.root)]).toEqual([t.root, 1]);
+        const clicked = new Set(clickedLayers(board));
         for (const layer of actionLayers(board))
-          expect(layerCount(html, layer)).toBeGreaterThan(0);
+          expect([
+            layer,
+            layerCount(html, layer) > 0 ||
+              (clicked.has(layer) && drawnElsewhere(layer, scheme)),
+          ]).toEqual([layer, true]);
       }
     );
 

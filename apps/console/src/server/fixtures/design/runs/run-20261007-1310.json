@@ -82,6 +82,12 @@
       "value": "3e4f5a6 7b8c9d0",
       "produced_by": "implement",
       "at": "2026-10-08T13:50:00-05:00"
+    },
+    {
+      "key": "reconciled",
+      "value": "Superseded by WEB-430",
+      "produced_by": "rt runs abandon",
+      "at": "2026-10-08T14:14:00-05:00"
     }
   ],
   "decisions": []

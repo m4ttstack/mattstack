@@ -231,6 +231,10 @@ the rule (entries may be removed or improved, never silently worsened,
 and never used to admit a new below-floor cell). Do not weaken a bar, do
 not "fix" a failure by picking a darker one-off colour.
 
+Accepted pair outside the Button matrix: the kit's `Kbd variant="on-fill"`
+cap on a filled button, 3.14:1, signed off by Matt 2026-10-09
+(`KNOWN_KBD_CONTRAST_DEBT` in the same ledger file).
+
 ## Type
 
 - Font weights follow radix-ui/themes: 400 regular, 500 medium, 700

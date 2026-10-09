@@ -5,15 +5,18 @@ import {
   Button,
   Combobox,
   createTheme,
+  Kbd,
   MantineProvider,
   MantineThemeProvider,
   Paper,
   Progress,
+  Radio,
   SegmentedControl,
   Switch,
   Text,
   useCombobox,
 } from '@mantine/core';
+import { Spotlight } from '@mantine/spotlight';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
@@ -274,6 +277,16 @@ describe('outline papers', () => {
     }
   });
 
+  it('ring in the accent when selected, as a ground card does', () => {
+    for (const variant of ['soft-outline', 'panel-outline']) {
+      const block = rule(
+        `\\.paperRoot\\[data-variant='${variant}'\\]\\[data-selected\\]`
+      );
+      expect(block).toContain('outline: 1.5px solid var(--tk-fill-accent)');
+      expect(block).toContain('outline-offset: -0.75px');
+    }
+  });
+
   it('leave a soft-outline card on the surface it sits on, and fill a panel-outline one with the panel', () => {
     expect(rule("\\.paperRoot\\[data-variant='soft-outline'\\]")).toContain(
       'background-color: transparent'
@@ -369,5 +382,130 @@ describe('wash combobox options', () => {
       'background-color:color-mix(insrgb,var(--tk-fill-accent)var(--ui-wash),transparent)'
     );
     expect(active).toContain('color:var(--tk-text-accent)');
+  });
+});
+
+describe('wash spotlight actions', () => {
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, 'component-styles.module.css'),
+    'utf-8'
+  );
+  const flat = css.replace(/\s+/g, '');
+  const rule = (selector: string) =>
+    flat.match(new RegExp(`${selector}\\{([^}]*)\\}`))?.[1] ?? '';
+  const wash = "\\.spotlightAction\\[data-variant='wash'\\]";
+
+  it('carry the kit class the wash rules key on, and only a wash action its variant', () => {
+    render(
+      <MantineProvider theme={theme}>
+        <Spotlight.Root forceOpened transitionProps={{ duration: 0 }}>
+          <Spotlight.ActionsList>
+            <Spotlight.Action variant="wash" label="a" />
+            <Spotlight.Action label="b" />
+          </Spotlight.ActionsList>
+        </Spotlight.Root>
+      </MantineProvider>
+    );
+    const a = screen.getByText('a').closest('[data-action]');
+    const b = screen.getByText('b').closest('[data-action]');
+    expect(a).toHaveClass(classes.spotlightAction!);
+    expect(a).toHaveAttribute('data-variant', 'wash');
+    expect(b).toHaveClass(classes.spotlightAction!);
+    expect(b).not.toHaveAttribute('data-variant');
+  });
+
+  it('wash the selected action in the accent under body text, its key shown only there', () => {
+    const selected = rule(`${wash}\\[data-selected\\]`);
+    expect(selected).toContain(
+      'background-color:color-mix(insrgb,var(--tk-fill-accent)var(--ui-wash),transparent)'
+    );
+    expect(selected).toContain('color:var(--tk-text-1)');
+    expect(rule(`${wash}:not\\(\\[data-selected\\]\\)\\.kbdRoot`)).toContain(
+      'visibility:hidden'
+    );
+    expect(rule(`${wash}\\[data-selected\\]\\.kbdRoot`)).toContain(
+      'color:var(--tk-text-accent)'
+    );
+  });
+});
+
+describe('wash choice card', () => {
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, 'component-styles.module.css'),
+    'utf-8'
+  );
+  const rule = (selector: string) =>
+    css.match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+  const card = "\\.choiceCard\\[data-variant='wash'\\]";
+
+  it('carries the kit class and the checked state the wash rules key on', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <Radio.Group value="a">
+          <Radio.Card value="a" variant="wash">
+            a
+          </Radio.Card>
+          <Radio.Card value="b">b</Radio.Card>
+        </Radio.Group>
+      </MantineProvider>
+    );
+    const [wash, plain] = container.querySelectorAll(`.${classes.choiceCard}`);
+    expect(wash).toHaveAttribute('data-variant', 'wash');
+    expect(wash).toHaveAttribute('data-checked');
+    expect(plain).not.toHaveAttribute('data-variant');
+  });
+
+  it('rules a wash card in the soft line step on the card surface', () => {
+    const block = rule(card);
+    expect(block).toContain('outline: 1px solid var(--tk-line-3)');
+    expect(block).toContain('background-color: var(--tk-card)');
+  });
+
+  it('rings a checked wash card in the accent over its wash', () => {
+    const block = rule(`${card}\\[data-checked\\]`);
+    expect(block).toContain('outline: 1.5px solid var(--tk-fill-accent)');
+    expect(block).toContain('var(--tk-wash)');
+  });
+
+  it('keeps a focus ring on a wash card', () => {
+    expect(rule(`${card}:focus-visible`)).toContain('outline: 2px solid');
+  });
+
+  it('gives the Kbd inside a checked wash card the accent', () => {
+    const block = rule(`${card}\\[data-checked\\] \\.kbdRoot`);
+    expect(block).toContain('color: var(--tk-text-accent)');
+    expect(block).toContain('var(--tk-fill-accent)');
+  });
+});
+
+describe('on-fill kbd', () => {
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, 'component-styles.module.css'),
+    'utf-8'
+  );
+  const rule = (selector: string) =>
+    css.match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+
+  it('carries the kit class the on-fill rules key on, and leaves a plain Kbd unmarked', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <Kbd variant="on-fill">⌘↵</Kbd>
+        <Kbd>K</Kbd>
+      </MantineProvider>
+    );
+    const [onFill, plain] = container.querySelectorAll(`.${classes.kbdRoot}`);
+    expect(onFill).toHaveAttribute('data-variant', 'on-fill');
+    expect(plain).not.toHaveAttribute('data-variant');
+  });
+
+  it('draws the on-fill label colour over a wash of it, with no rule', () => {
+    const block = rule("\\.kbdRoot\\[data-variant='on-fill'\\]");
+    expect(block).toContain('border: 0');
+    expect(block).toContain(
+      'color: color-mix(in srgb, var(--tk-on-fill-accent) 85%, transparent)'
+    );
+    expect(block.replace(/\s+/g, ' ')).toContain(
+      'background-color: color-mix( in srgb, var(--tk-on-fill-accent) 18%, transparent )'
+    );
   });
 });

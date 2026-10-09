@@ -1,0 +1,79 @@
+.row {
+  width: 100%;
+  min-width: 0;
+}
+
+.row:not(:last-child) {
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+:where([data-mantine-color-scheme='light']) .head {
+  --row-hover: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) .head {
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 18px 12.5px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .head:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+.head:focus-within {
+  background-color: var(--row-hover);
+}
+
+.bullet {
+  flex-shrink: 0;
+}
+
+.keep {
+  flex-shrink: 0;
+}
+
+.summary {
+  flex: 1;
+  min-width: 0;
+}
+
+.chevron {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.body {
+  width: 100%;
+  padding: 0 18px 18px 46px;
+}
+
+.field {
+  width: 100%;
+  min-width: 0;
+}
+
+.key {
+  flex: 0 0 160px;
+  width: 160px;
+}
+
+.value {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.value > * {
+  flex: 1;
+  min-width: 0;
+}

@@ -1,24 +1,20 @@
 import type { ReactNode } from 'react';
 import {
   Anchor,
-  Badge,
   CopyActionIcon,
   Group,
-  Kbd,
   Paper,
   Skeleton,
   Stack,
   Text,
-  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { IconName } from '@mattstack/app-kit/icons';
 
-import type { DecisionEntry } from '../derive/story';
 import inline from './inline.module.css';
 import classes from './SideCards.module.css';
 
-const LABEL_TYPE = {
+export const LABEL_TYPE = {
   fz: 10.5,
   fw: 500,
   lh: 'normal',
@@ -38,8 +34,7 @@ export interface FactProps {
   /** Shown when there is no value. */
   empty: string;
   href?: string | null;
-  hotkey: string;
-  /** What `c` or the copy button writes; defaults to the value. */
+  /** What the copy button writes; defaults to the value. */
   copy?: string | null;
   sub: string | null;
 }
@@ -52,7 +47,6 @@ function Fact({
   value,
   empty,
   href,
-  hotkey,
   copy,
   sub,
 }: FactProps) {
@@ -88,9 +82,6 @@ function Fact({
             {value ?? empty}
           </Text>
         )}
-        <Kbd size="xs" className={inline.kbd} data-parity={`kbd ${hotkey}`}>
-          <span data-parity={hotkey}>{hotkey}</span>
-        </Kbd>
         <CopyActionIcon
           value={copyValue ?? ''}
           disabled={!copyValue}
@@ -132,14 +123,25 @@ function SideCard({
   );
 }
 
+/** The run's links in one card; `name` is the card's board layer. */
+export function FactsCard({
+  facts,
+  name = 'Facts',
+}: {
+  facts: FactProps[];
+  name?: string;
+}) {
+  return (
+    <SideCard name={name} gap={14}>
+      {facts.map(f => (
+        <Fact key={f.name} {...f} />
+      ))}
+    </SideCard>
+  );
+}
+
 export interface SideCardsProps {
   facts: FactProps[];
-  decisions: DecisionEntry[];
-  /** Where a decision row and "Open log" scroll to. */
-  onOpenDecision: (entry: DecisionEntry | null) => void;
-  /** "None yet." on a work run; review and respond runs add where the
-      answer will come from. */
-  noDecisions: string;
   inputs:
     | { state: 'loading' }
     | { state: 'error' }
@@ -147,78 +149,12 @@ export interface SideCardsProps {
   onViewInputs: () => void;
 }
 
-/** The run page's side column: links, decisions and effective inputs. */
-export function SideCards({
-  facts,
-  decisions,
-  onOpenDecision,
-  noDecisions,
-  inputs,
-  onViewInputs,
-}: SideCardsProps) {
+/** The run page's side column: the run's links and its effective inputs.
+    Decisions live in the story, not here. */
+export function SideCards({ facts, inputs, onViewInputs }: SideCardsProps) {
   return (
     <Stack gap={14} className={classes.side} data-parity="Side">
-      <SideCard name="Facts" gap={14}>
-        {facts.map(f => (
-          <Fact key={f.name} {...f} />
-        ))}
-      </SideCard>
-      <SideCard name="Decisions mini" gap={10}>
-        <Group wrap="nowrap" className={classes.header}>
-          <Text {...LABEL_TYPE} data-parity="title">
-            Decisions · {decisions.length}
-          </Text>
-          <span className={classes.grow} />
-          <Anchor
-            component="button"
-            type="button"
-            fz={12}
-            fw={500}
-            lh="normal"
-            c="accent"
-            onClick={() => onOpenDecision(decisions[0] ?? null)}
-            data-parity="open log"
-          >
-            Open log →
-          </Anchor>
-        </Group>
-        {decisions.length === 0 ? (
-          <Text fz={12.5} lh="normal" c="dimmed" data-parity="none">
-            {noDecisions}
-          </Text>
-        ) : (
-          decisions.map(d => (
-            <div
-              key={`${d.gateId}-${d.questionId}`}
-              className={classes.decision}
-            >
-              <UnstyledButton
-                className={classes.decisionButton}
-                onClick={() => onOpenDecision(d)}
-              >
-                <Group gap={8} wrap="nowrap">
-                  {d.stage ? (
-                    <Badge
-                      size="xs"
-                      radius="sm"
-                      variant="light"
-                      color="gray"
-                      tt="none"
-                      className={`${inline.tag} ${classes.stageTag}`}
-                      data-parity="stage tag"
-                    >
-                      <span data-parity="stage">{d.stage}</span>
-                    </Badge>
-                  ) : null}
-                  <Text fz={12.5} lh="normal" truncate data-parity="pick">
-                    {d.pick}
-                  </Text>
-                </Group>
-              </UnstyledButton>
-            </div>
-          ))
-        )}
-      </SideCard>
+      <FactsCard facts={facts} />
       <SideCard name="Inputs" gap={8}>
         <Text {...LABEL_TYPE} data-parity="title">
           Effective inputs

@@ -42,7 +42,9 @@ reload or a link reopens that row and scrolls to it; old `/config/:key` links re
 shell for another app to frame in a modal (`SettingsEmbed.tsx`): it takes the host's `?scheme=`,
 paints no background, and talks to the host only through `@mattstack/settings-kit/embed`'s
 messages (`height`, `saved`, `close`). Run
-detail shows the same panel in a thin modal (`ExplainModal`). The
+detail's effective inputs open a key inline (its value per scope) and link
+here through "Change it in Settings →"; nothing on a run opens a modal or a
+second drawer over the inputs drawer. The
 `/runs/:repo/:runId` route carries a percent-encoded, possibly `remote:`/`path:`-prefixed repo
 identity in the `repo` segment; `canonicalRepo()` decodes and re-serializes it back to the exact
 wire form `@mattstack/rt-client`'s `serializeIdentity` produces, because a repo identity containing

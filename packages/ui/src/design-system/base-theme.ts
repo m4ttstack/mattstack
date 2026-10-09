@@ -91,102 +91,123 @@ export const baseTheme = /* @__PURE__ */ createTheme({
     xxl: '1920px',
   },
   variantColorResolver,
-  components: themeComponents({
-    // `variant="ground"`: a card on the page ground; `soft-outline` and
-    // `panel-outline`: a ruled card inside another surface (see the CSS
-    // module).
-    Paper: {
-      defaultProps: flatSurfaceProps,
-      classNames: { root: classes.paperRoot },
-    },
-    Card: { defaultProps: flatSurfaceProps },
-    // `variant="soft"`: a table inside a card (see the CSS module).
-    Table: { classNames: { table: classes.tableRoot } },
-    // `Combobox.Option variant="wash"`: a picked option in the accent wash
-    // (see the CSS module).
-    Combobox: { classNames: { option: classes.comboboxOption } },
-    // `variant="segmented"`: parts with gaps between them (see the CSS module).
-    Progress: { classNames: { root: classes.progressRoot } },
-    // `variant="quiet"`: a raised track and a ruled card segment (see the CSS
-    // module).
-    SegmentedControl: {
-      classNames: {
-        root: classes.segmentedRoot,
-        indicator: classes.segmentedIndicator,
-        label: classes.segmentedLabel,
+  components: {
+    // `Spotlight.Action variant="wash"`: the selected action in the accent
+    // wash, its Kbd shown only while selected (see the CSS module). Keyed
+    // by name: Spotlight lives outside `@mantine/core`.
+    Spotlight: { classNames: { action: classes.spotlightAction } },
+    ...themeComponents({
+      // `variant="ground"`: a card on the page ground; `soft-outline` and
+      // `panel-outline`: a ruled card inside another surface (see the CSS
+      // module).
+      Paper: {
+        defaultProps: flatSurfaceProps,
+        classNames: { root: classes.paperRoot },
       },
-    },
-    Button: {
-      defaultProps: { fw: 500 },
-      classNames: { root: classes.buttonRoot },
-    },
-    ActionIcon: { classNames: { root: classes.actionIconRoot } },
-    Code: { defaultProps: { fz: 'sm' } },
-    Modal: { defaultProps: { centered: true, padding: 'lg' } },
-    // Tight, single-line-by-default groups: the common case is a row of
-    // controls that should stay on one line, not a wrapping flex container.
-    Group: { defaultProps: { wrap: 'nowrap', gap: 'xs' } },
-    // Re-clicking the selected option shouldn't silently empty the field.
-    Select: { defaultProps: { allowDeselect: false } },
-    Badge: {
-      defaultProps: { variant: 'light', fw: 500 },
-      // Badges read as labels, not shouting -- Mantine uppercases by default.
-      styles: { root: { textTransform: 'none' } },
-    },
-    ScrollArea: { defaultProps: { type: 'auto' } },
-    // The whole switch is a click target; the cursor should say so.
-    Switch: {
-      classNames: { root: classes.switchRoot, track: classes.switchTrack },
-      styles: {
-        label: { cursor: 'pointer' },
-        track: { cursor: 'pointer' },
+      Card: { defaultProps: flatSurfaceProps },
+      // `variant="soft"`: a table inside a card (see the CSS module).
+      Table: { classNames: { table: classes.tableRoot } },
+      // `Combobox.Option variant="wash"`: a picked option in the accent wash
+      // (see the CSS module).
+      Combobox: { classNames: { option: classes.comboboxOption } },
+      // `variant="segmented"`: parts with gaps between them (see the CSS module).
+      Progress: { classNames: { root: classes.progressRoot } },
+      // `variant="quiet"`: a raised track and a ruled card segment (see the CSS
+      // module).
+      SegmentedControl: {
+        classNames: {
+          root: classes.segmentedRoot,
+          indicator: classes.segmentedIndicator,
+          label: classes.segmentedLabel,
+        },
       },
-    },
-    // Nav labels sit a step below body text (token, not a hardcoded px size).
-    NavLink: { defaultProps: { fz: 'sm' } },
-    Notification: { classNames: { root: classes.notificationRoot } },
-    // Two extra input variants beyond Mantine's own (see the CSS module):
-    // `variant="underline"` and `variant="borderless"`.
-    TextInput: { classNames: { input: classes.input } },
-    // pop-top-* is the built-in pop family's downward direction (the name
-    // suffix is the origin corner): with position 'bottom' + offset 10 the
-    // tooltip pops DOWN out of the hovered element. The multiline/maw pair
-    // keeps long labels wrapping inside a readable column, and the padding
-    // pair gives them room to breathe.
-    Tooltip: {
-      defaultProps: {
-        withArrow: true,
-        openDelay: 500,
-        position: 'bottom',
-        offset: 10,
-        multiline: true,
-        w: 'auto',
-        maw: 400,
-        p: 'sm',
-        px: 'md',
-        transitionProps: { transition: 'pop-top-left', duration: 400 },
+      Button: {
+        defaultProps: { fw: 500 },
+        classNames: { root: classes.buttonRoot },
       },
-    },
-    // Menus share the tooltip's pop-in; dropdown surfaces carry a shadow so
-    // floating layers separate from the page the same way everywhere.
-    Menu: {
-      defaultProps: {
-        transitionProps: { transition: 'pop-top-left' },
-        shadow: 'md',
+      ActionIcon: { classNames: { root: classes.actionIconRoot } },
+      // `variant="wash"`: a choice card that rings and washes in the accent
+      // when checked (see the CSS module).
+      RadioCard: { classNames: { card: classes.choiceCard } },
+      CheckboxCard: { classNames: { card: classes.choiceCard } },
+      // `variant="on-fill"`: a key hint inside a filled button (see the CSS
+      // module).
+      Kbd: { classNames: { root: classes.kbdRoot } },
+      Code: { defaultProps: { fz: 'sm' } },
+      Modal: { defaultProps: { centered: true, padding: 'lg' } },
+      // Tight, single-line-by-default groups: the common case is a row of
+      // controls that should stay on one line, not a wrapping flex container.
+      Group: { defaultProps: { wrap: 'nowrap', gap: 'xs' } },
+      // Re-clicking the selected option shouldn't silently empty the field.
+      Select: { defaultProps: { allowDeselect: false } },
+      Badge: {
+        defaultProps: { variant: 'light', fw: 500 },
+        // Badges read as labels, not shouting -- Mantine uppercases by default.
+        styles: { root: { textTransform: 'none' } },
       },
-    },
-    MenuDropdown: { defaultProps: { p: 'xs', miw: 200 } },
-    MenuItem: { defaultProps: { p: 'sm' } },
-    // `Menu.Sub.Item` and `Menu.Sub.Dropdown` read their own props keys, so a
-    // submenu only matches the menu around it when it carries the same
-    // padding. The open delay stops a pointer travelling down a list from
-    // flashing every submenu it crosses.
-    MenuSub: { defaultProps: { openDelay: 150 } },
-    MenuSubItem: { defaultProps: { p: 'sm' } },
-    MenuSubDropdown: { defaultProps: { p: 'xs' } },
-    MenuDivider: { defaultProps: { my: 'xs' } },
-    Popover: { defaultProps: { shadow: 'md' } },
-    HoverCard: { defaultProps: { shadow: 'md' } },
-    Anchor: { defaultProps: { underline: 'hover', c: 'blue' } },
-  }),
+      ScrollArea: { defaultProps: { type: 'auto' } },
+      // The whole switch is a click target; the cursor should say so.
+      Switch: {
+        classNames: { root: classes.switchRoot, track: classes.switchTrack },
+        styles: {
+          label: { cursor: 'pointer' },
+          track: { cursor: 'pointer' },
+        },
+      },
+      // Nav labels sit a step below body text (token, not a hardcoded px size).
+      NavLink: { defaultProps: { fz: 'sm' } },
+      Notification: {
+        classNames: {
+          root: classes.notificationRoot,
+          icon: classes.notificationIcon,
+          title: classes.notificationTitle,
+          description: classes.notificationDescription,
+          closeButton: classes.notificationClose,
+        },
+      },
+      // Two extra input variants beyond Mantine's own (see the CSS module):
+      // `variant="underline"` and `variant="borderless"`.
+      TextInput: { classNames: { input: classes.input } },
+      // pop-top-* is the built-in pop family's downward direction (the name
+      // suffix is the origin corner): with position 'bottom' + offset 10 the
+      // tooltip pops DOWN out of the hovered element. The multiline/maw pair
+      // keeps long labels wrapping inside a readable column, and the padding
+      // pair gives them room to breathe.
+      Tooltip: {
+        defaultProps: {
+          withArrow: true,
+          openDelay: 500,
+          position: 'bottom',
+          offset: 10,
+          multiline: true,
+          w: 'auto',
+          maw: 400,
+          p: 'sm',
+          px: 'md',
+          transitionProps: { transition: 'pop-top-left', duration: 400 },
+        },
+      },
+      // Menus share the tooltip's pop-in; dropdown surfaces carry a shadow so
+      // floating layers separate from the page the same way everywhere.
+      Menu: {
+        defaultProps: {
+          transitionProps: { transition: 'pop-top-left' },
+          shadow: 'md',
+        },
+      },
+      MenuDropdown: { defaultProps: { p: 'xs', miw: 200 } },
+      MenuItem: { defaultProps: { p: 'sm' } },
+      // `Menu.Sub.Item` and `Menu.Sub.Dropdown` read their own props keys, so a
+      // submenu only matches the menu around it when it carries the same
+      // padding. The open delay stops a pointer travelling down a list from
+      // flashing every submenu it crosses.
+      MenuSub: { defaultProps: { openDelay: 150 } },
+      MenuSubItem: { defaultProps: { p: 'sm' } },
+      MenuSubDropdown: { defaultProps: { p: 'xs' } },
+      MenuDivider: { defaultProps: { my: 'xs' } },
+      Popover: { defaultProps: { shadow: 'md' } },
+      HoverCard: { defaultProps: { shadow: 'md' } },
+      Anchor: { defaultProps: { underline: 'hover', c: 'blue' } },
+    }),
+  },
 });

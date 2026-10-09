@@ -24,35 +24,6 @@
   min-width: 0;
 }
 
-.header {
-  width: 100%;
-}
-
 .start {
   align-self: flex-start;
-}
-
-.decision {
-  width: 100%;
-  border-radius: var(--mantine-radius-sm);
-}
-
-@media (hover: hover) {
-  .decision:hover {
-    background-color: var(--tk-raised);
-  }
-}
-
-.decision:focus-within {
-  background-color: var(--tk-raised);
-}
-
-.decisionButton {
-  display: block;
-  width: 100%;
-}
-
-/* The stage tag keeps its whole name; the pick beside it truncates. */
-.stageTag {
-  flex-shrink: 0;
 }

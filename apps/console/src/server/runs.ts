@@ -1,5 +1,7 @@
+import { realpathSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import {
   abandonRun,
   agentAdopt,
@@ -20,10 +22,12 @@ import { validator } from 'hono/validator';
 import { readExcerpt } from './artifact';
 import { boardLinkResolver, liveBoardLinkDeps } from './boardLink';
 import {
+  FIXTURE_OUTAGE,
   FIXTURE_READ_ONLY,
   type RunsFixture,
 } from './fixtures/design/runsFixture';
 import { listAllRunGates } from './gates';
+import { LEGACY_IMAGE_MIME, legacyImagePath } from './legacyEvidence';
 import { markSeen, readSeen } from './seen';
 
 /** Hono's c.req.param() always URI-decodes a captured segment; a repo
@@ -106,6 +110,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
     new Hono()
       .get('/api/runs', async c => {
         const repo = c.req.query('repo');
+        if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
         if (fixture) {
           return c.json(
             { runs: await fixture.listRuns(repo), asOf: await fixture.asOf() },
@@ -119,6 +124,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
       .get('/api/runs/:repo/:runId', async c => {
         const { repo: rawRepo, runId } = c.req.param();
         const repo = canonicalRepo(rawRepo);
+        if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
         if (fixture) {
           const detail = await fixture.getRun(repo, runId);
           if (!detail) return c.json({ error: 'run not found' }, 404);
@@ -193,6 +199,67 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           }
         }
       )
+      // The path comes off the query string, so the run's own evidence value
+      // must name it and it must resolve inside the evidence root; nothing the
+      // guard refuses is ever opened for streaming.
+      .get(
+        '/api/runs/:repo/:runId/evidence-file',
+        validator('query', (value): { path?: string } => {
+          const v = value as { path?: unknown };
+          return { path: typeof v?.path === 'string' ? v.path : undefined };
+        }),
+        async c => {
+          const { repo: rawRepo, runId } = c.req.param();
+          const repo = canonicalRepo(rawRepo);
+          const { path } = c.req.valid('query');
+          if (!path) return c.json({ error: 'no evidence' }, 404);
+          if (fixture) {
+            const file = await fixture.legacyEvidenceFile(repo, runId, path);
+            if (!file) return c.json({ error: 'no evidence' }, 404);
+            return new Response(file.bytes, {
+              status: 200,
+              headers: {
+                'content-type': file.mime,
+                'cache-control': 'private, max-age=3600',
+              },
+            });
+          }
+          const detail = await getRun(runId, repo);
+          if (!detail.ok || !detail.data) {
+            return c.json({ error: 'no evidence' }, 404);
+          }
+          const evidence =
+            detail.data.fields.find(f => f.key === 'evidence')?.value ?? null;
+          const resolved = legacyImagePath({
+            evidence,
+            path,
+            realpath: p => {
+              try {
+                return realpathSync(p);
+              } catch {
+                return null;
+              }
+            },
+            evidenceRoot: join(homedir(), '.mattstack', 'evidence'),
+          });
+          const mime = LEGACY_IMAGE_MIME[extname(path).toLowerCase()];
+          if (resolved === null || !mime)
+            return c.json({ error: 'no evidence' }, 404);
+          let bytes: Buffer;
+          try {
+            bytes = await readFile(resolved);
+          } catch {
+            return c.json({ error: 'no evidence' }, 404);
+          }
+          return new Response(new Uint8Array(bytes), {
+            status: 200,
+            headers: {
+              'content-type': mime,
+              'cache-control': 'private, max-age=3600',
+            },
+          });
+        }
+      )
       .get('/api/runs/:repo/:runId/evidence/:key', async c => {
         const { repo: rawRepo, runId, key } = c.req.param();
         if (fixture) {
@@ -255,7 +322,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           };
         }),
         async c => {
-          if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 409);
+          if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
           const { repo: rawRepo, runId } = c.req.param();
           const repo = canonicalRepo(rawRepo);
           const { reason } = c.req.valid('json');
@@ -265,7 +332,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
         }
       )
       .post('/api/runs/:repo/:runId/resume', async c => {
-        if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 409);
+        if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
         const { repo: rawRepo, runId } = c.req.param();
         const repo = canonicalRepo(rawRepo);
         const detail = await getRun(runId, repo);

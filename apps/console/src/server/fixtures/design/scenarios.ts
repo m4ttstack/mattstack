@@ -19,8 +19,11 @@
  * | `org-base`         | the pack extends `acme-base`, which fills plan's domain |
  * | `org-base-drift`   | `org-base`, with a stale base copy and a base error   |
  *
- * `runs` and `runs-empty` are the runs boards' data (`runsFixture.ts`), with
- * the skills routes answering as `clean`. Every other scenario serves no runs.
+ * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
+ * (`runsFixture.ts`), with the skills routes answering as `clean`.
+ * `runs-outage` is a stopped daemon: the runs, run, gates and
+ * effective-inputs routes answer 502 `daemon unreachable`. Every other
+ * scenario serves no runs.
  */
 
 export const SCENARIOS = [
@@ -40,6 +43,7 @@ export const SCENARIOS = [
   'org-base-drift',
   'runs',
   'runs-empty',
+  'runs-outage',
 ] as const;
 
 export type FixtureScenario = (typeof SCENARIOS)[number];
@@ -392,6 +396,7 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
   clean: { subject: 'stage-plan' },
   runs: { subject: 'stage-plan' },
   'runs-empty': { subject: 'stage-plan' },
+  'runs-outage': { subject: 'stage-plan' },
   unsynced: { subject: 'stage-plan' },
   referenced: {
     subject: 'stage-plan',

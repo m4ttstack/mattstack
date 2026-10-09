@@ -1,0 +1,37 @@
+.content {
+  overflow: hidden;
+}
+
+.list {
+  padding: 0 0 4px;
+  margin-inline-end: 0;
+}
+
+.section {
+  padding: 10px 16px 4px;
+}
+
+.action {
+  padding: 9px 16px;
+  border-radius: 0;
+}
+
+.row {
+  width: 100%;
+  min-width: 0;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+}
+
+.keep {
+  flex-shrink: 0;
+}
+
+.footer {
+  display: flex;
+  gap: 14px;
+  padding: 9px 16px;
+}

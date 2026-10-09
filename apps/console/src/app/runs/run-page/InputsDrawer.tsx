@@ -1,30 +1,26 @@
 import { useCallback } from 'react';
-import { Drawer } from '@mattstack/app-kit/core';
+import { Drawer, Stack, Text } from '@mattstack/app-kit/core';
 import type { RunDecisionRow } from '@mattstack/rt-client';
-import { useLocation, useSearch } from 'wouter';
 
-import { EffectiveInputs } from '../EffectiveInputs';
-
-const PARAM = 'inputs';
+import { EffectiveInputs, INPUTS_SUB } from '../EffectiveInputs';
+import { DOC_PARAM, INPUTS_PARAM, useDrawerParams } from './drawerParams';
+import classes from './InputsDrawer.module.css';
 
 /** Whether the drawer is open, kept in the URL as `?inputs` so a reload or a
-    link reopens it. */
+    link reopens it. Opening it closes the stage doc drawer. */
 export function useInputsDrawer() {
-  const search = useSearch();
-  const [location, navigate] = useLocation();
-  const opened = new URLSearchParams(search).has(PARAM);
+  const { inputs, write } = useDrawerParams();
   const set = useCallback(
-    (open: boolean) => {
-      const params = new URLSearchParams(search);
-      if (open) params.set(PARAM, '');
-      else params.delete(PARAM);
-      const qs = params.toString().replace(/=(?=&|$)/g, '');
-      navigate(qs ? `${location}?${qs}` : location, { replace: true });
-    },
-    [search, location, navigate]
+    (open: boolean) =>
+      write(params => {
+        params.delete(DOC_PARAM);
+        if (open) params.set(INPUTS_PARAM, '');
+        else params.delete(INPUTS_PARAM);
+      }),
+    [write]
   );
   return {
-    opened,
+    opened: inputs,
     open: useCallback(() => set(true), [set]),
     close: useCallback(() => set(false), [set]),
   };
@@ -48,9 +44,25 @@ export function InputsDrawer({
       opened={opened}
       onClose={onClose}
       position="right"
-      size="lg"
-      title="Effective inputs"
+      size={640}
+      padding={24}
+      classNames={{ header: classes.header, body: classes.body }}
+      title={
+        <Stack gap={4}>
+          <Text fz={17} fw={700} lh="normal" data-parity="title">
+            Effective inputs
+          </Text>
+          <Text fz={13} lh="normal" c="dimmed" data-parity="sub">
+            {INPUTS_SUB}
+          </Text>
+        </Stack>
+      }
       data-testid="inputs-drawer"
+      attributes={{
+        content: { 'data-parity': 'Drawer' },
+        header: { 'data-parity': 'head' },
+        close: { 'data-parity': 'close' },
+      }}
     >
       {opened ? (
         <EffectiveInputs repo={repo} runId={runId} decisions={decisions} />

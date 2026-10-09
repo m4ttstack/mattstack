@@ -2,6 +2,7 @@ import type { GateQuestion, GateRow, RunStageRow } from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
 
 import {
+  contextBlocks,
   decisionLogForRun,
   gateEndNote,
   gateKindLabel,
@@ -9,6 +10,7 @@ import {
   optionViews,
   pickedText,
   questionAnswer,
+  splitCommand,
   tookRecommendation,
   waitingOnYou,
 } from './gates';
@@ -201,4 +203,100 @@ describe('optionViews and pickedText', () => {
     ]));
   it('joins the picked labels and keeps an unknown value as it is', () =>
     expect(pickedText(q, ['x', 'gone'])).toBe('Ex, gone'));
+});
+
+describe('splitCommand', () => {
+  it('lifts the command after "From <dir>:" and keeps the prose around it', () =>
+    expect(
+      splitCommand(
+        'From apps/backend: jest --selectProjects unit -t x, red then green.'
+      )
+    ).toEqual({
+      prose: 'From apps/backend, red then green.',
+      command: 'jest --selectProjects unit -t x',
+    }));
+  it('lifts a backticked span', () =>
+    expect(
+      splitCommand(
+        'Add an assignee param to the orders query. `jest -t useOrders`'
+      )
+    ).toEqual({
+      prose: 'Add an assignee param to the orders query.',
+      command: 'jest -t useOrders',
+    }));
+  it('lifts a line that starts with a known CLI word', () =>
+    expect(splitCommand('Rebase first.\ngit rebase origin/main')).toEqual({
+      prose: 'Rebase first.',
+      command: 'git rebase origin/main',
+    }));
+  it('reads a description that is only a command as no prose', () =>
+    expect(splitCommand('bun run test')).toEqual({
+      prose: '',
+      command: 'bun run test',
+    }));
+  it('keeps an inline backticked identifier in its sentence', () => {
+    const text = 'Add an `assignee` param to `useOrders` first.';
+    expect(splitCommand(text)).toEqual({ prose: text, command: null });
+  });
+  it('lifts an inline backticked span that starts with a CLI word', () =>
+    expect(splitCommand('Run `bun test` before shipping.')).toEqual({
+      prose: 'Run before shipping.',
+      command: 'bun test',
+    }));
+  it('lifts a backticked span that ends the description', () =>
+    expect(splitCommand('Rename the hook to `useAssignee`.')).toEqual({
+      prose: 'Rename the hook to.',
+      command: 'useAssignee',
+    }));
+  it('reads "From <word>:" prose as prose when no CLI word follows', () =>
+    expect(splitCommand('From scratch: rewrite it.')).toEqual({
+      prose: 'From scratch: rewrite it.',
+      command: null,
+    }));
+  it('leaves plain prose alone', () =>
+    expect(splitCommand('Filter the loaded page only.')).toEqual({
+      prose: 'Filter the loaded page only.',
+      command: null,
+    }));
+  it('needs the CLI word to start the line', () =>
+    expect(splitCommand('Ask the rt daemon first')).toEqual({
+      prose: 'Ask the rt daemon first',
+      command: null,
+    }));
+});
+
+describe('contextBlocks', () => {
+  it('turns a list of "Label: text" points into points, around the markdown', () =>
+    expect(
+      contextBlocks(
+        'Lead line.\n\n- Server-side: fast on big stores.\n- Risk: two stores.\n\n```\na.ts:1\n```\n'
+      )
+    ).toEqual([
+      { kind: 'markdown', text: 'Lead line.' },
+      {
+        kind: 'points',
+        points: [
+          { label: 'Server-side', text: 'fast on big stores.' },
+          { label: 'Risk', text: 'two stores.' },
+        ],
+      },
+      { kind: 'code', lines: ['a.ts:1'] },
+    ]));
+  it('splits a paragraph from the fenced block under it', () =>
+    expect(contextBlocks('Lead.\n\n```\na\nb\n```')).toEqual([
+      { kind: 'markdown', text: 'Lead.' },
+      { kind: 'code', lines: ['a', 'b'] },
+    ]));
+  it('reads a bold label', () =>
+    expect(contextBlocks('- **Risk**: two stores.')).toEqual([
+      { kind: 'points', points: [{ label: 'Risk', text: 'two stores.' }] },
+    ]));
+  it('keeps a list as markdown unless every item is a point', () => {
+    const text = '- Server-side: fast.\n- then a plain item';
+    expect(contextBlocks(text)).toEqual([{ kind: 'markdown', text }]);
+  });
+  it('never reads a fenced line as a point', () =>
+    expect(contextBlocks('```\n- Key: value\n```')).toEqual([
+      { kind: 'code', lines: ['- Key: value'] },
+    ]));
 });

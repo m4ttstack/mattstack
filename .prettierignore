@@ -20,6 +20,8 @@ apps/*/state.*
 apps/*/src/server/embedded/manifest.ts
 # Design-fixture skill files: their line numbers and spacing are the data
 apps/console/src/server/fixtures/design/files
+# Design-fixture stage docs keep a compiled doc's exact shape
+apps/console/src/server/fixtures/design/runs/stage-docs
 # browser_run_code_unsafe function files: a trailing semicolon breaks the tool's loader
 scripts/parity/*.js
 # rt's own code keeps rt's style (double quotes); prettier is the apps' tool

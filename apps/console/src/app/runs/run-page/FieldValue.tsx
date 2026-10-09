@@ -4,14 +4,16 @@ import { fieldKind } from '../derive/run';
 
 const SHORT_SHA = 7;
 
-/** The story's value type: 12.5px on an 18px line. */
-const VALUE_TYPE = { fz: 12.5, lh: '18px' } as const;
+/** 12.5px on an 18px line, as the Now card draws a value. */
+const VALUE_TYPE = { fz: 12.5, lh: '18px' };
 
 export interface FieldValueProps {
   fieldKey: string;
   value: string;
   /** Where a file path opens, or null to show it as text. */
   pathHref?: (path: string) => string | null;
+  /** The value's size and line height. */
+  type?: { fz: number; lh: string };
   'data-parity'?: string;
 }
 
@@ -30,6 +32,7 @@ export function FieldValue({
   fieldKey,
   value,
   pathHref,
+  type = VALUE_TYPE,
   'data-parity': parity,
 }: FieldValueProps) {
   const kind = fieldKind(fieldKey, value);
@@ -38,14 +41,14 @@ export function FieldValue({
   switch (kind) {
     case 'cleared':
       return (
-        <Text {...VALUE_TYPE} c="dimmed" data-kind={kind} data-parity={parity}>
+        <Text {...type} c="dimmed" data-kind={kind} data-parity={parity}>
           cleared
         </Text>
       );
     case 'url':
       return (
         <Anchor
-          {...VALUE_TYPE}
+          {...type}
           c="accent"
           href={v}
           target="_blank"
@@ -60,7 +63,7 @@ export function FieldValue({
       const href = pathHref?.(v) ?? null;
       return href ? (
         <Anchor
-          {...VALUE_TYPE}
+          {...type}
           c="accent"
           href={href}
           data-kind={kind}
@@ -69,7 +72,7 @@ export function FieldValue({
           {v}
         </Anchor>
       ) : (
-        <Text {...VALUE_TYPE} data-kind={kind} data-parity={parity}>
+        <Text {...type} data-kind={kind} data-parity={parity}>
           {v}
         </Text>
       );
@@ -99,7 +102,7 @@ export function FieldValue({
     case 'gate-ref':
       return (
         <Text
-          {...VALUE_TYPE}
+          {...type}
           c="dimmed"
           ff="monospace"
           data-kind={kind}
@@ -111,7 +114,7 @@ export function FieldValue({
       );
     case 'text':
       return (
-        <Text {...VALUE_TYPE} data-kind={kind} data-parity={parity}>
+        <Text {...type} data-kind={kind} data-parity={parity}>
           {value}
         </Text>
       );

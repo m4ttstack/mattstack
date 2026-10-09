@@ -28,6 +28,13 @@ names its content roots in `boards.ts`:
 | `run-story-edges`                                                            | `Now empty`, `Story list`                                                          |
 | `run-record-abandoned`                                                       | `Hero abandoned`                                                                   |
 | `run-record-review`                                                          | `Hero review`                                                                      |
+| `runs-p2-live`, `runs-p2-story-details`                                      | `Hero`, `Story`, `Side`                                                            |
+| `runs-p2-gate`                                                               | `Hero`, `Gate mine`, `Side`                                                        |
+| `runs-p2-record`                                                             | `Hero`, `Tabs`, `Decision log`, `Evidence rail`                                    |
+| `runs-p2-review`                                                             | `Hero`, `Tabs`, `Review column`, `Side`                                            |
+| `runs-p2-inputs`                                                             | `Drawer`                                                                           |
+| `runs-p2-runs`                                                               | `Title row`, `Summary`, `Banner waiting`, `Live cards`, `History`                  |
+| `runs-p2-states`, `runs-p2-overlays`, `runs-p2-search`                       | one root per panel (`panels` in `boards.ts`)                                       |
 
 The Lanes boards compare their whole `Content`: the title row, stat cards,
 banner, lanes and Earlier list are all its children. The runs boards come from
@@ -160,6 +167,14 @@ fixture server restarted with `CONSOLE_FIXTURE_SCENARIO=unsynced`, the runs
 boards with `runs` (and `runs-empty` for that one board); the rest use
 `clean`. Vite and the harness keep running across boards.
 
+A board's scenario covers all of its panels; there is no per-panel scenario.
+`runs-p2-states`' two outage panels, `run load error` and `runs outage`,
+draw the daemon down, so run each with the fixture server restarted under
+`CONSOLE_FIXTURE_SCENARIO=runs-outage` and the `panel` arg in step 3
+(`"panel": "runs outage"`), then restart the server on `runs`. The board
+names its unknown run `WEB-409`; the fixture has no run at that route, so the
+app's card names the run by its id.
+
 ### 2. Load the browser tools
 
 Load the Fast Browser tools with ToolSearch:
@@ -198,13 +213,30 @@ in localStorage, loads the board's route, disables transitions and
 animations, waits for the first root (or the action's first layer), asserts
 `data-mantine-color-scheme` is the scheme, does the board's action, waits for
 every root, matches the content width, and collects and screenshots each root
-with its side-by-side. Two boards have an action:
+with its side-by-side. These boards have an action:
 
 - `drawer-rebind` clicks `Select`, then `option · plan-policy-strict`, then
   `Select` again, and waits for `options`: the board draws the picker open on
   its new choice.
 - `unsynced-confirm` clicks `button · Sync changes` in the banner and waits
   for `Modal · sync changes`.
+- `runs-p2-states`' `runs outage` panel waits for its banner to read
+  "unknown, not zero": the page draws its loading skeleton until the one
+  retry fails.
+- `runs-p2-overlays`' `abandon dialog` panel, on the stale run
+  `20261007-1046`, clicks the hero's `Btn more`, then `btn Mark abandoned`, and
+  waits for `Abandon dialog`. The runner types nothing, so it compares the
+  empty dialog; the board draws the failure state, which the run page tests
+  cover. `Btn more` is drawn on the run boards, not on this tile, and
+  `boards.test.ts` accepts a clicked layer from another board's export.
+- `runs-p2-story-details` clicks `Stage plan` to open the plan stage, then
+  the first decision's chevron `c`, and waits for `decision open`.
+- `runs-p2-search`' `palette` panel presses `ControlOrMeta+k` once the
+  runs page has drawn, types `418` and waits for the run row `item` (a
+  `type` action). Its `timeline hover` panel hovers the first `seg` with
+  `[data-kind="you"]` (a `hover` action's `where`) and waits for
+  `hover card`. The card is a portal, so the app compares the card alone
+  under the tile's `Timeline hover` root (`appRoots`).
 
 It uploads everything to `~/.fast-browser/output/parity/console/`:
 

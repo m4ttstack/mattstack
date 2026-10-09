@@ -5,6 +5,7 @@ import {
   answeredBy,
   answerStamp,
   answerSurface,
+  contextMeta,
   contextSchema,
   countCommits,
   headSha,
@@ -58,6 +59,19 @@ describe('answeredBy', () => {
     expect(answeredBy(answered(''))).toBeNull();
     expect(answeredBy(answered('mystery'))).toBeNull();
     expect(answeredBy(gate())).toBeNull();
+  });
+});
+
+describe('contextMeta', () => {
+  it('counts the lines of a prose context', () => {
+    expect(contextMeta('one\ntwo\nthree\n\n')).toBe('3 lines');
+    expect(contextMeta('one')).toBe('1 line');
+  });
+
+  it('names a structured context by its summary', () => {
+    expect(
+      contextMeta(JSON.stringify({ 'gate-ctx': 'findings@1', f: [1, 2] }))
+    ).toBe('2 findings');
   });
 });
 

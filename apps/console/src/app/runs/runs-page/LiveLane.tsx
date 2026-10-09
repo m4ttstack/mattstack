@@ -96,9 +96,7 @@ export function LiveLane({ runId, ticket, title, href, facts }: LiveLaneProps) {
         {title}
       </Text>
       <div className={classes.now}>
-        {facts.rail ? (
-          <StageRail stages={facts.rail} gateCounts={{}} compact />
-        ) : null}
+        {facts.rail ? <StageRail stages={facts.rail} compact /> : null}
         {facts.stage ? (
           <Group gap={8} wrap="nowrap">
             <Text fz={13} fw={500} lh="normal" data-parity="stage">

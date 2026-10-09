@@ -21,3 +21,7 @@
 .stat + .stat {
   border-left: 1px solid var(--tk-line-3);
 }
+
+.abandoned {
+  padding: 0 24px;
+}

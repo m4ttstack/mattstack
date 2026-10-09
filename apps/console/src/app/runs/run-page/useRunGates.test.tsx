@@ -80,15 +80,49 @@ describe('useRunGates', () => {
     await waitFor(() => expect(result.current.gates).toHaveLength(2));
   });
 
-  it('returns no gates when the list fails', async () => {
+  it('says the read failed rather than reading as no gates', async () => {
     gatesGet.mockResolvedValue({
       ok: false,
       status: 502,
-      json: async () => ({}),
+      json: async () => ({ error: 'daemon unreachable' }),
     });
     const { Wrap } = harness();
     const { result } = renderHook(() => useRunGates('r1'), { wrapper: Wrap });
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await waitFor(() => expect(result.current.failed).toBe(true), {
+      timeout: 3000,
+    });
     expect(result.current.gates).toEqual([]);
+    expect(gatesGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a refused read', async () => {
+    gatesGet.mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: 'no such run' }),
+    });
+    const { Wrap } = harness();
+    const { result } = renderHook(() => useRunGates('r1'), { wrapper: Wrap });
+    await waitFor(() => expect(result.current.failed).toBe(true));
+    expect(gatesGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the last known gates when a later read fails', async () => {
+    gatesGet.mockResolvedValue({
+      ok: true,
+      json: async () => ({ gates: [gate('a', 'run:r1')] }),
+    });
+    const { Wrap, queryClient } = harness();
+    const { result } = renderHook(() => useRunGates('r1'), { wrapper: Wrap });
+    await waitFor(() => expect(result.current.gates).toHaveLength(1));
+    gatesGet.mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: 'gone' }),
+    });
+    await act(() => queryClient.invalidateQueries({ queryKey: ['gates'] }));
+    await waitFor(() => expect(gatesGet).toHaveBeenCalledTimes(2));
+    expect(result.current.gates.map(g => g.id)).toEqual(['a']);
+    expect(result.current.failed).toBe(false);
   });
 });

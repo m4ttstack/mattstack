@@ -6,6 +6,7 @@ import {
   outputDirOf,
   targetsOf,
   type Board,
+  type BoardAction,
 } from './config';
 
 const board = (o: Partial<Board> = {}): Board => ({
@@ -50,6 +51,40 @@ describe('targetsOf', () => {
         route: '/u/a',
       },
     ]);
+  });
+});
+
+describe('targetsOf actions and panel filter', () => {
+  const click: BoardAction = { kind: 'click', layer: 'go', waitFor: 'where' };
+  const own: BoardAction = { kind: 'clicks', layers: ['a'], waitFor: 'b' };
+  const panels = board({
+    roots: [],
+    action: click,
+    panels: [
+      { label: 'One', route: '/1', root: 'Root one', action: own },
+      { label: 'Two', route: '/2', root: 'Root two' },
+    ],
+  });
+
+  it("gives a panel its own action, else the board's", () => {
+    expect(targetsOf(panels).map(t => t.action)).toEqual([own, click]);
+    expect(targetsOf(board({ action: click }))[0]!.action).toEqual(click);
+  });
+
+  it('keeps only the panel a label or root names', () => {
+    expect(targetsOf(panels, 'two').map(t => t.root)).toEqual(['Root two']);
+    expect(targetsOf(panels, 'Root one').map(t => t.root)).toEqual([
+      'Root one',
+    ]);
+    expect(() => targetsOf(panels, 'nope')).toThrow(
+      'no panel "nope" on 01-demo; one of: One, Two'
+    );
+  });
+
+  it('refuses a panel filter on a board without panels', () => {
+    expect(() => targetsOf(board(), 'one')).toThrow(
+      '01-demo has no panels; drop the panel filter'
+    );
   });
 });
 

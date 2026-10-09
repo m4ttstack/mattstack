@@ -115,3 +115,123 @@ export function waitingOnYou(gates: GateRow[], now: number): number {
   }
   return cur ? total + cur[1] - cur[0] : total;
 }
+
+const CLI_LINE = /^(?:jest|bun|pnpm|npm|git|rt)\s+\S/;
+
+function tidy(text: string): string {
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([.,;:])/g, '$1')
+    .replace(/:$/, '')
+    .trim();
+}
+
+const isCli = (text: string) => CLI_LINE.test(text.trim());
+
+/** An option description split into its prose and the one command it names:
+    a CLI command after `From <dir>:`, a backticked span that is a CLI command
+    or ends the description, or a line that starts with a CLI word. An inline
+    backticked identifier stays in its sentence. */
+export function splitCommand(description: string): {
+  prose: string;
+  command: string | null;
+} {
+  const text = description.trim();
+  const from = /^(From \S+):\s+(.+?)(?:,\s+(.+)|\.)?$/s.exec(text);
+  if (from && isCli(from[2]!)) {
+    const [, dir, command, rest] = from;
+    return {
+      prose: rest ? `${dir}, ${rest}` : `${dir}.`,
+      command: command!.trim(),
+    };
+  }
+  const ticked = [...text.matchAll(/`([^`]+)`/g)].find(
+    m => isCli(m[1]!) || /^\.?$/.test(text.slice(m.index + m[0].length))
+  );
+  if (ticked) {
+    return {
+      prose: tidy(text.replace(ticked[0], ' ')),
+      command: ticked[1]!.trim(),
+    };
+  }
+  const lines = text.split('\n');
+  const at = lines.findIndex(isCli);
+  if (at >= 0) {
+    return {
+      prose: tidy(lines.filter((_, i) => i !== at).join(' ')),
+      command: lines[at]!.trim(),
+    };
+  }
+  return { prose: text, command: null };
+}
+
+export interface ContextPoint {
+  label: string;
+  text: string;
+}
+
+export type ContextBlock =
+  | { kind: 'markdown'; text: string }
+  | { kind: 'points'; points: ContextPoint[] }
+  | { kind: 'code'; lines: string[] };
+
+const POINT =
+  /^[-*]\s+(?:\*\*([^*:`]{1,24}?):?\*\*:?|([^*:`\s][^:`]{0,23}?):)\s+(.+)$/;
+
+/** Gate context as Markdown with its "Label: text" bullet lists and fenced
+    blocks lifted out, so labelled points draw as a label column and a fence
+    line by line. A list becomes points only when every item has a label; a
+    fenced line never does. */
+export function contextBlocks(text: string): ContextBlock[] {
+  const blocks: ContextBlock[] = [];
+  let markdown: string[] = [];
+  let list: string[] = [];
+  let fenced = false;
+  const flushMarkdown = () => {
+    const body = markdown.join('\n').trim();
+    if (body) blocks.push({ kind: 'markdown', text: body });
+    markdown = [];
+  };
+  const flushList = () => {
+    if (list.length === 0) return;
+    const matches = list.map(line => POINT.exec(line));
+    if (matches.every(m => m !== null)) {
+      flushMarkdown();
+      blocks.push({
+        kind: 'points',
+        points: matches.map(m => ({
+          label: (m![1] ?? m![2])!.trim(),
+          text: m![3]!.trim(),
+        })),
+      });
+    } else {
+      markdown.push(...list);
+    }
+    list = [];
+  };
+  let code: string[] = [];
+  for (const line of text.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      flushList();
+      if (fenced) blocks.push({ kind: 'code', lines: code });
+      else flushMarkdown();
+      fenced = !fenced;
+      code = [];
+      continue;
+    }
+    if (fenced) {
+      code.push(line);
+      continue;
+    }
+    if (/^[-*]\s+\S/.test(line)) {
+      list.push(line);
+      continue;
+    }
+    flushList();
+    markdown.push(line);
+  }
+  flushList();
+  if (fenced) markdown.push('```', ...code);
+  flushMarkdown();
+  return blocks;
+}

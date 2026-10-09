@@ -1,4 +1,3 @@
-import { notifications } from '@mattstack/app-kit/notifications';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type {
   GateRow,
@@ -262,10 +261,12 @@ describe('RunDetail: live work run', () => {
     expect(page).not.toHaveTextContent('session-412');
     expect(page).not.toHaveTextContent('3 of 5');
     expect(page).not.toHaveTextContent('"v":1');
-    expect(within(page).getByText('EVIDENCE')).toBeInTheDocument();
+    expect(
+      within(page).getByRole('button', { name: 'Open before.png full size' })
+    ).toBeInTheDocument();
   });
 
-  it('puts an open gate of the run in the gate panel instead of the Now card', async () => {
+  it('puts an open gate at the top of the main column instead of the Now card', async () => {
     render(workRun(), [
       gate({
         status: 'open',
@@ -276,33 +277,71 @@ describe('RunDetail: live work run', () => {
     ]);
     const panel = await screen.findByTestId('gate-panel');
     expect(panel).toHaveAttribute('data-gate-id', 'g-open');
-    expect(panel.closest('[data-parity="Story"]')).toBeNull();
-    expect(
-      screen.getByText('None yet. What you answer above lands here.')
-    ).toBeInTheDocument();
+    const main = panel.closest('[data-parity="Story"]');
+    expect(main?.firstElementChild).toContainElement(panel);
     expect(screen.queryByTestId('now-card')).toBeNull();
     expect(screen.getByTestId('liveness')).toHaveTextContent(
       'waiting on you · 1m'
     );
   });
 
-  it('lists its answered decisions on the side', async () => {
+  it('keeps decisions in the story only, with no side card for them', async () => {
     render(workRun(), [gate()]);
-    await screen.findByTestId('run-page');
-    expect(await screen.findByText('Decisions · 1')).toBeInTheDocument();
+    const page = await screen.findByTestId('run-page');
+    await waitFor(() =>
+      expect(within(page).getByTestId('story')).toHaveTextContent(
+        'Which approach?'
+      )
+    );
+    expect(within(page).queryByText(/^Decisions/)).toBeNull();
+    expect(within(page).queryByText('Open log →')).toBeNull();
+  });
+
+  it('draws no copy key chips on the page metadata', async () => {
+    render(workRun(), [gate()]);
+    const page = await screen.findByTestId('run-page');
+    await waitFor(() =>
+      expect(page.querySelector('[data-fact="Branch"]')).not.toBeNull()
+    );
+    const keys = [...page.querySelectorAll('kbd')].map(k => k.textContent);
+    for (const key of ['t', 'm', 'b', 'w', 'c'])
+      expect(keys).not.toContain(key);
+  });
+
+  it('copies nothing when a metadata key is pressed', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    render(workRun(), [gate()]);
+    const page = await screen.findByTestId('run-page');
+    await waitFor(() =>
+      expect(page.querySelector('[data-fact="Branch"]')).not.toBeNull()
+    );
+    await userEvent.keyboard('tbwmc');
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it('offers Focus pane while an agent holds the pane, and Resume when none does', async () => {
-    const user = userEvent.setup();
     render(workRun());
     expect(
       await screen.findByRole('button', { name: 'focus pane' })
     ).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'more run actions' }));
-    expect(screen.queryByRole('menuitem', { name: 'Resume' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mark abandoned' })).toBeNull();
+  });
+
+  it('shows a lone View inputs as its own button, with no menu', async () => {
+    const user = userEvent.setup();
+    render(workRun());
+    const button = await screen.findByRole('button', { name: 'View inputs' });
     expect(
-      screen.queryByRole('menuitem', { name: 'Mark abandoned' })
+      screen.queryByRole('button', { name: 'more run actions' })
     ).toBeNull();
+    await user.click(button);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(window.location.search).toBe('?inputs');
   });
 
   it('resumes a run with a session and no pane from the menu', async () => {
@@ -332,35 +371,74 @@ describe('RunDetail: live work run', () => {
     ).toBeInTheDocument();
   });
 
-  it('says so when marking a run abandoned fails', async () => {
-    const user = userEvent.setup();
-    const error = vi.spyOn(notifications, 'error');
-    abandonPost.mockResolvedValue({
-      ok: false,
-      status: 409,
-      json: async () => ({ error: 'run already ended' }),
+  const staleRun = () =>
+    workRun({
+      run: summary({
+        attention: { needs: true, reason: 'stale', evidence: 'no pane' },
+      }),
     });
-    render(
-      workRun({
-        run: summary({
-          attention: { needs: true, reason: 'stale', evidence: 'no pane' },
-        }),
-      })
-    );
+
+  async function openAbandon(user: ReturnType<typeof userEvent.setup>) {
     await screen.findByTestId('run-page');
     await user.click(screen.getByRole('button', { name: 'more run actions' }));
     await user.click(
       await screen.findByRole('menuitem', { name: 'Mark abandoned' })
     );
+    return screen.findByRole('dialog', { name: 'Mark WEB-412 abandoned?' });
+  }
+
+  it('keeps the dialog and your reason open when marking a run abandoned fails', async () => {
+    const user = userEvent.setup();
+    abandonPost.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'the run already ended' }),
+    });
+    render(staleRun());
+    const dialog = await openAbandon(user);
+    const reason = within(dialog).getByLabelText(/Why is this run dead/);
+    await user.type(reason, 'Superseded by WEB-430');
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Mark abandoned' })
+    );
+    expect(
+      await within(dialog).findByText(
+        "Couldn't mark it: the run already ended. Nothing changed."
+      )
+    ).toBeInTheDocument();
+    expect(abandonPost).toHaveBeenCalledWith({
+      param: { repo: 'remote:acme%2Fweb', runId: 'run-412' },
+      json: { reason: 'Superseded by WEB-430' },
+    });
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(reason).toHaveValue('Superseded by WEB-430');
+  });
+
+  it('closes the dialog once the run is marked abandoned', async () => {
+    const user = userEvent.setup();
+    abandonPost.mockResolvedValue(ok({}));
+    render(staleRun());
+    const dialog = await openAbandon(user);
     await user.type(
-      await screen.findByLabelText(/Why is this run dead/),
+      within(dialog).getByLabelText(/Why is this run dead/),
       'wedged'
     );
-    await user.click(screen.getByRole('button', { name: 'Mark abandoned' }));
-    await waitFor(() =>
-      expect(error).toHaveBeenCalledWith('run already ended')
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Mark abandoned' })
     );
-    error.mockRestore();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('asks for a reason before marking a run abandoned', async () => {
+    const user = userEvent.setup();
+    render(staleRun());
+    const dialog = await openAbandon(user);
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Mark abandoned' })
+    );
+    expect(abandonPost).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('opens the inputs drawer from ?inputs', async () => {
@@ -387,6 +465,104 @@ describe('RunDetail: live work run', () => {
     render(workRun(), [gate()]);
     await screen.findByTestId('run-page');
     await waitFor(() => expect(scroll).toHaveBeenCalled());
+  });
+
+  it('opens the folded stage and the decision a ?gate= link names', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    window.history.pushState(null, '', '/runs/x/run-412?gate=g-approach');
+    render(
+      workRun({
+        stages: [
+          stage('provision', 'done', 0, 1),
+          stage('plan', 'done', 1, 2),
+          stage('evidence', 'done', 2, 30),
+          stage('implement', 'running', 30, null),
+        ],
+        fields: [
+          ...workRun().fields,
+          field('case', 'An order with one linked parcel', 3),
+        ],
+      }),
+      [
+        gate({
+          questions: [
+            {
+              id: 'approach',
+              label: 'Which approach?',
+              options: [
+                { value: 'gap-fill', label: 'Backend gap-fill' },
+                { value: 'stub', label: 'Stub the data' },
+              ],
+            },
+          ],
+        } as Partial<GateRow>),
+      ]
+    );
+    const page = await screen.findByTestId('run-page');
+    const plan = await waitFor(() => {
+      const el = page.querySelector<HTMLElement>(
+        '[data-testid="story"] [data-stage="plan"]'
+      );
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(await within(plan).findByText('Passed on')).toBeInTheDocument();
+    expect(within(plan).getByText('Stub the data')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+    );
+    const linked = () =>
+      plan.querySelector<HTMLElement>('[data-gate-id="g-approach"]')!;
+    expect(linked()).toHaveAttribute('data-linked', 'true');
+    expect(linked()).toHaveAttribute('data-selected');
+
+    await userEvent.click(document.body);
+    expect(linked()).not.toHaveAttribute('data-linked');
+    expect(linked()).not.toHaveAttribute('data-selected');
+    expect(within(plan).getByText('Passed on')).toBeInTheDocument();
+
+    const toggle = () =>
+      within(plan).getByRole('button', { name: /^(Show|Hide) plan$/ });
+    await userEvent.click(toggle());
+    await userEvent.click(toggle());
+    expect(within(plan).queryByText('Passed on')).toBeNull();
+  });
+
+  it('keeps a #gate- link to one opening of its decision', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    window.history.pushState(null, '', '/runs/x/run-412#gate-g-approach');
+    render(workRun(), [
+      gate({
+        questions: [
+          {
+            id: 'approach',
+            label: 'Which approach?',
+            options: [
+              { value: 'gap-fill', label: 'Backend gap-fill' },
+              { value: 'stub', label: 'Stub the data' },
+            ],
+          },
+        ],
+      } as Partial<GateRow>),
+    ]);
+    const page = await screen.findByTestId('run-page');
+    const plan = await waitFor(() => {
+      const el = page.querySelector<HTMLElement>(
+        '[data-testid="story"] [data-stage="plan"]'
+      );
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(await within(plan).findByText('Passed on')).toBeInTheDocument();
+    await userEvent.keyboard('{Shift}');
+    const toggle = () =>
+      within(plan).getByRole('button', { name: /^(Show|Hide) plan$/ });
+    await userEvent.click(toggle());
+    await userEvent.click(toggle());
+    expect(within(plan).queryByText('Passed on')).toBeNull();
+    expect(
+      plan.querySelector('[data-gate-id="g-approach"]')
+    ).not.toHaveAttribute('data-linked');
   });
 
   const openGate = (id: string, minute: number) =>
@@ -533,6 +709,15 @@ describe('RunDetail: one-stage review run', () => {
     expect(within(page).getByText('Reviewed MR')).toBeInTheDocument();
   });
 
+  it('titles the review by the MR its field names before rt records it', async () => {
+    const data = review();
+    render({ ...data, run: { ...data.run, outcome: null } });
+    const header = await screen.findByTestId('run-header');
+    expect(
+      await within(header).findByText('Review of !412')
+    ).toBeInTheDocument();
+  });
+
   it('says where to answer when no board link is known', async () => {
     render({ ...review(), boardUrl: null }, [post]);
     await screen.findByTestId('run-page');
@@ -625,7 +810,7 @@ describe('RunDetail: finished run', () => {
     picked('g4', 'ship', 107, 108, { owner: 'herd:acme' }),
   ];
 
-  it('heads a merged work run with its badges, span and all six stats', async () => {
+  it('heads a merged work run with its badges, span and four stats', async () => {
     render(merged(), mergedGates);
     const record = await screen.findByTestId('run-record');
     const header = within(record).getByTestId('record-header');
@@ -639,14 +824,12 @@ describe('RunDetail: finished run', () => {
         ['duration', '2h 32mstart to merge'],
         ['decisions', '4decisions'],
         ['took', '3 of 4took the recommendation'],
-        ['evidence', '3evidence'],
-        ['commits', '4commits'],
         ['waiting', '25mwaiting on you'],
       ])
     );
   });
 
-  it('opens on Decisions, by stage, with the evidence beside them', async () => {
+  it('opens on Decisions, the stages heading the log, with the evidence beside them', async () => {
     render(merged(), mergedGates);
     const record = await screen.findByTestId('run-record');
     await waitFor(() =>
@@ -657,43 +840,33 @@ describe('RunDetail: finished run', () => {
         ['Inputs', 'false'],
       ])
     );
-    const nav = within(record).getByRole('navigation', {
-      name: 'Decisions by stage',
-    });
-    expect(
-      within(nav)
-        .getAllByRole('button')
-        .map(b => b.textContent)
-    ).toEqual(['plan2', 'evidence1', 'ship1']);
-    expect(
-      within(nav).getAllByLabelText('an answer went against the recommendation')
-    ).toHaveLength(1);
+    expect(within(record).queryByRole('navigation')).toBeNull();
     const log = within(record).getByTestId('decision-log');
+    expect(
+      [...log.querySelectorAll('[data-stage-group]')].map(e => e.textContent)
+    ).toEqual([
+      'plan2 decisions · 12m · 1 override',
+      'evidence1 decision · 44m',
+      'ship1 decision · 50m',
+    ]);
     expect(
       [...log.querySelectorAll('[data-gate-id]')].map(e =>
         e.getAttribute('data-gate-id')
       )
     ).toEqual(['g1', 'g2', 'g3', 'g4']);
-    expect(log.querySelector('[data-stage-group="plan"]')).toHaveTextContent(
-      'plan2 decisions · 12m'
-    );
     expect(within(record).getByText('CASE USED')).toBeInTheDocument();
     expect(within(record).getByText('attached to !405')).toBeInTheDocument();
   });
 
-  it('draws the story on its tab, and Open log takes you to Decisions', async () => {
+  it('draws the story on its tab, with no decisions card beside it', async () => {
     const user = userEvent.setup();
     render(merged(), mergedGates);
     const record = await screen.findByTestId('run-record');
     await user.click(await within(record).findByRole('tab', { name: 'Story' }));
     const story = within(record).getByTestId('story');
     expect(story.querySelector('[data-stage="implement"]')).not.toBeNull();
-    await user.click(within(record).getByText('Open log →'));
-    await waitFor(() =>
-      expect(
-        within(record).getByRole('tab', { name: /Decisions/ })
-      ).toHaveAttribute('aria-selected', 'true')
-    );
+    expect(within(record).queryByText('Open log →')).toBeNull();
+    expect(record.querySelector('[data-parity="Decisions mini"]')).toBeNull();
   });
 
   it('hides took-the-recommendation when no answer had one', async () => {
@@ -723,53 +896,138 @@ describe('RunDetail: finished run', () => {
       expect(statsOf(header)).toEqual([
         ['duration', '2h 32mstart to end'],
         ['decisions', '2decisions'],
-        ['evidence', '2 linksevidence'],
-        ['commits', '2commits'],
         ['waiting', '35mwaiting on you'],
       ])
     );
-    expect(
-      within(record).queryByLabelText(
-        'an answer went against the recommendation'
-      )
-    ).toBeNull();
+    expect(within(record).queryByTestId('abandoned-line')).toBeNull();
   });
 
-  it('leaves evidence off a review record and says what it posted', async () => {
+  it('says why a run was abandoned under the hero, and only why', async () => {
     render(
       workRun({
         run: summary({
-          work_type: 'review',
-          pipeline: 'review',
-          ticket: null,
-          branch: 'dedupe-contacts',
-          status: 'done',
-          ended_at: at(23),
+          status: 'abandoned',
+          ended_at: at(152),
           agent: null,
-          outcome: {
-            status: 'done',
-            reviewed: {
-              iid: 412,
-              url: 'https://forge.test/acme/web/-/merge_requests/412',
-              posted: 'request changes',
-            },
-          },
+          outcome: { status: 'abandoned' },
         }),
-        stages: [stage('review', 'done', 0, 23)],
         fields: [
-          field('branch', 'dedupe-contacts', 0),
-          field('mr', '!412', 0.5),
-          field('evidence', '{"v":1,"before":"/e/before.png"}', 5),
-          field('commits', 'abc1234', 6),
+          field('pipeline-stages', 'provision plan implement', 0),
+          {
+            key: 'reconciled',
+            value: 'Superseded by WEB-430',
+            produced_by: 'rt runs abandon',
+            at: at(152),
+          },
         ],
-      }),
-      [picked('p', 'review', 15, 21, { rec: false })]
+      })
     );
+    const record = await screen.findByTestId('run-record');
+    const line = await within(record).findByTestId('abandoned-line');
+    expect(line).toHaveTextContent(/^“Superseded by WEB-430”$/);
+  });
+
+  it('labels a raw field key in sentence case on the story', async () => {
+    const user = userEvent.setup();
+    render(
+      workRun({
+        run: summary({ status: 'done', ended_at: at(90), agent: null }),
+        fields: [
+          field('pipeline-stages', 'provision plan implement', 0),
+          field('ShipTarget', 'Friday', 31),
+        ],
+      })
+    );
+    const record = await screen.findByTestId('run-record');
+    await user.click(await within(record).findByRole('tab', { name: 'Story' }));
+    const story = within(record).getByTestId('story');
+    expect(within(story).getAllByText('Ship target').length).toBeGreaterThan(0);
+    expect(within(story).queryByText('ShipTarget')).toBeNull();
+  });
+
+  const reviewRecord = () =>
+    workRun({
+      run: summary({
+        work_type: 'review',
+        pipeline: 'review',
+        ticket: null,
+        branch: 'dedupe-contacts',
+        status: 'done',
+        ended_at: at(23),
+        agent: null,
+        outcome: {
+          status: 'done',
+          reviewed: {
+            iid: 412,
+            url: 'https://forge.test/acme/web/-/merge_requests/412',
+            posted: 'request changes',
+          },
+        },
+      }),
+      stages: [stage('review', 'done', 0, 23)],
+      fields: [
+        field('branch', 'dedupe-contacts', 0),
+        field('mr', '!412', 0.5),
+        field('evidence', '{"v":1,"before":"/e/before.png"}', 5),
+        field('commits', 'abc1234', 6),
+      ],
+    });
+  const reviewPost = () =>
+    gate({
+      id: 'g-post',
+      subject: 'mr:acme/web!412',
+      origin: { runId: 'run-412' },
+      kind: 'review-post',
+      meta: { stage: 'review' },
+      openedAt: at(15),
+      questions: [
+        {
+          id: 'findings-1',
+          label: 'Post which findings to !412?',
+          multi: true,
+          context: JSON.stringify({
+            'gate-ctx': 'findings@1',
+            findings: [
+              {
+                id: 'f1',
+                severity: 'important',
+                title: 'Dedupe matches on email only.',
+                file: 'contacts/import/dedupe.ts:58',
+              },
+              { id: 'f2', severity: 'minor', title: 'The skip log is noisy.' },
+              { id: 'f3', severity: 'minor', title: 'Rename the helper.' },
+            ],
+          }),
+          options: [
+            { value: 'f1', label: '[Important] Dedupe matches on email only.' },
+            { value: 'f2', label: '[Minor] The skip log is noisy.' },
+            { value: 'f3', label: '[Minor] Rename the helper.' },
+          ],
+        },
+        {
+          id: 'outcome',
+          label: 'What should the review post?',
+          multi: false,
+          options: [
+            { value: 'Approve', label: 'Approve' },
+            { value: 'Request changes', label: 'Request changes' },
+          ],
+        },
+      ],
+      answer: {
+        answers: { 'findings-1': ['f1', 'f2'], outcome: 'Request changes' },
+        by: 'board',
+        answeredAt: at(21),
+      },
+    });
+
+  it('leaves evidence off a review record and says what it posted', async () => {
+    render(reviewRecord(), [reviewPost()]);
     const record = await screen.findByTestId('run-record');
     const header = within(record).getByTestId('record-header');
     expect(within(header).getByText('!412')).toBeInTheDocument();
     await waitFor(() =>
-      expect(outcomesOf(header)).toEqual(['reviewed !412 · Request changes'])
+      expect(outcomesOf(header)).toEqual(['Requested changes on !412'])
     );
     await waitFor(() =>
       expect(statsOf(header).map(([id]) => id)).toEqual([
@@ -786,6 +1044,99 @@ describe('RunDetail: finished run', () => {
     expect(
       within(record).queryByRole('navigation', { name: 'Decisions by stage' })
     ).toBeNull();
+  });
+
+  it('leads a review record with the verdict and the findings it posted, then its decisions', async () => {
+    render(reviewRecord(), [reviewPost()]);
+    const record = await screen.findByTestId('run-record');
+    const verdict = await within(record).findByTestId('review-verdict');
+    expect(within(verdict).getByText('Posted to !412')).toBeInTheDocument();
+    expect(
+      within(verdict).getByText('Request changes · 2 findings')
+    ).toBeInTheDocument();
+    expect(
+      within(verdict).getByRole('link', { name: /Open the MR/ })
+    ).toHaveAttribute(
+      'href',
+      'https://forge.test/acme/web/-/merge_requests/412'
+    );
+    expect(within(verdict).getAllByText('Important')).toHaveLength(1);
+    expect(within(verdict).getAllByText('Minor')).toHaveLength(1);
+    expect(within(record).queryByText(/\[Important\]|\[Minor\]/)).toBeNull();
+    const log = within(record).getByTestId('decision-log');
+    expect(
+      verdict.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      within(log).getByText('What should the review post?')
+    ).toBeInTheDocument();
+    expect(within(log).queryByText('Post which findings to !412?')).toBeNull();
+    expect(within(record).getByTestId('review-side')).toBeInTheDocument();
+  });
+
+  it('opens the Evidence tab and the compare modal from a ?compare= link, once', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/run?compare=before');
+    try {
+      render(
+        workRun({
+          run: summary({ status: 'done', ended_at: at(90), agent: null }),
+        })
+      );
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByRole('img')).toHaveAttribute(
+        'src',
+        expect.stringContaining('/evidence/beforeAnnotated')
+      );
+      const record = screen.getByTestId('run-record');
+      expect(
+        within(record).getByRole('tab', { name: /Evidence/ })
+      ).toHaveAttribute('aria-selected', 'true');
+      await user.click(within(dialog).getByRole('button', { name: /close/i }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(window.location.search).toBe('');
+      await user.click(within(record).getByRole('tab', { name: 'Story' }));
+      await user.click(within(record).getByRole('tab', { name: /Evidence/ }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it('drops a ?compare= link on a run with no images to compare', async () => {
+    window.history.replaceState(null, '', '/run?compare=side');
+    try {
+      render(
+        workRun({
+          run: summary({ status: 'done', ended_at: at(90), agent: null }),
+          fields: [
+            field('pipeline-stages', 'provision plan implement', 0),
+            field('evidence', '/a/before.png http://localhost:4001/notes/1', 2),
+          ],
+        })
+      );
+      await screen.findByTestId('run-record');
+      await waitFor(() => expect(window.location.search).toBe(''));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it('drops the Evidence tab when the run recorded none', async () => {
+    render(
+      workRun({
+        run: summary({ status: 'done', ended_at: at(90), agent: null }),
+        fields: [
+          field('pipeline-stages', 'provision plan implement', 0),
+          field('evidence', 'checked 12/12 cards by hand', 1.6),
+        ],
+      })
+    );
+    const record = await screen.findByTestId('run-record');
+    await waitFor(() =>
+      expect(tabsOf(record).map(([name]) => name)).toEqual(['Story', 'Inputs'])
+    );
   });
 
   it('opens on the Story when nothing was answered', async () => {
@@ -825,23 +1176,95 @@ describe('RunDetail: chrome', () => {
       screen.getByText('rt runs show run-412 --repo web')
     ).toBeInTheDocument();
   });
+});
 
-  it('keeps the breadcrumb and an error when the run fails to load', async () => {
-    detailGet.mockResolvedValue({
-      ok: false,
-      status: 502,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(ok({ gates: [] }));
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    renderWithProviders(
-      <QueryClientProvider client={queryClient}>
-        <RunDetail repo="remote:acme%2Fweb" runId="run-412" />
-      </QueryClientProvider>
-    );
-    expect(await screen.findByTestId('run-detail-error')).toBeInTheDocument();
+const failed = (status: number, body: unknown) => ({
+  ok: false,
+  status,
+  json: async () => body,
+});
+
+function renderFailing() {
+  gatesGet.mockResolvedValue(ok({ gates: [] }));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return renderWithProviders(
+    <QueryClientProvider client={queryClient}>
+      <RunDetail repo="remote:acme%2Fweb" runId="run-412" />
+    </QueryClientProvider>
+  );
+}
+
+describe('RunDetail: failure and loading', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('says a run id is unknown at once, with no retry', async () => {
+    detailGet.mockResolvedValue(failed(404, { error: 'run not found' }));
+    renderFailing();
+    const card = await screen.findByTestId('run-load-error');
+    expect(card).toHaveTextContent('No run run-412 in this repo');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(detailGet).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('run-crumb')).toHaveTextContent('run-412');
+  });
+
+  it('says why a run failed to load after one retry', async () => {
+    detailGet.mockResolvedValue(failed(502, { error: 'daemon unreachable' }));
+    renderFailing();
+    await vi.advanceTimersByTimeAsync(2_000);
+    const card = await screen.findByTestId('run-load-error');
+    expect(card).toHaveTextContent("Couldn't load run-412");
+    expect(card).toHaveTextContent('daemon unreachable');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(detailGet).toHaveBeenCalledTimes(2);
+    expect(
+      within(card).getByRole('link', { name: 'Back to runs' })
+    ).toHaveAttribute('href', '/');
+  });
+
+  it('says the console server did not answer when the request never lands', async () => {
+    detailGet.mockRejectedValue(new TypeError('Failed to fetch'));
+    renderFailing();
+    await vi.advanceTimersByTimeAsync(2_000);
+    const card = await screen.findByTestId('run-load-error');
+    expect(card).toHaveTextContent("Couldn't load run-412");
+    expect(card).toHaveTextContent("The console server didn't answer.");
+    expect(card).not.toHaveTextContent('Failed to fetch');
+  });
+
+  it('loads the run again on Retry', async () => {
+    detailGet.mockResolvedValue(failed(404, { error: 'run not found' }));
+    renderFailing();
+    const card = await screen.findByTestId('run-load-error');
+    detailGet.mockResolvedValue(ok(workRun()));
+    await userEvent.click(within(card).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByTestId('run-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('run-load-error')).toBeNull();
+  });
+
+  it('says the decisions are unknown when the gates read fails, and reads them again on Retry', async () => {
+    detailGet.mockResolvedValue(ok(workRun()));
+    renderFailing();
+    gatesGet.mockResolvedValue(failed(403, { error: 'refused' }));
+    const note = await screen.findByTestId('gates-unreadable');
+    expect(note).toHaveTextContent("Can't read this run's decisions");
+    gatesGet.mockResolvedValue(ok({ gates: [] }));
+    await userEvent.click(within(note).getByRole('button', { name: 'Retry' }));
+    await waitFor(() =>
+      expect(screen.queryByTestId('gates-unreadable')).toBeNull()
+    );
+  });
+
+  it('draws the page’s shape while the run loads, not a spinner', async () => {
+    detailGet.mockReturnValue(new Promise(() => {}));
+    renderFailing();
+    expect(await screen.findByTestId('run-page-skeleton')).toBeInTheDocument();
+    expect(screen.queryByTestId('lazy-loader-fallback')).toBeNull();
   });
 });

@@ -1,8 +1,8 @@
 .prose {
   max-width: 100ch;
   font-size: var(--gate-context-fz, var(--mantine-font-size-md));
-  line-height: 1.6;
-  color: var(--tk-text-1);
+  line-height: var(--gate-context-lh, 1.6);
+  color: var(--gate-context-color, var(--tk-text-1));
   overflow-wrap: anywhere;
 }
 

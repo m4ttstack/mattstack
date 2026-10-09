@@ -13,10 +13,27 @@ export type ParsedEvidence =
 
 const OPTIONAL_EVIDENCE_KEYS = ["beforeAnnotated", "after", "afterAnnotated", "transcript", "case", "url", "attach"] as const;
 
-const LINK = /(https?:\/\/[^\s"',)]+|\/[^\s"',)]+)/g;
+// One scan keeps links in document order. A file path starts a token (start,
+// whitespace, quote or bracket) and ends in an extension; `52/52` and `/c/:id`
+// are prose, not files. A path may be followed by `:line[:col]` and one mark of
+// sentence punctuation, which stay out of the match.
+const LINK_RE =
+  /https?:\/\/[^\s"',)\]]+|(?<=^|[\s"'([])\/[^\s"',)\]]*\.[A-Za-z0-9]{1,8}(?=(?::\d+)*[.,;:]?(?:$|[\s"',)\]]))/g;
 
 function linksIn(text: string): string[] {
-  return [...new Set(text.match(LINK) ?? [])];
+  return [...new Set(text.match(LINK_RE) ?? [])];
+}
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
+
+export type LegacyItem = { kind: "image" | "file" | "url"; value: string };
+
+export function legacyItems(links: string[]): LegacyItem[] {
+  return links.map((value) =>
+    /^https?:\/\//i.test(value)
+      ? { kind: "url", value }
+      : { kind: IMAGE_EXT.test(value) ? "image" : "file", value },
+  );
 }
 
 function stringsIn(value: unknown): string[] {

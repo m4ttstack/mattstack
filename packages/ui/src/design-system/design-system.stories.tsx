@@ -6,15 +6,18 @@ import {
   Button,
   Combobox,
   Group,
+  Kbd,
   NavLink,
   Paper,
   Progress,
+  Radio,
   SegmentedControl,
   Stack,
   Switch,
   Text,
   useCombobox,
 } from '@mantine/core';
+import { Spotlight } from '@mantine/spotlight';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
@@ -179,12 +182,40 @@ function CardTones() {
         <Paper variant="panel-outline" p="xs">
           Paper panel-outline: a note on the panel
         </Paper>
+        <Paper variant="panel-outline" p="xs" data-selected>
+          Paper panel-outline, selected
+        </Paper>
         <Group>
           <Button variant="default">Cancel (Mantine default)</Button>
           <Button variant="card-outline">Cancel (card-outline)</Button>
         </Group>
         <Text size="sm">Combobox.Option wash, the picked one active</Text>
         <WashOptions />
+        <Text size="sm">
+          Radio.Card wash with number keys, the first checked
+        </Text>
+        <Radio.Group defaultValue="server">
+          <Stack gap="xs">
+            {['server', 'client'].map((value, i) => (
+              <Radio.Card key={value} value={value} variant="wash" p="sm">
+                <Group justify="space-between">
+                  <Group gap="sm">
+                    <Radio.Indicator />
+                    <Text size="sm">{value}</Text>
+                  </Group>
+                  <Kbd>{i + 1}</Kbd>
+                </Group>
+              </Radio.Card>
+            ))}
+          </Stack>
+        </Radio.Group>
+        <Text size="sm">Kbd on-fill inside a filled button</Text>
+        <Group>
+          <Button rightSection={<Kbd variant="on-fill">⌘↵</Kbd>}>Next</Button>
+          <Button disabled rightSection={<Kbd variant="on-fill">⌘↵</Kbd>}>
+            Next
+          </Button>
+        </Group>
       </Stack>
     </Box>
   );
@@ -261,8 +292,32 @@ export const PanelTonesStory: Story = {
 };
 
 export const CardTonesStory: Story = {
-  name: 'Card tones: outline papers, card-outline button, wash options',
+  name: 'Card tones: outline papers, card-outline button, wash options and choice cards, on-fill key',
   render: () => <CardTones />,
+};
+
+function SpotlightWash() {
+  return (
+    <Spotlight.Root forceOpened query="418" size={520}>
+      <Spotlight.Search leftSection={<Icon name="search" size={16} />} />
+      <Spotlight.ActionsList>
+        {['WEB-418 filter by assignee', 'WEB-412 linked parcels'].map(label => (
+          <Spotlight.Action
+            key={label}
+            variant="wash"
+            label={label}
+            rightSection={<Kbd>↵</Kbd>}
+            dimmedSections={false}
+          />
+        ))}
+      </Spotlight.ActionsList>
+    </Spotlight.Root>
+  );
+}
+
+export const SpotlightWashStory: Story = {
+  name: 'Spotlight wash: the selected action in the accent wash, its key shown only there',
+  render: () => <SpotlightWash />,
 };
 
 export const AttentionTonesStory: Story = {

@@ -39,8 +39,23 @@ export interface TextWait {
 /** What the runner does after the route loads, before collecting. */
 export type BoardAction =
   | { kind: 'click'; layer: string; waitFor: string; until?: TextWait }
-  | { kind: 'hover'; layer: string; waitFor: string; until?: TextWait }
+  | {
+      kind: 'hover';
+      layer: string;
+      waitFor: string;
+      /** CSS attribute selectors narrowing the layer, e.g. `[data-kind="you"]`; the first match is hovered. */
+      where?: string;
+      until?: TextWait;
+    }
   | { kind: 'waitText'; layer: string; until: TextWait }
+  /** Presses a shortcut once the app has drawn, then types, e.g. a palette's `ControlOrMeta+k`. */
+  | {
+      kind: 'type';
+      press: string;
+      text: string;
+      waitFor: string;
+      until?: TextWait;
+    }
   /** Clicks each layer in order, waiting for each to be visible first. */
   | { kind: 'clicks'; layers: string[]; waitFor: string; until?: TextWait };
 
@@ -78,7 +93,15 @@ export interface Board<Scenario extends string = string> {
   settleText?: string;
   action?: BoardAction;
   /** Boards drawn as several panels compare each panel on its own route, instead of `roots`. */
-  panels?: { label: string; route: string; root: string }[];
+  panels?: BoardPanel[];
+}
+
+export interface BoardPanel {
+  label: string;
+  route: string;
+  root: string;
+  /** Run after this panel's route loads, in place of the board's `action`. */
+  action?: BoardAction;
 }
 
 /** One compared content root. */
@@ -87,6 +110,7 @@ export interface ParityTarget {
   stem: string;
   root: string;
   route: string;
+  action?: BoardAction;
 }
 
 /**
@@ -141,17 +165,33 @@ const stemPart = (label: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 
-export function targetsOf(board: Board): ParityTarget[] {
+/** `panel` (a panel's label, any case, or its root) keeps only that panel. */
+export function targetsOf(board: Board, panel?: string): ParityTarget[] {
   if (board.panels) {
-    return board.panels.map(p => ({
+    const panels = panel
+      ? board.panels.filter(
+          p => stemPart(p.label) === stemPart(panel) || p.root === panel
+        )
+      : board.panels;
+    if (panels.length === 0) {
+      throw new Error(
+        `no panel "${panel}" on ${board.slug}; one of: ${board.panels.map(p => p.label).join(', ')}`
+      );
+    }
+    return panels.map(p => ({
       stem: `${board.slug}.${stemPart(p.label)}`,
       root: p.root,
       route: p.route,
+      action: p.action ?? board.action,
     }));
+  }
+  if (panel) {
+    throw new Error(`${board.slug} has no panels; drop the panel filter`);
   }
   return board.roots.map(root => ({
     stem: `${board.slug}.${stemPart(root)}`,
     root,
     route: board.route,
+    action: board.action,
   }));
 }

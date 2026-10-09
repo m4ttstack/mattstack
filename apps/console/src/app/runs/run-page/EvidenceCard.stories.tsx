@@ -29,8 +29,8 @@ const FULL = parseEvidence(
 const ANNOTATED_BEFORE = parseEvidence(
   JSON.stringify({
     v: 1,
-    before: '/fixture/evidence/web-412/before.png',
-    beforeAnnotated: '/fixture/evidence/web-412/before-annotated.png',
+    before: '/fixture/evidence/web-412/web-412-before.png',
+    beforeAnnotated: '/fixture/evidence/web-412/web-412-before-annotated.png',
     case: 'An order with one linked parcel, tracking unknown',
   })
 );
@@ -60,11 +60,12 @@ export const StoryPlainAndAnnotated: Story = {
     runId: '20261008-1338',
     evidence: ANNOTATED_BEFORE,
     variant: 'story',
+    phase: 'before',
   },
 };
 
 export const StoryBeforeAndAfter: Story = {
-  args: { evidence: FULL, variant: 'story' },
+  args: { evidence: FULL, variant: 'story', phase: 'before' },
 };
 
 export const StoryAfterOnly: Story = {
@@ -76,16 +77,20 @@ export const ImageUnavailable: Story = {
     runId: 'no-such-run',
     evidence: ANNOTATED_BEFORE,
     variant: 'story',
+    phase: 'before',
   },
 };
 
-export const LegacyLinks: Story = {
-  args: {
-    evidence: parseEvidence(
-      '/Users/acme/.mattstack/evidence/web-412/before.png http://localhost:4001/orders/4821'
-    ),
-    variant: 'story',
-  },
+const LEGACY = parseEvidence(
+  '/Users/acme/.mattstack/evidence/web-377/before.png /Users/acme/.mattstack/evidence/web-377/after.png http://localhost:4001/orders/4821#parcels 12/12 cards'
+);
+
+export const LegacyScreenshots: Story = {
+  args: { runId: '20261007-1520', evidence: LEGACY, variant: 'story' },
+};
+
+export const LegacyRecord: Story = {
+  args: { runId: '20261007-1520', evidence: LEGACY, variant: 'record' },
 };
 
 export const RecordColumn: Story = {

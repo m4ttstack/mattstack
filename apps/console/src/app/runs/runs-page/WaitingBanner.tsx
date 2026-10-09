@@ -65,10 +65,6 @@ export function WaitingBanner({
           {gateName(gate.kind)} · opened {formatDuration(now - gate.openedAt)}{' '}
           ago
         </Text>
-        <span className={classes.spacer} />
-        <Text fz={11} lh="normal" c="bad" ff="monospace" data-parity="hint">
-          press g to jump
-        </Text>
       </div>
       <div className={classes.body}>
         <Stack gap={6} className={classes.left}>
@@ -143,11 +139,14 @@ export function WaitingBanner({
           >
             <span data-parity="label">Answer gate</span>
           </Button>
-          {count > 1 ? (
-            <Text fz={11.5} lh="normal" c="dimmed" data-parity="progress">
-              1 of {count} questions
+          <Group gap={6} wrap="nowrap" data-testid="key-hint">
+            <Text fz={12} lh="normal" c="dimmed" data-parity="or">
+              {count > 1 ? `1 of ${count} questions · or press` : 'or press'}
             </Text>
-          ) : null}
+            <Kbd size="xs" data-parity="key g">
+              <span data-parity="g">g</span>
+            </Kbd>
+          </Group>
         </Stack>
       </div>
     </div>

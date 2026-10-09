@@ -4,9 +4,16 @@ import type {
   RunFieldRow,
   RunStageRow,
 } from '@mattstack/rt-client';
+import { parseEvidence } from '@mattstack/rt-client/evidence';
 import { describe, expect, it } from 'vitest';
 
-import { decisionEntries, liveStory, runBlock, type StoryInput } from './story';
+import {
+  liveStory,
+  runBlock,
+  stageSummary,
+  type StoryEntry,
+  type StoryInput,
+} from './story';
 
 const st = (
   name: string,
@@ -190,6 +197,38 @@ describe('liveStory', () => {
     expect(story.entries.flatMap(e => e.fields)).toEqual([]);
   });
 
+  it('gives the url to the first phase the story places', () => {
+    const evidence = JSON.stringify({
+      v: 1,
+      before: '/e/before.png',
+      after: '/e/after.png',
+      url: 'http://localhost:4001/orders/1',
+    });
+    const placed = (stages: ReturnType<typeof st>[], at: number) =>
+      liveStory(input({ stages, fields: [fld('evidence', at, evidence)] }))
+        .entries.filter(e => e.evidence)
+        .map(e => [e.attempt.stage, e.evidence, e.evidenceUrl]);
+    expect(
+      placed(
+        [
+          st('evidence', 1, 'done', 0, 10),
+          st('ship', 1, 'done', 20, 30),
+          st('watch-ci', 1, 'running', 30, null),
+        ],
+        25
+      )
+    ).toEqual([
+      ['evidence', 'before', true],
+      ['ship', 'after', false],
+    ]);
+    expect(
+      placed(
+        [st('ship', 1, 'done', 20, 30), st('watch-ci', 1, 'running', 30, null)],
+        5
+      )
+    ).toEqual([['ship', 'after', true]]);
+  });
+
   it('marks legacy evidence for the evidence section', () => {
     const story = liveStory(
       input({
@@ -270,41 +309,124 @@ describe('runBlock', () => {
   });
 });
 
-describe('decisionEntries', () => {
-  it('lists each answered question by answer time, with its stage and pick label', () => {
-    const rows = decisionEntries(
-      [
-        gate('late', 'evidence', 50),
-        gate('early', 'plan', 10),
-        gate('open', 'plan', 5, { status: 'open', answer: null }),
-      ],
-      []
-    );
-    expect(rows).toEqual([
-      { gateId: 'early', questionId: 'q', stage: 'plan', pick: 'A long' },
-      { gateId: 'late', questionId: 'q', stage: 'evidence', pick: 'A long' },
-    ]);
+describe('stageSummary', () => {
+  const entryOf = (over: Partial<StoryEntry>): StoryEntry => ({
+    key: 'plan#1',
+    attempt: {
+      stage: 'plan',
+      attempt: 1,
+      status: 'done',
+      startedAt: 0,
+      endedAt: 10,
+    } as StoryEntry['attempt'],
+    label: 'plan',
+    durationMs: 10,
+    fields: [],
+    gates: [],
+    holds: [],
+    failure: null,
+    redirect: null,
+    evidence: null,
+    ...over,
   });
-
-  it('reads the pick as the story row does: labels joined, recommended mark stripped, an unknown value as it is', () => {
-    const g = gate('m', 'plan', 10, {
+  const asked = (id: string, at: number, picked: string, label: string) =>
+    gate(id, 'plan', at, {
       questions: [
         {
           id: 'q',
           label: 'Q?',
-          multi: true,
+          multi: false,
           options: [
-            { value: 'a', label: 'Alpha (Recommended)' },
-            { value: 'b', label: 'Beta' },
+            { value: picked, label: `${label} (Recommended)` },
+            { value: 'other', label: 'Other' },
           ],
         },
       ],
-      answer: {
-        answers: { q: ['a', 'b', 'zeta'] },
-        by: 'console',
-        answeredAt: 11,
-      },
+      answer: { answers: { q: picked }, by: 'console', answeredAt: at + 1 },
     } as Partial<GateRow>);
-    expect(decisionEntries([g], [])[0]?.pick).toBe('Alpha, Beta, zeta');
+
+  it('counts the decisions and names the first pick', () => {
+    expect(
+      stageSummary(
+        entryOf({
+          fields: [fld('approach', 1, 'Superpowers')],
+          gates: [
+            asked('a', 1, 'gap', 'Backend gap-fill + component work'),
+            asked('b', 2, 'both', 'Both linked parcels and recipients'),
+            asked('c', 3, 'ok', 'Approve, write the plan'),
+          ],
+        })
+      )
+    ).toBe('3 decisions · Backend gap-fill + component work');
+  });
+
+  it('says one decision in the singular', () => {
+    expect(
+      stageSummary(entryOf({ gates: [asked('a', 1, 'gap', 'Gap fill')] }))
+    ).toBe('1 decision · Gap fill');
+  });
+
+  it('falls back to the first field as label and value on one line', () => {
+    expect(
+      stageSummary(
+        entryOf({
+          fields: [
+            fld('extra-gate', 1, 'read the area docs\n  before implement'),
+            fld('case', 2, 'An order'),
+          ],
+          gates: [gate('x', 'plan', 1, { status: 'closed', answer: null })],
+        })
+      )
+    ).toBe('Extra gate: read the area docs before implement');
+  });
+
+  it('describes the evidence a stage holds in place of a pick the row repeats', () => {
+    const gates = [
+      asked('a', 1, 'spot', 'Spotlight the parcel card'),
+      asked('b', 2, 'ok', 'Screenshot as planned, proceed'),
+    ];
+    const legacy = parseEvidence(
+      'Shots: /e/web-412-before.png /e/web-412-before-annotated.png, page http://localhost:4001/orders/4821#parcels'
+    );
+    expect(stageSummary(entryOf({ gates, evidence: 'legacy' }), legacy)).toBe(
+      '2 decisions · 2 screenshots, 1 link'
+    );
+    const v1 = parseEvidence(
+      JSON.stringify({
+        v: 1,
+        before: '/e/before.png',
+        beforeAnnotated: '/e/before-annotated.png',
+        after: '/e/after.png',
+      })
+    );
+    expect(stageSummary(entryOf({ gates, evidence: 'before' }), v1)).toBe(
+      '2 decisions · 2 screenshots'
+    );
+    expect(stageSummary(entryOf({ evidence: 'after' }), v1)).toBe(
+      '1 screenshot'
+    );
+    const withUrl = parseEvidence(
+      JSON.stringify({
+        v: 1,
+        before: '/e/before.png',
+        after: '/e/after.png',
+        url: 'http://localhost:4001/orders/1',
+      })
+    );
+    expect(
+      stageSummary(entryOf({ evidence: 'after', evidenceUrl: true }), withUrl)
+    ).toBe('1 screenshot, 1 link');
+    expect(stageSummary(entryOf({ evidence: 'before' }), withUrl)).toBe(
+      '1 screenshot'
+    );
+  });
+
+  it('falls back to the failure reason, then to nothing', () => {
+    expect(
+      stageSummary(
+        entryOf({ failure: { reason: 'tests failed', detailPath: null } })
+      )
+    ).toBe('tests failed');
+    expect(stageSummary(entryOf({}))).toBe('');
   });
 });

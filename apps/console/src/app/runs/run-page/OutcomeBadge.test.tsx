@@ -57,13 +57,32 @@ describe('OutcomeBadge', () => {
     expect(badges({ status: 'failed' }).list).toEqual([['failed', 'failed']]);
   });
 
-  it('shows a review with what it posted, in sentence case', () => {
-    expect(
-      badges({
-        status: 'done',
-        reviewed: { iid: 412, url: null, posted: 'request changes' },
-      }).list
-    ).toEqual([['reviewed', 'reviewed !412 · Request changes']]);
+  it('says what a review posted on the MR', () => {
+    const reviewed = (iid: number, posted: string | null) =>
+      badges({ status: 'done', reviewed: { iid, url: null, posted } }).list;
+    expect(reviewed(412, 'request changes')).toEqual([
+      ['reviewed', 'Requested changes on !412'],
+    ]);
+    expect(reviewed(412, 'REQUEST_CHANGES')).toEqual([
+      ['reviewed', 'Requested changes on !412'],
+    ]);
+    expect(reviewed(406, 'approve')).toEqual([['reviewed', 'Approved !406']]);
+    expect(reviewed(406, 'Approved')).toEqual([['reviewed', 'Approved !406']]);
+    expect(reviewed(399, 'comment')).toEqual([
+      ['reviewed', 'Commented on !399'],
+    ]);
+    expect(reviewed(399, 'Comment only')).toEqual([
+      ['reviewed', 'Commented on !399'],
+    ]);
+  });
+
+  it('reads a disposition only from its first word', () => {
+    const label = (posted: string) =>
+      badges({ status: 'done', reviewed: { iid: 406, url: null, posted } })
+        .list[0]?.[1];
+    expect(label('unapproved')).toMatch(/^Reviewed !406 · /);
+    expect(label('no comment')).toMatch(/^Reviewed !406 · /);
+    expect(label('unrequested')).toMatch(/^Reviewed !406 · /);
   });
 
   it('shows a review that posted nothing yet as just the MR', () => {
@@ -72,7 +91,7 @@ describe('OutcomeBadge', () => {
         status: 'done',
         reviewed: { iid: 412, url: null, posted: null },
       }).list
-    ).toEqual([['reviewed', 'reviewed !412']]);
+    ).toEqual([['reviewed', 'Reviewed !412']]);
   });
 
   it('names an open or closed MR on a finished run', () => {
@@ -117,7 +136,7 @@ describe('OutcomeBadge', () => {
     ]);
   });
 
-  it('names each pill icon after the glyph it draws', () => {
+  it('names each pill icon after the glyph it draws, and a review pill as its board does', () => {
     const names = (outcome: RunOutcome) =>
       [...badges(outcome).container.querySelectorAll('[data-parity]')].map(e =>
         e.getAttribute('data-parity')
@@ -130,8 +149,8 @@ describe('OutcomeBadge', () => {
     expect(
       names({
         status: 'done',
-        reviewed: { iid: 412, url: null, posted: null },
+        reviewed: { iid: 412, url: null, posted: 'request changes' },
       })
-    ).toEqual(['primary', 'message-square', 'label']);
+    ).toEqual(['primary', 'i', 'l']);
   });
 });

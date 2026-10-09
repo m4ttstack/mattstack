@@ -4,12 +4,13 @@ import { useQuery } from '@tanstack/react-query';
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { client } from '../../api';
+import { readApiError, retryOnce } from '../useRuns';
 
 const NO_GATES: GateRow[] = [];
 
 /** Every gate linked to any run, grouped by the run it belongs to. One fetch
     serves every decision count on the runs page. */
-export function useLinkedGates() {
+export function useLinkedGates({ enabled = true }: { enabled?: boolean } = {}) {
   const query = useQuery({
     queryKey: ['gates', 'linked'],
     queryFn: async () => {
@@ -18,9 +19,11 @@ export function useLinkedGates() {
       const res = await client.api.gates.$get({
         query: { linked: '1' as unknown as boolean },
       });
-      if (!res.ok) throw new Error(`gates list failed: ${res.status}`);
+      if (!res.ok) throw await readApiError(res, 'gates list failed');
       return res.json();
     },
+    retry: retryOnce,
+    enabled,
   });
   const rows = query.data?.gates;
   // A failed request reads as loaded with no gates, so nothing waits on it forever.

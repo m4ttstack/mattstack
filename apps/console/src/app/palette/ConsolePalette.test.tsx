@@ -1,17 +1,28 @@
 import { Spotlight } from '@mattstack/app-kit/spotlight';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
-import type { RunSummary } from '@mattstack/rt-client';
+import type { GateRow, RunSummary } from '@mattstack/rt-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import '../icons';
+
+import { runDetailKey } from '../runs/derive/day';
+import { paletteStatus } from './paletteStatus';
 
 const runsGet = vi.fn();
+const gatesGet = vi.fn();
+const enrichPost = vi.fn();
 
 vi.mock('../api', () => ({
   client: {
     api: {
-      runs: { $get: (...args: unknown[]) => runsGet(...args) },
+      runs: {
+        $get: (...args: unknown[]) => runsGet(...args),
+        enrich: { $post: (...args: unknown[]) => enrichPost(...args) },
+      },
+      gates: { $get: (...args: unknown[]) => gatesGet(...args) },
     },
   },
 }));
@@ -27,7 +38,7 @@ const run = (over: Partial<RunSummary>): RunSummary => ({
   current_stage: null,
   spawned_by: null,
   started_at: 0,
-  ended_at: null,
+  ended_at: 1,
   pack_commits: null,
   pack_dirty: 0,
   attention: { needs: false, reason: null, evidence: '' },
@@ -36,6 +47,18 @@ const run = (over: Partial<RunSummary>): RunSummary => ({
   branch: null,
   ...over,
 });
+
+const waitingGate = (runId: string): GateRow =>
+  ({
+    id: `g-${runId}`,
+    subject: `run:${runId}`,
+    kind: 'plan',
+    status: 'open',
+    owner: 'human',
+    openedAt: 0,
+    questions: [],
+    answer: null,
+  }) as unknown as GateRow;
 
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -52,69 +75,157 @@ function renderPalette() {
   );
 }
 
-const originalClipboard = navigator.clipboard;
+async function typeQuery(text: string) {
+  Spotlight.open();
+  await userEvent.type(
+    await screen.findByPlaceholderText('Search runs, or jump to a page…'),
+    text
+  );
+}
+
+beforeEach(() => {
+  gatesGet.mockResolvedValue(ok({ gates: [] }));
+  enrichPost.mockResolvedValue(ok({}));
+});
 
 afterEach(() => {
+  Spotlight.close();
   vi.clearAllMocks();
-  vi.unstubAllGlobals();
-  Object.defineProperty(navigator, 'clipboard', {
-    value: originalClipboard,
-    configurable: true,
+  history.replaceState(null, '', '/');
+});
+
+describe('paletteStatus', () => {
+  it('puts a gate waiting on you first, then where the run stands', () => {
+    const live = run({ id: 'l', ended_at: null, status: 'running' });
+    expect(paletteStatus(live, new Set([runDetailKey(live)]))).toEqual({
+      label: 'waiting on you',
+      color: 'bad',
+    });
+    // The same run id in another repo is a different run.
+    expect(
+      paletteStatus(live, new Set([runDetailKey({ repo: 'console', id: 'l' })]))
+        .label
+    ).toBe('running');
+    expect(paletteStatus(live, new Set()).label).toBe('running');
+    expect(
+      paletteStatus(
+        run({
+          ended_at: null,
+          attention: { needs: true, reason: 'stale', evidence: '' },
+        }),
+        new Set()
+      ).label
+    ).toBe('stale');
+    expect(paletteStatus(run({ status: 'done' }), new Set()).label).toBe(
+      'done'
+    );
+    expect(paletteStatus(run({ status: 'abandoned' }), new Set())).toEqual({
+      label: 'abandoned',
+      color: 'gray',
+    });
   });
 });
 
 describe('ConsolePalette', () => {
-  it('labels each run action "<ticket> — <repo> <status>" and lists the static actions', async () => {
+  it('lists matching runs by ticket, title and status, then where to go', async () => {
     runsGet.mockResolvedValue(
       ok({
         runs: [
-          run({ id: 'run-1', ticket: 'RT-44', status: 'failed' }),
-          run({ id: 'run-2', repo: 'console', ticket: null, status: 'done' }),
+          run({
+            id: 'run-418',
+            ticket: 'WEB-418',
+            branch: 'web-418-filter',
+            status: 'running',
+            ended_at: null,
+          }),
+          run({ id: 'run-9', ticket: 'WEB-9', status: 'done' }),
         ],
+      })
+    );
+    gatesGet.mockResolvedValue(ok({ gates: [waitingGate('run-418')] }));
+    enrichPost.mockResolvedValue(
+      ok({
+        'web-418-filter': {
+          ticket: { identifier: 'WEB-418', title: 'Filter by assignee' },
+          mr: null,
+          fetchedAt: 0,
+        },
       })
     );
 
     renderPalette();
-    Spotlight.open();
-    await userEvent.type(
-      await screen.findByPlaceholderText('Search runs, or jump to a page…'),
-      'r'
-    );
+    await typeQuery('418');
 
-    await screen.findByText('RT-44 — repo-tools failed');
-    // No ticket recorded: falls back to the run id rather than dropping the row.
-    expect(screen.getByText('run-2 — console done')).toBeInTheDocument();
-    expect(screen.getByText('Run board')).toBeInTheDocument();
-    expect(screen.getByText('Search runs')).toBeInTheDocument();
+    const row = await screen.findByTestId('palette-run-run-418');
+    await waitFor(() => expect(row).toHaveTextContent('Filter by assignee'));
+    expect(row).toHaveTextContent('WEB-418');
+    await waitFor(() => expect(row).toHaveTextContent('waiting on you'));
+    expect(row).not.toHaveTextContent('web-418-filter');
+    expect(screen.queryByTestId('palette-run-run-9')).toBeNull();
+
+    expect(screen.getByText('Runs', { selector: '[data-parity="t"]' }));
+    expect(screen.getByText('Go to')).toBeInTheDocument();
+    expect(screen.getByText('Search runs for “418”')).toBeInTheDocument();
+    for (const key of ['↑↓ move', '↵ open', 'esc close'])
+      expect(screen.getByText(key)).toBeInTheDocument();
+    await waitFor(() => expect(row).toHaveAttribute('data-selected'));
+    expect(within(row).getByText('↵')).toBeInTheDocument();
   });
 
-  // The copy icon must not also trigger the row's own navigate action --
-  // proven by asserting the URL never changes, not just that copy fired.
-  it('copies the resume command from a run action without navigating', async () => {
+  it('keeps a known title while you type, reading gates only once you do', async () => {
     runsGet.mockResolvedValue(
-      ok({ runs: [run({ id: 'run-1', ticket: 'RT-44', branch: 'feat/x' })] })
+      ok({
+        runs: [
+          run({ id: 'w', ticket: 'WEB-418', branch: 'web-418-filter' }),
+          run({ id: 'x', ticket: 'WEB-9', branch: 'web-9-other' }),
+        ],
+      })
     );
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText },
-      configurable: true,
-    });
-    const before = window.location.pathname;
+    enrichPost.mockResolvedValue(
+      ok({
+        'web-418-filter': {
+          ticket: { identifier: 'WEB-418', title: 'Filter by assignee' },
+          mr: null,
+          fetchedAt: 0,
+        },
+      })
+    );
 
     renderPalette();
-    Spotlight.open();
-    await userEvent.type(
-      await screen.findByPlaceholderText('Search runs, or jump to a page…'),
-      'RT-44'
-    );
+    await vi.waitFor(() => expect(runsGet).toHaveBeenCalled());
+    expect(gatesGet).not.toHaveBeenCalled();
+    expect(enrichPost).not.toHaveBeenCalled();
 
-    await screen.findByText('RT-44 — repo-tools failed');
+    await typeQuery('w');
+    const row = await screen.findByTestId('palette-run-w');
+    await waitFor(() => expect(row).toHaveTextContent('Filter by assignee'));
+    expect(gatesGet).toHaveBeenCalled();
+
+    const input = screen.getByPlaceholderText(
+      'Search runs, or jump to a page…'
+    );
+    for (const key of 'eb-418') {
+      await userEvent.type(input, key);
+      const now = screen.getByTestId('palette-run-w');
+      expect(now).toHaveTextContent('Filter by assignee');
+      expect(now).not.toHaveTextContent('web-418-filter');
+    }
+    expect(enrichPost).toHaveBeenCalledTimes(1);
+  });
+
+  it('searches the runs page for what you typed', async () => {
+    runsGet.mockResolvedValue(ok({ runs: [] }));
+
+    renderPalette();
+    await typeQuery('assignee filter');
+
     await userEvent.click(
-      screen.getByRole('button', { name: 'copy to clipboard' })
+      await screen.findByText('Search runs for “assignee filter”')
     );
-
-    expect(writeText).toHaveBeenCalledWith('git checkout feat/x');
-    expect(window.location.pathname).toBe(before);
+    expect(location.pathname).toBe('/search');
+    expect(new URLSearchParams(location.search).get('q')).toBe(
+      'assignee filter'
+    );
   });
 
   it('shows nothing until you start typing', async () => {
@@ -129,17 +240,14 @@ describe('ConsolePalette', () => {
     );
     await vi.waitFor(() => expect(runsGet).toHaveBeenCalled());
 
-    expect(screen.queryByText('RT-44 — repo-tools failed')).toBeNull();
-    expect(screen.queryByText('Run board')).toBeNull();
-    expect(screen.queryByText('No matching runs or actions.')).toBeNull();
+    expect(screen.queryByTestId('palette-run-run-1')).toBeNull();
+    expect(screen.queryByText('Go to')).toBeNull();
 
     await userEvent.type(input, 'RT');
-    expect(
-      await screen.findByText('RT-44 — repo-tools failed')
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId('palette-run-run-1')).toBeInTheDocument();
   });
 
-  it('caps the results at ten', async () => {
+  it('caps the runs at ten', async () => {
     runsGet.mockResolvedValue(
       ok({
         runs: Array.from({ length: 15 }, (_, i) =>
@@ -149,49 +257,22 @@ describe('ConsolePalette', () => {
     );
 
     renderPalette();
-    Spotlight.open();
-    await userEvent.type(
-      await screen.findByPlaceholderText('Search runs, or jump to a page…'),
-      'repo-tools'
-    );
+    await typeQuery('repo-tools');
 
-    await screen.findByText('RT-0 — repo-tools failed');
-    expect(screen.getAllByText(/— repo-tools failed$/)).toHaveLength(10);
+    await screen.findByTestId('palette-run-run-0');
+    expect(screen.getAllByTestId(/^palette-run-/)).toHaveLength(10);
   });
 
-  it('offers no settings keys: typing "config" finds nothing', async () => {
+  it('offers no settings keys: typing "config" finds no runs', async () => {
     runsGet.mockResolvedValue(ok({ runs: [] }));
-    // A palette that indexed settings again would find this def by "config".
-    vi.stubGlobal('fetch', async (url: string) =>
-      url.startsWith('/api/settings/defs')
-        ? ok({
-            defs: [
-              {
-                key: 'rt.runsPruneDays',
-                type: 'number',
-                scopes: ['user', 'machine'],
-                merge: 'replace',
-                secret: false,
-                teamLocked: false,
-                repoScoped: false,
-                writable: true,
-                description: 'Days before pruning.',
-                hasDefault: true,
-                defaultValue: 30,
-                effective: { scope: null, file: null },
-              },
-            ],
-          })
-        : { ok: false, status: 404, json: async () => ({ error: 'not found' }) }
-    );
+
     renderPalette();
-    Spotlight.open();
-    await userEvent.type(
-      await screen.findByPlaceholderText('Search runs, or jump to a page…'),
-      'config'
-    );
+    await typeQuery('config');
+
     expect(
-      await screen.findByText('No matching runs or actions.')
+      await screen.findByText('Search runs for “config”')
     ).toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^palette-run-/)).toHaveLength(0);
+    expect(screen.queryByText(/rt\.runsPruneDays/)).toBeNull();
   });
 });

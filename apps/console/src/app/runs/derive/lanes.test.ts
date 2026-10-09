@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   dayGroups,
-  evidenceText,
+  earlierPage,
   filterView,
   laneFacts,
   laneMrLine,
@@ -16,6 +16,7 @@ import {
   splitRuns,
   statCards,
   waitingBanner,
+  type DayGroup,
 } from './lanes';
 
 const MIN = 60_000;
@@ -152,22 +153,6 @@ describe('splitRuns', () => {
       'stale',
       'ended',
     ]);
-  });
-});
-
-describe('evidenceText', () => {
-  it('counts a work run’s images, else its legacy links, else a dash', () => {
-    expect(evidenceText(run({ evidence_count: 3, evidence_links: 2 }))).toBe(
-      '3 evidence'
-    );
-    expect(evidenceText(run({ evidence_count: 0, evidence_links: 3 }))).toBe(
-      '3 links'
-    );
-    expect(evidenceText(run({ evidence_links: 1 }))).toBe('1 link');
-    expect(evidenceText(run({}))).toBe('—');
-    expect(evidenceText(run({ work_type: 'review', evidence_links: 2 }))).toBe(
-      '—'
-    );
   });
 });
 
@@ -406,22 +391,17 @@ describe('runsStats', () => {
     expect(dayGroups([lateMerge], NOW)[0]!.label).toBe('Today');
   });
 
-  it('writes the cards', () => {
-    expect(statCards(stats).map(c => [c.value, c.sub])).toEqual([
-      ['1', '1 gate · 6m'],
-      ['2', 'implement · watch-ci'],
-      ['4', '2 merged · 1 abandoned · 1 review posted'],
-      ['2h 30m', 'last 3 work runs'],
+  it('writes the line', () => {
+    expect(statCards(stats).map(c => [c.value, c.label])).toEqual([
+      ['1', 'waiting on you'],
+      ['2', 'live'],
+      ['4', 'finished today'],
+      ['2h 30m', 'median work run'],
     ]);
     const empty = statCards(
       runsStats({ runs: [], gates: [], lanes: [], now: NOW })
     );
-    expect(empty.map(c => [c.value, c.sub])).toEqual([
-      ['0', 'nothing waiting'],
-      ['0', 'nothing running'],
-      ['0', 'none yet'],
-      ['—', 'no finished work runs'],
-    ]);
+    expect(empty.map(c => c.value)).toEqual(['0', '0', '0', '—']);
   });
 });
 
@@ -524,10 +504,26 @@ describe('laneFacts', () => {
     expect(f.focusPane).toBe('p1');
   });
 
-  it('counts answered gates, never decision_count', () => {
+  it('counts answered questions, never decision_count', () => {
     const answered = gate({
       status: 'answered',
-      answer: { answers: {}, by: 'console', answeredAt: 1 },
+      questions: ['a', 'b', 'c'].map(id => ({
+        id,
+        label: `${id}?`,
+        multi: false,
+        options: ['Yes', 'No'],
+      })),
+      answer: {
+        answers: { a: 'Yes', b: 'No' },
+        by: 'console',
+        answeredAt: 1,
+      },
+    });
+    const one = gate({
+      id: 'one',
+      status: 'answered',
+      questions: [{ id: 'a', label: 'a?', multi: false, options: ['Yes'] }],
+      answer: { answers: { a: 'Yes' }, by: 'console', answeredAt: 1 },
     });
     const f = laneFacts({
       run: { ...lane, decision_count: 9 },
@@ -535,7 +531,10 @@ describe('laneFacts', () => {
       gates: [answered, gate({ id: 'open', owner: 'herd:x' })],
       now: NOW,
     });
-    expect(f.decisions).toBe('1 decision');
+    expect(f.decisions).toBe('2 decisions');
+    expect(
+      laneFacts({ run: lane, detail, gates: [one], now: NOW }).decisions
+    ).toBe('1 decision');
   });
 
   it('falls back to the CI state, and draws no rail before the detail lands', () => {
@@ -547,5 +546,21 @@ describe('laneFacts', () => {
     });
     expect(f.field).toBe('CI running');
     expect(f.rail).toBeNull();
+  });
+});
+
+describe('earlierPage', () => {
+  const groups = Array.from({ length: 9 }, (_, i) => ({
+    key: `k${i}`,
+    label: `d${i}`,
+    runs: [],
+  })) as DayGroup[];
+
+  it('pages the earlier list by day', () => {
+    expect(earlierPage(groups, 7)).toEqual({
+      shown: groups.slice(0, 7),
+      more: true,
+    });
+    expect(earlierPage(groups, 14)).toEqual({ shown: groups, more: false });
   });
 });

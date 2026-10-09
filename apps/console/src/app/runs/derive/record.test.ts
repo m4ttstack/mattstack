@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
+  GateAnswer,
   GateRow,
   RunFieldRow,
   RunStageRow,
@@ -7,15 +11,18 @@ import type {
 import { describe, expect, it } from 'vitest';
 
 import {
+  abandonReason,
+  answeredQuestionCount,
   decisionStages,
   defaultRecordTab,
-  evidenceStat,
   hasSettledGates,
   postedLabel,
   recommendationTally,
   recordEnd,
   recordSpan,
   recordStats,
+  reviewDecisionGates,
+  reviewVerdict,
 } from './record';
 
 const MIN = 60_000;
@@ -137,13 +144,6 @@ const workGates = [
   answered('g6', 'ship', 107, 108, { pick: 1, owner: 'herd:acme' }),
 ];
 
-const evidence = JSON.stringify({
-  v: 1,
-  before: '/e/before.png',
-  after: '/e/after.png',
-  afterAnnotated: '/e/after-annotated.png',
-});
-
 describe('recordEnd', () => {
   it('ends at the merge when the run’s own MR merged', () => {
     expect(recordEnd(merged, 0)).toEqual({ at: at(152), merged: true });
@@ -192,92 +192,61 @@ describe('recommendationTally', () => {
   });
 });
 
-describe('evidenceStat', () => {
-  it('counts images', () => {
-    expect(evidenceStat(evidence)).toBe('3');
-  });
-
-  it('counts legacy links', () => {
-    expect(evidenceStat('/a/before.png http://localhost:4001/notes/1')).toBe(
-      '2 links'
-    );
-    expect(evidenceStat('/a/before.png')).toBe('1 link');
-  });
-
-  it('is null with nothing recorded', () => {
-    expect(evidenceStat(undefined)).toBeNull();
-  });
-});
-
 describe('recordStats', () => {
-  it('shows all six on a merged work run', () => {
-    const stats = recordStats({
-      run: merged,
-      kind: 'work',
-      gates: workGates,
-      fields: [
-        field('evidence', evidence),
-        field('commits', '5d6e7f8..b3a9c41 (4): a, b'),
-      ],
-      now: at(200),
-    });
+  it('shows duration, decisions, took and waiting on a merged work run', () => {
+    const stats = recordStats({ run: merged, gates: workGates, now: at(200) });
     expect(stats.map(s => [s.id, s.value, s.label])).toEqual([
       ['duration', '2h 32m', 'start to merge'],
       ['decisions', '6', 'decisions'],
       ['took', '4 of 6', 'took the recommendation'],
-      ['evidence', '3', 'evidence'],
-      ['commits', '4', 'commits'],
       ['waiting', '25m', 'waiting on you'],
     ]);
+  });
+
+  it('counts answered questions, not gates, and says one decision', () => {
+    const two = answered('t', 'plan', 1, 2);
+    const twoQuestions = {
+      ...two,
+      questions: [
+        two.questions[0]!,
+        { ...two.questions[0]!, id: 'scope', label: 'Scope?' },
+      ],
+      answer: { ...two.answer!, answers: { q: 'a', scope: 'b' } },
+    };
+    expect(
+      recordStats({ run: run(), gates: [twoQuestions], now: at(200) }).find(
+        s => s.id === 'decisions'
+      )
+    ).toMatchObject({ value: '2', label: 'decisions' });
+    expect(
+      recordStats({
+        run: run(),
+        gates: [answered('o', 'plan', 1, 2)],
+        now: at(200),
+      }).find(s => s.id === 'decisions')
+    ).toMatchObject({ value: '1', label: 'decision' });
   });
 
   it('hides took-the-recommendation when no answered question had one', () => {
     const stats = recordStats({
       run: run({ outcome: { status: 'abandoned' }, ended_at: at(152) }),
-      kind: 'work',
       gates: [
         answered('a', 'plan', 8, 23, { rec: false }),
         answered('b', 'evidence', 38, 58, { rec: false }),
-      ],
-      fields: [
-        field('evidence', '/a/before.png http://localhost:4001/notes/1'),
-        field('commits', '3e4f5a6 7b8c9d0'),
       ],
       now: at(200),
     });
     expect(stats.map(s => [s.id, s.value, s.label])).toEqual([
       ['duration', '2h 32m', 'start to end'],
       ['decisions', '2', 'decisions'],
-      ['evidence', '2 links', 'evidence'],
-      ['commits', '2', 'commits'],
       ['waiting', '35m', 'waiting on you'],
     ]);
-  });
-
-  it('leaves evidence and commits off a review run', () => {
-    const stats = recordStats({
-      run: run({
-        work_type: 'review',
-        ended_at: at(23),
-        outcome: {
-          status: 'done',
-          reviewed: { iid: 412, url: null, posted: 'request changes' },
-        },
-      }),
-      kind: 'review',
-      gates: [answered('p', 'review', 15, 21, { rec: false })],
-      fields: [field('evidence', evidence), field('commits', 'abc1234')],
-      now: at(200),
-    });
-    expect(stats.map(s => s.id)).toEqual(['duration', 'decisions', 'waiting']);
   });
 
   it('omits decisions and waiting when nobody answered anything', () => {
     const stats = recordStats({
       run: run({ work_type: 'watch-ci' }),
-      kind: 'utility',
       gates: [],
-      fields: [],
       now: at(200),
     });
     expect(stats.map(s => s.id)).toEqual(['duration']);
@@ -286,12 +255,38 @@ describe('recordStats', () => {
   it('counts only the gates that are mine toward waiting on you', () => {
     const stats = recordStats({
       run: run(),
-      kind: 'work',
       gates: [answered('h', 'plan', 0, 30, { owner: 'herd:acme' })],
-      fields: [],
       now: at(200),
     });
     expect(stats.map(s => s.id)).toEqual(['duration', 'decisions', 'took']);
+  });
+});
+
+describe('abandonReason', () => {
+  const abandoned = run({
+    status: 'abandoned',
+    outcome: { status: 'abandoned' },
+  });
+
+  it('quotes the reason an abandoned run recorded, and nothing else', () => {
+    expect(
+      abandonReason(abandoned, [
+        { ...field('reconciled', ' Superseded by WEB-430 '), at: at(152) },
+      ])
+    ).toBe('“Superseded by WEB-430”');
+  });
+
+  it('is null when the reason is blank', () => {
+    expect(
+      abandonReason(abandoned, [{ ...field('reconciled', ' '), at: at(152) }])
+    ).toBeNull();
+  });
+
+  it('is null for a run that was not abandoned or recorded nothing', () => {
+    expect(abandonReason(abandoned, [])).toBeNull();
+    expect(
+      abandonReason(run(), [field('reconciled', 'Superseded by WEB-430')])
+    ).toBeNull();
   });
 });
 
@@ -333,13 +328,36 @@ describe('decisionStages', () => {
         g.gates.map(x => x.id),
         g.answered,
         g.durationMs,
-        g.overrode,
+        g.overrides,
+        g.status,
       ])
     ).toEqual([
-      ['plan', ['g1', 'g2', 'g3'], 3, 12 * MIN, true],
-      ['evidence', ['g4', 'g5'], 2, 44 * MIN, false],
-      ['ship', ['g6'], 1, 8 * MIN, true],
+      ['plan', ['g1', 'g2', 'g3'], 3, 12 * MIN, 1, 'done'],
+      ['evidence', ['g4', 'g5'], 2, 44 * MIN, 0, 'done'],
+      ['ship', ['g6'], 1, 8 * MIN, 1, 'done'],
     ]);
+  });
+
+  it('counts a stage’s answered questions and overrides, not its gates', () => {
+    const g = answered('m', 'plan', 2, 3, { pick: 1 });
+    const two = {
+      ...g,
+      questions: [g.questions[0]!, { ...g.questions[0]!, id: 'scope' }],
+      answer: { ...g.answer!, answers: { q: 'b', scope: 'b' } },
+    };
+    const [plan] = decisionStages([two], stages, run(), 0, pipeline);
+    expect([plan!.answered, plan!.overrides]).toEqual([2, 2]);
+  });
+
+  it('gives a stage with no attempt no status', () => {
+    const [other] = decisionStages(
+      [answered('x', 'triage', 0, 1)],
+      stages,
+      run(),
+      0,
+      pipeline
+    );
+    expect(other!.status).toBeNull();
   });
 
   it('keeps closed gates in their stage without counting them', () => {
@@ -379,5 +397,208 @@ describe('postedLabel', () => {
     expect(postedLabel('Request changes')).toBe('Request changes');
     expect(postedLabel('REQUEST_CHANGES')).toBe('Request changes');
     expect(postedLabel('approve')).toBe('Approve');
+  });
+});
+
+describe('answeredQuestionCount', () => {
+  const g = (id: string, qs: string[], answered: boolean) =>
+    ({
+      id,
+      status: answered ? 'answered' : 'open',
+      questions: qs.map(q => ({ id: q, label: q, multi: false, options: [] })),
+      answer: answered
+        ? { answers: Object.fromEntries(qs.map(q => [q, 'x'])) }
+        : null,
+    }) as unknown as GateRow;
+
+  it('counts answered questions, not gates', () => {
+    expect(
+      answeredQuestionCount([
+        g('a', ['q1', 'q2'], true),
+        g('b', ['q3'], true),
+        g('c', ['q4'], false),
+      ])
+    ).toBe(3);
+  });
+
+  it('counts a multi-select answer once and skips unanswered questions', () => {
+    const gate = {
+      ...g('a', ['findings-1', 'outcome'], true),
+      answer: { answers: { 'findings-1': ['x', 'y'] } },
+    } as unknown as GateRow;
+    expect(answeredQuestionCount([gate])).toBe(1);
+  });
+});
+
+/** The design fixture's gates for one run, read from disk: the import wall
+    keeps `server/` modules out of app code, tests included. */
+function fixtureGates(runId: string): GateRow[] {
+  const path = join(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../../server/fixtures/design/runs/gates.json'
+  );
+  const { gates } = JSON.parse(readFileSync(path, 'utf8')) as {
+    gates: (Omit<GateRow, 'openedAt' | 'answer'> & {
+      openedAt: string;
+      answer: (Omit<GateAnswer, 'answeredAt'> & { answeredAt: string }) | null;
+      origin?: { runId?: string };
+    })[];
+  };
+  return gates
+    .filter(g => g.origin?.runId === runId)
+    .map(g =>
+      gate({
+        ...g,
+        status: g.answer ? 'answered' : 'open',
+        openedAt: Date.parse(g.openedAt),
+        answer: g.answer
+          ? { ...g.answer, answeredAt: Date.parse(g.answer.answeredAt) }
+          : null,
+      })
+    );
+}
+
+/** A review-post gate whose findings questions carry no structured context,
+    as an older review skill asks it. */
+const plainPost = (questions: [string, string[], string[]][]): GateRow =>
+  gate({
+    id: 'g-post',
+    subject: 'mr:acme/web!406',
+    kind: 'review-post',
+    questions: [
+      ...questions.map(([id, labels]) => ({
+        id,
+        label: 'Post which findings to !406?',
+        multi: true,
+        options: labels.map((label, i) => ({ value: `${id}-${i}`, label })),
+      })),
+      {
+        id: 'outcome',
+        label: 'What should the review post?',
+        multi: false,
+        options: [
+          { value: 'approve', label: 'Approve' },
+          { value: 'comment', label: 'Comment' },
+        ],
+      },
+    ],
+    answer: {
+      answers: {
+        ...Object.fromEntries(questions.map(([id, , picks]) => [id, picks])),
+        outcome: 'approve',
+      },
+      by: 'console',
+      answeredAt: at(5),
+    },
+  });
+
+describe('reviewVerdict', () => {
+  it('reads the verdict and each posted finding from the structured context', () => {
+    const verdict = reviewVerdict(fixtureGates('20261008-0940'));
+    expect(verdict?.verdict).toBe('Request changes');
+    expect(verdict?.mrIid).toBe('412');
+    expect(verdict?.findings.map(f => f.severity)).toEqual([
+      'important',
+      'important',
+      'minor',
+      'minor',
+    ]);
+    expect(verdict?.findings.filter(f => f.where).map(f => f.where)).toEqual([
+      'contacts/import/dedupe.ts:58',
+      'apps/contacts/src/import/pipeline/merge/strategies/mergeContactsKeepingNewestRecordAndDeletingTheLosingDuplicate.ts:12',
+    ]);
+    expect(verdict?.findings[0]).toEqual({
+      severity: 'important',
+      text: 'Dedupe matches on email only, so contacts without an email import twice.',
+      where: 'contacts/import/dedupe.ts:58',
+    });
+  });
+
+  it('parses the option label when a findings question has no context, across every findings question', () => {
+    const verdict = reviewVerdict([
+      plainPost([
+        [
+          'findings-1',
+          [
+            '[Important] Retry count resets (queue/retry.ts:18)',
+            '[Minor] Typo',
+          ],
+          ['findings-1-0'],
+        ],
+        ['findings-2', ['[Minor] Log is noisy'], ['findings-2-0']],
+      ]),
+    ]);
+    expect(verdict).toEqual({
+      verdict: 'Approve',
+      mrIid: '406',
+      notPosted: [{ severity: 'minor', text: 'Typo', where: null }],
+      findings: [
+        {
+          severity: 'important',
+          text: 'Retry count resets',
+          where: 'queue/retry.ts:18',
+        },
+        { severity: 'minor', text: 'Log is noisy', where: null },
+      ],
+    });
+  });
+
+  it('lists no unposted findings when every one was picked', () => {
+    expect(reviewVerdict(fixtureGates('20261008-0940'))?.notPosted).toEqual([]);
+  });
+
+  it('lists the offered findings that were not picked, from the context else the option label', () => {
+    const [post] = fixtureGates('20261008-0940').filter(
+      g => g.id === 'g-0940-post'
+    );
+    const gate: GateRow = {
+      ...post!,
+      answer: {
+        ...post!.answer!,
+        answers: { ...post!.answer!.answers, 'findings-1': ['f1', 'f3'] },
+      },
+    };
+    const verdict = reviewVerdict([gate]);
+    expect(verdict?.findings.map(f => f.text)).toEqual([
+      'Dedupe matches on email only, so contacts without an email import twice.',
+      "mergeContacts deletes the losing record; the name doesn't say so.",
+    ]);
+    expect(verdict?.notPosted).toEqual([
+      {
+        severity: 'important',
+        text: 'No test covers merging two contacts that share a phone number.',
+        where: null,
+      },
+      {
+        severity: 'minor',
+        text: 'The skip log prints the whole contact record, email included.',
+        where: null,
+      },
+    ]);
+  });
+
+  it('is null for a run that posted nothing', () => {
+    expect(reviewVerdict(workGates)).toBeNull();
+  });
+});
+
+describe('reviewDecisionGates', () => {
+  it('leaves out the findings the verdict shows, and the gate context that lists them', () => {
+    const gates = reviewDecisionGates(fixtureGates('20261008-0940'));
+    expect(
+      gates.map(g => [g.id, g.questions.map(q => q.id), g.context ?? null])
+    ).toEqual([
+      ['g-0940-tiers', ['tiers'], null],
+      ['g-0940-post', ['outcome'], null],
+    ]);
+    expect(answeredQuestionCount(gates)).toBe(2);
+  });
+
+  it('drops a gate that asked only for findings', () => {
+    const post = plainPost([
+      ['findings-1', ['[Minor] Typo'], ['findings-1-0']],
+    ]);
+    const onlyFindings = { ...post, questions: post.questions.slice(0, 1) };
+    expect(reviewDecisionGates([onlyFindings])).toEqual([]);
   });
 });
