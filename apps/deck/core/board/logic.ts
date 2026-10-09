@@ -487,3 +487,70 @@ export function settingsBlocks(row: Row, data: StatusData): SettingsBlocks {
     giveRoute: false,
   };
 }
+
+/** The running pid a service actually answers on: launchd's own `pid` when
+    managed, the foreign process's when a route is served unmanaged. */
+export function servicePid(
+  service: NonNullable<Row['service']>
+): number | null {
+  return service.unmanaged ? service.unmanaged.pid : service.pid;
+}
+
+export type PillTone = 'ok' | 'bad' | 'warn' | 'muted';
+
+export interface StatusPill {
+  tone: PillTone;
+  label: string;
+  detail: string;
+}
+
+function serviceTail(service: Row['service']): string[] {
+  if (!service) return [];
+  const pid = servicePid(service);
+  if (pid !== null) return [`pid ${pid}`];
+  if (service.lastExitStatus != null) return [`exit ${service.lastExitStatus}`];
+  return [];
+}
+
+function tunnelPill(row: Row): StatusPill {
+  const up = row.service ? servicePid(row.service) !== null : false;
+  const health = row.health;
+  const ok = health ? health.ok : up;
+  const parts = [
+    ...(health?.detail ? [health.detail] : []),
+    ...serviceTail(row.service),
+    ...(health?.hint ? [health.hint] : []),
+  ];
+  return {
+    tone: health?.tone ?? (up ? 'ok' : 'bad'),
+    label: ok ? 'Healthy' : 'Down',
+    detail: parts.join(' · '),
+  };
+}
+
+/** The settings modal's status pill. Same branch order as the drawer status
+    strips it replaces: off, then restarting, then the HTTP probe, falling
+    back to the service's own pid for a row nothing probes. */
+export function statusPill(row: Row, restarting: boolean): StatusPill {
+  if (row.enabled === false) return { tone: 'muted', label: 'Off', detail: '' };
+  if (restarting) return { tone: 'warn', label: 'Restarting…', detail: '' };
+  if (row.isTunnel) return tunnelPill(row);
+  const pid = row.service ? servicePid(row.service) : null;
+  const ok = row.health ? row.health.ok : pid !== null;
+  const parts: string[] = [];
+  if (row.health) {
+    parts.push(
+      row.health.status !== null
+        ? `${row.health.status} · ${row.health.ms}ms`
+        : 'unreachable'
+    );
+  } else if (row.service) {
+    parts.push(pid !== null ? 'running' : 'stopped');
+  }
+  parts.push(...serviceTail(row.service));
+  return {
+    tone: ok ? 'ok' : 'bad',
+    label: row.port == null ? 'No route' : ok ? 'Healthy' : 'Down',
+    detail: parts.join(' · '),
+  };
+}

@@ -18,6 +18,7 @@ import {
   commandButtonLabel,
   commandKey,
   isPlatform,
+  servicePid,
   showDevLinkPrompt,
   showVersionColumn,
   versionCell,
@@ -164,18 +165,9 @@ export function AppsTable({
   );
 }
 
-/** The running pid a service actually answers on -- launchd's own `pid` when
-    managed, the foreign process's when a route is served unmanaged. Exported:
-    the drawer's status strip (RootScreen.tsx) needs the same reading. */
-export function servicePid(
-  service: NonNullable<Row['service']>
-): number | null {
-  return service.unmanaged ? service.unmanaged.pid : service.pid;
-}
-
 /** The row's brand mark, or a letter tile when it has none (user apps,
     strays). */
-function SiteMark({ row }: { row: Row }) {
+export function SiteMark({ row }: { row: Row }) {
   if (row.icon)
     return (
       <img className="site-mark" src={row.icon} alt="" aria-hidden="true" />

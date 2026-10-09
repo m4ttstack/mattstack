@@ -26,6 +26,7 @@ import {
   showDevLinkPrompt,
   showUnlinkButton,
   showVersionColumn,
+  statusPill,
   subline,
   sublineHealthy,
   tunnelDomain,
@@ -802,4 +803,236 @@ test('settingsBlocks canManage false hides every write control', () => {
     ] as const)
       expect(b[k]).toBe(false);
   }
+});
+
+const pillRow = (o: Partial<Row> = {}) =>
+  makeRow({ managedBy: 'mattstack', ...o });
+const svc = (o: Partial<NonNullable<Row['service']>> = {}) => ({
+  label: 'com.deck.app',
+  short: 'app',
+  pid: 111,
+  lastExitStatus: null,
+  unmanaged: null,
+  stderr: [],
+  ...o,
+});
+
+test('statusPill: an off row reads Off in the muted tone, before restarting or health', () => {
+  const off = pillRow({
+    enabled: false,
+    health: { ok: false, status: null, ms: null },
+  });
+  expect(statusPill(off, false)).toEqual({
+    tone: 'muted',
+    label: 'Off',
+    detail: '',
+  });
+  expect(statusPill(off, true)).toEqual({
+    tone: 'muted',
+    label: 'Off',
+    detail: '',
+  });
+});
+
+test('statusPill: restarting reads Restarting… in the warn tone', () => {
+  expect(statusPill(pillRow(), true)).toEqual({
+    tone: 'warn',
+    label: 'Restarting…',
+    detail: '',
+  });
+});
+
+test('statusPill: a healthy probe reads Healthy with status, ms and pid', () => {
+  const row = pillRow({
+    health: { ok: true, status: 200, ms: 34 },
+    service: svc({ pid: 5123 }),
+  });
+  expect(statusPill(row, false)).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: '200 · 34ms · pid 5123',
+  });
+});
+
+test("statusPill: the pid is the unmanaged process's when a route is served unmanaged", () => {
+  const row = pillRow({
+    service: svc({ pid: null, unmanaged: { pid: 777, command: 'vite' } }),
+  });
+  expect(statusPill(row, false).detail).toBe('200 · 5ms · pid 777');
+});
+
+test('statusPill: a failing probe with a status reads Down with that status', () => {
+  const row = pillRow({ health: { ok: false, status: 502, ms: 12 } });
+  expect(statusPill(row, false)).toEqual({
+    tone: 'bad',
+    label: 'Down',
+    detail: '502 · 12ms · pid 111',
+  });
+});
+
+test('statusPill: no answer reads Down, unreachable, with the exit code', () => {
+  const row = pillRow({
+    health: { ok: false, status: null, ms: null },
+    service: svc({ pid: null, lastExitStatus: 1 }),
+  });
+  expect(statusPill(row, false)).toEqual({
+    tone: 'bad',
+    label: 'Down',
+    detail: 'unreachable · exit 1',
+  });
+});
+
+test('statusPill: no probe falls back to the service: running is Healthy, stopped is Down', () => {
+  expect(statusPill(pillRow({ health: null }), false)).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: 'running · pid 111',
+  });
+  expect(
+    statusPill(
+      pillRow({ health: null, service: svc({ pid: null, lastExitStatus: 3 }) }),
+      false
+    )
+  ).toEqual({ tone: 'bad', label: 'Down', detail: 'stopped · exit 3' });
+  expect(
+    statusPill(pillRow({ health: null, service: svc({ pid: null }) }), false)
+  ).toEqual({ tone: 'bad', label: 'Down', detail: 'stopped' });
+});
+
+test('statusPill: a row with no port reads No route, toned by its service', () => {
+  expect(
+    statusPill(
+      pillRow({
+        port: null,
+        health: null,
+        service: svc({ pid: null, lastExitStatus: 1 }),
+      }),
+      false
+    )
+  ).toEqual({ tone: 'bad', label: 'No route', detail: 'stopped · exit 1' });
+  expect(statusPill(pillRow({ port: null, health: null }), false)).toEqual({
+    tone: 'ok',
+    label: 'No route',
+    detail: 'running · pid 111',
+  });
+  expect(
+    statusPill(pillRow({ port: null, health: null, service: null }), false)
+  ).toEqual({ tone: 'bad', label: 'No route', detail: '' });
+});
+
+const tunnelRow = (o: Partial<Row> = {}) =>
+  pillRow({ isTunnel: true, port: null, managedBy: null, ...o });
+
+test('statusPill tunnel: the edge health tone and detail, then the pid and hint', () => {
+  expect(
+    statusPill(
+      tunnelRow({
+        health: {
+          ok: true,
+          status: null,
+          ms: null,
+          tone: 'ok',
+          detail: '4 connections',
+        },
+      }),
+      false
+    )
+  ).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: '4 connections · pid 111',
+  });
+  expect(
+    statusPill(
+      tunnelRow({
+        health: {
+          ok: false,
+          status: null,
+          ms: null,
+          tone: 'warn',
+          detail: 'not connected to Cloudflare',
+        },
+      }),
+      false
+    )
+  ).toEqual({
+    tone: 'warn',
+    label: 'Down',
+    detail: 'not connected to Cloudflare · pid 111',
+  });
+  expect(
+    statusPill(
+      tunnelRow({
+        health: {
+          ok: false,
+          status: null,
+          ms: null,
+          tone: 'bad',
+          detail: 'tunnel missing at Cloudflare',
+          hint: 're-run deck domain example.dev',
+        },
+        service: svc({ pid: null, lastExitStatus: 1 }),
+      }),
+      false
+    )
+  ).toEqual({
+    tone: 'bad',
+    label: 'Down',
+    detail:
+      'tunnel missing at Cloudflare · exit 1 · re-run deck domain example.dev',
+  });
+});
+
+test('statusPill tunnel: with no edge health the pid alone decides', () => {
+  expect(statusPill(tunnelRow({ health: null }), false)).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: 'pid 111',
+  });
+  expect(
+    statusPill(
+      tunnelRow({
+        health: null,
+        service: svc({ pid: null, lastExitStatus: 1 }),
+      }),
+      false
+    )
+  ).toEqual({ tone: 'bad', label: 'Down', detail: 'exit 1' });
+});
+
+test('statusPill tunnel: restarting reads Restarting…', () => {
+  expect(statusPill(tunnelRow(), true)).toEqual({
+    tone: 'warn',
+    label: 'Restarting…',
+    detail: '',
+  });
+});
+
+test('statusPill on the fixture rows', () => {
+  const d = fixture as unknown as StatusData;
+  const by = (n: string) =>
+    statusPill(
+      [...d.apps, ...d.orphans].find(r => r.name === n)!,
+      false
+    );
+  expect(by('atlas')).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: '200 · 34ms · pid 5123',
+  });
+  expect(by('ledger')).toEqual({
+    tone: 'bad',
+    label: 'Down',
+    detail: 'unreachable · exit 1',
+  });
+  expect(by('cloudflared')).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: '4 connections · pid 4200',
+  });
+  expect(by('stray-agent')).toEqual({
+    tone: 'bad',
+    label: 'No route',
+    detail: 'stopped · exit 1',
+  });
 });

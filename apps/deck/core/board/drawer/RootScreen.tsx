@@ -9,9 +9,10 @@ import {
   StatusDot,
   type DrawerScreen,
 } from '@mattstack/tui-kit';
-import { OffBadge, servicePid } from '../AppsTable.tsx';
+import { OffBadge } from '../AppsTable.tsx';
 import {
   isMattstack,
+  servicePid,
   tunnelDomain,
   type Row,
   type StatusData,
