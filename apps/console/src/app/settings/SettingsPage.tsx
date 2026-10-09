@@ -406,6 +406,9 @@ export function SettingsPage() {
                       scrollAreaProps={{
                         viewportRef: frame,
                         onScrollPositionChange: ({ y }) => setScrolled(y > 0),
+                        // Above the pinned section headers, which run to the
+                        // pane's edge.
+                        styles: { scrollbar: { zIndex: 3 } },
                       }}
                     >
                       {/* The page's one overflow guard: Mantine's ScrollArea content
