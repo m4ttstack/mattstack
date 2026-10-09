@@ -7,6 +7,7 @@ import type { CallerContext, NativeSessionRef, Outcome, SessionBinding } from ".
 import { worktreeToolDefs } from "../../mcp/worktree-tools.ts";
 import type { ToolContext } from "../../mcp/shared.ts";
 import { openStateDb } from "../../state/db.ts";
+import { setKvValue } from "../../state/kv-blob.ts";
 import { claudeHookCaller } from "../claude/worktrees.ts";
 import { codexWorktreeLifecycle } from "../codex/worktrees.ts";
 import { createSessionStore } from "../session-store.ts";
@@ -136,6 +137,25 @@ describe("applyWorktreeEvent", () => {
     expect((await applyWorktreeEvent(mine, { kind: "leave", path: "/pool/r/fred" }, deps())).ok).toBe(true);
     expect((await applyWorktreeEvent(mine, { kind: "leave", path: "/pool/r/fred" }, deps())).ok).toBe(true);
     expect(disposeCount).toBe(2);
+  });
+
+  test("a leave marker left by a process that died stops blocking after twice the dispose timeout", async () => {
+    const mine = ctx(bind("remy.ab12", claude("sess-1"), "att-1"));
+    const holder = claimed(mine, "/pool/r/fred");
+    setKvValue("agent-worktrees", holder.path, { ...holder, leavingAt: 5_000_000 }, db);
+    const at = (now: number) => deps({ now: () => now });
+    expect((await applyWorktreeEvent(mine, { kind: "leave", path: "/pool/r/fred" }, at(5_000_000 + 239_000))).ok).toBe(true);
+    expect(disposeCount).toBe(0);
+    expect((await applyWorktreeEvent(mine, { kind: "leave", path: "/pool/r/fred" }, at(5_000_000 + 241_000))).ok).toBe(true);
+    expect(disposeCount).toBe(1);
+  });
+
+  test("a held tree marked disposable can still be left by its holder", async () => {
+    const mine = ctx(bind("remy.ab12", claude("sess-1"), "att-1"));
+    claimed(mine, "/pool/r/fred");
+    trees[0]!.state = "disposable";
+    expect((await applyWorktreeEvent(mine, { kind: "leave", path: "/pool/r/fred" }, deps())).ok).toBe(true);
+    expect(disposeCount).toBe(1);
   });
 
   test("another attempt on the same binding is foreign", async () => {

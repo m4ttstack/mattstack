@@ -53,6 +53,7 @@ export type WorktreeDeps = {
 
 const NS = "agent-worktrees";
 const DISPOSE_TIMEOUT_MS = 120_000;
+const STALE_LEAVE_MS = 2 * DISPOSE_TIMEOUT_MS;
 const PROVISION_TIMEOUT_MS = 300_000;
 
 const LIFECYCLES: Partial<Record<HarnessId, WorktreeLifecycle>> = { claude: "native", codex: codexWorktreeLifecycle };
@@ -91,10 +92,21 @@ function registryTree(path: string): ManagedTree | null {
   return hit ? registryTreeByName(hit.repoName, hit.tree) : null;
 }
 
+type DaemonQuery = typeof import("../daemon-client.ts").daemonQuery;
+
 async function daemonDispose(tree: ManagedTree): Promise<Outcome<void>> {
   const { daemonQuery } = await import("../daemon-client.ts");
+  return disposeThrough(daemonQuery)(tree);
+}
+
+/** Disposes through the daemon's worktree:dispose, the same request the hook's own path sends. */
+export function disposeThrough(query: DaemonQuery): (tree: ManagedTree) => Promise<Outcome<void>> {
+  return (tree) => disposeWith(query, tree);
+}
+
+async function disposeWith(query: DaemonQuery, tree: ManagedTree): Promise<Outcome<void>> {
   const { explainError } = await import("../explain-error.ts");
-  const res = await daemonQuery("worktree:dispose", { repoName: tree.repoName, tree: tree.name, force: false, callerPid: process.pid }, DISPOSE_TIMEOUT_MS);
+  const res = await query("worktree:dispose", { repoName: tree.repoName, tree: tree.name, force: false, callerPid: process.pid }, DISPOSE_TIMEOUT_MS);
   if (res === null) return fail("transient", "the rt daemon did not answer");
   if (!res.ok) return fail("refused", explainError(res.error ?? "unknown error"));
   const refused = (res.data as { refused?: Array<{ tree: string; reason: string }> }).refused?.find((r) => r.tree === tree.name);
@@ -127,17 +139,31 @@ function writeHolder(db: Database, holder: WorktreeHolder): boolean {
   return setKvValueCritical(NS, holder.path, holder, db);
 }
 
-/** The record still names this tree's current claim; a disposed or re-claimed tree's record grants nothing. */
+/**
+ * The record still names this tree's current claim; a disposed or re-claimed
+ * tree's record grants nothing. A claim marked disposable (its MR merged) is
+ * still the holder's to leave.
+ */
 function holds(holder: WorktreeHolder | null, tree: ManagedTree): holder is WorktreeHolder {
   return holder !== null && holder.disposedAt === undefined
     && holder.repoName === tree.repoName && holder.tree === tree.name
-    && tree.state === "claimed" && holder.claimedAt === (tree.claimedAt ?? null);
+    && (tree.state === "claimed" || tree.state === "disposable") && holder.claimedAt === (tree.claimedAt ?? null);
 }
 
-function claimable(tree: ManagedTree | null, path: string): Outcome<ManagedTree> {
+function claimable(tree: ManagedTree | null, path: string, leaving = false): Outcome<ManagedTree> {
   if (!tree) return fail("refused", `${path} is not a worktree rt manages`);
-  if (tree.kind !== "ephemeral" || tree.state !== "claimed") return fail("refused", `${tree.name} is not a claimed worktree`);
+  const state = tree.state === "claimed" || (leaving && tree.state === "disposable");
+  if (tree.kind !== "ephemeral" || !state) return fail("refused", `${tree.name} is not a claimed worktree`);
   return { ok: true, data: tree };
+}
+
+/** The holder record that still names this tree's claim, whoever it belongs to; null when no session holds the tree through rt. */
+export function liveHolder(path: string, deps: WorktreeDeps = {}): WorktreeHolder | null {
+  const d = resolved(deps);
+  const tree = d.findTree(path);
+  if (!tree) return null;
+  const holder = readHolder(d.db, tree.path);
+  return holds(holder, tree) ? holder : null;
 }
 
 /** Only one tree is a session's current one; moving into another clears the rest. */
@@ -206,7 +232,7 @@ export async function applyWorktreeEvent(context: CallerContext, event: Worktree
     if (holder?.owner === owner) writeHolder(d.db, { ...holder, current: false, disposedAt: d.now() });
     return { ok: true, data: undefined };
   }
-  const claimed = claimable(tree, event.path);
+  const claimed = claimable(tree, event.path, event.kind === "leave");
   if (!claimed.ok) return claimed;
   if (!holds(holder, claimed.data) || holder.owner !== owner) {
     return fail("refused", `${claimed.data.name} is not held by this session`);
@@ -226,11 +252,17 @@ export async function applyWorktreeEvent(context: CallerContext, event: Worktree
   return disposed;
 }
 
-/** Marks a leave in flight, under a write lock so two processes cannot both start one. False: another leave got there first. */
+/**
+ * Marks a leave in flight, under a write lock so two processes cannot both
+ * start one. False: another leave got there first. A marker older than twice
+ * the dispose timeout belongs to a leave whose process died, so it no longer
+ * blocks.
+ */
 function startLeave(db: Database, path: string, owner: string, now: number): boolean {
   return db.transaction(() => {
     const holder = readHolder(db, path);
-    if (!holder || holder.owner !== owner || holder.leavingAt !== undefined || holder.disposedAt !== undefined) return false;
+    const inFlight = holder?.leavingAt !== undefined && now - holder.leavingAt < STALE_LEAVE_MS;
+    if (!holder || holder.owner !== owner || inFlight || holder.disposedAt !== undefined) return false;
     return writeHolder(db, { ...holder, leavingAt: now });
   }).immediate();
 }

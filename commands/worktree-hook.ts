@@ -220,28 +220,38 @@ export async function announceRelocation(_args: string[]): Promise<void> {
 }
 
 /**
- * With the switch on, a bound session is announced only for a tree it holds,
- * so the daemon never drives the dialog into another session's tree; that
- * dialog stays with the person. Every other caller announces as before.
+ * With the switch on, a tree some session holds through rt is announced only
+ * for its holder, so the daemon never drives the dialog into another
+ * session's tree; that dialog stays with the person. A tree nobody holds
+ * (claimed before the switch, by a herd spawn, or by another verb) and every
+ * other caller announce as before.
  */
 export async function relocationIsCallers(payload: RelocationAnnouncement, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
   if (payload.path === undefined) return true;
   const caller = claudeHookCaller(payload.sessionId, env);
-  if (caller.kind !== "bound") return true;
-  const { applyWorktreeEvent } = await import("../lib/agent-integrations/worktrees.ts");
-  return (await applyWorktreeEvent(caller.context, { kind: "relocate", path: resolve(payload.cwd, payload.path) })).ok;
+  if (caller.kind === "legacy") return true;
+  const { applyWorktreeEvent, liveHolder } = await import("../lib/agent-integrations/worktrees.ts");
+  const path = resolve(payload.cwd, payload.path);
+  if (!liveHolder(path)) return true;
+  if (caller.kind === "refused") return false;
+  return (await applyWorktreeEvent(caller.context, { kind: "relocate", path })).ok;
 }
 
-/** A bound session leaves only a tree it holds, and disposes it once; an unreachable daemon stays quiet, as on the legacy path. */
-async function leaveAsCaller(caller: Exclude<HookCaller, { kind: "legacy" }>, path: string | null): Promise<void> {
-  if (path === null) return;
+/**
+ * A tree some session holds through rt is left only by its holder, which
+ * disposes it once. False when nobody holds the tree, so the hook takes its
+ * own path; an unreachable daemon stays quiet, as on that path.
+ */
+async function leftAsHolder(caller: Exclude<HookCaller, { kind: "legacy" }>, path: string, query: typeof daemonQuery): Promise<boolean> {
+  const { applyWorktreeEvent, disposeThrough, liveHolder } = await import("../lib/agent-integrations/worktrees.ts");
+  if (!liveHolder(path)) return false;
   if (caller.kind === "refused") {
     out.diagnostic(`rt: tree kept: ${caller.error.message}\n`);
-    return;
+    return true;
   }
-  const { applyWorktreeEvent } = await import("../lib/agent-integrations/worktrees.ts");
-  const left = await applyWorktreeEvent(caller.context, { kind: "leave", path });
+  const left = await applyWorktreeEvent(caller.context, { kind: "leave", path }, { dispose: disposeThrough(query) });
   if (!left.ok && left.error.code !== "transient") out.diagnostic(`rt: tree kept: ${left.error.message}\n`);
+  return true;
 }
 
 /** Records the bound session that asked for a provisioned tree as its holder; a failure is logged and never fails the create. */
@@ -287,7 +297,8 @@ export function hookRepoIdentity(
   return identity !== undefined && deps.isRegistered(identity) ? identity : null;
 }
 
-export async function claudeHookCommand(args: string[], _ctx: unknown): Promise<void> {
+export async function claudeHookCommand(args: string[], _ctx: unknown, deps: { query?: typeof daemonQuery } = {}): Promise<void> {
+  const query = deps.query ?? daemonQuery;
   const removeMode = args.includes("--remove");
   const parsed = parseHookStdin(await Bun.stdin.text());
 
@@ -299,13 +310,10 @@ export async function claudeHookCommand(args: string[], _ctx: unknown): Promise<
   if (parsed.event === "remove" || removeMode) {
     if (parsed.event !== "remove") process.exit(0);
     const caller = claudeHookCaller(parsed.sessionId, process.env);
-    if (caller.kind !== "legacy") {
-      await leaveAsCaller(caller, parsed.path);
-      process.exit(0);
-    }
+    if (caller.kind !== "legacy" && parsed.path !== null && await leftAsHolder(caller, parsed.path, query)) process.exit(0);
     const decision = decideRemove(parsed.path, (p) => findTreeByPath(p));
     if (decision.kind === "dispose") {
-      const res = await daemonQuery("worktree:dispose", { repoName: decision.repoName, tree: decision.tree, force: false, callerPid: process.pid });
+      const res = await query("worktree:dispose", { repoName: decision.repoName, tree: decision.tree, force: false, callerPid: process.pid });
       if (res && !res.ok) out.diagnostic(`rt: tree kept: ${explainError(res.error ?? "unknown error")}\n`);
     }
     process.exit(0);
@@ -316,7 +324,7 @@ export async function claudeHookCommand(args: string[], _ctx: unknown): Promise<
     {
       repoIdentity: hookRepoIdentity,
       provision: (repoName, intent) =>
-        daemonQuery("worktree:provision", { repoName, owner: "claude", ...intent }, HOOK_PROVISION_TIMEOUT_MS),
+        query("worktree:provision", { repoName, owner: "claude", ...intent }, HOOK_PROVISION_TIMEOUT_MS),
       stockAdd: stockWorktreeAdd,
     },
   );
