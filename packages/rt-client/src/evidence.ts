@@ -9,6 +9,8 @@ export type ParsedEvidence =
   | { version: 0; links: string[] }
   | { version: null };
 
+const OPTIONAL_EVIDENCE_KEYS = ["beforeAnnotated", "after", "afterAnnotated", "transcript", "case", "url", "attach"] as const;
+
 const LINK = /(https?:\/\/[^\s"',)]+|\/[^\s"',)]+)/g;
 
 function linksIn(text: string): string[] {
@@ -31,7 +33,11 @@ export function parseEvidence(value: string | null | undefined): ParsedEvidence 
     const o = json as Record<string, unknown>;
     if (o.plan === "none" && Object.keys(o).length === 1) return { version: null };
     if (o.v === 1 && typeof o.before === "string" && o.before) {
-      const evidence = o as unknown as EvidenceV1;
+      const evidence: EvidenceV1 = { v: 1, before: o.before };
+      for (const k of OPTIONAL_EVIDENCE_KEYS) {
+        const field = o[k];
+        if (typeof field === "string") evidence[k] = field;
+      }
       const images = EVIDENCE_IMAGE_KEYS
         .filter((k) => typeof o[k] === "string" && (o[k] as string).length > 0)
         .map((key) => ({ key, path: o[key] as string }));

@@ -9,6 +9,13 @@ describe("parseEvidence", () => {
     expect(r.images).toEqual([{ key: "before", path: "/e/b.png" }, { key: "after", path: "/e/a.png" }]);
     expect(r.evidence.case).toBe("hail");
   });
+  test("v1 drops optional fields that are not strings", () => {
+    const r = parseEvidence('{"v":1,"before":"/b.png","case":5,"url":null}');
+    expect(r.version).toBe(1);
+    if (r.version !== 1) throw new Error("unreachable");
+    expect(r.evidence).toEqual({ v: 1, before: "/b.png" });
+    expect(r.images).toEqual([{ key: "before", path: "/b.png" }]);
+  });
   test("v1 without before falls back to links", () => {
     expect(parseEvidence(JSON.stringify({ v: 1, after: "/e/a.png" }))).toEqual({ version: 0, links: ["/e/a.png"] });
   });
