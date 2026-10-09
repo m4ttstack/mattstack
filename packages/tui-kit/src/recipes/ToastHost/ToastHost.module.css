@@ -26,7 +26,9 @@
     background: var(--card);
     border: 1px solid var(--border);
     border-left: var(--spacing-px3) solid var(--fill-accent);
-    border-radius: var(--radius-px7);
+    /* Square on the accent side: a thick colored edge under a round corner
+       curves into a crescent. */
+    border-radius: 0 var(--radius-px7) var(--radius-px7) 0;
     box-shadow: var(--shadow-toast);
     color: var(--text-1);
     font-size: var(--font-size-px13);
