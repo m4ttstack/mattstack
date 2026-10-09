@@ -393,7 +393,7 @@ function ActionMenu({
         <ContextMenu.Separator />
       )}
       {flyouts.map(f =>
-        f.items.length === 1 ? (
+        f.items.length === 1 && f.section !== 'sessions' ? (
           renderItem(f.items[0]!)
         ) : (
           <ContextMenu.Sub

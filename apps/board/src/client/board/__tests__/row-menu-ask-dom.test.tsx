@@ -60,6 +60,7 @@ test('with no teammate board connected, the ask says so', async () => {
     roster: ['pat', 'kim', 'jo'],
     peers: ['pat'],
   });
+  await openSub('all agent actions');
   const ask = itemTexts().find(t => t.includes('request review from'));
   expect(ask).toContain('no teammate boards connected');
 });
