@@ -55,6 +55,23 @@ SID="11111111-2222-3333-4444-555555555555"
 STOP="{\"session_id\":\"$SID\",\"hook_event_name\":\"Stop\",\"stop_hook_active\":false}"
 STOP_ACTIVE="{\"session_id\":\"$SID\",\"hook_event_name\":\"Stop\",\"stop_hook_active\":true}"
 
+FIX="$DIR/fixtures/transcript-lines"
+
+stamp() { # minutes-ago -> ISO timestamp with a Z suffix, the shape Claude Code writes
+  python3 -c 'import sys, datetime; print((datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=int(sys.argv[1]))).strftime("%Y-%m-%dT%H:%M:%S.000Z"))' "$1"
+}
+
+transcript() { # out age-minutes line-name... -> writes the lines, each stamped age-minutes ago
+  local out="$1" age="$2" ts; shift 2
+  ts="$(stamp "$age")"
+  : > "$out"
+  for name in "$@"; do sed "s/@TS@/$ts/g" "$FIX/$name.json" >> "$out"; done
+}
+
+stop_with() { # transcript-path -> a Stop input naming it
+  printf '{"session_id":"%s","transcript_path":"%s","hook_event_name":"Stop","stop_hook_active":false}' "$SID" "$1"
+}
+
 # No runs root at all: silent.
 rm -rf "$SANDBOX/runs"
 check "no runs root exits 0" "exit=0 err= out=" "$(run "$STOP")"
@@ -146,6 +163,45 @@ rm -rf "$SANDBOX/runs/repo-a/20260901-000013-mmmm-13"
 # Malformed and empty stdin: silent.
 check "malformed stdin exits 0" "exit=0 err= out=" "$(run 'not json')"
 check "empty stdin exits 0" "exit=0 err= out=" "$(run '')"
+
+# Background tasks. A running run plus a backgrounded MCP call or an async
+# agent whose notification has not been delivered lets the turn end.
+mkrun repo-a 20260901-000020-bg-20 running "$SID"
+T="$SANDBOX/transcript.jsonl"
+
+transcript "$T" 5 mcp-backgrounded
+check "pending MCP task exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
+
+transcript "$T" 5 mcp-backgrounded mcp-enqueued
+check "enqueued, undelivered MCP task exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
+
+transcript "$T" 5 mcp-backgrounded mcp-enqueued mcp-removed
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   removed MCP notification exits 2";; *) echo "FAIL removed MCP notification exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+transcript "$T" 5 mcp-backgrounded mcp-queued-command
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   delivered MCP notification exits 2";; *) echo "FAIL delivered MCP notification exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+transcript "$T" 5 mcp-backgrounded taskstop
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   TaskStop ends the pending task";; *) echo "FAIL TaskStop ends the pending task"; echo "       got : $r"; fails=$((fails+1));; esac
+
+transcript "$T" 5 mcp-backgrounded mcp-removed mcp-backgrounded
+check "relaunch after delivery exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
+
+transcript "$T" 5 agent-launched
+check "pending async agent exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
+
+transcript "$T" 5 agent-launched agent-removed
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   delivered agent notification exits 2";; *) echo "FAIL delivered agent notification exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+transcript "$T" 5 bash-background
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   background shell task alone exits 2";; *) echo "FAIL background shell task alone exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+rm -rf "$SANDBOX/runs/repo-a/20260901-000020-bg-20" "$T"
 
 [ "$fails" -eq 0 ] && echo "all pipeline-gate-stop tests passed" || echo "$fails failure(s)"
 exit $((fails > 0))
