@@ -52,6 +52,14 @@ describe("legacy evidence paths", () => {
     expect(parseEvidence(v)).toEqual({ version: 0, links: ["/tmp/ev/after.webp", "/tmp/ev/log.txt"] });
   });
 
+  test("a path followed by sentence punctuation or a line number keeps the bare path", () => {
+    const v = "Saved /tmp/ev/a.png. See /tmp/ev/b.png: ok, /tmp/ev/c.log:12 and /tmp/ev/d.png; also /tmp/ev/e.jpg, /tmp/ev/f.ts:4:2.";
+    expect(parseEvidence(v)).toEqual({
+      version: 0,
+      links: ["/tmp/ev/a.png", "/tmp/ev/b.png", "/tmp/ev/c.log", "/tmp/ev/d.png", "/tmp/ev/e.jpg", "/tmp/ev/f.ts"],
+    });
+  });
+
   test("nothing but prose is no evidence", () => {
     expect(parseEvidence("screenshot -- /c/:id before/after")).toEqual({ version: null });
   });

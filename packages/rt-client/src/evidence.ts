@@ -15,8 +15,10 @@ const OPTIONAL_EVIDENCE_KEYS = ["beforeAnnotated", "after", "afterAnnotated", "t
 
 // One scan keeps links in document order. A file path starts a token (start,
 // whitespace, quote or bracket) and ends in an extension; `52/52` and `/c/:id`
-// are prose, not files.
-const LINK_RE = /https?:\/\/[^\s"',)\]]+|(?<=^|[\s"'([])\/[^\s"',)\]]*\.[A-Za-z0-9]{1,8}(?=$|[\s"',)\]])/g;
+// are prose, not files. A path may be followed by `:line[:col]` and one mark of
+// sentence punctuation, which stay out of the match.
+const LINK_RE =
+  /https?:\/\/[^\s"',)\]]+|(?<=^|[\s"'([])\/[^\s"',)\]]*\.[A-Za-z0-9]{1,8}(?=(?::\d+)*[.,;:]?(?:$|[\s"',)\]]))/g;
 
 function linksIn(text: string): string[] {
   return [...new Set(text.match(LINK_RE) ?? [])];
