@@ -850,6 +850,23 @@ export interface Commands {
   "agent:list": { payload: { repo?: string }; data: { agents: AgentRecord[] } };
   /** Every registered harness, in registry order; reading it starts no session or connection. */
   "agent:integrations": { payload: { mode: Mode }; data: { integrations: IntegrationSummary[] } };
+  /**
+   * A Codex policy hook's receipt: the hook ran for a bound thread's turn and
+   * gave this verdict. The daemon resolves the binding from the exact thread
+   * id and profile itself and records evidence only; an `unavailable`
+   * verdict also raises the policy-unavailable attention. Nothing here
+   * answers a gate, moves a run or marks a session ready.
+   */
+  "agent:policy-receipt": {
+    payload: {
+      installation: string; revision: string; profile: string;
+      event: "PreToolUse" | "Stop"; tool?: string;
+      sessionId: string; turnId: string;
+      verdict: "allow" | "refused" | "continue" | "unavailable" | "escaped";
+      detail?: string;
+    };
+    data: { turn: "current" | "other" | "unknown"; diagnostic: boolean };
+  };
   "chat:invite": { payload: { paneId: string; room: string; note?: string; from: string; callerPane?: string }; data: InviteResult };
   "pane:list": { payload: Record<string, never>; data: { panes: ChatPane[] } };
   "pane:peek": { payload: { paneId: string; lines?: number }; data: { paneId: string; lines: string[] } };
@@ -1259,6 +1276,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "agent:get",
   "agent:list",
   "agent:integrations",
+  "agent:policy-receipt",
   "chat:invite",
   "pane:list",
   "pane:peek",

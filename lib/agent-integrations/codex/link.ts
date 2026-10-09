@@ -45,3 +45,18 @@ export function codexMessagingConnection(): string | null {
 export function codexSessionLive(binding: SessionBinding): boolean | undefined {
   return bindingProbe?.(binding);
 }
+
+let turnProbe: ((binding: SessionBinding) => string | undefined) | undefined;
+
+export function setCodexTurnProbe(read: (binding: SessionBinding) => string | undefined): void {
+  turnProbe = read;
+}
+
+/**
+ * The turn the live connection saw start and not yet end on the bound
+ * thread; undefined when it saw none, or has no connection for the
+ * binding's profile. Never connects.
+ */
+export function codexActiveTurn(binding: SessionBinding): string | undefined {
+  return turnProbe?.(binding);
+}

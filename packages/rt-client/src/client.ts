@@ -417,6 +417,13 @@ export function agentIntegrations(
   return rtCommand<Commands["agent:integrations"]["data"]>("agent:integrations", { mode: a.mode }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
+/** A Codex policy hook's receipt; evidence only, so a caller treats a failure as a missed receipt, never as a verdict. */
+export function agentPolicyReceipt(
+  a: Commands["agent:policy-receipt"]["payload"], o: RtClientOptions = {},
+): Promise<RtResponse<Commands["agent:policy-receipt"]["data"]>> {
+  return rtCommand<Commands["agent:policy-receipt"]["data"]>("agent:policy-receipt", a, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 2_000 });
+}
+
 // ─── Panes (rt chat invite) ────────────────────────────────────────────────
 // herdr-facing verbs; the daemon answers `herdr unavailable` without herdr.
 

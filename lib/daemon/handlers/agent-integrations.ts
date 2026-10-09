@@ -5,6 +5,8 @@
  * sessions: loading Codex's starts discovery of its app server, and a
  * metadata read must not start a session, a connection or a native probe.
  * Codex therefore reads not ready until something else connects to it.
+ *
+ * agent:policy-receipt: a Codex policy hook's evidence that it ran.
  */
 
 import type {
@@ -15,6 +17,7 @@ import type { HarnessIntegration, IntegrationRegistry } from "../../agent-integr
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import type { ModLinks } from "../../agent-integrations/claude/mod-links.ts";
 import { codexExperimentalApi } from "../../agent-integrations/codex/link.ts";
+import type { AcceptReceiptDeps } from "../../agent-integrations/codex/policy-receipts.ts";
 import { integrationsEnabled } from "../../agent-integrations/switch.ts";
 import { getSetting } from "../../settings/resolve.ts";
 
@@ -132,9 +135,23 @@ export async function listAgentIntegrations(mode: Mode, deps: IntegrationListDep
   return Promise.all(registry.list().map((integration) => summarize(integration, mode, enabled(integration.id), deps)));
 }
 
-export function createAgentIntegrationHandlers(deps: IntegrationListDeps = {}):
-  { "agent:integrations": (payload: unknown) => Promise<IntegrationsResult> } {
+type ReceiptResult =
+  | { ok: true; data: Commands["agent:policy-receipt"]["data"] }
+  | { ok: false; error: string; failure: { code: string; message: string } };
+
+export function createAgentIntegrationHandlers(deps: IntegrationListDeps & { receipts?: AcceptReceiptDeps } = {}): {
+  "agent:integrations": (payload: unknown) => Promise<IntegrationsResult>;
+  "agent:policy-receipt": (payload: unknown) => Promise<ReceiptResult>;
+} {
   return {
+    /** Evidence from a Codex policy hook; a decline is a missed receipt and changes nothing. */
+    "agent:policy-receipt": async (payload: unknown): Promise<ReceiptResult> => {
+      const { acceptCodexPolicyReceipt } = await import("../../agent-integrations/codex/policy-receipts.ts");
+      const accepted = await acceptCodexPolicyReceipt(payload, deps.receipts);
+      return accepted.ok
+        ? { ok: true, data: accepted.data }
+        : { ok: false, error: accepted.error.message, failure: { code: accepted.error.code, message: accepted.error.message } };
+    },
     "agent:integrations": async (payload: unknown): Promise<IntegrationsResult> => {
       const mode = (payload as { mode?: unknown } | undefined)?.mode;
       if (typeof mode !== "string" || !MODES.includes(mode as Mode)) {

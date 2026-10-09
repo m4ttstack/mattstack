@@ -308,6 +308,14 @@ export function resolveCliBinding(args: string[], env: NodeJS.ProcessEnv, deps: 
   return caller.ok ? caller.data.binding : undefined;
 }
 
+/** The gate subject a launched agent's binding asks under: its launch's subject, else `agent:<id>`; undefined for a binding no launch made. */
+export function bindingGateSubject(binding: SessionBinding, db: Database = getStateDb()): string | undefined {
+  const agentId = binding.agentId;
+  if (agentId === undefined) return undefined;
+  const rec = getAgent(agentId, db);
+  return rec?.id === agentId && rec.subject !== undefined ? rec.subject : `agent:${agentId}`;
+}
+
 /**
  * The agent and gate subject a bound Codex worker acts as, the session id the
  * daemon resolves them by, and the binding's own pane (the environment its
@@ -333,11 +341,10 @@ export function boundCodexGateIdentity(
   const caller = resolveCallerContextNow({ native: { harness: "codex", profile: codexProfile(env), kind: "id", value: env.CODEX_THREAD_ID } }, { ...deps, db });
   const agentId = caller.ok ? caller.data.binding.agentId : undefined;
   if (!caller.ok || agentId === undefined) return { ok: true, data: null };
-  const rec = getAgent(agentId, db);
   return {
     ok: true,
     data: {
-      agentId, subject: rec?.id === agentId && rec.subject !== undefined ? rec.subject : `agent:${agentId}`,
+      agentId, subject: bindingGateSubject(caller.data.binding, db)!,
       sessionId: caller.data.binding.native.value,
       ...(caller.data.binding.attachment.pane !== undefined && { pane: caller.data.binding.attachment.pane }),
       harness: caller.data.binding.native.harness,

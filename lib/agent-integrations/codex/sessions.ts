@@ -75,7 +75,7 @@ import { listQueuedFrames } from "../delivery-store.ts";
 import { codexEventHub } from "./events.ts";
 import type { CodexMessagingDeps } from "./messaging.ts";
 import { createCodexQuestions, type CodexQuestionDeps } from "./questions.ts";
-import { setCodexExperimentalProbe, setCodexLinkProbe, setCodexThreadProbe } from "./link.ts";
+import { setCodexExperimentalProbe, setCodexLinkProbe, setCodexThreadProbe, setCodexTurnProbe } from "./link.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { CODEX_STATUS_ENUMS, isRecord, type CodexEvent, type CodexThreadStatus } from "./protocol.ts";
 import { codexConfigPath, codexFolderTrust } from "./trust.ts";
@@ -113,6 +113,8 @@ export interface CodexSessionAdapter extends SessionAdapter {
   live(binding: SessionBinding): boolean | undefined;
   /** Asks herdr now whether codex runs in a Herdr attachment's pane; a failed check is false. */
   paneLive(binding: SessionBinding): Promise<boolean>;
+  /** The turn this connection saw start and not yet end on the bound thread; undefined when it saw none. */
+  activeTurn(binding: SessionBinding): string | undefined;
 }
 
 /** unloaded: the app server no longer runs the thread, or closed it (a close follows every unload, live-04). ended: its sessionEnd hook ran. */
@@ -737,6 +739,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     held: (threadId, id) => holders.get(threadId)?.has(id) === true,
     live,
     paneLive,
+    activeTurn: (binding) => hub.turns(binding.native.value).active,
     disown(binding) {
       if (!checkRef(binding.native).ok) return;
       const threadId = binding.native.value;
@@ -981,6 +984,8 @@ export type CodexSessionLoader = {
   experimentalApi(): boolean | undefined;
   /** Whether the binding can take input, as the live connection knows it; undefined without a connection for its profile. Never connects. */
   bindingLive(binding: SessionBinding): boolean | undefined;
+  /** The bound thread's running turn as the live connection saw it; undefined without a connection for its profile. Never connects. */
+  activeTurn(binding: SessionBinding): string | undefined;
 };
 
 /** Stands in when no connection could be made: nothing was answered, so the completion stays pending. */
@@ -1124,6 +1129,10 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
       if (!current || current.control.closed || current.control.profile !== binding.native.profile) return undefined;
       return current.adapter.live(binding);
     },
+    activeTurn(binding) {
+      if (!current || current.control.closed || current.control.profile !== binding.native.profile) return undefined;
+      return current.adapter.activeTurn(binding);
+    },
   };
 }
 
@@ -1135,6 +1144,7 @@ function sharedLoader(): CodexSessionLoader {
     shared = loader;
     setCodexLinkProbe(() => loader.connection());
     setCodexThreadProbe((binding) => loader.bindingLive(binding));
+    setCodexTurnProbe((binding) => loader.activeTurn(binding));
     setCodexExperimentalProbe(() => loader.experimentalApi());
   }
   return shared;

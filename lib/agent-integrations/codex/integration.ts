@@ -23,4 +23,5 @@ export const codexIntegration: HarnessIntegration = {
   loadSessions: async () => (await import("./sessions.ts")).loadCodexSessions(),
   loadMessaging: async () => (await import("./sessions.ts")).loadCodexMessaging(),
   loadQuestions: async () => (await import("./sessions.ts")).loadCodexQuestions(),
+  loadPolicy: async () => (await import("./policy.ts")).createCodexPolicy(),
 };

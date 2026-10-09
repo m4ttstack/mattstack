@@ -1636,6 +1636,17 @@ export const TREE: Record<string, CommandNode> = {
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the report as JSON" },
         ],
       },
+      "policy-hook": {
+        description: "Codex policy hook endpoint (stdin JSON in, hook decision out); never call directly",
+        module: "./commands/agent-policy-hook.ts",
+        fn: "agentPolicyHook",
+        hidden: true,
+        omitBehavior: { exempt: "agent-facing; driven by Codex over stdin, never interactively" },
+        args: [
+          { name: "Installation", flag: "--installation", type: "text", placeholder: "inst-1", hint: "The installation the hook definition names" },
+          { name: "Event", flag: "--event", type: "text", placeholder: "PreToolUse | Stop", hint: "The native event the hook definition is installed for" },
+        ],
+      },
     },
   },
 
