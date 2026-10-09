@@ -125,6 +125,28 @@ Where it's set (too busy)`, `B3 · One line says where it's set (rejected)`,
 and `M1` / `M2`, the detail modal that B replaced. Every name, path and
 machine on the canvas is invented.
 
+## Settings scope wash, header and team switcher, approved 2026-10-09
+
+Every section splits into scope blocks on a wash of the scope's colour; the
+page header says where you are (org and team) and who you are; an org admin
+or team owner can switch to another team's settings; per-project settings
+pick their project inside the row. Approved by Matt on 2026-10-09. The org
+is `acme`, the teams `widgets`, `gadgets` and `sprockets`, the person
+`Sam Rivera`, all invented.
+
+| board | render | what it settles |
+| --- | --- | --- |
+| `W · Scope wash (approved 2026-10-09)` | `renders/W-scope-wash.light.png` | the wash and the scope badge leading each block's heading |
+| `T-A · All settings, every section split (chosen 2026-10-09)` | `renders/T-A-all-settings.light.png` | every section splits, small ones included |
+| `H4 · Header on its own surface, quiet title (E2 chosen)`, variant E2 | `renders/H4-header.light.png` | the page name in the app bar on every console page; the header's surface; org, team segment, you and your role; the trimmed filter row |
+| `H3 · Context bar with segments` | `renders/H3-team-menu.light.png` | the team menu opening under its segment (build it without the team dots) |
+| `S1 · Team picker open`, `S2 · Viewing another team` | `renders/S1-team-picker.light.png`, `renders/S2-viewing-another-team.light.png` | the viewing banner and Back; their header is superseded by H4 |
+| `P · A per-project setting, opened` | `renders/P-per-project-row.light.png` | the project picker in the Value tab and the projects in Where it's set |
+
+Kept for the record: `W0 · Section headings today`, `T-B · All settings,
+12-setting rule (not chosen)`, `H · Settings header, tidied`, `H2 ·
+Settings header, calmer`, and H4's E1 and E3.
+
 ## Runs redesign
 
 The run page (live and finished) and the runs pages (Lanes and the Day
