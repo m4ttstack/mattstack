@@ -800,27 +800,30 @@
       "origin": { "runId": "20261008-0940" },
       "owner": "human",
       "openedAt": "2026-10-08T09:55:00-05:00",
-      "context": "{\"gate-ctx\":\"findings@1\",\"findings\":[{\"tier\":\"correctness\",\"severity\":\"must-fix\",\"title\":\"Duplicate check ignores case\"},{\"tier\":\"correctness\",\"severity\":\"must-fix\",\"title\":\"Merge drops the second phone number\"},{\"tier\":\"tests\",\"severity\":\"suggestion\",\"title\":\"No test for an empty import\"},{\"tier\":\"tests\",\"severity\":\"suggestion\",\"title\":\"Fixture names a real store\"}]}",
+      "context": "{\"gate-ctx\":\"findings@1\",\"findings\":[{\"id\":\"f1\",\"severity\":\"important\",\"title\":\"Dedupe matches on email only, so contacts without an email import twice.\",\"body\":\"the importer keys duplicates on the email address alone, so two rows with no email never match and both are created.\",\"file\":\"contacts/import/dedupe.ts:58\"},{\"id\":\"f2\",\"severity\":\"important\",\"title\":\"No test covers merging two contacts that share a phone number.\",\"body\":\"mergeContacts has tests for shared emails only; the phone path is untested.\"},{\"id\":\"f3\",\"severity\":\"minor\",\"title\":\"mergeContacts deletes the losing record; the name doesn't say so.\",\"body\":\"a caller reading the name would not expect the second contact to be deleted.\",\"file\":\"contacts/merge.ts:12\"},{\"id\":\"f4\",\"severity\":\"minor\",\"title\":\"The skip log prints the whole contact record, email included.\",\"body\":\"the skipped-row log line serializes the full record.\"}]}",
       "questions": [
         {
-          "id": "findings",
+          "id": "findings-1",
           "label": "Post which findings to !412?",
           "multi": true,
+          "context": "{\"gate-ctx\":\"findings@1\",\"findings\":[{\"id\":\"f1\",\"severity\":\"important\",\"title\":\"Dedupe matches on email only, so contacts without an email import twice.\",\"body\":\"the importer keys duplicates on the email address alone, so two rows with no email never match and both are created.\",\"file\":\"contacts/import/dedupe.ts:58\"},{\"id\":\"f2\",\"severity\":\"important\",\"title\":\"No test covers merging two contacts that share a phone number.\",\"body\":\"mergeContacts has tests for shared emails only; the phone path is untested.\"},{\"id\":\"f3\",\"severity\":\"minor\",\"title\":\"mergeContacts deletes the losing record; the name doesn't say so.\",\"body\":\"a caller reading the name would not expect the second contact to be deleted.\",\"file\":\"contacts/merge.ts:12\"},{\"id\":\"f4\",\"severity\":\"minor\",\"title\":\"The skip log prints the whole contact record, email included.\",\"body\":\"the skipped-row log line serializes the full record.\"}]}",
           "options": [
             {
-              "value": "[Important] Dedupe matches on email only, so contacts without an email import twice. (contacts/import/dedupe.ts:58)",
-              "label": "[Important] Dedupe matches on email only, so contacts without an email import twice. (contacts/import/dedupe.ts:58)"
+              "value": "f1",
+              "label": "[Important] Dedupe matches on email only, so contacts without an email import twice.",
+              "description": "contacts/import/dedupe.ts:58"
             },
             {
-              "value": "[Important] No test covers merging two contacts that share a phone number.",
+              "value": "f2",
               "label": "[Important] No test covers merging two contacts that share a phone number."
             },
             {
-              "value": "[Minor] mergeContacts deletes the losing record; the name doesn't say so. (contacts/merge.ts:12)",
-              "label": "[Minor] mergeContacts deletes the losing record; the name doesn't say so. (contacts/merge.ts:12)"
+              "value": "f3",
+              "label": "[Minor] mergeContacts deletes the losing record; the name doesn't say so.",
+              "description": "contacts/merge.ts:12"
             },
             {
-              "value": "[Minor] The skip log prints the whole contact record, email included.",
+              "value": "f4",
               "label": "[Minor] The skip log prints the whole contact record, email included."
             }
           ]
@@ -840,15 +843,10 @@
       ],
       "answer": {
         "answers": {
-          "findings": [
-            "[Important] Dedupe matches on email only, so contacts without an email import twice. (contacts/import/dedupe.ts:58)",
-            "[Important] No test covers merging two contacts that share a phone number.",
-            "[Minor] mergeContacts deletes the losing record; the name doesn't say so. (contacts/merge.ts:12)",
-            "[Minor] The skip log prints the whole contact record, email included."
-          ],
+          "findings-1": ["f1", "f2", "f3", "f4"],
           "outcome": {
             "value": "Request changes",
-            "text": "Two must-fix items before this merges: the duplicate check ignores case, and a merge drops the second phone number."
+            "text": "Two important items before this merges: the importer matches on email only, and nothing tests merging contacts that share a phone number."
           }
         },
         "by": "board",

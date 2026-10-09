@@ -258,17 +258,49 @@ describe('the runs boards draw the fixture', () => {
 
   it('the review run offers its findings as a multi-select, all four picked', async () => {
     const [gate] = await runs.gates({ run: '20261008-0940' });
-    const findings = gate!.questions.find(q => q.id === 'findings')!;
+    const findings = gate!.questions.find(q => q.id === 'findings-1')!;
     expect(findings.label).toBe('Post which findings to !412?');
     expect(findings.multi).toBe(true);
     const picked = findings.options.map(gateOptionValue);
-    expect(picked).toEqual([
-      '[Important] Dedupe matches on email only, so contacts without an email import twice. (contacts/import/dedupe.ts:58)',
-      '[Important] No test covers merging two contacts that share a phone number.',
-      "[Minor] mergeContacts deletes the losing record; the name doesn't say so. (contacts/merge.ts:12)",
-      '[Minor] The skip log prints the whole contact record, email included.',
+    expect(picked).toEqual(['f1', 'f2', 'f3', 'f4']);
+    expect(findings.options).toEqual([
+      {
+        value: 'f1',
+        label:
+          '[Important] Dedupe matches on email only, so contacts without an email import twice.',
+        description: 'contacts/import/dedupe.ts:58',
+      },
+      {
+        value: 'f2',
+        label:
+          '[Important] No test covers merging two contacts that share a phone number.',
+      },
+      {
+        value: 'f3',
+        label:
+          "[Minor] mergeContacts deletes the losing record; the name doesn't say so.",
+        description: 'contacts/merge.ts:12',
+      },
+      {
+        value: 'f4',
+        label:
+          '[Minor] The skip log prints the whole contact record, email included.',
+      },
     ]);
-    expect(gate!.answer!.answers.findings).toEqual(picked);
+    expect(gate!.answer!.answers['findings-1']).toEqual(picked);
+    const ctx = JSON.parse(findings.context!) as {
+      'gate-ctx': string;
+      findings: { id: string; severity: string; title: string; body: string }[];
+    };
+    expect(ctx['gate-ctx']).toBe('findings@1');
+    expect(ctx.findings.map(f => f.id)).toEqual(picked);
+    expect(ctx.findings.map(f => f.severity)).toEqual([
+      'important',
+      'important',
+      'minor',
+      'minor',
+    ]);
+    expect(JSON.parse(gate!.context!)).toEqual(ctx);
     const { run } = await detail('20261008-0940');
     expect(run.outcome!.reviewed!.posted).toBe('request changes');
   });
