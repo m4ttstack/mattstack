@@ -187,12 +187,11 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         component={component}
         {...getItemProps?.(item)}
         onClick={() => onItemClick?.(item)}
-        // Selected tint follows the theme's primary color (same calm
-        // `-light` tint SelectableList uses for its selected rows), not a
-        // hardcoded palette color.
+        // A neutral tint, so a row's light badges and avatars keep their
+        // contrast on the selected row.
         bg={
           isSelectedItem?.(item)
-            ? 'var(--mantine-primary-color-light)'
+            ? 'light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))'
             : undefined
         }
         rightSection={
