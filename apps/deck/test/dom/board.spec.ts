@@ -15,6 +15,35 @@ function rowFor(page: Page, name: string) {
     .filter({ has: page.locator('strong', { hasText: name }) });
 }
 
+function gearFor(page: Page, name: string) {
+  return page.getByRole('button', {
+    name: `settings for ${name}`,
+    exact: true,
+  });
+}
+
+async function headerTexts(page: Page): Promise<string[]> {
+  const texts = await page
+    .locator('table')
+    .first()
+    .locator('[data-part="table-headcell"]')
+    .allTextContents();
+  return texts.map(t => t.trim()).filter(t => t !== '');
+}
+
+/** Found by header text, not a fixed index, so a column change cannot
+    silently retarget the lookup. */
+async function cellFor(page: Page, name: string, header: string) {
+  const texts = await page
+    .locator('table')
+    .first()
+    .locator('[data-part="table-headcell"]')
+    .allTextContents();
+  const index = texts.map(t => t.trim()).indexOf(header);
+  if (index < 0) throw new Error(`no ${header} column: ${texts.join(', ')}`);
+  return rowFor(page, name).locator('[data-part="table-cell"]').nth(index);
+}
+
 async function poll(check: () => boolean, timeoutMs = 4000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -55,56 +84,44 @@ test('health badges: status+ms for healthy, unreachable for down', async () => {
   });
 });
 
-test('service column shows dim pid N, or exit N as bad-tone text (no pill)', async () => {
+test('no service column: header cells are site, port, health, public (plus version in dev mode)', async () => {
   await withBoard(async page => {
-    const atlasService = rowFor(page, 'atlas')
-      .locator('[data-part="table-cell"]')
-      .nth(3);
-    expect(await atlasService.textContent()).toBe('pid 5123');
-
-    const ledgerService = rowFor(page, 'ledger')
-      .locator('[data-part="table-cell"]')
-      .nth(3);
-    expect(await ledgerService.textContent()).toBe('exit 1');
-    // Plain text, not a Badge -- pills are reserved for the health column.
-    expect(await ledgerService.locator('[data-part="badge"]').count()).toBe(0);
-
-    const exitColor = await ledgerService
-      .locator('.t-bad')
-      .evaluate(el => getComputedStyle(el).color);
-    const redProbe = await page.evaluate(() => {
-      const probe = document.createElement('span');
-      probe.style.color = 'light-dark(#cb1d63, #ff92ad)';
-      document.body.appendChild(probe);
-      const c = getComputedStyle(probe).color;
-      probe.remove();
-      return c;
-    });
-    expect(exitColor).toBe(redProbe);
+    expect(await headerTexts(page)).toEqual([
+      'site',
+      'port',
+      'health',
+      'public',
+    ]);
   });
+  await withBoard(
+    async page => {
+      expect(await headerTexts(page)).toEqual([
+        'site',
+        'port',
+        'health',
+        'version',
+        'public',
+      ]);
+    },
+    { fixture: 'status-newcode.json' }
+  );
 });
 
-test('leading health dot: ok tone for a healthy row, bad tone for an unreachable one', async () => {
+test('no leading health dot; the health badge carries tone', async () => {
   await withBoard(async page => {
-    // Computed colour against a same-token probe, not the emitted style
-    // text -- the --sd-color custom property is StatusDot's own internal
-    // wiring, not a contract this app should assert the literal form of.
-    const dotColor = (rowName: string) =>
-      rowFor(page, rowName)
-        .locator('[data-part="statusdot-dot"]')
-        .evaluate(el => getComputedStyle(el).color);
-    const probeColor = (token: string) =>
-      page.evaluate(t => {
-        const probe = document.createElement('span');
-        probe.style.color = `var(${t})`;
-        document.body.appendChild(probe);
-        const c = getComputedStyle(probe).color;
-        probe.remove();
-        return c;
-      }, token);
-
-    expect(await dotColor('atlas')).toBe(await probeColor('--dot-ok'));
-    expect(await dotColor('ledger')).toBe(await probeColor('--dot-bad'));
+    for (const name of ['atlas', 'ledger']) {
+      const siteCell = rowFor(page, name)
+        .locator('[data-part="table-cell"]')
+        .first();
+      expect(await siteCell.locator('[data-part="statusdot"]').count()).toBe(0);
+    }
+    const badgeIntent = async (name: string) =>
+      (await cellFor(page, name, 'health'))
+        .locator('[data-part="badge"]')
+        .first()
+        .getAttribute('data-intent');
+    expect(await badgeIntent('atlas')).toBe('ok');
+    expect(await badgeIntent('ledger')).toBe('bad');
   });
 });
 
@@ -117,26 +134,23 @@ test('restart button is visible without hovering the row', async () => {
   });
 });
 
-test('every row carries a focusable chevron with a details aria-label', async () => {
+test('every row carries a settings gear in the tab order', async () => {
   await withBoard(async page => {
-    const appsTable = page.locator('table').first();
-    expect(await appsTable.locator('[data-part="row-chevron"]').count()).toBe(
-      4
-    );
-
-    const atlasChevron = rowFor(page, 'atlas').locator(
-      '[data-part="row-chevron"]'
-    );
-    expect(await atlasChevron.getAttribute('aria-label')).toBe(
-      'details for atlas'
-    );
-
-    await atlasChevron.focus();
-    expect(
-      await page.evaluate(() =>
-        document.activeElement?.getAttribute('data-part')
-      )
-    ).toBe('row-chevron');
+    const names = [
+      ...fixture.apps.map(a => a.name),
+      ...fixture.orphans.filter(o => !o.isTunnel).map(o => o.name),
+    ];
+    for (const name of names) {
+      const gear = gearFor(page, name);
+      expect(await gear.count()).toBe(1);
+      expect(await gear.evaluate(el => (el as HTMLElement).tabIndex)).toBe(0);
+      await gear.focus();
+      expect(
+        await page.evaluate(() =>
+          document.activeElement?.getAttribute('aria-label')
+        )
+      ).toBe(`settings for ${name}`);
+    }
   });
 });
 
@@ -307,34 +321,37 @@ test('an off app: muted off badge with the settings hint, no restart, no command
   await withBoard(
     async page => {
       const ledger = rowFor(page, 'ledger');
-      const badge = ledger.locator('[data-part="badge"]', { hasText: 'off' });
+      const healthCell = await cellFor(page, 'ledger', 'health');
+      const badge = healthCell.locator('[data-part="badge"]', {
+        hasText: 'off',
+      });
       expect(await badge.count()).toBe(1);
-      const tooltip = ledger.locator(
+      const tooltip = healthCell.locator(
         '[data-part="tooltip"][data-tip="Turned off. Turn it on in mattstack.app, Settings > Apps."]'
       );
       expect(await tooltip.count()).toBe(1);
       expect(
         await ledger.locator('button[aria-label^="restart"]').count()
       ).toBe(0);
-      // Scoped to the commands cell (index 6: site, port, health, service,
-      // publish, restart, commands, chevron) rather than a button attribute --
-      // every kit Button stamps data-part="button" regardless of column, so an
-      // unscoped selector would also match the restart button.
-      const commandsCell = ledger.locator('[data-part="table-cell"]').nth(6);
-      expect(await commandsCell.locator('button').count()).toBe(0);
-      // Scoped the same way: service is cell index 3 (site, port, health,
-      // service, ...). An off app's launchd job is uninstalled, so a
-      // leftover exit status/pid would misreport it as broken.
-      const serviceCell = ledger.locator('[data-part="table-cell"]').nth(3);
-      expect(await serviceCell.locator('.t-bad').count()).toBe(0);
-      expect(await serviceCell.textContent()).toBe('');
+      // The actions cell is the row's last and has no header text; the gear
+      // is its only button on an off row.
+      const actionsCell = ledger.locator('[data-part="table-cell"]').last();
+      expect(await actionsCell.locator('button').count()).toBe(1);
+      expect(
+        await actionsCell.locator('button').getAttribute('aria-label')
+      ).toBe('settings for ledger');
+      // An off app's launchd job is uninstalled, so a leftover exit
+      // status/pid would misreport it as broken.
+      expect(await ledger.locator('.t-bad').count()).toBe(0);
+      expect(await ledger.textContent()).not.toContain('exit');
+      expect(await ledger.textContent()).not.toContain('pid');
       const fraction = page.locator('.board-subline .t-ok', {
         hasText: 'healthy',
       });
       expect(await fraction.textContent()).toBe('3 of 3 healthy');
       expect(await ledger.locator('[role="switch"]').count()).toBe(0);
 
-      await ledger.locator('[data-part="row-chevron"]').click();
+      await gearFor(page, 'ledger').click();
       await page.waitForSelector('[data-part="sidedrawer"]');
       const header = page.locator('.drawer-status');
       const headerBadge = header.locator('[data-part="badge"]', {
@@ -399,4 +416,207 @@ test('public switch flips optimistically before the PUT resolves, and reverts wh
     }
     expect(await sw.isChecked()).toBe(false);
   });
+});
+
+const REDEPLOY_TIP =
+  "Runs this app's deploy command from its linked checkout, so the running app picks up the new code.";
+const BUILD_TIP =
+  'Runs the build command only. The running app does not change until you redeploy.';
+
+function commandButton(page: Page, label: string) {
+  return page.getByRole('button', { name: label, exact: true });
+}
+
+/** The tip of the kit Tooltip wrapping `button`. */
+function tipOf(button: ReturnType<typeof commandButton>) {
+  return button
+    .locator('xpath=ancestor::*[@data-part="tooltip"][1]')
+    .getAttribute('data-tip');
+}
+
+async function settledOpacity(
+  locator: ReturnType<typeof commandButton>,
+  want: string
+): Promise<string> {
+  const deadline = Date.now() + 2000;
+  let last = '';
+  while (Date.now() < deadline) {
+    last = await locator.evaluate(el => getComputedStyle(el).opacity);
+    if (last === want) return last;
+    await new Promise(r => setTimeout(r, 25));
+  }
+  return last;
+}
+
+test('version column: behind shows deployed → head, linked-current shows current, others not tracked', async () => {
+  await withBoard(
+    async page => {
+      const atlas = await cellFor(page, 'atlas', 'version');
+      const atlasText = (await atlas.textContent()) ?? '';
+      expect(atlasText).toContain('a3f19c2');
+      expect(atlasText).toContain('e81d4b0');
+      expect(
+        await atlas.locator('.t-warn', { hasText: 'e81d4b0' }).count()
+      ).toBe(1);
+      expect(
+        (await (await cellFor(page, 'zenith', 'version')).textContent())?.trim()
+      ).toBe('current');
+      expect(
+        (await (await cellFor(page, 'ledger', 'version')).textContent())?.trim()
+      ).toBe('not tracked');
+    },
+    { fixture: 'status-newcode.json' }
+  );
+});
+
+test('deploy icon carries the warn role when the row has new code', async () => {
+  await withBoard(
+    async page => {
+      const atlasDeploy = commandButton(page, 'deploy atlas');
+      const zenithDeploy = commandButton(page, 'deploy zenith');
+      expect(await atlasDeploy.getAttribute('class')).toContain('t-warn');
+      expect(await zenithDeploy.getAttribute('class')).not.toContain('t-warn');
+      expect(await tipOf(atlasDeploy)).toBe(
+        `New code since last deploy: a3f19c2 to e81d4b0. ${REDEPLOY_TIP}`
+      );
+      expect(await tipOf(zenithDeploy)).toBe(REDEPLOY_TIP);
+      expect(await tipOf(commandButton(page, 'build zenith'))).toBe(BUILD_TIP);
+    },
+    { fixture: 'status-newcode.json' }
+  );
+});
+
+test('update strip shows the behind count and hides when none', async () => {
+  await withBoard(
+    async page => {
+      const strip = page.locator('[data-block="update-strip"]');
+      expect(await strip.count()).toBe(1);
+      expect((await strip.textContent())?.trim()).toBe(
+        'New code for 3 apps since their last deploy'
+      );
+    },
+    { fixture: 'status-newcode.json' }
+  );
+  await withBoard(async page => {
+    expect(await page.locator('[data-block="update-strip"]').count()).toBe(0);
+  });
+});
+
+test('row gear is hidden until hover or focus', async () => {
+  await withBoard(async page => {
+    const gear = gearFor(page, 'atlas');
+    await page.mouse.move(0, 0);
+    expect(await settledOpacity(gear, '0')).toBe('0');
+
+    await rowFor(page, 'atlas').hover();
+    expect(await settledOpacity(gear, '1')).toBe('1');
+
+    await page.mouse.move(0, 0);
+    expect(await settledOpacity(gear, '0')).toBe('0');
+
+    // Shift+Tab from the next row's site link lands on the gear itself, so
+    // nothing else in atlas's row holds focus first.
+    await rowFor(page, 'ledger').locator('a.unstyled').focus();
+    await page.keyboard.press('Shift+Tab');
+    expect(
+      await page.evaluate(() =>
+        document.activeElement?.getAttribute('aria-label')
+      )
+    ).toBe('settings for atlas');
+    expect(await settledOpacity(gear, '1')).toBe('1');
+  });
+});
+
+test('header settings button is icon-only with its tooltip', async () => {
+  await withBoard(async page => {
+    const button = page.getByRole('button', {
+      name: 'Deck settings',
+      exact: true,
+    });
+    const box = await button.boundingBox();
+    const glyph = await button.locator('svg').boundingBox();
+    if (!box || !glyph)
+      throw new Error('settings button or glyph not laid out');
+    expect(glyph.x).toBeGreaterThanOrEqual(box.x);
+    expect(glyph.y).toBeGreaterThanOrEqual(box.y);
+    expect(glyph.x + glyph.width).toBeLessThanOrEqual(box.x + box.width);
+    expect(glyph.y + glyph.height).toBeLessThanOrEqual(box.y + box.height);
+
+    await button.hover();
+    await page
+      .locator('[data-part="tooltip-card"]', { hasText: 'Deck settings' })
+      .waitFor({ state: 'visible', timeout: 2000 });
+  });
+});
+
+test('a running command shows busy, its tooltip reads the phase, and a second click does not post again', async () => {
+  await withBoard(async page => {
+    let posts = 0;
+    await page.route('**/api/v1/apps/atlas/commands/deploy', async route => {
+      posts++;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ started: true, runId: 'held' }),
+      });
+    });
+    let release: () => void = () => {};
+    const held = new Promise<void>(r => (release = r));
+    await page.route(
+      '**/api/v1/apps/atlas/commands/deploy/held',
+      async route => {
+        await held;
+        await route
+          .fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 'exited', exitCode: 0 }),
+          })
+          .catch(() => {});
+      }
+    );
+
+    try {
+      const deploy = commandButton(page, 'deploy atlas');
+      await deploy.click();
+      await poll(() => posts === 1);
+      await page.waitForSelector(
+        '[aria-label="deploy atlas"][aria-busy="true"]',
+        { timeout: 2000 }
+      );
+      expect(await deploy.isDisabled()).toBe(true);
+
+      await page.mouse.move(0, 0);
+      await deploy.hover();
+      const card = page.locator('[data-part="tooltip-card"]', {
+        hasText: 'deploy',
+      });
+      await card.waitFor({ state: 'visible', timeout: 2000 });
+      expect(await card.textContent()).toBe('deploy…');
+
+      await deploy.dispatchEvent('click');
+      await new Promise(r => setTimeout(r, 300));
+      expect(posts).toBe(1);
+    } finally {
+      release();
+    }
+  });
+}, 12000);
+
+test('public host: no write controls in the table', async () => {
+  await withBoard(
+    async page => {
+      expect(await page.locator('[role="switch"]').count()).toBe(0);
+      expect(await page.locator('button[aria-label^="restart"]').count()).toBe(
+        0
+      );
+      expect(
+        await page.locator('button', { hasText: 'Link source' }).count()
+      ).toBe(0);
+
+      await gearFor(page, 'atlas').click();
+      await page.waitForSelector('[data-part="sidedrawer"]');
+    },
+    { fixture: 'status-readonly.json' }
+  );
 });

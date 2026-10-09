@@ -167,14 +167,15 @@ tunnel.
 The page ground is `--bg` with the kit's graph-paper grid, replicated by
 hand in `core/board/board.css`'s own `body` rule rather than importing
 `canvas.css` (that file also resets `* { box-sizing: border-box }`, which
-`.drawer-toggle-row` is deliberately written without). Each `.apps-grid`
-table sits on a raised `--card` panel (border + radius), the same
+`.drawer-toggle-row` is deliberately written without). Each section's `.apps-grid`
+table sits in a raised `--card` panel, `.apps-panel` (border + radius,
+shared with the mattstack update strip), the same
 bg-then-panel relationship `apps/board` gives its `Panel`-wrapped row groups
 (`var(--surface-wash-panel-88)` there vs a flat `--card` fill here, since
 deck has no wash formula of its own). Page-level ink (headings, the
 subline) stays the canvas-tuned `--muted`/`--border`, already AA against
-`--bg`; ink inside a panel (suffixes, pids, hairlines) is remapped to the
-kit's on-card roles (`--text-muted-on-card` etc.) scoped to `.apps-grid`,
+`--bg`; ink inside a panel (suffixes, hairlines) is remapped to the
+kit's on-card roles (`--text-muted-on-card` etc.) scoped to `.apps-panel`,
 since the plain roles fall short of AA on the lighter `--card` surface --
 see `packages/tokens`' on-card invariants tests.
 

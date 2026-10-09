@@ -89,8 +89,8 @@ body {
   line-height: 0;
 }
 
-/* The app icon (mattstack mark) leads a managed row's identity, ahead of the
-   health dot; unmanaged rows carry none and start at the dot. */
+/* The app icon (mattstack mark) leads a managed row's identity; unmanaged
+   rows carry none and start at the name. */
 .app-icon {
   width: 22px;
   height: 22px;
@@ -132,14 +132,16 @@ body {
 .modal-form .muted {
   color: var(--text-2);
 }
-/* Bad-tone plain text -- for a value that reads as dim by default (the
-   service cell's exit status) and only needs the bad hue, not a pill:
+/* Tone-only plain text, for a value that needs the hue but not a pill:
    Badge is reserved for the health column. */
 .t-bad {
   color: var(--text-bad-vivid);
 }
 .t-ok {
   color: var(--text-ok-vivid);
+}
+.t-warn {
+  color: var(--text-warn);
 }
 
 /* hstack is a block-level flex container, so a chip after the name would be
@@ -252,29 +254,74 @@ body {
   margin-right: var(--spacing-sm);
 }
 
-/* The drawer affordance: a plain button (not the kit Button, see
-   AppsTable's ChevronCell) reset to read as inline dim text, not a box.
-   `color` is set here rather than via `.muted` -- `all: unset` resets it to
-   `inherit`, so a class applied alongside this one would lose the fight
-   whenever its rule sorts earlier in the stylesheet. */
-.row-chevron {
-  all: unset;
-  cursor: pointer;
-  color: var(--text-4);
-  padding-inline: var(--spacing-xs);
+/* The actions cell: command buttons, restart, then the gear, flush right.
+   Unlayered, so these colours win over the kit Button's layered
+   `--button-color`; the board draws the row's icons in the secondary ink
+   and a deploy with new code in the warn glyph role. */
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-xxs);
+}
+.row-actions .dev-link-input {
+  flex: 1;
+  min-width: 0;
+}
+.row-icon {
+  color: var(--text-2);
+}
+.row-actions [data-part='button'].t-warn {
+  color: var(--text-warn-vivid);
+}
+
+/* The gear stays in the tab order and only shows while its row is hovered
+   or holds focus. */
+.row-gear {
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease;
+}
+@media (hover: hover) {
+  .apps-grid [data-part='table-row']:hover .row-gear {
+    opacity: 1;
+  }
+}
+.apps-grid [data-part='table-row']:focus-within .row-gear {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-gear {
+    transition: none;
+  }
+}
+
+/* Version (dev mode): SHAs in mono; the head and arrow take the warn role,
+   the small-size step for the SHA text at the table's cell size. */
+.version-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+.version-sha {
+  font-family: var(--font-mono);
+}
+.version-sha.t-warn {
+  color: var(--text-warn-small);
 }
 
 /* Identity→facts→controls grouping: a visual gap ahead of the public column,
-   per board-composite.html. border-left, not margin -- margin collapses in
-   table layout. */
-.col-gap {
-  border-left: 14px solid transparent;
+   per board-composite.html. Padding, not margin (margin collapses in table
+   layout) and not a transparent border (that cuts the row hairlines). */
+.apps-grid .col-gap {
+  padding-left: calc(var(--spacing-md) + var(--spacing-lg));
 }
 
-/* The kit's recipes carry the sans UI font; these three columns hold machine
-   identifiers (hostname, port, launchd label) rather than prose, so they take
-   mono back for the column alignment and digit legibility a dense estate list
-   is read with. */
+/* The kit's recipes carry the sans UI font; these columns hold machine
+   identifiers (hostname, port) rather than prose, so they take mono back for
+   the column alignment and digit legibility a dense estate list is read
+   with. */
 .col-ident {
   font-family: var(--font-mono);
 }
@@ -287,21 +334,41 @@ body {
   table-layout: fixed;
 }
 
-/* Each section's table is a raised panel on the canvas ground (--page), the
-   same relationship board's own Panel wrapper gives its row groups. Inks
-   inside it (suffixes, pids, hairlines) take the kit's on-card roles rather
-   than the plain text and border roles kit components default to -- the
-   tokens package pins the on-card roles at or above AA against --card
+/* Each section is a raised panel on the canvas ground (--page), the same
+   relationship board's own Panel wrapper gives its row groups. Inks inside
+   it (suffixes, hairlines) take the kit's on-card roles rather than the
+   plain text and border roles kit components default to -- the tokens
+   package pins the on-card roles at or above AA against --card
    (packages/tokens invariants test), where the plain roles are tuned for the
-   page ground and fall short on the lighter card surface. */
-.apps-grid {
+   page ground and fall short on the lighter card surface. `overflow` clips
+   the update strip's fill to the panel's rounded corners. */
+.apps-panel {
   background: var(--card);
   border: 1px solid var(--border-on-card);
   border-radius: var(--radius-lg);
-  padding: 2px var(--spacing-lg) var(--spacing-sm);
+  overflow: hidden;
   --muted: var(--text-muted-on-card);
   --border: var(--border-on-card);
   --border-soft: var(--border-soft-on-card);
+}
+.apps-grid {
+  padding: 2px var(--spacing-lg) var(--spacing-sm);
+}
+
+/* The mattstack panel's head when apps have new code. Its inline padding
+   lines the glyph up with the table's first column text below it. */
+.update-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg) calc(var(--spacing-lg) + var(--spacing-md));
+  background: var(--surface-wash-amber-7);
+  border-bottom: 1px solid var(--border-soft-on-card);
+  font-size: var(--font-size-md);
+}
+.update-strip-icon {
+  flex: none;
+  color: var(--text-warn-vivid);
 }
 
 /* Last row's cells drop the kit's per-cell hairline -- otherwise it doubles
@@ -341,10 +408,6 @@ body {
 }
 .railway-globe.railway-error {
   color: var(--text-bad-small);
-}
-
-.row-selected {
-  background: var(--surface-wash-accent-14);
 }
 
 /* The drawer is a side panel, not a modal: the composite mock keeps the

@@ -7,17 +7,10 @@ import type { Page } from 'playwright';
 import fixture from '../fixture/status.json' with { type: 'json' };
 import { withBoard } from './rig.ts';
 
-function rowFor(page: Page, name: string) {
-  return page.locator('[data-part="table-row"]').filter({
-    has: page
-      .locator('[data-part="table-cell"]')
-      .first()
-      .filter({ hasText: name }),
-  });
-}
-
 async function openDrawer(page: Page, name: string): Promise<void> {
-  await rowFor(page, name).locator('[data-part="row-chevron"]').click();
+  await page
+    .getByRole('button', { name: `settings for ${name}`, exact: true })
+    .click();
   await page.waitForSelector('[data-part="sidedrawer"]');
 }
 

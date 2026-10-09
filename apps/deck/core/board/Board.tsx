@@ -13,6 +13,7 @@ import { AppDrawer } from './drawer/AppDrawer.tsx';
 import { sublineHealthy, type Row } from './logic.ts';
 import { AddAppModal, RemoveConfirm, UnlinkConfirm } from './modals.tsx';
 import { SettingsModal } from './SettingsModal.tsx';
+import { UpdateStrip } from './UpdateStrip.tsx';
 import { useBoardState } from './useBoardState.ts';
 
 /** Aggregate cloudflare-tunnel health, collapsed to a single header badge that
@@ -78,10 +79,10 @@ export function Board() {
   } = board;
 
   const mainRef = useRef<HTMLElement>(null);
-  const chevronRefs = useRef(new Map<string, HTMLButtonElement>()).current;
-  const registerChevron = (name: string, el: HTMLButtonElement | null) => {
-    if (el) chevronRefs.set(name, el);
-    else chevronRefs.delete(name);
+  const gearRefs = useRef(new Map<string, HTMLButtonElement>()).current;
+  const registerGear = (name: string, el: HTMLButtonElement | null) => {
+    if (el) gearRefs.set(name, el);
+    else gearRefs.delete(name);
   };
   const [openRowName, setOpenRowName] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -125,10 +126,11 @@ export function Board() {
               </Button>
             </>
           )}
-          <Tooltip tip="settings">
+          <Tooltip tip="Deck settings">
             <Button
               size="sm"
-              aria-label="settings"
+              iconOnly
+              aria-label="Deck settings"
               onClick={() => setShowSettings(true)}
             >
               {ICONS.settings}
@@ -172,15 +174,22 @@ export function Board() {
                   )}
                 </h2>
               )}
-              <AppsTable
-                section={section}
-                showHead={i === 0}
-                data={data}
-                board={board}
-                openRowName={openRowName}
-                onOpenRow={setOpenRowName}
-                registerChevron={registerChevron}
-              />
+              {/* The panel, not the table, carries the card so the update
+                  strip and the table read as one surface: the kit Table
+                  renders its children inside <table>. */}
+              <div className="apps-panel">
+                {section.key === 'mattstack' && (
+                  <UpdateStrip rows={section.rows} />
+                )}
+                <AppsTable
+                  section={section}
+                  showHead={i === 0}
+                  data={data}
+                  board={board}
+                  onOpenRow={setOpenRowName}
+                  registerGear={registerGear}
+                />
+              </div>
             </section>
           ))}
           <AppDrawer
@@ -189,7 +198,7 @@ export function Board() {
             board={board}
             openRowName={openRowName}
             onOpenRowNameChange={setOpenRowName}
-            chevronRefs={chevronRefs}
+            chevronRefs={gearRefs}
             fallbackFocusRef={mainRef}
           />
         </>

@@ -20,7 +20,9 @@ function rowFor(page: Page, name: string) {
 }
 
 async function openDrawer(page: Page, name: string): Promise<void> {
-  await rowFor(page, name).locator('[data-part="row-chevron"]').click();
+  await page
+    .getByRole('button', { name: `settings for ${name}`, exact: true })
+    .click();
   await page.waitForSelector('[data-part="sidedrawer"]');
 }
 

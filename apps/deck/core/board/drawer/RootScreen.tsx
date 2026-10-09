@@ -62,9 +62,8 @@ function logsValue(row: Row) {
   return bad ? <span className="t-bad">{text}</span> : text;
 }
 
-/** health dot + latency/service-state text + `open ↗`, matching the site
-    cell's own leading-dot logic (see AppsTable's healthTone/healthTip) but
-    spelled out in full since the drawer has room the table row doesn't. */
+/** health dot + latency/service-state text + `open ↗`, spelled out in full
+    since the drawer has room the table row doesn't. */
 function RootStatusStrip({
   row,
   restarting,

@@ -1,6 +1,6 @@
-// Per-row drawer: open/close mechanics, keyboard contract, selected-row
-// highlight, and focus restore -- including the row-vanished edge case
-// (Drawer's own returnFocusRef silently no-ops on a detached chevron).
+// Per-row drawer: open/close mechanics, keyboard contract, and focus
+// restore -- including the row-vanished edge case (Drawer's own
+// returnFocusRef silently no-ops on a detached gear).
 import { expect, test } from 'bun:test';
 import type { Page } from 'playwright';
 
@@ -20,12 +20,15 @@ function rowFor(page: Page, name: string) {
   });
 }
 
-function chevronFor(page: Page, name: string) {
-  return rowFor(page, name).locator('[data-part="row-chevron"]');
+function gearFor(page: Page, name: string) {
+  return page.getByRole('button', {
+    name: `settings for ${name}`,
+    exact: true,
+  });
 }
 
 async function openDrawer(page: Page, name: string): Promise<void> {
-  await chevronFor(page, name).click();
+  await gearFor(page, name).click();
   await page.waitForSelector('[data-part="sidedrawer"]');
 }
 
@@ -59,8 +62,15 @@ function devPortNav(page: Page) {
   });
 }
 
-test('row click opens the drawer, titled by the app name', async () => {
+test('the row gear opens the drawer; a plain row click does not', async () => {
   await withBoard(async page => {
+    // The port cell: a non-interactive spot in the row.
+    await rowFor(page, 'atlas')
+      .locator('[data-part="table-cell"]')
+      .nth(1)
+      .click();
+    expect(await page.locator('[data-part="sidedrawer"]').count()).toBe(0);
+
     await openDrawer(page, 'atlas');
     expect(await page.locator('[data-part="drawer-title"]').textContent()).toBe(
       'atlas'
@@ -124,7 +134,7 @@ test('↑/↓ move the drawer to the adjacent row, resetting to its root', async
     await openDrawer(page, 'atlas');
     // dev port push, then ↓: title must land back on the next row's root, not
     // "dev port" for the next row.
-    await rowFor(page, 'atlas').locator('[data-part="row-chevron"]').focus();
+    await gearFor(page, 'atlas').focus();
     await page
       .locator('[data-part="listgroup-nav"] button', { hasText: 'dev port' })
       .click();
@@ -145,17 +155,15 @@ test('↑/↓ move the drawer to the adjacent row, resetting to its root', async
   });
 });
 
-test('the open row carries a selected class', async () => {
+test('the open row carries no selected class', async () => {
   await withBoard(async page => {
     const atlasRow = rowFor(page, 'atlas');
-    expect(await atlasRow.getAttribute('class')).not.toContain('row-selected');
-
     await openDrawer(page, 'atlas');
-    expect(await atlasRow.getAttribute('class')).toContain('row-selected');
+    expect(await atlasRow.getAttribute('class')).not.toContain('row-selected');
   });
 });
 
-test("closing the drawer returns focus to the row's chevron", async () => {
+test("closing the drawer returns focus to the row's gear", async () => {
   await withBoard(async page => {
     await openDrawer(page, 'atlas');
     await page.keyboard.press('Escape');
@@ -166,11 +174,11 @@ test("closing the drawer returns focus to the row's chevron", async () => {
       await page.evaluate(() => {
         const active = document.activeElement;
         return (
-          active?.getAttribute('data-part') === 'row-chevron' &&
+          active?.classList.contains('row-gear') &&
           active?.getAttribute('aria-label')
         );
       })
-    ).toBe('details for atlas');
+    ).toBe('settings for atlas');
   });
 });
 
@@ -888,7 +896,7 @@ test('edit app: the kit back chevron clears the draft; reentering starts fresh, 
       'orbit'
     );
     // Drawer's already open on root -- reenter via the nav row, not the
-    // table chevron (which the open drawer panel now overlaps).
+    // table gear (which the open drawer panel now overlaps).
     await page
       .locator('[data-part="listgroup-nav"] button', { hasText: 'edit app' })
       .click();

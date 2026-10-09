@@ -358,18 +358,6 @@ export function commandButtonLabel(
   return phase === 'running' ? `${cmd}…` : cmd;
 }
 
-export function deployPill(
-  row: Row,
-  cmd: string,
-  phase: CommandPhase | undefined
-): { label: string; tip: string } | null {
-  if (cmd !== 'deploy' || !row.newCode || phase != null) return null;
-  return {
-    label: 'Redeploy',
-    tip: `New code since last deploy: ${row.newCode.deployed} to ${row.newCode.head}`,
-  };
-}
-
 export function commandToast(
   app: string,
   cmd: string,

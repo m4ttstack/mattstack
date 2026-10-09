@@ -34,6 +34,9 @@ const emptyFixture = JSON.parse(
 const staleFixture = JSON.parse(
   readFileSync(join(ROOT, 'test/fixture/status-stale.json'), 'utf8')
 );
+const newcodeFixture = JSON.parse(
+  readFileSync(join(ROOT, 'test/fixture/status-newcode.json'), 'utf8')
+);
 
 const noticeOkFixture = structuredClone(baseFixture);
 noticeOkFixture.autoHeal = { at: NOW - 30000, ok: true };
@@ -115,19 +118,6 @@ async function newPage(theme: 'light' | 'dark'): Promise<Page> {
   return page;
 }
 
-// The site cell renders the name in a <strong> only when the row has a
-// route; a stray/tunnel row with no route falls back to a plain dim span
-// (see AppsTable's SiteCell) -- scoping to the row's first cell, not a tag
-// name, matches both.
-function rowFor(page: Page, name: string) {
-  return page.locator('[data-part="table-row"]').filter({
-    has: page
-      .locator('[data-part="table-cell"]')
-      .first()
-      .filter({ hasText: name }),
-  });
-}
-
 // A click can resolve before React's resulting re-render has painted; two
 // rAFs guarantee the browser has committed a full frame after that render,
 // so the shot never catches an in-between layout (a real, once-seen diff on
@@ -196,7 +186,9 @@ async function openModal(
 }
 
 async function openDrawerFor(page: Page, name: string): Promise<void> {
-  await rowFor(page, name).locator('[data-part="row-chevron"]').click();
+  await page
+    .getByRole('button', { name: `settings for ${name}`, exact: true })
+    .click();
   await page.waitForSelector('[data-part="sidedrawer"]');
 }
 
@@ -209,14 +201,24 @@ await scenario(
   'board-sections',
   async page => {
     // A short viewport forces an actual scroll — at the default 900px the
-    // whole board already fits, so "scroll to strays+tunnel" would be a
-    // no-op capture.
+    // whole board already fits, so "scroll to strays" would be a no-op
+    // capture.
     await page.setViewportSize({ width: 1280, height: 420 });
     await page
-      .locator('h2', { hasText: 'cloudflare tunnel' })
+      .locator('h2', { hasText: 'services without routes' })
       .scrollIntoViewIfNeeded();
   },
   { fullPage: false }
+);
+// Dev mode with apps behind their checkout: the version column, the warn
+// deploy icons and the update strip. The hover shot shows a row's gear.
+await scenario('light', newcodeFixture, 'board-newcode');
+await scenario('light', newcodeFixture, 'board-newcode-hover', page =>
+  page
+    .locator('[data-part="table-row"]', {
+      has: page.locator('strong', { hasText: 'atlas' }),
+    })
+    .hover()
 );
 
 {
@@ -261,9 +263,11 @@ await scenario('light', baseFixture, 'drawer-root-broken', page =>
 await scenario('light', baseFixture, 'drawer-root-service', page =>
   openDrawerFor(page, 'stray-agent')
 );
-await scenario('light', baseFixture, 'drawer-root-tunnel', page =>
-  openDrawerFor(page, 'cloudflared')
-);
+// The tunnel has no table row; its header badge opens the drawer.
+await scenario('light', baseFixture, 'drawer-root-tunnel', async page => {
+  await page.locator('.tunnel-badge').click();
+  await page.waitForSelector('[data-part="sidedrawer"]');
+});
 await scenario('light', baseFixture, 'drawer-root-restarting', async page => {
   await openDrawerFor(page, 'atlas');
   await page
@@ -337,10 +341,10 @@ await scenario('light', baseFixture, 'drawer-logs', async page => {
 });
 
 // Edit and remove (drawer-states-atlas.html "4 · Logs, edit, remove"): a
-// managed app's edit screen (name/base port/command/directory, save in nav),
+// user app's edit screen (name/base port/command/directory, save in nav),
 // and the remove danger row's ConfirmDialog sheet over the root.
 await scenario('light', baseFixture, 'drawer-edit', async page => {
-  await openDrawerFor(page, 'atlas');
+  await openDrawerFor(page, 'orbit');
   await page
     .locator('[data-part="listgroup-nav"] button', { hasText: 'edit app' })
     .click();
@@ -355,6 +359,7 @@ await scenario('light', baseFixture, 'drawer-remove-confirm', async page => {
 
 // ---- night ----
 await scenario('dark', baseFixture, 'board-default-dark');
+await scenario('dark', newcodeFixture, 'board-newcode-dark');
 await scenario('dark', baseFixture, 'drawer-root-dark', page =>
   openDrawerFor(page, 'atlas')
 );
