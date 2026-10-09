@@ -41,6 +41,8 @@ the hook fixed an agent that has learned to sleep has no reason to stop.
    - minus any task whose notification was delivered (a `queue-operation`
      `remove`, or a `queued_command` attachment, naming the `<task-id>`) or
      that the agent stopped (`TaskStop` with that `task_id`).
+   - A launch line marked `isSidechain` never counts: a subagent's own
+     backgrounded call is not the parent's.
 
    A launch that is enqueued but not yet delivered still counts as pending:
    the delivery is what re-invokes the pane, and it happens the moment the
@@ -49,9 +51,10 @@ the hook fixed an agent that has learned to sleep has no reason to stop.
    A pending task older than a fixed bound is ignored (background tasks
    "do not survive exiting this session" and emit no notification when they
    die, so without a bound one stale launch would hold the gate open for
-   the life of the transcript). A transcript over a size cap, a scan over
-   its time cap, a missing `transcript_path`, or any parse error falls
-   through to today's block. The scan runs only after the hook has already
+   the life of the transcript). The scan reads only the last 64 MB of the
+   transcript (a launch older than that window is not seen, so it blocks).
+   A scan over its time cap, a missing `transcript_path`, or any parse
+   error falls through to today's block. The scan runs only after the hook has already
    found this session's open run, so a session with no run pays nothing.
 
 2. **Background shell tasks are ignored on purpose.** `rt gate wait` is
@@ -80,7 +83,11 @@ No run field, no console or board change, no rt change.
 - A launch enqueued but not delivered: exit 0.
 - A background shell task alone (`backgroundTaskId` in a Bash result): exit 2.
 - A pending launch older than the age bound: exit 2.
-- No `transcript_path`, a missing file, a file over the size cap, a line
+- A launch line marked `isSidechain`: exit 2.
+- The scan reads only the last 64 MB of the transcript: a pending launch
+  inside that window exits 0, and one older than the window is not seen,
+  so it exits 2.
+- No `transcript_path`, a missing file, a line
   the scan must read (one carrying a task marker) that is not JSON, or a
   scan past its time cap: exit 2, today's message. Lines with no marker
   are skipped unread.
@@ -107,8 +114,10 @@ No run field, no console or board change, no rt change.
    hook test scripts.
 4. **The plan stays local** in the gitignored plans folder; only this spec
    is committed.
-5. **Caps:** the scan skips a transcript over 64 MB and gives up after
-   1.5 s, falling back to today's block.
+5. **Caps:** the scan reads only the last 64 MB of a transcript and gives
+   up after 1.5 s (or sooner when the hook's 5 s timeout is near), falling
+   back to today's block. (Amended in review from 'skip a transcript over
+   64 MB': long sessions run past 200 MB and would never get the fix.)
 6. **The standalone `watch-ci` engine** gets the same backgrounded branch
    in the same PR.
 
@@ -119,6 +128,9 @@ No run field, no console or board change, no rt change.
   `maxWaitSeconds`.
 - Resumed agents: an agent resumed through `SendMessage` after its first
   notification writes no launch line, so the hook does not count it.
+- A session resumed with `--resume` within the age bound: its old launch
+  lines still count although the tasks died with the old process (no
+  session-start boundary, decision 1).
 - The daemon-side idle nudge from the 2026-09-01 spec.
 
 ## Source

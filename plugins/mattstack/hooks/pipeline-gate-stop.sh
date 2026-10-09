@@ -91,8 +91,10 @@ REST="${REST#*|}"; STAGE="${REST%%|*}"
 
 # A Stop with a backgrounded MCP call or an async agent still pending is not
 # a prose ending: the task's notification re-invokes the pane. The scan runs
-# only once a run is open, and every failure of it (no transcript, over the
-# size cap, a bad line, out of time) keeps today's block.
+# only once a run is open, and every failure of it (no transcript, a bad line,
+# out of time) keeps today's block. Only the transcript's tail is read: a
+# task's removal is always written after its launch, so a launch inside the
+# window has its removal there too, and one outside it is unseen and blocks.
 TRANSCRIPT="$(printf '%s' "$INPUT" | python3 -c '
 import json, sys
 try:
@@ -101,18 +103,21 @@ except Exception:
     pass
 ' 2>/dev/null)"
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
-  if python3 - "$TRANSCRIPT" >/dev/null 2>&1 <<'PY'
+  if python3 - "$TRANSCRIPT" "$START" >/dev/null 2>&1 <<'PY'
 import calendar, json, os, re, sys, time
 
 MAX_AGE_MIN = 120
 MAX_BYTES = int(os.environ.get("RT_STOP_HOOK_MAX_BYTES") or 64 * 1024 * 1024)
 SCAN_MS = int(os.environ.get("RT_STOP_HOOK_SCAN_MS") or 1500)
+# hooks.json kills the hook at 5 s and Claude Code then ignores it, so the
+# scan must finish with margin left for python to exit.
+HOOK_BUDGET_S = 4.3
 path = sys.argv[1]
-if os.path.getsize(path) > MAX_BYTES:
+remaining = HOOK_BUDGET_S - (time.time() - int(sys.argv[2]))
+budget = min(SCAN_MS / 1000.0, remaining)
+if budget <= 0:
     sys.exit(1)
-if SCAN_MS <= 0:
-    sys.exit(1)
-deadline = time.monotonic() + SCAN_MS / 1000.0
+deadline = time.monotonic() + budget
 
 MCP = re.compile(r"moved to the background as task ([A-Za-z0-9_-]+)")
 TASK_ID = re.compile(r"<task-id>([A-Za-z0-9_-]+)</task-id>")
@@ -124,6 +129,11 @@ def when(d):
 
 pending = {}
 with open(path, "rb") as f:
+    size = os.fstat(f.fileno()).st_size
+    if size > MAX_BYTES:
+        f.seek(size - MAX_BYTES - 1)
+        if f.read(1) != b"\n":
+            f.readline()
     for raw in f:
         if time.monotonic() > deadline:
             sys.exit(1)
@@ -132,6 +142,8 @@ with open(path, "rb") as f:
         d = json.loads(raw)
         kind = d.get("type")
         if kind == "user":
+            if d.get("isSidechain") is True:
+                continue
             tur = d.get("toolUseResult")
             if isinstance(tur, dict) and tur.get("status") == "async_launched" and tur.get("agentId"):
                 pending[tur["agentId"]] = when(d)

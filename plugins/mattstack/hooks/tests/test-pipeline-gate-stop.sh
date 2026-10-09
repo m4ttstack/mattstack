@@ -220,9 +220,30 @@ case "$r" in exit=2*) echo "ok   pending task past the age bound exits 2";; *) e
 transcript "$T" 119 mcp-backgrounded
 check "pending task inside the age bound exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
 
+# Tail window: with a 4096 byte cap, 100 filler lines of 100 bytes put the
+# file near 11.5 KB, so the 1.5 KB launch line is inside the window at the end
+# and outside it at the start.
+filler() { # count -> marker-free lines of exactly 100 bytes on stdout
+  local i; for ((i = 0; i < $1; i++)); do printf '{"type":"progress","n":%05d,"pad":"%061d"}\n' "$i" 0; done
+}
+
+transcript "$T" 5
+filler 100 >> "$T"
+transcript "$SANDBOX/launch.jsonl" 5 mcp-backgrounded
+cat "$SANDBOX/launch.jsonl" >> "$T"
+check "pending launch inside the tail window exits 0" "exit=0 err= out=" "$(RT_STOP_HOOK_MAX_BYTES=4096 run "$(stop_with "$T")")"
+
 transcript "$T" 5 mcp-backgrounded
-r="$(RT_STOP_HOOK_MAX_BYTES=10 run "$(stop_with "$T")")"
-case "$r" in exit=2*) echo "ok   transcript over the size cap exits 2";; *) echo "FAIL transcript over the size cap exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+filler 100 >> "$T"
+r="$(RT_STOP_HOOK_MAX_BYTES=4096 run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   launch outside the tail window exits 2";; *) echo "FAIL launch outside the tail window exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+rm -f "$SANDBOX/launch.jsonl"
+
+transcript "$T" 5 mcp-backgrounded-sidechain
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   a sidechain launch is not a pending task";; *) echo "FAIL a sidechain launch is not a pending task"; echo "       got : $r"; fails=$((fails+1));; esac
+
+transcript "$T" 5 mcp-backgrounded
 
 r="$(RT_STOP_HOOK_SCAN_MS=0 run "$(stop_with "$T")")"
 case "$r" in exit=2*) echo "ok   scan past its time cap exits 2";; *) echo "FAIL scan past its time cap exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
