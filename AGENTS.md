@@ -45,7 +45,8 @@ The org marker carries a layout version (`layout` in `mattstack/mattstack.jsonc`
 absent reads as 2 for `role: "org"` and 1 for a one-team `role: "team"`).
 `ORG_LAYOUT` in `lib/team/org-marker.ts` is the highest layout this rt reads
 and moves only with a breaking change to the repo's shape, never with a
-release. `orgLayoutState` (`lib/team/org-layout.ts`) is the one classifier
+release; the admin's runbook for such a change is the `rt-settings` skill
+(`skills/rt-settings/SKILL.md`, "Changing the org repo's layout"). `orgLayoutState` (`lib/team/org-layout.ts`) is the one classifier
 every reader uses, and it shares `pickOrgClone` with `readZonesFrom`: a clone
 needs `.git/config`, the first by name holding the org store wins, else the
 first org-kind clone, and a stale folder beside it is skipped. A clone on
