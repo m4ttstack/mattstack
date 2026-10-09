@@ -328,6 +328,11 @@ export function SettingsPage() {
                           <TextInput
                             ref={filterRef}
                             aria-label="filter settings"
+                            // Key names are not words: no macOS
+                            // correction, capitals or spellcheck.
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
                             style={{ flex: 1 }}
                             leftSection={<Icons.search size={16} />}
                             placeholder={`Filter ${total} settings`}
