@@ -4,7 +4,7 @@ struct WelcomeScreen: View {
     private let bullets: [(String, String)] = [
         ("terminal", "Install the mattstack CLI tools (rt, deck, gitq) into ~/.local/bin and add one PATH line to your shell rc."),
         ("gearshape.2", "Run background services: the rt daemon and the bundled apps."),
-        ("sparkles", "Install the mattstack skills into the agent apps you use, such as Claude Code or Codex."),
+        ("sparkles", "Install the mattstack skills into Claude Code."),
         ("puzzlepiece.extension", "Install the editor extension."),
         ("lock.shield", "Ask for Full Disk Access and background-item approval."),
     ]

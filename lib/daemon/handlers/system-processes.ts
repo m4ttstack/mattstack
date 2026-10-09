@@ -86,9 +86,13 @@ export type ProcessHarness = { id: string; label: string };
  * breadcrumb chain: each built-in integration's id is also the name of the
  * executable its sessions run as ("claude", "codex").
  */
+/** Subcommands that run a harness's background server rather than a session, which the tray must not badge as one. */
+const NOT_A_SESSION: Record<string, readonly string[]> = { codex: ["app-server"] };
+
 function tagHarnesses(node: SystemProcess, harnesses: readonly ProcessHarness[]): SystemProcess {
   const segments = node.command.split(" › ");
-  const harness = harnesses.find((h) => segments.includes(h.id));
+  const args = node.fullCommand.split(" ").slice(1);
+  const harness = harnesses.find((h) => segments.includes(h.id) && !(NOT_A_SESSION[h.id] ?? []).some((sub) => args.includes(sub)));
   return {
     ...node,
     ...(harness && { harness: { id: harness.id, label: harness.label } }),

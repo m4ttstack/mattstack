@@ -13,7 +13,7 @@ struct UninstallPane: View {
     var body: some View {
         Form {
             Section("Uninstall mattstack") {
-                Text("Reverses what the installer did on this Mac, such as the services, the proxy, the ~/.local/bin links and the plugins added to your agent apps, then moves the app to the Trash. You see the full list before anything is removed.")
+                Text("Reverses everything the installer did: services, the proxy, ~/.local/bin links and the shell rc block, the editor extension, the Claude Code plugins we added; then moves the app to the Trash.")
                     .font(.callout)
                 Button("Uninstall mattstack…") { Task { await armConfirmation() } }
                     .disabled(running)

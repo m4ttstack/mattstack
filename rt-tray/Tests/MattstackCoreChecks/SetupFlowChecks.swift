@@ -102,7 +102,7 @@ let harnessProfileChecks: [Check] = [
             }
         }
     },
-    Check("harness profiles: each shows only its own harness rows, and those required are the ones rt requires") { c in
+    Check("harness profiles: the checklist model shows only the profile's harness rows, badging none of rt's required ones optional") { c in
         let plans = try harnessProfilePlans()
         let expected: [String: (shown: Set<String>, required: Set<String>)] = [
             "claude-only": (["tool.claude", "tool.plugins", "tool.linear-mcp"], ["tool.claude"]),
@@ -112,10 +112,18 @@ let harnessProfileChecks: [Check] = [
         ]
         for (name, want) in expected {
             let plan = try c.requireSome(plans[name], name)
-            let rows = plan.groups.flatMap(\.rows)
-            let harnessRows = rows.filter { claudeRowIds.union(codexRowIds).contains($0.id) }
-            c.expectEqual(Set(harnessRows.map(\.id)), want.shown, name)
-            c.expectEqual(Set(harnessRows.filter(\.required).map(\.id)), want.required, name)
+            let m = await loadedReadiness(plan)
+            await MainActor.run {
+                let harnessRows = m.groups(for: .all).flatMap(\.rows).filter { claudeRowIds.union(codexRowIds).contains($0.id) }
+                c.expectEqual(Set(harnessRows.map(\.id)), want.shown, name)
+                c.expectEqual(Set(harnessRows.filter(\.required).map(\.id)), want.required, name)
+                for row in harnessRows where want.required.contains(row.id) {
+                    c.expect(row.badge != .optional, "\(name): \(row.id) is required, never badged optional")
+                }
+                for row in harnessRows where !want.required.contains(row.id) {
+                    c.expectEqual(row.badge, .optional, "\(name): \(row.id)")
+                }
+            }
         }
     },
     Check("harness profiles: a Mac without Claude Code can install and finish on Codex alone") { c in

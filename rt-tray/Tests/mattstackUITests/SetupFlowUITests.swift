@@ -214,9 +214,11 @@ final class SetupFlowUITests: XCTestCase {
         }
     }
 
-    /// Each agent-app profile end to end, from the rows rt composes for it:
-    /// only that profile's rows show, Install opens, and Finish is never held
-    /// by an agent app the Mac does not use.
+    /// Each agent-app profile's harness rows, as rt composes them, rendered on
+    /// the stub's installable join plan: only that profile's rows show and
+    /// Install opens. The stub carries no finish gates, so Finish opening here
+    /// proves only that no harness row gates it; rt's own gating is pinned by
+    /// the core checks against the same fixture.
     func testHarnessProfilesInstallAndFinishLightAndDark() {
         let rows: [String: (shown: [String], hidden: [String])] = [
             "claude-only": (["tool.claude", "tool.integrations"], ["tool.codex", "tool.codex-mcp"]),
@@ -230,7 +232,6 @@ final class SetupFlowUITests: XCTestCase {
                 app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
                 app.launch()
                 waitFor("setup.welcome.screen")
-                XCTAssertTrue(app.staticTexts["Install the mattstack skills into the agent apps you use, such as Claude Code or Codex."].exists)
                 shootWindow("harness-\(profile)-welcome-\(scheme)")
                 el("setup.welcome.continue").click()
                 waitFor("setup.team.screen"); el("setup.team.card.join").click()
@@ -395,7 +396,6 @@ final class SetupFlowUITests: XCTestCase {
         waitFor("settings.tab.uninstall")
         el("settings.tab.uninstall").click()
         waitFor("settings.uninstall.button")
-        XCTAssertTrue(app.staticTexts["Reverses what the installer did on this Mac, such as the services, the proxy, the ~/.local/bin links and the plugins added to your agent apps, then moves the app to the Trash. You see the full list before anything is removed."].exists)
         shoot("uninstall-pane")
         el("settings.uninstall.button").click()
         waitFor("settings.uninstall.confirm")

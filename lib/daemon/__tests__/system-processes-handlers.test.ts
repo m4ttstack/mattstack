@@ -182,6 +182,15 @@ describe("system-processes harness tags", () => {
     expect(Object.keys(res.data.processes[0])).not.toContain("harness");
   });
 
+  test("Codex's app server is a background service, not a session, so it carries no harness", async () => {
+    const server = makeProcess({ pid: 10, ppid: 1, fullCommand: "/opt/homebrew/bin/codex app-server --listen stdio" });
+    const session = makeProcess({ pid: 20, ppid: 1, fullCommand: "/opt/homebrew/bin/codex --model gpt-5" });
+    const res = await tagged([server, session], () => HARNESSES)["system-processes"]!({}) as any;
+    const byPid = new Map<number, any>(res.data.processes.map((p: any) => [p.pid, p]));
+    expect(Object.keys(byPid.get(10))).not.toContain("harness");
+    expect(byPid.get(20).harness).toEqual({ id: "codex", label: "Codex" });
+  });
+
   test("a segment only matches whole: claude-ish is not Claude", async () => {
     const wrapper = makeProcess({ pid: 10, ppid: 1, fullCommand: "claude-ish" });
     const res = await tagged([wrapper], () => HARNESSES)["system-processes"]!({}) as any;
