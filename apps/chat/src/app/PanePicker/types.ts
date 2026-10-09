@@ -7,6 +7,7 @@ export type {
   PaneAccount,
   PaneDirectory,
 } from '@mattstack/rt-client';
+export type { PaneHarness, PaneHarnesses } from '../../server/harness-panes';
 export interface PickPanesOptions {
   context?: string;
   multiple?: boolean;

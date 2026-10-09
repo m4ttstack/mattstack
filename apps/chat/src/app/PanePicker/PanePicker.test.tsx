@@ -1,7 +1,7 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, expect, test } from 'vitest';
+import { beforeEach, expect, onTestFinished, test } from 'vitest';
 
 import { fetchMock, installFetchMock } from '../test-utils';
 import {
@@ -437,4 +437,157 @@ test('pane rows that share a name show avatars and an ordinal in list order; a u
   expect(document.body.textContent).not.toContain('m2p4');
   for (const el of document.body.querySelectorAll('[aria-label]'))
     expect(el.getAttribute('aria-label')).not.toContain('m2p4');
+});
+
+const HARNESSES = {
+  enabled: true,
+  defaultHarness: 'claude',
+  harnesses: [
+    {
+      id: 'claude',
+      label: 'Claude Code',
+      ready: true,
+      options: [
+        { name: 'model', kind: 'text' },
+        { name: 'effort', kind: 'text' },
+        { name: 'account', kind: 'text' },
+      ],
+    },
+    {
+      id: 'codex',
+      label: 'Codex',
+      ready: false,
+      reason: 'rt has no connection to the Codex app server yet',
+      options: [
+        { name: 'model', kind: 'text' },
+        { name: 'effort', kind: 'text' },
+      ],
+    },
+    {
+      id: 'pilot',
+      label: 'Pilot',
+      ready: true,
+      options: [{ name: 'model', kind: 'choice', choices: ['p-1', 'p-2'] }],
+    },
+  ],
+};
+
+async function pickAgent(label: string) {
+  await userEvent.click(screen.getByRole('combobox', { name: 'Agent' }));
+  await userEvent.click(await screen.findByRole('option', { name: label }));
+}
+
+test('picker lists enabled ready harnesses and preserves explicit choice', async () => {
+  // jsdom has no scrollIntoView, which Combobox calls on a selected option.
+  const native = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = () => {};
+  onTestFinished(() => {
+    Element.prototype.scrollIntoView = native;
+  });
+  let release: (r: Response) => void = () => {};
+  route({
+    'GET /api/panes': () =>
+      json({
+        available: true,
+        panes: [
+          { ...PANES[0]!, provider: 'claude' },
+          { ...PANES[1]!, provider: 'codex' },
+        ],
+      }),
+    'GET /api/panes/harnesses': () => json(HARNESSES),
+    'GET /api/panes/accounts': () =>
+      json({
+        accounts: [
+          { slot: 1, email: 'a@b.c', alias: 'Acme', headroom: '5h 0%' },
+        ],
+      }),
+    'GET /api/panes/directories': () => json({ directories: [] }),
+    'POST /api/panes': () => new Promise<Response>(r => (release = r)),
+  });
+  mount({ allowCreate: true });
+  await userEvent.click(screen.getByText('open'));
+
+  const codexRow = await screen.findByTestId('pane-row-w1:p2');
+  expect(await within(codexRow).findByText('Codex')).toBeInTheDocument();
+  expect(
+    within(screen.getByTestId('pane-row-w1:p1')).getByText('Claude Code')
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/panes running Claude/)).toBeNull();
+
+  await userEvent.click(screen.getByTestId('pane-new'));
+  const agent = await screen.findByRole('combobox', { name: 'Agent' });
+  expect(agent).toHaveValue('Claude Code');
+  await userEvent.click(agent);
+  expect(
+    (await screen.findAllByRole('option')).map(o => o.textContent)
+  ).toEqual(['Claude Code', 'Codex', 'Pilot']);
+  await userEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
+  expect(
+    await screen.findByRole('combobox', { name: 'Account' })
+  ).toBeInTheDocument();
+
+  await pickAgent('Pilot');
+  await userEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+  expect(
+    (await screen.findAllByRole('option')).map(o => o.textContent)
+  ).toEqual(['p-1', 'p-2']);
+  await userEvent.click(screen.getByRole('option', { name: 'p-2' }));
+  expect(screen.queryByRole('combobox', { name: 'Account' })).toBeNull();
+
+  await pickAgent('Codex');
+  expect(screen.queryByRole('combobox', { name: 'Account' })).toBeNull();
+  expect(
+    screen.getByText('rt has no connection to the Codex app server yet')
+  ).toBeInTheDocument();
+  await userEvent.type(screen.getByLabelText('Directory'), '/r/acme-wt');
+  await userEvent.type(screen.getByRole('textbox', { name: 'Model' }), 'gpt-5');
+  await userEvent.click(screen.getByTestId('pane-start'));
+
+  expect(
+    await screen.findByText('starting Codex · selectable when idle')
+  ).toBeInTheDocument();
+  const posts = () =>
+    fetchMock.mock.calls.filter(
+      ([, i]) => (i as RequestInit)?.method === 'POST'
+    );
+  expect(posts()).toHaveLength(1);
+  const body = JSON.parse(String(posts()[0]![1]!.body));
+  expect(body).toMatchObject({
+    cwd: '/r/acme-wt',
+    provider: 'codex',
+    model: 'gpt-5',
+  });
+  expect(body).not.toHaveProperty('account');
+
+  await act(async () => {
+    release(
+      json(
+        {
+          error:
+            'Codex is not installed: there is no codex on PATH or in ~/.local/bin',
+        },
+        502
+      )
+    );
+  });
+  expect(await screen.findByText(/Codex is not installed/)).toBeInTheDocument();
+  expect(posts()).toHaveLength(1);
+});
+
+test('with the integrations switch off the new pane form keeps its Claude model list and no agent choice', async () => {
+  route({
+    'GET /api/panes': () => json({ available: true, panes: PANES }),
+    'GET /api/panes/harnesses': () => json({ enabled: false }),
+    'GET /api/panes/accounts': () => json({ accounts: [] }),
+    'GET /api/panes/directories': () => json({ directories: [] }),
+  });
+  mount({ allowCreate: true });
+  await userEvent.click(screen.getByText('open'));
+  expect(await screen.findByText('4 panes running Claude')).toBeInTheDocument();
+  await userEvent.click(screen.getByTestId('pane-new'));
+  expect(screen.queryByRole('combobox', { name: 'Agent' })).toBeNull();
+  expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue(
+    'claude-fable-5'
+  );
+  expect(screen.getByText('claude --model claude-fable-5')).toBeInTheDocument();
 });

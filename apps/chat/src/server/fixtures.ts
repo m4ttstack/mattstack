@@ -34,6 +34,7 @@ import type {
   RoomSummary,
 } from '@mattstack/rt-client';
 
+import type { PaneHarnesses } from './harness-panes';
 import { buildInbox, type InboxPayload } from './inbox';
 
 /** Off unless explicitly asked for. Read at call time, never cached. */
@@ -811,4 +812,54 @@ export function fixtureSpawn(cwd: string): { pane: ChatPane; ready: boolean } {
       agentStatus: 'idle',
     },
   };
+}
+
+/** `CHAT_FIXTURE_HARNESSES=1` beside `CHAT_FIXTURES=1` draws the picker as it
+    is with agent.integrations.enabled on; without it the fixtures stay the
+    Claude-only picker the artboards draw. */
+export function fixtureHarnessesEnabled(): boolean {
+  return process.env.CHAT_FIXTURE_HARNESSES === '1';
+}
+
+export function fixtureHarnesses(): PaneHarnesses {
+  if (!fixtureHarnessesEnabled()) return { enabled: false };
+  return {
+    enabled: true,
+    defaultHarness: 'claude',
+    harnesses: [
+      {
+        id: 'claude',
+        label: 'Claude Code',
+        ready: true,
+        options: [
+          { name: 'model', kind: 'text' },
+          { name: 'effort', kind: 'text' },
+          { name: 'account', kind: 'text' },
+          { name: 'extraArgs', kind: 'text' },
+          { name: 'yolo', kind: 'boolean' },
+        ],
+      },
+      {
+        id: 'codex',
+        label: 'Codex',
+        ready: false,
+        reason: 'rt has no connection to the Codex app server yet',
+        options: [
+          { name: 'model', kind: 'text' },
+          { name: 'effort', kind: 'text' },
+          { name: 'extraArgs', kind: 'text' },
+          { name: 'yolo', kind: 'boolean' },
+        ],
+      },
+    ],
+  };
+}
+
+/** The fixture panes as a mixed roster, alternating harness by row. */
+export function fixtureHarnessPanes(panes: ChatPane[]): ChatPane[] {
+  if (!fixtureHarnessesEnabled()) return panes;
+  return panes.map((p, i) => ({
+    ...p,
+    provider: i % 2 === 0 ? 'claude' : 'codex',
+  }));
 }

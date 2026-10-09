@@ -12,9 +12,9 @@ import { Icon } from '@mattstack/app-kit/icons';
 import { notifications } from '@mattstack/app-kit/notifications';
 
 import { sameNameOrdinals } from '../display-name';
-import { NewPaneForm } from './NewPaneForm';
+import { NewPaneForm, type NewPaneArgs } from './NewPaneForm';
 import { paneName, PaneRow } from './PaneRow';
-import type { ChatPane, PickPanesOptions } from './types';
+import type { ChatPane, PaneHarnesses, PickPanesOptions } from './types';
 
 const ORDER: Record<string, number> = { live: 0, idle: 1 };
 
@@ -48,6 +48,19 @@ export function matchesFilter(pane: ChatPane, q: string): boolean {
 interface Starting {
   key: string;
   cwd: string;
+  /** The harness's label, only while the integrations switch is on. */
+  label?: string;
+}
+
+function readHarnesses(body: unknown): PaneHarnesses {
+  const b = body as Partial<Extract<PaneHarnesses, { enabled: true }>> | null;
+  return b?.enabled === true && Array.isArray(b.harnesses)
+    ? {
+        enabled: true,
+        harnesses: b.harnesses,
+        defaultHarness: b.defaultHarness ?? null,
+      }
+    : { enabled: false };
 }
 
 export function PanePickerModal({
@@ -68,6 +81,10 @@ export function PanePickerModal({
   const [filter, setFilter] = useState('');
   const [peeks, setPeeks] = useState<Record<string, string[] | 'loading'>>({});
   const [view, setView] = useState<'list' | 'new'>('list');
+  const [harnesses, setHarnesses] = useState<PaneHarnesses | null>(null);
+  const on = harnesses?.enabled === true ? harnesses : null;
+  const labelOf = (id: string) =>
+    on?.harnesses.find(h => h.id === id)?.label ?? id;
   const mobile = useIsMobile();
 
   useEffect(() => {
@@ -81,6 +98,21 @@ export function PanePickerModal({
       })
       .catch(() => {
         if (!cancelled) setAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/panes/harnesses')
+      .then(res => (res.ok ? res.json() : null))
+      .then((data: unknown) => {
+        if (!cancelled) setHarnesses(readHarnesses(data));
+      })
+      .catch(() => {
+        if (!cancelled) setHarnesses({ enabled: false });
       });
     return () => {
       cancelled = true;
@@ -132,16 +164,11 @@ export function PanePickerModal({
       );
   }
 
-  function start(args: {
-    cwd: string;
-    account?: string;
-    model?: string;
-    effort?: string;
-    prompt?: string;
-    workspace?: string;
-  }) {
+  function start(args: NewPaneArgs) {
     const key = `starting-${Date.now()}`;
-    setStarting(prev => [...prev, { key, cwd: args.cwd }]);
+    const label =
+      on && args.provider !== undefined ? labelOf(args.provider) : undefined;
+    setStarting(prev => [...prev, { key, cwd: args.cwd, label }]);
     setView('list');
     fetch('/api/panes', {
       method: 'POST',
@@ -199,7 +226,11 @@ export function PanePickerModal({
       styles={{ content: { background: 'var(--tk-panel)' } }}
     >
       {view === 'new' ? (
-        <NewPaneForm onBack={() => setView('list')} onStart={start} />
+        <NewPaneForm
+          harnesses={harnesses}
+          onBack={() => setView('list')}
+          onStart={start}
+        />
       ) : (
         <Stack gap="xs">
           {available === false ? (
@@ -219,7 +250,9 @@ export function PanePickerModal({
               />
               <Group justify="space-between" wrap="nowrap">
                 <Text size="xs" style={{ color: 'var(--tk-text-4)' }}>
-                  {panes.length} panes running Claude
+                  {on
+                    ? `${panes.length} agent panes`
+                    : `${panes.length} panes running Claude`}
                 </Text>
                 <Group gap="xs" wrap="nowrap">
                   <Text size="xs" style={{ color: 'var(--tk-text-4)' }}>
@@ -259,7 +292,11 @@ export function PanePickerModal({
                       cwd: s.cwd,
                       agentStatus: 'unknown',
                     }}
-                    disabledReason="starting claude · selectable when idle"
+                    disabledReason={
+                      s.label
+                        ? `starting ${s.label} · selectable when idle`
+                        : 'starting claude · selectable when idle'
+                    }
                     onToggle={() => {}}
                   />
                 ))}
@@ -274,6 +311,17 @@ export function PanePickerModal({
                     onPeek={() => peek(pane)}
                     peek={peeks[pane.paneId]}
                     ordinal={ordinals.get(pane)}
+                    trailing={
+                      on && pane.provider ? (
+                        <Text
+                          component="span"
+                          size="xs"
+                          style={{ color: 'var(--tk-text-4)', flex: 'none' }}
+                        >
+                          {labelOf(pane.provider)}
+                        </Text>
+                      ) : undefined
+                    }
                   />
                 ))}
               </Stack>

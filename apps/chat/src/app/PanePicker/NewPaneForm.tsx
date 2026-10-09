@@ -10,7 +10,12 @@ import {
   UnstyledButton,
 } from '@mattstack/app-kit/core';
 
-import type { PaneAccount, PaneDirectory } from './types';
+import type {
+  PaneAccount,
+  PaneDirectory,
+  PaneHarness,
+  PaneHarnesses,
+} from './types';
 
 /** Always rendered inside `PanePickerModal`, outside
     `ThemeOverrideWrapper theme={chatFontTheme}`, so `size="xs"` here is
@@ -27,19 +32,63 @@ const EFFORTS = [
   { value: 'max', label: 'max' },
 ];
 
-export interface NewPaneFormProps {
-  onBack: () => void;
-  onStart: (args: {
-    cwd: string;
-    account?: string;
-    model?: string;
-    effort?: string;
-    prompt?: string;
-    workspace?: string;
-  }) => void;
+export interface NewPaneArgs {
+  cwd: string;
+  provider?: string;
+  account?: string;
+  model?: string;
+  effort?: string;
+  prompt?: string;
+  workspace?: string;
 }
 
-export function NewPaneForm({ onBack, onStart }: NewPaneFormProps) {
+export interface NewPaneFormProps {
+  /** Null or `enabled: false`: the Claude-only form, as before the switch. */
+  harnesses: PaneHarnesses | null;
+  onBack: () => void;
+  onStart: (args: NewPaneArgs) => void;
+}
+
+/** A harness option as a form control: a choice is a Select of its
+    choices, text is free entry, and an option it does not offer is absent. */
+function OptionField({
+  harness,
+  name,
+  label,
+  value,
+  onChange,
+}: {
+  harness: PaneHarness;
+  name: 'model' | 'effort';
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const option = harness.options.find(o => o.name === name);
+  if (!option) return null;
+  if (option.kind === 'choice')
+    return (
+      <Select
+        label={label}
+        data={option.choices ?? []}
+        value={value || null}
+        onChange={v => onChange(v ?? '')}
+        placeholder="default"
+        clearable
+      />
+    );
+  return (
+    <TextInput
+      label={label}
+      placeholder="default"
+      value={value}
+      onChange={e => onChange(e.currentTarget.value)}
+    />
+  );
+}
+
+export function NewPaneForm({ harnesses, onBack, onStart }: NewPaneFormProps) {
+  const on = harnesses?.enabled === true ? harnesses : null;
   const [cwd, setCwd] = useState('');
   const [suggestions, setSuggestions] = useState<PaneDirectory[]>([]);
   const [accounts, setAccounts] = useState<PaneAccount[]>([]);
@@ -48,6 +97,15 @@ export function NewPaneForm({ onBack, onStart }: NewPaneFormProps) {
   const [effort, setEffort] = useState('');
   const [workspace, setWorkspace] = useState('chat');
   const [prompt, setPrompt] = useState('');
+  const [picked, setPicked] = useState<string | null>(null);
+  const [option, setOption] = useState({ model: '', effort: '' });
+  const harness = on
+    ? (on.harnesses.find(h => h.id === picked) ??
+      on.harnesses.find(h => h.id === on.defaultHarness) ??
+      on.harnesses[0])
+    : undefined;
+  const takesAccount =
+    !on || harness?.options.some(o => o.name === 'account') === true;
 
   useEffect(() => {
     let cancelled = false;
@@ -82,9 +140,34 @@ export function NewPaneForm({ onBack, onStart }: NewPaneFormProps) {
     };
   }, [cwd]);
 
-  const command = account
-    ? `cswap run ${account} --share-history -- claude --model ${model}${effort ? ` --effort ${effort}` : ''}`
-    : `claude --model ${model}${effort ? ` --effort ${effort}` : ''}`;
+  const command = on
+    ? [harness?.label, option.model, option.effort].filter(Boolean).join(' · ')
+    : account
+      ? `cswap run ${account} --share-history -- claude --model ${model}${effort ? ` --effort ${effort}` : ''}`
+      : `claude --model ${model}${effort ? ` --effort ${effort}` : ''}`;
+
+  function submit() {
+    if (on) {
+      onStart({
+        cwd,
+        provider: harness?.id,
+        ...(takesAccount && account ? { account } : {}),
+        model: option.model || undefined,
+        effort: option.effort || undefined,
+        prompt: prompt || undefined,
+        workspace,
+      });
+      return;
+    }
+    onStart({
+      cwd,
+      account: account ?? undefined,
+      model,
+      effort: effort || undefined,
+      prompt: prompt || undefined,
+      workspace,
+    });
+  }
 
   return (
     <Stack gap="sm">
@@ -127,7 +210,19 @@ export function NewPaneForm({ onBack, onStart }: NewPaneFormProps) {
           </Stack>
         )}
       </Stack>
-      {accounts.length > 0 && (
+      {on && (
+        <Select
+          label="Agent"
+          data={on.harnesses.map(h => ({ value: h.id, label: h.label }))}
+          value={harness?.id ?? null}
+          onChange={v => {
+            setPicked(v);
+            setOption({ model: '', effort: '' });
+          }}
+          description={harness && !harness.ready ? harness.reason : undefined}
+        />
+      )}
+      {takesAccount && accounts.length > 0 && (
         <Select
           label="Account"
           data={accounts.map(a => ({
@@ -139,22 +234,46 @@ export function NewPaneForm({ onBack, onStart }: NewPaneFormProps) {
           allowDeselect={false}
         />
       )}
-      <Group grow>
-        <Select
-          label="Model"
-          data={MODELS}
-          value={model}
-          onChange={v => setModel(v ?? MODELS[0]!)}
-          allowDeselect={false}
-        />
-        <Select
-          label="Effort"
-          data={EFFORTS}
-          value={effort}
-          onChange={v => setEffort(v ?? '')}
-          allowDeselect={false}
-        />
-      </Group>
+      {on ? (
+        harness &&
+        harness.options.some(
+          o => o.name === 'model' || o.name === 'effort'
+        ) && (
+          <Group grow>
+            <OptionField
+              harness={harness}
+              name="model"
+              label="Model"
+              value={option.model}
+              onChange={v => setOption(o => ({ ...o, model: v }))}
+            />
+            <OptionField
+              harness={harness}
+              name="effort"
+              label="Effort"
+              value={option.effort}
+              onChange={v => setOption(o => ({ ...o, effort: v }))}
+            />
+          </Group>
+        )
+      ) : (
+        <Group grow>
+          <Select
+            label="Model"
+            data={MODELS}
+            value={model}
+            onChange={v => setModel(v ?? MODELS[0]!)}
+            allowDeselect={false}
+          />
+          <Select
+            label="Effort"
+            data={EFFORTS}
+            value={effort}
+            onChange={v => setEffort(v ?? '')}
+            allowDeselect={false}
+          />
+        </Group>
+      )}
       <TextInput
         label="Workspace"
         value={workspace}
@@ -193,17 +312,8 @@ export function NewPaneForm({ onBack, onStart }: NewPaneFormProps) {
         </Button>
         <Button
           size="sm"
-          disabled={!cwd.startsWith('/')}
-          onClick={() =>
-            onStart({
-              cwd,
-              account: account ?? undefined,
-              model,
-              effort: effort || undefined,
-              prompt: prompt || undefined,
-              workspace,
-            })
-          }
+          disabled={!cwd.startsWith('/') || (on !== null && !harness)}
+          onClick={submit}
           data-testid="pane-start"
         >
           Start pane

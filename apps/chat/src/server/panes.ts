@@ -13,11 +13,14 @@ import {
   fixtureAccounts,
   fixtureDirectories,
   fixtureFocus,
+  fixtureHarnesses,
+  fixtureHarnessPanes,
   fixturePanes,
   fixturePeek,
   fixturesEnabled,
   fixtureSpawn,
 } from './fixtures';
+import { paneHarnesses, spawnChoice } from './harness-panes';
 
 function rtOpts(): RtClientOptions {
   return { sockPath: process.env.RT_SOCK_PATH };
@@ -35,7 +38,10 @@ export const panes = new Hono()
   // herdr absent is a state the UI hides behind, not an error it shows.
   .get('/api/panes', async c => {
     if (fixturesEnabled())
-      return c.json({ available: true, panes: fixturePanes() }, 200);
+      return c.json(
+        { available: true, panes: fixtureHarnessPanes(fixturePanes()) },
+        200
+      );
     const res = await paneList(rtOpts());
     if (!res.ok) {
       if (res.error?.startsWith(HERDR_UNAVAILABLE))
@@ -43,6 +49,12 @@ export const panes = new Hono()
       return c.json({ error: res.error }, 502);
     }
     return c.json({ available: true, panes: res.data?.panes ?? [] }, 200);
+  })
+  .get('/api/panes/harnesses', async c => {
+    if (fixturesEnabled()) return c.json(fixtureHarnesses(), 200);
+    const res = await paneHarnesses(rtOpts());
+    if ('error' in res) return c.json({ error: res.error }, 502);
+    return c.json(res, 200);
   })
   .get('/api/panes/accounts', async c => {
     if (fixturesEnabled()) return c.json({ accounts: fixtureAccounts() }, 200);
@@ -101,7 +113,14 @@ export const panes = new Hono()
       workspace: str('workspace'),
     };
     if (fixturesEnabled()) return c.json(fixtureSpawn(cwd), 200);
-    const res = await paneSpawn(args, rtOpts());
+    const choice = await spawnChoice(str('provider'), args, rtOpts());
+    if (!choice.ok) return c.json({ error: choice.error }, choice.status);
+    const res = await paneSpawn(
+      choice.provider === undefined
+        ? args
+        : { ...args, provider: choice.provider },
+      rtOpts()
+    );
     if (!res.ok) {
       const status =
         res.error?.startsWith('unknown cswap account') ||
