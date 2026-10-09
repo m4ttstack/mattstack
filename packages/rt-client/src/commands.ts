@@ -186,6 +186,9 @@ export { gateOptionValue, gateOptionLabel } from "./gate-options.ts";
     doorbell it would otherwise send back to the writer. Optional: a caller
     that supplies none (the board status-bin answers `by: "pane"` with no
     session) still matches self by `by === GATE_BY_PANE`. */
+/** `overridden`: the answer went past the herd-owner guard. The console
+    sets it on every answer it sends; it says nothing about whether the
+    answer matched the recommended option. */
 export interface GateAnswer { answers: Record<string, string | string[] | { value: string | string[]; note?: string; text?: string }>; by: string; answeredAt: number; overridden?: boolean; session?: string }
 export interface GateRow {
   id: string; subject: string; kind: string;

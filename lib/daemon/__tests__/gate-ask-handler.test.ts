@@ -29,6 +29,7 @@ function harness(opts: {
   resolveSubject?: (args: { subject?: string; sessionId?: string }) => GateSubjectResult;
   runSpawnedBy?: (runId: string) => string | null;
   runWorktree?: (runId: string) => string | null;
+  runCurrentStage?: (runId: string) => string | null;
 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "rt-gate-ask-handler-"));
   dirs.push(dir);
@@ -39,6 +40,7 @@ function harness(opts: {
     resolveSubject: opts.resolveSubject,
     runSpawnedBy: opts.runSpawnedBy,
     runWorktree: opts.runWorktree,
+    runCurrentStage: opts.runCurrentStage,
   });
   return { handlers, store };
 }
@@ -587,5 +589,26 @@ describe("gate:ask structured question context (RT-184)", () => {
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error).toContain("1024 bytes");
+  });
+});
+
+describe("gate:ask meta.stage", () => {
+  test("stamps meta.stage against the resolved run subject, not the payload's", async () => {
+    const { handlers, store } = harness({
+      resolveSubject: () => ({ ok: true, subject: "run:r7", runId: "r7" }),
+      runCurrentStage: (id) => (id === "r7" ? "implement" : null),
+    });
+    const res = await handlers["gate:ask"]({ questions: twoOptionQuestion(), sessionId: "s1", context: "why" });
+    expect(res.ok).toBe(true);
+    expect(store.get((res as any).data.id)!.meta).toEqual({ stage: "implement" });
+  });
+
+  test("a non-run subject gets no meta.stage", async () => {
+    const { handlers, store } = harness({
+      resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }),
+      runCurrentStage: () => "implement",
+    });
+    const res = await handlers["gate:ask"]({ questions: twoOptionQuestion(), subject: "mr:https://x/1", context: "why" });
+    expect(store.get((res as any).data.id)!.meta).toBeNull();
   });
 });

@@ -388,6 +388,8 @@ export function createGateHandlers(
         run: gate with no origin.worktree and invisible to the hook's
         per-worktree match. */
     runWorktree?: (runId: string) => string | null;
+    /** The run's current stage, by run id: stamped onto a run gate as meta.stage. */
+    runCurrentStage?: (runId: string) => string | null;
   } = {},
 ): GateSiblingHandlers
   & { "gate:ask": (payload: unknown) => Promise<CommandResult<"gate:ask">> }
@@ -514,9 +516,14 @@ export function createGateHandlers(
       const origin = payload?.origin ? { presentation: "wait" as const, ...payload.origin } : undefined;
 
       const owner = deriveOwner(origin, runSpawnedBy);
+      const callerMeta = isPlainObject(payload?.meta) ? payload!.meta : undefined;
+      const runStage = subject.startsWith("run:") && typeof callerMeta?.stage !== "string"
+        ? deps.runCurrentStage?.(subject.slice("run:".length)) ?? null
+        : null;
+      const meta = runStage ? { ...(callerMeta ?? {}), stage: runStage } : callerMeta;
       const { row, supersededId } = store.open({
         subject, kind, questions,
-        meta: payload?.meta, agent: payload?.agent, pane: payload?.pane, nudge: payload?.nudge,
+        meta, agent: payload?.agent, pane: payload?.pane, nudge: payload?.nudge,
         context: payload?.context, origin, owner,
       });
 

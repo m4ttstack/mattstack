@@ -184,6 +184,7 @@ export function buildRoutedHandlers(opts: {
     push: opts.gatePush,
     log: ctx.log,
     runSpawnedBy: (runId) => findRun(runId)?.run.spawned_by ?? null,
+    runCurrentStage: (runId) => findRun(runId)?.run.current_stage ?? null,
     herdShepherd: (herdId) => opts.herdStore.get(herdId)?.shepherdSession ?? null,
     reconciler: opts.reconciler,
     resumeAgent: opts.resumeAgent,

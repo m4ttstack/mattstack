@@ -31,6 +31,7 @@ function harness(opts: {
   push?: GatePush;
   runSpawnedBy?: (runId: string) => string | null;
   herdShepherd?: (herdId: string) => string | null;
+  runCurrentStage?: (runId: string) => string | null;
 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "rt-gates-handlers-"));
   dirs.push(dir);
@@ -48,6 +49,7 @@ function harness(opts: {
     push: opts.push,
     runSpawnedBy: opts.runSpawnedBy,
     herdShepherd: opts.herdShepherd,
+    runCurrentStage: opts.runCurrentStage,
   });
   return { handlers, store, emitted, broadcasts };
 }
@@ -986,5 +988,41 @@ describe("gate:open form-presentation validation (SKILLS-60: no silently-unblock
     const { handlers } = harness();
     const r = await handlers["gate:open"](formOpen({ pane: "w1:p2", nudge: { session: "sess-1" } }));
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("gate:open meta.stage", () => {
+  test("stamps meta.stage from the run's current stage", async () => {
+    const { handlers, store } = harness({ runCurrentStage: (id) => (id === "r1" ? "plan" : null) });
+    const res = await handlers["gate:open"](openPayload({ subject: "run:r1", kind: "plan" }));
+    expect(res.ok).toBe(true);
+    expect(store.get((res as any).data.id)!.meta).toEqual({ stage: "plan" });
+  });
+
+  test("a caller's meta.stage wins and other meta keys survive", async () => {
+    const { handlers, store } = harness({ runCurrentStage: () => "plan" });
+    const res = await handlers["gate:open"]({ ...openPayload(), meta: { stage: "ship", label: "Ship" } });
+    expect(store.get((res as any).data.id)!.meta).toEqual({ stage: "ship", label: "Ship" });
+  });
+
+  test("other meta keys survive alongside the stamped stage", async () => {
+    const { handlers, store } = harness({ runCurrentStage: () => "plan" });
+    const res = await handlers["gate:open"]({ ...openPayload(), meta: { label: "Plan" } });
+    expect(store.get((res as any).data.id)!.meta).toEqual({ label: "Plan", stage: "plan" });
+  });
+
+  test("non-run subjects and runs with no stage get no meta.stage", async () => {
+    const { handlers, store } = harness({ runCurrentStage: () => null });
+    const a = await handlers["gate:open"](openPayload({ subject: "run:r2", kind: "k" }));
+    const b = await handlers["gate:open"](openPayload({ subject: "mr:9", kind: "k" }));
+    expect(store.get((a as any).data.id)!.meta).toBeNull();
+    expect(store.get((b as any).data.id)!.meta).toBeNull();
+  });
+
+  test("a non-run subject never asks for a stage", async () => {
+    const asked: string[] = [];
+    const { handlers } = harness({ runCurrentStage: (id) => { asked.push(id); return "plan"; } });
+    await handlers["gate:open"](openPayload({ subject: "mr:9", kind: "k" }));
+    expect(asked).toEqual([]);
   });
 });
