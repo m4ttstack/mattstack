@@ -27,8 +27,8 @@
 
 ## Review Focus
 
-- A legacy evidence value that mixes prose, URLs and real image paths (the live CV-3397 / CV-3512 shapes) → only URLs and real file paths survive, image paths render as images; pinned in Task 2.
-- A run recorded before team packs moved (`claimview=<old sha>`) or with a `plugin=<sha>` token → its stage docs still resolve; pinned in Task 4.
+- A legacy evidence value that mixes prose, URLs and real image paths (the live ACME-1234 / ACME-1235 shapes) → only URLs and real file paths survive, image paths render as images; pinned in Task 2.
+- A run recorded before team packs moved (`acme=<old sha>`) or with a `plugin=<sha>` token → its stage docs still resolve; pinned in Task 4.
 - An unknown run id or a daemon outage → an error card within about a second, not a spinner for 7s; pinned in Task 15.
 - A gate submit that fails for a reason other than a lost race → picks and note survive and Try again works; pinned in Task 9.
 - A legacy image request for a path outside `~/.mattstack/evidence` or not named by the run → 404; pinned in Task 5.
@@ -49,7 +49,7 @@ The controller runs this task itself (it owns the Pencil canvas); no implementer
 - [ ] **Step 1:** In Pencil, for each "After" frame, Copy it with `theme: { mode: "dark" }` to the right of the light board, named `<name> · dark`; check each dark board with an Export at scale 1 and read it (no unreadable text, borders visible).
 - [ ] **Step 2:** Name every After board's content roots so parity can key them (`Hero`, `Story`, `Story list`, `Side`, `Gate`, `Columns`, `Decision log`, `Drawer`, `Summary`, `History`, etc., matching the `data-parity` keys tasks 8-17 will add); reuse first-pass layer names where the layer survived.
 - [ ] **Step 3:** Export each After board light and dark as `html-css` with layer names to `docs/apps/design/console/parity/runs-p2-<slug>.<scheme>.html` and PNG scale 1 to `renders/`. Slugs: `live`, `gate`, `record`, `inputs`, `states`, `runs`, `review`, `story-details`, `overlays`, `search`.
-- [ ] **Step 4:** Copy the `.pen` and the referenced `before/` images into `docs/apps/design/console/`; grep the copied `.pen` text for employer identifiers (`assured`, `claim`, `CV-`, `adjuster`) and expect none in the Pass 2 frames.
+- [ ] **Step 4:** Copy the `.pen` and the referenced `before/` images into `docs/apps/design/console/`; grep the copied `.pen` text for employer identifiers (the `scripts/repo-purity.sh` word list) and expect none in the Pass 2 frames.
 - [ ] **Step 5:** Add the boards to `boards.ts` (slug, penPath frame id, route, fixture scenario, roots) and the README section; mark the first-pass boards they replace as superseded.
 - [ ] **Step 6:** Commit: `git add docs/apps/design/console apps/console/scripts/parity/boards.ts` then `git commit -m "console design: pass 2 boards, dark variants, parity exports"`.
 

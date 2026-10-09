@@ -247,9 +247,9 @@ Light is the base, and dark is derived from it.
      `pack_commits` token. It now tries every recorded pack, team packs
      before `mattstack`.
   3. **Moved packs.** The route reads `<sha>:./attachments/stage-<stage>/SKILL.md`
-     relative to today's pack directory. Packs have moved since: claimview
-     has lived at `packs/claimview`, `teams/claimview/packs/claimview` and
-     `teams/claimview/plugin`. The route now resolves the repo that holds
+     relative to today's pack directory. Packs have moved since: the acme
+     pack has lived at `packs/acme`, `teams/acme/packs/acme` and
+     `teams/acme/plugin`. The route now resolves the repo that holds
      the recorded commit, lists that commit's tree, and takes the path
      matching `(^|/)attachments/(pipeline/)?stage-<stage>/SKILL.md$` under
      that pack.

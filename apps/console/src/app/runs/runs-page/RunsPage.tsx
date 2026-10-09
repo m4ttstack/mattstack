@@ -131,7 +131,7 @@ function OutageBanner({ onRetry }: { onRetry: () => void }) {
       icon={<Icon name="unplug" size={16} data-parity="i" />}
       classNames={{
         wrapper: classes.outageWrapper,
-        icon: classes.outageIcon,
+        icon: classes.bannerIcon,
         message: classes.outageMessage,
       }}
       data-testid="runs-outage"
