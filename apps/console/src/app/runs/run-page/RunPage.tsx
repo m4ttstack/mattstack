@@ -8,6 +8,7 @@ import { heroLiveness } from '../derive/liveness';
 import { heldSpans } from '../derive/run';
 import { railStages, stageAttempts } from '../derive/stages';
 import { GatePanels, typingTarget } from './GatePanel';
+import { GatesUnreadable } from './GatesUnreadable';
 import { HandoffCard } from './HandoffCard';
 import { InputsDrawer } from './InputsDrawer';
 import { NowCard } from './NowCard';
@@ -177,6 +178,9 @@ export function RunPage({
         canAbandon={run.attention.needs && run.attention.reason === 'stale'}
         onViewInputs={drawer.open}
       />
+      {parts.gatesFailed ? (
+        <GatesUnreadable onRetry={() => void parts.retryGates()} />
+      ) : null}
       <div className={classes.columns}>
         <Stack gap={14} className={classes.story} data-parity="Story">
           {gatePanels ?? slot}

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { client } from '../../api';
+import { readApiError, retryOnce } from '../useRuns';
 
 const NO_GATES: GateRow[] = [];
 
@@ -18,9 +19,10 @@ export function useLinkedGates({ enabled = true }: { enabled?: boolean } = {}) {
       const res = await client.api.gates.$get({
         query: { linked: '1' as unknown as boolean },
       });
-      if (!res.ok) throw new Error(`gates list failed: ${res.status}`);
+      if (!res.ok) throw await readApiError(res, 'gates list failed');
       return res.json();
     },
+    retry: retryOnce,
     enabled,
   });
   const rows = query.data?.gates;

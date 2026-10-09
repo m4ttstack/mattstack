@@ -709,6 +709,15 @@ describe('RunDetail: one-stage review run', () => {
     expect(within(page).getByText('Reviewed MR')).toBeInTheDocument();
   });
 
+  it('titles the review by the MR its field names before rt records it', async () => {
+    const data = review();
+    render({ ...data, run: { ...data.run, outcome: null } });
+    const header = await screen.findByTestId('run-header');
+    expect(
+      await within(header).findByText('Review of !412')
+    ).toBeInTheDocument();
+  });
+
   it('says where to answer when no board link is known', async () => {
     render({ ...review(), boardUrl: null }, [post]);
     await screen.findByTestId('run-page');
@@ -1237,6 +1246,19 @@ describe('RunDetail: failure and loading', () => {
     await userEvent.click(within(card).getByRole('button', { name: 'Retry' }));
     expect(await screen.findByTestId('run-page')).toBeInTheDocument();
     expect(screen.queryByTestId('run-load-error')).toBeNull();
+  });
+
+  it('says the decisions are unknown when the gates read fails, and reads them again on Retry', async () => {
+    detailGet.mockResolvedValue(ok(workRun()));
+    renderFailing();
+    gatesGet.mockResolvedValue(failed(403, { error: 'refused' }));
+    const note = await screen.findByTestId('gates-unreadable');
+    expect(note).toHaveTextContent("Can't read this run's decisions");
+    gatesGet.mockResolvedValue(ok({ gates: [] }));
+    await userEvent.click(within(note).getByRole('button', { name: 'Retry' }));
+    await waitFor(() =>
+      expect(screen.queryByTestId('gates-unreadable')).toBeNull()
+    );
   });
 
   it('draws the page’s shape while the run loads, not a spinner', async () => {

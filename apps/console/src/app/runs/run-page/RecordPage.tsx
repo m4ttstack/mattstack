@@ -16,6 +16,7 @@ import {
   type RecordTab,
 } from '../derive/record';
 import { EffectiveInputs } from '../EffectiveInputs';
+import { GatesUnreadable } from './GatesUnreadable';
 import { DecisionsTab } from './DecisionsTab';
 import { EvidenceCard, evidenceTitle } from './EvidenceCard';
 import {
@@ -147,6 +148,9 @@ export function RecordPage({
         stats={stats}
         abandoned={abandonReason(run, fields)}
       />
+      {parts.gatesFailed ? (
+        <GatesUnreadable onRetry={() => void parts.retryGates()} />
+      ) : null}
       <Tabs
         value={shown}
         onChange={v => v && setTab(v as RecordTab)}
