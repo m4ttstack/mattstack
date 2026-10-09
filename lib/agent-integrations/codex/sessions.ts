@@ -551,7 +551,8 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     holders.set(threadId, held);
     if (held.has(id)) deps.clock.clearTimeout(held.get(id));
     held.set(id, deps.clock.setTimeout(() => release(threadId, id), HOLD_MS));
-    const result = await subscribeOnce(threadId, binding.attachment.generation, binding.attachment.mode === "headless");
+    // A retired attempt's thread is held only while Codex still has it loaded; an unloaded one is reported gone, never loaded again.
+    const result = await subscribeOnce(threadId, binding.attachment.generation, binding.attachment.mode === "headless" && !deps.retired(binding));
     if (result === "unloaded") {
       release(threadId, id);
       return fail("not-ready", `Codex is not running thread ${threadId} now, so nothing was sent`);

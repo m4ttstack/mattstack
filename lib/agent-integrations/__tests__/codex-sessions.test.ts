@@ -1593,6 +1593,25 @@ describe("an app server restart (live-16 D6)", () => {
     expect(loader.bindingLive(retiredWorker)).toBe(false);
   });
 
+  test("a delivery hold never loads a retired worker's unloaded thread: it is reported gone and nothing is queued", async () => {
+    const server = restartedServer([]);
+    const h = await harness(server.handlers);
+    const gone: Gone[] = [];
+    const sessions = h.sessions({
+      enabled: () => true, retired: (b) => b.attemptId === "att-old",
+      lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return true; },
+    });
+    const retiredWorker = binding("T1", { attemptId: "att-old", attachment: { generation: 2, mode: "headless" } });
+    expect(await sessions.hold(retiredWorker, "d-1-remy")).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(h.requests("thread/resume")).toEqual([]);
+    expect(gone).toEqual([{ value: "T1", event: "unloaded", generation: 2 }]);
+    expect(sessions.held("T1", "d-1-remy")).toBe(false);
+
+    data(await sessions.hold(binding("T2", { key: "k2", attemptId: "att-new", attachment: { generation: 2, mode: "headless" } }), "d-2-remy"));
+    expect(h.requests("thread/resume").map((m) => m.params.threadId)).toEqual(["T2"]);
+    sessions.release("T2", "d-2-remy");
+  });
+
   test("observe subscribes a headless thread the restarted server has not loaded, and never a Herdr one", async () => {
     const server = restartedServer([]);
     const h = await harness(server.handlers);
