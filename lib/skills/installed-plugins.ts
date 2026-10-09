@@ -2,6 +2,7 @@ import { lstatSync, realpathSync } from "fs";
 import { isAbsolute, join, normalize, relative, sep } from "path";
 import type { FaultCode, HarnessId, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
 import type { SkillAdapter } from "../agent-integrations/contracts.ts";
+import { isInsideRoot } from "../daemon/upload-guard.ts";
 import type { PluginListEntry } from "./sources.ts";
 
 export type PluginFs = { exists(p: string): boolean; readDir(p: string): string[] };
@@ -88,11 +89,6 @@ function canonical(path: string): boolean {
   return isAbsolute(path) && normalize(path) === path && !path.endsWith(sep);
 }
 
-function inside(path: string, root: string): boolean {
-  const rel = relative(root, path);
-  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
-}
-
 /**
  * The realpath of `installPath` when it is exactly the version folder
  * `<cacheRoot>/<marketplace>/<plugin>/<version>` for `id`
@@ -110,7 +106,7 @@ export function admitPluginVersionDir(cacheRoot: string, id: string, installPath
   } catch {
     return null;
   }
-  const base = inside(installPath, cacheRoot) ? cacheRoot : inside(installPath, cacheReal) ? cacheReal : null;
+  const base = isInsideRoot(installPath, cacheRoot) ? cacheRoot : isInsideRoot(installPath, cacheReal) ? cacheReal : null;
   if (base === null) return null;
   const parts = relative(base, installPath).split(sep);
   if (parts.length !== 3 || parts[0] !== marketplace || parts[1] !== name || !isCacheSegment(parts[2])) return null;
@@ -143,7 +139,7 @@ export function resolveInside(root: string, relativePath: string): Outcome<strin
   } catch {
     return fail("invalid", `${relativePath} does not exist in ${root}`);
   }
-  if (!inside(real, root)) return fail("refused", `${relativePath} resolves outside ${root}`);
+  if (!isInsideRoot(real, root)) return fail("refused", `${relativePath} resolves outside ${root}`);
   return { ok: true, data: real };
 }
 

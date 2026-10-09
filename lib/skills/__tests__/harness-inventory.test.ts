@@ -1,7 +1,9 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { basename, join } from "path";
+import { basename, dirname, join, relative, resolve } from "path";
+import { cachedReadRoots, checkReadRootPath } from "../../mcp/temp-root-guard.ts";
+import { admitRoots } from "../installed-plugins.ts";
 import { createClaudeSkills } from "../../agent-integrations/claude/skills.ts";
 import { codexReadRoots, createCodexSkills } from "../../agent-integrations/codex/skills.ts";
 import { resourceKey, type PluginListEntry } from "../sources.ts";
@@ -113,6 +115,44 @@ describe("Codex inventory never invokes Claude", () => {
   test("uninstalled marketplace rows are not inventory", async () => {
     const skills = createCodexSkills({ env: { HOME: home, CODEX_HOME: codexHome }, bin: () => "/opt/bin/codex", run: runner(codexStdout([{ name: "demo", marketplaceName: "mk", version: "1.0.0", installed: false }])) });
     expect(await skills.inventory()).toEqual({ ok: true, data: [] });
+  });
+
+  test("a malformed uninstalled row does not spoil the installed ones", async () => {
+    const dir = join(codexCache(), "mk", "demo", "1.0.0");
+    plugin(dir, ".codex-plugin", "demo", "1.0.0");
+    const stdout = JSON.stringify({
+      installed: [
+        { pluginId: "half@mk", name: "half", installed: false },
+        { pluginId: "demo@mk", name: "demo", marketplaceName: "mk", version: "1.0.0", installed: true, enabled: true },
+      ],
+    });
+    const skills = createCodexSkills({ env: { HOME: home, CODEX_HOME: codexHome }, bin: () => "/opt/bin/codex", run: runner(stdout) });
+    const inv = await skills.inventory();
+    expect(inv.ok && inv.data.map((e) => e.id)).toEqual(["demo@mk"]);
+  });
+
+  test("the Codex skills module graph never reaches Claude's discovery", () => {
+    const transpiler = new Bun.Transpiler({ loader: "ts" });
+    const seen = new Set<string>();
+    const stack = [resolve(import.meta.dir, "../../agent-integrations/codex/skills.ts")];
+    while (stack.length > 0) {
+      const file = stack.pop()!;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      if (!file.endsWith(".ts")) continue;
+      let src: string;
+      try {
+        src = readFileSync(file, "utf8");
+      } catch {
+        continue;
+      }
+      for (const imp of transpiler.scanImports(src)) {
+        if (imp.path.startsWith(".")) stack.push(resolve(dirname(file), imp.path));
+      }
+    }
+    const reached = [...seen].map((f) => relative(resolve(import.meta.dir, "../../.."), f));
+    expect(reached).not.toContain("lib/agent-integrations/claude/skills.ts");
+    expect(reached).not.toContain("lib/claude-bin.ts");
   });
 });
 
@@ -232,6 +272,7 @@ describe("references that refuse rather than become roots", () => {
     expect(await claude.resourceRoots()).toEqual({ ok: true, data: [] });
     const result = await claude.resolveResource("loose", "skills/hello/SKILL.md");
     expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("refused");
   });
 
   test("CLAUDE_CONFIG_DIR names the Claude cache", async () => {
@@ -256,6 +297,38 @@ describe("Codex roots reach the read guard only through the switch", () => {
     expect(codexReadRoots({ switchOn: () => true, codexEnabled: () => false, roots: list })).toEqual([]);
     expect(spawnedCommands).toEqual([]);
     expect(codexReadRoots({ switchOn: () => true, codexEnabled: () => true, roots: list })).toEqual(["/x"]);
+  });
+});
+
+describe("the read guard's resource seam", () => {
+  const sources = (resourceRoots: () => readonly unknown[]) => cachedReadRoots({
+    tempRoots: () => [], pluginRoots: () => [], packRoots: () => [], resourceRoots, now: () => 0,
+  });
+
+  test("admitted Codex version folders become read roots, and nothing wider", () => {
+    const dir = join(codexCache(), "mk", "demo", "1.0.0");
+    plugin(dir, ".codex-plugin", "demo", "1.0.0");
+    const entries: PluginListEntry[] = [
+      { id: "demo@mk", installPath: dir, harness: "codex" },
+      { id: "demo@mk", installPath: join(codexCache(), "mk"), harness: "codex" },
+    ];
+    const read = sources(() => admitRoots(codexCache(), entries))();
+    expect(read).toEqual({ roots: [dir] });
+    expect(checkReadRootPath(join(dir, "skills", "hello", "SKILL.md"), read.roots).ok).toBe(true);
+    writeFile(join(codexCache(), "mk", "beside.md"), "x");
+    expect(checkReadRootPath(join(codexCache(), "mk", "beside.md"), read.roots).ok).toBe(false);
+  });
+
+  test("a failed listing admits no resource root and records why", () => {
+    const read = sources(() => {
+      throw new Error("codex plugin list failed: boom\nmore");
+    })();
+    expect(read).toEqual({ roots: [], resourceListError: "codex plugin list failed: boom" });
+    const dir = join(codexCache(), "mk", "demo", "1.0.0");
+    plugin(dir, ".codex-plugin", "demo", "1.0.0");
+    const check = checkReadRootPath(join(dir, "skills", "hello", "SKILL.md"), read.roots, read.pluginListError, read.resourceListError);
+    expect(check.ok).toBe(false);
+    if (!check.ok) expect(check.error).toContain("codex plugin list failed: boom");
   });
 });
 

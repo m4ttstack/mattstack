@@ -115,7 +115,7 @@ export async function runRtVerb(input: { args?: unknown; cwd?: unknown }, deps: 
     }
     if (readRootFlags.has(name)) {
       readRoots ??= deps.readRoots();
-      const check = checkReadRootPath(value, readRoots.roots, readRoots.pluginListError);
+      const check = checkReadRootPath(value, readRoots.roots, readRoots.pluginListError, readRoots.resourceListError);
       if (!check.ok) return `${name}: ${check.error}`;
     }
     return null;

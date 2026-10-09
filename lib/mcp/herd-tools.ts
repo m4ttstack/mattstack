@@ -152,7 +152,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         let brief: string | undefined;
         if (typeof input.brief === "string") {
           const rr = deps.readRoots();
-          const check = checkReadRootPath(input.brief, rr.roots, rr.pluginListError);
+          const check = checkReadRootPath(input.brief, rr.roots, rr.pluginListError, rr.resourceListError);
           if (!check.ok) return err(`brief: ${check.error}`);
           try {
             brief = readFileSync(check.realpath, "utf8");
@@ -190,7 +190,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         const readRoots = deps.readRoots();
         for (const field of ["template", "strategies", "methodFile"] as const) {
           if (typeof input[field] !== "string") continue;
-          const check = checkReadRootPath(input[field], readRoots.roots, readRoots.pluginListError);
+          const check = checkReadRootPath(input[field], readRoots.roots, readRoots.pluginListError, readRoots.resourceListError);
           if (!check.ok) return err(`${field}: ${check.error}`);
         }
         const args = ["herd", "brief", "--job", input.job as string, "--template", input.template as string];

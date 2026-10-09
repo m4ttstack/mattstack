@@ -15,7 +15,7 @@ import {
   CODEX_PLUGIN_LIST_ARGS, codexHomeFor, codexListEnv, codexPluginCacheRoot, codexReadRoots, parseCodexPluginList,
   resolveCodexBinIfPresent,
 } from "../agent-integrations/codex/skills.ts";
-import { admitRoots } from "../skills/installed-plugins.ts";
+import { admitRoots, PLUGIN_LIST_TIMEOUT_MS } from "../skills/installed-plugins.ts";
 import { admitResourceRoots, claudeTempRoots, isInsideRoot } from "../daemon/upload-guard.ts";
 import { discoverPacks } from "../skills/packs.ts";
 import { buildPluginRoots, listInstalledPlugins } from "../skills/sources.ts";
@@ -36,19 +36,22 @@ export function tempRootsForThisProcess(owned: readonly unknown[] = []): string[
   return [...base, ...admitResourceRoots(owned, { uid: processUid() }).filter((r) => !base.includes(r))];
 }
 
-/** The plugin listing is a synchronous subprocess inside `rt mcp serve`: unbounded, one hang would stall every tool on the server. */
-export const PLUGIN_LIST_TIMEOUT_MS = 10_000;
+export { PLUGIN_LIST_TIMEOUT_MS };
 export const READ_ROOTS_TTL_MS = 60_000;
 
-/** pluginListError is set when the plugin listing failed; roots then holds no plugin root, so the read guard fails closed. */
-export type ReadRoots = { roots: string[]; pluginListError?: string };
+/**
+ * pluginListError is set when the plugin listing failed, and
+ * resourceListError when an integration's resource listing did; roots then
+ * holds none of that listing's roots, so the read guard fails closed.
+ */
+export type ReadRoots = { roots: string[]; pluginListError?: string; resourceListError?: string };
 
 export interface ReadRootSources {
   tempRoots: () => string[];
   /** Throws when the installed plugins cannot be listed. */
   pluginRoots: () => string[];
   packRoots: () => string[];
-  /** Installed resource roots an integration reports; each must pass admitResourceRoots. */
+  /** Installed resource roots an integration reports; each must pass admitResourceRoots. Throws when they cannot be listed. */
   resourceRoots?: () => readonly unknown[];
   now: () => number;
 }
@@ -57,6 +60,12 @@ function pluginListCause(e: unknown): string {
   if ((e as { code?: unknown } | null)?.code === "ETIMEDOUT") return `claude plugin list timed out after ${PLUGIN_LIST_TIMEOUT_MS / 1000}s`;
   const message = e instanceof Error ? e.message : String(e);
   return `claude plugin list failed: ${message.split("\n")[0]}`;
+}
+
+/** The resource lister names its harness in its own errors; only the first line is kept. */
+function resourceListCause(e: unknown): string {
+  if ((e as { code?: unknown } | null)?.code === "ETIMEDOUT") return `the resource listing timed out after ${PLUGIN_LIST_TIMEOUT_MS / 1000}s`;
+  return (e instanceof Error ? e.message : String(e)).split("\n")[0] ?? "";
 }
 
 /**
@@ -87,13 +96,15 @@ export function cachedReadRoots(src: ReadRootSources, ttlMs = READ_ROOTS_TTL_MS)
       packs = [];
     }
     let resources: string[] = [];
+    let resourceListError: string | undefined;
     try {
       resources = admitResourceRoots(src.resourceRoots?.() ?? [], { uid: processUid() });
-    } catch {
-      resources = [];
+    } catch (e) {
+      resourceListError = resourceListCause(e);
     }
     const value: ReadRoots = { roots: [...src.tempRoots(), ...plugins.filter(narrow), ...packs.filter(narrow), ...resources] };
     if (pluginListError) value.pluginListError = pluginListError;
+    if (resourceListError) value.resourceListError = resourceListError;
     cache = { at: now, value };
     return value;
   };
@@ -113,7 +124,7 @@ function codexPluginRootsSync(): string[] {
   const home = codexHomeFor(undefined, process.env);
   if (!home.ok) throw new Error(home.error.message);
   const bin = resolveCodexBinIfPresent();
-  if (bin === null) throw new Error("Codex is not installed");
+  if (bin === null) throw new Error("codex plugin list failed: Codex is not installed");
   const raw = execFileSync(bin, CODEX_PLUGIN_LIST_ARGS, {
     encoding: "utf8", env: codexListEnv(process.env, home.data.home), timeout: PLUGIN_LIST_TIMEOUT_MS, stdio: ["ignore", "pipe", "ignore"],
   });
@@ -213,7 +224,7 @@ export function checkTempRootPath(path: unknown, roots: readonly string[]): Path
  * and their .git, .env and other dotfiles are not briefs. The root's own
  * path is exempt, since plugin roots live under ~/.claude.
  */
-export function checkReadRootPath(path: unknown, roots: readonly string[], pluginListError?: string): { ok: true; realpath: string } | { ok: false; error: string } {
+export function checkReadRootPath(path: unknown, roots: readonly string[], pluginListError?: string, resourceListError?: string): { ok: true; realpath: string } | { ok: false; error: string } {
   const allowed = roots.length > 0
     ? "the Claude Code temp root or an installed plugin or pack root"
     : "the Claude Code temp root or an installed plugin or pack root (none resolved for this process)";
@@ -234,6 +245,9 @@ export function checkReadRootPath(path: unknown, roots: readonly string[], plugi
   if (root === null) {
     if (pluginListError) {
       return { ok: false, error: `path is not inside the Claude Code temp root or an installed pack root, and the installed plugins could not be listed (${pluginListError}), so a plugin root cannot be checked (got "${path}")` };
+    }
+    if (resourceListError) {
+      return { ok: false, error: `path must be inside ${allowed}, and the installed integration resources could not be listed (${resourceListError}), so their roots cannot be checked (got "${path}")` };
     }
     return { ok: false, error: `path must be inside ${allowed} (got "${path}")` };
   }

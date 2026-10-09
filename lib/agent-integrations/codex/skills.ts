@@ -66,10 +66,10 @@ export function parseCodexPluginList(stdout: string, codexHome: string, profile:
   if (!Array.isArray(installed)) return { ok: false, error: { code: "invalid", message: "codex plugin list printed no installed list" } };
   const out: PluginListEntry[] = [];
   for (const item of installed as CodexRow[]) {
-    if (!item || typeof item.name !== "string" || typeof item.marketplaceName !== "string" || typeof item.version !== "string") {
+    if (item?.installed !== true) continue;
+    if (typeof item.name !== "string" || typeof item.marketplaceName !== "string" || typeof item.version !== "string") {
       return { ok: false, error: { code: "invalid", message: "codex plugin list printed a row with no name, marketplace or version" } };
     }
-    if (item.installed !== true) continue;
     out.push({
       id: typeof item.pluginId === "string" ? item.pluginId : `${item.name}@${item.marketplaceName}`,
       installPath: join(codexPluginCacheRoot(codexHome), item.marketplaceName, item.name, item.version),
