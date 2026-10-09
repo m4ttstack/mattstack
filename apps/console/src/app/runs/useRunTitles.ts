@@ -1,8 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import type { BranchEnrichment, RunSummary } from '@mattstack/rt-client';
 
-import { runTitle } from './derive/kind';
-import { mrIidOf } from './mrRef';
+import { enrichedRunTitle } from './derive/kind';
 import { useRunsEnrich } from './useRuns';
 
 export type TitleOf = (run: RunSummary, mrField?: string | null) => string;
@@ -20,10 +19,7 @@ export function useRunTitles(runs: RunSummary[]): TitleOf {
   return useCallback(
     (run, mrField) => {
       const e = run.branch ? enrich?.[run.branch] : undefined;
-      return runTitle(run, {
-        ticketTitle: e?.ticket?.title,
-        mrIid: e?.mr?.iid ?? mrIidOf(mrField),
-      });
+      return enrichedRunTitle(run, e, mrField);
     },
     [enrich]
   );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { runKind, runTitle } from './kind';
+import { enrichedRunTitle, runKind, runTitle } from './kind';
 
 describe('runKind', () => {
   it.each([
@@ -92,5 +92,40 @@ describe('runTitle', () => {
     expect(runTitle(review, { ticketTitle: 'Dedupe' })).toBe('Dedupe');
     expect(runTitle(review, {})).toBe('Review of !412');
     expect(runTitle({ ...review, outcome: null }, {})).toBe('review run');
+  });
+});
+
+describe('enrichedRunTitle', () => {
+  const review = {
+    ticket: null,
+    branch: 'web-412-review',
+    work_type: 'review',
+    id: 'r1',
+  };
+
+  it('reads the iid from the enrichment MR', () => {
+    expect(enrichedRunTitle(review, { mr: { iid: 412 } } as never, null)).toBe(
+      'Review of !412'
+    );
+  });
+
+  it('reads the iid from the mr field when nothing enriched', () => {
+    expect(
+      enrichedRunTitle(
+        review,
+        undefined,
+        'https://gitlab.example.com/acme/web/-/merge_requests/415'
+      )
+    ).toBe('Review of !415');
+  });
+
+  it('prefers the ticket title', () => {
+    expect(
+      enrichedRunTitle(
+        { ...review, work_type: 'feature' },
+        { ticket: { title: 'Add export' } } as never,
+        null
+      )
+    ).toBe('Add export');
   });
 });

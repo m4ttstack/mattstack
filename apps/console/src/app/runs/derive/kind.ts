@@ -1,3 +1,7 @@
+import type { BranchEnrichment } from '@mattstack/rt-client';
+
+import { mrIidOf } from '../mrRef';
+
 export type RunKind = 'work' | 'review' | 'respond' | 'utility';
 
 export function runKind(workType: string): RunKind {
@@ -44,4 +48,17 @@ export function runTitle(
   if (present(enrichment.ticketTitle)) return enrichment.ticketTitle;
   if (present(run.branch)) return run.branch;
   return `${run.work_type} run`;
+}
+
+/** The title every surface shows for a run, from its branch enrichment and
+    the `mr` field it recorded. */
+export function enrichedRunTitle(
+  run: Parameters<typeof runTitle>[0],
+  enrichment: BranchEnrichment | undefined,
+  mrField: string | null | undefined
+): string {
+  return runTitle(run, {
+    ticketTitle: enrichment?.ticket?.title,
+    mrIid: enrichment?.mr?.iid ?? mrIidOf(mrField),
+  });
 }

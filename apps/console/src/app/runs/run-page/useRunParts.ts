@@ -5,7 +5,7 @@ import { useEditorHref } from '../../editorHref';
 import { nowOf } from '../derive/clock';
 import { filePath } from '../derive/fields';
 import { inputsSummary } from '../derive/inputs';
-import { runKind, runTitle } from '../derive/kind';
+import { enrichedRunTitle, runKind } from '../derive/kind';
 import { runPageFacts } from '../derive/page';
 import { liveStory, runBlock } from '../derive/story';
 import { useEffectiveInputs } from '../EffectiveInputs';
@@ -110,7 +110,11 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
     factRows,
     sideInputs,
     evidenceField: fields.find(f => f.key === 'evidence') ?? null,
-    title: runTitle(run, { ticketTitle: enrichment?.ticket?.title }),
+    title: enrichedRunTitle(
+      run,
+      enrichment,
+      fields.find(f => f.key === 'mr')?.value
+    ),
     pathHref,
     drawer,
   };
