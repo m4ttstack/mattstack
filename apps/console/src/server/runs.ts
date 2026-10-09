@@ -22,6 +22,7 @@ import { validator } from 'hono/validator';
 import { readExcerpt } from './artifact';
 import { boardLinkResolver, liveBoardLinkDeps } from './boardLink';
 import {
+  FIXTURE_OUTAGE,
   FIXTURE_READ_ONLY,
   type RunsFixture,
 } from './fixtures/design/runsFixture';
@@ -109,6 +110,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
     new Hono()
       .get('/api/runs', async c => {
         const repo = c.req.query('repo');
+        if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
         if (fixture) {
           return c.json(
             { runs: await fixture.listRuns(repo), asOf: await fixture.asOf() },
@@ -122,6 +124,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
       .get('/api/runs/:repo/:runId', async c => {
         const { repo: rawRepo, runId } = c.req.param();
         const repo = canonicalRepo(rawRepo);
+        if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
         if (fixture) {
           const detail = await fixture.getRun(repo, runId);
           if (!detail) return c.json({ error: 'run not found' }, 404);
@@ -319,7 +322,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           };
         }),
         async c => {
-          if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 409);
+          if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
           const { repo: rawRepo, runId } = c.req.param();
           const repo = canonicalRepo(rawRepo);
           const { reason } = c.req.valid('json');
@@ -329,7 +332,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
         }
       )
       .post('/api/runs/:repo/:runId/resume', async c => {
-        if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 409);
+        if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
         const { repo: rawRepo, runId } = c.req.param();
         const repo = canonicalRepo(rawRepo);
         const detail = await getRun(runId, repo);

@@ -40,6 +40,9 @@ import type { FixtureScenario } from './scenarios';
 /** What a route answers a write with under a design fixture. */
 export const FIXTURE_READ_ONLY = 'the design fixture is read-only';
 
+/** What the reads answer under the `runs-outage` scenario. */
+export const FIXTURE_OUTAGE = 'daemon unreachable';
+
 export interface GateFilter {
   subject?: string;
   run?: string;
@@ -52,6 +55,9 @@ export interface FixtureEvidence {
 }
 
 export interface RunsFixture {
+  /** The `runs-outage` scenario: the runs, run, gates and effective-inputs
+      reads answer 502 `FIXTURE_OUTAGE`. */
+  readonly outage: boolean;
   /** The board's "as of" time: a run page's for `runId`, else the runs pages'. */
   asOf(runId?: string): Promise<number>;
   listRuns(repo?: string): Promise<RunSummary[]>;
@@ -289,6 +295,8 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
   }
 
   return {
+    outage: scenario === 'runs-outage',
+
     async asOf(runId) {
       const { clock } = await index();
       return runId ? (clock.runs[runId] ?? clock.run) : clock.pages;

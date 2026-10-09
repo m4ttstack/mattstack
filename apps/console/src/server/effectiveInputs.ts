@@ -10,7 +10,10 @@ import {
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
-import type { RunsFixture } from './fixtures/design/runsFixture';
+import {
+  FIXTURE_OUTAGE,
+  type RunsFixture,
+} from './fixtures/design/runsFixture';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { runRt as liveRunRt, type RunRt } from './rt-bin';
 import { resolveStageDoc } from './stageDoc';
@@ -179,6 +182,7 @@ export function mountEffectiveInputs(
   return app
     .get('/api/runs/:repo/:runId/effective-inputs', async c => {
       const { repo, runId } = c.req.param();
+      if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
       if (fixture) {
         const payload = await fixture.effectiveInputs(repo, runId);
         if (!payload) return c.json({ error: 'run not found' }, 404);

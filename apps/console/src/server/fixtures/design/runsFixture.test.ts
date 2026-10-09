@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { optionLabel, stripRecommended } from '@mattstack/gate-kit';
 import {
+  gateOptionValue,
   parseEvidence,
   type GateOption,
   type GateRow,
@@ -253,6 +254,34 @@ describe('the runs boards draw the fixture', () => {
     const posts = await runs.gates({ run: run.id });
     expect(texts).toContain(String(posts.length));
     expect(texts).toContain(span(waitingOnYou(posts, 0)));
+  });
+
+  it('the review run offers its findings as a multi-select, all four picked', async () => {
+    const [gate] = await runs.gates({ run: '20261008-0940' });
+    const findings = gate!.questions.find(q => q.id === 'findings')!;
+    expect(findings.label).toBe('Post which findings to !412?');
+    expect(findings.multi).toBe(true);
+    const picked = findings.options.map(gateOptionValue);
+    expect(picked).toEqual([
+      '[Important] Dedupe matches on email only, so contacts without an email import twice. (contacts/import/dedupe.ts:58)',
+      '[Important] No test covers merging two contacts that share a phone number.',
+      "[Minor] mergeContacts deletes the losing record; the name doesn't say so. (contacts/merge.ts:12)",
+      '[Minor] The skip log prints the whole contact record, email included.',
+    ]);
+    expect(gate!.answer!.answers.findings).toEqual(picked);
+    const { run } = await detail('20261008-0940');
+    expect(run.outcome!.reviewed!.posted).toBe('request changes');
+  });
+
+  it('an abandoned work run records the reason the way rt runs abandon does', async () => {
+    const d = await detail('20261007-1310');
+    expect(d.run.status).toBe('abandoned');
+    const reconciled = d.fields.find(f => f.key === 'reconciled');
+    expect(reconciled).toMatchObject({
+      value: 'Superseded by WEB-430',
+      produced_by: 'rt runs abandon',
+    });
+    expect(reconciled!.at).toBe(d.run.ended_at);
   });
 
   it('runs-lanes: the waiting gate, the live cards and every earlier row', async () => {

@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import type { Board } from '../../../../scripts/parity/config';
 
 /** The design fixture's scenario (`CONSOLE_FIXTURE_SCENARIO`) a board is drawn from. */
-export type Scenario = 'clean' | 'unsynced' | 'runs' | 'runs-empty';
+export type Scenario =
+  'clean' | 'unsynced' | 'runs' | 'runs-empty' | 'runs-outage';
 
 const RUNS_PEN = join(
   import.meta.dirname,

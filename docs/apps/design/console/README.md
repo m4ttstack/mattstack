@@ -192,7 +192,9 @@ source the harness reads hug widths from (each runs board's `penPath`).
 `CONSOLE_FIXTURE=design` with `CONSOLE_FIXTURE_SCENARIO=runs` answers the runs,
 gates, enrichment, effective-inputs, stage-doc, evidence and artifact routes
 from `apps/console/src/server/fixtures/design/runs/` (`runsFixture.ts`), and
-`runs-empty` keeps only the finished runs. Each answer carries the fixture's
+`runs-empty` keeps only the finished runs. `runs-outage` answers the runs,
+run, gates and effective-inputs routes `502 daemon unreachable`, and every
+write under the fixture is refused `403`. Each answer carries the fixture's
 clock as `asOf`: 4:23 PM for the runs pages, 4:21 PM for a run page, 3:11 PM
 for the live review run. Runs that only a run board draws are hidden from
 every list. There is no deck behind the fixture, so a live review run's

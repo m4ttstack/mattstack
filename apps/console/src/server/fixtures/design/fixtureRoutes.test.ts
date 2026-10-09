@@ -34,7 +34,7 @@ const noRt = vi.fn(async () => {
   throw new Error('a design-fixture route ran rt or git');
 });
 
-function appFor(scenario: 'runs' | 'runs-empty' | 'clean') {
+function appFor(scenario: 'runs' | 'runs-empty' | 'runs-outage' | 'clean') {
   const fixture = runsFixture(scenario);
   return new Hono()
     .route('/', runsRoutes(fixture))
@@ -180,21 +180,38 @@ describe('the routes under the design fixture', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-    expect((await post(`${RUN}/20261008-1338/abandon`)).status).toBe(409);
-    expect((await post(`${RUN}/20261008-1338/resume`)).status).toBe(409);
-    expect(
-      (
-        await post('/api/gates/g-418-plan/answer', {
-          answers: { approach: 'x' },
-        })
-      ).status
-    ).toBe(409);
-    expect((await post('/api/gates/g-418-plan/focus')).status).toBe(409);
-    expect((await post('/api/panes/fixture-pane-molly/focus')).status).toBe(
-      409
+    const refused = async (res: Response | Promise<Response>) => {
+      const r = await res;
+      expect(r.status).toBe(403);
+      expect(await r.json()).toEqual({
+        error: 'the design fixture is read-only',
+      });
+    };
+    await refused(post(`${RUN}/20261008-1338/abandon`));
+    await refused(post(`${RUN}/20261008-1338/resume`));
+    await refused(
+      post('/api/gates/g-418-plan/answer', { answers: { approach: 'x' } })
     );
+    await refused(post('/api/gates/g-418-plan/focus'));
+    await refused(post('/api/panes/fixture-pane-molly/focus'));
     expect(await (await get('/api/seen')).json()).toEqual({});
     expect(await (await post('/api/seen/20261008-1338')).json()).toEqual({});
+  });
+
+  it('answers 502 daemon unreachable on the reads of the runs-outage scenario', async () => {
+    const outage = appFor('runs-outage');
+    for (const path of [
+      '/api/runs',
+      `${RUN}/20261008-1338`,
+      '/api/gates',
+      '/api/gates?run=20261008-1338',
+      `${RUN}/20261008-1338/effective-inputs`,
+    ]) {
+      const res = await outage.request(path);
+      expect(res.status, path).toBe(502);
+      expect(await res.json(), path).toEqual({ error: 'daemon unreachable' });
+    }
+    expect(noRt).not.toHaveBeenCalled();
   });
 
   it('locates a gate’s run from the fixture', async () => {
