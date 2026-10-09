@@ -36,6 +36,14 @@ export interface SessionStore {
   get(key: string): SessionBinding | null;
   find(native: NativeSessionRef): SessionBinding | null;
   replaceAttachment(key: string, expectedGeneration: number, attachment: AttachmentInput): Outcome<SessionBinding>;
+  /**
+   * Records the first process or pane of an attached binding that named none
+   * (a session whose process starts with its work), at the same generation:
+   * nothing could act on an attachment that named no process, so readiness,
+   * its policy proof and a job attempt held at this generation stay current.
+   * A binding that already names one, moved on or detached is stale.
+   */
+  fillAttachment(key: string, expectedGeneration: number, attachment: AttachmentInput): Outcome<SessionBinding>;
   /** Advances the generation to a detached attachment: no pane, socket or process, in the same mode. */
   detach(key: string, expectedGeneration: number): Outcome<SessionBinding>;
   /**
@@ -82,6 +90,9 @@ WHERE key = ?;`;
 const REPLACE_ATTACHMENT_SQL = `UPDATE agent_session_bindings
 SET generation = generation + 1, mode = ?, pane = ?, socket = ?, pid = ?, attachment_state = ?, attached_at = ?
 WHERE key = ? AND generation = ?;`;
+const FILL_ATTACHMENT_SQL = `UPDATE agent_session_bindings
+SET mode = ?, pane = ?, socket = ?, pid = ?, attached_at = ?
+WHERE key = ? AND generation = ? AND attachment_state = 'attached' AND pane IS NULL AND socket IS NULL AND pid IS NULL;`;
 const CONTINUE_NATIVE_SQL = `UPDATE agent_session_bindings
 SET generation = generation + 1, native_value = ?, ready_generation = ?, proof = ?
 WHERE key = ? AND generation = ?;`;
@@ -279,6 +290,20 @@ export function createSessionStore(db: Database): SessionStore {
 
     replaceAttachment(key, expectedGeneration, attachment) {
       return replace(key, expectedGeneration, attachment, "attached");
+    },
+
+    fillAttachment(key, expectedGeneration, attachment) {
+      const problem = attachmentProblem(attachment);
+      if (problem) return fail("invalid", problem);
+      return guarded(() => writeTransaction(db, () => {
+        const result = db.query(FILL_ATTACHMENT_SQL).run(...attachmentParams(attachment), Date.now(), key, expectedGeneration);
+        const row = byKey(key);
+        if (!row) return fail("invalid", "no session binding has that key");
+        if (result.changes === 0) {
+          return fail("stale-binding", `session binding ${key} no longer waits at generation ${expectedGeneration} for its first attachment`);
+        }
+        return { ok: true, data: toBinding(row) };
+      }));
     },
 
     detach(key, expectedGeneration) {

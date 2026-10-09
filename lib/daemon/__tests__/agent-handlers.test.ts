@@ -1801,7 +1801,7 @@ describe("agent.integrations.enabled routes launches through the shared launcher
 
     const [binding] = listBindingsByAgent(h.db, res.data.id);
     expect(binding).toMatchObject({ identity: res.data.handle, native: { harness: "claude", profile: "default", value: res.data.sessionId } });
-    expect(binding!.attachment).toEqual({ generation: 2, mode: "herdr", pane: "w1:p1" });
+    expect(binding!.attachment).toEqual({ generation: 1, mode: "herdr", pane: "w1:p1" });
     expect(h.db.query("SELECT state FROM agent_work_submissions").all()).toEqual([{ state: "submitted" }]);
     expect(getAgent(res.data.id, h.db)).toMatchObject({ sessionId: res.data.sessionId, paneId: "w1:p1", tabId: "w1:t1", workspaceId: "w1" });
   });
@@ -1881,7 +1881,7 @@ describe("agent.integrations.enabled routes launches through the shared launcher
     expect(resumed.data.lastResumedAt).toBeGreaterThan(0);
     const bindings = listBindingsByAgent(h.db, started.data.id);
     expect(bindings).toHaveLength(1);
-    expect(bindings[0]!.attachment).toEqual({ generation: 4, mode: "herdr", pane: "w1:p1" });
+    expect(bindings[0]!.attachment).toEqual({ generation: 2, mode: "herdr", pane: "w1:p1" });
 
     const legacy = { id: "agent-legacy", repo: REPO, cwd: "/tmp/x", provider: "claude", surface: "herdr" as const, sessionId: crypto.randomUUID(), createdAt: 1 };
     insertAgent(legacy, h.db);
@@ -1903,7 +1903,7 @@ describe("agent.integrations.enabled routes launches through the shared launcher
     if (!res.ok) throw new Error(res.error);
     expect(res.data.paneId).toBe("bg:w1:p1");
     expect(claims.claims).toEqual([{ owner: `agent:${res.data.id}`, pane: "bg:w1:p1" }]);
-    expect(listBindingsByAgent(h.db, res.data.id)[0]!.attachment).toEqual({ generation: 2, mode: "herdr", pane: "bg:w1:p1", socket: "/bg.sock" });
+    expect(listBindingsByAgent(h.db, res.data.id)[0]!.attachment).toEqual({ generation: 1, mode: "herdr", pane: "bg:w1:p1", socket: "/bg.sock" });
     expect(getAgent(res.data.id, h.db)?.paneId).toBe("bg:w1:p1");
   });
 

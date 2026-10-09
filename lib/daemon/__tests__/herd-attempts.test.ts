@@ -20,6 +20,9 @@ import { createHerdHandlers, type HerdDeps } from "../handlers/herd.ts";
 import { createHerdStore, type HerdStore } from "../herd-store.ts";
 import { __test__ as attemptsInProcess, createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
 import { classifyJobObservation } from "../herd-watchdog.ts";
+import { createJobObserver } from "../herd-watchdog-adapters.ts";
+import { createClaudeSessions, prepareClaudeSignIn, type ClaudeSessionDeps } from "../../agent-integrations/claude/sessions.ts";
+import { parsePaneRef } from "../../../packages/rt-client/src/pane-ref.ts";
 import { reportJob, reportSession, workerCallPayload } from "../../../commands/herd.ts";
 
 const log = pino({ level: "silent" });
@@ -906,6 +909,122 @@ describe("herd:spawn and herd:report with the switch on", () => {
 
     const reported = await h["herd:report"]({ herd: HERD, job: JOB, body: "done" });
     expect(reported.ok).toBe(true);
+    expect(posted).toHaveLength(1);
+  });
+});
+
+// --- A Claude herdr worker: its process starts with its work -----------------
+
+/**
+ * Claude Code's own session adapter over fakes for herdr and Claude's
+ * registry: a launch binds the minted id with no pane, and the pane opens
+ * when the work is submitted, as a real herd worker's does.
+ */
+function deferringClaude(seen: Seen, over: Partial<ClaudeSessionDeps> = {}): HarnessIntegration {
+  const live = new Map<string, string>();
+  const sessions = createClaudeSessions({
+    store: () => createSessionStore(state),
+    now: Date.now,
+    mintId: () => crypto.randomUUID(),
+    openPane: async (launch) => {
+      seen.launches = (seen.launches ?? 0) + 1;
+      const pane = `w5:p${seen.launches}`;
+      const id = /'--session-id' '([^']+)'/.exec(launch.command)?.[1];
+      if (id) live.set(id, pane);
+      return { ok: true, data: { pane } };
+    },
+    acceptTrust: async () => "unchecked",
+    agents: async () => [],
+    registry: {
+      roots: () => ["/r"],
+      read: () => new Map([...live.keys()].map((s) => [s, { pid: process.pid, socketPath: `/sock/${s}`, status: "busy" as const }])),
+      sessionForPid: () => null,
+    },
+    processAlive: () => true,
+    socketExists: () => true,
+    cswapAccounts: async () => [],
+    hasLiveLink: () => false,
+    paneRows: async () => new Map([...live.values()].map((p) => [parsePaneRef(p).paneId, { agent: "claude", status: "working" }])),
+    readScreen: async () => null,
+    ...over,
+  });
+  return { ...claudeLike(seen), loadSessions: async () => sessions } as HarnessIntegration;
+}
+
+/** What herd:status reads besides the store, and the worker's own integration for observing it. */
+const statusDeps = (integration: HarnessIntegration, posted: unknown[]): Partial<HerdDeps> => ({
+  integrations: createRegistry([integration]),
+  observeJob: createJobObserver({ db: () => state, integrations: createRegistry([integration]) }).observeJob,
+  gate: {
+    "gate:open": async () => ({ ok: true as const, data: { id: "g1" } }),
+    "gate:list": async () => ({ ok: true as const, data: { gates: [] } }),
+    "gate:subscriptions": async () => ({ ok: true as const, data: { subscriptions: [] } }),
+  },
+  chat: {
+    "chat:sign-in": async (p: { continue: string }) => ({ ok: true as const, data: { handle: p.continue, baseHandle: JOB, name: JOB, continued: true } }),
+    "chat:join": async () => ({ ok: true as const, data: {} }),
+    "chat:post": async (p: unknown) => { posted.push(p); return { ok: true as const, data: { id: posted.length } }; },
+    "chat:rooms": async () => ({ ok: true as const, data: { rooms: [] } }),
+  },
+} as unknown as Partial<HerdDeps>);
+
+describe("a Claude herdr worker whose process starts with its work", () => {
+  test("its attempt holds across the pane opening and its sign-in: milestone and report are accepted and liveness reads the observation", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [] };
+    const integration = deferringClaude(seen);
+    const posted: unknown[] = [];
+    const h = herdHandlers(svc, agentService(svc, integration), posted, statusDeps(integration, posted));
+
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!spawned.ok) throw new Error(spawned.error);
+    const attempt = herds.activeAttempt(HERD, JOB)!;
+    const binding = createSessionStore(state).get(attempt.bindingKey!)!;
+    expect(binding.attachment.pane).toBe("w5:p1");
+    expect(attempt.generation).toBe(binding.attachment.generation);
+    expect(readBindingReadiness(state, binding.key)?.generation).toBe(binding.attachment.generation);
+
+    // The worker's own sign-in from its pane (the CLI path) finds its binding attached and leaves it as it is.
+    const commit = await prepareClaudeSignIn({ sessionId: spawned.data.sessionId, explicit: false }, { HERDR_PANE_ID: "w5:p1" }, {
+      db: state,
+      registry: { roots: () => ["/r"], read: () => new Map([[spawned.data.sessionId, { pid: process.pid, socketPath: "/s", status: "busy" as const }]]), sessionForPid: () => null },
+      processAlive: () => true, cswapAccounts: async () => [],
+    });
+    expect(data(commit(binding.identity))?.attachment.generation).toBe(binding.attachment.generation);
+
+    const milestone = await h["herd:milestone"]({ herd: HERD, job: JOB, session: spawned.data.sessionId, artifact: "started" });
+    expect(milestone.ok).toBe(true);
+    const reported = await h["herd:report"]({ herd: HERD, job: JOB, body: "done", session: spawned.data.sessionId });
+    expect(reported.ok).toBe(true);
+
+    const status = await h["herd:status"]({ herd: HERD });
+    if (!status.ok) throw new Error(status.error);
+    expect(status.data.jobs.find((j) => j.name === JOB)).toMatchObject({ liveness: "active" });
+  });
+
+  test("a foreign session naming the attempt is refused stale-binding, and a respawn makes the predecessor stale", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [] };
+    const integration = deferringClaude(seen);
+    const posted: unknown[] = [];
+    const h = herdHandlers(svc, agentService(svc, integration), posted, statusDeps(integration, posted));
+
+    const first = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!first.ok) throw new Error(first.error);
+    const attempt = herds.activeAttempt(HERD, JOB)!;
+    const store = createSessionStore(state);
+    const forged = data(store.bind(store.reserve({ identity: "intruder", attemptId: attempt.id }), {
+      harness: "claude", profile: "default", kind: "id", value: "foreign-session",
+    }, { mode: "herdr", pane: "w9:p9" }));
+    prove(forged);
+    const foreign = await h["herd:report"]({ herd: HERD, job: JOB, body: "mine now", session: "foreign-session" });
+    expect(foreign).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
+
+    const second = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a" });
+    if (!second.ok) throw new Error(second.error);
+    const stale = await h["herd:report"]({ herd: HERD, job: JOB, body: "done", session: first.data.sessionId });
+    expect(stale).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
+    expect((await h["herd:report"]({ herd: HERD, job: JOB, body: "done", session: second.data.sessionId })).ok).toBe(true);
     expect(posted).toHaveLength(1);
   });
 });

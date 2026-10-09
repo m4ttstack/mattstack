@@ -252,6 +252,23 @@ describe("presence through the Claude mod", () => {
     expect(presenceForSession("sess-1", x.db)?.cwd).toBe("/caller");
   });
 
+  test("a bound worker's sign-in through its mod and through the daemon-side fallback leaves its binding at the generation its attempt holds", async () => {
+    const x = fixture();
+    await x.register("sess-1");
+    const before = bind(x.db, "sess-1", "job-a.w1");
+    const now = () => createSessionStore(x.db).get(before.key)!;
+
+    await x.signIn({ sessionId: "sess-1", pane: PANE, continue: "job-a.w1", noRoom: true });
+    expect(x.pushed).toHaveLength(1);
+    expect(now()).toEqual(before);
+
+    x.state.acks = false;
+    const fallback = await x.signIn({ sessionId: "sess-1", pane: PANE, continue: "job-a.w1", noRoom: true });
+    expect(fallback.mod).toBeUndefined();
+    expect(x.pushed).toHaveLength(2);
+    expect(now()).toEqual(before);
+  });
+
   test("without the block, herdr status and the session-end path are used", async () => {
     const x = fixture({ blocks: ["delivery"] });
     const linkId = await x.register("sess-1");

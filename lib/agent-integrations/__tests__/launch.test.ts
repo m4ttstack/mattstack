@@ -492,16 +492,16 @@ describe("work submission", () => {
     expect(readSubmission(db, key)).toMatchObject({ state: "consumed", turnId: "U3" });
   });
 
-  test("starting the process on submission moves the attachment and keeps an ordinary binding ready", async () => {
+  test("starting the process on submission records its first attachment at the generation it was made ready", async () => {
     const { launcher, binding, store } = await launched({
       launch: (req) => ok({ native: { harness: "fake", profile: "default", kind: "id", value: "T1" }, attachment: { mode: req.mode } }),
       startWork: (_b, input) => ok({ id: input.id, evidence: "submitted", attachment: { mode: "herdr", pane: "w3:p1" }, surface: { tabId: "w3:t1", workspaceId: "w3" } }),
     });
     expect(binding.attachment).toEqual({ generation: 1, mode: "herdr" });
     const receipt = data(await launcher.startBoundWork(binding, { id: "w1", text: "go" }, allow));
-    expect(receipt.binding.attachment).toEqual({ generation: 2, mode: "herdr", pane: "w3:p1" });
+    expect(receipt.binding.attachment).toEqual({ generation: 1, mode: "herdr", pane: "w3:p1" });
     expect(store.get(binding.key)!.attachment.pane).toBe("w3:p1");
-    expect(readBindingReadiness(db, binding.key)?.generation).toBe(2);
+    expect(readBindingReadiness(db, binding.key)?.generation).toBe(1);
   });
 });
 

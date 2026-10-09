@@ -256,6 +256,26 @@ describe("explicit attachment state", () => {
     if (!store.detach(paned.key, 1).ok) throw new Error("detach failed");
     expect(attached()).toEqual(["01a114d8"]);
   });
+
+  test("a binding that names no process takes its first one at the same generation, keeping its readiness; any other is stale", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const waiting = store.bind(store.reserve({ identity: "job-a.w1" }), ref(), { mode: "herdr" });
+    if (!waiting.ok) throw new Error(waiting.error.message);
+    markBindingReady(db, waiting.data.key, 1, ["gate-policy"]);
+
+    const filled = store.fillAttachment(waiting.data.key, 1, { mode: "herdr", pane: "w5:p1" });
+    if (!filled.ok) throw new Error(filled.error.message);
+    expect(filled.data.attachment).toEqual({ generation: 1, mode: "herdr", pane: "w5:p1" });
+    expect(readBindingReadiness(db, waiting.data.key)?.generation).toBe(1);
+
+    expect(store.fillAttachment(waiting.data.key, 1, { mode: "herdr", pane: "w5:p2" })).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(store.fillAttachment(waiting.data.key, 0, { mode: "herdr", pane: "w5:p2" })).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    const detached = store.bind(store.reserve({ identity: "kai.cd34" }), ref({ value: "sess-2" }), { mode: "headless" });
+    if (!detached.ok || !store.detach(detached.data.key, 1).ok) throw new Error("detach failed");
+    expect(store.fillAttachment(detached.data.key, 2, { mode: "headless", pid: 42 })).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(store.get(waiting.data.key)?.attachment.pane).toBe("w5:p1");
+  });
 });
 
 describe("reservation progress", () => {

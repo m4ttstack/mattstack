@@ -502,14 +502,12 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
 
     let bound = now.data;
     if (receipt.attachment) {
-      // The work started the native process, so the session has its first real attachment now.
+      // The work started the native process, so the session has its first real attachment now, at the generation it was made ready.
       const attachment = onBackground(receipt.attachment, launch?.request.host);
-      const moved = store.replaceAttachment(current.key, current.attachment.generation, attachment);
+      const moved = store.fillAttachment(current.key, current.attachment.generation, attachment);
       if (moved.ok) {
         bound = moved.data;
         await observed(bound, launch?.kind === "resume" ? "resume" : "start");
-        const readiness = readBindingReadiness(db, current.key);
-        if (readiness && policyNeeded(readiness.required).length === 0) markBindingReady(db, current.key, bound.attachment.generation, readiness.required);
       } else {
         bound = { ...bound, attachment: { ...attachment, generation: bound.attachment.generation } };
         void warnOnce("a submitted session's new attachment was not recorded", { key: current.key, error: moved.error.message });
