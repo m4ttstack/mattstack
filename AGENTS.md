@@ -119,6 +119,55 @@ The viewer lives at `apps/chat` (`apps/chat/ARCHITECTURE.md`).
 prints; that route shape is a contract with the viewer's route table.
 The herdr plugin lives at `plugins/herdr-chat` (`plugins/herdr-chat/AGENTS.md`).
 
+## Harness integrations (Codex and Claude Code)
+
+Chat delivery, gate questions and workflow policy reach Codex and Claude Code
+through shared services in `lib/agent-integrations/` (one adapter per harness
+under `claude/` and `codex/`) and the Claude Code mod at
+`plugins/mattstack-mods`. Before touching either, read
+`docs/superpowers/specs/2026-10-04-harness-integrations-design.md` and
+`docs/superpowers/specs/2026-10-07-harness-integrations-claude-mods-design.md`.
+
+- **The machine setting `agent.integrations.enabled` gates all of it.** With
+  it off, every verb, hook, envelope and delivery is byte-identical to rt
+  without integrations; a change that moves anything on the off path is a
+  bug. Setup installs `mattstack-mods` only while the switch is on
+  (`modsPluginWanted` in `lib/setup/base-plugins.ts`).
+- **The `session:*`, `policy:*` and `agent:policy-receipt` daemon verbs are
+  not authenticated.** rt.sock trusts any local process, so one can register
+  a session link before the session's real mod does, and a continuation
+  carries the old session's readiness. That is the recorded posture, not an
+  oversight; anything that grants authority on these verbs needs a design
+  review.
+- **Codex's policy hooks run the hidden `rt agent policy-hook`.** Its stdout,
+  stderr and exit code are Codex's hook protocol: exit 2 with stderr is the
+  refusal Codex shows the model, so nothing else may write to its stderr.
+- **`plugins/mattstack/hooks/pipeline-gate-stop.sh` stays the unchanged Stop
+  backstop.** Its rule is shared with `evaluateStop` in
+  `lib/agent-integrations/policy.ts`, and the parity test in
+  `lib/agent-integrations/__tests__/policy.test.ts` runs both on the same
+  cases; change one only with the other.
+- **Deliveries live in state.db's `agent_deliveries` table.** The room log
+  stays the source of what is owed; the daemon's `harness-delivery-recovery`
+  and `gate-question-recovery` units reconcile, at boot and when a harness
+  reconnects, what a previous daemon or a lost connection left unresolved.
+- **The mods register blocks only inside `TESTED_CLAUDE_CODE`**
+  (`lib/agent-integrations/claude/mod-links.ts`). Outside that range a mod
+  registers with no blocks and the shell hooks keep the session. Widen the
+  range only after a live check on the new Claude Code version.
+- **Listing integrations never imports setup modules.** The "metadata loading
+  does not import setup modules" test in
+  `lib/daemon/__tests__/agent-integrations.test.ts` counts type-only imports
+  too; put a shared type in a leaf module (`lib/daemon/pane-hints.ts` is one)
+  rather than importing it from a handler.
+- **A Codex session's init turn ("Reply READY") runs before its binding and
+  before any policy check.** It carries no work and no gate; that gap is
+  recorded and accepted.
+- **A Herdr Codex session takes input only with live pane evidence.** A
+  manually started thread gets its pane from herdr's Codex pane for that
+  thread at sign-in; without one it signs in, says it cannot take messages,
+  and every post to it reports `refused`.
+
 ## plugins/mattstack
 
 The mattstack skills plugin lives at `plugins/mattstack` and keeps its own
