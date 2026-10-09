@@ -139,9 +139,11 @@ is `acme`, the teams `widgets`, `gadgets` and `sprockets`, the person
 | `W · Scope wash (approved 2026-10-09)` | `renders/W-scope-wash.light.png` | the wash and the scope badge leading each block's heading |
 | `T-A · All settings, every section split (chosen 2026-10-09)` | `renders/T-A-all-settings.light.png` | every section splits, small ones included |
 | `H4 · Header on its own surface, quiet title (E2 chosen)`, variant E2 | `renders/H4-header.light.png` | the page name in the app bar on every console page; the header's surface; org, team segment, you and your role; the trimmed filter row |
-| `H3 · Context bar with segments` | `renders/H3-team-menu.light.png` | the team menu opening under its segment (build it without the team dots) |
+| `H3 · Context bar with segments` | `renders/H3-team-menu.light.png` | the team menu opening under its segment; the build uses the kit's SearchableMenu, as the archived console's project menu did, with each team's owners |
 | `S1 · Team picker open`, `S2 · Viewing another team` | `renders/S1-team-picker.light.png`, `renders/S2-viewing-another-team.light.png` | the viewing banner and Back; their header is superseded by H4 |
 | `P · A per-project setting, opened` | `renders/P-per-project-row.light.png` | the project picker in the Value tab and the projects in Where it's set |
+| `S3 · Viewing another team, E2 header` | `renders/S3-viewing-another-team-e2.light.png` | viewing another team under the E2 header; the build keeps only a Back to your team button beside the team |
+| `R2 · Role badges` | `renders/R2-role-badges.light.png` | the badge for each role: org admin gold, team owner purple, member and not connected grey |
 
 Kept for the record: `W0 · Section headings today`, `T-B · All settings,
 12-setting rule (not chosen)`, `H · Settings header, tidied`, `H2 ·
