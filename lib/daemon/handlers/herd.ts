@@ -108,6 +108,8 @@ export interface HerdDeps {
   endSession?: (bindingKey: string) => Promise<Outcome<void>>;
   /** Observes a bound worker through its integration; the shared observation store over the daemon's state.db when omitted. */
   observeJob?: ObserveJob;
+  /** How long a fenced pane spawn waits for its worker's session to come up, and how often it looks. */
+  sessionUpWait?: { budgetMs: number; pollMs: number };
 }
 
 /** `own` is the attempt the session was launched for, found even when its binding has since moved on. */
@@ -155,6 +157,8 @@ const HERD_NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/;
 // The old in-spawn retry's budget, now passed to agent:start's own trust
 // driver (RT-156) as trustWaitMs instead of running a second driver here.
 const TRUST_BUDGET_MS = 15_000;
+const SESSION_UP_WAIT = { budgetMs: 15_000, pollMs: 500 };
+const SESSION_NOT_UP = "the worker's session has not come up yet: rt saw no session start in its pane. Check its pane or the herd's status before counting on it";
 // The job statuses that only a running worker reaches, and therefore the only
 // ones whose missing agent proves the worker session died rather than never
 // having started.
@@ -217,6 +221,36 @@ export function createHerdHandlers(deps: HerdDeps) {
     } catch (err) {
       log.warn({ err, attempt: attempt.id }, "herd: could not observe a bound worker");
       return "unknown";
+    }
+  }
+
+  /**
+   * Whether a bound worker's session has come up: its harness records the
+   * session (connectivity is known) or its pane shows the agent running. Read
+   * from the integration directly, never the observation store, whose fresh
+   * "nothing yet" reading would answer every poll of the wait.
+   */
+  async function sessionCameUp(bindingKey: string): Promise<boolean> {
+    const binding = createSessionStore(sessionDb()).get(bindingKey);
+    if (!binding) return false;
+    const sessions = await registry.get(binding.native.harness)?.loadSessions?.();
+    if (typeof sessions?.observe !== "function") return true;
+    const seen = await sessions.observe(binding);
+    if (!seen.ok) return false;
+    return seen.data.connectivity !== "unknown" || ["working", "idle", "blocked"].includes(seen.data.execution);
+  }
+
+  async function waitForSession(bindingKey: string): Promise<boolean> {
+    const { budgetMs, pollMs } = deps.sessionUpWait ?? SESSION_UP_WAIT;
+    const deadline = Date.now() + budgetMs;
+    for (;;) {
+      try {
+        if (await sessionCameUp(bindingKey)) return true;
+      } catch (err) {
+        log.warn({ err, binding: bindingKey }, "herd: could not check whether a worker's session came up");
+      }
+      if (Date.now() >= deadline) return false;
+      await Bun.sleep(pollMs);
     }
   }
 
@@ -849,6 +883,9 @@ export function createHerdHandlers(deps: HerdDeps) {
         if (attaching.status === "closed") await closeWorker(herd, attached);
       }
 
+      const boundKey = fenced && !headless && attemptId !== undefined ? store.getAttempt(attemptId)?.bindingKey : undefined;
+      const sessionUp = boundKey === undefined || await waitForSession(boundKey);
+
       // Chat identity first: the trust wait can spend its whole budget, and a
       // worker with no handle can neither report nor be reached meanwhile.
       const signIn = await deps.chat["chat:sign-in"]({ sessionId: rec.sessionId, continue: workerId, pane: rec.paneId, cwd: worktree, noRoom: true });
@@ -875,7 +912,13 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (ownsJob && current.status === "spawning" && headless) store.setJobStatus(herdId, name, "active");
 
       const paneRef = rec.paneId ? formatPaneRef(rec.paneId, herd.hidden ? "bg" : "visible") : "";
-      return { ok: true, data: { herd: herdId, job: name, pane: paneRef, worktree, branch, tree, wasOnDeck, agentId: rec.id, sessionId: rec.sessionId, handle, trust } };
+      return {
+        ok: true,
+        data: {
+          herd: herdId, job: name, pane: paneRef, worktree, branch, tree, wasOnDeck, agentId: rec.id, sessionId: rec.sessionId, handle, trust,
+          ...(!sessionUp && { sessionUp: false as const, note: SESSION_NOT_UP }),
+        },
+      };
     },
 
     "herd:gates": async (raw: unknown): Promise<CommandResult<"herd:gates">> => {

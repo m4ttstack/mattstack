@@ -283,7 +283,7 @@ function claudeLike(seen: Seen, onWork?: (binding: SessionBinding) => void): Har
     },
     resume: async (native, req) => ok({ native, attachment: { mode: req.mode, pane: "w3:p2" } }),
     discover: async () => [],
-    observe: async (b) => ok({ connectivity: "unknown", execution: "unknown", background: "unknown", observedAt: 1, source: "none", generation: b.attachment.generation }),
+    observe: async (b) => ok({ connectivity: "connected", execution: "unknown", background: "unknown", observedAt: 1, source: "none", generation: b.attachment.generation }),
     startWork: async (b, input) => {
       seen.work.push(input);
       onWork?.(b);
@@ -956,6 +956,7 @@ function deferringClaude(seen: Seen, over: Partial<ClaudeSessionDeps> = {}): Har
 const statusDeps = (integration: HarnessIntegration, posted: unknown[]): Partial<HerdDeps> => ({
   integrations: createRegistry([integration]),
   observeJob: createJobObserver({ db: () => state, integrations: createRegistry([integration]) }).observeJob,
+  sessionUpWait: { budgetMs: 50, pollMs: 10 },
   gate: {
     "gate:open": async () => ({ ok: true as const, data: { id: "g1" } }),
     "gate:list": async () => ({ ok: true as const, data: { gates: [] } }),
@@ -1001,6 +1002,33 @@ describe("a Claude herdr worker whose process starts with its work", () => {
     const status = await h["herd:status"]({ herd: HERD });
     if (!status.ok) throw new Error(status.error);
     expect(status.data.jobs.find((j) => j.name === JOB)).toMatchObject({ liveness: "active" });
+  });
+
+  test("a worker whose Claude never comes up is spawned with a result that says so, and its job stays spawning", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [] };
+    const integration = deferringClaude(seen, {
+      registry: { roots: () => ["/r"], read: () => new Map(), sessionForPid: () => null },
+      paneRows: async () => new Map([["w5:p1", { agent: null, status: null }]]),
+    });
+    const h = herdHandlers(svc, agentService(svc, integration), [], { ...statusDeps(integration, []), sessionUpWait: { budgetMs: 60, pollMs: 10 } });
+
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!spawned.ok) throw new Error(spawned.error);
+    expect(spawned.data).toMatchObject({ trust: "unchecked", sessionUp: false });
+    expect(spawned.data.note).toContain("has not come up yet");
+    expect(herds.getJob(HERD, JOB)?.status).toBe("spawning");
+  });
+
+  test("a worker whose Claude comes up is spawned with no note", async () => {
+    const svc = attempts();
+    const integration = deferringClaude({ work: [], reports: [] });
+    const h = herdHandlers(svc, agentService(svc, integration), [], { ...statusDeps(integration, []), sessionUpWait: { budgetMs: 60, pollMs: 10 } });
+
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!spawned.ok) throw new Error(spawned.error);
+    expect("sessionUp" in spawned.data).toBe(false);
+    expect("note" in spawned.data).toBe(false);
   });
 
   test("a foreign session naming the attempt is refused stale-binding, and a respawn makes the predecessor stale", async () => {

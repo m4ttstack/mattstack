@@ -272,7 +272,8 @@ export async function spawn(args: string[]): Promise<void> {
   }
   const data = unwrap(await herdSpawn(await withCallerAccount(payload)), "spawn");
   const trustNote = data.trust === "stuck" ? " (STUCK AT TRUST MODAL)" : data.trust === "accepted" ? " (trust dialog accepted)" : "";
-  emit(json, data, `${data.job} pane ${data.pane} worktree ${data.worktree} session ${data.sessionId}${data.wasOnDeck === false ? " (cold provision)" : ""}${trustNote}`);
+  const upNote = data.sessionUp === false ? " (SESSION NOT UP YET)" : "";
+  emit(json, data, `${data.job} pane ${data.pane} worktree ${data.worktree} session ${data.sessionId}${data.wasOnDeck === false ? " (cold provision)" : ""}${trustNote}${upNote}`);
 }
 
 export async function ask(args: string[]): Promise<void> {
