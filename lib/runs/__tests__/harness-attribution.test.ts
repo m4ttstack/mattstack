@@ -106,7 +106,7 @@ describe("recordIdentity writes the bound session, not inherited env", () => {
     expect(f["session-key"]?.value).toBe(binding.key);
   });
 
-  test("a raw and a formatted pane ref store the same form", () => {
+  test("a visible and a background pane ref are stored as the binding names them", () => {
     const raw = bind("a", codex("thread-a"), "w1:p2");
     const bg = bind("b", codex("thread-b"), "bg:w1:p2");
     expect(rows(start("ra", { now: 1000, binding: raw })).fields["herdr-pane"]?.value).toBe("w1:p2");
@@ -256,6 +256,10 @@ describe("legacy Claude field migrates by provenance", () => {
     expect(resolveOwnedRun(ctx(me), undefined, deps()).ok).toBe(false);
     const explicit = resolveOwnedRun(ctx(me), unproven, deps());
     expect(explicit.ok).toBe(false);
+    if (!explicit.ok) expect(explicit.error.message).toContain("cannot be proven");
+    const other = resolveOwnedRun(ctx(me), join(root, "demo", "r-other", "state.db"), deps());
+    if (!other.ok) expect(other.error.message).toContain("belongs to another session");
+    expect(other.ok).toBe(false);
     expect(rows(unproven).fields["session-key"]).toBeUndefined();
   });
 

@@ -60,7 +60,7 @@ export function packRootFrom(skillDir: string, realpath: (p: string) => string):
 }
 
 const RUN_DB_PROPS = {
-  runDb: { type: "string", description: "The runDb run_start returned. Always pass it; omitted, cwd is required and the run is this session's run, else the newest running one whose worktree holds cwd." },
+  runDb: { type: "string", description: "The runDb run_start returned. Always pass it; omitted, cwd is required. A write then goes to this session's own running run (a verified session never falls back to another run in cwd); a read (run_snapshot, run_field_get) takes this session's run, else the newest running one whose worktree holds cwd." },
   cwd: { type: "string", description: "Absolute worktree path, used only when runDb is omitted." },
 };
 

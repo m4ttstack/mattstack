@@ -1,15 +1,8 @@
 import type { Database } from "bun:sqlite";
 import type { SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
-import { formatPaneRef, parsePaneRef } from "../../packages/rt-client/src/pane-ref.ts";
 
 /** The run field naming the binding that owns a run; `claude-session` is only its Claude native id, kept for the Stop hook. */
 export const SESSION_KEY_FIELD = "session-key";
-
-/** Older bindings hold a raw HERDR_PANE_ID, newer ones a formatted ref; both store as one form. */
-export function normalizePaneRef(ref: string): string {
-  const { paneId, server } = parsePaneRef(ref);
-  return formatPaneRef(paneId, server);
-}
 
 /**
  * A bound caller's identity comes only from its binding: a worker can inherit
@@ -22,7 +15,7 @@ function identityPairs(env: NodeJS.ProcessEnv, binding?: SessionBinding): [strin
   return [
     [SESSION_KEY_FIELD, binding.key],
     ["claude-session", binding.native.harness === "claude" ? binding.native.value : undefined],
-    ["herdr-pane", pane ? normalizePaneRef(pane) : undefined],
+    ["herdr-pane", pane],
   ];
 }
 

@@ -29,7 +29,6 @@ import { integrationsEnabled } from "../agent-integrations/switch.ts";
 import { getStateDb } from "../state/db.ts";
 import { runCapture } from "../subprocess.ts";
 import type { BoundRunSession, RunLiveness } from "./attention.ts";
-import { normalizePaneRef } from "./identity.ts";
 
 const HERDR_TIMEOUT_MS = 1500;
 const AGENT_CACHE_TTL_MS = 10_000;
@@ -97,7 +96,7 @@ export function boundSessionFromStore(sessionKey: string): BoundRunSession | nul
     const binding = createSessionStore(getStateDb()).get(sessionKey);
     if (!binding || isDetachedAttachment(binding)) return null;
     const pane = binding.attachment.pane;
-    return { session: binding.native.value, ...(pane && { pane: normalizePaneRef(pane) }) };
+    return { session: binding.native.value, ...(pane && { pane }) };
   } catch {
     return null;
   }

@@ -161,7 +161,9 @@ function owned(run: RunRecord, binding: SessionBinding, deps: OwnershipDeps): Ou
       return { ok: true, data: { db: run.db, runId: run.runId } };
     case "unowned":
       return fail("ambiguous", `run ${run.runId} records no owning session, so no session may write to it`);
-    default:
+    case "unproven":
+      return fail("refused", `run ${run.runId} names a Claude session that cannot be proven to be this one, so this session may not write to it`);
+    case "foreign":
       return fail("refused", `run ${run.runId} belongs to another session`);
   }
 }
