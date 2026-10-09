@@ -58,6 +58,8 @@ digraph watch_ci {
 
     "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [shape=plaintext];
     "ci_watch state?" [shape=diamond];
+    "End the turn: ci_watch runs in the background (task <id>)" [shape=box];
+    "Trigger: the ci_watch task notification re-invoked this stage" [shape=ellipse];
     "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "budget.spent?" [shape=diamond];
     "Waiting results in a row = 2?" [shape=diamond];
@@ -149,6 +151,9 @@ digraph watch_ci {
     "Gate clarify: which forge?" -> "Which forge watches?" [label="answered: the named forge"];
 
     "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" -> "ci_watch state?";
+    "ci_watch state?" -> "End the turn: ci_watch runs in the background (task <id>)" [label="backgrounded: moved to the background as task <id>"];
+    "End the turn: ci_watch runs in the background (task <id>)" -> "Trigger: the ci_watch task notification re-invoked this stage" [style=dashed];
+    "Trigger: the ci_watch task notification re-invoked this stage" -> "ci_watch state?";
     "ci_watch state?" -> "budget.spent?" [label="running"];
     "ci_watch state?" -> "Waiting results in a row = 2?" [label="waiting"];
     "ci_watch state?" -> "Forge host (stage draft check)?" [label="success or success_with_warnings"];
@@ -306,6 +311,17 @@ failure, the refusal is the reason).
 The re-claim before a job retry failed with a tool error. `context` quotes
 it. Same four answers as the claim gate above; Iterate re-claims before the
 retry.
+
+### End the turn: ci_watch runs in the background (task <id>)
+
+Claude Code moves a `ci_watch` still running after 120 s to the background
+and re-invokes this pane with its result as a `<task-notification>`. End
+the turn in one line: `watching CI in the background (task <id>)`. The
+notification's `<result>` is the next `ci_watch state`. The pipeline gate
+stop hook lets a turn end while a background task is pending, and a chat or
+user message that arrives meanwhile reaches you at once. A foreground wait
+(a `sleep`, a polling script, a second `ci_watch`) is the thing this node
+replaces: it delays the result and every message by the length of the wait.
 
 ### Fix what the ci_watch error names (stage)
 

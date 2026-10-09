@@ -296,6 +296,13 @@ message "done", with `hook_event_name` Stop, `stop_hook_active` false, and
 the session id matching the pane's session. The design's premise holds on
 the runtime this estate runs.
 
+**Amendment, 2026-10-09.** A Stop while a backgrounded MCP call or an async
+agent is still pending is not a prose ending: the task's notification
+re-invokes the pane. The hook now reads the transcript named by the Stop
+input's `transcript_path` and lets that turn end, bounded by age, size and
+scan time, falling back to the block on any failure. Background shell
+tasks never count. See `2026-10-09-stop-hook-background-wait-design.md`.
+
 ## 6. Standalone verbs run as single-stage runs
 
 `review`, `self-review`, `receive-review`, `ship`, `watch-ci`, and

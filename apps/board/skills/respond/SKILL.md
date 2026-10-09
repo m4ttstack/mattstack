@@ -14,7 +14,7 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "respond"
   slot-respond: "required mr-respond@2 -- owns processing review feedback on one MR: fetching threads, adjudicating, drafting, implementing decided fixes, and executing posting once handed the decisions. Never presents decision gates or decides what posts. When gate 2 offers nothing, posts the reply-only threads on {plan}."
-  compiled: "mattstack:gate-protocol@0.30.24"
+  compiled: "mattstack:gate-protocol@0.30.25"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
@@ -548,7 +548,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.24 path=attachments/gate-protocol/SKILL.md lines=7-464 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.25 path=attachments/gate-protocol/SKILL.md lines=7-466 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -828,8 +828,10 @@ exits only on answered or closed, printing
 `{"ok":true,"status":"answered","row":{...}}` as its last stdout. The pane
 is idle but armed: the wait's completion re-invokes this pane with the
 answer as the tool result. Under a run a turn ends only with
-`waiting-gate` or `hold` set; the pipeline gate stop hook blocks any other
-ending, which is why every hold under a run arms the marker and the wait.
+`waiting-gate` or `hold` set, or with a backgrounded MCP call or async
+agent still pending (its notification re-invokes the pane); the pipeline
+gate stop hook blocks any other ending, which is why every hold under a
+run arms the marker and the wait.
 
 ### Take the winning gate answer and its by
 
