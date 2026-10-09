@@ -24,10 +24,12 @@ import { resumeParkedGate, type KindResumeIo } from '../gates/resume.ts';
 import type { GateState } from '../gates/store.ts';
 import { gateOpen, type GateVerbIo } from '../gates/verbs.ts';
 import {
+  BOARD_STATUS_BIN_ENV,
   dispatchPrompt,
   launchLegacyResume,
   launchRespond,
   launchReview,
+  statusBinPath,
   type LaunchPaneOpts,
 } from '../herdr.ts';
 import { readReviewStates } from '../review-state.ts';
@@ -714,5 +716,41 @@ describe('gate CLI wiring', () => {
       daemon.stop(true);
       rmSync(sockDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('Claude board panes name their status writer for the mod', () => {
+  const claudeOn = (): HarnessIo => ({
+    ...codexOnly(),
+    agentIntegrations: async () => ({
+      ok: true,
+      data: {
+        integrations: [summary('claude', true), summary('codex', false)],
+      },
+    }),
+  });
+
+  test('a Claude launch with the switch on sets the status writer in the pane env', async () => {
+    const { io, starts } = recordingIo(claudeOn());
+    await launchReview({ ...launchOpts, pack: 'acme' }, io, async () => null);
+    expect(starts[0]!.provider).toBe('claude');
+    expect(starts[0]!.env).toEqual({
+      MATTSTACK_PACK: 'acme',
+      [BOARD_STATUS_BIN_ENV]: statusBinPath(),
+    });
+  });
+
+  test('a Codex launch and a launch with the switch off carry no status writer', async () => {
+    const codex = recordingIo(codexOnly());
+    await launchReview(launchOpts, codex.io, resolver);
+    expect(codex.starts[0]!.env).toBeUndefined();
+
+    const off = recordingIo({ ...claudeOn(), switchOn: () => false });
+    await launchReview(
+      { ...launchOpts, pack: 'acme' },
+      off.io,
+      async () => null
+    );
+    expect(off.starts[0]!.env).toEqual({ MATTSTACK_PACK: 'acme' });
   });
 });

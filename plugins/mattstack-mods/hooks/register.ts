@@ -1,4 +1,5 @@
 import type { Register } from 'claude-code'
+import { registerBoard } from '../src/blocks/board.ts'
 import { registerDelivery, trimReplyUnderSection } from '../src/blocks/delivery.ts'
 import { registerGateForm } from '../src/blocks/gate-form.ts'
 import { registerGatePanel } from '../src/blocks/gate-panel.ts'
@@ -30,5 +31,6 @@ export const register: Register = on => {
   registerPolicy(hub, link)
   registerRelocation(hub, link)
   registerStopGate(hub, link)
+  registerBoard(hub, link)
   attachHub(on, hub)
 }

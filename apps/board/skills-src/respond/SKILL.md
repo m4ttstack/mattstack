@@ -42,6 +42,8 @@ Write status **only** by running the injected `--status-bin`:
 <status-bin> respond-status <state> done <message> --posted <n> --threads <n> [--held <n>]
 ```
 
+{{harness:status-writes}}
+
 The board tracks five in-flight statuses; emit each as you cross the milestone:
 
 | Status | When to emit |

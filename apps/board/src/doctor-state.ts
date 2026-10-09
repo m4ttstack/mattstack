@@ -77,6 +77,9 @@ export interface DoctorState {
       skill. Every launch and resume that resolves a skill rewrites it, so
       choosing a pack clears it; only a promptless reopen leaves it as it was. */
   noPack?: boolean;
+  /** The operator stood this doctor down through its Claude mod and work the
+      pane started is still finishing; cleared once it ends. */
+  backgroundFinishing?: boolean;
   startedAt: number;
   updatedAt: number;
 }
@@ -117,6 +120,7 @@ export function writeDoctorState(
     reopenedAt: patch.reopenedAt,
     dismissedAt: patch.dismissedAt,
     noPack: patch.noPack,
+    backgroundFinishing: patch.backgroundFinishing,
     startedAt: now,
     updatedAt: now,
   };

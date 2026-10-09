@@ -40,6 +40,8 @@ Write status **only** by running the injected `--status-bin`:
 <status-bin> doctor-status <state> <status> [message]
 ```
 
+{{harness:status-writes}}
+
 ## State progression
 
 The board owns `queued`. You emit the rest as you cross each milestone:

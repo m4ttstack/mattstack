@@ -9,6 +9,8 @@ export type Respond = (verb: string, body: any) => Reply | Promise<Reply>
 export type Sent = { verb: string; socketPath: string | undefined; body: any }
 /** What `$.prompt.submit` answers: the prompt that entered, a drop, or an Error it rejects with. */
 export type Submit = (input: { text: string }) => Record<string, unknown> | Error | Promise<Record<string, unknown> | Error>
+/** What `$.process.run` answers for one argv, or an Error it rejects with. */
+export type Run = (argv: readonly string[], init: any) => Record<string, unknown> | Error | Promise<Record<string, unknown> | Error>
 
 export async function flush(): Promise<void> {
   for (let i = 0; i < 200; i++) await Promise.resolve()
@@ -68,7 +70,15 @@ export function harness(options: { version?: string; env?: Record<string, string
     return { ok: true, data: {} }
   }
   const submitted: { text: string }[] = []
-  const script: { respond: Respond; submit: Submit } = { respond: options.respond ?? defaults, submit: input => ({ text: input.text }) }
+  const aborted: string[] = []
+  const registered: any[] = []
+  const ran: { argv: readonly string[]; init: any }[] = []
+  const script: { respond: Respond; submit: Submit; run: Run; abort: (turnId: string) => void | Error } = {
+    respond: options.respond ?? defaults,
+    submit: input => ({ text: input.text }),
+    run: () => ({ exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false }),
+    abort: () => undefined,
+  }
   const $: any = {
     ui: {
       log: (text: string, opts?: { to?: string }) => logs.push({ text, to: opts?.to }),
@@ -102,6 +112,27 @@ export function harness(options: { version?: string; env?: Record<string, string
         return answer
       },
     },
+    turn: {
+      abort: async (input: { turnId: string }) => {
+        aborted.push(input.turnId)
+        const answer = script.abort(input.turnId)
+        if (answer instanceof Error) throw answer
+      },
+    },
+    tool: {
+      register: async (spec: { name: string }) => {
+        registered.push(spec)
+        return { tool: `mcp__mattstack-mods__${spec.name}` }
+      },
+    },
+    process: {
+      run: async (argv: readonly string[], init: any) => {
+        ran.push({ argv, init })
+        const answer = await script.run(argv, init)
+        if (answer instanceof Error) throw answer
+        return answer
+      },
+    },
     env: { get: async (name: string) => env[name] },
     state: {
       get: async (ref: { key: string }) => ({ value: state.get(ref.key), version: state.has(ref.key) ? 1 : 0 }),
@@ -123,6 +154,9 @@ export function harness(options: { version?: string; env?: Record<string, string
     clock,
     sent,
     submitted,
+    aborted,
+    registered,
+    ran,
     state,
     session,
     defaults,

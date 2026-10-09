@@ -9,13 +9,17 @@ import type {
   HttpResponse,
   On,
   OpEventOf,
+  OpValueOf,
   PaneOpenArgs,
   PluginState,
+  ProcessRunInit,
+  ProcessRunResult,
   PromptSubmitArgs,
   PromptSubmitResult,
   RenderSurface,
   SessionVersion,
   Timer,
+  ToolSpec,
   UiLogOptions,
   UiFocusResult,
   UiOpenResult,
@@ -55,6 +59,18 @@ export type ModApi = {
     /** Starts a turn of its own with `text`, framed as this plugin's message; queued while a turn runs. */
     submit(input: PromptSubmitArgs): Promise<PromptSubmitResult>
   }
+  turn: {
+    /** Ends the running turn `turnId`; a Bash command it started moves to the background rather than stopping. */
+    abort(turnId: string): Promise<void>
+  }
+  tool: {
+    /** Declares `mcp__mattstack-mods__<name>` for the model from its next prompt; a `tool.call` rule serves it. */
+    register(spec: ToolSpec): Promise<OpValueOf['tool.register']>
+  }
+  process: {
+    /** Runs `argv` (no shell) and resolves with its exit code and output, whatever the code. */
+    run(argv: readonly string[], init?: ProcessRunInit): Promise<ProcessRunResult>
+  }
   clock: {
     now(): Promise<number>
     after(ms: number, fn: () => void): Timer
@@ -64,6 +80,8 @@ export type ModApi = {
     daemonSock(): Promise<string | undefined>
     home(): Promise<string | undefined>
     pane(): Promise<string | undefined>
+    /** The board's status writer, which the board sets on the panes it launches. */
+    boardStatusBin(): Promise<string | undefined>
   }
   state: {
     linkId: Slot<ModState['linkId']>
@@ -591,6 +609,9 @@ function facade($: EngineInterface): ModApi {
     },
     http: { fetch: (url, init) => $.http.fetch(url, init) },
     prompt: { submit: input => $.prompt.submit(input) },
+    turn: { abort: turnId => $.turn.abort({ turnId }) },
+    tool: { register: spec => $.tool.register(spec) },
+    process: { run: (argv, init) => $.process.run(argv, init) },
     clock: {
       now: () => $.clock.now(),
       after: (ms, fn) => $.clock.after(ms, fn),
@@ -600,6 +621,7 @@ function facade($: EngineInterface): ModApi {
       daemonSock: () => $.env.get('RT_DAEMON_SOCK'),
       home: () => $.env.get('HOME'),
       pane: () => $.env.get('HERDR_PANE_ID'),
+      boardStatusBin: () => $.env.get('MATTSTACK_BOARD_STATUS_BIN'),
     },
     state: {
       linkId: {

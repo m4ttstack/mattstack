@@ -69,11 +69,17 @@ export type DeliveryReceipt = {
  */
 export type ModBlock =
   | "delivery" | "gate-form" | "gate-wait" | "gate-panel" | "presence"
-  | "policy" | "stop-gate" | "relocation" | "observe";
+  | "policy" | "stop-gate" | "relocation" | "observe" | "board";
 export const MOD_BLOCKS: readonly ModBlock[] = [
   "delivery", "gate-form", "gate-wait", "gate-panel", "presence",
-  "policy", "stop-gate", "relocation", "observe",
+  "policy", "stop-gate", "relocation", "observe", "board",
 ];
+/**
+ * What a board pane's `board` block reported after a stand-down: the turn
+ * ended, the turn ended with background work still finishing, or that work
+ * has since finished.
+ */
+export type StandDownState = "stood-down" | "stood-down-background" | "background-finished";
 export type QuestionBinding = {
   gateId: string; sessionKey: string; generation: number;
   nativeThread?: string; nativeTurn?: string; nativeItem?: string;

@@ -33,6 +33,7 @@ import { createJobAttempts } from "./herd-attempts.ts";
 import { createPaneHandlers } from "./handlers/pane.ts";
 import { createAgentIntegrationHandlers } from "./handlers/agent-integrations.ts";
 import { createModSessionHandlers } from "./handlers/mod-session.ts";
+import { createStandDownHandlers } from "./handlers/stand-down.ts";
 import { createPolicyHandlers } from "./handlers/policy.ts";
 import { createRelocationHandlers } from "./handlers/relocation.ts";
 import type { RelocationInSession } from "../agent-integrations/claude/relocation.ts";
@@ -310,6 +311,7 @@ export function buildRoutedHandlers(opts: {
     ...agentHandlers,
     ...createAgentIntegrationHandlers({ integrations }),
     ...createModSessionHandlers({ links: opts.modLinks }),
+    ...createStandDownHandlers({ links: opts.modLinks }),
     ...createPolicyHandlers({
       links: opts.modLinks, db: opts.stateDb, forkCheck: (payload) => gateHandlers["gate:fork-check"](payload),
     }),

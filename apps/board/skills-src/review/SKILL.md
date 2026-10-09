@@ -42,6 +42,8 @@ Write status **only** by running the injected `--status-bin`:
 <status-bin> review-status <state> <status> [message] [--outcome <comment|approve>]
 ```
 
+{{harness:status-writes}}
+
 ## Flow
 
 The graph is the map: start at the trigger and take only the edges it

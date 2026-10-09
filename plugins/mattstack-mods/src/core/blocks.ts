@@ -11,6 +11,7 @@ export type ModBlock =
   | 'stop-gate'
   | 'relocation'
   | 'observe'
+  | 'board'
 
 export const MOD_BLOCKS: readonly ModBlock[] = [
   'delivery',
@@ -22,4 +23,5 @@ export const MOD_BLOCKS: readonly ModBlock[] = [
   'stop-gate',
   'relocation',
   'observe',
+  'board',
 ]

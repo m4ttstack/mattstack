@@ -42,6 +42,8 @@ export {
   agentGet,
   agentList,
   agentIntegrations,
+  boardStandDown,
+  boardStandDownState,
   paneList,
   panePeek,
   paneSpawn,
@@ -224,7 +226,7 @@ export {
 export type { CiLease, CiLeaseCaller, CiLeaseHolder, CiLeaseOpts, ClaimRequest, ClaimResult, HeartbeatResult, ReleaseResult } from "./ci-lease.ts";
 export type {
   AgentOptions, Attachment, CallerContext, Capability, CapabilityReport, DeliveryReceipt, FaultCode,
-  HarnessId, IntegrationProblem, IntegrationSummary, ModBlock, Mode, NativeSessionRef, Observation, OptionDescriptor, Outcome, PeerInput,
+  HarnessId, IntegrationProblem, IntegrationSummary, ModBlock, Mode, NativeSessionRef, StandDownState, Observation, OptionDescriptor, Outcome, PeerInput,
   QuestionBinding, Readiness, Selection, SessionBinding,
 } from "./agent-integrations.ts";
 export { MOD_BLOCKS } from "./agent-integrations.ts";

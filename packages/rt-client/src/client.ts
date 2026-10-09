@@ -417,6 +417,20 @@ export function agentIntegrations(
   return rtCommand<Commands["agent:integrations"]["data"]>("agent:integrations", { mode: a.mode }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
+/** Stands down the Claude board pane `pane` through its mod; `acked: false` is the caller's cue to take its own path once. */
+export function boardStandDown(
+  a: Commands["board:stand-down"]["payload"], o: RtClientOptions = {},
+): Promise<RtResponse<Commands["board:stand-down"]["data"]>> {
+  return rtCommand<Commands["board:stand-down"]["data"]>("board:stand-down", { pane: a.pane, text: a.text }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
+/** The last stand-down state a board pane's session reported, `ended` once it has no live link. */
+export function boardStandDownState(
+  a: Commands["board:stand-down-state"]["payload"], o: RtClientOptions = {},
+): Promise<RtResponse<Commands["board:stand-down-state"]["data"]>> {
+  return rtCommand<Commands["board:stand-down-state"]["data"]>("board:stand-down-state", { sessionId: a.sessionId }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 5_000 });
+}
+
 /** A Codex policy hook's receipt; evidence only, so a caller treats a failure as a missed receipt, never as a verdict. */
 export function agentPolicyReceipt(
   a: Commands["agent:policy-receipt"]["payload"], o: RtClientOptions = {},

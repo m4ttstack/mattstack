@@ -14,12 +14,12 @@ allowed-tools: Bash(scripts/resolve-args.sh:*), Bash(scripts/open-gate.sh:*)
 metadata:
   slots: "respond"
   slot-respond: "required mr-respond@2 -- owns processing review feedback on one MR: fetching threads, adjudicating, drafting, implementing decided fixes, and executing posting once handed the decisions. Never presents decision gates or decides what posts. When gate 2 offers nothing, posts the reply-only threads on {plan}."
-  compiled: "mattstack:gate-protocol@0.30.21"
+  compiled: "mattstack:gate-protocol@0.30.22"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-547 -->
+<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-549 -->
 # mr-board respond runner
 
 The mr-board spawned this pane to process the review feedback on ONE of your own
@@ -45,6 +45,9 @@ Write status **only** by running the injected `--status-bin`:
 <status-bin> respond-status <state> <status> [message]
 <status-bin> respond-status <state> done <message> --posted <n> --threads <n> [--held <n>]
 ```
+
+<!-- part: harness:status-writes target=codex path=attachments/harness/codex.md lines=8-8 -->
+Run every `<status-bin>` write in this skill in the shell, as written.
 
 The board tracks five in-flight statuses; emit each as you cross the milestone:
 
@@ -548,7 +551,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.21 path=attachments/gate-protocol/SKILL.md lines=7-471 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.22 path=attachments/gate-protocol/SKILL.md lines=7-471 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act

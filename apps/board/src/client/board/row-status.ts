@@ -530,7 +530,14 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   // until the operator flips it back -- see triage/run.ts's isStoodDown
   // and POST /triage/stand-down.
   if (mr.standDown)
-    return { tone: 'quiet', word: 'auto-doctor off', verbs: [] };
+    return {
+      tone: 'quiet',
+      word: 'auto-doctor off',
+      ...(mr.doctor?.backgroundFinishing && mr.doctor.message
+        ? { detail: mr.doctor.message }
+        : {}),
+      verbs: [],
+    };
   const d = mr.doctor;
   if (!d || laneDismissed(d)) return null;
   switch (d.status) {

@@ -108,7 +108,6 @@ import {
   doctorFilePath,
   doctorResumeDispatchFields,
   parseDoctorRequestBody,
-  planStandDown,
   pruneDoctorStates,
   readDoctorStates,
   STAND_DOWN_PANE_MESSAGE,
@@ -300,6 +299,11 @@ import {
   unreactFromMR,
   type ListedChannel,
 } from './slack.ts';
+import {
+  standDownDoctor,
+  standDownPane,
+  waitForBackground,
+} from './stand-down.ts';
 import {
   beatStillValid,
   boardStateRoot,
@@ -3020,27 +3024,20 @@ const httpServer = Bun.serve({
         if (on) {
           for (const target of [mr, ...descendants]) {
             if (!target.webUrl) continue;
-            const plan = planStandDown(
-              readDoctorStates().get(target.webUrl),
-              DOCTOR_IN_FLIGHT
-            );
-            if (plan.paneToNudge) {
-              try {
-                await sendPaneText(plan.paneToNudge, STAND_DOWN_PANE_MESSAGE);
-              } catch (err) {
-                console.error(
-                  `stand-down pane nudge failed: ${err instanceof Error ? err.message : err}`
-                );
+            await standDownDoctor(
+              { webUrl: target.webUrl, iid: target.iid },
+              {
+                readDoctor: url => readDoctorStates().get(url),
+                writeDoctor: (path, patch) => {
+                  writeDoctorState(path, patch);
+                },
+                doctorPath: doctorFilePath,
+                inFlight: DOCTOR_IN_FLIGHT,
+                standDown: (paneId, text) => standDownPane(paneId, text),
+                watch: sessionId => waitForBackground(sessionId),
+                log: message => console.error(message),
               }
-            }
-            if (plan.clearDoctorState) {
-              writeDoctorState(doctorFilePath(target.webUrl), {
-                mrUrl: target.webUrl,
-                iid: target.iid,
-                status: 'done',
-                message: 'stood down by operator',
-              });
-            }
+            );
             for (const d of heldDraftsByMr(readDrafts()).get(target.webUrl) ??
               []) {
               writeDraft(target.webUrl, d.kind, { status: 'dismissed' });

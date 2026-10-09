@@ -1721,6 +1721,40 @@ describe('rowStatus: a launch that ran with no pack', () => {
     expect(line!.word).toBe('auto-doctor off');
     expect(line!.noPack).toBeUndefined();
   });
+
+  test('a stand-down whose pane is still finishing background work says so until it ends', () => {
+    const finishing = {
+      status: 'done',
+      message: 'stood down; background work finishing',
+      backgroundFinishing: true,
+    };
+    const [line] = candidateLines(
+      mr({ standDown: true, doctor: finishing } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      tone: 'quiet',
+      word: 'auto-doctor off',
+      detail: 'stood down; background work finishing',
+    });
+
+    const [ended] = candidateLines(
+      mr({
+        standDown: true,
+        doctor: {
+          status: 'done',
+          message: 'stood down by operator',
+          backgroundFinishing: false,
+        },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(ended!.detail).toBeUndefined();
+  });
 });
 
 describe("author-only verbs stay off someone else's row", () => {

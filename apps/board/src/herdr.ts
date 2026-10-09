@@ -126,6 +126,11 @@ export function statusBinPath(): string {
     : join(import.meta.dir, '..', 'bin', 'board');
 }
 
+/** Set to statusBinPath on a Claude pane the board launches with agent
+    integrations on; the mattstack-mods `board` block starts only where it
+    is, and its `status` tool runs that writer. */
+export const BOARD_STATUS_BIN_ENV = 'MATTSTACK_BOARD_STATUS_BIN';
+
 /** The same executable; the draft writer is one of its verbs (`doctor-draft`). */
 export function draftBinPath(): string {
   return statusBinPath();
@@ -501,6 +506,12 @@ async function launchWrapper(
     harness
   );
   const claudeOptions = harness === undefined || harness === 'claude';
+  const env = {
+    ...(opts.pack ? { MATTSTACK_PACK: opts.pack } : {}),
+    ...(harness === 'claude'
+      ? { [BOARD_STATUS_BIN_ENV]: promptOpts.statusBin }
+      : {}),
+  };
   return startAgentPane(
     {
       repo: opts.repo,
@@ -512,7 +523,7 @@ async function launchWrapper(
       ...(claudeOptions
         ? { account: opts.account, model: opts.model, effort: opts.effort }
         : {}),
-      ...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {}),
+      ...(Object.keys(env).length > 0 ? { env } : {}),
       ...(harness !== undefined ? { harness } : {}),
     },
     io

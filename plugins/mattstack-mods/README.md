@@ -21,7 +21,7 @@ so every feature takes its existing path.
 | `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
-| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `observe.ts` reports the session's state to the herd watchdog and takes its nudges; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane; `policy.ts` guards questions and run tools with rt's shared policy; `relocation.ts` answers EnterWorktree's relocation prompt for a path rt manages; `stop-gate.ts` holds a turn a pipeline run must continue. |
+| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `observe.ts` reports the session's state to the herd watchdog and takes its nudges; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane; `policy.ts` guards questions and run tools with rt's shared policy; `relocation.ts` answers EnterWorktree's relocation prompt for a path rt manages; `stop-gate.ts` holds a turn a pipeline run must continue; `board.ts` writes a board pane's status and stands it down. |
 | `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane. Each kit owns one pane id: the gate form's, or the gate panel's. `gate-view.ts` holds its drawing parts, and `gate-ctx.ts` the port of the board's gate-ctx parser. |
 | `src/blocks/sections.ts` | The reply rule and spill-read sections' text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/blocks/tool-names.ts` | The mattstack MCP tool prefix and the run tools the policy guard covers. It imports nothing, so an rt-side bun test can hold it to the mattstack plugin's names. |
@@ -440,6 +440,34 @@ bound binding gets `none`, which the blocks treat as no decision.
 rt advertises `gate-policy` and `continuation-policy` for a bound session
 only while its live link carries both blocks. Its policy proof counts the
 stop gate only beside the installed `pipeline-gate-stop.sh`, the backstop.
+
+## The board block
+
+The `board` block (`src/blocks/board.ts`) starts only in a pane the mr-board
+launched: the board sets `MATTSTACK_BOARD_STATUS_BIN` to its status writer
+on a Claude pane it starts with agent integrations on. Anywhere else the
+block's start fails, so it is never live and rt never pushes to it.
+
+- **Status tool.** The block registers `mcp__mattstack-mods__status`
+  (`{ verb, args }`), where `verb` is `review-status`, `respond-status` or
+  `doctor-status`. It runs the status writer with that verb and those
+  arguments, no shell, with `CLAUDE_CODE_SESSION_ID` set to the session's
+  own id, so the write, its validation and its board signal are the
+  writer's own. A non-zero exit comes back as the call's refusal with the
+  writer's output. The board's wrappers call the tool when the session has
+  it (the `status-writes` fragment in the mattstack plugin's
+  `attachments/harness/claude.md`) and run `<status-bin>` otherwise. A call
+  that reaches a cleared block is answered with a pointer back to
+  `<status-bin>`.
+- **Stand-down.** rt's `board:stand-down` pushes `stand-down { text }`. The
+  block acks it, ends the running turn with `$.turn.abort`, and reports
+  `session:stood-down` with `stood-down`, or `stood-down-background` when a
+  Bash call was running (an abort moves it to the background) or the last
+  Stop listed background work. It then submits `text` as this plugin's
+  message, so the turn the background work's completion starts reads it
+  first. Once a turn ends whose Stop lists no background work, it reports
+  `background-finished`. A command that arrives while the block is not live
+  is not acked, and the board types its message into the pane as before.
 
 ## The reply rule section
 

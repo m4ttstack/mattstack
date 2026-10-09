@@ -96,6 +96,8 @@ export interface DoctorInfo {
   dismissedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
+  /** Stood down, with work the pane started still finishing. */
+  backgroundFinishing?: boolean;
 }
 export interface DraftInfo {
   kind: string;

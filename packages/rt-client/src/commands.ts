@@ -5,7 +5,7 @@
  * plus one function, never a change to the transport itself.
  */
 import type { PullRequest, MRDetail, Pipeline, PipelineJob } from "@mattstack/glance";
-import type { HarnessId, IntegrationProblem, IntegrationSummary, ModBlock, Mode } from "./agent-integrations.ts";
+import type { HarnessId, IntegrationProblem, IntegrationSummary, ModBlock, Mode, StandDownState } from "./agent-integrations.ts";
 
 export type Discussion = MRDetail["discussions"][number];
 
@@ -1011,6 +1011,27 @@ export interface Commands {
     payload: { linkId: string; sessionId: string; path: string };
     data: { recorded: boolean; reason?: string };
   };
+  /**
+   * The board stands down the Claude pane `pane` through its mod: rt pushes
+   * `stand-down` with `text` to the session whose live link names that pane
+   * and carries the `board` block. `acked` is false with no such link or no
+   * ack within 5 s, and the board then takes its own path once. `state` is
+   * what the block reported within 2 s of its ack.
+   */
+  "board:stand-down": {
+    payload: { pane: string; text: string };
+    data: { acked: boolean; sessionId?: string; state?: StandDownState };
+  };
+  /** The last stand-down state `sessionId`'s board block reported; `ended` once the session has no live link. */
+  "board:stand-down-state": {
+    payload: { sessionId: string };
+    data: { state: StandDownState | "ended" | null };
+  };
+  /** The `board` block's report of where a pushed stand-down left its session; only from a link carrying the block. */
+  "session:stood-down": {
+    payload: { linkId: string; commandId: string; state: StandDownState };
+    data: Record<string, never>;
+  };
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read": { payload: { branches?: string[]; maxAgeMs?: number; repoIdentity?: string }; data: Record<string, BranchEnrichment> };
@@ -1387,6 +1408,9 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "runs:owned",
   "worktree:registered",
   "worktree:entered",
+  "board:stand-down",
+  "board:stand-down-state",
+  "session:stood-down",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",
