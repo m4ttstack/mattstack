@@ -15,6 +15,7 @@ import { createSessionStore, listAttachedBindings } from "../../agent-integratio
 import { createClaudeSessions, type ClaudeRegistry } from "../../agent-integrations/claude/sessions.ts";
 import { openStateDb } from "../../state/db.ts";
 import { markSubmitting, readSubmission, recordPending, workDigest } from "../../agent-integrations/work-submissions.ts";
+import { __test__ as observationStore, latestObservation } from "../../agent-integrations/observation-store.ts";
 
 const quietLog = { info: () => {}, warn: () => {} };
 
@@ -370,4 +371,21 @@ test("a tick still in flight makes the next one a no-op", async () => {
   await first;
   await handle.tick();
   expect(probes).toBe(2);
+});
+
+test("with the switch on, each observation lands in the shared observation store supervision reads", async () => {
+  observationStore.reset();
+  await withDb(async (db) => {
+    const store = createSessionStore(db);
+    const bound = store.bind(store.reserve({ identity: "remy" }), { harness: "codex", profile: "default", kind: "id", value: "T1" }, { mode: "headless" });
+    if (!bound.ok) throw new Error(bound.error.message);
+    const seen = { connectivity: "connected", execution: "idle", background: "unknown", observedAt: 5, source: "codex-events", generation: 1 } as const;
+    const adapter = { observe: async () => ({ ok: true, data: seen }) } as unknown as SessionAdapter;
+    await observeBoundSessions({
+      enabled: () => true, db: () => db, recover: async () => {},
+      integrations: () => createRegistry([{ ...codexIntegration, loadSessions: async () => adapter }]),
+    });
+    expect(latestObservation(bound.data.key)).toEqual(seen);
+  });
+  observationStore.reset();
 });

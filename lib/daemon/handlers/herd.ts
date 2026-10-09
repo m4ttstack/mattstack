@@ -9,7 +9,7 @@ import type { Logger } from "pino";
 import type { Commands, GateQuestion, GateRow, HerdStatusData } from "../../../packages/rt-client/src/commands.ts";
 import { formatPaneRef, gatePresentation, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
 import type { CommandResult } from "./types.ts";
-import type { HerdStore, HerdJobRow, HerdRow } from "../herd-store.ts";
+import type { HerdStore, HerdJobRow, HerdRow, JobAttempt } from "../herd-store.ts";
 import { writePromptFile } from "../../agent-argv/index.ts";
 import { fillSpawnSlots } from "../../herd-brief.ts";
 import { herdPrefix, herdSubject, isValidJobName, mintHerdId } from "../herd-store.ts";
@@ -22,12 +22,14 @@ import type { AgentStartOutcome, AttemptLaunch, createAgentHandlers } from "./ag
 import type { CallerContext, Capability, HarnessId, Mode, Outcome, Selection } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { resolveCallerContextNow, type CallerEvidence } from "../../agent-integrations/context.ts";
 import { POLICY_CAPABILITIES } from "../../agent-integrations/policy-readiness.ts";
-import { builtinRegistry } from "../../agent-integrations/builtins.ts";
+import { builtinRegistry, UNRECORDED_PANE_HARNESS } from "../../agent-integrations/builtins.ts";
 import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts";
 import { createSessionStore } from "../../agent-integrations/session-store.ts";
 import { harnessEnabled, integrationsEnabled } from "../../agent-integrations/switch.ts";
 import { getStateDb } from "../../state/db.ts";
 import { createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
+import { classifyJobObservation } from "../herd-watchdog.ts";
+import { createJobObserver, type ObserveJob } from "../herd-watchdog-adapters.ts";
 import { chooseJobWorker, configuredWorkerSelection, type JobWorker, type SelectionDeps } from "../herd-selection.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
@@ -98,6 +100,8 @@ export interface HerdDeps {
   launchDefault?: SelectionDeps["launchDefault"];
   /** Ends a headless worker's session, named by its binding key, through its integration. */
   endSession?: (bindingKey: string) => Promise<Outcome<void>>;
+  /** Observes a bound worker through its integration; the shared observation store over the daemon's state.db when omitted. */
+  observeJob?: ObserveJob;
 }
 
 type WorkerCall = { herdId?: string; name?: string; named?: boolean; session?: string; harness?: string; caller?: Outcome<CallerContext> };
@@ -144,7 +148,7 @@ const HERD_NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/;
 // The old in-spawn retry's budget, now passed to agent:start's own trust
 // driver (RT-156) as trustWaitMs instead of running a second driver here.
 const TRUST_BUDGET_MS = 15_000;
-// The job statuses that only a running claude reaches, and therefore the only
+// The job statuses that only a running worker reaches, and therefore the only
 // ones whose missing agent proves the worker session died rather than never
 // having started.
 const LIVE_WORKER_STATUSES: ReadonlySet<string> = new Set(["active", "at-gate", "at-milestone"]);
@@ -194,6 +198,18 @@ export function createHerdHandlers(deps: HerdDeps) {
     if (!sessions?.end) return { ok: false, error: { code: "unsupported", message: `${integration?.label ?? binding.native.harness} cannot end a session rt runs` } };
     return sessions.end(binding);
   });
+  const observeJob = deps.observeJob ?? createJobObserver({ db: () => getStateDb("daemon"), integrations: registry }).observeJob;
+
+  /** A bound worker's liveness from its own integration's observation; a failed observe is unknown. */
+  async function observedLiveness(attempt: JobAttempt): Promise<ReturnType<typeof classifyJobObservation>> {
+    try {
+      const seen = await observeJob(attempt);
+      return seen.ok ? classifyJobObservation(attempt, seen.data, Date.now()) : "unknown";
+    } catch (err) {
+      log.warn({ err, attempt: attempt.id }, "herd: could not observe a bound worker");
+      return "unknown";
+    }
+  }
 
   /**
    * The worker a spawn launches. Off, every worker is a Claude Code pane, as
@@ -383,9 +399,19 @@ export function createHerdHandlers(deps: HerdDeps) {
     const jobRows = store.jobs(herdId);
     const names = deps.identityNames([herd.shepherdHandle, ...jobRows.map((j) => j.handle)]);
     const showWorker = enabled();
+    const jobAttempts = new Map(jobRows.map((j) => [j.name, store.activeAttempt(herdId, j.name) ?? store.attempts(herdId, j.name).at(-1)] as const));
+    const observed = new Map<string, ReturnType<typeof classifyJobObservation>>();
+    if (showWorker) {
+      await Promise.all(jobRows.map(async (j) => {
+        const bound = jobAttempts.get(j.name);
+        if (bound?.state === "active" && bound.bindingKey !== undefined) observed.set(j.name, await observedLiveness(bound));
+      }));
+    }
     const jobs = jobRows.map((j: HerdJobRow) => {
       const last = j.lastGate ? deps.gateStore.get(j.lastGate) : null;
-      const attempt = showWorker ? (store.activeAttempt(herdId, j.name) ?? store.attempts(herdId, j.name).at(-1)) : undefined;
+      const attempt = showWorker ? jobAttempts.get(j.name) : undefined;
+      const harness = jobAttempts.get(j.name)?.selection.harness ?? UNRECORDED_PANE_HARNESS;
+      const liveness = observed.get(j.name);
       const paneRow = j.pane ? (panes.get(parsePaneRef(j.pane).paneId) ?? null) : null;
       const ladder = deps.watchdog?.annotations(herdId, j.name) ?? null;
       return {
@@ -398,12 +424,15 @@ export function createHerdHandlers(deps: HerdDeps) {
         pane: j.pane ? formatPaneRef(j.pane, herd.hidden ? "bg" : "visible") : j.pane,
         openGate: gates.find((g) => g.subject === herdSubject(herdId, j.name))?.id ?? null,
         paneStatus: paneRow?.status ?? null,
-        // A jetsam sweep kills claude and leaves its pane shell running, so
+        // A jetsam sweep kills the agent and leaves its pane shell running, so
         // the job goes on reading active with nothing behind it.
-        // Only statuses claude itself reached count: `spawning` and
+        // Only statuses the worker itself reached count: `spawning` and
         // `stuck-at-modal` legitimately have no agent yet, and a finished job
-        // is expected to have none.
-        sessionDead: paneRow === null ? null : LIVE_WORKER_STATUSES.has(j.status) && paneRow.agent !== "claude",
+        // is expected to have none. A bound worker's own integration says
+        // instead, and only a confirmed death counts.
+        sessionDead: liveness !== undefined ? LIVE_WORKER_STATUSES.has(j.status) && liveness === "dead"
+          : paneRow === null ? null : LIVE_WORKER_STATUSES.has(j.status) && paneRow.agent !== harness,
+        ...(liveness !== undefined && { liveness }),
         lastGateStatus: last?.status ?? null,
         lastGateDelivery: last?.delivery?.outcome ?? null,
         // released means a lost answer CAS whose pane already reconciled the

@@ -6,13 +6,32 @@
  * only in-memory strike state and runs when the caller sweeps; it owns no timer.
  */
 import type { Logger } from "pino";
-import { herdPrefix, type HerdJobRow, type HerdRow } from "./herd-store.ts";
+import type { Observation } from "../../packages/rt-client/src/agent-integrations.ts";
+import { herdPrefix, type HerdJobRow, type HerdRow, type JobAttempt } from "./herd-store.ts";
+
+/**
+ * A job whose worker the daemon observes through its harness integration
+ * rather than through a pane: the job's active attempt is bound and
+ * agent.integrations.enabled is on.
+ *
+ * `modal` is blocked on a pane rt may type into, so the trust and relocation
+ * accepts may try it; `blocked` is blocked anywhere else and only raises
+ * attention. `since` is when the job entered this state; `background` is
+ * running background work and when it began; `typesIntoPane` says whether a
+ * poke may go to the job's pane at all.
+ */
+export type ObservedJob = {
+  state: "working" | "idle" | "modal" | "blocked" | "dead" | "unknown";
+  since: number | null;
+  background: { task: string; sinceMs: number } | null;
+  typesIntoPane: boolean;
+};
 
 export interface WatchdogSensors {
   now(): number;
   herds(): HerdRow[];
   jobs(herd: string): HerdJobRow[];
-  /** "modal" = herdr agent_status "blocked"; "dead" = pane listed, agent !== "claude". */
+  /** "modal" = herdr agent_status "blocked"; "dead" = pane listed with no agent of the pane's harness on it. */
   paneState(pane: string): "working" | "idle" | "modal" | "dead" | "gone";
   /** Epoch ms of the pane's last status change, or null when nothing has been
       recorded (daemon restart, pane never watched). Null is never a wedge. */
@@ -26,13 +45,16 @@ export interface WatchdogSensors {
   unreadDmMentionsFor(handle: string): number;
   openHumanGates(herdPrefix: string): { id: string; ageMs: number }[];
   unconsumedAnswered(session: string): { id: string; ageMs: number }[];
+  /** The job's observed worker, or null when the job is supervised by its pane. */
+  observedJob?(job: HerdJobRow): ObservedJob | null;
 }
 
 export type WedgeVerdict =
   | { kind: "healthy" }
   | { kind: "wedged"; path: "fast" | "backstop"; evidence: string }
   | { kind: "finished-lingering"; evidence: string }
-  | { kind: "dead" | "modal" };
+  | { kind: "dead" | "modal" }
+  | { kind: "attention"; evidence: string };
 
 export interface WatchdogConfig {
   enabled: boolean;
@@ -64,6 +86,33 @@ const HEALTHY: WedgeVerdict = { kind: "healthy" };
 const LIVE: ReadonlySet<HerdJobRow["status"]> = new Set(["spawning", "active", "at-gate", "at-milestone"]);
 const AWAITING_ANSWER: ReadonlySet<HerdJobRow["status"]> = new Set(["at-gate", "at-milestone"]);
 
+/**
+ * How long an observation stays evidence: the fast path's default threshold,
+ * the shortest wait after which the watchdog acts on any reading.
+ */
+export const STALE_OBSERVATION_MS = 2 * 60_000;
+
+/**
+ * What an observation says about the attempt's worker. Only a fresh reading
+ * of the attempt's own attachment generation, taken after it took the job,
+ * may say anything: a predecessor's late or stale reading is unknown, never
+ * a death. Connectivity says nothing about the worker: a lost channel is not
+ * a dead process. An idle foreground is alive, and so is any session with
+ * background work running.
+ */
+export function classifyJobObservation(attempt: JobAttempt, observation: Observation, now: number): "active" | "blocked" | "dead" | "unknown" {
+  if (attempt.state !== "active" || observation.generation !== attempt.generation) return "unknown";
+  if (attempt.activatedAt !== undefined && observation.observedAt < attempt.activatedAt) return "unknown";
+  if (now - observation.observedAt > STALE_OBSERVATION_MS) return "unknown";
+  switch (observation.execution) {
+    case "dead": return "dead";
+    case "blocked": return "blocked";
+    case "working":
+    case "idle": return "active";
+    case "unknown": return observation.background === "active" ? "active" : "unknown";
+  }
+}
+
 const minutes = (ms: number) => Math.floor(ms / 60_000);
 const ms = (mins: number) => mins * 60_000;
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
@@ -71,12 +120,27 @@ const oldest = (gates: { id: string; ageMs: number }[]) => gates.reduce<{ id: st
 
 type Background = { exempt: true } | { exempt: false; note: string };
 
-function background(pane: string, s: WatchdogSensors, cfg: WatchdogConfig, now: number): Background {
-  const bg = s.backgroundWork(pane);
+/** One job's worker as the evaluators read it, from its observation or its pane. Readings are lazy, as the pane sensors were. */
+type JobView = {
+  state: ReturnType<WatchdogSensors["paneState"]> | ObservedJob["state"];
+  since(): number | null;
+  background(): { task: string; sinceMs: number } | null;
+};
+
+function jobView(job: HerdJobRow, s: WatchdogSensors): JobView | null {
+  const observed = s.observedJob?.(job) ?? null;
+  if (observed) return { state: observed.state, since: () => observed.since, background: () => observed.background };
+  if (job.pane === null) return null;
+  const pane = job.pane;
+  return { state: s.paneState(pane), since: () => s.idleSinceMs(pane), background: () => s.backgroundWork(pane) };
+}
+
+function background(view: JobView, cfg: WatchdogConfig, now: number): Background {
+  const bg = view.background();
   if (bg === null) return { exempt: false, note: "" };
   // A short turn can start and end between two sweeps, so no sweep sees the
   // pane working and the stamp survives; the idle transition still moved.
-  const age = now - Math.max(bg.sinceMs, s.idleSinceMs(pane) ?? 0);
+  const age = now - Math.max(bg.sinceMs, view.since() ?? 0);
   return age < ms(cfg.backgroundCapMins) ? { exempt: true } : { exempt: false, note: `; background ${bg.task} for ${minutes(age)}m` };
 }
 
@@ -94,12 +158,12 @@ function background(pane: string, s: WatchdogSensors, cfg: WatchdogConfig, now: 
     monitor or subagent counts as working too (RT-355), until that work
     outlives backgroundCapMins (RT-359). */
 function openReportAges(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogConfig, now: number): { reportMs: number; quietMs: number; background: string } | null {
-  if (job.status !== "done" || job.lastReport === null || job.pane === null) return null;
-  const state = s.paneState(job.pane);
-  if (state === "gone" || state === "working") return null;
-  const bg = background(job.pane, s, cfg, now);
+  if (job.status !== "done" || job.lastReport === null) return null;
+  const view = jobView(job, s);
+  if (view === null || view.state === "gone" || view.state === "working") return null;
+  const bg = background(view, cfg, now);
   if (bg.exempt) return null;
-  const idleSince = s.idleSinceMs(job.pane);
+  const idleSince = view.since();
   const lastActivity = idleSince !== null && idleSince > job.updatedAt ? idleSince : job.updatedAt;
   return { reportMs: now - job.updatedAt, quietMs: now - lastActivity, background: bg.note };
 }
@@ -121,13 +185,21 @@ function finishedLingering(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogCon
 export function evaluateJob(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogConfig): WedgeVerdict {
   const now = s.now();
   if (job.status === "done") return finishedLingering(job, s, cfg, now) ?? HEALTHY;
-  if (!LIVE.has(job.status) || job.pane === null) return HEALTHY;
+  if (!LIVE.has(job.status)) return HEALTHY;
+  const view = jobView(job, s);
+  if (view === null) return HEALTHY;
 
-  const state = s.paneState(job.pane);
-  const since = s.idleSinceMs(job.pane);
+  const state = view.state;
+  const since = view.since();
   // The spawn path owns a spawning pane's trust prompt and missing agent.
   if (job.status !== "spawning") {
     if (state === "dead") return { kind: "dead" };
+    // Blocked where rt may not answer, or unknown for as long as the
+    // backstop waits: only a person or the shepherd can tell what it is.
+    if (!AWAITING_ANSWER.has(job.status) && since !== null) {
+      if (state === "blocked" && now - since >= ms(cfg.fastMins)) return { kind: "attention", evidence: `blocked ${minutes(now - since)}m at a prompt rt does not answer` };
+      if (state === "unknown" && now - since >= ms(cfg.backstopMins)) return { kind: "attention", evidence: `state unknown for ${minutes(now - since)}m` };
+    }
     // A job already at a gate reads "blocked" on the pane for the whole
     // time a human takes on its form or milestone -- the single most common
     // healthy wait state in a herd, not a trust modal. Same AWAITING_ANSWER
@@ -156,7 +228,7 @@ export function evaluateJob(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogCo
   if (answered) return { kind: "wedged", path: "fast", evidence: `gate ${answered.id} answered ${minutes(answered.ageMs)}m ago and unconsumed` };
 
   if (AWAITING_ANSWER.has(job.status) || idleMs < ms(cfg.backstopMins)) return HEALTHY;
-  const bg = background(job.pane, s, cfg, now);
+  const bg = background(view, cfg, now);
   if (bg.exempt) return HEALTHY;
   return { kind: "wedged", path: "backstop", evidence: `idle ${minutes(idleMs)}m with no open gate${bg.note}` };
 }
@@ -220,6 +292,7 @@ const SHEPHERD = "@shepherd";
 const WORKER_CAP = 5;
 const SHEPHERD_CAP = 3;
 const DEAD_EVIDENCE = "pane open but the agent is gone";
+const OBSERVED_DEAD_EVIDENCE = "the worker session is gone";
 const MODAL_EVIDENCE = "blocked at a modal prompt, parked stuck-at-modal";
 
 const pokeText = (evidence: string) => `watchdog: ${evidence}. Consume it or post status.`;
@@ -228,8 +301,9 @@ const summaryText = (party: string, evidence: string, ladder: Ladder, now: numbe
 
 /**
  * Escalation ladder over the evaluators. Worker strikes 1-2 poke the worker,
- * 3-4 poke the shepherd with a one-line summary, 5 notifies the human; dead and
- * modal verdicts enter at strike 3 (never injected), modal is parked once.
+ * 3-4 poke the shepherd with a one-line summary, 5 notifies the human; dead,
+ * modal and attention verdicts enter at strike 3 (never injected), modal is
+ * parked once. A worker rt may not type into skips its own two pokes.
  * Shepherd strikes 1-2 poke its pane, 3 notifies the human. A herd with no
  * recorded shepherd pane routes every shepherd rung to the human. A strike is
  * earned only while still wedged and retryMins after the previous action;
@@ -306,12 +380,13 @@ export class HerdWatchdog {
   private async walkWorker(herd: HerdRow, job: HerdJobRow, cfg: WatchdogConfig, now: number): Promise<void> {
     const key = `${herd.id}/${job.name}`;
     const verdict = evaluateJob(job, this.sensors, cfg);
-    if (verdict.kind === "healthy" || verdict.kind === "finished-lingering" || job.pane === null) {
+    const observed = this.sensors.observedJob?.(job) ?? null;
+    if (verdict.kind === "healthy" || verdict.kind === "finished-lingering" || (job.pane === null && observed === null)) {
       this.ladders.delete(key);
       return;
     }
     const ladder = this.track(key, now);
-    if (verdict.kind === "modal" && !ladder.parked) {
+    if (verdict.kind === "modal" && !ladder.parked && job.pane !== null) {
       // Entering a freshly provisioned worktree re-prompts for folder trust
       // mid-session (trust is per directory), and that one the daemon may
       // answer for itself: it provisioned the tree. Anything else, and any
@@ -360,10 +435,13 @@ export class HerdWatchdog {
       return;
     }
     this.commit(key, ladder, now, fresh.kind === "wedged" ? 1 : 3, WORKER_CAP);
-    const evidence = fresh.kind === "wedged" ? fresh.evidence : fresh.kind === "dead" ? DEAD_EVIDENCE : MODAL_EVIDENCE;
+    const evidence = fresh.kind === "wedged" || fresh.kind === "attention" ? fresh.evidence
+      : fresh.kind === "dead" ? (observed ? OBSERVED_DEAD_EVIDENCE : DEAD_EVIDENCE) : MODAL_EVIDENCE;
     const ctx = { herd: herd.id, job: job.name, verdict: fresh.kind, strike: ladder.strikes };
     if (ladder.strikes <= 2) {
-      await this.poke(job.pane, pokeText(evidence), ctx, "poked worker");
+      // A worker rt may not type into gets no nudge of its own; the ladder still climbs to the shepherd.
+      if (job.pane === null || (observed !== null && !observed.typesIntoPane)) this.log.info(ctx, "worker nudge skipped: no pane rt may type into");
+      else await this.poke(job.pane, pokeText(evidence), ctx, "poked worker");
       return;
     }
     const summary = summaryText(key, evidence, ladder, now);

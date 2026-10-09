@@ -246,6 +246,13 @@ export type HarnessIntegration = {
    * such input reaches the session as peer input through its messaging.
    */
   readonly typedPaneInput?: boolean;
+  /**
+   * The background work a herdr pane running this harness shows on its
+   * visible screen, or null when it shows none. Read only for a pane rt
+   * supervises without a session binding. Absent when the screen says
+   * nothing rt can read.
+   */
+  readonly paneBackground?: (screen: string) => string | null;
   /** How this harness's sessions prove their policy; a policy proof of any other kind, or for a harness that declares none, is refused. */
   readonly policyProofKind?: PolicyProofKind;
   capabilities(mode: Mode): Promise<CapabilityReport>;

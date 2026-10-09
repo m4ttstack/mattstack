@@ -17,6 +17,7 @@ import { integrationsEnabled } from "../agent-integrations/context.ts";
 import { createObservationSweep, type IntegrationRegistry, type SessionAdapter } from "../agent-integrations/contracts.ts";
 import { createBoundLauncher } from "../agent-integrations/launch.ts";
 import { isAlive } from "../runner/workspace-registry.ts";
+import { recordObservation } from "../agent-integrations/observation-store.ts";
 import { listAttachedBindings } from "../agent-integrations/session-store.ts";
 import { livenessFrom, primeLivenessCache, probeAgents, type AgentEntry } from "../runs/liveness.ts";
 import type { RunLiveness } from "../runs/attention.ts";
@@ -41,7 +42,8 @@ export interface AgentStatusPollerHandle {
 /**
  * With agent.integrations.enabled on, each harness's session adapter observes
  * its attached bindings, which is where a Claude session that left its
- * attachment is detached, and the shared launcher recovers work submissions
+ * attachment is detached; every observation goes to the shared observation
+ * store supervision reads. The shared launcher recovers work submissions
  * a crash interrupted (they become ambiguous and are reconciled, never sent
  * again). Off, nothing is read. A binding whose recorded process is gone is
  * skipped, never marked: a dead pid is not a dead session.
@@ -78,7 +80,8 @@ export async function observeBoundSessions(deps: {
     }
     for (const binding of bindings) {
       try {
-        await sessions.observe(binding, sweep);
+        const seen = await sessions.observe(binding, sweep);
+        if (seen.ok) recordObservation(binding.key, seen.data);
       } catch {
         deps.log?.warn({ key: binding.key }, "agent-status poller could not observe a bound session");
       }

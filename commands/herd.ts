@@ -131,9 +131,9 @@ export function herdStatusBlocks(data: HerdStatusData): Block[] {
     const poked = j.watchdog && j.watchdog.strikes > 0 ? `poked ${j.watchdog.strikes}x${j.watchdog.lastPokeAt === null ? "" : ` ${ago(j.watchdog.lastPokeAt)}`}` : "";
     const worker = [j.harness, j.model, j.mode].filter(Boolean).join(" ");
     const where = j.mode === "headless" ? "no pane" : `pane ${j.pane ?? "-"}`;
-    const liveness = j.sessionDead || j.mode === "headless" ? "" : j.paneStatus ?? "-";
+    const liveness = j.sessionDead ? "" : j.mode === "headless" ? j.liveness ?? "" : j.paneStatus ?? "-";
     rows.push([out.strong(j.name), { text: s.word, role: s.role }, out.dim(where), out.dim([worker, liveness, j.openGate ? `gate ${j.openGate}` : "", poked].filter(Boolean).join(" · "))]);
-    if (j.sessionDead) problems.push(out.line("failed", `${j.name}: the pane is open but Claude is gone`), out.callout("next", out.cmd(`rt herd spawn --herd ${j.herd} --job ${j.name}`)));
+    if (j.sessionDead) problems.push(out.line("failed", j.mode === "headless" ? `${j.name}: the worker session is gone` : `${j.name}: the pane is open but Claude is gone`), out.callout("next", out.cmd(`rt herd spawn --herd ${j.herd} --job ${j.name}`)));
     if (j.status === "stuck-at-modal") problems.push(out.line("needs-you", `${j.name} is waiting at a trust prompt`, `accept it in pane ${j.pane ?? "-"}`));
     const terminal = j.lastGateStatus === "answered" || j.lastGateStatus === "closed";
     if (terminal && j.lastGateDelivery === "dead-pane") problems.push(out.line("needs-you", `${j.name} did not see the update to gate ${j.lastGate}`), out.callout("next", out.cmd(`rt chat dm ${shellQuote(j.handleName ?? j.handle)} ${shellQuote(`Please read the update to gate ${j.lastGate}.`)}`)));

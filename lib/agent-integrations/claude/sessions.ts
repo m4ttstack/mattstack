@@ -1,7 +1,8 @@
 /**
  * Claude Code's session integration: its native argv, launch and resume into
  * a herdr pane with the folder-trust check, discovery from Claude Code's
- * session registry, observations normalized from herdr and that registry,
+ * session registry, observations normalized from herdr, that registry and a
+ * herd worker's own pane (its agent, status and footer),
  * and binding a manually started session when it signs in.
  *
  * rt mints a Claude session's id and hands it to Claude, so a launch knows
@@ -38,13 +39,14 @@ import { isAlive } from "../../runner/workspace-registry.ts";
 import { selfPaneRef } from "../../self-pane.ts";
 import { isBusyError } from "../../state/busy.ts";
 import type {
-  LaunchHost, LaunchRequest, NativeLaunch, PreparedLaunch, RunWorkProcess, SessionAdapter, WorkReceipt,
+  LaunchHost, LaunchRequest, NativeLaunch, ObservationSweep, PreparedLaunch, RunWorkProcess, SessionAdapter, WorkReceipt,
 } from "../contracts.ts";
 import { openHostPane, type HostPaneLaunch, type HostPaneOpened } from "../herdr-pane.ts";
 import {
   createSessionStore, isDetachedAttachment, LEGACY_DEFAULT_PROFILE, listBindingsByNativeValue, type AttachmentInput, type SessionStore,
 } from "../session-store.ts";
 import { CROSS_SESSION_INBOUND_SETTINGS, writeClaudeGateHookSettings } from "./hooks.ts";
+import { backgroundTask } from "./pane-reading.ts";
 import { installedModLinks, pushModCommand, type ModLinks, type ModLinkView } from "./mod-links.ts";
 import { liveModLink, modPath } from "./mod-path.ts";
 
@@ -147,6 +149,10 @@ export type ClaudeSessionDeps = {
   cswapAccounts(): Promise<PaneAccount[]>;
   /** Whether a mattstack-mods link is live for this native session id; while one is, the link owns the session's lifecycle. */
   hasLiveLink(nativeId: string): boolean;
+  /** herdr's panes on one server (absent socket: the visible one), keyed by bare pane id; empty when herdr could not be asked. */
+  paneRows(socket: string | undefined): Promise<Map<string, { agent: string | null; status: string | null }>>;
+  /** The pane's visible screen, or null when it could not be read. */
+  readScreen(paneId: string, socket: string | undefined): Promise<string | null>;
 };
 
 const HARNESS = "claude";
@@ -226,6 +232,16 @@ function defaultDeps(): ClaudeSessionDeps {
     socketExists: existsSync,
     cswapAccounts: defaultCswapAccounts,
     hasLiveLink: (nativeId) => liveModLink(nativeId) !== null,
+    paneRows: async (socket) => {
+      const [{ paneStatuses }, { herdrRequest }] = await Promise.all([import("../../daemon/pane-statuses.ts"), import("../../herdr/client.ts")]);
+      return paneStatuses(herdrRequest, socket ?? null);
+    },
+    readScreen: async (paneId, socket) => {
+      const { herdrRequest } = await import("../../herdr/client.ts");
+      const read = await herdrRequest<{ read?: { text?: unknown } }>("pane.read", { pane_id: paneId, source: "visible" }, socket ? { sockPath: socket } : {});
+      const screen = read.ok ? read.result?.read?.text : undefined;
+      return typeof screen === "string" ? screen : null;
+    },
   };
 }
 
@@ -290,6 +306,18 @@ const HERDR_EXECUTION: Partial<Record<AgentEntry["status"], Observation["executi
 const REGISTRY_EXECUTION: Partial<Record<NonNullable<InboxBinding["status"]>, Observation["execution"]>> = {
   busy: "working", idle: "idle",
 };
+
+/**
+ * A herd worker's pane as herdr lists it. An agent status nobody mapped reads
+ * idle, never working: a wedged worker whose status fell through to working
+ * would never be nudged. No status at all is herdr not having classified the
+ * pane yet, which is evidence of nothing.
+ */
+function paneExecution(status: string | null): Observation["execution"] {
+  if (status === null) return "unknown";
+  if (status === "working" || status === "blocked") return status;
+  return "idle";
+}
 
 /** Positive evidence that another session now holds this binding's process or pane. A recorded process outranks a pane, which may have been an inherited hint. */
 function movedBy(binding: SessionBinding, agents: AgentEntry[] | null, registry: ClaudeRegistry, alive: (pid: number) => boolean): string | null {
@@ -381,6 +409,21 @@ export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {})
     return opened.ok ? ok({ native, ...opened.data }) : opened;
   }
 
+  /** The pane row of a herd worker's own attachment; undefined for any other binding, or a pane herdr does not list. */
+  async function herdWorkerPane(binding: SessionBinding, sweep?: ObservationSweep): Promise<{ agent: string | null; status: string | null } | undefined> {
+    const { pane, socket } = binding.attachment;
+    if (binding.attemptId === undefined || pane === undefined) return undefined;
+    const load = () => deps.paneRows(socket);
+    const rows = await (sweep ? sweep.memo(`claude:panes:${socket ?? ""}`, load) : load());
+    return rows.get(parsePaneRef(pane).paneId);
+  }
+
+  async function paneBackground(binding: SessionBinding): Promise<Observation["background"]> {
+    const screen = await deps.readScreen(parsePaneRef(binding.attachment.pane!).paneId, binding.attachment.socket);
+    if (screen === null) return "unknown";
+    return backgroundTask(screen) === null ? "inactive" : "active";
+  }
+
   return {
     async launch(request) {
       const account = request.selection.options.account;
@@ -421,9 +464,9 @@ export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {})
       const { native, attachment } = binding;
       if (native.harness !== HARNESS || native.kind !== "id") return fail("invalid", "only a Claude Code session id is observed here");
       const at = deps.now();
-      // Background stays unknown and execution is never dead: screen and process parsing still live in the herd watchdog.
-      const seen = (o: Pick<Observation, "connectivity" | "execution" | "source">, generation = attachment.generation): Outcome<Observation> =>
-        ok({ ...o, background: "unknown", observedAt: at, generation });
+      const seen = (
+        o: Pick<Observation, "connectivity" | "execution" | "source">, generation = attachment.generation, background: Observation["background"] = "unknown",
+      ): Outcome<Observation> => ok({ ...o, background, observedAt: at, generation });
       if (isDetachedClaudeBinding(binding)) return seen({ connectivity: "unknown", execution: "unknown", source: "store" });
 
       const registry = sweep ? sweep.memo("claude:registry", () => snapshotRegistry(deps.registry)) : deps.registry;
@@ -440,6 +483,14 @@ export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {})
       // A disconnected inbox is a transport fact: it never makes the session dead.
       const connectivity: Observation["connectivity"] = !found ? "unknown"
         : found.live && deps.socketExists(found.row.socketPath) ? "connected" : "disconnected";
+      const worker = await herdWorkerPane(binding, sweep);
+      if (worker) {
+        // A shell still listed in the pane with no Claude on it is the worker's process gone, the one death the pane confirms.
+        if (worker.agent !== HARNESS) return seen({ connectivity, execution: "dead", source: "herdr-pane" });
+        const execution = paneExecution(worker.status);
+        const background = execution === "idle" ? await paneBackground(binding) : "unknown";
+        return seen({ connectivity, execution, source: "herdr-pane" }, attachment.generation, background);
+      }
       const fromHerdr = herdrEntry(binding, agents);
       if (fromHerdr) return seen({ connectivity, execution: HERDR_EXECUTION[fromHerdr.status] ?? "unknown", source: "herdr" });
       if (found) {

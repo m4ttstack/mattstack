@@ -1,11 +1,13 @@
 import { homedir } from "os";
 import type { HarnessIntegration } from "../contracts.ts";
+import { backgroundTask } from "./pane-reading.ts";
 
 export const claudeIntegration: HarnessIntegration = {
   id: "claude",
   label: "Claude Code",
   sessionEnv: ["CLAUDE_CODE_SESSION_ID"],
   typedPaneInput: true,
+  paneBackground: backgroundTask,
   policyProofKind: "installation",
   sessionForPid: async (pid) => {
     const { registryRoots, sessionForPid } = await import("../../claude-registry.ts");

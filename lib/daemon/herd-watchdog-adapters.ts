@@ -6,22 +6,66 @@
  */
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
+import type { HarnessId, Observation, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
 import { formatPaneRef, parsePaneRef, type PaneServer } from "../../packages/rt-client/src/index.ts";
+import { builtinRegistry, UNRECORDED_PANE_HARNESS } from "../agent-integrations/builtins.ts";
+import { createObservationSweep, type IntegrationRegistry, type ObservationSweep } from "../agent-integrations/contracts.ts";
+import { latestObservation, recordObservation } from "../agent-integrations/observation-store.ts";
+import { createSessionStore } from "../agent-integrations/session-store.ts";
+import { integrationsEnabled } from "../agent-integrations/switch.ts";
 import type { herdrRequest } from "../herdr/client.ts";
 import { peekUnread } from "../state/chat-store.ts";
 import { dmParticipants } from "../state/dm-store.ts";
 import { enqueueNotification } from "../state/notifier-store.ts";
 import type { GatesStore } from "./gates-store.ts";
 import type { HerdLifecycle } from "./herd-lifecycle.ts";
-import type { HerdStore } from "./herd-store.ts";
-import type { WatchdogActuators, WatchdogConfig, WatchdogSensors } from "./herd-watchdog.ts";
+import type { HerdJobRow, HerdStore, JobAttempt } from "./herd-store.ts";
+import {
+  classifyJobObservation, STALE_OBSERVATION_MS,
+  type ObservedJob, type WatchdogActuators, type WatchdogConfig, type WatchdogSensors,
+} from "./herd-watchdog.ts";
 import { injectIntoPane } from "./inject.ts";
 import { cwdPath, driveRelocationAccept, driveTrustAccept } from "./trust-accept.ts";
 import { paneStatuses } from "./pane-statuses.ts";
 import { findTreeByPath } from "../worktree/registry.ts";
 
+export type ObserveJob = (attempt: JobAttempt) => Promise<Outcome<Observation>>;
+
+/**
+ * A job attempt's worker as its own harness integration observes it: the
+ * newest shared observation of its binding while that is still fresh and of
+ * the binding's current generation, else a new observation, recorded for the
+ * next reader. An unbound attempt has none; its pane is supervised instead.
+ */
+export function createJobObserver(deps: {
+  db: () => Database;
+  integrations?: IntegrationRegistry;
+  now?: () => number;
+  /** Shared by every observe of one pass. */
+  sweep?: ObservationSweep;
+}): { observeJob: ObserveJob } {
+  const now = deps.now ?? Date.now;
+  const registry = deps.integrations ?? builtinRegistry();
+  const fail = (code: "unsupported" | "invalid", message: string): Outcome<Observation> => ({ ok: false, error: { code, message } });
+  return {
+    async observeJob(attempt) {
+      if (attempt.bindingKey === undefined) return fail("unsupported", `attempt ${attempt.id} has no session binding to observe`);
+      const binding = createSessionStore(deps.db()).get(attempt.bindingKey);
+      if (!binding) return fail("invalid", `no session binding has key ${attempt.bindingKey}`);
+      const held = latestObservation(binding.key);
+      if (held && held.generation === binding.attachment.generation && now() - held.observedAt <= STALE_OBSERVATION_MS) return { ok: true, data: held };
+      const sessions = await registry.get(binding.native.harness)?.loadSessions?.();
+      if (!sessions) return fail("unsupported", `${binding.native.harness} sessions cannot be observed`);
+      const seen = await sessions.observe(binding, deps.sweep);
+      if (seen.ok) recordObservation(binding.key, seen.data);
+      return seen;
+    },
+  };
+}
+
 export interface WatchdogSensorDeps {
-  herdStore: Pick<HerdStore, "list" | "jobs">;
+  /** `activeAttempt` and `attempts` name each job's harness and binding; without them every pane reads as the unrecorded harness's. */
+  herdStore: Pick<HerdStore, "list" | "jobs"> & Partial<Pick<HerdStore, "activeAttempt" | "attempts">>;
   gatesStore: Pick<GatesStore, "list" | "unconsumedAnsweredPushes">;
   lifecycle: Pick<HerdLifecycle, "lastStatusChangeMs">;
   herdr: typeof herdrRequest;
@@ -30,6 +74,12 @@ export interface WatchdogSensorDeps {
   now?: () => number;
   /** Used only to report a herdr status this mapper does not name. */
   log?: Logger;
+  /** agent.integrations.enabled; off, every job is supervised by its pane. */
+  enabled?: () => boolean;
+  /** The harnesses whose pane screens name background work. */
+  integrations?: IntegrationRegistry;
+  /** Observes a bound attempt's worker; the shared observation store and the job's own integration when omitted. */
+  observeJob?: ObserveJob;
 }
 
 export interface RefreshingSensors extends WatchdogSensors {
@@ -43,44 +93,21 @@ export interface RefreshingSensors extends WatchdogSensors {
 
 interface PaneReading { agent: string | null; status: string | null; socket: string }
 
+const jobKey = (job: Pick<HerdJobRow, "herd" | "name">): string => `${job.herd}/${job.name}`;
+
 const UNREAD_PEEK_LIMIT = 200;
 
-// Claude Code draws its status footer below the composer's bottom rule, so
-// only that region is read: a transcript line quoting "1 shell" never counts.
-// The agents panel exists only while a subagent is still running.
-const RULE_LINE = /^\s*─{10,}\s*$/;
-const FOOTER_TASK_COUNT = /\b[1-9]\d* (?:shells?|monitors?)\b/;
-const AGENTS_PANEL_MAIN = /^\s*⏺ main\s*$/;
-
-const LIVE_TIMER = /(?:\s+\d+[hms])+$/;
-
-export function backgroundTask(screen: string): string | null {
-  const lines = screen.split("\n");
-  let rule = -1;
-  for (let i = 0; i < lines.length; i++) if (RULE_LINE.test(lines[i]!)) rule = i;
-  if (rule < 0) return null;
-  const footer = lines.slice(rule + 1);
-  for (const line of footer) {
-    const segment = line.split(" · ").find((part) => FOOTER_TASK_COUNT.test(part));
-    if (segment !== undefined) return segment.trim();
-  }
-  const main = footer.findIndex((line) => AGENTS_PANEL_MAIN.test(line));
-  if (main < 0) return null;
-  const row = footer.slice(main + 1).find((line) => line.trim().length > 0);
-  if (row === undefined) return null;
-  return `subagent ${row.split(" · ")[0]!.replace(/^\s*◯\s*/, "").replace(/\s+/g, " ").trim().replace(LIVE_TIMER, "")}`;
-}
-
-/** The statuses this mapper names. Anything else a live claude reports still
+/** The statuses this mapper names. Anything else a live agent reports still
     maps, to idle: board-37 sat wedged for 31 minutes because "done" fell
     through to working, and a working pane is never poked. A status nobody
     mapped must never exempt a pane again, so the fall-through is idle and the
     gap is logged rather than swallowed. */
 const NAMED_STATUSES: ReadonlySet<string> = new Set(["working", "idle", "blocked", "done"]);
 
-function readingState(row: PaneReading | undefined, unknown?: (status: string) => void): ReturnType<WatchdogSensors["paneState"]> {
+/** herdr names a pane's agent by its harness id, so a pane listed with any other agent, or none, has lost its worker. */
+function readingState(row: PaneReading | undefined, harness: HarnessId, unknown?: (status: string) => void): ReturnType<WatchdogSensors["paneState"]> {
   if (!row) return "gone";
-  if (row.agent !== "claude") return "dead";
+  if (row.agent !== harness) return "dead";
   if (row.status === "blocked") return "modal";
   if (row.status === "working") return "working";
   // No status at all is not an unnamed status: herdr has not classified the
@@ -92,8 +119,27 @@ function readingState(row: PaneReading | undefined, unknown?: (status: string) =
   return "idle";
 }
 
+type Tracked = { attempt: string; state: ObservedJob["state"]; since: number; backgroundSince: number | null };
+
+/** An observed worker's state in the evaluators' terms; blocked is a modal only on a pane rt may type into. */
+function observedState(classified: ReturnType<typeof classifyJobObservation>, observation: Observation | null, typesIntoPane: boolean): ObservedJob["state"] {
+  switch (classified) {
+    case "dead": return "dead";
+    case "unknown": return "unknown";
+    case "blocked": return typesIntoPane ? "modal" : "blocked";
+    case "active": return observation?.execution === "idle" ? "idle" : "working";
+  }
+}
+
 export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSensors {
   const now = deps.now ?? Date.now;
+  const enabled = deps.enabled ?? integrationsEnabled;
+  const registry = deps.integrations ?? builtinRegistry();
+  // The harness each job pane runs, from the job's attempts; any other pane (a shepherd's, a job with no attempt) reads as the unrecorded one.
+  let paneHarness = new Map<string, HarnessId>();
+  const harnessOf = (pane: string): HarnessId => paneHarness.get(pane) ?? UNRECORDED_PANE_HARNESS;
+  let observed = new Map<string, ObservedJob>();
+  let tracked = new Map<string, Tracked>();
   // Keyed by the addressable ref the job row stores (bg: for a hidden herd),
   // not the bare id: two servers can both hold a w1:p1.
   let panes = new Map<string, PaneReading>();
@@ -117,22 +163,36 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
       for (const [id, row] of await paneStatuses(deps.herdr, socket)) next.set(formatPaneRef(id, server), { ...row, socket });
     }
     const t = now();
-    for (const pane of firstSeenIdle.keys()) if (readingState(next.get(pane)) !== "idle") firstSeenIdle.delete(pane);
+    const switchOn = enabled();
+    const nextHarness = new Map<string, HarnessId>();
+    const boundJobs: Array<{ job: HerdJobRow; attempt: JobAttempt }> = [];
+    for (const herd of active) {
+      for (const job of deps.herdStore.jobs(herd.id)) {
+        if (job.status === "closed") continue;
+        const attempt = deps.herdStore.activeAttempt?.(herd.id, job.name) ?? deps.herdStore.attempts?.(herd.id, job.name).at(-1) ?? null;
+        if (job.pane !== null && attempt) nextHarness.set(job.pane, attempt.selection.harness);
+        if (switchOn && attempt?.state === "active" && attempt.bindingKey !== undefined) boundJobs.push({ job, attempt });
+      }
+    }
+    paneHarness = nextHarness;
+    for (const pane of firstSeenIdle.keys()) if (readingState(next.get(pane), harnessOf(pane)) !== "idle") firstSeenIdle.delete(pane);
     // One warn per unrecognized status per sweep, not per pane: a herdr that
     // grew a new status would otherwise warn once for every worker it runs.
     const unnamed = new Set<string>();
     for (const [pane, row] of next) {
-      if (readingState(row, (status) => unnamed.add(status)) !== "idle" || deps.lifecycle.lastStatusChangeMs(pane) !== null) continue;
+      if (readingState(row, harnessOf(pane), (status) => unnamed.add(status)) !== "idle" || deps.lifecycle.lastStatusChangeMs(pane) !== null) continue;
       if (!firstSeenIdle.has(pane)) firstSeenIdle.set(pane, t);
     }
     for (const status of unnamed) deps.log?.warn({ status }, "watchdog: unrecognized herdr agent status; treating the pane as idle");
     panes = next;
+    observed = await observeBound(boundJobs, next, t);
     const nextBusy = new Map<string, { task: string; sinceMs: number }>();
     for (const herd of active) {
       for (const job of deps.herdStore.jobs(herd.id)) {
-        if (job.pane === null || job.status === "closed") continue;
+        if (job.pane === null || job.status === "closed" || observed.has(jobKey(job))) continue;
+        const readsBackground = registry.get(harnessOf(job.pane))?.paneBackground;
         const row = next.get(job.pane);
-        if (!row || readingState(row) !== "idle") continue;
+        if (!readsBackground || !row || readingState(row, harnessOf(job.pane)) !== "idle") continue;
         const screen = await deps.herdr<{ read?: { text?: unknown } }>("pane.read", { pane_id: parsePaneRef(job.pane).paneId, source: "visible" }, { sockPath: row.socket });
         // An ok reply's body is still herdr's to get wrong. A read that yields
         // no text screen is no evidence either way, so the previous entry and
@@ -143,11 +203,52 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
           if (previous) nextBusy.set(job.pane, previous);
           continue;
         }
-        const task = backgroundTask(text);
+        const task = readsBackground(text);
         if (task !== null) nextBusy.set(job.pane, { task, sinceMs: previous?.sinceMs ?? t });
       }
     }
     busy = nextBusy;
+  }
+
+  /**
+   * Each bound job's observation, classified against its own attempt. A
+   * failed or throwing observe is unknown. The idle clock of a job with a
+   * pane is the pane's own, as for every pane; otherwise each state is
+   * timed from the first refresh that saw it.
+   */
+  async function observeBound(jobs: Array<{ job: HerdJobRow; attempt: JobAttempt }>, rows: Map<string, PaneReading>, t: number): Promise<Map<string, ObservedJob>> {
+    const observe = deps.observeJob ?? createJobObserver({ db: () => deps.db, integrations: registry, now, sweep: createObservationSweep() }).observeJob;
+    const out = new Map<string, ObservedJob>();
+    const nextTracked = new Map<string, Tracked>();
+    for (const { job, attempt } of jobs) {
+      let observation: Observation | null = null;
+      try {
+        const seen = await observe(attempt);
+        if (seen.ok) observation = seen.data;
+      } catch (err) {
+        deps.log?.warn({ err, herd: job.herd, job: job.name }, "watchdog: could not observe a bound worker");
+      }
+      const typesIntoPane = job.pane !== null && registry.get(attempt.selection.harness)?.typedPaneInput === true;
+      const classified = observation ? classifyJobObservation(attempt, observation, t) : "unknown";
+      const state = observedState(classified, observation, typesIntoPane);
+      const key = jobKey(job);
+      const previous = tracked.get(key);
+      const same = previous?.attempt === attempt.id;
+      const since = same && previous.state === state ? previous.since : t;
+      const backgroundOn = classified === "active" && observation?.background === "active";
+      const backgroundSince = backgroundOn ? (same && previous.backgroundSince !== null ? previous.backgroundSince : t) : null;
+      nextTracked.set(key, { attempt: attempt.id, state, since, backgroundSince });
+      const paneClock = job.pane !== null && (state === "idle" || state === "modal") && rows.has(job.pane)
+        ? deps.lifecycle.lastStatusChangeMs(job.pane) ?? firstSeenIdle.get(job.pane) ?? null
+        : null;
+      out.set(key, {
+        state, typesIntoPane,
+        since: paneClock ?? since,
+        background: backgroundSince === null ? null : { task: "work", sinceMs: backgroundSince },
+      });
+    }
+    tracked = nextTracked;
+    return out;
   }
 
   return {
@@ -156,7 +257,8 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
     now,
     herds: () => deps.herdStore.list({ status: "active" }),
     jobs: (herd) => deps.herdStore.jobs(herd),
-    paneState: (pane) => readingState(panes.get(pane)),
+    observedJob: (job) => observed.get(jobKey(job)) ?? null,
+    paneState: (pane) => readingState(panes.get(pane), harnessOf(pane)),
     idleSinceMs: (pane) => deps.lifecycle.lastStatusChangeMs(pane) ?? firstSeenIdle.get(pane) ?? null,
     backgroundWork: (pane) => busy.get(pane) ?? null,
     unreadDmMentionsFor(handle) {
