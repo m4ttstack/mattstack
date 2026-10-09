@@ -45,7 +45,7 @@ EOF
 
 run() { # stdin-json -> "exit=<code> err=<stderr first line> out=<stdout>"
   local out err code
-  out="$(printf '%s' "$1" | env -i HOME="$SANDBOX/home" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_RUNS_ROOT="$SANDBOX/runs" ${RT_STUB_USAGE:+RT_STUB_USAGE="$RT_STUB_USAGE"} ${RT_STUB_FIND:+RT_STUB_FIND="$RT_STUB_FIND"} sh "$HOOK" 2>"$SANDBOX/err")"
+  out="$(printf '%s' "$1" | env -i HOME="$SANDBOX/home" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_RUNS_ROOT="$SANDBOX/runs" ${RT_STUB_USAGE:+RT_STUB_USAGE="$RT_STUB_USAGE"} ${RT_STUB_FIND:+RT_STUB_FIND="$RT_STUB_FIND"} ${RT_STOP_HOOK_MAX_BYTES:+RT_STOP_HOOK_MAX_BYTES="$RT_STOP_HOOK_MAX_BYTES"} ${RT_STOP_HOOK_SCAN_MS:+RT_STOP_HOOK_SCAN_MS="$RT_STOP_HOOK_SCAN_MS"} sh "$HOOK" 2>"$SANDBOX/err")"
   code=$?
   err="$(head -1 "$SANDBOX/err" 2>/dev/null)"
   printf 'exit=%s err=%s out=%s' "$code" "$err" "$out"
@@ -152,6 +152,7 @@ rm -f "$SANDBOX/usage-flag"
 mv "$SANDBOX/bin/rt" "$SANDBOX/bin/rt.off"
 check "rt missing exits 0" "exit=0 err= out=" "$(run "$STOP")"
 mv "$SANDBOX/bin/rt.off" "$SANDBOX/bin/rt"
+rm -rf "$SANDBOX/runs/repo-a/20260901-000010-jjjj-10"
 
 # No HOME at all: set -u must not turn a lookup failure into a block.
 mkrun repo-a 20260901-000013-mmmm-13 running "$SID"
@@ -201,7 +202,53 @@ transcript "$T" 5 bash-background
 r="$(run "$(stop_with "$T")")"
 case "$r" in exit=2*) echo "ok   background shell task alone exits 2";; *) echo "FAIL background shell task alone exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
 
+# A tool result that merely quotes the backgrounding sentence is not a pending task.
+transcript "$T" 5 read-quotes-background
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   a quoted backgrounding line is not a pending task";; *) echo "FAIL a quoted backgrounding line is not a pending task"; echo "       got : $r"; fails=$((fails+1));; esac
+
 rm -rf "$SANDBOX/runs/repo-a/20260901-000020-bg-20" "$T"
+
+# Bounds and fall-throughs: each one keeps today's block.
+mkrun repo-a 20260901-000021-bg-21 running "$SID"
+T="$SANDBOX/transcript.jsonl"
+
+transcript "$T" 121 mcp-backgrounded
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   pending task past the age bound exits 2";; *) echo "FAIL pending task past the age bound exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+transcript "$T" 119 mcp-backgrounded
+check "pending task inside the age bound exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
+
+transcript "$T" 5 mcp-backgrounded
+r="$(RT_STOP_HOOK_MAX_BYTES=10 run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   transcript over the size cap exits 2";; *) echo "FAIL transcript over the size cap exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+r="$(RT_STOP_HOOK_SCAN_MS=0 run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   scan past its time cap exits 2";; *) echo "FAIL scan past its time cap exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+# The scan parses only lines that carry a task marker, so the bad line must
+# carry one; a garbage line without a marker is skipped unread on purpose.
+transcript "$T" 5 mcp-backgrounded
+printf 'not json <task-id>kl3hfxjxx</task-id>\n' >> "$T"
+r="$(run "$(stop_with "$T")")"
+case "$r" in exit=2*) echo "ok   a marker line that is not JSON exits 2";; *) echo "FAIL a marker line that is not JSON exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+r="$(run "$(stop_with "$SANDBOX/missing.jsonl")")"
+case "$r" in exit=2*) echo "ok   missing transcript exits 2";; *) echo "FAIL missing transcript exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+r="$(run "$STOP")"
+case "$r" in exit=2*) echo "ok   no transcript_path exits 2";; *) echo "FAIL no transcript_path exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+# No running run: the transcript is never opened. An unreadable file would
+# make the scan fail, so a 0 here proves the scan did not run (as root the
+# file stays readable and the case still passes, since the scan is not reached).
+rm -rf "$SANDBOX/runs/repo-a/20260901-000021-bg-21"
+transcript "$T" 5 mcp-backgrounded
+chmod 000 "$T"
+check "no running run never opens the transcript" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
+chmod 600 "$T"
+rm -f "$T"
 
 [ "$fails" -eq 0 ] && echo "all pipeline-gate-stop tests passed" || echo "$fails failure(s)"
 exit $((fails > 0))

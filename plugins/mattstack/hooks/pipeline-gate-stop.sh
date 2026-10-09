@@ -105,10 +105,12 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
 import calendar, json, os, re, sys, time
 
 MAX_AGE_MIN = 120
-MAX_BYTES = 64 * 1024 * 1024
-SCAN_MS = 1500
+MAX_BYTES = int(os.environ.get("RT_STOP_HOOK_MAX_BYTES") or 64 * 1024 * 1024)
+SCAN_MS = int(os.environ.get("RT_STOP_HOOK_SCAN_MS") or 1500)
 path = sys.argv[1]
 if os.path.getsize(path) > MAX_BYTES:
+    sys.exit(1)
+if SCAN_MS <= 0:
     sys.exit(1)
 deadline = time.monotonic() + SCAN_MS / 1000.0
 
@@ -134,8 +136,11 @@ with open(path, "rb") as f:
             if isinstance(tur, dict) and tur.get("status") == "async_launched" and tur.get("agentId"):
                 pending[tur["agentId"]] = when(d)
                 continue
-            for m in MCP.finditer(raw.decode("utf-8", "replace")):
-                pending[m.group(1)] = when(d)
+            for item in tur if isinstance(tur, list) else []:
+                text = item.get("text") if isinstance(item, dict) and item.get("type") == "text" else None
+                m = MCP.search(text) if isinstance(text, str) and text.startswith("MCP tool ") else None
+                if m:
+                    pending[m.group(1)] = when(d)
         elif kind == "assistant":
             for c in (d.get("message") or {}).get("content") or []:
                 if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") == "TaskStop":
