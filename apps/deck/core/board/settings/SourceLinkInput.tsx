@@ -16,7 +16,9 @@ export function SourceLinkInput({
 }: {
   row: Row;
   board: BoardState;
-  done: () => void;
+  /** Set for a disclosure the person opened (relink): Escape closes only
+      it. Without it, an empty Escape falls through and closes the modal. */
+  done?: () => void;
   /** Only when the person just asked for it: an input that is always shown
       must not take focus from the modal's close button. */
   autoFocus?: boolean;
@@ -46,7 +48,7 @@ export function SourceLinkInput({
       return;
     }
     setValue('');
-    done();
+    done?.();
   };
 
   return (
@@ -65,13 +67,18 @@ export function SourceLinkInput({
         inputRef={inputRef}
         onKeyDown={ev => {
           if (ev.key === 'Enter') submit();
-          if (ev.key === 'Escape') {
-            escapeClearsDraft(ev, value, () => {
-              setValue('');
-              setError(null);
-            });
+          if (ev.key !== 'Escape') return;
+          if (done) {
+            ev.stopPropagation();
+            setValue('');
+            setError(null);
             done();
+            return;
           }
+          escapeClearsDraft(ev, value, () => {
+            setValue('');
+            setError(null);
+          });
         }}
       />
       <Button disabled={value.trim() === '' || busy} onClick={submit}>

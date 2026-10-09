@@ -146,7 +146,15 @@ function EntryChip({ entry, onRemove }: { entry: string; onRemove(): void }) {
 /** Turning sign-in on is local intent until Apply; turning it off calls the
     API at once. The error shows whatever the switch reads, so a teardown
     failure stays visible after the switch is already off. */
-function SignInItem({ m, board }: { m: AccessModalState; board: BoardState }) {
+function SignInItem({
+  row,
+  m,
+  board,
+}: {
+  row: Row;
+  m: AccessModalState;
+  board: BoardState;
+}) {
   const busy = m.oauthBusy;
   const draft = m.entryDraft;
   const commitDraft = () => board.addAccessEntry(draft);
@@ -162,6 +170,11 @@ function SignInItem({ m, board }: { m: AccessModalState; board: BoardState }) {
         <>
           Google sign-in <Help tip={SIGN_IN_TIP} />
         </>
+      }
+      note={
+        m.oauthOn &&
+        row.oauth.mode === 'off' &&
+        'Not on yet. Add people or domains and Apply.'
       }
       end={
         <OptimisticSwitch
@@ -232,7 +245,9 @@ function SignInItem({ m, board }: { m: AccessModalState; board: BoardState }) {
 export function GatesBlock({ row, board, blocks }: BlockProps) {
   if (!blocks.gates) return null;
   const m = board.accessModal?.app === row.name ? board.accessModal : null;
-  const open = m != null && !row.hasPassword && !m.oauthOn;
+  // Server state, not the switch: a switch flipped on is not a gate until
+  // Apply, and closing the modal drops it.
+  const open = !row.hasPassword && row.oauth.mode === 'off';
   return (
     <section
       data-block="gates"
@@ -248,7 +263,7 @@ export function GatesBlock({ row, board, blocks }: BlockProps) {
       </div>
       <ul className="settings-list">
         <PasswordItem row={row} m={m} board={board} />
-        {m && <SignInItem m={m} board={board} />}
+        {m && <SignInItem row={row} m={m} board={board} />}
       </ul>
       {open && (
         <p className="settings-open-note">

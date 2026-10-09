@@ -98,7 +98,7 @@ export function CodeBlock({ row, data, board, blocks }: BlockProps) {
               {row.devDir ? homeRelative(row.devDir) : 'linked'}
             </span>
           ) : canLink ? (
-            <SourceLinkInput row={row} board={board} done={() => {}} />
+            <SourceLinkInput row={row} board={board} />
           ) : row.devLink === 'broken' ? (
             <span className="t-bad">broken</span>
           ) : (

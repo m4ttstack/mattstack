@@ -24,7 +24,9 @@ export function DangerFooter({ row, board, blocks }: BlockProps) {
       )}
       {switches && (
         <span className="settings-note settings-footer-note">
-          Switches save as you flip them
+          {blocks.gates
+            ? 'Switches save as you flip them. Google sign-in saves when you Apply.'
+            : 'Switches save as you flip them'}
         </span>
       )}
     </footer>

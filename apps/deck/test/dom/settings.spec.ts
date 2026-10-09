@@ -1061,6 +1061,39 @@ test("code: a refused relink shows the server's error inline and keeps the input
   });
 });
 
+test('code: Escape in an empty relink input closes only the input, not the modal', async () => {
+  await withBoard(async page => {
+    const dlg = await openSettings(page, 'atlas');
+    const code = block(dlg, 'code');
+    const relink = button(code, 'relink');
+    await relink.click();
+    const input = code.getByRole('textbox', { name: 'source path for atlas' });
+    await input.waitFor({ state: 'visible' });
+    expect(await input.inputValue()).toBe('');
+
+    await input.press('Escape');
+    await input.waitFor({ state: 'detached', timeout: 2000 });
+    await new Promise(r => setTimeout(r, 200));
+    expect(await settingsFor(page, 'atlas').isVisible()).toBe(true);
+    expect(await relink.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+test('code: Escape in the empty always-visible link input closes the modal', async () => {
+  await withBoard(async page => {
+    const dlg = await openSettings(page, 'ledger');
+    const input = block(dlg, 'code').getByRole('textbox', {
+      name: 'source path for ledger',
+    });
+    await input.focus();
+    await input.press('Escape');
+    await settingsFor(page, 'ledger').waitFor({
+      state: 'detached',
+      timeout: 2000,
+    });
+  });
+});
+
 test("code: an unlinked row shows the link input and today's footer instead of a path", async () => {
   await withBoard(async page => {
     const dlg = await openSettings(page, 'ledger');

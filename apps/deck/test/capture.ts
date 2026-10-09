@@ -287,9 +287,17 @@ await scenario('light', baseFixture, 'modal-tunnel', async page => {
 await scenario('light', readonlyFixture, 'modal-readonly', page =>
   openSettingsFor(page, 'atlas')
 );
+// forecast has no gate; sign-in flipped on with an entry, before Apply.
 await scenario('light', baseFixture, 'modal-access-on', async page => {
-  await openSettingsFor(page, 'atlas');
-  await page.locator('[data-block="gates"]').scrollIntoViewIfNeeded();
+  await openSettingsFor(page, 'forecast');
+  const gates = page.locator('[data-block="gates"]');
+  await gates
+    .getByRole('switch', { name: 'require google sign-in', exact: true })
+    .click();
+  const draft = gates.getByRole('textbox', { name: 'add email' });
+  await draft.fill('a@example.com');
+  await draft.press('Enter');
+  await gates.scrollIntoViewIfNeeded();
 });
 
 // ---- night ----

@@ -406,6 +406,30 @@ export function updateStripText(count: number): string {
     : `New code for ${count} apps since their last deploy`;
 }
 
+/** How one `onRunCommand` call ended. `skipped`: the in-flight guard
+    returned early. `reloading`: deck restarted itself and the page is about
+    to reload. `no-return`: deck did not answer again within BOARD_WAIT_MS. */
+export type CommandOutcome =
+  | 'ok'
+  | 'failed'
+  | 'timeout'
+  | 'busy'
+  | 'not-started'
+  | 'skipped'
+  | 'reloading'
+  | 'no-return';
+
+export interface RedeployAllRun {
+  /** 1-based position in the run. */
+  index: number;
+  total: number;
+  app: string;
+}
+
+export function redeployingText(run: RedeployAllRun): string {
+  return `Redeploying ${run.index} of ${run.total} · ${run.app}`;
+}
+
 export function redeployAllTargets(rows: Row[], runs: CommandRuns): Row[] {
   const idle = behindRows(rows).filter(
     r => !runs[commandKey(r.name, 'deploy')]

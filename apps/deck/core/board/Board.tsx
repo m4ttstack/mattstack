@@ -190,7 +190,12 @@ export function Board() {
                   renders its children inside <table>. */}
               <div className="apps-panel">
                 {section.key === 'mattstack' && (
-                  <UpdateStrip rows={section.rows} />
+                  <UpdateStrip
+                    rows={section.rows}
+                    canManage={data.canManage}
+                    run={board.redeployAllRun}
+                    onRedeployAll={board.redeployAll}
+                  />
                 )}
                 <AppsTable
                   section={section}

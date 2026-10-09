@@ -429,3 +429,49 @@ test('gates: a teardown failure on turn-off stays visible even though the switch
     expect(await button(gates, 'These people').count()).toBe(0);
   });
 });
+
+test('gates: flipping sign-in on keeps the open warning until Apply, and a close discards the intent', async () => {
+  await withBoard(async page => {
+    let gates = await openGates(page, 'forecast');
+    const OPEN = 'forecast is open: anyone who can reach the tunnel gets in.';
+    const HINT = 'Not on yet. Add people or domains and Apply.';
+    expect(await gates.textContent()).not.toContain(HINT);
+
+    await gates
+      .getByRole('switch', { name: 'require google sign-in', exact: true })
+      .click();
+    const draft = gates.getByRole('textbox', { name: 'add email' });
+    await draft.fill('a@x.dev');
+    await draft.press('Enter');
+    expect(await gates.textContent()).toContain(OPEN);
+    expect(await gates.textContent()).toContain(HINT);
+    expect(
+      await settingsFor(page, 'forecast')
+        .locator('.settings-footer-note')
+        .textContent()
+    ).toBe(
+      'Switches save as you flip them. Google sign-in saves when you Apply.'
+    );
+
+    await settingsFor(page, 'forecast')
+      .getByRole('button', { name: 'close', exact: true })
+      .click();
+    await settingsFor(page, 'forecast').waitFor({ state: 'detached' });
+
+    gates = await openGates(page, 'forecast');
+    const off = gates.getByRole('switch', {
+      name: 'require google sign-in',
+      exact: true,
+    });
+    expect(await off.isChecked()).toBe(false);
+    expect(await gates.textContent()).toContain(OPEN);
+    expect(await gates.textContent()).not.toContain(HINT);
+  });
+}, 15000);
+
+test('gates: a sign-in gate already on shows no not-on-yet hint', async () => {
+  await withBoard(async page => {
+    const gates = await openGates(page, 'atlas');
+    expect(await gates.textContent()).not.toContain('Not on yet.');
+  });
+});
