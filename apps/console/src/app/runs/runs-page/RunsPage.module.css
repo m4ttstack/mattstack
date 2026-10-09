@@ -39,3 +39,22 @@
   width: 100%;
   padding: 18px 20px;
 }
+
+.outageMessage {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.outageMessage > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.outageWrapper {
+  align-items: center;
+}
+
+.bannerIcon {
+  margin-top: 0;
+}

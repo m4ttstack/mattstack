@@ -10,11 +10,15 @@ import '../icons';
 const runsGet = vi.fn();
 const pruneDaysGet = vi.fn();
 const gatesGet = vi.fn();
+const enrichPost = vi.fn();
 
 vi.mock('../api', () => ({
   client: {
     api: {
-      runs: { $get: (...args: unknown[]) => runsGet(...args) },
+      runs: {
+        $get: (...args: unknown[]) => runsGet(...args),
+        enrich: { $post: (...args: unknown[]) => enrichPost(...args) },
+      },
       settings: {
         'runs-prune-days': {
           $get: (...args: unknown[]) => pruneDaysGet(...args),
@@ -25,7 +29,7 @@ vi.mock('../api', () => ({
   },
 }));
 
-const { RunSearch } = await import('./RunSearch');
+const { RunSearch, searchCount } = await import('./RunSearch');
 
 const run = (over: Partial<RunSummary>): RunSummary => ({
   id: over.id ?? 'run-x',
@@ -66,7 +70,8 @@ function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
 }
 
-function renderSearch() {
+function renderSearch(search = '') {
+  history.replaceState(null, '', `/search${search}`);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -79,29 +84,38 @@ function renderSearch() {
 
 beforeEach(() => {
   gatesGet.mockResolvedValue(ok({ gates: [] }));
+  enrichPost.mockResolvedValue(ok({}));
+  pruneDaysGet.mockResolvedValue(ok({ days: 30 }));
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  history.replaceState(null, '', '/');
+});
+
+describe('searchCount', () => {
+  it('counts the runs and names the window', () => {
+    expect(searchCount(2, 30)).toBe('2 runs · last 30 days');
+    expect(searchCount(1, 1)).toBe('1 run · last 1 day');
+    expect(searchCount(3, undefined)).toBe('3 runs');
+  });
 });
 
 describe('RunSearch', () => {
-  // Pins that the window comes from the settings endpoint, not a literal --
-  // this fails if the copy were ever changed back to a hardcoded "30".
-  it('renders the retention window the server resolved, not a hardcoded number', async () => {
+  it('counts the results in the window the server resolved, not a hardcoded one', async () => {
     runsGet.mockResolvedValue(ok({ runs: RUNS }));
     pruneDaysGet.mockResolvedValue(ok({ days: 45 }));
 
     renderSearch();
 
     const notice = await screen.findByTestId('retention-window');
-    await waitFor(() => expect(notice).toHaveTextContent('45'));
-    expect(notice).not.toHaveTextContent('30');
+    await waitFor(() =>
+      expect(notice).toHaveTextContent('2 runs · last 45 days')
+    );
   });
 
   it('names the rt verb that produced these results', async () => {
     runsGet.mockResolvedValue(ok({ runs: RUNS }));
-    pruneDaysGet.mockResolvedValue(ok({ days: 30 }));
 
     renderSearch();
 
@@ -110,12 +124,28 @@ describe('RunSearch', () => {
     );
   });
 
+  it('starts from the query in the link and keeps the link in step', async () => {
+    runsGet.mockResolvedValue(ok({ runs: RUNS }));
+
+    renderSearch('?q=console');
+
+    await screen.findByTestId('run-row-run-2');
+    expect(screen.queryByTestId('run-row-run-1')).toBeNull();
+    expect(screen.getByTestId('retention-window')).toHaveTextContent(
+      '1 run · last 30 days'
+    );
+    const input = screen.getByTestId('run-search-input');
+    expect(input).toHaveValue('console');
+
+    await userEvent.type(input, ' done');
+    expect(location.search).toBe('?q=console+done');
+  });
+
   // Narrowing, proven the same way search.test.ts proves it: a query that
   // widens the result set (rather than narrowing it) is the failure this
   // guards against.
   it('narrows results as more terms are typed, never widens', async () => {
     runsGet.mockResolvedValue(ok({ runs: RUNS }));
-    pruneDaysGet.mockResolvedValue(ok({ days: 30 }));
 
     renderSearch();
     await screen.findByTestId('run-row-run-1');
@@ -133,10 +163,97 @@ describe('RunSearch', () => {
     expect(screen.queryByTestId('run-row-run-2')).not.toBeInTheDocument();
     expect(screen.getByText('No runs match.')).toBeInTheDocument();
   });
+
+  it('titles rows by ticket or MR, never the branch', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: [
+          run({ id: 'w', ticket: 'WEB-418', branch: 'web-418-filter' }),
+          run({
+            id: 'r',
+            work_type: 'review',
+            pipeline: 'review',
+            branch: 'dedupe-contacts',
+          }),
+        ],
+      })
+    );
+    enrichPost.mockResolvedValue(
+      ok({
+        'web-418-filter': {
+          ticket: { identifier: 'WEB-418', title: 'Filter by assignee' },
+          mr: null,
+          fetchedAt: 0,
+        },
+        'dedupe-contacts': {
+          ticket: null,
+          mr: { iid: 412, webUrl: null, state: 'opened', pipeline: null },
+          fetchedAt: 0,
+        },
+      })
+    );
+
+    renderSearch();
+
+    const work = await screen.findByTestId('run-row-w');
+    await waitFor(() => expect(work).toHaveTextContent('Filter by assignee'));
+    expect(work).not.toHaveTextContent('web-418-filter');
+    const review = screen.getByTestId('run-row-r');
+    expect(review).toHaveTextContent('Review of !412');
+    expect(review).not.toHaveTextContent('dedupe-contacts');
+  });
+
+  it('keeps a known title while you type, with one enrich read', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: [
+          run({ id: 'w', ticket: 'WEB-418', branch: 'web-418-filter' }),
+          run({ id: 'x', ticket: 'WEB-9', branch: 'web-9-other' }),
+        ],
+      })
+    );
+    enrichPost.mockResolvedValue(
+      ok({
+        'web-418-filter': {
+          ticket: { identifier: 'WEB-418', title: 'Filter by assignee' },
+          mr: null,
+          fetchedAt: 0,
+        },
+      })
+    );
+
+    renderSearch();
+    const work = await screen.findByTestId('run-row-w');
+    await waitFor(() => expect(work).toHaveTextContent('Filter by assignee'));
+
+    const input = screen.getByTestId('run-search-input');
+    for (const key of 'web-418') {
+      await userEvent.type(input, key);
+      const row = screen.getByTestId('run-row-w');
+      expect(row).toHaveTextContent('Filter by assignee');
+      expect(row).not.toHaveTextContent('web-418-filter');
+    }
+    expect(enrichPost).toHaveBeenCalledTimes(1);
+  });
+
+  it('sits on the page surface, not graph paper', async () => {
+    runsGet.mockResolvedValue(ok({ runs: RUNS }));
+
+    renderSearch();
+
+    await screen.findByTestId('run-search');
+    expect(document.querySelector('#page-shell-content')).toHaveAttribute(
+      'data-own-surface'
+    );
+    expect(
+      document.querySelector('[data-parity="Search"] [data-parity="h"]')
+    ).toHaveTextContent('Search');
+  });
 });
 
 describe('RunSearch: chrome', () => {
   it("draws its title row at console's page header height, not the kit default", async () => {
+    runsGet.mockResolvedValue(ok({ runs: RUNS }));
     renderSearch();
 
     await screen.findByRole('heading', { level: 2 });

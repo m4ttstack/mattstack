@@ -2,8 +2,7 @@ import '../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { DecisionStage } from '../derive/record';
 import { AT, gateOf } from './decisionFixtures';
@@ -14,10 +13,11 @@ const MIN = 60_000;
 
 const plan: DecisionStage = {
   stage: 'plan',
-  gates: [gateOf({ id: 'g-1' }), gateOf({ id: 'g-2' })],
-  answered: 2,
+  gates: [gateOf({ id: 'g-1' }), gateOf({ id: 'g-2' }), gateOf({ id: 'g-4' })],
+  answered: 3,
   durationMs: 12 * MIN,
-  overrode: true,
+  overrides: 1,
+  status: 'done',
 };
 const ship: DecisionStage = {
   stage: 'ship',
@@ -32,40 +32,58 @@ const ship: DecisionStage = {
   ],
   answered: 0,
   durationMs: null,
-  overrode: false,
+  overrides: 0,
+  status: 'done',
+};
+const evidence: DecisionStage = {
+  stage: 'evidence',
+  gates: [gateOf({ id: 'g-5' })],
+  answered: 1,
+  durationMs: 44 * MIN,
+  overrides: 2,
+  status: 'done',
 };
 
 describe('DecisionsTab', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('indexes the stages with their counts and an override mark', () => {
-    renderWithProviders(
-      <DecisionsTab groups={[plan, ship]} byStage evidence={null} />
-    );
-    const nav = screen.getByRole('navigation', { name: 'Decisions by stage' });
-    expect(
-      within(nav)
-        .getAllByRole('button')
-        .map(b => b.textContent)
-    ).toEqual(['plan2', 'ship0']);
-    expect(
-      within(nav).getAllByLabelText('an answer went against the recommendation')
-    ).toHaveLength(1);
-    expect(screen.getByText('you overrode the pick')).toBeInTheDocument();
-  });
-
-  it('heads each stage with its decisions and time, and keeps a superseded gate muted', () => {
+  it('carries the stages in the log, with no index beside it', () => {
     const { container } = renderWithProviders(
       <DecisionsTab groups={[plan, ship]} byStage evidence={null} />
     );
+    expect(screen.queryByRole('navigation')).toBeNull();
+    expect(screen.queryByText(/by stage/i)).toBeNull();
+    expect(screen.queryByText('you overrode the pick')).toBeNull();
+    const log = screen.getByTestId('decision-log');
     expect(
-      container.querySelector('[data-stage-group="plan"]')
-    ).toHaveTextContent('plan2 decisions · 12m');
+      [...log.querySelectorAll('[data-stage-group]')].map(e =>
+        e.getAttribute('data-stage-group')
+      )
+    ).toEqual(['plan', 'ship']);
+    expect(container.querySelector('[data-parity="Decision log"]')).toBe(log);
+  });
+
+  it('heads each stage with its decisions, time and overrides', () => {
+    const { container } = renderWithProviders(
+      <DecisionsTab groups={[plan, ship, evidence]} byStage evidence={null} />
+    );
+    const head = (stage: string) =>
+      container.querySelector(`[data-stage-group="${stage}"]`)!;
+    expect(head('plan')).toHaveTextContent(
+      /^plan3 decisions · 12m · 1 override$/
+    );
+    expect(head('ship')).toHaveTextContent(/^ship$/);
+    expect(head('ship').querySelector('[data-parity="meta"]')).toBeNull();
+    expect(head('evidence')).toHaveTextContent(
+      /^evidence1 decision · 44m · 2 overrides$/
+    );
     expect(
-      container.querySelector('[data-stage-group="ship"]')
-    ).toHaveTextContent('ship0 decisions');
+      within(head('plan') as HTMLElement).getByLabelText('done')
+    ).toBeInTheDocument();
+  });
+
+  it('keeps a superseded gate muted', () => {
+    const { container } = renderWithProviders(
+      <DecisionsTab groups={[plan, ship]} byStage evidence={null} />
+    );
     const superseded = container.querySelector('[data-gate-id="g-3"]');
     expect(superseded).toHaveAttribute('data-muted', 'true');
     expect(
@@ -73,26 +91,27 @@ describe('DecisionsTab', () => {
     ).toBeInTheDocument();
   });
 
-  it('scrolls to a stage and marks it current when picked', async () => {
-    const scroll = vi
-      .spyOn(Element.prototype, 'scrollIntoView')
-      .mockImplementation(() => {});
-    renderWithProviders(
-      <DecisionsTab groups={[plan, ship]} byStage evidence={null} />
-    );
-    const shipLink = screen.getByRole('button', { name: /ship/ });
-    await userEvent.click(shipLink);
-    expect(scroll).toHaveBeenCalled();
-    expect(shipLink).toHaveAttribute('data-active', 'true');
-  });
-
-  it('lists a one-stage run’s gates with no index or stage heads', () => {
+  it('lists a one-stage run’s gates with no stage heads', () => {
     const { container } = renderWithProviders(
       <DecisionsTab groups={[plan]} byStage={false} evidence={null} />
     );
-    expect(screen.queryByRole('navigation')).toBeNull();
     expect(container.querySelector('[data-stage-group]')).toBeNull();
-    expect(container.querySelectorAll('[data-gate-id]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-gate-id]')).toHaveLength(3);
+  });
+
+  it('puts the evidence in a rail beside the log', () => {
+    const { container } = renderWithProviders(
+      <DecisionsTab
+        groups={[plan]}
+        byStage
+        evidence={<div data-testid="evidence-column" />}
+      />
+    );
+    const rail = container.querySelector('[data-parity="Evidence rail"]');
+    expect(rail).not.toBeNull();
+    expect(
+      within(rail as HTMLElement).getByTestId('evidence-column')
+    ).toBeInTheDocument();
   });
 
   it('says so when the run has no decisions', () => {

@@ -1,20 +1,33 @@
-.storyCard {
-  width: 100%;
-  padding: 16px;
-}
-
-.frame {
-  padding: 14px;
-  border-radius: 8px;
-  background-color: var(--tk-panel);
-  outline: 1px solid var(--tk-line-3);
-  outline-offset: -0.5px;
-  overflow: hidden;
-}
-
 .recordCard {
   width: 100%;
   padding: 16px;
+}
+
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.storyThumb {
+  width: 240px;
+  min-width: 0;
+}
+
+.storyFrame,
+.thumbFrame {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: var(--tk-panel);
+  outline: 1px solid var(--tk-line-3);
+  outline-offset: -0.5px;
+}
+
+.storyFrame {
+  height: 144px;
 }
 
 .thumbs {
@@ -28,14 +41,7 @@
 }
 
 .thumbFrame {
-  display: flex;
-  align-items: center;
   height: 132px;
-  border-radius: 8px;
-  overflow: hidden;
-  background-color: var(--tk-panel);
-  outline: 1px solid var(--tk-line-3);
-  outline-offset: -0.5px;
 }
 
 .compareLabel {
@@ -48,6 +54,17 @@
   cursor: zoom-in;
 }
 
+.links {
+  row-gap: 4px;
+}
+
 .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.path {
   overflow-wrap: anywhere;
 }

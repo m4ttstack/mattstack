@@ -101,6 +101,14 @@
         "state": "opened",
         "pipeline": { "status": "success" }
       }
+    },
+    "web-377-courier-name": {
+      "ticket": {
+        "identifier": "WEB-377",
+        "title": "Show the courier name on the parcel card",
+        "url": "https://linear.app/acme/issue/WEB-377"
+      },
+      "mr": null
     }
   }
 }

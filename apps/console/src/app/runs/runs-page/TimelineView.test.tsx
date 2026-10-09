@@ -328,7 +328,7 @@ describe('runs page, Day timeline', () => {
     renderPage();
     await screen.findByTestId('day-timeline');
     await userEvent.click(screen.getByRole('radio', { name: 'List' }));
-    expect(await screen.findByTestId('stat-cards')).toBeInTheDocument();
+    expect(await screen.findByTestId('stat-line')).toBeInTheDocument();
     expect(location.search).toBe('');
     await userEvent.click(screen.getByRole('radio', { name: 'Timeline' }));
     expect(await screen.findByTestId('day-timeline')).toBeInTheDocument();

@@ -21,10 +21,6 @@
   );
 }
 
-.spacer {
-  flex: 1;
-}
-
 .body {
   display: flex;
   align-items: center;

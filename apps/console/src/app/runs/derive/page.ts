@@ -2,7 +2,6 @@ import type {
   BranchEnrichment,
   GateRow,
   RunFieldRow,
-  RunStageRow,
   RunSummary,
 } from '@mattstack/rt-client';
 
@@ -14,7 +13,6 @@ import { countCommits, headSha } from './answers';
 import { formatClock } from './clock';
 import { formatDuration } from './duration';
 import { shortPath } from './fields';
-import { gateStage } from './gates';
 import type { RunKind } from './kind';
 
 const CI_LABEL: Record<string, string> = {
@@ -30,19 +28,6 @@ const CI_LABEL: Record<string, string> = {
 export function ciLabel(status: string | null | undefined): string | null {
   if (!status) return null;
   return CI_LABEL[status] ?? `CI ${status.replace(/_/g, ' ')}`;
-}
-
-/** How many of the run's gates were placed at each stage. */
-export function gateCountsByStage(
-  gates: GateRow[],
-  stages: RunStageRow[]
-): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const g of gates) {
-    const stage = gateStage(g, stages);
-    if (stage) counts[stage] = (counts[stage] ?? 0) + 1;
-  }
-  return counts;
 }
 
 /** The run's own gates a person can answer now, oldest first; none once the
@@ -123,7 +108,6 @@ export interface RunPageInput {
   repo: string;
   runId: string;
   run: RunSummary;
-  stages: RunStageRow[];
   fields: RunFieldRow[];
   gates: GateRow[];
   kind: RunKind;
@@ -133,10 +117,9 @@ export interface RunPageInput {
 }
 
 /** Everything the run page shows about the run that is not its story: what
-    waits in the slot, the hero's ticket line, the side card facts and the
-    values the hotkeys copy. */
+    waits in the slot, the hero's ticket line and the side card facts. */
 export function runPageFacts(input: RunPageInput) {
-  const { repo, runId, run, stages, fields, gates, kind, enrichment } = input;
+  const { repo, runId, run, fields, gates, kind, enrichment } = input;
   const field = (key: string) => fields.find(f => f.key === key)?.value ?? null;
   const live = run.status === 'running';
   const handedOff = kind === 'review' || kind === 'respond';
@@ -155,11 +138,9 @@ export function runPageFacts(input: RunPageInput) {
     answerable,
     mine: answerable.find(isMine) ?? null,
     handoff: live && handedOff ? waitingHandoff(gates) : null,
-    gateCounts: gateCountsByStage(gates, stages),
     hero: {
       ticket: ticket ?? (reviewed ? `!${reviewed.iid}` : null),
       ticketUrl: ticket ? url : (reviewed?.url ?? null),
-      ticketHotkey: ticket !== null,
       meta: `${run.pipeline} pipeline · started ${formatClock(run.started_at)} · ${formatDuration((run.ended_at ?? input.now) - run.started_at)}`,
     },
     mr,
@@ -168,13 +149,6 @@ export function runPageFacts(input: RunPageInput) {
       value: worktree ? shortPath(worktree) : null,
       path: worktree,
       sub: repoPath(repo),
-    },
-    copies: {
-      ticket,
-      branch,
-      worktree,
-      mr: mr.url ?? mr.value,
-      commits,
     },
     canResume: live && !run.agent && Boolean(field('claude-session')),
   };

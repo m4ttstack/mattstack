@@ -234,6 +234,8 @@ const TK_COMPONENT_STYLES_NAMES = new Set([
 ]);
 
 const TK_ON_FILL_NAMES = RAMP_HUES.map(h => `--tk-on-fill-${h}`);
+// The Kbd `on-fill` variant (component-styles.module.css) references the accent one by name.
+const TK_ON_FILL_STATIC_NAMES = new Set(['--tk-on-fill-accent']);
 const TK_ON_FILL_WAIVER =
   "app-kit's variantColorResolver builds this name at runtime from the intent, so no static reference to any single hue exists; the filled label is genuinely wired.";
 
@@ -249,7 +251,9 @@ const WAIVED_TOKYO: Record<string, string> = {
     ).map(name => [name, TK_RAMP_WAIVER])
   ),
   ...Object.fromEntries(
-    TK_ON_FILL_NAMES.map(name => [name, TK_ON_FILL_WAIVER])
+    TK_ON_FILL_NAMES.filter(name => !TK_ON_FILL_STATIC_NAMES.has(name)).map(
+      name => [name, TK_ON_FILL_WAIVER]
+    )
   ),
   '--tk-overlay':
     "modal/overlay chrome role (dark sits level with the card so a dialog has an edge against the page, light sits above it), mirrored from the tui theme's --surface-overlay; no packages/ui component wires this surface yet.",

@@ -433,3 +433,33 @@ export function vividTextDebtKey(
 export const VIVID_TEXT_DEBT_BY_KEY: ReadonlyMap<string, VividTextContrastDebtEntry> = new Map(
   KNOWN_VIVID_TEXT_DEBT.map((entry) => [vividTextDebtKey(entry), entry]),
 );
+
+export interface KbdContrastDebtEntry {
+  component: string;
+  variant: string;
+  scheme: ContrastScheme | "both";
+  measuredRatio: number;
+  signedOffBy: string;
+  signedOffOn: string;
+  reason: string;
+}
+
+/**
+ * Key-hint caps that sit under the 4.5 text bar. No matrix test enumerates
+ * Kbd, so this is a record, not an allowlist: a worse value or a new pair
+ * needs its own sign-off and its own entry.
+ */
+export const KNOWN_KBD_CONTRAST_DEBT: readonly KbdContrastDebtEntry[] = [
+  {
+    component: "Kbd",
+    variant: "on-fill",
+    scheme: "both",
+    measuredRatio: 3.14,
+    signedOffBy: "Matt",
+    signedOffOn: "2026-10-09",
+    reason:
+      "The command-enter cap on a filled accent button: the on-fill label at " +
+      "85% over an 18% wash of itself on indigo 9, accepted at its board " +
+      "value. A hint cap inside a labelled button; the label carries the meaning.",
+  },
+];

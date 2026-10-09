@@ -1,22 +1,37 @@
 import type {
+  GateQuestion,
   GateRow,
   RunFieldRow,
   RunStageRow,
   RunSummary,
 } from '@mattstack/rt-client';
-import { parseEvidence } from '@mattstack/rt-client/evidence';
 
 import { isMine } from '../../../shared/gate-waiting';
-import { countCommits } from './answers';
+import { contextSchema } from './answers';
 import { formatClock } from './clock';
 import { formatDuration } from './duration';
-import { gateStage, tookRecommendation, waitingOnYou } from './gates';
-import type { RunKind } from './kind';
-import { stageAttempts } from './stages';
+import { parseFinding, type ParsedFinding } from './findings';
+import {
+  gateStage,
+  optionViews,
+  pickedText,
+  questionAnswer,
+  tookRecommendation,
+  waitingOnYou,
+} from './gates';
+import { stageAttempts, type StageAttempt } from './stages';
 
-/** The run's answered gates: every decision count in the record. */
+/** The run's answered gates. */
 export const answeredGates = (gates: GateRow[]) =>
   gates.filter(g => g.status === 'answered' && g.answer);
+
+/** The questions the run's answered gates have an answer for. */
+export function answeredQuestionCount(gates: GateRow[]): number {
+  let n = 0;
+  for (const g of answeredGates(gates))
+    for (const q of g.questions) if (g.answer!.answers[q.id] != null) n += 1;
+  return n;
+}
 
 /** Where a finished run's span ends: at the merge of the run's own MR when
     the run finished done and the MR merged, else when the run ended. */
@@ -59,19 +74,7 @@ export function recommendationTally(gates: GateRow[]): {
   return { took, of };
 }
 
-/** The evidence stat: the image count, "<n> links" for legacy evidence, or
-    null when the run recorded none. */
-export function evidenceStat(value: string | undefined): string | null {
-  const parsed = parseEvidence(value);
-  if (parsed.version === 1)
-    return parsed.images.length > 0 ? String(parsed.images.length) : null;
-  if (parsed.version === 0 && parsed.links.length > 0)
-    return `${parsed.links.length} ${parsed.links.length === 1 ? 'link' : 'links'}`;
-  return null;
-}
-
-export type RecordStatId =
-  'duration' | 'decisions' | 'took' | 'evidence' | 'commits' | 'waiting';
+export type RecordStatId = 'duration' | 'decisions' | 'took' | 'waiting';
 
 export interface RecordStat {
   id: RecordStatId;
@@ -81,21 +84,16 @@ export interface RecordStat {
 
 export interface RecordStatsInput {
   run: RunSummary;
-  kind: RunKind;
   gates: GateRow[];
-  fields: RunFieldRow[];
   now: number;
 }
 
 /** The record header's numbers, each only where it applies to the run. */
 export function recordStats({
   run,
-  kind,
   gates,
-  fields,
   now,
 }: RecordStatsInput): RecordStat[] {
-  const field = (key: string) => fields.find(f => f.key === key)?.value;
   const end = recordEnd(run, now);
   const stats: RecordStat[] = [
     {
@@ -104,9 +102,13 @@ export function recordStats({
       label: end.merged ? 'start to merge' : 'start to end',
     },
   ];
-  const decided = answeredGates(gates).length;
+  const decided = answeredQuestionCount(gates);
   if (decided > 0)
-    stats.push({ id: 'decisions', value: String(decided), label: 'decisions' });
+    stats.push({
+      id: 'decisions',
+      value: String(decided),
+      label: decided === 1 ? 'decision' : 'decisions',
+    });
   const tally = recommendationTally(gates);
   if (tally.of > 0)
     stats.push({
@@ -114,14 +116,6 @@ export function recordStats({
       value: `${tally.took} of ${tally.of}`,
       label: 'took the recommendation',
     });
-  if (kind === 'work') {
-    const evidence = evidenceStat(field('evidence'));
-    if (evidence)
-      stats.push({ id: 'evidence', value: evidence, label: 'evidence' });
-    const commits = countCommits(field('commits') ?? null);
-    if (commits > 0)
-      stats.push({ id: 'commits', value: String(commits), label: 'commits' });
-  }
   const waited = waitingOnYou(gates.filter(isMine), end.at);
   if (waited > 0)
     stats.push({
@@ -130,6 +124,19 @@ export function recordStats({
       label: 'waiting on you',
     });
   return stats;
+}
+
+/** “Superseded by WEB-430”: the reason `rt runs abandon` noted. The hero
+    already says the run was abandoned, and the note's time is the run's
+    end, so the reason is all that is new. Null when the run was not
+    abandoned or the reason is blank. */
+export function abandonReason(
+  run: Pick<RunSummary, 'status'>,
+  fields: RunFieldRow[]
+): string | null {
+  if (run.status !== 'abandoned') return null;
+  const reason = fields.find(f => f.key === 'reconciled')?.value.trim();
+  return reason ? `“${reason}”` : null;
 }
 
 export type RecordTab = 'story' | 'decisions' | 'evidence' | 'inputs';
@@ -143,11 +150,14 @@ export interface DecisionStage {
   stage: string | null;
   /** Answered, closed and superseded gates, oldest first. */
   gates: GateRow[];
+  /** Answered questions, as every decision count on the record counts. */
   answered: number;
   /** The stage's attempts added up; null when it never ran. */
   durationMs: number | null;
-  /** Some answer here went against its recommendation. */
-  overrode: boolean;
+  /** Answered questions here that went against their recommendation. */
+  overrides: number;
+  /** The stage's last attempt's status; null when it never ran. */
+  status: StageAttempt['status'] | null;
 }
 
 /** Whether the record has any decision log to show. */
@@ -191,14 +201,14 @@ export function decisionStages(
       const spans = own
         .filter(a => a.startedAt != null && a.endedAt != null)
         .map(a => a.endedAt! - a.startedAt!);
+      const tally = recommendationTally(list);
       return {
         stage,
         gates: list,
-        answered: answeredGates(list).length,
+        answered: answeredQuestionCount(list),
         durationMs: spans.length > 0 ? spans.reduce((x, y) => x + y, 0) : null,
-        overrode: answeredGates(list).some(g =>
-          g.questions.some(q => tookRecommendation(q, g.answer) === false)
-        ),
+        overrides: tally.of - tally.took,
+        status: own.at(-1)?.status ?? null,
       };
     });
 }
@@ -208,4 +218,112 @@ export function postedLabel(posted: string): string {
   const words = posted.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
   const flat = words === words.toUpperCase() ? words.toLowerCase() : words;
   return flat.charAt(0).toUpperCase() + flat.slice(1);
+}
+
+const FINDINGS_SCHEMA = 'findings@1';
+
+/** A question asking which findings to post: its context names the findings
+    schema, or the review skill numbered it `findings-N`. */
+const isFindingsQuestion = (q: GateQuestion) =>
+  contextSchema(q.context) === FINDINGS_SCHEMA || /^findings-\d+$/.test(q.id);
+
+/** The gate a review posts through: it asks for findings, or it is the
+    `review-post` gate, whose `outcome` question is the verdict. */
+const isPostingGate = (g: GateRow) =>
+  g.kind === 'review-post' || g.questions.some(isFindingsQuestion);
+
+interface ContextFinding {
+  id?: unknown;
+  severity?: unknown;
+  title?: unknown;
+  file?: unknown;
+}
+
+/** A findings context's entries by id; empty for prose or another schema. */
+function contextFindings(
+  context: string | null | undefined
+): Map<string, ContextFinding> {
+  const byId = new Map<string, ContextFinding>();
+  if (contextSchema(context) !== FINDINGS_SCHEMA) return byId;
+  const { findings } = JSON.parse(context!) as { findings?: unknown };
+  if (!Array.isArray(findings)) return byId;
+  for (const f of findings as (ContextFinding | null)[])
+    if (f && typeof f.id === 'string') byId.set(f.id, f);
+  return byId;
+}
+
+const SEVERITIES = ['critical', 'important', 'minor'] as const;
+
+function findingOf(
+  entry: ContextFinding | undefined,
+  label: string
+): ParsedFinding {
+  if (typeof entry?.title !== 'string') return parseFinding(label);
+  const tier =
+    typeof entry.severity === 'string' ? entry.severity.toLowerCase() : null;
+  return {
+    severity: SEVERITIES.find(s => s === tier) ?? null,
+    text: entry.title.trim(),
+    where: typeof entry.file === 'string' && entry.file ? entry.file : null,
+  };
+}
+
+const iidOf = (text: string) => /!(\d+)\b/.exec(text)?.[1] ?? null;
+
+export interface ReviewVerdict {
+  /** The verdict question's pick, "Request changes"; empty when none was
+      answered. */
+  verdict: string;
+  /** The findings picked to post, across every findings question. */
+  findings: ParsedFinding[];
+  /** The findings offered and not picked, in the order they were offered. */
+  notPosted: ParsedFinding[];
+  mrIid: string | null;
+}
+
+/** What a review posted: its verdict and the findings it picked, each read
+    from its question's structured findings context, else from its option
+    label, and the ones it left out. Null when the run answered no posting
+    gate. */
+export function reviewVerdict(gates: GateRow[]): ReviewVerdict | null {
+  const posting = answeredGates(gates).filter(isPostingGate);
+  if (posting.length === 0) return null;
+  let verdict = '';
+  const findings: ParsedFinding[] = [];
+  const notPosted: ParsedFinding[] = [];
+  let mrIid: string | null = null;
+  for (const g of posting) {
+    mrIid ??= iidOf(g.subject);
+    for (const q of g.questions) {
+      const answer = questionAnswer(g.answer, q);
+      if (!answer) continue;
+      if (isFindingsQuestion(q)) {
+        mrIid ??= iidOf(q.label);
+        const entries = contextFindings(q.context);
+        const labels = new Map(optionViews(q).map(o => [o.value, o.text]));
+        for (const v of answer.picked)
+          findings.push(findingOf(entries.get(v), labels.get(v) ?? v));
+        const offered = new Set([...labels.keys(), ...entries.keys()]);
+        for (const v of offered)
+          if (!answer.picked.includes(v))
+            notPosted.push(findingOf(entries.get(v), labels.get(v) ?? v));
+      } else if (q.id === 'outcome') {
+        verdict = pickedText(q, answer.picked);
+      }
+    }
+  }
+  return { verdict, findings, notPosted, mrIid };
+}
+
+/** A review's gates as its decision log lists them: the findings questions
+    the verdict already shows, and a gate context that only lists them, left
+    out; a gate left with no question is dropped. */
+export function reviewDecisionGates(gates: GateRow[]): GateRow[] {
+  return gates.flatMap(g => {
+    const questions = g.questions.filter(q => !isFindingsQuestion(q));
+    if (questions.length === 0 && g.questions.length > 0) return [];
+    const context =
+      contextSchema(g.context) === FINDINGS_SCHEMA ? null : g.context;
+    return [{ ...g, questions, context }];
+  });
 }

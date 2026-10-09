@@ -99,6 +99,11 @@ describe('fieldLabel', () => {
     ['approach', 'Approach'],
     ['evidence-plan', 'Evidence plan'],
     ['extra_gates', 'Extra gates'],
+    ['ShipTarget', 'Ship target'],
+    ['ci', 'CI'],
+    ['mr', 'MR'],
+    ['shiptarget', 'Ship target'],
+    ['ship-target', 'Ship target'],
   ])('%s reads %s', (key, label) => expect(fieldLabel(key)).toBe(label));
 });
 

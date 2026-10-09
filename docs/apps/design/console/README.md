@@ -192,7 +192,9 @@ source the harness reads hug widths from (each runs board's `penPath`).
 `CONSOLE_FIXTURE=design` with `CONSOLE_FIXTURE_SCENARIO=runs` answers the runs,
 gates, enrichment, effective-inputs, stage-doc, evidence and artifact routes
 from `apps/console/src/server/fixtures/design/runs/` (`runsFixture.ts`), and
-`runs-empty` keeps only the finished runs. Each answer carries the fixture's
+`runs-empty` keeps only the finished runs. `runs-outage` answers the runs,
+run, gates and effective-inputs routes `502 daemon unreachable`, and every
+write under the fixture is refused `403`. Each answer carries the fixture's
 clock as `asOf`: 4:23 PM for the runs pages, 4:21 PM for a run page, 3:11 PM
 for the live review run. Runs that only a run board draws are hidden from
 every list. There is no deck behind the fixture, so a live review run's
@@ -450,3 +452,347 @@ are `--tk-text-3`; the tickets and "now" are `--tk-text-accent`.
 - The Lanes view carries the same Timeline/List toggle beside its filter,
   which the Lanes board does not draw: without it the timeline has no way in.
   It is a kit control and not keyed, so runs-lanes is unchanged.
+
+## Runs pass 2
+
+The second design pass over the runs pages: quieter run pages, a polished
+gate form, and a board for every surface a click or a failure can reach. The
+spec is `docs/superpowers/specs/2026-10-09-console-runs-pass-2-design.md`; the
+plan is `docs/superpowers/plans/2026-10-09-console-runs-pass-2.md`.
+
+In `runs.pen` the pass starts at y=6700. Each section pairs a `Before · …`
+frame (a capture of the app before this pass, from the design fixture or
+Storybook, images under `before/`) with its `After · …` board at x=1540 and
+the board's dark copy at x=3080. Light is the base; each dark board is the
+light one with `theme: { mode: "dark" }`, sharing its layer tree. The After
+boards are the design; the Before frames are reference only and are never
+compared.
+
+### Boards
+
+| slug                    | frame (light)                         | light id | dark id  | route                                            | roots                                                             |
+| ----------------------- | ------------------------------------- | -------- | -------- | ------------------------------------------------ | ----------------------------------------------------------------- |
+| `runs-p2-live`          | `After · Live run page (quiet story)` | `BqEgW`  | `viNUJ`  | `/runs/remote%3Aacme%2Fweb/20261008-1338`        | `Hero`, `Story`, `Side`                                           |
+| `runs-p2-gate`          | `After · Gate open`                   | `Q6YEx`  | `HbRPU`  | `/runs/remote%3Aacme%2Fweb/20261008-1340`        | `Hero`, `Gate mine`, `Side`                                       |
+| `runs-p2-record`        | `After · Record (finished run)`       | `P1gMvv` | `sbDKY`  | `/runs/remote%3Aacme%2Fweb/20261008-1142`        | `Hero`, `Tabs`, `Decision log`, `Evidence rail`                   |
+| `runs-p2-inputs`        | `After · Effective inputs drawer`     | `aJIIw`  | `f8Bru`  | `/runs/remote%3Aacme%2Fweb/20261008-1338?inputs` | `Drawer`                                                          |
+| `runs-p2-states`        | `After · states`                      | `kxHe1`  | `YunJz`  | one route per panel                              | `Run load error`, `Runs outage`, `Gate refused`, `Toasts`         |
+| `runs-p2-runs`          | `After · Runs page`                   | `dX37S`  | `MHMfu`  | `/`                                              | `Title row`, `Summary`, `Banner waiting`, `Live cards`, `History` |
+| `runs-p2-review`        | `After · Review run record`           | `tsWMv`  | `P1PkfE` | `/runs/remote%3Aacme%2Fweb/20261008-0940`        | `Hero`, `Tabs`, `Review column`, `Side`                           |
+| `runs-p2-story-details` | `After · Story details`               | `yFl93`  | `lV4r8`  | `/runs/remote%3Aacme%2Fweb/20261008-1338`        | `Hero`, `Story`, `Side`                                           |
+| `runs-p2-overlays`      | `After · overlays`                    | `OID6c`  | `VEOxV`  | one route per panel                              | `Stage doc drawer`, `Compare`, `Abandon dialog`, `Setting inline` |
+| `runs-p2-search`        | `After · search etc`                  | `n2WWXe` | `mFvLi`  | one route per panel                              | `Search`, `Palette`, `Not found`, `Timeline hover`                |
+
+Every board uses the `runs` scenario except the outage panel of
+`runs-p2-states`, which needs `runs-outage`. The tile boards (`states`,
+`overlays`, `search`) compare each tile on its own route (`panels` in
+`boards.ts`); the task that builds a tile sets its route and action there.
+Exports are `parity/runs-p2-<slug>.<scheme>.html` and
+`renders/runs-p2-<slug>.<scheme>.png`.
+
+### Superseded first-pass boards
+
+These first-pass boards are replaced by pass 2 and are no longer parity
+gates; their frames stay in `runs.pen` for history:
+
+- `run-live` → `runs-p2-live` and `runs-p2-story-details`
+- `run-gate` → `runs-p2-gate`
+- `run-record` → `runs-p2-record`
+- `run-record-review` → `runs-p2-review`
+- `runs-lanes` → `runs-p2-runs`
+- `run-record-abandoned` → `runs-p2-record`: it draws the evidence and
+  commits stats pass 2 removed, so it can no longer pass
+- `runs-empty`: it draws the four stat cards and the Earlier rows'
+  decisions and evidence columns, which pass 2 replaced with one stat
+  line and quieter rows, so it can no longer pass. No pass-2 board draws
+  the empty runs page.
+
+### Board-fix list (pass 2)
+
+Expected differences between a pass-2 board and the app. Each UI task adds
+its entries here as it lands.
+
+Gate panel (runs-p2-gate `Gate mine`):
+
+- The step strip is the kit `SegmentedControl` (`variant="quiet"`, `sm`, no
+  item borders), as it ships: its track is the kit's raised tone, not the
+  board's 60% white, and the raised step is the kit's indicator, a sibling
+  of its label, so `step <name>` keys the label (no fill or stroke, the
+  label's own box) and the strip is 8px narrower.
+- Options are kit `Radio.Card` and `Checkbox.Card` in the kit's `wash`
+  variant, which draws the board's rule, accent ring and wash, and the
+  picked option's number in the accent. The kit's `Radio.Indicator` is 20px
+  and filled when picked (the board's ring is 16px), so each option's text
+  sits 4px further right and the card is 1px taller.
+- The recommended `Badge` and the command `Code` chip (fill, no stroke) keep
+  the kit's colours. The number `Kbd`s keep the kit's fill, stroke and 3px
+  foot (22px; the dark scheme's differ from the board's), so their digit's
+  box is taller.
+- The note is the kit `Textarea`: its border sits on the input, not the
+  keyed wrapper, and its placeholder is not a layer (`note/ph`).
+- "Open the pane" is a kit `Button` (`subtle`, gray) and Next/Submit a kit
+  `Button` at `sm`: 36px tall where the board draws 31px, with the kit's
+  label size and colours. The `⌘↵` hint is the kit `Kbd` in its `on-fill`
+  variant, at the kit's `sm` size.
+- Those kit sizes make the panel 4px taller than the board, so the layers
+  below the first option sit 1-6px lower.
+- Quiet text (the WHAT THE AGENT FOUND label, the steps after the current
+  one, Draft saved) is the console's dimmed tone (slate 11); the board's
+  lighter grey misses the text contrast bar.
+- The fixture's WEB-418 plan gate now carries the board's context and option
+  text, the first option's command in backticks; pass 1's run-gate board no
+  longer matches its text.
+- The submit-refused strip (runs-p2-states `Gate refused`) is a kit `Alert`
+  (`light`, `bad`) holding the message and a kit `Button`; the tile draws a
+  shortened panel with no context column, so it is compared by eye, not by
+  a root.
+
+Live run page (runs-p2-live, runs-p2-story-details `Hero`, `Story`, `Side`):
+
+- The first pass's run page entries still apply: the Hero, Now, Story list,
+  Facts and Inputs cards are kit `Paper` ruled in `--tk-border`; quiet text
+  (durations, field labels, questions, stamps, "Passed on", the Story and
+  card labels, not-started stage names) is `--tk-text-3`; accent text (the
+  ticket, Now, Stage doc, What the agent found, View inputs) is
+  `--tk-text-accent`; the liveness `Badge`, Focus pane `Button`, overflow
+  `ActionIcon`, `CopyActionIcon`s and the rail's not-started `Progress`
+  track keep the kit's sizes and colours; and the Inputs card names the
+  pack's recorded sha and the docs the run read (5), with no source for
+  "1.4.2" or 8.
+- The two boards draw the same run differently, and the app follows
+  runs-p2-story-details where they disagree. runs-p2-live paints each stage
+  row white; the app paints no row fill.
+- The last stage row draws no rule under it, because the list's own border
+  closes it. runs-p2-live rules it anyway. runs-p2-story-details leaves it
+  unruled and unnamed, so its layers key straight under `Story list` there,
+  while the app keys every row `Stage <stage>`: on story-details the last
+  row's layers compare as missing under `Story list` and extra under
+  `Stage evidence`.
+- runs-p2-live draws the opened evidence row with no "Stage doc" link, and
+  its two decisions as bare rows (a 160px question column, `stamp`, no
+  chevron). The app draws every decision as runs-p2-story-details does: the
+  14px inset, the 146px column, `s`, and `c` when the decision can open.
+  The evidence decisions have options passed on, so they can open.
+  runs-p2-live also spaces that opened body 14px apart where
+  runs-p2-story-details spaces an opened body 10px apart, so its decisions
+  sit 3.5px higher. runs-p2-story-details draws the evidence row with no
+  decisions at all.
+- A stage's summary is its decision count and first pick, or its first
+  field. A stage that holds evidence counts what it captured instead of the
+  pick, in runs-p2-story-details' words. The fixture's WEB-412 evidence
+  carries the board's two screenshots and its link, so the app reads
+  "2 decisions · 2 screenshots, 1 link" as runs-p2-story-details does;
+  runs-p2-live says "screenshot captured".
+- Stage names are 500 and an opened decision's answer is 700: the boards
+  set 600, which the type rules leave out.
+- An opened decision is the kit `Paper variant="panel-outline"` (the
+  board's panel fill and soft rule). A decision a `?gate=` or `#gate-` link
+  names also carries the kit's `data-selected` accent ring until the next
+  click or key; no board draws that state.
+- The fixture's WEB-412 run carries these boards' text: the gates stage
+  records `extra-gate` ("read the area docs before implement") in place of
+  `extra-gates`, the plan stage no longer records `evidence-plan`, and the
+  approach answer has the boards' note and a six-line context. Pass 1's
+  run-live board no longer matches its text.
+- runs-p2-gate draws its story as a provision row ("Worktree ready at
+  …/acme-web/molly", in a layer named `Stage plan`). Provision records only
+  the side facts, and the story leaves out an attempt with nothing to tell,
+  as runs-p2-live draws it, so this run has no story yet: runs-p2-gate
+  compares Hero, Gate mine and Side only.
+
+Finished run record (runs-p2-record `Hero`, `Tabs`, `Decision log`,
+`Evidence rail`):
+
+- The first pass's record entries still apply: the Hero, Decision, Evidence
+  and Case cards are kit `Paper` ruled in `--tk-border`; answer stamps and
+  card titles are `--tk-text-3`; the ticket and the "What the agent found"
+  links are `--tk-text-accent`; the outcome pills are kit `Badge lg`, the
+  tabs kit `Tabs` with kit `Badge sm` counts, the overrode tag a kit
+  `Badge sm` in warn and the recommended mark a kit `Badge xs` `outline` in
+  gray (16px tall, its ring and label bright in dark), all as they ship.
+- No data source for two context labels: "The spec · 1 page" and
+  "Candidates the agent pulled · 4 orders" read "What the agent found · 3
+  lines" and "· structured context".
+- The board's frame ends after the first evidence card; the log lists every
+  stage's gates, so `Decision log` is taller and the later stage heads
+  (`name`, `meta`, `bullet`, `c`) and `Decision[4]` onward are extra keys.
+- Stage names in the log are 700, a heading: the board sets 600, which the
+  type rules leave out, so a meta after a longer name ("evidence") sits up
+  to 2px right.
+- A stage's bullet is the kit `ThemeIcon` in its status's tone, as the
+  story's stage rows draw it. The board rings it in the page surface to
+  break the log's rule; the app paints that ring on a wrapper behind the
+  icon, so `bullet` has no stroke.
+- An abandoned run's reason ("“Superseded by WEB-430”") sits muted under
+  the hero card, and no board draws it. The outcome pill already says
+  abandoned and the hero span already ends at the abandon time, so the line
+  carries only the reason, and nothing when the reason is blank.
+- The options a decision passed on open from the folded line to a dashed
+  list, the story's "Passed on" list (`PassedOnList`); no board draws it
+  open. While open, the line drops "recommended was …", since the listed
+  row's mark names it.
+- A stage head leaves out a part it has none of: a stage with no answered
+  question reads no count.
+- The evidence card, its thumbnails, Compare and transcript are listed
+  under "Evidence" below.
+
+Evidence (runs-p2-story-details' evidence row, runs-p2-record
+`Evidence rail`, runs-p2-overlays `Compare`):
+
+- The first pass's evidence entries still apply to the record rail: the
+  board draws each screenshot as shapes (`a`-`d`, `line`) on a tinted
+  placeholder where the console shows the image on the panel surface;
+  "Compare full size" is a kit default `Button` with icon arrows; the
+  transcript renders through the markdown renderer; and the board's
+  "shipping panel" names have no data source, so the captions name the
+  file.
+- The story's evidence (v1 or legacy) is the board's row of 240 x 144
+  thumbnails, each with its file name under it in mono, then the link with
+  its external-link icon, read without its scheme. Its keys follow the
+  board's last row, which is unnamed: they compare under `Stage evidence`
+  (see the live run page entries), and sit 49.5px lower by the two evidence
+  decisions the board leaves out.
+- The url shows once, on the first phase the story places (before, else
+  after), and the summary counts it there. A v1 story row adds "Open full
+  size →" after the link, which opens the compare modal; the board draws no such control, so it is not keyed. The
+  link row already holds the url, so the row is no taller.
+- The fixture's WEB-412 screenshots are named as the board names them
+  (`web-412-before.png`, `web-412-before-annotated.png`) and its evidence
+  records the board's `url`.
+- Legacy evidence shows its screenshots the same way in the story and the
+  record, served by the evidence-file route (a file the route refuses shows
+  the "image unavailable" placeholder); other files stay editor links and
+  urls stay links. A legacy record card reads "EVIDENCE · N", N its
+  items, as the tab count does.
+- The compare tile draws a 664px modal in a 696px frame; the console's is
+  the kit `Modal` at `calc(100vw - 48px)` with frames as tall as the
+  window allows, so every box in the tile differs in size and place. The
+  kit header is 60px with no rule (the board's is 47.5px and ruled), its
+  title is the kit's type, the close button is the kit `CloseButton`
+  (no `x` layer), and the control is the kit `SegmentedControl` at its
+  default size (options not keyed). The title names the ticket and the
+  case used ("WEB-409 · Rush order, Sep 14 delay, Denver"); the board's
+  "shipping panel" has no data source.
+- `?compare=side` (or `before`, `after`) on a record selects the Evidence
+  tab and opens the compare modal, which is how runs-p2-overlays reaches
+  the tile. Closing it drops the param; a record with no images to compare
+  drops it at once.
+- A legacy screenshot opens full size in the same modal, titled with the
+  ticket and the file name, and no board draws it.
+
+Review run record (runs-p2-review `Hero`, `Tabs`, `Review column`, `Side`):
+
+- The finished record's entries above still apply to the hero card, ticket,
+  tabs and counts, and to the decision cards.
+- The outcome pill is the kit `Badge lg` in `warn`, as it ships: its fill,
+  label colour and padding are the kit's, so it is 9px wider and starts 9px
+  further left. The severity pills are kit `Badge sm`: Important in `warn`
+  `light`, Minor in `gray` `outline` like the recommended mark (no fill, a
+  ring in the label's tone, bright in dark), each 1px taller than the board's.
+- The verdict's quiet text (POSTED TO, each file and line, the DECISIONS
+  label) is the console's dimmed tone (slate 11), as the gate panel's is.
+- The verdict head's rule sits inside its box, where the board's straddles
+  the edge, so the head reads 1.5px shorter.
+- Fixture versus board: findings f2 and f4 record no file, as a real review
+  may, so their rows have no `w` line and are 11.5px shorter; the board
+  invents `contacts/import/dedupe.test.ts` and `contacts/import/run.ts:91`.
+  Every layer under them sits higher by the same amount.
+- The board draws the decision cards with its own layer names (`i`, `s`,
+  `pick`, `pick/t`, `pick/r`, a plain-text "recommended") where
+  runs-p2-record names the same card `signpost`, `stamp`, `opt`,
+  `opt/label`, `opt/rec`. The app has one `DecisionCard`, keyed as
+  runs-p2-record, so those keys compare as missing and extra here, and the
+  card is 6px taller with the record's padding.
+- The board names the side facts `k`, `i`, `t`, `s` where the run boards
+  name them `label`, the glyph, `value`, `sub`; the app keeps one fact row,
+  keyed as the run boards. Neither the forge nor the fixture gives an MR
+  title or author, so Reviewed MR reads "!412" with no second line, where
+  the board draws "!412 Dedupe contacts on import" and "by an author on the
+  team · open". Without that line the card is 17px shorter. The copy
+  buttons are the kit's `CopyActionIcon` at `xs`.
+- The review run's findings question is the verdict, so the decision log,
+  the decision count and the tab count leave it out: the record counts the
+  two decisions the board draws.
+
+Effective inputs (runs-p2-inputs `Drawer`, runs-p2-overlays `Stage doc
+drawer` and `Setting inline`):
+
+- The drawer is the kit `Drawer` at 640px, the board's head and body
+  padding set through `classNames`. Its header is unruled and filled in the
+  drawer's own surface (the board rules it and leaves it clear), so it is
+  1.5px shorter and everything under it sits 1.5-2px higher. The close
+  button is the kit `CloseButton` (28px, the board's glyph is 18px), and the
+  kit focuses it when the drawer opens. In dark the drawer is the kit's
+  page-tone surface, where the board paints it in the card tone.
+- Text in the drawer takes the kit's body colour, black in light
+  (`--mantine-color-text`), where the board sets slate 12. Quiet text (the
+  section labels, bullets, the no-doc note, stamps, the footer) is the
+  console's dimmed tone (slate 11); the board's lighter grey misses the text
+  contrast bar.
+- The boxes are kit `Paper variant="ground"`: card fill and the kit border,
+  which is one step darker than the board's rule; each row's rule is the
+  same border.
+- The pack pills are kit `Badge xs` `light` in `ok` and `warn`, the scope
+  pills kit `Badge xs` `panel-outline`, as they ship: their fills, label
+  colours, padding and 16px label line differ from the board's, so a pill
+  is 3-18px narrower.
+- Stage names are 400, 500 when open (the board's 600 is outside the type
+  rules). Stage rows paint the card tone, the opened one the panel tone.
+- runs-p2-inputs and runs-p2-overlays draw the same plan doc with different
+  text: the inline preview's bullets read "Ask which approach, scope and
+  delivery the run takes." and so on, where the stage doc drawer reads
+  "Which approach the run takes". There is one doc, so the fixture carries
+  the drawer's text, and the preview (first paragraph and first list,
+  headings left out) shows its bullets.
+- runs-p2-inputs names the configuration rows `row` (leaving the last one
+  unnamed, as it has no rule); runs-p2-overlays names them `row <key>`. The
+  app keys them `row <key>`, so the overlays panel's action can open
+  `rt.worktrees`, and on runs-p2-inputs the three rows and their
+  `k`, `v`, `pill`, `l` and `go` compare as missing under `box[3]` and extra
+  under `box[3]/row <key>`. The chevron is `go`, as runs-p2-inputs names it
+  (the overlays tile calls it `c`).
+- The overlays tiles are miniatures (R14): the app's whole drawer stands in
+  for each tile's `drawer` frame, so every key compares as missing under
+  `drawer` and extra at the root. Read by eye, both tiles carry the board's
+  text and structure. The stage doc drawer is reached by `?doc=plan`, and
+  the setting by clicking `row rt.worktrees` in `?inputs`.
+- A setting opened inline lists every scope the key can be set at,
+  strongest first, from the server's `layers`; "in effect" marks each scope
+  the resolver's provenance names. A stage doc that is opened in full from
+  the inputs drawer takes its place: `?doc=` wins over `?inputs`, which
+  stays in the URL so closing the doc brings the inputs drawer back. Only
+  one drawer is ever open. A stage doc the route cannot read (other than
+  a 404) says why in its row and does not open.
+
+Runs page (runs-p2-runs `Title row`, `Summary`, `Banner waiting`,
+`Live cards`, `History`). The first pass's Lanes entries above still apply
+to the filter and repo picker (kit controls, not keyed), the banner's option
+chips and Answer gate button, the lanes (liveness `Badge`, focus
+`ActionIcon`, the rail's not-started track, "!409 open" where the board
+draws "draft") and the card rules and quiet text:
+
+- The stat line's values are 700, where the board sets 600, which the type
+  rules leave out. The fixture's median reads "2h 30m" where the board
+  draws "2h 10m" (the fixture has three finished work runs), so the last
+  label sits 4px further right; the values compare by their words
+  (`dynamicText`).
+- "1 of 3 questions · or press" is the console's dimmed tone (slate 11);
+  the board's lighter grey misses the text contrast bar. The `g` cap is the
+  kit `Kbd` at `xs`, as the option numbers are: 17px wide and 22px tall
+  where the board draws a 20px square, in the kit's fill and ring.
+- The Earlier list pages by day: the 7 most recent days that have runs,
+  then "Show earlier days", which adds 7 more. The fixture's runs stop on
+  two days, so the app draws no "Show earlier days" row where the board
+  draws one under two days, and `History` is 41px shorter (`t` and `i`
+  compare as missing). Storybook's `Runs/Runs page` `Earlier paged` story
+  draws the row.
+- A review run's title is its ticket's title, else "Review of !<iid>"
+  from the reviewed MR, or from its branch's MR before rt records the
+  review. Neither the forge nor the fixture gives an MR title.
+- A lane's decision count is its answered questions, as everywhere else.
+- runs-p2-states' `Runs outage` tile still draws the first-pass stat cards.
+  The app draws the outage on the stat line ("—" and each label, no dot),
+  keyed under `Summary` with each stat named as the tile names its card,
+  and its title under `Title row`, so the tile's `h` and stat keys compare
+  as missing at the root and extra under those two frames. Read by eye,
+  the banner, the dashes and the skeleton match.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { composePackCommits, packProvenance } from "../provenance.ts";
@@ -54,6 +54,26 @@ describe("packProvenance", () => {
     writeFileSync(join(plain, "junk.txt"), "x\n");
     const p = packProvenance([plain, ""]);
     expect(p).toEqual({ dirty: 0, commits: [] });
+  });
+
+  test("records the plugin manifest's name, not the directory basename", () => {
+    const dir = repo("plugin");
+    mkdirSync(join(dir, ".claude-plugin"));
+    writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme" }));
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "manifest");
+    const sha = git(dir, "rev-parse", "--short", "HEAD");
+    expect(packProvenance([dir]).commits).toEqual([`acme=${sha}`]);
+  });
+
+  test("an unreadable manifest falls back to the basename", () => {
+    const dir = repo("badmanifest");
+    mkdirSync(join(dir, ".claude-plugin"));
+    writeFileSync(join(dir, ".claude-plugin", "plugin.json"), "{not json");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "bad");
+    const sha = git(dir, "rev-parse", "--short", "HEAD");
+    expect(packProvenance([dir]).commits).toEqual([`${dir.split("/").pop()}=${sha}`]);
   });
 
   test("git not on PATH reads as absent provenance", () => {

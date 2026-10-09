@@ -185,6 +185,13 @@
   border-bottom: 1px solid var(--tk-border-soft);
 }
 
+.barCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
 .hint {
   display: flex;
   align-items: center;

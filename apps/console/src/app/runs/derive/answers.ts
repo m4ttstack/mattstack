@@ -69,6 +69,24 @@ export function structuredContextSummary(
   return `${list?.length ?? 0} ${label}`;
 }
 
+/** What a collapsed context says beside its label: the structured summary
+    ("2 findings"), else its line count ("6 lines"). */
+export function contextMeta(context: string): string {
+  const summary = structuredContextSummary(context);
+  if (summary) return summary;
+  const lines = context.trimEnd().split('\n').length;
+  return `${lines} ${lines === 1 ? 'line' : 'lines'}`;
+}
+
+/** A structured context as indented JSON; prose as it is. */
+export function prettyContext(context: string): string {
+  try {
+    return JSON.stringify(JSON.parse(context), null, 2);
+  } catch {
+    return context;
+  }
+}
+
 /** "you · 1:41 PM" or "shepherd · 1:41 PM"; the time alone when `by` is
     missing; null while the gate has no answer. */
 export function answerStamp(g: GateRow): string | null {

@@ -1,16 +1,20 @@
-import type { CSSProperties } from 'react';
-import { Group, Loader, Paper, Text, Tooltip } from '@mattstack/app-kit/core';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Group, Loader, Paper, Popover, Text } from '@mattstack/app-kit/core';
+import { useWindowEvent } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import { Link } from 'wouter';
 
 import {
+  barDetail,
   barLabel,
   barPlacement,
   LEGEND,
+  type Bar,
   type DayAxis,
   type DayRow,
 } from '../derive/day';
 import { formatDuration } from '../derive/duration';
+import type { SegmentKind } from '../derive/timeline';
 import classes from './DayTimeline.module.css';
 import { runHref, ticketOf } from './runLinks';
 
@@ -74,6 +78,92 @@ function Axis({ axis }: { axis: DayAxis }) {
   );
 }
 
+/** Long enough that sweeping the pointer across a lane opens no card. */
+const HOVER_OPEN_DELAY_MS = 200;
+
+const TITLE_COLOR: Record<SegmentKind, string> = {
+  done: 'ok',
+  running: 'accent',
+  you: 'bad',
+  ci: 'warn',
+  held: 'dimmed',
+  idle: 'dimmed',
+};
+
+/** One bar, with a card on hover or focus naming its stage, its span and,
+    for a waiting stretch, the gate and its pick. */
+function BarSegment({ bar, axis }: { bar: Bar; axis: DayAxis }) {
+  const [opened, setOpened] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  const { x, w } = barPlacement(bar, axis);
+  const detail = barDetail(bar);
+  const open = () => {
+    window.clearTimeout(timer.current);
+    setOpened(true);
+  };
+  const openSoon = () => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(open, HOVER_OPEN_DELAY_MS);
+  };
+  const close = () => {
+    window.clearTimeout(timer.current);
+    setOpened(false);
+  };
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useWindowEvent('keydown', event => {
+    if (opened && event.key === 'Escape') close();
+  });
+  return (
+    <Popover
+      opened={opened}
+      onDismiss={close}
+      position="bottom"
+      offset={8}
+      width={300}
+    >
+      <Popover.Target>
+        <div
+          tabIndex={0}
+          role="img"
+          aria-label={barLabel(bar)}
+          className={classes.seg}
+          data-kind={bar.kind}
+          style={{ '--x': x, '--w': w } as CSSProperties}
+          data-parity="seg"
+          data-testid="timeline-bar"
+          onMouseEnter={openSoon}
+          onMouseLeave={close}
+          onFocus={open}
+          onBlur={close}
+        />
+      </Popover.Target>
+      <Popover.Dropdown
+        className={classes.barCard}
+        data-parity="hover card"
+        data-testid="bar-card"
+      >
+        <Text
+          fz={13}
+          fw={700}
+          lh="normal"
+          c={TITLE_COLOR[bar.kind]}
+          data-parity="h"
+        >
+          {detail.title}
+        </Text>
+        <Text fz={12} lh="normal" c="dimmed" data-parity="a">
+          {detail.span}
+        </Text>
+        {detail.gate ? (
+          <Text fz={12.5} lh="18px" data-parity="q">
+            {`Gate: ${detail.gate}`}
+          </Text>
+        ) : null}
+      </Popover.Dropdown>
+    </Popover>
+  );
+}
+
 function Lane({
   row,
   title,
@@ -124,28 +214,9 @@ function Lane({
       </div>
       <div className={classes.track}>
         <div className={classes.base} data-parity="base" />
-        {row.bars.map(bar => {
-          const { x, w } = barPlacement(bar, axis);
-          const label = barLabel(bar);
-          return (
-            <Tooltip
-              key={bar.from}
-              label={label}
-              events={{ hover: true, focus: true, touch: false }}
-            >
-              <div
-                tabIndex={0}
-                role="img"
-                aria-label={label}
-                className={classes.seg}
-                data-kind={bar.kind}
-                style={{ '--x': x, '--w': w } as CSSProperties}
-                data-parity="seg"
-                data-testid="timeline-bar"
-              />
-            </Tooltip>
-          );
-        })}
+        {row.bars.map(bar => (
+          <BarSegment key={bar.from} bar={bar} axis={axis} />
+        ))}
         {axis.now != null ? (
           <div
             className={classes.nowLine}

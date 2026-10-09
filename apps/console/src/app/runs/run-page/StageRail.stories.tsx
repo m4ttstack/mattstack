@@ -14,11 +14,7 @@ const stage = (
   attempts = status === 'not-started' ? 0 : 1
 ): RailStage => ({ name, status, durationMs, attempts });
 
-const pipeline = (
-  upTo: number,
-  current: RailStage['status'],
-  gates?: Record<string, number>
-) => ({
+const pipeline = (upTo: number, current: RailStage['status']) => ({
   stages: [
     'provision',
     'plan',
@@ -34,7 +30,6 @@ const pipeline = (
       return stage(name, current, current === 'running' ? null : 4 * MIN);
     return stage(name, 'not-started');
   }),
-  gateCounts: gates ?? {},
 });
 
 const meta = {
@@ -55,11 +50,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Live: Story = {
-  args: pipeline(4, 'running', { plan: 3, evidence: 2 }),
+  args: pipeline(4, 'running'),
 };
 
 export const WaitingOnYou: Story = {
-  args: pipeline(1, 'waiting', { plan: 3 }),
+  args: pipeline(1, 'waiting'),
 };
 
 export const Held: Story = { args: pipeline(2, 'held') };
@@ -73,7 +68,6 @@ export const Redirected: Story = {
       stage('implement', 'running'),
       stage('ship', 'not-started'),
     ],
-    gateCounts: {},
   },
 };
 
@@ -82,5 +76,5 @@ export const FinishedRunWithStaleRunningStage: Story = {
 };
 
 export const Compact: Story = {
-  args: { ...pipeline(4, 'running', { plan: 3 }), compact: true },
+  args: { ...pipeline(4, 'running'), compact: true },
 };

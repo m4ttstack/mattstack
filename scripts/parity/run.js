@@ -1,14 +1,16 @@
 // A browser_run_code_unsafe function file: run it with
 // { filename: <this file>, args: { slug, scheme, harness } }, the app's
 // harness.ts running at the harness URL (http://127.0.0.1:<its port>).
-// Optional args: designOnly (skip the app side).
+// Optional args: designOnly (skip the app side), panel (one panel's label or
+// root, on a board drawn as panels).
 // Must stay one bare function expression: the tool wraps the file in parens.
-async (page, { slug, scheme, harness, designOnly = false }) => {
+async (page, { slug, scheme, harness, designOnly = false, panel }) => {
   if (!harness) {
     return { error: 'args.harness is required: the URL of the app harness' };
   }
+  const only = panel ? `&panel=${encodeURIComponent(panel)}` : '';
   const cfgRes = await page.request.get(
-    `${harness}/config?slug=${encodeURIComponent(slug)}&scheme=${encodeURIComponent(scheme)}`
+    `${harness}/config?slug=${encodeURIComponent(slug)}&scheme=${encodeURIComponent(scheme)}${only}`
   );
   const cfg = await cfgRes.json();
   if (!cfgRes.ok()) return { error: cfg.error };
@@ -200,13 +202,15 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
     }
     if (designOnly) return result;
 
-    // Targets on one route share a load (and its action): a refresh or a stall is not repeatable per root.
+    // Targets on one route with one action share a load: a refresh or a stall is not repeatable per root.
     const byRoute = new Map();
     for (const [i, t] of cfg.targets.entries()) {
-      if (!byRoute.has(t.route)) byRoute.set(t.route, []);
-      byRoute.get(t.route).push([i, t]);
+      const load = `${t.route}\n${JSON.stringify(t.action ?? null)}`;
+      if (!byRoute.has(load)) byRoute.set(load, []);
+      byRoute.get(load).push([i, t]);
     }
-    for (const [route, group] of byRoute) {
+    for (const group of byRoute.values()) {
+      const route = group[0][1].route;
       await page.setViewportSize({ width: cfg.width, height: cfg.height });
       step = `app: storage for ${route}`;
       await page.goto(`${cfg.appOrigin}/`);
@@ -227,13 +231,17 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
         content:
           '*,*::before,*::after{transition:none!important;animation-play-state:paused!important;caret-color:transparent!important}',
       });
-      const action = cfg.action;
+      const action = group[0][1].action;
       const first = appRoot(group[0][1].root);
-      const gate = action?.kind === 'clicks' ? action.layers[0] : action?.layer;
-      await page.waitForSelector(gate ? sel(cfg.appAttr, gate) : first, {
-        state: 'visible',
-        timeout: 30_000,
-      });
+      const gate =
+        action?.kind === 'clicks'
+          ? sel(cfg.appAttr, action.layers[0])
+          : action?.kind === 'type'
+            ? `[${cfg.appAttr}]`
+            : action?.layer
+              ? sel(cfg.appAttr, action.layer)
+              : first;
+      await page.waitForSelector(gate, { state: 'visible', timeout: 30_000 });
       const applied = await page.evaluate(() =>
         document.documentElement.getAttribute('data-mantine-color-scheme')
       );
@@ -261,8 +269,26 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
           timeout: 30_000,
         });
       } else if (action?.kind === 'hover') {
-        step = `app: hover ${action.layer}`;
-        await page.locator(sel(cfg.appAttr, action.layer)).hover();
+        step = `app: hover ${action.layer}${action.where ?? ''}`;
+        const target = action.where
+          ? page.locator(`${sel(cfg.appAttr, action.layer)}${action.where}`).first()
+          : page.locator(sel(cfg.appAttr, action.layer));
+        await target.waitFor({ state: 'visible', timeout: 30_000 });
+        await target.hover();
+        await page.waitForSelector(sel(cfg.appAttr, action.waitFor), {
+          state: 'visible',
+          timeout: 30_000,
+        });
+      } else if (action?.kind === 'type') {
+        step = `app: press ${action.press}, type "${action.text}"`;
+        await page.keyboard.press(action.press);
+        // What the shortcut opens takes focus after its open transition.
+        await page.waitForFunction(
+          () => document.activeElement?.tagName === 'INPUT',
+          null,
+          { timeout: 10_000 }
+        );
+        await page.keyboard.type(action.text);
         await page.waitForSelector(sel(cfg.appAttr, action.waitFor), {
           state: 'visible',
           timeout: 30_000,

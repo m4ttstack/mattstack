@@ -1,25 +1,35 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Badge, Stack, Tabs, Text } from '@mattstack/app-kit/core';
 import { parseEvidence } from '@mattstack/rt-client/evidence';
 
 import {
-  answeredGates,
+  abandonReason,
+  answeredQuestionCount,
   decisionStages,
   defaultRecordTab,
   hasSettledGates,
   recordEnd,
   recordSpan,
   recordStats,
+  reviewDecisionGates,
+  reviewVerdict,
   type RecordTab,
 } from '../derive/record';
-import type { DecisionEntry } from '../derive/story';
 import { EffectiveInputs } from '../EffectiveInputs';
 import { DecisionsTab } from './DecisionsTab';
-import { EvidenceCard } from './EvidenceCard';
+import { EvidenceCard, evidenceTitle } from './EvidenceCard';
+import {
+  EvidenceCompare,
+  useCompareLink,
+  type CompareOpen,
+} from './EvidenceCompare';
+import { GatesUnreadable } from './GatesUnreadable';
 import { InputsDrawer } from './InputsDrawer';
 import { RecordHeader } from './RecordHeader';
+import { ReviewDecisions } from './ReviewVerdict';
 import classesPage from './RunPage.module.css';
 import { SideCards } from './SideCards';
+import { StageDocDrawer } from './StageDoc';
 import { RunStory } from './Story';
 import { useRunParts, type RunPageData } from './useRunParts';
 
@@ -57,25 +67,42 @@ export function RecordPage({
   const { run, stages, fields, decisions } = data;
   const parts = useRunParts(repo, runId, data);
   const { now, kind, gates, facts, drawer } = parts;
-  const [tab, setTab] = useState<RecordTab | null>(null);
-  const shown = tab ?? defaultRecordTab(gates);
+  const handedOff = kind === 'review' || kind === 'respond';
+  const verdict = handedOff ? reviewVerdict(gates) : null;
+  const logGates = handedOff ? reviewDecisionGates(gates) : gates;
 
   const end = recordEnd(run, now);
   const meta = `${run.pipeline} pipeline · ${recordSpan(run.started_at, end.at)}`;
-  const stats = recordStats({ run, kind, gates, fields, now });
+  const stats = recordStats({ run, gates: logGates, now });
   const groups = decisionStages(
-    gates,
+    logGates,
     stages,
     run,
     now,
     fields.find(f => f.key === 'pipeline-stages')?.value ?? null
   );
-  const answered = answeredGates(gates).length;
-  const withDecisions = hasSettledGates(gates);
+  const answered = answeredQuestionCount(logGates);
+  const withDecisions = verdict != null || hasSettledGates(logGates);
+  const reviewed = run.outcome?.reviewed ?? null;
   const evidenceValue = parts.evidenceField?.value;
   const evidence =
     kind === 'work' ? parseEvidence(evidenceValue ?? undefined) : null;
   const hasEvidence = evidence != null && evidence.version !== null;
+  const comparable =
+    evidence?.version === 1 && evidence.images.length > 0 ? evidence : null;
+  const link = useCompareLink();
+  const [compare, setCompare] = useState<CompareOpen | null>(() =>
+    comparable && link.mode ? { mode: link.mode } : null
+  );
+  const [tab, setTab] = useState<RecordTab | null>(() =>
+    comparable && link.mode ? 'evidence' : null
+  );
+  const shown = tab ?? (verdict ? 'decisions' : defaultRecordTab(logGates));
+  const staleLink = link.asked !== null && compare === null;
+  const { clear: clearLink } = link;
+  useEffect(() => {
+    if (staleLink) clearLink();
+  }, [staleLink, clearLink]);
   const mrIid =
     run.outcome?.mr && run.outcome.mr.state !== 'unknown'
       ? String(run.outcome.mr.iid)
@@ -87,15 +114,17 @@ export function RecordPage({
         runId={runId}
         evidence={evidence}
         variant="record"
+        ticket={facts.hero.ticket}
         mrIid={mrIid}
         pathHref={parts.pathHref}
+        onCompare={setCompare}
       />
     ) : null;
 
   const tabs: RecordTab[] = [
     'story',
     ...(withDecisions ? (['decisions'] as const) : []),
-    ...(kind === 'work' ? (['evidence'] as const) : []),
+    ...(evidenceColumn ? (['evidence'] as const) : []),
     'inputs',
   ];
   const counts: Partial<Record<RecordTab, number>> = {
@@ -108,18 +137,6 @@ export function RecordPage({
           : undefined,
   };
 
-  const openDecision = (entry: DecisionEntry | null) => {
-    if (!withDecisions) return;
-    setTab('decisions');
-    const id = entry ? `decision-${entry.gateId}` : null;
-    requestAnimationFrame(() => {
-      const target = id
-        ? document.getElementById(id)
-        : document.querySelector('[data-testid="decision-log"]');
-      target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    });
-  };
-
   return (
     <Stack gap={20} data-testid="run-record">
       <RecordHeader
@@ -129,7 +146,11 @@ export function RecordPage({
         title={parts.title}
         outcome={run.outcome}
         stats={stats}
+        abandoned={abandonReason(run, fields)}
       />
+      {parts.gatesFailed ? (
+        <GatesUnreadable onRetry={() => void parts.retryGates()} />
+      ) : null}
       <Tabs
         value={shown}
         onChange={v => v && setTab(v as RecordTab)}
@@ -164,6 +185,7 @@ export function RecordPage({
                   block={parts.block}
                   evidenceField={parts.evidenceField}
                   pathHref={parts.pathHref}
+                  ticket={facts.hero.ticket}
                 />
                 {!parts.story?.entries.length && !parts.block ? (
                   <Text fz={13} lh="normal" c="dimmed">
@@ -173,9 +195,6 @@ export function RecordPage({
               </Stack>
               <SideCards
                 facts={parts.factRows}
-                decisions={parts.decisionEntries}
-                onOpenDecision={openDecision}
-                noDecisions="None."
                 inputs={parts.sideInputs}
                 onViewInputs={drawer.open}
               />
@@ -183,27 +202,55 @@ export function RecordPage({
           </Tabs.Panel>
           {withDecisions ? (
             <Tabs.Panel value="decisions">
-              <DecisionsTab
-                groups={groups}
-                byStage={kind === 'work'}
-                evidence={evidenceColumn}
-              />
-            </Tabs.Panel>
-          ) : null}
-          {kind === 'work' ? (
-            <Tabs.Panel value="evidence">
-              {evidenceColumn ?? (
-                <Text fz={13} lh="normal" c="dimmed">
-                  This run recorded no evidence.
-                </Text>
+              {handedOff ? (
+                <ReviewDecisions
+                  verdict={
+                    verdict && {
+                      ...verdict,
+                      mrIid:
+                        verdict.mrIid ??
+                        (reviewed ? String(reviewed.iid) : null),
+                      mrUrl: reviewed?.url ?? facts.mr.url,
+                    }
+                  }
+                  gates={groups.flatMap(g => g.gates)}
+                  facts={parts.factRows.filter(f => f.name !== 'Worktree')}
+                />
+              ) : (
+                <DecisionsTab
+                  groups={groups}
+                  byStage={kind === 'work'}
+                  evidence={evidenceColumn}
+                />
               )}
             </Tabs.Panel>
           ) : null}
+          {evidenceColumn ? (
+            <Tabs.Panel value="evidence">{evidenceColumn}</Tabs.Panel>
+          ) : null}
           <Tabs.Panel value="inputs">
-            <EffectiveInputs repo={repo} runId={runId} decisions={decisions} />
+            <EffectiveInputs
+              repo={repo}
+              runId={runId}
+              decisions={decisions}
+              intro
+            />
           </Tabs.Panel>
         </Stack>
       </Tabs>
+      {comparable && compare ? (
+        <EvidenceCompare
+          repo={repo}
+          runId={runId}
+          evidence={comparable}
+          title={evidenceTitle(facts.hero.ticket, comparable.evidence.case)}
+          {...compare}
+          onClose={() => {
+            setCompare(null);
+            link.clear();
+          }}
+        />
+      ) : null}
       <InputsDrawer
         repo={repo}
         runId={runId}
@@ -211,6 +258,7 @@ export function RecordPage({
         opened={drawer.opened}
         onClose={drawer.close}
       />
+      <StageDocDrawer repo={repo} runId={runId} />
     </Stack>
   );
 }

@@ -8,7 +8,7 @@
       "owner": "human",
       "origin": { "runId": "20261008-1340", "paneId": "fixture-pane-molly" },
       "openedAt": "2026-10-08T16:17:00-05:00",
-      "context": "The orders list already loads every order for the store, then pages it in the browser.\n\n- Server-side: add an assignee param to the orders query. Fast on big stores, needs a resolver change and one migration for the index.\n- Client-side: filter the loaded page. No backend change, but it only filters what is on screen.\n- Risk: two stores have more than 40k open orders. Client-side would be wrong for them.\n\n```\napps/orders/src/list/useOrders.ts:42\nconst orders = useQuery(ORDERS, { variables: { store } })\n```\n",
+      "context": "The orders list loads every order for the store, then pages it in the browser.\n\n- Server-side: fast on big stores; needs a resolver change and one index migration.\n- Client-side: no backend change, but only filters what is on screen.\n- Risk: two stores have more than 40k open orders.\n\n```\napps/orders/src/list/useOrders.ts:42\nconst orders = useQuery(ORDERS, { store })\n```\n",
       "questions": [
         {
           "id": "approach",
@@ -17,17 +17,17 @@
             {
               "value": "Server-side filter",
               "label": "Server-side filter (Recommended)",
-              "description": "Add an assignee param to the query"
+              "description": "Add an assignee param to the orders query. `jest --selectProjects unit -t useOrders`"
             },
             {
               "value": "Client-side filter",
               "label": "Client-side filter",
-              "description": "Filter the loaded page only"
+              "description": "Filter the loaded page only."
             },
             {
               "value": "Both, behind a flag",
               "label": "Both, behind a flag",
-              "description": "Ship client-side now, server-side next"
+              "description": "Ship client-side now, server-side next."
             }
           ]
         },
@@ -171,6 +171,7 @@
       "meta": { "stage": "plan" },
       "owner": "human",
       "openedAt": "2026-10-08T13:41:00-05:00",
+      "context": "The order overview shows the order's lines and totals only.\nThe parcels API already returns linked parcels per order.\nRecipients come from the address book, with no order link yet.\nThe backend needs one field to join recipients to an order.\nThe overview cards are plain components with no data layer.\nTracking status can be unknown for a fresh parcel.",
       "questions": [
         {
           "id": "approach",
@@ -189,7 +190,12 @@
         }
       ],
       "answer": {
-        "answers": { "approach": "Backend gap-fill + component work" },
+        "answers": {
+          "approach": {
+            "value": "Backend gap-fill + component work",
+            "note": "Recipients need the backend field anyway, so do it once."
+          }
+        },
         "by": "console",
         "answeredAt": "2026-10-08T13:41:00-05:00",
         "overridden": true
@@ -794,14 +800,66 @@
       ]
     },
     {
+      "id": "g-0940-tiers",
+      "subject": "mr:acme/web!412",
+      "kind": "clarify",
+      "origin": { "runId": "20261008-0940" },
+      "owner": "herd:acme-web-1008",
+      "openedAt": "2026-10-08T09:24:00-05:00",
+      "questions": [
+        {
+          "id": "tiers",
+          "label": "Which tiers should the review cover?",
+          "options": [
+            {
+              "value": "correctness, tests",
+              "label": "Correctness, tests (Recommended)"
+            },
+            { "value": "everything", "label": "Everything" }
+          ]
+        }
+      ],
+      "answer": {
+        "answers": { "tiers": "correctness, tests" },
+        "by": "shepherd",
+        "answeredAt": "2026-10-08T09:25:00-05:00"
+      }
+    },
+    {
       "id": "g-0940-post",
       "subject": "mr:acme/web!412",
       "kind": "review-post",
       "origin": { "runId": "20261008-0940" },
       "owner": "human",
-      "openedAt": "2026-10-08T09:55:00-05:00",
-      "context": "{\"gate-ctx\":\"findings@1\",\"findings\":[{\"tier\":\"correctness\",\"severity\":\"must-fix\",\"title\":\"Duplicate check ignores case\"},{\"tier\":\"correctness\",\"severity\":\"must-fix\",\"title\":\"Merge drops the second phone number\"},{\"tier\":\"tests\",\"severity\":\"suggestion\",\"title\":\"No test for an empty import\"},{\"tier\":\"tests\",\"severity\":\"suggestion\",\"title\":\"Fixture names a real store\"}]}",
+      "openedAt": "2026-10-08T09:36:00-05:00",
+      "context": "{\"gate-ctx\":\"findings@1\",\"findings\":[{\"id\":\"f1\",\"severity\":\"important\",\"title\":\"Dedupe matches on email only, so contacts without an email import twice.\",\"body\":\"the importer keys duplicates on the email address alone, so two rows with no email never match and both are created.\",\"file\":\"contacts/import/dedupe.ts:58\"},{\"id\":\"f2\",\"severity\":\"important\",\"title\":\"No test covers merging two contacts that share a phone number.\",\"body\":\"mergeContacts has tests for shared emails only; the phone path is untested.\"},{\"id\":\"f3\",\"severity\":\"minor\",\"title\":\"mergeContacts deletes the losing record; the name doesn't say so.\",\"body\":\"a caller reading the name would not expect the second contact to be deleted.\",\"file\":\"apps/contacts/src/import/pipeline/merge/strategies/mergeContactsKeepingNewestRecordAndDeletingTheLosingDuplicate.ts:12\"},{\"id\":\"f4\",\"severity\":\"minor\",\"title\":\"The skip log prints the whole contact record, email included.\",\"body\":\"the skipped-row log line serializes the full record.\"}]}",
       "questions": [
+        {
+          "id": "findings-1",
+          "label": "Post which findings to !412?",
+          "multi": true,
+          "context": "{\"gate-ctx\":\"findings@1\",\"findings\":[{\"id\":\"f1\",\"severity\":\"important\",\"title\":\"Dedupe matches on email only, so contacts without an email import twice.\",\"body\":\"the importer keys duplicates on the email address alone, so two rows with no email never match and both are created.\",\"file\":\"contacts/import/dedupe.ts:58\"},{\"id\":\"f2\",\"severity\":\"important\",\"title\":\"No test covers merging two contacts that share a phone number.\",\"body\":\"mergeContacts has tests for shared emails only; the phone path is untested.\"},{\"id\":\"f3\",\"severity\":\"minor\",\"title\":\"mergeContacts deletes the losing record; the name doesn't say so.\",\"body\":\"a caller reading the name would not expect the second contact to be deleted.\",\"file\":\"apps/contacts/src/import/pipeline/merge/strategies/mergeContactsKeepingNewestRecordAndDeletingTheLosingDuplicate.ts:12\"},{\"id\":\"f4\",\"severity\":\"minor\",\"title\":\"The skip log prints the whole contact record, email included.\",\"body\":\"the skipped-row log line serializes the full record.\"}]}",
+          "options": [
+            {
+              "value": "f1",
+              "label": "[Important] Dedupe matches on email only, so contacts without an email import twice.",
+              "description": "contacts/import/dedupe.ts:58"
+            },
+            {
+              "value": "f2",
+              "label": "[Important] No test covers merging two contacts that share a phone number."
+            },
+            {
+              "value": "f3",
+              "label": "[Minor] mergeContacts deletes the losing record; the name doesn't say so.",
+              "description": "apps/contacts/src/import/pipeline/merge/strategies/mergeContactsKeepingNewestRecordAndDeletingTheLosingDuplicate.ts:12"
+            },
+            {
+              "value": "f4",
+              "label": "[Minor] The skip log prints the whole contact record, email included."
+            }
+          ]
+        },
         {
           "id": "outcome",
           "label": "What should the review post?",
@@ -809,7 +867,7 @@
             { "value": "Approve", "label": "Approve" },
             {
               "value": "Request changes",
-              "label": "Request changes"
+              "label": "Request changes (Recommended)"
             },
             { "value": "Comment only", "label": "Comment only" }
           ]
@@ -817,13 +875,11 @@
       ],
       "answer": {
         "answers": {
-          "outcome": {
-            "value": "Request changes",
-            "text": "Two must-fix items before this merges: the duplicate check ignores case, and a merge drops the second phone number."
-          }
+          "findings-1": ["f1", "f2", "f3", "f4"],
+          "outcome": "Request changes"
         },
         "by": "board",
-        "answeredAt": "2026-10-08T10:01:00-05:00"
+        "answeredAt": "2026-10-08T09:40:00-05:00"
       }
     },
 

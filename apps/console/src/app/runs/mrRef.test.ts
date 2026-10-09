@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { mrRef } from './mrRef';
+import { mrIidOf, mrRef } from './mrRef';
 
 const enrichmentMr = {
   iid: 43166,
@@ -99,5 +99,21 @@ describe('mrRef', () => {
       iid: '456',
       webUrl: 'HTTPS://github.com/o/r/pull/456',
     });
+  });
+});
+
+describe('mrIidOf', () => {
+  it('reads the iid from a bare ref or an MR url', () => {
+    expect(mrIidOf('!412')).toBe('412');
+    expect(
+      mrIidOf('https://gitlab.example.com/g/p/-/merge_requests/43166')
+    ).toBe('43166');
+    expect(mrIidOf('https://github.com/o/r/pull/7')).toBe('7');
+  });
+
+  it('is null for anything else', () => {
+    expect(mrIidOf(null)).toBeNull();
+    expect(mrIidOf('')).toBeNull();
+    expect(mrIidOf('see the MR')).toBeNull();
   });
 });

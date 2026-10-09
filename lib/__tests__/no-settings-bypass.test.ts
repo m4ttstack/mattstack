@@ -52,6 +52,7 @@ const ROSTER_READ = "reads the named org's own roster; getSetting reads only thi
 const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
   "per-rung reader": {
     "scripts/lib/team-directory-move.ts": { count: 3, reason: "the team directory move works on each org and team store's own values and prunes older board.tabs names in the store it just wrote; the merged view would hide which store held a channel or key" },
+    "apps/console/src/server/effectiveInputs.ts": { count: 2, reason: "a run's inputs drawer shows a setting's value at each scope (where it's set), which the merged view cannot show; read-only" },
     "apps/boxscore/scripts/import-legacy-settings.ts": { count: 2, reason: "the integrations write starts from the org store's own value, never the merged view" },
     "commands/setup.ts": { count: 4, reason: "the Slack connect write starts from the org store's own integrations, never the merged view" },
     "commands/settings-keys.ts": { count: 2, reason: "`rt settings explain` prints every rung" },

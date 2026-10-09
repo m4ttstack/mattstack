@@ -1,15 +1,24 @@
+import { readFile as fsReadFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import {
+  explainSetting,
   getDef,
   getRun,
   getSetting,
   parseIdentity,
+  type SettingDef,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
-import type { RunsFixture } from './fixtures/design/runsFixture';
+import {
+  FIXTURE_OUTAGE,
+  type RunsFixture,
+} from './fixtures/design/runsFixture';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { runRt as liveRunRt, type RunRt } from './rt-bin';
+import { resolveStageDoc } from './stageDoc';
 
 export interface PackVersionRow {
   pack: string;
@@ -18,11 +27,22 @@ export interface PackVersionRow {
   currentSha: string | null;
   /** Null exactly when currentSha is null — unknowable, not "no". */
   drifted: boolean | null;
+  /** Commits on the pack since the recorded sha, when git can count them. */
+  commitsSince?: number | null;
+}
+export interface ConfigLayer {
+  scope: string;
+  /** Absent when nothing is set at this scope. */
+  value?: unknown;
 }
 export interface ConfigDepRow {
   key: string;
   value: unknown;
   provenance: { scope: string; file: string | null }[];
+  description?: string;
+  /** Weakest first, as the resolver reads them: the registry default, then
+      each scope the key can be set at, plus any other scope holding a value. */
+  layers?: ConfigLayer[];
 }
 export interface EffectiveInputsPayload {
   pipeline: string;
@@ -49,6 +69,19 @@ const CONFIG_DEPS = [
 ] as const;
 
 const STAGE_NAME = /^[A-Za-z0-9_-]+$/;
+
+const PLUGIN_CACHE_DIR = join(
+  homedir(),
+  '.claude/plugins/cache/mattstack/mattstack'
+);
+
+const readFileOrNull = async (path: string): Promise<string | null> => {
+  try {
+    return await fsReadFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+};
 
 const NO_DOC = { error: 'no compiled doc recorded at this version' } as const;
 
@@ -83,6 +116,28 @@ export function parsePackCommits(
   return rows;
 }
 
+/** Never throws: a resolver that cannot explain the key leaves the row
+    without its layers rather than dropping it. */
+function configLayers(
+  def: SettingDef,
+  repoIdentity: string | null
+): ConfigLayer[] | undefined {
+  let rows;
+  try {
+    rows = explainSetting(def.key, { repoIdentity });
+  } catch {
+    return undefined;
+  }
+  const settable = new Set<string>(def.scopes);
+  return (rows ?? [])
+    .filter(r => r.scope === 'default' || settable.has(r.scope) || r.present)
+    .map(r =>
+      r.present && 'value' in r
+        ? { scope: r.scope, value: r.value }
+        : { scope: r.scope }
+    );
+}
+
 function dedupeStageNames(stages: { name: string }[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -109,7 +164,9 @@ export function mountEffectiveInputs(
   app: Hono,
   runRt: RunRt = liveRunRt,
   runGit: RunGit = liveRunGit,
-  fixture: RunsFixture | null = null
+  fixture: RunsFixture | null = null,
+  readFile: (path: string) => Promise<string | null> = readFileOrNull,
+  pluginCacheDir: string = PLUGIN_CACHE_DIR
 ) {
   /** Never throws: an unresolvable pack (rt down, unknown name, bad JSON) is
       reported as null everywhere a caller of this reads it, not a 500. */
@@ -133,8 +190,9 @@ export function mountEffectiveInputs(
     sha: string;
   }): Promise<PackVersionRow> {
     let currentSha: string | null = null;
+    let packDir: string | null = null;
     try {
-      const packDir = await resolvePackDir(commit.pack);
+      packDir = await resolvePackDir(commit.pack);
       if (packDir) {
         const head = await runGit(['-C', packDir, 'rev-parse', 'HEAD']);
         if (head.code === 0 && head.stdout.trim()) {
@@ -149,17 +207,35 @@ export function mountEffectiveInputs(
         ? null
         : !currentSha.startsWith(commit.sha) &&
           !commit.sha.startsWith(currentSha);
+    let commitsSince: number | null = null;
+    if (drifted && packDir) {
+      try {
+        const count = await runGit([
+          '-C',
+          packDir,
+          'rev-list',
+          '--count',
+          `${commit.sha}..HEAD`,
+        ]);
+        const n = count.stdout.trim();
+        if (count.code === 0 && /^\d+$/.test(n)) commitsSince = Number(n);
+      } catch {
+        commitsSince = null;
+      }
+    }
     return {
       pack: commit.pack,
       recordedSha: commit.sha,
       currentSha,
       drifted,
+      commitsSince,
     };
   }
 
   return app
     .get('/api/runs/:repo/:runId/effective-inputs', async c => {
       const { repo, runId } = c.req.param();
+      if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
       if (fixture) {
         const payload = await fixture.effectiveInputs(repo, runId);
         if (!payload) return c.json({ error: 'run not found' }, 404);
@@ -185,10 +261,17 @@ export function mountEffectiveInputs(
       const config: ConfigDepRow[] = [];
       for (const key of CONFIG_DEPS) {
         // CONFIG_DEPS is otherwise the only guard on this path, and it serializes full values onto the wire -- a secret def must never reach config.push.
-        if (getDef(key)?.secret) continue;
+        const def = getDef(key);
+        if (def?.secret) continue;
         try {
           const { value, provenance } = getSetting(key, { repoIdentity });
-          config.push({ key, value, provenance });
+          const row: ConfigDepRow = { key, value, provenance };
+          if (def) {
+            row.description = def.description;
+            const layers = configLayers(def, repoIdentity);
+            if (layers) row.layers = layers;
+          }
+          config.push(row);
         } catch {
           // A throwing resolver skips the key rather than 500ing the panel.
         }
@@ -211,8 +294,8 @@ export function mountEffectiveInputs(
         return c.json({ error: `invalid stage name: ${stage ?? ''}` }, 400);
       }
       if (fixture) {
-        const text = await fixture.stageDoc(repo, runId, stage);
-        return text === null ? c.json(NO_DOC, 404) : c.json({ text }, 200);
+        const doc = await fixture.stageDoc(repo, runId, stage);
+        return doc === null ? c.json(NO_DOC, 404) : c.json(doc, 200);
       }
 
       const res = await getRun(runId, repo);
@@ -221,23 +304,26 @@ export function mountEffectiveInputs(
         return c.json({ error: res.error ?? 'no data' }, status);
       }
 
-      const first = parsePackCommits(res.data.run.pack_commits)[0];
-      if (!first) return c.json(NO_DOC, 404);
-
-      const packDir = await resolvePackDir(first.pack);
-      if (!packDir) return c.json(NO_DOC, 404);
-
-      // git resolves `<rev>:<path>` from the repo root, not from `-C`'s cwd;
-      // the `./` anchors the path to the pack dir, which is a subdirectory of
-      // its repo for a team pack (orgs/<org>/mattstack/teams/<team>/plugin).
-      const show = await runGit([
-        '-C',
-        packDir,
-        'show',
-        `${first.sha}:./attachments/stage-${stage}/SKILL.md`,
-      ]);
-      if (show.code !== 0) return c.json(NO_DOC, 404);
-
-      return c.json({ text: show.stdout }, 200);
+      const hit = await resolveStageDoc(
+        {
+          runGit,
+          packDirs: async () => {
+            const { stdout } = await runRt(['skills', 'packs', '--json']);
+            const packs = (
+              parseJsonPayload(stdout) as PacksResponse | undefined
+            )?.packs;
+            return Array.isArray(packs)
+              ? packs.filter(
+                  p => typeof p?.dir === 'string' && p.dir.length > 0
+                )
+              : [];
+          },
+          readFile,
+          pluginCacheDir,
+        },
+        { packCommits: res.data.run.pack_commits, stage }
+      );
+      if (!hit) return c.json(NO_DOC, 404);
+      return c.json({ text: hit.text, pack: hit.pack, sha: hit.sha }, 200);
     });
 }

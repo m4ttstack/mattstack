@@ -83,6 +83,20 @@ test('notifications.error renders red color, the close icon, and does not auto-c
   expect(screen.queryByRole('alert')).not.toBeNull();
 });
 
+test('notifications render the type icon at the dense size', async () => {
+  renderWithProviders(
+    <button onClick={() => notifications.success('Copied branch name')}>
+      go
+    </button>
+  );
+
+  await userEvent.click(screen.getByText('go'));
+
+  const alert = await screen.findByRole('alert');
+  const svg = alert.querySelector('.mantine-Notification-icon svg');
+  expect(svg?.getAttribute('width')).toBe('11');
+});
+
 test('notifications.warning accepts a props object (title + message)', async () => {
   renderWithProviders(
     <button

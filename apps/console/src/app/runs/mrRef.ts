@@ -38,3 +38,13 @@ export function mrRef(
     raw.match(/\/(?:merge_requests|pull)\/(\d+)(?:[/?#]|$)/)?.[1] ?? null;
   return { iid, state: null, webUrl: raw, ciStatus: null, text: null };
 }
+
+/** The iid an `mr` field names, as a bare `!412` or an MR url. */
+export function mrIidOf(value: string | null | undefined): string | null {
+  const raw = value?.trim() ?? '';
+  return (
+    raw.match(/^!(\d+)$/)?.[1] ??
+    raw.match(/\/(?:merge_requests|pull)\/(\d+)(?:[/?#]|$)/)?.[1] ??
+    null
+  );
+}

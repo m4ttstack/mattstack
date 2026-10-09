@@ -20,6 +20,7 @@ import { validator } from 'hono/validator';
 import { runIdOfGate } from '../shared/gate-run';
 import { countsForConsoleBadge } from '../shared/gate-waiting';
 import {
+  FIXTURE_OUTAGE,
   FIXTURE_READ_ONLY,
   type RunsFixture,
 } from './fixtures/design/runsFixture';
@@ -116,14 +117,17 @@ function isUnreachableError(message: string): boolean {
 export function gatesRoutes(fixture: RunsFixture | null = null) {
   const allGates = async (
     scope: GateScope = {}
-  ): ReturnType<typeof listAllRunGates> =>
-    fixture
-      ? { ok: true, gates: await fixture.gates(scope) }
-      : listAllRunGates(scope);
+  ): ReturnType<typeof listAllRunGates> => {
+    if (!fixture) return listAllRunGates(scope);
+    if (fixture.outage) return { ok: false, error: FIXTURE_OUTAGE };
+    return { ok: true, gates: await fixture.gates(scope) };
+  };
   const allRuns = async (): Promise<RtResponse<{ runs: RunSummary[] }>> =>
-    fixture
-      ? { ok: true, data: { runs: await fixture.listRuns() } }
-      : listRuns(undefined, rtClientOptions());
+    !fixture
+      ? listRuns(undefined, rtClientOptions())
+      : fixture.outage
+        ? { ok: false, error: FIXTURE_OUTAGE }
+        : { ok: true, data: { runs: await fixture.listRuns() } };
 
   return (
     new Hono()
@@ -194,7 +198,7 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
           return { answers: v?.answers };
         }),
         async c => {
-          if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 409);
+          if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
           if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
             return c.json({ error: 'forbidden' }, 403);
           }
@@ -239,7 +243,7 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
         }
       )
       .post('/api/gates/:id/focus', async c => {
-        if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 409);
+        if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
         const { id } = c.req.param();
         const all = await listAllRunGates();
         if (!all.ok) return c.json({ error: all.error }, 502);

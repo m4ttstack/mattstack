@@ -29,9 +29,7 @@ function columns(container: HTMLElement) {
 
 describe('StageRail', () => {
   it('draws one column per stage, in order, with its status', () => {
-    const { container } = renderWithProviders(
-      <StageRail stages={stages} gateCounts={{}} />
-    );
+    const { container } = renderWithProviders(<StageRail stages={stages} />);
     expect(
       columns(container).map(c => [c.dataset.stage, c.dataset.status])
     ).toEqual([
@@ -43,9 +41,7 @@ describe('StageRail', () => {
   });
 
   it('keys only the layers the board paints: the bar, the glyphs and the text', () => {
-    const { container } = renderWithProviders(
-      <StageRail stages={stages} gateCounts={{}} />
-    );
+    const { container } = renderWithProviders(<StageRail stages={stages} />);
     expect(
       [...container.querySelectorAll('[data-stage]')].map(e =>
         e.getAttribute('data-stage')
@@ -62,9 +58,7 @@ describe('StageRail', () => {
   });
 
   it('shows the duration, and a dash while a stage has none', () => {
-    const { container } = renderWithProviders(
-      <StageRail stages={stages} gateCounts={{}} />
-    );
+    const { container } = renderWithProviders(<StageRail stages={stages} />);
     const meta = (name: string) =>
       container.querySelector(`[data-stage="${name}"] [data-part="meta"]`)!
         .textContent;
@@ -72,22 +66,18 @@ describe('StageRail', () => {
     expect(meta('self-review')).toBe('—');
   });
 
-  it('shows the gate count under a stage that has gates', () => {
-    const { container } = renderWithProviders(
-      <StageRail stages={stages} gateCounts={{ plan: 3 }} />
-    );
-    const gates = container.querySelector(
-      '[data-stage="plan"] [data-part="gates"]'
-    );
-    expect(gates?.textContent).toBe('3');
+  it('keeps a stage to its duration, with no decision count', () => {
+    const { container } = renderWithProviders(<StageRail stages={stages} />);
+    expect(container.querySelector('[data-part="gates"]')).toBeNull();
     expect(
-      container.querySelector('[data-stage="provision"] [data-part="gates"]')
-    ).toBeNull();
+      container.querySelector('[data-stage="plan"] [data-part="meta"]')
+        ?.textContent
+    ).toBe('1m');
   });
 
   it('shows an attempt count past the first', () => {
     const { container } = renderWithProviders(
-      <StageRail stages={[stage('plan', 'done', MIN, 2)]} gateCounts={{}} />
+      <StageRail stages={[stage('plan', 'done', MIN, 2)]} />
     );
     expect(
       container.querySelector('[data-stage="plan"]')!.textContent
@@ -95,9 +85,7 @@ describe('StageRail', () => {
   });
 
   it('mutes a stage that has not started', () => {
-    const { container } = renderWithProviders(
-      <StageRail stages={stages} gateCounts={{}} />
-    );
+    const { container } = renderWithProviders(<StageRail stages={stages} />);
     const label = container.querySelector(
       '[data-stage="self-review"] [data-parity="self-review"]'
     )!;
@@ -110,7 +98,7 @@ describe('StageRail', () => {
 
   it('says what a waiting stage is waiting on', () => {
     const { container } = renderWithProviders(
-      <StageRail stages={[stage('plan', 'waiting', 4 * MIN)]} gateCounts={{}} />
+      <StageRail stages={[stage('plan', 'waiting', 4 * MIN)]} />
     );
     expect(
       container.querySelector('[data-stage="plan"] [data-part="lab"]')!
@@ -120,7 +108,7 @@ describe('StageRail', () => {
 
   it('draws a running stage as done once the run has finished', () => {
     const { container } = renderWithProviders(
-      <StageRail stages={stages} gateCounts={{}} finished />
+      <StageRail stages={stages} finished />
     );
     expect(
       container.querySelector('[data-stage="implement"]')!
@@ -129,11 +117,7 @@ describe('StageRail', () => {
 
   it('keeps a failed stage failed on a finished run', () => {
     const { container } = renderWithProviders(
-      <StageRail
-        stages={[stage('ship', 'failed', MIN)]}
-        gateCounts={{}}
-        finished
-      />
+      <StageRail stages={[stage('ship', 'failed', MIN)]} finished />
     );
     expect(container.querySelector('[data-stage="ship"]')).toHaveAttribute(
       'data-status',
@@ -143,7 +127,7 @@ describe('StageRail', () => {
 
   it('compact draws bars only, named seg <stage>', () => {
     const { container } = renderWithProviders(
-      <StageRail stages={stages} gateCounts={{ plan: 2 }} compact />
+      <StageRail stages={stages} compact />
     );
     expect(
       [...container.querySelectorAll('[data-parity^="seg "]')].map(e =>
@@ -163,9 +147,7 @@ describe('StageRail', () => {
   });
 
   it('renders nothing without stages', () => {
-    const { container } = renderWithProviders(
-      <StageRail stages={[]} gateCounts={{}} />
-    );
+    const { container } = renderWithProviders(<StageRail stages={[]} />);
     expect(container.querySelector('[data-part="rail"]')).toBeNull();
     expect(container.querySelector('[data-part="compact-rail"]')).toBeNull();
   });

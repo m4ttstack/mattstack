@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   evidenceUrl,
   fileNameOf,
+  legacyImageUrl,
   phasesIn,
   shotFor,
   shotsOf,
@@ -59,6 +60,18 @@ describe('evidenceImages', () => {
   it('builds the route url without re-encoding the wire repo', () => {
     expect(evidenceUrl('remote:acme%2Fweb', '2026 10', 'after')).toBe(
       '/api/runs/remote:acme%2Fweb/2026%2010/evidence/after'
+    );
+  });
+
+  it('builds the legacy image url from the wire repo, run id and encoded path', () => {
+    expect(
+      legacyImageUrl(
+        'remote%3Aacme%2Fweb',
+        '20261007-1520',
+        '/Users/acme/.mattstack/evidence/web-377/before shot.png'
+      )
+    ).toBe(
+      '/api/runs/remote%3Aacme%2Fweb/20261007-1520/evidence-file?path=%2FUsers%2Facme%2F.mattstack%2Fevidence%2Fweb-377%2Fbefore%20shot.png'
     );
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
-import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import { Button, ListGroup, Modal, Spinner } from '@mattstack/tui-kit';
+import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import type { OwnerSkip, OwnersPostPlan } from '../../codeowner-posts.ts';
 import type { BoardMR } from '../../data.ts';
 import { postAction, type ActionResult } from '../api.ts';

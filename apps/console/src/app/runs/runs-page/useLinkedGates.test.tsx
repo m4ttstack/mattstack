@@ -79,11 +79,31 @@ describe('useLinkedGates', () => {
   });
 
   it('reads a failed request as loaded with no gates, so nothing spins forever', async () => {
-    gatesGet.mockResolvedValue({ ok: false, status: 502 });
+    gatesGet.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: 'daemon unreachable' }),
+    });
+    const { result } = renderHook(() => useLinkedGates(), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(result.current.loaded).toBe(true), {
+      timeout: 3000,
+    });
+    expect(result.current.all).toEqual([]);
+    expect(gatesGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a refused read', async () => {
+    gatesGet.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'refused' }),
+    });
     const { result } = renderHook(() => useLinkedGates(), {
       wrapper: wrapper(),
     });
     await waitFor(() => expect(result.current.loaded).toBe(true));
-    expect(result.current.all).toEqual([]);
+    expect(gatesGet).toHaveBeenCalledTimes(1);
   });
 });

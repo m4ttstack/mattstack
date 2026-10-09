@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { runKind, runTitle } from './kind';
+import { enrichedRunTitle, runKind, runTitle } from './kind';
 
 describe('runKind', () => {
   it.each([
@@ -47,19 +47,85 @@ describe('runTitle', () => {
     ).toBe('Fix cart');
   });
 
-  it('ignores the MR title for other kinds', () => {
-    expect(runTitle(run(), { mrTitle: 'Fix cart' })).toBe('feature · r1');
+  it('names the MR a review reads before rt records it', () => {
+    expect(runTitle(run({ work_type: 'review' }), { mrIid: 412 })).toBe(
+      'Review of !412'
+    );
+    expect(
+      runTitle(
+        run({
+          work_type: 'review',
+          outcome: { reviewed: { iid: 406 } },
+        }),
+        { mrIid: 412 }
+      )
+    ).toBe('Review of !406');
+    expect(runTitle(run(), { mrIid: 412 })).toBe('feature run');
   });
 
-  it('ends on work type and id', () => {
+  it('ignores the MR title for other kinds', () => {
+    expect(runTitle(run(), { mrTitle: 'Fix cart' })).toBe('feature run');
+  });
+
+  it('ends on the work type, never the run id', () => {
     expect(runTitle(run({ work_type: 'watch-ci', id: 'r9' }), {})).toBe(
-      'watch-ci · r9'
+      'watch-ci run'
     );
   });
 
   it('skips blank values', () => {
     expect(
       runTitle(run({ branch: '  ' }), { ticketTitle: '', mrTitle: null })
-    ).toBe('feature · r1');
+    ).toBe('feature run');
+  });
+
+  it('titles a review by its MR, never its id', () => {
+    const review = run({
+      branch: 'feature/x',
+      work_type: 'review',
+      id: '2026-1',
+      outcome: { reviewed: { iid: 412 } },
+    });
+    expect(runTitle(review, { mrTitle: 'Dedupe contacts' })).toBe(
+      'Dedupe contacts'
+    );
+    expect(runTitle(review, { ticketTitle: 'Dedupe' })).toBe('Dedupe');
+    expect(runTitle(review, {})).toBe('Review of !412');
+    expect(runTitle({ ...review, outcome: null }, {})).toBe('review run');
+  });
+});
+
+describe('enrichedRunTitle', () => {
+  const review = {
+    ticket: null,
+    branch: 'web-412-review',
+    work_type: 'review',
+    id: 'r1',
+  };
+
+  it('reads the iid from the enrichment MR', () => {
+    expect(enrichedRunTitle(review, { mr: { iid: 412 } } as never, null)).toBe(
+      'Review of !412'
+    );
+  });
+
+  it('reads the iid from the mr field when nothing enriched', () => {
+    expect(
+      enrichedRunTitle(
+        review,
+        undefined,
+        'https://gitlab.example.com/acme/web/-/merge_requests/415'
+      )
+    ).toBe('Review of !415');
+  });
+
+  it('prefers the ticket title', () => {
+    expect(
+      enrichedRunTitle(
+        { ...review, work_type: 'feature' },
+        { ticket: { title: 'Add export' } } as never,
+        null
+      )
+    ).toBe('Add export');
   });
 });

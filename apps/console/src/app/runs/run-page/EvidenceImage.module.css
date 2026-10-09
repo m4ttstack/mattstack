@@ -8,3 +8,8 @@
   min-height: 120px;
   width: 100%;
 }
+
+.cover {
+  width: 100%;
+  object-position: top;
+}

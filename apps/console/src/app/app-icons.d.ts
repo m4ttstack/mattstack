@@ -22,6 +22,7 @@ declare module '@mattstack/app-kit/icons' {
     circleX: true;
     circleSlash: true;
     messageSquare: true;
+    messageSquareDiff: true;
     signpost: true;
     circle: true;
     braces: true;
@@ -35,6 +36,8 @@ declare module '@mattstack/app-kit/icons' {
     hand: true;
     bot: true;
     image: true;
+    circleAlert: true;
+    unplug: true;
   }
 }
 export {};

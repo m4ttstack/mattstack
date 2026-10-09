@@ -1,9 +1,4 @@
-import type {
-  GateRow,
-  RunFieldRow,
-  RunStageRow,
-  RunSummary,
-} from '@mattstack/rt-client';
+import type { GateRow, RunFieldRow, RunSummary } from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
 
 import { filePath } from './fields';
@@ -11,7 +6,6 @@ import {
   answerableGates,
   branchSub,
   ciLabel,
-  gateCountsByStage,
   mrFact,
   runPageFacts,
   ticketUrl,
@@ -31,16 +25,6 @@ const gate = (over: Partial<GateRow>): GateRow =>
     answer: null,
     ...over,
   }) as unknown as GateRow;
-
-const stage = (name: string, from: number, to: number | null): RunStageRow => ({
-  name,
-  status: 'done',
-  attempt: 1,
-  started_at: from,
-  ended_at: to,
-  reason: null,
-  detail_path: null,
-});
 
 const field = (key: string, value: string): RunFieldRow => ({
   key,
@@ -71,22 +55,6 @@ describe('ciLabel', () => {
     ['waiting_for_resource', 'CI waiting for resource'],
     [null, null],
   ])('%s reads %s', (status, label) => expect(ciLabel(status)).toBe(label));
-});
-
-describe('gateCountsByStage', () => {
-  it('counts the gates placed at each stage', () => {
-    const stages = [stage('plan', 0, 10), stage('implement', 10, null)];
-    expect(
-      gateCountsByStage(
-        [
-          gate({ id: 'a', meta: { stage: 'plan' } } as Partial<GateRow>),
-          gate({ id: 'b', openedAt: 5 }),
-          gate({ id: 'c', openedAt: 20 }),
-        ],
-        stages
-      )
-    ).toEqual({ plan: 2, implement: 1 });
-  });
 });
 
 describe('answerableGates', () => {
@@ -203,7 +171,6 @@ describe('runPageFacts', () => {
     repo: 'remote:acme%2Fweb',
     runId: 'r1',
     run: run(),
-    stages: [],
     fields: [
       field('worktree', '/Users/acme/worktrees/acme-web/molly'),
       field('claude-session', 's'),
@@ -221,7 +188,6 @@ describe('runPageFacts', () => {
     expect(facts.hero).toMatchObject({
       ticket: 'WEB-412',
       ticketUrl: 'https://linear.app/acme/issue/WEB-412',
-      ticketHotkey: true,
     });
     expect(facts.hero.meta).toMatch(/^work pipeline · started .+ · 2h 43m$/);
     expect(facts.worktree).toEqual({
@@ -266,7 +232,6 @@ describe('runPageFacts', () => {
     expect(facts.hero).toMatchObject({
       ticket: '!412',
       ticketUrl: 'https://forge/412',
-      ticketHotkey: false,
     });
     expect(facts.handoff?.id).toBe('post');
     expect(facts.branch.sub).toBe("author's branch");

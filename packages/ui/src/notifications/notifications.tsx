@@ -20,7 +20,7 @@ export type ShowNotificationProps = Omit<NotificationData, 'message'> & {
   countdown?: number;
 };
 
-const ICON_SIZE = 20;
+const ICON_SIZE = 11;
 
 // Per-type icon (registry name) and color:
 //  - success -> check / green

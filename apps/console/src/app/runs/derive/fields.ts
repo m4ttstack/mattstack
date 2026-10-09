@@ -30,9 +30,22 @@ export function storyFields(fields: RunFieldRow[]): RunFieldRow[] {
   );
 }
 
-/** A field key as a row label: `evidence-plan` reads "Evidence plan". */
+const LABELS: Readonly<Record<string, string>> = {
+  ci: 'CI',
+  mr: 'MR',
+  shiptarget: 'Ship target',
+};
+
+/** A field key as a row label: `evidence-plan` and `EvidencePlan` both read
+    "Evidence plan". Keys in `LABELS` compare lowercased, separators dropped. */
 export function fieldLabel(key: string): string {
-  const words = key.replace(/[-_.]+/g, ' ').trim();
+  const known = LABELS[key.toLowerCase().replace(/[-_.\s]+/g, '')];
+  if (known) return known;
+  const words = key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[-_.]+/g, ' ')
+    .trim()
+    .toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 

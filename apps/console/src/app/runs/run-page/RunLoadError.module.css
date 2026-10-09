@@ -1,0 +1,16 @@
+.mid {
+  display: flex;
+  justify-content: center;
+  padding-top: 72px;
+  width: 100%;
+}
+
+.card {
+  width: 400px;
+  max-width: 100%;
+  padding: 22px;
+}
+
+.btns {
+  padding-top: 6px;
+}

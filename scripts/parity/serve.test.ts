@@ -127,6 +127,38 @@ describe('harnessConfig', () => {
     ]);
   });
 
+  it('keeps only the panel asked for, with its own action', async () => {
+    const action = { kind: 'click', layer: 'Chip', waitFor: 'Body' } as const;
+    const paneled = {
+      ...board,
+      panels: [
+        { label: 'Top', route: '/a', root: 'Header', action },
+        { label: 'Bottom', route: '/b', root: 'Body' },
+      ],
+    };
+    const both = { ...app, boards: [paneled] };
+    const cfg = harnessConfig(both, '01-demo', 'light', 'top');
+    expect(cfg.targets).toEqual([
+      {
+        stem: '01-demo.top',
+        root: 'Header',
+        route: '/a',
+        action,
+        hugWidths: ['Chip'],
+      },
+    ]);
+    const res = await harnessHandler(both)(
+      new Request(
+        'http://h/config?slug=01-demo&scheme=light&panel=Bottom'
+      )
+    );
+    expect(
+      ((await res.json()) as { targets: { root: string }[] }).targets.map(
+        t => t.root
+      )
+    ).toEqual(['Body']);
+  });
+
   it("passes a board's appRoots through to the runner", () => {
     const named = { ...board, appRoots: { Header: 'Hero' } };
     const cfg = harnessConfig(

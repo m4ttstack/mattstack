@@ -1,7 +1,7 @@
 import { Group, Paper, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
-import { decisionText, type DayDecision } from '../derive/day';
+import { decisionCount, decisionText, type DayDecision } from '../derive/day';
 import { ticketOf } from './runLinks';
 import classes from './Summary.module.css';
 
@@ -38,7 +38,7 @@ export function DecisionsToday({
         >
           {loading
             ? `Decisions you made ${when}`
-            : `Decisions you made ${when} · ${decisions.length}`}
+            : `Decisions you made ${when} · ${decisionCount(decisions)}`}
         </Text>
         {loading ? (
           <Text fz={12.5} lh="normal" c="dimmed">

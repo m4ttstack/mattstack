@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { optionLabel, stripRecommended } from '@mattstack/gate-kit';
 import {
+  gateOptionValue,
   parseEvidence,
   type GateOption,
   type GateRow,
@@ -14,6 +15,8 @@ import { describe, expect, it } from 'vitest';
 
 import { countCommits, myGateSpans } from '../../../app/runs/derive/answers';
 import {
+  contextBlocks,
+  splitCommand,
   tookRecommendation,
   waitingOnYou,
 } from '../../../app/runs/derive/gates';
@@ -85,23 +88,20 @@ const field = (d: RunDetail, key: string) =>
   d.fields.find(f => f.key === key)?.value;
 
 describe('the runs boards draw the fixture', () => {
-  it('run-live: WEB-412, its story fields and the answers in its story', async () => {
-    const texts = boardTexts('run-live');
+  it('runs-p2-live and runs-p2-story-details: WEB-412, its story fields and its answers', async () => {
+    const texts = new Set([
+      ...boardTexts('runs-p2-live'),
+      ...boardTexts('runs-p2-story-details'),
+    ]);
+    const has = (t: string) => [...texts].some(x => x.includes(t));
     const d = await detail('20261008-1338');
     const branch = field(d, 'branch')!;
     const enrichment = (await runs.enrich([branch]))[branch]!;
     expect(texts).toContain(enrichment.ticket!.identifier);
     expect(texts).toContain(enrichment.ticket!.title);
     expect(texts).toContain(branch);
-    for (const key of [
-      'approach',
-      'evidence-plan',
-      'extra-gates',
-      'case',
-      'strategy',
-      'plan',
-    ])
-      expect(texts).toContain(field(d, key));
+    for (const key of ['approach', 'extra-gate', 'case', 'strategy', 'plan'])
+      expect([key, has(field(d, key)!)]).toEqual([key, true]);
     for (const stage of field(d, 'pipeline-stages')!.split(' '))
       expect(texts).toContain(stage);
     const gates = await runs.gates({ run: '20261008-1338' });
@@ -109,8 +109,12 @@ describe('the runs boards draw the fixture', () => {
     for (const g of gates) {
       expect(texts).toContain(g.questions[0]!.label);
       expect(texts).toContain(picked(g));
-      expect(texts).toContain(g.answer!.answers[g.questions[0]!.id]);
     }
+    const approach = gates.find(g => g.id === 'g-412-approach')!;
+    const note = (approach.answer!.answers.approach as { note: string }).note;
+    expect(texts).toContain(`“${note}”`);
+    const lines = approach.context!.trimEnd().split('\n').length;
+    expect(texts).toContain(`What the agent found · ${lines} lines`);
     expect(texts).toContain(
       `${countCommits(field(d, 'commits')!)} commits @ 9f2c1a7`
     );
@@ -119,8 +123,8 @@ describe('the runs boards draw the fixture', () => {
     expect(texts).toContain('· work pipeline · started 1:38 PM · 2h 43m');
   });
 
-  it('run-gate: WEB-418 and its open plan gate', async () => {
-    const texts = boardTexts('run-gate');
+  it('runs-p2-gate: WEB-418 and its open plan gate', async () => {
+    const texts = boardTexts('runs-p2-gate');
     const d = await detail('20261008-1340');
     expect(texts).toContain(field(d, 'branch'));
     const [gate, ...rest] = await runs.gates({ run: '20261008-1340' });
@@ -131,12 +135,21 @@ describe('the runs boards draw the fixture', () => {
     expect(texts).toContain(first.label);
     for (const o of first.options) {
       expect(texts).toContain(label(o));
-      expect(texts).toContain(typeof o === 'string' ? o : o.description);
+      const { prose, command } = splitCommand(
+        typeof o === 'string' ? o : o.description!
+      );
+      expect(texts).toContain(prose);
+      if (command) expect(texts).toContain(command);
     }
-    for (const line of gate!
-      .context!.split('\n')
-      .filter(l => l && !l.startsWith('```')))
-      expect(texts).toContain(line.replace(/^- /, ''));
+    for (const block of contextBlocks(gate!.context!)) {
+      const lines =
+        block.kind === 'points'
+          ? block.points.flatMap(p => [p.label, p.text])
+          : block.kind === 'code'
+            ? block.lines
+            : block.text.split('\n');
+      for (const line of lines) expect(texts).toContain(line);
+    }
     expect((await runs.asOf('20261008-1340')) - gate!.openedAt).toBe(4 * MIN);
   });
 
@@ -243,16 +256,92 @@ describe('the runs boards draw the fixture', () => {
     expect(texts).toContain(span(waitingOnYou(gates.filter(isMine), 0)));
   });
 
-  it('run-record-review: the review record header', async () => {
-    const texts = boardTexts('run-record-review');
-    const { run } = await detail('20261008-0940');
-    const { iid, posted } = run.outcome!.reviewed!;
-    expect(texts).toContain(`!${iid}`);
-    expect(texts).toContain(`reviewed !${iid} · ${posted}`);
+  it('runs-p2-review: the review record hero and its decisions', async () => {
+    const texts = boardTexts('runs-p2-review');
+    const d = await detail('20261008-0940');
+    const { run } = d;
+    expect(texts).toContain(field(d, 'ticket'));
+    expect(texts).toContain(field(d, 'branch'));
+    expect(texts).toContain(
+      `Requested changes on !${run.outcome!.reviewed!.iid}`
+    );
+    expect(texts).toContain(
+      `· review pipeline · Oct 8, ${clock.format(run.started_at)} → ${clock.format(run.ended_at!)}`
+    );
     expect(texts).toContain(span(run.ended_at! - run.started_at));
-    const posts = await runs.gates({ run: run.id });
-    expect(texts).toContain(String(posts.length));
-    expect(texts).toContain(span(waitingOnYou(posts, 0)));
+    const gates = await runs.gates({ run: run.id });
+    expect(texts).toContain(span(waitingOnYou(gates.filter(isMine), 0)));
+    for (const g of gates) {
+      const q = g.questions.at(-1)!;
+      expect(texts).toContain(q.label);
+      expect(texts).toContain(picked(g, q));
+      expect(texts).toContain(
+        `${g.answer!.by === 'shepherd' ? 'shepherd' : 'you'} · ${clock.format(g.answer!.answeredAt)}`
+      );
+    }
+  });
+
+  it('the review run offers its findings as a multi-select, all four picked', async () => {
+    const gate = (await runs.gates({ run: '20261008-0940' })).find(
+      g => g.id === 'g-0940-post'
+    );
+    const findings = gate!.questions.find(q => q.id === 'findings-1')!;
+    expect(findings.label).toBe('Post which findings to !412?');
+    expect(findings.multi).toBe(true);
+    const picked = findings.options.map(gateOptionValue);
+    expect(picked).toEqual(['f1', 'f2', 'f3', 'f4']);
+    expect(findings.options).toEqual([
+      {
+        value: 'f1',
+        label:
+          '[Important] Dedupe matches on email only, so contacts without an email import twice.',
+        description: 'contacts/import/dedupe.ts:58',
+      },
+      {
+        value: 'f2',
+        label:
+          '[Important] No test covers merging two contacts that share a phone number.',
+      },
+      {
+        value: 'f3',
+        label:
+          "[Minor] mergeContacts deletes the losing record; the name doesn't say so.",
+        description:
+          'apps/contacts/src/import/pipeline/merge/strategies/mergeContactsKeepingNewestRecordAndDeletingTheLosingDuplicate.ts:12',
+      },
+      {
+        value: 'f4',
+        label:
+          '[Minor] The skip log prints the whole contact record, email included.',
+      },
+    ]);
+    expect(gate!.answer!.answers['findings-1']).toEqual(picked);
+    const ctx = JSON.parse(findings.context!) as {
+      'gate-ctx': string;
+      findings: { id: string; severity: string; title: string; body: string }[];
+    };
+    expect(ctx['gate-ctx']).toBe('findings@1');
+    expect(ctx.findings.map(f => f.id)).toEqual(picked);
+    expect(ctx.findings.map(f => f.severity)).toEqual([
+      'important',
+      'important',
+      'minor',
+      'minor',
+    ]);
+    expect(JSON.parse(gate!.context!)).toEqual(ctx);
+    const { run } = await detail('20261008-0940');
+    expect(run.outcome!.reviewed!.posted).toBe('request changes');
+  });
+
+  it('an abandoned work run records the reason the way rt runs abandon does', async () => {
+    const d = await detail('20261007-1310');
+    expect(d.run.status).toBe('abandoned');
+    const reconciled = d.fields.find(f => f.key === 'reconciled');
+    expect(reconciled).toMatchObject({
+      value: 'Superseded by WEB-430',
+      produced_by: 'rt runs abandon',
+    });
+    expect(reconciled!.at).toBe(d.run.ended_at);
   });
 
   it('runs-lanes: the waiting gate, the live cards and every earlier row', async () => {
@@ -422,6 +511,31 @@ describe('runsFixture', () => {
     expect(await runs.evidence(REPO, '20261008-0900', 'before')).toBeNull();
   });
 
+  it('serves the images a legacy run names, and nothing else', async () => {
+    const dir = '/Users/acme/.mattstack/evidence/web-377';
+    const before = await runs.legacyEvidenceFile(
+      REPO,
+      '20261007-1520',
+      `${dir}/before.png`
+    );
+    expect(before?.mime).toBe('image/png');
+    expect([...before!.bytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect(
+      await runs.legacyEvidenceFile(REPO, '20261007-1520', `${dir}/after.png`)
+    ).not.toBeNull();
+    expect(
+      await runs.legacyEvidenceFile(REPO, '20261007-1520', `${dir}/other.png`)
+    ).toBeNull();
+    expect(
+      await runs.legacyEvidenceFile(REPO, '20261008-1142', `${dir}/before.png`)
+    ).toBeNull();
+    const d = await detail('20261007-1520');
+    expect(parseEvidence(field(d, 'evidence')).version).toBe(0);
+    expect((await runs.listRuns()).some(r => r.id === '20261007-1520')).toBe(
+      false
+    );
+  });
+
   it('serves effective inputs and stage docs', async () => {
     const inputs = await runs.effectiveInputs(REPO, '20261008-0900');
     expect(inputs).toMatchObject({
@@ -431,9 +545,12 @@ describe('runsFixture', () => {
       packDirty: false,
     });
     expect(inputs!.config).toHaveLength(3);
-    expect(await runs.stageDoc(REPO, '20261008-1338', 'plan')).toContain(
-      '# plan'
-    );
+    expect(await runs.stageDoc(REPO, '20261008-1338', 'plan')).toEqual({
+      text: expect.stringContaining('# Plan'),
+      pack: 'acme',
+      sha: '4c1d9e2b7a',
+    });
+    expect(await runs.stageDoc(REPO, '20261008-1338', 'gates')).toBeNull();
     expect(await runs.stageDoc(REPO, '20261008-1338', 'nope')).toBeNull();
     expect(await runs.effectiveInputs(REPO, 'nope')).toBeNull();
   });
