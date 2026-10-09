@@ -94,20 +94,41 @@ test("a failed herdr call names its verb and cause, never the pane command it ca
   expect((err as Error).message).toBe("herdr pane run failed (127): claude: command not found");
 });
 
-test("a launch whose command never ran says so; a pane run with no answer may have run, so it does not", async () => {
-  const launch = (run: { stdout: string; exitCode: number }) => launchInWorkspace(
-    { workspaceLabel: "reviews", tabLabel: "!7", paneCommand: "X" },
-    scripted({ "workspace list": { stdout: JSON.stringify({ result: { workspaces: [] } }) }, "workspace create": { stdout: WS_CREATE }, "pane run": run }).runner,
-  ).catch((e: Error) => e);
+const REFUSED_RUN = { stdout: JSON.stringify({ error: { code: "refused", message: "no" }, id: "cli:request" }), exitCode: 1 };
 
-  const refused = await launch({ stdout: JSON.stringify({ error: { code: "refused", message: "no" }, id: "cli:request" }), exitCode: 1 });
-  expect(refused).toBeInstanceOf(HerdrLaunchNotRun);
-  expect((refused as Error).message).toStartWith("herdr pane run failed (1): ");
-  expect(await launch({ stdout: "", exitCode: 124 })).not.toBeInstanceOf(HerdrLaunchNotRun);
+test("asked to, a launch whose command never ran says so and closes the pane it made; a pane run with no answer may have run, so it does not", async () => {
+  const launch = (run: { stdout: string; exitCode: number }, close: { stdout: string; exitCode?: number } = { stdout: "{}" }) => {
+    const s = scripted({ "workspace list": { stdout: JSON.stringify({ result: { workspaces: [] } }) }, "workspace create": { stdout: WS_CREATE }, "pane run": run, "pane close": close });
+    return launchInWorkspace({ workspaceLabel: "reviews", tabLabel: "!7", paneCommand: "X", reportNotRun: true }, s.runner)
+      .catch((e: Error) => ({ e, calls: s.calls }));
+  };
 
-  const beforeRun = await launchInWorkspace({ workspaceLabel: "w", tabLabel: "t", paneCommand: "X" }, async () => ({ stdout: "boom", exitCode: 1 })).catch((e: Error) => e);
+  const refused = await launch(REFUSED_RUN) as { e: Error; calls: string[][] };
+  expect(refused.e).toBeInstanceOf(HerdrLaunchNotRun);
+  expect(refused.e.message).toBe(`herdr pane run failed (1): ${REFUSED_RUN.stdout}`);
+  expect(refused.calls.at(-1)).toEqual(["pane", "close", "wA:p1"]);
+
+  const stuck = await launch(REFUSED_RUN, { stdout: "gone", exitCode: 1 }) as { e: HerdrLaunchNotRun };
+  expect(stuck.e.message).toContain(`Its tab "!7" is still open and rt could not close it`);
+  expect(stuck.e.leftoverTab).toBe("!7");
+
+  const unanswered = await launch({ stdout: "", exitCode: 124 }) as { e: Error; calls: string[][] };
+  expect(unanswered.e).not.toBeInstanceOf(HerdrLaunchNotRun);
+  expect(unanswered.calls.some((c) => c[1] === "close")).toBe(false);
+
+  const beforeRun = await launchInWorkspace({ workspaceLabel: "w", tabLabel: "t", paneCommand: "X", reportNotRun: true }, async () => ({ stdout: "boom", exitCode: 1 })).catch((e: Error) => e);
   expect(beforeRun).toBeInstanceOf(HerdrLaunchNotRun);
   expect((beforeRun as Error).message).toBe("herdr workspace list failed (1): boom");
+});
+
+test("a caller that does not ask keeps today's plain errors and closes nothing", async () => {
+  const s = scripted({ "workspace list": { stdout: JSON.stringify({ result: { workspaces: [] } }) }, "workspace create": { stdout: WS_CREATE }, "pane run": REFUSED_RUN });
+  const refused = await launchInWorkspace({ workspaceLabel: "reviews", tabLabel: "!7", paneCommand: "X" }, s.runner).catch((e: Error) => e);
+  expect((refused as Error).name).toBe("Error");
+  expect((refused as Error).stack?.split("\n")[0]).toBe(`Error: herdr pane run failed (1): ${REFUSED_RUN.stdout}`);
+  expect(s.calls.some((c) => c[1] === "close")).toBe(false);
+  const beforeRun = await launchInWorkspace({ workspaceLabel: "w", tabLabel: "t", paneCommand: "X" }, async () => ({ stdout: "boom", exitCode: 1 })).catch((e: Error) => e);
+  expect((beforeRun as Error).name).toBe("Error");
 });
 
 test("malformed workspace list JSON (exit 0) makes the launch throw", async () => {

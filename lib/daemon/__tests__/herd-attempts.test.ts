@@ -283,7 +283,7 @@ function claudeLike(seen: Seen, onWork?: (binding: SessionBinding) => void): Har
     },
     resume: async (native, req) => ok({ native, attachment: { mode: req.mode, pane: "w3:p2" } }),
     discover: async () => [],
-    observe: async (b) => ok({ connectivity: "connected", execution: "unknown", background: "unknown", observedAt: 1, source: "none", generation: b.attachment.generation }),
+    observe: async (b) => ok({ connectivity: "unknown", execution: "unknown", background: "unknown", observedAt: 1, source: "none", generation: b.attachment.generation }),
     startWork: async (b, input) => {
       seen.work.push(input);
       onWork?.(b);
@@ -465,6 +465,7 @@ function herdHandlers(svc: JobAttempts, agent: ReturnType<typeof createAgentServ
     attempts: svc,
     resolveCaller: (evidence: Parameters<typeof resolveCallerContextNow>[0]) => resolveCallerContextNow(evidence, { db: state }),
     sessionDb: () => state,
+    sessionUpWait: { budgetMs: 0, pollMs: 0 },
     ...over,
   } as unknown as HerdDeps;
   return createHerdHandlers(deps);
@@ -1060,14 +1061,28 @@ describe("a Claude herdr worker whose process starts with its work", () => {
 
 // --- A Claude herdr worker whose launch line never ran ----------------------
 
-/** herdr as launchInWorkspace drives it, with `pane run` answered by `run`. */
-function herdrWhosePaneRun(run: { stdout: string; exitCode: number }, calls: string[][] = []) {
+/**
+ * herdr as launchInWorkspace drives it, with `pane run` answered by `run`: a
+ * created tab is listed under its label until its pane is closed, and
+ * `closeFails` makes every pane close fail.
+ */
+function herdrWhosePaneRun(run: { stdout: string; exitCode: number }, calls: string[][] = [], over: { closeFails?: boolean } = {}) {
+  const tabs = new Map<string, string>();
+  let made = 0;
   return async (args: string[]) => {
     calls.push(args);
     if (args[0] === "workspace" && args[1] === "list") return { stdout: JSON.stringify({ result: { workspaces: [{ label: `herd: ${HERD}`, workspace_id: "w5" }] } }), exitCode: 0 };
-    if (args[0] === "tab" && args[1] === "list") return { stdout: JSON.stringify({ result: { tabs: [] } }), exitCode: 0 };
-    if (args[0] === "tab" && args[1] === "create") return { stdout: JSON.stringify({ result: { root_pane: { pane_id: "w5:p7", tab_id: "w5:t7" } } }), exitCode: 0 };
+    if (args[0] === "tab" && args[1] === "list") return { stdout: JSON.stringify({ result: { tabs: [...tabs].map(([pane, label]) => ({ label, tab_id: `${pane}-tab` })) } }), exitCode: 0 };
+    if (args[0] === "tab" && args[1] === "create") {
+      const pane = `w5:p${++made}`;
+      tabs.set(pane, args[args.indexOf("--label") + 1]!);
+      return { stdout: JSON.stringify({ result: { root_pane: { pane_id: pane, tab_id: `${pane}-tab` } } }), exitCode: 0 };
+    }
     if (args[0] === "pane" && args[1] === "run") return run;
+    if (args[0] === "pane" && args[1] === "close") {
+      if (over.closeFails) return { stdout: JSON.stringify({ error: { code: "refused", message: "no" } }), exitCode: 1 };
+      tabs.delete(args[2]!);
+    }
     return { stdout: "{}", exitCode: 0 };
   };
 }
@@ -1085,8 +1100,9 @@ describe("a Claude herdr worker whose launch line never ran", () => {
   test("herdr refusing the pane run ends the attempt, crashes the job with a plain message, and a respawn is not held", async () => {
     const svc = attempts();
     const seen: Seen = { work: [], reports: [] };
-    let run = HERDR_REFUSED;
-    const integration = claudeOverHerdr(seen, async (args) => herdrWhosePaneRun(run)(args));
+    const run = { ...HERDR_REFUSED };
+    const calls: string[][] = [];
+    const integration = claudeOverHerdr(seen, herdrWhosePaneRun(run, calls));
     const h = herdHandlers(svc, agentService(svc, integration), [], statusDeps(integration, []));
 
     const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
@@ -1095,13 +1111,32 @@ describe("a Claude herdr worker whose launch line never ran", () => {
       expect(refused.error).toContain("herdr pane run failed (1)");
       expect(refused.error).not.toContain("may have started");
     }
+    expect(calls).toContainEqual(["pane", "close", "w5:p1"]);
     expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended"]);
     expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
 
-    run = { stdout: "{}", exitCode: 0 };
+    Object.assign(run, { stdout: "{}", exitCode: 0 });
     const respawned = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a" });
     if (!respawned.ok) throw new Error(respawned.error);
     expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended", "active"]);
+  });
+
+  test("a refused launch whose tab rt cannot close says so, and the respawn refuses naming that tab", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [] };
+    const run = { ...HERDR_REFUSED };
+    const integration = claudeOverHerdr(seen, herdrWhosePaneRun(run, [], { closeFails: true }));
+    const h = herdHandlers(svc, agentService(svc, integration), [], statusDeps(integration, []));
+
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error).toContain(`Its tab "${JOB}" is still open and rt could not close it`);
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended"]);
+
+    Object.assign(run, { stdout: "{}", exitCode: 0 });
+    const respawn = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a" });
+    expect(respawn).toEqual({ ok: false, error: `tab "${JOB}" already open; focused it` });
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended", "ended"]);
   });
 
   test("a launch line longer than herdr takes in one line is refused plainly and never sent", async () => {

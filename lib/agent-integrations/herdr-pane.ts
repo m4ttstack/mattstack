@@ -55,7 +55,7 @@ export async function openHostPane(launch: HostPaneLaunch): Promise<Outcome<Host
   try {
     const { launchInWorkspace } = await import("../agent-herdr.ts");
     const runner = await runnerFor(host);
-    const out = await launchInWorkspace({ workspaceLabel: host?.workspace ?? basename(launch.cwd), tabLabel: tab, paneCommand: launch.command }, runner);
+    const out = await launchInWorkspace({ workspaceLabel: host?.workspace ?? basename(launch.cwd), tabLabel: tab, paneCommand: launch.command, reportNotRun: true }, runner);
     if (out.focusedExisting) return fail("refused", `tab "${tab}" already open; focused it`);
     if (host?.label) await renamePane(runner, out.paneId, host.label, host);
     return {
@@ -63,6 +63,9 @@ export async function openHostPane(launch: HostPaneLaunch): Promise<Outcome<Host
       data: { pane: out.paneId, tabId: out.tabId, workspaceId: out.workspaceId, ...(host?.socket !== undefined && { socket: host.socket }) },
     };
   } catch (err) {
-    return fail(err instanceof Error && err.name === "HerdrLaunchNotRun" ? "refused" : "transient", messageOf(err));
+    const notRun = err instanceof Error && err.name === "HerdrLaunchNotRun";
+    const leftover = notRun ? (err as { leftoverTab?: string }).leftoverTab : undefined;
+    if (leftover !== undefined) host?.log?.warn({ tab: leftover }, "agent: a launch line herdr refused left its tab open; rt could not close it");
+    return fail(notRun ? "refused" : "transient", messageOf(err));
   }
 }

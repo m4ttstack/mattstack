@@ -71,6 +71,8 @@ export function flagValues(args: string[], flag: string): string[] {
 }
 
 const has = (args: string[], flag: string) => args.includes(flag);
+/** A cold worktree provision, the trust wait and the wait for the worker's session all run inside one spawn; herd_spawn allows the same. */
+const SPAWN_TIMEOUT_MS = 300_000;
 
 function unwrap<T>(res: RtResponse<T>, label: string): T {
   if (!res.ok || res.data === undefined) fail(res.error ?? `${label} failed`);
@@ -270,7 +272,7 @@ export async function spawn(args: string[]): Promise<void> {
   } catch (e) {
     fail((e as Error).message);
   }
-  const data = unwrap(await herdSpawn(await withCallerAccount(payload)), "spawn");
+  const data = unwrap(await herdSpawn(await withCallerAccount(payload), { timeoutMs: SPAWN_TIMEOUT_MS }), "spawn");
   const trustNote = data.trust === "stuck" ? " (STUCK AT TRUST MODAL)" : data.trust === "accepted" ? " (trust dialog accepted)" : "";
   const upNote = data.sessionUp === false ? " (SESSION NOT UP YET)" : "";
   emit(json, data, `${data.job} pane ${data.pane} worktree ${data.worktree} session ${data.sessionId}${data.wasOnDeck === false ? " (cold provision)" : ""}${trustNote}${upNote}`);
