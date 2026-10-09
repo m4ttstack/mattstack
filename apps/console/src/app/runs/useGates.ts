@@ -11,7 +11,7 @@ export function useGates() {
   return useQuery({
     queryKey: ['gates'],
     queryFn: async () => {
-      const res = await client.api.gates.$get();
+      const res = await client.api.gates.$get({ query: {} });
       if (!res.ok) throw new Error(`gates list failed: ${res.status}`);
       return res.json();
     },

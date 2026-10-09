@@ -14,6 +14,7 @@ export {
   listRuns,
   getRun,
   abandonRun,
+  runEvidence,
   chatJoin,
   chatLeave,
   chatAck,

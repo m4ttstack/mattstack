@@ -85,6 +85,34 @@ function answer(id: string, body: unknown) {
 }
 
 describe('GET /api/gates', () => {
+  it('passes an exact subject through and pages', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: { gates: [row({ subject: 'run:r1' })], cursor: 1 },
+    });
+    const res = await gates.fetch(
+      new Request('http://localhost/api/gates?subject=run:r1')
+    );
+    expect(res.status).toBe(200);
+    expect(vi.mocked(rt.gateList).mock.calls[0]![0]).toMatchObject({
+      subject: 'run:r1',
+    });
+    expect(vi.mocked(rt.gateList).mock.calls[0]![0]).not.toHaveProperty(
+      'subjectPrefix'
+    );
+  });
+
+  it('ignores a subject that is not a run subject', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: { gates: [], cursor: 0 },
+    });
+    await gates.fetch(new Request('http://localhost/api/gates?subject=pr:7'));
+    expect(vi.mocked(rt.gateList).mock.calls[0]![0]).toMatchObject({
+      subjectPrefix: 'run:',
+    });
+  });
+
   it('pages gateList to exhaustion and returns the combined rows', async () => {
     const page1 = Array.from({ length: 200 }, (_, i) => row({ id: `g${i}` }));
     const page2 = [row({ id: 'g200' })];

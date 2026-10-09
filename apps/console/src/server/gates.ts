@@ -31,15 +31,16 @@ function rtClientOptions(): { sockPath: string | undefined } {
     forward progress) are the only reliable stop conditions. */
 const GATE_LIST_PAGE_LIMIT = 200;
 
-async function listAllRunGates(): Promise<
-  { ok: true; gates: GateRow[] } | { ok: false; error: string }
-> {
+async function listAllRunGates(
+  subject?: string
+): Promise<{ ok: true; gates: GateRow[] } | { ok: false; error: string }> {
   const gates: GateRow[] = [];
   let cursor: number | undefined;
+  const filter = subject ? { subject } : { subjectPrefix: 'run:' };
   for (;;) {
     const res = await gateList(
       {
-        subjectPrefix: 'run:',
+        ...filter,
         limit: GATE_LIST_PAGE_LIMIT,
         cursor,
       },
@@ -80,11 +81,25 @@ function isUnreachableError(message: string): boolean {
 }
 
 export const gates = new Hono()
-  .get('/api/gates', async c => {
-    const res = await listAllRunGates();
-    if (!res.ok) return c.json({ error: res.error }, 502);
-    return c.json({ gates: res.gates }, 200);
-  })
+  // A `query` validator is required: without one Hono infers the client
+  // input as empty and a caller passing `query` fails to compile.
+  .get(
+    '/api/gates',
+    validator('query', (value): { subject?: string } => {
+      const v = value as { subject?: unknown };
+      return {
+        subject:
+          typeof v?.subject === 'string' && v.subject.startsWith('run:')
+            ? v.subject
+            : undefined,
+      };
+    }),
+    async c => {
+      const res = await listAllRunGates(c.req.valid('query').subject);
+      if (!res.ok) return c.json({ error: res.error }, 502);
+      return c.json({ gates: res.gates }, 200);
+    }
+  )
   .get('/api/badge', async c => {
     const [gatesRes, runsRes] = await Promise.all([
       listAllRunGates(),
