@@ -353,8 +353,9 @@ export function createHerdHandlers(deps: HerdDeps) {
    * attempt ended. A worker rt cannot find or close keeps the attempt
    * reserved, which recovery judges and only a new spawn replaces.
    */
-  async function closeUntakenWorker(herd: HerdRow, attemptId: string, mode: Mode, kept: { agentId: string; paneId?: string }): Promise<void> {
-    if (store.getAttempt(attemptId)?.state !== "reserved") return;
+  /** What rt did to the worker: its session ended, its pane closed, or null when it could not close it. */
+  async function closeUntakenWorker(herd: HerdRow, attemptId: string, mode: Mode, kept: { agentId: string; paneId?: string }): Promise<"session" | "pane" | null> {
+    if (store.getAttempt(attemptId)?.state !== "reserved") return null;
     const context = { herd: herd.id, attempt: attemptId, agent: kept.agentId };
     let closed = false;
     const binding = listBindingsByAgent(sessionDb(), kept.agentId).find((b) => b.attemptId === attemptId && !isDetachedAttachment(b));
@@ -362,7 +363,7 @@ export function createHerdHandlers(deps: HerdDeps) {
     if (mode === "headless") {
       if (!binding) {
         log.warn(context, "herd: a worker that never took its job has no live session to end");
-        return;
+        return null;
       }
       try {
         const ended = await endSession(binding.key);
@@ -374,7 +375,9 @@ export function createHerdHandlers(deps: HerdDeps) {
     } else if (pane) {
       closed = await closePane(herd.herdrSocket, pane, context);
     }
-    if (closed) attempts.endJobAttempt(attemptId);
+    if (!closed) return null;
+    attempts.endJobAttempt(attemptId);
+    return mode === "headless" ? "session" : "pane";
   }
 
   /**
@@ -775,8 +778,8 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!started.ok) {
         if (fenced && attemptId !== undefined) {
           // A kept session that never took its job is closed and its attempt ended; one rt cannot close stays reserved for recovery.
-          if ("kept" in started) await closeUntakenWorker(herd, attemptId, mode, started.kept);
-          else attempts.endJobAttempt(attemptId);
+          const closed = "kept" in started ? await closeUntakenWorker(herd, attemptId, mode, started.kept) : null;
+          if (!("kept" in started)) attempts.endJobAttempt(attemptId);
           // The row names the worker of whichever attempt holds the job: a replacement that never took it gives the row back,
           // and a job no worker holds is crashed, never left spawning.
           const holder = store.activeAttempt(herdId, name);
@@ -786,7 +789,10 @@ export function createHerdHandlers(deps: HerdDeps) {
               ? { ...row, handle: prior.handle, agentSession: prior.agentSession, agentId: prior.agentId, status: prior.status }
               : { ...row, status: "crashed" });
           }
-          return "kept" in started ? { ok: false, error: started.error } : started;
+          if (!("kept" in started)) return started;
+          if (closed === null) return { ok: false, error: started.error };
+          const did = closed === "session" ? "rt ended its session and its job attempt" : "rt closed its pane and ended its job attempt";
+          return { ok: false, error: `${started.kept.cause}. Agent ${started.kept.agentId} never took job ${name}, so ${did}; nothing of it is left running` };
         }
         // A kept session may have started, so its attempt stays reserved, holding nothing, for recovery to judge.
         if ("kept" in started) return { ok: false, error: started.error };

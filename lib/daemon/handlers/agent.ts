@@ -296,7 +296,7 @@ function withoutPackClear(env: Record<string, string> | undefined): Record<strin
 const agentOwner = (id: string): string => `agent:${id}`;
 
 /** A bound launch's result; `kept` marks a failure after which a session may exist, so nothing is rolled back. */
-type BoundResult = CommandResult<"agent:start"> | { ok: false; error: string; kept: true };
+type BoundResult = CommandResult<"agent:start"> | { ok: false; error: string; kept: true; cause: string };
 
 /** Every launch (start and resume, herdr and headless) stamps the gate-protocol env. */
 function gateEnvFor(rec: AgentRecord): Record<string, string> {
@@ -404,8 +404,12 @@ type AgentHandlers =
   & { "agent:get": (payload: unknown) => Promise<CommandResult<"agent:get">> }
   & { "agent:list": (payload: unknown) => Promise<CommandResult<"agent:list">> };
 
-/** A start's outcome; `kept` names the agent rt kept because its session may have started, and the pane when one is known. */
-export type AgentStartOutcome = CommandResult<"agent:start"> | { ok: false; error: string; kept: { agentId: string; paneId?: string } };
+/**
+ * A start's outcome; `kept` names the agent rt kept because its session may
+ * have started, the pane when one is known, and `cause`, the failure alone,
+ * for a caller that ends the session itself and so must not say it was kept.
+ */
+export type AgentStartOutcome = CommandResult<"agent:start"> | { ok: false; error: string; kept: { agentId: string; paneId?: string; cause: string } };
 
 export function createAgentHandlers(opts: AgentHandlerOpts): AgentHandlers {
   return createAgentService(opts).handlers;
@@ -600,7 +604,7 @@ export function createAgentService(opts: AgentHandlerOpts): {
 
   /** `kept` when a session may exist: the record and its prompt stay, and say so, instead of being rolled back. */
   function failed(rec: AgentRecord, message: string, kept: boolean): BoundResult {
-    return kept ? { ok: false, kept: true, error: keptError(rec, message) } : { ok: false, error: message };
+    return kept ? { ok: false, kept: true, cause: message, error: keptError(rec, message) } : { ok: false, error: message };
   }
 
   function keptError(rec: AgentRecord, message: string): string {
@@ -882,7 +886,7 @@ export function createAgentService(opts: AgentHandlerOpts): {
         })
         : await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, extra);
       if (!res.ok) {
-        if ("kept" in res) return { ok: false, error: res.error, kept: { agentId: rec.id, ...(rec.paneId !== undefined && { paneId: rec.paneId }) } };
+        if ("kept" in res) return { ok: false, error: res.error, kept: { agentId: rec.id, ...(rec.paneId !== undefined && { paneId: rec.paneId }), cause: res.cause } };
         deleteAgent(rec.id, db);
         removeAgentPromptDir(rec.id, log);
         return { ok: false, error: res.error };
@@ -911,7 +915,7 @@ export function createAgentService(opts: AgentHandlerOpts): {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (boundPath && launchClaimedFor(db, rec.id)) {
-        return { ok: false, error: keptError(rec, message), kept: { agentId: rec.id, ...(rec.paneId !== undefined && { paneId: rec.paneId }) } };
+        return { ok: false, error: keptError(rec, message), kept: { agentId: rec.id, ...(rec.paneId !== undefined && { paneId: rec.paneId }), cause: message } };
       }
       deleteAgent(rec.id, db);
       removeAgentPromptDir(rec.id, log);

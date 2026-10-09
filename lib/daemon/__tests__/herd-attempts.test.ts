@@ -520,6 +520,10 @@ describe("herd:spawn and herd:report with the switch on", () => {
     expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
     expect(closes).toContainEqual(["pane", "close", "w3:p1"]);
     expect(seen.work).toEqual([]);
+    if (!refused.ok) {
+      expect(refused.error).toContain("rt closed its pane and ended its job attempt");
+      expect(refused.error).not.toContain("may have started");
+    }
   });
 
   test("a headless worker that never proves its policy is ended through its integration, and its attempt with it", async () => {
@@ -538,6 +542,11 @@ describe("herd:spawn and herd:report with the switch on", () => {
     expect(ended).toEqual(bound.map((b) => b.key));
     expect(ended).toHaveLength(1);
     expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
+    if (!refused.ok) {
+      expect(refused.error).toContain("the gate hook never ran in this session");
+      expect(refused.error).toContain("rt ended its session and its job attempt");
+      expect(refused.error).not.toContain("may have started");
+    }
   });
 
   test("a worker whose session could not be ended keeps its attempt reserved for recovery, and the job still leaves spawning", async () => {
@@ -547,7 +556,9 @@ describe("herd:spawn and herd:report with the switch on", () => {
       endSession: async () => ({ ok: false, error: { code: "transient", message: "app server gone" } }),
     });
 
-    expect((await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a", mode: "headless" })).ok).toBe(false);
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a", mode: "headless" });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error).toContain("may have started");
     expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["reserved"]);
     expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
   });
