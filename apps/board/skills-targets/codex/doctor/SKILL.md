@@ -6,17 +6,17 @@ description: >-
   "/board:doctor <mrUrl> --state <path> --status-bin <path> [--skill <name>]"
   with optional --tier, --fix-classes and --draft-bin flags. Not for manual use.
 disable-model-invocation: true
-allowed-tools: Bash(scripts/resolve-args.sh:*)
+allowed-tools: Bash(<skill-dir>/scripts/resolve-args.sh:*)
 metadata:
   slots: "doctor,doctor-api"
   slot-doctor: "required mr-doctor@2 -- owns the checkout-tier repair playbook: locating or provisioning the worktree, rebasing, triaging and fixing CI, watching for green. When a fix would otherwise dead-end in error but the decision is enumerable, it reports the decision back to this wrapper instead of guessing or terminating -- it never opens or waits on the escalation gate itself."
   slot-doctor-api: "required mr-doctor-api@2 -- owns the api-tier repair playbook: no checkout, pipeline retries, server-side rebase, held drafts only. Same escalation-reporting contract as the checkout-tier slot -- it never opens or waits on the escalation gate itself."
-  compiled: "mattstack:gate-protocol@0.30.22"
+  compiled: "mattstack:gate-protocol@0.30.26"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-568 -->
+<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-574 -->
 # mr-board doctor runner
 
 The board launched this pane because an MR has mechanical breakage (CI red
@@ -44,8 +44,18 @@ Write status **only** by running the injected `--status-bin`:
 <status-bin> doctor-status <state> <status> [message]
 ```
 
-<!-- part: harness:status-writes target=codex path=attachments/harness/codex.md lines=8-8 -->
+<!-- part: harness:status-writes target=codex path=attachments/harness/codex.md lines=9-9 -->
 Run every `<status-bin>` write in this skill in the shell, as written.
+
+<!-- part: harness:resources target=codex path=attachments/harness/codex.md lines=99-106 -->
+`<skill-dir>` is this skill's own folder: the folder holding the SKILL.md
+Codex loaded for this skill (the path Codex lists for it, or the SKILL.md
+path the launch prompt names). Every `<skill-dir>/...` path is that folder
+joined with the rest. Write it out as an absolute path before you run or
+read it; the shell's working directory is the repository, never the skill.
+When this skill runs a `resolve-args.sh`, run it with
+`--skills-dir "${CODEX_HOME:-$HOME/.codex}/skills" --plugin-list-cmd true`:
+Codex's own skills folder, and no Claude plugin list.
 
 ## State progression
 
@@ -232,8 +242,8 @@ digraph doctor_escalation_step {
     "gate answer printed a JSON line (doctor form)?" [shape=diamond];
     "Trigger: a doorbell arrives while the doctor form is open" [shape=ellipse];
     "<status-bin> gate wait <state> --max-ms 1000 (doctor doorbell)" [shape=plaintext];
-    "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (doctor)" [shape=plaintext];
-    "End the turn: holding at gate <gateId> (doctor)" [shape=box];
+    "Loop <status-bin> gate wait <state> --max-ms 90000 (doctor)" [shape=plaintext];
+    "Hold at gate <gateId> (doctor)" [shape=box];
     "Trigger: the doctor wait loop finished" [shape=ellipse];
     "Doctor wait result?" [shape=diamond];
     "Doctor wait failures = 3?" [shape=diamond];
@@ -252,22 +262,22 @@ digraph doctor_escalation_step {
     "doctor-escalation open exit?" -> "Presentation (doctor-escalation)?" [label="0"];
     "doctor-escalation open exit?" -> "Escalation degraded: the box writes error" [label="nonzero: the daemon is down"];
     "Presentation (doctor-escalation)?" -> "Ask the doctor-escalation question as a pane form" [label="form"];
-    "Presentation (doctor-escalation)?" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (doctor)" [label="wait"];
+    "Presentation (doctor-escalation)?" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (doctor)" [label="wait"];
     "Presentation (doctor-escalation)?" -> "STOP: the answer is the human's; wait for the gate (doctor)" [label="tempted to pick the option yourself"];
-    "STOP: the answer is the human's; wait for the gate (doctor)" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (doctor)";
+    "STOP: the answer is the human's; wait for the gate (doctor)" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (doctor)";
     "Ask the doctor-escalation question as a pane form" -> "<status-bin> gate answer <state> --answers <json> --by pane (doctor form)";
     "<status-bin> gate answer <state> --answers <json> --by pane (doctor form)" -> "gate answer printed a JSON line (doctor form)?";
     "gate answer printed a JSON line (doctor form)?" -> "Escalation answered: back to its box" [label="no: this answer stands"];
     "gate answer printed a JSON line (doctor form)?" -> "Escalation answered: back to its box" [label="yes: another surface won, proceed on its answer"];
     "Trigger: a doorbell arrives while the doctor form is open" -> "<status-bin> gate wait <state> --max-ms 1000 (doctor doorbell)";
     "<status-bin> gate wait <state> --max-ms 1000 (doctor doorbell)" -> "Escalation answered: back to its box";
-    "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (doctor)" -> "End the turn: holding at gate <gateId> (doctor)";
-    "End the turn: holding at gate <gateId> (doctor)" -> "Trigger: the doctor wait loop finished" [style=dashed];
+    "Loop <status-bin> gate wait <state> --max-ms 90000 (doctor)" -> "Hold at gate <gateId> (doctor)";
+    "Hold at gate <gateId> (doctor)" -> "Trigger: the doctor wait loop finished" [style=dashed];
     "Trigger: the doctor wait loop finished" -> "Doctor wait result?";
     "Doctor wait result?" -> "Escalation answered: back to its box" [label="answered"];
     "Doctor wait result?" -> "Escalation gate gone: the box ends cleanly" [label="closed, not found, or no gate open"];
     "Doctor wait result?" -> "Doctor wait failures = 3?" [label="any other failure"];
-    "Doctor wait failures = 3?" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (doctor)" [label="no: wait again"];
+    "Doctor wait failures = 3?" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (doctor)" [label="no: wait again"];
     "Doctor wait failures = 3?" -> "Escalation degraded: the box writes error" [label="yes"];
     "Trigger: a human answers the doctor escalation in the pane" -> "<status-bin> gate answer <state> --answers <json> --by pane (doctor escape hatch)";
     "<status-bin> gate answer <state> --answers <json> --by pane (doctor escape hatch)" -> "gate answer printed a JSON line (doctor escape hatch)?";
@@ -294,7 +304,7 @@ that literal string.
 
 The open prints one JSON line, `{"gateId": "...", "presentation":
 "form"}` or `"wait"`. Keep both: `Presentation (doctor-escalation)?` reads
-`presentation`, and `End the turn: holding at gate <gateId> (doctor)`
+`presentation`, and `Hold at gate <gateId> (doctor)`
 names `gateId`.
 
 `--context` carries the situation line the escalation composes, with any
@@ -322,19 +332,23 @@ answer with the `gate_answer` tool, a board gate records it with
   answer, never the one you meant to submit. The doorbell is
   verify-only: read the recorded answer with `<status-bin> gate wait
   <state> --max-ms 1000`.
-- A PreToolUse hook may deny native AskUserQuestion when no gate is open.
-  That denial is the gate protocol speaking: take this step's `gate open`
-  first. When the daemon is down the hook allows the native form, but this
-  skill's degraded path is still `error`, never a form.
+- Asked in words (the gate protocol's form step says when), the question
+  has no answer yet and nothing waits: the questions are the turn's last
+  message, and the turn ends there. The human's reply arrives as the pane
+  escape hatch below.
+- Where a question hook guards the native form, it denies the form when
+  no gate is open. That denial is the gate protocol speaking: take this
+  step's `gate open` first. When the daemon is down the hook allows the
+  native form, but this skill's degraded path is still `error`, never a
+  form.
 
-### End the turn: holding at gate <gateId> (doctor)
+### Hold at gate <gateId> (doctor)
 
-Read `../gate-cli-recipes/SKILL.md` with the Read
-tool and follow its "Wait recipe": one background shell task loops
-`<status-bin> gate wait <state> --max-ms 90000` while it prints
-`{"status":"pending"}`; never launch a second while one runs. End the turn
-in one line: `holding at gate <gateId>`, naming this gate. The loop's
-completion re-invokes the pane with the answer.
+Read `<skill-dir>/../gate-cli-recipes/SKILL.md` and follow its
+"Wait recipe": one shell loop runs `<status-bin> gate wait <state>
+--max-ms 90000` while it prints `{"status":"pending"}`, never a second
+while one runs, and the one line is `holding at gate <gateId>`, naming
+this gate. The loop's finish is `Trigger: the doctor wait loop finished`.
 
 A human who interrupts the wait and answers in the pane is the escape
 hatch: record it with `<status-bin> gate answer <state> --answers <json>
@@ -372,7 +386,7 @@ The tier picks the slot: `--tier api` uses the `doctor-api` slot
    `--skill-path <path>`, read the SKILL.md at that absolute path; without
    it, load the skill by name.
 2. **Otherwise resolve the tier's slot** with the vendored resolver,
-   `"scripts/resolve-args.sh"`. On exit 0, read the
+   `"<skill-dir>/scripts/resolve-args.sh"`. On exit 0, read the
    SKILL.md at `resolved.doctor.path` (or `resolved.doctor-api.path` under
    `--tier api`) and treat it exactly as if it came through `--skill`.
 3. **Otherwise degrade loudly.** On a nonzero exit, print the resolver's
@@ -570,7 +584,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Escalation step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.22 path=attachments/gate-protocol/SKILL.md lines=7-471 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.26 path=attachments/gate-protocol/SKILL.md lines=7-484 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -612,8 +626,8 @@ digraph gate_protocol {
     "Under a run: set waiting-gate?" [shape=diamond];
     "run_field_set {key: waiting-gate, value: <id>, stage}" [shape=plaintext];
     "gate_ask reply has wake: mod?" [shape=diamond];
-    "rt gate wait <id> as a background Bash task" [shape=plaintext];
-    "End the turn: holding at gate <id>" [shape=box];
+    "Wait in rt gate wait <id>" [shape=plaintext];
+    "Hold at gate <id>" [shape=box];
     "Trigger: the gate wait finished, or a wake brought its result" [shape=ellipse];
     "Gate wait result for an already reconciled gate?" [shape=diamond];
     "Trigger: the human answers in words at a held gate" [shape=ellipse];
@@ -678,10 +692,10 @@ digraph gate_protocol {
     "Under a run: set waiting-gate?" -> "run_field_set {key: waiting-gate, value: <id>, stage}" [label="yes"];
     "Under a run: set waiting-gate?" -> "gate_ask reply has wake: mod?" [label="no"];
     "run_field_set {key: waiting-gate, value: <id>, stage}" -> "gate_ask reply has wake: mod?";
-    "gate_ask reply has wake: mod?" -> "End the turn: holding at gate <id>" [label="yes: the session is woken with the answer"];
-    "gate_ask reply has wake: mod?" -> "rt gate wait <id> as a background Bash task" [label="no"];
-    "rt gate wait <id> as a background Bash task" -> "End the turn: holding at gate <id>";
-    "End the turn: holding at gate <id>" -> "Trigger: the gate wait finished, or a wake brought its result" [style=dashed];
+    "gate_ask reply has wake: mod?" -> "Hold at gate <id>" [label="yes: the session is woken with the answer, or the questions went out in words"];
+    "gate_ask reply has wake: mod?" -> "Wait in rt gate wait <id>" [label="no"];
+    "Wait in rt gate wait <id>" -> "Hold at gate <id>";
+    "Hold at gate <id>" -> "Trigger: the gate wait finished, or a wake brought its result" [style=dashed];
     "Trigger: the gate wait finished, or a wake brought its result" -> "Gate wait result for an already reconciled gate?";
     "Gate wait result for an already reconciled gate?" -> "Late gate signal discarded" [label="yes"];
     "Gate wait result for an already reconciled gate?" -> "waiting-gate set on this run?" [label="no"];
@@ -797,19 +811,43 @@ run, or ends the verb.
 ### Present the in-pane gate form
 
 This is the `presentation: "form"` branch; an attended non-herdr pane on
-`wait` lands here too (Attendance, below). The native in-pane structured form is this
-gate's registry face: where the launch-injected AskUserQuestion hook is
-active, an open gate matching the pane's LAUNCH subject is what lets the
-form through, and so is the pane's own worktree carrying its own open run:
-gate. Render each option's `label` when it has one and its `description`
-when it has one (the AskUserQuestion option's own description field). The
-form never shows a structured context's JSON: flatten a structured context
-to prose for the form's question text, and carry a prose context into it
-as written.
+`wait` lands here too (Attendance, below). The in-pane form is this gate's
+registry face: where the launch-injected question hook is active, an open
+gate matching the pane's LAUNCH subject is what lets the form through, and
+so is the pane's own worktree carrying its own open run: gate. Each option
+shows its `label` when it has one and its `description` when it has one.
+The form never shows a structured context's JSON: flatten a structured
+context to prose for the form's question text, and carry a prose context
+into it as written. Put the questions to the human this way:
+
+<!-- part: harness:questions target=codex path=attachments/harness/codex.md lines=13-28 -->
+Codex gives a skill no form tool it can rely on: `request_user_input`
+exists only in plan mode, and a question item Codex shows outside plan mode
+is not an answer anyone gave. So:
+
+- In plan mode, with `request_user_input` in your tools and no gate open
+  for these questions, ask with it; its result is the answer.
+- Otherwise ask in words: each question, then its options as a numbered
+  list (the label, then the description after a dash), saying whether one
+  or several may be picked. Words have no per-call limit, so every chunk
+  goes in the one message. Record whatever the step says to record first,
+  then make the questions this turn's last message and end the turn. The
+  human's reply is the answer: map their words onto the options' values,
+  and carry anything more they said as a note.
+
+Never treat a question you showed as answered until a person's reply, or a
+gate's recorded answer, says so.
 
 When the gate carries more questions than one form call fits, ask them in
 gate order, one chunk per call, and answer once after the last chunk; a
 lost CAS at that point discards every chunk's answer together.
+
+Asked in words, the gate has no answer yet and the human at the pane is
+the one to give it: leave this node by its `cancelled by the human` edge,
+and under a run, once `waiting-gate` is set, take the words edge out of
+`gate_ask reply has wake: mod?`. Nothing waits: the turn ends with the
+questions as its last message, and the human's reply arrives as the words
+trigger.
 
 Dismissed by the daemon: another surface answered while the form was open,
 the daemon injected a single Escape, and the doorbell is your next input.
@@ -839,21 +877,40 @@ not a form's.
 
 Read it off the `gate_ask` reply for this gate, after `waiting-gate` is set.
 With `wake: "mod"`, the session itself is woken when the gate is answered or
-withdrawn: launch nothing and end the turn. With no `wake` key, launch the
-one background `rt gate wait <id>` and end the turn. A gate that presented
-as `form` never carries `wake`.
+withdrawn: start no wait and end the turn. Questions already asked in
+words take the same edge: start no wait and end the turn. Otherwise, with
+no `wake` key, hold on the one `rt gate wait <id>` (next node). A gate that
+presented as `form` never carries `wake`.
 
-### End the turn: holding at gate <id>
+### Hold at gate <id>
 
-On the no-`wake` path the node before launched the one background
-`rt gate wait <id>` (the shell tool's run-in-background mode; the wait is
-never a tool call, since no tool blocks on a gate); never launch a second
-while one for this gate runs. End the turn in one line: `holding at gate
-<id>`. The wait loops internally around the daemon clamp, survives daemon
+On the `wake` path nothing runs here: end the turn in one line, `holding at
+gate <id>`. On the words path nothing runs either: the questions are the
+turn's last message. On the no-`wake` path the wait command is
+`rt gate wait <id>`, run in the shell (the wait is never a tool call, since
+no tool blocks on a gate), one at a time for this gate, and the one line is
+`holding at gate <id>`:
+
+<!-- part: harness:wait target=codex path=attachments/harness/codex.md lines=32-45 -->
+Codex re-invokes nothing when a command finishes after the turn has ended,
+so a wait never runs in the background here and the turn stays open while
+it runs. Print the one line the step gives, then run the wait command this
+step names in the shell and stay with it until it exits:
+
+- When the shell call comes back while the command still runs (it handed
+  back a running session, or hit the call's time limit), read that session
+  again, or run the same command again: a wait only reads state.
+- Its final output is the result: carry on from the step's wait-finished
+  trigger in this same turn.
+- A message the human sends while you wait is the step's words trigger:
+  stop waiting and handle it there.
+
+Never end the turn with the wait unfinished: nothing would bring you back.
+
+The wait loops internally around the daemon clamp, survives daemon
 restarts, and exits only on answered or closed, printing
-`{"ok":true,"status":"answered","row":{...}}` as its last stdout. The pane
-is idle but armed: the wait's completion re-invokes this pane with the
-answer as the tool result. On the `wake` path the next turn opens with a
+`{"ok":true,"status":"answered","row":{...}}` as its last stdout. On the
+`wake` path the next turn opens with a
 `[gate] gate <id> ...` message carrying the same result, or saying the gate
 was withdrawn; treat it as that wait's result. Under a run a
 turn ends only with `waiting-gate` or `hold` set; the pipeline gate stop

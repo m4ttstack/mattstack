@@ -128,8 +128,8 @@ describe("compiling one source for two harnesses", () => {
 
     const codexMd = skillMd(codex.files);
     expect(codexMd).toContain("Open a gate with the gate_ask tool.\nThen wait with `rt gate wait` until it answers.");
-    expect(codexMd).toContain("Run `scripts/ask.sh` first.");
-    expect(codexMd).toContain('  - "Bash(scripts/ask.sh:*)"');
+    expect(codexMd).toContain("Run `<skill-dir>/scripts/ask.sh` first.");
+    expect(codexMd).toContain('  - "Bash(<skill-dir>/scripts/ask.sh:*)"');
     expect(codexMd).not.toContain("AskUserQuestion");
     expect(codexMd).not.toContain("${CLAUDE_SKILL_DIR}");
     expect(codexMd).not.toContain("{{");
@@ -247,8 +247,8 @@ describe("target outputs never overwrite each other", () => {
     expect(claudeMd).toContain("allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/ask.sh:*)");
     expect(codexMd).not.toContain("AskUserQuestion");
     expect(codexMd).not.toContain("${CLAUDE_SKILL_DIR}");
-    expect(codexMd).toContain("allowed-tools: Bash(scripts/ask.sh:*)");
-    expect(readFileSync(join(codexOut, "ask", "step.md"), "utf8")).toBe("Then read `../ask/SKILL.md` again.\n");
+    expect(codexMd).toContain("allowed-tools: Bash(<skill-dir>/scripts/ask.sh:*)");
+    expect(readFileSync(join(codexOut, "ask", "step.md"), "utf8")).toBe("Then read `<skill-dir>/../ask/SKILL.md` again.\n");
     expect(readFileSync(join(claudeOut, "ask", "step.md"), "utf8")).toContain("${CLAUDE_SKILL_DIR}/../ask/SKILL.md");
 
     expect(existsSync(join(claudeOut, TARGET_MARKER))).toBe(false);
@@ -339,8 +339,8 @@ describe("pack compile per harness", () => {
       expect(JSON.parse(readFileSync(join(codexRoot, TARGET_MARKER), "utf8"))).toEqual({ harness: "codex" });
       const work = readFileSync(join(codexRoot, "skills", "work", "SKILL.md"), "utf8");
       const plan = readFileSync(join(codexRoot, "attachments", "stage-plan", "SKILL.md"), "utf8");
-      expect(work).toContain("../../attachments/stage-plan");
-      expect(plan).toContain("Capture with ../../../../attachments/evidence/scripts/capture.sh.");
+      expect(work).toContain("<skill-dir>/../../attachments/stage-plan");
+      expect(plan).toContain("Capture with <skill-dir>/../../../../attachments/evidence/scripts/capture.sh.");
       for (const md of [work, plan]) expect(md).not.toContain("${CLAUDE_");
 
       const before = io.lines().length;

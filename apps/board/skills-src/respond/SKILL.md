@@ -44,6 +44,8 @@ Write status **only** by running the injected `--status-bin`:
 
 {{harness:status-writes}}
 
+{{harness:resources}}
+
 The board tracks five in-flight statuses; emit each as you cross the milestone:
 
 | Status | When to emit |
@@ -218,7 +220,7 @@ The box that entered reads the outcome:
 - **Answered:** its outcome diamond reads `answers.action`'s value, which
   starts with `take:`, `iterate:`, `hold:` or `hand back:`. A hold answer
   ends the turn with the pane open and no terminal status.
-- **Unanswered:** the turn ends at `End the turn: holding at gate
+- **Unanswered:** the pane holds at `Hold at gate
   <gateId> (respond)` with no terminal status. The board parks the pane
   after its grace window and resumes it on the answer, and `Route the
   resumed escalation by its origin (respond)` (in `launch.md`) picks up

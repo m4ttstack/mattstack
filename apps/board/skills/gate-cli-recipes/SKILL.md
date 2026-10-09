@@ -1,6 +1,6 @@
 ---
 name: board:gate-cli-recipes
-description: "Board-CLI-specific gate mechanics shared by review/respond/doctor: the background gate-wait recipe, closed-or-missing-gate terminal handling, and the failing-wait-is-not-degradation rule. Not for direct invocation; a board gate wrapper includes this part the way the gate protocol each wrapper includes covers the daemon-generic mechanics."
+description: "Board-CLI-specific gate mechanics shared by review/respond/doctor: the gate-wait recipe, closed-or-missing-gate terminal handling, and the failing-wait-is-not-degradation rule. Not for direct invocation; a board gate wrapper includes this part the way the gate protocol each wrapper includes covers the daemon-generic mechanics."
 disable-model-invocation: true
 ---
 
@@ -18,16 +18,22 @@ restating.
 
 ## Wait recipe
 
-**presentation "wait":** do NOT present a form. Launch ONE background shell
-command (the shell tool's run-in-background mode) that loops `<status-bin>
-gate wait <state> --max-ms 90000`, re-running while it prints
-`{"status":"pending"}`, and exits printing the answered JSON as its last
-stdout. Then END YOUR TURN in one line: `holding at gate <gateId>`. The
-pane is idle but armed: typed input lands instantly, and the loop's
-completion re-invokes this pane with the answer as the tool result. On
-re-invoke, proceed on the answer exactly as the form branch does. A wait
-that fails with a closed or not-found message is terminal: follow the
-"Closed or missing gate" section below.
+**presentation "wait":** do NOT present a form. The wait command is ONE
+shell loop that re-runs `<status-bin> gate wait <state> --max-ms 90000`
+while it prints `{"status":"pending"}` and exits printing the answered JSON
+as its last stdout. The one line is `holding at gate <gateId>`:
+
+<!-- part: harness:wait target=claude path=attachments/harness/claude-code.md lines=28-33 -->
+Start the wait command this step names once, with the Bash tool and
+`run_in_background: true`, and never a second while one for the same wait
+runs. Then end the turn in the one line the step gives. When the command
+exits, Claude Code re-invokes this session with its output as the tool
+result: that is the step's wait-finished trigger. Words the human types
+meanwhile arrive as an ordinary message.
+
+When the loop finishes, proceed on the answer exactly as the form branch
+does. A wait that fails with a closed or not-found message is terminal:
+follow the "Closed or missing gate" section below.
 
 ## Closed or missing gate
 

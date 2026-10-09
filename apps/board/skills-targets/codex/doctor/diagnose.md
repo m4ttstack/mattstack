@@ -32,8 +32,8 @@ digraph doctor_diagnose_and_rebase {
     "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)" [shape=plaintext];
     "Rebase state (doctor)?" [shape=diamond];
     "Rebase polls = 5?" [shape=diamond];
-    "One background Bash task: sleep 20 (rebase poll)" [shape=plaintext];
-    "End the turn: waiting on the rebase poll" [shape=box];
+    "Wait: sleep 20 (rebase poll)" [shape=plaintext];
+    "Hold: waiting on the rebase poll" [shape=box];
     "Trigger: the rebase poll's sleep finished" [shape=ellipse];
     "doctor off-script escalation: lease check refused before the rebase" [shape=box];
     "Off-script outcome (lease check before the rebase)?" [shape=diamond];
@@ -83,9 +83,9 @@ digraph doctor_diagnose_and_rebase {
     "Rebase state (doctor)?" -> "Rebased or running: continue at Watch the pipeline" [label="rebased cleanly: a new sha"];
     "Rebase state (doctor)?" -> "Rebase polls = 5?" [label="still rebasing, or the poll errored"];
     "Rebase state (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="conflicts GitLab cannot rebase: error, needs a checkout"];
-    "Rebase polls = 5?" -> "One background Bash task: sleep 20 (rebase poll)" [label="no: poll again"];
-    "One background Bash task: sleep 20 (rebase poll)" -> "End the turn: waiting on the rebase poll";
-    "End the turn: waiting on the rebase poll" -> "Trigger: the rebase poll's sleep finished" [style=dashed];
+    "Rebase polls = 5?" -> "Wait: sleep 20 (rebase poll)" [label="no: poll again"];
+    "Wait: sleep 20 (rebase poll)" -> "Hold: waiting on the rebase poll";
+    "Hold: waiting on the rebase poll" -> "Trigger: the rebase poll's sleep finished" [style=dashed];
     "Trigger: the rebase poll's sleep finished" -> "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)";
     "Rebase polls = 5?" -> "Diagnosis ends the run: continue at the map's exit" [label="yes: error with the rebase state"];
     "doctor off-script escalation: lease check refused before the rebase" -> "Off-script outcome (lease check before the rebase)?";
@@ -139,8 +139,8 @@ pipeline for <sha>`), so a human reruns or starts it.
   cleanly; `rebaseInProgress` false with `conflicts` true or a
   `mergeError` set, and the `sha` unchanged, is conflicts GitLab cannot
   rebase (the error quotes `mergeError`). GitLab rebases asynchronously
-  and `mr_view` takes no wait, so each re-read waits on one background
-  Bash task (`sleep 20`). Five reads span about 80 seconds.
+  and `mr_view` takes no wait, so each re-read waits on one `sleep 20`
+  (`Hold: waiting on the rebase poll`). Five reads span about 80 seconds.
 
 ### Fix what the mr_view error names
 
@@ -159,13 +159,29 @@ lease may have moved while you fixed the call. An error that names no
 input has nothing to correct: rebase again unchanged, once, and the
 off-script escalation follows.
 
-### End the turn: waiting on the rebase poll
+### Hold: waiting on the rebase poll
 
-The background `sleep 20` is running: end the turn here, in one line
-naming the wait (`waiting on the rebase of !<iid>, poll <n> of 5`). Run
-one sleep task at a time and never sleep in the foreground; a foreground
-sleep is refused. The task's finish wakes the pane at
-`Trigger: the rebase poll's sleep finished` for the next read.
+The wait command is `sleep 20`, one at a time, and the one line names the
+wait (`waiting on the rebase of !<iid>, poll <n> of 5`):
+
+<!-- part: harness:wait target=codex path=attachments/harness/codex.md lines=32-45 -->
+Codex re-invokes nothing when a command finishes after the turn has ended,
+so a wait never runs in the background here and the turn stays open while
+it runs. Print the one line the step gives, then run the wait command this
+step names in the shell and stay with it until it exits:
+
+- When the shell call comes back while the command still runs (it handed
+  back a running session, or hit the call's time limit), read that session
+  again, or run the same command again: a wait only reads state.
+- Its final output is the result: carry on from the step's wait-finished
+  trigger in this same turn.
+- A message the human sends while you wait is the step's words trigger:
+  stop waiting and handle it there.
+
+Never end the turn with the wait unfinished: nothing would bring you back.
+
+Its finish is `Trigger: the rebase poll's sleep finished`, for the next
+read.
 
 ### doctor off-script escalation: lease check refused before the rebase
 

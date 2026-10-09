@@ -32,8 +32,8 @@ digraph doctor_diagnose_and_rebase {
     "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)" [shape=plaintext];
     "Rebase state (doctor)?" [shape=diamond];
     "Rebase polls = 5?" [shape=diamond];
-    "One background Bash task: sleep 20 (rebase poll)" [shape=plaintext];
-    "End the turn: waiting on the rebase poll" [shape=box];
+    "Wait: sleep 20 (rebase poll)" [shape=plaintext];
+    "Hold: waiting on the rebase poll" [shape=box];
     "Trigger: the rebase poll's sleep finished" [shape=ellipse];
     "doctor off-script escalation: lease check refused before the rebase" [shape=box];
     "Off-script outcome (lease check before the rebase)?" [shape=diamond];
@@ -83,9 +83,9 @@ digraph doctor_diagnose_and_rebase {
     "Rebase state (doctor)?" -> "Rebased or running: continue at Watch the pipeline" [label="rebased cleanly: a new sha"];
     "Rebase state (doctor)?" -> "Rebase polls = 5?" [label="still rebasing, or the poll errored"];
     "Rebase state (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="conflicts GitLab cannot rebase: error, needs a checkout"];
-    "Rebase polls = 5?" -> "One background Bash task: sleep 20 (rebase poll)" [label="no: poll again"];
-    "One background Bash task: sleep 20 (rebase poll)" -> "End the turn: waiting on the rebase poll";
-    "End the turn: waiting on the rebase poll" -> "Trigger: the rebase poll's sleep finished" [style=dashed];
+    "Rebase polls = 5?" -> "Wait: sleep 20 (rebase poll)" [label="no: poll again"];
+    "Wait: sleep 20 (rebase poll)" -> "Hold: waiting on the rebase poll";
+    "Hold: waiting on the rebase poll" -> "Trigger: the rebase poll's sleep finished" [style=dashed];
     "Trigger: the rebase poll's sleep finished" -> "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)";
     "Rebase polls = 5?" -> "Diagnosis ends the run: continue at the map's exit" [label="yes: error with the rebase state"];
     "doctor off-script escalation: lease check refused before the rebase" -> "Off-script outcome (lease check before the rebase)?";
@@ -139,8 +139,8 @@ pipeline for <sha>`), so a human reruns or starts it.
   cleanly; `rebaseInProgress` false with `conflicts` true or a
   `mergeError` set, and the `sha` unchanged, is conflicts GitLab cannot
   rebase (the error quotes `mergeError`). GitLab rebases asynchronously
-  and `mr_view` takes no wait, so each re-read waits on one background
-  Bash task (`sleep 20`). Five reads span about 80 seconds.
+  and `mr_view` takes no wait, so each re-read waits on one `sleep 20`
+  (`Hold: waiting on the rebase poll`). Five reads span about 80 seconds.
 
 ### Fix what the mr_view error names
 
@@ -159,13 +159,21 @@ lease may have moved while you fixed the call. An error that names no
 input has nothing to correct: rebase again unchanged, once, and the
 off-script escalation follows.
 
-### End the turn: waiting on the rebase poll
+### Hold: waiting on the rebase poll
 
-The background `sleep 20` is running: end the turn here, in one line
-naming the wait (`waiting on the rebase of !<iid>, poll <n> of 5`). Run
-one sleep task at a time and never sleep in the foreground; a foreground
-sleep is refused. The task's finish wakes the pane at
-`Trigger: the rebase poll's sleep finished` for the next read.
+The wait command is `sleep 20`, one at a time, and the one line names the
+wait (`waiting on the rebase of !<iid>, poll <n> of 5`):
+
+<!-- part: harness:wait target=claude path=attachments/harness/claude-code.md lines=28-33 -->
+Start the wait command this step names once, with the Bash tool and
+`run_in_background: true`, and never a second while one for the same wait
+runs. Then end the turn in the one line the step gives. When the command
+exits, Claude Code re-invokes this session with its output as the tool
+result: that is the step's wait-finished trigger. Words the human types
+meanwhile arrive as an ordinary message.
+
+Its finish is `Trigger: the rebase poll's sleep finished`, for the next
+read.
 
 ### doctor off-script escalation: lease check refused before the rebase
 

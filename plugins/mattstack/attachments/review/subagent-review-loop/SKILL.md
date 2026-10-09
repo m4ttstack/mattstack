@@ -7,13 +7,16 @@ description: >-
   plan-writing just produced, or getting explicit sign-off on a spec/plan
   before execution starts. For reviewing code, a branch, or an MR/PR, use
   the review cluster's other skills instead.
+type: pipeline-step
+metadata:
+  harness-requires: subagents
 ---
 
 # Subagent Review Loop
 
 ## Overview
 
-One reviewer subagent reads the spec or plan and returns a verdict; the
+One reviewer helper reads the spec or plan and returns a verdict; the
 driving agent fixes the doc and loops with that SAME reviewer until it
 approves. The reviewer keeps its context across rounds, so round two is
 "did the fixes hold?" rather than a fresh cold read.
@@ -22,22 +25,28 @@ approves. The reviewer keeps its context across rounds, so round two is
 
 1. Resolve the target document: the path given, else the spec/plan this
    session just wrote. Confirm it exists before dispatching.
-2. Pick the reviewer's model: if the operator named one ("have a fable
-   subagent review..."), use it. Otherwise read
-   `${CLAUDE_SKILL_DIR}/../../../attachments/model-tiering/SKILL.md` and
-   apply it to choose; adversarial spec review is high-judgment work, so expect it
-   to land on the top tier.
-3. Spawn ONE reviewer with the Agent tool on that model, using the
-   reviewer prompt described below.
+2. Pick the reviewer's model: if the operator named one ("have <model>
+   review the spec..."), use it. Otherwise adversarial spec review is
+   high-judgment work: the deep tier, named as Models (below) says.
+3. Start ONE reviewer helper on that model (Starting and messaging the
+   reviewer, below), using the reviewer prompt described below.
 4. Read the verdict. On "Status: Approved", report and stop.
 5. On "Issues Found": apply the findings to the document. Findings that
    are wrong get pushed back on with technical reasons, not silently
    applied (superpowers:receiving-code-review applies).
-6. Message the SAME reviewer (SendMessage to the agent spawned in step 3):
-   list what changed and what was rejected and why, and ask it to re-read
-   the document from disk and give a fresh verdict.
+6. Message the SAME reviewer helper started in step 3: list what changed
+   and what was rejected and why, and ask it to re-read the document from
+   disk and give a fresh verdict.
 7. Repeat from step 4. If round 4 ends without approval, stop and surface
    the remaining disagreement to the operator instead of grinding.
+
+## Starting and messaging the reviewer
+
+{{harness:delegation}}
+
+## Models
+
+{{harness:models}}
 
 ## Reviewer prompt
 
@@ -114,7 +123,7 @@ document, say so rather than counting them against the document.
 
 ## Guardrails
 
-- One reviewer, all rounds. A fresh Agent call is a fresh context that
+- One reviewer, all rounds. A newly started helper is a fresh context that
   re-litigates settled findings.
 - The loop's exit is the reviewer's explicit "Status: Approved", not the
   driver's judgment that things look fine.

@@ -35,6 +35,8 @@ export type SkillTarget = {
 
 export const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
 
+export const CODEX_SKILL_DIR = "<skill-dir>";
+
 /** Directory a generated target root records its harness in; a root without one holds Claude output. */
 export const TARGET_MARKER = "skills-target.json";
 
@@ -63,15 +65,17 @@ const TARGETS: Record<string, TargetDef> = {
       return { ok: true, data: rel === "" ? SKILL_DIR_TOKEN : `${SKILL_DIR_TOKEN}/${rel}` };
     },
   },
-  // Codex reads a path in a skill relative to that skill's own folder, and has
-  // no variable naming the folder.
+  // Codex has no variable naming a skill's folder and runs shell commands in
+  // the working directory, where a bare relative path names the wrong file.
+  // `<skill-dir>` is spelled like the other values an agent fills in, and the
+  // target's `resources` fragment says where the agent reads it from.
   codex: {
-    capabilities: ["skill-resources"],
-    foreignTools: ["AskUserQuestion"],
+    capabilities: ["skill-resources", "subagents"],
+    foreignTools: ["AskUserQuestion", "SendMessage"],
     resourcePath: (rel) => {
       const checked = checkedRelative(rel);
       if (!checked.ok) return checked;
-      return { ok: true, data: rel === "" ? "." : rel };
+      return { ok: true, data: rel === "" ? CODEX_SKILL_DIR : `${CODEX_SKILL_DIR}/${rel}` };
     },
   },
 };

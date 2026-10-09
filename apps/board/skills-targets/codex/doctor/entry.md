@@ -21,7 +21,7 @@ digraph doctor_entry {
     "--skill-path given (doctor)?" [shape=diamond];
     "Read <--skill-path> (doctor)" [shape=plaintext];
     "Load the --skill domain skill by name (doctor)" [shape=box];
-    "scripts/resolve-args.sh (doctor)" [shape=plaintext];
+    "<skill-dir>/scripts/resolve-args.sh (doctor)" [shape=plaintext];
     "resolve-args.sh exit (doctor)?" [shape=diamond];
     "Read <the tier's resolved path> (doctor)" [shape=plaintext];
     "Print the resolver's errors verbatim (doctor)" [shape=box];
@@ -35,8 +35,8 @@ digraph doctor_entry {
     "Fixed the ci_lease_claim call once already?" [shape=diamond];
     "Fix what the ci_lease_claim error names" [shape=box];
     "Old-lease waits = 2 (doctor)?" [shape=diamond];
-    "One background Bash task: sleep until the old lease's heartbeatAt plus ttlSeconds" [shape=plaintext];
-    "End the turn: waiting out the old lease" [shape=box];
+    "Wait: sleep until the old lease's heartbeatAt plus ttlSeconds" [shape=plaintext];
+    "Hold: waiting out the old lease" [shape=box];
     "Trigger: the old lease's wait finished" [shape=ellipse];
     "ci_lease_read {mrUrl} (after the old lease's TTL)" [shape=plaintext];
     "Old lease after the wait (doctor)?" [shape=diamond];
@@ -66,12 +66,12 @@ digraph doctor_entry {
     "<status-bin> doctor-status <state> fixing (resumed gate)" -> "<status-bin> gate wait <state> (resumed escalation)";
     "<status-bin> doctor-status <state> diagnosing" -> "--skill given (doctor)?";
     "--skill given (doctor)?" -> "--skill-path given (doctor)?" [label="yes"];
-    "--skill given (doctor)?" -> "scripts/resolve-args.sh (doctor)" [label="no"];
+    "--skill given (doctor)?" -> "<skill-dir>/scripts/resolve-args.sh (doctor)" [label="no"];
     "--skill-path given (doctor)?" -> "Read <--skill-path> (doctor)" [label="yes"];
     "--skill-path given (doctor)?" -> "Load the --skill domain skill by name (doctor)" [label="no"];
     "Read <--skill-path> (doctor)" -> "Branch-writing class under --tier api?";
     "Load the --skill domain skill by name (doctor)" -> "Branch-writing class under --tier api?";
-    "scripts/resolve-args.sh (doctor)" -> "resolve-args.sh exit (doctor)?";
+    "<skill-dir>/scripts/resolve-args.sh (doctor)" -> "resolve-args.sh exit (doctor)?";
     "resolve-args.sh exit (doctor)?" -> "Read <the tier's resolved path> (doctor)" [label="0"];
     "resolve-args.sh exit (doctor)?" -> "Print the resolver's errors verbatim (doctor)" [label="nonzero: generic path"];
     "Read <the tier's resolved path> (doctor)" -> "Branch-writing class under --tier api?";
@@ -90,10 +90,10 @@ digraph doctor_entry {
     "Fixed the ci_lease_read call once already?" -> "Fix what the ci_lease_read error names" [label="no"];
     "Fixed the ci_lease_read call once already?" -> "doctor off-script escalation: ci_lease_read refused" [label="yes"];
     "Fix what the ci_lease_read error names" -> "ci_lease_read {mrUrl}";
-    "Old-lease waits = 2 (doctor)?" -> "One background Bash task: sleep until the old lease's heartbeatAt plus ttlSeconds" [label="no"];
+    "Old-lease waits = 2 (doctor)?" -> "Wait: sleep until the old lease's heartbeatAt plus ttlSeconds" [label="no"];
     "Old-lease waits = 2 (doctor)?" -> "Entry ends the run: continue at the map's exit" [label="yes: stand down, error naming the holder"];
-    "One background Bash task: sleep until the old lease's heartbeatAt plus ttlSeconds" -> "End the turn: waiting out the old lease";
-    "End the turn: waiting out the old lease" -> "Trigger: the old lease's wait finished" [style=dashed];
+    "Wait: sleep until the old lease's heartbeatAt plus ttlSeconds" -> "Hold: waiting out the old lease";
+    "Hold: waiting out the old lease" -> "Trigger: the old lease's wait finished" [style=dashed];
     "Trigger: the old lease's wait finished" -> "ci_lease_read {mrUrl} (after the old lease's TTL)";
     "ci_lease_read {mrUrl} (after the old lease's TTL)" -> "Old lease after the wait (doctor)?";
     "Old lease after the wait (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?}" [label="null, or only stale"];
@@ -238,17 +238,32 @@ omitted when the launch or the domain skill named none) and claim again,
 once. An error that names no input has nothing to correct:
 claim again unchanged, once, and the off-script escalation follows.
 
-### End the turn: waiting out the old lease
+### Hold: waiting out the old lease
 
-The background task sleeps until the old lease goes stale: its seconds
-are `heartbeatAt/1000 + ttlSeconds - now + 5` (`heartbeatAt` is in
-milliseconds, `now` in epoch seconds), never less than 5. Run one task at
-a time; never start a second while one runs, and never sleep in the
-foreground. End the turn in one line naming the wait:
-`waiting out the old doctor lease on !<iid> (<n>s)`. The task's finish
-wakes the pane at `Trigger: the old lease's wait finished`. Nothing is
-claimed while waiting, so there is nothing to release if the pane ends
-here.
+The wait command sleeps until the old lease goes stale: its seconds are
+`heartbeatAt/1000 + ttlSeconds - now + 5` (`heartbeatAt` is in
+milliseconds, `now` in epoch seconds), never less than 5. One runs at a
+time, and the one line names the wait:
+`waiting out the old doctor lease on !<iid> (<n>s)`.
+
+<!-- part: harness:wait target=codex path=attachments/harness/codex.md lines=32-45 -->
+Codex re-invokes nothing when a command finishes after the turn has ended,
+so a wait never runs in the background here and the turn stays open while
+it runs. Print the one line the step gives, then run the wait command this
+step names in the shell and stay with it until it exits:
+
+- When the shell call comes back while the command still runs (it handed
+  back a running session, or hit the call's time limit), read that session
+  again, or run the same command again: a wait only reads state.
+- Its final output is the result: carry on from the step's wait-finished
+  trigger in this same turn.
+- A message the human sends while you wait is the step's words trigger:
+  stop waiting and handle it there.
+
+Never end the turn with the wait unfinished: nothing would bring you back.
+
+Its finish is `Trigger: the old lease's wait finished`. Nothing is claimed
+while waiting, so there is nothing to release if the pane ends here.
 
 ### doctor off-script escalation: ci_lease_read refused
 

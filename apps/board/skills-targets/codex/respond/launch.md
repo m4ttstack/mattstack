@@ -24,7 +24,7 @@ digraph respond_launch_and_resume {
     "--skill-path given (respond)?" [shape=diamond];
     "Read <--skill-path> (respond)" [shape=plaintext];
     "Load the --skill domain skill by name (respond)" [shape=box];
-    "scripts/resolve-args.sh (respond)" [shape=plaintext];
+    "<skill-dir>/scripts/resolve-args.sh (respond)" [shape=plaintext];
     "resolve-args.sh exit (respond)?" [shape=diamond];
     "Read <resolved.respond.path>" [shape=plaintext];
     "Print the resolver's errors verbatim (respond)" [shape=box];
@@ -82,12 +82,12 @@ digraph respond_launch_and_resume {
     "<status-bin> respond-status <state> drafting (resumed respond-post)" -> "--skill given (respond)?";
     "<status-bin> respond-status <state> triaging" -> "--skill given (respond)?";
     "--skill given (respond)?" -> "--skill-path given (respond)?" [label="yes"];
-    "--skill given (respond)?" -> "scripts/resolve-args.sh (respond)" [label="no"];
+    "--skill given (respond)?" -> "<skill-dir>/scripts/resolve-args.sh (respond)" [label="no"];
     "--skill-path given (respond)?" -> "Read <--skill-path> (respond)" [label="yes"];
     "--skill-path given (respond)?" -> "Load the --skill domain skill by name (respond)" [label="no"];
     "Read <--skill-path> (respond)" -> "Which entry (respond)?";
     "Load the --skill domain skill by name (respond)" -> "Which entry (respond)?";
-    "scripts/resolve-args.sh (respond)" -> "resolve-args.sh exit (respond)?";
+    "<skill-dir>/scripts/resolve-args.sh (respond)" -> "resolve-args.sh exit (respond)?";
     "resolve-args.sh exit (respond)?" -> "Read <resolved.respond.path>" [label="0"];
     "resolve-args.sh exit (respond)?" -> "Print the resolver's errors verbatim (respond)" [label="nonzero: generic path"];
     "Read <resolved.respond.path>" -> "Which entry (respond)?";

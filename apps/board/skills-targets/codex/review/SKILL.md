@@ -11,16 +11,16 @@ description: >-
   (repos/<slug>/packs/<pack>/skills.jsonc, chosen by MATTSTACK_PACK). Not for
   manual use.
 disable-model-invocation: true
-allowed-tools: Bash(scripts/resolve-args.sh:*), Bash(scripts/open-gate.sh:*)
+allowed-tools: Bash(<skill-dir>/scripts/resolve-args.sh:*), Bash(<skill-dir>/scripts/open-gate.sh:*)
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.30.22"
+  compiled: "mattstack:gate-protocol@0.30.26"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2100 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2107 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -46,8 +46,18 @@ Write status **only** by running the injected `--status-bin`:
 <status-bin> review-status <state> <status> [message] [--outcome <comment|approve>]
 ```
 
-<!-- part: harness:status-writes target=codex path=attachments/harness/codex.md lines=8-8 -->
+<!-- part: harness:status-writes target=codex path=attachments/harness/codex.md lines=9-9 -->
 Run every `<status-bin>` write in this skill in the shell, as written.
+
+<!-- part: harness:resources target=codex path=attachments/harness/codex.md lines=99-106 -->
+`<skill-dir>` is this skill's own folder: the folder holding the SKILL.md
+Codex loaded for this skill (the path Codex lists for it, or the SKILL.md
+path the launch prompt names). Every `<skill-dir>/...` path is that folder
+joined with the rest. Write it out as an absolute path before you run or
+read it; the shell's working directory is the repository, never the skill.
+When this skill runs a `resolve-args.sh`, run it with
+`--skills-dir "${CODEX_HOME:-$HOME/.codex}/skills" --plugin-list-cmd true`:
+Codex's own skills folder, and no Claude plugin list.
 
 ## Flow
 
@@ -67,7 +77,7 @@ digraph review_flow {
     "--skill-path given (review)?" [shape=diamond];
     "Read <--skill-path> (review)" [shape=plaintext];
     "Load the --skill domain skill by name (review)" [shape=box];
-    "scripts/resolve-args.sh (review)" [shape=plaintext];
+    "<skill-dir>/scripts/resolve-args.sh (review)" [shape=plaintext];
     "resolve-args.sh exit (review)?" [shape=diamond];
     "Read <resolved.review.path>" [shape=plaintext];
     "Print the resolver's errors verbatim (review)" [shape=box];
@@ -123,7 +133,7 @@ digraph review_flow {
     "Append the review-round line to --report" [shape=box];
 
     "Fitted review-post open file handed back?" [shape=diamond];
-    "scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [shape=plaintext];
+    "<skill-dir>/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [shape=plaintext];
     "Report json sibling (review)?" [shape=diamond];
     "Build the per-finding questions (findings-N, outcome)" [shape=box];
     "Build the outcome-only question (clean review)" [shape=box];
@@ -194,12 +204,12 @@ digraph review_flow {
     "Print the RE-REVIEW banner as the first output" -> "<status-bin> review-status <state> reviewing";
     "<status-bin> review-status <state> reviewing" -> "--skill given (review)?";
     "--skill given (review)?" -> "--skill-path given (review)?" [label="yes"];
-    "--skill given (review)?" -> "scripts/resolve-args.sh (review)" [label="no"];
+    "--skill given (review)?" -> "<skill-dir>/scripts/resolve-args.sh (review)" [label="no"];
     "--skill-path given (review)?" -> "Read <--skill-path> (review)" [label="yes"];
     "--skill-path given (review)?" -> "Load the --skill domain skill by name (review)" [label="no"];
     "Read <--skill-path> (review)" -> "Which entry (review)?";
     "Load the --skill domain skill by name (review)" -> "Which entry (review)?";
-    "scripts/resolve-args.sh (review)" -> "resolve-args.sh exit (review)?";
+    "<skill-dir>/scripts/resolve-args.sh (review)" -> "resolve-args.sh exit (review)?";
     "resolve-args.sh exit (review)?" -> "Read <resolved.review.path>" [label="0"];
     "resolve-args.sh exit (review)?" -> "Print the resolver's errors verbatim (review)" [label="nonzero: generic path"];
     "Read <resolved.review.path>" -> "Which entry (review)?";
@@ -300,9 +310,9 @@ digraph review_flow {
     "Write the review report to --report" -> "Append the review-round line to --report";
     "Append the review-round line to --report" -> "Fitted review-post open file handed back?";
 
-    "Fitted review-post open file handed back?" -> "scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [label="yes"];
+    "Fitted review-post open file handed back?" -> "<skill-dir>/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [label="yes"];
     "Fitted review-post open file handed back?" -> "Report json sibling (review)?" [label="no"];
-    "scripts/open-gate.sh <status-bin> <state> review-post <open-file>" -> "review-post open exit?";
+    "<skill-dir>/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" -> "review-post open exit?";
     "Report json sibling (review)?" -> "Build the per-finding questions (findings-N, outcome)" [label="valid, findings present"];
     "Report json sibling (review)?" -> "Build the outcome-only question (clean review)" [label="valid, findings is an empty array"];
     "Report json sibling (review)?" -> "Print the tier-fallback line in the pane" [label="absent or malformed"];
@@ -1002,12 +1012,30 @@ question first on a re-review, then every `findings-N` chunk when the
 json has findings or the fallback's `tiers` on the json-absent path,
 then every `skipped-N` chunk on a re-review, then `outcome`; `outcome`
 alone on a clean review with nothing skipped.
-Past four questions, chunk it across AskUserQuestion calls in gate
-order, as the pane form does, and proceed only on the answers from every
+Past four questions, chunk it across form calls in gate order, as the
+pane form does, and proceed only on the answers from every
 call. It is still one form, never two gates. Render it by the same rules
 as the pane form (`Ask the review gate as a pane form`), a fitted file
 flattened to prose exactly as that section describes. When the daemon is
-down the PreToolUse hook allows the native form.
+down a question hook allows the native form. Ask it this way:
+
+<!-- part: harness:questions target=codex path=attachments/harness/codex.md lines=13-28 -->
+Codex gives a skill no form tool it can rely on: `request_user_input`
+exists only in plan mode, and a question item Codex shows outside plan mode
+is not an answer anyone gave. So:
+
+- In plan mode, with `request_user_input` in your tools and no gate open
+  for these questions, ask with it; its result is the answer.
+- Otherwise ask in words: each question, then its options as a numbered
+  list (the label, then the description after a dash), saying whether one
+  or several may be picked. Words have no per-call limit, so every chunk
+  goes in the one message. Record whatever the step says to record first,
+  then make the questions this turn's last message and end the turn. The
+  human's reply is the answer: map their words onto the options' values,
+  and carry anything more they said as a note.
+
+Never treat a question you showed as answered until a person's reply, or a
+gate's recorded answer, says so.
 
 ### Record the verdict answer in --report
 
@@ -1493,7 +1521,7 @@ every `review-escalation` from `review-escalation: take the review gate
 step`. `<status-bin> gate open` prints one JSON line, `{"gateId": "...",
 "presentation": "form"}` or `"wait"`; `open-gate.sh` prints the same line
 and exits with the open's status. Keep both: `Presentation (review gate)?`
-reads `presentation`, and `End the turn: holding at gate <gateId>
+reads `presentation`, and `Hold at gate <gateId>
 (review)` names `gateId`. The step writes no status. The gate box that
 entered reads the outcome:
 
@@ -1516,8 +1544,8 @@ digraph review_gate_step {
     "gate answer printed a JSON line (review form)?" [shape=diamond];
     "Trigger: a doorbell arrives while the review form is open" [shape=ellipse];
     "<status-bin> gate wait <state> --max-ms 1000 (review doorbell)" [shape=plaintext];
-    "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (review)" [shape=plaintext];
-    "End the turn: holding at gate <gateId> (review)" [shape=box];
+    "Loop <status-bin> gate wait <state> --max-ms 90000 (review)" [shape=plaintext];
+    "Hold at gate <gateId> (review)" [shape=box];
     "Trigger: the review wait loop finished" [shape=ellipse];
     "Review wait result?" [shape=diamond];
     "Review wait failures = 3?" [shape=diamond];
@@ -1531,23 +1559,23 @@ digraph review_gate_step {
 
     "Trigger: a review gate opened (review-post or review-escalation)" -> "Presentation (review gate)?";
     "Presentation (review gate)?" -> "Ask the review gate as a pane form" [label="form"];
-    "Presentation (review gate)?" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (review)" [label="wait"];
+    "Presentation (review gate)?" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (review)" [label="wait"];
     "Presentation (review gate)?" -> "STOP: the answer is the human's; wait for the review gate" [label="tempted to pick the answer yourself, a clean review's verdict included"];
-    "STOP: the answer is the human's; wait for the review gate" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (review)";
+    "STOP: the answer is the human's; wait for the review gate" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (review)";
     "Ask the review gate as a pane form" -> "<status-bin> gate answer <state> --answers <json> --by pane (review form)";
     "<status-bin> gate answer <state> --answers <json> --by pane (review form)" -> "gate answer printed a JSON line (review form)?";
     "gate answer printed a JSON line (review form)?" -> "Review gate answered: back to its gate box" [label="no: this answer stands"];
     "gate answer printed a JSON line (review form)?" -> "Review gate answered: back to its gate box" [label="yes: another surface won, proceed on its answer"];
     "Trigger: a doorbell arrives while the review form is open" -> "<status-bin> gate wait <state> --max-ms 1000 (review doorbell)";
     "<status-bin> gate wait <state> --max-ms 1000 (review doorbell)" -> "Review gate answered: back to its gate box";
-    "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (review)" -> "End the turn: holding at gate <gateId> (review)";
-    "End the turn: holding at gate <gateId> (review)" -> "Trigger: the review wait loop finished" [style=dashed label="the wait loop finished"];
-    "End the turn: holding at gate <gateId> (review)" -> "Held at the review gate: report readable, no done" [style=dashed label="the pane ends or the board parks it before an answer"];
+    "Loop <status-bin> gate wait <state> --max-ms 90000 (review)" -> "Hold at gate <gateId> (review)";
+    "Hold at gate <gateId> (review)" -> "Trigger: the review wait loop finished" [style=dashed label="the wait loop finished"];
+    "Hold at gate <gateId> (review)" -> "Held at the review gate: report readable, no done" [style=dashed label="the pane ends or the board parks it before an answer"];
     "Trigger: the review wait loop finished" -> "Review wait result?";
     "Review wait result?" -> "Review gate answered: back to its gate box" [label="answered"];
     "Review wait result?" -> "Review gate gone: back to its gate box" [label="closed, not found, or no gate open"];
     "Review wait result?" -> "Review wait failures = 3?" [label="any other failure"];
-    "Review wait failures = 3?" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (review)" [label="no: wait again"];
+    "Review wait failures = 3?" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (review)" [label="no: wait again"];
     "Review wait failures = 3?" -> "Review wait keeps failing: back to its gate box" [label="yes"];
     "Trigger: a human answers a review gate in the pane" -> "<status-bin> gate answer <state> --answers <json> --by pane (review escape hatch)";
     "<status-bin> gate answer <state> --answers <json> --by pane (review escape hatch)" -> "gate answer printed a JSON line (review escape hatch)?";
@@ -1612,19 +1640,22 @@ nuance in the `{value, note}` form. Five things stay specific to
   first: proceed on the winning answer, never the one you meant to submit.
   The doorbell is verify-only: read the recorded answer with `<status-bin>
   gate wait <state> --max-ms 1000`.
-- **The hook.** A PreToolUse hook may deny native AskUserQuestion when no
-  gate is open; that denial is the gate protocol speaking: the gate opens
-  first, through its gate node. When the daemon is down the hook allows the
-  native form, which is the degraded path.
+- **Asked in words** (the gate protocol's form step says when), the gate
+  has no answer yet and nothing waits: the questions are the turn's last
+  message, and the turn ends there. The human's reply arrives as
+  `Trigger: a human answers a review gate in the pane`.
+- **The hook.** Where a question hook guards the native form, it denies
+  the form when no gate is open; that denial is the gate protocol
+  speaking: the gate opens first, through its gate node. When the daemon
+  is down the hook allows the native form, which is the degraded path.
 
-### End the turn: holding at gate <gateId> (review)
+### Hold at gate <gateId> (review)
 
-Read `../gate-cli-recipes/SKILL.md` with the Read
-tool and follow its "Wait recipe": one background shell task loops
-`<status-bin> gate wait <state> --max-ms 90000` while it prints
-`{"status":"pending"}`; never launch a second while one runs. End the turn
-in one line, `holding at gate <gateId>`, naming this gate. The loop's
-completion re-invokes the pane with the answer.
+Read `<skill-dir>/../gate-cli-recipes/SKILL.md` and follow its
+"Wait recipe": one shell loop runs `<status-bin> gate wait <state>
+--max-ms 90000` while it prints `{"status":"pending"}`, never a second
+while one runs, and the one line is `holding at gate <gateId>`, naming
+this gate. The loop's finish is `Trigger: the review wait loop finished`.
 
 If the human ends the pane, or the board parks it, before the gate is
 answered, leave it there: `Held at the review gate: report readable, no
@@ -1664,7 +1695,7 @@ entered reads the outcome:
 - **Answered:** its outcome diamond reads `answers.action`'s value, which
   starts with `take:`, `iterate:`, `hold:` or `hand back:`. A hold answer
   ends the turn with the pane open and no terminal status.
-- **Unanswered:** the turn ends at `End the turn: holding at gate
+- **Unanswered:** the pane holds at `Hold at gate
   <gateId> (review)` with no terminal status. The board parks the pane
   after its grace window and resumes it on the answer, and `Route the
   resumed escalation by its origin (review)` picks up where this pane
@@ -1767,7 +1798,7 @@ answers; the order is fixed and the flow's first diamonds draw it:
    read the SKILL.md at that absolute path directly and treat it exactly as
    the domain skill named by `--skill`.
 2. **Otherwise resolve the `review` slot** with the vendored resolver,
-   `"scripts/resolve-args.sh"`. On exit 0, read the
+   `"<skill-dir>/scripts/resolve-args.sh"`. On exit 0, read the
    SKILL.md at `resolved.review.path` and treat that skill exactly as if it
    had been passed via `--skill`.
 3. **Otherwise degrade loudly.** On a nonzero exit, print the resolver's JSON
@@ -1795,7 +1826,7 @@ its `skipped-N` questions follow the findings, each in the `skipped@1`
 shape with its options unticked. Open it with:
 
 ```bash
-"scripts/open-gate.sh" <status-bin> <state> review-post <open-file>
+"<skill-dir>/scripts/open-gate.sh" <status-bin> <state> review-post <open-file>
 ```
 
 A `fits: false` file is still over the shared context budget; the script
@@ -2102,7 +2133,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.22 path=attachments/gate-protocol/SKILL.md lines=7-471 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.26 path=attachments/gate-protocol/SKILL.md lines=7-484 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -2144,8 +2175,8 @@ digraph gate_protocol {
     "Under a run: set waiting-gate?" [shape=diamond];
     "run_field_set {key: waiting-gate, value: <id>, stage}" [shape=plaintext];
     "gate_ask reply has wake: mod?" [shape=diamond];
-    "rt gate wait <id> as a background Bash task" [shape=plaintext];
-    "End the turn: holding at gate <id>" [shape=box];
+    "Wait in rt gate wait <id>" [shape=plaintext];
+    "Hold at gate <id>" [shape=box];
     "Trigger: the gate wait finished, or a wake brought its result" [shape=ellipse];
     "Gate wait result for an already reconciled gate?" [shape=diamond];
     "Trigger: the human answers in words at a held gate" [shape=ellipse];
@@ -2210,10 +2241,10 @@ digraph gate_protocol {
     "Under a run: set waiting-gate?" -> "run_field_set {key: waiting-gate, value: <id>, stage}" [label="yes"];
     "Under a run: set waiting-gate?" -> "gate_ask reply has wake: mod?" [label="no"];
     "run_field_set {key: waiting-gate, value: <id>, stage}" -> "gate_ask reply has wake: mod?";
-    "gate_ask reply has wake: mod?" -> "End the turn: holding at gate <id>" [label="yes: the session is woken with the answer"];
-    "gate_ask reply has wake: mod?" -> "rt gate wait <id> as a background Bash task" [label="no"];
-    "rt gate wait <id> as a background Bash task" -> "End the turn: holding at gate <id>";
-    "End the turn: holding at gate <id>" -> "Trigger: the gate wait finished, or a wake brought its result" [style=dashed];
+    "gate_ask reply has wake: mod?" -> "Hold at gate <id>" [label="yes: the session is woken with the answer, or the questions went out in words"];
+    "gate_ask reply has wake: mod?" -> "Wait in rt gate wait <id>" [label="no"];
+    "Wait in rt gate wait <id>" -> "Hold at gate <id>";
+    "Hold at gate <id>" -> "Trigger: the gate wait finished, or a wake brought its result" [style=dashed];
     "Trigger: the gate wait finished, or a wake brought its result" -> "Gate wait result for an already reconciled gate?";
     "Gate wait result for an already reconciled gate?" -> "Late gate signal discarded" [label="yes"];
     "Gate wait result for an already reconciled gate?" -> "waiting-gate set on this run?" [label="no"];
@@ -2329,19 +2360,43 @@ run, or ends the verb.
 ### Present the in-pane gate form
 
 This is the `presentation: "form"` branch; an attended non-herdr pane on
-`wait` lands here too (Attendance, below). The native in-pane structured form is this
-gate's registry face: where the launch-injected AskUserQuestion hook is
-active, an open gate matching the pane's LAUNCH subject is what lets the
-form through, and so is the pane's own worktree carrying its own open run:
-gate. Render each option's `label` when it has one and its `description`
-when it has one (the AskUserQuestion option's own description field). The
-form never shows a structured context's JSON: flatten a structured context
-to prose for the form's question text, and carry a prose context into it
-as written.
+`wait` lands here too (Attendance, below). The in-pane form is this gate's
+registry face: where the launch-injected question hook is active, an open
+gate matching the pane's LAUNCH subject is what lets the form through, and
+so is the pane's own worktree carrying its own open run: gate. Each option
+shows its `label` when it has one and its `description` when it has one.
+The form never shows a structured context's JSON: flatten a structured
+context to prose for the form's question text, and carry a prose context
+into it as written. Put the questions to the human this way:
+
+<!-- part: harness:questions target=codex path=attachments/harness/codex.md lines=13-28 -->
+Codex gives a skill no form tool it can rely on: `request_user_input`
+exists only in plan mode, and a question item Codex shows outside plan mode
+is not an answer anyone gave. So:
+
+- In plan mode, with `request_user_input` in your tools and no gate open
+  for these questions, ask with it; its result is the answer.
+- Otherwise ask in words: each question, then its options as a numbered
+  list (the label, then the description after a dash), saying whether one
+  or several may be picked. Words have no per-call limit, so every chunk
+  goes in the one message. Record whatever the step says to record first,
+  then make the questions this turn's last message and end the turn. The
+  human's reply is the answer: map their words onto the options' values,
+  and carry anything more they said as a note.
+
+Never treat a question you showed as answered until a person's reply, or a
+gate's recorded answer, says so.
 
 When the gate carries more questions than one form call fits, ask them in
 gate order, one chunk per call, and answer once after the last chunk; a
 lost CAS at that point discards every chunk's answer together.
+
+Asked in words, the gate has no answer yet and the human at the pane is
+the one to give it: leave this node by its `cancelled by the human` edge,
+and under a run, once `waiting-gate` is set, take the words edge out of
+`gate_ask reply has wake: mod?`. Nothing waits: the turn ends with the
+questions as its last message, and the human's reply arrives as the words
+trigger.
 
 Dismissed by the daemon: another surface answered while the form was open,
 the daemon injected a single Escape, and the doorbell is your next input.
@@ -2371,21 +2426,40 @@ not a form's.
 
 Read it off the `gate_ask` reply for this gate, after `waiting-gate` is set.
 With `wake: "mod"`, the session itself is woken when the gate is answered or
-withdrawn: launch nothing and end the turn. With no `wake` key, launch the
-one background `rt gate wait <id>` and end the turn. A gate that presented
-as `form` never carries `wake`.
+withdrawn: start no wait and end the turn. Questions already asked in
+words take the same edge: start no wait and end the turn. Otherwise, with
+no `wake` key, hold on the one `rt gate wait <id>` (next node). A gate that
+presented as `form` never carries `wake`.
 
-### End the turn: holding at gate <id>
+### Hold at gate <id>
 
-On the no-`wake` path the node before launched the one background
-`rt gate wait <id>` (the shell tool's run-in-background mode; the wait is
-never a tool call, since no tool blocks on a gate); never launch a second
-while one for this gate runs. End the turn in one line: `holding at gate
-<id>`. The wait loops internally around the daemon clamp, survives daemon
+On the `wake` path nothing runs here: end the turn in one line, `holding at
+gate <id>`. On the words path nothing runs either: the questions are the
+turn's last message. On the no-`wake` path the wait command is
+`rt gate wait <id>`, run in the shell (the wait is never a tool call, since
+no tool blocks on a gate), one at a time for this gate, and the one line is
+`holding at gate <id>`:
+
+<!-- part: harness:wait target=codex path=attachments/harness/codex.md lines=32-45 -->
+Codex re-invokes nothing when a command finishes after the turn has ended,
+so a wait never runs in the background here and the turn stays open while
+it runs. Print the one line the step gives, then run the wait command this
+step names in the shell and stay with it until it exits:
+
+- When the shell call comes back while the command still runs (it handed
+  back a running session, or hit the call's time limit), read that session
+  again, or run the same command again: a wait only reads state.
+- Its final output is the result: carry on from the step's wait-finished
+  trigger in this same turn.
+- A message the human sends while you wait is the step's words trigger:
+  stop waiting and handle it there.
+
+Never end the turn with the wait unfinished: nothing would bring you back.
+
+The wait loops internally around the daemon clamp, survives daemon
 restarts, and exits only on answered or closed, printing
-`{"ok":true,"status":"answered","row":{...}}` as its last stdout. The pane
-is idle but armed: the wait's completion re-invokes this pane with the
-answer as the tool result. On the `wake` path the next turn opens with a
+`{"ok":true,"status":"answered","row":{...}}` as its last stdout. On the
+`wake` path the next turn opens with a
 `[gate] gate <id> ...` message carrying the same result, or saying the gate
 was withdrawn; treat it as that wait's result. Under a run a
 turn ends only with `waiting-gate` or `hold` set; the pipeline gate stop

@@ -242,7 +242,15 @@ threads wait for this answer too, then post with its picks.
 The daemon is down at open time, or the wait failed three times. Present
 Gate 2 as native forms alone, chunked exactly as the form branch in `gate-step.md` does: its
 thread questions in order, up to four per call, each a multi-select of
-post and resolve. Proceed on the combined answers with `by: pane`.
+post and resolve. Proceed on the combined answers with `by: pane`. Ask
+them this way:
+
+<!-- part: harness:questions target=claude path=attachments/harness/claude-code.md lines=20-24 -->
+Ask with the AskUserQuestion tool: at most 4 questions per call and 4
+options per question, each option's `label` as its label and its
+`description` as its description. Questions past one call's 4 go in order,
+one call per chunk. The picks come back as the tool result; whatever the
+human types in the tool's free-text field rides as a note.
 
 ### Record the Gate 2 picks in --report
 

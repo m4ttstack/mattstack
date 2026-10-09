@@ -178,7 +178,8 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   const span = `path=${where} lines=${bodyStartLine}-${bodyStartLine + bodyLines.length - 1}`;
   const skillMd = `${frontmatter}\n\n${EXPAND_HEADER}\n\n<!-- part: step source=${where} ${span} -->\n${expanded}\n`;
 
-  const files: ExpandedFile[] = listFilesUnder(dir, new Set(["SKILL.md"])).map((path) => ({ path, copyFrom: join(dir, path) }));
+  const files: ExpandedFile[] = listFilesUnder(dir, new Set(["SKILL.md"]))
+    .map((path) => withFragments({ path, copyFrom: join(dir, path) }, target, `${name}/${path}`));
   for (const n of names) {
     for (const extra of includes[n]!.extraFiles) {
       files.push({ path: `parts/include-${n}/${extra}`, copyFrom: join(includes[n]!.dir, extra) });
@@ -196,10 +197,23 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   return { name, skillMd: renderedMd, files: rendered, includes: names, harness: target.harness, advisories };
 }
 
+/**
+ * A companion Markdown file is a step the skill sends the agent to, so it may
+ * place the target's fragments as SKILL.md does; one that places none ships
+ * as it is.
+ */
+function withFragments(file: ExpandedFile, target: SkillTarget, where: string): ExpandedFile {
+  if ("content" in file || !file.path.endsWith(".md")) return file;
+  const text = readFileSync(file.copyFrom, "utf8");
+  if (!findPlaceholders(text).some((p) => p.kind === "harness")) return file;
+  return { path: file.path, content: substituteIncludesOnly(text, includeOnlyContext({}, target), where).body };
+}
+
 /** A companion Markdown file is read like SKILL.md, so it is rendered the same way; anything else ships byte for byte. */
 function renderCompanion(file: ExpandedFile, target: SkillTarget, where: string): ExpandedFile {
-  if ("content" in file || !file.path.endsWith(".md")) return file;
-  return { path: file.path, content: renderForTarget(readFileSync(file.copyFrom, "utf8"), target, where) };
+  if (!file.path.endsWith(".md")) return file;
+  const text = "content" in file ? file.content : readFileSync(file.copyFrom, "utf8");
+  return { path: file.path, content: renderForTarget(text, target, where) };
 }
 
 function expectedBytes(file: ExpandedFile): Buffer {

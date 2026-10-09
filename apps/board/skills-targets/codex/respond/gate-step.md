@@ -11,7 +11,7 @@ open` or `open-gate.sh`, prints one
 JSON line, `{"gateId": "...", "presentation": "form"}` or `"wait"`, with
 `"contextOmitted": true` added when the daemon dropped the question
 contexts. Keep both: `Presentation (respond gate)?` reads `presentation`,
-and `End the turn: holding at gate <gateId> (respond)` names `gateId`. The
+and `Hold at gate <gateId> (respond)` names `gateId`. The
 step writes no status. The gate box that entered reads the outcome:
 
 - **Answered:** the answers and `by` go back to the box.
@@ -33,8 +33,8 @@ digraph respond_gate_step {
     "gate answer printed a JSON line (respond form)?" [shape=diamond];
     "Trigger: a doorbell arrives while a respond form is open" [shape=ellipse];
     "<status-bin> gate wait <state> --max-ms 1000 (respond doorbell)" [shape=plaintext];
-    "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (respond)" [shape=plaintext];
-    "End the turn: holding at gate <gateId> (respond)" [shape=box];
+    "Loop <status-bin> gate wait <state> --max-ms 90000 (respond)" [shape=plaintext];
+    "Hold at gate <gateId> (respond)" [shape=box];
     "Trigger: the respond wait loop finished" [shape=ellipse];
     "Respond wait result?" [shape=diamond];
     "Respond wait failures = 3?" [shape=diamond];
@@ -47,22 +47,22 @@ digraph respond_gate_step {
 
     "Trigger: a respond gate opened (Gate 1, Gate 2 or an escalation)" -> "Presentation (respond gate)?";
     "Presentation (respond gate)?" -> "Ask the respond gate as pane forms, four questions per call" [label="form"];
-    "Presentation (respond gate)?" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (respond)" [label="wait"];
+    "Presentation (respond gate)?" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (respond)" [label="wait"];
     "Presentation (respond gate)?" -> "STOP: fixes land and replies post only on a gate answer" [label="tempted to act before the human answers"];
-    "STOP: fixes land and replies post only on a gate answer" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (respond)";
+    "STOP: fixes land and replies post only on a gate answer" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (respond)";
     "Ask the respond gate as pane forms, four questions per call" -> "<status-bin> gate answer <state> --answers <json> --by pane (respond form)";
     "<status-bin> gate answer <state> --answers <json> --by pane (respond form)" -> "gate answer printed a JSON line (respond form)?";
     "gate answer printed a JSON line (respond form)?" -> "Respond gate answered: back to its gate box" [label="no: this answer stands"];
     "gate answer printed a JSON line (respond form)?" -> "Respond gate answered: back to its gate box" [label="yes: another surface won, proceed on its answer"];
     "Trigger: a doorbell arrives while a respond form is open" -> "<status-bin> gate wait <state> --max-ms 1000 (respond doorbell)";
     "<status-bin> gate wait <state> --max-ms 1000 (respond doorbell)" -> "Respond gate answered: back to its gate box";
-    "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (respond)" -> "End the turn: holding at gate <gateId> (respond)";
-    "End the turn: holding at gate <gateId> (respond)" -> "Trigger: the respond wait loop finished" [style=dashed];
+    "Loop <status-bin> gate wait <state> --max-ms 90000 (respond)" -> "Hold at gate <gateId> (respond)";
+    "Hold at gate <gateId> (respond)" -> "Trigger: the respond wait loop finished" [style=dashed];
     "Trigger: the respond wait loop finished" -> "Respond wait result?";
     "Respond wait result?" -> "Respond gate answered: back to its gate box" [label="answered"];
     "Respond wait result?" -> "Respond gate gone: back to its gate box" [label="closed, not found, or no gate open"];
     "Respond wait result?" -> "Respond wait failures = 3?" [label="any other failure"];
-    "Respond wait failures = 3?" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (respond)" [label="no: wait again"];
+    "Respond wait failures = 3?" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (respond)" [label="no: wait again"];
     "Respond wait failures = 3?" -> "Respond wait keeps failing: back to its gate box" [label="yes"];
     "Trigger: a human answers a respond gate in the pane" -> "<status-bin> gate answer <state> --answers <json> --by pane (respond escape hatch)";
     "<status-bin> gate answer <state> --answers <json> --by pane (respond escape hatch)" -> "gate answer printed a JSON line (respond escape hatch)?";
@@ -119,20 +119,23 @@ or neither?`; a multi-select with the gate's labels and descriptions,
   first: proceed on the winning answer, never the one you meant to submit.
   The doorbell is verify-only: read the recorded answer with `<status-bin>
 gate wait <state> --max-ms 1000`.
-- **The hook.** A PreToolUse hook may deny native AskUserQuestion when no
-  gate is open; that denial is the gate protocol speaking: the gate opens
-  first, through its gate node. When the daemon is down the hook allows the
-  native form, which is the degraded path.
+- **Asked in words** (the gate protocol's form step says when), the gate
+  has no answer yet and nothing waits: the questions are the turn's last
+  message, and the turn ends there. The human's reply arrives as
+  `Trigger: a human answers a respond gate in the pane`.
+- **The hook.** Where a question hook guards the native form, it denies
+  the form when no gate is open; that denial is the gate protocol
+  speaking: the gate opens first, through its gate node. When the daemon
+  is down the hook allows the native form, which is the degraded path.
 
-### End the turn: holding at gate <gateId> (respond)
+### Hold at gate <gateId> (respond)
 
-Read `../gate-cli-recipes/SKILL.md` with the Read
-tool and follow its "Wait recipe": one background shell task loops
-`<status-bin> gate wait <state> --max-ms 90000` while it prints
-`{"status":"pending"}`; never launch a second while one runs. End the turn
-in one line, `holding at gate <gateId>`, naming this gate (Gate 1's,
-Gate 2's or an escalation's). The loop's completion re-invokes the pane
-with the answer.
+Read `<skill-dir>/../gate-cli-recipes/SKILL.md` and follow its
+"Wait recipe": one shell loop runs `<status-bin> gate wait <state>
+--max-ms 90000` while it prints `{"status":"pending"}`, never a second
+while one runs, and the one line is `holding at gate <gateId>`, naming
+this gate (Gate 1's, Gate 2's or an escalation's). The loop's finish is
+`Trigger: the respond wait loop finished`.
 
 If the human ends the pane, or the board parks it, before the gate is
 answered, nothing more moves and no terminal status is written. The board

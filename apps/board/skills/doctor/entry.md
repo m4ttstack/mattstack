@@ -35,8 +35,8 @@ digraph doctor_entry {
     "Fixed the ci_lease_claim call once already?" [shape=diamond];
     "Fix what the ci_lease_claim error names" [shape=box];
     "Old-lease waits = 2 (doctor)?" [shape=diamond];
-    "One background Bash task: sleep until the old lease's heartbeatAt plus ttlSeconds" [shape=plaintext];
-    "End the turn: waiting out the old lease" [shape=box];
+    "Wait: sleep until the old lease's heartbeatAt plus ttlSeconds" [shape=plaintext];
+    "Hold: waiting out the old lease" [shape=box];
     "Trigger: the old lease's wait finished" [shape=ellipse];
     "ci_lease_read {mrUrl} (after the old lease's TTL)" [shape=plaintext];
     "Old lease after the wait (doctor)?" [shape=diamond];
@@ -90,10 +90,10 @@ digraph doctor_entry {
     "Fixed the ci_lease_read call once already?" -> "Fix what the ci_lease_read error names" [label="no"];
     "Fixed the ci_lease_read call once already?" -> "doctor off-script escalation: ci_lease_read refused" [label="yes"];
     "Fix what the ci_lease_read error names" -> "ci_lease_read {mrUrl}";
-    "Old-lease waits = 2 (doctor)?" -> "One background Bash task: sleep until the old lease's heartbeatAt plus ttlSeconds" [label="no"];
+    "Old-lease waits = 2 (doctor)?" -> "Wait: sleep until the old lease's heartbeatAt plus ttlSeconds" [label="no"];
     "Old-lease waits = 2 (doctor)?" -> "Entry ends the run: continue at the map's exit" [label="yes: stand down, error naming the holder"];
-    "One background Bash task: sleep until the old lease's heartbeatAt plus ttlSeconds" -> "End the turn: waiting out the old lease";
-    "End the turn: waiting out the old lease" -> "Trigger: the old lease's wait finished" [style=dashed];
+    "Wait: sleep until the old lease's heartbeatAt plus ttlSeconds" -> "Hold: waiting out the old lease";
+    "Hold: waiting out the old lease" -> "Trigger: the old lease's wait finished" [style=dashed];
     "Trigger: the old lease's wait finished" -> "ci_lease_read {mrUrl} (after the old lease's TTL)";
     "ci_lease_read {mrUrl} (after the old lease's TTL)" -> "Old lease after the wait (doctor)?";
     "Old lease after the wait (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?}" [label="null, or only stale"];
@@ -238,17 +238,24 @@ omitted when the launch or the domain skill named none) and claim again,
 once. An error that names no input has nothing to correct:
 claim again unchanged, once, and the off-script escalation follows.
 
-### End the turn: waiting out the old lease
+### Hold: waiting out the old lease
 
-The background task sleeps until the old lease goes stale: its seconds
-are `heartbeatAt/1000 + ttlSeconds - now + 5` (`heartbeatAt` is in
-milliseconds, `now` in epoch seconds), never less than 5. Run one task at
-a time; never start a second while one runs, and never sleep in the
-foreground. End the turn in one line naming the wait:
-`waiting out the old doctor lease on !<iid> (<n>s)`. The task's finish
-wakes the pane at `Trigger: the old lease's wait finished`. Nothing is
-claimed while waiting, so there is nothing to release if the pane ends
-here.
+The wait command sleeps until the old lease goes stale: its seconds are
+`heartbeatAt/1000 + ttlSeconds - now + 5` (`heartbeatAt` is in
+milliseconds, `now` in epoch seconds), never less than 5. One runs at a
+time, and the one line names the wait:
+`waiting out the old doctor lease on !<iid> (<n>s)`.
+
+<!-- part: harness:wait target=claude path=attachments/harness/claude-code.md lines=28-33 -->
+Start the wait command this step names once, with the Bash tool and
+`run_in_background: true`, and never a second while one for the same wait
+runs. Then end the turn in the one line the step gives. When the command
+exits, Claude Code re-invokes this session with its output as the tool
+result: that is the step's wait-finished trigger. Words the human types
+meanwhile arrive as an ordinary message.
+
+Its finish is `Trigger: the old lease's wait finished`. Nothing is claimed
+while waiting, so there is nothing to release if the pane ends here.
 
 ### doctor off-script escalation: ci_lease_read refused
 

@@ -45,8 +45,8 @@ digraph gate_protocol {
     "Under a run: set waiting-gate?" [shape=diamond];
     "run_field_set {key: waiting-gate, value: <id>, stage}" [shape=plaintext];
     "gate_ask reply has wake: mod?" [shape=diamond];
-    "rt gate wait <id> as a background Bash task" [shape=plaintext];
-    "End the turn: holding at gate <id>" [shape=box];
+    "Wait in rt gate wait <id>" [shape=plaintext];
+    "Hold at gate <id>" [shape=box];
     "Trigger: the gate wait finished, or a wake brought its result" [shape=ellipse];
     "Gate wait result for an already reconciled gate?" [shape=diamond];
     "Trigger: the human answers in words at a held gate" [shape=ellipse];
@@ -111,10 +111,10 @@ digraph gate_protocol {
     "Under a run: set waiting-gate?" -> "run_field_set {key: waiting-gate, value: <id>, stage}" [label="yes"];
     "Under a run: set waiting-gate?" -> "gate_ask reply has wake: mod?" [label="no"];
     "run_field_set {key: waiting-gate, value: <id>, stage}" -> "gate_ask reply has wake: mod?";
-    "gate_ask reply has wake: mod?" -> "End the turn: holding at gate <id>" [label="yes: the session is woken with the answer"];
-    "gate_ask reply has wake: mod?" -> "rt gate wait <id> as a background Bash task" [label="no"];
-    "rt gate wait <id> as a background Bash task" -> "End the turn: holding at gate <id>";
-    "End the turn: holding at gate <id>" -> "Trigger: the gate wait finished, or a wake brought its result" [style=dashed];
+    "gate_ask reply has wake: mod?" -> "Hold at gate <id>" [label="yes: the session is woken with the answer, or the questions went out in words"];
+    "gate_ask reply has wake: mod?" -> "Wait in rt gate wait <id>" [label="no"];
+    "Wait in rt gate wait <id>" -> "Hold at gate <id>";
+    "Hold at gate <id>" -> "Trigger: the gate wait finished, or a wake brought its result" [style=dashed];
     "Trigger: the gate wait finished, or a wake brought its result" -> "Gate wait result for an already reconciled gate?";
     "Gate wait result for an already reconciled gate?" -> "Late gate signal discarded" [label="yes"];
     "Gate wait result for an already reconciled gate?" -> "waiting-gate set on this run?" [label="no"];
@@ -230,19 +230,27 @@ run, or ends the verb.
 ### Present the in-pane gate form
 
 This is the `presentation: "form"` branch; an attended non-herdr pane on
-`wait` lands here too (Attendance, below). The native in-pane structured form is this
-gate's registry face: where the launch-injected AskUserQuestion hook is
-active, an open gate matching the pane's LAUNCH subject is what lets the
-form through, and so is the pane's own worktree carrying its own open run:
-gate. Render each option's `label` when it has one and its `description`
-when it has one (the AskUserQuestion option's own description field). The
-form never shows a structured context's JSON: flatten a structured context
-to prose for the form's question text, and carry a prose context into it
-as written.
+`wait` lands here too (Attendance, below). The in-pane form is this gate's
+registry face: where the launch-injected question hook is active, an open
+gate matching the pane's LAUNCH subject is what lets the form through, and
+so is the pane's own worktree carrying its own open run: gate. Each option
+shows its `label` when it has one and its `description` when it has one.
+The form never shows a structured context's JSON: flatten a structured
+context to prose for the form's question text, and carry a prose context
+into it as written. Put the questions to the human this way:
+
+{{harness:questions}}
 
 When the gate carries more questions than one form call fits, ask them in
 gate order, one chunk per call, and answer once after the last chunk; a
 lost CAS at that point discards every chunk's answer together.
+
+Asked in words, the gate has no answer yet and the human at the pane is
+the one to give it: leave this node by its `cancelled by the human` edge,
+and under a run, once `waiting-gate` is set, take the words edge out of
+`gate_ask reply has wake: mod?`. Nothing waits: the turn ends with the
+questions as its last message, and the human's reply arrives as the words
+trigger.
 
 Dismissed by the daemon: another surface answered while the form was open,
 the daemon injected a single Escape, and the doorbell is your next input.
@@ -272,21 +280,26 @@ not a form's.
 
 Read it off the `gate_ask` reply for this gate, after `waiting-gate` is set.
 With `wake: "mod"`, the session itself is woken when the gate is answered or
-withdrawn: launch nothing and end the turn. With no `wake` key, launch the
-one background `rt gate wait <id>` and end the turn. A gate that presented
-as `form` never carries `wake`.
+withdrawn: start no wait and end the turn. Questions already asked in
+words take the same edge: start no wait and end the turn. Otherwise, with
+no `wake` key, hold on the one `rt gate wait <id>` (next node). A gate that
+presented as `form` never carries `wake`.
 
-### End the turn: holding at gate <id>
+### Hold at gate <id>
 
-On the no-`wake` path the node before launched the one background
-`rt gate wait <id>` (the shell tool's run-in-background mode; the wait is
-never a tool call, since no tool blocks on a gate); never launch a second
-while one for this gate runs. End the turn in one line: `holding at gate
-<id>`. The wait loops internally around the daemon clamp, survives daemon
+On the `wake` path nothing runs here: end the turn in one line, `holding at
+gate <id>`. On the words path nothing runs either: the questions are the
+turn's last message. On the no-`wake` path the wait command is
+`rt gate wait <id>`, run in the shell (the wait is never a tool call, since
+no tool blocks on a gate), one at a time for this gate, and the one line is
+`holding at gate <id>`:
+
+{{harness:wait}}
+
+The wait loops internally around the daemon clamp, survives daemon
 restarts, and exits only on answered or closed, printing
-`{"ok":true,"status":"answered","row":{...}}` as its last stdout. The pane
-is idle but armed: the wait's completion re-invokes this pane with the
-answer as the tool result. On the `wake` path the next turn opens with a
+`{"ok":true,"status":"answered","row":{...}}` as its last stdout. On the
+`wake` path the next turn opens with a
 `[gate] gate <id> ...` message carrying the same result, or saying the gate
 was withdrawn; treat it as that wait's result. Under a run a
 turn ends only with `waiting-gate` or `hold` set; the pipeline gate stop

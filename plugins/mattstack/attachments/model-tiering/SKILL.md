@@ -8,70 +8,53 @@ metadata:
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
-of work. An omitted model flag inherits the parent's model -- usually the most
+of work. An omitted model inherits the parent's model -- usually the most
 expensive one -- which silently defeats tiering.
 
 ## The tier table
 
-Tiers are **aliases**, not model IDs. Aliases point to the provider's
-recommended version and update over time, so the table survives model
-releases; resolution is provider-dependent (Bedrock, Foundry, and Google
-Cloud resolve `opus` and `sonnet` differently from the first-party API). A
-rejected alias exits 1 at launch -- a bad entry is a visible failure, not a
-silent downgrade.
+Pick a tier by the work's shape; the harness section below turns the tier
+into a model and effort this harness accepts.
 
 | Work shape | Tier |
 |---|---|
-| Transcription plus testing (the plan carries the literal code), or a single-file mechanical fix | `haiku` |
-| Mechanical execution -- complete spec, 2-3 files, existing pattern to follow | `sonnet` |
-| Design / triage -- multiple valid approaches, cross-layer, product decisions | `opus` |
-| Long-horizon autonomous work -- larger than one sitting | `fable` |
-| Integration -- merge branches, run verification, report | `sonnet` |
-| Review -- disposable artifact or diff reviewer | `sonnet` |
-| Simple, high-volume, or disposable lookup | `haiku` |
+| Transcription plus testing (the plan carries the literal code), or a single-file mechanical fix | light |
+| Mechanical execution -- complete spec, 2-3 files, existing pattern to follow | standard |
+| Design / triage -- multiple valid approaches, cross-layer, product decisions | deep |
+| Long-horizon autonomous work -- larger than one sitting | long-horizon |
+| Integration -- merge branches, run verification, report | standard |
+| Review -- disposable artifact or diff reviewer | standard |
+| Simple, high-volume, or disposable lookup | light |
 
-**Cost floor.** Cheapest models take 2-3x the turns on multi-step work and
-cost more overall. `sonnet` is the floor for reviewers and for prose
-implementers. `haiku` is only for work where the input already contains the
-answer: transcription plus testing, single-file mechanical fixes, simple lookups.
+**Cost floor.** The light tier takes 2-3x the turns on multi-step work and
+costs more overall. Standard is the floor for reviewers and for prose
+implementers. Light is only for work where the input already contains the
+answer: transcription plus testing, single-file mechanical fixes, simple
+lookups.
 
-**Excluded aliases.** `opusplan` upgrades only inside Claude Code's plan
-permission mode, which skill-driven workers never enter -- do not re-add it.
-`best` and `default` resolve by org entitlement, not work shape. `[1m]`
-variants pick a context window, not a tier; when used, quote them
-(`'opus[1m]'`) -- brackets are zsh glob characters.
+## Models and effort on this harness
 
-## Two dispatch surfaces
+Every spawn and delegation sets its model and effort the way this section
+says; a dispatch surface with no effort parameter runs at the model's
+default effort.
 
-| | Spawn-time (`claude` CLI) | Delegation-time (Agent tool) |
-|---|---|---|
-| Model | alias or full ID | enum: `sonnet`, `opus`, `haiku`, `fable` |
-| Effort | `--effort` flag | no effort parameter exists |
-| `best` / `default` / `[1m]` | accepted | rejected |
-| Billing account | selectable at launch | inherits the caller's session |
+{{harness:models}}
 
-The four tier words are valid on both surfaces. Effort and account decisions
-are spawn-time only; a delegation-time answer names a model and nothing
-else.
+## Accounts
 
-## Effort (spawn-time only)
+{{harness:accounts}}
+
+## Effort
 
 Use the model's **default** effort; deviate only for a named reason. Tuning
 effort is often a better lever than switching models.
-
-- Claude Code **clamps** an unsupported level to the highest supported level
-  at or below it. No per-model matrix is needed, and models without effort
-  support are a non-event.
-- Organization effort caps clamp **silently** in background agents and JSON
-  output modes; a pane may run below the requested level with no warning.
-- `ultracode` is a Claude Code setting (xhigh plus workflow orchestration),
-  not a level in the ladder.
 
 ## The two discriminators
 
 - **Wrong conclusion despite full context** -> next tier up.
 - **Right idea, sloppy execution** (skipped a file, did not run the tests,
-  did not double-check) -> higher effort. Spawn-time only.
+  did not double-check) -> higher effort, where the dispatch surface takes
+  one.
 
 ## Escalation
 
@@ -112,6 +95,6 @@ judgment and orchestration; the cheap models do the volume work.
 ## Domain overrides
 
 Skills layered on top of this one may set a floor ("never use model X in
-this repo") or a default ("ticket-driven work defaults to Opus because
-triage happens inside the worker"). Those overrides are domain-specific;
-this skill is the generic framework they override.
+this repo") or a default ("ticket-driven work defaults to the deep tier
+because triage happens inside the worker"). Those overrides are
+domain-specific; this skill is the generic framework they override.

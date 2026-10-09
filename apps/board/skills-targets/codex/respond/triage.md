@@ -35,7 +35,7 @@ digraph respond_triage_and_gate_1 {
     "Write the verdict table and drafts to --report" [shape=box];
     "<status-bin> respond-status <state> drafting --round <n>" [shape=plaintext];
     "Fitted respond-plan open file handed back?" [shape=diamond];
-    "scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [shape=plaintext];
+    "<skill-dir>/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [shape=plaintext];
     "Build the Gate 1 questions" [shape=box];
     "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]" [shape=plaintext];
     "respond-plan open exit?" [shape=diamond];
@@ -89,10 +89,10 @@ digraph respond_triage_and_gate_1 {
     "Unresolved human threads = 0?" -> "Write the verdict table and drafts to --report" [label="no"];
     "Write the verdict table and drafts to --report" -> "<status-bin> respond-status <state> drafting --round <n>";
     "<status-bin> respond-status <state> drafting --round <n>" -> "Fitted respond-plan open file handed back?";
-    "Fitted respond-plan open file handed back?" -> "scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="yes"];
+    "Fitted respond-plan open file handed back?" -> "<skill-dir>/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="yes"];
     "Fitted respond-plan open file handed back?" -> "Build the Gate 1 questions" [label="no"];
     "Build the Gate 1 questions" -> "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]";
-    "scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" -> "respond-plan open exit?";
+    "<skill-dir>/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" -> "respond-plan open exit?";
     "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]" -> "respond-plan open exit?";
     "respond-plan open exit?" -> "Gate 1 context dropped?" [label="0"];
     "respond-plan open exit?" -> "Ask Gate 1 as native forms (degraded)" [label="nonzero: the daemon is down"];
@@ -263,7 +263,26 @@ alone, chunked exactly as the form branch in `gate-step.md` does: the thread que
 order, up to four per call, then `code-changes` in one more call only when
 some thread's answer is a `fix:` value, otherwise fill `code-changes:
 "skip"` without asking. Proceed on the combined answers with `by: pane`.
-When the daemon is down the PreToolUse hook allows the native form.
+When the daemon is down a question hook allows the native form. Ask them
+this way:
+
+<!-- part: harness:questions target=codex path=attachments/harness/codex.md lines=13-28 -->
+Codex gives a skill no form tool it can rely on: `request_user_input`
+exists only in plan mode, and a question item Codex shows outside plan mode
+is not an answer anyone gave. So:
+
+- In plan mode, with `request_user_input` in your tools and no gate open
+  for these questions, ask with it; its result is the answer.
+- Otherwise ask in words: each question, then its options as a numbered
+  list (the label, then the description after a dash), saying whether one
+  or several may be picked. Words have no per-call limit, so every chunk
+  goes in the one message. Record whatever the step says to record first,
+  then make the questions this turn's last message and end the turn. The
+  human's reply is the answer: map their words onto the options' values,
+  and carry anything more they said as a note.
+
+Never treat a question you showed as answered until a person's reply, or a
+gate's recorded answer, says so.
 
 ### respond off-script gate: mr_view refused
 

@@ -42,6 +42,8 @@ Write status **only** by running the injected `--status-bin`:
 
 {{harness:status-writes}}
 
+{{harness:resources}}
+
 ## State progression
 
 The board owns `queued`. You emit the rest as you cross each milestone:
@@ -227,8 +229,8 @@ digraph doctor_escalation_step {
     "gate answer printed a JSON line (doctor form)?" [shape=diamond];
     "Trigger: a doorbell arrives while the doctor form is open" [shape=ellipse];
     "<status-bin> gate wait <state> --max-ms 1000 (doctor doorbell)" [shape=plaintext];
-    "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (doctor)" [shape=plaintext];
-    "End the turn: holding at gate <gateId> (doctor)" [shape=box];
+    "Loop <status-bin> gate wait <state> --max-ms 90000 (doctor)" [shape=plaintext];
+    "Hold at gate <gateId> (doctor)" [shape=box];
     "Trigger: the doctor wait loop finished" [shape=ellipse];
     "Doctor wait result?" [shape=diamond];
     "Doctor wait failures = 3?" [shape=diamond];
@@ -247,22 +249,22 @@ digraph doctor_escalation_step {
     "doctor-escalation open exit?" -> "Presentation (doctor-escalation)?" [label="0"];
     "doctor-escalation open exit?" -> "Escalation degraded: the box writes error" [label="nonzero: the daemon is down"];
     "Presentation (doctor-escalation)?" -> "Ask the doctor-escalation question as a pane form" [label="form"];
-    "Presentation (doctor-escalation)?" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (doctor)" [label="wait"];
+    "Presentation (doctor-escalation)?" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (doctor)" [label="wait"];
     "Presentation (doctor-escalation)?" -> "STOP: the answer is the human's; wait for the gate (doctor)" [label="tempted to pick the option yourself"];
-    "STOP: the answer is the human's; wait for the gate (doctor)" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (doctor)";
+    "STOP: the answer is the human's; wait for the gate (doctor)" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (doctor)";
     "Ask the doctor-escalation question as a pane form" -> "<status-bin> gate answer <state> --answers <json> --by pane (doctor form)";
     "<status-bin> gate answer <state> --answers <json> --by pane (doctor form)" -> "gate answer printed a JSON line (doctor form)?";
     "gate answer printed a JSON line (doctor form)?" -> "Escalation answered: back to its box" [label="no: this answer stands"];
     "gate answer printed a JSON line (doctor form)?" -> "Escalation answered: back to its box" [label="yes: another surface won, proceed on its answer"];
     "Trigger: a doorbell arrives while the doctor form is open" -> "<status-bin> gate wait <state> --max-ms 1000 (doctor doorbell)";
     "<status-bin> gate wait <state> --max-ms 1000 (doctor doorbell)" -> "Escalation answered: back to its box";
-    "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (doctor)" -> "End the turn: holding at gate <gateId> (doctor)";
-    "End the turn: holding at gate <gateId> (doctor)" -> "Trigger: the doctor wait loop finished" [style=dashed];
+    "Loop <status-bin> gate wait <state> --max-ms 90000 (doctor)" -> "Hold at gate <gateId> (doctor)";
+    "Hold at gate <gateId> (doctor)" -> "Trigger: the doctor wait loop finished" [style=dashed];
     "Trigger: the doctor wait loop finished" -> "Doctor wait result?";
     "Doctor wait result?" -> "Escalation answered: back to its box" [label="answered"];
     "Doctor wait result?" -> "Escalation gate gone: the box ends cleanly" [label="closed, not found, or no gate open"];
     "Doctor wait result?" -> "Doctor wait failures = 3?" [label="any other failure"];
-    "Doctor wait failures = 3?" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (doctor)" [label="no: wait again"];
+    "Doctor wait failures = 3?" -> "Loop <status-bin> gate wait <state> --max-ms 90000 (doctor)" [label="no: wait again"];
     "Doctor wait failures = 3?" -> "Escalation degraded: the box writes error" [label="yes"];
     "Trigger: a human answers the doctor escalation in the pane" -> "<status-bin> gate answer <state> --answers <json> --by pane (doctor escape hatch)";
     "<status-bin> gate answer <state> --answers <json> --by pane (doctor escape hatch)" -> "gate answer printed a JSON line (doctor escape hatch)?";
@@ -289,7 +291,7 @@ that literal string.
 
 The open prints one JSON line, `{"gateId": "...", "presentation":
 "form"}` or `"wait"`. Keep both: `Presentation (doctor-escalation)?` reads
-`presentation`, and `End the turn: holding at gate <gateId> (doctor)`
+`presentation`, and `Hold at gate <gateId> (doctor)`
 names `gateId`.
 
 `--context` carries the situation line the escalation composes, with any
@@ -317,19 +319,23 @@ answer with the `gate_answer` tool, a board gate records it with
   answer, never the one you meant to submit. The doorbell is
   verify-only: read the recorded answer with `<status-bin> gate wait
   <state> --max-ms 1000`.
-- A PreToolUse hook may deny native AskUserQuestion when no gate is open.
-  That denial is the gate protocol speaking: take this step's `gate open`
-  first. When the daemon is down the hook allows the native form, but this
-  skill's degraded path is still `error`, never a form.
+- Asked in words (the gate protocol's form step says when), the question
+  has no answer yet and nothing waits: the questions are the turn's last
+  message, and the turn ends there. The human's reply arrives as the pane
+  escape hatch below.
+- Where a question hook guards the native form, it denies the form when
+  no gate is open. That denial is the gate protocol speaking: take this
+  step's `gate open` first. When the daemon is down the hook allows the
+  native form, but this skill's degraded path is still `error`, never a
+  form.
 
-### End the turn: holding at gate <gateId> (doctor)
+### Hold at gate <gateId> (doctor)
 
-Read `${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md` with the Read
-tool and follow its "Wait recipe": one background shell task loops
-`<status-bin> gate wait <state> --max-ms 90000` while it prints
-`{"status":"pending"}`; never launch a second while one runs. End the turn
-in one line: `holding at gate <gateId>`, naming this gate. The loop's
-completion re-invokes the pane with the answer.
+Read `${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md` and follow its
+"Wait recipe": one shell loop runs `<status-bin> gate wait <state>
+--max-ms 90000` while it prints `{"status":"pending"}`, never a second
+while one runs, and the one line is `holding at gate <gateId>`, naming
+this gate. The loop's finish is `Trigger: the doctor wait loop finished`.
 
 A human who interrupts the wait and answers in the pane is the escape
 hatch: record it with `<status-bin> gate answer <state> --answers <json>

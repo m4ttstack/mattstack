@@ -1,7 +1,7 @@
 // surface.jsonc -- names this pack's public skills. Everything else is
 // internal and lives under attachments/, unregistered (compiler and
 // runtime resolvers reach it by name, never the slash menu). Every dir
-// under a plugin.json skills root (skills/, skills/review/, plugin/skills/)
+// under a plugin.json skills root (skills/, plugin/skills/)
 // is a public door and must be named here, or compile fails it as misplaced;
 // engines live under attachments/<group>/.
 // Ratified 2026-08-21 (surface-ratchet amendment; engines-to-attachments

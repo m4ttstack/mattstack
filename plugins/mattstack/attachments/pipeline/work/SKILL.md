@@ -35,6 +35,8 @@ stage starts, and follow it.
 | `ship` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-ship}}` | `commits` `ticket` | `mr` |
 | `watch-ci` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-watch-ci}}` | `mr` `branch` | `ci` |
 
+{{harness:resources}}
+
 `run_start` takes these flags verbatim:
 
 {{run-start.flags:work}}
@@ -47,7 +49,7 @@ digraph work {
     "Existing work, and no runDb in context?" [shape=diamond];
     "run_list {repo}" [shape=plaintext];
     "Newest running run in this repo?" [shape=diamond];
-    "Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold" [shape=box];
+    "Gate clarify, an in-pane question only: Resume it / Start fresh / Hold" [shape=box];
     "clarify answer?" [shape=diamond];
     "runDb = absolute runs root/<repo>/<id>/state.db" [shape=box];
     "run_snapshot" [shape=plaintext];
@@ -101,9 +103,9 @@ digraph work {
     "Existing work, and no runDb in context?" -> "run_list {repo}" [label="yes"];
     "Existing work, and no runDb in context?" -> "run_start {flags, skillDir, ticket?, spawnedBy?}" [label="no: new work"];
     "run_list {repo}" -> "Newest running run in this repo?";
-    "Newest running run in this repo?" -> "Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold" [label="found"];
+    "Newest running run in this repo?" -> "Gate clarify, an in-pane question only: Resume it / Start fresh / Hold" [label="found"];
     "Newest running run in this repo?" -> "run_start {flags, skillDir, ticket?, spawnedBy?}" [label="none"];
-    "Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold" -> "clarify answer?";
+    "Gate clarify, an in-pane question only: Resume it / Start fresh / Hold" -> "clarify answer?";
     "clarify answer?" -> "runDb = absolute runs root/<repo>/<id>/state.db" [label="resume"];
     "clarify answer?" -> "run_start {flags, skillDir, ticket?, spawnedBy?}" [label="start fresh"];
     "clarify answer?" -> "Held: end the turn naming run and stage" [label="hold"];
@@ -198,7 +200,8 @@ digraph work {
   it; a green `ci` does not. Never carry a finished run's `runDb` into new
   work: its next `run_stage start` would write into it.
 - **Clarify comes before the run.** No `runDb` exists yet, so `clarify`
-  is AskUserQuestion alone: no `gate_*` and no `run_*` call.
+  is an in-pane question alone (Clarify, under Gate questions): no
+  `gate_*` and no `run_*` call.
 - **This file's own gates** (`<stage>-failed`, `close`) walk
   gate-protocol with "Under a run: fail the stage at the gate?" answered
   no: a gate the daemon cannot open here ends the turn quoting the
@@ -236,6 +239,12 @@ Selections:
 
 - failure: `{"next":"retry|redirect|iterate|hold|abandon","to":"<stage or null>","note":"<their words or null>"}`
 - close: `{"next":"done|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`
+
+### Clarify
+
+`clarify` opens no gate, so it is asked in the pane and nowhere else:
+
+{{harness:questions}}
 
 ## Sub-agent tiering
 

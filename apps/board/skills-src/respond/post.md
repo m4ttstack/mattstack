@@ -242,7 +242,10 @@ threads wait for this answer too, then post with its picks.
 The daemon is down at open time, or the wait failed three times. Present
 Gate 2 as native forms alone, chunked exactly as the form branch in `gate-step.md` does: its
 thread questions in order, up to four per call, each a multi-select of
-post and resolve. Proceed on the combined answers with `by: pane`.
+post and resolve. Proceed on the combined answers with `by: pane`. Ask
+them this way:
+
+{{harness:questions}}
 
 ### Record the Gate 2 picks in --report
 

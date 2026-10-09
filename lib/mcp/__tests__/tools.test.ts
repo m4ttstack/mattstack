@@ -134,13 +134,15 @@ describe("mcpTools", () => {
 
     // A form gate told to background a wait never reaches the pane's form:
     // the wait is the wait branch only.
-    test("description branches on the returned presentation: form asks in the pane, only wait backgrounds rt gate wait", () => {
+    test("description branches on the returned presentation: form asks in the pane, only wait holds on rt gate wait", () => {
       const tool = mcpTools().find((t) => t.name === "gate_ask")!;
       expect(tool.description).toContain("act on the returned presentation");
-      expect(tool.description).toContain("form: ask it in the pane with AskUserQuestion");
+      expect(tool.description).toContain("form: ask it in the pane as your skill's gate protocol says for this harness");
       expect(tool.description).toContain("then answer with the gate_answer tool");
       expect(tool.description).not.toContain("--by pane");
-      expect(tool.description).toContain("wait: when the reply has wake, end the turn: the session is woken with the answer. With no wake, run `rt gate wait <id>` as background bash and end the turn");
+      expect(tool.description).toContain("wait: when the reply has wake, end the turn: the session is woken with the answer. With no wake, hold on `rt gate wait <id>` in the shell");
+      expect(tool.description).not.toContain("AskUserQuestion");
+      expect(tool.description).not.toContain("background bash");
       expect(tool.description.indexOf("rt gate wait")).toBeGreaterThan(tool.description.indexOf("With no wake"));
     });
 

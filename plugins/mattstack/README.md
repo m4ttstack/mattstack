@@ -187,8 +187,8 @@ The review cluster: a shared engine plus the protocols around it.
 `self-review`, and `receive-review` are hidden via `disable-model-invocation`
 and reached only as a pack's compiled verbs. The review skills plug into
 domain packs via the `review-criteria@1`, `reviewer-dispatch@1`, and
-`reply-rules@1` contracts, while `subagent-review-loop` is a standalone
-one-off with no slots.
+`reply-rules@1` contracts, while `subagent-review-loop` is a slotless
+verb the pack compiles from its own engine, once per harness.
 
 - The review flow lives in five internal include bodies
   (`review-core-body`, `review-core-body-after`, `review-core-body-tail`,
@@ -274,7 +274,7 @@ claude plugin marketplace add m4ttstack/mattstack-marketplace
 claude plugin install mattstack@mattstack
 ```
 
-That loads the invocable skills (`plugin/skills/`, `skills/review/`) and the
+That loads the invocable skills (`plugin/skills/`) and the
 pack's own compiled verb (`skills/shepherdr/`, from `pack/stubs.jsonc` and
 `pack/skills.jsonc` via `rt skills compile --pack mattstack`). The other
 engines, includes, and fills under `attachments/` are not invocable on their

@@ -263,7 +263,10 @@ alone, chunked exactly as the form branch in `gate-step.md` does: the thread que
 order, up to four per call, then `code-changes` in one more call only when
 some thread's answer is a `fix:` value, otherwise fill `code-changes:
 "skip"` without asking. Proceed on the combined answers with `by: pane`.
-When the daemon is down the PreToolUse hook allows the native form.
+When the daemon is down a question hook allows the native form. Ask them
+this way:
+
+{{harness:questions}}
 
 ### respond off-script gate: mr_view refused
 

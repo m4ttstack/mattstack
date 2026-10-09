@@ -19,7 +19,7 @@ digraph respond_gate_2_and_posting {
     "Domain skill resolved (reply-only)?" [shape=diamond];
     "<status-bin> respond-status <state> drafting (before Gate 2)" [shape=plaintext];
     "Fitted respond-post open file handed back?" [shape=diamond];
-    "scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [shape=plaintext];
+    "<skill-dir>/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [shape=plaintext];
     "Build the Gate 2 questions" [shape=box];
     "<status-bin> gate open <state> --kind respond-post --questions <json> [--context <text>]" [shape=plaintext];
     "respond-post open exit?" [shape=diamond];
@@ -77,10 +77,10 @@ digraph respond_gate_2_and_posting {
     "Domain skill resolved (reply-only)?" -> "Posting finished: continue at the done write" [label="yes: it posted them on {plan}"];
     "Domain skill resolved (reply-only)?" -> "Record the Gate 2 picks in --report" [label="no: post the reply-only threads"];
     "<status-bin> respond-status <state> drafting (before Gate 2)" -> "Fitted respond-post open file handed back?";
-    "Fitted respond-post open file handed back?" -> "scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="yes"];
+    "Fitted respond-post open file handed back?" -> "<skill-dir>/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="yes"];
     "Fitted respond-post open file handed back?" -> "Build the Gate 2 questions" [label="no"];
     "Build the Gate 2 questions" -> "<status-bin> gate open <state> --kind respond-post --questions <json> [--context <text>]";
-    "scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" -> "respond-post open exit?";
+    "<skill-dir>/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" -> "respond-post open exit?";
     "<status-bin> gate open <state> --kind respond-post --questions <json> [--context <text>]" -> "respond-post open exit?";
     "respond-post open exit?" -> "Gate 2: take the respond gate step" [label="0"];
     "respond-post open exit?" -> "Ask Gate 2 as native forms (degraded)" [label="nonzero: the daemon is down"];
@@ -242,7 +242,26 @@ threads wait for this answer too, then post with its picks.
 The daemon is down at open time, or the wait failed three times. Present
 Gate 2 as native forms alone, chunked exactly as the form branch in `gate-step.md` does: its
 thread questions in order, up to four per call, each a multi-select of
-post and resolve. Proceed on the combined answers with `by: pane`.
+post and resolve. Proceed on the combined answers with `by: pane`. Ask
+them this way:
+
+<!-- part: harness:questions target=codex path=attachments/harness/codex.md lines=13-28 -->
+Codex gives a skill no form tool it can rely on: `request_user_input`
+exists only in plan mode, and a question item Codex shows outside plan mode
+is not an answer anyone gave. So:
+
+- In plan mode, with `request_user_input` in your tools and no gate open
+  for these questions, ask with it; its result is the answer.
+- Otherwise ask in words: each question, then its options as a numbered
+  list (the label, then the description after a dash), saying whether one
+  or several may be picked. Words have no per-call limit, so every chunk
+  goes in the one message. Record whatever the step says to record first,
+  then make the questions this turn's last message and end the turn. The
+  human's reply is the answer: map their words onto the options' values,
+  and carry anything more they said as a note.
+
+Never treat a question you showed as answered until a person's reply, or a
+gate's recorded answer, says so.
 
 ### Record the Gate 2 picks in --report
 
