@@ -336,7 +336,12 @@
 }
 .settings-help-icon {
   display: inline-flex;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
   color: var(--text-2);
+  font: inherit;
   cursor: help;
   border-radius: var(--radius-round);
 }

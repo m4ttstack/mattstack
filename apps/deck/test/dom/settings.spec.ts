@@ -1192,6 +1192,35 @@ test('code: a broken link reads the relink note in sentence case', async () => {
   });
 }, 15000);
 
+test('help: each glyph is a plain button named by its tip, reachable by Tab, with a visible focus ring', async () => {
+  await withBoard(async page => {
+    const dlg = await openSettings(page, 'atlas');
+    const tip =
+      'Left is the commit running now. Right is the newest commit in the linked checkout.';
+    const help = button(block(dlg, 'code'), tip);
+    expect(await help.count()).toBe(1);
+    expect(await help.getAttribute('type')).toBe('button');
+    expect(await dlg.locator('.settings-help [role="img"]').count()).toBe(0);
+
+    await help.focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    expect(await help.evaluate(el => el === document.activeElement)).toBe(true);
+    const ring = await help.evaluate(el => {
+      const s = getComputedStyle(el);
+      return { style: s.outlineStyle, width: s.outlineWidth };
+    });
+    expect(ring.style).toBe('solid');
+    expect(ring.width).not.toBe('0px');
+    await page
+      .locator('[data-part="tooltip-card"]', { hasText: tip })
+      .waitFor({ state: 'visible', timeout: 2000 });
+
+    const glyph = await help.locator('svg').boundingBox();
+    expect(Math.round(glyph?.width ?? 0)).toBe(13);
+  });
+});
+
 test('code: Deployed reads deployed → head with new code in source, or current when linked without new code', async () => {
   await withBoard(
     async page => {
