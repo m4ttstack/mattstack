@@ -797,40 +797,49 @@ export function useBoardState() {
     updateAccessModal({ entries: [], entryDraft: '', oauthError: null });
   }, [updateAccessModal]);
 
-  const applyOauth = useCallback(async () => {
-    if (!accessModal) return false;
-    const items = accessModal.entries;
-    if (!items.length) return false;
-    const payload =
-      accessModal.mode === 'emails'
-        ? { mode: 'emails', emails: items }
-        : { mode: 'domains', domains: items };
-    updateAccessModal({ oauthBusy: true, oauthError: null });
-    let res: Response | null = null;
-    try {
-      res = await apiPut(`/api/v1/apps/${accessModal.app}/access`, payload);
-    } catch {
-      res = null;
-    }
-    if (!res || !res.ok) {
-      const b = res
-        ? await res
-            .json()
-            .catch(() => ({}) as { message?: string; error?: string })
-        : {};
-      updateAccessModal({
-        oauthBusy: false,
-        oauthError:
-          (b as { message?: string }).message ||
-          (b as { error?: string }).error ||
-          'Cloudflare sync failed.',
-      });
-      return false;
-    }
-    updateAccessModal({ oauthBusy: false });
-    await refresh();
-    return true;
-  }, [accessModal, refresh, updateAccessModal]);
+  // The draft rides in as an argument because addAccessEntry's commit only
+  // lands on the next render, after this closure has read the entries.
+  const applyOauth = useCallback(
+    async (draft = '') => {
+      if (!accessModal) return false;
+      const typed = draft.trim();
+      const items =
+        typed && !accessModal.entries.includes(typed)
+          ? [...accessModal.entries, typed]
+          : accessModal.entries;
+      if (!items.length) return false;
+      const payload =
+        accessModal.mode === 'emails'
+          ? { mode: 'emails', emails: items }
+          : { mode: 'domains', domains: items };
+      updateAccessModal({ oauthBusy: true, oauthError: null });
+      let res: Response | null = null;
+      try {
+        res = await apiPut(`/api/v1/apps/${accessModal.app}/access`, payload);
+      } catch {
+        res = null;
+      }
+      if (!res || !res.ok) {
+        const b = res
+          ? await res
+              .json()
+              .catch(() => ({}) as { message?: string; error?: string })
+          : {};
+        updateAccessModal({
+          oauthBusy: false,
+          oauthError:
+            (b as { message?: string }).message ||
+            (b as { error?: string }).error ||
+            'Cloudflare sync failed.',
+        });
+        return false;
+      }
+      updateAccessModal({ oauthBusy: false });
+      await refresh();
+      return true;
+    },
+    [accessModal, refresh, updateAccessModal]
+  );
 
   // ---- portless proxy reload ----
   const onProxyReload = useCallback(async () => {

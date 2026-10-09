@@ -309,6 +309,61 @@ test('who: Apply PUTs mode and the composed entries', async () => {
   });
 });
 
+test('who: Apply with a typed but uncommitted entry PUTs once with it included', async () => {
+  await withBoard(async page => {
+    const bodies: unknown[] = [];
+    await page.route('**/api/v1/apps/forecast/access', async route => {
+      bodies.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, cfSynced: true }),
+      });
+    });
+
+    const gates = await openGates(page, 'forecast');
+    await gates
+      .getByRole('switch', { name: 'require google sign-in', exact: true })
+      .click();
+    await gates.getByRole('textbox', { name: 'add email' }).fill('a@x.dev');
+    await button(gates, 'Apply').click({ timeout: 2000 });
+
+    await waitUntil(async () => bodies.length > 0);
+    await new Promise(r => setTimeout(r, 300));
+    expect(bodies).toEqual([{ mode: 'emails', emails: ['a@x.dev'] }]);
+  });
+});
+
+test('who: Apply sends committed entries plus the typed draft', async () => {
+  await withBoard(async page => {
+    const bodies: unknown[] = [];
+    await page.route('**/api/v1/apps/forecast/access', async route => {
+      bodies.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, cfSynced: true }),
+      });
+    });
+
+    const gates = await openGates(page, 'forecast');
+    await gates
+      .getByRole('switch', { name: 'require google sign-in', exact: true })
+      .click();
+    const draft = gates.getByRole('textbox', { name: 'add email' });
+    await draft.fill('a@x.dev');
+    await draft.press('Enter');
+    await draft.fill('b@y.dev');
+    await button(gates, 'Apply').click({ timeout: 2000 });
+
+    await waitUntil(async () => bodies.length > 0);
+    await new Promise(r => setTimeout(r, 300));
+    expect(bodies).toEqual([
+      { mode: 'emails', emails: ['a@x.dev', 'b@y.dev'] },
+    ]);
+  });
+});
+
 test('who: an apply error renders inline and the modal stays open', async () => {
   await withBoard(async page => {
     await page.route('**/api/v1/apps/forecast/access', async route => {

@@ -229,8 +229,14 @@ function SignInItem({
               aria-label={m.mode === 'emails' ? 'add email' : 'add domain'}
             />
             <Button
-              disabled={m.entries.length === 0 || busy}
-              onClick={() => board.applyOauth()}
+              disabled={(m.entries.length === 0 && draft.trim() === '') || busy}
+              // A blur commit on mousedown adds the first chip row, which
+              // moves this button out from under the pointer before mouseup.
+              onMouseDown={ev => ev.preventDefault()}
+              onClick={() => {
+                commitDraft();
+                board.applyOauth(draft);
+              }}
             >
               Apply
             </Button>
