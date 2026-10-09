@@ -219,17 +219,21 @@ export function rowActions(
           })
         );
       else if (it.kind === 'follow-up')
-        agent.push(
+        (own ? sessions : agent).push(
           agentItem(
             'review',
             're-review',
             it.label,
             { kind: 'launch', flow: 're-review' },
-            { notable: true, bulk: 'follow-up review' }
+            {
+              notable: true,
+              bulk: 'follow-up review',
+              ...(own ? { section: 'sessions' as const } : {}),
+            }
           )
         );
       else
-        (followUpOffered ? sessions : agent).push(
+        (own || followUpOffered ? sessions : agent).push(
           agentItem(
             'review',
             'review',
@@ -238,7 +242,9 @@ export function rowActions(
             {
               notable: true,
               bulk: 'review',
-              ...(followUpOffered ? { section: 'sessions' as const } : {}),
+              ...(own || followUpOffered
+                ? { section: 'sessions' as const }
+                : {}),
               ...(it.kind === 'redo' ? { redo: 'review' as const } : {}),
             }
           )

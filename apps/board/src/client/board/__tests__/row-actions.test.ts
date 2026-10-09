@@ -23,10 +23,10 @@ const sections = (mr: typeof ownIdle, env: typeof ownEnv) =>
 test('an idle own MR: every action, by section, in menu order', () => {
   expect(sections(ownIdle, ownEnv)).toEqual([
     'top:post-slack',
-    'agent:review',
     'agent:respond',
     'agent:rebase-local',
     'agent:request-review',
+    'sessions:review',
     'gitlab:merge',
     'gitlab:rebase',
     'gitlab:setAutoMerge',
@@ -79,11 +79,11 @@ test('a remote board drops local-only rows and says why', () => {
   expect(actions[0]?.blocked).toBe('need a local board');
 });
 
-test('follow-up review is the primary; a fresh review sits under sessions', () => {
+test('on an own MR, follow-up review and review both sit under sessions', () => {
   // Reviewed only on GitLab: a plain review, nothing to confirm.
   const mr = MENU_STATES['own broken']!.mr;
   const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
-  expect(actions.find(a => a.key === 're-review')?.section).toBe('agent');
+  expect(actions.find(a => a.key === 're-review')?.section).toBe('sessions');
   const fresh = actions.find(a => a.key === 'review');
   expect(fresh?.section).toBe('sessions');
   expect(fresh?.label).toBe('review');
@@ -96,7 +96,7 @@ test('follow-up review is the primary; a fresh review sits under sessions', () =
   expect(redo).toMatchObject({ label: 'redo review', redo: 'review' });
 });
 
-test('each lane shows exactly one primary row in agent, in every state', () => {
+test('each lane shows exactly one primary row in agent, in every state; an own MR keeps only a running review there', () => {
   const REVIEW = new Set(['review', 're-review', 'focus-review']);
   const RESPOND = new Set(['respond', 'focus-respond']);
   for (const [name, { mr, env }] of Object.entries(MENU_STATES)) {
@@ -104,11 +104,14 @@ test('each lane shows exactly one primary row in agent, in every state', () => {
     const agent = rowActions(mr, actionEnvOf(env, mr)).filter(
       a => a.section === 'agent'
     );
-    expect([name, agent.filter(a => REVIEW.has(a.key)).length]).toEqual([
-      name,
-      1,
-    ]);
     const own = env.self !== null && mr.author.username === env.self;
+    const reviewRows = agent.filter(a => REVIEW.has(a.key));
+    if (own)
+      expect([name, reviewRows.every(a => a.key === 'focus-review')]).toEqual([
+        name,
+        true,
+      ]);
+    else expect([name, reviewRows.length]).toEqual([name, 1]);
     expect([name, agent.filter(a => RESPOND.has(a.key)).length]).toEqual([
       name,
       own ? 1 : 0,
