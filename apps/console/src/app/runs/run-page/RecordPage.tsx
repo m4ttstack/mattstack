@@ -28,6 +28,7 @@ import { RecordHeader } from './RecordHeader';
 import { ReviewDecisions } from './ReviewVerdict';
 import classesPage from './RunPage.module.css';
 import { SideCards } from './SideCards';
+import { StageDocDrawer } from './StageDoc';
 import { RunStory } from './Story';
 import { useRunParts, type RunPageData } from './useRunParts';
 
@@ -224,7 +225,12 @@ export function RecordPage({
             <Tabs.Panel value="evidence">{evidenceColumn}</Tabs.Panel>
           ) : null}
           <Tabs.Panel value="inputs">
-            <EffectiveInputs repo={repo} runId={runId} decisions={decisions} />
+            <EffectiveInputs
+              repo={repo}
+              runId={runId}
+              decisions={decisions}
+              intro
+            />
           </Tabs.Panel>
         </Stack>
       </Tabs>
@@ -248,6 +254,7 @@ export function RecordPage({
         opened={drawer.opened}
         onClose={drawer.close}
       />
+      <StageDocDrawer repo={repo} runId={runId} />
     </Stack>
   );
 }

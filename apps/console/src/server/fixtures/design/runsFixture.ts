@@ -68,7 +68,11 @@ export interface RunsFixture {
     repo: string,
     runId: string
   ): Promise<EffectiveInputsPayload | null>;
-  stageDoc(repo: string, runId: string, stage: string): Promise<string | null>;
+  stageDoc(
+    repo: string,
+    runId: string,
+    stage: string
+  ): Promise<{ text: string; pack: string; sha: string } | null>;
   evidence(
     repo: string,
     runId: string,
@@ -364,11 +368,15 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
 
     async stageDoc(repo, runId, stage) {
       if (!STAGE_NAME.test(stage) || !(await getRun(repo, runId))) return null;
+      let text: string;
       try {
-        return await readFile(join(RUNS, 'stage-docs', `${stage}.md`), 'utf8');
+        text = await readFile(join(RUNS, 'stage-docs', `${stage}.md`), 'utf8');
       } catch {
         return null;
       }
+      const shared = await readRuns<SharedInputs>('effective-inputs.json');
+      const [first] = shared.packVersions ?? [];
+      return first ? { text, pack: first.pack, sha: first.recordedSha } : null;
     },
 
     async evidence(repo, runId, key) {

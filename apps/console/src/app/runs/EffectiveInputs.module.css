@@ -1,0 +1,98 @@
+.box {
+  width: 100%;
+  overflow: hidden;
+}
+
+.rule:not(:last-child) {
+  border-bottom: 1px solid var(--tk-border);
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  background-color: var(--tk-card);
+}
+
+.row[data-open] {
+  background-color: var(--tk-panel);
+}
+
+.flat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 14px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 14px;
+}
+
+.head:disabled {
+  cursor: default;
+}
+
+.chev {
+  flex: none;
+  color: var(--tk-text-3);
+}
+
+.sp {
+  flex: 1 1 0;
+  height: 1px;
+}
+
+.key {
+  flex: none;
+  width: 150px;
+}
+
+.body {
+  padding: 2px 14px 14px 38px;
+}
+
+.start {
+  align-self: flex-start;
+}
+
+.decision {
+  padding: 10px 14px;
+}
+
+.line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+
+.where {
+  padding: 0 14px 12px;
+}
+
+.scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.scopeName {
+  flex: none;
+  width: 60px;
+}
+
+.push {
+  flex: none;
+  margin-left: auto;
+}

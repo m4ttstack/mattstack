@@ -14,6 +14,7 @@ import { NowCard } from './NowCard';
 import { RunHeader } from './RunHeader';
 import classes from './RunPage.module.css';
 import { SideCards } from './SideCards';
+import { StageDocDrawer } from './StageDoc';
 import { RunStory } from './Story';
 import { usePruneGateDrafts } from './useGateDraft';
 import { useRunParts, type RunPageData } from './useRunParts';
@@ -204,6 +205,7 @@ export function RunPage({
         opened={drawer.opened}
         onClose={drawer.close}
       />
+      <StageDocDrawer repo={repo} runId={runId} />
     </Stack>
   );
 }

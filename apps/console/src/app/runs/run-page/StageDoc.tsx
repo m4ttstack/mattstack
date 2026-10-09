@@ -1,10 +1,113 @@
-import { useState } from 'react';
-import { Anchor, Code, Modal, Skeleton, Text } from '@mattstack/app-kit/core';
+import { useCallback } from 'react';
+import { Anchor, Drawer, Skeleton, Stack, Text } from '@mattstack/app-kit/core';
 import { useQuery } from '@tanstack/react-query';
+import type { Components } from 'react-markdown';
+import { useLocation, useSearch } from 'wouter';
 
 import { client } from '../../api';
+import { docPreview, packState, stripFrontmatter } from '../derive/inputs';
+import { useEffectiveInputs } from '../EffectiveInputs';
+import { GateContext } from '../GateContext';
+import drawer from './InputsDrawer.module.css';
+import classes from './StageDoc.module.css';
 
-type StageDocResult = { text: string } | { error: string };
+const PARAM = 'doc';
+const INPUTS_PARAM = 'inputs';
+
+/** The doc the stage-doc route found. A design fixture may leave out where
+    it came from. */
+export interface StageDocHit {
+  text: string;
+  pack?: string;
+  sha?: string;
+}
+
+/** A stage's compiled doc, or null when nothing resolves at the recorded
+    version (the route's 404). */
+export function useStageDoc(repo: string, runId: string, stage: string | null) {
+  return useQuery({
+    queryKey: ['stage-doc', repo, runId, stage],
+    queryFn: async (): Promise<StageDocHit | null> => {
+      const res = await client.api.runs[':repo'][':runId']['stage-doc'].$get({
+        param: { repo, runId },
+        query: { stage: stage ?? '' },
+      });
+      if (res.status === 404) return null;
+      const body = (await res.json()) as StageDocHit | { error?: string };
+      if (!res.ok || !('text' in body))
+        throw new Error(
+          ('error' in body && body.error) || `stage doc failed: ${res.status}`
+        );
+      return body;
+    },
+    enabled: stage !== null,
+  });
+}
+
+/** The one open stage doc, kept in the URL as `?doc=<stage>`. Opening it
+    closes the inputs drawer, so a drawer never opens over another. */
+export function useStageDocDrawer() {
+  const search = useSearch();
+  const [location, navigate] = useLocation();
+  const stage = new URLSearchParams(search).get(PARAM);
+  const write = useCallback(
+    (next: string | null) => {
+      const params = new URLSearchParams(search);
+      params.delete(INPUTS_PARAM);
+      if (next) params.set(PARAM, next);
+      else params.delete(PARAM);
+      const qs = params.toString();
+      navigate(qs ? `${location}?${qs}` : location, { replace: true });
+    },
+    [search, location, navigate]
+  );
+  return {
+    stage,
+    open: useCallback((s: string) => write(s), [write]),
+    close: useCallback(() => write(null), [write]),
+  };
+}
+
+const bulleted: Components['li'] = ({ children }) => (
+  <li>
+    <span className={classes.bullet} data-parity="b" aria-hidden>
+      •
+    </span>
+    <span data-parity="t">{children}</span>
+  </li>
+);
+
+const FULL: Components = {
+  h1: ({ children }) => <h1 data-parity="h1">{children}</h1>,
+  h2: ({ children }) => <h2 data-parity="h2">{children}</h2>,
+  p: ({ children }) => <p data-parity="p">{children}</p>,
+  li: bulleted,
+};
+
+const PREVIEW: Components = {
+  p: ({ children }) => <p data-parity="p1">{children}</p>,
+  li: bulleted,
+};
+
+/** A stage doc rendered as Markdown, its frontmatter dropped. `preview`
+    keeps only its opening paragraph and first list. */
+export function StageDocText({
+  text,
+  preview = false,
+}: {
+  text: string;
+  preview?: boolean;
+}) {
+  return (
+    <GateContext
+      text={preview ? docPreview(text) : stripFrontmatter(text)}
+      className={preview ? `${classes.doc} ${classes.preview}` : classes.doc}
+      components={preview ? PREVIEW : FULL}
+    />
+  );
+}
+
+const isSha = (s: string) => /^[0-9a-f]{8,}$/i.test(s);
 
 function StageDocBody({
   repo,
@@ -15,73 +118,109 @@ function StageDocBody({
   runId: string;
   stage: string;
 }) {
-  const query = useQuery({
-    queryKey: ['stage-doc', repo, runId, stage],
-    queryFn: async () => {
-      const res = await client.api.runs[':repo'][':runId']['stage-doc'].$get({
-        param: { repo, runId },
-        query: { stage },
-      });
-      return (await res.json()) as StageDocResult;
-    },
-  });
+  const query = useStageDoc(repo, runId, stage);
   if (query.isPending) return <Skeleton height={200} />;
   if (query.isError)
     return (
-      <Text size="sm" c="dimmed">
+      <Text fz={13} lh="normal" c="dimmed">
         {(query.error as Error).message}
       </Text>
     );
-  if ('error' in query.data)
+  if (query.data === null)
     return (
-      <Text size="sm" c="dimmed" data-testid="stage-doc-no-doc">
-        {query.data.error}
+      <Text fz={13} lh="normal" c="dimmed" data-testid="stage-doc-no-doc">
+        No doc at this version.
       </Text>
     );
-  return <Code block>{query.data.text}</Code>;
+  return <StageDocText text={query.data.text} />;
 }
 
-/** The "Stage doc" link in an opened stage row's head: the compiled stage
-    doc the run read, in a modal. */
-export function StageDocLink({
+function useDocSource(repo: string, runId: string, stage: string | null) {
+  const doc = useStageDoc(repo, runId, stage).data;
+  const packs = useEffectiveInputs(repo, runId).data?.packVersions ?? null;
+  if (!doc?.pack) return null;
+  const sha = doc.sha ? (isSha(doc.sha) ? doc.sha.slice(0, 7) : doc.sha) : '';
+  const row = packs?.find(p => p.pack === doc.pack);
+  return [
+    sha ? `${doc.pack} @ ${sha}` : doc.pack,
+    row ? packState(row).label : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** The one stage doc surface, for the story's "Stage doc" link and the
+    inputs' "Open the full doc". */
+export function StageDocDrawer({
   repo,
   runId,
-  stage,
-  className,
 }: {
   repo: string;
   runId: string;
+}) {
+  const { stage, close } = useStageDocDrawer();
+  const source = useDocSource(repo, runId, stage);
+  return (
+    <Drawer
+      opened={stage !== null}
+      onClose={close}
+      position="right"
+      size={640}
+      padding={24}
+      classNames={{ header: drawer.header, body: drawer.body }}
+      title={
+        <Stack gap={2}>
+          <Text fz={15} fw={700} lh="normal" data-parity="t">
+            {stage} · stage doc
+          </Text>
+          {source ? (
+            <Text fz={12} lh="normal" c="dimmed" data-parity="s">
+              {source}
+            </Text>
+          ) : null}
+        </Stack>
+      }
+      attributes={{
+        content: {
+          'data-parity': 'Stage doc drawer',
+          'data-testid': 'stage-doc-drawer',
+        },
+        header: { 'data-parity': 'head' },
+        close: { 'data-parity': 'x' },
+        body: { 'data-parity': 'doc' },
+      }}
+    >
+      {stage ? <StageDocBody repo={repo} runId={runId} stage={stage} /> : null}
+    </Drawer>
+  );
+}
+
+/** The "Stage doc" link in an opened stage row's head. */
+export function StageDocLink({
+  stage,
+  className,
+}: {
   stage: string;
   className?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const { open } = useStageDocDrawer();
   return (
-    <>
-      <Anchor
-        component="button"
-        type="button"
-        fz={12.5}
-        fw={500}
-        lh="normal"
-        c="accent"
-        className={className}
-        onClick={e => {
-          e.stopPropagation();
-          setOpen(true);
-        }}
-        aria-label={`stage doc for ${stage}`}
-        data-parity="doc"
-      >
-        Stage doc
-      </Anchor>
-      <Modal
-        opened={open}
-        onClose={() => setOpen(false)}
-        title={stage}
-        size="xl"
-      >
-        {open ? <StageDocBody repo={repo} runId={runId} stage={stage} /> : null}
-      </Modal>
-    </>
+    <Anchor
+      component="button"
+      type="button"
+      fz={12.5}
+      fw={500}
+      lh="normal"
+      c="accent"
+      className={className}
+      onClick={e => {
+        e.stopPropagation();
+        open(stage);
+      }}
+      aria-label={`stage doc for ${stage}`}
+      data-parity="doc"
+    >
+      Stage doc
+    </Anchor>
   );
 }

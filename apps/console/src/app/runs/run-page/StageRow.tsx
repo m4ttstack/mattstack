@@ -154,12 +154,7 @@ export function StageRow({
           {summary}
         </Text>
         {open ? (
-          <StageDocLink
-            repo={repo}
-            runId={runId}
-            stage={entry.attempt.stage}
-            className={classes.keep}
-          />
+          <StageDocLink stage={entry.attempt.stage} className={classes.keep} />
         ) : null}
         <UnstyledButton
           className={classes.chevron}

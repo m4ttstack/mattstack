@@ -283,7 +283,8 @@ export const BOARDS: Board<Scenario>[] = [
     'aJIIw',
     `${RUN}/20261008-1338?inputs`,
     ['Drawer'],
-    900
+    900,
+    { action: { kind: 'clicks', layers: ['doc plan'], waitFor: 'more' } }
   ),
   runsBoard(
     'runs-p2-states',
@@ -351,11 +352,12 @@ export const BOARDS: Board<Scenario>[] = [
     962,
     {
       // The record rail's Compare button is also keyed `Compare`.
-      appRoots: { Compare: 'Compare modal' },
+      // The whole inputs drawer stands in for the tile's cut-down one.
+      appRoots: { Compare: 'Compare modal', 'Setting inline': 'Drawer' },
       panels: [
         {
           label: 'stage doc drawer',
-          route: `${RUN}/20261008-1338`,
+          route: `${RUN}/20261008-1338?doc=plan`,
           root: 'Stage doc drawer',
         },
         {
@@ -370,8 +372,13 @@ export const BOARDS: Board<Scenario>[] = [
         },
         {
           label: 'setting inline',
-          route: `${RUN}/20261008-1338`,
+          route: `${RUN}/20261008-1338?inputs`,
           root: 'Setting inline',
+          action: {
+            kind: 'clicks',
+            layers: ['row rt.worktrees'],
+            waitFor: 'where',
+          },
         },
       ],
     }

@@ -1,18 +1,17 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
+  Anchor,
   Badge,
-  Code,
-  Drawer,
-  Group,
+  Paper,
   Skeleton,
   Stack,
   Text,
   UnstyledButton,
 } from '@mattstack/app-kit/core';
-import { useSchemeColors } from '@mattstack/app-kit/hooks';
-import { Icons } from '@mattstack/app-kit/icons';
+import { Icon } from '@mattstack/app-kit/icons';
 import type { RunDecisionRow } from '@mattstack/rt-client';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { Link } from 'wouter';
 
 import type {
   ConfigDepRow,
@@ -20,25 +19,17 @@ import type {
   PackVersionRow,
 } from '../../server/effectiveInputs';
 import { client } from '../api';
-import { shortValue } from '../config/chain';
-import { ExplainModal } from '../settings/ExplainModal';
-import { useDrawerSurface } from '../wiring/drawerSurface';
-import { QuietBadge } from '../wiring/QuietBadge';
-import { CommandProvenance } from './CommandProvenance';
+import { decisionSentence, packState, settingValue } from './derive/inputs';
+import classes from './EffectiveInputs.module.css';
+import { LABEL_TYPE } from './run-page/SideCards';
+import {
+  StageDocText,
+  useStageDoc,
+  useStageDocDrawer,
+} from './run-page/StageDoc';
 
-const ATTRIBUTION =
-  'joins rt runs show, rt skills packs --json, and git show at the recorded pack sha';
-
-/** Matches every other code surface in the console rather than Code's own
-    default block padding and size. */
-const CODE_STYLE = {
-  padding: 0,
-  background: 'transparent',
-  fontSize: 'var(--mantine-font-size-xs)',
-  lineHeight: 1.65,
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
-} as const;
+export const INPUTS_SUB =
+  'What this run was told, from the pack versions it recorded';
 
 export function useEffectiveInputs(repo: string, runId: string) {
   return useQuery({
@@ -63,255 +54,302 @@ export function useEffectiveInputs(repo: string, runId: string) {
   });
 }
 
-type StageDocResult = { text: string } | { error: string };
-
-function useStageDoc(repo: string, runId: string, stage: string | null) {
-  return useQuery({
-    queryKey: ['stage-doc', repo, runId, stage],
-    queryFn: async () => {
-      const res = await client.api.runs[':repo'][':runId']['stage-doc'].$get({
-        param: { repo, runId },
-        query: { stage: stage ?? '' },
-      });
-      return (await res.json()) as StageDocResult;
-    },
-    enabled: stage !== null,
-  });
-}
-
-function DriftBadge({ drifted }: { drifted: boolean | null }) {
-  if (drifted === true) {
-    return (
-      <Badge size="xs" variant="light" color="warn">
-        source has moved since
-      </Badge>
-    );
-  }
-  if (drifted === false) {
-    return (
-      <Badge size="xs" variant="light" color="ok">
-        matches source
-      </Badge>
-    );
-  }
-  return <QuietBadge>pack not resolvable here</QuietBadge>;
-}
-
-function PackRow({ pack }: { pack: PackVersionRow }) {
+function Section({ name, children }: { name: string; children: ReactNode }) {
   return (
-    <Group gap="xs" wrap="nowrap" data-testid={`pack-row-${pack.pack}`}>
-      <Text size="sm" ff="monospace">
-        pack {pack.pack} @ {pack.recordedSha}
+    <Stack gap={8}>
+      <Text {...LABEL_TYPE} data-parity="h">
+        {name}
       </Text>
-      <DriftBadge drifted={pack.drifted} />
-    </Group>
+      {children}
+    </Stack>
   );
 }
 
-function StageRow({
-  stage,
-  onOpen,
-}: {
-  stage: string;
-  onOpen: (stage: string) => void;
-}) {
-  const { text } = useSchemeColors();
+function Box({ children }: { children: ReactNode }) {
   return (
-    <UnstyledButton
-      onClick={() => onOpen(stage)}
-      aria-label={`view compiled doc for ${stage}`}
-      data-testid={`stage-row-${stage}`}
+    <Paper
+      variant="ground"
+      withBorder
+      radius={10}
+      className={classes.box}
+      data-parity="box"
     >
-      <Group gap={6} wrap="nowrap">
-        <Icons.chevronRight size={12} color={text.muted} />
-        <Text size="sm">{stage}</Text>
-      </Group>
-    </UnstyledButton>
+      {children}
+    </Paper>
   );
 }
 
-function PipelineSection({
-  payload,
-  onOpenStage,
-}: {
-  payload: EffectiveInputsPayload;
-  onOpenStage: (stage: string) => void;
-}) {
-  const { text } = useSchemeColors();
+const Spacer = () => <span className={classes.sp} />;
+
+function Pill({ label, tone }: ReturnType<typeof packState>) {
   return (
-    <Stack gap="xs" data-testid="effective-inputs-pipeline">
-      <Text fw={700}>Pipeline &amp; stages</Text>
-      <Text size="sm">
-        {payload.pipeline} · {payload.workType}
+    <Badge
+      size="xs"
+      variant={tone === 'quiet' ? 'panel-outline' : 'light'}
+      color={tone === 'quiet' ? 'gray' : tone}
+      tt="none"
+      data-parity="pill"
+      attributes={{ label: { 'data-parity': 'l' } }}
+    >
+      {label}
+    </Badge>
+  );
+}
+
+function PackRow({ pack, last }: { pack: PackVersionRow; last: boolean }) {
+  return (
+    <div
+      className={`${classes.rule} ${classes.flat}`}
+      data-parity={last ? undefined : 'row'}
+      data-testid={`pack-row-${pack.pack}`}
+    >
+      <Text fz={13.5} fw={500} lh="normal" data-parity="n">
+        {pack.pack}
       </Text>
+      <Text ff="monospace" fz={12} lh="normal" c="dimmed" data-parity="s">
+        {pack.recordedSha.slice(0, 7)}
+      </Text>
+      <Spacer />
+      <Pill {...packState(pack)} />
+    </div>
+  );
+}
+
+function PacksSection({ payload }: { payload: EffectiveInputsPayload }) {
+  return (
+    <Section name="Packs">
       {payload.packVersions === null ? (
-        <Text size="xs" c={text.muted}>
+        <Text fz={12.5} lh="normal" c="dimmed">
           pre-v2 run — pack version not recorded
         </Text>
       ) : (
-        <Stack gap={4}>
-          {payload.packVersions.map(pack => (
-            <PackRow key={pack.pack} pack={pack} />
+        <Box>
+          {payload.packVersions.map((pack, i, all) => (
+            <PackRow key={pack.pack} pack={pack} last={i === all.length - 1} />
           ))}
-          {payload.packDirty && (
-            <Text size="xs" c={text.muted}>
-              pack tree had uncommitted changes — the as-run text may exist in
-              no commit
-            </Text>
-          )}
-        </Stack>
+        </Box>
       )}
-      <Stack gap={2}>
-        {payload.stages.map(stage => (
-          <StageRow key={stage} stage={stage} onOpen={onOpenStage} />
-        ))}
-      </Stack>
-    </Stack>
+      {payload.packDirty && (
+        <Text fz={12.5} lh="normal" c="dimmed">
+          pack tree had uncommitted changes — the as-run text may exist in no
+          commit
+        </Text>
+      )}
+    </Section>
+  );
+}
+
+function StageDocRow({
+  repo,
+  runId,
+  stage,
+}: {
+  repo: string;
+  runId: string;
+  stage: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const doc = useStageDoc(repo, runId, stage);
+  const drawer = useStageDocDrawer();
+  const missing = doc.data === null;
+  const meta = missing
+    ? 'no doc at this version'
+    : doc.isError
+      ? "couldn't read the doc"
+      : open && doc.data?.pack
+        ? `from ${doc.data.pack}`
+        : '';
+  const expanded = open && !missing;
+  return (
+    <div
+      className={`${classes.rule} ${classes.row}`}
+      data-open={expanded || undefined}
+      data-parity={`doc ${stage}`}
+      data-testid={`stage-row-${stage}`}
+    >
+      <UnstyledButton
+        className={classes.head}
+        aria-expanded={expanded}
+        disabled={missing}
+        onClick={() => setOpen(o => !o)}
+      >
+        <Icon
+          name={expanded ? 'chevronDown' : 'chevronRight'}
+          size={14}
+          className={classes.chev}
+          data-parity="chev"
+        />
+        <Text fz={13.5} fw={expanded ? 500 : 400} lh="normal" data-parity="n">
+          {stage}
+        </Text>
+        <Spacer />
+        <Text
+          fz={12}
+          lh="normal"
+          c="dimmed"
+          data-parity={meta ? 'm' : undefined}
+        >
+          {meta}
+        </Text>
+      </UnstyledButton>
+      {expanded ? (
+        <Stack gap={8} className={classes.body}>
+          {doc.data ? (
+            <StageDocText text={doc.data.text} preview />
+          ) : (
+            <Skeleton height={60} />
+          )}
+          <Anchor
+            component="button"
+            type="button"
+            fz={12.5}
+            fw={500}
+            lh="normal"
+            c="accent"
+            className={classes.start}
+            onClick={() => drawer.open(stage)}
+            data-parity="more"
+          >
+            Open the full doc →
+          </Anchor>
+        </Stack>
+      ) : null}
+    </div>
   );
 }
 
 function DecisionRow({ decision }: { decision: RunDecisionRow }) {
-  const { text } = useSchemeColors();
+  const { label, value, meta } = decisionSentence(decision);
   return (
-    <Group
-      gap={6}
-      wrap="nowrap"
+    <Stack
+      gap={3}
+      className={`${classes.rule} ${classes.decision}`}
       data-testid={`decision-row-${decision.contract}`}
     >
-      <Text size="sm">
-        {decision.contract} → {decision.selection}
-      </Text>
-      <Text size="xs" c={text.muted}>
-        {decision.scope} · {decision.decided_by} ·{' '}
-        {new Date(decision.decided_at).toLocaleString()}
-      </Text>
-    </Group>
-  );
-}
-
-function DecisionsSection({ decisions }: { decisions: RunDecisionRow[] }) {
-  const { text } = useSchemeColors();
-  return (
-    <Stack gap="xs" data-testid="effective-inputs-decisions">
-      <Text fw={700}>Decisions in force</Text>
-      {decisions.length === 0 ? (
-        <Text size="xs" c={text.muted}>
-          No decisions were recorded for this run.
+      <div className={classes.line}>
+        <Text
+          fz={13}
+          lh="normal"
+          c="dimmed"
+          className={classes.key}
+          data-parity="k"
+        >
+          {label}
         </Text>
-      ) : (
-        decisions.map(decision => (
-          <DecisionRow
-            key={`${decision.contract}-${decision.decided_at}`}
-            decision={decision}
-          />
-        ))
-      )}
+        <Text fz={13} fw={500} lh="normal" data-parity="v">
+          {value}
+        </Text>
+      </div>
+      <Text fz={11.5} lh="normal" c="dimmed" data-parity="m">
+        {meta}
+      </Text>
     </Stack>
   );
 }
 
-function ConfigRow({
-  row,
-  onExplain,
-}: {
-  row: ConfigDepRow;
-  onExplain: (key: string) => void;
-}) {
-  const { text } = useSchemeColors();
-  // Provenance arrives weakest-first (rt-client's resolver contract, same as
-  // ExplainRowWire) -- the last entry is the strongest layer that set it.
-  const strongest = row.provenance.at(-1);
+function ConfigRow({ row }: { row: ConfigDepRow }) {
+  const [open, setOpen] = useState(false);
+  const inEffect = new Set(row.provenance.map(p => p.scope));
+  const scope = row.provenance.at(-1)?.scope ?? null;
   return (
-    <UnstyledButton
-      onClick={() => onExplain(row.key)}
-      aria-label={`explain ${row.key}`}
+    <div
+      className={`${classes.rule} ${classes.row}`}
+      data-open={open || undefined}
+      data-parity={`row ${row.key}`}
       data-testid={`config-row-${row.key}`}
     >
-      <Group gap={6} wrap="nowrap">
-        <Text size="sm" ff="monospace">
+      <UnstyledButton
+        className={classes.head}
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+      >
+        <Text
+          ff="monospace"
+          fz={12}
+          lh="normal"
+          className={classes.key}
+          data-parity="k"
+        >
           {row.key}
         </Text>
-        <Text size="xs" c={text.muted}>
-          {'value' in row ? shortValue(row.value) : 'unset'}
+        <Text fz={13} lh="normal" c="dimmed" truncate data-parity="v">
+          {'value' in row ? settingValue(row.value) : 'unset'}
         </Text>
-        {strongest && <QuietBadge>{strongest.scope}</QuietBadge>}
-      </Group>
-    </UnstyledButton>
-  );
-}
-
-function ConfigSection({ config }: { config: ConfigDepRow[] }) {
-  const { text } = useSchemeColors();
-  const queryClient = useQueryClient();
-  // Local, not ?explain=: this panel sits in a tab that a reload unmounts.
-  const [explaining, setExplaining] = useState<string | null>(null);
-  return (
-    <Stack gap="xs" data-testid="effective-inputs-config">
-      <Text fw={700}>Configuration</Text>
-      {config.map(row => (
-        <ConfigRow key={row.key} row={row} onExplain={setExplaining} />
-      ))}
-      <ExplainModal
-        settingKey={explaining}
-        onClose={() => setExplaining(null)}
-        onChanged={() =>
-          void queryClient.invalidateQueries({ queryKey: ['effective-inputs'] })
-        }
-      />
-      <Text size="xs" c={text.dimmed}>
-        Current values, not as-run — runs do not record the config they read.
-      </Text>
-    </Stack>
-  );
-}
-
-function StageDocDrawer({
-  repo,
-  runId,
-  stage,
-  onClose,
-}: {
-  repo: string;
-  runId: string;
-  stage: string | null;
-  onClose: () => void;
-}) {
-  const { text } = useSchemeColors();
-  const surface = useDrawerSurface();
-  const query = useStageDoc(repo, runId, stage);
-
-  return (
-    <Drawer
-      opened={stage !== null}
-      onClose={onClose}
-      position="right"
-      size={640}
-      padding="lg"
-      styles={surface}
-      data-testid="stage-doc-drawer"
-      title={
-        <Text fz="xl" fw={700}>
-          {stage}
-        </Text>
-      }
-    >
-      {query.isPending && <Skeleton height={200} />}
-      {query.isError && (
-        <Text size="xs" c={text.muted}>
-          {(query.error as Error).message}
-        </Text>
-      )}
-      {query.data && 'text' in query.data && (
-        <Code block style={CODE_STYLE}>
-          {query.data.text}
-        </Code>
-      )}
-      {query.data && 'error' in query.data && (
-        <Text size="xs" c={text.muted} data-testid="stage-doc-no-doc">
-          {query.data.error}
-        </Text>
-      )}
-    </Drawer>
+        <Spacer />
+        {scope ? <Pill label={scope} tone="quiet" /> : null}
+        <Icon
+          name={open ? 'chevronDown' : 'chevronRight'}
+          size={14}
+          className={classes.chev}
+          data-parity="go"
+        />
+      </UnstyledButton>
+      {open ? (
+        <Stack gap={6} className={classes.where} data-parity="where">
+          {row.description ? (
+            <Text fz={12.5} lh="normal" c="dimmed" data-parity="d">
+              {row.description}
+            </Text>
+          ) : null}
+          {[...(row.layers ?? [])].reverse().map(layer => {
+            const live = inEffect.has(layer.scope);
+            return (
+              <div
+                key={layer.scope}
+                className={classes.scope}
+                data-parity={`scope ${layer.scope}`}
+                data-testid={`scope-${layer.scope}`}
+              >
+                <Text
+                  fz={12}
+                  fw={live ? 500 : 400}
+                  lh="normal"
+                  c={live ? undefined : 'dimmed'}
+                  className={classes.scopeName}
+                  data-parity="s"
+                >
+                  {layer.scope}
+                </Text>
+                <Text
+                  ff="monospace"
+                  fz={11.5}
+                  lh="normal"
+                  c={live ? undefined : 'dimmed'}
+                  truncate
+                  data-parity="v"
+                >
+                  {'value' in layer ? settingValue(layer.value) : 'not set'}
+                </Text>
+                {live ? (
+                  <Text
+                    fz={11.5}
+                    fw={500}
+                    lh="normal"
+                    c="ok"
+                    className={classes.push}
+                    data-parity="w"
+                  >
+                    in effect
+                  </Text>
+                ) : null}
+              </div>
+            );
+          })}
+          <Anchor
+            component={Link}
+            href={`/settings?explain=${encodeURIComponent(row.key)}`}
+            fz={12.5}
+            fw={500}
+            lh="normal"
+            c="accent"
+            className={classes.start}
+            data-parity="open"
+          >
+            Change it in Settings →
+          </Anchor>
+        </Stack>
+      ) : null}
+    </div>
   );
 }
 
@@ -319,58 +357,83 @@ export interface EffectiveInputsProps {
   repo: string;
   runId: string;
   decisions: RunDecisionRow[];
+  /** Says what the panel is, where no drawer header says it already. */
+  intro?: boolean;
 }
 
 /**
- * What this run was actually told, joined from three sources rt never
- * joins itself: the run row, the pack roster, and the pack repo at the sha
- * the run recorded. A plain `useQuery` (not suspense) on purpose -- this
- * panel sits below a Timeline that already rendered, and a join across three
- * sources is more likely to fail than any single-source panel on the page.
+ * What this run was told, joined from three sources rt never joins itself:
+ * the run row, the pack roster, and the pack repo at the sha the run
+ * recorded. A plain `useQuery` (not suspense) on purpose: a join across
+ * three sources is more likely to fail than any single-source panel.
  */
 export function EffectiveInputs({
   repo,
   runId,
   decisions,
+  intro = false,
 }: EffectiveInputsProps) {
-  const { text } = useSchemeColors();
   const query = useEffectiveInputs(repo, runId);
-  const [openStage, setOpenStage] = useState<string | null>(null);
 
   return (
-    <Stack gap="md" data-testid="effective-inputs">
-      <Text size="xs" c={text.muted}>
-        What this run was actually told, as of the pack sha it recorded.
-      </Text>
-      <CommandProvenance
-        command={ATTRIBUTION}
-        asOf={query.dataUpdatedAt || undefined}
-      />
+    <Stack gap={22} data-testid="effective-inputs">
+      {intro ? (
+        <Text fz={13} lh="normal" c="dimmed">
+          {INPUTS_SUB}
+        </Text>
+      ) : null}
       {query.isPending && (
         <Skeleton height={160} data-testid="effective-inputs-loading" />
       )}
       {query.isError && (
-        <Text
-          size="sm"
-          c={text.highContrast('bad')}
-          data-testid="effective-inputs-error"
-        >
+        <Text fz={13} lh="normal" c="bad" data-testid="effective-inputs-error">
           Could not load effective inputs: {(query.error as Error).message}
         </Text>
       )}
       {query.data && (
         <>
-          <PipelineSection payload={query.data} onOpenStage={setOpenStage} />
-          <DecisionsSection decisions={decisions} />
-          <ConfigSection config={query.data.config} />
+          <PacksSection payload={query.data} />
+          <Section name="Stage docs">
+            <Box>
+              {query.data.stages.map(stage => (
+                <StageDocRow
+                  key={stage}
+                  repo={repo}
+                  runId={runId}
+                  stage={stage}
+                />
+              ))}
+            </Box>
+          </Section>
+          <Section name="Decisions in force">
+            {decisions.length === 0 ? (
+              <Text fz={12.5} lh="normal" c="dimmed">
+                No decisions were recorded for this run.
+              </Text>
+            ) : (
+              <Box>
+                {decisions.map(decision => (
+                  <DecisionRow
+                    key={`${decision.contract}-${decision.decided_at}`}
+                    decision={decision}
+                  />
+                ))}
+              </Box>
+            )}
+          </Section>
+          <Section name="Configuration (current values)">
+            <Box>
+              {query.data.config.map(row => (
+                <ConfigRow key={row.key} row={row} />
+              ))}
+            </Box>
+          </Section>
+          <Text fz={12} lh="normal" c="dimmed" data-parity="foot">
+            Runs don&apos;t record the config they read, so these are
+            today&apos;s values.
+          </Text>
         </>
       )}
-      <StageDocDrawer
-        repo={repo}
-        runId={runId}
-        stage={openStage}
-        onClose={() => setOpenStage(null)}
-      />
     </Stack>
   );
 }

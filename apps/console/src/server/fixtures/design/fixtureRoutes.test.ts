@@ -166,7 +166,11 @@ describe('the routes under the design fixture', () => {
       packDirty: false,
     });
     const doc = await get(`${RUN}/20261008-1338/stage-doc?stage=plan`);
-    expect(((await doc.json()) as { text: string }).text).toContain('# plan');
+    expect(await doc.json()).toEqual({
+      text: expect.stringContaining('# Plan'),
+      pack: 'acme',
+      sha: '4c1d9e2b7a',
+    });
     expect(
       (await get(`${RUN}/20261008-1338/stage-doc?stage=nope`)).status
     ).toBe(404);

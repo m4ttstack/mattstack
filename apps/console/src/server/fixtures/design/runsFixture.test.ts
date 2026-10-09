@@ -544,9 +544,12 @@ describe('runsFixture', () => {
       packDirty: false,
     });
     expect(inputs!.config).toHaveLength(3);
-    expect(await runs.stageDoc(REPO, '20261008-1338', 'plan')).toContain(
-      '# plan'
-    );
+    expect(await runs.stageDoc(REPO, '20261008-1338', 'plan')).toEqual({
+      text: expect.stringContaining('# Plan'),
+      pack: 'acme',
+      sha: '4c1d9e2b7a',
+    });
+    expect(await runs.stageDoc(REPO, '20261008-1338', 'gates')).toBeNull();
     expect(await runs.stageDoc(REPO, '20261008-1338', 'nope')).toBeNull();
     expect(await runs.effectiveInputs(REPO, 'nope')).toBeNull();
   });

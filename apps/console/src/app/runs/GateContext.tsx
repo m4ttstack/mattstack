@@ -19,10 +19,25 @@ const COMPONENTS: Components = {
   img: ({ alt }) => <span>{alt}</span>,
 };
 
-export function GateContext({ text }: { text: string }) {
+/** `components` add to the safe defaults, never replace `a` or `img`. */
+export function GateContext({
+  text,
+  className,
+  components,
+}: {
+  text: string;
+  className?: string;
+  components?: Omit<Components, 'a' | 'img'>;
+}) {
   return (
-    <div className={classes.prose} data-testid="gate-context-body">
-      <Markdown remarkPlugins={REMARK_PLUGINS} components={COMPONENTS}>
+    <div
+      className={className ? `${classes.prose} ${className}` : classes.prose}
+      data-testid="gate-context-body"
+    >
+      <Markdown
+        remarkPlugins={REMARK_PLUGINS}
+        components={{ ...components, ...COMPONENTS }}
+      >
         {text}
       </Markdown>
     </div>

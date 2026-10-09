@@ -4,16 +4,30 @@
       "pack": "acme",
       "recordedSha": "4c1d9e2b7a",
       "currentSha": "4c1d9e2b7a51f0c3",
-      "drifted": false
+      "drifted": false,
+      "commitsSince": null
+    },
+    {
+      "pack": "acme-base",
+      "recordedSha": "71b0e44c9d",
+      "currentSha": "a92f3e1b07",
+      "drifted": true,
+      "commitsSince": 3
     }
   ],
   "packDirty": false,
   "config": [
     {
       "key": "rt.worktrees",
-      "value": { "root": "~/.mattstack/rt/worktrees", "onDeck": 2 },
+      "value": "~/.mattstack/rt/worktrees",
       "provenance": [
         { "scope": "user", "file": "~/.mattstack/user/settings.jsonc" }
+      ],
+      "description": "Per-repo worktree pool: where trees live, how many stay ready, and what counts as junk.",
+      "layers": [
+        { "scope": "default", "value": "~/worktrees" },
+        { "scope": "team" },
+        { "scope": "user", "value": "~/.mattstack/rt/worktrees" }
       ]
     },
     {
@@ -24,12 +38,24 @@
           "scope": "team",
           "file": "~/.mattstack/orgs/acme/mattstack/teams/web/settings.jsonc"
         }
+      ],
+      "description": "How a new branch is named from its ticket.",
+      "layers": [
+        { "scope": "default", "value": "{slug}" },
+        { "scope": "team", "value": "{ticket}-{slug}" },
+        { "scope": "user" }
       ]
     },
     {
       "key": "rt.runsPruneDays",
       "value": 30,
-      "provenance": []
+      "provenance": [{ "scope": "default", "file": null }],
+      "description": "How many days a finished run is kept before it is pruned.",
+      "layers": [
+        { "scope": "default", "value": 30 },
+        { "scope": "team" },
+        { "scope": "user" }
+      ]
     }
   ]
 }

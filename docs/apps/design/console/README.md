@@ -709,3 +709,51 @@ Review run record (runs-p2-review `Hero`, `Tabs`, `Review column`, `Side`):
 - The review run's findings question is the verdict, so the decision log,
   the decision count and the tab count leave it out: the record counts the
   two decisions the board draws.
+
+Effective inputs (runs-p2-inputs `Drawer`, runs-p2-overlays `Stage doc
+drawer` and `Setting inline`):
+
+- The drawer is the kit `Drawer` at 640px, the board's head and body
+  padding set through `classNames`. Its header is unruled and filled in the
+  drawer's own surface (the board rules it and leaves it clear), so it is
+  1.5px shorter and everything under it sits 1.5-2px higher. The close
+  button is the kit `CloseButton` (28px, the board's glyph is 18px), and the
+  kit focuses it when the drawer opens. In dark the drawer is the kit's
+  page-tone surface, where the board paints it in the card tone.
+- Text in the drawer takes the kit's body colour, black in light
+  (`--mantine-color-text`), where the board sets slate 12. Quiet text (the
+  section labels, bullets, the no-doc note, stamps, the footer) is the
+  console's dimmed tone (slate 11); the board's lighter grey misses the text
+  contrast bar.
+- The boxes are kit `Paper variant="ground"`: card fill and the kit border,
+  which is one step darker than the board's rule; each row's rule is the
+  same border.
+- The pack pills are kit `Badge xs` `light` in `ok` and `warn`, the scope
+  pills kit `Badge xs` `panel-outline`, as they ship: their fills, label
+  colours, padding and 16px label line differ from the board's, so a pill
+  is 3-18px narrower.
+- Stage names are 400, 500 when open (the board's 600 is outside the type
+  rules). Stage rows paint the card tone, the opened one the panel tone.
+- runs-p2-inputs and runs-p2-overlays draw the same plan doc with different
+  text: the inline preview's bullets read "Ask which approach, scope and
+  delivery the run takes." and so on, where the stage doc drawer reads
+  "Which approach the run takes". There is one doc, so the fixture carries
+  the drawer's text, and the preview (first paragraph and first list,
+  headings left out) shows its bullets.
+- runs-p2-inputs names the configuration rows `row` (leaving the last one
+  unnamed, as it has no rule); runs-p2-overlays names them `row <key>`. The
+  app keys them `row <key>`, so the overlays panel's action can open
+  `rt.worktrees`, and on runs-p2-inputs the three rows and their
+  `k`, `v`, `pill`, `l` and `go` compare as missing under `box[3]` and extra
+  under `box[3]/row <key>`. The chevron is `go`, as runs-p2-inputs names it
+  (the overlays tile calls it `c`).
+- The overlays tiles are miniatures (R14): the app's whole drawer stands in
+  for each tile's `drawer` frame, so every key compares as missing under
+  `drawer` and extra at the root. Read by eye, both tiles carry the board's
+  text and structure. The stage doc drawer is reached by `?doc=plan`, and
+  the setting by clicking `row rt.worktrees` in `?inputs`.
+- A setting opened inline lists every scope the key can be set at,
+  strongest first, from the server's `layers`; "in effect" marks each scope
+  the resolver's provenance names. A stage doc that is opened in full from
+  the inputs drawer replaces it (`?doc=` drops `?inputs`), so only one
+  drawer is ever open.

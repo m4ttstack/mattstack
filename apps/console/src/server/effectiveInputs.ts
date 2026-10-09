@@ -2,10 +2,12 @@ import { readFile as fsReadFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  explainSetting,
   getDef,
   getRun,
   getSetting,
   parseIdentity,
+  type SettingDef,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -25,11 +27,22 @@ export interface PackVersionRow {
   currentSha: string | null;
   /** Null exactly when currentSha is null — unknowable, not "no". */
   drifted: boolean | null;
+  /** Commits on the pack since the recorded sha, when git can count them. */
+  commitsSince?: number | null;
+}
+export interface ConfigLayer {
+  scope: string;
+  /** Absent when nothing is set at this scope. */
+  value?: unknown;
 }
 export interface ConfigDepRow {
   key: string;
   value: unknown;
   provenance: { scope: string; file: string | null }[];
+  description?: string;
+  /** Weakest first, as the resolver reads them: the registry default, then
+      each scope the key can be set at, plus any other scope holding a value. */
+  layers?: ConfigLayer[];
 }
 export interface EffectiveInputsPayload {
   pipeline: string;
@@ -103,6 +116,28 @@ export function parsePackCommits(
   return rows;
 }
 
+/** Never throws: a resolver that cannot explain the key leaves the row
+    without its layers rather than dropping it. */
+function configLayers(
+  def: SettingDef,
+  repoIdentity: string | null
+): ConfigLayer[] | undefined {
+  let rows;
+  try {
+    rows = explainSetting(def.key, { repoIdentity });
+  } catch {
+    return undefined;
+  }
+  const settable = new Set<string>(def.scopes);
+  return (rows ?? [])
+    .filter(r => r.scope === 'default' || settable.has(r.scope) || r.present)
+    .map(r =>
+      r.present && 'value' in r
+        ? { scope: r.scope, value: r.value }
+        : { scope: r.scope }
+    );
+}
+
 function dedupeStageNames(stages: { name: string }[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -155,8 +190,9 @@ export function mountEffectiveInputs(
     sha: string;
   }): Promise<PackVersionRow> {
     let currentSha: string | null = null;
+    let packDir: string | null = null;
     try {
-      const packDir = await resolvePackDir(commit.pack);
+      packDir = await resolvePackDir(commit.pack);
       if (packDir) {
         const head = await runGit(['-C', packDir, 'rev-parse', 'HEAD']);
         if (head.code === 0 && head.stdout.trim()) {
@@ -171,11 +207,28 @@ export function mountEffectiveInputs(
         ? null
         : !currentSha.startsWith(commit.sha) &&
           !commit.sha.startsWith(currentSha);
+    let commitsSince: number | null = null;
+    if (drifted && packDir) {
+      try {
+        const count = await runGit([
+          '-C',
+          packDir,
+          'rev-list',
+          '--count',
+          `${commit.sha}..HEAD`,
+        ]);
+        const n = count.stdout.trim();
+        if (count.code === 0 && /^\d+$/.test(n)) commitsSince = Number(n);
+      } catch {
+        commitsSince = null;
+      }
+    }
     return {
       pack: commit.pack,
       recordedSha: commit.sha,
       currentSha,
       drifted,
+      commitsSince,
     };
   }
 
@@ -208,10 +261,17 @@ export function mountEffectiveInputs(
       const config: ConfigDepRow[] = [];
       for (const key of CONFIG_DEPS) {
         // CONFIG_DEPS is otherwise the only guard on this path, and it serializes full values onto the wire -- a secret def must never reach config.push.
-        if (getDef(key)?.secret) continue;
+        const def = getDef(key);
+        if (def?.secret) continue;
         try {
           const { value, provenance } = getSetting(key, { repoIdentity });
-          config.push({ key, value, provenance });
+          const row: ConfigDepRow = { key, value, provenance };
+          if (def) {
+            row.description = def.description;
+            const layers = configLayers(def, repoIdentity);
+            if (layers) row.layers = layers;
+          }
+          config.push(row);
         } catch {
           // A throwing resolver skips the key rather than 500ing the panel.
         }
@@ -234,8 +294,8 @@ export function mountEffectiveInputs(
         return c.json({ error: `invalid stage name: ${stage ?? ''}` }, 400);
       }
       if (fixture) {
-        const text = await fixture.stageDoc(repo, runId, stage);
-        return text === null ? c.json(NO_DOC, 404) : c.json({ text }, 200);
+        const doc = await fixture.stageDoc(repo, runId, stage);
+        return doc === null ? c.json(NO_DOC, 404) : c.json(doc, 200);
       }
 
       const res = await getRun(runId, repo);

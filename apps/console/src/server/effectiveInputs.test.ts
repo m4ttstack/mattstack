@@ -16,6 +16,7 @@ vi.mock('@mattstack/rt-client', async importOriginal => ({
   getRun: vi.fn(),
   getSetting: vi.fn(),
   getDef: vi.fn(),
+  explainSetting: vi.fn(() => []),
 }));
 
 const { mountEffectiveInputs, parsePackCommits } =
@@ -171,6 +172,7 @@ describe('effective-inputs route', () => {
         recordedSha: '59b90cd',
         currentSha: '1111111abcdef',
         drifted: true,
+        commitsSince: null,
       },
     ]);
     expect(body.config).toEqual(
@@ -183,6 +185,97 @@ describe('effective-inputs route', () => {
     expect(rt.getSetting).toHaveBeenCalledTimes(CONFIG_DEPS.length);
     const headCall = git.calls.find(argv => argv.includes('rev-parse'));
     expect(headCall).toEqual(['-C', '/packs/mattstack', 'rev-parse', 'HEAD']);
+  });
+
+  it('counts the commits a drifted pack moved since the recorded sha', async () => {
+    vi.mocked(rt.getRun).mockResolvedValue({
+      ok: true,
+      data: baseDetail({
+        run: baseRun({ pack_commits: 'acme=59b90cd' }),
+      }),
+    });
+    vi.mocked(rt.getSetting).mockImplementation(() => ({
+      value: 1,
+      provenance: [],
+    }));
+    const git = fakeRun(argv =>
+      argv.includes('rev-list')
+        ? { code: 0, stdout: '3\n', stderr: '' }
+        : { code: 0, stdout: '1111111abcdef\n', stderr: '' }
+    );
+    const app = mountEffectiveInputs(
+      new Hono(),
+      fakeRt({
+        code: 0,
+        stdout: packsStdout([{ name: 'acme', dir: '/packs/acme' }]),
+        stderr: '',
+      }).run,
+      git.run
+    );
+
+    const body = await (
+      await app.request('/api/runs/repo-tools/run-1/effective-inputs')
+    ).json();
+
+    expect(body.packVersions[0].commitsSince).toBe(3);
+    expect(git.calls).toContainEqual([
+      '-C',
+      '/packs/acme',
+      'rev-list',
+      '--count',
+      '59b90cd..HEAD',
+    ]);
+  });
+
+  it("carries each config key's description and its value per scope", async () => {
+    vi.mocked(rt.getRun).mockResolvedValue({
+      ok: true,
+      data: baseDetail({ run: baseRun({ pack_commits: null }) }),
+    });
+    vi.mocked(rt.getSetting).mockImplementation(() => ({
+      value: '~/trees',
+      provenance: [{ scope: 'user', file: '/u' }],
+    }));
+    vi.mocked(rt.getDef).mockImplementation(
+      (key: string): SettingDef | undefined => ({
+        key,
+        type: 'string',
+        scopes: ['user', 'team'],
+        merge: 'replace',
+        description: `What ${key} does.`,
+      })
+    );
+    vi.mocked(rt.explainSetting).mockImplementation(() => [
+      { scope: 'default', file: null, present: true, value: '~/worktrees' },
+      { scope: 'org', file: null, present: false },
+      { scope: 'team', file: null, present: false },
+      { scope: 'user', file: '/u', present: true, value: '~/trees' },
+      { scope: 'machine', file: '/m', present: false },
+    ]);
+    const app = mountEffectiveInputs(
+      new Hono(),
+      fakeRt({ code: 0, stdout: '{}', stderr: '' }).run,
+      fakeRun(() => ({ code: 0, stdout: '', stderr: '' })).run
+    );
+
+    const body = await (
+      await app.request('/api/runs/repo-tools/run-1/effective-inputs')
+    ).json();
+
+    vi.mocked(rt.getDef).mockReset();
+    vi.mocked(rt.explainSetting).mockReset();
+    vi.mocked(rt.explainSetting).mockImplementation(() => []);
+    expect(body.config[0]).toEqual({
+      key: 'rt.worktrees',
+      value: '~/trees',
+      provenance: [{ scope: 'user', file: '/u' }],
+      description: 'What rt.worktrees does.',
+      layers: [
+        { scope: 'default', value: '~/worktrees' },
+        { scope: 'team' },
+        { scope: 'user', value: '~/trees' },
+      ],
+    });
   });
 
   it('answers packVersions: null on a pre-v2 run, still 200, and resolves no pack', async () => {
