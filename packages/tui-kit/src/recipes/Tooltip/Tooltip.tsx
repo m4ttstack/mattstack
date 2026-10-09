@@ -4,6 +4,7 @@ import { mergeRefs } from '@soribashi/core';
 
 import { defineComponent } from '../../builders.ts';
 import classes from './Tooltip.module.css';
+import './Tooltip.keyframes.css';
 import { TooltipCard, useTooltipReveal } from './TooltipCard.tsx';
 
 /** Authoring category (1 = pure styled primitive). Read off this module by
@@ -21,8 +22,24 @@ export const TOOLTIP_PARTS = { root: 'tooltip', card: 'tooltip-card' } as const;
     since createPortal moves it out of the trigger's subtree. */
 const TOOLTIP_GAP_VAR = '--sb-tooltip-gap';
 
+/** The 8px past the hairline gap is where the card's arrow sits. */
 const TOOLTIP_SCALARS: Record<string, string> = {
-  [TOOLTIP_GAP_VAR]: 'var(--spacing-xxs)',
+  [TOOLTIP_GAP_VAR]: 'calc(var(--spacing-xxs) + var(--spacing-px8))',
+};
+
+/** Lifted from the board app's inverted label, with no theme rung. Declared
+    on the card, not the root: the card portals to `document.body`, out of
+    reach of anything the root carries. */
+const TOOLTIP_CARD_SCALARS: Record<string, string> = {
+  '--sb-tooltip-bg':
+    'light-dark(color-mix(in srgb, var(--fg) 92%, var(--card)), color-mix(in srgb, var(--fg) 88%, var(--card)))',
+  '--sb-tooltip-max-w': '280px',
+  '--sb-tooltip-shadow':
+    '0 1px 2px rgb(0 0 0 / 18%), 0 6px 16px -4px rgb(0 0 0 / 28%)',
+  '--sb-tooltip-arrow-w': '12px',
+  '--sb-tooltip-arrow-h': '6px',
+  '--sb-tooltip-arrow-clip': 'polygon(50% 0, 100% 100%, 0 100%)',
+  '--sb-tooltip-enter-from': 'translateY(-4px) scale(0.97)',
 };
 
 export interface TooltipOwnProps {
@@ -51,7 +68,10 @@ export const Tooltip = defineComponent<
   name: 'Tooltip',
   selectors: TOOLTIP_SELECTORS,
   classes,
-  vars: () => ({ root: { ...TOOLTIP_SCALARS } }),
+  vars: () => ({
+    root: { ...TOOLTIP_SCALARS },
+    card: { ...TOOLTIP_CARD_SCALARS },
+  }),
   render: ({ props, getStyles, ref }) => {
     const {
       tip,

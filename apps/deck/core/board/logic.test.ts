@@ -1,32 +1,45 @@
 import { expect, test } from 'bun:test';
 
+import fixture from '../../test/fixture/status.json' with { type: 'json' };
 import {
   addPayload,
   autoBanner,
+  behindRows,
   commandButtonLabel,
   commandKey,
   commandStuckToast,
   commandToast,
-  deployPill,
   editPatch,
   HEAL_RECENT_MS,
   isPlatform,
+  localHosts,
   NAME_PATTERN,
   PROXY_WAIT_MS,
   reconcileRestarting,
+  redeployAllTargets,
+  redeployingText,
   REFRESH_MS,
   registerOutcome,
+  remoteToggleTip,
   removeFailure,
   RESTART_TIMEOUT_MS,
   sections,
+  settingsBlocks,
+  settingsFormFor,
   showDevLinkPrompt,
   showUnlinkButton,
+  showVersionColumn,
+  statusPill,
   subline,
   sublineHealthy,
   tunnelDomain,
   tunnels,
+  updateStripText,
+  versionCell,
+  type CommandRuns,
   type RestartingMap,
   type Row,
+  type SettingsBlocks,
   type StatusData,
 } from './logic.ts';
 
@@ -556,23 +569,514 @@ test('commandStuckToast: names the app to look at rather than claiming an outcom
   );
 });
 
-const baseRow = makeRow();
+test('versionCell: behind when newCode is set', () => {
+  const row = {
+    name: 'a',
+    devLink: 'linked',
+    newCode: { deployed: 'a3f19c2', head: 'e81d4b0' },
+  } as Row;
+  expect(versionCell(row)).toEqual({
+    kind: 'behind',
+    deployed: 'a3f19c2',
+    head: 'e81d4b0',
+  });
+});
+test('versionCell: current when linked with no newCode', () => {
+  expect(versionCell({ name: 'a', devLink: 'linked' } as Row)).toEqual({
+    kind: 'current',
+  });
+});
+test('versionCell: untracked for unlinked, broken, undefined devLink', () => {
+  for (const devLink of ['unlinked', 'broken', undefined])
+    expect(versionCell({ name: 'a', devLink } as Row)).toEqual({
+      kind: 'untracked',
+    });
+});
+test('showVersionColumn follows data.devMode', () => {
+  expect(showVersionColumn({ devMode: true } as StatusData)).toBe(true);
+  expect(showVersionColumn({ devMode: false } as StatusData)).toBe(false);
+  expect(showVersionColumn({} as StatusData)).toBe(false);
+});
+test('behindRows: newCode and a deploy command, off rows excluded', () => {
+  const nc = { deployed: 'x', head: 'y' };
+  const rows = [
+    { name: 'a', newCode: nc, commands: ['build', 'deploy'] },
+    { name: 'b', newCode: nc, commands: ['build'] },
+    { name: 'c', commands: ['deploy'] },
+    { name: 'd', newCode: nc, commands: ['deploy'], enabled: false },
+  ] as Row[];
+  expect(behindRows(rows).map(r => r.name)).toEqual(['a']);
+});
+test('updateStripText', () => {
+  expect(updateStripText(1)).toBe('New code for 1 app since its last deploy');
+  expect(updateStripText(5)).toBe(
+    'New code for 5 apps since their last deploy'
+  );
+});
+test('redeployingText', () => {
+  expect(redeployingText({ index: 2, total: 3, app: 'meridian' })).toBe(
+    'Redeploying 2 of 3 · meridian'
+  );
+});
+test('redeployAllTargets: table order, self last, in-flight skipped', () => {
+  const nc = { deployed: 'x', head: 'y' };
+  const rows = [
+    { name: 'deck', self: true, newCode: nc, commands: ['deploy'] },
+    { name: 'board', newCode: nc, commands: ['build', 'deploy'] },
+    { name: 'chat', newCode: nc, commands: ['deploy'] },
+    { name: 'console', newCode: nc, commands: ['deploy'] },
+  ] as Row[];
+  const runs = { [commandKey('chat', 'deploy')]: 'running' } as CommandRuns;
+  expect(redeployAllTargets(rows, runs).map(r => r.name)).toEqual([
+    'board',
+    'console',
+    'deck',
+  ]);
+});
 
-test('deployPill: offers the pill on deploy when newCode is set', () => {
-  const row = { ...baseRow, newCode: { deployed: 'abc1234', head: 'def5678' } };
-  expect(deployPill(row, 'deploy', undefined)).toEqual({
-    label: 'Redeploy',
-    tip: 'New code since last deploy: abc1234 to def5678',
+const baseRow = (o: Partial<Row> = {}) =>
+  ({
+    name: 'x',
+    port: 11001,
+    isTunnel: false,
+    self: false,
+    managedBy: 'mattstack',
+    override: null,
+    service: { label: 'l', short: 'x', pid: 1, lastExitStatus: 0 },
+    ...o,
+  }) as unknown as Row;
+const baseData = (o: Partial<StatusData> = {}) =>
+  ({ canManage: true, canRestart: true, ...o }) as StatusData;
+const NONE: SettingsBlocks = {
+  code: false,
+  app: false,
+  port: false,
+  portInput: false,
+  overrideControls: false,
+  errors: false,
+  reach: false,
+  gates: false,
+  remove: false,
+  giveRoute: false,
+  restart: false,
+  relink: false,
+};
+
+test('settingsFormFor: tunnel, service (no port), app', () => {
+  expect(settingsFormFor(baseRow({ isTunnel: true, port: null }))).toBe(
+    'tunnel'
+  );
+  expect(settingsFormFor(baseRow({ port: null }))).toBe('service');
+  expect(settingsFormFor(baseRow())).toBe('app');
+});
+
+test('settingsBlocks app: code needs managed, not self, devLink defined (RootScreen.tsx:311)', () => {
+  const d = baseData();
+  const linked = baseRow({ devLink: 'linked' });
+  expect(settingsBlocks(linked, d).code).toBe(true);
+  expect(settingsBlocks(baseRow(), d).code).toBe(false);
+  expect(settingsBlocks({ ...linked, self: true }, d).code).toBe(false);
+  expect(settingsBlocks({ ...linked, managedBy: 'user' }, d).code).toBe(false);
+});
+
+test('settingsBlocks app: relink is code and canManage (showDevLinkPrompt, logic.ts:132)', () => {
+  const r = baseRow({ devLink: 'linked' });
+  expect(settingsBlocks(r, baseData()).relink).toBe(true);
+  expect(settingsBlocks(r, baseData({ canManage: false })).relink).toBe(false);
+});
+
+test('settingsBlocks app: app block is user rows under canManage, even when off (RootScreen.tsx:329)', () => {
+  const u = baseRow({ managedBy: 'user', enabled: false });
+  expect(settingsBlocks(u, baseData()).app).toBe(true);
+  expect(settingsBlocks(baseRow(), baseData()).app).toBe(false);
+  expect(settingsBlocks(u, baseData({ canManage: false })).app).toBe(false);
+});
+
+test('settingsBlocks app: port input vs override controls (DevPortScreen.tsx:24,151)', () => {
+  const d = baseData();
+  const ov = { devPort: 3000, basePort: 11001 };
+  const plain = settingsBlocks(baseRow(), d);
+  expect(plain.port).toBe(true);
+  expect(plain.portInput).toBe(true);
+  expect(plain.overrideControls).toBe(false);
+  const over = settingsBlocks(baseRow({ override: ov }), d);
+  expect(over.portInput).toBe(false);
+  expect(over.overrideControls).toBe(true);
+  const self = settingsBlocks(baseRow({ override: ov, self: true }), d);
+  expect(self.portInput).toBe(false);
+  expect(self.overrideControls).toBe(false);
+});
+
+test('settingsBlocks app: errors always, reach needs canManage and on, gates canManage (RootScreen.tsx:240,298)', () => {
+  const d = baseData();
+  const off = baseRow({ enabled: false });
+  expect(settingsBlocks(baseRow(), d).errors).toBe(true);
+  expect(settingsBlocks(baseRow(), d).reach).toBe(true);
+  expect(settingsBlocks(off, d).reach).toBe(false);
+  expect(settingsBlocks(off, d).gates).toBe(true);
+  expect(settingsBlocks(baseRow(), baseData({ canManage: false })).gates).toBe(
+    false
+  );
+});
+
+test('settingsBlocks app: remove needs canManage and not self (RootScreen.tsx:371)', () => {
+  expect(settingsBlocks(baseRow(), baseData()).remove).toBe(true);
+  expect(settingsBlocks(baseRow({ self: true }), baseData()).remove).toBe(
+    false
+  );
+});
+
+test('settingsBlocks app: restart needs on, canRestart and a service; giveRoute false (RootScreen.tsx:331)', () => {
+  const d = baseData();
+  expect(settingsBlocks(baseRow(), d).restart).toBe(true);
+  expect(settingsBlocks(baseRow({ enabled: false }), d).restart).toBe(false);
+  expect(
+    settingsBlocks(baseRow({ service: undefined } as Partial<Row>), d).restart
+  ).toBe(false);
+  expect(
+    settingsBlocks(baseRow(), baseData({ canRestart: false })).restart
+  ).toBe(false);
+  expect(settingsBlocks(baseRow(), d).giveRoute).toBe(false);
+});
+
+test('settingsBlocks service form: errors, restart, giveRoute only', () => {
+  const r = baseRow({ port: null });
+  expect(settingsBlocks(r, baseData())).toEqual({
+    ...NONE,
+    errors: true,
+    restart: true,
+    giveRoute: true,
+  });
+  expect(
+    settingsBlocks(r, baseData({ canManage: false, canRestart: false }))
+  ).toEqual({ ...NONE, errors: true });
+});
+
+test('settingsBlocks tunnel form: errors and restart only', () => {
+  const r = baseRow({ isTunnel: true, port: null });
+  expect(settingsBlocks(r, baseData())).toEqual({
+    ...NONE,
+    errors: true,
+    restart: true,
   });
 });
 
-test('deployPill: never on other commands, without newCode, or mid-run', () => {
-  const stale = {
-    ...baseRow,
-    newCode: { deployed: 'abc1234', head: 'def5678' },
+test('settingsBlocks over the status fixture rows', () => {
+  const d = fixture as unknown as StatusData;
+  const by = (n: string) =>
+    settingsBlocks(
+      d.apps.find(a => a.name === n)!,
+      d
+    );
+  const app: SettingsBlocks = {
+    ...NONE,
+    port: true,
+    errors: true,
+    reach: true,
+    gates: true,
+    restart: true,
   };
-  expect(deployPill(stale, 'build', undefined)).toBeNull();
-  expect(deployPill(baseRow, 'deploy', undefined)).toBeNull();
-  expect(deployPill(stale, 'deploy', 'running')).toBeNull();
-  expect(deployPill(stale, 'deploy', 'restarting')).toBeNull();
+  const managed = {
+    ...app,
+    code: true,
+    relink: true,
+    portInput: true,
+    remove: true,
+  };
+  expect(by('atlas')).toEqual(managed);
+  expect(by('forecast')).toEqual(app);
+  expect(by('ledger')).toEqual(managed);
+  expect(by('orbit')).toEqual({
+    ...app,
+    app: true,
+    overrideControls: true,
+    remove: true,
+  });
+  expect(d.orphans.map(o => settingsFormFor(o))).toEqual(['tunnel', 'service']);
+});
+
+test('settingsBlocks canManage false hides every write control', () => {
+  const d = { ...(fixture as unknown as StatusData), canManage: false };
+  for (const row of [...d.apps, ...d.orphans]) {
+    const b = settingsBlocks(row, d);
+    for (const k of [
+      'relink',
+      'app',
+      'portInput',
+      'overrideControls',
+      'reach',
+      'gates',
+      'remove',
+      'giveRoute',
+    ] as const)
+      expect(b[k]).toBe(false);
+  }
+});
+
+const pillRow = (o: Partial<Row> = {}) =>
+  makeRow({ managedBy: 'mattstack', ...o });
+const svc = (o: Partial<NonNullable<Row['service']>> = {}) => ({
+  label: 'com.deck.app',
+  short: 'app',
+  pid: 111,
+  lastExitStatus: null,
+  unmanaged: null,
+  stderr: [],
+  ...o,
+});
+
+test('statusPill: an off row reads Off in the muted tone, before restarting or health', () => {
+  const off = pillRow({
+    enabled: false,
+    health: { ok: false, status: null, ms: null },
+  });
+  expect(statusPill(off, false)).toEqual({
+    tone: 'muted',
+    label: 'Off',
+    detail: '',
+  });
+  expect(statusPill(off, true)).toEqual({
+    tone: 'muted',
+    label: 'Off',
+    detail: '',
+  });
+});
+
+test('statusPill: restarting reads Restarting… in the warn tone', () => {
+  expect(statusPill(pillRow(), true)).toEqual({
+    tone: 'warn',
+    label: 'Restarting…',
+    detail: '',
+  });
+});
+
+test('statusPill: a healthy probe reads Healthy with status, ms and pid', () => {
+  const row = pillRow({
+    health: { ok: true, status: 200, ms: 34 },
+    service: svc({ pid: 5123 }),
+  });
+  expect(statusPill(row, false)).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: '200 · 34ms · pid 5123',
+  });
+});
+
+test("statusPill: the pid is the unmanaged process's when a route is served unmanaged", () => {
+  const row = pillRow({
+    service: svc({ pid: null, unmanaged: { pid: 777, command: 'vite' } }),
+  });
+  expect(statusPill(row, false).detail).toBe('200 · 5ms · pid 777');
+});
+
+test('statusPill: a failing probe with a status reads Down with that status', () => {
+  const row = pillRow({ health: { ok: false, status: 502, ms: 12 } });
+  expect(statusPill(row, false)).toEqual({
+    tone: 'bad',
+    label: 'Down',
+    detail: '502 · 12ms · pid 111',
+  });
+});
+
+test('statusPill: no answer reads Down, unreachable, with the exit code', () => {
+  const row = pillRow({
+    health: { ok: false, status: null, ms: null },
+    service: svc({ pid: null, lastExitStatus: 1 }),
+  });
+  expect(statusPill(row, false)).toEqual({
+    tone: 'bad',
+    label: 'Down',
+    detail: 'unreachable · exit 1',
+  });
+});
+
+test('statusPill: no probe falls back to the service: running is Healthy, stopped is Down', () => {
+  expect(statusPill(pillRow({ health: null }), false)).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: 'running · pid 111',
+  });
+  expect(
+    statusPill(
+      pillRow({ health: null, service: svc({ pid: null, lastExitStatus: 3 }) }),
+      false
+    )
+  ).toEqual({ tone: 'bad', label: 'Down', detail: 'stopped · exit 3' });
+  expect(
+    statusPill(pillRow({ health: null, service: svc({ pid: null }) }), false)
+  ).toEqual({ tone: 'bad', label: 'Down', detail: 'stopped' });
+});
+
+test('statusPill: a row with no port reads No route, toned by its service', () => {
+  expect(
+    statusPill(
+      pillRow({
+        port: null,
+        health: null,
+        service: svc({ pid: null, lastExitStatus: 1 }),
+      }),
+      false
+    )
+  ).toEqual({ tone: 'bad', label: 'No route', detail: 'stopped · exit 1' });
+  expect(statusPill(pillRow({ port: null, health: null }), false)).toEqual({
+    tone: 'ok',
+    label: 'No route',
+    detail: 'running · pid 111',
+  });
+  expect(
+    statusPill(pillRow({ port: null, health: null, service: null }), false)
+  ).toEqual({ tone: 'bad', label: 'No route', detail: '' });
+});
+
+const tunnelRow = (o: Partial<Row> = {}) =>
+  pillRow({ isTunnel: true, port: null, managedBy: null, ...o });
+
+test('statusPill tunnel: the edge health tone and detail, then the pid and hint', () => {
+  expect(
+    statusPill(
+      tunnelRow({
+        health: {
+          ok: true,
+          status: null,
+          ms: null,
+          tone: 'ok',
+          detail: '4 connections',
+        },
+      }),
+      false
+    )
+  ).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: '4 connections · pid 111',
+  });
+  expect(
+    statusPill(
+      tunnelRow({
+        health: {
+          ok: false,
+          status: null,
+          ms: null,
+          tone: 'warn',
+          detail: 'not connected to Cloudflare',
+        },
+      }),
+      false
+    )
+  ).toEqual({
+    tone: 'warn',
+    label: 'Down',
+    detail: 'not connected to Cloudflare · pid 111',
+  });
+  expect(
+    statusPill(
+      tunnelRow({
+        health: {
+          ok: false,
+          status: null,
+          ms: null,
+          tone: 'bad',
+          detail: 'tunnel missing at Cloudflare',
+          hint: 're-run deck domain example.dev',
+        },
+        service: svc({ pid: null, lastExitStatus: 1 }),
+      }),
+      false
+    )
+  ).toEqual({
+    tone: 'bad',
+    label: 'Down',
+    detail:
+      'tunnel missing at Cloudflare · exit 1 · re-run deck domain example.dev',
+  });
+});
+
+test('statusPill tunnel: with no edge health the pid alone decides', () => {
+  expect(statusPill(tunnelRow({ health: null }), false)).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: 'pid 111',
+  });
+  expect(
+    statusPill(
+      tunnelRow({
+        health: null,
+        service: svc({ pid: null, lastExitStatus: 1 }),
+      }),
+      false
+    )
+  ).toEqual({ tone: 'bad', label: 'Down', detail: 'exit 1' });
+});
+
+test('statusPill tunnel: restarting reads Restarting…', () => {
+  expect(statusPill(tunnelRow(), true)).toEqual({
+    tone: 'warn',
+    label: 'Restarting…',
+    detail: '',
+  });
+});
+
+test('statusPill on the fixture rows', () => {
+  const d = fixture as unknown as StatusData;
+  const by = (n: string) =>
+    statusPill(
+      [...d.apps, ...d.orphans].find(r => r.name === n)!,
+      false
+    );
+  expect(by('atlas')).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: '200 · 34ms · pid 5123',
+  });
+  expect(by('ledger')).toEqual({
+    tone: 'bad',
+    label: 'Down',
+    detail: 'unreachable · exit 1',
+  });
+  expect(by('cloudflared')).toEqual({
+    tone: 'ok',
+    label: 'Healthy',
+    detail: '4 connections · pid 4200',
+  });
+  expect(by('stray-agent')).toEqual({
+    tone: 'bad',
+    label: 'No route',
+    detail: 'stopped · exit 1',
+  });
+});
+
+test('localHosts: a mattstack row answers on .mattstack and .localhost, a user row on .localhost', () => {
+  expect(localHosts(makeRow({ name: 'board', managedBy: 'rt' }))).toEqual([
+    'board.mattstack',
+    'board.localhost',
+  ]);
+  expect(localHosts(makeRow({ name: 'mine', managedBy: 'user' }))).toEqual([
+    'mine.localhost',
+  ]);
+  expect(localHosts(makeRow({ name: 'stray', managedBy: null }))).toEqual([
+    'stray.localhost',
+  ]);
+});
+
+test('remoteToggleTip: only a password-only row that is not yet remote is refused', () => {
+  const tip =
+    'add sign-in access before pushing this app to Railway (a password alone does not gate the public origin)';
+  expect(remoteToggleTip(makeRow({ hasPassword: true }))).toBe(tip);
+  expect(remoteToggleTip(makeRow({ hasPassword: false }))).toBeUndefined();
+  expect(
+    remoteToggleTip(
+      makeRow({
+        hasPassword: true,
+        oauth: { mode: 'domains', domains: ['x.co'] },
+      })
+    )
+  ).toBeUndefined();
+  expect(
+    remoteToggleTip(
+      makeRow({
+        hasPassword: true,
+        remote: { status: 'live' } as Row['remote'],
+      })
+    )
+  ).toBeUndefined();
 });

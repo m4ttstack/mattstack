@@ -29,8 +29,12 @@ function installNoMotionStyle() {
   if (document.getElementById(NO_MOTION_CLASS)) return;
   const style = document.createElement('style');
   style.id = NO_MOTION_CLASS;
+  // The card portals out of the container, so its pop-in is frozen by part.
   style.textContent = `.${NO_MOTION_CLASS}, .${NO_MOTION_CLASS} * {
     transition: none !important;
+  }
+  [data-part="${TOOLTIP_PARTS.card}"] {
+    animation: none !important;
   }`;
   document.head.appendChild(style);
 }

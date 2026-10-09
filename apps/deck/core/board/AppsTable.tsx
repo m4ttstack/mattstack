@@ -9,17 +9,20 @@ import {
   Icon,
   ICONS,
   Spinner,
-  StatusDot,
   Table,
   TextField,
   Tooltip,
 } from '@mattstack/tui-kit';
+import { CommandButton } from './CommandButton.tsx';
+import { GLOBE } from './icons.ts';
 import {
-  commandButtonLabel,
   commandKey,
-  deployPill,
+  effectiveOverride,
   isPlatform,
+  servicePid,
   showDevLinkPrompt,
+  showVersionColumn,
+  versionCell,
   type CommandRuns,
   type Row,
   type StatusData,
@@ -27,17 +30,16 @@ import {
 import { OptimisticSwitch } from './optimistic.tsx';
 import type { BoardState } from './useBoardState.ts';
 
-/** A lucide globe as one path (subpaths joined with explicit `M`, the same
-    convention the kit's own ICONS follow): circle + equator + two meridians.
-    Marks a row that is served from Railway, in the site cell. */
-const RAILWAY_GLOBE =
-  'M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20';
-
-/** Shared column widths, one entry per column below, so both section tables
-    (mattstack / your apps) line up down the page: `.apps-grid` fixes the
-    layout in board.css and every AppsTable renders this same colgroup, so the
-    grid no longer sizes to each table's own content. */
-const COL_WIDTHS = ['33%', '7%', '9%', '12%', '7%', '5%', '12%', '10%', '5%'];
+/** Shared column widths, one entry per column below, so every section table
+    (mattstack / your apps / strays) lines up down the page: `.apps-grid`
+    fixes the layout in board.css and every AppsTable renders the same
+    colgroup, so the grid never sizes to each table's own content. The
+    column set is page-wide (the version column follows dev mode, never the
+    section), so two tables on one page always pick the same entry. */
+const COL_WIDTHS = {
+  plain: ['36%', '8%', '11%', '21%', '24%'],
+  versioned: ['28%', '7%', '10%', '16%', '17%', '22%'],
+};
 
 export interface AppsSection {
   key: string;
@@ -45,15 +47,12 @@ export interface AppsSection {
   rows: Row[];
 }
 
-export interface DrawerRowProps {
-  /** The row currently backing the open drawer, if any -- drives the
-      selected highlight. */
-  openRowName: string | null;
+export interface SettingsRowProps {
   onOpenRow: (name: string) => void;
-  /** Registers/unregisters a row's chevron DOM node so the drawer can
-      restore focus to it on close, including after the row that opened it
-      switches (arrow keys) or is later removed. */
-  registerChevron: (name: string, el: HTMLButtonElement | null) => void;
+  /** Registers/unregisters a row's gear DOM node so the settings modal can restore
+      focus to it on close, including after the row that opened it is later
+      removed. */
+  registerGear: (name: string, el: HTMLButtonElement | null) => void;
 }
 
 export function AppsTable({
@@ -61,15 +60,14 @@ export function AppsTable({
   showHead,
   data,
   board,
-  openRowName,
   onOpenRow,
-  registerChevron,
+  registerGear,
 }: {
   section: AppsSection;
   showHead: boolean;
   data: StatusData;
   board: BoardState;
-} & DrawerRowProps) {
+} & SettingsRowProps) {
   const {
     isRestarting,
     onRestart,
@@ -78,10 +76,12 @@ export function AppsTable({
     linkSource,
     onPublish,
   } = board;
+  const versioned = showVersionColumn(data);
+  const widths = versioned ? COL_WIDTHS.versioned : COL_WIDTHS.plain;
   return (
     <Table className="apps-grid">
       <colgroup>
-        {COL_WIDTHS.map((w, i) => (
+        {widths.map((w, i) => (
           <col key={i} style={{ width: w }} />
         ))}
       </colgroup>
@@ -96,31 +96,17 @@ export function AppsTable({
         <Table.HeadCell>site</Table.HeadCell>
         <Table.HeadCell>port</Table.HeadCell>
         <Table.HeadCell>health</Table.HeadCell>
-        <Table.HeadCell>service</Table.HeadCell>
-        {/* border-left gap, not margin: a margin on a <th> collapses in
-            table layout, per board-composite.html's own gap treatment. */}
+        {versioned && <Table.HeadCell>version</Table.HeadCell>}
         <Table.HeadCell className="col-gap">public</Table.HeadCell>
-        <Table.HeadCell />
-        <Table.HeadCell />
-        {/* Its own blank header cell, distinct from the manifest commands
-            column just before it -- a remote push is never a manifest
-            action-command, so it never shares that cell. */}
-        <Table.HeadCell />
         <Table.HeadCell />
       </Table.Head>
       <Table.Body>
         {section.rows.map(row => {
           const restarting = isRestarting(row);
           return (
-            <Table.Row
-              key={row.name}
-              className={openRowName === row.name ? 'row-selected' : undefined}
-              onClick={e => {
-                if (isDrawerClick(e)) onOpenRow(row.name);
-              }}
-            >
+            <Table.Row key={row.name}>
               <Table.Cell className="col-ident">
-                <SiteCell row={row} data={data} restarting={restarting} />
+                <SiteCell row={row} />
               </Table.Cell>
               <Table.Cell className="col-ident">
                 <PortCell row={row} data={data} />
@@ -128,34 +114,35 @@ export function AppsTable({
               <Table.Cell>
                 <HealthCell row={row} restarting={restarting} />
               </Table.Cell>
-              <Table.Cell className="col-ident">
-                <ServiceCell row={row} />
-              </Table.Cell>
+              {versioned && (
+                <Table.Cell>
+                  <VersionColumnCell row={row} />
+                </Table.Cell>
+              )}
               <Table.Cell className="col-gap">
                 <PublishCell row={row} data={data} onPublish={onPublish} />
               </Table.Cell>
-              <Table.Cell>
-                <RestartCell
-                  row={row}
-                  data={data}
-                  restarting={restarting}
-                  onRestart={onRestart}
-                />
-              </Table.Cell>
-              <Table.Cell>
-                <CommandsCell
-                  row={row}
-                  canManage={data.canManage}
-                  onRunCommand={onRunCommand}
-                  commandRuns={commandRuns}
-                  linkSource={linkSource}
-                />
-              </Table.Cell>
-              <Table.Cell>
-                <ChevronCell
-                  row={row}
-                  registerRef={el => registerChevron(row.name, el)}
-                />
+              <Table.Cell align="end">
+                <span className="row-actions">
+                  <CommandsCell
+                    row={row}
+                    canManage={data.canManage}
+                    onRunCommand={onRunCommand}
+                    commandRuns={commandRuns}
+                    linkSource={linkSource}
+                  />
+                  <RestartButton
+                    row={row}
+                    data={data}
+                    restarting={restarting}
+                    onRestart={onRestart}
+                  />
+                  <RowGear
+                    row={row}
+                    onOpen={() => onOpenRow(row.name)}
+                    registerRef={el => registerGear(row.name, el)}
+                  />
+                </span>
               </Table.Cell>
             </Table.Row>
           );
@@ -165,71 +152,24 @@ export function AppsTable({
   );
 }
 
-/** The running pid a service actually answers on -- launchd's own `pid` when
-    managed, the foreign process's when a route is served unmanaged. Exported:
-    the drawer's status strip (RootScreen.tsx) needs the same reading. */
-export function servicePid(
-  service: NonNullable<Row['service']>
-): number | null {
-  return service.unmanaged ? service.unmanaged.pid : service.pid;
-}
-
-/** A row click opens its drawer UNLESS the click landed on an existing
-    interactive control (link, switch, restart button) that already has
-    its own action -- the chevron is the one button exempted, since
-    opening the drawer IS its action. */
-export function isDrawerClick(e: { target: EventTarget | null }): boolean {
-  const target = e.target as HTMLElement;
-  const interactive = target.closest?.('a, button, input, [role="switch"]');
+/** The row's brand mark, or a letter tile when it has none (user apps,
+    strays). */
+export function SiteMark({ row }: { row: Row }) {
+  if (row.icon)
+    return (
+      <img className="site-mark" src={row.icon} alt="" aria-hidden="true" />
+    );
   return (
-    !interactive || interactive.getAttribute('data-part') === 'row-chevron'
+    <span className="site-mark site-mark-letter" aria-hidden="true">
+      {row.name.charAt(0)}
+    </span>
   );
 }
 
-/** ok/warn/bad for the row's leading dot: restarting outranks the health
-    probe (which outranks a bare service pid) because a row mid-restart is
-    still probeable and would otherwise flash bad before the new process
-    comes up. */
-function healthTone(
-  row: Row,
-  restarting: boolean
-): 'ok' | 'warn' | 'bad' | 'muted' {
-  if (row.enabled === false) return 'muted';
-  if (restarting) return 'warn';
-  if (row.health) return row.health.ok ? 'ok' : 'bad';
-  if (row.service) return servicePid(row.service) !== null ? 'ok' : 'bad';
-  return 'bad';
-}
-
-function healthTip(row: Row, restarting: boolean): string {
-  if (restarting) return 'restarting…';
-  if (row.health)
-    return row.health.status !== null
-      ? `HTTP ${row.health.status}`
-      : 'unreachable';
-  if (row.service)
-    return servicePid(row.service) !== null ? 'running' : 'stopped';
-  return 'no route';
-}
-
-function SiteCell({
-  row,
-  data,
-  restarting,
-}: {
-  row: Row;
-  data: StatusData;
-  restarting: boolean;
-}) {
-  const tone = healthTone(row, restarting);
+function SiteCell({ row }: { row: Row }) {
   return (
     <>
-      {row.icon && (
-        <img className="app-icon" src={row.icon} alt="" aria-hidden="true" />
-      )}
-      {tone !== 'muted' && (
-        <StatusDot intent={tone} tip={healthTip(row, restarting)} />
-      )}
+      <SiteMark row={row} />
       {row.url ? (
         <span className="site-name">
           <a className="unstyled" href={row.url}>
@@ -248,7 +188,7 @@ function SiteCell({
                 rel="noopener"
                 aria-label={`open ${row.publicUrl.replace('https://', '')}`}
               >
-                <Icon d={RAILWAY_GLOBE} />
+                <Icon d={GLOBE} />
               </a>
             </Tooltip>
           )}
@@ -258,7 +198,7 @@ function SiteCell({
                 className={`railway-globe railway-${row.remote.status}`}
                 aria-label={`served from Railway (${row.remote.status})`}
               >
-                <Icon d={RAILWAY_GLOBE} />
+                <Icon d={GLOBE} />
               </span>
             </Tooltip>
           )}
@@ -299,8 +239,7 @@ function PortCell({ row, data }: { row: Row; data: StatusData }) {
   // The board's own row can never carry an override in practice, but the
   // dev chip still checks `self` defensively: showing "override" on the
   // board's own listing of itself would be self-contradictory.
-  const override =
-    row.override && data.canManage && !row.self ? row.override : null;
+  const override = effectiveOverride(row, data);
   return (
     <span>
       {row.port}
@@ -321,9 +260,12 @@ function PortCell({ row, data }: { row: Row; data: StatusData }) {
   );
 }
 
+export const OFF_TIP =
+  'Turned off. Turn it on in mattstack.app, Settings > Apps.';
+
 export function OffBadge() {
   return (
-    <Tooltip tip="Turned off. Turn it on in mattstack.app, Settings > Apps.">
+    <Tooltip tip={OFF_TIP}>
       <Badge intent="muted">off</Badge>
     </Tooltip>
   );
@@ -365,15 +307,22 @@ function HealthCell({ row, restarting }: { row: Row; restarting: boolean }) {
   );
 }
 
-function ServiceCell({ row }: { row: Row }) {
-  if (row.enabled === false) return null;
-  if (!row.service) return <span className="muted">no service</span>;
-  const service = row.service;
-  const pid = servicePid(service);
-  if (pid !== null) return <span className="muted">pid {pid}</span>;
-  if (service.lastExitStatus != null)
-    return <span className="t-bad">exit {service.lastExitStatus}</span>;
-  return <span className="muted">stopped</span>;
+/** Dev mode only: the API carries a deployed SHA only when it differs from
+    the checkout's head, so a linked row without one reads as current and
+    every other row is untracked. */
+function VersionColumnCell({ row }: { row: Row }) {
+  const cell = versionCell(row);
+  if (cell.kind === 'behind') {
+    return (
+      <span className="version-cell">
+        <span className="version-sha">{cell.deployed}</span>
+        <span className="t-warn">→</span>
+        <span className="version-sha t-warn">{cell.head}</span>
+      </span>
+    );
+  }
+  if (cell.kind === 'current') return <span>current</span>;
+  return <span className="muted">not tracked</span>;
 }
 
 /** Marks a row already serving public traffic straight off Railway rather
@@ -423,7 +372,7 @@ function PublishCell({
   );
 }
 
-function RestartCell({
+function RestartButton({
   row,
   data,
   restarting,
@@ -436,23 +385,26 @@ function RestartCell({
 }) {
   if (row.enabled === false || !(data.canRestart && row.service)) return null;
   return (
-    <Button
-      variant="subtle"
-      size="sm"
-      iconOnly
-      disabled={restarting}
-      aria-label={`restart ${row.service.short}`}
-      onClick={() => onRestart(row)}
-    >
-      {ICONS['refresh-cw']}
-    </Button>
+    <Tooltip tip="Restart service">
+      <Button
+        variant="subtle"
+        size="sm"
+        iconOnly
+        className="row-icon"
+        disabled={restarting}
+        aria-label={`restart ${row.service.short}`}
+        onClick={() => onRestart(row)}
+      >
+        {ICONS['refresh-cw']}
+      </Button>
+    </Tooltip>
   );
 }
 
 /** Dev-mode source linking replaces the manifest command buttons rather than
     sharing the cell with them: `unlinked`/`broken` rows have nothing else to
-    run yet. Unlink lives in the drawer's source screen, not here — the table
-    carries commands and the link-fix affordance only. */
+    run yet. Unlink lives in the settings modal's Code block, not here: the
+    table carries commands and the link-fix affordance only. */
 function CommandsCell({
   row,
   canManage,
@@ -484,36 +436,15 @@ function CommandsCell({
   }
   return (
     <>
-      {(row.commands ?? []).map(name => {
-        const phase = commandRuns[commandKey(row.name, name)];
-        const pill = deployPill(row, name, phase);
-        if (pill)
-          return (
-            <Tooltip key={name} tip={pill.tip}>
-              <Button
-                intent="warn"
-                variant="filled"
-                size="sm"
-                aria-label={`${pill.label} ${row.name}`}
-                onClick={() => onRunCommand(row, name)}
-              >
-                {pill.label}
-              </Button>
-            </Tooltip>
-          );
-        return (
-          <Button
-            key={name}
-            variant="subtle"
-            size="sm"
-            busy={phase != null}
-            aria-label={`${name} ${row.name}`}
-            onClick={() => onRunCommand(row, name)}
-          >
-            {commandButtonLabel(name, phase)}
-          </Button>
-        );
-      })}
+      {(row.commands ?? []).map(name => (
+        <CommandButton
+          key={name}
+          row={row}
+          name={name}
+          phase={commandRuns[commandKey(row.name, name)]}
+          onRunCommand={onRunCommand}
+        />
+      ))}
     </>
   );
 }
@@ -610,29 +541,30 @@ function DevLinkPrompt({
   );
 }
 
-/** Opens the row's drawer via the row's own onClick (this button is exempted
-    from `isDrawerClick`'s interactive-target check, so the click bubbles
-    rather than needing its own handler). A plain `<button>`, not the kit
-    `Button`, because it needs the `row-chevron` part that wiring selects on
-    -- Button's non-overridable tail always stamps `data-part="button"`.
-    `registerRef` feeds the drawer's chevron map, read on close to restore
+/** The only way into the row's settings. Always in the tab order; board.css
+    keeps it transparent until the row is hovered or holds focus.
+    `registerRef` feeds the board's gear map, read on close to restore
     focus. */
-export function ChevronCell({
+function RowGear({
   row,
+  onOpen,
   registerRef,
 }: {
   row: Row;
-  registerRef?: (el: HTMLButtonElement | null) => void;
+  onOpen: () => void;
+  registerRef: (el: HTMLButtonElement | null) => void;
 }) {
   return (
-    <button
-      type="button"
-      className="row-chevron"
-      data-part="row-chevron"
-      aria-label={`details for ${row.name}`}
+    <Button
       ref={registerRef}
+      variant="subtle"
+      size="sm"
+      iconOnly
+      className="row-gear row-icon"
+      aria-label={`settings for ${row.name}`}
+      onClick={onOpen}
     >
-      ›
-    </button>
+      {ICONS.settings}
+    </Button>
   );
 }

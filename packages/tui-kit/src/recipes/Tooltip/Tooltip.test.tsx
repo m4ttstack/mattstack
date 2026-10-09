@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { animationResolution } from '../../../test/keyframes.ts';
 import { renderWithTheme } from '../../../test/test-utils.tsx';
 import { Tooltip, TOOLTIP_PARTS } from './Tooltip.tsx';
 import { TOOLTIP_SHOW_DELAY_MS } from './TooltipCard.tsx';
@@ -29,6 +30,15 @@ function cardInBody(): HTMLElement | null {
   return document.querySelector<HTMLElement>(
     `[data-part="${TOOLTIP_PARTS.card}"]`
   );
+}
+
+/** The card pops in scaled and nudged up, so its box only matches its
+    resting geometry once the entry animation has run out. */
+async function settledCard(): Promise<HTMLElement> {
+  const card = cardInBody();
+  if (!card) throw new Error('no Tooltip card shown');
+  await Promise.all(card.getAnimations().map((a) => a.finished));
+  return card;
 }
 
 describe('Tooltip (browser)', () => {
@@ -164,16 +174,15 @@ describe('Tooltip (browser)', () => {
 
     const trigger = rootOf(screen.container);
     const triggerRect = trigger.getBoundingClientRect();
-    const cardRect = cardInBody()!.getBoundingClientRect();
+    const cardRect = (await settledCard()).getBoundingClientRect();
 
     expect(cardRect.left).toBe(triggerRect.left);
     expect(cardRect.top).toBeGreaterThan(triggerRect.bottom);
-    // The gap is `--sb-tooltip-gap` (0.15rem, 2.4px at the 16px test root) —
-    // small on purpose (Tooltip.tsx's own doc comment), so this pins it as a
-    // bounded gap rather than an exact float that would be brittle against
-    // sub-pixel rounding.
-    expect(cardRect.top - triggerRect.bottom).toBeGreaterThan(0);
-    expect(cardRect.top - triggerRect.bottom).toBeLessThan(8);
+    // The gap is `--sb-tooltip-gap` (0.15rem + 8px, 10.4px at the 16px test
+    // root): room for the arrow above the card. Bounded rather than exact so
+    // sub-pixel rounding cannot make it brittle.
+    expect(cardRect.top - triggerRect.bottom).toBeGreaterThan(10);
+    expect(cardRect.top - triggerRect.bottom).toBeLessThan(11);
 
     await screen.getByTestId('tip').unhover();
   });
@@ -193,7 +202,7 @@ describe('Tooltip (browser)', () => {
     await screen.getByTestId('tip').hover();
     await expect.poll(() => cardInBody(), { timeout: 1000 }).not.toBeNull();
 
-    const cardRect = cardInBody()!.getBoundingClientRect();
+    const cardRect = (await settledCard()).getBoundingClientRect();
     expect(cardRect.right).toBeLessThanOrEqual(window.innerWidth);
 
     await screen.getByTestId('tip').unhover();
@@ -257,6 +266,39 @@ describe('Tooltip (browser)', () => {
     await screen.getByTestId('tip').unhover();
     await expect.poll(() => cardInBody(), { timeout: 500 }).toBeNull();
     document.body.removeChild(container);
+  });
+
+  it('the shown card reads as an inverted label: no border, medium weight, 280px measure', async () => {
+    const screen = await renderWithTheme(
+      <Tooltip tip="inverted">
+        <button type="button">focus me</button>
+      </Tooltip>
+    );
+
+    await screen.getByRole('button', { name: 'focus me' }).element().focus();
+    await expect.poll(() => cardInBody(), { timeout: 500 }).not.toBeNull();
+
+    const cs = getComputedStyle(cardInBody()!);
+    expect(cs.borderTopWidth).toBe('0px');
+    expect(cs.fontWeight).toBe('500');
+    expect(cs.maxWidth).toBe('280px');
+  });
+
+  it('pops in via a @keyframes rule a loaded sheet actually declares, under its global name', async () => {
+    const screen = await renderWithTheme(
+      <Tooltip tip="animated">
+        <button type="button">focus me</button>
+      </Tooltip>
+    );
+
+    await screen.getByRole('button', { name: 'focus me' }).element().focus();
+    await expect.poll(() => cardInBody(), { timeout: 500 }).not.toBeNull();
+
+    const { name, found } = animationResolution(cardInBody()!);
+    expect(found, `no @keyframes rule named "${name}" in any loaded sheet`).toBe(
+      true
+    );
+    expect(name).toBe('tooltip-in');
   });
 
   it('applies its layered stylesheet to the rendered root', async () => {

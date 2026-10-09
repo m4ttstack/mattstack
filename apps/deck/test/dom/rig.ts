@@ -4,14 +4,22 @@
 import { copyFileSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { chromium, type Browser, type Page } from 'playwright';
+import {
+  chromium,
+  type Browser,
+  type BrowserContextOptions,
+  type Page,
+} from 'playwright';
 
 const ROOT = join(import.meta.dir, '../..');
 const FIXTURE_DIR = join(ROOT, 'test/fixture');
 
 let sharedBrowser: Browser | null = null;
+// bun kills a timed-out test's child processes, the shared browser included
+// when that test launched it, so every later test would fail on a dead one.
 async function getBrowser(): Promise<Browser> {
-  sharedBrowser ??= await chromium.launch({ headless: true });
+  if (!sharedBrowser?.isConnected())
+    sharedBrowser = await chromium.launch({ headless: true });
   return sharedBrowser;
 }
 
@@ -41,6 +49,8 @@ export interface WithBoardOptions {
       <DECK_FIXTURE>/status.json, so this copies the named file into its own
       temp dir under that name rather than parameterizing the server. */
   fixture?: string;
+  /** Extra browser context options, e.g. a touch device. */
+  context?: BrowserContextOptions;
 }
 
 export async function withBoard(
@@ -98,6 +108,7 @@ export async function withBoard(
     // real cause.
     const context = await browser.newContext({
       permissions: ['clipboard-read', 'clipboard-write'],
+      ...opts.context,
     });
     const page = await context.newPage();
     const errors: string[] = [];

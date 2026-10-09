@@ -10,9 +10,10 @@
     display: inline-block;
   }
 
-  /* `box-sizing` is an ADDITION, not a lift — without it a consumer who skips
-     the optional canvas reset gets a "320px" tooltip measuring ~342px.
-     Lifted verbatim from StatusDot's own comment on this same trap. */
+  /* `box-sizing` is an ADDITION, not a lift: without it a consumer who skips
+     the optional canvas reset gets a card wider than its stated measure
+     (StatusDot's own comment names the same trap). The card is an inverted
+     label because a pale card on a hairline vanished against a white header. */
   .card {
     box-sizing: border-box;
     position: fixed;
@@ -21,21 +22,40 @@
     z-index: 300;
     white-space: pre-line;
     width: max-content;
-    max-width: 320px;
+    max-width: var(--sb-tooltip-max-w);
     /* The old `::after` inherited its font from wherever the trigger sat;
        `document.body` gives no such guarantee (a consumer may not have set
        a body font at all), so the card states its own rather than gambling
        on inheritance across a portal boundary. */
     font-family: var(--font-sans);
-    font-size: var(--font-size-rem74);
-    line-height: 1.5;
+    font-size: var(--font-size-px12);
+    line-height: 1.4;
     text-align: left;
-    font-weight: 400;
-    background: var(--panel);
-    color: var(--text-1);
-    border: 1px solid var(--border);
+    font-weight: 500;
+    background: var(--sb-tooltip-bg);
+    color: var(--card);
+    border: 0;
     border-radius: var(--radius-md);
-    padding: var(--spacing-sm) var(--spacing-lg);
+    padding: var(--spacing-px6) var(--spacing-px10);
+    box-shadow: var(--sb-tooltip-shadow);
+    transform-origin: var(--tooltip-arrow-x, 50%) top;
     pointer-events: none;
+  }
+
+  /* Aimed at the trigger's centre (`--tooltip-arrow-x`, set by TooltipCard),
+     and held off the card's rounded corners by the corner radius. */
+  .card::before {
+    content: "";
+    position: absolute;
+    top: calc(-1 * var(--sb-tooltip-arrow-h));
+    left: clamp(
+      var(--radius-md),
+      calc(var(--tooltip-arrow-x, 50%) - var(--sb-tooltip-arrow-w) / 2),
+      calc(100% - var(--sb-tooltip-arrow-w) - var(--radius-md))
+    );
+    width: var(--sb-tooltip-arrow-w);
+    height: var(--sb-tooltip-arrow-h);
+    background: var(--sb-tooltip-bg);
+    clip-path: var(--sb-tooltip-arrow-clip);
   }
 }
