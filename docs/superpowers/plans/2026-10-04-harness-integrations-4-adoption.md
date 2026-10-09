@@ -405,7 +405,7 @@ resource; compare current content before replacing an owned value.
 `apps/board/skills-src/review/SKILL.md`,
 `apps/board/skills-src/respond/SKILL.md`,
 `apps/board/skills-src/doctor/SKILL.md`, `lib/mcp/tools.ts`;
-create `plugins/mattstack/attachments/harness/claude.md`,
+create `plugins/mattstack/attachments/harness/claude-code.md`,
 `plugins/mattstack/attachments/harness/codex.md`,
 `lib/skills/__tests__/harness-workflow-artifacts.test.ts`.
 

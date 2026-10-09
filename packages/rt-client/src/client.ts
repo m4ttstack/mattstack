@@ -421,7 +421,7 @@ export function agentIntegrations(
 export function boardStandDown(
   a: Commands["board:stand-down"]["payload"], o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["board:stand-down"]["data"]>> {
-  return rtCommand<Commands["board:stand-down"]["data"]>("board:stand-down", { pane: a.pane, text: a.text }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  return rtCommand<Commands["board:stand-down"]["data"]>("board:stand-down", { pane: a.pane }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 /** The last stand-down state a board pane's session reported, `ended` once it has no live link. */

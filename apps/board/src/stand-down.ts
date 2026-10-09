@@ -15,12 +15,11 @@ import { sendPaneText } from './herdr.ts';
 export const STAND_DOWN_BACKGROUND_MESSAGE =
   'stood down; background work finishing';
 
+const STOOD_DOWN_MESSAGE = 'stood down by operator';
+
 export interface StandDownIo {
   switchOn(): boolean;
-  push: (a: {
-    pane: string;
-    text: string;
-  }) => ReturnType<typeof rtBoardStandDown>;
+  push: (a: { pane: string }) => ReturnType<typeof rtBoardStandDown>;
   sendPaneText(paneId: string, text: string): Promise<void>;
 }
 
@@ -39,9 +38,9 @@ export interface StandDownResult {
 }
 
 /** Stands down the agent in `paneId`: through its Claude mod when the
-    integrations switch is on and the mod acks, else (and only once) by
-    typing `text` into the pane as before. A failed pane nudge throws, as it
-    always has. */
+    integrations switch is on and the mod acks (the mod tells the session
+    STAND_DOWN_PANE_MESSAGE itself), else, and only once, by typing `text`
+    into the pane as before. A failed pane nudge throws, as it always has. */
 export async function standDownPane(
   paneId: string,
   text: string,
@@ -50,7 +49,7 @@ export async function standDownPane(
   if (io.switchOn()) {
     let acked: Awaited<ReturnType<StandDownIo['push']>> | null = null;
     try {
-      acked = await io.push({ pane: paneId, text });
+      acked = await io.push({ pane: paneId });
     } catch {
       acked = null;
     }
@@ -99,8 +98,6 @@ export async function waitForBackground(
   }
 }
 
-const STOOD_DOWN_MESSAGE = 'stood down by operator';
-
 export interface DoctorStandDownDeps {
   readDoctor(mrUrl: string): DoctorState | undefined;
   writeDoctor(
@@ -111,7 +108,23 @@ export interface DoctorStandDownDeps {
   inFlight: ReadonlySet<string>;
   standDown(paneId: string, text: string): Promise<StandDownResult>;
   watch(sessionId: string): Promise<'finished' | 'ended' | 'timeout'>;
+  newToken(): string;
   log(message: string): void;
+}
+
+/** Ends "finishing" on `mrUrl`'s row, but only while the row still carries
+    the stand-down `token` wrote: any later write has already ended it. */
+function finishStandDown(
+  mrUrl: string,
+  token: string,
+  deps: Pick<DoctorStandDownDeps, 'readDoctor' | 'writeDoctor' | 'doctorPath'>
+): void {
+  const row = deps.readDoctor(mrUrl);
+  if (!row?.backgroundFinishing || row.standDownRef?.token !== token) return;
+  deps.writeDoctor(deps.doctorPath(mrUrl), {
+    status: row.status,
+    message: STOOD_DOWN_MESSAGE,
+  });
 }
 
 /** One MR's share of an operator stand-down: tell a live doctor pane to
@@ -133,23 +146,49 @@ export async function standDownDoctor(
     }
   }
   if (!plan.clearDoctorState) return;
-  const path = deps.doctorPath(target.webUrl);
   const sessionId = result?.background ? result.sessionId : undefined;
-  deps.writeDoctor(path, {
+  const token = sessionId ? deps.newToken() : undefined;
+  deps.writeDoctor(deps.doctorPath(target.webUrl), {
     mrUrl: target.webUrl,
     iid: target.iid,
     status: 'done',
     message: sessionId ? STAND_DOWN_BACKGROUND_MESSAGE : STOOD_DOWN_MESSAGE,
-    ...(sessionId ? { backgroundFinishing: true } : {}),
+    ...(sessionId && token
+      ? { backgroundFinishing: true, standDownRef: { token, sessionId } }
+      : {}),
   });
-  if (!sessionId) return;
-  void deps.watch(sessionId).then(() => {
-    const row = deps.readDoctor(target.webUrl);
-    if (!row?.backgroundFinishing) return;
-    deps.writeDoctor(path, {
+  if (!sessionId || !token) return;
+  void deps
+    .watch(sessionId)
+    .then(() => finishStandDown(target.webUrl, token, deps));
+}
+
+/** Board boot: a row left "finishing" by a stand-down this process no
+    longer watches. One whose session ended or that rt no longer knows ends
+    now; one still finishing gets its watcher back. */
+export async function reconcileStandDowns(
+  deps: Pick<
+    DoctorStandDownDeps,
+    'readDoctor' | 'writeDoctor' | 'doctorPath' | 'watch'
+  > & {
+    doctors(): Iterable<DoctorState>;
+    state: BackgroundWatchIo['state'];
+  }
+): Promise<void> {
+  for (const row of deps.doctors()) {
+    const ref = row.standDownRef;
+    if (!row.backgroundFinishing) continue;
+    const res = ref ? await deps.state(ref.sessionId).catch(() => null) : null;
+    const state = res?.ok ? res.data?.state : undefined;
+    if (ref && state === 'stood-down-background') {
+      void deps
+        .watch(ref.sessionId)
+        .then(() => finishStandDown(row.mrUrl, ref.token, deps));
+      continue;
+    }
+    deps.writeDoctor(deps.doctorPath(row.mrUrl), {
       status: row.status,
       message: STOOD_DOWN_MESSAGE,
-      backgroundFinishing: false,
     });
-  });
+  }
 }

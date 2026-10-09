@@ -1,7 +1,7 @@
 import type { ToolSpec } from 'claude-code'
 import type { Hub, ModApi, PermitNext } from '../core/hub.ts'
 import type { Command, Link } from '../core/link.ts'
-import { STATUS_TOOL, STATUS_TOOL_NAME, STATUS_VERBS, type StatusVerb } from './board-names.ts'
+import { STAND_DOWN_NOTICE, STATUS_TOOL, STATUS_TOOL_NAME, STATUS_VERBS, type StatusVerb } from './board-names.ts'
 
 export { STATUS_TOOL_NAME, STATUS_VERBS }
 
@@ -51,11 +51,6 @@ function statusCall(e: unknown): StatusCall | string {
   return { verb: input.verb as StatusVerb, args: args as string[] }
 }
 
-const standDownText = (cmd: Command): string | null => {
-  const text = (cmd.data as { text?: unknown } | null)?.text
-  return typeof text === 'string' && text.trim().length > 0 ? text : null
-}
-
 /**
  * The `board` block, live only in a pane the mr-board launched (it sets
  * MATTSTACK_BOARD_STATUS_BIN to its status writer):
@@ -102,8 +97,14 @@ export function registerBoard(hub: Hub, link: Link): void {
     if (statusBin === null) return { deny: NOT_LIVE }
     let out
     try {
+      // HOME and PATH are passed whole, so the writer finds bun and the board db whether the engine merges or replaces env.
+      const [home, path] = await Promise.all([a.env.home(), a.env.path()])
       out = await a.process.run([statusBin, call.verb, ...call.args], {
-        env: { CLAUDE_CODE_SESSION_ID: await a.session.id() },
+        env: {
+          CLAUDE_CODE_SESSION_ID: await a.session.id(),
+          ...(home !== undefined && { HOME: home }),
+          ...(path !== undefined && { PATH: path }),
+        },
         timeoutMs: STATUS_TIMEOUT_MS,
       })
     } catch (err) {
@@ -120,10 +121,9 @@ export function registerBoard(hub: Hub, link: Link): void {
    * is left to finish and the session is told it stood down, so the turn its
    * completion starts reads that first; ending or absorbing the work belongs here.
    */
-  async function afterAbort(a: ModApi, text: string | null): Promise<void> {
-    if (text === null) return
+  async function afterAbort(a: ModApi): Promise<void> {
     try {
-      await a.prompt.submit({ text })
+      await a.prompt.submit({ text: STAND_DOWN_NOTICE })
     } catch (err) {
       log(`the stand-down notice was not submitted: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -142,7 +142,7 @@ export function registerBoard(hub: Hub, link: Link): void {
     const state: StandDownState = background ? 'stood-down-background' : 'stood-down'
     standing = { id: cmd.id, state }
     await report(cmd.id, state)
-    await afterAbort(a, standDownText(cmd))
+    await afterAbort(a)
   }
 
   link.onCommand('stand-down', standDown, 'board')

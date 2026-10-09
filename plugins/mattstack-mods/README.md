@@ -456,16 +456,17 @@ block's start fails, so it is never live and rt never pushes to it.
   writer's own. A non-zero exit comes back as the call's refusal with the
   writer's output. The board's wrappers call the tool when the session has
   it (the `status-writes` fragment in the mattstack plugin's
-  `attachments/harness/claude.md`) and run `<status-bin>` otherwise. A call
+  `attachments/harness/claude-code.md`) and run `<status-bin>` otherwise. A call
   that reaches a cleared block is answered with a pointer back to
   `<status-bin>`.
-- **Stand-down.** rt's `board:stand-down` pushes `stand-down { text }`. The
+- **Stand-down.** rt's `board:stand-down` pushes `stand-down`, which carries no text. The
   block acks it, ends the running turn with `$.turn.abort`, and reports
   `session:stood-down` with `stood-down`, or `stood-down-background` when a
   Bash call was running (an abort moves it to the background) or the last
-  Stop listed background work. It then submits `text` as this plugin's
-  message, so the turn the background work's completion starts reads it
-  first. Once a turn ends whose Stop lists no background work, it reports
+  Stop listed background work. It then submits its own fixed notice
+  (`STAND_DOWN_NOTICE`, the words the board's pane nudge types) as this
+  plugin's message, so the turn the background work's completion starts
+  reads it first. Once a turn ends whose Stop lists no background work, it reports
   `background-finished`. A command that arrives while the block is not live
   is not acked, and the board types its message into the pane as before.
 

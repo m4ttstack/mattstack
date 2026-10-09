@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
-import { STATUS_TOOL_NAME, STATUS_VERBS } from "../../../plugins/mattstack-mods/src/blocks/board-names.ts";
+import { STAND_DOWN_NOTICE, STATUS_TOOL_NAME, STATUS_VERBS } from "../../../plugins/mattstack-mods/src/blocks/board-names.ts";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const WRAPPERS = ["review", "respond", "doctor"];
@@ -32,6 +32,12 @@ describe("board status writes in a mod session", () => {
       expect(text).not.toContain(STATUS_TOOL_NAME);
       expect(text).toMatch(/<status-bin> [a-z]+-status /);
     }
+  });
+
+  test("a stood-down session reads the same words the board's pane nudge types", () => {
+    const board = readFileSync(join(ROOT, "apps/board/src/doctor-state.ts"), "utf8");
+    const nudge = /export const STAND_DOWN_PANE_MESSAGE =\s*'([^']+)'/.exec(board)?.[1];
+    expect(nudge).toBe(STAND_DOWN_NOTICE);
   });
 
   test("the mod reads the status writer from the env key the board sets", () => {

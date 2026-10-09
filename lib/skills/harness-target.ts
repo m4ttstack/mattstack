@@ -116,9 +116,16 @@ export function parseFragments(text: string, srcPath: string): Outcome<{ fragmen
   return { ok: true, data: { fragments, spans } };
 }
 
+/**
+ * Each harness's fragments file. Claude's is never `claude.md`: on a
+ * case-insensitive disk Claude Code loads that name as a CLAUDE.md memory
+ * file for anyone working in the folder.
+ */
+const FRAGMENT_FILES: Record<string, string> = { claude: "claude-code.md", codex: "codex.md" };
+
 /** The canonical fragments file for a harness, inside the mattstack plugin root. */
 export function harnessFragmentsPath(mattstackDir: string, harness: HarnessId): string {
-  return join(mattstackDir, "attachments", "harness", `${harness}.md`);
+  return join(mattstackDir, "attachments", "harness", FRAGMENT_FILES[harness] ?? `${harness}.md`);
 }
 
 /**

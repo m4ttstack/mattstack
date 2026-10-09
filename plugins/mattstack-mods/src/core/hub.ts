@@ -79,6 +79,7 @@ export type ModApi = {
   env: {
     daemonSock(): Promise<string | undefined>
     home(): Promise<string | undefined>
+    path(): Promise<string | undefined>
     pane(): Promise<string | undefined>
     /** The board's status writer, which the board sets on the panes it launches. */
     boardStatusBin(): Promise<string | undefined>
@@ -621,6 +622,7 @@ function facade($: EngineInterface): ModApi {
       daemonSock: () => $.env.get('RT_DAEMON_SOCK'),
       home: () => $.env.get('HOME'),
       pane: () => $.env.get('HERDR_PANE_ID'),
+      path: () => $.env.get('PATH'),
       boardStatusBin: () => $.env.get('MATTSTACK_BOARD_STATUS_BIN'),
     },
     state: {

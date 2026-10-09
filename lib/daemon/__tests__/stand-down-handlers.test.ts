@@ -8,7 +8,6 @@ import { createStandDownHandlers, type StandDownPush } from "../handlers/stand-d
 type Reply = { ok: boolean; data?: unknown; error?: string; failure?: { code: string; message: string } };
 const call = (fn: (payload: never) => Promise<unknown>, payload: unknown) => fn(payload as never) as Promise<Reply>;
 
-const NOTICE = "Operator stood down auto-doctor on this MR/stack. Stop and exit -- this pane will not be resumed automatically.";
 
 function setup(opts: { push?: StandDownPush; enabled?: boolean; blocks?: string[]; pane?: string } = {}) {
   let now = 5_000;
@@ -40,38 +39,38 @@ describe("board:stand-down", () => {
         return { ok: true, data: { acked: true } } as Outcome<{ acked: boolean }>;
       },
     });
-    expect(await call(s.handlers["board:stand-down"], { pane: "w1:p1", text: NOTICE })).toEqual({
+    expect(await call(s.handlers["board:stand-down"], { pane: "w1:p1" })).toEqual({
       ok: true, data: { acked: true, sessionId: "sess-1", state: "stood-down-background" },
     });
   });
 
   test("an acked stand-down with no report in time still counts as the mod's", async () => {
     const s = setup();
-    const reply = await call(s.handlers["board:stand-down"], { pane: "w1:p1", text: NOTICE });
+    const reply = await call(s.handlers["board:stand-down"], { pane: "w1:p1", text: "a caller's words are never forwarded" });
     expect(reply).toEqual({ ok: true, data: { acked: true, sessionId: "sess-1" } });
-    expect(s.pushed.map((p) => [p.sessionId, p.kind, p.data])).toEqual([["sess-1", "stand-down", { text: NOTICE }]]);
+    expect(s.pushed.map((p) => [p.sessionId, p.kind, p.data])).toEqual([["sess-1", "stand-down", {}]]);
   });
 
   test("an unacked push answers acked false, so the board falls back once", async () => {
     const s = setup({ push: async () => ({ ok: true, data: { acked: false } }) });
-    expect(await call(s.handlers["board:stand-down"], { pane: "w1:p1", text: NOTICE })).toEqual({ ok: true, data: { acked: false } });
+    expect(await call(s.handlers["board:stand-down"], { pane: "w1:p1" })).toEqual({ ok: true, data: { acked: false } });
   });
 
   test("a push that fails answers acked false", async () => {
     const s = setup({ push: async () => ({ ok: false, error: { code: "not-ready", message: "no inbox" } }) });
-    expect(await call(s.handlers["board:stand-down"], { pane: "w1:p1", text: NOTICE })).toEqual({ ok: true, data: { acked: false } });
+    expect(await call(s.handlers["board:stand-down"], { pane: "w1:p1" })).toEqual({ ok: true, data: { acked: false } });
   });
 
   test("a pane with no live board block is never pushed to", async () => {
     for (const s of [setup({ blocks: ["observe"] }), setup({ pane: "w9:p9" }), setup({ enabled: false })]) {
-      expect(await call(s.handlers["board:stand-down"], { pane: "w1:p1", text: NOTICE })).toEqual({ ok: true, data: { acked: false } });
+      expect(await call(s.handlers["board:stand-down"], { pane: "w1:p1" })).toEqual({ ok: true, data: { acked: false } });
       expect(s.pushed).toEqual([]);
     }
   });
 
   test("validates its payload", async () => {
     const s = setup();
-    for (const bad of [undefined, {}, { pane: "", text: NOTICE }, { pane: "w1:p1" }, { pane: "w1:p1", text: "" }, { pane: "w1:p1", text: "x".repeat(4_001) }]) {
+    for (const bad of [undefined, {}, { pane: "" }, { pane: 3 }]) {
       const reply = await call(s.handlers["board:stand-down"], bad);
       expect(reply.failure?.code).toBe("invalid");
     }

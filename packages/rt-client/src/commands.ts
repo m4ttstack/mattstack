@@ -1013,13 +1013,14 @@ export interface Commands {
   };
   /**
    * The board stands down the Claude pane `pane` through its mod: rt pushes
-   * `stand-down` with `text` to the session whose live link names that pane
-   * and carries the `board` block. `acked` is false with no such link or no
+   * `stand-down` to the session whose live link names that pane and carries
+   * the `board` block, which ends its turn and tells it the operator stood it
+   * down, in the mod's own fixed words. `acked` is false with no such link or no
    * ack within 5 s, and the board then takes its own path once. `state` is
    * what the block reported within 2 s of its ack.
    */
   "board:stand-down": {
-    payload: { pane: string; text: string };
+    payload: { pane: string };
     data: { acked: boolean; sessionId?: string; state?: StandDownState };
   };
   /** The last stand-down state `sessionId`'s board block reported; `ended` once the session has no live link. */

@@ -80,6 +80,9 @@ export interface DoctorState {
   /** The operator stood this doctor down through its Claude mod and work the
       pane started is still finishing; cleared once it ends. */
   backgroundFinishing?: boolean;
+  /** Which stand-down set backgroundFinishing, and the session it stood
+      down, so only that stand-down's watcher clears it. */
+  standDownRef?: { token: string; sessionId: string };
   startedAt: number;
   updatedAt: number;
 }
@@ -121,6 +124,7 @@ export function writeDoctorState(
     dismissedAt: patch.dismissedAt,
     noPack: patch.noPack,
     backgroundFinishing: patch.backgroundFinishing,
+    standDownRef: patch.standDownRef,
     startedAt: now,
     updatedAt: now,
   };

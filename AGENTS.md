@@ -141,7 +141,9 @@ under `claude/` and `codex/`) and the Claude Code mod at
   only from the live mod link, and `worktree:registered` is what lets the
   mod skip a permission prompt. That is the recorded posture, not an
   oversight; anything that grants authority on these verbs needs a design
-  review.
+  review. `board:stand-down` is one more: it reaches only a session whose
+  live mod link carries the `board` block, takes no text, and only ends
+  that session's turn.
 - **Codex's policy hooks run the hidden `rt agent policy-hook`.** Its stdout,
   stderr and exit code are Codex's hook protocol: exit 2 with stderr is the
   refusal Codex shows the model, so nothing else may write to its stderr.

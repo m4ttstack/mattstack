@@ -300,6 +300,8 @@ import {
   type ListedChannel,
 } from './slack.ts';
 import {
+  defaultBackgroundWatchIo,
+  reconcileStandDowns,
   standDownDoctor,
   standDownPane,
   waitForBackground,
@@ -3035,6 +3037,7 @@ const httpServer = Bun.serve({
                 inFlight: DOCTOR_IN_FLIGHT,
                 standDown: (paneId, text) => standDownPane(paneId, text),
                 watch: sessionId => waitForBackground(sessionId),
+                newToken: () => crypto.randomUUID(),
                 log: message => console.error(message),
               }
             );
@@ -4580,6 +4583,20 @@ if (writer) {
   // Replays every transition emitted while the board was down. A board with
   // no cursor yet starts at the journal head instead and replays nothing.
   wakeAgentStatusFeed();
+  void reconcileStandDowns({
+    doctors: () => readDoctorStates().values(),
+    readDoctor: url => readDoctorStates().get(url),
+    writeDoctor: (path, patch) => {
+      writeDoctorState(path, patch);
+    },
+    doctorPath: doctorFilePath,
+    watch: sessionId => waitForBackground(sessionId),
+    state: defaultBackgroundWatchIo.state,
+  }).catch(err =>
+    console.error(
+      `stand-down reconcile failed: ${err instanceof Error ? err.message : err}`
+    )
+  );
 }
 
 // Bridge-rule registration: reconcile this board's gate-opened rule in

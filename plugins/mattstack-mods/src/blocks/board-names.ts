@@ -8,3 +8,7 @@ export type StatusVerb = (typeof STATUS_VERBS)[number]
 export const STATUS_TOOL = 'status'
 /** The name the model calls: the engine prefixes a plugin's own tool with `mcp__<plugin>__`. */
 export const STATUS_TOOL_NAME = `mcp__mattstack-mods__${STATUS_TOOL}`
+
+/** What a stood-down session reads; the board's own pane nudge sends the same words. */
+export const STAND_DOWN_NOTICE =
+  'Operator stood down auto-doctor on this MR/stack. Stop and exit -- this pane will not be resumed automatically.'

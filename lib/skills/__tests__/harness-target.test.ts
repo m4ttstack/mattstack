@@ -93,6 +93,21 @@ describe("resolveHarnessTarget", () => {
     }
   });
 
+  test("Claude's fragments live in claude-code.md, never a file Claude Code reads as CLAUDE.md", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rt-harness-target-"));
+    try {
+      const dir = join(root, "plugins", "mattstack", "attachments", "harness");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "claude-code.md"), "Intro.\n\n## questions\n\nAsk natively.\n");
+      const r = await resolveHarnessTarget("claude", { roots: resolvePluginRootsFromDir(root) });
+      expect(r.ok && r.data.fragments).toEqual({ questions: "Ask natively." });
+      expect(r.ok && r.data.fragmentSpans?.questions?.path).toBe("attachments/harness/claude-code.md");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+    expect(existsSync(join(import.meta.dir, "../../../plugins/mattstack/attachments/harness/claude-code.md"))).toBe(true);
+  });
+
   test("a fragment declared twice is invalid", () => {
     const r = parseFragments("## questions\n\na\n\n## questions\n\nb\n", "harness/codex.md");
     expect(r.ok).toBe(false);

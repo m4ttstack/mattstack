@@ -94,6 +94,13 @@ export function updateByHandle(
       // so the row speaks again (see laneDismissed, which reads presence and
       // never compares clocks -- two writes can share a millisecond).
       if (!('dismissedAt' in next)) delete prev.dismissedAt;
+      // "Background work finishing" belongs to the stand-down that wrote it:
+      // any later write that does not restate it (a relaunch, another
+      // stand-down, the pane's own status) ends it.
+      if (!('backgroundFinishing' in next)) {
+        delete (prev as { backgroundFinishing?: unknown }).backgroundFinishing;
+        delete (prev as { standDownRef?: unknown }).standDownRef;
+      }
       // A message explains the status it was written with; a write that moves
       // the status on without its own explanation must not inherit the old one
       // (a cleared pane's "pane closed" riding along on the next "reviewing").

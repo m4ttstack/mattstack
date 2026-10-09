@@ -44,7 +44,7 @@ Write status **only** by running the injected `--status-bin`:
 <status-bin> doctor-status <state> <status> [message]
 ```
 
-<!-- part: harness:status-writes target=claude path=attachments/harness/claude.md lines=8-15 -->
+<!-- part: harness:status-writes target=claude path=attachments/harness/claude-code.md lines=8-15 -->
 When your tool list has `mcp__mattstack-mods__status`, every
 `<status-bin> review-status`, `respond-status` or `doctor-status` write in
 this skill is a call to that tool instead of a Bash command: `verb` is the

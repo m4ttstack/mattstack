@@ -7,8 +7,9 @@
  * names the pane and carries the `board` block, which the mod starts only in
  * a pane the board launched. Any other answer is `acked: false`, and the
  * board then takes its own path once. rt.sock does not say who calls, so
- * this verb can end a board pane's turn for any local caller; it reaches no
- * other session.
+ * this verb can end a board pane's turn for any local caller. It carries no
+ * text of the caller's: the block only ends the turn and submits its own
+ * fixed notice, and it reaches no other session.
  *
  * session:stood-down is the block's report of where the stand-down left its
  * session, accepted only from a live link carrying the block.
@@ -30,7 +31,6 @@ export type StandDownPush = (sessionId: string, kind: string, data: unknown, id:
 /** How long board:stand-down waits after the ack for the block to say whether background work is finishing. */
 export const STAND_DOWN_REPORT_MS = 2_000;
 const REPORT_POLL_MS = 50;
-const MAX_TEXT = 4_000;
 const KEPT = 500;
 const STATES: readonly StandDownState[] = ["stood-down", "stood-down-background", "background-finished"];
 
@@ -59,13 +59,12 @@ export function createStandDownHandlers(deps: {
 
   return {
     "board:stand-down": async (payload) => {
-      const { pane, text } = record(payload);
+      const { pane } = record(payload);
       if (!isText(pane)) return invalid("pane must be a non-empty string");
-      if (!isText(text) || text.length > MAX_TEXT) return invalid(`text must be a non-empty string of at most ${MAX_TEXT} characters`);
       const link = links.list().filter((l) => l.pane === pane && l.blocks.includes("board")).at(-1);
       if (!link) return { ok: true, data: { acked: false } };
       const id = crypto.randomUUID();
-      const pushed = await push(link.sessionId, "stand-down", { text }, id);
+      const pushed = await push(link.sessionId, "stand-down", {}, id);
       if (!pushed.ok || !pushed.data.acked) return { ok: true, data: { acked: false } };
       const deadline = now() + STAND_DOWN_REPORT_MS;
       for (;;) {
