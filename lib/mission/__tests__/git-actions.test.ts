@@ -154,6 +154,18 @@ describe("runAction: pull on a diverged branch (GHD's divergent-branch default)"
     return { a, b };
   }
 
+  test("a push rejected because the remote has newer commits says it needs a pull (GHD's PushNotFastForward)", async () => {
+    const { a, b } = await diverged();
+    try {
+      const pushed = await runAction(b.dir, "push", { remote: "origin", branch: "main" });
+      expect(pushed.ok).toBe(false);
+      expect(pushed.pushNeedsPull).toBe(true);
+    } finally {
+      await a.cleanup();
+      await b.cleanup();
+    }
+  });
+
   test("with no pull.ff or pull.rebase config, pull merges instead of refusing", async () => {
     const { a, b } = await diverged();
     try {

@@ -89,6 +89,7 @@ function baseState(overrides: Partial<MissionState> = {}): MissionState {
     settling: false,
     switchPrompt: null,
     publishPrompt: null,
+    pushNeedsPullPrompt: null,
     ...overrides,
   };
 }

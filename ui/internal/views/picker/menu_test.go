@@ -576,3 +576,18 @@ func TestMenuStepsKeepTheBoxInsideTheFrame(t *testing.T) {
 		}
 	}
 }
+
+// A row as wide as the box, a hint and the header's esc hint each keep one
+// blank column before the right border, mirroring the gutter on the left.
+func TestMenuKeepsAColumnBeforeTheRightBorder(t *testing.T) {
+	items := []MenuItem{
+		{ID: "body", Label: strings.Repeat("w", 40), Disabled: true, Section: 0},
+		{ID: "c", Label: "Sort", Hint: "⌃s", Section: 1},
+	}
+	frame := NewMenu("x.go", items, nil).Render(dottedParent(), 80)
+	for _, want := range []string{strings.Repeat("w", 40) + " │", "⌃s │", "esc dismiss │"} {
+		if !strings.Contains(ansi.Strip(frame), want) {
+			t.Fatalf("missing %q:\n%s", want, ansi.Strip(frame))
+		}
+	}
+}

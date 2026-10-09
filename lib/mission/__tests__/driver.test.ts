@@ -785,6 +785,44 @@ describe("MissionDriver: real remote name, pull.rebase, and guards", () => {
     expect(prompts.at(-1)).toBeNull();
   });
 
+  test("a push the remote rejects as not a fast-forward opens Newer Commits on Remote instead of the hint line", async () => {
+    const session = new FakeSession([
+      { t: "intent", name: "mission:action" },
+      { t: "intent", name: "mission:refresh" },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      runAction: async () => ({ ok: false, detail: "hint: See the 'Note about fast-forwards' in 'git push --help' for details.", pushNeedsPull: true }),
+    });
+
+    await new MissionDriver(deps, START).run();
+
+    const models = session.pushed as MissionModel[];
+    expect(models.map((m) => m.pushNeedsPullPrompt).filter((p) => p !== null)).toEqual([{ seq: 1 }]);
+    expect(models.at(-1)!.pushNeedsPullPrompt).toBeNull();
+    expect(models.some((m) => m.notice.includes("fast-forwards"))).toBe(false);
+  });
+
+  test("the dialog's Fetch runs a fetch whatever the action segment says", async () => {
+    const kinds: string[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:fetch" },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      runAction: async (_cwd, kind) => {
+        kinds.push(kind);
+        return { ok: true, detail: "" };
+      },
+    });
+
+    await new MissionDriver(deps, START).run();
+
+    expect(kinds).toEqual(["fetch"]);
+  });
+
   test("publishing runs gh behind the busy state, then refreshes into the pushed repo", async () => {
     const published: { cwd: string; name: string; private: boolean }[] = [];
     let remotes: { name: string }[] = [];

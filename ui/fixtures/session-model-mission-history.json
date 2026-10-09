@@ -159,6 +159,7 @@
     "stash": null,
     "switchPrompt": null,
     "publishPrompt": null,
+    "pushNeedsPullPrompt": null,
     "canStash": false
   }
 }
