@@ -159,22 +159,25 @@ tunnel.
   minifier churn in `board.js` is expected; commit source + regenerated bundle
   together.
 - `bun run test` (`bun test core src`) is the scoped suite. `bun run test:dom`
-  is separate and has 11 pre-existing failures on main (structural/text
-  assertions, unrelated to most changes... verify before/after, do not chase).
+  is separate and has 6 pre-existing failures (five in `board.spec`, one in
+  `commands.spec`; structural/text assertions, unrelated to most changes...
+  verify before/after, do not chase).
 
 ## Board surface: canvas ground, tables as card panels
 
 The page ground is `--bg` with the kit's graph-paper grid, replicated by
 hand in `core/board/board.css`'s own `body` rule rather than importing
-`canvas.css` (that file also resets `* { box-sizing: border-box }`, which
-`.drawer-toggle-row` is deliberately written without). Each `.apps-grid`
-table sits on a raised `--card` panel (border + radius), the same
+`canvas.css` (that file also resets `* { box-sizing: border-box }` on every
+element, and deck's rules keep the browser default; kit recipes set
+box-sizing where they need it). Each section's `.apps-grid`
+table sits in a raised `--card` panel, `.apps-panel` (border + radius,
+shared with the mattstack update strip), the same
 bg-then-panel relationship `apps/board` gives its `Panel`-wrapped row groups
 (`var(--surface-wash-panel-88)` there vs a flat `--card` fill here, since
 deck has no wash formula of its own). Page-level ink (headings, the
 subline) stays the canvas-tuned `--muted`/`--border`, already AA against
-`--bg`; ink inside a panel (suffixes, pids, hairlines) is remapped to the
-kit's on-card roles (`--text-muted-on-card` etc.) scoped to `.apps-grid`,
+`--bg`; ink inside a panel (suffixes, hairlines) is remapped to the
+kit's on-card roles (`--text-muted-on-card` etc.) scoped to `.apps-panel`,
 since the plain roles fall short of AA on the lighter `--card` surface --
 see `packages/tokens`' on-card invariants tests.
 

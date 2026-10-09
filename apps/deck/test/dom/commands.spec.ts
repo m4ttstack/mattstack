@@ -16,6 +16,11 @@ test('renders a button per command and POSTs on click', async () => {
       });
       const deploy = page.locator('[aria-label="deploy atlas"]');
       expect(await deploy.count()).toBe(1);
+      for (const name of ['build', 'deploy']) {
+        const button = page.locator(`[aria-label="${name} atlas"]`);
+        expect(await button.locator('svg').count()).toBe(1);
+        expect((await button.innerText()).trim()).toBe('');
+      }
       await deploy.click();
       expect(postedUrl).toContain('/api/v1/apps/atlas/commands/deploy');
     },
