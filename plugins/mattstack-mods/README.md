@@ -21,9 +21,9 @@ so every feature takes its existing path.
 | `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
-| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane. |
+| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane; `policy.ts` guards questions and run tools with rt's shared policy; `stop-gate.ts` holds a turn a pipeline run must continue. |
 | `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane. Each kit owns one pane id: the gate form's, or the gate panel's. `gate-view.ts` holds its drawing parts, and `gate-ctx.ts` the port of the board's gate-ctx parser. |
-| `src/blocks/sections.ts` | The reply rule section's text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
+| `src/blocks/sections.ts` | The reply rule and spill-read sections' text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
 | `tests/` | `claude plugin test` cases. They drive the hub and link with the stubbed `$` in `tests/stub.ts`. |
 
@@ -363,6 +363,35 @@ the band or the pane reaches `gate:answer`: the block subscribes to no tool
 call, delivery or command. An answer that lost the race to another surface,
 or that rt refused, is reported in the transcript.
 
+## The policy guard and the stop gate
+
+Gate and continuation rules live once in rt (its shared workflow policy).
+The two blocks only ask, over the link, and each call names the session's
+own id. rt takes the caller from the live link alone: the link must be that
+session's and carry the asking block, and the fork-check sees the link's
+directory and pane. A session with no bound binding gets `none`, which the
+blocks treat as no decision.
+
+- **`policy`** (`src/blocks/policy.ts`) adds `guard` rules. AskUserQuestion
+  asks `policy:authorize { action: "ask" }`, which rt files under the
+  binding's own gate subject. The run tools that move a run (`run_stage`,
+  `run_field_set`, `run_decision`) ask `continue`, and `run_status` asks
+  `complete`, each with its `runDb` as the subject; a call without one is
+  not asked about. Only `refuse` stops the call, with rt's reason as the
+  denial. No decision, an unavailable policy or a lost call lets it
+  through, and the AskUserQuestion hook every `rt agent` launch installs
+  still runs.
+- **`stop-gate`** (`src/blocks/stop-gate.ts`) asks `policy:stop` on every
+  Stop, afresh, and holds the turn with rt's reason on `continue`. The
+  mattstack plugin's `pipeline-gate-stop.sh` stays installed and runs
+  beneath it on every stop: the hub runs that hook first, and a stop it
+  holds stays held whatever the block does. A failed call or a block that
+  throws (cleared for the session) never holds a turn itself, so the shell
+  hook alone decides.
+
+rt advertises `gate-policy` and `continuation-policy` for a session only
+while its live link carries both blocks.
+
 ## The reply rule section
 
 The core adds one prompt section, `mattstack-mods:reply-rule`, to every
@@ -386,6 +415,12 @@ the reply line rt appends to each delivery. Who sent the delivery and how to
 reply stay. Every other conversation gets the full line, as rt sends it.
 `lib/agent-integrations/__tests__/mods-plugin-parity.test.ts` holds the
 section to rt's sign-in frame and the trim to `replySteer`.
+
+The core adds a second section, `mattstack-mods:spill-read`, under the same
+rules: the mattstack plugin's SessionStart note about reading a saved tool
+result with the Read tool, word for word (the parity test holds the two
+equal). That shell hook stays, because it cannot tell whether the mod
+composed the section, so a mod session reads the note twice.
 
 ## Checks
 

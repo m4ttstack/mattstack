@@ -50,7 +50,8 @@ export type IntegrationSummary = {
   diagnostics?: IntegrationDiagnostics;
 };
 export type IntegrationDiagnostics = {
-  claudeLinks?: { sessionId: string; claudeCode: string; plugin: string; blocks: ModBlock[]; lastHeartbeatAgoMs: number }[];
+  /** `capabilities` is what each session advertises through its link: both policies only with the policy and stop-gate blocks; an older daemon omits it. */
+  claudeLinks?: { sessionId: string; claudeCode: string; plugin: string; blocks: ModBlock[]; capabilities?: Capability[]; lastHeartbeatAgoMs: number }[];
   experimentalApi?: boolean;
 };
 export type PeerInput = { id: string; body: string; sender: string; recipient: string };

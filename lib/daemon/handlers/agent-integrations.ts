@@ -85,10 +85,11 @@ async function diagnose(integration: HarnessIntegration, deps: IntegrationListDe
     const links = await (deps.modLinks ?? installedLinks)();
     if (!links) return undefined;
     const now = (deps.now ?? Date.now)();
+    const { modPolicyCapabilities } = await import("../../agent-integrations/claude/mod-path.ts");
     return {
       claudeLinks: links.list().map((link) => ({
         sessionId: link.sessionId, claudeCode: link.claudeCode, plugin: link.plugin,
-        blocks: link.blocks, lastHeartbeatAgoMs: Math.max(0, now - link.lastHeartbeatAt),
+        blocks: link.blocks, capabilities: modPolicyCapabilities(link.blocks), lastHeartbeatAgoMs: Math.max(0, now - link.lastHeartbeatAt),
       })),
     };
   }

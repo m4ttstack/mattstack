@@ -5,7 +5,9 @@
  * the AskUserQuestion hook every `rt agent` launch injects (gate policy),
  * each with the scripts it runs. The revision changes with any of their
  * definitions, script contents, or the Claude Code version. Prepare and
- * verify only read; they never install or edit a hook.
+ * verify only read; they never install or edit a hook. A session whose own
+ * live mod link carries the policy and stop-gate blocks proves both
+ * policies, since the mod enforces them there.
  */
 
 import { execFileSync } from "child_process";
@@ -26,6 +28,8 @@ export type ClaudePolicyDeps = {
   claudeVersion?: () => string | null;
   readFile?: (path: string) => string;
   now?: () => number;
+  /** The session's own live mod link carries the policy and stop-gate blocks. */
+  modPolicy?: (binding: SessionBinding) => boolean | Promise<boolean>;
 };
 
 const PLUGIN = "mattstack";
@@ -147,6 +151,7 @@ export function createClaudePolicy(overrides: ClaudePolicyDeps = {}): PolicyAdap
     claudeVersion: overrides.claudeVersion ?? defaultClaudeVersion,
     readFile: overrides.readFile ?? ((path) => readFileSync(path, "utf8")),
     now: overrides.now ?? Date.now,
+    modPolicy: overrides.modPolicy ?? (async (binding) => (await import("./mod-path.ts")).sessionModPolicy(binding).length > 0),
   };
 
   return {
@@ -175,11 +180,13 @@ export function createClaudePolicy(overrides: ClaudePolicyDeps = {}): PolicyAdap
       if (found.data.revision !== prepared.revision) {
         return fail("not-ready", "the Claude Code policy hooks changed after they were prepared");
       }
+      // The mod's guard and stop gate enforce both policies in this very session, beside the shell backstop.
+      const verified = await deps.modPolicy(binding) ? [...POLICY_CAPABILITIES] : found.data.verified;
       return {
         ok: true,
         data: {
           sessionKey: binding.key, generation: binding.attachment.generation, revision: found.data.revision,
-          verified: found.data.verified, observedAt: deps.now(), kind: "installation",
+          verified, observedAt: deps.now(), kind: "installation",
         },
       };
     },

@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import pino from "pino";
-import type { CallerContext, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { CallerContext, ModBlock, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { createGatesStore } from "../../daemon/gates-store.ts";
 import { createGateHandlers } from "../../daemon/handlers/gate.ts";
 import type { EventsBus } from "../../daemon/events-bus.ts";
@@ -13,6 +13,8 @@ import { findRunsBySession } from "../../runs/store.ts";
 import { fieldSet, openRunDb, runStatus, stageStart } from "../../runs/write.ts";
 import { gateForkHookEntry } from "../../agent-hooks.ts";
 import { buildForkCheckPayload, forkCheckHookOutput, FORK_CHECK_ALLOW } from "../../../commands/gate.ts";
+import { createModLinks, TESTED_CLAUDE_CODE } from "../claude/mod-links.ts";
+import { sessionModPolicy } from "../claude/mod-path.ts";
 import { createClaudePolicy } from "../claude/policy.ts";
 import { openStateDb } from "../../state/db.ts";
 import { createSessionStore, markBindingReady, readBindingReadiness, withdrawBindingReady } from "../session-store.ts";
@@ -645,6 +647,35 @@ describe("createClaudePolicy", () => {
       expect(res.error.code).toBe("not-ready");
       expect(res.error.message).toContain("claude --version");
     }
+  });
+
+  test("a session whose live mod link carries the policy and stop-gate blocks proves both policies; any other keeps the installation's proof", async () => {
+    const p = plugin({ stop: false });
+    const withMod = (live: boolean) => createClaudePolicy({
+      plugins: () => [{ id: "mattstack@mattstack", installPath: p.root, enabled: true }],
+      gateForkHookPath: () => p.fork, claudeVersion: () => "2.1.283", now: () => 42, modPolicy: () => live,
+    });
+    for (const [live, verified] of [[true, ["gate-policy", "continuation-policy"]], [false, ["gate-policy"]]] as const) {
+      const policy = withMod(live);
+      const prepared = await policy.prepare(request(["gate-policy"]));
+      if (!prepared.ok) throw new Error(prepared.error.message);
+      const proof = await policy.verify(binding(), prepared.data);
+      expect(proof.ok ? proof.data.verified : proof.error.message).toEqual([...verified]);
+    }
+  });
+
+  test("the mod evidence is the binding's own live link with both blocks", () => {
+    const db = openStateDb(":memory:");
+    const links = createModLinks({ now: () => 5_000, integrationsEnabled: () => true, store: createSessionStore(db) });
+    const reg = (sessionId: string, blocks: ModBlock[]) =>
+      links.register({ sessionId, cwd: "/r", root: "/r", claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.2.1", blocks });
+    reg(SID, ["policy", "stop-gate"]);
+    reg("guard-only", ["policy"]);
+    expect(sessionModPolicy(binding(), links)).toEqual(["gate-policy", "continuation-policy"]);
+    expect(sessionModPolicy(binding("guard-only"), links)).toEqual([]);
+    expect(sessionModPolicy(binding("no-link"), links)).toEqual([]);
+    expect(sessionModPolicy(binding(SID, "w1:p1", "codex"), links)).toEqual([]);
+    expect(sessionModPolicy(binding(), null)).toEqual([]);
   });
 
   test("verify refuses a binding of another harness", async () => {

@@ -55,9 +55,25 @@ describe("agent:integrations diagnostics", () => {
     clock.now += 6_000;
     const claude = (await list(handlers)).find((s) => s.id === "claude")!;
     expect(claude.diagnostics?.claudeLinks).toEqual([
-      { sessionId: "s1", claudeCode: TESTED_CLAUDE_CODE.min, plugin: "mattstack-mods", blocks: ["delivery", "presence"], lastHeartbeatAgoMs: 10_000 },
-      { sessionId: "s2", claudeCode: TESTED_CLAUDE_CODE.min, plugin: "mattstack-mods", blocks: ["gate-form"], lastHeartbeatAgoMs: 6_000 },
+      { sessionId: "s1", claudeCode: TESTED_CLAUDE_CODE.min, plugin: "mattstack-mods", blocks: ["delivery", "presence"], capabilities: [], lastHeartbeatAgoMs: 10_000 },
+      { sessionId: "s2", claudeCode: TESTED_CLAUDE_CODE.min, plugin: "mattstack-mods", blocks: ["gate-form"], capabilities: [], lastHeartbeatAgoMs: 6_000 },
     ]);
+  });
+
+  test("a session advertises gate and continuation policy only while its link carries both the policy and stop-gate blocks", async () => {
+    const { links, handlers } = setup();
+    const reg = (sessionId: string, blocks: string[]) => links.register({
+      sessionId, cwd: "/r", root: "/r", claudeCode: TESTED_CLAUDE_CODE.min, plugin: "mattstack-mods", blocks: blocks as never,
+    });
+    reg("both", ["policy", "stop-gate"]);
+    reg("guard-only", ["policy"]);
+    reg("stop-only", ["stop-gate", "presence"]);
+    const claude = (await list(handlers)).find((s) => s.id === "claude")!;
+    expect(claude.diagnostics?.claudeLinks?.map((l) => [l.sessionId, l.capabilities])).toEqual([
+      ["both", ["gate-policy", "continuation-policy"]], ["guard-only", []], ["stop-only", []],
+    ]);
+    // The harness's own capabilities are per mode and name no session: they advertise nothing new.
+    expect(claude.capabilities).toEqual([]);
   });
 
   test("Codex reports experimentalApi true when negotiated", async () => {
