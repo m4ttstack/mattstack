@@ -80,6 +80,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/team/org-layout.ts": { count: 1, reason: "checks which org clone holds an org store through the Probes seam, so the pick matches readZonesFrom" },
   },
   "raw store reader": {
+    "scripts/move-to-team-directory.ts": { count: 2, reason: "converts the org clone rt reads; reads each store's own values" },
     "scripts/lib/team-directory-move.ts": { count: 2, reason: "the team directory move works on each org and team store's own values and prunes older board.tabs names in the store it just wrote; the merged view would hide which store held a channel or key" },
     "lib/setup/migrations/sdm-resources-key.ts": { count: 2, reason: "the sdm.resources migration reads each org and team store's own value; the merged view would copy an org value into a team store" },
     "commands/team.ts": { count: 2, reason: ROSTER_READ },
