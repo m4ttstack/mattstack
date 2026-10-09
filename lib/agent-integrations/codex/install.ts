@@ -1,8 +1,10 @@
 /**
  * What setup installs for Codex: the Mattstack MCP entry in the selected
- * Codex home's user config. The CLI, its sign-in and the skills links are
- * shared setup's rows and steps; project hooks and trust are a separate,
- * reviewed install.
+ * Codex home's user config, and a check of the reviewed project policy. The
+ * CLI, its sign-in and the skills links are shared setup's rows and steps.
+ * Project hooks and trust are written only by `rt setup codex-policy`, after
+ * a person at a terminal approves each review; Install only reports what
+ * waits on one.
  */
 
 import { dirname, isAbsolute, join } from "path";
@@ -14,6 +16,9 @@ import { toFailedOutcome } from "../../setup/steps/step-utils.ts";
 import { codexHomeOf, codexMcpRow, codexToolRow, desiredCodexMcpEntry } from "../../setup/validators/codex.ts";
 import type { HarnessInstall, InstallAdapter } from "../install.ts";
 import { CODEX_MCP_SERVER, codexConfigFile, codexMcpFingerprint, editCodexMcpEntry, readCodexMcpState } from "./mcp-config.ts";
+import { planCodexPolicyInstall } from "./policy-install.ts";
+import { canonicalCodexProfile } from "./profile.ts";
+import { gitTrustRoot } from "./trust.ts";
 
 type WriteProbes = Pick<Probes, "mkdirp" | "writeFile" | "rename" | "chmod" | "removeFile" | "fileMode" | "readlink">;
 
@@ -86,6 +91,54 @@ export const codexMcpStep: StepDef = {
   run: installCodexMcp,
 };
 
+/** The main checkouts of the repos rt knows, each once: pool worktrees share their main checkout's Codex project layer. */
+export async function codexPolicyTargets(): Promise<string[]> {
+  const { loadRepoIndex } = await import("../../repo-index.ts");
+  const roots = Object.values(loadRepoIndex()).map((path) => gitTrustRoot(path) ?? path);
+  return [...new Set(roots)].sort();
+}
+
+export type CodexPolicyStepDeps = {
+  targets?: () => Promise<string[]>;
+  plan?: typeof planCodexPolicyInstall;
+};
+
+const REVIEW_COMMAND = "rt setup codex-policy";
+
+async function codexPolicyRun(ctx: ApplyContext, deps: CodexPolicyStepDeps): Promise<StepOutcome> {
+  const targets = await (deps.targets ?? codexPolicyTargets)();
+  if (targets.length === 0) return { state: "skipped", detail: "No repos are registered yet" };
+  const profile = canonicalCodexProfile(undefined, ctx.p.env);
+  const pending: string[] = [];
+  for (const cwd of targets) {
+    const planned = await (deps.plan ?? planCodexPolicyInstall)({ cwd, profile });
+    if (!planned.ok) ctx.log("codex.policy", `${cwd}: ${planned.error.message}`);
+    if (!planned.ok || planned.data.stage !== "installed") pending.push(cwd);
+  }
+  if (pending.length === 0) return { state: "done", detail: targets.length === 1 ? "Codex's policy is set up in your repo" : `Codex's policy is set up in all ${targets.length} repos` };
+  const names = pending.map((path) => path.split("/").pop() || path).join(", ");
+  return { state: "needs-you", detail: `Codex's policy waits on your review for ${names}. Review it in a terminal: ${REVIEW_COMMAND}` };
+}
+
+/** Reads only: it never trusts or writes anything, so nothing here can approve a review. */
+export function createCodexPolicyStep(deps: CodexPolicyStepDeps = {}): StepDef {
+  return {
+    id: "codex.policy",
+    title: "Check Codex's project policy",
+    kind: "rt",
+    applies: (ctx) => harnessSelected(selectionFor(ctx), "codex"),
+    run: async (ctx) => {
+      try {
+        return await codexPolicyRun(ctx, deps);
+      } catch (err) {
+        return toFailedOutcome(err);
+      }
+    },
+  };
+}
+
+export const codexPolicyStep: StepDef = createCodexPolicyStep();
+
 type McpGet = { transport?: { command?: unknown; args?: unknown } };
 
 /** Whether Codex itself reads the entry rt wrote, as `codex mcp get --json` prints it. */
@@ -108,7 +161,7 @@ async function codexReadsEntry(p: Probes): Promise<string | null> {
 export function createCodexInstall(deps: { p?: Probes } = {}): InstallAdapter {
   const probes = (): Probes => deps.p ?? createRealProbes();
   return {
-    steps: () => [codexMcpStep],
+    steps: () => [codexMcpStep, codexPolicyStep],
     async verify() {
       const p = probes();
       const tool = await codexToolRow(p);

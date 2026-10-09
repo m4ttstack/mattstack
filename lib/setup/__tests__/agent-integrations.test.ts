@@ -240,7 +240,7 @@ describe("setup for the enabled harnesses", () => {
 
   test("both hosts can be enabled", async () => {
     const steps: string[] = setupSteps(STEPS, BOTH).map((s) => s.id);
-    for (const id of ["plugins.install", "linear.mcp", "claude.permissions", "codex.mcp"]) expect(steps).toContain(id);
+    for (const id of ["plugins.install", "linear.mcp", "claude.permissions", "codex.mcp", "codex.policy"]) expect(steps).toContain(id);
     expect(fastBrowserHost(BOTH)).toBe("both");
     expect(herdrHosts(BOTH)).toEqual(["claude", "codex"]);
 
@@ -292,7 +292,8 @@ describe("setup for the enabled harnesses", () => {
 
   test("with Codex selected, codex.mcp is a step the run lists and accepts, after Claude's", async () => {
     const ids = knownStepIds(setupSteps(STEPS, CODEX_ONLY));
-    expect(ids.indexOf("codex.mcp")).toBe(ids.indexOf("fastbrowser.setup") - 1);
+    expect(ids.indexOf("codex.mcp")).toBe(ids.indexOf("codex.policy") - 1);
+    expect(ids.indexOf("codex.policy")).toBe(ids.indexOf("fastbrowser.setup") - 1);
     const steps = setupSteps(STEPS, BOTH).map((s) => s.id);
     expect(steps.indexOf("codex.mcp")).toBe(steps.indexOf("claude.permissions") + 1);
     const { p } = codexMac(home);
@@ -491,7 +492,7 @@ describe("setup for the enabled harnesses", () => {
   describe("install adapters", () => {
     test("each harness supplies its own steps, in contract order, each once", () => {
       expect(HARNESS_INSTALLS.map((h) => h.id)).toEqual(["claude", "codex"]);
-      expect(createIntegrationSteps(["codex", "claude", "codex", "nope"]).map((s) => s.id)).toEqual(["plugins.install", "linear.mcp", "claude.permissions", "codex.mcp"]);
+      expect(createIntegrationSteps(["codex", "claude", "codex", "nope"]).map((s) => s.id)).toEqual(["plugins.install", "linear.mcp", "claude.permissions", "codex.mcp", "codex.policy"]);
       expect(createIntegrationSteps([])).toEqual([]);
     });
 

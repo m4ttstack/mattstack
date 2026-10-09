@@ -28,6 +28,21 @@ export interface SetupState {
   finishedAt?: string;
   /** Codex config files rt added its MCP entry to, each with that entry's fingerprint: a table whose fingerprint still matches is rt's to replace, any other is the member's. */
   codexMcp?: Record<string, string>;
+  /** What rt wrote for Codex's reviewed project policy (policy-install.ts). Only these entries are rt's to replace or remove; an identical entry the member wrote is never listed. */
+  codexPolicy?: CodexPolicyState;
+}
+
+export interface CodexPolicyState {
+  /** Names this Mac's hooks in their command line, so a receipt says which installation ran. */
+  installationId: string;
+  /** Hook executables rt copied, each with the digest its path is named for. Kept while an old session may still run one. */
+  artifacts: Record<string, string>;
+  /** Per project hooks file, the hook commands rt added there. */
+  hooks: Record<string, string[]>;
+  /** Per Codex config file, the folders rt trusted and the hook keys it trusted with the hash it wrote. */
+  trust: Record<string, { folders: string[]; hooks: Record<string, string> }>;
+  /** The review each boundary's entries were last written under. */
+  reviewed: Record<string, { folder?: string; hooks?: string; at: string }>;
 }
 
 const EMPTY_STATE: SetupState = { v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };

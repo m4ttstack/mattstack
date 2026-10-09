@@ -152,7 +152,7 @@ export const STEP_IDS = [
  * Steps a harness's install adapter adds. They are not in `STEP_IDS`: a run
  * that does not install for that harness neither lists nor accepts them.
  */
-export const INTEGRATION_STEP_IDS = ["codex.mcp"] as const;
+export const INTEGRATION_STEP_IDS = ["codex.mcp", "codex.policy"] as const;
 export type StepId = (typeof STEP_IDS)[number] | (typeof INTEGRATION_STEP_IDS)[number];
 
 /** Every step in run order: each integration step sits right after the shared step it follows. */

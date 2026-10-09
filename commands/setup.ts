@@ -14,7 +14,7 @@
  */
 
 import { randomBytes } from "crypto";
-import { join } from "path";
+import { join, resolve as resolvePath } from "path";
 import { hasUrlCredentials, withoutUrls } from "../lib/team/redact.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
@@ -27,7 +27,10 @@ import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
 import { createApplyContext, runApplyWith, runUpdateWith, stepsForRun, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
-import { readIntegrationSelection } from "../lib/setup/integration-selection.ts";
+import { harnessSelected, readIntegrationSelection } from "../lib/setup/integration-selection.ts";
+import { canonicalCodexProfile } from "../lib/agent-integrations/codex/profile.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import { setupSteps } from "../lib/setup/steps/agent-integrations.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
@@ -1612,4 +1615,144 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
     if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
+}
+
+// ─── rt setup codex-policy ───────────────────────────────────────────────────
+
+type PolicyInstall = typeof import("../lib/agent-integrations/codex/policy-install.ts");
+type PolicyPlan = import("../lib/agent-integrations/codex/policy-install.ts").PolicyInstallPlan;
+
+export interface CodexPolicyDeps {
+  isTTY: () => boolean;
+  confirm: (message: string) => Promise<boolean>;
+  show: (...blocks: Block[]) => void;
+  fail: (f: out.FailureInput) => void;
+  exit: (code: number) => never;
+  /** The integrations switch is on and Codex is one of the enabled harnesses. */
+  codexEnabled: () => boolean;
+  profile: () => string;
+  targets: () => Promise<string[]>;
+  plan: PolicyInstall["planCodexPolicyInstall"];
+  apply: PolicyInstall["applyCodexPolicyInstall"];
+  recovery: PolicyInstall["codexPolicyRecovery"];
+}
+
+export function realCodexPolicyDeps(): CodexPolicyDeps {
+  const load = () => import("../lib/agent-integrations/codex/policy-install.ts");
+  return {
+    isTTY: () => process.stdin.isTTY === true && process.stdout.isTTY === true,
+    confirm: async (message) => (await import("../lib/rt-render.ts")).confirm({ message }),
+    show: (...blocks) => out.print(...blocks),
+    fail: (f) => out.fail(f),
+    exit: process.exit,
+    codexEnabled: () => harnessSelected(readIntegrationSelection(), "codex"),
+    profile: () => canonicalCodexProfile(undefined, process.env),
+    targets: async () => (await import("../lib/agent-integrations/codex/install.ts")).codexPolicyTargets(),
+    plan: async (...args) => (await load()).planCodexPolicyInstall(...args),
+    apply: async (...args) => (await load()).applyCodexPolicyInstall(...args),
+    recovery: async (...args) => (await load()).codexPolicyRecovery(...args),
+  };
+}
+
+function reviewBlocks(plan: PolicyPlan): Block[] {
+  const review = plan.reviews[0]!;
+  const common = [
+    out.kv("Folder", review.boundary),
+    out.kv("Hooks file", review.hooksPath),
+    out.kv("Codex settings", review.configPath),
+    out.kv("Hook program", review.executable),
+    out.kv("Program sha256", review.digest),
+  ];
+  if (review.stage === "folder") {
+    return [
+      out.section(
+        "Codex policy, step 1 of 2",
+        review.boundary,
+        ...common,
+        out.kv("Folder trust", review.trustFolder ? "Codex will trust this folder only" : "Codex already trusts this folder"),
+        out.verbatim(review.commands.map((c) => `${c.event}: ${c.command}`), plan.hooksFile.text === null ? "Hooks already in that file" : "Hooks rt adds to that file"),
+      ),
+    ];
+  }
+  return [
+    out.section(
+      "Codex policy, step 2 of 2",
+      review.boundary,
+      ...common,
+      out.verbatim(review.hooks.flatMap((h) => [h.key, `  ${h.hash}`, `  ${h.command}`]), "Hooks Codex will trust, with the hashes Codex reported"),
+    ),
+  ];
+}
+
+function parseRepoArg(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--repo") return args[i + 1] ?? "";
+    if (a.startsWith("--repo=")) return a.slice("--repo=".length);
+  }
+  return undefined;
+}
+
+/** One boundary, both reviews: the hooks review exists only once the folder review is approved and Codex can list the hooks. */
+async function reviewOne(cwd: string, profile: string, deps: CodexPolicyDeps): Promise<boolean> {
+  for (let round = 0; round < 3; round++) {
+    const planned = await deps.plan({ cwd, profile });
+    if (!planned.ok) {
+      deps.show(out.line(planned.error.code === "refused" ? "refused" : "needs-you", `Codex's policy is not set up for ${cwd}`, planned.error.message));
+      return false;
+    }
+    const plan = planned.data;
+    if (plan.stage === "installed") {
+      deps.show(out.line("done", "Codex's policy is set up", plan.boundary));
+      return true;
+    }
+    deps.show(...reviewBlocks(plan));
+    const approved = await deps.confirm(plan.stage === "folder" ? "Trust this folder and add rt's hooks to it?" : "Trust these hooks in Codex?");
+    if (!approved) {
+      deps.show(out.line("skipped", "Left as it was", `Managed Codex work stays blocked in ${plan.boundary} until you approve this`));
+      return false;
+    }
+    const applied = await deps.apply(plan, [plan.reviews[0]!.id]);
+    if (!applied.ok) {
+      deps.show(out.line(applied.error.code === "refused" ? "refused" : "failed", "rt wrote nothing more", applied.error.message));
+      return false;
+    }
+  }
+  deps.show(out.line("needs-you", "Codex's policy still needs another review", cwd));
+  return false;
+}
+
+/**
+ * The only way rt trusts its Codex policy: a person at a terminal sees each
+ * review's exact folder, commands and hashes and approves it. It has no
+ * --json and no flag that approves, so no agent tool can reach it.
+ */
+export async function setupCodexPolicy(args: string[], _ctx: CommandContext = {}, deps: CodexPolicyDeps = realCodexPolicyDeps()): Promise<void> {
+  if (!deps.isTTY() || process.env.RT_BATCH) {
+    deps.fail({ title: "Reviewing Codex's policy needs you at a terminal", why: "Each review asks you to approve exact folders, hooks and hashes.", next: out.cmd("rt setup codex-policy") });
+    return deps.exit(2);
+  }
+  if (!deps.codexEnabled()) {
+    deps.show(out.line("off", "Codex is not turned on for rt", "Turn it on with rt agent integrations, then review its policy"));
+    return deps.exit(2);
+  }
+  const repo = parseRepoArg(args);
+  if (repo === "") {
+    deps.fail(usageFailure("Which repo?", "rt setup codex-policy --repo <folder>", "Name a folder inside the repo, or leave --repo out to review every repo rt knows."));
+    return deps.exit(2);
+  }
+  const targets = repo !== undefined ? [resolvePath(repo)] : await deps.targets();
+  if (targets.length === 0) {
+    deps.show(out.line("skipped", "No repos are registered yet", "Register one, then review its Codex policy"));
+    return;
+  }
+  const profile = deps.profile();
+  let allSet = true;
+  for (const cwd of targets) allSet = (await reviewOne(cwd, profile, deps)) && allSet;
+  const running = await deps.recovery(profile);
+  if (running.length > 0) {
+    const count = running.length === 1 ? "1 Codex session" : `${running.length} Codex sessions`;
+    deps.show(out.callout("note", `${count} already running keep the hooks they started with. rt keeps them out of managed work until a fresh one starts, and never ends them for you.`));
+  }
+  if (!allSet) return deps.exit(1);
 }
