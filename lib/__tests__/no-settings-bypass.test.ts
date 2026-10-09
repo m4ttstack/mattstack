@@ -51,7 +51,7 @@ const ROSTER_READ = "reads the named org's own roster; getSetting reads only thi
 
 const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
   "per-rung reader": {
-    "lib/setup/migrations/team-directory.ts": { count: 3, reason: "the team-directory migration reads each org and team store's own values to fold them into the directory; the merged view would hide which store held a channel or key" },
+    "scripts/lib/team-directory-move.ts": { count: 3, reason: "the team directory move works on each org and team store's own values and prunes older board.tabs names in the store it just wrote; the merged view would hide which store held a channel or key" },
     "apps/boxscore/scripts/import-legacy-settings.ts": { count: 2, reason: "the integrations write starts from the org store's own value, never the merged view" },
     "commands/setup.ts": { count: 4, reason: "the Slack connect write starts from the org store's own integrations, never the merged view" },
     "commands/settings-keys.ts": { count: 2, reason: "`rt settings explain` prints every rung" },
@@ -80,7 +80,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/team/org-layout.ts": { count: 1, reason: "checks which org clone holds an org store through the Probes seam, so the pick matches readZonesFrom" },
   },
   "raw store reader": {
-    "lib/setup/migrations/team-directory.ts": { count: 5, reason: "the team-directory migration reads each org and team store's own values to fold them into the directory; the merged view would hide which store held a channel or key" },
+    "scripts/lib/team-directory-move.ts": { count: 2, reason: "the team directory move works on each org and team store's own values and prunes older board.tabs names in the store it just wrote; the merged view would hide which store held a channel or key" },
     "lib/setup/migrations/sdm-resources-key.ts": { count: 2, reason: "the sdm.resources migration reads each org and team store's own value; the merged view would copy an org value into a team store" },
     "commands/team.ts": { count: 2, reason: ROSTER_READ },
     "lib/team/invite.ts": { count: 2, reason: ROSTER_READ },
@@ -88,7 +88,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "packages/rt-client/src/index.ts": { count: 1, reason: "rt-client's public entry re-exports the resolver" },
   },
   "store path helper": {
-    "lib/setup/migrations/team-directory.ts": { count: 7, reason: "the team-directory migration reads each org and team store's own values to fold them into the directory; the merged view would hide which store held a channel or key" },
+    "scripts/lib/team-directory-move.ts": { count: 4, reason: "the team directory move works on each org and team store's own values and prunes older board.tabs names in the store it just wrote; the merged view would hide which store held a channel or key" },
     "lib/setup/migrations/sdm-resources-key.ts": { count: 4, reason: "the sdm.resources migration reads each org and team store's own value; the merged view would copy an org value into a team store" },
     "commands/team.ts": { count: 2, reason: "names the org store its roster read targets" },
     "lib/team/invite.ts": { count: 2, reason: "names the org store its roster read targets" },
