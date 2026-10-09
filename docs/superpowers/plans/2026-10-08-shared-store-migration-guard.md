@@ -110,7 +110,7 @@ function assertSharedWriteAllowed(scope: SettingScope): void {
 
   Call `assertSharedWriteAllowed(scope)` as the first statement of `setSetting`, `unsetSetting` (before the retired-key branch) and `pruneStoreName`.
 
-  `renameRepoSection(storePath, oldId, newId, opts)` takes a path, not a scope, and wraps its body in a try that turns any throw into a `refused` result. So it gets its own check before that try: `if (sharedWriteRefusal !== null && orgHolding(storePath) !== null) throw new SharedStoreWriteRefused(sharedWriteRefusal);`. It uses the `orgHolding` the function already uses to tell a shared store from this Mac's own.
+  `renameRepoSection(storePath, oldId, newId, opts)` takes a path, not a scope, and wraps its body in a try that turns any throw into a `refused` result. So it gets its own check as its very first statement, ahead of its early returns and its try: `if (sharedWriteRefusal !== null && orgHolding(storePath) !== null) throw new SharedStoreWriteRefused(sharedWriteRefusal);`. It uses the `orgHolding` the function already uses to tell a shared store from this Mac's own.
 - Produces, in `lib/setup/migrations/index.ts`:
 
 ```ts
