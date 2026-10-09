@@ -755,5 +755,7 @@ drawer` and `Setting inline`):
 - A setting opened inline lists every scope the key can be set at,
   strongest first, from the server's `layers`; "in effect" marks each scope
   the resolver's provenance names. A stage doc that is opened in full from
-  the inputs drawer replaces it (`?doc=` drops `?inputs`), so only one
-  drawer is ever open.
+  the inputs drawer takes its place: `?doc=` wins over `?inputs`, which
+  stays in the URL so closing the doc brings the inputs drawer back. Only
+  one drawer is ever open. A stage doc the route cannot read (other than
+  a 404) says why in its row and does not open.

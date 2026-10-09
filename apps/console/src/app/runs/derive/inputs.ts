@@ -60,7 +60,7 @@ export function packState(pack: PackVersionRow): {
 }
 
 const FRONTMATTER =
-  /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/;
+  /^---\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/;
 
 /** A compiled skill doc without its leading YAML block. */
 export function stripFrontmatter(md: string): string {
@@ -96,7 +96,8 @@ function selectionWords(selection: string): string {
   const parts: string[] = [];
   for (const [key, value] of Object.entries(parsed)) {
     if (typeof value === 'string') parts.push(value);
-    else if (typeof value === 'number') parts.push(`${value} ${key}`);
+    else if (typeof value === 'number')
+      parts.push(`${value} ${value === 1 ? key.replace(/s$/, '') : key}`);
     else if (value === true) parts.push(key);
     else if (value !== false && value !== null)
       parts.push(`${key} ${JSON.stringify(value)}`);
@@ -112,7 +113,7 @@ export function decisionSentence(row: RunDecisionRow): {
   meta: string;
 } {
   const contract = row.contract.replace(/@\d+$/, '');
-  const stage = row.scope.split(':')[0] ?? row.scope;
+  const stage = row.scope.replace(/:.*$/, '');
   return {
     label: fieldLabel(contract),
     value: selectionWords(row.selection),

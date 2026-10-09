@@ -227,6 +227,84 @@ describe('effective-inputs route', () => {
     ]);
   });
 
+  it('leaves the count unset when git cannot count the commits', async () => {
+    vi.mocked(rt.getRun).mockResolvedValue({
+      ok: true,
+      data: baseDetail({ run: baseRun({ pack_commits: 'acme=59b90cd' }) }),
+    });
+    vi.mocked(rt.getSetting).mockImplementation(() => ({
+      value: 1,
+      provenance: [],
+    }));
+    const app = mountEffectiveInputs(
+      new Hono(),
+      fakeRt({
+        code: 0,
+        stdout: packsStdout([{ name: 'acme', dir: '/packs/acme' }]),
+        stderr: '',
+      }).run,
+      fakeRun(argv =>
+        argv.includes('rev-list')
+          ? { code: 128, stdout: '', stderr: 'bad revision' }
+          : { code: 0, stdout: '1111111abcdef\n', stderr: '' }
+      ).run
+    );
+
+    const body = await (
+      await app.request('/api/runs/repo-tools/run-1/effective-inputs')
+    ).json();
+
+    expect(body.packVersions[0]).toMatchObject({
+      drifted: true,
+      commitsSince: null,
+    });
+  });
+
+  it('keeps a config row without layers when the resolver cannot explain it', async () => {
+    vi.mocked(rt.getRun).mockResolvedValue({
+      ok: true,
+      data: baseDetail({ run: baseRun({ pack_commits: null }) }),
+    });
+    vi.mocked(rt.getSetting).mockImplementation(() => ({
+      value: 1,
+      provenance: [],
+    }));
+    vi.mocked(rt.getDef).mockImplementation(
+      (key: string): SettingDef | undefined => ({
+        key,
+        type: 'number',
+        scopes: ['user'],
+        merge: 'replace',
+        description: 'A key.',
+      })
+    );
+    vi.mocked(rt.explainSetting).mockImplementation(() => {
+      throw new Error('store unreadable');
+    });
+    const app = mountEffectiveInputs(
+      new Hono(),
+      fakeRt({ code: 0, stdout: '{}', stderr: '' }).run,
+      fakeRun(() => ({ code: 0, stdout: '', stderr: '' })).run
+    );
+
+    const res = await app.request(
+      '/api/runs/repo-tools/run-1/effective-inputs'
+    );
+    const body = await res.json();
+
+    vi.mocked(rt.getDef).mockReset();
+    vi.mocked(rt.explainSetting).mockReset();
+    vi.mocked(rt.explainSetting).mockImplementation(() => []);
+    expect(res.status).toBe(200);
+    expect(body.config).toHaveLength(CONFIG_DEPS.length);
+    expect(body.config[0]).toEqual({
+      key: 'rt.worktrees',
+      value: 1,
+      provenance: [],
+      description: 'A key.',
+    });
+  });
+
   it("carries each config key's description and its value per scope", async () => {
     vi.mocked(rt.getRun).mockResolvedValue({
       ok: true,

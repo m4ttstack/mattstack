@@ -1,7 +1,7 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { RunDecisionRow } from '@mattstack/rt-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,7 +30,9 @@ vi.mock('../api', () => ({
 }));
 
 const { EffectiveInputs } = await import('./EffectiveInputs');
-const { InputsDrawer } = await import('./run-page/InputsDrawer');
+const { InputsDrawer, useInputsDrawer } =
+  await import('./run-page/InputsDrawer');
+const { StageDocDrawer } = await import('./run-page/StageDoc');
 
 function ok(data: unknown) {
   return { ok: true, status: 200, json: async () => data };
@@ -116,16 +118,27 @@ function renderPanel({
   );
 }
 
-function renderDrawer() {
-  return renderWithProviders(
-    <QueryClientProvider client={client()}>
+/** Both drawers driven by the URL, as the run page mounts them. */
+function Drawers() {
+  const inputs = useInputsDrawer();
+  return (
+    <>
       <InputsDrawer
         repo="acme"
         runId="run-1"
         decisions={DECISIONS}
-        opened
-        onClose={() => {}}
+        opened={inputs.opened}
+        onClose={inputs.close}
       />
+      <StageDocDrawer repo="acme" runId="run-1" />
+    </>
+  );
+}
+
+function renderDrawer() {
+  return renderWithProviders(
+    <QueryClientProvider client={client()}>
+      <Drawers />
     </QueryClientProvider>
   );
 }
@@ -240,13 +253,63 @@ describe('EffectiveInputs', () => {
     ).toBeInTheDocument();
   });
 
-  it('swaps the inputs drawer for the stage doc drawer on "Open the full doc"', async () => {
-    renderPanel();
+  it('swaps the inputs drawer for the stage doc drawer, and back on close', async () => {
+    renderDrawer();
 
     await openRow('stage-row-plan');
     await userEvent.click(await screen.findByText('Open the full doc →'));
 
-    expect(window.location.search).toBe('?doc=plan');
+    expect(window.location.search).toBe('?inputs&doc=plan');
+    await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1));
+    expect(screen.getByRole('dialog')).toHaveTextContent('plan · stage doc');
+    expect(screen.queryByText('Effective inputs')).not.toBeInTheDocument();
+
+    await userEvent.click(
+      within(screen.getByTestId('stage-doc-drawer')).getByRole('button')
+    );
+
+    expect(window.location.search).toBe('?inputs');
+    await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Effective inputs');
+  });
+
+  it('opens only the stage doc for a hand-typed ?inputs&doc=', async () => {
+    window.history.pushState(null, '', '/runs/acme/run-1?inputs&doc=plan');
+
+    renderDrawer();
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent(
+      'plan · stage doc'
+    );
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  });
+
+  it('shows why a doc could not be read, and offers no full doc', async () => {
+    stageDocGet.mockImplementation(async () => fail(502, 'git failed'));
+
+    renderPanel();
+
+    const row = await screen.findByTestId('stage-row-plan');
+    expect(
+      await within(row).findByText("couldn't read the doc: git failed")
+    ).toBeInTheDocument();
+    expect(within(row).getByRole('button')).toBeDisabled();
+    expect(screen.queryByText('Open the full doc →')).not.toBeInTheDocument();
+  });
+
+  it('ties each row toggle to the part it opens', async () => {
+    renderPanel();
+
+    await openRow('stage-row-plan');
+    await openRow('config-row-rt.worktrees');
+
+    for (const id of ['stage-row-plan', 'config-row-rt.worktrees']) {
+      const toggle = within(screen.getByTestId(id)).getByRole('button', {
+        expanded: true,
+      });
+      const target = toggle.getAttribute('aria-controls');
+      expect(target && document.getElementById(target)).toBeInTheDocument();
+    }
   });
 
   it('opens a setting inline with its value per scope, with no second dialog', async () => {

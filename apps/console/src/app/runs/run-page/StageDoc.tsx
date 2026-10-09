@@ -2,17 +2,14 @@ import { useCallback } from 'react';
 import { Anchor, Drawer, Skeleton, Stack, Text } from '@mattstack/app-kit/core';
 import { useQuery } from '@tanstack/react-query';
 import type { Components } from 'react-markdown';
-import { useLocation, useSearch } from 'wouter';
 
 import { client } from '../../api';
 import { docPreview, packState, stripFrontmatter } from '../derive/inputs';
 import { useEffectiveInputs } from '../EffectiveInputs';
 import { GateContext } from '../GateContext';
+import { DOC_PARAM, useDrawerParams } from './drawerParams';
 import drawer from './InputsDrawer.module.css';
 import classes from './StageDoc.module.css';
-
-const PARAM = 'doc';
-const INPUTS_PARAM = 'inputs';
 
 /** The doc the stage-doc route found. A design fixture may leave out where
     it came from. */
@@ -44,27 +41,21 @@ export function useStageDoc(repo: string, runId: string, stage: string | null) {
   });
 }
 
-/** The one open stage doc, kept in the URL as `?doc=<stage>`. Opening it
-    closes the inputs drawer, so a drawer never opens over another. */
+/** The one open stage doc, kept in the URL as `?doc=<stage>`. It takes the
+    inputs drawer's place while open, and closing it brings that back when
+    the doc was opened from there. */
 export function useStageDocDrawer() {
-  const search = useSearch();
-  const [location, navigate] = useLocation();
-  const stage = new URLSearchParams(search).get(PARAM);
-  const write = useCallback(
-    (next: string | null) => {
-      const params = new URLSearchParams(search);
-      params.delete(INPUTS_PARAM);
-      if (next) params.set(PARAM, next);
-      else params.delete(PARAM);
-      const qs = params.toString();
-      navigate(qs ? `${location}?${qs}` : location, { replace: true });
-    },
-    [search, location, navigate]
-  );
+  const { doc, write } = useDrawerParams();
   return {
-    stage,
-    open: useCallback((s: string) => write(s), [write]),
-    close: useCallback(() => write(null), [write]),
+    stage: doc,
+    open: useCallback(
+      (stage: string) => write(params => params.set(DOC_PARAM, stage)),
+      [write]
+    ),
+    close: useCallback(
+      () => write(params => params.delete(DOC_PARAM)),
+      [write]
+    ),
   };
 }
 

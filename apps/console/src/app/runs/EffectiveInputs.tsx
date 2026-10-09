@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import {
   Anchor,
   Badge,
@@ -151,15 +151,16 @@ function StageDocRow({
   const [open, setOpen] = useState(false);
   const doc = useStageDoc(repo, runId, stage);
   const drawer = useStageDocDrawer();
+  const bodyId = useId();
   const missing = doc.data === null;
   const meta = missing
     ? 'no doc at this version'
     : doc.isError
-      ? "couldn't read the doc"
+      ? `couldn't read the doc: ${(doc.error as Error).message}`
       : open && doc.data?.pack
         ? `from ${doc.data.pack}`
         : '';
-  const expanded = open && !missing;
+  const expanded = open && !missing && !doc.isError;
   return (
     <div
       className={`${classes.rule} ${classes.row}`}
@@ -170,7 +171,8 @@ function StageDocRow({
       <UnstyledButton
         className={classes.head}
         aria-expanded={expanded}
-        disabled={missing}
+        aria-controls={expanded ? bodyId : undefined}
+        disabled={missing || doc.isError}
         onClick={() => setOpen(o => !o)}
       >
         <Icon
@@ -193,25 +195,27 @@ function StageDocRow({
         </Text>
       </UnstyledButton>
       {expanded ? (
-        <Stack gap={8} className={classes.body}>
+        <Stack gap={8} className={classes.body} id={bodyId}>
           {doc.data ? (
-            <StageDocText text={doc.data.text} preview />
+            <>
+              <StageDocText text={doc.data.text} preview />
+              <Anchor
+                component="button"
+                type="button"
+                fz={12.5}
+                fw={500}
+                lh="normal"
+                c="accent"
+                className={classes.start}
+                onClick={() => drawer.open(stage)}
+                data-parity="more"
+              >
+                Open the full doc →
+              </Anchor>
+            </>
           ) : (
             <Skeleton height={60} />
           )}
-          <Anchor
-            component="button"
-            type="button"
-            fz={12.5}
-            fw={500}
-            lh="normal"
-            c="accent"
-            className={classes.start}
-            onClick={() => drawer.open(stage)}
-            data-parity="more"
-          >
-            Open the full doc →
-          </Anchor>
         </Stack>
       ) : null}
     </div>
@@ -251,6 +255,7 @@ function ConfigRow({ row }: { row: ConfigDepRow }) {
   const [open, setOpen] = useState(false);
   const inEffect = new Set(row.provenance.map(p => p.scope));
   const scope = row.provenance.at(-1)?.scope ?? null;
+  const whereId = useId();
   return (
     <div
       className={`${classes.rule} ${classes.row}`}
@@ -261,6 +266,7 @@ function ConfigRow({ row }: { row: ConfigDepRow }) {
       <UnstyledButton
         className={classes.head}
         aria-expanded={open}
+        aria-controls={open ? whereId : undefined}
         onClick={() => setOpen(o => !o)}
       >
         <Text
@@ -285,7 +291,12 @@ function ConfigRow({ row }: { row: ConfigDepRow }) {
         />
       </UnstyledButton>
       {open ? (
-        <Stack gap={6} className={classes.where} data-parity="where">
+        <Stack
+          gap={6}
+          className={classes.where}
+          id={whereId}
+          data-parity="where"
+        >
           {row.description ? (
             <Text fz={12.5} lh="normal" c="dimmed" data-parity="d">
               {row.description}

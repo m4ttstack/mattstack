@@ -100,6 +100,10 @@ describe('stripFrontmatter', () => {
     );
   });
 
+  it('drops an empty block', () => {
+    expect(stripFrontmatter('---\n---\n# Plan')).toBe('# Plan');
+  });
+
   it('takes the blank lines after the block too', () => {
     expect(stripFrontmatter('---\r\nname: x\r\n---\r\n\r\n# Plan')).toBe(
       '# Plan'
@@ -167,6 +171,13 @@ describe('decisionSentence', () => {
       value: 'direct-tdd',
       meta: 'run · agent · 3:49 PM',
     });
+  });
+
+  it('counts one of a thing in the singular', () => {
+    expect(
+      decisionSentence(row({ selection: '{"strategy":"direct","tasks":1}' }))
+        .value
+    ).toBe('Direct, 1 task');
   });
 
   it('names a true flag and leaves out a false one', () => {
