@@ -12,7 +12,7 @@ import { join } from "path";
 import type { SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
 import { ownedRunningRuns, type OwnedRunDeps } from "./resolve-db.ts";
 import { isPathComponent, runsRoot } from "./store.ts";
-import { fieldSet, openRunDb, runStatus } from "./write.ts";
+import { abandonRunningStages, fieldSet, openRunDb, runStatus } from "./write.ts";
 
 export const SESSION_ENDED_REASON = "the session that owned this run ended";
 
@@ -26,11 +26,8 @@ export function abandonSessionStages(binding: SessionBinding, deps: OwnedRunDeps
   for (const run of ownedRunningRuns(binding, deps)) {
     const db = openRunDb(run.db);
     try {
-      db.run(
-        "UPDATE stages SET status='abandoned', ended_at=?, reason=? WHERE status='running' AND (SELECT status FROM runs LIMIT 1)='running'",
-        [deps.now ?? Date.now(), SESSION_ENDED_REASON],
-      );
-      if ((db.query("SELECT changes() AS n").get() as { n: number }).n > 0) abandoned.push(run.runId);
+      const marked = abandonRunningStages(db, SESSION_ENDED_REASON, deps.now ?? Date.now());
+      if (marked.ok && marked.stages > 0) abandoned.push(run.runId);
     } finally {
       db.close();
     }

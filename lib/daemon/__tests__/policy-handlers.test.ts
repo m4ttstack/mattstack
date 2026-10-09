@@ -187,6 +187,9 @@ describe("policy:authorize", () => {
     ]) {
       expect((await call(handlers["policy:authorize"], bad)).failure?.code).toBe("invalid");
     }
+    // A malformed payload reports its first missing field, before the action is read.
+    expect((await call(handlers["policy:authorize"], { action: "answer" })).failure?.message).toBe("linkId must be a non-empty string");
+    expect((await call(handlers["policy:authorize"], { linkId, action: "answer" })).failure?.message).toBe("sessionId must be a non-empty string");
   });
 });
 

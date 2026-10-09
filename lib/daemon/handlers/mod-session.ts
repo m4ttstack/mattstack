@@ -12,8 +12,8 @@
  * or end from the presence block sets the session's working or idle state.
  * An observation from a link that registered the observe block goes into the
  * shared observation store as the session's own reading; so does `dead` when
- * such a link ends, which also marks the running stage of each run the
- * session owns abandoned.
+ * such a link ends. The end of a link carrying the policy block also marks
+ * the running stage of each run the session owns abandoned.
  *
  * session:owned answers whether a block of the session's live link owns that
  * session's feature, for a CLI path that cannot read link state itself.
@@ -130,6 +130,8 @@ export function createModSessionHandlers(deps: {
         } catch (err) {
           deps.lifecycle?.log?.("the ended session's observation was not recorded", { sessionId: link.sessionId, err: String(err) });
         }
+      }
+      if (link.blocks.includes("policy")) {
         try {
           await abandonClaudeLinkStages(link, deps.lifecycle);
         } catch (err) {

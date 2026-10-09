@@ -20,10 +20,10 @@ const ASK_TOOL = 'AskUserQuestion'
  * lets it through: the AskUserQuestion hook every `rt agent` launch installs
  * and the run tools' own checks still apply.
  *
- * Its fill rule gives a run tool call that names no `runDb` the store of the
- * run rt proves this session owns, before the guard asks about it. A call
- * that names one keeps it, whatever it is, and a session that owns no
- * running run (or owns several) gets nothing filled.
+ * Its fill rule gives a run tool call that names neither a `runDb` nor a
+ * `cwd` the store of the run rt proves this session owns, before the guard
+ * asks about it. A call that names either keeps it as it is, and a session
+ * that owns no running run (or owns several) gets nothing filled.
  */
 export function registerPolicy(hub: Hub, link: Link): void {
   let api: ModApi | null = null
@@ -48,9 +48,14 @@ export function registerPolicy(hub: Hub, link: Link): void {
     if (out.data.decision === 'refuse' && typeof out.data.reason === 'string') return { refuse: out.data.reason }
   }
 
-  /** The run tool call with its owner's `runDb` added, only when it names none and rt proved one this session's. */
+  /**
+   * The run tool call with its owner's `runDb` added, only when it names
+   * neither a `runDb` nor a `cwd` (the run tool resolves a named cwd itself)
+   * and rt proved one this session's.
+   */
   async function fillRunDb(a: ModApi, e: ToolCall): Promise<ToolCall> {
-    if ((e as { runDb?: unknown }).runDb !== undefined) return e
+    const named = e as { runDb?: unknown; cwd?: unknown }
+    if (named.runDb !== undefined || named.cwd !== undefined) return e
     const out = await link.call<OwnedRun>('runs:owned', { sessionId: await a.session.id(), cwd: await a.session.cwd() })
     if (!out.ok) {
       if (out.error.code !== 'no-link') log(`runs:owned found no run (${out.error.code}: ${out.error.message}); passing`)

@@ -158,7 +158,7 @@ describe("session:end and the session's runs", () => {
     const mine = bindClaude("sess-1", "me");
     const theirs = bindClaude("sess-2", "them");
     const links = createModLinks({ now: () => 5_000, integrationsEnabled: () => true, store });
-    const registered = links.register({ ...registration, blocks: opts.blocks ?? ["observe"] });
+    const registered = links.register({ ...registration, blocks: opts.blocks ?? ["policy"] });
     if (!registered.ok) throw new Error(registered.error.message);
     const runsRoot = join(dir, "runs");
     const handlers = createModSessionHandlers({
@@ -217,8 +217,8 @@ describe("session:end and the session's runs", () => {
     expect(stages(ended)).toEqual(before.ended);
   });
 
-  test("with the switch off, or a link without the observe block, a session end changes no run", async () => {
-    for (const opts of [{ enabled: false }, { blocks: ["presence" as const] }]) {
+  test("with the switch off, or a link without the policy block, a session end changes no run", async () => {
+    for (const opts of [{ enabled: false }, { blocks: ["observe" as const, "presence" as const] }]) {
       rmSync(dir, { recursive: true, force: true });
       dir = mkdtempSync(join(tmpdir(), "rt-mod-session-runs-"));
       const w = world(opts);

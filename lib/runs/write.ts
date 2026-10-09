@@ -108,7 +108,7 @@ function changes(db: Database): number {
   return (db.query("SELECT changes() AS n").get() as { n: number }).n;
 }
 
-export type StageEndStatus = "done" | "failed" | "redirected";
+export type StageEndStatus = "done" | "failed" | "redirected" | "abandoned";
 
 // A zero-row update means stage-start never landed (skipped, or refused by
 // the caller's shell guard); answering ok there once left a run with no row
@@ -134,6 +134,21 @@ export function stageEnd(
       return { ok: false, error: `stage never started: ${name}`, code: 3 };
     }
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `sqlite write failed: ${String(err)}`, code: 1 };
+  }
+}
+
+const ABANDONED: StageEndStatus = "abandoned";
+
+/** Ends every still-running stage of a still-running run as abandoned; `stages` counts the rows it ended. */
+export function abandonRunningStages(db: Database, reason: string, now: number = Date.now()): Ok<{ stages: number }> | Fail {
+  try {
+    db.run(
+      "UPDATE stages SET status=?, ended_at=?, reason=? WHERE status='running' AND (SELECT status FROM runs LIMIT 1)='running'",
+      [ABANDONED, now, reason],
+    );
+    return { ok: true, stages: changes(db) };
   } catch (err) {
     return { ok: false, error: `sqlite write failed: ${String(err)}`, code: 1 };
   }

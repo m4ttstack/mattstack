@@ -90,6 +90,8 @@ export function createPolicyHandlers(deps: PolicyHandlerDeps): { [K in Verb]: (p
   return {
     "policy:authorize": async (payload) => {
       const { linkId, sessionId, action, subject, cwd } = record(payload);
+      if (!isText(linkId)) return invalid("linkId must be a non-empty string");
+      if (!isText(sessionId)) return invalid("sessionId must be a non-empty string");
       if (!ACTIONS.includes(action as WorkflowAction)) return invalid(`action must be one of ${ACTIONS.join(", ")}`);
       if (action !== "ask" && !isText(subject)) return invalid(`${String(action)} needs subject, the run store it acts on`);
       if (cwd !== undefined && !isAbsoluteDir(cwd)) return invalid("cwd must be an absolute path with no control characters");

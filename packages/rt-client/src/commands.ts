@@ -979,7 +979,8 @@ export interface Commands {
    * session `linkId` is the live link of, never `sessionId` alone; `cwd`
    * (absolute) only picks among several runs it owns. `runDb` is null, with
    * the reason, when the session owns no running run, owns several with none
-   * in `cwd`, or is not bound. Failures as `policy:authorize`.
+   * in `cwd`, or is not bound. Failures as `policy:authorize`. Naming a
+   * legacy run proven the caller's records its session key on that run.
    */
   "runs:owned": {
     payload: { linkId: string; sessionId: string; cwd?: string };

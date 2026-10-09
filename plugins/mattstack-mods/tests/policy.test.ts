@@ -204,6 +204,20 @@ describe('run store fill', () => {
     expect(h.verbs('runs:owned')).toHaveLength(0)
   })
 
+  test('a write or a read that names its own cwd is left for the run tool to resolve from that cwd', async () => {
+    const h = harness()
+    h.script.respond = ownedBy(h, () => ({ ok: true, data: { runDb: RUN_DB } }))
+    await h.start()
+
+    for (const call of [bare('run_stage', { cwd: '/repo/.wt/b', action: 'start', stage: 'ship' }), bare('run_snapshot', { cwd: '/repo/.wt/b' })]) {
+      const engine = recorder({ result: 'ok' })
+      await h.fire('tool.call', call, engine.next)
+      expect(engine.seen).toEqual([call])
+    }
+    expect(h.verbs('runs:owned')).toHaveLength(0)
+    expect(h.verbs('policy:authorize')).toHaveLength(0)
+  })
+
   test('without the block live nothing is filled', async () => {
     const h = harness()
     h.script.respond = (verb, body) =>
