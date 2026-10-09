@@ -40,6 +40,8 @@ export interface Viewer {
   role: 'admin' | 'owner' | 'member' | 'unknown' | 'none';
   team: string | null;
   teams: string[];
+  /** Each reachable team's owners, by roster name. */
+  owners?: Record<string, string[]>;
 }
 
 export interface ConsoleStore {

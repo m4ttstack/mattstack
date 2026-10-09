@@ -946,6 +946,7 @@ describe('the context bar', () => {
     role: 'admin',
     team: 'widgets',
     teams: ['gadgets', 'sprockets', 'widgets'],
+    owners: { gadgets: ['Ada Byron'], sprockets: [], widgets: ['Sam Rivera'] },
   };
   const urls: string[] = [];
   const bodies: unknown[] = [];
@@ -1022,9 +1023,13 @@ describe('the context bar', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: 'team: widgets, switch team' })
     );
-    await userEvent.click(
+    expect(
       await screen.findByRole('menuitem', { name: /gadgets/ })
+    ).toHaveTextContent('owner: Ada Byron');
+    expect(screen.getByRole('menuitem', { name: /widgets/ })).toHaveTextContent(
+      'your team · owner: Sam Rivera'
     );
+    await userEvent.click(screen.getByRole('menuitem', { name: /gadgets/ }));
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get('team')).toBe(
         'gadgets'

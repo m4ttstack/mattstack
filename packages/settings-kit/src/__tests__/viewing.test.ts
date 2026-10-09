@@ -38,8 +38,8 @@ const RT = {
   activeTeam: () => ({ org: "acme", team: "widgets", reason: "first-team", username: "sam", listedOn: ["widgets"] }),
 } as unknown as RtSettingsApi;
 
-const ADMIN: ViewerWire = { username: "sam", name: "Sam Rivera", role: "admin", team: "widgets", teams: ["gadgets", "sprockets", "widgets"] };
-const MEMBER: ViewerWire = { username: "sam", name: "Sam Rivera", role: "member", team: "widgets", teams: ["widgets"] };
+const ADMIN: ViewerWire = { username: "sam", name: "Sam Rivera", role: "admin", team: "widgets", teams: ["gadgets", "sprockets", "widgets"], owners: {} };
+const MEMBER: ViewerWire = { username: "sam", name: "Sam Rivera", role: "member", team: "widgets", teams: ["widgets"], owners: {} };
 
 function handle(req: Request, viewer: ViewerWire = ADMIN) {
   return settingsHandler(req, { rt: { ...RT, viewer: () => viewer } });
@@ -121,7 +121,14 @@ describe("viewerFrom", () => {
   const active = { org: "acme", team: "widgets", reason: "first-team" as const, username: "sam", listedOn: ["widgets"] };
 
   test("an owner may view the teams they own and their own", () => {
-    expect(viewerFrom({ active, roles, roster, folders })).toEqual({ username: "sam", name: "Sam Rivera", role: "owner", team: "widgets", teams: ["gadgets", "widgets"] });
+    expect(viewerFrom({ active, roles, roster, folders })).toEqual({
+      username: "sam",
+      name: "Sam Rivera",
+      role: "owner",
+      team: "widgets",
+      teams: ["gadgets", "widgets"],
+      owners: { gadgets: ["Sam Rivera"], widgets: [] },
+    });
   });
 
   test("an admin may view every team folder", () => {
@@ -137,6 +144,6 @@ describe("viewerFrom", () => {
   });
 
   test("with no org there is nothing to view", () => {
-    expect(viewerFrom({ active: { org: null, team: null, reason: "no-org", username: null, listedOn: [] }, roles, roster, folders })).toEqual({ username: null, name: null, role: "none", team: null, teams: [] });
+    expect(viewerFrom({ active: { org: null, team: null, reason: "no-org", username: null, listedOn: [] }, roles, roster, folders })).toEqual({ username: null, name: null, role: "none", team: null, teams: [], owners: {} });
   });
 });

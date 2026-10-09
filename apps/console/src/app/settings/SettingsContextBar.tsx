@@ -64,22 +64,37 @@ function Who({ viewer }: { viewer: Viewer }) {
   );
 }
 
-type TeamItem = { name: string; own: boolean };
+type TeamItem = { name: string; own: boolean; owners: string[] };
+
+/** Who to ask about a team's settings: its owners. */
+function ownersLine(item: TeamItem): string {
+  const who =
+    item.owners.length === 0
+      ? 'no owner yet'
+      : `${item.owners.length === 1 ? 'owner' : 'owners'}: ${item.owners.join(', ')}`;
+  return item.own ? `your team · ${who}` : who;
+}
 
 function TeamMenu({
   teams,
+  owners,
   ownTeam,
   team,
   other,
   onPick,
 }: {
   teams: string[];
+  owners: Record<string, string[]>;
   ownTeam: string | null;
   team: string;
   other: boolean;
   onPick: (team: string | null) => void;
 }) {
-  const items: TeamItem[] = teams.map(t => ({ name: t, own: t === ownTeam }));
+  const items: TeamItem[] = teams.map(t => ({
+    name: t,
+    own: t === ownTeam,
+    owners: owners[t] ?? [],
+  }));
   return (
     <SearchableMenu<TeamItem>
       menuTrigger={
@@ -99,7 +114,7 @@ function TeamMenu({
       title="Teams"
       titleIcon={<Icons.users size={14} />}
       itemTitle={item => item.name}
-      itemSubtitle={item => (item.own ? 'your team' : 'shared team settings')}
+      itemSubtitle={ownersLine}
       isSelectedItem={item => item.name === team}
       showItemBadge={item => item.name === team}
       itemBadgeText="Selected"
@@ -149,6 +164,7 @@ export function SettingsContextBar({
             {canSwitch ? (
               <TeamMenu
                 teams={viewer.teams}
+                owners={viewer.owners ?? {}}
                 ownTeam={ownTeam}
                 team={team}
                 other={other}

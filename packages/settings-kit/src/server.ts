@@ -133,18 +133,24 @@ export interface ViewerWire {
   role: "admin" | "owner" | "member" | "unknown" | "none";
   team: string | null;
   teams: string[];
+  /** Each reachable team's owners, by roster name (username when the
+      roster names none). */
+  owners: Record<string, string[]>;
 }
 
 /** An admin reaches every team folder, an owner the teams they own, and
     anyone else only their own team. */
 export function viewerFrom(input: { active: ActiveTeam; roles: OrgRoles; roster: RosterEntry[]; folders: string[] }): ViewerWire {
   const { active, roles, roster, folders } = input;
-  if (active.org === null) return { username: null, name: null, role: "none", team: null, teams: [] };
+  if (active.org === null) return { username: null, name: null, role: "none", team: null, teams: [], owners: {} };
   const role = roleOf(active.username, roles);
   const own = active.team === null ? [] : [active.team];
   const reach = role.kind === "admin" ? folders : role.kind === "owner" ? role.teams.filter((t) => folders.includes(t)) : [];
   const name = active.username === null ? null : (roster.find((r) => sameUser(r.username, active.username!))?.name ?? null);
-  return { username: active.username, name, role: role.kind, team: active.team, teams: [...new Set([...reach, ...own])].sort() };
+  const teams = [...new Set([...reach, ...own])].sort();
+  const display = (u: string) => roster.find((r) => sameUser(r.username, u))?.name ?? u;
+  const owners = Object.fromEntries(teams.map((t) => [t, (roles.teams[t]?.owners ?? []).map(display)]));
+  return { username: active.username, name, role: role.kind, team: active.team, teams, owners };
 }
 
 function readViewer(rt: Pick<RtSettingsApi, "activeTeam">): ViewerWire {
