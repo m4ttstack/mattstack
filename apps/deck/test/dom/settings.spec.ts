@@ -1221,6 +1221,40 @@ test('help: each glyph is a plain button named by its tip, reachable by Tab, wit
   });
 });
 
+for (const scheme of ['light', 'dark'] as const) {
+  test(`surfaces (${scheme}): default buttons on the card, inputs inset, the name at 20px`, async () => {
+    await withBoard(
+      async page => {
+        const dlg = await openSettings(page, 'atlas');
+        const got = await dlg.evaluate(root => {
+          const probe = (value: string) => {
+            const el = document.createElement('div');
+            el.style.background = value;
+            root.appendChild(el);
+            const bg = getComputedStyle(el).backgroundColor;
+            el.remove();
+            return bg;
+          };
+          const bg = (sel: string) =>
+            getComputedStyle(root.querySelector(sel)!).backgroundColor;
+          return {
+            card: probe('var(--surface-card)'),
+            inset: probe('var(--surface-inset)'),
+            button: bg('[data-part="button"][data-variant="default"]'),
+            input: bg('[data-part="field-input"]'),
+            name: getComputedStyle(root.querySelector('.settings-name')!)
+              .fontSize,
+          };
+        });
+        expect(got.button).toBe(got.card);
+        expect(got.input).toBe(got.inset);
+        expect(got.name).toBe('20px');
+      },
+      { context: { colorScheme: scheme } }
+    );
+  });
+}
+
 test('code: Deployed reads deployed → head with new code in source, or current when linked without new code', async () => {
   await withBoard(
     async page => {

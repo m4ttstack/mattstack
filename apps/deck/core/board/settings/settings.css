@@ -25,6 +25,22 @@
   font-size: var(--font-size-px13);
 }
 
+/* The kit's default button sits on the panel fill, which is this page's own
+   ground; the board lifts it onto the card surface. Its hover is the card
+   already, so hover steps one wash further. */
+.app-settings-modal [data-part='button'][data-variant='default'],
+.app-settings-modal [data-part='copybutton'] {
+  background: var(--surface-card);
+}
+.app-settings-modal
+  [data-part='button'][data-variant='default']:hover:not(:disabled) {
+  background: var(--surface-wash-fg-4-card);
+}
+
+.app-settings-modal [data-part='field-input'] {
+  background: var(--surface-inset);
+}
+
 /* The head stays put while the body scrolls inside the frame's max-height. */
 .app-settings-modal [data-part='modal-head'] {
   position: sticky;
@@ -70,7 +86,7 @@
   gap: var(--spacing-sm);
 }
 .settings-name {
-  font-size: var(--font-size-xxl);
+  font-size: calc(var(--font-size-rem100) * 1.25);
   font-weight: 700;
 }
 .settings-url {
