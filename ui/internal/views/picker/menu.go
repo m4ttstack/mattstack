@@ -511,6 +511,10 @@ func (r modalBoxRect) contains(x, y int) bool {
 // reads as a box rather than a sliver.
 const modalMinWidth = 24
 
+// modalRightMargin is the blank column every row and the header keep before
+// the right border, mirroring the gutter column on the left.
+const modalRightMargin = 1
+
 // surfaceBg is the menu's own background -- every line painted inside
 // the box carries it explicitly (unlike the main list's onBg, which paints
 // at the terminal's native background) since the box is composited over
@@ -643,12 +647,12 @@ func modalContentWidth(mn *Menu, maxInner int, thumb bool) int {
 // levelNeed is the inner width one level's own content asks for, painted
 // with escHint in its header.
 func levelNeed(l *menuLevel, escHint string) int {
-	need := min(lipgloss.Width(l.title), modalTitleCap) + lipgloss.Width(escHint) + 4
+	need := min(lipgloss.Width(l.title), modalTitleCap) + lipgloss.Width(escHint) + 4 + modalRightMargin
 	if l.naming {
 		need = max(need, modalFieldPrefix+lipgloss.Width(l.placeholder), modalFieldPrefix+lipgloss.Width(l.name))
 	}
 	for _, r := range l.rows {
-		w := 2 + lipgloss.Width(r.text)
+		w := 2 + lipgloss.Width(r.text) + modalRightMargin
 		if r.hint != "" {
 			w += 1 + lipgloss.Width(r.hint)
 		}
@@ -679,7 +683,7 @@ func modalJustify(width int, bg lipgloss.Style, left, right string) string {
 // convention didn't already cover.
 func modalHeaderLine(mn *Menu, width int) string {
 	rightText := mn.escHint()
-	titleBudget := width - 1 - 1 - lipgloss.Width(rightText)
+	titleBudget := width - 1 - 1 - lipgloss.Width(rightText) - modalRightMargin
 	if titleBudget < 0 {
 		titleBudget = 0
 	}
@@ -689,7 +693,7 @@ func modalHeaderLine(mn *Menu, width int) string {
 		title += "…"
 	}
 	left := surfaceBg.Render(" ") + sfg(theme.Text).Bold(true).Render(title)
-	right := sfg(theme.Meta).Render(rightText)
+	right := sfg(theme.Meta).Render(rightText) + surfaceBg.Render(" ")
 	return modalJustify(width, surfaceBg, left, right)
 }
 
@@ -771,7 +775,7 @@ func modalRowLine(row menuRow, width int, cursor, hover bool) string {
 	if row.hint != "" {
 		hintWidth = 1 + lipgloss.Width(row.hint)
 	}
-	textBudget := width - 2 - hintWidth
+	textBudget := width - 2 - hintWidth - modalRightMargin
 	if textBudget < 0 {
 		textBudget = 0
 	}
@@ -781,9 +785,9 @@ func modalRowLine(row menuRow, width int, cursor, hover bool) string {
 		text += "…"
 	}
 
-	hint := ""
+	hint := rowBg.Render(" ")
 	if row.hint != "" {
-		hint = rowBg.Foreground(hintColor).Render(row.hint)
+		hint = rowBg.Foreground(hintColor).Render(row.hint) + hint
 	}
 
 	left := gutter + rowBg.Foreground(textColor).Render(text)
