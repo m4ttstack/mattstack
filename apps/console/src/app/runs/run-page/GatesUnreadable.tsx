@@ -12,8 +12,8 @@ export function GatesUnreadable({ onRetry }: { onRetry: () => void }) {
     >
       <Group justify="space-between" wrap="wrap" gap={12}>
         <Text fz={13} lh="normal" c="warn">
-          Can&apos;t read this run&apos;s decisions right now, so none are
-          shown here.
+          Can&apos;t read this run&apos;s decisions right now, so none are shown
+          here.
         </Text>
         <Button variant="default" size="xs" onClick={onRetry}>
           Retry
