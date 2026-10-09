@@ -76,10 +76,11 @@ export function parseCodexHook(input: unknown, expected?: CodexPolicyEvent): Out
 // ─── Repeated continuation ──────────────────────────────────────────────────
 
 /**
- * Claude Code lets a turn end after eight consecutive Stop blocks, and the
- * shared Stop rule relies on that cap as its loop guard (pipeline-gate-stop.sh
- * does not honour stop_hook_active). Codex keeps a continued Stop inside the
- * same turn, so the same cap is counted here per thread and turn.
+ * Claude Code lets a turn end after nine consecutive Stop blocks (observed on
+ * 2.1.294), and the shared Stop rule relies on that cap as its loop guard
+ * (pipeline-gate-stop.sh does not honour stop_hook_active). Codex keeps a
+ * continued Stop inside the same turn, so a cap is counted here per thread
+ * and turn.
  */
 export const STOP_CONTINUATION_CAP = 8;
 
