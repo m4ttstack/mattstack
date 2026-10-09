@@ -60,19 +60,19 @@ const REVIEW_POSTS: {
   label: (iid: number) => string;
 }[] = [
   {
-    match: /request/i,
+    match: /^request/i,
     color: 'warn',
     icon: 'messageSquareDiff',
     label: iid => `Requested changes on !${iid}`,
   },
   {
-    match: /approv/i,
+    match: /^approv/i,
     color: 'ok',
     icon: 'circleCheck',
     label: iid => `Approved !${iid}`,
   },
   {
-    match: /comment/i,
+    match: /^comment/i,
     color: 'accent',
     icon: 'messageSquare',
     label: iid => `Commented on !${iid}`,

@@ -76,6 +76,15 @@ describe('OutcomeBadge', () => {
     ]);
   });
 
+  it('reads a disposition only from its first word', () => {
+    const label = (posted: string) =>
+      badges({ status: 'done', reviewed: { iid: 406, url: null, posted } })
+        .list[0]?.[1];
+    expect(label('unapproved')).toMatch(/^Reviewed !406 · /);
+    expect(label('no comment')).toMatch(/^Reviewed !406 · /);
+    expect(label('unrequested')).toMatch(/^Reviewed !406 · /);
+  });
+
   it('shows a review that posted nothing yet as just the MR', () => {
     expect(
       badges({
