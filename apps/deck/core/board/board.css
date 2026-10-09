@@ -371,8 +371,19 @@ body {
   --border: var(--border-on-card);
   --border-soft: var(--border-soft-on-card);
 }
+/* The table spans the panel edge to edge so its header rule and row
+   hairlines run full width; the outer cells carry the panel's inset
+   instead. The hidden duplicate headers stay zeroed (see head-hidden). */
 .apps-grid {
-  padding: 2px var(--spacing-lg) var(--spacing-sm);
+  padding: 2px 0 var(--spacing-sm);
+}
+.apps-grid [data-part='table-cell']:first-child,
+.apps-grid thead:not(.head-hidden) [data-part='table-headcell']:first-child {
+  padding-left: calc(var(--spacing-lg) + var(--spacing-md));
+}
+.apps-grid [data-part='table-cell']:last-child,
+.apps-grid thead:not(.head-hidden) [data-part='table-headcell']:last-child {
+  padding-right: calc(var(--spacing-lg) + var(--spacing-md));
 }
 
 /* The mattstack panel's head when apps have new code. Its inline padding
@@ -380,14 +391,17 @@ body {
 .update-strip {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-lg) calc(var(--spacing-lg) + var(--spacing-md));
+  gap: var(--spacing-px10);
+  padding: var(--spacing-px14) calc(var(--spacing-lg) + var(--spacing-md));
   background: var(--surface-wash-amber-7);
   border-bottom: 1px solid var(--border-soft-on-card);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-px13);
+  line-height: var(--line-height-snug);
 }
 .update-strip-icon {
   flex: none;
+  width: var(--spacing-rem100);
+  height: var(--spacing-rem100);
   color: var(--text-warn-vivid);
 }
 
