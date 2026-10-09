@@ -18,6 +18,13 @@ export interface MigrationDef {
   run(ctx: ApplyContext): Promise<StepOutcome>;
 }
 
+export const SHARED_STORE_REFUSAL = 'A setup migration only changes this Mac. A change to the org or team stores is a layout change: see the rt:settings skill, "Changing the org repo\'s layout".';
+
+/** Shipped migrations that write the org or team stores, each with why it stays. No new entries: see SHARED_STORE_REFUSAL. */
+export const SHARED_STORE_MIGRATIONS: Readonly<Record<string, string>> = {
+  "2026-10-07-sdm-resources-key": "shipped in a release and recorded done on most Macs; it renames rt.sdmEnrichment to sdm.resources in place",
+};
+
 export const MIGRATIONS: MigrationDef[] = [
   boardPeerTriggerMigration,
   {

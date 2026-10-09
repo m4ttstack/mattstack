@@ -7,7 +7,7 @@
 import { appBundlePath } from "../deps/resolve.ts";
 import type { forgeLogin } from "../team/forge.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
-import { setSettingsNoticeSink } from "../settings/write.ts";
+import { refuseSharedWrites, setSettingsNoticeSink, SharedStoreWriteRefused } from "../settings/write.ts";
 import { createRealTeamSecretsSeams } from "../secrets/team-store.ts";
 import type { SecretsSeamsFactory } from "../team/join.ts";
 import type { RelayClient } from "../team/relay-client.ts";
@@ -20,7 +20,7 @@ import type { Probes } from "./probes.ts";
 import { realSecretPresence } from "./plan.ts";
 import { readPackRequirements, type PackRequirements } from "./requirements.ts";
 import { STEPS } from "./steps/index.ts";
-import { MIGRATIONS, migrationEventId, type MigrationDef } from "./migrations/index.ts";
+import { MIGRATIONS, migrationEventId, SHARED_STORE_MIGRATIONS, SHARED_STORE_REFUSAL, type MigrationDef } from "./migrations/index.ts";
 import { readSetupState, setupStatePath, storedVersion, updateSetupState } from "./state.ts";
 import { discoverOrgs, readTeamSnapshot, type TeamSnapshot, type SettingsReader } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
@@ -360,7 +360,19 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
   const item = (s: StepDef): UpdateItem => ({ id: s.id, title: s.title, run: (ctx) => s.run(ctx) });
   const safe = steps.filter((s) => s.updateSafe && s.id !== "verify");
   const leads = safe.filter((s) => LEADS_UPDATE.includes(s.id)).map(item);
-  const pending = migrations.filter((m) => !applied.includes(m.id)).map<UpdateItem>((m) => ({ id: migrationEventId(m.id), title: m.title, run: (ctx) => m.run(ctx), migrationId: m.id }));
+  const pending = migrations.filter((m) => !applied.includes(m.id)).map<UpdateItem>((m) => ({
+    id: migrationEventId(m.id),
+    title: m.title,
+    run: async (ctx) => {
+      const was = refuseSharedWrites(m.id in SHARED_STORE_MIGRATIONS ? null : SHARED_STORE_REFUSAL);
+      try {
+        return await m.run(ctx);
+      } finally {
+        refuseSharedWrites(was);
+      }
+    },
+    migrationId: m.id,
+  }));
   const rest = safe.filter((s) => !LEADS_UPDATE.includes(s.id)).map(item);
   const verify = steps.find((s) => s.id === "verify" && s.updateSafe);
   return [...leads, ...pending, ...rest, ...(verify ? [item(verify)] : [])];
@@ -400,6 +412,8 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
           logFailureDetail(err);
           const remedy = typeof err.extra.remedy === "string" ? err.extra.remedy : undefined;
           outcome = { state: "failed", detail: err.message, ...(remedy !== undefined ? { remedy } : {}) };
+        } else if (err instanceof SharedStoreWriteRefused) {
+          outcome = { state: "failed", detail: err.message };
         } else if (item.migrationId !== undefined) {
           // Migrations run before most steps, so rethrowing here would skip every step and
           // verify; a buggy one fails alone and stays unrecorded instead.
