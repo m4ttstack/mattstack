@@ -1224,8 +1224,10 @@ export interface Commands {
    */
   "herd:spawn":  { payload: { herd: string; job: string; brief?: string; dir?: string; harness?: HarnessId; model?: string; effort?: string; account?: string; mode?: Mode; assignment?: HerdWorkerAssignment; callerAccount?: string; disposable?: boolean }; data: { herd: string; job: string; pane: string; worktree: string; branch: string | null; tree: string | null; /** null = no provisioning ran (--dir); false = cold create, worth announcing. */ wasOnDeck: boolean | null; agentId: string; sessionId: string; handle: string; /** What the folder-trust check established: no modal was up, one was accepted and verified gone, one is still up (the job reads `stuck-at-modal`), or herdr could not be read. */ trust: "none" | "accepted" | "stuck" | "unchecked" } };
   "herd:gates":  { payload: { herd: string }; data: { gates: GateRow[] } };
-  "herd:ask":       { payload: { herd: string; job: string; session: string; pane?: string; questions: GateQuestion[]; context?: string }; data: { gate: string } };
-  "herd:milestone": { payload: { herd: string; job: string; session: string; pane?: string; artifact: string; summary?: string }; data: { gate: string; message: number } };
+  /** `harness` names a session that is not Claude Code's. With agent.integrations.enabled on, the daemon authorizes the call by the session's job attempt, and a caller naming no `herd`/`job` acts for the job that attempt holds. */
+  "herd:ask":       { payload: { herd?: string; job?: string; session: string; harness?: string; pane?: string; questions: GateQuestion[]; context?: string }; data: { gate: string } };
+  /** Authorized like `herd:ask`. */
+  "herd:milestone": { payload: { herd?: string; job?: string; session: string; harness?: string; pane?: string; artifact: string; summary?: string }; data: { gate: string; message: number } };
   "herd:answer":    { payload: { gate: string; sessionId?: string }; data: { gate: string; status: GateStatus; answer: GateAnswer | null; closedReason: GateRow["closedReason"] } };
   /**
    * `session` (and `harness`, when not Claude Code) is the caller's resolved native session; with agent.integrations.enabled on the daemon

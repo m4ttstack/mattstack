@@ -333,14 +333,25 @@ async function reportCaller(args: string[]): Promise<{ session?: string; harness
   return { session: native.value, ...(native.harness !== "claude" && { harness: native.harness }) };
 }
 
+/**
+ * The job a report names: HERD_ID and HERD_JOB, or, for a headless worker
+ * whose environment has neither, nothing at all when its bound session was
+ * resolved (integrations on), so the daemon takes the job from that
+ * session's attempt.
+ */
+export function reportJob(env: Record<string, string | undefined>, caller: { session?: string }): Partial<ReturnType<typeof jobEnv>> | { error: string } {
+  try {
+    return jobEnv(env);
+  } catch (e) {
+    return caller.session === undefined ? { error: (e as Error).message } : {};
+  }
+}
+
 export async function report(args: string[]): Promise<void> {
   const json = has(args, "--json");
-  let w: ReturnType<typeof jobEnv>;
-  try {
-    w = jobEnv(process.env);
-  } catch (e) {
-    fail((e as Error).message);
-  }
+  const caller = await reportCaller(args);
+  const w = reportJob(process.env, caller);
+  if ("error" in w) fail(w.error);
   const file = flagValue(args, "--file");
   let body: string;
   if (file) {
@@ -353,7 +364,7 @@ export async function report(args: string[]): Promise<void> {
     body = await Bun.stdin.text();
   }
   if (!body.trim()) fail("empty report body (pass --file <path> or pipe the body on stdin)");
-  const data = unwrap(await herdReport({ herd: w.herd, job: w.job, body, ...(await reportCaller(args)) }), "report");
+  const data = unwrap(await herdReport({ ...w, body, ...caller }), "report");
   emit(json, data, `reported (message #${data.message})`);
 }
 

@@ -374,6 +374,20 @@ describe("herd_milestone: resolved caller sessions", () => {
     expect(calls[0]).toMatchObject({ fn: "milestone", a: { herd: "hd-1", job: "j", session: "thread-one", pane: "wTK:p1", artifact: "/a.md" } });
   });
 
+  test("a headless worker with no HERD_ID names no job and lets its session's attempt decide", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const worker: ToolContext = { caller: async () => ({ ok: true, data: { binding: { key: "sk-fixture", identity: "remy.ab12", native: { harness: "codex", profile: "default", kind: "id", value: "thread-one" }, attachment: { generation: 1, mode: "headless" }, attemptId: "att-1" } } }) };
+    const { tool, calls } = fake();
+    const r = await tool("herd_milestone").handler({ artifact: "/a.md" }, {} as NodeJS.ProcessEnv, undefined, worker);
+    expect(r.ok).toBe(true);
+    expect(calls[0]).toEqual({ fn: "milestone", a: { session: "thread-one", harness: "codex", artifact: "/a.md" }, o: undefined });
+
+    const notWorker = fake();
+    const r2 = await notWorker.tool("herd_milestone").handler({ artifact: "/a.md" }, {} as NodeJS.ProcessEnv, undefined, RESOLVED);
+    expect(r2.error).toContain("HERD_ID and HERD_JOB are not set");
+    expect(notWorker.calls).toEqual([]);
+  });
+
   test("refuses an unresolved caller when integrations are on", async () => {
     setSetting("agent.integrations.enabled", true, "machine");
     const { tool, calls } = fake();

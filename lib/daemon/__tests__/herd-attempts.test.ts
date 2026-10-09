@@ -354,7 +354,7 @@ function herdHandlers(svc: JobAttempts, agent: ReturnType<typeof createAgentServ
   const deps = {
     store: herds,
     gateStore: { get: () => null, markConsumed: () => {} },
-    gate: {},
+    gate: { "gate:open": async () => ok({ id: `g${posted.length + 1}` }) },
     chat: {
       "chat:sign-in": async (p: { continue: string }) => ok({ handle: p.continue, baseHandle: JOB, name: JOB, continued: true }),
       "chat:join": async () => ok({}),
@@ -463,6 +463,72 @@ describe("herd:spawn and herd:report with the switch on", () => {
 
     const nobody = await h["herd:report"]({ body: "done" });
     expect(nobody).toMatchObject({ ok: false, error: "herd, job, and a non-empty body are required" });
+  });
+
+  const QUESTIONS = [{ id: "q1", label: "Proceed?", multi: false, options: ["yes", "no"] }];
+
+  test("a worker that names no herd or job asks and posts a milestone for the job its attempt holds", async () => {
+    const svc = attempts();
+    const posted: unknown[] = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike({ work: [], reports: [] })), posted);
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!spawned.ok) throw new Error(spawned.error);
+
+    const asked = await h["herd:ask"]({ session: spawned.data.sessionId, questions: QUESTIONS });
+    expect(asked.ok).toBe(true);
+    expect(herds.getJob(HERD, JOB)?.status).toBe("at-gate");
+    const milestone = await h["herd:milestone"]({ session: spawned.data.sessionId, artifact: "/spec.md" });
+    expect(milestone.ok).toBe(true);
+    expect(herds.getJob(HERD, JOB)?.status).toBe("at-milestone");
+  });
+
+  test("a replaced predecessor's question and milestone are refused stale-binding", async () => {
+    const svc = attempts();
+    const posted: unknown[] = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike({ work: [], reports: [] })), posted);
+    const first = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!first.ok) throw new Error(first.error);
+    const second = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a" });
+    if (!second.ok) throw new Error(second.error);
+
+    const asked = await h["herd:ask"]({ herd: HERD, job: JOB, session: first.data.sessionId, questions: QUESTIONS });
+    expect(asked).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
+    if (!asked.ok) expect(asked.failure?.message).toBe(asked.error);
+    const milestone = await h["herd:milestone"]({ herd: HERD, job: JOB, session: first.data.sessionId, artifact: "/spec.md" });
+    expect(milestone).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
+    expect(posted).toEqual([]);
+    expect((await h["herd:ask"]({ session: second.data.sessionId, questions: QUESTIONS })).ok).toBe(true);
+  });
+
+  test("a job named in the environment that the session's attempt does not hold is refused", async () => {
+    const svc = attempts();
+    const posted: unknown[] = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike({ work: [], reports: [] })), posted);
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!spawned.ok) throw new Error(spawned.error);
+    herds.upsertJob({ herd: HERD, name: "job-b", worktree: "/w/job-b", handle: "job-b.w9", status: "active" });
+
+    for (const [verb, extra] of [["herd:ask", { questions: QUESTIONS }], ["herd:milestone", { artifact: "/a.md" }], ["herd:report", { body: "done" }]] as const) {
+      const res = await (h[verb] as (p: unknown) => Promise<{ ok: boolean; failure?: { code: string } }>)({ herd: HERD, job: "job-b", session: spawned.data.sessionId, ...extra });
+      expect(res, verb).toMatchObject({ ok: false, failure: { code: "refused" } });
+    }
+    expect(posted).toEqual([]);
+  });
+
+  test("switch off: a question and a milestone name their job and trust the session as before", async () => {
+    switchOn = false;
+    const svc = attempts();
+    const posted: unknown[] = [];
+    const legacy = {
+      handlers: { "agent:start": async () => ({ ok: true as const, data: { id: "ag-1", sessionId: "sess-w1", paneId: "w9:p1", repo: "r", cwd: "/w/job-a", surface: "herdr", provider: "claude" } }) },
+      startAttempt: async () => { throw new Error("the switch is off"); },
+    } as unknown as ReturnType<typeof createAgentService>;
+    const h = herdHandlers(svc, legacy, posted);
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!spawned.ok) throw new Error(spawned.error);
+    expect((await h["herd:ask"]({ herd: HERD, job: JOB, session: "any-session", questions: QUESTIONS })).ok).toBe(true);
+    expect(await h["herd:ask"]({ session: "sess-w1", questions: QUESTIONS })).toEqual({ ok: false, error: "herd, job, and session are required (HERD_ID, HERD_JOB, CLAUDE_CODE_SESSION_ID)" });
+    expect((await h["herd:milestone"]({ herd: HERD, job: JOB, session: "any-session", artifact: "/a.md" })).ok).toBe(true);
   });
 
   test("switch off: spawn records an unbound attempt and a report needs no session", async () => {

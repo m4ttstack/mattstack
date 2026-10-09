@@ -2,7 +2,7 @@ import { describe, test, expect, spyOn } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildAskPayload, buildBriefInputs, buildSpawnPayload, buildWrapUpPayload, brief, jobEnv, renderAnswer, renderHerdRow, renderResumed, renderStatus, soleHerdId, withCallerAccount, workerEnv } from "../../commands/herd.ts";
+import { buildAskPayload, buildBriefInputs, buildSpawnPayload, buildWrapUpPayload, brief, jobEnv, renderAnswer, renderHerdRow, renderResumed, renderStatus, reportJob, soleHerdId, withCallerAccount, workerEnv } from "../../commands/herd.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import type { Commands, HerdListRow, HerdStatusData } from "../../packages/rt-client/src/index.ts";
@@ -63,6 +63,12 @@ describe("rt herd payload builders", () => {
 
   test("withCallerAccount leaves the payload alone when the caller has no cswap account", async () => {
     expect(await withCallerAccount({ herd: "h", job: "j" }, async () => undefined)).toEqual({ herd: "h", job: "j" });
+  });
+
+  test("reportJob: HERD_* names the job; a bound headless worker with none names nothing; an unbound caller gets today's error", () => {
+    expect(reportJob({ HERD_ID: "h", HERD_JOB: "j" }, {})).toEqual({ herd: "h", job: "j" });
+    expect(reportJob({}, { session: "thread-one" })).toEqual({});
+    expect(reportJob({}, {})).toEqual({ error: "HERD_ID and HERD_JOB are not set; this verb runs inside a herd worker pane" });
   });
 
   test("buildSpawnPayload: --harness is the user's explicit assignment and carries the options; --mode rides beside it", () => {

@@ -100,6 +100,9 @@ export interface HerdDeps {
   endSession?: (bindingKey: string) => Promise<Outcome<void>>;
 }
 
+type WorkerCall = { herdId?: string; name?: string; caller?: Outcome<CallerContext> };
+type WorkerRefusal = { ok: false; error: string; failure: { code: string; message: string } };
+
 export const SHEPHERD_HANDLE = "shepherd";
 export { SYSTEM_HANDLE } from "../system-handle.ts";
 export const MILESTONE_OPTIONS = ["Approve", "Revise", "Spawn a reviewer"] as const;
@@ -231,6 +234,30 @@ export function createHerdHandlers(deps: HerdDeps) {
       ...(persisted && { persisted }),
       ...(callerAccount !== undefined && { callerAccount }),
     }, { registry, ...(deps.launchDefault && { launchDefault: deps.launchDefault }) });
+  }
+
+  /**
+   * A worker call's verified session, and the job it acts for: what it names,
+   * with any half it leaves out (a headless worker has no HERD_ID or
+   * HERD_JOB) taken from its session's attempt. authorizeWorker then checks
+   * that attempt holds that job, which refuses a named job it does not.
+   */
+  function workerCall(p: { herd?: unknown; job?: unknown; session?: unknown; harness?: unknown } | undefined): WorkerCall {
+    let herdId = str(p?.herd); let name = str(p?.job);
+    const session = str(p?.session);
+    if (!session) return { herdId, name };
+    const caller = resolveCaller({ native: { harness: str(p?.harness) ?? "claude", kind: "id", value: session } });
+    const own = caller.ok && caller.data.binding.attemptId !== undefined ? store.getAttempt(caller.data.binding.attemptId) : null;
+    if (own) { herdId ??= own.herd; name ??= own.job; }
+    return { herdId, name, caller };
+  }
+
+  function authorizeWorker(w: WorkerCall, herdId: string, name: string, what: string): WorkerRefusal | null {
+    const refuse = (code: string, error: string): WorkerRefusal => ({ ok: false, error, failure: { code, message: error } });
+    if (!w.caller) return refuse("ambiguous", `this ${what} cannot be attributed to a session, so its job did not accept it`);
+    if (!w.caller.ok) return refuse(w.caller.error.code, `this ${what} cannot be attributed to a session: ${w.caller.error.message}`);
+    const held = attempts.authorizeJobReport(w.caller.data, herdId, name);
+    return held.ok ? null : refuse(held.error.code, `job "${name}" did not accept this ${what}: ${held.error.message}`);
   }
 
   /** Never throws: a pane close or a session end that fails must not block the caller's own bookkeeping. */
@@ -683,11 +710,17 @@ export function createHerdHandlers(deps: HerdDeps) {
 
     "herd:ask": async (raw: unknown): Promise<CommandResult<"herd:ask">> => {
       const p = raw as Commands["herd:ask"]["payload"] | undefined;
-      const herdId = str(p?.herd); const name = str(p?.job); const session = str(p?.session);
+      const fenced = enabled();
+      const w = fenced ? workerCall(p) : { herdId: str(p?.herd), name: str(p?.job) };
+      const { herdId, name } = w; const session = str(p?.session);
       if (!herdId || !name || !session) return { ok: false, error: "herd, job, and session are required (HERD_ID, HERD_JOB, CLAUDE_CODE_SESSION_ID)" };
       const herd = store.get(herdId);
       const job = herd ? store.getJob(herdId, name) : null;
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
+      if (fenced) {
+        const refused = authorizeWorker(w, herdId, name, "question");
+        if (refused) return refused;
+      }
       if (Array.isArray(p!.questions) && p!.questions.every(isValidQuestion)) {
         const wordy = overlongOptionLabel(p!.questions);
         if (wordy) return { ok: false, error: wordy };
@@ -705,10 +738,16 @@ export function createHerdHandlers(deps: HerdDeps) {
 
     "herd:milestone": async (raw: unknown): Promise<CommandResult<"herd:milestone">> => {
       const p = raw as Commands["herd:milestone"]["payload"] | undefined;
-      const herdId = str(p?.herd); const name = str(p?.job); const session = str(p?.session); const artifact = str(p?.artifact);
+      const fenced = enabled();
+      const w = fenced ? workerCall(p) : { herdId: str(p?.herd), name: str(p?.job) };
+      const { herdId, name } = w; const session = str(p?.session); const artifact = str(p?.artifact);
       if (!herdId || !name || !session || !artifact) return { ok: false, error: "herd, job, session, and artifact are required" };
       const herd = store.get(herdId); const job = herd ? store.getJob(herdId, name) : null;
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
+      if (fenced) {
+        const refused = authorizeWorker(w, herdId, name, "milestone");
+        if (refused) return refused;
+      }
       const summary = str(p?.summary) ?? `milestone: ${artifact}`;
       const posted = await deps.chat["chat:post"]({ room: herd.room, handle: job.handle, body: `${summary}\n\nartifact: ${artifact}`, quiet: true });
       if (!posted.ok) return posted;
@@ -738,33 +777,16 @@ export function createHerdHandlers(deps: HerdDeps) {
 
     "herd:report": async (raw: unknown): Promise<CommandResult<"herd:report">> => {
       const p = raw as Commands["herd:report"]["payload"] | undefined;
-      let herdId = str(p?.herd); let name = str(p?.job); const body = str(p?.body);
+      const body = str(p?.body);
       const fenced = enabled();
-      // On, the caller is resolved before the job is named: a worker with no HERD_ID in its environment reports for the job its attempt holds.
-      let caller: Outcome<CallerContext> | undefined;
-      const session = str(p?.session);
-      if (fenced && session) {
-        caller = resolveCaller({ native: { harness: str(p?.harness) ?? "claude", kind: "id", value: session } });
-        const own = caller.ok && caller.data.binding.attemptId !== undefined ? store.getAttempt(caller.data.binding.attemptId) : null;
-        if (own && !herdId && !name) { herdId = own.herd; name = own.job; }
-      }
+      const w = fenced ? workerCall(p) : { herdId: str(p?.herd), name: str(p?.job) };
+      const { herdId, name } = w;
       if (!herdId || !name || !body) return { ok: false, error: "herd, job, and a non-empty body are required" };
       const herd = store.get(herdId); const job = herd ? store.getJob(herdId, name) : null;
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
       if (fenced) {
-        if (!caller) {
-          const error = "this report cannot be attributed to a session, so its job did not accept it";
-          return { ok: false, error, failure: { code: "ambiguous", message: error } };
-        }
-        if (!caller.ok) {
-          const error = `this report cannot be attributed to a session: ${caller.error.message}`;
-          return { ok: false, error, failure: { code: caller.error.code, message: error } };
-        }
-        const held = attempts.authorizeJobReport(caller.data, herdId, name);
-        if (!held.ok) {
-          const error = `job "${name}" did not accept this report: ${held.error.message}`;
-          return { ok: false, error, failure: { code: held.error.code, message: error } };
-        }
+        const refused = authorizeWorker(w, herdId, name, "report");
+        if (refused) return refused;
       }
       const posted = await deps.chat["chat:post"]({ room: herd.room, handle: job.handle, body, mentions: [herd.shepherdHandle] });
       if (!posted.ok) return posted;

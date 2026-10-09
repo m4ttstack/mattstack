@@ -1580,6 +1580,24 @@ describe("resolved caller sessions", () => {
     expect(calls).toEqual([]);
   });
 
+  test("the rt-client herd wrappers carry the worker selection and the caller's harness onto the wire", async () => {
+    const { herdSpawn, herdMilestone } = await import("../../../packages/rt-client/src/index.ts");
+    await herdSpawn({ herd: "h", job: "j", harness: "codex", model: "m", mode: "headless", assignment: { harness: "claude" }, callerAccount: "a@example.com" });
+    await herdMilestone({ session: "thread-one", harness: "codex", artifact: "/a.md" });
+    expect(calls.map((c) => c.payload)).toEqual([
+      { herd: "h", job: "j", harness: "codex", model: "m", mode: "headless", assignment: { harness: "claude" }, callerAccount: "a@example.com" },
+      { session: "thread-one", harness: "codex", artifact: "/a.md" },
+    ]);
+  });
+
+  test("herd_ask from a headless worker with no HERD_ID names no job and sends its session and harness", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const worker: ToolContext = { caller: async () => ({ ok: true, data: { binding: { ...BINDING, attemptId: "att-1" } } }) };
+    const res = await tool("herd_ask").handler({ questions: GATE }, {} as NodeJS.ProcessEnv, undefined, worker);
+    expect(res.ok).toBe(true);
+    expect(calls).toEqual([{ cmd: "herd:ask", payload: { session: "thread-one", pane: "wTK:p1", harness: "codex", questions: GATE } }]);
+  });
+
   test("the other session-handle and worker consumers take the resolved session", async () => {
     setSetting("agent.integrations.enabled", true, "machine");
     const env = { HERD_ID: "hd-1", HERD_JOB: "j", HERDR_PANE_ID: "wMP:p0" } as NodeJS.ProcessEnv;

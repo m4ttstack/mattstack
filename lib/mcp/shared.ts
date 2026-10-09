@@ -186,14 +186,19 @@ export function requireWorkerEnv(env: NodeJS.ProcessEnv): { herd: string; job: s
 export async function callerWorker(
   env: NodeJS.ProcessEnv,
   context?: ToolContext,
-): Promise<{ herd: string; job: string; session: string; pane?: string } | { error: string }> {
+): Promise<{ herd?: string; job?: string; session: string; pane?: string; harness?: string } | { error: string }> {
   const caller = await boundCaller(context);
   if (caller === null) return requireWorkerEnv(env);
   const j = requireJobEnv(env);
-  if ("error" in j) return j;
+  // A headless worker's environment carries no HERD_ID; its session's own attempt names its job instead.
+  const byAttempt = "error" in j && caller.ok && caller.data.binding.attemptId !== undefined;
+  if ("error" in j && !byAttempt) return j;
   if (!caller.ok) return { error: callerRefusal(caller.error) };
   const { native, attachment } = caller.data.binding;
-  return { ...j, session: native.value, ...(attachment.pane && { pane: attachment.pane }) };
+  return {
+    ...("error" in j ? {} : j), session: native.value, ...(attachment.pane && { pane: attachment.pane }),
+    ...(native.harness !== "claude" && { harness: native.harness }),
+  };
 }
 
 /** Mirrors herd.ts's soleHerdId without importing it (that module pulls in lib/repo-arg.ts). */
