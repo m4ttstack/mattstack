@@ -19,6 +19,7 @@ import {
   slackSweepTargets,
   sweepSlackRefs,
   syncIndex,
+  verifyFoundRefs,
   writeIndex,
   writeOwnerPostsLeft,
   writeSlackRef,
@@ -533,5 +534,81 @@ describe('owner posts left', () => {
     writeOwnerPostsLeft(URL_B, [], db);
     expect(readOwnerPostsLeft(URL_A, db)).toEqual(['pod-docs']);
     expect(readOwnerPostsLeft(URL_B, db)).toEqual([]);
+  });
+});
+
+describe('verifyFoundRefs', () => {
+  let api: ReturnType<typeof mockSlackApi>;
+  afterEach(() => api.restore());
+
+  async function found(): Promise<SlackRef> {
+    api = mockSlackApi({
+      'code-review': [msg('100.1', `please review ${URL_A}`)],
+    });
+    await sweepSlackRefs(
+      'tok',
+      [{ mrUrl: URL_A, iid: 1, channel: 'code-review' }],
+      { gapMs: 0, db }
+    );
+    api.restore();
+    return readSlackRefs(db).get(URL_A)!;
+  }
+
+  test('keeps a ref whose message is still there', async () => {
+    const ref = await found();
+    api = mockSlackApi({
+      'code-review': [msg('100.1', `please review ${URL_A}`)],
+    });
+    const out = await verifyFoundRefs(
+      'tok',
+      [{ ref, channel: 'code-review' }],
+      {
+        gapMs: 0,
+        db,
+      }
+    );
+    expect(out.removed).toBe(0);
+    expect(readSlackRefs(db).get(URL_A)?.status).toBe('found');
+  });
+
+  test('demotes a ref whose message is gone and forgets it in the index', async () => {
+    const ref = await found();
+    api = mockSlackApi({ 'code-review': [] });
+    const out = await verifyFoundRefs(
+      'tok',
+      [{ ref, channel: 'code-review' }],
+      {
+        gapMs: 0,
+        db,
+      }
+    );
+    expect(out.removed).toBe(1);
+    expect(readSlackRefs(db).get(URL_A)?.status).toBe('notfound');
+    expect(
+      readIndex('code-review', db)?.messages.some(m => m.ts === '100.1')
+    ).toBe(false);
+  });
+
+  test('demotes a ref whose message is now a tombstone', async () => {
+    const ref = await found();
+    api = mockSlackApi({
+      'code-review': [
+        {
+          ts: '100.1',
+          user: '',
+          text: 'This message was deleted.',
+          subtype: 'tombstone',
+        } as SlackMessage,
+      ],
+    });
+    const out = await verifyFoundRefs(
+      'tok',
+      [{ ref, channel: 'code-review' }],
+      {
+        gapMs: 0,
+        db,
+      }
+    );
+    expect(out.removed).toBe(1);
   });
 });

@@ -302,6 +302,7 @@ import {
   slackSweepTargets,
   sweepSlackRefs,
   unreactFromMR,
+  verifyFoundRefs,
   writeOwnerPostsLeft,
   type ListedChannel,
 } from './slack.ts';
@@ -4125,6 +4126,18 @@ async function sweepOnce(
     })
   );
   for (const e of result.errors) console.error(`auto-resolve ${e}`);
+  const refs = readSlackRefs();
+  const stale = snapshot.mrs.flatMap(mr => {
+    const ref = mr.webUrl ? refs.get(mr.webUrl) : undefined;
+    const channel = channelForMR(config, mr);
+    return ref?.status === 'found' &&
+      channel &&
+      (force || ref.checkedAt < retryAfter)
+      ? [{ ref, channel }]
+      : [];
+  });
+  const verified = await verifyFoundRefs(slackToken, stale);
+  for (const e of verified.errors) console.error(`slack verify ${e}`);
   return { resolved: result.resolved, failed: result.failed };
 }
 
