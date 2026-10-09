@@ -328,7 +328,12 @@ export function createHerdHandlers(deps: HerdDeps) {
   async function closeWorker(herd: HerdRow, job: HerdJobRow): Promise<boolean> {
     // Off, no integration is ever loaded: a worker is a pane, closed as it always was.
     const attempt = enabled() ? store.activeAttempt(herd.id, job.name) : null;
-    if (attempt?.mode !== "headless") return job.pane ? closePane(herd.herdrSocket, job.pane, { herd: herd.id, job: job.name }) : false;
+    if (attempt?.mode !== "headless") {
+      const closed = job.pane ? await closePane(herd.herdrSocket, job.pane, { herd: herd.id, job: job.name }) : false;
+      // A closed pane holds no worker either, so a respawn that then fails does not hand the job back to it.
+      if (closed && attempt) store.endAttempt(attempt.id, ["active"]);
+      return closed;
+    }
     if (!attempt.bindingKey) {
       log.warn({ herd: herd.id, job: job.name, attempt: attempt.id }, "herd: a headless worker with no bound session cannot be ended");
       return false;

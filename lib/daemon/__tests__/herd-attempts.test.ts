@@ -486,12 +486,40 @@ describe("herd:spawn and herd:report with the switch on", () => {
     expect(herds.getJob(HERD, JOB)?.handle).toBe("job-a.w1");
   });
 
-  test("a respawn that never takes the job gives the row back to the worker that holds it, and its own worker is closed", async () => {
+  test("a respawn that never takes the job after rt closed its predecessor leaves the job crashed, held by no one", async () => {
     const svc = attempts();
     const seen: Seen = { work: [], reports: [] };
     const posted: Array<{ handle: string }> = [];
     const closes: string[][] = [];
     const h = herdHandlers(svc, agentService(svc, claudeLike(seen)), posted, recordingHerdr(closes));
+
+    const first = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!first.ok) throw new Error(first.error);
+    seen.refuseProof = true;
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a" });
+    expect(refused.ok).toBe(false);
+
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended", "ended"]);
+    expect(herds.activeAttempt(HERD, JOB)).toBeNull();
+    expect(closes.filter((c) => c[1] === "close")).toHaveLength(2);
+    expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
+    const report = await h["herd:report"]({ herd: HERD, job: JOB, body: "done", session: first.data.sessionId });
+    expect(report.ok).toBe(false);
+    expect(posted).toEqual([]);
+  });
+
+  test("a respawn that never takes the job gives the row back to a predecessor rt could not close", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [] };
+    const posted: Array<{ handle: string }> = [];
+    const closes: string[][] = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike(seen)), posted, {
+      herdrRunnerFor: () => async (args: string[]) => {
+        closes.push(args);
+        const firstClose = args[1] === "close" && closes.filter((c) => c[1] === "close").length === 1;
+        return { stdout: "{}", exitCode: firstClose ? 1 : 0 };
+      },
+    });
 
     const first = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
     if (!first.ok) throw new Error(first.error);
@@ -501,7 +529,6 @@ describe("herd:spawn and herd:report with the switch on", () => {
     expect(refused.ok).toBe(false);
 
     expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["active", "ended"]);
-    expect(closes.filter((c) => c[1] === "close")).toHaveLength(2);
     expect(herds.getJob(HERD, JOB)).toMatchObject({ handle: holder.handle, agentId: holder.agentId, agentSession: holder.agentSession, status: holder.status });
     const report = await h["herd:report"]({ herd: HERD, job: JOB, body: "done", session: first.data.sessionId });
     expect(report.ok).toBe(true);
@@ -576,7 +603,7 @@ describe("herd:spawn and herd:report with the switch on", () => {
     expect(second.data.handle).not.toBe(first.data.handle);
 
     const [old, current] = herds.attempts(HERD, JOB);
-    expect([old!.state, current!.state]).toEqual(["replaced", "active"]);
+    expect([old!.state, current!.state]).toEqual(["ended", "active"]);
     expect(current!.replaces).toBe(old!.id);
     expect(current!.selection).toEqual({ harness: "claude", options: { model: "opus" } });
 
