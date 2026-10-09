@@ -119,6 +119,11 @@ export function dayAt(key: string, hour = 0): number {
   return new Date(Number(y), Number(m) - 1, Number(d), hour).getTime();
 }
 
+/** Run ids are unique within a repo only. */
+export function runDetailKey(run: Pick<RunSummary, 'repo' | 'id'>): string {
+  return JSON.stringify([run.repo, run.id]);
+}
+
 export function shiftDay(key: string, days: number): string {
   const [, y, m, d] = DAY_KEY.exec(key)!;
   return dayKey(new Date(Number(y), Number(m) - 1, Number(d) + days).getTime());
@@ -444,7 +449,7 @@ export function dayTimeline({
     );
   const raw: DayRow[] = active.map(run => {
     const gates = gatesByRun.get(run.id) ?? [];
-    const detail = details.get(run.id);
+    const detail = details.get(runDetailKey(run));
     return {
       run,
       bars: detail ? rowBars({ run, detail, gates, from, to, now }) : [],

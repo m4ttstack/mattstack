@@ -25,7 +25,6 @@ import { railStages, stageAttempts, type RailStage } from './stages';
 
 export type RunsFilter = 'all' | 'live' | 'waiting' | 'done';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const MEDIAN_WINDOW = 30;
 
 export const isStale = (run: RunSummary) =>
@@ -110,7 +109,12 @@ export interface DayGroup {
     first. */
 export function dayGroups(runs: RunSummary[], now: number): DayGroup[] {
   const today = dayKey(now);
-  const yesterday = dayKey(now - DAY_MS);
+  const d = new Date(now);
+  const yesterday = new Date(
+    d.getFullYear(),
+    d.getMonth(),
+    d.getDate() - 1
+  ).toDateString();
   const sorted = [...runs].sort((a, b) => rowEnd(b, now) - rowEnd(a, now));
   const groups: DayGroup[] = [];
   for (const run of sorted) {

@@ -150,8 +150,8 @@ curl -s 'http://localhost:5307/api/skills/composition?pack=acme' | head -c 200
 ```
 
 It must mention `"packDir":"/fixture/packs/acme"`. For a runs board,
-`curl -s 'http://localhost:5307/api/runs' | head -c 200` must list a
-`remote:acme%2Fweb` run and end its answer with an `asOf`. If a port is taken, find
+`curl -s 'http://localhost:5307/api/runs' | jq '{asOf, repo: .runs[0].repo}'`
+must print an `asOf` and a `remote:acme%2Fweb` repo. If a port is taken, find
 the owner with `lsof -nP -iTCP:<port> -sTCP:LISTEN`; stop it only if it is one
 of yours.
 

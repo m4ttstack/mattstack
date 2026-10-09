@@ -19,6 +19,7 @@ import {
   dayTotals,
   decisionText,
   parseDayKey,
+  runDetailKey,
   shiftDay,
   timelineSub,
   type DayRow,
@@ -210,9 +211,9 @@ describe('dayTimeline', () => {
   ]);
   const runs = [finished, old, live];
   const details = new Map([
-    ['live', liveDetail],
-    ['done', finishedDetail],
-    ['old', oldDetail],
+    [runDetailKey(live), liveDetail],
+    [runDetailKey(finished), finishedDetail],
+    [runDetailKey(old), oldDetail],
   ]);
   const gates = new Map<string, GateRow[]>([
     [
@@ -479,11 +480,42 @@ describe('dayTimeline edges', () => {
   const one = (r: RunSummary, stages: RunStageRow[], key: string) =>
     dayTimeline({
       runs: [r],
-      details: new Map([[r.id, detail(r, stages)]]),
+      details: new Map([[runDetailKey(r), detail(r, stages)]]),
       gatesByRun: new Map(),
       key,
       now: NOW,
     });
+
+  it('reads each repo its own detail when two runs share an id', () => {
+    const a = run({
+      id: 'same',
+      status: 'done',
+      started_at: TODAY(9),
+      ended_at: TODAY(10),
+      last_event_at: TODAY(10),
+    });
+    const b = { ...a, repo: 'remote:acme%2Fapi' };
+    const timeline = dayTimeline({
+      runs: [a, b],
+      details: new Map([
+        [
+          runDetailKey(a),
+          detail(a, [stage('plan', 'done', TODAY(9), TODAY(10))]),
+        ],
+        [
+          runDetailKey(b),
+          detail(b, [stage('ship', 'done', TODAY(9), TODAY(10))]),
+        ],
+      ]),
+      gatesByRun: new Map(),
+      key: '2026-10-08',
+      now: NOW,
+    });
+    expect(timeline.rows.map(r => r.bars[0]!.stages)).toEqual([
+      ['plan'],
+      ['ship'],
+    ]);
+  });
 
   it('splits a run that crosses midnight between its two days', () => {
     const r = run({

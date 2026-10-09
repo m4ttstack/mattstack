@@ -1,3 +1,4 @@
+import { notifications } from '@mattstack/app-kit/notifications';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type {
   GateRow,
@@ -329,6 +330,37 @@ describe('RunDetail: live work run', () => {
     expect(
       await screen.findByRole('menuitem', { name: 'Mark abandoned' })
     ).toBeInTheDocument();
+  });
+
+  it('says so when marking a run abandoned fails', async () => {
+    const user = userEvent.setup();
+    const error = vi.spyOn(notifications, 'error');
+    abandonPost.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'run already ended' }),
+    });
+    render(
+      workRun({
+        run: summary({
+          attention: { needs: true, reason: 'stale', evidence: 'no pane' },
+        }),
+      })
+    );
+    await screen.findByTestId('run-page');
+    await user.click(screen.getByRole('button', { name: 'more run actions' }));
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Mark abandoned' })
+    );
+    await user.type(
+      await screen.findByLabelText(/Why is this run dead/),
+      'wedged'
+    );
+    await user.click(screen.getByRole('button', { name: 'Mark abandoned' }));
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith('run already ended')
+    );
+    error.mockRestore();
   });
 
   it('opens the inputs drawer from ?inputs', async () => {

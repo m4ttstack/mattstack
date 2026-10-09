@@ -178,10 +178,22 @@ export function RunHeader({
       confirmLabel: 'Mark abandoned',
       confirmProps: { color: 'bad' },
       onSubmit: async reason => {
-        await client.api.runs[':repo'][':runId'].abandon.$post({
-          param: { repo, runId },
-          json: { reason },
-        });
+        try {
+          const res = await client.api.runs[':repo'][':runId'].abandon.$post({
+            param: { repo, runId },
+            json: { reason },
+          });
+          if (!res.ok) {
+            const body = (await res.json().catch(() => null)) as {
+              error?: string;
+            } | null;
+            notifications.error(body?.error ?? "couldn't abandon the run");
+            return;
+          }
+        } catch {
+          notifications.error("couldn't abandon the run");
+          return;
+        }
         await queryClient.invalidateQueries({ queryKey: ['run', repo, runId] });
         await queryClient.invalidateQueries({ queryKey: ['runs'] });
       },

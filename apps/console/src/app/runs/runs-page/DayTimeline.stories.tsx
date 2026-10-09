@@ -3,7 +3,7 @@ import '../../icons';
 import type { GateRow, RunStageRow } from '@mattstack/rt-client';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
-import { dayDecisions, dayTimeline } from '../derive/day';
+import { dayDecisions, dayTimeline, runDetailKey } from '../derive/day';
 import { DayTimeline, TimelineLegend } from './DayTimeline';
 import { DecisionsToday } from './DecisionsToday';
 import { at, STORY_NOW, storyRun } from './storyData';
@@ -58,7 +58,7 @@ const merged = storyRun({
 
 const details = new Map([
   [
-    waiting.id,
+    runDetailKey(waiting),
     {
       stages: [
         stage('provision', 'done', at(13, 38), at(13, 39)),
@@ -68,7 +68,7 @@ const details = new Map([
     },
   ],
   [
-    live.id,
+    runDetailKey(live),
     {
       stages: [
         stage('plan', 'done', at(13, 38), at(14, 4)),
@@ -79,7 +79,7 @@ const details = new Map([
     },
   ],
   [
-    ci.id,
+    runDetailKey(ci),
     {
       stages: [
         stage('implement', 'done', at(9, 0, 7), at(18, 10, 7)),
@@ -91,7 +91,7 @@ const details = new Map([
     },
   ],
   [
-    merged.id,
+    runDetailKey(merged),
     {
       stages: [
         stage('plan', 'done', at(11, 42), at(12, 40)),

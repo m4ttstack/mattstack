@@ -1,7 +1,8 @@
 import type { RunSummary } from '@mattstack/rt-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { dayAt, dayAxis, dayTimeline, type DayRow } from './day';
+import { dayAt, dayAxis, dayTimeline, runDetailKey, type DayRow } from './day';
+import { dayGroups } from './lanes';
 
 const ZONE = 'America/New_York';
 let previous: string | undefined;
@@ -88,7 +89,7 @@ describe('dayAxis across a clock change', () => {
         runs: [r],
         details: new Map([
           [
-            'r',
+            runDetailKey(r),
             {
               stages: [
                 {
@@ -111,5 +112,16 @@ describe('dayAxis across a clock change', () => {
       });
       expect(day1.totals.work).toBe(90 * 60_000);
     }
+  });
+});
+
+describe('dayGroups across a clock change', () => {
+  it('labels the spring-forward day Yesterday in the hour after it', () => {
+    const run = {
+      id: 'y',
+      started_at: at(3, 8, 11),
+      ended_at: at(3, 8, 12),
+    } as RunSummary;
+    expect(dayGroups([run], at(3, 9, 0, 30))[0]!.label).toBe('Yesterday');
   });
 });

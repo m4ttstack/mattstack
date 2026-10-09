@@ -13,6 +13,7 @@ import {
 } from '@tanstack/react-query';
 
 import { client } from '../api';
+import { runDetailKey } from './derive/day';
 
 /** The spec's slow-poll safety net. The websocket is the live path; this is
     what catches a socket that dropped without us noticing. */
@@ -91,7 +92,7 @@ export function useRunChrome(repo: string, runId: string) {
   return useQuery(runQuery(repo, runId));
 }
 
-/** Several runs read at once, keyed by run id, sharing each run page's
+/** Several runs read at once, keyed by `runDetailKey`, sharing each run page's
     cache; a run whose read has not landed is absent, and `pending` says
     some have not. A finished run no longer changes, so it is not polled. */
 export function useRunDetails(
@@ -106,7 +107,7 @@ export function useRunDetails(
       const details = new Map<string, RunDetail>();
       results.forEach((res, i) => {
         if (res.data)
-          details.set(runs[i]!.id, res.data as unknown as RunDetail);
+          details.set(runDetailKey(runs[i]!), res.data as unknown as RunDetail);
       });
       return { details, pending: results.some(r => r.isPending) };
     },
