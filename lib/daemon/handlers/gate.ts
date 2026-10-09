@@ -5,7 +5,7 @@
  */
 
 import type { Logger } from "pino";
-import type { Commands } from "../../../packages/rt-client/src/commands.ts";
+import type { Commands, GateStatus } from "../../../packages/rt-client/src/commands.ts";
 import { GATE_BY_PANE } from "../../../packages/rt-client/src/commands.ts";
 import { unwrapGateAnswerValue, validateGateAnswers } from "../../../packages/rt-client/src/gate-answers.ts";
 import type { CommandResult } from "./types.ts";
@@ -51,6 +51,8 @@ const DEFAULT_LIST_LIMIT = 500;
 const MAX_LIST_LIMIT = 1000;
 const clampListLimit = (n: number | undefined): number =>
   Math.min(MAX_LIST_LIMIT, Math.max(1, Math.floor(n ?? DEFAULT_LIST_LIMIT)));
+
+const GATE_STATUSES: readonly GateStatus[] = ["open", "answered", "parked", "closed"];
 
 const num = (v: unknown): number | undefined => {
   if (v == null || v === "") return undefined;
@@ -657,9 +659,14 @@ export function createGateHandlers(
 
     "gate:list": async (rawPayload: unknown) => {
       const payload = rawPayload as Commands["gate:list"]["payload"] | undefined;
+      const statuses = Array.isArray(payload?.status)
+        ? payload.status.filter((s): s is GateStatus => GATE_STATUSES.includes(s as GateStatus))
+        : undefined;
       const { gates, cursor } = store.list({
         open: payload?.open,
+        subject: typeof payload?.subject === "string" && payload.subject.trim() ? payload.subject.trim() : undefined,
         subjectPrefix: payload?.subjectPrefix,
+        status: statuses,
         kind: payload?.kind,
         cursor: num(payload?.cursor),
         limit: clampListLimit(num(payload?.limit)),

@@ -101,6 +101,19 @@ describe("gates store", () => {
   });
 });
 
+describe("gates store — list filters", () => {
+  test("subject matches exactly and status filters to the given set", () => {
+    const s = store();
+    const a = openGate(s, "run:20261008-1");
+    const b = openGate(s, "run:20261008-12");
+    s.close(a, "abandoned");
+    expect(s.list({ subject: "run:20261008-1" }).gates.map((g) => g.id)).toEqual([a]);
+    expect(s.list({ subjectPrefix: "run:", status: ["open"] }).gates.map((g) => g.id)).toEqual([b]);
+    expect(s.list({ subject: "run:20261008-1", status: ["open"] }).gates).toEqual([]);
+    s.close_();
+  });
+});
+
 describe("gates store — option normalization", () => {
   test("open normalizes bare-string options to {value,label} in both the returned and persisted row", () => {
     const s = store();

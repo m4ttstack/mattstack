@@ -471,6 +471,19 @@ describe("gate:list / gate:park / gate:close", () => {
     if (r.ok) expect(r.data.gates).toHaveLength(1);
   });
 
+  test("list matches subject exactly and ignores an unknown status", async () => {
+    const { handlers } = harness();
+    await handlers["gate:open"](openPayload({ subject: "run:a" }));
+    await handlers["gate:open"](openPayload({ subject: "run:ab" }));
+    const exact = await handlers["gate:list"]({ subject: "run:a" });
+    expect(exact.ok).toBe(true);
+    if (exact.ok) expect(exact.data.gates.map((g) => g.subject)).toEqual(["run:a"]);
+    const closedOnly = await handlers["gate:list"]({ status: ["closed"] });
+    if (closedOnly.ok) expect(closedOnly.data.gates).toHaveLength(0);
+    const junk = await handlers["gate:list"]({ status: ["nonsense" as any] });
+    if (junk.ok) expect(junk.data.gates).toHaveLength(2);
+  });
+
   test("park succeeds on an open gate, fails with a reason otherwise", async () => {
     const { handlers } = harness();
     const id = (await open(handlers)).id;

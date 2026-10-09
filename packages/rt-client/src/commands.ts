@@ -1058,7 +1058,7 @@ export interface Commands {
   "gate:wait": { payload: { id: string; waitMs?: number; sessionId?: string }; data: { status: "timeout" } | { status: "answered" | "closed"; row: GateRow } };
   /** Paged like events:list: an omitted `limit` clamps daemon-side rather than
    *  forcing a full-table read; `cursor` is the paging rowid to resume from. */
-  "gate:list": { payload: { open?: boolean; subjectPrefix?: string; kind?: string; limit?: number; cursor?: number }; data: { gates: GateRow[]; cursor: number } };
+  "gate:list": { payload: { open?: boolean; subject?: string; subjectPrefix?: string; status?: GateStatus[]; kind?: string; limit?: number; cursor?: number }; data: { gates: GateRow[]; cursor: number } };
   "gate:park": { payload: { id: string }; data: { ok: true } };
   "gate:close": { payload: { id: string; reason: "abandoned" | "superseded" | "pruned" }; data: { ok: true } };
   "gate:subscribe": { payload: { subjectPrefix: string; session: string; scope?: "owner"; ownerRef?: string }; data: { id: string } };

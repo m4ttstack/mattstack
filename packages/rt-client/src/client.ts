@@ -554,7 +554,7 @@ export function gateList(
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["gate:list"]["data"]>> {
   const payload: Record<string, unknown> = {};
-  for (const k of ["open", "subjectPrefix", "kind", "limit", "cursor"] as const) if (a[k] !== undefined) payload[k] = a[k];
+  for (const k of ["open", "subject", "subjectPrefix", "status", "kind", "limit", "cursor"] as const) if (a[k] !== undefined) payload[k] = a[k];
   return rtCommand<Commands["gate:list"]["data"]>("gate:list", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 

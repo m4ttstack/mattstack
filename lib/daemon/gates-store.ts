@@ -56,7 +56,7 @@ export interface GatesStore {
     owner?: string;
   }): OpenResult;
   get(id: string): GateRow | null;
-  list(filter: { open?: boolean; subjectPrefix?: string; kind?: string; limit?: number; cursor?: number }): { gates: GateRow[]; cursor: number };
+  list(filter: { open?: boolean; subject?: string; subjectPrefix?: string; status?: GateStatus[]; kind?: string; limit?: number; cursor?: number }): { gates: GateRow[]; cursor: number };
   /** `opts.session` is the writer's own session id, recorded on the answer
       so gate-push can skip notifying the surface that wrote it. */
   answer(id: string, answers: GateAnswer["answers"], by: string, opts?: { overridden?: boolean; session?: string }): AnswerResult;
@@ -597,6 +597,11 @@ export function createGatesStore(opts: {
       if (filter.cursor != null) { clauses.push("rowid > ?"); params.push(filter.cursor); }
       if (filter.open) { clauses.push("status = 'open'"); }
       if (filter.subjectPrefix) { clauses.push("subject LIKE ? ESCAPE '\\'"); params.push(`${filter.subjectPrefix.replace(/[%_\\]/g, "\\$&")}%`); }
+      if (filter.subject) { clauses.push("subject = ?"); params.push(filter.subject); }
+      if (filter.status?.length) {
+        clauses.push(`status IN (${filter.status.map(() => "?").join(", ")})`);
+        params.push(...filter.status);
+      }
       if (filter.kind) { clauses.push("kind = ?"); params.push(filter.kind); }
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       const safeLimit = filter.limit == null ? undefined : Math.max(1, Math.floor(filter.limit));
