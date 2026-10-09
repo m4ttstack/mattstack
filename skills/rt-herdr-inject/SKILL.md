@@ -14,7 +14,7 @@ needs the herdr CLI, its pane id, or a check that it is inside herdr.
 ## Your own pane
 
 ```bash
-rt pane send self --text "/cd /Users/matt/Documents/GitHub/chat"
+rt pane send self --text "/cd <repo>"
 ```
 
 - It always reports `queued`: you are mid-turn, so the line sits in the
