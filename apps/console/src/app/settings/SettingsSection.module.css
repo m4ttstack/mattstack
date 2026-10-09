@@ -44,7 +44,11 @@
 }
 
 :global([data-scope-filter]:not([data-scope-filter='any'])) .head {
-  background: color-mix(in srgb, var(--block-hue) calc(var(--tk-wash) * 1.75), transparent);
+  background: color-mix(
+    in srgb,
+    var(--block-hue) calc(var(--tk-wash) * 1.75),
+    transparent
+  );
 }
 
 /* The space between sections belongs to the section above, so its pinned
@@ -79,7 +83,8 @@
   background: color-mix(in srgb, var(--tk-card) 55%, transparent);
   backdrop-filter: blur(20px) saturate(1.6);
   box-shadow:
-    0 1px 0 color-mix(in srgb, var(--mantine-color-black) var(--edge), transparent),
+    0 1px 0
+      color-mix(in srgb, var(--mantine-color-black) var(--edge), transparent),
     0 2px 4px -2px
       color-mix(in srgb, var(--mantine-color-black) var(--drop), transparent);
 }
