@@ -8,6 +8,7 @@ import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import { pruneStoreName, renameRepoSection, setSetting, setSettingsNoticeSink, SharedStoreWriteRefused, unsetSetting } from "../../settings/write.ts";
 import { runUpdateWith, type ApplyContext, type StepOutcome } from "../apply.ts";
 import { SHARED_STORE_REFUSAL, type MigrationDef } from "../migrations/index.ts";
+import { readSetupState } from "../state.ts";
 import { fakeProbes } from "./fakes.ts";
 
 function writeOrgSlack(): void {
@@ -55,10 +56,13 @@ describe("a migration cannot write the org or team stores", () => {
       return { state: "done" };
     });
 
-    const result = await runUpdateWith([], [m], ctx());
+    const c = ctx();
+    const result = await runUpdateWith([], [m], c);
 
     expect(result.outcomes).toEqual([{ id: "migration.2099-01-01-team-write", state: "failed", detail: SHARED_STORE_REFUSAL }]);
     expect(readFileSync(teamStore, "utf8")).toBe(before);
+    // Not recorded, so the next update runs it again.
+    expect(readSetupState(c.p).migrations).not.toContain("2099-01-01-team-write");
   });
 
   test("a user write is allowed", async () => {
@@ -67,9 +71,11 @@ describe("a migration cannot write the org or team stores", () => {
       return { state: "done" };
     });
 
-    const result = await runUpdateWith([], [m], ctx());
+    const c = ctx();
+    const result = await runUpdateWith([], [m], c);
 
     expect(result.outcomes).toEqual([{ id: "migration.2099-01-01-user-write", state: "done" }]);
+    expect(readSetupState(c.p).migrations).toContain("2099-01-01-user-write");
     expect(readStore(userSettingsPath()).global["rt.logLevel"]).toBe("debug");
   });
 
