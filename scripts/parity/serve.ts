@@ -4,7 +4,7 @@
  * An app's `scripts/parity/harness.ts` exports a `ParityApp` and, when run
  * directly, calls `startHarness` with it.
  *
- * GET /config?slug=<slug>&scheme=<dark|light>  run config for one board
+ * GET /config?slug=<slug>&scheme=<dark|light>[&panel=<label>]  run config for one board (or one of its panels)
  * PUT /out/<file>                              write <file> under the app's output dir
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -25,7 +25,12 @@ import { hugWidthPaths, readPen } from './pen';
 const COLLECT_PATH = join(import.meta.dirname, 'collect.js');
 const OUT_NAME = /^[\w.-]+\.(json|png)$/;
 
-export function harnessConfig(app: ParityApp, slug: string, scheme: string) {
+export function harnessConfig(
+  app: ParityApp,
+  slug: string,
+  scheme: string,
+  panel?: string
+) {
   if (scheme !== 'dark' && scheme !== 'light') {
     throw new Error(`scheme must be dark or light, got "${scheme}"`);
   }
@@ -40,7 +45,7 @@ export function harnessConfig(app: ParityApp, slug: string, scheme: string) {
     designAttr: DESIGN_NAME_ATTR,
     appAttr: APP_NAME_ATTR,
     appOrigin: app.appOrigin,
-    targets: targetsOf(board).map(t => ({
+    targets: targetsOf(board, panel).map(t => ({
       ...t,
       hugWidths: hugWidthPaths(pen, t.root, board.frame),
     })),
@@ -65,7 +70,8 @@ export function harnessHandler(app: ParityApp) {
           harnessConfig(
             app,
             url.searchParams.get('slug') ?? '',
-            url.searchParams.get('scheme') ?? ''
+            url.searchParams.get('scheme') ?? '',
+            url.searchParams.get('panel') ?? undefined
           )
         );
       }

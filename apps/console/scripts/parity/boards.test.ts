@@ -18,13 +18,19 @@ const exportOf = (slug: string, scheme: 'light' | 'dark') =>
 const layerCount = (html: string, name: string) =>
   html.split(`data-pencil-name="${name}"`).length - 1;
 
-const actionLayers = (board: (typeof app.boards)[number]) => {
-  const a = board.action;
+type Action = NonNullable<(typeof app.boards)[number]['action']>;
+
+const layersOf = (a: Action | undefined): string[] => {
   if (!a) return [];
   if (a.kind === 'clicks') return [...a.layers, a.waitFor];
   if (a.kind === 'waitText') return [a.layer, a.until.layer];
   return [a.layer, a.waitFor, ...(a.until ? [a.until.layer] : [])];
 };
+
+const actionLayers = (board: (typeof app.boards)[number]) => [
+  ...layersOf(board.action),
+  ...(board.panels ?? []).flatMap(p => layersOf(p.action)),
+];
 
 describe('console parity boards', () => {
   it('lists the thirty boards of the design README', () => {

@@ -53,6 +53,34 @@ describe('targetsOf', () => {
   });
 });
 
+describe('targetsOf actions and panel filter', () => {
+  const click = { kind: 'click', layer: 'go', waitFor: 'where' } as const;
+  const own = { kind: 'clicks', layers: ['a'], waitFor: 'b' } as const;
+  const panels = board({
+    roots: [],
+    action: click,
+    panels: [
+      { label: 'One', route: '/1', root: 'Root one', action: own },
+      { label: 'Two', route: '/2', root: 'Root two' },
+    ],
+  });
+
+  it("gives a panel its own action, else the board's", () => {
+    expect(targetsOf(panels).map(t => t.action)).toEqual([own, click]);
+    expect(targetsOf(board({ action: click }))[0]!.action).toEqual(click);
+  });
+
+  it('keeps only the panel a label or root names', () => {
+    expect(targetsOf(panels, 'two').map(t => t.root)).toEqual(['Root two']);
+    expect(targetsOf(panels, 'Root one').map(t => t.root)).toEqual([
+      'Root one',
+    ]);
+    expect(() => targetsOf(panels, 'nope')).toThrow(
+      'no panel "nope" on 01-demo; one of: One, Two'
+    );
+  });
+});
+
 describe('boardBySlug', () => {
   it('finds a board and names the valid slugs when it is unknown', () => {
     const boards = [board(), board({ slug: '02-demo' })];
