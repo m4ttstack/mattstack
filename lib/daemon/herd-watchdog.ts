@@ -47,6 +47,8 @@ export interface WatchdogSensors {
   unconsumedAnswered(session: string): { id: string; ageMs: number }[];
   /** The job's observed worker, or null when the job is supervised by its pane. */
   observedJob?(job: HerdJobRow): ObservedJob | null;
+  /** Whether rt may type into the pane: its harness takes typed input there. Absent, every pane does. */
+  typesIntoPane?(pane: string): boolean;
 }
 
 export type WedgeVerdict =
@@ -87,8 +89,10 @@ const LIVE: ReadonlySet<HerdJobRow["status"]> = new Set(["spawning", "active", "
 const AWAITING_ANSWER: ReadonlySet<HerdJobRow["status"]> = new Set(["at-gate", "at-milestone"]);
 
 /**
- * How long an observation stays evidence: the fast path's default threshold,
- * the shortest wait after which the watchdog acts on any reading.
+ * How long an observation stays evidence. The poller refreshes every bound
+ * session far more often than this and the watchdog sweeps about once a
+ * minute, so a reading this old means its source stopped reporting, not that
+ * the worker's state is still what it said.
  */
 export const STALE_OBSERVATION_MS = 2 * 60_000;
 
@@ -125,14 +129,18 @@ type JobView = {
   state: ReturnType<WatchdogSensors["paneState"]> | ObservedJob["state"];
   since(): number | null;
   background(): { task: string; sinceMs: number } | null;
+  typesIntoPane: boolean;
 };
 
 function jobView(job: HerdJobRow, s: WatchdogSensors): JobView | null {
   const observed = s.observedJob?.(job) ?? null;
-  if (observed) return { state: observed.state, since: () => observed.since, background: () => observed.background };
+  if (observed) return { state: observed.state, since: () => observed.since, background: () => observed.background, typesIntoPane: observed.typesIntoPane };
   if (job.pane === null) return null;
   const pane = job.pane;
-  return { state: s.paneState(pane), since: () => s.idleSinceMs(pane), background: () => s.backgroundWork(pane) };
+  const typesIntoPane = s.typesIntoPane?.(pane) ?? true;
+  const state = s.paneState(pane);
+  // A blocked pane rt may not type into is never a modal it could accept.
+  return { state: state === "modal" && !typesIntoPane ? "blocked" : state, since: () => s.idleSinceMs(pane), background: () => s.backgroundWork(pane), typesIntoPane };
 }
 
 function background(view: JobView, cfg: WatchdogConfig, now: number): Background {
@@ -381,7 +389,8 @@ export class HerdWatchdog {
     const key = `${herd.id}/${job.name}`;
     const verdict = evaluateJob(job, this.sensors, cfg);
     const observed = this.sensors.observedJob?.(job) ?? null;
-    if (verdict.kind === "healthy" || verdict.kind === "finished-lingering" || (job.pane === null && observed === null)) {
+    const view = jobView(job, this.sensors);
+    if (verdict.kind === "healthy" || verdict.kind === "finished-lingering" || view === null) {
       this.ladders.delete(key);
       return;
     }
@@ -440,7 +449,7 @@ export class HerdWatchdog {
     const ctx = { herd: herd.id, job: job.name, verdict: fresh.kind, strike: ladder.strikes };
     if (ladder.strikes <= 2) {
       // A worker rt may not type into gets no nudge of its own; the ladder still climbs to the shepherd.
-      if (job.pane === null || (observed !== null && !observed.typesIntoPane)) this.log.info(ctx, "worker nudge skipped: no pane rt may type into");
+      if (job.pane === null || !view.typesIntoPane) this.log.info(ctx, "worker nudge skipped: no pane rt may type into");
       else await this.poke(job.pane, pokeText(evidence), ctx, "poked worker");
       return;
     }

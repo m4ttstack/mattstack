@@ -19,7 +19,7 @@ import { dmParticipants } from "../state/dm-store.ts";
 import { enqueueNotification } from "../state/notifier-store.ts";
 import type { GatesStore } from "./gates-store.ts";
 import type { HerdLifecycle } from "./herd-lifecycle.ts";
-import type { HerdJobRow, HerdStore, JobAttempt } from "./herd-store.ts";
+import { currentJobAttempt, type HerdJobRow, type HerdStore, type JobAttempt } from "./herd-store.ts";
 import {
   classifyJobObservation, STALE_OBSERVATION_MS,
   type ObservedJob, type WatchdogActuators, type WatchdogConfig, type WatchdogSensors,
@@ -169,7 +169,7 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
     for (const herd of active) {
       for (const job of deps.herdStore.jobs(herd.id)) {
         if (job.status === "closed") continue;
-        const attempt = deps.herdStore.activeAttempt?.(herd.id, job.name) ?? deps.herdStore.attempts?.(herd.id, job.name).at(-1) ?? null;
+        const attempt = currentJobAttempt(deps.herdStore, herd.id, job.name);
         if (job.pane !== null && attempt) nextHarness.set(job.pane, attempt.selection.harness);
         if (switchOn && attempt?.state === "active" && attempt.bindingKey !== undefined) boundJobs.push({ job, attempt });
       }
@@ -258,6 +258,7 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
     herds: () => deps.herdStore.list({ status: "active" }),
     jobs: (herd) => deps.herdStore.jobs(herd),
     observedJob: (job) => observed.get(jobKey(job)) ?? null,
+    typesIntoPane: (pane) => registry.get(harnessOf(pane))?.typedPaneInput === true,
     paneState: (pane) => readingState(panes.get(pane), harnessOf(pane)),
     idleSinceMs: (pane) => deps.lifecycle.lastStatusChangeMs(pane) ?? firstSeenIdle.get(pane) ?? null,
     backgroundWork: (pane) => busy.get(pane) ?? null,

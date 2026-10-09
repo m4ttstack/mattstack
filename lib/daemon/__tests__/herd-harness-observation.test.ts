@@ -15,7 +15,7 @@ import { createSessionStore } from "../../agent-integrations/session-store.ts";
 import { openStateDb } from "../../state/db.ts";
 import { createHerdHandlers, type HerdDeps } from "../handlers/herd.ts";
 import { createHerdStore, type HerdJobRow, type HerdRow, type HerdStore, type JobAttempt } from "../herd-store.ts";
-import { createJobObserver, createWatchdogSensors } from "../herd-watchdog-adapters.ts";
+import { createJobObserver, createWatchdogActuators, createWatchdogSensors } from "../herd-watchdog-adapters.ts";
 import {
   classifyJobObservation, evaluateJob, HerdWatchdog, STALE_OBSERVATION_MS,
   type WatchdogActuators, type WatchdogConfig,
@@ -92,6 +92,7 @@ function observedSensors(opts: {
   clock?: { now: number };
   panes?: Array<{ pane_id: string; agent?: string; agent_status?: string }>;
   screens?: Record<string, string>;
+  statusChangedAt?: number;
 }) {
   const clock = opts.clock ?? { now: NOW };
   const observed: string[] = [];
@@ -112,7 +113,7 @@ function observedSensors(opts: {
       attempts: (_herd: string, name: string) => (opts.attempts?.[name] ? [opts.attempts[name]!] : []),
     },
     gatesStore: { list: () => ({ gates: [], cursor: 0 }), unconsumedAnsweredPushes: () => [] },
-    lifecycle: { lastStatusChangeMs: () => null },
+    lifecycle: { lastStatusChangeMs: () => opts.statusChangedAt ?? null },
     herdr,
     defaultSocket: "/default.sock",
     db: openStateDb(join(dir, "state.db")),
@@ -333,6 +334,53 @@ describe("the watchdog over observations", () => {
     expect(calls.poke).toEqual([]);
   });
 
+  test("a pane whose harness takes no typed input is never answered or poked: blocked raises attention", async () => {
+    const clock = { now: NOW };
+    const pane = job({ pane: "w1:p1" });
+    const { sensors } = observedSensors({
+      clock, jobs: [pane], attempts: { "job-a": attempt({ bindingKey: undefined, generation: 0, mode: "herdr" }) },
+      panes: [{ pane_id: "w1:p1", agent: "codex", agent_status: "blocked" }],
+      statusChangedAt: NOW - 3 * MIN,
+    });
+    await sensors.refresh();
+    expect(sensors.paneState("w1:p1")).toBe("modal");
+    expect(evaluateJob(pane, sensors, cfg)).toMatchObject({ kind: "attention" });
+    const { act, calls } = actuators();
+    await new HerdWatchdog({ sensors, act, cfg: () => cfg, log }).sweep();
+    expect([calls.relocation, calls.trust, calls.park, calls.stuck]).toEqual([0, 0, 0, 0]);
+    expect(calls.poke).toEqual(["w1:p0: watchdog: demo-1/job-a: blocked 3m at a prompt rt does not answer; strike 3, flagged 0m ago. Check on it."]);
+  });
+
+  test("a wedged pane worker whose harness takes no typed input skips its own nudge", async () => {
+    const clock = { now: NOW };
+    const pane = job({ pane: "w1:p1" });
+    const { sensors } = observedSensors({
+      clock, jobs: [pane], attempts: { "job-a": attempt({ bindingKey: undefined, generation: 0, mode: "herdr" }) },
+      panes: [{ pane_id: "w1:p1", agent: "codex", agent_status: "idle" }],
+      statusChangedAt: NOW - 20 * MIN,
+    });
+    await sensors.refresh();
+    expect(evaluateJob(pane, sensors, cfg)).toMatchObject({ kind: "wedged", path: "backstop" });
+    const { act, calls } = actuators();
+    await new HerdWatchdog({ sensors, act, cfg: () => cfg, log }).sweep();
+    expect(calls.poke).toEqual([]);
+  });
+
+  test("a Claude pane worker keeps the modal accepts and its own nudge", async () => {
+    const clock = { now: NOW };
+    const pane = job({ pane: "w1:p1" });
+    const { sensors } = observedSensors({
+      clock, jobs: [pane], attempts: { "job-a": attempt({ selection: CLAUDE, bindingKey: undefined, generation: 0, mode: "herdr" }) },
+      panes: [{ pane_id: "w1:p1", agent: "claude", agent_status: "blocked" }],
+      statusChangedAt: NOW - 3 * MIN,
+    });
+    await sensors.refresh();
+    expect(evaluateJob(pane, sensors, cfg)).toEqual({ kind: "modal" });
+    const { act, calls } = actuators();
+    await new HerdWatchdog({ sensors, act, cfg: () => cfg, log }).sweep();
+    expect([calls.relocation, calls.park]).toEqual([1, 1]);
+  });
+
   test("with the switch off a bound job is supervised by its pane exactly as before", async () => {
     const pane = job({ pane: "w1:p1" });
     const { sensors, observed } = observedSensors({
@@ -382,12 +430,19 @@ describe("the Codex turn a Stop hook continues", () => {
   test("DONE, blocked Stop, CONTINUED, allowed Stop, turn complete: neither DONE nor a hook error completes the job", async () => {
     const { emit, hub } = codexHub();
     const clock = { now: NOW };
-    const jobs = [job()];
+    const herds = createHerdStore({ dbPath: join(dir, "herds.db"), log });
+    herds.create({ id: "demo-1", repo: "r", room: "herd-demo-1", workspace: "herd: demo-1", shepherdSession: "sess-s", shepherdHandle: "shepherd", herdrSocket: null, hidden: false });
+    const before = herds.upsertJob({ herd: "demo-1", name: "job-a", worktree: "/w", handle: "job-a", status: "active" });
+    const jobs = [before];
     const { sensors } = observedSensors({
       clock, jobs, attempts: { "job-a": attempt() },
       observe: async () => ({ ok: true, data: fromHub(hub, clock.now) }),
     });
-    const { act, calls } = actuators();
+    const act = createWatchdogActuators({
+      herdStore: herds, db: openStateDb(join(dir, "state.db")), socketFor: () => "/default.sock", log,
+      inject: async () => { throw new Error("a headless worker is never typed into"); },
+      enqueue: () => true,
+    });
     const watchdog = new HerdWatchdog({ sensors, act, cfg: () => cfg, log });
     const agentMessage = (id: string) => ({ type: "agentMessage" as const, id, delivery: null, questionCount: 0 });
     const stop = (status: "running" | "blocked" | "completed" | "failed") =>
@@ -413,8 +468,8 @@ describe("the Codex turn a Stop hook continues", () => {
     expect(fromHub(hub, clock.now).execution).toBe("idle");
     expect(classifyJobObservation(attempt(), fromHub(hub, clock.now), clock.now)).toBe("active");
     await watchdog.sweep();
-    expect(jobs[0]!.status).toBe("active");
-    expect(calls.park).toBe(0);
+    expect(herds.getJob("demo-1", "job-a")).toEqual(before);
+    herds.close_();
 
     emit({ method: "thread/status/changed", connection: "c1", threadId: "T1", status: { type: "systemError" } });
     expect(classifyJobObservation(attempt(), fromHub(hub, clock.now), clock.now)).toBe("unknown");

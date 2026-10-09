@@ -96,6 +96,11 @@ export function isValidJobName(name: string): boolean { return JOB_NAME_RE.test(
 
 export function herdSubject(herdId: string, job: string): string { return `herd:${herdId}/${job}`; }
 
+/** The attempt that speaks for a job's worker: the active one, else the latest; null when none was recorded or the store keeps none. */
+export function currentJobAttempt(store: Partial<Pick<HerdStore, "activeAttempt" | "attempts">>, herd: string, job: string): JobAttempt | null {
+  return store.activeAttempt?.(herd, job) ?? store.attempts?.(herd, job).at(-1) ?? null;
+}
+
 /** Subject prefix every gate in a herd shares; what the shepherd subscribes on. */
 export function herdPrefix(herdId: string): string { return `herd:${herdId}/`; }
 

@@ -126,12 +126,18 @@ describe("chooseJobWorker", () => {
 const HERD = "demo-20261009-120000";
 let dir = "";
 let store: HerdStore;
+let originalHome: string | undefined;
+// Spawns write chat session files and read state.db under HOME; each test gets its own so nothing outlives it.
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "rt-herd-selection-"));
+  originalHome = process.env.HOME;
+  process.env.HOME = join(dir, "home");
   store = createHerdStore({ dbPath: join(dir, "herds.db"), log });
 });
 afterEach(() => {
   store.close_();
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
   rmSync(dir, { recursive: true, force: true });
 });
 

@@ -12,7 +12,7 @@ import type { CommandResult } from "./types.ts";
 import type { HerdStore, HerdJobRow, HerdRow, JobAttempt } from "../herd-store.ts";
 import { writePromptFile } from "../../agent-argv/index.ts";
 import { fillSpawnSlots } from "../../herd-brief.ts";
-import { herdPrefix, herdSubject, isValidJobName, mintHerdId } from "../herd-store.ts";
+import { currentJobAttempt, herdPrefix, herdSubject, isValidJobName, mintHerdId } from "../herd-store.ts";
 import type { GatesStore } from "../gates-store.ts";
 import type { RunningRunScan } from "../../runs/store.ts";
 import type { createGateHandlers } from "./gate.ts";
@@ -399,7 +399,7 @@ export function createHerdHandlers(deps: HerdDeps) {
     const jobRows = store.jobs(herdId);
     const names = deps.identityNames([herd.shepherdHandle, ...jobRows.map((j) => j.handle)]);
     const showWorker = enabled();
-    const jobAttempts = new Map(jobRows.map((j) => [j.name, store.activeAttempt(herdId, j.name) ?? store.attempts(herdId, j.name).at(-1)] as const));
+    const jobAttempts = new Map(jobRows.map((j) => [j.name, currentJobAttempt(store, herdId, j.name) ?? undefined] as const));
     const observed = new Map<string, ReturnType<typeof classifyJobObservation>>();
     if (showWorker) {
       await Promise.all(jobRows.map(async (j) => {
