@@ -108,6 +108,38 @@ test('skips a row whose deploy is already running', async () => {
   }, NEWCODE);
 }, 25000);
 
+test('skips a row whose deploy started from its row during the run, and carries on', async () => {
+  await withBoard(async page => {
+    const held = new Set(['atlas', 'meridian']);
+    const posted = await interceptDeploys(page, { held });
+    const seen: string[] = [];
+    await page.exposeBinding('__deckToast', (_src, text: string) => {
+      seen.push(text);
+    });
+    await page.evaluate(() => {
+      const report = (window as unknown as Record<string, (t: string) => void>)
+        .__deckToast!;
+      new MutationObserver(() => {
+        for (const el of document.querySelectorAll(
+          '[data-part="toasthost-toast"]'
+        ))
+          report(el.textContent ?? '');
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+
+    await redeployAll(page).click();
+    await waitUntil(() => posted.includes('atlas'));
+    await page.locator('[aria-label="deploy meridian"]').click();
+    await waitUntil(() => posted.includes('meridian'));
+
+    held.delete('atlas');
+    await waitUntil(() => posted.includes('forecast'), 15000);
+    await redeployAll(page).waitFor({ timeout: 4000 });
+    expect(posted).toEqual(['atlas', 'meridian', 'forecast']);
+    expect(seen.some(t => t.includes('Redeploy all stopped'))).toBe(false);
+  }, NEWCODE);
+}, 25000);
+
 test('the button disables while running and a second run cannot start', async () => {
   await withBoard(async page => {
     const held = new Set(['atlas']);
