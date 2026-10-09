@@ -12,6 +12,7 @@ import {
   editPatch,
   HEAL_RECENT_MS,
   isPlatform,
+  isRowRestarting,
   localHosts,
   NAME_PATTERN,
   PROXY_WAIT_MS,
@@ -22,7 +23,9 @@ import {
   registerOutcome,
   remoteToggleTip,
   removeFailure,
+  RESTART_SETTLE_MS,
   RESTART_TIMEOUT_MS,
+  restartingFromCommand,
   sections,
   settingsBlocks,
   settingsFormFor,
@@ -275,7 +278,7 @@ test('tunnels: null data yields empty array', () => {
 
 // ---- reconcileRestarting ----
 
-test('reconcileRestarting: cleared on new pid + healthy', () => {
+test('reconcileRestarting: settles on new pid + healthy, then clears after RESTART_SETTLE_MS', () => {
   const restarting: RestartingMap = { 'com.deck.app': { pid: 111, at: 1000 } };
   const data = makeData({
     apps: [
@@ -292,7 +295,13 @@ test('reconcileRestarting: cleared on new pid + healthy', () => {
       }),
     ],
   });
-  expect(reconcileRestarting(restarting, data, 2000)).toEqual({});
+  const settled = reconcileRestarting(restarting, data, 2000);
+  expect(settled).toEqual({
+    'com.deck.app': { pid: 111, at: 1000, settledAt: 2000 },
+  });
+  expect(
+    reconcileRestarting(settled, data, 2000 + RESTART_SETTLE_MS + 1)
+  ).toEqual({});
 });
 
 test('reconcileRestarting: cleared past RESTART_TIMEOUT_MS even if unhealthy', () => {
@@ -1078,4 +1087,79 @@ test('remoteToggleTip: only a password-only row that is not yet remote is refuse
       })
     )
   ).toBeUndefined();
+});
+
+// ---- restartingFromCommand ----
+
+const appSvc = svc({ label: 'com.deck.app', pid: 222 });
+
+test('restartingFromCommand: an unreachable row with a command running reads restarting', () => {
+  const row = makeRow({
+    name: 'app',
+    service: appSvc,
+    health: { ok: false, status: null, ms: 0 },
+  });
+  expect(
+    restartingFromCommand(row, { [commandKey('app', 'deploy')]: 'running' })
+  ).toBe(true);
+});
+
+test("restartingFromCommand: no run, an HTTP answer, or another app's run leaves it alone", () => {
+  const down = makeRow({
+    name: 'app',
+    service: appSvc,
+    health: { ok: false, status: null, ms: 0 },
+  });
+  const erroring = makeRow({
+    name: 'app',
+    service: appSvc,
+    health: { ok: false, status: 500, ms: 3 },
+  });
+  expect(restartingFromCommand(down, {})).toBe(false);
+  expect(
+    restartingFromCommand(erroring, {
+      [commandKey('app', 'deploy')]: 'running',
+    })
+  ).toBe(false);
+  expect(
+    restartingFromCommand(down, { [commandKey('app2', 'deploy')]: 'running' })
+  ).toBe(false);
+});
+
+test('reconcileRestarting: a null pid (set after a command) clears on any healthy pid', () => {
+  const restarting: RestartingMap = { 'com.deck.app': { pid: null, at: 1000 } };
+  const up = makeData({
+    apps: [
+      makeRow({ service: appSvc, health: { ok: true, status: 200, ms: 1 } }),
+    ],
+  });
+  const down = makeData({
+    apps: [
+      makeRow({ service: appSvc, health: { ok: false, status: null, ms: 0 } }),
+    ],
+  });
+  expect(reconcileRestarting(restarting, up, 2000)).toEqual({
+    'com.deck.app': { pid: null, at: 1000, settledAt: 2000 },
+  });
+  expect(reconcileRestarting(restarting, down, 2000)).toEqual(restarting);
+});
+
+test('isRowRestarting: a settled flag reads restarting only while the row is unreachable', () => {
+  const settled: RestartingMap = {
+    'com.deck.app': { pid: 111, at: 1000, settledAt: 2000 },
+  };
+  const down = makeRow({
+    service: appSvc,
+    health: { ok: false, status: null, ms: 0 },
+  });
+  const up = makeRow({
+    service: appSvc,
+    health: { ok: true, status: 200, ms: 1 },
+  });
+  expect(isRowRestarting(down, settled, {})).toBe(true);
+  expect(isRowRestarting(up, settled, {})).toBe(false);
+  expect(
+    isRowRestarting(up, { 'com.deck.app': { pid: 111, at: 1000 } }, {})
+  ).toBe(true);
+  expect(isRowRestarting(down, {}, {})).toBe(false);
 });

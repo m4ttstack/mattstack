@@ -3,6 +3,7 @@
 // every function here is deterministic and side-effect free.
 export const REFRESH_MS = 5000;
 export const RESTART_TIMEOUT_MS = 30000;
+export const RESTART_SETTLE_MS = 10000;
 export const HEAL_RECENT_MS = 120000;
 export const PROXY_WAIT_MS = 45000;
 
@@ -95,7 +96,10 @@ export interface StatusData {
 }
 
 export type Row = StatusData['apps'][number];
-export type RestartingMap = Record<string, { pid: number | null; at: number }>;
+export type RestartingMap = Record<
+  string,
+  { pid: number | null; at: number; settledAt?: number }
+>;
 export type Notice = { kind: 'ok' | 'bad'; message: string; command?: string };
 
 function healthyFraction(data: StatusData): string {
@@ -190,9 +194,10 @@ export function tunnels(data: StatusData | null): Row[] {
   return data ? data.orphans.filter(r => r.isTunnel) : [];
 }
 
-// Clear a restarting flag once the service is back with a NEW pid and
-// healthy, or when it has clearly got stuck: a spinner that never resolves is
-// worse than no spinner.
+// Settle a restarting flag once the service is back with a NEW pid and
+// healthy, and drop it RESTART_SETTLE_MS later: the first healthy probe can
+// be the old process still holding the port. Drop it outright when it has
+// clearly got stuck: a spinner that never resolves is worse than no spinner.
 export function reconcileRestarting(
   restarting: RestartingMap,
   data: StatusData,
@@ -204,10 +209,28 @@ export function reconcileRestarting(
     const row = rows.find(r => r.service && r.service.label === label) || null;
     const pid = row && row.service ? row.service.pid : null;
     const healthy = row ? (row.health ? row.health.ok : pid !== null) : false;
+    // A null st.pid comes from a command run that ended mid-restart, where
+    // the new pid may already be on screen: any healthy process clears it.
     const restarted = pid !== null && pid !== st.pid && healthy;
-    if (restarted || now - st.at > RESTART_TIMEOUT_MS) delete next[label];
+    if (st.settledAt !== undefined) {
+      if (now - st.settledAt > RESTART_SETTLE_MS) delete next[label];
+    } else if (restarted) next[label] = { ...st, settledAt: now };
+    else if (now - st.at > RESTART_TIMEOUT_MS) delete next[label];
   }
   return next;
+}
+
+/** Whether a row reads restarting: its flag is live, or it settled but has
+    just stopped answering again, or a command on it is running. */
+export function isRowRestarting(
+  row: Row,
+  restarting: RestartingMap,
+  runs: CommandRuns
+): boolean {
+  const st = row.service ? restarting[row.service.label] : undefined;
+  if (st && st.settledAt === undefined) return true;
+  if (st && row.health?.status === null) return true;
+  return restartingFromCommand(row, runs);
 }
 
 // The automatic banner: an auto-restart in progress, one that just happened,
@@ -348,6 +371,14 @@ export type CommandRuns = Record<string, CommandPhase>;
 // collide across the pair; NUL cannot appear in either half.
 export function commandKey(app: string, cmd: string): string {
   return `${app}\u0000${cmd}`;
+}
+
+/** A deploy ends in `deck restart`, so an app that stops answering while one
+    of its commands runs is restarting, not down. */
+export function restartingFromCommand(row: Row, runs: CommandRuns): boolean {
+  if (!row.service || !row.health || row.health.status !== null) return false;
+  const prefix = commandKey(row.name, '');
+  return Object.keys(runs).some(k => k.startsWith(prefix));
 }
 
 export function commandButtonLabel(

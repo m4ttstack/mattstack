@@ -27,6 +27,7 @@ import {
   commandStuckToast,
   commandToast,
   editPatch,
+  isRowRestarting,
   PROXY_WAIT_MS,
   reconcileRestarting,
   redeployAllTargets,
@@ -210,8 +211,8 @@ export function useBoardState() {
     []
   );
 
-  const refresh = useCallback(async () => {
-    if (editingRef.current) return; // don't fight an in-flight port edit
+  const refresh = useCallback(async (): Promise<StatusData | null> => {
+    if (editingRef.current) return null; // don't fight an in-flight port edit
     try {
       const next = await getStatus();
       setRestarting(prev => reconcileRestarting(prev, next, Date.now()));
@@ -221,8 +222,10 @@ export function useBoardState() {
       if (next.canManage && Date.now() > proxyHoldUntil.current) {
         setProxyNotice(autoBanner(next, Date.now()));
       }
+      return next;
     } catch {
       /* transient -- keep the last good render */
+      return null;
     }
   }, []);
 
@@ -233,8 +236,8 @@ export function useBoardState() {
   }, [refresh]);
 
   const isRestarting = useCallback(
-    (row: Row) => !!(row.service && restarting[row.service.label]),
-    [restarting]
+    (row: Row) => isRowRestarting(row, restarting, commandRuns),
+    [restarting, commandRuns]
   );
 
   // Restarting the board's own service kills this API mid-response: the fetch
@@ -322,7 +325,17 @@ export function useBoardState() {
           ? commandStuckToast(row.name, cmd)
           : commandToast(row.name, cmd, outcome.exitCode)
       );
-      await refresh();
+      const after = await refresh();
+      const fresh =
+        after &&
+        [...after.apps, ...after.orphans].find(r => r.name === row.name);
+      if (fresh?.service && fresh.health?.status === null) {
+        const label = fresh.service.label;
+        setRestarting(prev => ({
+          ...prev,
+          [label]: { pid: null, at: Date.now() },
+        }));
+      }
       if (outcome === 'timeout') return 'timeout';
       return outcome.exitCode === 0 ? 'ok' : 'failed';
     },
