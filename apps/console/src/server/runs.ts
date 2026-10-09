@@ -1,5 +1,7 @@
+import { realpathSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import {
   abandonRun,
   agentAdopt,
@@ -24,6 +26,7 @@ import {
   type RunsFixture,
 } from './fixtures/design/runsFixture';
 import { listAllRunGates } from './gates';
+import { LEGACY_IMAGE_MIME, legacyImageAllowed } from './legacyEvidence';
 import { markSeen, readSeen } from './seen';
 
 /** Hono's c.req.param() always URI-decodes a captured segment; a repo
@@ -191,6 +194,66 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           } catch (err) {
             return c.json({ error: (err as Error).message }, 403);
           }
+        }
+      )
+      // The path comes off the query string, so the run's own evidence value
+      // must name it and it must resolve inside the evidence root; nothing the
+      // guard refuses is ever opened for streaming.
+      .get(
+        '/api/runs/:repo/:runId/evidence-file',
+        validator('query', (value): { path?: string } => {
+          const v = value as { path?: unknown };
+          return { path: typeof v?.path === 'string' ? v.path : undefined };
+        }),
+        async c => {
+          const { repo: rawRepo, runId } = c.req.param();
+          const repo = canonicalRepo(rawRepo);
+          const { path } = c.req.valid('query');
+          if (!path) return c.json({ error: 'no evidence' }, 404);
+          if (fixture) {
+            const file = await fixture.legacyEvidenceFile(repo, runId, path);
+            if (!file) return c.json({ error: 'no evidence' }, 404);
+            return new Response(file.bytes, {
+              status: 200,
+              headers: {
+                'content-type': file.mime,
+                'cache-control': 'private, max-age=3600',
+              },
+            });
+          }
+          const detail = await getRun(runId, repo);
+          if (!detail.ok || !detail.data) {
+            return c.json({ error: 'no evidence' }, 404);
+          }
+          const evidence =
+            detail.data.fields.find(f => f.key === 'evidence')?.value ?? null;
+          const allowed = legacyImageAllowed({
+            evidence,
+            path,
+            realpath: p => {
+              try {
+                return realpathSync(p);
+              } catch {
+                return null;
+              }
+            },
+            evidenceRoot: join(homedir(), '.mattstack', 'evidence'),
+          });
+          const mime = LEGACY_IMAGE_MIME[extname(path).toLowerCase()];
+          if (!allowed || !mime) return c.json({ error: 'no evidence' }, 404);
+          let bytes: Buffer;
+          try {
+            bytes = await readFile(realpathSync(path));
+          } catch {
+            return c.json({ error: 'no evidence' }, 404);
+          }
+          return new Response(new Uint8Array(bytes), {
+            status: 200,
+            headers: {
+              'content-type': mime,
+              'cache-control': 'private, max-age=3600',
+            },
+          });
         }
       )
       .get('/api/runs/:repo/:runId/evidence/:key', async c => {

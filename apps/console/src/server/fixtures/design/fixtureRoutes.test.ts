@@ -121,6 +121,26 @@ describe('the routes under the design fixture', () => {
     expect((await get(`${RUN}/20261008-1338/evidence/after`)).status).toBe(404);
   });
 
+  it('serves a legacy run’s named image and refuses every other path', async () => {
+    const path = (p: string) => encodeURIComponent(p);
+    const dir = '/Users/acme/.mattstack/evidence/web-377';
+    const ok = await get(
+      `${RUN}/20261007-1520/evidence-file?path=${path(`${dir}/before.png`)}`
+    );
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('content-type')).toBe('image/png');
+    for (const refused of [
+      `${RUN}/20261007-1520/evidence-file?path=${path(`${dir}/other.png`)}`,
+      `${RUN}/20261007-1520/evidence-file?path=${path('/etc/passwd')}`,
+      `${RUN}/20261007-1520/evidence-file`,
+      `${RUN}/20261008-1142/evidence-file?path=${path(`${dir}/before.png`)}`,
+    ]) {
+      const res = await get(refused);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'no evidence' });
+    }
+  });
+
   it('serves the failure excerpt, enrichment, effective inputs and a stage doc', async () => {
     const excerpt = await get(
       `${RUN}/20261008-0900/artifact?path=${encodeURIComponent('/fixture/runs/20261008-0900/implement-1.txt')}`

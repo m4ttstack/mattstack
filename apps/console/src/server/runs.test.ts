@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -387,6 +387,73 @@ describe('runs api artifact route', () => {
     await expect(res.json()).resolves.toMatchObject({
       error: expect.stringMatching(/outside/i),
     });
+  });
+});
+
+describe('runs api evidence-file route', () => {
+  const originalHome = process.env.HOME;
+  let home: string;
+  let dir: string;
+
+  const evidenceOf = (value: string) =>
+    vi.mocked(rt.getRun).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        run: { id: 'run-1' },
+        fields: [{ key: 'evidence', value }],
+      },
+    } as never);
+
+  const fetchFile = (path: string) =>
+    routes.fetch(
+      new Request(
+        `http://localhost/api/runs/repo-tools/run-1/evidence-file?path=${encodeURIComponent(path)}`
+      )
+    );
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'console-evidence-home-'));
+    process.env.HOME = home;
+    dir = join(home, '.mattstack', 'evidence', 'web-377');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'before.png'), 'png!');
+  });
+
+  afterEach(() => {
+    process.env.HOME = originalHome;
+  });
+
+  it('streams an image the run names inside the evidence root', async () => {
+    const path = join(dir, 'before.png');
+    evidenceOf(`${path} http://localhost:4001/orders`);
+    const res = await fetchFile(path);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/png');
+    expect(res.headers.get('cache-control')).toBe('private, max-age=3600');
+    expect(await res.text()).toBe('png!');
+  });
+
+  it('refuses an image the run does not name', async () => {
+    evidenceOf(`${join(dir, 'after.png')}`);
+    const res = await fetchFile(join(dir, 'before.png'));
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({ error: 'no evidence' });
+  });
+
+  it('refuses a named link that resolves outside the evidence root', async () => {
+    const outside = join(home, 'secret.png');
+    writeFileSync(outside, 'secret');
+    const link = join(dir, 'link.png');
+    symlinkSync(outside, link);
+    evidenceOf(link);
+    const res = await fetchFile(link);
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({ error: 'no evidence' });
+  });
+
+  it('refuses when the run cannot be read', async () => {
+    const res = await fetchFile(join(dir, 'before.png'));
+    expect(res.status).toBe(404);
   });
 });
 

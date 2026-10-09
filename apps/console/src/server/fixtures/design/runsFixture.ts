@@ -14,7 +14,7 @@
  * Everything is read at call time, so nothing here is bundled into the app.
  */
 import { readFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseEvidence,
@@ -28,10 +28,12 @@ import {
   type RunStageRow,
   type RunSummary,
 } from '@mattstack/rt-client';
+import { legacyItems } from '@mattstack/rt-client/evidence';
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { readExcerpt, type Excerpt } from '../../artifact';
 import type { EffectiveInputsPayload } from '../../effectiveInputs';
+import { LEGACY_IMAGE_MIME } from '../../legacyEvidence';
 import { onDisk } from './fixtureRt';
 import type { FixtureScenario } from './scenarios';
 
@@ -67,6 +69,12 @@ export interface RunsFixture {
     key: EvidenceImageKey | EvidenceTextKey
   ): Promise<FixtureEvidence | null>;
   artifact(repo: string, runId: string, path: string): Promise<Excerpt | null>;
+  /** An image a legacy run's evidence names under the fixture's evidence root. */
+  legacyEvidenceFile(
+    repo: string,
+    runId: string,
+    path: string
+  ): Promise<FixtureEvidence | null>;
 }
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
@@ -74,6 +82,7 @@ const RUNS = join(HERE, 'runs');
 const FILES = join(HERE, 'files');
 const PACK_COMMITS = 'acme=4c1d9e2b7a';
 const STAGE_NAME = /^[A-Za-z0-9_-]+$/;
+const LEGACY_EVIDENCE_ROOT = '/Users/acme/.mattstack/evidence/';
 
 const TIME_KEYS = new Set([
   'started_at',
@@ -365,6 +374,25 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
       const mime = MIME[extname(path).toLowerCase()];
       if (!mime) return null;
       return { mime, bytes: new Uint8Array(await readFile(onDisk(path))) };
+    },
+
+    async legacyEvidenceFile(repo, runId, path) {
+      const parsed = await evidenceValue(repo, runId);
+      if (parsed.version !== 0) return null;
+      const named = legacyItems(parsed.links).some(
+        i => i.kind === 'image' && i.value === path
+      );
+      const mime = LEGACY_IMAGE_MIME[extname(path).toLowerCase()];
+      if (!named || !mime || !path.startsWith(LEGACY_EVIDENCE_ROOT))
+        return null;
+      const rest = posix.normalize(path.slice(LEGACY_EVIDENCE_ROOT.length));
+      if (rest.startsWith('..')) return null;
+      try {
+        const bytes = await readFile(join(FILES, 'evidence', rest));
+        return { mime, bytes: new Uint8Array(bytes) };
+      } catch {
+        return null;
+      }
     },
 
     async artifact(repo, runId, path) {

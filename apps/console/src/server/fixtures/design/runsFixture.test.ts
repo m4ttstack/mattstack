@@ -422,6 +422,31 @@ describe('runsFixture', () => {
     expect(await runs.evidence(REPO, '20261008-0900', 'before')).toBeNull();
   });
 
+  it('serves the images a legacy run names, and nothing else', async () => {
+    const dir = '/Users/acme/.mattstack/evidence/web-377';
+    const before = await runs.legacyEvidenceFile(
+      REPO,
+      '20261007-1520',
+      `${dir}/before.png`
+    );
+    expect(before?.mime).toBe('image/png');
+    expect([...before!.bytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect(
+      await runs.legacyEvidenceFile(REPO, '20261007-1520', `${dir}/after.png`)
+    ).not.toBeNull();
+    expect(
+      await runs.legacyEvidenceFile(REPO, '20261007-1520', `${dir}/other.png`)
+    ).toBeNull();
+    expect(
+      await runs.legacyEvidenceFile(REPO, '20261008-1142', `${dir}/before.png`)
+    ).toBeNull();
+    const d = await detail('20261007-1520');
+    expect(parseEvidence(field(d, 'evidence')).version).toBe(0);
+    expect((await runs.listRuns()).some(r => r.id === '20261007-1520')).toBe(
+      false
+    );
+  });
+
   it('serves effective inputs and stage docs', async () => {
     const inputs = await runs.effectiveInputs(REPO, '20261008-0900');
     expect(inputs).toMatchObject({

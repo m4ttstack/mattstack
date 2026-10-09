@@ -78,3 +78,12 @@ export function evidenceUrl(
 ): string {
   return `/api/runs/${repo}/${encodeURIComponent(runId)}/evidence/${key}`;
 }
+
+/** A legacy run's image is addressed by the path its evidence text names. */
+export function legacyImageUrl(
+  repo: string,
+  runId: string,
+  path: string
+): string {
+  return `/api/runs/${repo}/${encodeURIComponent(runId)}/evidence-file?path=${encodeURIComponent(path)}`;
+}
