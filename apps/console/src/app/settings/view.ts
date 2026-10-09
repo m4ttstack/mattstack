@@ -190,7 +190,16 @@ export function applyFilter(
     d =>
       d.key === keep ||
       ((!f.needsFixing || needsFixing(d)) &&
-        (f.scope === 'any' || rungBase(d.effective.scope) === f.scope))
+        (f.scope === 'any' || setIn(d, f.scope)))
+  );
+}
+
+/** Whether a store holds a value of the key: its global value, or a repo
+    section's. A per-project key has only the second. */
+function setIn(d: SettingDefWire, scope: string): boolean {
+  return (
+    rungBase(d.effective.scope) === scope ||
+    (d.repos ?? []).some(r => r.scopes.includes(scope))
   );
 }
 
@@ -268,7 +277,11 @@ export function buildSections(
         .sort((a, b) => rowRank(a) - rowRank(b));
       const subsections = SUB_ORDER.map(scope => ({
         scope,
-        defs: shown.filter(d => subheadOf(d, sharedOnly) === scope),
+        // With one store picked, every row shown is set there.
+        defs: shown.filter(
+          d =>
+            (f.scope === 'any' ? subheadOf(d, sharedOnly) : f.scope) === scope
+        ),
       })).filter(s => s.defs.length > 0);
       return { group, total: defs.length, shown: shown.length, subsections };
     });
