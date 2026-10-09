@@ -686,7 +686,7 @@ export async function reportClaudeLinkLifecycle(
 }
 
 /** The one attached Claude binding a native session id names, or undefined with none or more than one. */
-function attachedClaudeBinding(db: Database, sessionId: string): SessionBinding | undefined {
+export function attachedClaudeBinding(db: Database, sessionId: string): SessionBinding | undefined {
   const recorded = listBindingsByNativeValue(db, sessionId)
     .filter((b) => b.native.harness === HARNESS && b.native.kind === "id" && !isDetachedClaudeBinding(b));
   return recorded.length === 1 ? recorded[0] : undefined;

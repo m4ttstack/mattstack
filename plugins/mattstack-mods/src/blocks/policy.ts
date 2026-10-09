@@ -1,12 +1,11 @@
 import type { Hub, ModApi } from '../core/hub.ts'
 import type { Link } from '../core/link.ts'
+import { RUN_TOOL } from './tool-names.ts'
 
 /** What `policy:authorize` answers; `none` is no decision (an unbound session), which passes like an allow. */
 export type Authorization = { decision: 'allow' | 'refuse' | 'none'; reason?: string }
 
 const ASK_TOOL = 'AskUserQuestion'
-/** The run tools that move a run; `run_status` ends it. Reads and `run_start` act on no existing run. */
-const RUN_TOOL = /^mcp__plugin_mattstack_mattstack__run_(stage|field_set|decision|status)$/
 
 /**
  * The `policy` block: guard rules that ask the daemon's shared policy before
@@ -28,7 +27,9 @@ export function registerPolicy(hub: Hub, link: Link): void {
 
   async function authorize(a: ModApi, action: 'ask' | 'continue' | 'complete', subject?: string): Promise<{ refuse: string } | void> {
     const sessionId = await a.session.id()
-    const out = await link.call<Authorization>('policy:authorize', { sessionId, action, ...(subject !== undefined && { subject }) })
+    // A question's run gate may be filed from the worktree the session moved into since its link registered.
+    const where = action === 'ask' ? { cwd: await a.session.cwd() } : { subject }
+    const out = await link.call<Authorization>('policy:authorize', { sessionId, action, ...where })
     if (!out.ok) {
       if (out.error.code !== 'no-link') log(`policy:authorize ${action} had no decision (${out.error.code}: ${out.error.message}); passing`)
       return

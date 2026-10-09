@@ -10,7 +10,7 @@
  */
 
 import type {
-  AgentOptions, CapabilityReport, IntegrationDiagnostics, IntegrationSummary, Mode, OptionDescriptor,
+  AgentOptions, CapabilityReport, IntegrationDiagnostics, IntegrationSummary, Mode, OptionDescriptor, SessionBinding,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import type { HarnessIntegration, IntegrationRegistry } from "../../agent-integrations/contracts.ts";
@@ -31,6 +31,8 @@ export type IntegrationListDeps = {
   /** The daemon's mod-link registry; defaults to the installed one, null outside the daemon. */
   modLinks?: () => Promise<ModLinks | null> | ModLinks | null;
   now?: () => number;
+  /** A Claude session's one attached binding, whose live link's blocks decide what it advertises. */
+  modBinding?: (sessionId: string) => SessionBinding | undefined;
   /** The agent.integrations.enabled switch; off, nothing is diagnosed. */
   switchOn?: () => boolean;
   /** What the live Codex connection negotiated; undefined while there is none. */
@@ -79,18 +81,31 @@ async function installedLinks(): Promise<ModLinks | null> {
   return (await import("../../agent-integrations/claude/mod-links.ts")).installedModLinks();
 }
 
+/** The one attached Claude binding of a session id, from state.db: the binding the policy proof's mod evidence reads. */
+async function defaultModBinding(): Promise<(sessionId: string) => SessionBinding | undefined> {
+  const [{ attachedClaudeBinding }, { getStateDb }] = await Promise.all([
+    import("../../agent-integrations/claude/sessions.ts"), import("../../state/db.ts"),
+  ]);
+  return (sessionId) => attachedClaudeBinding(getStateDb(), sessionId);
+}
+
 async function diagnose(integration: HarnessIntegration, deps: IntegrationListDeps): Promise<IntegrationDiagnostics | undefined> {
   if (!(deps.switchOn ?? integrationsEnabled)()) return undefined;
   if (integration.id === "claude") {
     const links = await (deps.modLinks ?? installedLinks)();
     if (!links) return undefined;
     const now = (deps.now ?? Date.now)();
-    const { modPolicyCapabilities } = await import("../../agent-integrations/claude/mod-path.ts");
+    const { sessionModPolicy } = await import("../../agent-integrations/claude/mod-path.ts");
+    const bindingOf = deps.modBinding ?? (await defaultModBinding());
     return {
-      claudeLinks: links.list().map((link) => ({
-        sessionId: link.sessionId, claudeCode: link.claudeCode, plugin: link.plugin,
-        blocks: link.blocks, capabilities: modPolicyCapabilities(link.blocks), lastHeartbeatAgoMs: Math.max(0, now - link.lastHeartbeatAt),
-      })),
+      claudeLinks: links.list().map((link) => {
+        const binding = bindingOf(link.sessionId);
+        return {
+          sessionId: link.sessionId, claudeCode: link.claudeCode, plugin: link.plugin, blocks: link.blocks,
+          capabilities: binding ? sessionModPolicy(binding, links) : [],
+          lastHeartbeatAgoMs: Math.max(0, now - link.lastHeartbeatAt),
+        };
+      }),
     };
   }
   if (integration.id === "codex") {

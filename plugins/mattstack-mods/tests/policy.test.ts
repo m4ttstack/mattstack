@@ -47,7 +47,23 @@ describe('policy guard', () => {
     expect(result).toEqual({ deny: refusal })
     expect(engine.seen).toHaveLength(0)
     // The daemon resolves the gate subject from the session's binding: the call names no subject and no directory.
-    expect(h.verbs('policy:authorize').map(s => s.body)).toEqual([{ sessionId: 'sess-1', action: 'ask', linkId: 'ml-1' }])
+    expect(h.verbs('policy:authorize').map(s => s.body)).toEqual([{ sessionId: 'sess-1', action: 'ask', cwd: '/repo', linkId: 'ml-1' }])
+  })
+
+  test("a question carries the session's directory now, after EnterWorktree moved it from where the link registered", async () => {
+    const h = harness()
+    h.script.respond = daemon(h, () => ({ ok: true, data: { decision: 'allow' } }))
+    await h.start()
+    h.$.session.cwd = async () => '/repo/.wt/x'
+
+    await h.fire('tool.call', ASK, recorder({ result: 'asked' }).next)
+    await h.fire('tool.call', RUN('run_stage'), recorder({ result: 'ok' }).next)
+
+    expect(h.verbs('session:register')[0]?.body.cwd).toBe('/repo')
+    expect(h.verbs('policy:authorize').map(s => s.body)).toEqual([
+      { sessionId: 'sess-1', action: 'ask', cwd: '/repo/.wt/x', linkId: 'ml-1' },
+      { sessionId: 'sess-1', action: 'continue', subject: RUN_DB, linkId: 'ml-1' },
+    ])
   })
 
   test('an allowed question goes on to the engine untouched', async () => {

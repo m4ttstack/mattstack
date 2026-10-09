@@ -946,14 +946,16 @@ export interface Commands {
    * The mod's `policy` block asks the shared workflow policy before a native
    * question (`ask`) or a run tool that moves (`continue`) or ends
    * (`complete`) the run whose store is `subject`. The caller is the session
-   * `linkId` is the live link of, at the directory and pane the link
-   * recorded; an `ask` files under the binding's own gate subject, so it
-   * takes no `subject`. `none` is no decision (no bound session). A policy
+   * `linkId` is the live link of, with the pane its binding records and the
+   * ids its link continued from; an `ask` files under the binding's own gate
+   * subject, so it takes no `subject`. An `ask`'s `cwd` (absolute) is the
+   * session's directory now, which only widens the worktree match beside the
+   * directory the link recorded. `none` is no decision (no bound session). A policy
    * that cannot decide fails with "transient"; a link of another session or
    * without the block, with "refused"; an unknown link, with "unknown-link".
    */
   "policy:authorize": {
-    payload: { linkId: string; sessionId: string; action: "ask" | "continue" | "complete"; subject?: string };
+    payload: { linkId: string; sessionId: string; action: "ask" | "continue" | "complete"; subject?: string; cwd?: string };
     data: { decision: "allow" | "refuse" | "none"; reason?: string };
   };
   /** The mod's `stop-gate` block asks whether its session may end its turn; failures as `policy:authorize`. */

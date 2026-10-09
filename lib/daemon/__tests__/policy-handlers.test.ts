@@ -37,14 +37,23 @@ function bind(db: Database, session = SID): SessionBinding {
 type StopRun = { id: string; held?: "hold" | "waiting-gate" };
 
 /** One state.db behind the link registry and the bindings; a real gate store behind the fork-check; runs read from `runs`. */
-function setup(opts: { blocks?: ModBlock[]; bound?: boolean; subject?: string; runs?: StopRun[]; policy?: PolicyDeps; noVerdict?: boolean } = {}) {
+function setup(opts: { blocks?: ModBlock[]; bound?: boolean; subject?: string; runs?: StopRun[]; policy?: PolicyDeps; noVerdict?: boolean; previous?: string } = {}) {
   const db = openStateDb(":memory:");
   const links: ModLinks = createModLinks({ now: () => 5_000, integrationsEnabled: () => true, store: createSessionStore(db) });
-  if (opts.bound !== false) bind(db);
-  const registered = links.register({
-    sessionId: SID, cwd: dir, root: dir, pane: PANE, claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.2.1",
+  const link = (sessionId: string, previous?: { sessionId: string; linkId: string }) => links.register({
+    sessionId, cwd: dir, root: dir, pane: PANE, claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.2.2",
     blocks: opts.blocks ?? ["policy", "stop-gate"],
+    ...(previous && { previousSessionId: previous.sessionId, previousLinkId: previous.linkId }),
   });
+  let continued: { sessionId: string; linkId: string } | undefined;
+  if (opts.previous !== undefined) {
+    // The session started as `previous`, and a /clear its link reported continued it as SID.
+    if (opts.bound !== false) bind(db, opts.previous);
+    const first = link(opts.previous);
+    if (!first.ok) throw new Error(first.error.message);
+    continued = { sessionId: opts.previous, linkId: first.data.linkId };
+  } else if (opts.bound !== false) bind(db);
+  const registered = link(SID, continued);
   if (!registered.ok) throw new Error(registered.error.message);
   const linkId = registered.data.linkId;
 
@@ -99,12 +108,36 @@ describe("policy:authorize", () => {
     expect(await call(handlers["policy:authorize"], { linkId, sessionId: SID, action: "ask" })).toEqual({ ok: true, data: { decision: "allow" } });
   });
 
-  test("the caller comes from the live link: its session, pane and directory, never a cwd or id the payload names", async () => {
+  test("the caller comes from the live link: its session and pane, never an id, pane or subject the payload names; its cwd only adds a worktree", async () => {
     const { handlers, linkId, forkChecks } = setup();
     await call(handlers["policy:authorize"], {
       linkId, sessionId: SID, action: "ask", subject: "run:someone-elses", cwd: "/elsewhere", sessionIds: ["sess-other"], paneId: "w9:p9",
     });
-    expect(forkChecks).toEqual([{ subject: LAUNCH, sessionIds: [SID], paneId: PANE, worktrees: [dir] }]);
+    expect(forkChecks).toEqual([{ subject: LAUNCH, sessionIds: [SID], paneId: PANE, worktrees: [dir, "/elsewhere"] }]);
+  });
+
+  test("after EnterWorktree, the session's current directory finds the run gate filed from that worktree", async () => {
+    const { gates, handlers, linkId } = setup();
+    const tree = join(dir, ".wt", "x");
+    gates.open({ subject: "run:r9", kind: "plan", questions: QUESTIONS, origin: { worktree: tree } });
+    // The link registered at the repo root; only the question's own directory matches the gate.
+    expect((await call(handlers["policy:authorize"], { linkId, sessionId: SID, action: "ask" })).data.decision).toBe("refuse");
+    expect(await call(handlers["policy:authorize"], { linkId, sessionId: SID, action: "ask", cwd: tree })).toEqual({ ok: true, data: { decision: "allow" } });
+    expect((await call(handlers["policy:authorize"], { linkId, sessionId: SID, action: "ask", cwd: "/nowhere/else" })).data.decision).toBe("refuse");
+  });
+
+  test("a cwd must be an absolute path with no control characters", async () => {
+    const { handlers, linkId } = setup();
+    for (const cwd of ["relative/dir", "", "/repo\n/x", "/repo\u0000", 7]) {
+      expect((await call(handlers["policy:authorize"], { linkId, sessionId: SID, action: "ask", cwd })).failure?.code).toBe("invalid");
+    }
+  });
+
+  test("after a /clear continuation, the form gate the session asked under its earlier id still allows its question", async () => {
+    const { gates, handlers, linkId, forkChecks } = setup({ previous: "sess-before-clear" });
+    gates.open({ subject: "mr:x", kind: "plan", questions: QUESTIONS, origin: { presentation: "form", paneId: PANE }, nudge: { session: "sess-before-clear" } });
+    expect(await call(handlers["policy:authorize"], { linkId, sessionId: SID, action: "ask" })).toEqual({ ok: true, data: { decision: "allow" } });
+    expect(forkChecks).toEqual([expect.objectContaining({ sessionIds: [SID, "sess-before-clear"] })]);
   });
 
   test("a launch with no gate subject asks nothing and allows", async () => {

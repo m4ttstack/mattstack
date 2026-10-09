@@ -24,6 +24,7 @@ so every feature takes its existing path.
 | `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane; `policy.ts` guards questions and run tools with rt's shared policy; `stop-gate.ts` holds a turn a pipeline run must continue. |
 | `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane. Each kit owns one pane id: the gate form's, or the gate panel's. `gate-view.ts` holds its drawing parts, and `gate-ctx.ts` the port of the board's gate-ctx parser. |
 | `src/blocks/sections.ts` | The reply rule and spill-read sections' text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
+| `src/blocks/tool-names.ts` | The mattstack MCP tool prefix and the run tools the policy guard covers. It imports nothing, so an rt-side bun test can hold it to the mattstack plugin's names. |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
 | `tests/` | `claude plugin test` cases. They drive the hub and link with the stubbed `$` in `tests/stub.ts`. |
 
@@ -369,8 +370,11 @@ Gate and continuation rules live once in rt (its shared workflow policy).
 The two blocks only ask, over the link, and each call names the session's
 own id. rt takes the caller from the live link alone: the link must be that
 session's and carry the asking block, and the fork-check sees the link's
-directory and pane. A session with no bound binding gets `none`, which the
-blocks treat as no decision.
+session id, the ids it continued from across `/clear`, the bound pane and
+the link's directory. A question also sends `$.session.cwd()`, which only
+widens the fork-check's worktree match, since the link's directory is set
+at register and EnterWorktree moves the session after it. A session with no
+bound binding gets `none`, which the blocks treat as no decision.
 
 - **`policy`** (`src/blocks/policy.ts`) adds `guard` rules. AskUserQuestion
   asks `policy:authorize { action: "ask" }`, which rt files under the
@@ -389,8 +393,9 @@ blocks treat as no decision.
   throws (cleared for the session) never holds a turn itself, so the shell
   hook alone decides.
 
-rt advertises `gate-policy` and `continuation-policy` for a session only
-while its live link carries both blocks.
+rt advertises `gate-policy` and `continuation-policy` for a bound session
+only while its live link carries both blocks. Its policy proof counts the
+stop gate only beside the installed `pipeline-gate-stop.sh`, the backstop.
 
 ## The reply rule section
 

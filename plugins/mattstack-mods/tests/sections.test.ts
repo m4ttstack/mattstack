@@ -121,7 +121,7 @@ describe('reply rule section', () => {
     expect(midway.queued).toBe(midway.delivery)
   })
 
-  test('a teammate compose gets no reply-rule section', async () => {
+  test('a teammate compose gets neither core section: no reply rule, no spill-read note', async () => {
     // SendMessage is how an in-process teammate reports to its lead.
     const h = harness()
     await h.start()

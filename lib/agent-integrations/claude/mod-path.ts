@@ -48,12 +48,11 @@ export function modContext(nativeId: string, links: ModLinks | null = installedM
 const POLICY_BLOCKS: readonly ModBlock[] = ["policy", "stop-gate"];
 const MOD_POLICY: readonly Capability[] = ["gate-policy", "continuation-policy"];
 
-/** What a link carrying `blocks` advertises for its session: both policies only with both the guard and the stop gate. */
-export function modPolicyCapabilities(blocks: readonly ModBlock[]): Capability[] {
-  return POLICY_BLOCKS.every((b) => blocks.includes(b)) ? [...MOD_POLICY] : [];
-}
-
-/** The policy capabilities an attached Claude binding's live link advertises now; none without that link. */
+/**
+ * The policy capabilities an attached Claude binding's live link advertises
+ * now: both only with both the guard and the stop gate, none without that
+ * link. The Claude policy proof reads the same evidence.
+ */
 export function sessionModPolicy(binding: SessionBinding, links: ModLinks | null = installedModLinks()): Capability[] {
   return POLICY_BLOCKS.every((b) => modPath(binding, b, links)) ? [...MOD_POLICY] : [];
 }

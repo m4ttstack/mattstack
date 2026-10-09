@@ -41,8 +41,10 @@ export type PolicyDeps = {
    * What the caller's native event carried beyond its binding: other ids its
    * session goes by and its working directory. The process cwd stands in for
    * a missing cwd, as it does for the hook; a daemon caller passes the session's.
+   * `alsoCwds` are further directories that only widen the fork-check's
+   * worktree match, the one route a directory feeds.
    */
-  caller?: { sessionIds?: string[]; cwd?: string };
+  caller?: { sessionIds?: string[]; cwd?: string; alsoCwds?: string[] };
   /** Run stores `rt runs find --session <id> --running` would list, newest first. */
   findRunning?: (sessionId: string) => string[];
   /** The `rt runs snapshot` JSON of one run store. */
@@ -129,6 +131,8 @@ export type ForkCheckInputs = {
   pane?: string;
   /** The caller's working directory. */
   cwd: string;
+  /** Other directories the caller's run gates may have been filed from. */
+  alsoCwds?: readonly string[];
 };
 
 /**
@@ -144,12 +148,14 @@ export function buildForkCheck(inputs: ForkCheckInputs): ForkCheckPayload | null
   const sessionIds = [...new Set(inputs.sessionIds)].filter((s): s is string => typeof s === "string" && s.length > 0);
   if (sessionIds.length > 0) payload.sessionIds = sessionIds;
   if (inputs.pane !== undefined) payload.paneId = inputs.pane;
-  const worktrees = [inputs.cwd];
-  try {
-    const physical = realpathSync(inputs.cwd);
-    if (physical !== inputs.cwd) worktrees.push(physical);
-  } catch { /* a vanished cwd still matches by its given spelling */ }
-  payload.worktrees = worktrees;
+  const worktrees: string[] = [];
+  for (const cwd of [inputs.cwd, ...(inputs.alsoCwds ?? [])]) {
+    worktrees.push(cwd);
+    try {
+      worktrees.push(realpathSync(cwd));
+    } catch { /* a vanished cwd still matches by its given spelling */ }
+  }
+  payload.worktrees = [...new Set(worktrees)];
   return payload;
 }
 
@@ -161,6 +167,7 @@ export function forkCheckPayloadFor(context: CallerContext, subject: string, cal
     sessionIds: [binding.native.value, ...(caller.sessionIds ?? [])],
     ...(binding.attachment.pane !== undefined && { pane: binding.attachment.pane }),
     cwd: caller.cwd ?? process.cwd(),
+    ...(caller.alsoCwds !== undefined && { alsoCwds: caller.alsoCwds }),
   });
 }
 

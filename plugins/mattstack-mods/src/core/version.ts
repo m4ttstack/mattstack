@@ -1,7 +1,7 @@
 export const MIN_CLAUDE_CODE = '2.1.293'
 
 /** plugin.json's version, which the engine does not expose; an rt-side test keeps the two equal. */
-export const PLUGIN_VERSION = '0.2.1'
+export const PLUGIN_VERSION = '0.2.2'
 
 function release(version: string): [number, number, number] | null {
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version)

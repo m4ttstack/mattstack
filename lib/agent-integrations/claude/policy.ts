@@ -6,8 +6,9 @@
  * each with the scripts it runs. The revision changes with any of their
  * definitions, script contents, or the Claude Code version. Prepare and
  * verify only read; they never install or edit a hook. A session whose own
- * live mod link carries the policy and stop-gate blocks proves both
- * policies, since the mod enforces them there.
+ * live mod link carries the policy and stop-gate blocks proves gate policy
+ * through the mod, and continuation policy only while the shell Stop hook,
+ * the stop gate's backstop, is installed too.
  */
 
 import { execFileSync } from "child_process";
@@ -180,8 +181,10 @@ export function createClaudePolicy(overrides: ClaudePolicyDeps = {}): PolicyAdap
       if (found.data.revision !== prepared.revision) {
         return fail("not-ready", "the Claude Code policy hooks changed after they were prepared");
       }
-      // The mod's guard and stop gate enforce both policies in this very session, beside the shell backstop.
-      const verified = await deps.modPolicy(binding) ? [...POLICY_CAPABILITIES] : found.data.verified;
+      // The mod's guard proves gate policy in this very session; its stop gate counts only beside the installed shell Stop hook, its backstop.
+      const verified = await deps.modPolicy(binding)
+        ? POLICY_CAPABILITIES.filter((c) => c === "gate-policy" || found.data.verified.includes(c))
+        : found.data.verified;
       return {
         ok: true,
         data: {

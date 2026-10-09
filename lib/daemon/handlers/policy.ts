@@ -4,9 +4,13 @@
  *
  * rt.sock does not say who calls, so the caller is only ever what the live
  * link recorded: the link must be `sessionId`'s current one and carry the
- * asking block, and the fork-check sees the link's session id, the bound
- * pane and the link's directory, never a cwd or id the payload names. An
- * `ask` files under the binding's own gate subject. A session with no bound
+ * asking block. The fork-check sees the link's session id and the ids it
+ * continued from, the bound pane and the link's directory, never an id the
+ * payload names. The one thing the payload adds is an `ask`'s current
+ * directory, which only widens the worktree match: the link's directory is
+ * set at register and goes stale after EnterWorktree, and the shell hook
+ * decides on that same current directory. An `ask` files under the
+ * binding's own gate subject. A session with no bound
  * binding gets no decision, so the mod passes and the mattstack plugin's
  * shell hooks decide as they do without the mod.
  *
@@ -47,6 +51,7 @@ const ACTIONS: readonly WorkflowAction[] = ["ask", "continue", "complete"];
 const declined = (code: string, message: string, error = message) => ({ ok: false as const, error, failure: { code, message } });
 const invalid = (message: string) => declined("invalid", message);
 const isText = (v: unknown): v is string => typeof v === "string" && v.length > 0;
+const isAbsoluteDir = (v: unknown): v is string => isText(v) && v.startsWith("/") && !/[\u0000-\u001f\u007f]/.test(v);
 const record = (payload: unknown): Record<string, unknown> =>
   payload !== null && typeof payload === "object" ? payload as Record<string, unknown> : {};
 
@@ -68,22 +73,26 @@ export function createPolicyHandlers(deps: PolicyHandlerDeps): { [K in Verb]: (p
     return resolved.ok ? { link, context: resolved.data } : { link, context: null, unbound: resolved.error.message };
   }
 
-  const policyFor = (link: ModLinkView): PolicyDeps => ({ ...deps.policy, forkCheck: deps.forkCheck, caller: { cwd: link.cwd } });
+  const policyFor = (link: ModLinkView, cwd?: string): PolicyDeps => ({
+    ...deps.policy, forkCheck: deps.forkCheck,
+    caller: { cwd: link.cwd, sessionIds: links.continuedFrom(link.sessionId), ...(cwd !== undefined && { alsoCwds: [cwd] }) },
+  });
 
   return {
     "policy:authorize": async (payload) => {
-      const { linkId, sessionId, action, subject } = record(payload);
+      const { linkId, sessionId, action, subject, cwd } = record(payload);
       if (!isText(linkId)) return invalid("linkId must be a non-empty string");
       if (!isText(sessionId)) return invalid("sessionId must be a non-empty string");
       if (!ACTIONS.includes(action as WorkflowAction)) return invalid(`action must be one of ${ACTIONS.join(", ")}`);
       if (action !== "ask" && !isText(subject)) return invalid(`${String(action)} needs subject, the run store it acts on`);
+      if (cwd !== undefined && !isAbsoluteDir(cwd)) return invalid("cwd must be an absolute path with no control characters");
       const caller = callerOf(linkId, sessionId, "policy");
       if ("failure" in caller) return caller;
       if (!caller.context) return { ok: true, data: { decision: "none", reason: caller.unbound } };
       const asked = action === "ask"
         ? (deps.subjectOf ?? ((b) => bindingGateSubject(b, db)))(caller.context.binding) ?? ""
         : subject as string;
-      const outcome = await authorizeWorkflowAction(caller.context, action as WorkflowAction, asked, policyFor(caller.link));
+      const outcome = await authorizeWorkflowAction(caller.context, action as WorkflowAction, asked, policyFor(caller.link, action === "ask" ? cwd as string | undefined : undefined));
       if (outcome.ok) return { ok: true, data: { decision: "allow" } };
       if (outcome.error.code === "refused") return { ok: true, data: { decision: "refuse", reason: outcome.error.message } };
       if (outcome.error.code === POLICY_UNAVAILABLE) return declined(POLICY_UNAVAILABLE, outcome.error.message);

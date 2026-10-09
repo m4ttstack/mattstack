@@ -77,6 +77,8 @@ export interface ModLinks {
    * and forgotten while agent.integrations.enabled is off.
    */
   continuedAs(sessionId: string): string;
+  /** The earlier native ids that continue as `sessionId` through link-reported /clears, oldest move first; continuedAs in reverse. */
+  continuedFrom(sessionId: string): string[];
 }
 
 export type ModLinksDeps = {
@@ -319,6 +321,23 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
         at = next;
       }
       return at;
+    },
+
+    continuedFrom(sessionId) {
+      sweep();
+      const earlier: string[] = [];
+      for (const from of moves.keys()) {
+        if (from === sessionId) continue;
+        let at = from;
+        const seen = new Set([at]);
+        for (let next = moves.get(at); next !== undefined && !seen.has(next); next = moves.get(at)) {
+          seen.add(next);
+          at = next;
+          if (at === sessionId) break;
+        }
+        if (at === sessionId) earlier.push(from);
+      }
+      return earlier;
     },
   };
 }

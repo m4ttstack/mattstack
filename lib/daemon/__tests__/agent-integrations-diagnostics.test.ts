@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Readiness } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { Readiness, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { createModLinks, TESTED_CLAUDE_CODE } from "../../agent-integrations/claude/mod-links.ts";
 import type { SessionStore } from "../../agent-integrations/session-store.ts";
 import { createRegistry } from "../../agent-integrations/registry.ts";
@@ -22,7 +22,12 @@ function fake(id: "claude" | "codex"): HarnessIntegration {
   } as HarnessIntegration;
 }
 
-function setup(over: { enabled?: boolean; experimentalApi?: boolean | undefined } = {}) {
+/** An attached Claude binding for each session id in `bound`. */
+const bindings = (bound: string[]) => (sessionId: string): SessionBinding | undefined => (bound.includes(sessionId)
+  ? { key: `key-${sessionId}`, identity: "id-1", native: { harness: "claude", profile: "default", kind: "id", value: sessionId }, attachment: { generation: 1, mode: "herdr" } }
+  : undefined);
+
+function setup(over: { enabled?: boolean; experimentalApi?: boolean | undefined; bound?: string[] } = {}) {
   const clock = { now: 1_000_000 };
   let enabled = over.enabled ?? true;
   const links = createModLinks({ now: () => clock.now, integrationsEnabled: () => enabled, store: {} as SessionStore });
@@ -33,6 +38,7 @@ function setup(over: { enabled?: boolean; experimentalApi?: boolean | undefined 
     now: () => clock.now,
     switchOn: () => enabled,
     experimentalApi: () => over.experimentalApi,
+    modBinding: bindings(over.bound ?? []),
   });
   return { clock, links, handlers, off: () => { enabled = false; } };
 }
@@ -60,17 +66,19 @@ describe("agent:integrations diagnostics", () => {
     ]);
   });
 
-  test("a session advertises gate and continuation policy only while its link carries both the policy and stop-gate blocks", async () => {
-    const { links, handlers } = setup();
+  test("a bound session advertises gate and continuation policy only while its link carries both the policy and stop-gate blocks", async () => {
+    const { links, handlers } = setup({ bound: ["both", "guard-only", "stop-only"] });
     const reg = (sessionId: string, blocks: string[]) => links.register({
       sessionId, cwd: "/r", root: "/r", claudeCode: TESTED_CLAUDE_CODE.min, plugin: "mattstack-mods", blocks: blocks as never,
     });
     reg("both", ["policy", "stop-gate"]);
     reg("guard-only", ["policy"]);
     reg("stop-only", ["stop-gate", "presence"]);
+    // The policy proof reads the same evidence, the session's attached binding: an unbound session advertises nothing.
+    reg("unbound", ["policy", "stop-gate"]);
     const claude = (await list(handlers)).find((s) => s.id === "claude")!;
     expect(claude.diagnostics?.claudeLinks?.map((l) => [l.sessionId, l.capabilities])).toEqual([
-      ["both", ["gate-policy", "continuation-policy"]], ["guard-only", []], ["stop-only", []],
+      ["both", ["gate-policy", "continuation-policy"]], ["guard-only", []], ["stop-only", []], ["unbound", []],
     ]);
     // The harness's own capabilities are per mode and name no session: they advertise nothing new.
     expect(claude.capabilities).toEqual([]);

@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import pino from "pino";
-import type { CallerContext, ModBlock, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { CallerContext, Capability, ModBlock, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { createGatesStore } from "../../daemon/gates-store.ts";
 import { createGateHandlers } from "../../daemon/handlers/gate.ts";
 import type { EventsBus } from "../../daemon/events-bus.ts";
@@ -649,18 +649,27 @@ describe("createClaudePolicy", () => {
     }
   });
 
-  test("a session whose live mod link carries the policy and stop-gate blocks proves both policies; any other keeps the installation's proof", async () => {
-    const p = plugin({ stop: false });
-    const withMod = (live: boolean) => createClaudePolicy({
+  test("a session whose live mod link carries both blocks proves gate policy through the mod, and continuation policy only beside the installed shell Stop hook", async () => {
+    const withMod = (p: { root: string; fork: string | null }, live: boolean) => createClaudePolicy({
       plugins: () => [{ id: "mattstack@mattstack", installPath: p.root, enabled: true }],
       gateForkHookPath: () => p.fork, claudeVersion: () => "2.1.283", now: () => 42, modPolicy: () => live,
     });
-    for (const [live, verified] of [[true, ["gate-policy", "continuation-policy"]], [false, ["gate-policy"]]] as const) {
-      const policy = withMod(live);
-      const prepared = await policy.prepare(request(["gate-policy"]));
+    const full = plugin();
+    const stopless = plugin({ stop: false });
+    const cases = [
+      // No launch gate-fork hook: the mod's guard supplies gate policy, the shell Stop hook continuation.
+      { p: { root: full.root, fork: null }, required: ["continuation-policy"], live: true, verified: ["gate-policy", "continuation-policy"] },
+      { p: { root: full.root, fork: null }, required: ["continuation-policy"], live: false, verified: ["continuation-policy"] },
+      // No shell Stop hook: the mod's stop gate has no backstop, so continuation policy is not proved.
+      { p: stopless, required: ["gate-policy"], live: true, verified: ["gate-policy"] },
+      { p: stopless, required: ["gate-policy"], live: false, verified: ["gate-policy"] },
+    ];
+    for (const c of cases) {
+      const policy = withMod(c.p, c.live);
+      const prepared = await policy.prepare(request(c.required));
       if (!prepared.ok) throw new Error(prepared.error.message);
       const proof = await policy.verify(binding(), prepared.data);
-      expect(proof.ok ? proof.data.verified : proof.error.message).toEqual([...verified]);
+      expect(proof.ok ? proof.data.verified : proof.error.message).toEqual(c.verified as Capability[]);
     }
   });
 
