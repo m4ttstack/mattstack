@@ -191,6 +191,12 @@ case "$r" in exit=2*) echo "ok   TaskStop ends the pending task";; *) echo "FAIL
 transcript "$T" 5 mcp-backgrounded mcp-removed mcp-backgrounded
 check "relaunch after delivery exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
 
+transcript "$T" 5 mcp-backgrounded mcp-backgrounded-second mcp-removed-quotes-other
+check "removed notification quoting another task id leaves it pending" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
+
+transcript "$T" 5 mcp-backgrounded mcp-backgrounded-second mcp-queued-command-quotes-other
+check "delivered notification quoting another task id leaves it pending" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
+
 transcript "$T" 5 agent-launched
 check "pending async agent exits 0" "exit=0 err= out=" "$(run "$(stop_with "$T")")"
 

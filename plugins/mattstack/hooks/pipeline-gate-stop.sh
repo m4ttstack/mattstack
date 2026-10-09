@@ -158,10 +158,12 @@ with open(path, "rb") as f:
                 if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") == "TaskStop":
                     pending.pop(str((c.get("input") or {}).get("task_id")), None)
         elif kind == "queue-operation" and d.get("operation") == "remove":
-            for m in TASK_ID.finditer(d.get("content") or ""):
+            m = TASK_ID.search(d.get("content") or "")
+            if m:
                 pending.pop(m.group(1), None)
         elif kind == "attachment" and (d.get("attachment") or {}).get("type") == "queued_command":
-            for m in TASK_ID.finditer((d.get("attachment") or {}).get("prompt") or ""):
+            m = TASK_ID.search((d.get("attachment") or {}).get("prompt") or "")
+            if m:
                 pending.pop(m.group(1), None)
 
 now = time.time()
