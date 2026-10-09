@@ -1,5 +1,9 @@
 import type { GateRow as FacilityGateRow } from '@mattstack/rt-client';
-import { resumePackEnv, type AgentLaunchResult } from '../agent-launch.ts';
+import {
+  resumePackEnv,
+  SwitchedOffRefusal,
+  type AgentLaunchResult,
+} from '../agent-launch.ts';
 import { mrTabLabel, type SkillPathResolver } from '../herdr.ts';
 import { resolveDispatchSkill } from '../skill-path.ts';
 import { GATE_LIST_PAGE_LIMIT, type GateEventFrame } from './ingest.ts';
@@ -160,6 +164,7 @@ export async function resumeParkedGate(
       harness
     );
   } catch (err) {
+    if (err instanceof SwitchedOffRefusal) io.notify(err.message);
     console.error(
       `parked gate resume failed: ${err instanceof Error ? err.message : err}`
     );

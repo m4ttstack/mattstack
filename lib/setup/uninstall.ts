@@ -28,7 +28,8 @@ import { PORTLESS_LAUNCHD_PLIST } from "./steps/services.ts";
 import { claudeMessage, marketplaceSourceKey, parseMarketplaceList } from "./steps/plugins.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Probes } from "./probes.ts";
-import { isSetupFinished, readSetupState, updateSetupState } from "./state.ts";
+import { isSetupFinished, ownedResources, readSetupState, updateSetupState } from "./state.ts";
+import type { HarnessInstall } from "../agent-integrations/install.ts";
 
 export interface UninstallAction {
   id: UninstallActionId;
@@ -41,6 +42,8 @@ export const RT_CONTEXT_EXTENSION_ID = "local.rt-context";
 
 export interface UninstallSeams {
   detectEditors: () => DetectedEditor[];
+  /** The harnesses whose recorded writes `integrations.remove` takes back; unset is every built-in one. */
+  harnessInstalls?: readonly HarnessInstall[];
 }
 
 const REAL_UNINSTALL_SEAMS: UninstallSeams = { detectEditors };
@@ -97,6 +100,12 @@ export function computeUninstallActions(p: Probes, opts: { keepData: boolean }, 
 
   if (state.plugins.length > 0 || state.marketplaces.length > 0) {
     actions.push({ id: "plugins.uninstall", title: "Uninstall the mattstack plugins from Claude Code", kind: "rt" });
+  }
+
+  // Keyed on what rt recorded writing, not on the integrations switch: a
+  // switch turned off afterwards must not strand rt's entries in Codex.
+  if (ownedResources(state).some((r) => r.integration === "codex")) {
+    actions.push({ id: "integrations.remove", title: "Remove what rt added to Codex", kind: "rt" });
   }
 
   if (!opts.keepData) {
@@ -306,6 +315,32 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   return { outcome: { state: "done", detail: `Removed ${state.plugins.length} plugin${state.plugins.length === 1 ? "" : "s"} and ${state.marketplaces.length} marketplace${state.marketplaces.length === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}` } };
 }
 
+/**
+ * Each harness takes back what its ownership records say rt wrote. A thing
+ * it kept (changed by the member, or still in use) is not a failure: it is
+ * named in `stayed`.
+ */
+async function integrationsRemoveRun(ctx: ApplyContext, seams: UninstallSeams): Promise<ActionResult> {
+  const installs = seams.harnessInstalls ?? (await import("./steps/agent-integrations.ts")).HARNESS_INSTALLS;
+  const removed: string[] = [];
+  const stayed: string[] = [];
+  const failed: StepOutcome[] = [];
+  for (const install of installs) {
+    for (const outcome of await (await install.loadInstall()).reconcile("uninstall", ctx)) {
+      if (outcome.state === "failed") failed.push(outcome);
+      else if (outcome.state === "needs-you") stayed.push(outcome.detail);
+      else if (outcome.state === "done" && outcome.detail) removed.push(outcome.detail);
+    }
+  }
+  if (failed.length > 0) {
+    const first = failed[0]!;
+    return { outcome: { state: "failed", detail: failed.map((f) => f.detail).join("; "), ...(first.state === "failed" && first.remedy ? { remedy: first.remedy } : {}) }, stayed };
+  }
+  const detail = removed.length > 0 ? removed.join(". ") : "Nothing of rt's was left to remove";
+  const kept = stayed.length === 0 ? "" : `. ${stayed.length === 1 ? "One thing stays" : `${stayed.length} things stay`}`;
+  return { outcome: { state: "done", detail: `${detail}${kept}` }, stayed: stayed.length > 0 ? stayed : undefined };
+}
+
 function mattstackDataDir(p: Pick<Probes, "home">): string {
   return join(p.home, ".mattstack");
 }
@@ -363,6 +398,8 @@ async function runAction(ctx: ApplyContext, id: UninstallActionId, seams: Uninst
       return extensionUninstallRun(ctx, seams);
     case "plugins.uninstall":
       return pluginsUninstallRun(ctx);
+    case "integrations.remove":
+      return integrationsRemoveRun(ctx, seams);
     case "data":
       return dataRun(ctx);
     case "app.trash":

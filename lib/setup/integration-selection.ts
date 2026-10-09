@@ -24,7 +24,13 @@ export function selectionFor(ctx: Pick<ApplyContext, "integrations">): Integrati
   return ctx.integrations ?? readIntegrationSelection();
 }
 
-/** Harnesses whose setup is not yet safe to repeat unattended, so `rt setup update` leaves their legs out of shared steps. */
+/**
+ * Harnesses whose legs in shared steps `rt setup update` leaves out. Codex's
+ * skill links, herdr integration and Fast Browser host carry no record of
+ * what rt wrote, so a repeat could not tell a link the member deleted from
+ * one never made. Codex's own steps (its MCP entry and policy hooks) are
+ * update-safe: their records say exactly what rt wrote.
+ */
 const NOT_UPDATE_SAFE: readonly HarnessId[] = ["codex"];
 
 /** The selection a shared update-safe step installs for: under `rt setup update`, without the harnesses above. */
@@ -37,7 +43,8 @@ export function stepSelectionFor(ctx: Pick<ApplyContext, "integrations" | "updat
 /** Why a shared step has no harness to set up in this run. */
 export function noHarnessDetail(ctx: Pick<ApplyContext, "integrations" | "update">): string {
   const selection = selectionFor(ctx);
-  return selection.switchOn && selection.enabled.length > 0 ? "Codex is set up by Install, not by an update" : "No agent integration is turned on";
+  const leftToInstall = ctx.update && selection.switchOn && selection.enabled.some((id) => NOT_UPDATE_SAFE.includes(id));
+  return leftToInstall ? "Codex is set up by Install, not by an update" : "No agent integration is turned on";
 }
 
 /** Whether setup installs for `id`: with the switch off, only Claude. */

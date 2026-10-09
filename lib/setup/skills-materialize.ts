@@ -15,17 +15,30 @@ import { parseRemote } from "../skills/init.ts";
 import { ENGINE_PACK_REF, findInstalledPluginDir } from "../skills/installed-plugins.ts";
 import { materializeRepo, type MaterializeRepoOutcome, type PackOutcome } from "../skills/materialize.ts";
 import { UserActionableError } from "../errors.ts";
+import { codexPluginCacheRoot } from "../agent-integrations/codex/skills.ts";
+import { harnessSelected, readIntegrationSelection, type IntegrationSelection } from "./integration-selection.ts";
 import type { Probes } from "./probes.ts";
+import { codexHomeOf } from "./validators/codex.ts";
 
 export const ENGINE_PACK_MISSING_CODE = "engine-pack-missing";
 
 const GIT_TIMEOUT_MS = 10_000;
 
-/** RT_ENGINE_PACK_DIR (a checkout's plugins/mattstack, for development) wins when it exists; else the installed mattstack plugin; null before plugins.install has run. */
-export function findEnginePackDir(p: Pick<Probes, "readDir" | "exists" | "home" | "env">): string | null {
+/**
+ * RT_ENGINE_PACK_DIR (a checkout's plugins/mattstack, for development) wins
+ * when it exists; else the mattstack plugin installed for the first
+ * selected harness that has it (with the switch off, Claude's); null before
+ * any harness installed it.
+ */
+export function findEnginePackDir(p: Pick<Probes, "readDir" | "exists" | "home" | "env">, selection: IntegrationSelection = readIntegrationSelection()): string | null {
   const override = p.env.RT_ENGINE_PACK_DIR;
   if (override && p.exists(override)) return override;
-  return findInstalledPluginDir(p, p.home, ENGINE_PACK_REF);
+  if (harnessSelected(selection, "claude")) {
+    const claude = findInstalledPluginDir(p, p.home, ENGINE_PACK_REF);
+    if (claude !== null) return claude;
+  }
+  const codexHome = harnessSelected(selection, "codex") ? codexHomeOf(p) : null;
+  return codexHome === null ? null : findInstalledPluginDir(p, p.home, ENGINE_PACK_REF, codexPluginCacheRoot(codexHome));
 }
 
 export interface MaterializeRepoResult {
@@ -124,9 +137,9 @@ function describe(packs: PackOutcome[]): string {
   return `Wrote ${packs.length} pack file${packs.length === 1 ? "" : "s"}: ${packs.map((pk) => pk.pack).join(", ")}`;
 }
 
-export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: string }): Promise<MaterializeSkillsResult> {
+export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: string }, selection?: IntegrationSelection): Promise<MaterializeSkillsResult> {
   if (opts.repo && opts.dir) throw new UserActionableError("flags-conflict", "pass --repo or --dir, not both");
-  const enginePackDir = findEnginePackDir(p);
+  const enginePackDir = findEnginePackDir(p, selection);
   if (!enginePackDir) {
     return { skipped: true, reason: `${ENGINE_PACK_MISSING_CODE}: install the mattstack plugin first, then run this again`, repos: [] };
   }

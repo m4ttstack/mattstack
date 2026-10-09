@@ -496,15 +496,15 @@ describe("setup for the enabled harnesses", () => {
       expect(createIntegrationSteps([])).toEqual([]);
     });
 
-    test("no new step is update-safe", () => {
-      expect(createIntegrationSteps(["codex"]).filter((s) => s.updateSafe)).toEqual([]);
+    test("Codex's own steps are update-safe: their records say exactly what rt wrote", () => {
+      expect(createIntegrationSteps(["codex"]).filter((s) => s.updateSafe).map((s) => s.id)).toEqual(["codex.mcp", "codex.policy"]);
     });
 
-    test("reconcile changes nothing yet", async () => {
-      const { ctx } = makeCtx(codexMac(home).p);
-      for (const make of [createClaudeInstall, createCodexInstall]) {
-        for (const mode of ["update", "restore", "uninstall"] as const) expect(await make().reconcile(mode, ctx)).toEqual([]);
-      }
+    test("uninstall takes nothing back where rt recorded writing nothing", async () => {
+      const { p } = codexMac(home);
+      const { ctx } = makeCtx(p);
+      for (const make of [createClaudeInstall, createCodexInstall]) expect(await make({ p }).reconcile("uninstall", ctx)).toEqual([]);
+      expect(p.calls.writes).toEqual({});
     });
 
     test("Codex readiness: CLI, sign-in, MCP entry and Codex reading it", async () => {

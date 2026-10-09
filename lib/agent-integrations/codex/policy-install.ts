@@ -19,7 +19,7 @@
  */
 
 import { createHash, randomBytes } from "crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { bundledToolPath } from "../../deps/resolve.ts";
@@ -45,6 +45,8 @@ export type PolicyInstallDeps = {
   rtSource: () => string | null;
   listHooks: (cwd: string, profile: string) => Promise<Outcome<ListedPolicyHook[]>>;
   attachedSessions: (profile: string) => SessionBinding[] | Promise<SessionBinding[]>;
+  /** Every attached Codex session on any profile. */
+  codexBindings: () => SessionBinding[] | Promise<SessionBinding[]>;
   now: () => Date;
   randomId: () => string;
 };
@@ -141,6 +143,10 @@ function defaultDeps(): PolicyInstallDeps {
     attachedSessions: async (profile) => {
       const [{ listAttachedBindings }, { getStateDb }] = await Promise.all([import("../session-store.ts"), import("../../state/index.ts")]);
       return listAttachedBindings(getStateDb(), "codex").filter((b) => b.native.profile === profile);
+    },
+    codexBindings: async () => {
+      const [{ listAttachedBindings }, { getStateDb }] = await Promise.all([import("../session-store.ts"), import("../../state/index.ts")]);
+      return listAttachedBindings(getStateDb(), "codex");
     },
     now: () => new Date(),
     randomId: () => `mac-${sha256(`${Date.now()}-${Math.random()}`).slice(0, 12)}`,
@@ -731,4 +737,325 @@ export async function applyCodexPolicyInstall(plan: PolicyInstallPlan, reviewed:
  */
 export async function codexPolicyRecovery(profile: string, overrides: Partial<PolicyInstallDeps> = {}): Promise<SessionBinding[]> {
   return [...(await withDefaults(overrides).attachedSessions(profile))];
+}
+
+// ─── Removal ─────────────────────────────────────────────────────────────────
+
+/** rt's policy hook commands a hooks file holds now, by event; null when it is not a JSON object. */
+export function policyHookCommandsIn(text: string | null): Record<CodexPolicyEvent, string[]> | null {
+  const found: Record<CodexPolicyEvent, string[]> = { PreToolUse: [], Stop: [] };
+  if (text === null) return found;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed)) return null;
+  const hooks = isRecord(parsed.hooks) ? parsed.hooks : {};
+  for (const event of CODEX_POLICY_EVENTS) {
+    for (const group of Array.isArray(hooks[event]) ? hooks[event] : []) {
+      for (const h of isRecord(group) && Array.isArray(group.hooks) ? group.hooks : []) {
+        if (isRecord(h) && typeof h.command === "string" && parseCodexPolicyHookCommand(h.command)?.event === event) found[event].push(h.command);
+      }
+    }
+  }
+  return found;
+}
+
+/** The handler rt wrote for one of its own commands, or null for a command it never writes. */
+function handlerFor(command: string): CodexHookHandler | null {
+  const parsed = parseCodexPolicyHookCommand(command);
+  if (parsed === null) return null;
+  try {
+    return codexPolicyManifest({ executable: parsed.executable, installationId: parsed.installationId }).hooks[parsed.event][0]!.hooks[0]!;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether every event still holds a hook rt recorded adding, exactly as rt
+ * wrote it: `removed` when the member took one out, `changed` when they
+ * edited one.
+ */
+export function ownedPolicyHooksIn(text: string | null, owned: readonly string[]): "intact" | "removed" | "changed" | "unreadable" {
+  const present = policyHookCommandsIn(text);
+  if (present === null) return "unreadable";
+  const parsed: unknown = text === null ? {} : JSON.parse(text);
+  const hooks = isRecord(parsed) && isRecord(parsed.hooks) ? parsed.hooks : {};
+  let verdict: "intact" | "removed" | "changed" = "intact";
+  for (const event of CODEX_POLICY_EVENTS) {
+    const mine = owned.filter((c) => parseCodexPolicyHookCommand(c)?.event === event);
+    const groups: unknown[] = Array.isArray(hooks[event]) ? hooks[event] : [];
+    if (mine.some((c) => { const h = handlerFor(c); return h !== null && groups.some((g) => exactGroup(g, h)); })) continue;
+    if (mine.some((c) => present[event].includes(c))) return "changed";
+    verdict = "removed";
+  }
+  return verdict;
+}
+
+/** Splices that drop the entries at `drop` from `list` with the separators joining them; null when every entry goes. */
+function dropEntries(list: { start: number; end: number }[], drop: ReadonlySet<number>): Splice[] | null {
+  if (drop.size === list.length) return null;
+  const splices: Splice[] = [];
+  for (let a = 0; a < list.length; a++) {
+    if (!drop.has(a)) continue;
+    let b = a;
+    while (drop.has(b + 1)) b++;
+    splices.push(b < list.length - 1 ? { start: list[a]!.start, end: list[b + 1]!.start, text: "" } : { start: list[a - 1]!.end, end: list[b]!.end, text: "" });
+    a = b;
+  }
+  return splices;
+}
+
+type FileRemoval = { text: string | null; removed: string[]; kept: string[] };
+
+/**
+ * Drops only the groups that are exactly what rt wrote for a command it
+ * recorded as its own. A group the member edited, and every other byte of
+ * the file, stays. Null when the result would differ by anything more.
+ */
+function removeOwnedHooks(text: string, owned: readonly string[]): FileRemoval | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed)) return null;
+  const hooks = isRecord(parsed.hooks) ? parsed.hooks : {};
+  const removed: string[] = [];
+  const kept: string[] = [];
+  const dropped = new Map<CodexPolicyEvent, Set<number>>();
+  for (const command of owned) {
+    const event = parseCodexPolicyHookCommand(command)?.event;
+    const handler = handlerFor(command);
+    if (event === undefined || handler === null) continue;
+    const groups: unknown[] = Array.isArray(hooks[event]) ? hooks[event] : [];
+    const exact = groups.findIndex((group, g) => exactGroup(group, handler) && !dropped.get(event)?.has(g));
+    if (exact >= 0) {
+      dropped.set(event, (dropped.get(event) ?? new Set()).add(exact));
+      removed.push(command);
+    } else if (policyHookCommandsIn(text)?.[event].includes(command)) {
+      kept.push(command);
+    }
+  }
+  if (removed.length === 0) return { text: null, removed, kept };
+
+  const expected = structuredClone(parsed) as Record<string, any>;
+  for (const [event, drop] of dropped) {
+    const left = (expected.hooks[event] as unknown[]).filter((_, g) => !drop.has(g));
+    if (left.length > 0) expected.hooks[event] = left;
+    else delete expected.hooks[event];
+  }
+
+  const root = spansOf(text);
+  const hooksSpan = root?.members?.filter((m) => m.key === "hooks").pop()?.value;
+  if (hooksSpan?.members === undefined) return null;
+  const members = hooksSpan.members;
+  const emptied = new Set<number>();
+  const splices: Splice[] = [];
+  for (const [event, drop] of dropped) {
+    const at = members.map((m) => m.key).lastIndexOf(event);
+    const items = members[at]?.value.items;
+    if (items === undefined) return null;
+    const cut = dropEntries(items, drop);
+    if (cut === null) emptied.add(at);
+    else splices.push(...cut);
+  }
+  if (emptied.size > 0) {
+    const cut = dropEntries(members.map((m) => ({ start: m.keyStart, end: m.value.end })), emptied);
+    splices.push(...(cut ?? [{ start: hooksSpan.start, end: hooksSpan.end, text: "{}" }]));
+  }
+  let next = text;
+  for (const s of splices.sort((a, b) => b.start - a.start)) next = next.slice(0, s.start) + s.text + next.slice(s.end);
+  try {
+    if (!Bun.deepEquals(canonical(JSON.parse(next)), canonical(expected))) return null;
+  } catch {
+    return null;
+  }
+  return { text: next, removed, kept };
+}
+
+/** Empty `hooks.state` and `hooks` tables read the same as absent ones, so a removal that leaves them is no other change. */
+function withoutEmptyHooks(config: Record<string, unknown>): Record<string, unknown> {
+  const out = structuredClone(config) as Record<string, any>;
+  if (isRecord(out.hooks) && isRecord(out.hooks.state) && Object.keys(out.hooks.state).length === 0) delete out.hooks.state;
+  if (isRecord(out.hooks) && Object.keys(out.hooks).length === 0) delete out.hooks;
+  return out;
+}
+
+/** Drops the `[hooks.state."<key>"]` tables rt wrote whose trust is still exactly the hash it recorded. */
+function removeOwnedTrust(text: string, owned: Record<string, string>): FileRemoval | null {
+  const config = parseToml(text);
+  if (config === null) return null;
+  const removed: string[] = [];
+  const kept: string[] = [];
+  let next = text;
+  for (const [key, hash] of Object.entries(owned)) {
+    const entry = stateEntry(config, key);
+    if (entry === undefined) continue;
+    if (!Bun.deepEquals(canonical(entry), { trusted_hash: hash })) {
+      kept.push(key);
+      continue;
+    }
+    const lines = next.split("\n");
+    const start = lines.findIndex((line) => line.trim() === `[hooks.state.${tomlString(key)}]`);
+    if (start < 0) {
+      kept.push(key);
+      continue;
+    }
+    let end = start + 1;
+    while (end < lines.length && !/^\s*\[/.test(lines[end]!)) end++;
+    while (end > start + 1 && /^\s*(#.*)?$/.test(lines[end - 1]!)) end--;
+    while (end < lines.length && lines[end]!.trim() === "" && (start === 0 || lines[start - 1]!.trim() === "")) end++;
+    next = [...lines.slice(0, start), ...lines.slice(end)].join("\n");
+    removed.push(key);
+  }
+  if (removed.length === 0) return { text: null, removed, kept };
+  const after = parseToml(next);
+  if (after === null) return null;
+  const expected = structuredClone(config) as Record<string, any>;
+  for (const key of removed) delete expected.hooks.state[key];
+  return Bun.deepEquals(canonical(withoutEmptyHooks(after)), canonical(withoutEmptyHooks(expected))) ? { text: next, removed, kept } : null;
+}
+
+type ArtifactFate = "removed" | "gone" | "changed";
+
+/** Only a copy at the path its own recorded digest names, still holding those bytes, is rt's to delete. */
+function dropArtifact(home: string, path: string, digest: string): ArtifactFate {
+  if (path !== codexPolicyArtifactPath(home, digest)) return "changed";
+  const present = presentDigest(path);
+  if (present === undefined) return existsSync(path) ? "changed" : "gone";
+  if (present !== digest) return "changed";
+  rmSync(path, { force: true });
+  try {
+    rmdirSync(dirname(path));
+  } catch { /* another file is in the folder */ }
+  return "removed";
+}
+
+const sessionsWord = (n: number): string => (n === 1 ? "1 Codex session still runs" : `${n} Codex sessions still run`);
+
+/**
+ * Old hook programs no recorded hook names any more. None goes while any
+ * Codex session is attached: a session keeps the hooks it loaded when it
+ * started, and rt cannot tell which program those name.
+ */
+export async function collectCodexPolicyArtifacts(overrides: Partial<PolicyInstallDeps> = {}): Promise<string[]> {
+  const deps = withDefaults(overrides);
+  const probes = stateProbes(deps.home, deps.now);
+  const owned = policyState(readSetupState(probes));
+  if (Object.keys(owned.artifacts).length === 0) return [];
+  if ((await deps.codexBindings()).length > 0) return [];
+  const named = new Set(Object.values(owned.hooks).flat().map((c) => parseCodexPolicyHookCommand(c)?.executable));
+  const done: string[] = [];
+  for (const [path, digest] of Object.entries(owned.artifacts)) {
+    if (named.has(path)) continue;
+    const fate = dropArtifact(deps.home, path, digest);
+    if (fate !== "changed") done.push(path);
+  }
+  if (done.length > 0) {
+    updateSetupState(probes, (s) => {
+      const cp = policyState(s);
+      return { ...s, codexPolicy: { ...cp, artifacts: Object.fromEntries(Object.entries(cp.artifacts).filter(([p]) => !done.includes(p))) } };
+    });
+  }
+  return done;
+}
+
+export type PolicyRemoval = { removed: string[]; kept: string[] };
+
+/**
+ * Takes back what rt recorded writing for Codex's policy: its hook groups
+ * in each user hooks file, its trust entries in each config, and its hook
+ * programs. Each is removed only while it is still exactly what rt wrote;
+ * anything the member changed stays, and so does every other entry. The
+ * hook programs stay while a Codex session is attached, since a session
+ * runs the hooks it loaded when it started.
+ */
+export async function removeCodexPolicyInstall(overrides: Partial<PolicyInstallDeps> = {}): Promise<PolicyRemoval> {
+  const deps = withDefaults(overrides);
+  const probes = stateProbes(deps.home, deps.now);
+  const owned = policyState(readSetupState(probes));
+  const removed: string[] = [];
+  const kept: string[] = [];
+  const hooksLeft: Record<string, string[]> = {};
+  const trustLeft: Record<string, { hooks: Record<string, string> }> = {};
+
+  for (const [path, commands] of Object.entries(owned.hooks)) {
+    const text = readText(path);
+    const present = policyHookCommandsIn(text);
+    const edit = text === null ? { text: null, removed: [], kept: [] } : removeOwnedHooks(text, commands);
+    if (edit === null || present === null) {
+      kept.push(`rt's policy hooks in ${path}, which rt could not take out without changing the rest of that file`);
+      hooksLeft[path] = commands;
+      continue;
+    }
+    const wrote = edit.text === null ? { ok: true as const } : replaceFile(path, fingerprint(text), edit.text);
+    if (!wrote.ok) {
+      kept.push(`rt's policy hooks in ${path}, which changed while rt was removing them`);
+      hooksLeft[path] = commands;
+      continue;
+    }
+    if (edit.removed.length > 0) removed.push(`rt's policy hooks from ${path}`);
+    if (edit.kept.length > 0) {
+      kept.push(`rt's policy hooks in ${path}, which were changed after rt added them`);
+      hooksLeft[path] = edit.kept;
+    }
+  }
+
+  for (const [path, { hooks }] of Object.entries(owned.trust)) {
+    const text = readText(path);
+    const edit = text === null ? { text: null, removed: [], kept: [] } : removeOwnedTrust(text, hooks);
+    if (edit === null) {
+      kept.push(`rt's hook trust in ${path}, which rt could not take out without changing your other Codex settings`);
+      trustLeft[path] = { hooks };
+      continue;
+    }
+    const wrote = edit.text === null ? { ok: true as const } : replaceFile(path, fingerprint(text), edit.text);
+    if (!wrote.ok) {
+      kept.push(`rt's hook trust in ${path}, which changed while rt was removing it`);
+      trustLeft[path] = { hooks };
+      continue;
+    }
+    if (edit.removed.length > 0) removed.push(`rt's hook trust from ${path}`);
+    if (edit.kept.length > 0) {
+      kept.push(`rt's hook trust in ${path}, which was changed after rt wrote it`);
+      trustLeft[path] = { hooks: Object.fromEntries(edit.kept.map((k) => [k, hooks[k]!])) };
+    }
+  }
+
+  const artifactsLeft: Record<string, string> = {};
+  const artifacts = Object.entries(owned.artifacts);
+  const bindings = artifacts.length > 0 ? (await deps.codexBindings()).length : 0;
+  if (bindings > 0) {
+    Object.assign(artifactsLeft, owned.artifacts);
+    kept.push(`rt's Codex hook program, because ${sessionsWord(bindings)} on it. Run rt uninstall again once ${bindings === 1 ? "it ends" : "they end"} to remove it`);
+  } else {
+    for (const [path, digest] of artifacts) {
+      const fate = dropArtifact(deps.home, path, digest);
+      if (fate === "removed") removed.push(`the hook program ${path}`);
+      if (fate === "changed") {
+        artifactsLeft[path] = digest;
+        kept.push(`${path}, which no longer holds the hook program rt put there`);
+      }
+    }
+  }
+
+  updateSetupState(probes, (s) => {
+    const next = { ...s };
+    const empty = Object.keys(hooksLeft).length === 0 && Object.keys(trustLeft).length === 0 && Object.keys(artifactsLeft).length === 0;
+    if (empty) delete next.codexPolicy;
+    else {
+      const cp = policyState(s);
+      next.codexPolicy = {
+        ...cp, hooks: hooksLeft, trust: trustLeft, artifacts: artifactsLeft,
+        reviewed: Object.fromEntries(Object.entries(cp.reviewed).filter(([p]) => p in hooksLeft)),
+      };
+    }
+    return next;
+  });
+  return { removed, kept };
 }

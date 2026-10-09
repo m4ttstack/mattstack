@@ -45,7 +45,42 @@ export interface CodexPolicyState {
   reviewed: Record<string, { hooks: string; at: string }>;
 }
 
-const EMPTY_STATE: SetupState = { v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };
+/**
+ * One thing rt recorded writing for an integration: where (`profile`, a
+ * config folder, or "" for every Claude config folder), what, and the
+ * value or fingerprint it wrote. Derived from the records above, so a state
+ * file from any rt reads the same way and nothing is migrated on disk.
+ */
+export type OwnedResource = {
+  integration: "claude" | "codex";
+  profile: string;
+  kind: "plugin" | "marketplace" | "mcp" | "hook" | "trust" | "artifact";
+  resource: string;
+  value: string;
+};
+
+export function ownedResources(state: SetupState): OwnedResource[] {
+  const out: OwnedResource[] = [
+    ...state.plugins.map((id): OwnedResource => ({ integration: "claude", profile: "", kind: "plugin", resource: id, value: id })),
+    ...state.marketplaces.map((src): OwnedResource => ({ integration: "claude", profile: "", kind: "marketplace", resource: src, value: src })),
+  ];
+  for (const [path, fingerprint] of Object.entries(state.codexMcp ?? {})) {
+    out.push({ integration: "codex", profile: dirname(path), kind: "mcp", resource: path, value: fingerprint });
+  }
+  const policy = state.codexPolicy;
+  for (const [path, commands] of Object.entries(policy?.hooks ?? {})) {
+    for (const command of commands) out.push({ integration: "codex", profile: dirname(path), kind: "hook", resource: path, value: command });
+  }
+  for (const [path, { hooks }] of Object.entries(policy?.trust ?? {})) {
+    for (const [key, hash] of Object.entries(hooks)) out.push({ integration: "codex", profile: dirname(path), kind: "trust", resource: `${path}#${key}`, value: hash });
+  }
+  for (const [path, digest] of Object.entries(policy?.artifacts ?? {})) {
+    out.push({ integration: "codex", profile: "", kind: "artifact", resource: path, value: digest });
+  }
+  return out;
+}
+
+const EMPTY_STATE: SetupState ={ v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };
 
 export function setupStatePath(home: string): string {
   return join(home, ".mattstack", "rt", "setup-state.json");

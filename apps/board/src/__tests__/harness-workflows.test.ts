@@ -17,7 +17,12 @@ import {
   type Commands,
   type IntegrationSummary,
 } from '@mattstack/rt-client';
-import type { AgentIo, HarnessIo } from '../agent-launch.ts';
+import {
+  agentHarness,
+  SwitchedOffRefusal,
+  type AgentIo,
+  type HarnessIo,
+} from '../agent-launch.ts';
 import { callerSession, resolveCallerSession } from '../caller-session.ts';
 import { migrateLegacySessions } from '../gates/legacy-session-migration.ts';
 import { resumeParkedGate, type KindResumeIo } from '../gates/resume.ts';
@@ -752,5 +757,92 @@ describe('Claude board panes name their status writer for the mod', () => {
       async () => null
     );
     expect(off.starts[0]!.env).toEqual({ MATTSTACK_PACK: 'acme' });
+  });
+});
+
+describe('the switch turned off after a Codex launch', () => {
+  const kindIo: KindResumeIo = {
+    readState: () => undefined,
+    writeState: () => {},
+    filePath: () => '/board/state/review-4821.json',
+    resolveSkill: () => 'acme:board-review',
+    resolvePack: () => undefined,
+    prompt: async (mrUrl, statePath, skill, gate, kind, resolvePath, harness) =>
+      dispatchPrompt(
+        'board:review',
+        {
+          mrUrl,
+          statePath,
+          statusBin: '/board/bin/board',
+          skill,
+          resumedGate: gate,
+          resumedGateKind: kind,
+        },
+        resolvePath,
+        harness
+      ),
+    resumedStatus: 'reviewing',
+    workspaceLabel: 'reviews',
+  };
+  const gate = {
+    gateId: 'g-1',
+    kind: 'review-post',
+    mrUrl: MR,
+    iid: 4821,
+    agentId: 'agent-1',
+  } as GateState;
+
+  async function resumeWith(harness: HarnessIo) {
+    const notes: string[] = [];
+    const prompts: string[] = [];
+    const ok = await resumeParkedGate(
+      gate,
+      {
+        resumers: { 'review-post': kindIo },
+        agentHarness: id => agentHarness(id, harness),
+        resumeAgentPane: async opts => {
+          prompts.push(opts.prompt);
+          return {
+            agentId: opts.agentId,
+            sessionId: 's',
+            paneId: 'w1:p2',
+            tabId: 'w1:t2',
+            workspaceId: 'w1',
+            focusedExisting: false,
+          };
+        },
+        notify: message => notes.push(message),
+      },
+      async () => null
+    );
+    return { ok, notes, prompts };
+  }
+
+  test('a parked Codex agent is refused in plain words, never sent the Claude slash prompt', async () => {
+    const off = { ...codexOnly(), switchOn: () => false };
+    await expect(agentHarness('agent-1', off)).rejects.toBeInstanceOf(
+      SwitchedOffRefusal
+    );
+    const { ok, notes, prompts } = await resumeWith(off);
+    expect(ok).toBe(false);
+    expect(prompts).toEqual([]);
+    expect(notes).toEqual([
+      'This agent runs in codex, and agent integrations are turned off, so the board can only resume Claude. Turn agent integrations back on to resume it.',
+    ]);
+  });
+
+  test('a Claude agent, or one the board cannot read, resumes as it always did', async () => {
+    const claude = { ...codexOnly('claude'), switchOn: () => false };
+    expect(
+      (await resumeWith(claude)).prompts[0]!.startsWith('/board:review ')
+    ).toBe(true);
+    const unreadable: HarnessIo = {
+      ...codexOnly(),
+      switchOn: () => false,
+      agentGet: async () => ({ ok: false, error: 'daemon down' }),
+    };
+    expect(
+      (await resumeWith(unreadable)).prompts[0]!.startsWith('/board:review ')
+    ).toBe(true);
   });
 });

@@ -9,6 +9,7 @@ import { stripJsonc } from "../jsonc.ts";
 import type { ApplyContext } from "./apply.ts";
 import { installPlugins } from "./steps/plugins.ts";
 import { materializeSkills } from "./skills-materialize.ts";
+import { selectionFor } from "./integration-selection.ts";
 
 const DEFAULT_WORK_TYPE = "feature";
 
@@ -51,7 +52,7 @@ export async function setupPackFlow(ctx: ApplyContext): Promise<{ ok: boolean; s
   const pluginsOutcome = await installPlugins(ctx);
   if (pluginsOutcome.state === "failed") return { ok: false, detail: pluginsOutcome.detail };
 
-  const materialized = await materializeSkills(ctx.p, {});
+  const materialized = await materializeSkills(ctx.p, {}, selectionFor(ctx));
   if (!materialized.skipped) {
     for (const r of materialized.repos) {
       if (!r.ok) ctx.log("plugins.install", `materialize ${r.name}: ${r.detail}`);

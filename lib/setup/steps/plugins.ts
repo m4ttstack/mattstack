@@ -220,7 +220,7 @@ export function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketpla
 }
 
 async function runMaterializeAfterInstall(ctx: ApplyContext): Promise<string> {
-  const result = await materializeSkills(ctx.p, {});
+  const result = await materializeSkills(ctx.p, {}, selectionFor(ctx));
   if (result.skipped) {
     ctx.log("plugins.install", `materialize: ${result.reason}`);
     return `Skills were not materialized: ${result.reason}`;

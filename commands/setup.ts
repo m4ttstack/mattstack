@@ -30,8 +30,6 @@ import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts"
 import { harnessSelected, readIntegrationSelection } from "../lib/setup/integration-selection.ts";
 import { canonicalCodexProfile } from "../lib/agent-integrations/codex/profile.ts";
 import type { Block } from "../lib/ui/protocol.ts";
-import { setupSteps } from "../lib/setup/steps/agent-integrations.ts";
-import { STEPS } from "../lib/setup/steps/index.ts";
 import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
 import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
@@ -220,20 +218,20 @@ function applyFlags(args: string[]): { nonInteractive: boolean; teamOfOne: boole
  * construction, not by checking the flag.
  */
 /** A step-id flag with no value (or immediately followed by another flag, e.g. a trailing `--from --json`) is the same failure as an unknown step id: silently falling back to "no flag" would redo the whole install instead of refusing. */
-function resolveStepArg(args: string[], flag: "--from" | "--only"): StepId | undefined {
+function resolveStepArg(args: string[], flag: "--from" | "--only", steps: readonly StepDef[]): StepId | undefined {
   const i = args.indexOf(flag);
   if (i < 0) return undefined;
   const value = args[i + 1];
   if (value === undefined || value.startsWith("--")) {
-    throw new UserActionableError("unknown-step", `${flag} needs a step. Steps: ${knownStepIds(setupSteps(STEPS, readIntegrationSelection())).join(", ")}`);
+    throw new UserActionableError("unknown-step", `${flag} needs a step. Steps: ${knownStepIds(steps).join(", ")}`);
   }
   return value as StepId;
 }
 
-/** `--from` resumes at a step and runs everything after it; `--only` runs that one step. A run cannot be both, and picking one silently would run either far more or far less than the caller asked for. */
-function resolveStepSelection(args: string[]): { from?: StepId; only?: StepId } {
-  const from = resolveStepArg(args, "--from");
-  const only = resolveStepArg(args, "--only");
+/** `--from` resumes at a step and runs everything after it; `--only` runs that one step. A run cannot be both, and picking one silently would run either far more or far less than the caller asked for. `steps` is the run's own list, so the ids it names are the ones that run accepts. */
+function resolveStepSelection(args: string[], steps: readonly StepDef[]): { from?: StepId; only?: StepId } {
+  const from = resolveStepArg(args, "--from", steps);
+  const only = resolveStepArg(args, "--only", steps);
   if (from !== undefined && only !== undefined) {
     throw new UserActionableError("unknown-step", "--from and --only cannot be combined: --from resumes from a step, --only runs just that one");
   }
@@ -280,7 +278,6 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
   let selection: { from?: StepId; only?: StepId } = {};
   try {
     await gateHardPreconditions(args, deps);
-    selection = resolveStepSelection(args);
     const ctx: ApplyContext = await createApplyContext({
       probes: deps.probes,
       emit,
@@ -291,8 +288,10 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
       needOpts: deps.needOpts,
       ...(human ? { tip: human.tip } : {}),
     });
+    const steps = deps.steps ?? stepsForRun(ctx);
+    selection = resolveStepSelection(args, steps);
     await human?.settle();
-    result = await runApplyWith(deps.steps ?? stepsForRun(ctx), ctx, selection);
+    result = await runApplyWith(steps, ctx, selection);
   } catch (err) {
     await human?.flush();
     if (err instanceof UserActionableError) {

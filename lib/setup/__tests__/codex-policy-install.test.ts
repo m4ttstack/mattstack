@@ -513,10 +513,10 @@ describe("codex.policy step", () => {
     apply: (p, reviewed) => applyCodexPolicyInstall(p, reviewed, world.deps),
   });
 
-  test("is a Codex step only, outside the shared contract and never update-safe", () => {
+  test("is a Codex step only, outside the shared contract, and update-safe through its ownership records", () => {
     expect((INTEGRATION_STEP_IDS as readonly string[]).includes("codex.policy")).toBe(true);
     expect((STEP_IDS as readonly string[]).includes("codex.policy")).toBe(false);
-    expect(codexPolicyStep.updateSafe).toBeUndefined();
+    expect(codexPolicyStep.updateSafe).toBe(true);
     const off = setupSteps(STEPS, { switchOn: false });
     expect(off).toBe(STEPS);
     expect(knownStepIds(off)).toEqual([...STEP_IDS]);

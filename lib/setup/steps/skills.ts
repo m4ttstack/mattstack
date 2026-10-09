@@ -26,13 +26,13 @@ import { resolveForge } from "./forge-identity.ts";
 import { repoBasename, skippedIdentities } from "./repos.ts";
 import { toFailedOutcome, unwritten } from "./step-utils.ts";
 import { codexUserSkillsDir } from "../../agent-integrations/codex/skills.ts";
-import { harnessSelected, noHarnessDetail, stepSelectionFor, type IntegrationSelection } from "../integration-selection.ts";
+import { harnessSelected, noHarnessDetail, selectionFor, stepSelectionFor, type IntegrationSelection } from "../integration-selection.ts";
 import { codexHomeOf } from "../validators/codex.ts";
 
 // ─── skills.materialize ──────────────────────────────────────────────────────
 
 async function skillsMaterializeRun(ctx: ApplyContext): Promise<StepOutcome> {
-  const result = await materializeSkills(ctx.p, {});
+  const result = await materializeSkills(ctx.p, {}, selectionFor(ctx));
   if (result.skipped) return { state: "skipped", detail: result.reason };
 
   for (const r of result.repos.filter((r) => !r.ok && !r.noManifest)) ctx.log("skills.materialize", `${r.name}: ${r.detail}`);

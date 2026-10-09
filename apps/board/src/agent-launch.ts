@@ -42,12 +42,32 @@ export async function selectLaunchHarness(
   });
 }
 
-/** The harness an existing agent record runs; undefined while the switch is off. */
+/** Why the board will not resume a non-Claude agent while the switch is off. */
+export class SwitchedOffRefusal extends Error {
+  constructor(provider: string) {
+    super(
+      `This agent runs in ${provider}, and agent integrations are turned off, so the board can only resume Claude. Turn agent integrations back on to resume it.`
+    );
+  }
+}
+
+/**
+ * The harness an existing agent record runs; undefined while the switch is
+ * off, when a resume is always Claude's. A record the board can read that
+ * names another harness is refused then, rather than sent Claude's prompt;
+ * one it cannot read resumes as it always did.
+ */
 export async function agentHarness(
   agentId: string,
   io: HarnessIo = defaultHarnessIo
 ): Promise<HarnessId | undefined> {
-  if (!io.switchOn()) return undefined;
+  if (!io.switchOn()) {
+    const res = await io.agentGet({ id: agentId }).catch(() => undefined);
+    const provider = res?.ok ? res.data?.provider : undefined;
+    if (provider !== undefined && provider !== 'claude')
+      throw new SwitchedOffRefusal(provider);
+    return undefined;
+  }
   const res = await io.agentGet({ id: agentId });
   if (!res.ok || !res.data)
     throw new Error(

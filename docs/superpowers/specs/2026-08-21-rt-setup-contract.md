@@ -247,7 +247,10 @@ minted (exit 2 `peering-not-embedded`).
 
 Action ids (v1, in order): `deck.managed-remove` · `services.unregister` ·
 `proxy.remove` · `path.unlink` · `shell.remove` · `extension.uninstall` ·
-`plugins.uninstall` · `data` (only with `--delete-data`) · `app.trash`.
+`plugins.uninstall` · `integrations.remove` (only where setup-state records
+something rt wrote for Codex) · `data` (only with `--delete-data`) ·
+`app.trash`. `integrations.remove` takes out each entry only while it is
+still exactly what rt wrote, and lists anything it kept in `stayed`.
 `deck.managed-remove` comes first because `services.unregister` stops deck.
 It skips, and lists deck's apps in `stayed`, while the other flavor's app is
 installed: both flavors' decks share one registry.

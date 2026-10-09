@@ -103,7 +103,10 @@ function cutTable(text: string): string | null {
   let end = start + 1;
   while (end < lines.length && !ANY_HEADER.test(lines[end]!)) end++;
   while (end > start + 1 && /^\s*(#.*)?$/.test(lines[end - 1]!)) end--;
-  return [...lines.slice(0, start), ...lines.slice(end)].join("\n");
+  const kept = [...lines.slice(0, start), ...lines.slice(end)];
+  // The blank line that separated the table from the one above goes with it.
+  if (start > 0 && kept[start - 1]!.trim() === "" && kept[start] !== undefined && kept[start]!.trim() === "") kept.splice(start - 1, 1);
+  return kept.join("\n");
 }
 
 /** The file's own text stays a prefix of the result, trailing blank lines included. */
@@ -137,4 +140,27 @@ export function editCodexMcpEntry(text: string | null, desired: CodexMcpEntry, m
   const sameRest = Bun.deepEquals(canonical(withoutServer(parsedAfter.config)), canonical(withoutServer(parsedBefore.config)));
   const oursRight = Bun.deepEquals(canonical(serverTable(parsedAfter.config)), canonical(desired));
   return sameRest && oursRight ? { ok: true, text: next } : { ok: false, reason: "would-change-other-settings" };
+}
+
+export type CodexMcpTable = { kind: "unparsable" } | { kind: "absent" } | { kind: "present"; fingerprint: string };
+
+/** The `mattstack` table as the file holds it now, whatever rt would write today. */
+export function readCodexMcpTable(text: string | null): CodexMcpTable {
+  if (text === null) return { kind: "absent" };
+  const parsed = parse(text);
+  if (!parsed.ok) return { kind: "unparsable" };
+  const table = serverTable(parsed.config);
+  return table === undefined ? { kind: "absent" } : { kind: "present", fingerprint: codexMcpFingerprint(table) };
+}
+
+/** Drops the `mattstack` table; the result must parse to the old file without it, with nothing else changed. */
+export function removeCodexMcpEntry(text: string): CodexMcpEdit {
+  const before = parse(text);
+  if (!before.ok) return { ok: false, reason: "unparsable" };
+  const cut = cutTable(text);
+  if (cut === null) return { ok: false, reason: "not-found" };
+  const after = parse(cut);
+  if (!after.ok) return { ok: false, reason: "would-change-other-settings" };
+  const same = Bun.deepEquals(canonical(after.config), canonical(withoutServer(before.config)));
+  return same ? { ok: true, text: cut } : { ok: false, reason: "would-change-other-settings" };
 }

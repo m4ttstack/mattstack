@@ -173,7 +173,7 @@ export type NeedRequest =
   | { type: "app-privileged"; op: "proxy-install" | "proxy-remove" | "proxy-trust" };
 
 /** Uninstall streams the same event shapes with these ids (contract §uninstall: "NDJSON like apply"). */
-export type UninstallActionId = "services.unregister" | "deck.managed-remove" | "proxy.remove" | "path.unlink" | "shell.remove" | "extension.uninstall" | "plugins.uninstall" | "cron.uninstall" | "data" | "app.trash";
+export type UninstallActionId = "services.unregister" | "deck.managed-remove" | "proxy.remove" | "path.unlink" | "shell.remove" | "extension.uninstall" | "plugins.uninstall" | "integrations.remove" | "cron.uninstall" | "data" | "app.trash";
 
 /** A one-time migration on the update stream; the tail is the migration's own id. */
 export type MigrationEventId = `migration.${string}`;

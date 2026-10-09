@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { STEPS } from "../steps/index.ts";
+import { createIntegrationSteps } from "../steps/agent-integrations.ts";
 import { MIGRATIONS } from "../migrations/index.ts";
 import type { StepId } from "../contract.ts";
 
@@ -22,6 +23,12 @@ const UPDATE_SAFE: StepId[] = [
 describe("update-safe steps", () => {
   test("exactly the audited set is flagged, in contract order", () => {
     expect(STEPS.filter((s) => s.updateSafe).map((s) => s.id)).toEqual(UPDATE_SAFE);
+  });
+
+  test("of the integration steps, exactly Codex's own are update-safe: their ownership records say what rt wrote", () => {
+    const steps = createIntegrationSteps(["claude", "codex"]).filter((s) => !STEPS.includes(s));
+    expect(steps.filter((s) => s.updateSafe).map((s) => s.id)).toEqual(["codex.mcp", "codex.policy"]);
+    for (const s of steps.filter((s) => s.updateSafe)) expect(s.kind).toBe("rt");
   });
 
   test("an update-safe step never needs the app", () => {
