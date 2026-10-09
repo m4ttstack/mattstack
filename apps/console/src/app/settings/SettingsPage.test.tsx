@@ -416,12 +416,20 @@ describe('SettingsPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('the Agents Codex tab swaps the provider keys and drops account', async () => {
+  it('Agents lists both providers keys in labelled runs, with no switch', async () => {
     renderPage();
-    expect(await screen.findByText('account')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('radio', { name: 'Codex' }));
-    expect(screen.queryByText('account')).toBeNull();
-    expect(screen.getByText('agent.codex.')).toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'Agents' });
+    const agents = document.getElementById('settings-agents')!;
+    expect(await within(agents).findByText('account')).toBeInTheDocument();
+    expect(within(agents).getAllByText('agent.codex.').length).toBeGreaterThan(
+      0
+    );
+    expect(
+      Array.from(agents.querySelectorAll('.mantine-Divider-label')).map(
+        l => l.textContent
+      )
+    ).toEqual(['Claude', 'Codex']);
+    expect(within(agents).queryByRole('radio', { name: 'Codex' })).toBeNull();
   });
 
   it('a failed load shows an alert and keeps the toolbar', async () => {
@@ -440,40 +448,34 @@ describe('SettingsPage', () => {
     });
   });
 
-  it('Agents follows the filter to the provider that has matches, then returns to the chosen tab', async () => {
-    defsResponse = serve([
-      ...DEFS.filter(d => d.key !== 'agent.codex.effort'),
-      def('agent.codex.effort', {
-        effective: { scope: 'user', file: '/u', value: 'high' },
-      }),
-    ]);
-    renderPage();
-    expect(await screen.findByText('account')).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Claude' })).toBeChecked();
-    await userEvent.click(screen.getByRole('radio', { name: 'user' }));
-    expect(screen.getByText('effort')).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked();
-    await userEvent.click(screen.getByRole('radio', { name: 'any' }));
-    expect(screen.getByRole('radio', { name: 'Claude' })).toBeChecked();
-    expect(screen.getByText('account')).toBeInTheDocument();
-    expect(screen.queryByText('effort')).toBeNull();
-  });
-
-  it('opens Agents on the effective provider even when the filter hides agent.provider', async () => {
+  it('the filter narrows Agents to the keys that match, under their run', async () => {
     window.history.replaceState(null, '', '/settings?q=effort');
     defsResponse = serve([
-      def('agent.provider', {
-        effective: { scope: 'user', file: '/u', value: 'codex' },
-      }),
+      def('agent.provider'),
       def('agent.claude.effort'),
       def('agent.codex.effort'),
     ]);
     renderPage();
-    expect(await screen.findAllByText('agent.codex.')).not.toHaveLength(0);
-    expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked();
-    expect(screen.queryAllByText('agent.claude.')).toHaveLength(0);
-    expect(screen.getByText('1 of 3')).toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'Agents' });
+    const agents = document.getElementById('settings-agents')!;
+    expect(
+      await within(agents).findByRole('button', {
+        name: 'open agent.claude.effort',
+      })
+    ).toBeInTheDocument();
+    expect(
+      within(agents).getByRole('button', { name: 'open agent.codex.effort' })
+    ).toBeInTheDocument();
+    expect(
+      Array.from(agents.querySelectorAll('.mantine-Divider-label')).map(
+        l => l.textContent
+      )
+    ).toEqual(['Claude', 'Codex']);
+    expect(
+      within(agents).queryByRole('button', { name: 'open agent.provider' })
+    ).toBeNull();
   });
+
   it('marks the group in view in the index as the reader scrolls', async () => {
     renderPage();
     await screen.findByRole('heading', { name: 'Board' });
@@ -664,7 +666,7 @@ describe('open rows', () => {
     );
   });
 
-  it('a link to an Agents key of the provider not shown switches the section to it', async () => {
+  it('a link to an Agents codex key opens and reveals it', async () => {
     window.history.replaceState(
       null,
       '',
@@ -672,7 +674,6 @@ describe('open rows', () => {
     );
     renderPage();
     await screen.findByRole('button', { name: 'close agent.codex.effort' });
-    expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked();
     await waitFor(() =>
       expect(scrolled.mock.contexts).toContain(rowOf('agent.codex.effort'))
     );

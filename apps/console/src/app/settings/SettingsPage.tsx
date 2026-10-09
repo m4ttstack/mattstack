@@ -46,7 +46,6 @@ import { useSectionSpy } from './useSectionSpy';
 import {
   buildSections,
   needsFixing,
-  type Provider,
   type ScopeFilter,
   type Section,
 } from './view';
@@ -205,11 +204,6 @@ export function SettingsPage() {
     [store.defs, query, needsFixingOnly, scope, openKey, other]
   );
   const total = store.defs.length;
-  const agentProvider: Provider =
-    store.defs.find(d => d.key === 'agent.provider')?.effective.value ===
-    'codex'
-      ? 'codex'
-      : 'claude';
   const shown = sections.reduce((n, s) => n + s.shown, 0);
   const broken = store.defs.filter(needsFixing).length;
   const filtering = query !== '' || needsFixingOnly || scope !== 'any';
@@ -479,7 +473,6 @@ export function SettingsPage() {
                                 store={store}
                                 query={query}
                                 filtering={filtering}
-                                agentProvider={agentProvider}
                                 open={openRow.open}
                                 onOpenChange={(key, next) =>
                                   openRow.set(next ? { key, ...next } : null)

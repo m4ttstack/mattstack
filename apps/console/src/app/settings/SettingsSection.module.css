@@ -117,3 +117,14 @@
 .block > :last-child:not([data-open]) {
   border-bottom-color: transparent;
 }
+
+/* A provider's run of keys inside the Agents group: its name and a hairline,
+   like the sidebar's group titles. Its own line opens the run, so the row
+   above draws none. */
+.run {
+  padding: 18px 12px 6px;
+}
+
+.block > :has(+ .run) {
+  border-bottom-color: transparent;
+}

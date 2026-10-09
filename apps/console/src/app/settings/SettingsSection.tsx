@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Box,
+  Divider,
   Group,
-  SegmentedControl,
   Stack,
   Text,
   Title,
@@ -119,11 +119,23 @@ function countText(filtering: boolean, shown: number, total: number) {
   return filtering ? `${shown} of ${total}` : String(total);
 }
 
+const PROVIDER_LABEL: Record<Provider, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+};
+
+/** Which run of the Agents group a key belongs to: the provider switch
+    itself, then each provider's own keys. */
+function agentRun(key: string): Provider | null {
+  return providerOf(key);
+}
+
+/** The Agents group lists every key like any other group, with each
+    provider's keys as a labelled run after `agent.provider`. */
 function AgentsSection({
   section,
   store,
   filtering,
-  initialProvider,
   query,
   open,
   onOpenChange,
@@ -133,61 +145,66 @@ function AgentsSection({
   section: Section;
   store: PanelStore;
   filtering: boolean;
-  initialProvider: Provider;
 } & RowWiring) {
-  const all = section.subsections.flatMap(s => s.defs);
-  const [chosen, setChosen] = useState<Provider>(
-    () => providerOf(open?.key) ?? initialProvider
-  );
-  const shownFor = (p: Provider) =>
-    all.some(d => d.key.startsWith(`agent.${p}.`));
-  const other: Provider = chosen === 'claude' ? 'codex' : 'claude';
-  // Derived, never written back: clearing the filter returns to `chosen`.
-  const provider = !shownFor(chosen) && shownFor(other) ? other : chosen;
-  const models = useAgentModels(provider);
-  const suggestions = (models.data?.models ?? []).map(m => m.value);
-  const defs = all.filter(
-    d => d.key === 'agent.provider' || d.key.startsWith(`agent.${provider}.`)
-  );
+  const claude = useAgentModels('claude');
+  const codex = useAgentModels('codex');
+  const suggestions: Record<Provider, string[]> = {
+    claude: (claude.data?.models ?? []).map(m => m.value),
+    codex: (codex.data?.models ?? []).map(m => m.value),
+  };
+  const shown = section.subsections.reduce((n, s) => n + s.defs.length, 0);
+  const row = (
+    def: Section['subsections'][number]['defs'][number],
+    scope: StoreScope
+  ) => {
+    const run = agentRun(def.key);
+    return (
+      <SettingRow
+        key={def.key}
+        def={def}
+        store={store}
+        subhead={scope}
+        query={query}
+        suggestions={
+          run && def.key.endsWith('.model') ? suggestions[run] : undefined
+        }
+        onFix={onFix}
+        open={rowOpen(def.key, open)}
+        onOpenChange={next => onOpenChange(def.key, next)}
+        onPickRepo={onPickRepo}
+      />
+    );
+  };
   return (
     <Box component="section" id="settings-agents" className={classes.section}>
       <Header
         section={section}
-        count={countText(filtering, defs.length, section.total)}
-        right={
-          <SegmentedControl
-            size="sm"
-            withItemsBorders={false}
-            value={provider}
-            onChange={v => setChosen(v as Provider)}
-            data={[
-              { value: 'claude', label: 'Claude' },
-              { value: 'codex', label: 'Codex' },
-            ]}
-          />
-        }
+        count={countText(filtering, shown, section.total)}
       />
       {section.subsections.map(sub => {
-        const rows = sub.defs.filter(d => defs.includes(d));
-        if (rows.length === 0) return null;
+        const general = sub.defs.filter(d => agentRun(d.key) === null);
+        const runs = (['claude', 'codex'] as const)
+          .map(p => ({ p, defs: sub.defs.filter(d => agentRun(d.key) === p) }))
+          .filter(r => r.defs.length > 0);
         return (
           <ScopeBlock key={sub.scope} scope={sub.scope}>
-            {rows.map(def => (
-              <SettingRow
-                key={def.key}
-                def={def}
-                store={store}
-                subhead={sub.scope}
-                query={query}
-                suggestions={
-                  def.key.endsWith('.model') ? suggestions : undefined
-                }
-                onFix={onFix}
-                open={rowOpen(def.key, open)}
-                onOpenChange={next => onOpenChange(def.key, next)}
-                onPickRepo={onPickRepo}
-              />
-            ))}
+            {general.map(def => row(def, sub.scope))}
+            {runs.map(({ p, defs }) => [
+              <Divider
+                key={`run-${p}`}
+                className={classes.run}
+                label={PROVIDER_LABEL[p]}
+                labelPosition="left"
+                styles={{
+                  label: {
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: 'var(--tk-text-1)',
+                  },
+                }}
+              />,
+              ...defs.map(def => row(def, sub.scope)),
+            ])}
           </ScopeBlock>
         );
       })}
@@ -199,7 +216,6 @@ export function SettingsSection({
   section,
   store,
   filtering,
-  agentProvider,
   bare = false,
   query,
   open,
@@ -210,7 +226,6 @@ export function SettingsSection({
   section: Section;
   store: PanelStore;
   filtering: boolean;
-  agentProvider: Provider;
   /** Drops the group's title row, for a host that already titles it. */
   bare?: boolean;
 } & RowWiring) {
@@ -220,7 +235,6 @@ export function SettingsSection({
         section={section}
         store={store}
         filtering={filtering}
-        initialProvider={agentProvider}
         query={query}
         open={open}
         onOpenChange={onOpenChange}
