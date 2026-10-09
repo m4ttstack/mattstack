@@ -141,7 +141,6 @@ export const STEP_IDS = [
   "plugins.install",
   "linear.mcp",
   "claude.permissions",
-  "codex.mcp",
   "fastbrowser.setup",
   "herdr.integration",
   "extension.install",
@@ -149,7 +148,24 @@ export const STEP_IDS = [
   "snapshot.push",
   "verify",
 ] as const;
-export type StepId = (typeof STEP_IDS)[number];
+/**
+ * Steps a harness's install adapter adds. They are not in `STEP_IDS`: a run
+ * that does not install for that harness neither lists nor accepts them.
+ */
+export const INTEGRATION_STEP_IDS = ["codex.mcp"] as const;
+export type StepId = (typeof STEP_IDS)[number] | (typeof INTEGRATION_STEP_IDS)[number];
+
+/** Every step in run order: each integration step sits right after the shared step it follows. */
+export const STEP_ORDER: readonly StepId[] = (() => {
+  const at = STEP_IDS.indexOf("claude.permissions") + 1;
+  return [...STEP_IDS.slice(0, at), ...INTEGRATION_STEP_IDS, ...STEP_IDS.slice(at)];
+})();
+
+/** The ids a run over `steps` accepts and lists: the shared contract plus whichever integration steps the run carries, in run order. */
+export function knownStepIds(steps: readonly { id: StepId }[]): StepId[] {
+  const carried = new Set<StepId>(steps.map((s) => s.id));
+  return STEP_ORDER.filter((id) => (STEP_IDS as readonly StepId[]).includes(id) || carried.has(id));
+}
 
 export type NeedRequest =
   | { type: "app-register-services"; plists: string[] }

@@ -10,8 +10,10 @@ import { codexMcpStep, createCodexInstall } from "../../agent-integrations/codex
 import { createClaudeInstall } from "../../agent-integrations/claude/install.ts";
 import { codexMcpEntry, codexMcpFingerprint, editCodexMcpEntry, readCodexMcpState, renderCodexMcpTable } from "../../agent-integrations/codex/mcp-config.ts";
 import { personalSkillsDir } from "../../skills/writing-style-sources.ts";
-import { stepsForRun, type ApplyContext, type StepOutcome } from "../apply.ts";
-import type { Row } from "../contract.ts";
+import { builtinRegistry } from "../../agent-integrations/builtins.ts";
+import { BUILTIN_HARNESS_IDS } from "../../agent-integrations/harness-ids.ts";
+import { runApplyWith, stepsForRun, type ApplyContext, type StepOutcome } from "../apply.ts";
+import { knownStepIds, STEP_IDS, type ApplyEvent, type Row } from "../contract.ts";
 import { fastBrowserHost, herdrHosts, type IntegrationSelection } from "../integration-selection.ts";
 import { composePlan } from "../plan.ts";
 import type { Probes } from "../probes.ts";
@@ -176,6 +178,50 @@ describe("setup for the enabled harnesses", () => {
     expect(p.calls.writes[join(home, ".codex", "config.toml")]).toContain("[mcp_servers.mattstack]");
   });
 
+  test("every step of a Codex-only apply spawns only Codex and shared setup, and writes nothing of Claude's", async () => {
+    const { p, spawns } = codexMac(home);
+    const { ctx } = makeCtx(p, { integrations: CODEX_ONLY });
+    const steps = stepsForRun(ctx).filter((s) => s.applies(ctx));
+    const ran: Record<string, string> = {};
+    // Each step runs on its own: a fake Mac fails some shared steps (no keychain), and a failure must not hide a later step's spawns.
+    for (const step of steps) ran[step.id] = (await step.run(ctx).catch((err: unknown) => ({ state: `threw: ${String(err)}` }))).state;
+    expect(ran["codex.mcp"]).toBe("done");
+    for (const id of ["plugins.install", "linear.mcp", "claude.permissions"]) expect(Object.keys(ran)).not.toContain(id);
+    expect(spawns.length).toBeGreaterThan(0);
+    expect(spawns.filter(namesClaude)).toEqual([]);
+    expect(Object.keys(p.calls.writes).filter((path) => path.startsWith(join(home, ".claude")))).toEqual([]);
+    expect(existsSync(join(home, ".claude"))).toBe(false);
+    expect(existsSync(join(home, ".claude.json"))).toBe(false);
+  });
+
+  test("an update run on a Codex-only Mac spawns no Codex setup and touches no Codex skill link", async () => {
+    const dir = join(personalSkillsDir(home), "my-voice");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), "---\nname: my-voice\ndescription: x\n---\nbody\n");
+    const { p, spawns } = codexMac(home);
+    const { ctx } = makeCtx(p, { integrations: CODEX_ONLY, update: true });
+    const outcomes: Record<string, StepOutcome> = {};
+    for (const step of stepsForRun(ctx).filter((s) => ["skills.link", "fastbrowser.setup", "herdr.integration"].includes(s.id))) outcomes[step.id] = await step.run(ctx);
+    expect(outcomes).toEqual({
+      "skills.link": { state: "skipped", detail: "Codex is set up by Install, not by an update" },
+      "fastbrowser.setup": { state: "skipped", detail: "Codex is set up by Install, not by an update" },
+      "herdr.integration": { state: "skipped", detail: "Codex is set up by Install, not by an update" },
+    });
+    expect(spawns).toEqual([]);
+    expect(existsSync(join(home, ".codex", "skills"))).toBe(false);
+  });
+
+  test("an update run on a mixed Mac keeps Claude's legs and drops Codex's", async () => {
+    const { p, spawns } = codexMac(home);
+    const { ctx } = makeCtx(p, { integrations: BOTH, update: true });
+    await STEPS.find((s) => s.id === "fastbrowser.setup")!.run(ctx);
+    await STEPS.find((s) => s.id === "herdr.integration")!.run(ctx);
+    expect(spawns.map((s) => s.argv)).toEqual([
+      ["/usr/local/bin/fast-browser", "setup", "--host", "claude", "--source", "https://github.com/m4ttstack/mattstack-marketplace.git"],
+      ["herdr", "integration", "install", "claude"],
+    ]);
+  });
+
   test("an update run on a Codex-only Mac runs no Claude step", () => {
     const { p } = codexMac(home);
     const { ctx } = makeCtx(p, { integrations: CODEX_ONLY });
@@ -234,11 +280,30 @@ describe("setup for the enabled harnesses", () => {
 
   test("with the switch off, setup is today's: the same registry and the Claude host", () => {
     expect(setupSteps(STEPS, OFF)).toBe(STEPS);
+    expect(STEPS.map((s) => s.id)).not.toContain("codex.mcp");
+    expect(knownStepIds(setupSteps(STEPS, OFF))).toEqual([...STEP_IDS]);
+    expect(knownStepIds(setupSteps(STEPS, CLAUDE_ONLY))).toEqual([...STEP_IDS]);
     expect(fastBrowserHost(OFF)).toBe("claude");
     expect(herdrHosts(OFF)).toEqual(["claude"]);
     const { p } = codexMac(home);
     expect(codexMcpStep.applies(makeCtx(p, { integrations: OFF }).ctx)).toBe(false);
     expect(codexMcpStep.applies(makeCtx(p, { integrations: CODEX_ONLY }).ctx)).toBe(true);
+  });
+
+  test("with Codex selected, codex.mcp is a step the run lists and accepts, after Claude's", async () => {
+    const ids = knownStepIds(setupSteps(STEPS, CODEX_ONLY));
+    expect(ids.indexOf("codex.mcp")).toBe(ids.indexOf("fastbrowser.setup") - 1);
+    const steps = setupSteps(STEPS, BOTH).map((s) => s.id);
+    expect(steps.indexOf("codex.mcp")).toBe(steps.indexOf("claude.permissions") + 1);
+    const { p } = codexMac(home);
+    const events: ApplyEvent[] = [];
+    const { ctx } = makeCtx(p, { integrations: CODEX_ONLY, emit: (e) => events.push(e) });
+    expect(await runApplyWith(stepsForRun(ctx), ctx, { only: "codex.mcp" })).toEqual({ ok: true });
+    expect(events.filter((e) => e.event === "step").map((e) => (e as { id: string }).id)).toEqual(["codex.mcp", "codex.mcp"]);
+  });
+
+  test("the built-in harness ids match the registry", () => {
+    expect(builtinRegistry().list().map((i) => i.id)).toEqual([...BUILTIN_HARNESS_IDS]);
   });
 
   test("with the switch off, the tools rows are Claude's and never Codex's", async () => {
@@ -264,6 +329,11 @@ describe("setup for the enabled harnesses", () => {
       expect(row.status).toBe("missing");
       expect(row.required).toBe(true);
       expect(row.action?.type).toBe("steps");
+    });
+
+    test("a sign-in check that fails for another reason is not read as signed out", async () => {
+      const row = await codexToolRow(codexMac(home, { exec: (argv) => (argv.join(" ") === "codex login status" ? { code: 2, stdout: "", stderr: "error: unrecognized subcommand 'status'" } : (undefined as never)) }).p);
+      expect(row).toMatchObject({ status: "needs-you", required: false, detail: "Codex 0.160.0 is installed, but the sign-in could not be checked. Confirm you are signed in" });
     });
 
     test("signed in reads ready with its version", async () => {
@@ -410,6 +480,11 @@ describe("setup for the enabled harnesses", () => {
       const added = editCodexMcpEntry(USER_CONFIG, entry, "append");
       expect(added.ok && readCodexMcpState(added.text, entry)).toEqual({ kind: "current" });
       expect(editCodexMcpEntry(USER_CONFIG, entry, "replace")).toEqual({ ok: false, reason: "not-found" });
+      for (const text of [`${USER_CONFIG}\n\n`, 'model = "o3"', "\n"]) {
+        const edit = editCodexMcpEntry(text, entry, "append");
+        expect(edit.ok && edit.text.startsWith(text)).toBe(true);
+        expect(edit.ok && readCodexMcpState(edit.text, entry)).toEqual({ kind: "current" });
+      }
     });
   });
 

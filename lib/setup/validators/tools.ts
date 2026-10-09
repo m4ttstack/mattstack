@@ -868,7 +868,7 @@ async function integrationWritingStyleRow(p: Probes, claudeList: ExecResult | nu
 const INTEGRATIONS_SETTINGS_STEPS: Action = {
   type: "steps",
   label: "Show steps…",
-  steps: ["Open a terminal", "Run: rt agent integrations", "Fix the agent.integrations setting it names"],
+  steps: ["Open a terminal", "Run: rt agent integrations", "Turn on the agent apps you use, and make your default one of them"],
 };
 
 /** Which harnesses this Mac sets up, and anything wrong with that choice. */

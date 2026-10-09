@@ -26,7 +26,7 @@ import { resolveForge } from "./forge-identity.ts";
 import { repoBasename, skippedIdentities } from "./repos.ts";
 import { toFailedOutcome, unwritten } from "./step-utils.ts";
 import { codexUserSkillsDir } from "../../agent-integrations/codex/skills.ts";
-import { harnessSelected, selectionFor, type IntegrationSelection } from "../integration-selection.ts";
+import { harnessSelected, noHarnessDetail, stepSelectionFor, type IntegrationSelection } from "../integration-selection.ts";
 import { codexHomeOf } from "../validators/codex.ts";
 
 // ─── skills.materialize ──────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export const skillsMaterializeStep: StepDef = {
 // ─── skills.link ─────────────────────────────────────────────────────────────
 
 async function skillsLinkRun(ctx: ApplyContext): Promise<StepOutcome> {
-  const selection = selectionFor(ctx);
+  const selection = stepSelectionFor(ctx);
   if (selection.switchOn) return skillsLinkForHosts(ctx, skillsHosts(ctx, selection));
   const personal = linkPersonalSkills(ctx.p.home);
   for (const a of personal?.actions ?? []) {
@@ -99,7 +99,7 @@ function skillsHosts(ctx: ApplyContext, selection: IntegrationSelection): Skills
 }
 
 async function skillsLinkForHosts(ctx: ApplyContext, hosts: SkillsHost[]): Promise<StepOutcome> {
-  if (hosts.length === 0) return { state: "skipped", detail: "No agent integration is turned on" };
+  if (hosts.length === 0) return { state: "skipped", detail: noHarnessDetail(ctx) };
 
   let personalCount = 0;
   let hasPersonal = false;

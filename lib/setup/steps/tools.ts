@@ -18,7 +18,7 @@ import { hasRemote } from "../home-git.ts";
 import type { Probes } from "../probes.ts";
 import { readSetupState } from "../state.ts";
 import { NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
-import { fastBrowserHost, herdrHosts, hostSetupFor, selectionFor } from "../integration-selection.ts";
+import { fastBrowserHost, herdrHosts, hostSetupFor, noHarnessDetail, stepSelectionFor } from "../integration-selection.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 function realSleep(ms: number): Promise<void> {
@@ -38,9 +38,9 @@ async function fastbrowserSetupRun(ctx: ApplyContext): Promise<StepOutcome> {
   const resolved = resolveTool(ctx.p, "fast-browser");
   if (!resolved.exec) return { state: "skipped", detail: "Fast Browser is not in this build" };
 
-  const selection = selectionFor(ctx);
+  const selection = stepSelectionFor(ctx);
   const host = fastBrowserHost(selection);
-  if (selection.switchOn && host === null) return { state: "skipped", detail: "No agent integration is turned on" };
+  if (selection.switchOn && host === null) return { state: "skipped", detail: noHarnessDetail(ctx) };
   const result = await setupTool(ctx.p, "fast-browser", { configDirs: [], marketplaceSource: fastBrowserMarketplaceSource(ctx.p.env), ...(selection.switchOn ? { host } : {}) });
   if (result.ok) return { state: "done", detail: result.detail };
 
@@ -79,9 +79,9 @@ async function herdrIntegrationRun(ctx: ApplyContext): Promise<StepOutcome> {
   const resolved = resolveTool(ctx.p, "herdr");
   if (!resolved.chosen) return { state: "skipped", detail: "herdr is not installed (see the Tools section)" };
 
-  const selection = selectionFor(ctx);
+  const selection = stepSelectionFor(ctx);
   const { configDirs, codexHomes } = hostSetupFor(ctx.p, selection);
-  if (configDirs.length === 0 && codexHomes.length === 0) return { state: "skipped", detail: "No agent integration is turned on" };
+  if (configDirs.length === 0 && codexHomes.length === 0) return { state: "skipped", detail: noHarnessDetail(ctx) };
   const result = await setupTool(ctx.p, "herdr", { configDirs, codexHomes });
   if (result.ok) return { state: "done", detail: result.detail };
   const commands = herdrHosts(selection).map((host) => `herdr integration install ${host}`).join(" or ");

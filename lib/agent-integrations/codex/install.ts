@@ -58,7 +58,7 @@ async function codexMcpRun(ctx: ApplyContext): Promise<StepOutcome> {
     return {
       state: "failed",
       detail: `rt could not add its entry to ${path} without changing your other Codex settings`,
-      remedy: `Move any ${CODEX_MCP_SERVER} settings out of inline tables in that file, then Retry.`,
+      remedy: "Check how that file lists its MCP servers, then Retry.",
     };
   }
   if (ctx.p.readFile(path) !== before) return { state: "failed", detail: `${path} changed while rt was reading it`, remedy: "Retry." };

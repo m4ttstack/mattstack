@@ -363,7 +363,7 @@ async function setupHerdr(p: Probes, configDirs: string[], codexHomes: string[])
 /** Exported so a caller classifying `SetupResult.detail` (extension.install's apply step) matches against the same value this emits, rather than a copy of the prose. */
 export const VSIX_NOT_FOUND_DETAIL = "The editor extension file was not found in the app or next to rt";
 export const NO_EDITORS_DETAIL = "No compatible editor found";
-export const NO_HOST_SELECTED_DETAIL = "No agent integration is turned on, so there is nothing to set up in";
+export const NO_HOST_SELECTED_DETAIL = "No agent app is turned on, so Fast Browser has nowhere to set up";
 export const NO_RECORDED_EDITORS_DETAIL = "No editor on this Mac has the extension from an earlier setup";
 
 /** `onlyEditors` narrows the install to those editor names; an editor it leaves out is never touched. */

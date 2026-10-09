@@ -11,11 +11,11 @@
 import type { HarnessId, IntegrationProblem, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
 import { explainSetting, getSetting, type ExplainRow } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
-import { builtinRegistry } from "./builtins.ts";
+import { BUILTIN_HARNESS_IDS } from "./harness-ids.ts";
 
 export const INTEGRATIONS_SETTING = "agent.integrations";
 
-const registeredIds = (): HarnessId[] => builtinRegistry().list().map((i) => i.id);
+const registeredIds = (): HarnessId[] => [...BUILTIN_HARNESS_IDS];
 
 const invalid = <T>(message: string): Outcome<T> => ({ ok: false, error: { code: "invalid", message } });
 

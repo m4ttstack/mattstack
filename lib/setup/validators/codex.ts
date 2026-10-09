@@ -65,9 +65,12 @@ export async function codexToolRow(p: Probes): Promise<Row> {
 
   const authRes = await exec(p, ["codex", "login", "status"]);
   if (authRes.code === 124) return row({ ...base, status: "error", detail: "Codex's sign-in check did not answer in time" });
-  // codex-cli 0.160 prints "Not logged in" and exits 1 when signed out.
   if (authRes.code === 0) return row({ ...base, status: "ready", detail: `${named}, signed in` });
-  return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "Not signed in yet. Run codex login and sign in", action: CODEX_SIGNIN_STEPS });
+  // codex-cli 0.160 prints "Not logged in" and exits 1 when signed out; any other failure says nothing about the sign-in.
+  if (/not logged in/i.test(`${authRes.stdout}\n${authRes.stderr}`)) {
+    return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "Not signed in yet. Run codex login and sign in", action: CODEX_SIGNIN_STEPS });
+  }
+  return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: `${named} is installed, but the sign-in could not be checked. Confirm you are signed in`, action: CODEX_SIGNIN_STEPS });
 }
 
 export function codexMcpRow(p: Probes): Row {

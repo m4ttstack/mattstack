@@ -27,11 +27,14 @@ import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
 import { createApplyContext, runApplyWith, runUpdateWith, stepsForRun, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
+import { readIntegrationSelection } from "../lib/setup/integration-selection.ts";
+import { setupSteps } from "../lib/setup/steps/agent-integrations.ts";
+import { STEPS } from "../lib/setup/steps/index.ts";
 import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
 import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
-import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
+import { envelope, knownStepIds, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
 import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/setup/emit.ts";
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
 import type { RenderStatus } from "../lib/ui/protocol.ts";
@@ -220,7 +223,7 @@ function resolveStepArg(args: string[], flag: "--from" | "--only"): StepId | und
   if (i < 0) return undefined;
   const value = args[i + 1];
   if (value === undefined || value.startsWith("--")) {
-    throw new UserActionableError("unknown-step", `${flag} needs a step. Steps: ${STEP_IDS.join(", ")}`);
+    throw new UserActionableError("unknown-step", `${flag} needs a step. Steps: ${knownStepIds(setupSteps(STEPS, readIntegrationSelection())).join(", ")}`);
   }
   return value as StepId;
 }

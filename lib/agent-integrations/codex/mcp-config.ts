@@ -106,10 +106,11 @@ function cutTable(text: string): string | null {
   return [...lines.slice(0, start), ...lines.slice(end)].join("\n");
 }
 
+/** The file's own text stays a prefix of the result, trailing blank lines included. */
 function appendTable(text: string, entry: CodexMcpEntry): string {
-  if (text.trim() === "") return renderCodexMcpTable(entry);
+  if (text.trim() === "") return `${text}${renderCodexMcpTable(entry)}`;
   const body = text.endsWith("\n") ? text : `${text}\n`;
-  return `${body.replace(/\n+$/, "\n")}\n${renderCodexMcpTable(entry)}`;
+  return `${body}${body.endsWith("\n\n") ? "" : "\n"}${renderCodexMcpTable(entry)}`;
 }
 
 export type CodexMcpEdit = { ok: true; text: string } | { ok: false; reason: "unparsable" | "would-change-other-settings" | "not-found" };

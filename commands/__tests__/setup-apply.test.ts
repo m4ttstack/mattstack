@@ -14,7 +14,7 @@ import {
   type IntentDeps,
 } from "../setup.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../../lib/setup/apply.ts";
-import type { ApplyEvent, StepId } from "../../lib/setup/contract.ts";
+import { STEP_IDS, type ApplyEvent, type StepId } from "../../lib/setup/contract.ts";
 import { intentPath, readIntent } from "../../lib/setup/intent.ts";
 import { isSetupFinished, readSetupState } from "../../lib/setup/state.ts";
 import type { RelayClient } from "../../lib/team/relay-client.ts";
@@ -298,6 +298,26 @@ describe("setupApply: exit-code table", () => {
     const events = deps.lines.map((l) => JSON.parse(l) as ApplyEvent);
     const stepEvents = events.filter((e) => e.event === "step");
     expect(stepEvents.map((e) => (e as { id: string }).id)).toEqual(["path.link", "path.link"]);
+  });
+
+  test("--only codex.mcp with the integrations switch off: the same unknown-step refusal as any id, listing only the shared steps", async () => {
+    const deps = baseApplyDeps({ steps: [neverRunsStep("path.link")] });
+
+    await runExpectingExit(() => setupApply(["--json", "--only", "codex.mcp"], {}, deps));
+
+    expect(deps.exitCodes).toEqual([2]);
+    expect(deps.lines).toHaveLength(1);
+    const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
+    expect(payload.error).toMatchObject({ code: "unknown-step", message: `--only does not name a step: codex.mcp. Steps: ${STEP_IDS.join(", ")}` });
+  });
+
+  test("--only with no value and the switch off lists only the shared steps", async () => {
+    const deps = baseApplyDeps({ steps: [neverRunsStep("path.link")] });
+
+    await runExpectingExit(() => setupApply(["--json", "--only"], {}, deps));
+
+    const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
+    expect(payload.error).toMatchObject({ code: "unknown-step", message: `--only needs a step. Steps: ${STEP_IDS.join(", ")}` });
   });
 
   test("--only bogus: exit 2 with code unknown-step", async () => {

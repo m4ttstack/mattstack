@@ -11,7 +11,7 @@ import { setSettingsNoticeSink } from "../settings/write.ts";
 import { createRealTeamSecretsSeams } from "../secrets/team-store.ts";
 import type { SecretsSeamsFactory } from "../team/join.ts";
 import type { RelayClient } from "../team/relay-client.ts";
-import { STEP_IDS, type EventId, type NeedRequest, type StepId, type StepKind, type StepState, type OrgRef } from "./contract.ts";
+import { knownStepIds, STEP_ORDER, type EventId, type NeedRequest, type StepId, type StepKind, type StepState, type OrgRef } from "./contract.ts";
 import type { Emit } from "./emit.ts";
 import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { readIntent, orgRefFromIntent, clearIntent, type SetupIntent } from "./intent.ts";
@@ -149,18 +149,18 @@ function stepEventFields(outcome: StepOutcome): { detail?: string; remedy?: stri
  * that is not a step id at all is a typo, not a resume point, and must never
  * quietly re-run the whole install.
  */
-function resumeStart(applicable: StepDef[], from: StepId | undefined): number {
+function resumeStart(applicable: StepDef[], from: StepId | undefined, known: StepId[]): number {
   if (from === undefined) return 0;
 
-  if (!STEP_IDS.includes(from)) {
-    throw new UserActionableError("unknown-step", `--from does not name a step: ${from}. Steps: ${STEP_IDS.join(", ")}`);
+  if (!known.includes(from)) {
+    throw new UserActionableError("unknown-step", `--from does not name a step: ${from}. Steps: ${known.join(", ")}`);
   }
 
   const exact = applicable.findIndex((s) => s.id === from);
   if (exact >= 0) return exact;
 
-  const fromPos = STEP_IDS.indexOf(from);
-  const next = applicable.findIndex((s) => STEP_IDS.indexOf(s.id) >= fromPos);
+  const fromPos = STEP_ORDER.indexOf(from);
+  const next = applicable.findIndex((s) => STEP_ORDER.indexOf(s.id) >= fromPos);
   return next < 0 ? applicable.length : next; // nothing left to run — everything at or after `from` is already gone from this run
 }
 
@@ -171,9 +171,9 @@ function resumeStart(applicable: StepDef[], from: StepId | undefined): number {
  * that happens to sit at its position: running a different one would be worse
  * than running none.
  */
-function onlyIndex(applicable: StepDef[], only: StepId): number {
-  if (!STEP_IDS.includes(only)) {
-    throw new UserActionableError("unknown-step", `--only does not name a step: ${only}. Steps: ${STEP_IDS.join(", ")}`);
+function onlyIndex(applicable: StepDef[], only: StepId, known: StepId[]): number {
+  if (!known.includes(only)) {
+    throw new UserActionableError("unknown-step", `--only does not name a step: ${only}. Steps: ${known.join(", ")}`);
   }
   const exact = applicable.findIndex((s) => s.id === only);
   return exact < 0 ? applicable.length : exact;
@@ -258,12 +258,13 @@ function settleLegacyFinish(ctx: ApplyContext): void {
  */
 export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { from?: StepId; only?: StepId } = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
   const applicable = steps.filter((s) => s.applies(ctx));
+  const known = knownStepIds(steps);
   let queue: StepDef[];
   if (opts.only !== undefined) {
-    const target = applicable[onlyIndex(applicable, opts.only)];
+    const target = applicable[onlyIndex(applicable, opts.only, known)];
     queue = target ? await onlyQueue(applicable, target, ctx) : [];
   } else {
-    queue = applicable.slice(resumeStart(applicable, opts.from));
+    queue = applicable.slice(resumeStart(applicable, opts.from, known));
   }
 
   ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: s.title, kind: s.kind })) });

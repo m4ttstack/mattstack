@@ -12,14 +12,14 @@ import type { HarnessInstall, InstallAdapter } from "../../agent-integrations/in
 import { writeIntegrationChoice, type IntegrationChoice } from "../../agent-integrations/preferences.ts";
 import type { Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
-import { STEP_IDS } from "../contract.ts";
+import { STEP_ORDER } from "../contract.ts";
 import type { IntegrationSelection } from "../integration-selection.ts";
 
 export const HARNESS_INSTALLS: readonly HarnessInstall[] = [claudeInstall, codexInstall];
 
 const ADAPTERS: Record<string, () => InstallAdapter> = { claude: createClaudeInstall, codex: createCodexInstall };
 
-const byContractOrder = (a: StepDef, b: StepDef): number => STEP_IDS.indexOf(a.id) - STEP_IDS.indexOf(b.id);
+const byContractOrder = (a: StepDef, b: StepDef): number => STEP_ORDER.indexOf(a.id) - STEP_ORDER.indexOf(b.id);
 
 /** The enabled harnesses' own steps, each once, in contract order; an id with no install adapter adds none. */
 export function createIntegrationSteps(enabled: HarnessId[]): StepDef[] {
@@ -32,12 +32,15 @@ export function createIntegrationSteps(enabled: HarnessId[]): StepDef[] {
 
 const ownedStepIds = (): Set<string> => new Set(Object.values(ADAPTERS).flatMap((make) => make().steps().map((s) => s.id)));
 
-/** `base` unchanged with the switch off; otherwise its shared steps plus only the enabled harnesses' own. */
+/** `base` unchanged with the switch off; otherwise its shared steps plus only the enabled harnesses' own, in run order. */
 export function setupSteps(base: StepDef[], selection: IntegrationSelection): StepDef[] {
   if (!selection.switchOn) return base;
   const owned = ownedStepIds();
-  const wanted = new Set(createIntegrationSteps(selection.enabled).map((s) => s.id));
-  return base.filter((s) => !owned.has(s.id) || wanted.has(s.id));
+  const wanted = createIntegrationSteps(selection.enabled);
+  const wantedIds = new Set(wanted.map((s) => s.id));
+  const kept = base.filter((s) => !owned.has(s.id) || wantedIds.has(s.id));
+  const added = wanted.filter((s) => !kept.some((k) => k.id === s.id));
+  return [...kept, ...added].sort(byContractOrder);
 }
 
 /**
