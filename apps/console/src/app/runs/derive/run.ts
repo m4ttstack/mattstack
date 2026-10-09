@@ -1,6 +1,7 @@
 import type { RunDecisionRow, RunStageRow } from '@mattstack/rt-client';
 
-export type FieldKind = 'cleared' | 'url' | 'sha-list' | 'json' | 'gate-ref' | 'text';
+export type FieldKind =
+  'cleared' | 'url' | 'sha-list' | 'json' | 'gate-ref' | 'text';
 
 const GATE_REF_KEYS = new Set(['waiting-gate', 'gate']);
 
@@ -31,8 +32,14 @@ export function heldSpans(stages: RunStageRow[], decisions: RunDecisionRow[]) {
     const m = HOLD_SCOPE.exec(d.scope);
     if (!m) continue;
     const [, stage, attempt] = m;
-    const next = stages.find(s => s.name === stage && s.attempt === Number(attempt) + 1);
-    spans.push({ stage: stage!, from: d.decided_at, to: next?.started_at ?? null });
+    const next = stages.find(
+      s => s.name === stage && s.attempt === Number(attempt) + 1
+    );
+    spans.push({
+      stage: stage!,
+      from: d.decided_at,
+      to: next?.started_at ?? null,
+    });
   }
   return spans;
 }

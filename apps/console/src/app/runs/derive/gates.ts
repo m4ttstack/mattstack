@@ -1,9 +1,20 @@
-import { optionLabel, optionValue, stripRecommended } from '@mattstack/gate-kit';
-import type { GateAnswer, GateQuestion, GateRow, RunStageRow } from '@mattstack/rt-client';
+import {
+  optionLabel,
+  optionValue,
+  stripRecommended,
+} from '@mattstack/gate-kit';
+import type {
+  GateAnswer,
+  GateQuestion,
+  GateRow,
+  RunStageRow,
+} from '@mattstack/rt-client';
 
 export function decisionLogForRun(gates: GateRow[], runId: string): GateRow[] {
   const subject = `run:${runId}`;
-  return gates.filter(g => g.subject === subject).sort((a, b) => a.openedAt - b.openedAt);
+  return gates
+    .filter(g => g.subject === subject)
+    .sort((a, b) => a.openedAt - b.openedAt);
 }
 
 export function gateStage(gate: GateRow, stages: RunStageRow[]): string | null {
@@ -17,7 +28,9 @@ export function gateStage(gate: GateRow, stages: RunStageRow[]): string | null {
   return found;
 }
 
-function pickedValues(raw: GateAnswer['answers'][string] | undefined): string[] {
+function pickedValues(
+  raw: GateAnswer['answers'][string] | undefined
+): string[] {
   if (raw == null) return [];
   if (typeof raw === 'string') return [raw];
   if (Array.isArray(raw)) return raw;
@@ -25,7 +38,10 @@ function pickedValues(raw: GateAnswer['answers'][string] | undefined): string[] 
   return Array.isArray(v) ? v : [v];
 }
 
-export function tookRecommendation(question: GateQuestion, answer: GateAnswer | null): boolean | null {
+export function tookRecommendation(
+  question: GateQuestion,
+  answer: GateAnswer | null
+): boolean | null {
   const recommended = question.options
     .filter(o => stripRecommended(optionLabel(o)).recommended)
     .map(optionValue);
@@ -44,7 +60,10 @@ export function waitingOnYou(gates: GateRow[], now: number): number {
   let cur: [number, number] | null = null;
   for (const [a, b] of spans) {
     if (cur && a <= cur[1]) cur[1] = Math.max(cur[1], b);
-    else { if (cur) total += cur[1] - cur[0]; cur = [a, b]; }
+    else {
+      if (cur) total += cur[1] - cur[0];
+      cur = [a, b];
+    }
   }
   return cur ? total + cur[1] - cur[0] : total;
 }
