@@ -89,6 +89,89 @@ STATE="${BEST##*|}"
 REST="${BEST#*|}"; RUN_ID="${REST%%|*}"
 REST="${REST#*|}"; STAGE="${REST%%|*}"
 
+# A Stop with a backgrounded MCP call or an async agent still pending is not
+# a prose ending: the task's notification re-invokes the pane. The scan runs
+# only once a run is open, and every failure of it (no transcript, a bad line,
+# out of time) keeps today's block. Only the transcript's tail is read: a
+# task's removal is always written after its launch, so a launch inside the
+# window has its removal there too, and one outside it is unseen and blocks.
+TRANSCRIPT="$(printf '%s' "$INPUT" | python3 -c '
+import json, sys
+try:
+    print(json.load(sys.stdin).get("transcript_path") or "")
+except Exception:
+    pass
+' 2>/dev/null)"
+if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+  if python3 - "$TRANSCRIPT" "$START" >/dev/null 2>&1 <<'PY'
+import calendar, json, os, re, sys, time
+
+MAX_AGE_MIN = 120
+MAX_BYTES = int(os.environ.get("RT_STOP_HOOK_MAX_BYTES") or 64 * 1024 * 1024)
+SCAN_MS = int(os.environ.get("RT_STOP_HOOK_SCAN_MS") or 1500)
+# hooks.json kills the hook at 5 s and Claude Code then ignores it, so the
+# scan must finish with margin left for python to exit.
+HOOK_BUDGET_S = 4.3
+path = sys.argv[1]
+remaining = HOOK_BUDGET_S - (time.time() - int(sys.argv[2]))
+budget = min(SCAN_MS / 1000.0, remaining)
+if budget <= 0:
+    sys.exit(1)
+deadline = time.monotonic() + budget
+
+MCP = re.compile(r"moved to the background as task ([A-Za-z0-9_-]+)")
+TASK_ID = re.compile(r"<task-id>([A-Za-z0-9_-]+)</task-id>")
+NEEDLES = (b"background as task", b"async_launched", b"<task-id>", b"TaskStop")
+
+def when(d):
+    t = str(d.get("timestamp") or "")[:19]
+    return calendar.timegm(time.strptime(t, "%Y-%m-%dT%H:%M:%S"))
+
+pending = {}
+with open(path, "rb") as f:
+    size = os.fstat(f.fileno()).st_size
+    if size > MAX_BYTES:
+        f.seek(size - MAX_BYTES - 1)
+        if f.read(1) != b"\n":
+            f.readline()
+    for raw in f:
+        if time.monotonic() > deadline:
+            sys.exit(1)
+        if not any(n in raw for n in NEEDLES):
+            continue
+        d = json.loads(raw)
+        kind = d.get("type")
+        if kind == "user":
+            if d.get("isSidechain") is True:
+                continue
+            tur = d.get("toolUseResult")
+            if isinstance(tur, dict) and tur.get("status") == "async_launched" and tur.get("agentId"):
+                pending[tur["agentId"]] = when(d)
+                continue
+            for item in tur if isinstance(tur, list) else []:
+                text = item.get("text") if isinstance(item, dict) and item.get("type") == "text" else None
+                m = MCP.search(text) if isinstance(text, str) and text.startswith("MCP tool ") else None
+                if m:
+                    pending[m.group(1)] = when(d)
+        elif kind == "assistant":
+            for c in (d.get("message") or {}).get("content") or []:
+                if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") == "TaskStop":
+                    pending.pop(str((c.get("input") or {}).get("task_id")), None)
+        elif kind == "queue-operation" and d.get("operation") == "remove":
+            m = TASK_ID.search(d.get("content") or "")
+            if m:
+                pending.pop(m.group(1), None)
+        elif kind == "attachment" and (d.get("attachment") or {}).get("type") == "queued_command":
+            m = TASK_ID.search((d.get("attachment") or {}).get("prompt") or "")
+            if m:
+                pending.pop(m.group(1), None)
+
+now = time.time()
+sys.exit(0 if any(now - at <= MAX_AGE_MIN * 60 for at in pending.values()) else 1)
+PY
+  then exit 0; fi
+fi
+
 cat >&2 <<EOF
 Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Five exits: continue the stage; open the decision (\`rt runs field set gate <scope> --stage $STAGE\`, one sentence, then run gate-protocol's Runs integration with kind \`<scope>\`, stop); park it (\`rt runs field set hold "<why>" --stage $STAGE\`); close it (the close gate, then \`rt runs run-status --status done|failed|abandoned\`); or arm a gate wait (\`rt runs field set waiting-gate <gateId> --stage $STAGE\`, fire the background wait per gate-protocol, end the turn). If the user asked you something mid-run, the answer is the sentence before the gate.
 EOF
