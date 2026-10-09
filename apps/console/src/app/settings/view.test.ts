@@ -128,7 +128,7 @@ describe('buildSections', () => {
     ]);
   });
 
-  it('splits a section over the threshold into team, user, machine subsections', () => {
+  it('splits a section into team, user, machine subsections', () => {
     const boards = [
       ...Array.from({ length: 6 }, (_, i) =>
         def(`board.t${i}`, { scopes: ['team'] })
@@ -237,11 +237,11 @@ describe('buildSections', () => {
     ]);
   });
 
-  it('keeps a small section as one unlabelled subsection', () => {
+  it('splits even a one-key section by scope', () => {
     const [agents] = buildSections([def('agent.provider')], NO_FILTER);
     expect(agents!.subsections).toEqual([
       {
-        scope: null,
+        scope: 'user',
         defs: [expect.objectContaining({ key: 'agent.provider' })],
       },
     ]);

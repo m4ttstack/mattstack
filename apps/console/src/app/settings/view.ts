@@ -47,11 +47,10 @@ export function needsFixing(def: SettingDefWire): boolean {
   return (def.issues?.length ?? 0) > 0 || (def.mergedIssues?.length ?? 0) > 0;
 }
 
-export const SUBHEAD_THRESHOLD = 12;
 const SUB_ORDER: StoreScope[] = ['org', 'team', 'user', 'machine'];
 
 export interface Subsection {
-  scope: StoreScope | null;
+  scope: StoreScope;
   defs: SettingDefWire[];
 }
 
@@ -255,13 +254,10 @@ export function buildSections(
       const shown = defs
         .filter(d => shownKeys.has(d.key))
         .sort((a, b) => rowRank(a) - rowRank(b));
-      const subsections =
-        defs.length > SUBHEAD_THRESHOLD
-          ? SUB_ORDER.map(scope => ({
-              scope,
-              defs: shown.filter(d => subheadOf(d) === scope),
-            })).filter(s => s.defs.length > 0)
-          : [{ scope: null, defs: shown }];
+      const subsections = SUB_ORDER.map(scope => ({
+        scope,
+        defs: shown.filter(d => subheadOf(d) === scope),
+      })).filter(s => s.defs.length > 0);
       return { group, total: defs.length, shown: shown.length, subsections };
     });
 }

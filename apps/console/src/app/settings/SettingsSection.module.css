@@ -1,0 +1,21 @@
+/* A scope's rows sit on a wash of the scope's hue, a little lighter than the
+   shared --tk-wash so a page of blocks stays calm. */
+.block {
+  margin-top: 12px;
+  border-radius: var(--mantine-radius-lg);
+  background: color-mix(
+    in srgb,
+    var(--block-hue) calc(var(--tk-wash) * 0.7),
+    transparent
+  );
+}
+
+.head {
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+/* The block's own edge closes the list, so the last row draws no rule. */
+.block > :last-child:not([data-open]) {
+  border-bottom-color: transparent;
+}

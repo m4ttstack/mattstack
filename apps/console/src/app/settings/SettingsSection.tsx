@@ -13,8 +13,9 @@ import { useAgentModels } from '../config/useSettings';
 import type { OpenRow } from './explainParam';
 import type { WireIssue } from './issues';
 import type { PanelStore } from './KeyPanel';
-import { scopeTextColor } from './ScopeBadge';
+import { SCOPE_COLOR, ScopeBadge } from './ScopeBadge';
 import { SettingRow, type RowOpen } from './SettingRow';
+import classes from './SettingsSection.module.css';
 import { useSettingsOrg, useSettingsTeam } from './useConsoleSettings';
 import {
   providerOf,
@@ -23,23 +24,11 @@ import {
   type StoreScope,
 } from './view';
 
-const SUBHEAD: Record<StoreScope, { label: string; note: string }> = {
-  org: {
-    label: 'Org',
-    note: 'shared with every team through the org repo',
-  },
-  team: {
-    label: 'Team',
-    note: 'shared with your team through the org repo',
-  },
-  user: {
-    label: 'You',
-    note: 'your home repo, follows you to every machine',
-  },
-  machine: {
-    label: 'This machine',
-    note: 'never leaves this Mac',
-  },
+const NOTE: Record<StoreScope, string> = {
+  org: 'shared with every team through the org repo',
+  team: 'shared with your team through the org repo',
+  user: 'your home repo, follows you to every machine',
+  machine: 'never leaves this Mac',
 };
 
 function subheadNote(
@@ -51,7 +40,40 @@ function subheadNote(
     return `shared with every team through the ${org} org repo`;
   if (scope === 'team' && team)
     return `shared with the ${team} team through the org repo`;
-  return SUBHEAD[scope].note;
+  return NOTE[scope];
+}
+
+/** One scope's rows on a wash of the scope's colour, led by its badge. */
+function ScopeBlock({
+  scope,
+  count,
+  children,
+}: {
+  scope: StoreScope;
+  count: number;
+  children: ReactNode;
+}) {
+  const { text } = useSchemeColors();
+  const team = useSettingsTeam();
+  const org = useSettingsOrg();
+  return (
+    <Box
+      className={classes.block}
+      data-scope={scope}
+      __vars={{ '--block-hue': `var(--tk-fill-${SCOPE_COLOR[scope]})` }}
+    >
+      <Group gap={8} wrap="nowrap" className={classes.head}>
+        <ScopeBadge scope={scope} />
+        <Text fz={12} ff="monospace" c={text.muted}>
+          {count}
+        </Text>
+        <Text fz={12} c={text.muted}>
+          {`· ${subheadNote(scope, team, org)}`}
+        </Text>
+      </Group>
+      {children}
+    </Box>
+  );
 }
 
 interface RowWiring {
@@ -150,20 +172,30 @@ function AgentsSection({
           />
         }
       />
-      {defs.map(def => (
-        <SettingRow
-          key={def.key}
-          def={def}
-          store={store}
-          subhead={null}
-          query={query}
-          suggestions={def.key.endsWith('.model') ? suggestions : undefined}
-          onFix={onFix}
-          open={rowOpen(def.key, open)}
-          onOpenChange={next => onOpenChange(def.key, next)}
-          onPickRepo={onPickRepo}
-        />
-      ))}
+      {section.subsections.map(sub => {
+        const rows = sub.defs.filter(d => defs.includes(d));
+        if (rows.length === 0) return null;
+        return (
+          <ScopeBlock key={sub.scope} scope={sub.scope} count={rows.length}>
+            {rows.map(def => (
+              <SettingRow
+                key={def.key}
+                def={def}
+                store={store}
+                subhead={sub.scope}
+                query={query}
+                suggestions={
+                  def.key.endsWith('.model') ? suggestions : undefined
+                }
+                onFix={onFix}
+                open={rowOpen(def.key, open)}
+                onOpenChange={next => onOpenChange(def.key, next)}
+                onPickRepo={onPickRepo}
+              />
+            ))}
+          </ScopeBlock>
+        );
+      })}
     </Box>
   );
 }
@@ -187,9 +219,6 @@ export function SettingsSection({
   /** Drops the group's title row, for a host that already titles it. */
   bare?: boolean;
 } & RowWiring) {
-  const { text } = useSchemeColors();
-  const team = useSettingsTeam();
-  const org = useSettingsOrg();
   if (section.group.id === 'agents')
     return (
       <AgentsSection
@@ -212,33 +241,8 @@ export function SettingsSection({
           count={countText(filtering, section.shown, section.total)}
         />
       )}
-      {section.subsections.map((sub, i) => (
-        <Box key={sub.scope ?? 'all'}>
-          {sub.scope && (
-            <Group
-              gap={8}
-              pt={bare && i === 0 ? 4 : 22}
-              pb={6}
-              wrap="nowrap"
-              style={{ borderBottom: '1px solid var(--tk-line-2)' }}
-            >
-              <Text
-                fz={12}
-                fw={500}
-                tt="uppercase"
-                lts={0.6}
-                c={scopeTextColor(sub.scope)}
-              >
-                {SUBHEAD[sub.scope].label}
-              </Text>
-              <Text fz={12} ff="monospace" c={text.muted}>
-                {sub.defs.length}
-              </Text>
-              <Text fz={12} c={text.muted}>
-                {`· ${subheadNote(sub.scope, team, org)}`}
-              </Text>
-            </Group>
-          )}
+      {section.subsections.map(sub => (
+        <ScopeBlock key={sub.scope} scope={sub.scope} count={sub.defs.length}>
           {sub.defs.map(def => (
             <SettingRow
               key={def.key}
@@ -252,7 +256,7 @@ export function SettingsSection({
               onPickRepo={onPickRepo}
             />
           ))}
-        </Box>
+        </ScopeBlock>
       ))}
     </Box>
   );

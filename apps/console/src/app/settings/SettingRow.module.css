@@ -13,6 +13,7 @@
 .item[data-open] {
   --inset: 11px;
   margin-block: 8px;
+  background: var(--tk-card);
   border: 1px solid var(--tk-border);
   border-radius: var(--mantine-radius-lg);
 }

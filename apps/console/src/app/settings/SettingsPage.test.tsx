@@ -360,7 +360,9 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('heading', { name: 'Board' })).toBeInTheDocument();
     expect(screen.getByLabelText('filter settings')).toHaveValue('');
     expect(screen.getByRole('checkbox', { name: /Changed/ })).not.toBeChecked();
-    expect(within(daemon).getByText('2')).toBeInTheDocument();
+    expect(
+      within(daemon).getByRole('heading', { name: 'Daemon' }).nextSibling
+    ).toHaveTextContent('2');
   });
 
   it('shows an empty state when nothing matches', async () => {
@@ -427,22 +429,18 @@ describe('SettingsPage', () => {
     expect(screen.getByText('logRetentionDays')).toBeInTheDocument();
   });
 
-  it('splits a large section into subheads and hides badges that repeat them', async () => {
+  it('puts each scope on its own washed block, led by the scope badge', async () => {
     renderPage();
     const board = (
       await screen.findByRole('heading', { name: 'Board' })
     ).closest('section')!;
-    expect(within(board).getByText('Team')).toBeInTheDocument();
-    expect(within(board).getByText('You')).toBeInTheDocument();
-    const team = within(board).getByText('Team').parentElement!;
-    expect([...team.children].map(c => c.textContent)).toEqual([
-      'Team',
-      '7',
-      '· shared with your team through the org repo',
-    ]);
+    const team = board.querySelector<HTMLElement>('[data-scope="team"]')!;
+    expect(team).not.toBeNull();
     expect(
-      within(board).queryAllByText('team', { selector: '.mantine-Badge-label' })
-    ).toHaveLength(0);
+      [...team.firstElementChild!.children].map(c => c.textContent)
+    ).toEqual(['team', '7', '· shared with your team through the org repo']);
+    expect(within(team).queryAllByText('team')).toHaveLength(1);
+    expect(board.querySelector('[data-scope="user"]')).not.toBeNull();
     expect(
       within(board).getByRole('button', {
         name: 'open board.agent.model',
