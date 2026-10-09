@@ -1465,6 +1465,41 @@ describe("round 4: headless bindings as the store records them, keep retries, cl
   });
 });
 
+describe("hooks Codex loads for a folder", () => {
+  const hook = (eventName: string, sourcePath: string) => ({
+    key: `${sourcePath}:${eventName}:0:0`, eventName, handlerType: "command", command: "'/opt/rt' agent policy-hook", async: false,
+    matcher: null, timeoutSec: 10, sourcePath, source: "project", pluginId: null, displayOrder: 0, enabled: true, isManaged: false,
+    currentHash: "sha256:x", trustStatus: "trusted",
+  });
+
+  test("asks hooks/list for exactly that folder and returns each hook's event, handler, command and file", async () => {
+    const h = await harness({
+      "hooks/list": (s, m) => s.push({
+        id: m.id,
+        result: { data: [{ cwd: m.params.cwds[0], hooks: [hook("preToolUse", "/work/main/.codex/hooks.json")], warnings: [], errors: [] }] },
+      }),
+    });
+    const listed = data(await h.sessions().listHooks("/pool/t1"));
+    expect(h.requests("hooks/list").map((m) => m.params)).toEqual([{ cwds: ["/pool/t1"] }]);
+    expect(listed).toEqual([{
+      eventName: "preToolUse", handlerType: "command", command: "'/opt/rt' agent policy-hook",
+      sourcePath: "/work/main/.codex/hooks.json", source: "project", enabled: true,
+    }]);
+  });
+
+  test("an answer for another folder or of another shape is not ready", async () => {
+    const answers: unknown[] = [
+      { data: [{ cwd: "/elsewhere", hooks: [] }, { cwd: "/also-elsewhere", hooks: [] }] },
+      { data: "nope" },
+      { data: [{ cwd: "/pool/t1", hooks: "nope" }] },
+    ];
+    for (const result of answers) {
+      const h = await harness({ "hooks/list": (s, m) => s.push({ id: m.id, result }) });
+      expect(await h.sessions().listHooks("/pool/t1")).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    }
+  });
+});
+
 describe("policy check turn (M6c)", () => {
   function checkRun(log: string[]) {
     return {

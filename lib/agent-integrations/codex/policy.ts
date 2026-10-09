@@ -23,7 +23,7 @@
 
 import { createHash } from "crypto";
 import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
-import { dirname, isAbsolute, join } from "path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "path";
 import type {
   CallerContext, Capability, NativeSessionRef, Outcome, SessionBinding,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
@@ -37,7 +37,7 @@ import {
 import {
   codexPolicyReceipts, type CodexHookVerdict, type CodexPolicyReceipt, type CodexPolicyReceipts, type CodexThreadEnv, type ReceiptPayload,
 } from "./policy-receipts.ts";
-import type { CodexSessionAdapter } from "./sessions.ts";
+import type { CodexListedHook, CodexSessionAdapter } from "./sessions.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { isRecord } from "./protocol.ts";
 import { codexConfigPath, codexFolderTrust } from "./trust.ts";
@@ -330,7 +330,7 @@ export type CodexPolicyInspectDeps = {
   now?: () => number;
 };
 
-export type CodexPolicyChecker = Pick<CodexSessionAdapter, "policyCheck">;
+export type CodexPolicyChecker = Pick<CodexSessionAdapter, "policyCheck" | "listHooks">;
 
 export type CodexPolicyDeps = CodexPolicyInspectDeps & {
   /** The live connection's session check, or undefined while rt has no connection to the app server. */
@@ -359,6 +359,8 @@ const EVIDENCE_POLLS = 30;
 const EVENT_CAPABILITY: Record<CodexPolicyEvent, Capability> = { PreToolUse: "gate-policy", Stop: "continuation-policy" };
 
 const SNAKE: Record<CodexPolicyEvent, string> = { PreToolUse: "pre_tool_use", Stop: "stop" };
+/** hooks/list's spelling of each event. */
+const LISTED: Record<CodexPolicyEvent, string> = { PreToolUse: "preToolUse", Stop: "stop" };
 
 export { CODEX_PROVEN_POLICY };
 const POLICY_CAPABILITIES: readonly Capability[] = ["gate-policy", "continuation-policy"];
@@ -371,17 +373,42 @@ function realOr(path: string): string {
   }
 }
 
-/** The folders from `cwd` up to its checkout's top level, where Codex looks for a project `.codex` layer. */
+/**
+ * The main checkout of the linked worktree whose top level is `top`: its
+ * `.git` file names a gitdir, and that gitdir's `commondir` names the shared
+ * `.git`. Undefined for anything else (a submodule, a bare common dir).
+ */
+function mainCheckoutOf(top: string): string | undefined {
+  try {
+    const pointer = /^gitdir:\s*(.+)$/m.exec(readFileSync(join(top, ".git"), "utf8"))?.[1]?.trim();
+    if (!pointer) return undefined;
+    const gitDir = resolve(top, pointer);
+    const common = resolve(gitDir, readFileSync(join(gitDir, "commondir"), "utf8").trim());
+    return basename(common) === ".git" ? dirname(common) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The folders from `cwd` up to its checkout's top level, where Codex looks
+ * for a project `.codex` layer. Codex 0.162 reads a linked worktree's layers
+ * from its repository's main checkout (live-16), so those folders are taken
+ * at the same place under the main checkout.
+ */
 function projectLayers(cwd: string): string[] {
   const dirs: string[] = [];
   for (let dir = cwd; ; dir = dirname(dir)) {
     dirs.push(dir);
-    let top = false;
+    let git: ReturnType<typeof statSync> | undefined;
     try {
-      statSync(join(dir, ".git"));
-      top = true;
+      git = statSync(join(dir, ".git"));
     } catch { /* not this checkout's top level */ }
-    if (top || dirname(dir) === dir) return top ? dirs : [cwd];
+    if (git) {
+      const main = git.isFile() ? mainCheckoutOf(dir) : undefined;
+      return main === undefined ? dirs : dirs.map((d) => join(main, relative(dir, d)));
+    }
+    if (dirname(dir) === dir) return [cwd];
   }
 }
 
@@ -494,6 +521,26 @@ function inspect(cwd: string, profile: string, deps: Required<CodexPolicyInspect
   };
 }
 
+/**
+ * Codex's own word on where it loads rt's hooks for `cwd`. A check turn only
+ * proves the file Codex runs, so that file must be the one inspected: each
+ * event has exactly one rt policy hook in the listing, enabled, from that
+ * project file.
+ */
+function loadedFromInspected(listed: CodexListedHook[], cwd: string, sourcePath: string): Outcome<void> {
+  for (const event of CODEX_POLICY_EVENTS) {
+    const ours = listed.filter((h) => h.eventName === LISTED[event] && h.handlerType === "command"
+      && h.command !== undefined && parseCodexPolicyHookCommand(h.command)?.event === event);
+    if (ours.length !== 1) return fail("not-ready", `Codex loads ${ours.length} copies of rt's ${event} policy hook for ${cwd}, where rt needs exactly one`);
+    const [hook] = ours;
+    if (hook!.source !== "project" || hook!.sourcePath !== sourcePath) {
+      return fail("not-ready", `Codex loads rt's ${event} policy hook for ${cwd} from ${hook!.sourcePath ?? "an unnamed file"} (${hook!.source ?? "unknown"} layer), not from the inspected ${sourcePath}`);
+    }
+    if (hook!.enabled === false) return fail("not-ready", `Codex lists rt's ${event} policy hook in ${sourcePath} as disabled`);
+  }
+  return { ok: true, data: undefined };
+}
+
 function healthProblem(receipt: CodexPolicyReceipt, found: Inspection): string | undefined {
   if (receipt.installation !== found.installation) return "its hook belongs to another installation than the one installed here";
   if (receipt.revision !== found.manifest) return "its hook ran another hook revision than the one installed (an old loaded worker, or a changed executable)";
@@ -513,7 +560,9 @@ async function liveChecker(): Promise<CodexPolicyChecker | undefined> {
  * trusted cannot be recomputed here, so inspection alone never proves a
  * session; verify needs the session's own hooks to have run.
  *
- * A new session proves it in one check turn: rt issues a nonce for that
+ * A new session proves it in one check turn, started only once Codex's
+ * hooks/list for the session's folder names the inspected file as where it
+ * loads both hooks: rt issues a nonce for that
  * turn, and each event (PreToolUse, then Stop) must show exactly one
  * receipt from rt's hook and one native run from the inspected hooks file,
  * naming the manifest revision of the inspected executable and a verdict
@@ -545,7 +594,7 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
   };
   const profileOf = () => canonicalCodexProfile(undefined, deps.env);
 
-  async function checkTurn(binding: SessionBinding, found: Inspection): Promise<Outcome<PolicyProof>> {
+  async function checkTurn(binding: SessionBinding, found: Inspection, cwd: string): Promise<Outcome<PolicyProof>> {
     const sourcePath = found.sourcePath;
     if (sourcePath === undefined) return fail("not-ready", "rt's policy hooks are split across project layers, so one check turn cannot prove them");
     let checker: CodexPolicyChecker | undefined;
@@ -555,6 +604,15 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
       return fail("not-ready", `rt could not reach the Codex app server to check the session's hooks: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (!checker) return fail("not-ready", "rt has no live connection to the Codex app server, so the session's hooks cannot be checked");
+    let listed: Outcome<CodexListedHook[]>;
+    try {
+      listed = await checker.listHooks(cwd);
+    } catch (err) {
+      listed = fail("not-ready", err instanceof Error ? err.message : String(err));
+    }
+    if (!listed.ok) return fail("not-ready", `rt could not read which hooks Codex loads for ${cwd}: ${listed.error.message}`);
+    const loaded = loadedFromInspected(listed.data, cwd, sourcePath);
+    if (!loaded.ok) return loaded;
     const { key, attachment: { generation } } = binding;
     let nonce: string | undefined;
     const complete = () => {
@@ -652,7 +710,7 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
       if (!found.ok) return found;
       if (found.data.revision !== prepared.revision) return fail("not-ready", "the Codex policy hooks changed after they were prepared");
       if (context.kind === "resume" && context.check !== true) return retainedProof(binding, found.data, context.retained);
-      return checkTurn(binding, found.data);
+      return checkTurn(binding, found.data, prepared.cwd);
     },
   };
 }

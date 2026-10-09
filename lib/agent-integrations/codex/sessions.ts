@@ -125,7 +125,14 @@ export interface CodexSessionAdapter extends SessionAdapter {
    * cannot be made, since a check rt cannot observe proves nothing.
    */
   policyCheck(binding: SessionBinding, run: CodexPolicyCheckRun): Promise<Outcome<{ turnId: string; status: string }>>;
+  /** The hooks Codex itself says it loads for a thread started in `cwd` (hooks/list), with the file each one came from. */
+  listHooks(cwd: string): Promise<Outcome<CodexListedHook[]>>;
 }
+
+/** One hooks/list entry, reduced to what says which hook it is and where Codex loaded it from. */
+export type CodexListedHook = {
+  eventName: string; handlerType?: string; command?: string; sourcePath?: string; source?: string; enabled?: boolean;
+};
 
 export type CodexPolicyCheckRun = { prompt: string; timeoutMs: number; issue(turnId: string): void; settle(): Promise<void> };
 
@@ -801,6 +808,26 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       } finally {
         release(threadId, id);
       }
+    },
+    async listHooks(cwd) {
+      if (control.closed) return fail("not-ready", "the Codex control connection is closed, so rt cannot ask which hooks Codex loads");
+      let result: unknown;
+      try {
+        result = await control.request("hooks/list", { cwds: [cwd] });
+      } catch (err) {
+        return fail("not-ready", `Codex did not list the hooks it loads for ${cwd}: ${messageOf(err)}`);
+      }
+      const entries = isRecord(result) && Array.isArray(result.data) ? result.data.filter(isRecord) : undefined;
+      const entry = entries?.length === 1 ? entries[0] : entries?.find((e) => e.cwd === cwd);
+      if (!entry || !Array.isArray(entry.hooks)) return fail("not-ready", `Codex's hooks/list answer for ${cwd} has no hook list for that folder`);
+      return ok(entry.hooks.filter(isRecord).map((h): CodexListedHook => ({
+        eventName: typeof h.eventName === "string" ? h.eventName : "",
+        ...(typeof h.handlerType === "string" && { handlerType: h.handlerType }),
+        ...(typeof h.command === "string" && { command: h.command }),
+        ...(typeof h.sourcePath === "string" && { sourcePath: h.sourcePath }),
+        ...(typeof h.source === "string" && { source: h.source }),
+        ...(typeof h.enabled === "boolean" && { enabled: h.enabled }),
+      })));
     },
     disown(binding) {
       if (!checkRef(binding.native).ok) return;

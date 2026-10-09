@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type {
@@ -9,6 +9,7 @@ import type {
 import { openStateDb } from "../../state/db.ts";
 import { codexPolicyManifest } from "../codex/hook-manifest.ts";
 import { createCodexPolicy, type CodexPolicyChecker } from "../codex/policy.ts";
+import type { CodexListedHook } from "../codex/sessions.ts";
 import { createCodexPolicyReceipts, type CodexPolicyReceipts, type CodexReceiptInput } from "../codex/policy-receipts.ts";
 import type { HarnessIntegration, LaunchRequest, PolicyAdapter, PolicyProof, SessionAdapter } from "../contracts.ts";
 import { createBoundLauncher, type BoundLaunchRequest } from "../launch.ts";
@@ -46,6 +47,38 @@ function bind(harness: string, value = THREAD, profile = "default"): SessionBind
   return data(store.bind(store.reserve({ identity: `w-${value}` }), native, { mode: "headless" }));
 }
 
+/** The hooks file the last project() installed, which the fake app server lists as the one Codex loads unless a test says otherwise. */
+let installed: { source: string; executable: string } = { source: "", executable: EXE };
+
+/** hooks/list's entries for rt's two policy hooks, loaded from `source`, shaped like Codex 0.162's answer. */
+function listing(source = installed.source, executable = installed.executable): CodexListedHook[] {
+  return (["PreToolUse", "Stop"] as const).map((event) => ({
+    eventName: event === "Stop" ? "stop" : "preToolUse", handlerType: "command", source: "project", sourcePath: source, enabled: true,
+    command: codexPolicyManifest({ executable, installationId: INSTALLATION }).hooks[event][0]!.hooks[0]!.command,
+  }));
+}
+
+/** A pool tree linked to a project's checkout the way `git worktree add` links one: a .git file naming its gitdir, whose commondir is the main .git. */
+function linkedTree(main: string, name = "t1"): string {
+  const tree = join(dir, "pool", name);
+  const gitDir = join(main, ".git", "worktrees", name);
+  mkdirSync(gitDir, { recursive: true });
+  mkdirSync(tree, { recursive: true });
+  writeFileSync(join(gitDir, "commondir"), "../..\n");
+  writeFileSync(join(gitDir, "gitdir"), `${join(tree, ".git")}\n`);
+  writeFileSync(join(tree, ".git"), `gitdir: ${gitDir}\n`);
+  return tree;
+}
+
+/** live-16's hooks/list answer for a pool tree (evidence d1-hooks-list-t1.json), with this test's paths in it. */
+function recordedListing(main: string, tree: string, executable = EXE): CodexListedHook[] {
+  const text = readFileSync(join(import.meta.dir, "fixtures", "codex", "hooks-list-linked-worktree-0.162.json"), "utf8")
+    .replaceAll("{{TREE}}", tree).replaceAll("{{MAIN}}", main).replaceAll("{{EXE}}", executable).replaceAll("{{INSTALLATION}}", INSTALLATION);
+  const entry = (JSON.parse(text) as { result: { data: Array<{ cwd: string; hooks: CodexListedHook[] }> } }).result.data[0]!;
+  expect(entry.cwd).toBe(tree);
+  return entry.hooks;
+}
+
 /** A project whose .codex layer installs rt's reviewed manifest, with folder and hook trust recorded for it. */
 function project(executable = EXE) {
   const root = join(dir, "project");
@@ -61,6 +94,7 @@ function project(executable = EXE) {
     `[hooks.state.${JSON.stringify(`${source}:pre_tool_use:0:0`)}]`, `trusted_hash = "sha256:${"a".repeat(64)}"`,
     `[hooks.state.${JSON.stringify(`${source}:stop:0:0`)}]`, `trusted_hash = "sha256:${"b".repeat(64)}"`,
   ].join("\n") + "\n");
+  installed = { source, executable };
   return { root, source, home, manifest, env: { HOME: dir, CODEX_HOME: home } as NodeJS.ProcessEnv };
 }
 
@@ -92,8 +126,15 @@ function simulate(store: CodexPolicyReceipts, binding: SessionBinding, source: s
 const BOTH: Hook[] = [{ event: "PreToolUse" }, { event: "Stop" }];
 
 /** A live session whose check turn runs `act` between the turn starting and its end. */
-function checker(act: (turnId: string, binding: SessionBinding) => void, opts: { turnId?: string; issueAfter?: boolean; status?: string; calls?: string[] } = {}): CodexPolicyChecker {
+function checker(
+  act: (turnId: string, binding: SessionBinding) => void,
+  opts: { turnId?: string; issueAfter?: boolean; status?: string; calls?: string[]; listed?: Outcome<CodexListedHook[]>; listedFor?: string[] } = {},
+): CodexPolicyChecker {
   return {
+    async listHooks(cwd) {
+      opts.listedFor?.push(cwd);
+      return opts.listed ?? ok(listing());
+    },
     async policyCheck(binding, run) {
       opts.calls?.push(run.prompt);
       const turnId = opts.turnId ?? DIAG;
@@ -241,7 +282,7 @@ describe("trusted inventory without executed receipts is not ready", () => {
 
     const failing = createCodexPolicy({ env: p.env, fingerprint: () => "rt 2.30.0", checker: async () => { throw new Error("codex is not installed"); } });
     expect(await failing.verify(binding, prepared, { kind: "launch" })).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("codex is not installed") } });
-    const throwing = codexPolicy(p, createCodexPolicyReceipts(), { policyCheck: async () => { throw new Error("socket closed"); } });
+    const throwing = codexPolicy(p, createCodexPolicyReceipts(), { listHooks: async () => ok(listing()), policyCheck: async () => { throw new Error("socket closed"); } });
     expect(await throwing.verify(binding, prepared, { kind: "launch" })).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("socket closed") } });
 
     expect((await proveCodex(p, binding, BOTH, { status: "interrupted" })).verified).toMatchObject({ ok: false, error: { code: "not-ready" } });
@@ -309,6 +350,74 @@ describe("trusted inventory without executed receipts is not ready", () => {
     expect(await launcher.launchBoundAgent(fresh)).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("hooks unreadable") } });
     throwIn = null;
     data(await launcher.launchBoundAgent(req));
+  });
+});
+
+describe("a linked worktree's project layer is its main checkout's, as Codex loads it", () => {
+  test("a pool tree proves the hooks Codex lists from the main checkout, and the proof names that file", async () => {
+    const p = project();
+    const tree = linkedTree(p.root);
+    const binding = bind("codex", THREAD, p.home);
+    const store = createCodexPolicyReceipts();
+    const listedFor: string[] = [];
+    const policy = codexPolicy(p, store, checker(
+      (turnId) => simulate(store, binding, p.source, p.manifest.revision, BOTH, turnId),
+      { listed: ok(recordedListing(p.root, tree)), listedFor },
+    ));
+    const prepared = data(await policy.prepare(launchRequest(tree)));
+    expect(prepared.cwd).toBe(tree);
+    const proof = data(await policy.verify(binding, prepared, { kind: "launch" }));
+    expect(proof.evidence).toMatchObject({ sourcePath: p.source, runs: { PreToolUse: "PreToolUse:1", Stop: "Stop:1" } });
+    expect(listedFor).toEqual([tree]);
+  });
+
+  test("a folder inside a pool tree reads the main checkout's layer too", async () => {
+    const p = project();
+    const sub = join(linkedTree(p.root), "packages", "app");
+    mkdirSync(sub, { recursive: true });
+    const binding = bind("codex", THREAD, p.home);
+    const store = createCodexPolicyReceipts();
+    const policy = codexPolicy(p, store, checker((turnId) => simulate(store, binding, p.source, p.manifest.revision, BOTH, turnId)));
+    const prepared = data(await policy.prepare(launchRequest(sub)));
+    expect(data(await policy.verify(binding, prepared, { kind: "launch" })).evidence?.sourcePath).toBe(p.source);
+  });
+
+  test("hooks Codex lists from another file, layer or count than the inspected one prove nothing and start no check turn", async () => {
+    const p = project();
+    const tree = linkedTree(p.root);
+    const elsewhere = join(tree, ".codex", "hooks.json");
+    const [pre, stop] = listing(p.source);
+    const cases: Array<[string, Outcome<CodexListedHook[]>, string]> = [
+      ["the tree's own path", ok(listing(elsewhere)), elsewhere],
+      ["a user layer", ok([{ ...pre!, source: "user" }, stop!]), "user"],
+      ["a second Stop", ok([pre!, stop!, { ...stop!, sourcePath: elsewhere }]), "2 copies of rt's Stop"],
+      ["no PreToolUse", ok([stop!]), "0 copies of rt's PreToolUse"],
+      ["a disabled hook", ok([{ ...pre!, enabled: false }, stop!]), "disabled"],
+      ["hooks/list failed", { ok: false, error: { code: "not-ready", message: "the control connection is closed" } }, "the control connection is closed"],
+    ];
+    for (const [name, listed, why] of cases) {
+      const binding = bind("codex", `${THREAD}-${name.length}`, p.home);
+      const store = createCodexPolicyReceipts();
+      const calls: string[] = [];
+      const policy = codexPolicy(p, store, checker((turnId) => simulate(store, binding, p.source, p.manifest.revision, BOTH, turnId), { listed, calls }));
+      const prepared = data(await policy.prepare(launchRequest(tree)));
+      const verified = await policy.verify(binding, prepared, { kind: "launch" });
+      expect({ name, verified }).toMatchObject({ name, verified: { ok: false, error: { code: "not-ready", message: expect.stringContaining(why) } } });
+      expect({ name, turns: calls.length }).toEqual({ name, turns: 0 });
+    }
+  });
+
+  test("runs reported from the tree's own path never prove the main checkout's hooks", async () => {
+    const p = project();
+    const tree = linkedTree(p.root);
+    const binding = bind("codex", THREAD, p.home);
+    const store = createCodexPolicyReceipts();
+    const policy = codexPolicy(p, store, checker(
+      (turnId) => simulate(store, binding, join(tree, ".codex", "hooks.json"), p.manifest.revision, BOTH, turnId),
+      { listed: ok(recordedListing(p.root, tree)) },
+    ));
+    const prepared = data(await policy.prepare(launchRequest(tree)));
+    expect(await policy.verify(binding, prepared, { kind: "launch" })).toMatchObject({ ok: false, error: { code: "not-ready" } });
   });
 });
 

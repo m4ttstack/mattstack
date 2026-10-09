@@ -3,6 +3,7 @@
  * existing handlers (gate, chat, agent, worktree) so the herd owns no
  * delivery, CAS, or spawn semantics of its own.
  */
+import type { Database } from "bun:sqlite";
 import { chmodSync, existsSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import type { Logger } from "pino";
@@ -24,7 +25,7 @@ import { resolveCallerContextNow, type CallerEvidence } from "../../agent-integr
 import { POLICY_CAPABILITIES } from "../../agent-integrations/policy-readiness.ts";
 import { builtinRegistry, UNRECORDED_PANE_HARNESS } from "../../agent-integrations/builtins.ts";
 import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts";
-import { createSessionStore } from "../../agent-integrations/session-store.ts";
+import { createSessionStore, isDetachedAttachment, listBindingsByAgent } from "../../agent-integrations/session-store.ts";
 import { harnessEnabled, integrationsEnabled } from "../../agent-integrations/switch.ts";
 import { getStateDb } from "../../state/db.ts";
 import { createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
@@ -90,6 +91,8 @@ export interface HerdDeps {
   attempts?: JobAttempts;
   /** Resolves a report's caller evidence; the daemon's state.db when omitted. */
   resolveCaller?: (evidence: CallerEvidence) => Outcome<CallerContext>;
+  /** The state.db holding session bindings; the daemon's when omitted. */
+  sessionDb?: () => Database;
   /** The harnesses a worker selection is checked against; the built-ins when omitted. */
   integrations?: IntegrationRegistry;
   /** The harnesses the user enabled; Claude Code plus agent.provider when omitted. */
@@ -182,8 +185,9 @@ export function jobDir(jobsRoot: string, herdId: string, job: string): string { 
 export function createHerdHandlers(deps: HerdDeps) {
   const { store, log } = deps;
   const enabled = deps.integrationsEnabled ?? integrationsEnabled;
-  const attempts = deps.attempts ?? createJobAttempts({ herds: store, db: () => getStateDb("daemon"), enabled });
-  const resolveCaller = deps.resolveCaller ?? ((evidence: CallerEvidence) => resolveCallerContextNow(evidence, { db: getStateDb("daemon") }));
+  const sessionDb = deps.sessionDb ?? (() => getStateDb("daemon"));
+  const attempts = deps.attempts ?? createJobAttempts({ herds: store, db: sessionDb, enabled });
+  const resolveCaller = deps.resolveCaller ?? ((evidence: CallerEvidence) => resolveCallerContextNow(evidence, { db: sessionDb() }));
   const registry = deps.integrations ?? builtinRegistry();
   const enabledHarnesses = deps.enabledHarnesses ?? (() => {
     const on = harnessEnabled();
@@ -191,14 +195,14 @@ export function createHerdHandlers(deps: HerdDeps) {
   });
   const defaultSelection = deps.defaultSelection ?? configuredWorkerSelection;
   const endSession = deps.endSession ?? (async (bindingKey: string): Promise<Outcome<void>> => {
-    const binding = createSessionStore(getStateDb("daemon")).get(bindingKey);
+    const binding = createSessionStore(sessionDb()).get(bindingKey);
     if (!binding) return { ok: false, error: { code: "invalid", message: `no session binding has key ${bindingKey}` } };
     const integration = registry.get(binding.native.harness);
     const sessions = await integration?.loadSessions?.();
     if (!sessions?.end) return { ok: false, error: { code: "unsupported", message: `${integration?.label ?? binding.native.harness} cannot end a session rt runs` } };
     return sessions.end(binding);
   });
-  const observeJob = deps.observeJob ?? createJobObserver({ db: () => getStateDb("daemon"), integrations: registry }).observeJob;
+  const observeJob = deps.observeJob ?? createJobObserver({ db: sessionDb, integrations: registry }).observeJob;
 
   /** A bound worker's liveness from its own integration's observation; a failed observe is unknown. */
   async function observedLiveness(attempt: JobAttempt): Promise<ReturnType<typeof classifyJobObservation>> {
@@ -317,6 +321,36 @@ export function createHerdHandlers(deps: HerdDeps) {
       log.warn({ err, herd: herd.id, job: job.name }, "herd: headless worker session end threw");
     }
     return false;
+  }
+
+  /**
+   * A worker launched for an attempt that never took its job (its policy
+   * unproven, its activation refused) holds nothing, so it is closed and its
+   * attempt ended. A worker rt cannot find or close keeps the attempt
+   * reserved, which recovery judges and only a new spawn replaces.
+   */
+  async function closeUntakenWorker(herd: HerdRow, attemptId: string, mode: Mode, kept: { agentId: string; paneId?: string }): Promise<void> {
+    if (store.getAttempt(attemptId)?.state !== "reserved") return;
+    const context = { herd: herd.id, attempt: attemptId, agent: kept.agentId };
+    let closed = false;
+    const binding = listBindingsByAgent(sessionDb(), kept.agentId).find((b) => b.attemptId === attemptId && !isDetachedAttachment(b));
+    const pane = binding?.attachment.pane ?? kept.paneId;
+    if (mode === "headless") {
+      if (!binding) {
+        log.warn(context, "herd: a worker that never took its job has no live session to end");
+        return;
+      }
+      try {
+        const ended = await endSession(binding.key);
+        closed = ended.ok;
+        if (!ended.ok) log.warn({ ...context, error: ended.error.message }, "herd: could not end a worker that never took its job");
+      } catch (err) {
+        log.warn({ ...context, err }, "herd: ending a worker that never took its job threw");
+      }
+    } else if (pane) {
+      closed = await closePane(herd.herdrSocket, pane, context);
+    }
+    if (closed) attempts.endJobAttempt(attemptId);
   }
 
   /** Whether a job still has a worker for closeWorker to close. */
@@ -692,12 +726,20 @@ export function createHerdHandlers(deps: HerdDeps) {
         if (attemptId !== undefined) attempts.release(attemptId);
       }
       if (!started.ok) {
-        // The row names the worker of whichever attempt holds the job: a replacement that never took it gives the row back.
-        if (fenced && prior && store.activeAttempt(herdId, name)?.id !== attemptId) {
+        if (fenced && attemptId !== undefined) {
+          // A kept session that never took its job is closed and its attempt ended; one rt cannot close stays reserved for recovery.
+          if ("kept" in started) await closeUntakenWorker(herd, attemptId, mode, started.kept);
+          else attempts.endJobAttempt(attemptId);
+          // The row names the worker of whichever attempt holds the job: a replacement that never took it gives the row back,
+          // and a job no worker holds is crashed, never left spawning.
+          const holder = store.activeAttempt(herdId, name);
           const row = store.getJob(herdId, name);
-          if (row?.handle === workerId) {
-            store.upsertJob({ ...row, handle: prior.handle, agentSession: prior.agentSession, agentId: prior.agentId, status: prior.status });
+          if (row?.handle === workerId && holder?.id !== attemptId) {
+            store.upsertJob(prior && holder
+              ? { ...row, handle: prior.handle, agentSession: prior.agentSession, agentId: prior.agentId, status: prior.status }
+              : { ...row, status: "crashed" });
           }
+          return "kept" in started ? { ok: false, error: started.error } : started;
         }
         // A kept session may have started, so its attempt stays reserved, holding nothing, for recovery to judge.
         if ("kept" in started) return { ok: false, error: started.error };

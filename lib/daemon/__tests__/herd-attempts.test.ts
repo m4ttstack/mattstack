@@ -348,7 +348,7 @@ describe("the herd launch seam", () => {
 
 // --- herd:spawn and herd:report through the handlers -------------------------
 
-function herdHandlers(svc: JobAttempts, agent: ReturnType<typeof createAgentService>, posted: unknown[]) {
+function herdHandlers(svc: JobAttempts, agent: ReturnType<typeof createAgentService>, posted: unknown[], over: Partial<HerdDeps> = {}) {
   herds.create({ id: HERD, repo: "remote:example.com%2Fa%2Fb", room: "herd-demo", workspace: `herd: ${HERD}`, shepherdSession: "sess-shep", shepherdHandle: "shepherd", herdrSocket: null, hidden: false });
   let minted = 0;
   const ok = <T>(value: T) => ({ ok: true as const, data: value });
@@ -379,8 +379,15 @@ function herdHandlers(svc: JobAttempts, agent: ReturnType<typeof createAgentServ
     integrations: createRegistry([claudeLike({ work: [], reports: [] })]),
     attempts: svc,
     resolveCaller: (evidence: Parameters<typeof resolveCallerContextNow>[0]) => resolveCallerContextNow(evidence, { db: state }),
+    sessionDb: () => state,
+    ...over,
   } as unknown as HerdDeps;
   return createHerdHandlers(deps);
+}
+
+/** A herdr runner that records every call and answers each one cleanly. */
+function recordingHerdr(calls: string[][]): Pick<HerdDeps, "herdrRunnerFor"> {
+  return { herdrRunnerFor: () => async (args: string[]) => { calls.push(args); return { stdout: "{}", exitCode: 0 }; } };
 }
 
 describe("herd:spawn and herd:report with the switch on", () => {
@@ -401,11 +408,12 @@ describe("herd:spawn and herd:report with the switch on", () => {
     expect(herds.getJob(HERD, JOB)?.handle).toBe("job-a.w1");
   });
 
-  test("a respawn that never takes the job gives the row back to the worker that holds it", async () => {
+  test("a respawn that never takes the job gives the row back to the worker that holds it, and its own worker is closed", async () => {
     const svc = attempts();
     const seen: Seen = { work: [], reports: [] };
     const posted: Array<{ handle: string }> = [];
-    const h = herdHandlers(svc, agentService(svc, claudeLike(seen)), posted);
+    const closes: string[][] = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike(seen)), posted, recordingHerdr(closes));
 
     const first = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
     if (!first.ok) throw new Error(first.error);
@@ -414,11 +422,56 @@ describe("herd:spawn and herd:report with the switch on", () => {
     const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a" });
     expect(refused.ok).toBe(false);
 
-    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["active", "reserved"]);
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["active", "ended"]);
+    expect(closes.filter((c) => c[1] === "close")).toHaveLength(2);
     expect(herds.getJob(HERD, JOB)).toMatchObject({ handle: holder.handle, agentId: holder.agentId, agentSession: holder.agentSession, status: holder.status });
     const report = await h["herd:report"]({ herd: HERD, job: JOB, body: "done", session: first.data.sessionId });
     expect(report.ok).toBe(true);
     expect(posted.map((p) => p.handle)).toEqual([first.data.handle]);
+  });
+
+  test("a first spawn whose worker never proves its policy closes that worker, ends its attempt and leaves the job crashed", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [], refuseProof: true };
+    const closes: string[][] = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike(seen)), [], recordingHerdr(closes));
+
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    expect(refused.ok).toBe(false);
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended"]);
+    expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
+    expect(closes).toContainEqual(["pane", "close", "w3:p1"]);
+    expect(seen.work).toEqual([]);
+  });
+
+  test("a headless worker that never proves its policy is ended through its integration, and its attempt with it", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [], refuseProof: true };
+    const ended: string[] = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike(seen)), [], {
+      endSession: async (key: string) => { ended.push(key); return { ok: true, data: undefined }; },
+    });
+
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a", mode: "headless" });
+    expect(refused.ok).toBe(false);
+    const [attempt] = herds.attempts(HERD, JOB);
+    expect(attempt!.state).toBe("ended");
+    const bound = state.query("SELECT key FROM agent_session_bindings WHERE attempt_id = ?").all(attempt!.id) as Array<{ key: string }>;
+    expect(ended).toEqual(bound.map((b) => b.key));
+    expect(ended).toHaveLength(1);
+    expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
+  });
+
+  test("a worker whose session could not be ended keeps its attempt reserved for recovery, and the job still leaves spawning", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [], refuseProof: true };
+    const h = herdHandlers(svc, agentService(svc, claudeLike(seen)), [], {
+      endSession: async () => ({ ok: false, error: { code: "transient", message: "app server gone" } }),
+    });
+
+    expect((await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a", mode: "headless" })).ok).toBe(false);
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["reserved"]);
+    expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
   });
 
   test("a respawn mints a fresh worker identity and fences the predecessor's report", async () => {
