@@ -21,9 +21,14 @@ export function gateStage(gate: GateRow, stages: RunStageRow[]): string | null {
   const stamped = gate.meta?.stage;
   if (typeof stamped === 'string' && stamped) return stamped;
   let found: string | null = null;
+  let foundStart = -Infinity;
   for (const s of stages) {
     if (s.started_at == null || s.started_at > gate.openedAt) continue;
-    if (s.ended_at == null || gate.openedAt < s.ended_at) found = s.name;
+    if (s.ended_at != null && gate.openedAt >= s.ended_at) continue;
+    if (s.started_at >= foundStart) {
+      found = s.name;
+      foundStart = s.started_at;
+    }
   }
   return found;
 }

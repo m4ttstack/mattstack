@@ -69,6 +69,10 @@ describe('gateStage', () => {
     expect(gateStage(gate({ openedAt: 50 }), stages)).toBe('plan');
     expect(gateStage(gate({ openedAt: 500 }), stages)).toBe('evidence');
   });
+  it('picks the latest-started match whatever the list order', () => {
+    const unsorted = [stage('retry', 50, null), stage('plan', 0, null)];
+    expect(gateStage(gate({ openedAt: 60 }), unsorted)).toBe('retry');
+  });
   it('is null before any stage', () =>
     expect(gateStage(gate({ openedAt: -1 }), stages)).toBeNull());
 });
