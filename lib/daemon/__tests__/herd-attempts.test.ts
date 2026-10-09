@@ -515,6 +515,39 @@ describe("herd:spawn and herd:report with the switch on", () => {
     expect(posted).toEqual([]);
   });
 
+  test("switch on, a worker spawned while it was off keeps its session's authority until a bound respawn replaces it", async () => {
+    switchOn = false;
+    const svc = attempts();
+    const posted: unknown[] = [];
+    const bound = agentService(svc, claudeLike({ work: [], reports: [] }));
+    const mixed = {
+      handlers: { "agent:start": async () => ({ ok: true as const, data: { id: "ag-1", sessionId: "sess-legacy", paneId: "w9:p1", repo: "r", cwd: "/w/job-a", surface: "herdr", provider: "claude" } }) },
+      startAttempt: bound.startAttempt,
+    } as unknown as ReturnType<typeof createAgentService>;
+    const h = herdHandlers(svc, mixed, posted);
+    const legacy = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!legacy.ok) throw new Error(legacy.error);
+    expect(herds.activeAttempt(HERD, JOB)).toMatchObject({ legacySession: "sess-legacy" });
+
+    switchOn = true;
+    const named = { herd: HERD, job: JOB };
+    expect((await h["herd:ask"]({ ...named, session: "sess-legacy", questions: QUESTIONS })).ok).toBe(true);
+    expect((await h["herd:milestone"]({ ...named, session: "sess-legacy", artifact: "/a.md" })).ok).toBe(true);
+    expect((await h["herd:report"]({ ...named, session: "sess-legacy", body: "done" })).ok).toBe(true);
+    for (const [verb, extra] of [["herd:ask", { questions: QUESTIONS }], ["herd:milestone", { artifact: "/a.md" }], ["herd:report", { body: "done" }]] as const) {
+      const other = await (h[verb] as (p: unknown) => Promise<unknown>)({ ...named, session: "sess-other", ...extra });
+      expect(other, verb).toMatchObject({ ok: false, failure: { code: "refused" } });
+    }
+
+    const respawned = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a" });
+    if (!respawned.ok) throw new Error(respawned.error);
+    for (const [verb, extra] of [["herd:ask", { questions: QUESTIONS }], ["herd:milestone", { artifact: "/a.md" }], ["herd:report", { body: "done" }]] as const) {
+      const stale = await (h[verb] as (p: unknown) => Promise<unknown>)({ ...named, session: "sess-legacy", ...extra });
+      expect(stale, verb).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
+    }
+    expect((await h["herd:report"]({ ...named, session: respawned.data.sessionId, body: "done" })).ok).toBe(true);
+  });
+
   test("switch off: a question and a milestone name their job and trust the session as before", async () => {
     switchOn = false;
     const svc = attempts();

@@ -42,6 +42,8 @@ export interface JobAttempt {
   /** A herdr pane or a headless worker; an attempt recorded before modes were stored ran in a herdr pane. */
   mode: Mode;
   bindingKey?: string;
+  /** The worker session an attempt launched with the switch off ran under; set only on an unbound attempt. */
+  legacySession?: string;
   /** The binding's attachment generation the attempt was activated for; 0 while unbound. */
   generation: number;
   state: JobAttemptState;
@@ -84,6 +86,8 @@ export interface HerdStore {
   activateAttempt(id: string, bindingKey: string | null, generation: number): Outcome<JobAttempt>;
   /** Ends the attempt only from one of `from`; false when it was in another state. */
   endAttempt(id: string, from: readonly JobAttemptState[]): boolean;
+  /** Records the session an unbound attempt's worker runs under; a bound attempt is left alone. */
+  recordLegacySession(id: string, session: string): void;
   close_(): void;
 }
 
@@ -110,7 +114,7 @@ export function mintHerdId(name: string, now: Date = new Date()): string {
 interface HerdColumns { id: string; repo: string; room: string; workspace: string; shepherdSession: string; shepherdHandle: string; shepherdPane: string | null; herdrSocket: string | null; hidden: number; status: HerdStatus; createdAt: number; wrappedAt: number | null }
 interface JobColumns { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; status: HerdJobStatus; disposable: number; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number }
 
-interface AttemptColumns { id: string; herd: string; job: string; selection: string; mode: Mode | null; bindingKey: string | null; generation: number; state: JobAttemptState; replaces: string | null; createdAt: number; updatedAt: number; activatedAt: number | null; endedAt: number | null }
+interface AttemptColumns { id: string; herd: string; job: string; selection: string; mode: Mode | null; legacySession: string | null; bindingKey: string | null; generation: number; state: JobAttemptState; replaces: string | null; createdAt: number; updatedAt: number; activatedAt: number | null; endedAt: number | null }
 
 function toAttempt(r: AttemptColumns): JobAttempt {
   const a: JobAttempt = {
@@ -118,6 +122,7 @@ function toAttempt(r: AttemptColumns): JobAttempt {
     generation: r.generation, state: r.state, createdAt: r.createdAt, updatedAt: r.updatedAt,
   };
   if (r.bindingKey !== null) a.bindingKey = r.bindingKey;
+  if (r.legacySession !== null) a.legacySession = r.legacySession;
   if (r.activatedAt !== null) a.activatedAt = r.activatedAt;
   if (r.endedAt !== null) a.endedAt = r.endedAt;
   if (r.replaces !== null) a.replaces = r.replaces;
@@ -203,6 +208,7 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
       job         TEXT NOT NULL,
       selection   TEXT NOT NULL,
       mode        TEXT,
+      legacySession TEXT,
       bindingKey  TEXT,
       generation  INTEGER NOT NULL DEFAULT 0,
       state       TEXT NOT NULL,
@@ -226,6 +232,7 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
     (db.query("PRAGMA table_info(herd_job_attempts)").all() as Array<{ name: string }>).map((c) => c.name),
   );
   if (!attemptCols.has("mode")) db.exec("ALTER TABLE herd_job_attempts ADD COLUMN mode TEXT;");
+  if (!attemptCols.has("legacySession")) db.exec("ALTER TABLE herd_job_attempts ADD COLUMN legacySession TEXT;");
 
   const getHerd = db.prepare("SELECT * FROM herds WHERE id = ?");
   const insertHerd = db.prepare("INSERT INTO herds (id, repo, room, workspace, shepherdSession, shepherdHandle, herdrSocket, hidden, status, createdAt, wrappedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL)");
@@ -364,6 +371,9 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
         [now, now, id, ...from],
       );
       return result.changes > 0;
+    },
+    recordLegacySession(id, session) {
+      db.run("UPDATE herd_job_attempts SET legacySession = ?, updatedAt = ? WHERE id = ? AND bindingKey IS NULL", [session, Date.now(), id]);
     },
     close_() { db.close(); },
   };
