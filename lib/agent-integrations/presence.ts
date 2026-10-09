@@ -49,30 +49,35 @@ function sameSession(a: SessionBinding, b: SessionBinding): boolean {
  * - compact: the same session, same attachment; only its heartbeat moves.
  * - end: the session ended on this attachment. The binding is detached, so
  *   nothing is delivered to it, and its presence is signed out.
+ *
+ * Returns whether the event was applied: false when the switch is off, the
+ * binding is no longer this attachment, or an end could not detach it (a
+ * busy database), in which case nothing was signed out or deleted.
  */
-export async function applySessionPresence(binding: SessionBinding, event: PresenceEvent, deps: PresenceDeps = {}): Promise<void> {
-  if (!(deps.enabled ?? integrationsEnabled)()) return;
+export async function applySessionPresence(binding: SessionBinding, event: PresenceEvent, deps: PresenceDeps = {}): Promise<boolean> {
+  if (!(deps.enabled ?? integrationsEnabled)()) return false;
   const db = deps.db ?? getStateDb();
   const store = createSessionStore(db);
   const current = store.get(binding.key);
-  if (!current || !sameSession(current, binding) || current.attachment.generation !== binding.attachment.generation) return;
-  if (isDetachedAttachment(current)) return;
+  if (!current || !sameSession(current, binding) || current.attachment.generation !== binding.attachment.generation) return false;
+  if (isDetachedAttachment(current)) return false;
   const sessionId = current.native.value;
   const now = (deps.now ?? Date.now)();
   const row = presenceForSession(sessionId, db);
   const signedIn = row !== null && row.signedOutAt === undefined;
 
   if (event === "end") {
-    if (!store.detach(current.key, current.attachment.generation).ok) return;
+    if (!store.detach(current.key, current.attachment.generation).ok) return false;
     if (signedIn) signOut(sessionId, now, db);
     (deps.deleteSessionFile ?? deleteChatSession)(sessionId);
-    return;
+    return true;
   }
   if (event !== "compact") {
     const pane = current.attachment.pane ?? null;
     if (row !== null ? row.pane !== (pane ?? undefined) : pane !== null) movePresencePane(sessionId, pane, db);
   }
   if (signedIn) touchLastSeen(sessionId, now, db);
+  return true;
 }
 
 /**

@@ -623,8 +623,8 @@ export async function reportClaudeLifecycle(
       ? attachment.pid !== pid
       : pane !== undefined && attachment.pane !== undefined && attachment.pane !== pane;
     if (elsewhere) return "stale";
-    await applySessionPresence(binding, event, presence);
-    return "applied";
+    if (await applySessionPresence(binding, event, presence) || event !== "end") return "applied";
+    return endNotApplied(db, binding);
   }
   if (!detached && attachment.pid === pid && attachment.pane === pane) {
     await applySessionPresence(binding, "resume", presence);
@@ -635,6 +635,24 @@ export async function reportClaudeLifecycle(
   if (!replaced.ok) return "stale";
   await applySessionPresence(replaced.data, "resume", presence);
   return "applied";
+}
+
+/**
+ * An end the presence service did not apply. A binding another report
+ * already detached counts as applied and one that moved on is stale; a
+ * binding still attached (the store could not detach it) or gone is left to
+ * the caller's own sign-out.
+ */
+function endNotApplied(db: Database, binding: SessionBinding): ClaudeLifecycleOutcome {
+  let now: SessionBinding | null;
+  try {
+    now = createSessionStore(db).get(binding.key);
+  } catch {
+    return "unbound";
+  }
+  if (now === null) return "unbound";
+  if (isDetachedAttachment(now)) return "applied";
+  return now.attachment.generation === binding.attachment.generation ? "unbound" : "stale";
 }
 
 /** Where a mod says its session runs. Like the link's own record, it is a hint and never grants authority. */

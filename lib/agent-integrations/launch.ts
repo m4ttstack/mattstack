@@ -204,7 +204,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     store: overrides.store ?? createSessionStore(db),
     syncAgent: overrides.syncAgent ?? syncAgentRecord,
     now: overrides.now ?? Date.now,
-    presence: overrides.presence ?? ((binding, event) => applySessionPresence(binding, event, { db })),
+    presence: overrides.presence ?? (async (binding, event) => { await applySessionPresence(binding, event, { db }); }),
     enabled: overrides.enabled ?? integrationsEnabled,
   };
   const { store, registry, claimToken } = deps;

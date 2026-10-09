@@ -5,7 +5,7 @@
  * the harness messaging, herdr and Claude Code's registry are fakes.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -322,6 +322,31 @@ describe("lifecycle events count only from the session's own process", () => {
     const gone = await reportClaudeLifecycle("sess-v", "resume", { env: {}, ancestry: [777] }, { db: x.db, ...claudeProcesses({ 777: "sess-v" }, [777]) });
     expect(gone).toBe("unverified");
     expect(createSessionStore(x.db).get(bound.key)?.attachment.generation).toBe(bound.attachment.generation);
+  });
+
+  test("an end the store could not detach is left to the caller's sign-out, and keeps the session file", async () => {
+    const x = fixture();
+    const signed = await x.signIn({ sessionId: "sess-busy", pane: "w1:p1" });
+    writeChatSession({ sessionId: "sess-busy", handle: signed.handle, baseHandle: signed.baseHandle, name: signed.name, signedInAt: 1 });
+    const bound = bind(x.db, claudeRef("sess-busy"), "w1:p1", signed.handle, 501);
+    const reporter = { env: { HERDR_PANE_ID: "w1:p1" }, ancestry: [501] };
+    const procs = claudeProcesses({ 501: "sess-busy" });
+
+    x.db.exec("PRAGMA busy_timeout = 0");
+    const holder = new Database(x.db.filename);
+    holder.exec("BEGIN IMMEDIATE");
+    try {
+      expect(await reportClaudeLifecycle("sess-busy", "end", reporter, { db: x.db, ...procs })).toBe("unbound");
+    } finally {
+      holder.exec("ROLLBACK");
+      holder.close();
+    }
+    expect(isDetachedAttachment(createSessionStore(x.db).get(bound.key)!)).toBe(false);
+    expect(readChatSession("sess-busy")?.handle).toBe(signed.handle);
+
+    expect(await reportClaudeLifecycle("sess-busy", "end", reporter, { db: x.db, ...procs })).toBe("applied");
+    expect(presenceForSession("sess-busy", x.db)?.signedOutAt).toBeDefined();
+    expect(readChatSession("sess-busy")).toBeNull();
   });
 
   test("the session's own report of a session no binding names is left to the caller's path", async () => {
