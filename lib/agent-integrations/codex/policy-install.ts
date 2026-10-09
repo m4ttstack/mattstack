@@ -18,10 +18,12 @@
  */
 
 import { createHash } from "crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { randomBytes } from "crypto";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { bundledToolPath } from "../../deps/resolve.ts";
+import { ensureInfoExclude, runGit } from "../../worktree/git-async.ts";
 import { readSetupState, updateSetupState, type CodexPolicyState, type SetupState } from "../../setup/state.ts";
 import {
   CODEX_POLICY_EVENTS, codexPolicyManifest, parseCodexPolicyHookCommand, validInstallationId, type CodexHookHandler, type CodexPolicyEvent,
@@ -45,6 +47,8 @@ export type PolicyInstallDeps = {
   attachedSessions: (profile: string) => SessionBinding[] | Promise<SessionBinding[]>;
   now: () => Date;
   randomId: () => string;
+  /** Test seam: runs between the hooks file write and the config write of a folder review. */
+  afterHooksWrite?: () => void;
 };
 
 export type PolicyStage = "folder" | "hooks";
@@ -62,6 +66,10 @@ export type PolicyReview = {
   digest: string;
   commands: ReviewedCommand[];
   trustFolder: boolean;
+  /** The boundary's own `.codex/config.toml`, which trusting the folder also turns on. */
+  projectConfig: string | null;
+  /** The line rt adds to the repo's git exclude list, when rt creates the hooks file. */
+  exclude: string | null;
   hooks: ReviewedHook[];
 };
 
@@ -78,7 +86,8 @@ export type PolicyInstallPlan = {
   manifest: { revision: string; commands: ReviewedCommand[] };
   stage: PolicyStage | "installed";
   /** `before` is the file's fingerprint when planned; `text` is null when the file already holds rt's entries. */
-  hooksFile: { before: string; text: string | null; adds: string[] };
+  hooksFile: { before: string; text: string | null; adds: string[]; exclude: string | null };
+  projectConfig: string | null;
   config: { before: string; addFolder: boolean; hooks: ReviewedHook[]; replace: string[] };
   reviews: PolicyReview[];
 };
@@ -194,11 +203,103 @@ const exactGroup = (group: unknown, handler: CodexHookHandler): boolean =>
   isRecord(group) && Bun.deepEquals(Object.keys(group), ["hooks"]) && Array.isArray(group.hooks) && group.hooks.length === 1
   && Bun.deepEquals(canonical(group.hooks[0]), canonical(handler));
 
+/** Where each JSON value sits in the text, so rt can splice its group in and leave every other byte alone. */
+type Span = { start: number; end: number; members?: { key: string; keyStart: number; value: Span }[]; items?: Span[] };
+
+function spansOf(text: string): Span | null {
+  let i = 0;
+  const ws = () => {
+    while (i < text.length && " \t\n\r".includes(text[i]!)) i++;
+  };
+  const string = (): string => {
+    const start = i++;
+    while (i < text.length && text[i] !== '"') i += text[i] === "\\" ? 2 : 1;
+    i++;
+    return JSON.parse(text.slice(start, i)) as string;
+  };
+  const value = (): Span => {
+    ws();
+    const start = i;
+    if (text[i] === "{") {
+      i++;
+      const members: NonNullable<Span["members"]> = [];
+      ws();
+      if (text[i] === "}") return { start, end: ++i, members };
+      for (;;) {
+        ws();
+        const keyStart = i;
+        if (text[i] !== '"') throw new Error("key");
+        const key = string();
+        ws();
+        if (text[i++] !== ":") throw new Error("colon");
+        members.push({ key, keyStart, value: value() });
+        ws();
+        if (text[i] === ",") { i++; continue; }
+        if (text[i++] === "}") return { start, end: i, members };
+        throw new Error("object");
+      }
+    }
+    if (text[i] === "[") {
+      i++;
+      const items: Span[] = [];
+      ws();
+      if (text[i] === "]") return { start, end: ++i, items };
+      for (;;) {
+        items.push(value());
+        ws();
+        if (text[i] === ",") { i++; continue; }
+        if (text[i++] === "]") return { start, end: i, items };
+        throw new Error("array");
+      }
+    }
+    if (text[i] === '"') {
+      string();
+      return { start, end: i };
+    }
+    while (i < text.length && /[-+.0-9a-zA-Z]/.test(text[i]!)) i++;
+    if (i === start) throw new Error("value");
+    return { start, end: i };
+  };
+  try {
+    const root = value();
+    ws();
+    return i === text.length ? root : null;
+  } catch {
+    return null;
+  }
+}
+
+type Splice = { start: number; end: number; text: string };
+
+/** The whitespace leading the line `at` starts on, when nothing else precedes it there. */
+function lineIndent(text: string, at: number): string | undefined {
+  const lead = text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
+  return /^[ \t]*$/.test(lead) ? lead : undefined;
+}
+
+function indentUnit(text: string): string {
+  return /\n([ \t]+)\S/.exec(text)?.[1] ?? "  ";
+}
+
+const render = (value: unknown, unit: string, indent: string): string => JSON.stringify(value, null, unit).split("\n").join(`\n${indent}`);
+
+/** Appends `rendered(indent)` after the last of `siblings`, or fills an empty container. */
+function appendInto(text: string, container: Span, lastEnd: number | undefined, lastStart: number | undefined, unit: string, rendered: (indent: string) => string, close: string): Splice {
+  const outer = lineIndent(text, container.start) ?? "";
+  if (lastEnd === undefined) {
+    return { start: container.start, end: container.end, text: `${close === "]" ? "[" : "{"}\n${outer}${unit}${rendered(outer + unit)}\n${outer}${close}` };
+  }
+  const sibling = lineIndent(text, lastStart!);
+  if (sibling === undefined) return { start: lastEnd, end: lastEnd, text: `, ${rendered("").replace(/\n\s*/g, " ")}` };
+  return { start: lastEnd, end: lastEnd, text: `,\n${sibling}${rendered(sibling)}` };
+}
+
 /**
  * Adds or updates only rt's own handler per event. A handler rt finds
  * already in place is used as it is; one this Mac recorded as its own may
  * be replaced where it stands, so its native key stays the same; any other
- * rt policy hook means someone else installed one, and is refused.
+ * rt policy hook means someone else installed one, and is refused. An
+ * existing file keeps every byte outside rt's own group.
  */
 function mergeHooks(path: string, text: string | null, desired: Record<CodexPolicyEvent, CodexHookHandler>, owned: readonly string[]): HooksMerge {
   let file: Record<string, unknown> = {};
@@ -215,22 +316,24 @@ function mergeHooks(path: string, text: string | null, desired: Record<CodexPoli
   if (file.hooks !== undefined && !isRecord(file.hooks)) return { ok: false, message: `${path} lists its hooks in a shape rt does not recognise.` };
   const hooks: Record<string, unknown> = (file.hooks as Record<string, unknown> | undefined) ?? {};
   const adds: string[] = [];
+  const edits: ({ kind: "append"; event: CodexPolicyEvent } | { kind: "replace"; event: CodexPolicyEvent; group: number })[] = [];
   for (const event of CODEX_POLICY_EVENTS) {
     const handler = desired[event];
     if (hooks[event] !== undefined && !Array.isArray(hooks[event])) return { ok: false, message: `${path} lists its ${event} hooks in a shape rt does not recognise.` };
     const groups = (hooks[event] as unknown[] | undefined) ?? [];
-    const ours: { g: number; h: number; command: string }[] = [];
+    const ours: { g: number; command: string }[] = [];
     groups.forEach((group, g) => {
       const handlers = isRecord(group) && Array.isArray(group.hooks) ? group.hooks : [];
-      handlers.forEach((entry: unknown, h: number) => {
+      handlers.forEach((entry: unknown) => {
         const command = isRecord(entry) && typeof entry.command === "string" ? entry.command : undefined;
-        if (command !== undefined && parseCodexPolicyHookCommand(command)?.event === event) ours.push({ g, h, command });
+        if (command !== undefined && parseCodexPolicyHookCommand(command)?.event === event) ours.push({ g, command });
       });
     });
     if (ours.length === 1 && exactGroup(groups[ours[0]!.g], handler)) continue;
     if (ours.length === 0) {
       hooks[event] = [...groups, { hooks: [handler] }];
       adds.push(handler.command);
+      edits.push({ kind: "append", event });
       continue;
     }
     const [only] = ours;
@@ -239,6 +342,7 @@ function mergeHooks(path: string, text: string | null, desired: Record<CodexPoli
       groups[only!.g] = { hooks: [handler] };
       hooks[event] = groups;
       adds.push(handler.command);
+      edits.push({ kind: "replace", event, group: only!.g });
       continue;
     }
     return {
@@ -247,7 +351,56 @@ function mergeHooks(path: string, text: string | null, desired: Record<CodexPoli
     };
   }
   if (adds.length === 0) return { ok: true, text: null, adds };
-  return { ok: true, text: `${JSON.stringify({ ...file, hooks }, null, 2)}\n`, adds };
+  const merged = { ...file, hooks };
+  if (text === null) return { ok: true, text: `${JSON.stringify(merged, null, 2)}\n`, adds };
+
+  const unreadable = { ok: false as const, message: `rt could not add its hooks to ${path} without rewriting the rest of it, so it left that file alone.` };
+  const root = spansOf(text);
+  if (root?.members === undefined) return unreadable;
+  const unit = indentUnit(text);
+  const last = <T>(list: T[]): T | undefined => list[list.length - 1];
+  const memberOf = (span: Span, key: string) => span.members?.filter((m) => m.key === key).pop();
+  const hooksMember = memberOf(root, "hooks");
+  const splices: Splice[] = [];
+  if (hooksMember === undefined) {
+    const tail = last(root.members);
+    splices.push(appendInto(text, root, tail?.value.end, tail?.keyStart, unit, (indent) => `"hooks": ${render(hooks, unit, indent)}`, "}"));
+  } else {
+    const hooksSpan = hooksMember.value;
+    if (hooksSpan.members === undefined) return unreadable;
+    const missing: CodexPolicyEvent[] = [];
+    for (const edit of edits) {
+      const eventSpan = memberOf(hooksSpan, edit.event)?.value;
+      if (eventSpan === undefined) {
+        missing.push(edit.event);
+        continue;
+      }
+      if (eventSpan.items === undefined) return unreadable;
+      const group = { hooks: [desired[edit.event]] };
+      if (edit.kind === "replace") {
+        const at = eventSpan.items[edit.group];
+        if (at === undefined) return unreadable;
+        splices.push({ start: at.start, end: at.end, text: render(group, unit, lineIndent(text, at.start) ?? "") });
+      } else {
+        const tail = last(eventSpan.items);
+        splices.push(appendInto(text, eventSpan, tail?.end, tail?.start, unit, (indent) => render(group, unit, indent), "]"));
+      }
+    }
+    if (missing.length > 0) {
+      const tail = last(hooksSpan.members);
+      const entries = (indent: string) => missing.map((event) => `"${event}": ${render([{ hooks: [desired[event]] }], unit, indent)}`).join(`,\n${indent}`);
+      splices.push(appendInto(text, hooksSpan, tail?.value.end, tail?.keyStart, unit, entries, "}"));
+    }
+  }
+  let next = text;
+  for (const s of splices.sort((a, b) => b.start - a.start)) next = next.slice(0, s.start) + s.text + next.slice(s.end);
+  let reparsed: unknown;
+  try {
+    reparsed = JSON.parse(next);
+  } catch {
+    return unreadable;
+  }
+  return Bun.deepEquals(canonical(reparsed), canonical(merged)) ? { ok: true, text: next, adds } : unreadable;
 }
 
 // ─── Codex's config ──────────────────────────────────────────────────────────
@@ -336,7 +489,9 @@ function editConfig(text: string | null, edit: ConfigEdit): string | null {
 function reviewOf(plan: Omit<PolicyInstallPlan, "reviews">, stage: PolicyStage): PolicyReview {
   const body = {
     stage, boundary: plan.boundary, hooksPath: plan.hooksPath, configPath: plan.configPath, executable: plan.artifact.path, digest: plan.artifact.digest,
-    commands: plan.manifest.commands, trustFolder: stage === "folder" && plan.config.addFolder, hooks: stage === "hooks" ? plan.config.hooks : [],
+    commands: plan.manifest.commands, trustFolder: stage === "folder" && plan.config.addFolder,
+    projectConfig: stage === "folder" && plan.config.addFolder ? plan.projectConfig : null,
+    exclude: stage === "folder" ? plan.hooksFile.exclude : null, hooks: stage === "hooks" ? plan.config.hooks : [],
   };
   return { id: `cp-${sha256(JSON.stringify(body)).slice(0, 32)}`, ...body };
 }
@@ -369,7 +524,15 @@ function presentDigest(path: string): string | undefined {
 }
 
 function policyState(state: SetupState): CodexPolicyState {
-  return state.codexPolicy ?? { installationId: "", artifacts: {}, hooks: {}, trust: {}, reviewed: {} };
+  return state.codexPolicy ?? { installationId: "", artifacts: {}, hooks: {}, trust: {}, reviewed: {}, excludes: {} };
+}
+
+/** The hooks file's path relative to its boundary, the form git and info/exclude use. */
+const HOOKS_REL = ".codex/hooks.json";
+const HOOKS_EXCLUDE = `/${HOOKS_REL}`;
+
+async function trackedByGit(boundary: string): Promise<boolean> {
+  return (await runGit(boundary, ["ls-files", "--error-unmatch", "--", HOOKS_REL])).exitCode === 0;
 }
 
 function stateProbes(home: string, now: () => Date) {
@@ -434,6 +597,12 @@ export async function planCodexPolicyInstall(input: { cwd: string; profile: stri
   const desired = Object.fromEntries(CODEX_POLICY_EVENTS.map((e) => [e, manifest.hooks[e][0]!.hooks[0]!])) as Record<CodexPolicyEvent, CodexHookHandler>;
   const commands = CODEX_POLICY_EVENTS.map((event) => ({ event, command: desired[event].command }));
 
+  if (await trackedByGit(boundary)) {
+    return fail(
+      "not-ready",
+      `${hooksPath} is committed to this repo, and rt does not add its hooks to a file your repo commits. Add rt's two hooks to that file in a commit your team reviews, or remove it from the repo, then run this again.`,
+    );
+  }
   const merge = mergeHooks(hooksPath, hooksText, desired, owned.hooks[hooksPath] ?? []);
   if (!merge.ok) return fail("refused", merge.message);
   const addFolder = levels.length === 0;
@@ -442,7 +611,8 @@ export async function planCodexPolicyInstall(input: { cwd: string; profile: stri
     cwd, profile, boundary, configPath, hooksPath, installationId,
     artifact: { source: artifact.source, path: artifactPath, digest: artifact.digest, present },
     manifest: { revision: manifest.revision, commands },
-    hooksFile: { before: fingerprint(hooksText), text: merge.text, adds: merge.adds },
+    hooksFile: { before: fingerprint(hooksText), text: merge.text, adds: merge.adds, exclude: hooksText === null && merge.text !== null ? HOOKS_EXCLUDE : null },
+    projectConfig: projectText === null ? null : projectPath,
   };
 
   if (merge.text !== null || addFolder || !present) {
@@ -518,9 +688,13 @@ function replaceFile(path: string, before: string, text: string): Outcome<void> 
 
 function installArtifact(plan: PolicyInstallPlan, bytes: Uint8Array): Outcome<void> {
   const dir = join(plan.artifact.path, "..");
-  mkdirSync(dir, { recursive: true });
-  const tmp = `${plan.artifact.path}.rt-${process.pid}.tmp`;
-  writeFileSync(tmp, bytes, { mode: 0o755 });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const held = lstatSync(dir);
+  if (!held.isDirectory() || held.isSymbolicLink() || (process.getuid !== undefined && held.uid !== process.getuid())) {
+    return fail("refused", `${dir} is not a folder this account owns, so rt did not put its hook program there.`);
+  }
+  const tmp = `${plan.artifact.path}.${randomBytes(8).toString("hex")}.tmp`;
+  writeFileSync(tmp, bytes, { mode: 0o755, flag: "wx" });
   chmodSync(tmp, 0o755);
   if (presentDigest(tmp) !== plan.artifact.digest) {
     rmSync(tmp, { force: true });
@@ -556,39 +730,43 @@ export async function applyCodexPolicyInstall(plan: PolicyInstallPlan, reviewed:
 
   const at = deps.now().toISOString();
   const probes = stateProbes(deps.home, deps.now);
+  const record = (patch: (cp: CodexPolicyState) => Partial<CodexPolicyState>) =>
+    updateSetupState(probes, (s) => {
+      const cp = policyState(s);
+      return { ...s, codexPolicy: { ...cp, installationId: plan.installationId, ...patch(cp) } };
+    });
   if (plan.stage === "folder") {
+    // Built before any write, so a folder trust rt cannot add leaves nothing half done.
+    const configText = plan.config.addFolder ? editConfig(readText(plan.configPath), { addFolder: plan.boundary, hooks: [], replace: [] }) : undefined;
+    if (configText === null) return fail("refused", `rt could not add folder trust to ${plan.configPath} without changing your other Codex settings.`);
     if (presentDigest(plan.artifact.path) !== plan.artifact.digest) {
       const installed = installArtifact(plan, artifact.bytes);
       if (!installed.ok) return installed;
     }
+    record((cp) => ({ artifacts: { ...cp.artifacts, [plan.artifact.path]: plan.artifact.digest } }));
     if (plan.hooksFile.text !== null) {
+      if (plan.hooksFile.exclude !== null && (await ensureInfoExclude(plan.boundary, plan.hooksFile.exclude))) {
+        const line = plan.hooksFile.exclude;
+        record((cp) => ({ excludes: { ...cp.excludes, [plan.boundary]: [...new Set([...(cp.excludes?.[plan.boundary] ?? []), line])] } }));
+      }
       const wrote = replaceFile(plan.hooksPath, plan.hooksFile.before, plan.hooksFile.text);
       if (!wrote.ok) return wrote;
+      record((cp) => {
+        const rewritten = new Set(plan.hooksFile.adds.map((c) => parseCodexPolicyHookCommand(c)?.event));
+        const stillOurs = (cp.hooks[plan.hooksPath] ?? []).filter((c) => !rewritten.has(parseCodexPolicyHookCommand(c)?.event));
+        return { hooks: { ...cp.hooks, [plan.hooksPath]: [...stillOurs, ...plan.hooksFile.adds] } };
+      });
     }
-    if (plan.config.addFolder) {
-      const before = readText(plan.configPath);
-      const text = editConfig(before, { addFolder: plan.boundary, hooks: [], replace: [] });
-      if (text === null) return fail("refused", `rt could not add folder trust to ${plan.configPath} without changing your other Codex settings.`);
-      const wrote = replaceFile(plan.configPath, plan.config.before, text);
+    deps.afterHooksWrite?.();
+    if (configText !== undefined) {
+      const wrote = replaceFile(plan.configPath, plan.config.before, configText);
       if (!wrote.ok) return wrote;
+      record((cp) => {
+        const trust = cp.trust[plan.configPath] ?? { folders: [], hooks: {} };
+        return { trust: { ...cp.trust, [plan.configPath]: { ...trust, folders: [...new Set([...trust.folders, plan.boundary])] } } };
+      });
     }
-    updateSetupState(probes, (s) => {
-      const cp = policyState(s);
-      const rewritten = new Set(plan.hooksFile.adds.map((c) => parseCodexPolicyHookCommand(c)?.event));
-      const stillOurs = (cp.hooks[plan.hooksPath] ?? []).filter((c) => !rewritten.has(parseCodexPolicyHookCommand(c)?.event));
-      const trust = cp.trust[plan.configPath] ?? { folders: [], hooks: {} };
-      return {
-        ...s,
-        codexPolicy: {
-          ...cp,
-          installationId: plan.installationId,
-          artifacts: { ...cp.artifacts, [plan.artifact.path]: plan.artifact.digest },
-          hooks: { ...cp.hooks, ...(plan.hooksFile.adds.length > 0 && { [plan.hooksPath]: [...stillOurs, ...plan.hooksFile.adds] }) },
-          trust: { ...cp.trust, ...(plan.config.addFolder && { [plan.configPath]: { ...trust, folders: [...new Set([...trust.folders, plan.boundary])] } }) },
-          reviewed: { ...cp.reviewed, [plan.boundary]: { ...cp.reviewed[plan.boundary], folder: review.id, at } },
-        },
-      };
-    });
+    record((cp) => ({ reviewed: { ...cp.reviewed, [plan.boundary]: { ...cp.reviewed[plan.boundary], folder: review.id, at } } }));
     return { ok: true, data: undefined };
   }
 

@@ -680,7 +680,7 @@ describe("createCodexPolicy", () => {
   test("prepare and verify inspect the installed hooks, their trust and the executable; inspection alone proves no session", async () => {
     const p = project();
     let bytes = "rt 2.30.0";
-    const policy = createCodexPolicy({ env: p.env, fingerprint: () => bytes, now: () => 7, checker: async () => undefined });
+    const policy = createCodexPolicy({ env: p.env, artifact: () => undefined, fingerprint: () => bytes, now: () => 7, checker: async () => undefined });
     const prepared = await policy.prepare(request(p.cwd));
     if (!prepared.ok) throw new Error(prepared.error.message);
     expect(prepared.data).toEqual(expect.objectContaining({ harness: "codex", profile: p.home, cwd: p.cwd }));
@@ -701,7 +701,7 @@ describe("createCodexPolicy", () => {
     expect(codexSupported("herdr")).not.toContain("gate-policy");
     expect(codexSupported("herdr")).not.toContain("continuation-policy");
     const p = project();
-    const policy = createCodexPolicy({ env: p.env, fingerprint: () => "x" });
+    const policy = createCodexPolicy({ env: p.env, artifact: () => undefined, fingerprint: () => "x" });
     for (const cap of ["gate-policy", "continuation-policy"] as const) {
       expect((await policy.prepare({ ...request(p.cwd, [cap]), mode: "headless" })).ok).toBe(true);
       const herdr = await policy.prepare(request(p.cwd, [cap]));
@@ -720,13 +720,13 @@ describe("createCodexPolicy", () => {
     for (const [name, opts, want] of cases) {
       rmSync(join(dir, "project"), { recursive: true, force: true });
       const p = project(opts);
-      const prepared = await createCodexPolicy({ env: p.env, fingerprint: () => "x" }).prepare(request(p.cwd));
+      const prepared = await createCodexPolicy({ env: p.env, artifact: () => undefined, fingerprint: () => "x" }).prepare(request(p.cwd));
       expect({ name, ok: prepared.ok }).toEqual({ name, ok: false });
       if (!prepared.ok) expect({ name, message: prepared.error.message }).toEqual({ name, message: expect.stringContaining(want) });
     }
     const bare = join(dir, "bare");
     mkdirSync(bare, { recursive: true });
-    const none = await createCodexPolicy({ env: { HOME: dir, CODEX_HOME: join(dir, "codex-home") }, fingerprint: () => "x" }).prepare(request(bare));
+    const none = await createCodexPolicy({ env: { HOME: dir, CODEX_HOME: join(dir, "codex-home") }, artifact: () => undefined, fingerprint: () => "x" }).prepare(request(bare));
     expect(none).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("installs rt's PreToolUse policy hook") } });
   });
 });

@@ -1669,7 +1669,15 @@ function reviewBlocks(plan: PolicyPlan): Block[] {
         "Codex policy, step 1 of 2",
         review.boundary,
         ...common,
-        out.kv("Folder trust", review.trustFolder ? "Codex will trust this folder only" : "Codex already trusts this folder"),
+        out.kv(
+          "Folder trust",
+          !review.trustFolder
+            ? "Codex already trusts this folder"
+            : review.projectConfig !== null
+              ? `Codex will trust this folder, which also turns on the Codex settings committed in ${review.projectConfig}`
+              : "Codex will trust this folder and nothing above it",
+        ),
+        ...(review.exclude !== null ? [out.kv("Git", `rt adds ${review.exclude} to this repo's local exclude list, so the new file stays out of git status`)] : []),
         out.verbatim(review.commands.map((c) => `${c.event}: ${c.command}`), plan.hooksFile.text === null ? "Hooks already in that file" : "Hooks rt adds to that file"),
       ),
     ];

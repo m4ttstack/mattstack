@@ -149,7 +149,7 @@ function checker(
 
 function codexPolicy(p: ReturnType<typeof project>, store: CodexPolicyReceipts, check: CodexPolicyChecker | undefined, fingerprint = () => "rt 2.30.0") {
   return createCodexPolicy({
-    env: p.env, fingerprint, now: () => 7, receipts: store, checker: async () => check, sleep: async () => {},
+    env: p.env, artifact: () => undefined, fingerprint, now: () => 7, receipts: store, checker: async () => check, sleep: async () => {},
   });
 }
 
@@ -239,7 +239,7 @@ describe("trusted inventory without executed receipts is not ready", () => {
       // The hook names this revision from its --executable, whatever binary runs it.
       const named = codexPolicyManifest({ executable, installationId: INSTALLATION }).revision;
       const policy = createCodexPolicy({
-        env: p.env, now: () => 7, receipts: store, sleep: async () => {},
+        env: p.env, artifact: () => undefined, now: () => 7, receipts: store, sleep: async () => {},
         checker: async () => checker((turnId) => simulate(store, binding, p.source, named, BOTH, turnId)),
       });
       const prepared = data(await policy.prepare(launchRequest(p.root)));
@@ -280,7 +280,7 @@ describe("trusted inventory without executed receipts is not ready", () => {
     const prepared = data(await none.prepare(launchRequest(p.root)));
     expect(await none.verify(binding, prepared, { kind: "launch" })).toMatchObject({ ok: false, error: { code: "not-ready" } });
 
-    const failing = createCodexPolicy({ env: p.env, fingerprint: () => "rt 2.30.0", checker: async () => { throw new Error("codex is not installed"); } });
+    const failing = createCodexPolicy({ env: p.env, artifact: () => undefined, fingerprint: () => "rt 2.30.0", checker: async () => { throw new Error("codex is not installed"); } });
     expect(await failing.verify(binding, prepared, { kind: "launch" })).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("codex is not installed") } });
     const throwing = codexPolicy(p, createCodexPolicyReceipts(), { listHooks: async () => ok(listing()), policyCheck: async () => { throw new Error("socket closed"); } });
     expect(await throwing.verify(binding, prepared, { kind: "launch" })).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("socket closed") } });
@@ -489,7 +489,7 @@ describe("old loaded worker cannot reuse new revision", () => {
     const receipts = createCodexPolicyReceipts();
     const checks: string[] = [];
     const real = createCodexPolicy({
-      env: p.env, fingerprint: () => "rt 2.30.0", now: () => 7, receipts, sleep: async () => {},
+      env: p.env, artifact: () => undefined, fingerprint: () => "rt 2.30.0", now: () => 7, receipts, sleep: async () => {},
       checker: async () => checker((turnId, b) => {
         checks.push(turnId);
         simulate(receipts, b, p.source, p.manifest.revision, BOTH, turnId);

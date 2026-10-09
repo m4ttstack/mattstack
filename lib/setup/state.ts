@@ -43,6 +43,8 @@ export interface CodexPolicyState {
   trust: Record<string, { folders: string[]; hooks: Record<string, string> }>;
   /** The review each boundary's entries were last written under. */
   reviewed: Record<string, { folder?: string; hooks?: string; at: string }>;
+  /** Per boundary, the lines rt added to its repo's git info/exclude (only for a hooks file rt created). */
+  excludes?: Record<string, string[]>;
 }
 
 const EMPTY_STATE: SetupState = { v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };

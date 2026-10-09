@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
@@ -42,6 +42,13 @@ type World = {
 };
 
 let world: World;
+
+/** A real repository for the main checkout, so rt's git calls (tracked check, info/exclude) run for real. */
+function git(cwd: string, ...args: string[]): string {
+  const run = Bun.spawnSync(["git", ...args], { cwd, env: { PATH: process.env.PATH ?? "", HOME: world?.home ?? cwd, GIT_CONFIG_NOSYSTEM: "1" } });
+  if (run.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${run.stderr.toString()}`);
+  return run.stdout.toString();
+}
 
 function sha(text: string): string {
   return createHash("sha256").update(text).digest("hex");
@@ -92,6 +99,9 @@ function makeWorld(): World {
   const main = join(root, "repos", "app");
   const tree = join(home, ".mattstack", "rt", "worktrees", "app", "t1");
   mkdirSync(codexHome, { recursive: true });
+  mkdirSync(main, { recursive: true });
+  const init = Bun.spawnSync(["git", "init", "-q", main], { env: { PATH: process.env.PATH ?? "", HOME: home, GIT_CONFIG_NOSYSTEM: "1" } });
+  if (init.exitCode !== 0) throw new Error(init.stderr.toString());
   mkdirSync(join(main, ".git", "worktrees", "t1"), { recursive: true });
   writeFileSync(join(main, ".git", "worktrees", "t1", "commondir"), "../..\n");
   mkdirSync(tree, { recursive: true });
@@ -601,5 +611,131 @@ describe("rt setup codex-policy", () => {
     expect(node.agentSafe).toBeUndefined();
     expect(node.requiresTTY).toBe(true);
     expect(node.args?.some((a) => a.flag === "--json")).toBe(false);
+  });
+});
+
+describe("Codex policy install, review fixes", () => {
+  const exclude = () => {
+    const path = join(world.main, ".git", "info", "exclude");
+    return existsSync(path) ? readFileSync(path, "utf8") : "";
+  };
+
+  test("a hook program changed after the review is refused at launch", async () => {
+    const { hooks } = await installBoth();
+    expect(await policy().prepare(launch(world.tree))).toMatchObject({ ok: true });
+    writeFileSync(hooks.artifact.path, "tampered after review");
+    const prepared = await policy().prepare(launch(world.tree));
+    expect(prepared).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining(hooks.artifact.path) } });
+  });
+
+  test("a hook program the review never recorded is refused at launch", async () => {
+    const { hooks } = await installBoth();
+    const statePath = join(world.home, ".mattstack", "rt", "setup-state.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    delete state.codexPolicy.artifacts[hooks.artifact.path];
+    writeFileSync(statePath, JSON.stringify(state));
+    expect(await policy().prepare(launch(world.tree))).toMatchObject({ ok: false, error: { code: "not-ready" } });
+  });
+
+  test("a hooks file rt creates is kept out of git, and the exclude line is recorded as rt's", async () => {
+    const folder = await plan();
+    expect(folder.hooksFile.exclude).toBe("/.codex/hooks.json");
+    expect(folder.reviews[0]!.exclude).toBe("/.codex/hooks.json");
+    expect(await approve(folder)).toEqual({ ok: true, data: undefined });
+    expect(exclude().split("\n")).toContain("/.codex/hooks.json");
+    expect(git(world.main, "status", "--porcelain")).not.toContain(".codex");
+    expect(stateOf().codexPolicy!.excludes).toEqual({ [world.main]: ["/.codex/hooks.json"] });
+  });
+
+  test("a hooks file the repo commits is refused and left alone", async () => {
+    const hooksPath = join(world.main, ".codex", "hooks.json");
+    mkdirSync(dirname(hooksPath), { recursive: true });
+    writeFileSync(hooksPath, `{"hooks":{}}\n`);
+    git(world.main, "add", ".codex/hooks.json");
+    const planned = await planCodexPolicyInstall({ cwd: world.tree, profile: world.codexHome }, world.deps);
+    expect(planned).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("commits") } });
+    expect(readFileSync(hooksPath, "utf8")).toBe(`{"hooks":{}}\n`);
+    expect(exclude()).not.toContain("/.codex/hooks.json");
+    expect(existsSync(world.config)).toBe(false);
+  });
+
+  test("a member's own untracked hooks file gets no exclude line", async () => {
+    const hooksPath = join(world.main, ".codex", "hooks.json");
+    mkdirSync(dirname(hooksPath), { recursive: true });
+    writeFileSync(hooksPath, `{"hooks":{}}\n`);
+    const folder = await plan();
+    expect(folder.hooksFile.exclude).toBeNull();
+    expect(await approve(folder)).toEqual({ ok: true, data: undefined });
+    expect(exclude()).not.toContain("/.codex/hooks.json");
+    expect(stateOf().codexPolicy!.excludes ?? {}).toEqual({});
+  });
+
+  test("a config edited between the hooks write and the config write keeps rt's ownership of its hooks", async () => {
+    const folder = await plan();
+    world.deps.afterHooksWrite = () => writeFileSync(world.config, "# edited meanwhile\n");
+    expect(await approve(folder)).toMatchObject({ ok: false, error: { code: "refused" } });
+    delete world.deps.afterHooksWrite;
+    expect(readFileSync(world.config, "utf8")).toBe("# edited meanwhile\n");
+    expect(stateOf().codexPolicy!.hooks[folder.hooksPath]).toEqual(folder.manifest.commands.map((c) => c.command));
+
+    const again = await plan();
+    expect(again.stage).toBe("folder");
+    expect(again.hooksFile.text).toBeNull();
+    expect(await approve(again)).toEqual({ ok: true, data: undefined });
+    expect((await plan()).stage).toBe("hooks");
+  });
+
+  test("an existing hooks file keeps every byte outside rt's group", async () => {
+    const hooksPath = join(world.main, ".codex", "hooks.json");
+    mkdirSync(dirname(hooksPath), { recursive: true });
+    const original = [
+      "{",
+      '    "description": "team hooks",',
+      '    "hooks": {',
+      '        "PreToolUse": [',
+      '            { "matcher": "shell", "hooks": [ { "type": "command", "command": "/usr/local/bin/audit" } ] }',
+      "        ]",
+      "    }",
+      "}",
+      "",
+    ].join("\n");
+    writeFileSync(hooksPath, original);
+    const folder = await plan();
+    expect(await approve(folder)).toEqual({ ok: true, data: undefined });
+    const text = readFileSync(hooksPath, "utf8");
+    let at = 0;
+    for (const ch of original) {
+      at = text.indexOf(ch, at);
+      expect(at).toBeGreaterThanOrEqual(0);
+      at++;
+    }
+    expect(text).toContain(original.split("\n")[4]!);
+    expect(text.startsWith(original.split("\n").slice(0, 5).join("\n"))).toBe(true);
+    expect(text).toContain('\n            {\n                "hooks": [');
+    expect(text).toContain('\n        "Stop": [');
+    const parsed = JSON.parse(text);
+    expect(parsed.hooks.PreToolUse).toHaveLength(2);
+    expect(parsed.hooks.Stop).toHaveLength(1);
+    expect((await plan()).stage).toBe("hooks");
+  });
+
+  test("the folder review names the project config that trusting the folder turns on", async () => {
+    mkdirSync(join(world.main, ".codex"), { recursive: true });
+    writeFileSync(join(world.main, ".codex", "config.toml"), `model = "gpt-test"\n`);
+    const folder = await plan();
+    expect(folder.reviews[0]!.projectConfig).toBe(join(world.main, ".codex", "config.toml"));
+    writeFileSync(world.config, `[projects.${JSON.stringify(world.main)}]\ntrust_level = "trusted"\n`);
+    expect((await plan()).reviews[0]!.projectConfig).toBeNull();
+  });
+
+  test("the hook program is never written through a folder rt does not own", async () => {
+    const folder = await plan();
+    const elsewhere = join(world.root, "elsewhere");
+    mkdirSync(elsewhere);
+    mkdirSync(dirname(dirname(folder.artifact.path)), { recursive: true });
+    symlinkSync(elsewhere, dirname(folder.artifact.path));
+    expect(await approve(folder)).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect(readdirSync(elsewhere)).toEqual([]);
+    expect(existsSync(folder.hooksPath)).toBe(false);
   });
 });

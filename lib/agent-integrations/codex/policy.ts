@@ -23,6 +23,7 @@
 
 import { createHash } from "crypto";
 import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "path";
 import type {
   CallerContext, Capability, NativeSessionRef, Outcome, SessionBinding,
@@ -328,7 +329,32 @@ export type CodexPolicyInspectDeps = {
   fingerprint?: (path: string) => string;
   folderTrust?: typeof codexFolderTrust;
   now?: () => number;
+  /** Why the executable is not the copy setup reviewed, or undefined when it is. */
+  artifact?: (executable: string, digest: string) => string | undefined;
 };
+
+/**
+ * Setup names each reviewed hook executable by its own digest and records
+ * that digest (policy-install.ts). Codex's native hash covers only the
+ * command line, so a copy changed in place is caught only here. Read
+ * straight from setup's state file: the daemon must not load setup modules.
+ */
+export function reviewedArtifactProblem(env: NodeJS.ProcessEnv): (executable: string, digest: string) => string | undefined {
+  return (executable, digest) => {
+    const segment = basename(dirname(executable));
+    if (!/^[0-9a-f]{16}$/.test(segment) || !digest.startsWith(segment)) {
+      return `the policy hook's executable ${executable} is not a copy setup reviewed, or its bytes changed after the review`;
+    }
+    let reviewed: unknown;
+    try {
+      const state: unknown = JSON.parse(readFileSync(join(env.HOME ?? homedir(), ".mattstack", "rt", "setup-state.json"), "utf8"));
+      reviewed = isRecord(state) && isRecord(state.codexPolicy) && isRecord(state.codexPolicy.artifacts) ? state.codexPolicy.artifacts[executable] : undefined;
+    } catch {
+      reviewed = undefined;
+    }
+    return reviewed === digest ? undefined : `the policy hook's executable ${executable} does not hold the bytes setup reviewed`;
+  };
+}
 
 export type CodexPolicyChecker = Pick<CodexSessionAdapter, "policyCheck" | "listHooks">;
 
@@ -508,6 +534,8 @@ function inspect(cwd: string, profile: string, deps: Required<CodexPolicyInspect
   } catch {
     return fail("not-ready", `the policy hook's executable ${first!.executable} could not be read`);
   }
+  const tampered = deps.artifact(first!.executable, executable);
+  if (tampered !== undefined) return fail("not-ready", tampered);
   const revision = createHash("sha256")
     .update(JSON.stringify({ manifest: manifest.revision, trusted: trusted.sort(), executable, profile }))
     .digest("hex");
@@ -587,6 +615,7 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
     fingerprint: overrides.fingerprint ?? ((path) => createHash("sha256").update(readFileSync(path)).digest("hex")),
     folderTrust: overrides.folderTrust ?? codexFolderTrust,
     now: overrides.now ?? Date.now,
+    artifact: overrides.artifact ?? reviewedArtifactProblem(overrides.env ?? process.env),
     checker: overrides.checker ?? liveChecker,
     receipts: overrides.receipts ?? codexPolicyReceipts(),
     sleep: overrides.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
