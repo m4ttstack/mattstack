@@ -80,8 +80,12 @@ function parse(args: string[]): { json: boolean; none: boolean; def: string | un
 export async function setupHarnesses(args: string[], _ctx: CommandContext = {}, deps: HarnessesDeps = realHarnessesDeps()): Promise<void> {
   const { json, none, def: defFlag, defaultFlag, ids: argIds } = parse(args);
   const sink: UserErrorSink = { json: deps.json, exit: deps.exit, now: deps.now };
-  const usage = (message: string, title = message): never =>
-    exitWithUserError(new UserActionableError("usage", message), json, sink, usageFailure(title, USAGE));
+  const usage = (message: string, title = message, why?: string): never =>
+    exitWithUserError(new UserActionableError("usage", message), json, sink, usageFailure(title, USAGE, why));
+  const badDefault = (d: string, chosen: string[]): never => {
+    const message = `${d} is not in the list you turned on. Choose your default from ${joined(chosen, "or")}.`;
+    return usage(message, "Which app should be your default?", message);
+  };
 
   if (defaultFlag && defFlag === undefined) usage("--default needs the id of one of the apps you turn on.", "Which app should be your default?");
   if (none && (argIds.length > 0 || defaultFlag)) usage("--none turns every agent app off, so it takes no ids and no --default.", "Choose some apps or --none, not both");
@@ -95,9 +99,12 @@ export async function setupHarnesses(args: string[], _ctx: CommandContext = {}, 
       usage(`Name the agent apps to turn on, from ${joined(registered.map((o) => o.id), "and")}, or pass --none.`, "Which agent apps should rt turn on?");
     }
     const picked = await deps.pickHarnesses(registered, deps.currentEnabled());
-    if (picked === null) return deps.exit(0);
+    // Only --none turns every app off; an empty pick is a cancel.
+    if (picked === null || picked.length === 0) return deps.exit(0);
     ids = picked;
-    if (ids.length > 1) {
+    if (def !== undefined) {
+      if (!ids.includes(def)) badDefault(def, ids);
+    } else if (ids.length > 1) {
       const current = deps.currentDefault();
       const chosen = await deps.pickDefault(registered.filter((o) => ids.includes(o.id)), current !== undefined && ids.includes(current) ? current : undefined);
       if (chosen === null) return deps.exit(0);
@@ -106,10 +113,8 @@ export async function setupHarnesses(args: string[], _ctx: CommandContext = {}, 
   }
 
   const valid = validateIntegrationPreference(ids, registered.map((o) => o.id));
-  if (!valid.ok) usage(valid.error.message);
-  if (def !== undefined && !ids.includes(def)) {
-    usage(`${def} is not in the list you turned on. Choose your default from ${joined(ids, "or")}.`);
-  }
+  if (!valid.ok) usage(valid.error.message, "Which agent apps should rt turn on?", valid.error.message);
+  if (def !== undefined && !ids.includes(def)) badDefault(def, ids);
   if (def === undefined && ids.length > 0) {
     const current = deps.currentDefault();
     def = current !== undefined && ids.includes(current) ? current : ids[0];
@@ -127,6 +132,10 @@ export async function setupHarnesses(args: string[], _ctx: CommandContext = {}, 
     });
   }
   if (!written.ok) {
+    if (written.error.code === "refused" && !json) {
+      out.note(out.line("refused", written.error.message));
+      return deps.exit(2);
+    }
     return exitWithUserError(new UserActionableError(written.error.code, written.error.message), json, sink, { next: out.cmd("rt settings explain agent.integrations") });
   }
 

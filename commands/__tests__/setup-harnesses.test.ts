@@ -103,10 +103,19 @@ describe("rt setup harnesses", () => {
     expect(existsSync(machineSettingsPath())).toBe(false);
   });
 
+  test("an unknown id reads as a question, with the valid ids in why and the usage line as next", async () => {
+    const code = await exitCode(() => setupHarnesses(["gemini"], {}, deps().d));
+    expect(code).toBe(2);
+    expect(quiet.stderr()).toStartWith("Which agent apps should rt turn on?");
+    expect(quiet.stderr()).toContain("rt has no integration called gemini. Choose from claude and codex.");
+    expect(quiet.stderr()).toContain("rt setup harnesses <ids…> --default <id>");
+  });
+
   test("a default outside the list is a usage failure naming the valid ids, exit 2, nothing written", async () => {
     const code = await exitCode(() => setupHarnesses(["claude", "--default", "codex"], {}, deps().d));
     expect(code).toBe(2);
-    expect(quiet.stderr()).toStartWith("codex is not in the list you turned on. Choose your default from claude.");
+    expect(quiet.stderr()).toStartWith("Which app should be your default?");
+    expect(quiet.stderr()).toContain("codex is not in the list you turned on. Choose your default from claude.");
     expect(quiet.stderr()).toContain("rt setup harnesses <ids…> --default <id>");
     expect(existsSync(machineSettingsPath())).toBe(false);
   });
@@ -236,6 +245,38 @@ describe("rt setup harnesses", () => {
     await setupHarnesses([], {}, t.d);
     expect(t.picks).toEqual([]);
     expect(getSetting("agent.provider").value).toBe("codex");
+  });
+
+  test("a refusal in human mode is a refused note, not a failure", async () => {
+    const { d } = deps({ write: () => ({ ok: false, error: { code: "refused", message: "This Mac has its own list of integrations, which would hide this change." } }) });
+    const code = await exitCode(() => setupHarnesses(["claude"], {}, d));
+    expect(code).toBe(2);
+    expect(quiet.stderr()).toStartWith("[refused] This Mac has its own list of integrations, which would hide this change.");
+  });
+
+  test("an empty pick is a cancel: nothing written, exit 0, never none", async () => {
+    const t = deps({ isTTY: () => true, pickHarnesses: async () => [] });
+    const code = await exitCode(() => setupHarnesses([], {}, t.d));
+    expect(code).toBe(0);
+    expect(t.picks).toEqual([]);
+    expect(existsSync(machineSettingsPath())).toBe(false);
+  });
+
+  test("--default with no ids at a terminal skips the default picker and uses it", async () => {
+    const t = deps({ isTTY: () => true, pickHarnesses: async () => ["claude", "codex"] });
+    await setupHarnesses(["--default", "codex"], {}, t.d);
+    expect(t.picks).toEqual([]);
+    expect(getSetting("agent.integrations").value).toEqual(["claude", "codex"]);
+    expect(getSetting("agent.provider").value).toBe("codex");
+  });
+
+  test("--default with no ids at a terminal is refused when the pick leaves it out", async () => {
+    const t = deps({ isTTY: () => true, pickHarnesses: async () => ["claude"] });
+    const code = await exitCode(() => setupHarnesses(["--default", "codex"], {}, t.d));
+    expect(code).toBe(2);
+    expect(t.picks).toEqual([]);
+    expect(quiet.stderr()).toStartWith("Which app should be your default?");
+    expect(existsSync(machineSettingsPath())).toBe(false);
   });
 
   test("cancelling the picker writes nothing and exits 0", async () => {
