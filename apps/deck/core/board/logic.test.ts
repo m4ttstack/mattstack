@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
 
+import fixture from '../../test/fixture/status.json' with { type: 'json' };
+import fixture from '../../test/fixture/status.json' with { type: 'json' };
 import {
   addPayload,
   autoBanner,
@@ -20,6 +22,8 @@ import {
   removeFailure,
   RESTART_TIMEOUT_MS,
   sections,
+  settingsBlocks,
+  settingsFormFor,
   showDevLinkPrompt,
   showUnlinkButton,
   showVersionColumn,
@@ -32,6 +36,7 @@ import {
   type CommandRuns,
   type RestartingMap,
   type Row,
+  type SettingsBlocks,
   type StatusData,
 } from './logic.ts';
 
@@ -619,4 +624,183 @@ test('redeployAllTargets: table order, self last, in-flight skipped', () => {
     'console',
     'deck',
   ]);
+});
+
+const baseRow = (o: Partial<Row> = {}) =>
+  ({
+    name: 'x',
+    port: 11001,
+    isTunnel: false,
+    self: false,
+    managedBy: 'mattstack',
+    override: null,
+    service: { label: 'l', short: 'x', pid: 1, lastExitStatus: 0 },
+    ...o,
+  }) as unknown as Row;
+const baseData = (o: Partial<StatusData> = {}) =>
+  ({ canManage: true, canRestart: true, ...o }) as StatusData;
+const NONE: SettingsBlocks = {
+  code: false,
+  app: false,
+  port: false,
+  portInput: false,
+  overrideControls: false,
+  errors: false,
+  reach: false,
+  gates: false,
+  remove: false,
+  giveRoute: false,
+  restart: false,
+  relink: false,
+};
+
+test('settingsFormFor: tunnel, service (no port), app', () => {
+  expect(settingsFormFor(baseRow({ isTunnel: true, port: null }))).toBe(
+    'tunnel'
+  );
+  expect(settingsFormFor(baseRow({ port: null }))).toBe('service');
+  expect(settingsFormFor(baseRow())).toBe('app');
+});
+
+test('settingsBlocks app: code needs managed, not self, devLink defined (RootScreen.tsx:311)', () => {
+  const d = baseData();
+  const linked = baseRow({ devLink: 'linked' });
+  expect(settingsBlocks(linked, d).code).toBe(true);
+  expect(settingsBlocks(baseRow(), d).code).toBe(false);
+  expect(settingsBlocks({ ...linked, self: true }, d).code).toBe(false);
+  expect(settingsBlocks({ ...linked, managedBy: 'user' }, d).code).toBe(false);
+});
+
+test('settingsBlocks app: relink is code and canManage (showDevLinkPrompt, logic.ts:132)', () => {
+  const r = baseRow({ devLink: 'linked' });
+  expect(settingsBlocks(r, baseData()).relink).toBe(true);
+  expect(settingsBlocks(r, baseData({ canManage: false })).relink).toBe(false);
+});
+
+test('settingsBlocks app: app block is user rows under canManage, even when off (RootScreen.tsx:329)', () => {
+  const u = baseRow({ managedBy: 'user', enabled: false });
+  expect(settingsBlocks(u, baseData()).app).toBe(true);
+  expect(settingsBlocks(baseRow(), baseData()).app).toBe(false);
+  expect(settingsBlocks(u, baseData({ canManage: false })).app).toBe(false);
+});
+
+test('settingsBlocks app: port input vs override controls (DevPortScreen.tsx:24,151)', () => {
+  const d = baseData();
+  const ov = { devPort: 3000, basePort: 11001 };
+  const plain = settingsBlocks(baseRow(), d);
+  expect(plain.port).toBe(true);
+  expect(plain.portInput).toBe(true);
+  expect(plain.overrideControls).toBe(false);
+  const over = settingsBlocks(baseRow({ override: ov }), d);
+  expect(over.portInput).toBe(false);
+  expect(over.overrideControls).toBe(true);
+  const self = settingsBlocks(baseRow({ override: ov, self: true }), d);
+  expect(self.portInput).toBe(false);
+  expect(self.overrideControls).toBe(false);
+});
+
+test('settingsBlocks app: errors always, reach needs canManage and on, gates canManage (RootScreen.tsx:240,298)', () => {
+  const d = baseData();
+  const off = baseRow({ enabled: false });
+  expect(settingsBlocks(baseRow(), d).errors).toBe(true);
+  expect(settingsBlocks(baseRow(), d).reach).toBe(true);
+  expect(settingsBlocks(off, d).reach).toBe(false);
+  expect(settingsBlocks(off, d).gates).toBe(true);
+  expect(settingsBlocks(baseRow(), baseData({ canManage: false })).gates).toBe(
+    false
+  );
+});
+
+test('settingsBlocks app: remove needs canManage and not self (RootScreen.tsx:371)', () => {
+  expect(settingsBlocks(baseRow(), baseData()).remove).toBe(true);
+  expect(settingsBlocks(baseRow({ self: true }), baseData()).remove).toBe(
+    false
+  );
+});
+
+test('settingsBlocks app: restart needs on, canRestart and a service; giveRoute false (RootScreen.tsx:331)', () => {
+  const d = baseData();
+  expect(settingsBlocks(baseRow(), d).restart).toBe(true);
+  expect(settingsBlocks(baseRow({ enabled: false }), d).restart).toBe(false);
+  expect(
+    settingsBlocks(baseRow({ service: undefined } as Partial<Row>), d).restart
+  ).toBe(false);
+  expect(
+    settingsBlocks(baseRow(), baseData({ canRestart: false })).restart
+  ).toBe(false);
+  expect(settingsBlocks(baseRow(), d).giveRoute).toBe(false);
+});
+
+test('settingsBlocks service form: errors, restart, giveRoute only', () => {
+  const r = baseRow({ port: null });
+  expect(settingsBlocks(r, baseData())).toEqual({
+    ...NONE,
+    errors: true,
+    restart: true,
+    giveRoute: true,
+  });
+  expect(
+    settingsBlocks(r, baseData({ canManage: false, canRestart: false }))
+  ).toEqual({ ...NONE, errors: true });
+});
+
+test('settingsBlocks tunnel form: errors and restart only', () => {
+  const r = baseRow({ isTunnel: true, port: null });
+  expect(settingsBlocks(r, baseData())).toEqual({
+    ...NONE,
+    errors: true,
+    restart: true,
+  });
+});
+
+test('settingsBlocks over the status fixture rows', () => {
+  const d = fixture as unknown as StatusData;
+  const by = (n: string) =>
+    settingsBlocks(
+      d.apps.find(a => a.name === n)!,
+      d
+    );
+  const app: SettingsBlocks = {
+    ...NONE,
+    port: true,
+    errors: true,
+    reach: true,
+    gates: true,
+    restart: true,
+  };
+  const managed = {
+    ...app,
+    code: true,
+    relink: true,
+    portInput: true,
+    remove: true,
+  };
+  expect(by('atlas')).toEqual(managed);
+  expect(by('forecast')).toEqual(app);
+  expect(by('ledger')).toEqual(managed);
+  expect(by('orbit')).toEqual({
+    ...app,
+    app: true,
+    overrideControls: true,
+    remove: true,
+  });
+  expect(d.orphans.map(o => settingsFormFor(o))).toEqual(['tunnel', 'service']);
+});
+
+test('settingsBlocks canManage false hides every write control', () => {
+  const d = { ...(fixture as unknown as StatusData), canManage: false };
+  for (const row of [...d.apps, ...d.orphans]) {
+    const b = settingsBlocks(row, d);
+    for (const k of [
+      'relink',
+      'app',
+      'portInput',
+      'overrideControls',
+      'reach',
+      'gates',
+      'remove',
+      'giveRoute',
+    ] as const)
+      expect(b[k]).toBe(false);
+  }
 });

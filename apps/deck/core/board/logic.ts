@@ -412,3 +412,78 @@ export function redeployAllTargets(rows: Row[], runs: CommandRuns): Row[] {
   );
   return [...idle.filter(r => !r.self), ...idle.filter(r => r.self)];
 }
+
+export type SettingsForm = 'app' | 'service' | 'tunnel';
+
+export function settingsFormFor(row: Row): SettingsForm {
+  if (row.isTunnel) return 'tunnel';
+  if (row.port == null) return 'service';
+  return 'app';
+}
+
+export interface SettingsBlocks {
+  code: boolean;
+  app: boolean;
+  port: boolean;
+  portInput: boolean;
+  overrideControls: boolean;
+  errors: boolean;
+  reach: boolean;
+  gates: boolean;
+  remove: boolean;
+  giveRoute: boolean;
+  restart: boolean;
+  relink: boolean;
+}
+
+const NO_BLOCKS: SettingsBlocks = {
+  code: false,
+  app: false,
+  port: false,
+  portInput: false,
+  overrideControls: false,
+  errors: false,
+  reach: false,
+  gates: false,
+  remove: false,
+  giveRoute: false,
+  restart: false,
+  relink: false,
+};
+
+/** Which blocks the settings modal renders for a row. Every write control
+    needs canManage: the server 403s them from a public host. */
+export function settingsBlocks(row: Row, data: StatusData): SettingsBlocks {
+  const canRestart = data.canRestart && row.service != null;
+  const form = settingsFormFor(row);
+  if (form === 'tunnel') {
+    return { ...NO_BLOCKS, errors: true, restart: canRestart };
+  }
+  if (form === 'service') {
+    return {
+      ...NO_BLOCKS,
+      errors: true,
+      restart: canRestart,
+      giveRoute: data.canManage,
+    };
+  }
+  const m = data.canManage;
+  const on = row.enabled !== false;
+  const managed = isMattstack(row);
+  const overridden = !!row.override && m && !row.self;
+  const code = managed && !row.self && row.devLink !== undefined;
+  return {
+    code,
+    relink: code && m,
+    app: !managed && m,
+    port: true,
+    portInput: m && !row.self && !overridden,
+    overrideControls: m && !row.self && overridden,
+    errors: true,
+    reach: m && on,
+    gates: m,
+    remove: m && !row.self,
+    restart: on && canRestart,
+    giveRoute: false,
+  };
+}
