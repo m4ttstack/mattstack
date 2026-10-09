@@ -5,7 +5,7 @@
  * plus one function, never a change to the transport itself.
  */
 import type { PullRequest, MRDetail, Pipeline, PipelineJob } from "@mattstack/glance";
-import type { HarnessId, IntegrationSummary, ModBlock, Mode } from "./agent-integrations.ts";
+import type { HarnessId, IntegrationProblem, IntegrationSummary, ModBlock, Mode } from "./agent-integrations.ts";
 
 export type Discussion = MRDetail["discussions"][number];
 
@@ -853,7 +853,7 @@ export interface Commands {
   "agent:get": { payload: { id: string }; data: AgentRecord };
   "agent:list": { payload: { repo?: string }; data: { agents: AgentRecord[] } };
   /** Every registered harness, in registry order; reading it starts no session or connection. */
-  "agent:integrations": { payload: { mode: Mode }; data: { integrations: IntegrationSummary[] } };
+  "agent:integrations": { payload: { mode: Mode }; data: { integrations: IntegrationSummary[]; problems?: IntegrationProblem[] } };
   /**
    * A Codex policy hook's receipt: the hook ran for a bound thread's turn and
    * gave this verdict. The daemon resolves the binding from the exact thread

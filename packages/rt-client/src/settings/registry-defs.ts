@@ -843,6 +843,15 @@ const ROWS: readonly SettingDef[] = [
     merge: "replace",
     description: "Kill switch for harness integrations: when true, agent launches, caller identity and pane discovery go through the Claude Code and Codex integrations, and a call rt cannot attribute to a recorded session is refused. When false, rt launches agents, attributes callers and lists panes as it did before. Machine scope: each Mac opts in on its own.",
   },
+  // No default: an absent list must read as Claude plus agent.provider (what
+  // the 2026-10-09 setup migration writes), which an explicit [] does not.
+  {
+    key: "agent.integrations",
+    type: "array",
+    scopes: ["user", "machine"],
+    merge: "replace",
+    description: "Which agent integrations are turned on, in your order (\"claude\", \"codex\"); [] turns them all off. Having a tool installed does not turn it on. agent.provider only picks the rt agent default, which should be one of these. Unset reads as Claude plus agent.provider.",
+  },
 
   // --- gates (escalation) ----------------------------------------------------
   {

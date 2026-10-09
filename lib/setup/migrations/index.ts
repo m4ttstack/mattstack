@@ -5,6 +5,7 @@
  */
 
 import { boardPeerTriggerMigration } from "./board-peer-trigger.ts";
+import { recordEnabledIntegrationsMigration } from "./record-enabled-integrations.ts";
 import { retireSwitchboardUrlMigration } from "./retire-switchboard-url.ts";
 import { unsetSetting } from "../../settings/write.ts";
 import type { ApplyContext, StepOutcome } from "../apply.ts";
@@ -29,6 +30,7 @@ export const MIGRATIONS: MigrationDef[] = [
     },
   },
   retireSwitchboardUrlMigration,
+  recordEnabledIntegrationsMigration,
 ];
 
 export function migrationEventId(id: string): MigrationEventId {

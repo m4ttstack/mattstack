@@ -205,6 +205,7 @@ export const EXAMPLES: Record<string, Example> = {
     layer: [{ repos: { "gitlab.example.com/acme/app": { caches: ["discussions"] } } }],
   },
   "setup.waived": { good: [[], ["tool.fast-browser-extension"]], bad: [{ value: [true], path: [0] }] },
+  "agent.integrations": { good: [[], ["claude"], ["codex", "claude"]], bad: [{ value: ["claude", 2], path: [1] }, { value: "codex", path: [] }] },
   "mattstack.roster": {
     good: [[], [{ username: "dev1" }, { username: "dev2", name: "Dev Two", agePublicKey: "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq" }, { username: "dev3", teams: ["widgets", "gadgets"] }]],
     bad: [

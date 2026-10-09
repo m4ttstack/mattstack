@@ -596,6 +596,27 @@ describe("integration metadata", () => {
     expect(res.data.integrations.map((s) => s.id)).toEqual(["claude", "codex", "fixture"]);
   });
 
+  test("a default outside the enabled set is reported as a problem with the switch on, and the envelope is unchanged with it off", async () => {
+    const problem = { code: "default-not-enabled" as const, message: "codex is your default for rt agent, but it is not turned on." };
+    const deps = { integrations: threeHarnesses().registry, enabled: (id: string) => id === "claude", problems: () => [problem] };
+    const on = await createAgentIntegrationHandlers({ ...deps, switchOn: () => true, modLinks: () => null })["agent:integrations"]({ mode: "herdr" });
+    if (!on.ok) throw new Error(on.error);
+    expect(on.data.problems).toEqual([problem]);
+    expect(on.data.integrations.map((s) => [s.id, s.enabled])).toEqual([["claude", true], ["codex", false], ["fixture", false]]);
+
+    const off = await createAgentIntegrationHandlers({ ...deps, switchOn: () => false })["agent:integrations"]({ mode: "herdr" });
+    if (!off.ok) throw new Error(off.error);
+    expect(Object.keys(off.data)).toEqual(["integrations"]);
+  });
+
+  test("no problems leaves the key out", async () => {
+    const res = await createAgentIntegrationHandlers({
+      integrations: threeHarnesses().registry, enabled: () => true, problems: () => [], switchOn: () => true, modLinks: () => null,
+    })["agent:integrations"]({ mode: "herdr" });
+    if (!res.ok) throw new Error(res.error);
+    expect(Object.keys(res.data)).toEqual(["integrations"]);
+  });
+
   test("metadata loading does not import setup modules", () => {
     const libDir = resolve(import.meta.dir, "..", "..");
     const setupDir = join(libDir, "setup");

@@ -10,7 +10,7 @@
  */
 
 import type {
-  AgentOptions, CapabilityReport, IntegrationDiagnostics, IntegrationSummary, Mode, OptionDescriptor, SessionBinding,
+  AgentOptions, CapabilityReport, IntegrationDiagnostics, IntegrationProblem, IntegrationSummary, Mode, OptionDescriptor, SessionBinding,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import type { HarnessIntegration, IntegrationRegistry } from "../../agent-integrations/contracts.ts";
@@ -18,6 +18,7 @@ import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import type { ModLinks } from "../../agent-integrations/claude/mod-links.ts";
 import { codexExperimentalApi } from "../../agent-integrations/codex/link.ts";
 import type { AcceptReceiptDeps } from "../../agent-integrations/codex/policy-receipts.ts";
+import { integrationPreferenceProblems } from "../../agent-integrations/preferences.ts";
 import { harnessEnabled, integrationsEnabled } from "../../agent-integrations/switch.ts";
 
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
@@ -25,7 +26,7 @@ type IntegrationsResult = { ok: true; data: Commands["agent:integrations"]["data
 
 export type IntegrationListDeps = {
   integrations?: IntegrationRegistry;
-  /** Whether the user enabled a harness; defaults to the reading an absent enabled-set setting has. */
+  /** Whether the user enabled a harness; defaults to the `agent.integrations` setting. */
   enabled?: (id: string) => boolean;
   /** The daemon's mod-link registry; defaults to the installed one, null outside the daemon. */
   modLinks?: () => Promise<ModLinks | null> | ModLinks | null;
@@ -36,6 +37,8 @@ export type IntegrationListDeps = {
   switchOn?: () => boolean;
   /** What the live Codex connection negotiated; undefined while there is none. */
   experimentalApi?: () => boolean | undefined;
+  /** Configuration problems in the enabled set and default; read only with the switch on. */
+  problems?: () => IntegrationProblem[];
 };
 
 const MODES: readonly Mode[] = ["herdr", "headless"];
@@ -135,6 +138,16 @@ export async function listAgentIntegrations(mode: Mode, deps: IntegrationListDep
   return Promise.all(registry.list().map((integration) => summarize(integration, mode, enabled(integration.id), deps)));
 }
 
+/** Off, nothing is reported, so the envelope stays as it was; an unreadable store reports nothing here. */
+function preferenceProblems(deps: IntegrationListDeps): IntegrationProblem[] {
+  if (!(deps.switchOn ?? integrationsEnabled)()) return [];
+  try {
+    return (deps.problems ?? integrationPreferenceProblems)();
+  } catch {
+    return [];
+  }
+}
+
 type ReceiptResult =
   | { ok: true; data: Commands["agent:policy-receipt"]["data"] }
   | { ok: false; error: string; failure: { code: string; message: string } };
@@ -157,7 +170,9 @@ export function createAgentIntegrationHandlers(deps: IntegrationListDeps & { rec
       if (typeof mode !== "string" || !MODES.includes(mode as Mode)) {
         return { ok: false, error: `invalid mode "${String(mode)}"; must be one of ${MODES.join(", ")}` };
       }
-      return { ok: true, data: { integrations: await listAgentIntegrations(mode as Mode, deps) } };
+      const integrations = await listAgentIntegrations(mode as Mode, deps);
+      const problems = preferenceProblems(deps);
+      return { ok: true, data: { integrations, ...(problems.length > 0 && { problems }) } };
     },
   };
 }

@@ -184,6 +184,7 @@ export const SCHEMAS = {
   }),
   "mattstack.tracking": z.looseObject({ repos: z.record(z.string(), z.looseObject({ caches: z.array(z.string()).optional() })).optional() }),
   "setup.waived": z.array(z.string()),
+  "agent.integrations": z.array(z.string()),
   "mattstack.roster": z.array(
     z.looseObject({ username: z.string(), name: z.string().optional(), agePublicKey: z.string().optional(), teams: z.array(z.string()).optional() }),
   ),
