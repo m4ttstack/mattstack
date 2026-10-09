@@ -25,6 +25,8 @@ there.
    or team stores.
 3. The team directory moves through a layout 3 conversion script instead of
    a migration.
+4. CI fails a new setting that has no zod schema or no console help on its
+   fields.
 
 Out of scope: automatic org migrations (the runbook's planned follow-up),
 and changing `sdm-resources-key`.
@@ -110,9 +112,14 @@ caught.
     the moved values, rewrites `board.tabs` under its newest store name and
     removes the older name, sets `layout: 3` in the marker, and makes one
     commit.
-  - Edits the store files in the clone with `jsonc-parser`, as the layout 2
-    script does, which keeps comments and works on a clone the new rt reads
-    as waiting.
+  - Writes the stores through `setSetting`, `unsetSetting` and
+    `pruneStoreName`, as the merged migration did, so versioned store names,
+    `$migrated` baselines, comments and the write gate all behave as in any
+    other write. That needs `<clone-dir>` to be the org clone rt reads
+    (`~/.mattstack/orgs/<org>`), and the script refuses any other path. The
+    resolver does not gate on layout, so these writes work on a clone the
+    new rt reads as waiting. The marker's `layout: 3` is written the way the
+    layout 2 script writes `layout: 2`.
   - Carries the merged migration's rules unchanged:
     - seed an entry from `linear.teamKey`, `board.slack.channel` (team
       store first, then org) and the first codeowners tab's `slackChannel`;
@@ -125,6 +132,38 @@ caught.
 - **Readers on a waiting org**: with the clone at layout 2 under the new rt,
   the board resolves no directory and refuses to post with the review
   channel sentence, and `rt setup status` shows `org.layout` waiting.
+
+## Every new setting is console-ready
+
+Agents adding a setting miss the zod schema and the console help. Today:
+
+- `schema-examples.test.ts` already fails a composite (object or array) key
+  with no schema or no examples.
+- The console's `groups.test.ts` already fails a key that lands in no
+  console group, or in more than one.
+- Nothing fails a scalar key with no schema: 50 of 115 keys are a bare
+  `type`, so the console shows no title, allowed values or limits for them.
+- Nothing fails a schema whose object properties carry no
+  `.meta({ title, description })`: 43 keys have at least one, so the
+  console's JSON editor has no hints to show for those fields.
+
+A new test, `packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts`,
+fails when a registry key:
+
+1. has no zod schema in `registry-schemas.ts` (scalars included), or
+2. has an object property, at any depth (through `properties`, `items`,
+   `additionalProperties`, `anyOf` and `oneOf`), with neither a `title` nor a
+   `description`. The key itself is described by its registry row's
+   `description`, which `registry.test.ts` already requires.
+
+Today's gaps sit on two allowlists in the test, one per rule. Each allowlist
+can only shrink: the test also fails when a listed key no longer has the gap,
+so a key that gains a schema or its annotations must leave the list. A new
+key cannot join a list without a reviewer seeing that diff.
+
+The `rt:settings` add-a-key checklist names all three rules (schema and
+examples, annotated properties, console group) so an agent meets them
+before the test does.
 
 ## Docs
 
