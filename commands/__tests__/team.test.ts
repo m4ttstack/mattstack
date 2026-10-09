@@ -738,8 +738,8 @@ describe("teamPull", () => {
   });
 
   test("--json carries a layout hold beside the existing keys", async () => {
-    const hold = { layout: 3, reads: 2 };
-    const detail = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const hold = { layout: 4, reads: 3 };
+    const detail = "Your org uses layout 4 and this app reads up to 3. Update the app.";
     const deps = depsWithZone({ daemon: async (cmd) => (cmd === "team:pull" ? { ok: true, data: { outcome: "skipped", detail, hold } } : { ok: false }) });
     await teamPull(["--team", "acme", "--json"], {}, deps);
     const { at, ...body } = JSON.parse(deps.lines[0]!);

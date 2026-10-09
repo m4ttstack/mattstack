@@ -14,6 +14,7 @@ import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
 import type { Probes } from "../probes.ts";
 import type { TeamSnapshotEntry } from "../../daemon/team-snapshots.ts";
+import { ORG_LAYOUT } from "../../team/org-marker.ts";
 
 const ROW_ORDER = [
   "tool.rt",
@@ -1497,7 +1498,7 @@ describe("rtHealthRows: team.sync wiring", () => {
 
 describe("orgLayoutRow", () => {
   const legacy = JSON.stringify({ role: "team", namespace: "widgets", org: "acme" });
-  const converted = JSON.stringify({ role: "org", org: "acme" });
+  const converted = JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT });
   const status = (hold: { layout: number; reads: number } | null) => async () => [{ slug: "acme", layoutHold: hold } as unknown as TeamSnapshotEntry];
   const at = (marker: string, store: boolean) =>
     fakeProbes({
@@ -1515,7 +1516,7 @@ describe("orgLayoutRow", () => {
   });
   test("ready names the org and layout", async () => {
     const r = await orgLayoutRow(at(converted, true), status(null));
-    expect(r).toMatchObject({ id: ORG_LAYOUT_ROW_ID, status: "ready", detail: "acme on layout 2" });
+    expect(r).toMatchObject({ id: ORG_LAYOUT_ROW_ID, status: "ready", detail: "acme on layout 3" });
   });
   test("a one-team clone is skipped with the waiting sentence and no action", async () => {
     const r = await orgLayoutRow(at(legacy, false), status(null));
@@ -1523,13 +1524,13 @@ describe("orgLayoutRow", () => {
     expect(r?.action ?? null).toBeNull();
   });
   test("a clone above ORG_LAYOUT is needs-you with the update step", async () => {
-    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true), status(null));
-    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT + 1 }), true), status(null));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 4 and this app reads up to 3. Update the app." });
     expect(r?.action).toMatchObject({ type: "steps", steps: ["Update mattstack from its menu bar icon, then reopen Setup status"] });
   });
   test("a daemon hold reads needs-you even though the clone itself is ready", async () => {
-    const r = await orgLayoutRow(at(converted, true), status({ layout: 3, reads: 2 }));
-    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+    const r = await orgLayoutRow(at(converted, true), status({ layout: 4, reads: 3 }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 4 and this app reads up to 3. Update the app." });
   });
   test("a daemon that is not running does not hide a ready clone", async () => {
     const r = await orgLayoutRow(at(converted, true), async () => null);
@@ -1577,8 +1578,8 @@ describe("team.sync for a clone waiting on its layout", () => {
 describe("held layout and row position", () => {
   const entry = (extra: Record<string, unknown>) => ({ slug: "widgets", enabled: true, pullOnly: true, unownedDirty: [], conflicted: null, lastPullError: null, lastPushError: null, lastPullAt: 1000, ...extra }) as unknown as TeamSnapshotEntry;
   test("team.sync does not call a held pull-only clone stuck or tell it to reset", async () => {
-    const sentence = "Your org uses layout 3 and this app reads up to 2. Update the app.";
-    const r = await teamSyncRow(["widgets"], async () => [entry({ lastPullSkipped: sentence, layoutHold: { layout: 3, reads: 2 } })], () => 1000, 300, true);
+    const sentence = `Your org uses layout ${ORG_LAYOUT + 1} and this app reads up to ${ORG_LAYOUT}. Update the app.`;
+    const r = await teamSyncRow(["widgets"], async () => [entry({ lastPullSkipped: sentence, layoutHold: { layout: ORG_LAYOUT + 1, reads: ORG_LAYOUT } })], () => 1000, 300, true);
     expect(r?.detail).not.toContain("reset it to origin");
     expect(r?.detail).not.toContain("cannot fast-forward");
     expect(r?.status).toBe("ready");
@@ -1588,7 +1589,7 @@ describe("held layout and row position", () => {
       home: "/h",
       files: {
         "/h/.mattstack/orgs/acme/.git/config": "",
-        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme" }),
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }),
         "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}",
       },
       dirs: { "/h/.mattstack/orgs": ["acme"] },

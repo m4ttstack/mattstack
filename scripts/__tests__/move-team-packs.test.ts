@@ -156,6 +156,18 @@ describe("planMove", () => {
     expect(() => planMove(orgRepo({ nested: {}, hasPlugin: { widgets: true, gadgets: false } }))).toThrow("nothing to move");
   });
 
+  test("a marker already past layout 2 is refused, so the move never lowers it", () => {
+    let thrown: unknown;
+    try {
+      planMove(orgRepo({ files: { "mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme", layout: 3 }) } }));
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(MoveRefusal);
+    expect((thrown as MoveRefusal).message).toBe("This org is already past layout 2");
+    expect((thrown as MoveRefusal).why).toBe("The layout 2 move would lower it.");
+  });
+
   test("a team with both packs/<team> and plugin/, or a packs/ folder not named for the team, is refused", () => {
     expect(() => planMove(orgRepo({ hasPlugin: { widgets: true, gadgets: false } }))).toThrow("widgets has both");
     expect(() => planMove(orgRepo({ nested: { widgets: ["widgets", "other"] } }))).toThrow("packs/other");

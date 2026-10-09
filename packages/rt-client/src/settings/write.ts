@@ -118,6 +118,22 @@ interface StoreEdit {
   value: unknown;
 }
 
+/** An org- or team-scope write made while shared writes are refused. Its message is the refusal sentence. */
+export class SharedStoreWriteRefused extends Error {}
+
+let sharedWriteRefusal: string | null = null;
+
+/** While set, org- and team-scope writes throw SharedStoreWriteRefused with this sentence. Returns the previous value so a caller can restore it. */
+export function refuseSharedWrites(sentence: string | null): string | null {
+  const was = sharedWriteRefusal;
+  sharedWriteRefusal = sentence;
+  return was;
+}
+
+function assertSharedWriteAllowed(scope: SettingScope): void {
+  if (sharedWriteRefusal !== null && (scope === "org" || scope === "team")) throw new SharedStoreWriteRefused(sharedWriteRefusal);
+}
+
 function sectionOf(root: Record<string, unknown>, repoIdentity: string | undefined): Record<string, unknown> | undefined {
   if (repoIdentity === undefined) return root;
   const repos = root.repos;
@@ -136,6 +152,7 @@ function sectionPathOf(repoIdentity: string | undefined): JSONPath {
  * doc for the full refusal list and the store-selection rule.
  */
 export function setSetting(key: string, value: unknown, scope: SettingScope, opts: SetSettingOpts = {}): void {
+  assertSharedWriteAllowed(scope);
   const def = getDef(key);
   if (!def) {
     refuse(`unknown setting "${key}" — not in the settings registry (see \`rt settings list\`)`);
@@ -315,6 +332,7 @@ function snapshotEnabled(key: "rt.homeSnapshot" | "rt.teamSnapshot"): boolean {
  * still be removed from any scope.
  */
 export function unsetSetting(key: string, scope: SettingScope, opts: SetSettingOpts = {}): boolean {
+  assertSharedWriteAllowed(scope);
   const def = getDef(key);
   if (!def && isRetiredKey(key)) {
     if (opts.repoIdentity !== undefined) refuse(`"${key}" is not repo-scoped; omit the repo identity`);
@@ -596,6 +614,7 @@ export interface PruneOpts extends SetSettingOpts {
  * `force`. `authored` is the value it removed.
  */
 export function pruneStoreName(key: string, storeName: string, scope: SettingScope, opts: PruneOpts = {}): { removed: boolean; authored?: unknown } {
+  assertSharedWriteAllowed(scope);
   const def = getDef(key);
   if (!def) refuse(`unknown setting "${key}"; not in the settings registry (see \`rt settings list\`)`);
   if (!def.scopes.includes(scope)) refuse(`"${key}" is not stored in the ${scope} store (allowed: ${def.scopes.join(", ")})`);
@@ -687,6 +706,7 @@ export function renameRepoSection(
   newId: string,
   opts: { dryRun?: boolean } = {},
 ): { status: SectionRename; keys: number; detail?: string } {
+  if (sharedWriteRefusal !== null && orgHolding(storePath) !== null) throw new SharedStoreWriteRefused(sharedWriteRefusal);
   if (!existsSync(storePath)) return { status: "none", keys: 0 };
   if (storeUnparseable(storePath)) return { status: "refused", keys: 0, detail: `unparseable store ${storePath}` };
   const before = readStore(storePath);

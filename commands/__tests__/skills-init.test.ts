@@ -7,6 +7,7 @@ import { UserActionableError } from "../../lib/errors.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
+import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 
 describe("parseInitArgs", () => {
   test("defaults: cwd repo, no zone, no team, human output", () => {
@@ -328,7 +329,7 @@ describe("skillsInit", () => {
     const HOME = "/h";
     const fs = memFs({
       [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
-      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme", "layout": ${ORG_LAYOUT} }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": ["acme/api"] }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/plugin/pack/skills.jsonc`]: "{}",
@@ -360,7 +361,7 @@ describe("skillsInit", () => {
     const HOME = "/h";
     const org = (slug: string) => ({
       [`${HOME}/.mattstack/orgs/${slug}/.git/config`]: "",
-      [`${HOME}/.mattstack/orgs/${slug}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "${slug}" }`,
+      [`${HOME}/.mattstack/orgs/${slug}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "${slug}", "layout": ${ORG_LAYOUT} }`,
       [`${HOME}/.mattstack/orgs/${slug}/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com" }`,
       [`${HOME}/.mattstack/orgs/${slug}/mattstack/teams/widgets/settings.team.jsonc`]: `{}`,
     });
@@ -380,7 +381,7 @@ describe("skillsInit", () => {
     const HOME = "/h";
     const fs = memFs({
       [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
-      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme", "layout": ${ORG_LAYOUT} }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com" }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
     });
@@ -392,7 +393,7 @@ describe("skillsInit", () => {
     const HOME = "/h";
     const fs = memFs({
       [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
-      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme", "layout": ${ORG_LAYOUT} }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{}`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
     });
@@ -465,7 +466,7 @@ describe("skillsInit", () => {
     const HOME = "/h";
     const fs = memFs({
       [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
-      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme", "layout": ${ORG_LAYOUT} }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": [] }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
       [`${HOME}/.mattstack/orgs/acme/.claude-plugin/marketplace.json`]: `{ "name": "acme-market", "owner": { "name": "acme" }, "plugins": [] }`,
@@ -493,7 +494,7 @@ describe("skillsInit", () => {
     const HOME = "/h";
     const fs = memFs({
       [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
-      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme", "layout": ${ORG_LAYOUT} }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": [] }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
       [`${HOME}/.mattstack/orgs/acme/.claude-plugin/marketplace.json`]: `{ "name": "acme-market", "owner": { "name": "acme" }, "plugins": [] }`,

@@ -5,8 +5,8 @@ import type { Probes } from "../setup/probes.ts";
 
 export const ORG_MARKER_REL = join("mattstack", "mattstack.jsonc");
 
-/** The highest org layout this rt reads. Moves only with a breaking change to the org repo's shape, never with a release. */
-export const ORG_LAYOUT = 2;
+/** The highest org layout this rt reads. Moves only with a breaking change to the org repo's shape or to the shared settings' shape, never with a release. */
+export const ORG_LAYOUT = 3;
 
 /** What a `role: "org"` marker without `layout` reads as. Fixed, never ORG_LAYOUT: a bump must not turn an unconverted repo ready. */
 export const ORG_LAYOUT_ABSENT_DEFAULT = 2;

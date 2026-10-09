@@ -25,6 +25,7 @@ import { createMaterializePullHook } from "../../lib/daemon/materialize-pull-hoo
 import { composePullHooks } from "../../lib/daemon/pull-hooks.ts";
 import { openStateDb } from "../../lib/state/db.ts";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
+import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 
 const ORIG_HOME = process.env.HOME;
 const ENGINE_PACK_DIR = resolve(import.meta.dir, "..", "..", "plugins", "mattstack");
@@ -89,7 +90,7 @@ function convertOrigin(): void {
   const work = join(home, "convert");
   gitAt(["clone", "-q", origin, work]);
   rmSync(join(work, "mattstack"), { recursive: true, force: true });
-  writeJson(join(work, "mattstack", "mattstack.jsonc"), { role: "org", org: "acme" });
+  writeJson(join(work, "mattstack", "mattstack.jsonc"), { role: "org", org: "acme", layout: ORG_LAYOUT });
   writeJson(join(work, "mattstack", "org", "settings.org.jsonc"), { "mattstack.integrations": { forge: { provider: "gitlab", host: "gitlab.example.com" } }, "mattstack.org": { admins: ["admin1"], teams: { widgets: { owners: ["admin1"] } } }, "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }], "board.projects": ["acme/widgets"], "board.gitlabHost": "https://gitlab.example.com" });
   writeJson(join(work, "mattstack", "org", "packs", "acme-base", "pack", "skills.jsonc"), { version: 1, base: true });
   writeJson(join(work, "mattstack", "org", "packs", "acme-base", "attachments", "shared-note", "SKILL.md"), "# shared");
@@ -302,7 +303,7 @@ describe("member upgrade: app first, org main converts later", () => {
     expect(installed.get("widgets@widgets")?.version).toBe("0.1.1");
     expectMaterialized(bindings);
     const after = await rtHealthRows(p, { ci: false });
-    expect(after.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 2" });
+    expect(after.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 3" });
 
     expect(getSetting("sdm.resources").value).toEqual(SDM_RESOURCES);
     const materialized = readFileSync(bindings, "utf8");
@@ -348,7 +349,7 @@ describe("member upgrade: org main converts first, app updates later", () => {
     expect(getSetting("sdm.resources").value).toEqual(SDM_RESOURCES);
 
     const rows = await rtHealthRows(p, { ci: false });
-    expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 2" });
+    expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 3" });
     expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
     expect(rows.find((r) => r.id === "team.sync")).toMatchObject({ status: "missing", detail: "The rt daemon is not running. Team clones sync once it is" });
     const drawn = (await composePlan({ p, secrets: { has: async () => null }, ci: false, mode: "status", orgs: ["acme"] })).groups.flatMap((g) => g.rows);
@@ -438,7 +439,7 @@ describe("member upgrade: v2.21.1 held the pull, then the app updates", () => {
     expect(getSetting("sdm.resources").value).toEqual(SDM_RESOURCES);
 
     const after = await rtHealthRows(p, { ci: false });
-    expect(after.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 2" });
+    expect(after.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 3" });
     expect(after.find((r) => r.id === "org.folder")?.status).toBe("ready");
     expect(after.find((r) => r.id === "team.sync")).toMatchObject({ status: "missing", detail: "The rt daemon is not running. Team clones sync once it is" });
 
@@ -499,7 +500,7 @@ describe("member upgrade: the member also has a working checkout of the org repo
     expect(existsSync(join(checkout, ".git"))).toBe(true);
 
     const rows = await rtHealthRows(p, { ci: false });
-    expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 2" });
+    expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 3" });
     expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
   });
 });
