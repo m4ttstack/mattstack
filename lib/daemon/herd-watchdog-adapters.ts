@@ -13,7 +13,8 @@ import { installedModLinks, pushModCommand, type ModLinks } from "../agent-integ
 import { modPath } from "../agent-integrations/claude/mod-path.ts";
 import { createObservationSweep, type IntegrationRegistry, type ObservationSweep } from "../agent-integrations/contracts.ts";
 import { latestObservation, pushedDeath, recordObservation } from "../agent-integrations/observation-store.ts";
-import { createSessionStore } from "../agent-integrations/session-store.ts";
+import { oneShotInput, type DeliveryService } from "../agent-integrations/delivery.ts";
+import { createSessionStore, isDetachedAttachment, listBindingsByNativeValue } from "../agent-integrations/session-store.ts";
 import { integrationsEnabled } from "../agent-integrations/switch.ts";
 import type { herdrRequest } from "../herdr/client.ts";
 import { peekUnread } from "../state/chat-store.ts";
@@ -313,7 +314,14 @@ export interface WatchdogActuatorDeps {
   push?: (session: string, kind: string, data: unknown) => Promise<Outcome<{ acked: boolean }>>;
   /** Whether the session in `pane` answers the relocation prompt through its mod; such a pane gets no key press. */
   relocationInMod?: (pane: string) => boolean;
+  /** The daemon's shared harness delivery, the one chat reaches bound sessions through; absent, a paneless session is unreachable. */
+  delivery?: () => DeliveryService | undefined;
+  /** agent.integrations.enabled; integrationsEnabled when omitted. */
+  enabled?: () => boolean;
 }
+
+/** The from-name a watchdog poke carries into a session's peer input; no chat identity has it. */
+const WATCHDOG_SENDER = "rt herd watchdog";
 
 /** None of these throw into the ladder: one party's failed side effect must
     not end the sweep for every other herd. */
@@ -414,6 +422,28 @@ export function createWatchdogActuators(deps: WatchdogActuatorDeps): WatchdogAct
         }, deps.db);
       } catch (err) {
         log.warn({ err, summary }, "watchdog could not enqueue the notification");
+      }
+    },
+    async pokeSession(session, text) {
+      const delivery = deps.delivery?.();
+      if (!delivery || !(deps.enabled ?? integrationsEnabled)()) return null;
+      const attached = listBindingsByNativeValue(deps.db, session).filter((b) => !isDetachedAttachment(b));
+      if (attached.length !== 1) return null;
+      const binding = attached[0]!;
+      const harness = binding.native.harness;
+      if (delivery.connection(harness) === null || delivery.live(binding) === false) {
+        log.info({ session, harness }, "watchdog session poke skipped: the session cannot take input now");
+        return false;
+      }
+      try {
+        const sent = await delivery.deliverPeerInput(binding, oneShotInput({
+          id: `watchdog-${crypto.randomUUID()}`, sender: WATCHDOG_SENDER, body: text, recipient: binding.identity,
+        }));
+        if (!sent.ok) log.info({ session, harness, error: sent.error.message }, "watchdog session poke not accepted");
+        return sent.ok;
+      } catch (err) {
+        log.warn({ err, session, harness }, "watchdog session poke threw");
+        return false;
       }
     },
     async nudge(session, text) {

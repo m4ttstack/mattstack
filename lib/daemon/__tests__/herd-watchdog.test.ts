@@ -394,9 +394,14 @@ describe("evaluateShepherd", () => {
 describe("HerdWatchdog ladder", () => {
   type Level = "info" | "warn" | "debug" | "error";
 
-  function rig(opts: { sensors?: Partial<WatchdogSensors>; cfg?: Partial<WatchdogConfig>; herd?: HerdRow; jobs?: HerdJobRow[] } = {}) {
+  function rig(opts: {
+    sensors?: Partial<WatchdogSensors>; cfg?: Partial<WatchdogConfig>; herd?: HerdRow; jobs?: HerdJobRow[];
+    /** What the shepherd's session answers peer input with: delivered, not delivered, or null when it has no harness session. */
+    session?: boolean | null;
+  } = {}) {
     const clock = { now: NOW };
     const pokes: { pane: string; text: string }[] = [];
+    const sessionPokes: { session: string; text: string }[] = [];
     const parks: { herd: string; job: string }[] = [];
     const modalNotes: { herd: string; job: string; pane: string }[] = [];
     const trustCalls: { herd: string; job: string; pane: string; worktree: string }[] = [];
@@ -419,6 +424,11 @@ describe("HerdWatchdog ladder", () => {
       acceptTrustModal: async (h, j, pane, worktree) => { trustCalls.push({ herd: h, job: j, pane, worktree }); return trust.accepts; },
       acceptRelocationModal: async (h, j, pane) => { relocCalls.push({ herd: h, job: j, pane }); return reloc.accepts; },
       notifyHuman: (summary, pane) => { notes.push(summary); noteEvents.push({ summary, pane: pane ?? null }); },
+      pokeSession: async (session, text) => {
+        const reach = opts.session ?? null;
+        if (reach !== null) sessionPokes.push({ session, text });
+        return reach;
+      },
     };
     const h = opts.herd ?? herd();
     const jobs = opts.jobs ?? [job()];
@@ -428,7 +438,7 @@ describe("HerdWatchdog ladder", () => {
     const tick = async (mins = 0) => { clock.now += mins * MIN; await wd.sweep(); };
     const shepherdPokes = () => pokes.filter((p) => p.pane === "w1:p0");
     const workerPokes = () => pokes.filter((p) => p.pane === "w1:p1");
-    return { wd, tick, clock, pokes, parks, modalNotes, trustCalls, trust, relocCalls, reloc, notes, noteEvents, lines, delivery, hold, conf: c, shepherdPokes, workerPokes };
+    return { wd, tick, clock, pokes, sessionPokes, parks, modalNotes, trustCalls, trust, relocCalls, reloc, notes, noteEvents, lines, delivery, hold, conf: c, shepherdPokes, workerPokes };
   }
 
   const workerWedged = (): Partial<WatchdogSensors> => ({ ...idleFor(3), unreadDmMentionsFor: (h) => (h === "job-a" ? 1 : 0) });
@@ -894,6 +904,51 @@ describe("HerdWatchdog ladder", () => {
     await r.tick(5);
     expect(r.pokes).toHaveLength(2);
     expect(r.notes).toEqual(["watchdog: demo-1/job-a: idle 13m with 1 unread DM/mention; strike 3, flagged 10m ago. Check on it."]);
+  });
+
+  test("a shepherd with no pane but a harness session is poked through that session twice, then the human is notified", async () => {
+    const r = rig({ herd: herd({ shepherdPane: null }), jobs: [], session: true, sensors: { openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }] } });
+    await r.tick();
+    expect(r.sessionPokes).toEqual([{ session: "sess-s", text: "watchdog: human gate g-9 open 6m unanswered. Consume it or post status." }]);
+    expect(r.pokes).toHaveLength(0);
+    expect(r.notes).toHaveLength(0);
+    await r.tick(5);
+    expect(r.sessionPokes).toHaveLength(2);
+    expect(r.notes).toHaveLength(0);
+    await r.tick(5);
+    expect(r.sessionPokes).toHaveLength(2);
+    expect(r.notes).toEqual(["watchdog: demo-1/@shepherd: human gate g-9 open 6m unanswered; strike 3, flagged 10m ago. Check on it."]);
+  });
+
+  test("a worker's escalation reaches a paneless shepherd through its session at strikes 3-4, and the human at 5", async () => {
+    const r = rig({ herd: herd({ shepherdPane: null }), session: true, sensors: workerWedged() });
+    await r.tick();
+    await r.tick(5);
+    await r.tick(5);
+    expect(r.sessionPokes).toEqual([{ session: "sess-s", text: "watchdog: demo-1/job-a: idle 13m with 1 unread DM/mention; strike 3, flagged 10m ago. Check on it." }]);
+    expect(r.notes).toHaveLength(0);
+    await r.tick(5);
+    expect(r.sessionPokes).toHaveLength(2);
+    expect(r.notes).toHaveLength(0);
+    await r.tick(5);
+    expect(r.sessionPokes).toHaveLength(2);
+    expect(r.notes).toEqual(["watchdog: demo-1/job-a: idle 23m with 1 unread DM/mention; strike 5, flagged 20m ago. Check on it."]);
+  });
+
+  test("a session poke that was not delivered still counts as the strike, the way an undelivered pane poke does", async () => {
+    const r = rig({ herd: herd({ shepherdPane: null }), jobs: [], session: false, sensors: { openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }] } });
+    await r.tick();
+    expect(r.sessionPokes).toHaveLength(1);
+    expect(r.notes).toHaveLength(0);
+    expect(r.wd.annotations("demo-1", "@shepherd")).toEqual({ strikes: 1, lastPokeAt: NOW });
+    expect(r.lines.some((l) => l.level === "info" && /not delivered/.test(l.msg))).toBe(true);
+  });
+
+  test("a shepherd with a pane is never reached through its session", async () => {
+    const r = rig({ jobs: [], session: true, sensors: shepherdWedged() });
+    await r.tick();
+    expect(r.sessionPokes).toHaveLength(0);
+    expect(r.shepherdPokes()).toHaveLength(1);
   });
 
   test("notifyHuman: false never calls the actuator; the rung is logged instead", async () => {

@@ -14,6 +14,9 @@ import { backgroundTask } from "../../agent-integrations/claude/pane-reading.ts"
 import { HerdWatchdog, type WatchdogConfig } from "../herd-watchdog.ts";
 import { deleteRegistry, saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { workspaceScreen } from "./trust-workspace-fixtures.ts";
+import type { DeliveryInput, DeliveryService } from "../../agent-integrations/delivery.ts";
+import { ONE_SHOT_ROOM } from "../../agent-integrations/delivery-store.ts";
+import { createSessionStore } from "../../agent-integrations/session-store.ts";
 
 const log = pino({ level: "silent" });
 const NOW = 10_000_000;
@@ -460,6 +463,57 @@ describe("watchdog actuators", () => {
     expect(typeof notified[0].id).toBe("string");
     expect(notified[0].id.length).toBeGreaterThan(0);
     expect(typeof notified[0].timestamp).toBe("number");
+  });
+});
+
+describe("watchdog actuators: a session with no pane", () => {
+  function rig(over: { enabled?: boolean; bound?: boolean; connection?: string | null; live?: boolean; refuse?: boolean } = {}) {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const binding = over.bound === false ? null
+      : store.bind(store.reserve({ identity: "shep.1abc" }), { harness: "codex", profile: "default", kind: "id", value: "sess-s" }, { mode: "headless" });
+    const sent: DeliveryInput[] = [];
+    const delivery = {
+      connection: () => (over.connection === undefined ? "conn-1" : over.connection),
+      live: () => over.live ?? true,
+      deliverPeerInput: async (_b: unknown, input: DeliveryInput) => {
+        sent.push(input);
+        return over.refuse
+          ? { ok: false as const, error: { code: "not-ready" as const, message: "the thread is not loaded" } }
+          : { ok: true as const, data: { id: input.id, evidence: "queued" as const } };
+      },
+    } as unknown as DeliveryService;
+    const a = createWatchdogActuators({
+      herdStore: { setJobStatus: () => {} }, db, socketFor: () => DEFAULT, log,
+      delivery: () => delivery, enabled: () => over.enabled ?? true,
+    });
+    return { a, sent, binding };
+  }
+
+  test("a bound session takes the text as one-shot peer input through the shared delivery, never as a chat post", async () => {
+    const { a, sent, binding } = rig();
+    expect(await a.pokeSession!("sess-s", "watchdog: human gate g-9 open 6m unanswered. Consume it or post status.")).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      sender: "rt herd watchdog", body: "watchdog: human gate g-9 open 6m unanswered. Consume it or post status.",
+      recipient: binding!.ok ? binding!.data.identity : "", constituents: [{ room: ONE_SHOT_ROOM }],
+    });
+  });
+
+  test("with the switch off, or no binding for the session, there is nothing to deliver to", async () => {
+    const off = rig({ enabled: false });
+    expect(await off.a.pokeSession!("sess-s", "x")).toBeNull();
+    expect(off.sent).toHaveLength(0);
+    const unbound = rig({ bound: false });
+    expect(await unbound.a.pokeSession!("sess-s", "x")).toBeNull();
+    expect(unbound.sent).toHaveLength(0);
+  });
+
+  test("a session whose harness is not connected, is not live, or refuses the input is not delivered to", async () => {
+    for (const over of [{ connection: null }, { live: false }, { refuse: true }]) {
+      const r = rig(over);
+      expect(await r.a.pokeSession!("sess-s", "x")).toBe(false);
+    }
   });
 });
 

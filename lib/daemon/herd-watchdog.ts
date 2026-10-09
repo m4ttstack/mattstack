@@ -294,6 +294,11 @@ export interface WatchdogActuators {
       True only once the mod acked it in time; false is the cue to poke the
       pane instead, once. */
   nudge?(session: string, text: string): Promise<boolean>;
+  /** Sends `text` to a session with no pane as one-shot peer input, through
+      the shared harness delivery its chat already arrives on. False means it
+      was not delivered; null means the session has no harness binding to
+      deliver to (or agent.integrations is off), so only a person can be told. */
+  pokeSession?(session: string, text: string): Promise<boolean | null>;
 }
 
 interface Ladder { strikes: number; lastPokeAt: number | null; since: number; parked: boolean }
@@ -315,7 +320,9 @@ const summaryText = (party: string, evidence: string, ladder: Ladder, now: numbe
  * modal and attention verdicts enter at strike 3 (never injected), modal is
  * parked once. A worker rt may not type into skips its own two pokes.
  * Shepherd strikes 1-2 poke its pane, 3 notifies the human. A herd with no
- * recorded shepherd pane routes every shepherd rung to the human. A strike is
+ * recorded shepherd pane takes those pokes through the shepherd's harness
+ * session instead, and routes them to the human only when that session has
+ * no harness binding. A strike is
  * earned only while still wedged and retryMins after the previous action;
  * a healthy verdict clears the ladder.
  */
@@ -469,8 +476,9 @@ export class HerdWatchdog {
       return;
     }
     const summary = summaryText(key, evidence, ladder, now);
-    if (ladder.strikes >= WORKER_CAP || herd.shepherdPane === null) this.notify(herd.id, summary, job.pane, cfg, now, ctx);
-    else await this.poke(herd.shepherdPane, summary, ctx, "escalated to shepherd");
+    if (ladder.strikes >= WORKER_CAP) this.notify(herd.id, summary, job.pane, cfg, now, ctx);
+    else if (herd.shepherdPane !== null) await this.poke(herd.shepherdPane, summary, ctx, "escalated to shepherd");
+    else if (!(await this.pokeSession(herd.shepherdSession, summary, ctx, "escalated to shepherd"))) this.notify(herd.id, summary, job.pane, cfg, now, ctx);
   }
 
   private async walkShepherd(herd: HerdRow, cfg: WatchdogConfig, now: number): Promise<void> {
@@ -490,8 +498,10 @@ export class HerdWatchdog {
     }
     this.commit(key, ladder, now, 1, SHEPHERD_CAP);
     const ctx = { herd: herd.id, job: SHEPHERD, path: fresh.path, strike: ladder.strikes };
-    if (ladder.strikes >= SHEPHERD_CAP || herd.shepherdPane === null) this.notify(herd.id, summaryText(key, fresh.evidence, ladder, now), herd.shepherdPane, cfg, now, ctx);
-    else await this.poke(herd.shepherdPane, pokeText(fresh.evidence), ctx, "poked shepherd");
+    const summary = summaryText(key, fresh.evidence, ladder, now);
+    if (ladder.strikes >= SHEPHERD_CAP) this.notify(herd.id, summary, herd.shepherdPane, cfg, now, ctx);
+    else if (herd.shepherdPane !== null) await this.poke(herd.shepherdPane, pokeText(fresh.evidence), ctx, "poked shepherd");
+    else if (!(await this.pokeSession(herd.shepherdSession, pokeText(fresh.evidence), ctx, "poked shepherd"))) this.notify(herd.id, summary, null, cfg, now, ctx);
   }
 
   private track(key: string, now: number): Ladder {
@@ -526,6 +536,15 @@ export class HerdWatchdog {
     const delivered = await this.act.poke(pane, text);
     if (delivered) this.log.info({ ...ctx, pane }, event);
     else this.log.info({ ...ctx, pane }, `${event} (not delivered)`);
+  }
+
+  /** False when the session has no harness binding to reach, so the caller tells the human instead. */
+  private async pokeSession(session: string, text: string, ctx: object, event: string): Promise<boolean> {
+    const delivered = this.act.pokeSession ? await this.act.pokeSession(session, text) : null;
+    if (delivered === null) return false;
+    if (delivered) this.log.info({ ...ctx, session }, event);
+    else this.log.info({ ...ctx, session }, `${event} (not delivered)`);
+    return true;
   }
 
   private notify(herd: string, summary: string, pane: string | null, cfg: WatchdogConfig, now: number, ctx: object): void {

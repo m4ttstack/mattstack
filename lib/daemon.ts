@@ -1417,6 +1417,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           act: createWatchdogActuators({
             herdStore, db: getStateDb("daemon"), socketFor: watchdogSensors.socketFor, herdr: herdrRequest, log: watchdogLog,
             relocationInMod: (pane) => relocationInSession.answered({ paneRef: pane }),
+            delivery: () => chatDelivery,
           }),
           cfg: watchdogConfig,
           log: watchdogLog,
