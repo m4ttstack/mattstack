@@ -197,7 +197,8 @@ export const SCHEMAS = {
             .looseObject({
               team: z.string().min(1).optional().meta({ title: "Linear team key", description: "The team's own Linear key, e.g. CV.", placeholder: "CV" }),
             })
-            .optional(),
+            .optional()
+            .meta({ title: "Linear", description: "The team's Linear team." }),
           slack: z
             .looseObject({
               codeOwnersChannel: z.string().min(1).optional().meta({
@@ -215,7 +216,8 @@ export const SCHEMAS = {
                 .optional()
                 .meta({ title: "Other channels" }),
             })
-            .optional(),
+            .optional()
+            .meta({ title: "Slack", description: "The team's Slack channels: its code owners channel and any others, each with a kind." }),
         }),
       )
       .optional()

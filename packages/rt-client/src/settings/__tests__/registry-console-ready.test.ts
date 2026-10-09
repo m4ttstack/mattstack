@@ -83,7 +83,6 @@ const UNANNOTATED_YET: readonly string[] = [
   "gitq.board",
   "gitq.forges",
   "gitq.workSlots",
-  "mattstack.directory",
   "mattstack.integrations",
   "mattstack.org",
   "mattstack.roster",
