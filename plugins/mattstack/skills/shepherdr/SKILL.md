@@ -9,7 +9,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.30.21 path=attachments/orchestration/shepherdr/SKILL.md lines=15-905 -->
+<!-- part: step source=mattstack:shepherdr version=0.30.21 path=attachments/orchestration/shepherdr/SKILL.md lines=15-903 -->
 
 # shepherdr
 
@@ -493,18 +493,16 @@ a reason. Every spawn carries the chosen model (`model` on `herd_spawn`,
 without a model launches on the default model and silently defeats tiering.
 
 **Harness per job.** Each worker runs on one harness (Claude Code, Codex),
-whatever harness you run on. Before asking, read the integration metadata
-on Bash: `rt agent integrations --json`. Choose only a harness it lists as
-`enabled`, and only models and options its `options` list for that
-harness; the model tiers above are Claude Code's, so for another harness
-the model is one the user names or that harness's default. When the user
-assigns a job a harness (and model), that assignment wins: pass it as
-`assignment` on `herd_spawn` (`--harness <h>` on a Bash spawn). Your own
-choice goes in `harness`. A spawn whose harness is not enabled, not ready
-or cannot run the job refuses with the reason before anything is made;
-report that reason to the user and ask. Never respawn the job on a
-different harness to get past a refusal: a harness change is the user's
-call, made as a new spawn that names it. A respawn that names no harness,
+whatever harness you run on. Before asking, read the integration metadata:
+`rt_verb {args: ["agent", "integrations", "--json"]}`. Choose only a
+harness it lists as `enabled`, and only models and options its `options`
+list for that harness. When the user assigns a job a harness (and model),
+that assignment wins: pass it as `assignment` on `herd_spawn`
+(`--harness <h>` on a Bash spawn). Your own choice goes in `harness`. A
+spawn whose harness is not enabled, not ready or cannot run the job refuses
+with the reason before anything is made; nothing silently substitutes
+another harness. Changing a job's harness is a spawn that names the new
+one, which is recorded as a replacement. A respawn that names no harness,
 model or mode keeps the job's recorded selection.
 
 **Domain hook -- model floor and strategy pin.** Unbound: both halves are

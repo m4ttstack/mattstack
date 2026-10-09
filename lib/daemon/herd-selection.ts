@@ -12,24 +12,36 @@
  */
 
 import type {
-  Capability, HarnessId, Mode, Outcome, Selection,
+  AgentOptions, Capability, HarnessId, Mode, Outcome, Selection,
 } from "../../packages/rt-client/src/agent-integrations.ts";
 import { builtinRegistry } from "../agent-integrations/builtins.ts";
 import type { HarnessIntegration, IntegrationRegistry } from "../agent-integrations/contracts.ts";
 import { POLICY_CAPABILITIES } from "../agent-integrations/policy-readiness.ts";
 import { configuredHarness } from "../agent-integrations/switch.ts";
+import { getSetting } from "../settings/resolve.ts";
 
 export type SelectWorkerInput = {
   explicit?: Selection; proposed?: Selection; fallback: Selection;
   enabled: HarnessId[]; mode: Mode; required: Capability[];
 };
-export type SelectionDeps = { registry?: IntegrationRegistry };
+type DefaultedOption = "model" | "effort";
+const DEFAULTED_OPTIONS: readonly DefaultedOption[] = ["model", "effort"];
+
+export type SelectionDeps = {
+  registry?: IntegrationRegistry;
+  /** The value a launch fills an unset option with; the `agent.<harness>.<option>` setting when omitted. */
+  launchDefault?: (harness: HarnessId, option: DefaultedOption) => string | undefined;
+};
 export type JobWorker = { selection: Selection; mode: Mode };
 export type JobWorkerInput = Omit<SelectWorkerInput, "mode"> & {
   /** The mode the caller asked for; omitted, the first of WORKER_MODES that can run the job. */
   mode?: Mode;
   /** The job's latest attempt, which a request naming no selection retries. */
   persisted?: JobWorker;
+  /** Options the shepherd named without a harness: they go to the persisted harness, else to a sole enabled, ready default. */
+  proposedOptions?: AgentOptions;
+  /** The caller's own account, taken only by a harness with an account option and a selection naming none. */
+  callerAccount?: string;
 };
 
 /** A pane first: it is the one a person can watch. */
@@ -38,7 +50,7 @@ const WORKER_MODES: readonly Mode[] = ["herdr", "headless"];
 const fail = <T>(code: "invalid" | "refused" | "not-ready" | "unsupported", message: string): Outcome<T> => ({ ok: false, error: { code, message } });
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-/** The configured default worker: `agent.provider`, else Claude Code, with the options its launch settings supply. */
+/** The configured default harness: `agent.provider`, else Claude Code; its launch defaults are pinned when it is chosen. */
 export function configuredWorkerSelection(): Selection {
   return { harness: configuredHarness() ?? "claude", options: {} };
 }
@@ -114,18 +126,83 @@ export async function selectWorker(input: SelectWorkerInput, deps: SelectionDeps
  * and when none can, the reason given is the first mode's.
  */
 export async function chooseJobWorker(input: JobWorkerInput, deps: SelectionDeps = {}): Promise<Outcome<JobWorker>> {
-  if (input.persisted && !input.explicit && !input.proposed) {
+  const registry = deps.registry ?? builtinRegistry();
+  if (input.persisted && !input.explicit && !input.proposed && !input.proposedOptions) {
     const mode = input.mode ?? input.persisted.mode;
     const checked = await checkSelection(input.persisted.selection, { ...input, mode }, deps);
-    return checked.ok ? { ok: true, data: { selection: input.persisted.selection, mode } } : checked;
+    if (!checked.ok) return checked;
+    return { ok: true, data: { selection: await withAccountHint(input.persisted.selection, input.callerAccount, registry), mode } };
+  }
+  let proposed = input.proposed;
+  if (!proposed && input.proposedOptions) {
+    let harness = input.persisted?.selection.harness;
+    if (harness === undefined) {
+      const sole = await soleReadyDefault(input.fallback.harness, input.enabled, registry);
+      if (!sole.ok) return sole;
+      harness = sole.data;
+    }
+    proposed = { harness, options: input.proposedOptions };
   }
   const modes = input.mode ? [input.mode] : WORKER_MODES;
   let first: Outcome<Selection> | undefined;
   for (const mode of modes) {
-    const chosen = await selectWorker({ ...input, mode }, deps);
-    if (chosen.ok) return { ok: true, data: { selection: chosen.data, mode } };
+    const chosen = await selectWorker({ ...input, ...(proposed && { proposed }), mode }, deps);
+    if (chosen.ok) {
+      const resolved = withLaunchDefaults(chosen.data, deps.launchDefault ?? settingDefault);
+      return { ok: true, data: { selection: await withAccountHint(resolved, input.callerAccount, registry), mode } };
+    }
     first ??= chosen;
     if (chosen.error.code !== "unsupported") break;
   }
-  return first as Outcome<JobWorker>;
+  if (!first || first.ok) return fail("invalid", "no mode was asked for this worker");
+  return first;
+}
+
+/** What a launch would fill an unset option with; agent:start reads the same `agent.<harness>.<option>` settings. */
+function settingDefault(harness: HarnessId, option: DefaultedOption): string | undefined {
+  try {
+    return getSetting<string>(`agent.${harness}.${option}`).value ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Pinned into the selection before it is recorded, so a retry launches what the first attempt did even after a default changes. */
+function withLaunchDefaults(selection: Selection, read: (harness: HarnessId, option: DefaultedOption) => string | undefined): Selection {
+  const options = { ...selection.options };
+  for (const option of DEFAULTED_OPTIONS) {
+    if (options[option] !== undefined) continue;
+    const value = read(selection.harness, option);
+    if (value !== undefined) options[option] = value;
+  }
+  return { harness: selection.harness, options };
+}
+
+/** The caller's account applies only to a harness that takes an account option, and never over one already chosen. */
+async function withAccountHint(selection: Selection, account: string | undefined, registry: IntegrationRegistry): Promise<Selection> {
+  if (account === undefined || selection.options.account !== undefined) return selection;
+  let takesAccount = false;
+  try {
+    takesAccount = (await registry.get(selection.harness)?.options())?.some((o) => o.name === "account") === true;
+  } catch {
+    takesAccount = false;
+  }
+  return takesAccount ? { harness: selection.harness, options: { ...selection.options, account } } : selection;
+}
+
+/** Options that name no harness go to the configured default only when it is the one harness that could take them. */
+async function soleReadyDefault(fallback: HarnessId, enabled: HarnessId[], registry: IntegrationRegistry): Promise<Outcome<HarnessId>> {
+  const ready: HarnessId[] = [];
+  for (const id of enabled) {
+    const integration = registry.get(id);
+    if (!integration || (await loadSessions(integration)) !== undefined) continue;
+    try {
+      if ((await integration.capabilities(WORKER_MODES[0]!)).readiness.ready) ready.push(id);
+    } catch {
+      // An integration whose capabilities cannot be read is not ready.
+    }
+  }
+  if (ready.length === 1 && ready[0] === fallback) return { ok: true, data: fallback };
+  const which = ready.length > 0 ? ready.join(", ") : "none";
+  return fail("invalid", `these worker options name no harness, and the default (${fallback}) is not the only enabled, ready harness (enabled and ready: ${which}); name the harness for this job`);
 }

@@ -45,9 +45,13 @@ describe("rt herd payload builders", () => {
     expect(p).toMatchObject({ herd: "h", job: "job-a", brief: "# brief", model: "opus" });
   });
 
-  test("withCallerAccount fills a missing account from the caller's cswap account", async () => {
+  test("withCallerAccount sends the caller's cswap account as a hint the daemon applies only to a harness that takes one", async () => {
     const resolve = async () => "alex@acme.test";
-    expect(await withCallerAccount({ herd: "h", job: "j" }, resolve)).toEqual({ herd: "h", job: "j", account: "alex@acme.test" });
+    expect(await withCallerAccount({ herd: "h", job: "j" }, resolve)).toEqual({ herd: "h", job: "j", callerAccount: "alex@acme.test" });
+    expect(await withCallerAccount({ herd: "h", job: "j", assignment: { harness: "codex" } }, resolve))
+      .toEqual({ herd: "h", job: "j", assignment: { harness: "codex" }, callerAccount: "alex@acme.test" });
+    expect(await withCallerAccount({ herd: "h", job: "j", assignment: { harness: "claude", account: "x@example.com" } }, resolve))
+      .toEqual({ herd: "h", job: "j", assignment: { harness: "claude", account: "x@example.com" } });
   });
 
   test("withCallerAccount keeps an explicit --account and never asks cswap", async () => {
@@ -65,15 +69,6 @@ describe("rt herd payload builders", () => {
     expect(buildSpawnPayload(["--herd", "h", "--job", "j", "--harness", "codex", "--model", "gpt-5.1", "--mode", "headless"]))
       .toEqual({ herd: "h", job: "j", assignment: { harness: "codex", model: "gpt-5.1" }, mode: "headless" });
     expect(() => buildSpawnPayload(["--herd", "h", "--job", "j", "--mode", "tmux"])).toThrow("--mode must be herdr or headless");
-  });
-
-  test("withCallerAccount with integrations on fills the account only for a spawn that names Claude Code", async () => {
-    const resolve = async () => "alex@acme.test";
-    const on = () => true;
-    expect(await withCallerAccount({ herd: "h", job: "j" }, resolve, on)).toEqual({ herd: "h", job: "j" });
-    expect(await withCallerAccount({ herd: "h", job: "j", assignment: { harness: "codex" } }, resolve, on)).toEqual({ herd: "h", job: "j", assignment: { harness: "codex" } });
-    expect(await withCallerAccount({ herd: "h", job: "j", assignment: { harness: "claude" } }, resolve, on))
-      .toEqual({ herd: "h", job: "j", assignment: { harness: "claude", account: "alex@acme.test" } });
   });
 
   test("buildWrapUpPayload collects repeated --dispose values and booleans", () => {

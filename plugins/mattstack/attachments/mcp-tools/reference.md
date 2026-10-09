@@ -1872,7 +1872,7 @@ Start a herd (room, workspace, gate subscription) for this shepherd session. rep
 ### herd_spawn
 
 <!-- mcp-lint: allow -->
-Spawn a worker for a job (provisions its worktree, launches the selected harness with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. harness, account, model and effort are plain tokens: harness with its options is your own choice of worker, assignment is the user's explicit one and wins. Choose only an enabled, ready harness from agent integrations metadata; a harness that cannot run the job refuses, and none is substituted. A respawn naming no harness, options or mode keeps the job's recorded selection. Only the herd's shepherd session may call it. Takes minutes.
+Spawn a worker for a job (provisions its worktree, launches the selected harness with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. harness, account, model and effort are plain tokens: harness with its options is your own choice of worker, assignment is the user's explicit one and wins. Choose only an enabled, ready harness from agent integrations metadata; a harness that cannot run the job refuses, and none is substituted. Options with no harness go to the job's recorded harness; a respawn naming no harness, options or mode keeps the job's recorded selection. Only the herd's shepherd session may call it. Takes minutes.
 
 ```json
 {

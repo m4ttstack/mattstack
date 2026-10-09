@@ -1634,6 +1634,7 @@ export const TREE: Record<string, CommandNode> = {
         description: "Show which agent integrations are on and what each session supports",
         module: "./commands/agent.ts",
         fn: "agentIntegrationsReport",
+        agentSafe: true,
         args: [
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the report as JSON" },
         ],

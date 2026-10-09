@@ -28,7 +28,7 @@ import { createSessionStore } from "../../agent-integrations/session-store.ts";
 import { harnessEnabled, integrationsEnabled } from "../../agent-integrations/switch.ts";
 import { getStateDb } from "../../state/db.ts";
 import { createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
-import { chooseJobWorker, configuredWorkerSelection, type JobWorker } from "../herd-selection.ts";
+import { chooseJobWorker, configuredWorkerSelection, type JobWorker, type SelectionDeps } from "../herd-selection.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { slugifyChatName } from "../../chat-room-name.ts";
@@ -94,6 +94,8 @@ export interface HerdDeps {
   enabledHarnesses?: () => HarnessId[];
   /** The configured default worker, read on every spawn. */
   defaultSelection?: () => Selection;
+  /** The value a launch fills an unset model or effort with; the agent.<harness>.<option> setting when omitted. */
+  launchDefault?: SelectionDeps["launchDefault"];
   /** Ends a headless worker's session, named by its binding key, through its integration. */
   endSession?: (bindingKey: string) => Promise<Outcome<void>>;
 }
@@ -206,30 +208,35 @@ export function createHerdHandlers(deps: HerdDeps) {
       ...(str(o?.model) && { model: o!.model as string }), ...(str(o?.effort) && { effort: o!.effort as string }), ...(str(o?.account) && { account: o!.account as string }),
     });
     const asked = optionsOf(p);
+    const callerAccount = str(p?.callerAccount);
     if (!fenced) {
       const other = [str(p?.harness), str(assignment?.harness)].find((h) => h !== undefined && h !== "claude");
       if (other !== undefined || p?.mode === "headless") {
         return { ok: false, error: { code: "refused", message: `a ${other ?? "headless"} herd worker needs agent integrations switched on (agent.integrations.enabled); with them off, every herd worker is a Claude Code pane` } };
       }
-      return { ok: true, data: { selection: { harness: "claude", options: assignment ? optionsOf(assignment) : asked }, mode: "herdr" } };
+      const options = assignment ? optionsOf(assignment) : asked;
+      if (options.account === undefined && callerAccount !== undefined) options.account = callerAccount;
+      return { ok: true, data: { selection: { harness: "claude", options }, mode: "herdr" } };
     }
     const latest = store.attempts(herdId, name).at(-1);
     const persisted = latest && { selection: latest.selection, mode: latest.mode };
-    const fallback = defaultSelection();
-    const named = str(p?.harness) !== undefined || Object.keys(asked).length > 0;
+    const harness = str(p?.harness);
     const required: Capability[] = ["launch", ...POLICY_CAPABILITIES];
     return chooseJobWorker({
       ...(assignment && { explicit: { harness: assignment.harness, options: optionsOf(assignment) } }),
-      ...(named && { proposed: { harness: str(p?.harness) ?? persisted?.selection.harness ?? fallback.harness, options: asked } }),
-      fallback, enabled: enabledHarnesses(), required,
+      ...(harness !== undefined && { proposed: { harness, options: asked } }),
+      ...(harness === undefined && Object.keys(asked).length > 0 && { proposedOptions: asked }),
+      fallback: defaultSelection(), enabled: enabledHarnesses(), required,
       ...(p?.mode !== undefined && { mode: p.mode as Mode }),
       ...(persisted && { persisted }),
-    }, { registry });
+      ...(callerAccount !== undefined && { callerAccount }),
+    }, { registry, ...(deps.launchDefault && { launchDefault: deps.launchDefault }) });
   }
 
   /** Never throws: a pane close or a session end that fails must not block the caller's own bookkeeping. */
   async function closeWorker(herd: HerdRow, job: HerdJobRow): Promise<boolean> {
-    const attempt = store.activeAttempt(herd.id, job.name);
+    // Off, no integration is ever loaded: a worker is a pane, closed as it always was.
+    const attempt = enabled() ? store.activeAttempt(herd.id, job.name) : null;
     if (attempt?.mode !== "headless") return job.pane ? closePane(herd.herdrSocket, job.pane, { herd: herd.id, job: job.name }) : false;
     if (!attempt.bindingKey) {
       log.warn({ herd: herd.id, job: job.name, attempt: attempt.id }, "herd: a headless worker with no bound session cannot be ended");
@@ -237,7 +244,11 @@ export function createHerdHandlers(deps: HerdDeps) {
     }
     try {
       const ended = await endSession(attempt.bindingKey);
-      if (ended.ok) return true;
+      if (ended.ok) {
+        // An ended attempt holds no worker, so a later close or respawn does not end the session again.
+        store.endAttempt(attempt.id, ["active"]);
+        return true;
+      }
       log.warn({ herd: herd.id, job: job.name, error: ended.error.message }, "herd: headless worker session end failed");
     } catch (err) {
       log.warn({ err, herd: herd.id, job: job.name }, "herd: headless worker session end threw");
@@ -247,7 +258,7 @@ export function createHerdHandlers(deps: HerdDeps) {
 
   /** Whether a job still has a worker for closeWorker to close. */
   function hasWorker(herdId: string, job: HerdJobRow): boolean {
-    return job.pane !== null || store.activeAttempt(herdId, job.name)?.mode === "headless";
+    return job.pane !== null || (enabled() && store.activeAttempt(herdId, job.name)?.mode === "headless");
   }
 
   /** Registers both the prefix row (herd:<id>/*, for the shepherd's own job
@@ -545,7 +556,7 @@ export function createHerdHandlers(deps: HerdDeps) {
 
       // Chosen before anything is made or closed: a refusal leaves the job and its current worker as they were.
       const worker = await workerFor(herdId, name, p, fenced);
-      if (!worker.ok) return { ok: false, error: worker.error.message };
+      if (!worker.ok) return { ok: false, error: worker.error.message, failure: { code: worker.error.code, message: worker.error.message } };
       const { selection, mode } = worker.data;
       const headless = mode === "headless";
 

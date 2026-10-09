@@ -32,7 +32,6 @@ import { resolveRepoArg, currentRepoIdentity } from "../lib/repo-arg.ts";
 import { assembleBrief, type BriefInputs } from "../lib/herd-brief.ts";
 import { selfPaneRef } from "../lib/self-pane.ts";
 import { callerCswapAccount } from "../lib/cswap.ts";
-import { integrationsEnabled } from "../lib/agent-integrations/switch.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
 
 function fail(msg: string): never {
@@ -202,20 +201,17 @@ export function buildSpawnPayload(args: string[]): Commands["herd:spawn"]["paylo
 }
 
 /**
- * The caller's cswap account, for a Claude Code worker that names none. With
- * agent integrations on, only when the spawn names Claude Code: a respawn
- * naming no harness keeps its recorded one, which may take no account.
+ * The caller's cswap account as a hint, for a spawn that names no account:
+ * the daemon applies it only when the worker's harness takes an account
+ * (Claude Code), since the CLI cannot know which harness a respawn keeps.
  */
 export async function withCallerAccount(
   p: Commands["herd:spawn"]["payload"],
   resolveAccount: () => Promise<string | undefined> = () => callerCswapAccount(process.env),
-  switchOn: () => boolean = integrationsEnabled,
 ): Promise<Commands["herd:spawn"]["payload"]> {
   if (p.account || p.assignment?.account) return p;
-  if (switchOn() && p.assignment?.harness !== "claude") return p;
   const account = await resolveAccount();
-  if (!account) return p;
-  return p.assignment ? { ...p, assignment: { ...p.assignment, account } } : { ...p, account };
+  return account ? { ...p, callerAccount: account } : p;
 }
 
 export function buildWrapUpPayload(args: string[]): Commands["herd:wrap-up"]["payload"] {

@@ -143,7 +143,7 @@ function spawner(opts: { switchOn?: boolean; enabled?: string[]; registry?: Retu
   const provisions: unknown[] = [];
   const ended: string[] = [];
   const paneCloses: string[][] = [];
-  const defaults = { selection: CLAUDE };
+  const defaults: { selection: Selection; launch: Record<string, string> } = { selection: CLAUDE, launch: {} };
   let n = 0;
   const reply = <T>(data: T) => ({ ok: true as const, data });
   const startAttempt = async (p: Spawned & { cwd: string }) => {
@@ -163,7 +163,7 @@ function spawner(opts: { switchOn?: boolean; enabled?: string[]; registry?: Retu
       "chat:post": async () => reply({ id: 1 }),
       "chat:rooms": async () => reply({ rooms: [] }),
     },
-    agent: { "agent:start": async () => { throw new Error("the switch-on path launches through startAttempt"); }, startAttempt },
+    agent: { "agent:start": (p: Spawned & { cwd: string }) => startAttempt(p), startAttempt },
     worktree: {
       "worktree:provision": async (p: { branch: string }) => { provisions.push(p); return reply({ path: `/w/${p.branch}`, branch: p.branch, tree: p.branch, wasOnDeck: true }); },
       "worktree:dispose": async () => reply({ disposed: [], refused: [] }),
@@ -186,6 +186,7 @@ function spawner(opts: { switchOn?: boolean; enabled?: string[]; registry?: Retu
     enabledHarnesses: () => opts.enabled ?? BOTH,
     defaultSelection: () => defaults.selection,
     endSession: async (key: string) => { ended.push(key); return ok(undefined); },
+    launchDefault: (harness: string, option: string) => defaults.launch[`${harness}.${option}`],
   } as unknown as HerdDeps;
   return { h: createHerdHandlers(deps), launches, provisions, ended, paneCloses, defaults };
 }
@@ -233,6 +234,7 @@ describe("herd:spawn selection", () => {
       const refused = await h["herd:spawn"]({ herd: HERD, job: "job-a", brief: "b", ...asked });
       expect(refused.ok, why).toBe(false);
       if (!refused.ok) expect(refused.error, why).toContain(why);
+      if (!refused.ok) expect(refused.failure, why).toEqual({ code: expect.any(String), message: refused.error });
       expect(provisions, why).toEqual([]);
       expect(launches, why).toEqual([]);
       expect(store.attempts(HERD, "job-a"), why).toEqual([]);
@@ -285,5 +287,94 @@ describe("herd:spawn selection", () => {
     if (!status.ok) throw new Error(status.error);
     expect(Object.keys(status.data.jobs[0]!)).not.toContain("harness");
     expect(Object.keys(status.data.jobs[0]!)).not.toContain("mode");
+  });
+});
+
+describe("herd:spawn options, defaults, accounts and closes", () => {
+  test("options naming no harness go to the job's recorded harness", async () => {
+    const { h, launches } = spawner();
+    const first = await h["herd:spawn"]({ herd: HERD, job: "job-b", brief: "b", harness: "codex", model: "gpt-5.1" });
+    if (!first.ok) throw new Error(first.error);
+    const again = await h["herd:spawn"]({ herd: HERD, job: "job-b", model: "gpt-5.2" });
+    if (!again.ok) throw new Error(again.error);
+    expect(launches.map((l) => [l.provider, l.model])).toEqual([["codex", "gpt-5.1"], ["codex", "gpt-5.2"]]);
+  });
+
+  test("with no recorded harness, options go to the default only when it is the sole enabled, ready harness", async () => {
+    const sole = spawner({ enabled: ["claude"] });
+    const ok1 = await sole.h["herd:spawn"]({ herd: HERD, job: "job-a", brief: "b", model: "opus" });
+    if (!ok1.ok) throw new Error(ok1.error);
+    expect(sole.launches.map((l) => [l.provider, l.model])).toEqual([["claude", "opus"]]);
+
+    store.close_();
+    rmSync(dir, { recursive: true, force: true });
+    dir = mkdtempSync(join(tmpdir(), "rt-herd-selection-"));
+    store = createHerdStore({ dbPath: join(dir, "herds.db"), log });
+    const both = spawner();
+    const refused = await both.h["herd:spawn"]({ herd: HERD, job: "job-a", brief: "b", model: "opus" });
+    expect(refused).toMatchObject({ ok: false, failure: { code: "invalid" } });
+    if (!refused.ok) expect(refused.error).toContain("name the harness for this job");
+    expect(both.provisions).toEqual([]);
+    expect(both.launches).toEqual([]);
+    expect(store.attempts(HERD, "job-a")).toEqual([]);
+  });
+
+  test("retry ignores a launch default changed since the first spawn, and status shows the pinned model", async () => {
+    const { h, launches, defaults } = spawner();
+    defaults.launch = { "codex.model": "gpt-5.1", "codex.effort": "high" };
+    const first = await h["herd:spawn"]({ herd: HERD, job: "job-b", brief: "b", harness: "codex" });
+    if (!first.ok) throw new Error(first.error);
+    defaults.launch = { "codex.model": "gpt-6", "codex.effort": "low" };
+    const retried = await h["herd:spawn"]({ herd: HERD, job: "job-b" });
+    if (!retried.ok) throw new Error(retried.error);
+
+    expect(launches.map((l) => [l.model, l.effort])).toEqual([["gpt-5.1", "high"], ["gpt-5.1", "high"]]);
+    expect(store.attempts(HERD, "job-b").map((a) => a.selection)).toEqual([CODEX, CODEX]);
+    const status = await h["herd:status"]({ herd: HERD });
+    if (!status.ok) throw new Error(status.error);
+    expect(status.data.jobs[0]).toMatchObject({ harness: "codex", model: "gpt-5.1" });
+  });
+
+  test("the caller's account hint applies to a Claude Code worker and is dropped for Codex", async () => {
+    const { h, launches } = spawner();
+    const a = await h["herd:spawn"]({ herd: HERD, job: "job-a", brief: "b", harness: "claude", callerAccount: "alex@acme.test" });
+    const b = await h["herd:spawn"]({ herd: HERD, job: "job-b", brief: "b", harness: "codex", callerAccount: "alex@acme.test" });
+    if (!a.ok) throw new Error(a.error);
+    if (!b.ok) throw new Error(b.error);
+    expect(launches.map((l) => [l.provider, l.account])).toEqual([["claude", "alex@acme.test"], ["codex", undefined]]);
+    expect(store.attempts(HERD, "job-b")[0]!.selection.options.account).toBeUndefined();
+  });
+
+  test("switch off: the account hint fills a Claude worker's account as before", async () => {
+    const { h, launches } = spawner({ switchOn: false });
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: "job-a", brief: "b", callerAccount: "alex@acme.test" });
+    if (!spawned.ok) throw new Error(spawned.error);
+    const named = await h["herd:spawn"]({ herd: HERD, job: "job-c", brief: "b", account: "other@example.com", callerAccount: "alex@acme.test" });
+    if (!named.ok) throw new Error(named.error);
+    expect(launches.map((l) => [l.provider, l.surface, l.account])).toEqual([["claude", "herdr", "alex@acme.test"], ["claude", "herdr", "other@example.com"]]);
+  });
+
+  test("a headless worker's session ends once: a second close or a respawn does not end it again", async () => {
+    const { h, ended } = spawner();
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: "job-b", brief: "b", harness: "codex" });
+    if (!spawned.ok) throw new Error(spawned.error);
+    const attempt = store.attempts(HERD, "job-b")[0]!;
+    store.activateAttempt(attempt.id, "sk-codex", 1);
+    expect((await h["herd:close"]({ herd: HERD, job: "job-b" })).ok).toBe(true);
+    expect((await h["herd:close"]({ herd: HERD, job: "job-b" })).ok).toBe(true);
+    const respawned = await h["herd:spawn"]({ herd: HERD, job: "job-b" });
+    if (!respawned.ok) throw new Error(respawned.error);
+    expect(ended).toEqual(["sk-codex"]);
+    expect(store.getAttempt(attempt.id)?.state).toBe("ended");
+  });
+
+  test("switch off: a close never reaches an integration, even for a job whose attempt says headless", async () => {
+    const { h, ended, paneCloses } = spawner({ switchOn: false });
+    store.upsertJob({ herd: HERD, name: "job-b", worktree: "/w/b", handle: "job-b.w1", status: "active", pane: "w9:p7" });
+    store.reserveAttempt({ id: "att-h", herd: HERD, job: "job-b", selection: CODEX, mode: "headless" });
+    store.activateAttempt("att-h", "sk-codex", 1);
+    expect((await h["herd:close"]({ herd: HERD, job: "job-b" })).ok).toBe(true);
+    expect(ended).toEqual([]);
+    expect(paneCloses).toEqual([["pane", "close", "w9:p7"]]);
   });
 });
