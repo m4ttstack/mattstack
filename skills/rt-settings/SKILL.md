@@ -158,10 +158,11 @@ In this order:
    for the new shape, and write the conversion script. The layout 2 one is
    `bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username>`
    (plans; `--write` moves and commits). A conversion to layout 3 or later
-   also writes `layout: <n>` in the marker; a `role: "org"` marker with no
-   field reads 2, a fixed default in `parseMarker` (#768 pins it; before
-   that it followed `ORG_LAYOUT`, so check it is the literal 2 before the
-   bump, or an unconverted clone reads as ready).
+   also writes `layout: <n>` in the marker. Every marker rt writes carries
+   an explicit `layout` (`rt team create` writes `ORG_LAYOUT`, the layout 2
+   script writes 2), and a `role: "org"` marker with no field reads 2, a
+   fixed default (`ORG_LAYOUT_ABSENT_DEFAULT`) that never follows the bump,
+   so an unconverted clone never reads as ready.
 2. **Test it on the dev app.** The dev app runs rt from the shared
    checkout (the one `rt dev setup` recorded, else
    `~/Documents/GitHub/mattstack`), which sits on main, so once the change
