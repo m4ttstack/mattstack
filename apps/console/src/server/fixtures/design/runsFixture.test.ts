@@ -306,7 +306,7 @@ describe('the runs boards draw the fixture', () => {
         value: 'f3',
         label:
           "[Minor] mergeContacts deletes the losing record; the name doesn't say so.",
-        description: 'contacts/merge.ts:12',
+        description: 'apps/contacts/src/import/pipeline/merge/strategies/mergeContactsKeepingNewestRecordAndDeletingTheLosingDuplicate.ts:12',
       },
       {
         value: 'f4',

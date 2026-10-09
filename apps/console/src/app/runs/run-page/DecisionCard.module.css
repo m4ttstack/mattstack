@@ -1,5 +1,7 @@
 .card {
   min-width: 0;
+  /* Question titles and answers can be file:line paths, one long word. */
+  overflow-wrap: anywhere;
   padding: 16px 18px;
   scroll-margin-top: var(--mantine-spacing-xl);
 }

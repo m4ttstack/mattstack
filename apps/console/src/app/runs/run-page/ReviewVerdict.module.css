@@ -18,6 +18,9 @@
 
 .card {
   overflow: hidden;
+  /* A finding's file path is one long word; without a break it widens the
+     whole page past the viewport. */
+  overflow-wrap: anywhere;
 }
 
 .head {
