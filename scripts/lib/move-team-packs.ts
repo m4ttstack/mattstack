@@ -25,6 +25,9 @@ export class MoveRefusal extends Error {
 }
 
 export const ORG_STORE_REL = "mattstack/org/settings.org.jsonc";
+const MARKER_REL = "mattstack/mattstack.jsonc";
+/** The layout this move produces. Never ORG_LAYOUT: that moves on when rt reads a newer shape, and this script still writes plugin/. */
+const MOVED_LAYOUT = 2;
 export const teamStoreRel = (team: string): string => `mattstack/teams/${team}/settings.team.jsonc`;
 
 /** The file's object, `{}` when absent. A file that is there but does not parse stops the move: rewriting what could be read would lose the rest. */
@@ -88,7 +91,7 @@ function rewritePaths(value: unknown, swaps: [string, string][], note: (from: st
 }
 
 export function planMove(input: MoveInput): MovePlan {
-  const marker = objOf(input.files, "mattstack/mattstack.jsonc");
+  const marker = objOf(input.files, MARKER_REL);
   if (marker.role !== "org") throw new MoveRefusal("This is not a mattstack org repo", "mattstack/mattstack.jsonc does not say role: org.");
   const report: string[] = [];
   const moving: string[] = [];
@@ -124,6 +127,14 @@ export function planMove(input: MoveInput): MovePlan {
     report.push(`${team}: version ${String(manifest.version)} to ${version}`);
     writes[`${to}/.claude-plugin/plugin.json`] = `${JSON.stringify({ ...manifest, version }, null, 2)}\n`;
     swaps.push([`/${from}`, `/${to}`]);
+  }
+
+  if (marker.layout !== MOVED_LAYOUT) {
+    const text = input.files[MARKER_REL]!;
+    const header = text.startsWith("//") ? `${text.split("\n")[0]}\n` : "";
+    writes[MARKER_REL] = `${header}${JSON.stringify({ ...marker, layout: MOVED_LAYOUT }, null, 2)}\n`;
+    report.push(`marker: layout ${MOVED_LAYOUT}`);
+    if (hasComments(text.slice(header.length))) report.push(`comments in ${MARKER_REL} are not carried over`);
   }
 
   const noteRewrite = (before: string, after: string) => report.push(`rewrote ${before} to ${after}`);

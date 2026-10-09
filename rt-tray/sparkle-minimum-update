@@ -1,5 +1,0 @@
-# Sparkle offers the release below only to Macs already on the minimum; older
-# Macs get the newest item without one first. Read by
-# scripts/release/minimum-update.sh. Delete this file after the release ships.
-release=2.22.0
-minimum=2.21.1
