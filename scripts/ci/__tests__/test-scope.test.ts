@@ -245,6 +245,11 @@ describe("plugins", () => {
     expect(decision.mode).toBe("full");
     expect(decision.reason).toContain("lib/__tests__/plugin-parity.test.ts");
   });
+  test("the shared Stop hook runs the policy parity test", () => {
+    const hook = "plugins/mattstack/hooks/pipeline-gate-stop.sh";
+    expect(real.sources.get("lib/agent-integrations/__tests__/policy.test.ts")).toContain(hook);
+    expect(decide(prInput([hook])).mode).toBe("full");
+  });
   test("a plugin file matches by repo path only, never by a shared basename", () => {
     const reading = new Map(sources);
     reading.set("lib/__tests__/skill-shape.test.ts", `const skill = readFileSync(join(dir, "SKILL.md"), "utf8");`);

@@ -24,7 +24,7 @@ import {
 } from "../policy.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
-const STOP_HOOK = join(REPO_ROOT, "plugins", "mattstack", "hooks", "pipeline-gate-stop.sh");
+const STOP_HOOK = join(REPO_ROOT, "plugins/mattstack/hooks/pipeline-gate-stop.sh");
 const SID = "11111111-2222-3333-4444-555555555555";
 
 let dir = "";
