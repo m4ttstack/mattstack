@@ -20927,8 +20927,9 @@
                           "type": "frame",
                           "id": "SWMml",
                           "name": "Role badge",
-                          "fill": "$accent-wash",
+                          "fill": "$gold-badge",
                           "cornerRadius": 4,
+                          "stroke": "$gold-dot",
                           "gap": 5,
                           "padding": [
                             3,
@@ -20944,13 +20945,13 @@
                               "height": 13,
                               "icon": "shield-check",
                               "library": "lucide",
-                              "fill": "$accent-text-small"
+                              "fill": "$gold-text-small"
                             },
                             {
                               "type": "text",
                               "id": "KE1We",
                               "name": "Label",
-                              "fill": "$accent-text-small",
+                              "fill": "$gold-text-small",
                               "content": "org admin",
                               "fontFamily": "$font",
                               "fontSize": 12,
@@ -58147,8 +58148,9 @@
                           "type": "frame",
                           "id": "chxTW",
                           "name": "Role badge",
-                          "fill": "$accent-wash",
+                          "fill": "$gold-badge",
                           "cornerRadius": 4,
+                          "stroke": "$gold-dot",
                           "gap": 5,
                           "padding": [
                             3,
@@ -58164,13 +58166,13 @@
                               "height": 13,
                               "icon": "shield-check",
                               "library": "lucide",
-                              "fill": "$accent-text-small"
+                              "fill": "$gold-text-small"
                             },
                             {
                               "type": "text",
                               "id": "Vq1I9",
                               "name": "Label",
-                              "fill": "$accent-text-small",
+                              "fill": "$gold-text-small",
                               "content": "org admin",
                               "fontFamily": "$font",
                               "fontSize": 12,
@@ -58723,8 +58725,9 @@
                           "type": "frame",
                           "id": "KsMEp",
                           "name": "Role badge",
-                          "fill": "$accent-wash",
+                          "fill": "$gold-badge",
                           "cornerRadius": 4,
+                          "stroke": "$gold-dot",
                           "gap": 5,
                           "padding": [
                             3,
@@ -58740,13 +58743,13 @@
                               "height": 13,
                               "icon": "shield-check",
                               "library": "lucide",
-                              "fill": "$accent-text-small"
+                              "fill": "$gold-text-small"
                             },
                             {
                               "type": "text",
                               "id": "uVI3U",
                               "name": "Label",
-                              "fill": "$accent-text-small",
+                              "fill": "$gold-text-small",
                               "content": "org admin",
                               "fontFamily": "$font",
                               "fontSize": 12,
@@ -59285,6 +59288,7 @@
                           "name": "Role badge",
                           "fill": "$bg",
                           "cornerRadius": 4,
+                          "stroke": "$border",
                           "gap": 5,
                           "padding": [
                             3,
@@ -62414,9 +62418,9 @@
                           "id": "Ksymd",
                           "name": "Badge ORG ADMIN",
                           "height": 18,
-                          "fill": "$accent-wash",
+                          "fill": "$gold-badge",
                           "cornerRadius": 9,
-                          "stroke": "$accent-fill",
+                          "stroke": "$gold-dot",
                           "strokeWidth": 1,
                           "padding": [
                             0,
@@ -62428,7 +62432,7 @@
                               "type": "text",
                               "id": "ozvHp",
                               "name": "Label",
-                              "fill": "$accent-text-small",
+                              "fill": "$gold-text-small",
                               "content": "ORG ADMIN",
                               "fontFamily": "$font",
                               "fontSize": 10,
@@ -62994,9 +62998,9 @@
                           "id": "qzaeA",
                           "name": "Badge ORG ADMIN",
                           "height": 18,
-                          "fill": "$accent-wash",
+                          "fill": "$gold-badge",
                           "cornerRadius": 9,
-                          "stroke": "$accent-fill",
+                          "stroke": "$gold-dot",
                           "strokeWidth": 1,
                           "padding": [
                             0,
@@ -63008,7 +63012,7 @@
                               "type": "text",
                               "id": "lmr48",
                               "name": "Label",
-                              "fill": "$accent-text-small",
+                              "fill": "$gold-text-small",
                               "content": "ORG ADMIN",
                               "fontFamily": "$font",
                               "fontSize": 10,
@@ -63883,9 +63887,9 @@
                               "id": "kBHFn",
                               "name": "Badge ORG ADMIN",
                               "height": 18,
-                              "fill": "$accent-wash",
+                              "fill": "$gold-badge",
                               "cornerRadius": 9,
-                              "stroke": "$accent-fill",
+                              "stroke": "$gold-dot",
                               "strokeWidth": 1,
                               "padding": [
                                 0,
@@ -63897,7 +63901,7 @@
                                   "type": "text",
                                   "id": "h888e",
                                   "name": "Label",
-                                  "fill": "$accent-text-small",
+                                  "fill": "$gold-text-small",
                                   "content": "ORG ADMIN",
                                   "fontFamily": "$font",
                                   "fontSize": 10,
@@ -64841,9 +64845,9 @@
                               "id": "N2lZwO",
                               "name": "Badge ORG ADMIN",
                               "height": 18,
-                              "fill": "$accent-wash",
+                              "fill": "$gold-badge",
                               "cornerRadius": 9,
-                              "stroke": "$accent-fill",
+                              "stroke": "$gold-dot",
                               "strokeWidth": 1,
                               "padding": [
                                 0,
@@ -64855,7 +64859,7 @@
                                   "type": "text",
                                   "id": "A6Wqd3",
                                   "name": "Label",
-                                  "fill": "$accent-text-small",
+                                  "fill": "$gold-text-small",
                                   "content": "ORG ADMIN",
                                   "fontFamily": "$font",
                                   "fontSize": 10,
@@ -65842,9 +65846,9 @@
                               "id": "D0DSn",
                               "name": "Badge ORG ADMIN",
                               "height": 18,
-                              "fill": "$accent-wash",
+                              "fill": "$gold-badge",
                               "cornerRadius": 9,
-                              "stroke": "$accent-fill",
+                              "stroke": "$gold-dot",
                               "strokeWidth": 1,
                               "padding": [
                                 0,
@@ -65856,7 +65860,7 @@
                                   "type": "text",
                                   "id": "NYvLv",
                                   "name": "Label",
-                                  "fill": "$accent-text-small",
+                                  "fill": "$gold-text-small",
                                   "content": "ORG ADMIN",
                                   "fontFamily": "$font",
                                   "fontSize": 10,
@@ -66523,6 +66527,1607 @@
                       ]
                     }
                   ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "j3G6l",
+      "x": 10320,
+      "y": 3360,
+      "name": "S3 · Viewing another team, E2 header",
+      "width": 1232,
+      "fill": "$panel",
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 40,
+      "children": [
+        {
+          "type": "frame",
+          "id": "srHKL",
+          "name": "Header",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 6,
+          "children": [
+            {
+              "type": "text",
+              "id": "mcTm7",
+              "name": "Title",
+              "fill": "$text-1",
+              "content": "S3 · Viewing another team, E2 header",
+              "fontFamily": "$font",
+              "fontSize": 20,
+              "fontWeight": "600"
+            },
+            {
+              "type": "text",
+              "id": "iI0rU",
+              "name": "Subtitle",
+              "fill": "$text-3",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "An org admin picked gadgets. The team segment turns purple, and a short note beside it says where edits go, with the way back. Your user and machine layers hide, so the scope filter drops them too.",
+              "lineHeight": 1.5,
+              "fontFamily": "$font",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "Y0X6a",
+          "name": "Screen",
+          "clip": true,
+          "width": 1152,
+          "fill": "$card",
+          "cornerRadius": 8,
+          "stroke": "$border",
+          "strokeWidth": 1,
+          "layout": "vertical",
+          "children": [
+            {
+              "type": "frame",
+              "id": "vpSux",
+              "name": "App bar",
+              "width": "fill_container",
+              "height": 48,
+              "fill": "$bg",
+              "stroke": "$border-soft",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 10,
+              "padding": [
+                0,
+                24
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "lxjFE",
+                  "name": "Mark",
+                  "width": 26,
+                  "height": 26,
+                  "fill": "#ec5a9b",
+                  "cornerRadius": 6,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "Sh3Tk",
+                      "name": "Glyph",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "chevron-right",
+                      "library": "lucide",
+                      "fill": "#ffffff"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "gNnbZ",
+                  "name": "App",
+                  "fill": "$text-1",
+                  "content": "console",
+                  "fontFamily": "$font",
+                  "fontSize": 15,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "icon",
+                  "id": "z9EzK",
+                  "name": "Sep",
+                  "width": 14,
+                  "height": 14,
+                  "icon": "chevron-right",
+                  "library": "lucide",
+                  "fill": "$text-4"
+                },
+                {
+                  "type": "text",
+                  "id": "nnuag",
+                  "name": "Page",
+                  "fill": "$text-3",
+                  "content": "Settings",
+                  "fontFamily": "$font",
+                  "fontSize": 14,
+                  "fontWeight": "500"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "gwZGx",
+              "name": "Sticky header",
+              "width": "fill_container",
+              "fill": "$panel",
+              "stroke": "$border",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#1c202414",
+                "offset": {
+                  "x": 0,
+                  "y": 2
+                },
+                "blur": 10
+              },
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "cEBAM",
+                  "name": "Context bar",
+                  "width": "fill_container",
+                  "padding": [
+                    14,
+                    24,
+                    12,
+                    24
+                  ],
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "lsquI",
+                      "name": "Context",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "fYweN",
+                          "name": "Org",
+                          "height": 30,
+                          "gap": 8,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "jMPWG",
+                              "name": "Icon",
+                              "width": 15,
+                              "height": 15,
+                              "icon": "building-2",
+                              "library": "lucide",
+                              "fill": "$text-3"
+                            },
+                            {
+                              "type": "text",
+                              "id": "YjNEk",
+                              "name": "Org",
+                              "fill": "$text-3",
+                              "content": "acme",
+                              "fontFamily": "$font",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "ltnU7",
+                          "name": "Sep",
+                          "fill": "$text-4",
+                          "content": "/",
+                          "fontFamily": "$font",
+                          "fontSize": 16,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "P5nT8b",
+                          "name": "Team segment",
+                          "height": 32,
+                          "fill": "$purple-badge",
+                          "cornerRadius": 6,
+                          "stroke": "$purple-dot",
+                          "strokeWidth": 1,
+                          "gap": 7,
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "JB6Td",
+                              "name": "Icon",
+                              "width": 15,
+                              "height": 15,
+                              "icon": "users",
+                              "library": "lucide",
+                              "fill": "$purple-text-small"
+                            },
+                            {
+                              "type": "text",
+                              "id": "H9g1wQ",
+                              "name": "Team",
+                              "fill": "$purple-text-small",
+                              "content": "gadgets",
+                              "fontFamily": "$font",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "icon",
+                              "id": "l7VwGw",
+                              "name": "Chevrons",
+                              "width": 14,
+                              "height": 14,
+                              "icon": "chevrons-up-down",
+                              "library": "lucide",
+                              "fill": "$text-3"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Oei1y",
+                          "name": "Viewing note",
+                          "gap": 10,
+                          "padding": [
+                            0,
+                            0,
+                            0,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "rO1OL",
+                              "name": "Text",
+                              "gap": 5,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "t4wJs",
+                                  "name": "Icon",
+                                  "width": 14,
+                                  "height": 14,
+                                  "icon": "eye",
+                                  "library": "lucide",
+                                  "fill": "$purple-text"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "UGoAm",
+                                  "name": "Body",
+                                  "fill": "$text-3",
+                                  "content": "Edits go to gadgets · your user and machine layers are hidden",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "SBrex",
+                              "name": "Back",
+                              "height": 26,
+                              "fill": "$card",
+                              "cornerRadius": 6,
+                              "stroke": "$border",
+                              "strokeWidth": 1,
+                              "gap": 5,
+                              "padding": [
+                                0,
+                                8
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "LZNjH",
+                                  "name": "Icon",
+                                  "width": 13,
+                                  "height": 13,
+                                  "icon": "arrow-left",
+                                  "library": "lucide",
+                                  "fill": "$text-1"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "LwcWm",
+                                  "name": "Label",
+                                  "fill": "$text-1",
+                                  "content": "Back to widgets",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "BChYM",
+                      "name": "User",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "WnI5e",
+                          "name": "Name",
+                          "fill": "$text-1",
+                          "content": "Sam Rivera",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "H6piSc",
+                          "name": "Badge ORG ADMIN",
+                          "height": 18,
+                          "fill": "$gold-badge",
+                          "cornerRadius": 9,
+                          "stroke": "$gold-dot",
+                          "strokeWidth": 1,
+                          "padding": [
+                            0,
+                            7
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Mnq0o",
+                              "name": "Label",
+                              "fill": "$gold-text-small",
+                              "content": "ORG ADMIN",
+                              "fontFamily": "$font",
+                              "fontSize": 10,
+                              "fontWeight": "600",
+                              "letterSpacing": 0.6
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "hYwq6",
+                          "name": "Avatar",
+                          "width": 30,
+                          "height": 30,
+                          "fill": "$cyan-badge",
+                          "cornerRadius": 15,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "kwRZ8",
+                              "name": "Initials",
+                              "fill": "$cyan-text-small",
+                              "content": "SR",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "yVPOd",
+                  "name": "Filter row",
+                  "width": "fill_container",
+                  "gap": 10,
+                  "padding": [
+                    0,
+                    24,
+                    14,
+                    24
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Y3lwCP",
+                      "name": "Filter",
+                      "width": "fill_container",
+                      "height": 34,
+                      "fill": "$card",
+                      "cornerRadius": 6,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "gap": 8,
+                      "padding": [
+                        0,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "gbEZo",
+                          "name": "Search",
+                          "width": 15,
+                          "height": 15,
+                          "icon": "search",
+                          "library": "lucide",
+                          "fill": "$text-3"
+                        },
+                        {
+                          "type": "text",
+                          "id": "t0T18f",
+                          "name": "Placeholder",
+                          "fill": "$text-4",
+                          "content": "Filter 115 settings",
+                          "fontFamily": "$font",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "X6FOWp",
+                          "name": "Spacer",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "N6kav",
+                          "name": "Kbd",
+                          "cornerRadius": 4,
+                          "stroke": "$border-soft",
+                          "strokeWidth": 1,
+                          "padding": [
+                            0,
+                            5
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Nl6SD",
+                              "name": "Key",
+                              "fill": "$text-3",
+                              "content": "/",
+                              "fontFamily": "$mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "A0UpMu",
+                      "name": "Scope filter",
+                      "height": 34,
+                      "fill": "$bg",
+                      "cornerRadius": 6,
+                      "gap": 2,
+                      "padding": 3,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "H5PG9e",
+                          "name": "Item any",
+                          "height": 28,
+                          "fill": "$card",
+                          "cornerRadius": 4,
+                          "gap": 6,
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "w4dXg",
+                              "name": "Label",
+                              "fill": "$text-1",
+                              "content": "any",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "lyKJw",
+                          "name": "Item org",
+                          "height": 28,
+                          "cornerRadius": 4,
+                          "gap": 6,
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "ur49L",
+                              "name": "Dot",
+                              "fill": "$gold-dot",
+                              "width": 6,
+                              "height": 6
+                            },
+                            {
+                              "type": "text",
+                              "id": "W9tG87",
+                              "name": "Label",
+                              "fill": "$text-3",
+                              "content": "org",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "R2BEgJ",
+                          "name": "Item team",
+                          "height": 28,
+                          "cornerRadius": 4,
+                          "gap": 6,
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "rt3jG",
+                              "name": "Dot",
+                              "fill": "$purple-dot",
+                              "width": 6,
+                              "height": 6
+                            },
+                            {
+                              "type": "text",
+                              "id": "KGOCZ",
+                              "name": "Label",
+                              "fill": "$text-3",
+                              "content": "team",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "F0KfRY",
+              "name": "Scrolled content",
+              "width": "fill_container",
+              "layout": "vertical",
+              "padding": [
+                0,
+                24,
+                16,
+                24
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "g0MfIs",
+                  "name": "Wash team",
+                  "width": "fill_container",
+                  "fill": "$purple-section",
+                  "cornerRadius": [
+                    0,
+                    0,
+                    8,
+                    8
+                  ],
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Nozoi",
+                      "name": "Row board.doctorSkill",
+                      "width": "fill_container",
+                      "stroke": "$border-soft",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 24,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "zKNpn",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "i1UYp",
+                              "name": "Key",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "srPY7",
+                                  "name": "Namespace",
+                                  "fill": "$text-3",
+                                  "content": "board.",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "lkfhq",
+                                  "name": "Name",
+                                  "fill": "$text-body",
+                                  "content": "doctorSkill",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 14,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "YsQCb",
+                              "name": "Description",
+                              "fill": "$text-3",
+                              "content": "Default doctor skill for repairing a stuck MR.",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "JvVus",
+                          "name": "Control",
+                          "width": 260,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "bQ1Gc",
+                              "name": "Input",
+                              "width": 200,
+                              "height": 30,
+                              "fill": "$card",
+                              "cornerRadius": 6,
+                              "stroke": "$border",
+                              "strokeWidth": 1,
+                              "padding": [
+                                0,
+                                10
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "F9SqY",
+                                  "name": "Value",
+                                  "fill": "$text-1",
+                                  "content": "gadgets:board-doctor",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "A9UuTT",
+                          "name": "Disclosure",
+                          "width": 28,
+                          "height": 28,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "UELHJ",
+                              "name": "Chevron",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "chevron-down",
+                              "library": "lucide",
+                              "fill": "$text-1"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "A1LGV",
+                      "name": "Row board.triage.doctorSkill",
+                      "width": "fill_container",
+                      "stroke": "$border-soft",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 24,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "b3YOug",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "EbJv3",
+                              "name": "Key",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "z8fbzk",
+                                  "name": "Namespace",
+                                  "fill": "$text-3",
+                                  "content": "board.triage.",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "UbxXC",
+                                  "name": "Name",
+                                  "fill": "$text-body",
+                                  "content": "doctorSkill",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 14,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "CllMO",
+                              "name": "Description",
+                              "fill": "$text-3",
+                              "content": "Doctor skill the board's own triage sweep runs on your MRs.",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "BNhjs",
+                          "name": "Control",
+                          "width": 260,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "mgBsh",
+                              "name": "Input",
+                              "width": 200,
+                              "height": 30,
+                              "fill": "$card",
+                              "cornerRadius": 6,
+                              "stroke": "$border",
+                              "strokeWidth": 1,
+                              "padding": [
+                                0,
+                                10
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "GlYAQ",
+                                  "name": "Value",
+                                  "fill": "$text-1",
+                                  "content": "gadgets:board-doctor",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "PklHG",
+                          "name": "Disclosure",
+                          "width": 28,
+                          "height": 28,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "SNKZO",
+                              "name": "Chevron",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "chevron-down",
+                              "library": "lucide",
+                              "fill": "$text-1"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "U3hdvc",
+                      "name": "Row board.ticketPrefixes",
+                      "width": "fill_container",
+                      "stroke": "$border-soft",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 24,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "eAbdh",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "b9aJF",
+                              "name": "Key",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "aXorA",
+                                  "name": "Namespace",
+                                  "fill": "$text-3",
+                                  "content": "board.",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "X1Q3Kq",
+                                  "name": "Name",
+                                  "fill": "$text-body",
+                                  "content": "ticketPrefixes",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 14,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "wrnGJ",
+                              "name": "Description",
+                              "fill": "$text-3",
+                              "content": "Ticket key prefixes that keep the authors tab to the team's own tickets.",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Al6xK",
+                          "name": "Control",
+                          "width": 260,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "HYv3C",
+                              "name": "Summary",
+                              "fill": "$text-3",
+                              "content": "3 items",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "UzFC2",
+                          "name": "Disclosure",
+                          "width": 28,
+                          "height": 28,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "OEQWK",
+                              "name": "Chevron",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "chevron-down",
+                              "library": "lucide",
+                              "fill": "$text-1"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "q4Ies",
+      "x": 11720,
+      "y": 3360,
+      "name": "R2 · Role badges",
+      "width": 900,
+      "fill": "$card",
+      "layout": "vertical",
+      "gap": 24,
+      "padding": 40,
+      "children": [
+        {
+          "type": "frame",
+          "id": "kTegq",
+          "name": "Header",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 6,
+          "children": [
+            {
+              "type": "text",
+              "id": "V0swSe",
+              "name": "Title",
+              "fill": "$text-1",
+              "content": "R2 · Role badges",
+              "fontFamily": "$font",
+              "fontSize": 20,
+              "fontWeight": "600"
+            },
+            {
+              "type": "text",
+              "id": "jFh9W",
+              "name": "Subtitle",
+              "fill": "$text-3",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "One badge beside your name says what you may change; the badge always shows your strongest role. Colours follow what each role can reach: gold for the org (the org scope's colour), purple for a team (the team scope's colour), neutral for a member. Not connected stays grey, since orange already means this Mac and red would read as an error.",
+              "lineHeight": 1.5,
+              "fontFamily": "$font",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "AUWCs",
+          "name": "Role Org admin",
+          "width": "fill_container",
+          "stroke": "$border-soft",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "gap": 24,
+          "padding": [
+            14,
+            0
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "tfC8r",
+              "name": "User",
+              "width": 300,
+              "gap": 10,
+              "justifyContent": "end",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "KcXuX",
+                  "name": "Name",
+                  "fill": "$text-1",
+                  "content": "Sam Rivera",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "I0K7i",
+                  "name": "Badge",
+                  "height": 18,
+                  "fill": "$gold-badge",
+                  "cornerRadius": 9,
+                  "stroke": "$gold-dot",
+                  "strokeWidth": 1,
+                  "padding": [
+                    0,
+                    7
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "mhGSo",
+                      "name": "Label",
+                      "fill": "$gold-text-small",
+                      "content": "ORG ADMIN",
+                      "fontFamily": "$font",
+                      "fontSize": 10,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.6
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "tzVXn",
+                  "name": "Avatar",
+                  "width": 30,
+                  "height": 30,
+                  "fill": "$cyan-badge",
+                  "cornerRadius": 15,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Bmfpl",
+                      "name": "Initials",
+                      "fill": "$cyan-text-small",
+                      "content": "SR",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "y0CGJW",
+              "name": "Text",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 3,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "QbI5O",
+                  "name": "Role",
+                  "fill": "$text-1",
+                  "content": "Org admin",
+                  "fontFamily": "$font",
+                  "fontSize": 14,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "PlE7x",
+                  "name": "Note",
+                  "fill": "$text-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Changes the org's settings and every team's. Sees the team switcher with every team.",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "t6VVu",
+          "name": "Role Team owner",
+          "width": "fill_container",
+          "stroke": "$border-soft",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "gap": 24,
+          "padding": [
+            14,
+            0
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "SiXM5",
+              "name": "User",
+              "width": 300,
+              "gap": 10,
+              "justifyContent": "end",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "BYMmO",
+                  "name": "Name",
+                  "fill": "$text-1",
+                  "content": "Sam Rivera",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "o4T1C4",
+                  "name": "Badge",
+                  "height": 18,
+                  "fill": "$purple-badge",
+                  "cornerRadius": 9,
+                  "stroke": "$purple-dot",
+                  "strokeWidth": 1,
+                  "padding": [
+                    0,
+                    7
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "SJ1KY",
+                      "name": "Label",
+                      "fill": "$purple-text-small",
+                      "content": "TEAM OWNER",
+                      "fontFamily": "$font",
+                      "fontSize": 10,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.6
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "yzUjv",
+                  "name": "Avatar",
+                  "width": 30,
+                  "height": 30,
+                  "fill": "$cyan-badge",
+                  "cornerRadius": 15,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "p6erT",
+                      "name": "Initials",
+                      "fill": "$cyan-text-small",
+                      "content": "SR",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "aC3kE",
+              "name": "Text",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 3,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "TAs2s",
+                  "name": "Role",
+                  "fill": "$text-1",
+                  "content": "Team owner",
+                  "fontFamily": "$font",
+                  "fontSize": 14,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "x1E3y",
+                  "name": "Note",
+                  "fill": "$text-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Changes the teams they own. The switcher lists only those teams (and their own).",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "ZgkGu",
+          "name": "Role Member",
+          "width": "fill_container",
+          "stroke": "$border-soft",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "gap": 24,
+          "padding": [
+            14,
+            0
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "NaOlH",
+              "name": "User",
+              "width": 300,
+              "gap": 10,
+              "justifyContent": "end",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "T0u5wb",
+                  "name": "Name",
+                  "fill": "$text-1",
+                  "content": "Sam Rivera",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "ZKECW",
+                  "name": "Badge",
+                  "height": 18,
+                  "cornerRadius": 9,
+                  "stroke": "$border",
+                  "strokeWidth": 1,
+                  "padding": [
+                    0,
+                    7
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "j3AlOY",
+                      "name": "Label",
+                      "fill": "$text-3",
+                      "content": "MEMBER",
+                      "fontFamily": "$font",
+                      "fontSize": 10,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.6
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "cKuje",
+                  "name": "Avatar",
+                  "width": 30,
+                  "height": 30,
+                  "fill": "$cyan-badge",
+                  "cornerRadius": 15,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "PN3kQ",
+                      "name": "Initials",
+                      "fill": "$cyan-text-small",
+                      "content": "SR",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "DYiZz",
+              "name": "Text",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 3,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "r7Tgwr",
+                  "name": "Role",
+                  "fill": "$text-1",
+                  "content": "Member",
+                  "fontFamily": "$font",
+                  "fontSize": 14,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "k2Ndi",
+                  "name": "Note",
+                  "fill": "$text-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Reads shared settings, changes only their own. No switcher: the team is a fixed label.",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "Y683Zd",
+          "name": "Role Unknown",
+          "width": "fill_container",
+          "stroke": "$border-soft",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "gap": 24,
+          "padding": [
+            14,
+            0
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "qPhxk",
+              "name": "User",
+              "width": 300,
+              "gap": 10,
+              "justifyContent": "end",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "EJqHQ",
+                  "name": "Badge",
+                  "height": 18,
+                  "fill": "$bg",
+                  "cornerRadius": 9,
+                  "stroke": "$text-4",
+                  "strokeWidth": 1,
+                  "padding": [
+                    0,
+                    7
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "IqPRK",
+                      "name": "Label",
+                      "fill": "$text-3",
+                      "content": "NOT CONNECTED",
+                      "fontFamily": "$font",
+                      "fontSize": 10,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.6
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "IvFn3",
+                  "name": "Avatar",
+                  "width": 30,
+                  "height": 30,
+                  "fill": "$bg",
+                  "cornerRadius": 15,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "mLHkK",
+                      "name": "Icon",
+                      "width": 15,
+                      "height": 15,
+                      "icon": "user",
+                      "library": "lucide",
+                      "fill": "$text-3"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "yVoP0",
+              "name": "Text",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 3,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "QU5mU",
+                  "name": "Role",
+                  "fill": "$text-1",
+                  "content": "Unknown",
+                  "fontFamily": "$font",
+                  "fontSize": 14,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "tW84g",
+                  "name": "Note",
+                  "fill": "$text-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "rt can't tell who you are (no forge account connected), so there's no name to show and shared settings are read-only until you connect.",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "hJixC",
+          "name": "Role none",
+          "width": "fill_container",
+          "gap": 24,
+          "padding": [
+            14,
+            0
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "xQUGQ",
+              "name": "User",
+              "width": 300,
+              "gap": 10,
+              "justifyContent": "end",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "nBjq5",
+                  "name": "Name",
+                  "fill": "$text-1",
+                  "content": "Sam Rivera",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "fM2T3",
+                  "name": "Avatar",
+                  "width": 30,
+                  "height": 30,
+                  "fill": "$cyan-badge",
+                  "cornerRadius": 15,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "e7DMJt",
+                      "name": "Initials",
+                      "fill": "$cyan-text-small",
+                      "content": "SR",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "vG8oG",
+              "name": "Text",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 3,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "EULNa",
+                  "name": "Role",
+                  "fill": "$text-1",
+                  "content": "No org (Just me)",
+                  "fontFamily": "$font",
+                  "fontSize": 14,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "X8RaS",
+                  "name": "Note",
+                  "fill": "$text-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "A Mac with no org shows no badge, no org and no team segment: there is nothing shared to change.",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
                 }
               ]
             }
