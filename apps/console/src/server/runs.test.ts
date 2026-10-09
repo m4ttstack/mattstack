@@ -15,6 +15,7 @@ vi.mock('@mattstack/rt-client', () => ({
   paneList: vi.fn(async () => ({ ok: true, data: { panes: [] } })),
   listRuns: vi.fn(async () => ({ ok: true, data: { runs: [] } })),
   getRun: vi.fn(async () => ({ ok: false, error: 'no such run' })),
+  runEvidence: vi.fn(),
   abandonRun: vi.fn(async () => ({ ok: true, data: { ok: true } })),
   subscribe: vi.fn(() => () => {}),
   getSetting: vi.fn(() => ({ value: 30, provenance: [] })),
@@ -39,6 +40,41 @@ describe('runs api', () => {
     const wire = 'remote:gitlab.com%2Fgroup%2Frepo';
     await routes.fetch(new Request(`http://localhost/api/runs/${wire}/run-1`));
     expect(rt.getRun).toHaveBeenCalledWith('run-1', wire);
+  });
+
+  it('relays an evidence image with its mime type', async () => {
+    vi.mocked(rt.runEvidence).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        mime: 'image/png',
+        base64: Buffer.from('png!').toString('base64'),
+      },
+    });
+    const wire = 'remote:gitlab.com%2Fgroup%2Frepo';
+    const res = await routes.fetch(
+      new Request(`http://localhost/api/runs/${wire}/run-1/evidence/before`)
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/png');
+    expect(res.headers.get('cache-control')).toBe('private, max-age=3600');
+    expect(await res.text()).toBe('png!');
+    expect(vi.mocked(rt.runEvidence).mock.calls[0]!.slice(0, 3)).toEqual([
+      'run-1',
+      'before',
+      wire,
+    ]);
+  });
+
+  it('answers 404 when the daemon refuses', async () => {
+    vi.mocked(rt.runEvidence).mockResolvedValueOnce({
+      ok: false,
+      error: 'no evidence',
+    });
+    const res = await routes.fetch(
+      new Request('http://localhost/api/runs/remote:a/run-1/evidence/after')
+    );
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({ error: 'no evidence' });
   });
 
   it('lists runs and passes repo through', async () => {

@@ -119,7 +119,7 @@ is `parseIdentity(payload.repo) === null → empty result` — a bare name does
 not error, it resolves nothing. If a verb returns empty for a repo you know
 exists, the first suspicion is the key form, not the data.
 
-**The one exception**: `runs:list` / `runs:get` / `runs:abandon` read on-disk
+**The one exception**: `runs:list` / `runs:get` / `runs:abandon` / `runs:evidence` read on-disk
 run directories whose names are writer-controlled. The `repo` field that
 `runs:list` returns is an *opaque key* — pass it back verbatim, never
 validate or re-derive it. New runs key by identity; pre-cutover runs keep

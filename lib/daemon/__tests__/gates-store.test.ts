@@ -101,6 +101,19 @@ describe("gates store", () => {
   });
 });
 
+describe("gates store — list filters", () => {
+  test("subject matches exactly and status filters to the given set", () => {
+    const s = store();
+    const a = openGate(s, "run:20261008-1");
+    const b = openGate(s, "run:20261008-12");
+    s.close(a, "abandoned");
+    expect(s.list({ subject: "run:20261008-1" }).gates.map((g) => g.id)).toEqual([a]);
+    expect(s.list({ subjectPrefix: "run:", status: ["open"] }).gates.map((g) => g.id)).toEqual([b]);
+    expect(s.list({ subject: "run:20261008-1", status: ["open"] }).gates).toEqual([]);
+    s.close_();
+  });
+});
+
 describe("gates store — option normalization", () => {
   test("open normalizes bare-string options to {value,label} in both the returned and persisted row", () => {
     const s = store();
@@ -351,6 +364,31 @@ describe("gates store — sweep", () => {
     s.__db!.run("UPDATE gates SET closedAt = ? WHERE id = ?", [Date.now() - 10_000, id]);
     const removed = s.sweep();
     expect(removed).toBe(0); // the floor (1) covers this single terminal row
+    expect(s.get(id)).not.toBeNull();
+  });
+
+  test("an old answered run gate survives while its run exists, then sweeps", () => {
+    let exists = true;
+    const s: GatesStore = createGatesStore({ dbPath: tmp("gates.db"), log, retentionMs: 1000, retentionFloor: 0, runExists: () => exists });
+    const runGate = openGate(s, "run:r1");
+    const other = openGate(s, "mr:9");
+    s.close(runGate, "abandoned");
+    s.close(other, "abandoned");
+    s.__db!.run("UPDATE gates SET closedAt = ?", [Date.now() - 10_000]);
+    expect(s.sweep()).toBe(1);
+    expect(s.get(runGate)).not.toBeNull();
+    expect(s.get(other)).toBeNull();
+    exists = false;
+    expect(s.sweep()).toBe(1);
+    expect(s.get(runGate)).toBeNull();
+  });
+
+  test("a gone run's old gate still honors the row floor", () => {
+    const s: GatesStore = createGatesStore({ dbPath: tmp("gates.db"), log, retentionMs: 1000, retentionFloor: 1, runExists: () => false });
+    const id = openGate(s, "run:gone");
+    s.close(id, "abandoned");
+    s.__db!.run("UPDATE gates SET closedAt = ? WHERE id = ?", [Date.now() - 10_000, id]);
+    expect(s.sweep()).toBe(0);
     expect(s.get(id)).not.toBeNull();
   });
 

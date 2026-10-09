@@ -72,6 +72,14 @@ function buildIntoTempDir(): string {
   );
   if (ciLease.exitCode !== 0) throw new Error(`bun build (ci-lease) failed:\n${ciLease.stderr.toString()}`);
 
+  // Mirrors the package build's fifth entry: the evidence parser (target
+  // browser) for the ./evidence subpath.
+  const evidence = Bun.spawnSync(
+    ["bun", "build", "src/evidence.ts", "--outfile", join(outDir, "evidence.js"), "--target", "browser", "--format", "esm"],
+    { cwd: pkgDir, stdout: "pipe", stderr: "pipe" },
+  );
+  if (evidence.exitCode !== 0) throw new Error(`bun build (evidence) failed:\n${evidence.stderr.toString()}`);
+
   const types = Bun.spawnSync(
     ["bunx", "tsc", "-p", "tsconfig.json", "--outDir", outDir],
     { cwd: pkgDir, stdout: "pipe", stderr: "pipe" },

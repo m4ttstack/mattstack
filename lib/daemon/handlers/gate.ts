@@ -5,7 +5,7 @@
  */
 
 import type { Logger } from "pino";
-import type { Commands } from "../../../packages/rt-client/src/commands.ts";
+import type { Commands, GateStatus } from "../../../packages/rt-client/src/commands.ts";
 import { GATE_BY_PANE } from "../../../packages/rt-client/src/commands.ts";
 import { unwrapGateAnswerValue, validateGateAnswers } from "../../../packages/rt-client/src/gate-answers.ts";
 import type { CommandResult } from "./types.ts";
@@ -51,6 +51,8 @@ const DEFAULT_LIST_LIMIT = 500;
 const MAX_LIST_LIMIT = 1000;
 const clampListLimit = (n: number | undefined): number =>
   Math.min(MAX_LIST_LIMIT, Math.max(1, Math.floor(n ?? DEFAULT_LIST_LIMIT)));
+
+const GATE_STATUSES: readonly GateStatus[] = ["open", "answered", "parked", "closed"];
 
 const num = (v: unknown): number | undefined => {
   if (v == null || v === "") return undefined;
@@ -386,6 +388,8 @@ export function createGateHandlers(
         run: gate with no origin.worktree and invisible to the hook's
         per-worktree match. */
     runWorktree?: (runId: string) => string | null;
+    /** The run's current stage, by run id: stamped onto a run gate as meta.stage. */
+    runCurrentStage?: (runId: string) => string | null;
   } = {},
 ): GateSiblingHandlers
   & { "gate:ask": (payload: unknown) => Promise<CommandResult<"gate:ask">> }
@@ -512,9 +516,14 @@ export function createGateHandlers(
       const origin = payload?.origin ? { presentation: "wait" as const, ...payload.origin } : undefined;
 
       const owner = deriveOwner(origin, runSpawnedBy);
+      const callerMeta = isPlainObject(payload?.meta) ? payload!.meta : undefined;
+      const runStage = subject.startsWith("run:") && typeof callerMeta?.stage !== "string"
+        ? deps.runCurrentStage?.(subject.slice("run:".length)) ?? null
+        : null;
+      const meta = runStage ? { ...(callerMeta ?? {}), stage: runStage } : callerMeta;
       const { row, supersededId } = store.open({
         subject, kind, questions,
-        meta: payload?.meta, agent: payload?.agent, pane: payload?.pane, nudge: payload?.nudge,
+        meta, agent: payload?.agent, pane: payload?.pane, nudge: payload?.nudge,
         context: payload?.context, origin, owner,
       });
 
@@ -657,9 +666,14 @@ export function createGateHandlers(
 
     "gate:list": async (rawPayload: unknown) => {
       const payload = rawPayload as Commands["gate:list"]["payload"] | undefined;
+      const statuses = Array.isArray(payload?.status)
+        ? payload.status.filter((s): s is GateStatus => GATE_STATUSES.includes(s as GateStatus))
+        : undefined;
       const { gates, cursor } = store.list({
         open: payload?.open,
+        subject: typeof payload?.subject === "string" && payload.subject.trim() ? payload.subject.trim() : undefined,
         subjectPrefix: payload?.subjectPrefix,
+        status: statuses,
         kind: payload?.kind,
         cursor: num(payload?.cursor),
         limit: clampListLimit(num(payload?.limit)),

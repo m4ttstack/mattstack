@@ -7,8 +7,10 @@ import {
   getRun,
   listRuns,
   paneList,
+  runEvidence,
   serializeIdentity,
   type ChatPane,
+  type EvidenceImageKey,
   type RunFieldRow,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
@@ -135,6 +137,25 @@ export const runs = new Hono()
       }
     }
   )
+  .get('/api/runs/:repo/:runId/evidence/:key', async c => {
+    const { repo: rawRepo, runId, key } = c.req.param();
+    const res = await runEvidence(
+      runId,
+      key as EvidenceImageKey,
+      canonicalRepo(rawRepo),
+      { sockPath: process.env.RT_SOCK_PATH }
+    );
+    if (!res.ok || !res.data) {
+      return c.json({ error: res.error ?? 'no evidence' }, 404);
+    }
+    return new Response(Buffer.from(res.data.base64, 'base64'), {
+      status: 200,
+      headers: {
+        'content-type': res.data.mime,
+        'cache-control': 'private, max-age=3600',
+      },
+    });
+  })
   // A validator is required for any route whose body the RPC client sends --
   // without one Hono infers client input as `{ param }` only and a caller
   // passing `json` fails to compile despite working at runtime. An absent

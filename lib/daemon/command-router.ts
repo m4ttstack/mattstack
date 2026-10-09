@@ -19,6 +19,7 @@ import { createMrUploadHandlers } from "./handlers/mr-upload.ts";
 import { createSystemProcessHandlers } from "./handlers/system-processes.ts";
 import { createSdmHandlers } from "./handlers/sdm.ts";
 import { createRunsHandlers } from "./handlers/runs.ts";
+import { findTreeByPath } from "../worktree/registry.ts";
 import { createSecretsHandlers } from "./handlers/secrets.ts";
 import { createLoginsHandlers } from "./handlers/logins.ts";
 import { createProjectMRsHandlers } from "./handlers/project-mrs.ts";
@@ -184,6 +185,7 @@ export function buildRoutedHandlers(opts: {
     push: opts.gatePush,
     log: ctx.log,
     runSpawnedBy: (runId) => findRun(runId)?.run.spawned_by ?? null,
+    runCurrentStage: (runId) => findRun(runId)?.run.current_stage ?? null,
     herdShepherd: (herdId) => opts.herdStore.get(herdId)?.shepherdSession ?? null,
     reconciler: opts.reconciler,
     resumeAgent: opts.resumeAgent,
@@ -259,7 +261,10 @@ export function buildRoutedHandlers(opts: {
     ...createMrUploadHandlers({ repoIndex: ctx.repoIndex, log: ctx.log }),
     ...createSystemProcessHandlers(systemProcessScanner, { portCacheRef: ctx.portCacheRef, cache: ctx.cache }),
     ...createSdmHandlers({ log: ctx.log }),
-    ...createRunsHandlers({ log: ctx.log }, emitEvent),
+    ...createRunsHandlers({ log: ctx.log }, emitEvent, {
+      isRunTree: (path, runRepo) =>
+        findTreeByPath(path)?.repoName === runRepo || ctx.repoIndex()[runRepo] === path,
+    }),
     ...createSecretsHandlers({ log: ctx.log }),
     ...createLoginsHandlers({ log: ctx.log }),
     ...createProjectMRsHandlers({ repoIndex: ctx.repoIndex, log: ctx.log }, broadcast),
