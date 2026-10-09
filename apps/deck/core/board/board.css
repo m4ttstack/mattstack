@@ -405,6 +405,9 @@ body {
   height: var(--spacing-rem100);
   color: var(--text-warn-vivid);
 }
+.update-strip-text {
+  flex: 1;
+}
 
 /* Last row's cells drop the kit's per-cell hairline -- otherwise it doubles
    up against the panel's own bottom border, right above the padding gap. */

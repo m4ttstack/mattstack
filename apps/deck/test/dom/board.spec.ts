@@ -495,9 +495,9 @@ test('update strip shows the behind count and hides when none', async () => {
     async page => {
       const strip = page.locator('[data-block="update-strip"]');
       expect(await strip.count()).toBe(1);
-      expect((await strip.textContent())?.trim()).toBe(
-        'New code for 3 apps since their last deploy'
-      );
+      expect(
+        (await strip.locator('.update-strip-text').textContent())?.trim()
+      ).toBe('New code for 3 apps since their last deploy');
     },
     { fixture: 'status-newcode.json' }
   );

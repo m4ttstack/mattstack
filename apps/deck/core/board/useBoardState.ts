@@ -29,15 +29,18 @@ import {
   editPatch,
   PROXY_WAIT_MS,
   reconcileRestarting,
+  redeployAllTargets,
   REFRESH_MS,
   registerOutcome,
   removeFailure,
   sections as sectionsOf,
   subline as sublineOf,
   tunnels as tunnelsOf,
+  type CommandOutcome,
   type CommandPhase,
   type CommandRuns,
   type Notice,
+  type RedeployAllRun,
   type RemoveAnswer,
   type RestartingMap,
   type Row,
@@ -260,9 +263,9 @@ export function useBoardState() {
   );
 
   const onRunCommand = useCallback(
-    async (row: Row, cmd: string) => {
+    async (row: Row, cmd: string): Promise<CommandOutcome> => {
       const key = commandKey(row.name, cmd);
-      if (commandRunsRef.current[key]) return;
+      if (commandRunsRef.current[key]) return 'skipped';
       setCommandPhase(key, 'running');
 
       let runId: string | null = null;
@@ -279,7 +282,7 @@ export function useBoardState() {
               : `${cmd} could not start (${res.status}).`
           );
           setCommandPhase(key, null);
-          return;
+          return body.error === 'busy' ? 'busy' : 'not-started';
         }
         runId = body.runId ?? null;
       } catch {
@@ -299,11 +302,11 @@ export function useBoardState() {
         // running against the new server.
         if (await waitForBoard(BOARD_WAIT_MS)) {
           location.reload();
-          return;
+          return 'reloading';
         }
         addToast(`${cmd}: deck did not come back within 60s.`);
         setCommandPhase(key, null);
-        return;
+        return 'no-return';
       }
 
       setCommandPhase(key, null);
@@ -313,9 +316,48 @@ export function useBoardState() {
           : commandToast(row.name, cmd, outcome.exitCode)
       );
       await refresh();
+      if (outcome === 'timeout') return 'timeout';
+      return outcome.exitCode === 0 ? 'ok' : 'failed';
     },
     [addToast, refresh, setCommandPhase]
   );
+
+  const [redeployAllRun, setRedeployAllRun] = useState<RedeployAllRun | null>(
+    null
+  );
+  // A ref, not the state above, so a second click landing before the
+  // re-render that disables the button still sees the run in progress.
+  const redeployAllActive = useRef(false);
+
+  const redeployAll = useCallback(async () => {
+    if (redeployAllActive.current) return;
+    const rows = sectionsOf(data).find(s => s.key === 'mattstack')?.rows ?? [];
+    const targets = redeployAllTargets(rows, commandRunsRef.current);
+    if (targets.length === 0) return;
+    redeployAllActive.current = true;
+    let reloading = false;
+    try {
+      for (const [i, row] of targets.entries()) {
+        setRedeployAllRun({
+          index: i + 1,
+          total: targets.length,
+          app: row.name,
+        });
+        const outcome = await onRunCommand(row, 'deploy');
+        if (outcome === 'ok' || outcome === 'skipped') continue;
+        // The page is about to reload under deck's new build: keep showing
+        // the run rather than flash the idle button first.
+        reloading = outcome === 'reloading';
+        if (!reloading) addToast(`Redeploy all stopped at ${row.name}`);
+        return;
+      }
+    } finally {
+      if (!reloading) {
+        redeployAllActive.current = false;
+        setRedeployAllRun(null);
+      }
+    }
+  }, [data, onRunCommand, addToast]);
 
   // ---- dev-mode source linking ----
   // Unlike onRunCommand/onRestart, a link attempt reports its own error
@@ -834,6 +876,8 @@ export function useBoardState() {
     onRestart,
     onRunCommand,
     commandRuns,
+    redeployAll,
+    redeployAllRun,
     toasts,
     linkSource,
     unlinkSource,

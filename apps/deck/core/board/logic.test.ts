@@ -17,6 +17,7 @@ import {
   PROXY_WAIT_MS,
   reconcileRestarting,
   redeployAllTargets,
+  redeployingText,
   REFRESH_MS,
   registerOutcome,
   remoteToggleTip,
@@ -610,6 +611,11 @@ test('updateStripText', () => {
   expect(updateStripText(1)).toBe('New code for 1 app since its last deploy');
   expect(updateStripText(5)).toBe(
     'New code for 5 apps since their last deploy'
+  );
+});
+test('redeployingText', () => {
+  expect(redeployingText({ index: 2, total: 3, app: 'meridian' })).toBe(
+    'Redeploying 2 of 3 · meridian'
   );
 });
 test('redeployAllTargets: table order, self last, in-flight skipped', () => {
