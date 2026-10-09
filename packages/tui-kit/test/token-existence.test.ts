@@ -110,13 +110,14 @@ describe("token existence: recipe tokenDependencies resolve against emitted CSS"
   });
 
   it("a recipe's keyframes stylesheet is part of its manifest entry and its token scrape", async () => {
-    // ToastHost's slide-in offset (`--spacing-px12`) is referenced ONLY from
+    // ToastHost's exit collapse reads `--spacing-px8` from
     // ToastHost.keyframes.css. A scrape that read the CSS module alone would
-    // drop it, and the row below would then never check it against the theme.
+    // miss a token only the keyframes use, and never check it against the
+    // theme.
     const manifest = await buildManifest();
     const toastHost = manifest.recipes.find((r) => r.name === "ToastHost");
     expect(toastHost?.files).toContain("src/recipes/ToastHost/ToastHost.keyframes.css");
-    expect(toastHost?.tokenDependencies).toContain("--spacing-px12");
+    expect(toastHost?.tokenDependencies).toContain("--spacing-px8");
   });
 
   it("every recipe tokenDependency is an emitted custom property, or allowlisted", async () => {

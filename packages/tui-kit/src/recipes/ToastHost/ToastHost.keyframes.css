@@ -2,18 +2,53 @@
    ToastHost.module.css, keyed on the public `data-part`: see
    docs/decisions.md, "Keyframes live outside the CSS module". */
 @layer soribashi.recipes {
+  /* Mantine's notification transition (@mantine/notifications
+     get-notification-state-styles): slide a full width in from the right
+     and fade, 250ms on its overshooting curve; leave the same way while the
+     height collapses linearly so the stack closes up behind it. */
   [data-part="toasthost-toast"] {
-    animation: toasthost-in 220ms ease-out;
+    animation: toasthost-in 250ms cubic-bezier(0.51, 0.3, 0, 1.21);
+  }
+
+  [data-part="toasthost-toast"][data-leaving] {
+    overflow: hidden;
+    pointer-events: none;
+    animation:
+      toasthost-out 250ms cubic-bezier(0.51, 0.3, 0, 1.21) forwards,
+      toasthost-collapse 250ms linear forwards;
   }
 
   @keyframes toasthost-in {
     from {
       opacity: 0;
-      transform: translateX(var(--spacing-px12));
+      transform: translateX(100%);
     }
     to {
       opacity: 1;
-      transform: none;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes toasthost-out {
+    from {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateX(100%);
+    }
+  }
+
+  @keyframes toasthost-collapse {
+    from {
+      max-height: 320px;
+    }
+    to {
+      max-height: 0;
+      padding-block: 0;
+      border-block-width: 0;
+      margin-bottom: calc(-1 * var(--spacing-px8));
     }
   }
 
