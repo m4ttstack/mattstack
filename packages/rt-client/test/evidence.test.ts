@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseEvidence } from "../src/evidence.ts";
+import { legacyItems, parseEvidence } from "../src/evidence.ts";
 
 describe("parseEvidence", () => {
   test("v1 lists image keys in fixed order, skipping absent ones", () => {
@@ -30,5 +30,37 @@ describe("parseEvidence", () => {
     for (const v of [null, undefined, "", "-", JSON.stringify({ plan: "none" })]) {
       expect(parseEvidence(v)).toEqual({ version: null });
     }
+  });
+});
+
+describe("legacy evidence paths", () => {
+  test("prose fractions and route patterns are not paths", () => {
+    const v = JSON.stringify({
+      before: "52/52 loads in the crawl; see https://tracker.example/WEB-1",
+      after: "capture titles on /c/:id, /cases/:id and /orders/:id at ship",
+    });
+    expect(parseEvidence(v)).toEqual({ version: 0, links: ["https://tracker.example/WEB-1"] });
+  });
+
+  test("absolute file paths with an extension survive, mid-token slashes do not", () => {
+    const v = "Evidence: /Users/acme/.mattstack/evidence/web-412/before.png and docs/a/b.md and x/y/z";
+    expect(parseEvidence(v)).toEqual({ version: 0, links: ["/Users/acme/.mattstack/evidence/web-412/before.png"] });
+  });
+
+  test("a path inside quotes or brackets still starts a token", () => {
+    const v = `["/tmp/ev/after.webp", "(/tmp/ev/log.txt)"]`;
+    expect(parseEvidence(v)).toEqual({ version: 0, links: ["/tmp/ev/after.webp", "/tmp/ev/log.txt"] });
+  });
+
+  test("nothing but prose is no evidence", () => {
+    expect(parseEvidence("screenshot -- /c/:id before/after")).toEqual({ version: null });
+  });
+
+  test("legacyItems sorts images, files and urls", () => {
+    expect(legacyItems(["/a/b.PNG", "/a/c.log", "http://localhost:4001/orders/1#x"])).toEqual([
+      { kind: "image", value: "/a/b.PNG" },
+      { kind: "file", value: "/a/c.log" },
+      { kind: "url", value: "http://localhost:4001/orders/1#x" },
+    ]);
   });
 });
