@@ -879,6 +879,41 @@ test('app: Save changes PATCHes the edit payload', async () => {
   });
 });
 
+test('app: after Enter saves, the form stays mounted through the refresh and focus stays in the field', async () => {
+  await withBoard(async page => {
+    let patched = false;
+    await page.route('**/api/v1/apps/orbit', async route => {
+      if (route.request().method() !== 'PATCH') {
+        await route.continue();
+        return;
+      }
+      patched = true;
+      await route.fulfill(ok);
+    });
+
+    const dlg = await openSettings(page, 'orbit');
+    let release = () => {};
+    const held = new Promise<void>(r => (release = r));
+    await page.route('**/api/v1/status', async route => {
+      if (patched) await held;
+      await route.continue();
+    });
+
+    const port = appField(dlg, 'base port');
+    await port.fill('12345');
+    await port.press('Enter');
+    await waitUntil(async () => patched);
+    await new Promise(r => setTimeout(r, 100));
+    expect(await appField(dlg, 'name').count()).toBe(1);
+    expect(await port.inputValue()).toBe('12345');
+
+    release();
+    await new Promise(r => setTimeout(r, 200));
+    expect(await activeLabel(page)).toBe('base port');
+    expect(await port.inputValue()).toBe('12345');
+  });
+}, 12000);
+
 test('app: an API validation error renders inline on the name field; the modal stays open', async () => {
   await withBoard(async page => {
     await page.route('**/api/v1/apps/orbit', async route => {
@@ -1020,6 +1055,9 @@ test("code: a refused relink shows the server's error inline and keeps the input
       )
     );
     expect(await input.count()).toBe(1);
+    await waitUntil(
+      async () => (await activeLabel(page)) === 'source path for atlas'
+    );
   });
 });
 

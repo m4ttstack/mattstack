@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 
 import { Button, TextField } from '@mattstack/tui-kit';
 import { NAME_PATTERN } from '../logic.ts';
@@ -26,6 +26,7 @@ export function AppBlock({ row, board, blocks }: BlockProps) {
   const rowRef = useRef(row);
   rowRef.current = row;
   const mounted = useRef(false);
+  const [saving, setSaving] = useState<EditModalState | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -39,23 +40,29 @@ export function AppBlock({ row, board, blocks }: BlockProps) {
   }, [blocks.app, name, openEdit]);
 
   if (!blocks.app) return null;
-  const draft = m && m.original === row.name ? m : null;
+  // A successful save clears the board's draft before awaiting its refresh,
+  // so the saved values stand in until the draft reopens; unmounting the
+  // fields there would drop focus to the page.
+  const draft = (m && m.original === row.name ? m : null) ?? saving;
   const service = draft?.kind === 'service';
   const saveable = draft != null && isSaveable(draft);
 
-  // A successful save clears the draft before its refresh lands, so the
-  // fields reopen on what was just saved, not on the row as it was.
   const save = async () => {
-    if (!draft || !saveable) return;
+    if (!draft || !saveable || saving) return;
     const saved = draft;
-    if (!(await board.submitEdit()) || !mounted.current) return;
-    openEdit(rowRef.current);
-    updateEditModal({
-      ...saved,
-      original: saved.name.trim(),
-      name: saved.name.trim(),
-      error: null,
-    });
+    setSaving(saved);
+    const ok = await board.submitEdit();
+    if (!mounted.current) return;
+    if (ok) {
+      openEdit(rowRef.current);
+      updateEditModal({
+        ...saved,
+        original: saved.name.trim(),
+        name: saved.name.trim(),
+        error: null,
+      });
+    }
+    setSaving(null);
   };
   const onKeyDown = (ev: KeyboardEvent) => {
     if (ev.key === 'Enter') save();

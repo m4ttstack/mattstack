@@ -30,6 +30,11 @@ export function SourceLinkInput({
     if (autoFocus) inputRef.current?.focus();
   }, [autoFocus]);
 
+  // The input is disabled while the request runs, which drops its focus.
+  useEffect(() => {
+    if (error) inputRef.current?.focus();
+  }, [error]);
+
   const submit = async () => {
     const workingDirectory = value.trim();
     if (!workingDirectory) return;
