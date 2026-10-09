@@ -50,8 +50,9 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    shared value names a path with a variable the resolver expands on read:
    `${repoRoot}`, `${worktree}`, `${home}`, or `${org}` (the org clone's
    root, so `"bun ${org}/mattstack/scripts/hook.sh"`; a member's clone is
-   sparse and holds only `.claude-plugin/` and `mattstack/`, so a path
-   under `${org}` names something under those two). `${team:<name>}` is a
+   sparse (cone mode) and holds only `.claude-plugin/`, `mattstack/` and
+   the repo's top-level files, so a path under `${org}` names something
+   there). `${team:<name>}` is a
    deprecated alias for `${org}` that ignores the name and warns, and both
    throw on a Mac with no org. An older
    rt passes `${org}` through verbatim, so an org or team store keeps
@@ -131,7 +132,11 @@ move on any "why is this value what it is" question.
 ## Changing the org repo's layout
 
 A layout change is a change to the org repo's shape that an older rt cannot
-read (a moved folder, a renamed store). The marker
+read: a moved folder, a renamed store, or a change to the shape of the
+shared settings that an older app would misread or lose, such as a
+migration that moves keys into a new org key and deletes the old ones (the
+team directory did this). Each gets the same `ORG_LAYOUT` bump and branch
+flow below. The marker
 (`mattstack/mattstack.jsonc`) carries `layout`; `ORG_LAYOUT` in
 `lib/team/org-marker.ts` is the highest layout this rt reads, and it moves
 only with such a change, never with a release. A clone on any other layout
@@ -153,10 +158,10 @@ In this order:
    for the new shape, and write the conversion script. The layout 2 one is
    `bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username>`
    (plans; `--write` moves and commits). A conversion to layout 3 or later
-   also writes `layout: <n>` in the marker, and the bump pins the no-field
-   default in `parseMarker` to 2: today a `role: "org"` marker with no
-   field reads as `ORG_LAYOUT`, which after the bump would make an
-   unconverted clone read as ready.
+   also writes `layout: <n>` in the marker; a `role: "org"` marker with no
+   field reads 2, a fixed default in `parseMarker` (#768 pins it; before
+   that it followed `ORG_LAYOUT`, so check it is the literal 2 before the
+   bump, or an unconverted clone reads as ready).
 2. **Test it on the dev app.** The dev app runs rt from the shared
    checkout (the one `rt dev setup` recorded, else
    `~/Documents/GitHub/mattstack`), which sits on main, so once the change
@@ -187,9 +192,10 @@ In this order:
    member could be on an app older than the gate (below v2.21.1), declare
    the intermediate update in `rt-tray/sparkle-minimum-update`
    (`release=<this version>`, `minimum=<the latest published release>`,
-   which must be v2.21.1 or later; Sparkle requires the minimum to be the
-   latest release in the feed, and the prepare leg of rt:release checks
-   that before the tag).
+   which must be v2.21.1 or later). The release's appcast step
+   (`scripts/release/appcast.sh`) refuses unless the published feed
+   already carries the minimum's item, and the prepare leg of rt:release
+   checks `releases/latest` before the tag.
 5. **Members convert on their own.** On the new app, the daemon's next pull
    fast-forwards the clone onto the converted commit, and its pull hooks
    update the pack plugin and rewrite the bindings; a launch's `rt setup
