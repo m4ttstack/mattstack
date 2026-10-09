@@ -1195,8 +1195,7 @@ test('code: a broken link reads the relink note in sentence case', async () => {
 test('help: each glyph is a plain button named by its tip, reachable by Tab, with a visible focus ring', async () => {
   await withBoard(async page => {
     const dlg = await openSettings(page, 'atlas');
-    const tip =
-      'Left is the commit running now. Right is the newest commit in the linked checkout.';
+    const tip = 'Running commit, then the newest one';
     const help = button(block(dlg, 'code'), tip);
     expect(await help.count()).toBe(1);
     expect(await help.getAttribute('type')).toBe('button');

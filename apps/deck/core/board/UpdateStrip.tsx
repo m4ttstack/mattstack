@@ -1,4 +1,4 @@
-import { Button, Icon, Tooltip } from '@mattstack/tui-kit';
+import { Button, Icon } from '@mattstack/tui-kit';
 import { CIRCLE_ARROW_UP, ROCKET } from './icons.ts';
 import {
   behindRows,
@@ -7,6 +7,7 @@ import {
   type RedeployAllRun,
   type Row,
 } from './logic.ts';
+import { Tooltip } from './Tooltip.tsx';
 
 /** The head of the mattstack section's panel: how many apps have new code
     since their last deploy, and the Redeploy all button. Renders nothing
@@ -31,7 +32,7 @@ export function UpdateStrip({
         {run ? redeployingText(run) : updateStripText(count)}
       </span>
       {canManage && (
-        <Tooltip tip="Runs deploy for every app with new code.">
+        <Tooltip tip="Deploy every app with new code">
           <Button
             variant="filled"
             intent="warn"

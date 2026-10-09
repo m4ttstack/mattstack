@@ -17,10 +17,8 @@ import { escapeClearsDraft } from './escape.ts';
 import { Help } from './Help.tsx';
 import { SettingsItem } from './SettingsItem.tsx';
 
-const PASSWORD_TIP =
-  'Tunnel visitors enter this before the gateway lets them through.';
-const SIGN_IN_TIP =
-  "Visitors sign in with Google at Cloudflare's edge before they reach the app. Choose the people or domains allowed in.";
+const PASSWORD_TIP = 'Visitors enter this to get in';
+const SIGN_IN_TIP = 'Visitors sign in with Google to get in';
 
 type Mode = AccessModalState['mode'];
 const MODES: readonly Mode[] = ['emails', 'domains'];

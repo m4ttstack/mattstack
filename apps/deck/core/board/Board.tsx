@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import {
-  Alert,
-  Badge,
-  Button,
-  ICONS,
-  ToastHost,
-  Tooltip,
-} from '@mattstack/tui-kit';
+import { Alert, Badge, Button, ICONS, ToastHost } from '@mattstack/tui-kit';
 import { AppsTable } from './AppsTable.tsx';
 import { sublineHealthy, type Row } from './logic.ts';
 import { AddAppModal, RemoveConfirm, UnlinkConfirm } from './modals.tsx';
 import { AppSettingsModal } from './settings/AppSettingsModal.tsx';
 import { SettingsModal } from './SettingsModal.tsx';
+import { Tooltip } from './Tooltip.tsx';
 import { UpdateStrip } from './UpdateStrip.tsx';
 import { useBoardState } from './useBoardState.ts';
 
@@ -196,7 +190,7 @@ export function Board() {
                 <h2 className="section-title">
                   {section.title}
                   {section.key === 'mattstack' && data.devMode && (
-                    <Tooltip tip="deck is running in mattstack-dev: these apps serve from their linked source, not their bundled binary">
+                    <Tooltip tip="These apps run from their linked source">
                       <Badge intent="warn">dev mode</Badge>
                     </Tooltip>
                   )}

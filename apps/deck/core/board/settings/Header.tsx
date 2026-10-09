@@ -1,15 +1,8 @@
-import {
-  Alert,
-  Badge,
-  Button,
-  Icon,
-  ICONS,
-  Spinner,
-  Tooltip,
-} from '@mattstack/tui-kit';
+import { Alert, Badge, Button, Icon, ICONS, Spinner } from '@mattstack/tui-kit';
 import { OFF_TIP, SiteMark } from '../AppsTable.tsx';
 import { CIRCLE_ALERT } from '../icons.ts';
 import { isMattstack, statusPill, type Row } from '../logic.ts';
+import { Tooltip } from '../Tooltip.tsx';
 import type { BlockProps } from './block.ts';
 
 function ownerBadge(row: Row): string | null {
@@ -70,7 +63,7 @@ export function SettingsHeader({ row, board, blocks }: BlockProps) {
           )}
         </span>
         {blocks.restart && row.service && (
-          <Tooltip tip="Restarts the service. The app is unavailable for a moment.">
+          <Tooltip tip="Restart the app">
             <Button
               aria-label={`restart ${row.service.short}`}
               busy={restarting}

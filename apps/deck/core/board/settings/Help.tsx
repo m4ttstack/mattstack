@@ -1,5 +1,6 @@
-import { Icon, Tooltip } from '@mattstack/tui-kit';
+import { Icon } from '@mattstack/tui-kit';
 import { HELP } from '../icons.ts';
+import { Tooltip } from '../Tooltip.tsx';
 
 /** A help glyph whose tooltip explains the label beside it. The kit card is
     aria-hidden, so the tip also rides the button's accessible name. */

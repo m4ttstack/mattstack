@@ -525,7 +525,7 @@ export function localHosts(row: Row): string[] {
 // there would be no way back out of that state from the board.
 export function remoteToggleTip(row: Row): string | undefined {
   if (row.remote == null && row.hasPassword && row.oauth.mode === 'off') {
-    return 'add sign-in access before pushing this app to Railway (a password alone does not gate the public origin)';
+    return 'Add Google sign-in first';
   }
   return undefined;
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { Button, Tooltip } from '@mattstack/tui-kit';
+import { Button } from '@mattstack/tui-kit';
 import { CommandButton } from '../CommandButton.tsx';
 import {
   commandKey,
@@ -8,15 +8,14 @@ import {
   versionCell,
   type Row,
 } from '../logic.ts';
+import { Tooltip } from '../Tooltip.tsx';
 import type { BlockProps } from './block.ts';
 import { Help } from './Help.tsx';
 import { SourceLinkInput } from './SourceLinkInput.tsx';
 
-const DEPLOYED_TIP =
-  'Left is the commit running now. Right is the newest commit in the linked checkout.';
-const RELINK_TIP = 'Point deck at a different checkout of this app.';
-const UNLINK_TIP =
-  'Serve from the installed bundle instead of source. Build and deploy disappear until you relink.';
+const DEPLOYED_TIP = 'Running commit, then the newest one';
+const RELINK_TIP = 'Use a different checkout';
+const UNLINK_TIP = 'Serve the installed bundle instead';
 
 const COMMAND_ORDER = ['deploy', 'build'];
 

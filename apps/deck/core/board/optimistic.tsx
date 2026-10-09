@@ -1,6 +1,7 @@
 import { useOptimistic, useTransition } from 'react';
 
-import { Switch, Tooltip } from '@mattstack/tui-kit';
+import { Switch } from '@mattstack/tui-kit';
+import { Tooltip } from './Tooltip.tsx';
 
 /** Optimistic boolean for a Switch backed by a server mutation: the shown
     value flips the moment the user clicks, and the canonical value takes
