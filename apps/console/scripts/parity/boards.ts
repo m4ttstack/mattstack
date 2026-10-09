@@ -333,7 +333,7 @@ export const BOARDS: Board<Scenario>[] = [
     '/',
     ['Title row', 'Summary', 'Banner waiting', 'Live cards', 'History'],
     1142,
-    {}
+    { dynamicText: ['v', 'gate', 'elapsed', 'age'] }
   ),
   runsBoard(
     'runs-p2-review',

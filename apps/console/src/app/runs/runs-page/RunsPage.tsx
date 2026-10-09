@@ -33,7 +33,7 @@ import {
   statCards,
   type RunsFilter,
 } from '../derive/lanes';
-import { answeredGates } from '../derive/record';
+import { mrIidOf } from '../mrRef';
 import { repoPath } from '../repoLabel';
 import type { RunPageData } from '../run-page/useRunParts';
 import {
@@ -47,7 +47,7 @@ import { EarlierList, type EarlierRowInfo } from './EarlierList';
 import { LiveLane } from './LiveLane';
 import { runHref, ticketOf } from './runLinks';
 import classes from './RunsPage.module.css';
-import { StatCards } from './StatCards';
+import { StatLine } from './StatLine';
 import { TimelineView, ViewToggle } from './TimelineView';
 import { useLinkedGates } from './useLinkedGates';
 import { useRunsUrl } from './useRunsUrl';
@@ -153,23 +153,26 @@ function OutageBanner({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+type TitleOf = (run: RunSummary, mrField?: string | null) => string;
+
 function LaneSlot({
   run,
   gates,
-  title,
+  titleOf,
   now,
 }: {
   run: RunSummary;
   gates: GateRow[];
-  title: string;
+  titleOf: TitleOf;
   now: number;
 }) {
   const detail = useRunChrome(run.repo, run.id).data as RunPageData | undefined;
+  const mrField = detail?.fields.find(f => f.key === 'mr')?.value;
   return (
     <LiveLane
       runId={run.id}
       ticket={ticketOf(run)}
-      title={title}
+      title={titleOf(run, mrField)}
       href={runHref(run)}
       facts={laneFacts({ run, detail, gates, now })}
     />
@@ -219,20 +222,20 @@ export function RunsPage() {
       runs.map(r => r.branch).filter((b): b is string => typeof b === 'string'),
     [runs]
   );
-  const enrich = useRunsEnrich(branches).data;
-  const titleOf = (run: RunSummary) =>
-    runTitle(run, {
-      ticketTitle: run.branch
-        ? (enrich as Record<string, BranchEnrichment> | undefined)?.[run.branch]
-            ?.ticket?.title
-        : null,
+  const enrich = useRunsEnrich(branches).data as
+    Record<string, BranchEnrichment> | undefined;
+  const titleOf: TitleOf = (run, mrField) => {
+    const e = run.branch ? enrich?.[run.branch] : undefined;
+    return runTitle(run, {
+      ticketTitle: e?.ticket?.title,
+      mrIid: e?.mr?.iid ?? mrIidOf(mrField),
     });
+  };
   const gatesOf = (run: RunSummary) => linked.byRun.get(run.id) ?? NO_GATES;
   const info = (run: RunSummary): EarlierRowInfo => ({
     ticket: ticketOf(run),
     title: titleOf(run),
     href: runHref(run),
-    decisions: answeredGates(gatesOf(run)).length,
     inBoard: view.inBoard.has(run.id),
     aging: agingWarning(run, pruneDays, now),
   });
@@ -304,7 +307,7 @@ export function RunsPage() {
               data-parity="Content"
               data-testid="runs-page"
             >
-              <div className={classes.titleRow}>
+              <div className={classes.titleRow} data-parity="Title row">
                 <Stack gap={4} className={classes.titleBlock}>
                   <Text fz={24} fw={700} lh="normal" data-parity="title">
                     Runs
@@ -346,7 +349,7 @@ export function RunsPage() {
 
               {outage ? <OutageBanner onRetry={retry} /> : null}
 
-              <StatCards
+              <StatLine
                 cards={cards}
                 state={
                   outage ? 'unknown' : runsQuery.isPending ? 'loading' : 'ready'
@@ -380,13 +383,13 @@ export function RunsPage() {
                     {`Live · ${lanes.length}`}
                   </SectionLabel>
                   {lanes.length > 0 ? (
-                    <div className={classes.lanes}>
+                    <div className={classes.lanes} data-parity="Live cards">
                       {lanes.map(run => (
                         <LaneSlot
                           key={run.id}
                           run={run}
                           gates={gatesOf(run)}
-                          title={titleOf(run)}
+                          titleOf={titleOf}
                           now={now}
                         />
                       ))}
@@ -408,7 +411,7 @@ export function RunsPage() {
                     <SectionLabel parity="Earlier label">Earlier</SectionLabel>
                   </div>
                   {groups.length > 0 ? (
-                    <EarlierList groups={groups} info={info} now={now} />
+                    <EarlierList groups={groups} info={info} now={now} paged />
                   ) : (
                     <EmptyCard
                       title="No earlier runs."

@@ -1,5 +1,11 @@
-import { Fragment } from 'react';
-import { Badge, Group, Paper, Text } from '@mattstack/app-kit/core';
+import { Fragment, useState } from 'react';
+import {
+  Badge,
+  Group,
+  Paper,
+  Text,
+  UnstyledButton,
+} from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { RunSummary } from '@mattstack/rt-client';
 import { Link } from 'wouter';
@@ -7,8 +13,7 @@ import { Link } from 'wouter';
 import { formatClock } from '../derive/clock';
 import { formatDuration } from '../derive/duration';
 import {
-  decisionsText,
-  evidenceText,
+  earlierPage,
   isStale,
   outcomeTile,
   rowDuration,
@@ -31,7 +36,6 @@ export interface EarlierRowInfo {
   ticket: string | null;
   title: string;
   href: string;
-  decisions: number;
   /** A review or respond gate of this run waits on you in the board. */
   inBoard: boolean;
   /** "ages out in 2 days", when the pruner is close. */
@@ -42,7 +46,11 @@ export interface EarlierListProps {
   groups: DayGroup[];
   info: (run: RunSummary) => EarlierRowInfo;
   now: number;
+  /** Show 7 days at a time, with a row that adds 7 more. */
+  paged?: boolean;
 }
+
+const PAGE_DAYS = 7;
 
 function EarlierRow({
   run,
@@ -55,7 +63,6 @@ function EarlierRow({
 }) {
   const tile = outcomeTile(run);
   const stale = isStale(run);
-  const evidence = evidenceText(run);
   return (
     <Link
       href={info.href}
@@ -123,18 +130,6 @@ function EarlierRow({
         </Text>
       </div>
       <div className={classes.meta}>
-        <Group gap={5} wrap="nowrap" className={classes.count}>
-          <Icon name="signpost" size={13} data-parity="signpost" />
-          <Text fz={12} lh="normal" c="dimmed" data-parity="decisions">
-            {decisionsText(info.decisions)}
-          </Text>
-        </Group>
-        <Group gap={5} wrap="nowrap" className={classes.count}>
-          <Icon name="image" size={13} data-parity="image" />
-          <Text fz={12} lh="normal" c="dimmed" data-parity="evidence">
-            {evidence}
-          </Text>
-        </Group>
         <Text
           fz={12}
           lh="normal"
@@ -160,7 +155,16 @@ function EarlierRow({
 }
 
 /** Every run that is not a live lane, by the day it stopped. */
-export function EarlierList({ groups, info, now }: EarlierListProps) {
+export function EarlierList({
+  groups,
+  info,
+  now,
+  paged = false,
+}: EarlierListProps) {
+  const [days, setDays] = useState(PAGE_DAYS);
+  const { shown, more } = paged
+    ? earlierPage(groups, days)
+    : { shown: groups, more: false };
   return (
     <Paper
       variant="ground"
@@ -170,7 +174,7 @@ export function EarlierList({ groups, info, now }: EarlierListProps) {
       data-parity="History"
       data-testid="earlier"
     >
-      {groups.map(group => (
+      {shown.map(group => (
         <Fragment key={group.key}>
           <div className={classes.day} data-parity="Day">
             <Text fz={11.5} fw={500} lh="normal" c="dimmed" data-parity="label">
@@ -182,6 +186,22 @@ export function EarlierList({ groups, info, now }: EarlierListProps) {
           ))}
         </Fragment>
       ))}
+      {more ? (
+        <UnstyledButton
+          className={classes.more}
+          onClick={() => setDays(d => d + PAGE_DAYS)}
+        >
+          <Text span fz={13} fw={500} lh="normal" c="accent" data-parity="t">
+            Show earlier days
+          </Text>
+          <Icon
+            name="chevronDown"
+            size={14}
+            color="var(--tk-text-accent)"
+            data-parity="i"
+          />
+        </UnstyledButton>
+      ) : null}
     </Paper>
   );
 }

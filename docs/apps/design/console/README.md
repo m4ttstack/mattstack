@@ -502,6 +502,10 @@ gates; their frames stay in `runs.pen` for history:
 - `runs-lanes` → `runs-p2-runs`
 - `run-record-abandoned` → `runs-p2-record`: it draws the evidence and
   commits stats pass 2 removed, so it can no longer pass
+- `runs-empty`: it draws the four stat cards and the Earlier rows'
+  decisions and evidence columns, which pass 2 replaced with one stat
+  line and quieter rows, so it can no longer pass. No pass-2 board draws
+  the empty runs page.
 
 ### Board-fix list (pass 2)
 
@@ -759,3 +763,36 @@ drawer` and `Setting inline`):
   stays in the URL so closing the doc brings the inputs drawer back. Only
   one drawer is ever open. A stage doc the route cannot read (other than
   a 404) says why in its row and does not open.
+
+Runs page (runs-p2-runs `Title row`, `Summary`, `Banner waiting`,
+`Live cards`, `History`). The first pass's Lanes entries above still apply
+to the filter and repo picker (kit controls, not keyed), the banner's option
+chips and Answer gate button, the lanes (liveness `Badge`, focus
+`ActionIcon`, the rail's not-started track, "!409 open" where the board
+draws "draft") and the card rules and quiet text:
+
+- The stat line's values are 700, where the board sets 600, which the type
+  rules leave out. The fixture's median reads "2h 30m" where the board
+  draws "2h 10m" (the fixture has three finished work runs), so the last
+  label sits 4px further right; the values compare by their words
+  (`dynamicText`).
+- "1 of 3 questions · or press" is the console's dimmed tone (slate 11);
+  the board's lighter grey misses the text contrast bar. The `g` cap is the
+  kit `Kbd` at `xs`, as the option numbers are: 17px wide and 22px tall
+  where the board draws a 20px square, in the kit's fill and ring.
+- The Earlier list pages by day: the 7 most recent days that have runs,
+  then "Show earlier days", which adds 7 more. The fixture's runs stop on
+  two days, so the app draws no "Show earlier days" row where the board
+  draws one under two days, and `History` is 41px shorter (`t` and `i`
+  compare as missing). Storybook's `Runs/Runs page` `Earlier paged` story
+  draws the row.
+- A review run's title is its ticket's title, else "Review of !<iid>"
+  from the reviewed MR, or from its branch's MR before rt records the
+  review. Neither the forge nor the fixture gives an MR title.
+- A lane's decision count is its answered questions, as everywhere else.
+- runs-p2-states' `Runs outage` tile still draws the first-pass stat cards.
+  The app draws the outage on the stat line ("—" and each label, no dot),
+  keyed under `Summary` with each stat named as the tile names its card,
+  and its title under `Title row`, so the tile's `h` and stat keys compare
+  as missing at the root and extra under those two frames. Read by eye,
+  the banner, the dashes and the skeleton match.

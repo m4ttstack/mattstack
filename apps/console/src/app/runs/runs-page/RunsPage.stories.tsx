@@ -2,6 +2,7 @@ import '../../icons';
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
+import { runTitle } from '../derive/kind';
 import {
   dayGroups,
   laneFacts,
@@ -11,7 +12,7 @@ import {
 } from '../derive/lanes';
 import { EarlierList } from './EarlierList';
 import { LiveLane } from './LiveLane';
-import { StatCards } from './StatCards';
+import { StatLine } from './StatLine';
 import { at, STORY_NOW, storyGate, storyRun } from './storyData';
 import { WaitingBanner } from './WaitingBanner';
 
@@ -76,7 +77,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Stats: Story = {
   render: () => (
-    <StatCards
+    <StatLine
       cards={statCards(
         runsStats({
           runs: [live, merged, review],
@@ -91,10 +92,32 @@ export const Stats: Story = {
 
 export const StatsEmpty: Story = {
   render: () => (
-    <StatCards
+    <StatLine
       cards={statCards(
         runsStats({ runs: [], gates: [], lanes: [], now: STORY_NOW })
       )}
+    />
+  ),
+};
+
+export const StatsLoading: Story = {
+  render: () => (
+    <StatLine
+      cards={statCards(
+        runsStats({ runs: [], gates: [], lanes: [], now: STORY_NOW })
+      )}
+      state="loading"
+    />
+  ),
+};
+
+export const StatsUnknown: Story = {
+  render: () => (
+    <StatLine
+      cards={statCards(
+        runsStats({ runs: [], gates: [], lanes: [], now: STORY_NOW })
+      )}
+      state="unknown"
     />
   ),
 };
@@ -140,8 +163,8 @@ export const LaneWaitingInBoard: Story = {
   render: () => (
     <LiveLane
       runId="20261008-1502"
-      ticket="!412"
-      title="web-412-linked-parcels"
+      ticket={null}
+      title="Review of !412"
       href="/runs/remote:acme%2Fweb/20261008-1502"
       facts={facts({
         kind: 'review',
@@ -160,13 +183,41 @@ export const Earlier: Story = {
     <EarlierList
       groups={dayGroups([merged, review, stale], STORY_NOW)}
       now={STORY_NOW}
+      paged
       info={run => ({
         ticket: run.ticket,
-        title: run.ticket ?? run.id,
+        title: runTitle(run, {}),
         href: `/runs/${run.repo}/${run.id}`,
-        decisions: 3,
         inBoard: run === review,
         aging: run === stale ? 'ages out in 2 days' : null,
+      })}
+    />
+  ),
+};
+
+/** Nine days of finished runs: 7 show, then "Show earlier days". */
+const nineDays = Array.from({ length: 9 }, (_, i) =>
+  storyRun({
+    id: `202610${String(8 - i).padStart(2, '0')}-0900`,
+    ticket: `WEB-${360 - i}`,
+    status: 'done',
+    started_at: at(9, 0, 8 - i),
+    ended_at: at(10, 12, 8 - i),
+  })
+);
+
+export const EarlierPaged: Story = {
+  render: () => (
+    <EarlierList
+      groups={dayGroups(nineDays, STORY_NOW)}
+      now={STORY_NOW}
+      paged
+      info={run => ({
+        ticket: run.ticket,
+        title: 'Add a tracking summary to the shipping panel',
+        href: `/runs/${run.repo}/${run.id}`,
+        inBoard: false,
+        aging: null,
       })}
     />
   ),

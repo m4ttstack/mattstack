@@ -26,13 +26,19 @@ export function runTitle(
     id: string;
     outcome?: { reviewed?: { iid: number } | null } | null;
   },
-  enrichment: { ticketTitle?: string | null; mrTitle?: string | null }
+  enrichment: {
+    ticketTitle?: string | null;
+    mrTitle?: string | null;
+    /** The MR a review or respond run reads, before rt records it in the
+        outcome. */
+    mrIid?: number | string | null;
+  }
 ): string {
   const kind = runKind(run.work_type);
   if (kind === 'review' || kind === 'respond') {
     if (present(enrichment.mrTitle)) return enrichment.mrTitle;
     if (present(enrichment.ticketTitle)) return enrichment.ticketTitle;
-    const iid = run.outcome?.reviewed?.iid;
+    const iid = run.outcome?.reviewed?.iid ?? enrichment.mrIid;
     return iid != null ? `Review of !${iid}` : `${run.work_type} run`;
   }
   if (present(enrichment.ticketTitle)) return enrichment.ticketTitle;

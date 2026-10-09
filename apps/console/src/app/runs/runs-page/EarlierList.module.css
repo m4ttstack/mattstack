@@ -9,11 +9,11 @@
   border-bottom: 1px solid var(--tk-border-soft);
 }
 
-:where([data-mantine-color-scheme='light']) .row {
+:where([data-mantine-color-scheme='light']) :is(.row, .more) {
   --row-hover: var(--mantine-color-gray-1);
 }
 
-:where([data-mantine-color-scheme='dark']) .row {
+:where([data-mantine-color-scheme='dark']) :is(.row, .more) {
   --row-hover: var(--mantine-color-dark-5);
 }
 
@@ -34,13 +34,25 @@
 }
 
 @media (hover: hover) {
-  .row:hover {
+  .row:hover,
+  .more:hover {
     background-color: var(--row-hover);
   }
 }
 
-.row:focus-visible {
+.row:focus-visible,
+.more:focus-visible {
   background-color: var(--row-hover);
+}
+
+.more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 18px;
 }
 
 .tile {
@@ -102,10 +114,6 @@
   flex-shrink: 0;
   align-items: center;
   gap: 18px;
-}
-
-.count {
-  width: 96px;
 }
 
 .duration {

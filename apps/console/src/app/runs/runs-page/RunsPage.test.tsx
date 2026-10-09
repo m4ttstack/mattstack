@@ -9,6 +9,7 @@ import '../../icons';
 
 const runsGet = vi.fn();
 const gatesGet = vi.fn();
+const enrichPost = vi.fn();
 
 const ok = (json: unknown) => ({
   ok: true,
@@ -27,7 +28,7 @@ vi.mock('../../api', () => ({
               ok({ run: null, stages: [], fields: [], decisions: [] }),
           },
         },
-        enrich: { $post: async () => ok({}) },
+        enrich: { $post: (...args: unknown[]) => enrichPost(...args) },
       },
       gates: { $get: (...args: unknown[]) => gatesGet(...args) },
       settings: { 'runs-prune-days': { $get: async () => ok({ days: 30 }) } },
@@ -85,12 +86,24 @@ const gate = (over: Partial<GateRow>): GateRow =>
     ...over,
   }) as GateRow;
 
-const answered = (id: string, runId: string) =>
+const answered = (id: string, runId: string, questions = 1) =>
   gate({
     id,
     subject: `run:${runId}`,
     status: 'answered',
-    answer: { answers: {}, by: 'console', answeredAt: at(10) },
+    questions: Array.from({ length: questions }, (_, i) => ({
+      id: `q${i}`,
+      label: `Question ${i}?`,
+      multi: false,
+      options: ['Yes', 'No'],
+    })),
+    answer: {
+      answers: Object.fromEntries(
+        Array.from({ length: questions }, (_, i) => [`q${i}`, 'Yes'])
+      ),
+      by: 'console',
+      answeredAt: at(10),
+    },
   });
 
 const done = (over: Partial<RunSummary>) =>
@@ -145,7 +158,7 @@ const RUNS: RunSummary[] = [
 const GATES: GateRow[] = [
   gate({ id: 'g-418', subject: 'run:waits' }),
   answered('a1', 'live'),
-  answered('a2', 'live'),
+  answered('a2', 'live', 2),
   answered('a3', 'merged'),
   answered('a4', 'review'),
 ];
@@ -165,26 +178,31 @@ beforeEach(() => {
   history.replaceState(null, '', '/');
   runsGet.mockResolvedValue(ok({ runs: RUNS, asOf: NOW }));
   gatesGet.mockResolvedValue(ok({ gates: GATES }));
+  enrichPost.mockResolvedValue(ok({}));
 });
 
 afterEach(() => vi.clearAllMocks());
 
 describe('RunsPage', () => {
-  it('fills the stat cards from the runs and their gates', async () => {
+  it('puts the four numbers on one line, with no stat cards', async () => {
     renderPage();
+    const line = await screen.findByTestId('stat-line');
     await waitFor(() =>
-      expect(screen.getByTestId('stat-oldest')).toHaveTextContent('1 gate · 6m')
+      expect(within(line).getByTestId('stat-waiting')).toHaveTextContent(
+        /^1\s*waiting on you$/
+      )
     );
-    expect(screen.getByTestId('stat-stages')).toHaveTextContent(
-      /^Live1implement$/
+    expect(within(line).getByTestId('stat-live')).toHaveTextContent(
+      /^1\s*live$/
     );
-    expect(screen.getByTestId('stat-split')).toHaveTextContent(
-      '1 merged · 1 review posted'
+    expect(within(line).getByTestId('stat-finished')).toHaveTextContent(
+      /^2\s*finished today$/
     );
     // The review run is left out of the median: only WEB-409 counts.
-    expect(screen.getByTestId('stat-window')).toHaveTextContent(
-      'Median work run2h 30mlast 1 work run'
+    expect(within(line).getByTestId('stat-median')).toHaveTextContent(
+      /^2h 30m\s*median work run$/
     );
+    expect(line.querySelector('.mantine-Paper-root')).toBeNull();
   });
 
   it('shows my oldest gate read-only and jumps to it on g', async () => {
@@ -239,26 +257,149 @@ describe('RunsPage', () => {
     renderPage();
     expect(await screen.findByTestId('lane-waits')).toBeInTheDocument();
     await waitFor(() => expect(gatesGet).toHaveBeenCalled());
-    expect(screen.getByTestId('stat-oldest')).toHaveTextContent(
-      'nothing waiting'
+    expect(screen.getByTestId('stat-waiting')).toHaveTextContent(
+      /^0\s*waiting on you$/
     );
     expect(screen.queryByTestId('waiting-banner')).toBeNull();
   });
 
-  it('lays out lanes and the earlier rows with gate-counted decisions', async () => {
+  it("counts a lane's decisions by answered question", async () => {
     renderPage();
     const lane = await screen.findByTestId('lane-live');
-    expect(lane).toHaveTextContent('2 decisions');
+    expect(lane).toHaveTextContent('3 decisions');
     expect(screen.queryByTestId('lane-waits')).toBeNull();
-    const review = screen.getByTestId('run-row-review');
-    expect(review).toHaveTextContent('1 decision');
+  });
+
+  it('keeps an earlier row to its title, sub line, duration and time', async () => {
+    renderPage();
+    const review = await screen.findByTestId('run-row-review');
     expect(review).toHaveTextContent('reviewed !412 · request changes');
-    expect(review).toHaveTextContent('—');
+    expect(review).toHaveTextContent('23m');
+    expect(review).not.toHaveTextContent(/decision/);
+    expect(review).not.toHaveTextContent(/evidence/);
+    expect(review).not.toHaveTextContent('—');
+    const merged = screen.getByTestId('run-row-merged');
+    expect(merged).not.toHaveTextContent(/decision/);
+    expect(merged).not.toHaveTextContent(/evidence/);
     expect(screen.getByTestId('run-row-stale')).toHaveTextContent(
       'stale · no pane'
     );
-    expect(screen.getByTestId('run-row-merged')).toHaveTextContent(
-      '3 evidence'
+  });
+
+  it('titles a review row by its MR, never its run id or branch', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: [
+          done({
+            id: '20261008-0917',
+            work_type: 'review',
+            pipeline: 'review',
+            branch: 'dedupe-contacts',
+            started_at: at(9, 17),
+            ended_at: at(9, 40),
+            outcome: {
+              status: 'done',
+              reviewed: { iid: 412, url: null, posted: 'request changes' },
+            },
+          }),
+        ],
+        asOf: NOW,
+      })
+    );
+    gatesGet.mockResolvedValue(ok({ gates: [] }));
+    renderPage();
+    const row = await screen.findByTestId('run-row-20261008-0917');
+    expect(row).toHaveTextContent('Review of !412');
+    expect(row).not.toHaveTextContent('20261008-0917');
+    expect(row).not.toHaveTextContent('dedupe-contacts');
+  });
+
+  it('titles a live review by the MR its branch carries before rt records it', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: [
+          run({
+            id: '20261008-1502',
+            work_type: 'review',
+            pipeline: 'review',
+            branch: 'dedupe-contacts',
+            current_stage: 'review',
+            started_at: at(15, 2),
+          }),
+        ],
+        asOf: NOW,
+      })
+    );
+    gatesGet.mockResolvedValue(ok({ gates: [] }));
+    enrichPost.mockResolvedValue(
+      ok({
+        'dedupe-contacts': {
+          ticket: null,
+          mr: { iid: 412, webUrl: null, state: 'opened', pipeline: null },
+          fetchedAt: NOW,
+        },
+      })
+    );
+    renderPage();
+    const lane = await screen.findByTestId('lane-20261008-1502');
+    await waitFor(() => expect(lane).toHaveTextContent('Review of !412'));
+    expect(lane).not.toHaveTextContent('dedupe-contacts');
+  });
+
+  it('pages the earlier list by 7 days', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: Array.from({ length: 9 }, (_, i) =>
+          done({
+            id: `d${i}`,
+            ticket: `WEB-${300 + i}`,
+            started_at: at(9, 0, 8 - i),
+            ended_at: at(10, 0, 8 - i),
+          })
+        ),
+        asOf: NOW,
+      })
+    );
+    gatesGet.mockResolvedValue(ok({ gates: [] }));
+    renderPage();
+    await screen.findByTestId('run-row-d0');
+    expect(screen.getAllByTestId(/^run-row-/)).toHaveLength(7);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Show earlier days' })
+    );
+    expect(screen.getAllByTestId(/^run-row-/)).toHaveLength(9);
+  });
+
+  it('says how many questions the gate has and that g jumps to it', async () => {
+    gatesGet.mockResolvedValue(
+      ok({
+        gates: [
+          gate({
+            id: 'g-418',
+            subject: 'run:waits',
+            questions: ['a', 'b', 'c'].map(id => ({
+              id,
+              label: `Question ${id}?`,
+              multi: false,
+              options: ['Yes', 'No'],
+            })),
+          }),
+        ],
+      })
+    );
+    renderPage();
+    const banner = await screen.findByTestId('waiting-banner');
+    expect(within(banner).getByTestId('key-hint')).toHaveTextContent(
+      /^1 of 3 questions · or press\s*g$/
+    );
+    expect(banner).not.toHaveTextContent('press g to jump');
+  });
+
+  it('offers only the g key when the gate has one question', async () => {
+    renderPage();
+    const banner = await screen.findByTestId('waiting-banner');
+    expect(within(banner).getByTestId('key-hint')).toHaveTextContent(
+      /^or press\s*g$/
     );
   });
 
@@ -280,8 +421,8 @@ describe('RunsPage', () => {
     await waitFor(() =>
       expect(within(row).getByTestId('waiting-in-board')).toBeInTheDocument()
     );
-    expect(screen.getByTestId('stat-oldest')).toHaveTextContent(
-      'nothing waiting'
+    expect(screen.getByTestId('stat-waiting')).toHaveTextContent(
+      /^0\s*waiting on you$/
     );
   });
 
@@ -309,9 +450,7 @@ describe('RunsPage', () => {
     gatesGet.mockResolvedValue(ok({ gates: [] }));
     renderPage();
     expect(await screen.findByText('Nothing running.')).toBeInTheDocument();
-    expect(screen.getByTestId('stat-stages')).toHaveTextContent(
-      'nothing running'
-    );
+    expect(screen.getByTestId('stat-live')).toHaveTextContent(/^0\s*live$/);
     expect(screen.queryByTestId('waiting-banner')).toBeNull();
     expect(screen.getByText(/Live · 0/i)).toBeInTheDocument();
   });
@@ -345,7 +484,7 @@ describe('RunsPage', () => {
       expect(runsGet.mock.calls.length).toBeGreaterThan(calls);
       expect(screen.getByTestId('runs-outage')).toBeInTheDocument();
       expect(
-        within(screen.getByTestId('stat-cards')).getAllByText('—')
+        within(screen.getByTestId('stat-line')).getAllByText('—')
       ).toHaveLength(4);
     } finally {
       vi.useRealTimers();
@@ -356,7 +495,7 @@ describe('RunsPage', () => {
     runsGet.mockReturnValue(new Promise(() => {}));
     renderPage();
     expect(await screen.findByTestId('runs-skeleton')).toBeInTheDocument();
-    const stats = screen.getByTestId('stat-cards');
+    const stats = screen.getByTestId('stat-line');
     expect(stats).not.toHaveTextContent(/\d/);
     expect(stats).not.toHaveTextContent('nothing');
     expect(screen.queryByText('Nothing running.')).toBeNull();
@@ -381,7 +520,7 @@ describe('RunsPage', () => {
       const banner = await screen.findByTestId('runs-outage');
       expect(banner).toHaveTextContent("Can't reach the rt daemon");
       expect(runsGet).toHaveBeenCalledTimes(2);
-      const stats = screen.getByTestId('stat-cards');
+      const stats = screen.getByTestId('stat-line');
       expect(stats).not.toHaveTextContent(/\d/);
       expect(within(stats).getAllByText('—')).toHaveLength(4);
       expect(screen.getByTestId('runs-skeleton')).toBeInTheDocument();

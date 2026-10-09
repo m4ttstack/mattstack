@@ -19,7 +19,7 @@ import { gateStage } from './gates';
 import { runKind, type RunKind } from './kind';
 import { heroLiveness, type HeroLiveness, type HeroTone } from './liveness';
 import { ciLabel } from './page';
-import { answeredGates, recordEnd } from './record';
+import { answeredQuestionCount, recordEnd } from './record';
 import { heldSpans } from './run';
 import { railStages, stageAttempts, type RailStage } from './stages';
 
@@ -211,17 +211,6 @@ export function outcomeTile(run: RunSummary): OutcomeTile {
   return { tone: 'ok', icon: 'circleCheck', layer: 'circle-check' };
 }
 
-/** The evidence column: a work run's image count, else the links its
-    legacy evidence names (as the record counts them), else a dash so the
-    columns stay aligned. */
-export function evidenceText(run: RunSummary): string {
-  if (runKind(run.work_type) !== 'work') return '—';
-  const images = run.evidence_count ?? 0;
-  if (images > 0) return `${images} evidence`;
-  const links = run.evidence_links ?? 0;
-  return links > 0 ? plural(links, 'link') : '—';
-}
-
 export const decisionsText = (n: number) => plural(n, 'decision');
 
 /** The most recent story field; a tie goes to the one written first. */
@@ -307,7 +296,7 @@ export function laneFacts({
     elapsed: since != null ? formatDuration(now - since) : null,
     field: latest ? fieldLine(latest) : ciLabel(run.outcome?.ci),
     mr: laneMrLine(run, kind),
-    decisions: decisionsText(answeredGates(gates).length),
+    decisions: decisionsText(answeredQuestionCount(gates)),
     age: `running ${formatDuration(now - run.started_at)}`,
   };
 }
@@ -394,61 +383,44 @@ export function runsStats({
 
 export interface StatCard {
   role: 'Waiting on you' | 'Live' | 'Finished today' | 'Median work run';
+  /** What the stat line says after the number. */
+  label: string;
+  /** The stat's test id. */
+  key: 'waiting' | 'live' | 'finished' | 'median';
   tone: HeroTone;
   value: string;
-  /** The card's second line and its board layer. */
-  sub: string;
-  subLayer: 'oldest' | 'stages' | 'split' | 'window';
 }
 
 export function statCards(stats: RunsStats): StatCard[] {
   const { waiting, live, finished, median: m } = stats;
-  const split = [
-    finished.merged > 0 ? `${finished.merged} merged` : null,
-    finished.abandoned > 0 ? `${finished.abandoned} abandoned` : null,
-    finished.reviewsPosted > 0
-      ? `${plural(finished.reviewsPosted, 'review')} posted`
-      : null,
-  ].filter(Boolean);
   return [
     {
       role: 'Waiting on you',
+      label: 'waiting on you',
+      key: 'waiting',
       tone: 'bad',
       value: String(waiting.count),
-      sub:
-        waiting.oldestMs == null
-          ? 'nothing waiting'
-          : `${plural(waiting.count, 'gate')} · ${formatDuration(waiting.oldestMs)}`,
-      subLayer: 'oldest',
     },
     {
       role: 'Live',
+      label: 'live',
+      key: 'live',
       tone: 'accent',
       value: String(live.count),
-      sub: live.count > 0 ? live.stages.join(' · ') : 'nothing running',
-      subLayer: 'stages',
     },
     {
       role: 'Finished today',
+      label: 'finished today',
+      key: 'finished',
       tone: 'ok',
       value: String(finished.count),
-      sub:
-        finished.count === 0
-          ? 'none yet'
-          : split.length > 0
-            ? split.join(' · ')
-            : plural(finished.count, 'run'),
-      subLayer: 'split',
     },
     {
       role: 'Median work run',
+      label: 'median work run',
+      key: 'median',
       tone: 'gray',
       value: m.ms == null ? '—' : formatDuration(m.ms),
-      sub:
-        m.runs === 0
-          ? 'no finished work runs'
-          : `last ${plural(m.runs, 'work run')}`,
-      subLayer: 'window',
     },
   ];
 }

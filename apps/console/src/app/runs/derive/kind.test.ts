@@ -47,6 +47,22 @@ describe('runTitle', () => {
     ).toBe('Fix cart');
   });
 
+  it('names the MR a review reads before rt records it', () => {
+    expect(runTitle(run({ work_type: 'review' }), { mrIid: 412 })).toBe(
+      'Review of !412'
+    );
+    expect(
+      runTitle(
+        run({
+          work_type: 'review',
+          outcome: { reviewed: { iid: 406 } },
+        }),
+        { mrIid: 412 }
+      )
+    ).toBe('Review of !406');
+    expect(runTitle(run(), { mrIid: 412 })).toBe('feature run');
+  });
+
   it('ignores the MR title for other kinds', () => {
     expect(runTitle(run(), { mrTitle: 'Fix cart' })).toBe('feature run');
   });
