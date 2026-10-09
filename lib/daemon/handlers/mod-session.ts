@@ -10,6 +10,9 @@
  * session:report is the link's lifecycle report (resume, compact) for the one
  * session it registered; its context is a hint, never authority. A turn start
  * or end from the presence block sets the session's working or idle state.
+ * An observation from a link that registered the observe block goes into the
+ * shared observation store as the session's own reading; so does `dead` when
+ * such a link ends.
  *
  * session:owned answers whether a block of the session's live link owns that
  * session's feature, for a CLI path that cannot read link state itself.
@@ -26,11 +29,11 @@
 
 import type { Database } from "bun:sqlite";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
-import { MOD_BLOCKS, type ModBlock, type Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
+import { MOD_BLOCKS, type ModBlock, type Observation, type Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { pushModCommand, UNKNOWN_LINK, type ModLinks } from "../../agent-integrations/claude/mod-links.ts";
 import { reportClaudeDelivered } from "../../agent-integrations/claude/messaging.ts";
 import {
-  claudeModOwns, reportClaudeLinkEnded, reportClaudeLinkLifecycle, type LinkContext, type LinkLifecycleDeps,
+  claudeModOwns, recordClaudeModObservation, reportClaudeLinkEnded, reportClaudeLinkLifecycle, type LinkContext, type LinkLifecycleDeps,
 } from "../../agent-integrations/claude/sessions.ts";
 import { getStateDb } from "../../state/db.ts";
 
@@ -68,6 +71,18 @@ const END_RETRY_MS = 250;
 const LIFECYCLE_EVENTS = ["resume", "compact"] as const;
 const TURN_EVENTS = { "turn-start": "working", "turn-end": "idle" } as const;
 const isTurnEvent = (v: unknown): v is keyof typeof TURN_EVENTS => typeof v === "string" && Object.hasOwn(TURN_EVENTS, v);
+
+const MOD_EXECUTIONS = ["working", "idle", "blocked"] as const;
+const BACKGROUNDS = ["active", "inactive", "unknown"] as const;
+
+/** A turn's own states only: a mod never reports its session dead (session:end does) or its job done. */
+function modReading(v: unknown): Pick<Observation, "execution" | "background"> | string {
+  if (v === null || typeof v !== "object") return "observation must be an object with execution and background";
+  const o = v as Record<string, unknown>;
+  if (!MOD_EXECUTIONS.includes(o.execution as never)) return `observation.execution must be one of ${MOD_EXECUTIONS.join(", ")}`;
+  if (!BACKGROUNDS.includes(o.background as never)) return `observation.background must be one of ${BACKGROUNDS.join(", ")}`;
+  return { execution: o.execution as Observation["execution"], background: o.background as Observation["background"] };
+}
 
 function reportContext(v: unknown): LinkContext | string {
   if (v === null || typeof v !== "object") return "context must be an object with cwd, root and pane";
@@ -107,6 +122,14 @@ export function createModSessionHandlers(deps: {
       const link = links.view(linkId);
       if (!link) return unknownLink();
       links.end(linkId);
+      // Before the sign-out, which detaches the binding and so moves its generation on.
+      if (link.blocks.includes("observe")) {
+        try {
+          await recordClaudeModObservation(link, { execution: "dead", background: "unknown" }, deps.lifecycle);
+        } catch (err) {
+          deps.lifecycle?.log?.("the ended session's observation was not recorded", { sessionId: link.sessionId, err: String(err) });
+        }
+      }
       // The mod sends session:end once and the ended link never lapses, so this is the sign-out's only chance.
       for (let attempt = 1; ; attempt++) {
         try {
@@ -130,15 +153,23 @@ export function createModSessionHandlers(deps: {
     },
 
     "session:report": async (payload) => {
-      const { linkId, event, context } = record(payload);
+      const { linkId, event, context, observation } = record(payload);
       if (!isText(linkId)) return invalid("linkId must be a non-empty string");
+      if (event === "observation") {
+        const reading = modReading(observation);
+        if (typeof reading === "string") return invalid(reading);
+        const link = links.view(linkId);
+        if (!link) return unknownLink();
+        if (!link.blocks.includes("observe")) return declined("refused", "this link did not register the observe block, so rt takes no observation from it");
+        return { ok: true, data: { outcome: await recordClaudeModObservation(link, reading, deps.lifecycle) } };
+      }
       if (isTurnEvent(event)) {
         const counted = links.setExecution(linkId, TURN_EVENTS[event]);
         if (!counted.ok) return unknownLink();
         return { ok: true, data: { outcome: counted.data ? "applied" : "unbound" } };
       }
       if (!LIFECYCLE_EVENTS.includes(event as never)) {
-        return invalid(`event must be one of ${[...LIFECYCLE_EVENTS, ...Object.keys(TURN_EVENTS)].join(", ")}`);
+        return invalid(`event must be one of ${[...LIFECYCLE_EVENTS, ...Object.keys(TURN_EVENTS), "observation"].join(", ")}`);
       }
       const where = reportContext(context);
       if (typeof where === "string") return invalid(where);

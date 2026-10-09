@@ -21,7 +21,7 @@ so every feature takes its existing path.
 | `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
-| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane; `policy.ts` guards questions and run tools with rt's shared policy; `stop-gate.ts` holds a turn a pipeline run must continue. |
+| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `observe.ts` reports the session's state to the herd watchdog and takes its nudges; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane; `policy.ts` guards questions and run tools with rt's shared policy; `stop-gate.ts` holds a turn a pipeline run must continue. |
 | `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane. Each kit owns one pane id: the gate form's, or the gate panel's. `gate-view.ts` holds its drawing parts, and `gate-ctx.ts` the port of the board's gate-ctx parser. |
 | `src/blocks/sections.ts` | The reply rule and spill-read sections' text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/blocks/tool-names.ts` | The mattstack MCP tool prefix and the run tools the policy guard covers. It imports nothing, so an rt-side bun test can hold it to the mattstack plugin's names. |
@@ -168,6 +168,36 @@ view of itself:
 - **End.** The session's end reaches rt through the link's own `session:end`,
   which signs the session out. A `/clear` is not an end: rt moves the
   sign-in to the new session id when the link continues.
+
+## The observe block
+
+The `observe` block (`src/blocks/observe.ts`) tells rt's herd watchdog what
+the session is doing, so it reads the worker from the session itself rather
+than its screen, and nudges it without typing into the pane:
+
+- **State.** Each change goes to rt as `session:report` with event
+  `observation` and `{ execution, background }`, in order, and the turn never
+  waits on one. A turn start is `working`; a turn end is `idle`, with
+  `background` from the Stop just before it (`active` while its
+  `background_tasks` lists any, `inactive` when it lists none, `unknown` when
+  it said nothing). A subagent's turn end is not the session's. An
+  AskUserQuestion on screen is `blocked`, and `working` again once it
+  settles. rt records each one at the binding's current generation, and it
+  outranks rt's own reading of the pane until it is two minutes old.
+- **End.** The session's end reaches rt through the link's own
+  `session:end`, which runs before any block hears of it; rt records the
+  session `dead` there for a link that carried this block. The block never
+  reports a death or a finished job itself, and rt refuses one.
+- **Nudge.** rt sends a wedged worker a `nudge { text }` command instead of
+  typing into its pane. The block acks it and starts a turn with the text
+  through `$.prompt.submit`, framed as this plugin's message; the engine
+  queues it while a turn runs. A nudge with no text, or one that arrives
+  while the block is not live, is not acked, and rt pokes the pane once
+  instead. rt never nudges a worker whose last turn ended with background
+  work running.
+
+The block is registered before `stop-gate`, because a Stop the gate holds
+goes to no block after it.
 
 ## The gate form
 

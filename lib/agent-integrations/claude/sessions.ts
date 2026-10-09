@@ -42,6 +42,7 @@ import type {
   LaunchHost, LaunchRequest, NativeLaunch, ObservationSweep, PreparedLaunch, RunWorkProcess, SessionAdapter, WorkReceipt,
 } from "../contracts.ts";
 import { openHostPane, type HostPaneLaunch, type HostPaneOpened } from "../herdr-pane.ts";
+import { recordObservation } from "../observation-store.ts";
 import {
   createSessionStore, isDetachedAttachment, LEGACY_DEFAULT_PROFILE, listBindingsByNativeValue, type AttachmentInput, type SessionStore,
 } from "../session-store.ts";
@@ -777,6 +778,27 @@ export async function reportClaudeLinkEnded(
   if (!binding) return "unbound";
   const { applySessionPresence } = await import("../presence.ts");
   await applySessionPresence(binding, "end", { db, enabled, now: overrides.now, deleteSessionFile: overrides.deleteSessionFile });
+  return "applied";
+}
+
+/**
+ * A reading of the session by its own observe block (a turn's state), or
+ * `dead` when its link ends, recorded in the shared observation store as the
+ * session's own report at its binding's current generation. It never touches
+ * the job the session works on.
+ */
+export async function recordClaudeModObservation(
+  link: Pick<ModLinkView, "sessionId">, reading: Pick<Observation, "execution" | "background">, overrides: LinkLifecycleDeps = {},
+): Promise<"applied" | "unbound"> {
+  const enabled = overrides.enabled ?? (await import("../context.ts")).integrationsEnabled;
+  if (!enabled()) return "unbound";
+  const db = overrides.db ?? (await import("../../state/db.ts")).getStateDb();
+  const binding = attachedClaudeBinding(db, link.sessionId);
+  if (!binding) return "unbound";
+  recordObservation(binding.key, {
+    connectivity: "connected", ...reading,
+    observedAt: (overrides.now ?? Date.now)(), source: "claude-mod", generation: binding.attachment.generation,
+  }, "push");
   return "applied";
 }
 

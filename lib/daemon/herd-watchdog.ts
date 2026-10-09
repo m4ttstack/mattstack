@@ -7,6 +7,7 @@
  */
 import type { Logger } from "pino";
 import type { Observation } from "../../packages/rt-client/src/agent-integrations.ts";
+import { STALE_OBSERVATION_MS } from "../agent-integrations/observation-store.ts";
 import { herdPrefix, type HerdJobRow, type HerdRow, type JobAttempt } from "./herd-store.ts";
 
 /**
@@ -18,13 +19,16 @@ import { herdPrefix, type HerdJobRow, type HerdRow, type JobAttempt } from "./he
  * accepts may try it; `blocked` is blocked anywhere else and only raises
  * attention. `since` is when the job entered this state; `background` is
  * running background work and when it began; `typesIntoPane` says whether a
- * poke may go to the job's pane at all.
+ * poke may go to the job's pane at all. `modSession` is the worker's native
+ * session id while its mod's observe block is live: that mod takes the
+ * worker's nudges in place of its pane.
  */
 export type ObservedJob = {
   state: "working" | "idle" | "modal" | "blocked" | "dead" | "unknown";
   since: number | null;
   background: { task: string; sinceMs: number } | null;
   typesIntoPane: boolean;
+  modSession?: string;
 };
 
 export interface WatchdogSensors {
@@ -88,13 +92,7 @@ const HEALTHY: WedgeVerdict = { kind: "healthy" };
 const LIVE: ReadonlySet<HerdJobRow["status"]> = new Set(["spawning", "active", "at-gate", "at-milestone"]);
 const AWAITING_ANSWER: ReadonlySet<HerdJobRow["status"]> = new Set(["at-gate", "at-milestone"]);
 
-/**
- * How long an observation stays evidence. The poller refreshes every bound
- * session far more often than this and the watchdog sweeps about once a
- * minute, so a reading this old means its source stopped reporting, not that
- * the worker's state is still what it said.
- */
-export const STALE_OBSERVATION_MS = 2 * 60_000;
+export { STALE_OBSERVATION_MS };
 
 /**
  * What an observation says about the attempt's worker. Only a fresh reading
@@ -292,6 +290,10 @@ export interface WatchdogActuators {
   /** `pane` is the wedged party's own pane when there is one, so the tray
       click focuses it; null when the party has no pane to focus. */
   notifyHuman(summary: string, pane: string | null): void;
+  /** Sends `text` to the worker session's mod, which starts a turn with it.
+      True only once the mod acked it in time; false is the cue to poke the
+      pane instead, once. */
+  nudge?(session: string, text: string): Promise<boolean>;
 }
 
 interface Ladder { strikes: number; lastPokeAt: number | null; since: number; parked: boolean }
@@ -448,6 +450,19 @@ export class HerdWatchdog {
       : fresh.kind === "dead" ? (observed ? OBSERVED_DEAD_EVIDENCE : DEAD_EVIDENCE) : MODAL_EVIDENCE;
     const ctx = { herd: herd.id, job: job.name, verdict: fresh.kind, strike: ladder.strikes };
     if (ladder.strikes <= 2) {
+      const session = observed?.modSession;
+      if (session !== undefined && this.act.nudge) {
+        // A turn that ended to wait on its own background work is woken by that work.
+        if (view.background() !== null) {
+          this.log.info(ctx, "worker nudge skipped: background work running");
+          return;
+        }
+        if (await this.act.nudge(session, pokeText(evidence))) {
+          this.log.info({ ...ctx, session }, "nudged worker through its mod");
+          return;
+        }
+        this.log.info({ ...ctx, session }, "mod nudge not acked; poking the pane instead");
+      }
       // A worker rt may not type into gets no nudge of its own; the ladder still climbs to the shepherd.
       if (job.pane === null || !view.typesIntoPane) this.log.info(ctx, "worker nudge skipped: no pane rt may type into");
       else await this.poke(job.pane, pokeText(evidence), ctx, "poked worker");

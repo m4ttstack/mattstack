@@ -12,6 +12,8 @@ import { createRegistry } from "../../agent-integrations/registry.ts";
 import type { HarnessIntegration, SessionAdapter } from "../../agent-integrations/contracts.ts";
 import { __test__ as observationStoreTest, latestObservation, recordObservation } from "../../agent-integrations/observation-store.ts";
 import { createSessionStore } from "../../agent-integrations/session-store.ts";
+import { createModLinks, TESTED_CLAUDE_CODE } from "../../agent-integrations/claude/mod-links.ts";
+import { createModSessionHandlers } from "../handlers/mod-session.ts";
 import { openStateDb } from "../../state/db.ts";
 import { createHerdHandlers, type HerdDeps } from "../handlers/herd.ts";
 import { createHerdStore, type HerdJobRow, type HerdRow, type HerdStore, type JobAttempt } from "../herd-store.ts";
@@ -589,5 +591,150 @@ describe("herd:status over observations", () => {
     expect(calls).toBe(0);
     expect("liveness" in res.data.jobs[0]!).toBe(false);
     expect(res.data.jobs[0]!.sessionDead).toBeNull();
+  });
+});
+
+describe("the Claude mod's observations and nudges", () => {
+  const WORKER = "4f0c1d2e-0b7a-4c55-9e43-1d2f3a4b5c6d";
+
+  function modWorld(opts: { blocks?: string[]; clock?: { now: number } } = {}) {
+    const clock = opts.clock ?? { now: NOW };
+    const db = openStateDb(join(dir, "state.db"));
+    const store = createSessionStore(db);
+    const bound = store.bind(store.reserve({ identity: "job-a.w1" }), { harness: "claude", profile: "default", kind: "id", value: WORKER }, { mode: "herdr", pane: "w1:p1" });
+    if (!bound.ok) throw new Error(bound.error.message);
+    const links = createModLinks({ now: () => clock.now, integrationsEnabled: () => true, store });
+    const registered = links.register({
+      sessionId: WORKER, cwd: "/w", root: "/w", pane: "w1:p1", claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.2.3",
+      blocks: (opts.blocks ?? ["presence", "observe"]) as never,
+    });
+    if (!registered.ok) throw new Error(registered.error.message);
+    const handlers = createModSessionHandlers({ links, lifecycle: { db, enabled: () => true, now: () => clock.now, deleteSessionFile: () => {} } });
+    return { clock, db, links, handlers, binding: bound.data, linkId: registered.data.linkId };
+  }
+
+  function modSensors(w: ReturnType<typeof modWorld>, over: { job?: HerdJobRow; statusChangedAt?: number; observation: () => Observation }) {
+    const worker = over.job ?? job({ pane: "w1:p1", agentSession: WORKER });
+    const herdr = (async () => ({ ok: true, result: { snapshot: { panes: [{ pane_id: "w1:p1", agent: "claude", agent_status: "idle" }] } } })) as any;
+    const answered = { id: "g-1", nudge: { session: WORKER }, answer: { answeredAt: NOW } };
+    const current = () => attempt({ selection: CLAUDE, mode: "herdr", bindingKey: w.binding.key, generation: w.binding.attachment.generation });
+    const sensors = createWatchdogSensors({
+      herdStore: { list: () => [herd()], jobs: () => [worker], activeAttempt: () => current(), attempts: () => [current()] },
+      gatesStore: { list: () => ({ gates: [], cursor: 0 }), unconsumedAnsweredPushes: () => [answered] as never },
+      lifecycle: { lastStatusChangeMs: () => over.statusChangedAt ?? null },
+      herdr, defaultSocket: "/default.sock", db: w.db, now: () => w.clock.now, log, enabled: () => true,
+      observeJob: async () => ({ ok: true, data: over.observation() }),
+      modLinks: () => w.links,
+    });
+    return { sensors, worker };
+  }
+
+  function nudging(acked: boolean) {
+    const { act, calls } = actuators();
+    const nudges: string[] = [];
+    act.nudge = async (session, text) => { nudges.push(`${session}: ${text}`); return acked; };
+    return { act, calls, nudges };
+  }
+
+  const report = (w: ReturnType<typeof modWorld>, observation: unknown, linkId = w.linkId) =>
+    w.handlers["session:report"]({ linkId, event: "observation", observation } as never);
+
+  test("mod observation wins over the screen reading", async () => {
+    const w = modWorld();
+    expect(await report(w, { execution: "idle", background: "active" })).toEqual({ ok: true, data: { outcome: "applied" } });
+    const pushed: Observation = { connectivity: "connected", execution: "idle", background: "active", observedAt: NOW, source: "claude-mod", generation: w.binding.attachment.generation };
+    expect(latestObservation(w.binding.key)).toEqual(pushed);
+
+    const screen = (at: number) => seen({ execution: "idle", background: "inactive", observedAt: at, source: "herdr-pane", generation: w.binding.attachment.generation });
+    recordObservation(w.binding.key, screen(NOW + 10_000));
+    expect(latestObservation(w.binding.key)).toEqual(pushed);
+
+    recordObservation(w.binding.key, screen(NOW + STALE_OBSERVATION_MS + 1));
+    expect(latestObservation(w.binding.key)).toMatchObject({ source: "herdr-pane", background: "inactive" });
+  });
+
+  test("a mod observation is taken only from a live link that registered the observe block", async () => {
+    const w = modWorld({ blocks: ["presence"] });
+    expect(await report(w, { execution: "working", background: "unknown" })).toMatchObject({ ok: false, failure: { code: "refused" } });
+    expect(await report(w, { execution: "working", background: "unknown" }, "ml-gone")).toMatchObject({ ok: false, failure: { code: "unknown-link" } });
+    expect(latestObservation(w.binding.key)).toBeNull();
+  });
+
+  test("a mod observation names only a turn's own states: never a death, never a job's end", async () => {
+    const w = modWorld();
+    for (const bad of [{ execution: "dead", background: "unknown" }, { execution: "completed", background: "unknown" }, { execution: "working", background: "maybe" }, undefined]) {
+      expect(await report(w, bad)).toMatchObject({ ok: false, failure: { code: "invalid" } });
+    }
+    expect(latestObservation(w.binding.key)).toBeNull();
+  });
+
+  test("a session end over a link carrying the observe block reads as the worker gone", async () => {
+    const w = modWorld({ blocks: ["observe"] });
+    expect(await w.handlers["session:end"]({ linkId: w.linkId } as never)).toEqual({ ok: true, data: {} });
+    expect(latestObservation(w.binding.key)).toMatchObject({ execution: "dead", source: "claude-mod", generation: w.binding.attachment.generation });
+  });
+
+  test("a worker waiting on background work is never nudged", async () => {
+    const w = modWorld();
+    const { sensors, worker } = modSensors(w, {
+      statusChangedAt: NOW - 3 * MIN,
+      observation: () => seen({ execution: "idle", background: "active", observedAt: w.clock.now, source: "claude-mod", generation: w.binding.attachment.generation }),
+    });
+    await sensors.refresh();
+    expect(evaluateJob(worker, sensors, cfg)).toMatchObject({ kind: "wedged", path: "fast" });
+    const { act, calls, nudges } = nudging(true);
+    await new HerdWatchdog({ sensors, act, cfg: () => cfg, log }).sweep();
+    expect(nudges).toEqual([]);
+    expect(calls.poke).toEqual([]);
+  });
+
+  test("a nudge to a worker with the observe block live goes through its mod, not its pane", async () => {
+    const w = modWorld();
+    const { sensors } = modSensors(w, {
+      statusChangedAt: NOW - 3 * MIN,
+      observation: () => seen({ execution: "idle", background: "inactive", observedAt: w.clock.now, source: "claude-mod", generation: w.binding.attachment.generation }),
+    });
+    await sensors.refresh();
+    const { act, calls, nudges } = nudging(true);
+    await new HerdWatchdog({ sensors, act, cfg: () => cfg, log }).sweep();
+    expect(nudges).toEqual([`${WORKER}: watchdog: gate g-1 answered 0m ago and unconsumed. Consume it or post status.`]);
+    expect(calls.poke).toEqual([]);
+  });
+
+  test("an unacked nudge falls back to poke once", async () => {
+    const w = modWorld();
+    const { sensors } = modSensors(w, {
+      statusChangedAt: NOW - 3 * MIN,
+      observation: () => seen({ execution: "idle", background: "inactive", observedAt: w.clock.now, source: "claude-mod", generation: w.binding.attachment.generation }),
+    });
+    await sensors.refresh();
+    const { act, calls, nudges } = nudging(false);
+    await new HerdWatchdog({ sensors, act, cfg: () => cfg, log }).sweep();
+    expect(nudges).toHaveLength(1);
+    expect(calls.poke).toEqual(["w1:p1: watchdog: gate g-1 answered 0m ago and unconsumed. Consume it or post status."]);
+  });
+
+  test("a worker whose link lacks the observe block keeps today's pane poke", async () => {
+    const w = modWorld({ blocks: ["presence"] });
+    const { sensors } = modSensors(w, {
+      statusChangedAt: NOW - 3 * MIN,
+      observation: () => seen({ execution: "idle", background: "inactive", observedAt: w.clock.now, source: "herdr-pane", generation: w.binding.attachment.generation }),
+    });
+    await sensors.refresh();
+    const { act, calls, nudges } = nudging(true);
+    await new HerdWatchdog({ sensors, act, cfg: () => cfg, log }).sweep();
+    expect(nudges).toEqual([]);
+    expect(calls.poke).toEqual(["w1:p1: watchdog: gate g-1 answered 0m ago and unconsumed. Consume it or post status."]);
+  });
+
+  test("the nudge actuator pushes a nudge command and reports whether the mod acked it", async () => {
+    const pushed: Array<[string, string, unknown]> = [];
+    const act = createWatchdogActuators({
+      herdStore: { setJobStatus: () => {} }, db: openStateDb(join(dir, "state.db")), socketFor: () => "/default.sock", log,
+      push: async (session, kind, data) => { pushed.push([session, kind, data]); return { ok: true, data: { acked: session === "acks" } }; },
+    });
+    expect(await act.nudge!("acks", "hello")).toBe(true);
+    expect(await act.nudge!("silent", "hello")).toBe(false);
+    expect(pushed).toEqual([["acks", "nudge", { text: "hello" }], ["silent", "nudge", { text: "hello" }]]);
   });
 });

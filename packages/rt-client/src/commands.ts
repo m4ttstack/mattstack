@@ -930,10 +930,16 @@ export interface Commands {
    * The link's lifecycle report for its own session. `context` is where the mod
    * says it runs: a hint that is logged when it disagrees, never authority. A
    * resume or compact needs it; a turn start or end (the presence block) does
-   * not. `outcome` is "unbound" when no single attached Claude binding names the session.
+   * not. An `observation` (the observe block's reading of its own turn) needs
+   * `observation` and is refused from a link that did not register that block.
+   * `outcome` is "unbound" when no single attached Claude binding names the session.
    */
   "session:report": {
-    payload: { linkId: string; event: "resume" | "compact" | "turn-start" | "turn-end"; context?: { cwd: string; root: string; pane?: string | null } };
+    payload: {
+      linkId: string; event: "resume" | "compact" | "turn-start" | "turn-end" | "observation";
+      context?: { cwd: string; root: string; pane?: string | null };
+      observation?: { execution: "working" | "idle" | "blocked"; background: "active" | "inactive" | "unknown" };
+    };
     data: { outcome: "applied" | "unbound" };
   };
   /** Whether `block` of the session's live mod link owns the session's feature now, as the daemon's adapters decide it. */

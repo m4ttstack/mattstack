@@ -9,6 +9,8 @@ import type { Logger } from "pino";
 import type { HarnessId, Observation, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
 import { formatPaneRef, parsePaneRef, type PaneServer } from "../../packages/rt-client/src/index.ts";
 import { builtinRegistry, UNRECORDED_PANE_HARNESS } from "../agent-integrations/builtins.ts";
+import { installedModLinks, pushModCommand, type ModLinks } from "../agent-integrations/claude/mod-links.ts";
+import { modPath } from "../agent-integrations/claude/mod-path.ts";
 import { createObservationSweep, type IntegrationRegistry, type ObservationSweep } from "../agent-integrations/contracts.ts";
 import { latestObservation, recordObservation } from "../agent-integrations/observation-store.ts";
 import { createSessionStore } from "../agent-integrations/session-store.ts";
@@ -80,6 +82,8 @@ export interface WatchdogSensorDeps {
   integrations?: IntegrationRegistry;
   /** Observes a bound attempt's worker; the shared observation store and the job's own integration when omitted. */
   observeJob?: ObserveJob;
+  /** The daemon's live mod links, which say whose mod takes nudges; the installed registry when omitted. */
+  modLinks?: () => ModLinks | null;
 }
 
 export interface RefreshingSensors extends WatchdogSensors {
@@ -218,6 +222,8 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
    */
   async function observeBound(jobs: Array<{ job: HerdJobRow; attempt: JobAttempt }>, rows: Map<string, PaneReading>, t: number): Promise<Map<string, ObservedJob>> {
     const observe = deps.observeJob ?? createJobObserver({ db: () => deps.db, integrations: registry, now, sweep: createObservationSweep() }).observeJob;
+    const links = (deps.modLinks ?? installedModLinks)();
+    const sessions = links ? createSessionStore(deps.db) : null;
     const out = new Map<string, ObservedJob>();
     const nextTracked = new Map<string, Tracked>();
     for (const { job, attempt } of jobs) {
@@ -241,10 +247,13 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
       const paneClock = job.pane !== null && (state === "idle" || state === "modal") && rows.has(job.pane)
         ? deps.lifecycle.lastStatusChangeMs(job.pane) ?? firstSeenIdle.get(job.pane) ?? null
         : null;
+      const binding = attempt.bindingKey === undefined ? null : sessions?.get(attempt.bindingKey) ?? null;
+      const modSession = binding && modPath(binding, "observe", links) ? binding.native.value : undefined;
       out.set(key, {
         state, typesIntoPane,
         since: paneClock ?? since,
         background: backgroundSince === null ? null : { task: "work", sinceMs: backgroundSince },
+        ...(modSession !== undefined && { modSession }),
       });
     }
     tracked = nextTracked;
@@ -297,6 +306,8 @@ export interface WatchdogActuatorDeps {
   log: Logger;
   trustSettleMs?: number;
   trustStepMs?: number;
+  /** Pushes a command to a Claude session's mod and waits for its ack; pushModCommand when omitted. */
+  push?: (session: string, kind: string, data: unknown) => Promise<Outcome<{ acked: boolean }>>;
 }
 
 /** None of these throw into the ladder: one party's failed side effect must
@@ -394,6 +405,16 @@ export function createWatchdogActuators(deps: WatchdogActuatorDeps): WatchdogAct
         }, deps.db);
       } catch (err) {
         log.warn({ err, summary }, "watchdog could not enqueue the notification");
+      }
+    },
+    async nudge(session, text) {
+      try {
+        const pushed = await (deps.push ?? pushModCommand)(session, "nudge", { text });
+        if (!pushed.ok) log.info({ session, error: pushed.error }, "watchdog nudge could not reach the mod");
+        return pushed.ok && pushed.data.acked;
+      } catch (err) {
+        log.warn({ err, session }, "watchdog nudge threw");
+        return false;
       }
     },
   };
