@@ -216,16 +216,23 @@ function subheadOf(
   def: SettingDefWire,
   sharedOnly = false
 ): string | undefined {
+  const allowed = (s: string | null | undefined) =>
+    Boolean(s) && (!sharedOnly || isShared(s));
   const served = rungBase(def.effective.scope);
-  if (sharedOnly)
-    return isShared(served) && def.scopes.includes(served)
-      ? served
-      : def.scopes.find(isShared);
   // A repo section's store serves it even when the key does not list that
   // store among its scopes.
-  if (served && (isRung(def.effective.scope) || def.scopes.includes(served)))
-    return served;
-  return def.scopes[0];
+  if (
+    allowed(served) &&
+    (isRung(def.effective.scope) || def.scopes.includes(served!))
+  )
+    return served!;
+  // The list reads no project, so a per-project key sits with the store its
+  // repo sections live in, when they all live in one.
+  const stores = new Set(
+    (def.repos ?? []).flatMap(r => r.scopes).filter(s => allowed(s))
+  );
+  if (stores.size === 1) return [...stores][0];
+  return sharedOnly ? def.scopes.find(isShared) : def.scopes[0];
 }
 
 /** Every group with at least one registered key, in GROUPS order, with
