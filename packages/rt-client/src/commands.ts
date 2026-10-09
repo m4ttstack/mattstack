@@ -973,6 +973,18 @@ export interface Commands {
     payload: { linkId: string; sessionId: string };
     data: { decision: "allow" | "continue" | "none"; reason?: string; runId?: string; stage?: string };
   };
+  /**
+   * The mod's `policy` block asks for the store of the running run its
+   * session owns, to fill a run tool call that names none. The caller is the
+   * session `linkId` is the live link of, never `sessionId` alone; `cwd`
+   * (absolute) only picks among several runs it owns. `runDb` is null, with
+   * the reason, when the session owns no running run, owns several with none
+   * in `cwd`, or is not bound. Failures as `policy:authorize`.
+   */
+  "runs:owned": {
+    payload: { linkId: string; sessionId: string; cwd?: string };
+    data: { runDb: string | null; reason?: string };
+  };
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read": { payload: { branches?: string[]; maxAgeMs?: number; repoIdentity?: string }; data: Record<string, BranchEnrichment> };
@@ -1346,6 +1358,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "session:owned",
   "policy:authorize",
   "policy:stop",
+  "runs:owned",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",

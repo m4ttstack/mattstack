@@ -4,7 +4,7 @@ import { MOD_BLOCKS as PLUGIN_MOD_BLOCKS } from "../../../plugins/mattstack-mods
 import { CLAUDE_ONLY_TAIL, REPLY_RULE_SECTION, trimClaudeOnlyReply } from "../../../plugins/mattstack-mods/src/blocks/sections.ts";
 import { PLUGIN_VERSION } from "../../../plugins/mattstack-mods/src/core/version.ts";
 import manifest from "../../../plugins/mattstack-mods/.claude-plugin/plugin.json";
-import { MATTSTACK_TOOL_PREFIX, RUN_TOOL } from "../../../plugins/mattstack-mods/src/blocks/tool-names.ts";
+import { MATTSTACK_TOOL_PREFIX, RUN_DB_TOOL, RUN_TOOL } from "../../../plugins/mattstack-mods/src/blocks/tool-names.ts";
 import mattstackManifest from "../../../plugins/mattstack/.claude-plugin/plugin.json";
 import mattstackMcp from "../../../plugins/mattstack/.mcp.json";
 import { runToolDefs } from "../../mcp/run-tools.ts";
@@ -29,6 +29,15 @@ describe("mattstack-mods plugin parity", () => {
     expect(MATTSTACK_TOOL_PREFIX).toBe(`mcp__plugin_${mattstackManifest.name}_${Object.keys(mattstackMcp.mcpServers)[0]}__`);
     const guarded = runToolDefs().map((t) => t.name).filter((name) => RUN_TOOL.test(`${MATTSTACK_TOOL_PREFIX}${name}`));
     expect(guarded.sort()).toEqual(["run_decision", "run_field_set", "run_stage", "run_status"]);
+  });
+
+  test("the policy block's fill matcher names exactly the run tools that take a runDb", () => {
+    const takesRunDb = runToolDefs()
+      .filter((t) => Object.hasOwn((t.inputSchema as { properties?: object }).properties ?? {}, "runDb"))
+      .map((t) => t.name);
+    const filled = runToolDefs().map((t) => t.name).filter((name) => RUN_DB_TOOL.test(`${MATTSTACK_TOOL_PREFIX}${name}`));
+    expect(filled.sort()).toEqual(takesRunDb.sort());
+    expect(filled).not.toContain("run_start");
   });
 
   test("trim removes exactly replySteer's tail from a real inbox envelope", () => {

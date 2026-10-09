@@ -1,4 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import type { ModBlock, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
+import { runStart } from "../../runs/start.ts";
+import { openRunDb, runStatus, stageEnd, stageStart } from "../../runs/write.ts";
 import { openStateDb } from "../../state/index.ts";
 import { createSessionStore } from "../../agent-integrations/session-store.ts";
 import { createModLinks, TESTED_CLAUDE_CODE } from "../../agent-integrations/claude/mod-links.ts";
@@ -130,5 +137,95 @@ describe("session:* handlers", () => {
       expect(reply.failure?.code).toBe("refused");
     }
     expect(pushed).toHaveLength(0);
+  });
+});
+
+describe("session:end and the session's runs", () => {
+  let dir = "";
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "rt-mod-session-runs-")); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  const NOW = 50_000;
+
+  function world(opts: { blocks?: ModBlock[]; enabled?: boolean } = {}) {
+    const db = openStateDb(join(dir, "state.db"));
+    const store = createSessionStore(db);
+    const bindClaude = (session: string, identity: string) => {
+      const bound = store.bind(store.reserve({ identity }), { harness: "claude", profile: "default", kind: "id", value: session }, { mode: "herdr", pane: "w1:p1" });
+      if (!bound.ok) throw new Error(bound.error.message);
+      return bound.data;
+    };
+    const mine = bindClaude("sess-1", "me");
+    const theirs = bindClaude("sess-2", "them");
+    const links = createModLinks({ now: () => 5_000, integrationsEnabled: () => true, store });
+    const registered = links.register({ ...registration, blocks: opts.blocks ?? ["observe"] });
+    if (!registered.ok) throw new Error(registered.error.message);
+    const runsRoot = join(dir, "runs");
+    const handlers = createModSessionHandlers({
+      links, endRetryMs: 0,
+      lifecycle: { db, enabled: () => opts.enabled ?? true, now: () => NOW, deleteSessionFile: () => {}, runsRoot },
+    });
+    /** A run with `plan` done and `implement` open. */
+    const run = (runId: string, binding: SessionBinding, status = "running") => {
+      const started = runStart(runsRoot, { repo: "repo-a", workType: "feature", pipeline: "feature", runId, env: {}, now: 1000, binding });
+      if (!started.ok) throw new Error(started.error);
+      const r = openRunDb(started.runDb);
+      stageStart(r, "plan", {}, 2000);
+      stageEnd(r, "plan", "done", { now: 3000 });
+      stageStart(r, "implement", {}, 4000);
+      if (status !== "running") runStatus(r, status, 4500);
+      r.close();
+      return started.runDb;
+    };
+    return { db, handlers, linkId: registered.data.linkId, mine, theirs, run };
+  }
+
+  function stages(path: string): { name: string; status: string; ended_at: number | null; reason: string | null }[] {
+    const r = new Database(path, { readonly: true });
+    try {
+      return r.query("SELECT name, status, ended_at, reason FROM stages ORDER BY started_at").all() as never;
+    } finally {
+      r.close();
+    }
+  }
+
+  function runRow(path: string): { status: string; ended_at: number | null } {
+    const r = new Database(path, { readonly: true });
+    try {
+      return r.query("SELECT status, ended_at FROM runs").get() as never;
+    } finally {
+      r.close();
+    }
+  }
+
+  test("session end abandons only the owned running stage", async () => {
+    const w = world();
+    const own = w.run("r-own", w.mine);
+    const foreign = w.run("r-foreign", w.theirs);
+    const ended = w.run("r-ended", w.mine, "done");
+    const before = { foreign: stages(foreign), ended: stages(ended) };
+
+    expect(await call(w.handlers["session:end"], { linkId: w.linkId })).toEqual({ ok: true, data: {} });
+
+    expect(stages(own)).toEqual([
+      { name: "plan", status: "done", ended_at: 3000, reason: null },
+      { name: "implement", status: "abandoned", ended_at: NOW, reason: expect.stringContaining("session") },
+    ]);
+    // The run itself stays running: only a person decides a run is dead.
+    expect(runRow(own)).toEqual({ status: "running", ended_at: null });
+    expect(stages(foreign)).toEqual(before.foreign);
+    expect(stages(ended)).toEqual(before.ended);
+  });
+
+  test("with the switch off, or a link without the observe block, a session end changes no run", async () => {
+    for (const opts of [{ enabled: false }, { blocks: ["presence" as const] }]) {
+      rmSync(dir, { recursive: true, force: true });
+      dir = mkdtempSync(join(tmpdir(), "rt-mod-session-runs-"));
+      const w = world(opts);
+      const own = w.run("r-own", w.mine);
+      const before = stages(own);
+      expect((await call(w.handlers["session:end"], { linkId: w.linkId })).ok).toBe(true);
+      expect(stages(own)).toEqual(before);
+    }
   });
 });

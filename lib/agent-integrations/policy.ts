@@ -377,6 +377,9 @@ async function authorizeRun(context: CallerContext, action: "continue" | "comple
   if (ownership === "unowned") {
     return fail("ambiguous", `run ${String(run.id ?? runDb)} records no owning session, so no session may ${action} it`);
   }
+  if (ownership === "unproven") {
+    return fail("refused", `run ${String(run.id ?? runDb)} names a Claude session whose ownership cannot be proven, so this session may not ${action} it`);
+  }
   if (ownership !== "owned") return fail("refused", `run ${String(run.id ?? runDb)} belongs to another session`);
   if (run.status !== "running") return fail("refused", `run ${String(run.id ?? runDb)} has ended (${String(run.status)}), so it cannot ${action}`);
   // complete's result preconditions (stage outcomes, the close gate) stay with the run verbs; this is ownership only.

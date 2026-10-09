@@ -17,6 +17,11 @@
  * These verbs decide only. Their one effect is the shared policy's own on an
  * unavailable verdict: the binding's readiness withdrawn and an attention
  * condition raised.
+ *
+ * runs:owned names the store of the running run the same proven caller owns,
+ * for the `policy` block to fill into a run tool call that names none. Only
+ * an `owned` run is ever named; the payload's directory only breaks a tie
+ * among the caller's own runs.
  */
 
 import type { Database } from "bun:sqlite";
@@ -30,7 +35,7 @@ import {
   type PolicyDeps, type WorkflowAction,
 } from "../../agent-integrations/policy.ts";
 
-type Verb = "policy:authorize" | "policy:stop";
+type Verb = "policy:authorize" | "policy:stop" | "runs:owned";
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
 type Result<K extends Verb> =
   | { ok: true; data: Commands[K]["data"] }
@@ -44,6 +49,8 @@ export type PolicyHandlerDeps = {
   subjectOf?: (binding: SessionBinding) => string | undefined;
   /** Run readers and the unavailable record, for tests; the caller is never taken from here. */
   policy?: Omit<PolicyDeps, "caller" | "forkCheck">;
+  /** The runs root runs:owned scans; RT_RUNS_ROOT or the default when omitted. */
+  runsRoot?: string;
 };
 
 const ACTIONS: readonly WorkflowAction[] = ["ask", "continue", "complete"];
@@ -61,7 +68,9 @@ export function createPolicyHandlers(deps: PolicyHandlerDeps): { [K in Verb]: (p
   const { links, db } = deps;
 
   /** The live link `linkId` of `sessionId` carrying `block`, and the session's bound caller context when it has one. */
-  function callerOf(linkId: string, sessionId: string, block: "policy" | "stop-gate"): Caller | ReturnType<typeof declined> {
+  function callerOf(linkId: unknown, sessionId: unknown, block: "policy" | "stop-gate"): Caller | ReturnType<typeof declined> {
+    if (!isText(linkId)) return invalid("linkId must be a non-empty string");
+    if (!isText(sessionId)) return invalid("sessionId must be a non-empty string");
     const link = links.view(linkId);
     if (!link) return declined("unknown-link", UNKNOWN_LINK, "unknown link");
     if (link.sessionId !== sessionId) return declined("refused", `link ${linkId} belongs to another session than ${sessionId}`);
@@ -81,8 +90,6 @@ export function createPolicyHandlers(deps: PolicyHandlerDeps): { [K in Verb]: (p
   return {
     "policy:authorize": async (payload) => {
       const { linkId, sessionId, action, subject, cwd } = record(payload);
-      if (!isText(linkId)) return invalid("linkId must be a non-empty string");
-      if (!isText(sessionId)) return invalid("sessionId must be a non-empty string");
       if (!ACTIONS.includes(action as WorkflowAction)) return invalid(`action must be one of ${ACTIONS.join(", ")}`);
       if (action !== "ask" && !isText(subject)) return invalid(`${String(action)} needs subject, the run store it acts on`);
       if (cwd !== undefined && !isAbsoluteDir(cwd)) return invalid("cwd must be an absolute path with no control characters");
@@ -102,14 +109,25 @@ export function createPolicyHandlers(deps: PolicyHandlerDeps): { [K in Verb]: (p
 
     "policy:stop": async (payload) => {
       const { linkId, sessionId } = record(payload);
-      if (!isText(linkId)) return invalid("linkId must be a non-empty string");
-      if (!isText(sessionId)) return invalid("sessionId must be a non-empty string");
       const caller = callerOf(linkId, sessionId, "stop-gate");
       if ("failure" in caller) return caller;
       if (!caller.context) return { ok: true, data: { decision: "none", reason: caller.unbound } };
       const verdict = await inspectStop(caller.context, policyFor(caller.link));
       if (!verdict.ok) return declined(verdict.error.code, verdict.error.message);
       return { ok: true, data: verdict.data };
+    },
+
+    "runs:owned": async (payload) => {
+      const { linkId, sessionId, cwd } = record(payload);
+      if (cwd !== undefined && !isAbsoluteDir(cwd)) return invalid("cwd must be an absolute path with no control characters");
+      const caller = callerOf(linkId, sessionId, "policy");
+      if ("failure" in caller) return caller;
+      if (!caller.context) return { ok: true, data: { runDb: null, reason: caller.unbound } };
+      const { resolveOwnedRun } = await import("../../runs/resolve-db.ts");
+      const owned = resolveOwnedRun(caller.context, undefined, {
+        stateDb: db, cwd: (cwd as string | undefined) ?? caller.link.cwd, ...(deps.runsRoot !== undefined && { root: deps.runsRoot }),
+      });
+      return owned.ok ? { ok: true, data: { runDb: owned.data.db } } : { ok: true, data: { runDb: null, reason: owned.error.message } };
     },
   };
 }

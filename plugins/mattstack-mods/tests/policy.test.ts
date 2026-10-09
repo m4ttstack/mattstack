@@ -134,6 +134,90 @@ describe('policy guard', () => {
   })
 })
 
+/** The daemon's defaults, with `runs:owned` answered by `owned` and every `policy:*` allowed. */
+function ownedBy(h: ReturnType<typeof stub>, owned: Respond): Respond {
+  return (verb, body) => {
+    if (verb === 'runs:owned') return owned(verb, body)
+    if (verb.startsWith('policy:')) return { ok: true, data: { decision: 'allow' } }
+    return h.defaults(verb, body)
+  }
+}
+
+const bare = (tool: string, extra: Record<string, unknown> = {}) => {
+  const { runDb: _runDb, ...call } = RUN(tool, extra)
+  return call
+}
+
+describe('run store fill', () => {
+  test('run_* without runDb resolves the owned run', async () => {
+    const h = harness()
+    h.script.respond = ownedBy(h, () => ({ ok: true, data: { runDb: RUN_DB } }))
+    await h.start()
+    h.$.session.cwd = async () => '/repo/.wt/x'
+
+    for (const tool of ['run_stage', 'run_field_set', 'run_field_get', 'run_decision', 'run_status', 'run_snapshot']) {
+      const engine = recorder({ result: 'ok' })
+      expect(await h.fire('tool.call', bare(tool), engine.next)).toEqual({ result: 'ok' })
+      expect(engine.seen).toEqual([{ ...bare(tool), runDb: RUN_DB }])
+    }
+    // The session's own id and current directory; the daemon proves the caller from the link.
+    expect(h.verbs('runs:owned').map(s => s.body)).toEqual(Array(6).fill({ sessionId: 'sess-1', cwd: '/repo/.wt/x', linkId: 'ml-1' }))
+    // The filled store is the one the guard then asks about.
+    expect(h.verbs('policy:authorize').map(s => [s.body.action, s.body.subject])).toEqual([
+      ['continue', RUN_DB], ['continue', RUN_DB], ['continue', RUN_DB], ['complete', RUN_DB],
+    ])
+  })
+
+  test('a foreign run is never filled', async () => {
+    const h = harness()
+    const answers: (Record<string, unknown> | Error)[] = [
+      { ok: true, data: { runDb: null, reason: 'run r-2 belongs to another session' } },
+      { ok: true, data: {} },
+      { ok: true, data: { runDb: '' } },
+      { ok: false, error: 'refused', failure: { code: 'refused', message: 'link ml-1 carries no live policy block' } },
+      new Error('connection refused'),
+    ]
+    h.script.respond = ownedBy(h, () => answers.shift() ?? new Error('no more answers'))
+    await h.start()
+
+    for (let i = 0; i < 5; i++) {
+      const engine = recorder({ result: 'ok' })
+      expect(await h.fire('tool.call', bare('run_stage'), engine.next)).toEqual({ result: 'ok' })
+      expect(engine.seen).toEqual([bare('run_stage')])
+    }
+    expect(h.verbs('runs:owned')).toHaveLength(5)
+    expect(h.verbs('policy:authorize')).toHaveLength(0)
+  })
+
+  test("a caller's own runDb is never replaced, and run_start, run_list and other tools are never filled", async () => {
+    const h = harness()
+    h.script.respond = ownedBy(h, () => ({ ok: true, data: { runDb: '/home/u/.mattstack/runs/repo-a/r-mine/state.db' } }))
+    await h.start()
+
+    const theirs = RUN('run_stage', { runDb: '/elsewhere/state.db' })
+    const empty = RUN('run_stage', { runDb: '' })
+    for (const call of [theirs, empty, bare('run_start'), bare('run_list'), { tool: 'Bash', command: 'ls' }]) {
+      const engine = recorder({ result: 'ok' })
+      await h.fire('tool.call', call, engine.next)
+      expect(engine.seen).toEqual([call])
+    }
+    expect(h.verbs('runs:owned')).toHaveLength(0)
+  })
+
+  test('without the block live nothing is filled', async () => {
+    const h = harness()
+    h.script.respond = (verb, body) =>
+      verb === 'session:register' ? { ok: true, data: { linkId: 'ml-1', blocks: ['stop-gate'] } }
+        : verb === 'runs:owned' ? { ok: true, data: { runDb: RUN_DB } } : h.defaults(verb, body)
+    await h.start()
+
+    const engine = recorder({ result: 'ok' })
+    await h.fire('tool.call', bare('run_stage'), engine.next)
+    expect(engine.seen).toEqual([bare('run_stage')])
+    expect(h.verbs('runs:owned')).toHaveLength(0)
+  })
+})
+
 describe('stop gate', () => {
   test('mod stop blocks an open running stage and allows a held or waiting one', async () => {
     const h = harness()

@@ -1097,7 +1097,7 @@ Record a stage transition on a run: start, done, fail (with reason and detailPat
   "properties": {
     "runDb": {
       "type": "string",
-      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. A write then goes to this session's own running run (a verified session never falls back to another run in cwd); a read (run_snapshot, run_field_get) takes this session's run, else the newest running one whose worktree holds cwd."
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. With integrations on, a write goes only to this session's own running run; otherwise, and for reads, this session's run, else the newest running one whose worktree holds cwd."
     },
     "cwd": {
       "type": "string",
@@ -1144,7 +1144,7 @@ Write one run field (key, value) as produced by a stage.
   "properties": {
     "runDb": {
       "type": "string",
-      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. A write then goes to this session's own running run (a verified session never falls back to another run in cwd); a read (run_snapshot, run_field_get) takes this session's run, else the newest running one whose worktree holds cwd."
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. With integrations on, a write goes only to this session's own running run; otherwise, and for reads, this session's run, else the newest running one whose worktree holds cwd."
     },
     "cwd": {
       "type": "string",
@@ -1180,7 +1180,7 @@ Read one run field; errors when the key is not set.
   "properties": {
     "runDb": {
       "type": "string",
-      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. A write then goes to this session's own running run (a verified session never falls back to another run in cwd); a read (run_snapshot, run_field_get) takes this session's run, else the newest running one whose worktree holds cwd."
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. With integrations on, a write goes only to this session's own running run; otherwise, and for reads, this session's run, else the newest running one whose worktree holds cwd."
     },
     "cwd": {
       "type": "string",
@@ -1208,7 +1208,7 @@ Record a decision on the run; selection is a JSON object and is serialized by th
   "properties": {
     "runDb": {
       "type": "string",
-      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. A write then goes to this session's own running run (a verified session never falls back to another run in cwd); a read (run_snapshot, run_field_get) takes this session's run, else the newest running one whose worktree holds cwd."
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. With integrations on, a write goes only to this session's own running run; otherwise, and for reads, this session's run, else the newest running one whose worktree holds cwd."
     },
     "cwd": {
       "type": "string",
@@ -1248,7 +1248,7 @@ Set the run's terminal status: done, failed or abandoned.
   "properties": {
     "runDb": {
       "type": "string",
-      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. A write then goes to this session's own running run (a verified session never falls back to another run in cwd); a read (run_snapshot, run_field_get) takes this session's run, else the newest running one whose worktree holds cwd."
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. With integrations on, a write goes only to this session's own running run; otherwise, and for reads, this session's run, else the newest running one whose worktree holds cwd."
     },
     "cwd": {
       "type": "string",
@@ -1281,7 +1281,7 @@ The run's stages, fields and decisions.
   "properties": {
     "runDb": {
       "type": "string",
-      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. A write then goes to this session's own running run (a verified session never falls back to another run in cwd); a read (run_snapshot, run_field_get) takes this session's run, else the newest running one whose worktree holds cwd."
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required. With integrations on, a write goes only to this session's own running run; otherwise, and for reads, this session's run, else the newest running one whose worktree holds cwd."
     },
     "cwd": {
       "type": "string",

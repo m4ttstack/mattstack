@@ -59,17 +59,18 @@ export interface RunLiveness {
   boundSession?(sessionKey: string): BoundRunSession | null;
 }
 
-export type BoundRunSession = { session: string; pane?: string };
+/** `working`: the session's own fresh report says it is working now. */
+export type BoundRunSession = { session: string; pane?: string; working?: boolean };
 
 /**
  * Who drives a run: its owning binding's live session and pane when the run
  * records one, else its recorded Claude session. A binding outlives a
  * Claude /clear, so its native id is newer than the field's.
  */
-export function runOwnerSession(fields: RunFieldRow[], liveness?: RunLiveness): { session: string | null; pane: string | null } {
+export function runOwnerSession(fields: RunFieldRow[], liveness?: RunLiveness): { session: string | null; pane: string | null; working: boolean } {
   const key = fieldValue(fields, "session-key");
   const bound = key && liveness?.boundSession ? liveness.boundSession(key) : null;
-  return { session: bound?.session ?? fieldValue(fields, "claude-session"), pane: bound?.pane ?? null };
+  return { session: bound?.session ?? fieldValue(fields, "claude-session"), pane: bound?.pane ?? null, working: bound?.working === true };
 }
 
 /** The one "this run is not being driven" verdict every consumer reads, so a
@@ -96,7 +97,7 @@ export function computeAttention(
 
   if (run.status === "running") {
     const worktree = fieldValue(fields, "worktree");
-    const { session, pane } = runOwnerSession(fields, liveness);
+    const { session, pane, working } = runOwnerSession(fields, liveness);
     // Blocked mirrors herdr verbatim, no threshold: an agent parked on a
     // question IS "needs attention", however recently the db moved. The
     // mirror clears the moment herdr reports any other status.
@@ -110,12 +111,14 @@ export function computeAttention(
       const stage = run.current_stage ?? "an unknown stage";
       // Stage boundaries are the only guaranteed DB writes, so a long stage is
       // silent by design. Before claiming stale, walk the liveness ladder —
-      // the run's recorded claude session working anywhere, a working agent
+      // the owning session's own report that it works, the run's recorded
+      // claude session working anywhere, a working agent
       // in the worktree, recent git activity there — and stay quiet while any
       // rung holds. A working agent suppresses stale indefinitely: attention
       // means "nobody is driving this", not "this is taking long". The
       // evidence string still only asserts what was actually measured.
       let checked = "";
+      if (working) return NONE;
       if (liveness && (worktree || session)) {
         if (session && liveness.workingSessionPane(session) != null) return NONE;
         if (worktree) {

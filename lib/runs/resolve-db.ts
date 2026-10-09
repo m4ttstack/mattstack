@@ -168,6 +168,13 @@ function owned(run: RunRecord, binding: SessionBinding, deps: OwnershipDeps): Ou
   }
 }
 
+/** Every running run `binding` owns, oldest first. */
+export function ownedRunningRuns(binding: SessionBinding, deps: OwnedRunDeps = {}): { db: string; runId: string }[] {
+  return runningRuns(deps.root ?? runsRoot())
+    .filter((r) => runOwnership(r.owner, binding, deps) === "owned")
+    .map((r) => ({ db: r.db, runId: r.runId }));
+}
+
 /**
  * The run a verified caller may write to: `explicitDb` when the caller owns
  * it, else its one owned running run (the one whose worktree holds `cwd`

@@ -12,7 +12,8 @@
  * or end from the presence block sets the session's working or idle state.
  * An observation from a link that registered the observe block goes into the
  * shared observation store as the session's own reading; so does `dead` when
- * such a link ends.
+ * such a link ends, which also marks the running stage of each run the
+ * session owns abandoned.
  *
  * session:owned answers whether a block of the session's live link owns that
  * session's feature, for a CLI path that cannot read link state itself.
@@ -33,7 +34,7 @@ import { MOD_BLOCKS, type ModBlock, type Observation, type Outcome } from "../..
 import { pushModCommand, UNKNOWN_LINK, type ModLinks } from "../../agent-integrations/claude/mod-links.ts";
 import { reportClaudeDelivered } from "../../agent-integrations/claude/messaging.ts";
 import {
-  claudeModOwns, recordClaudeModObservation, reportClaudeLinkEnded, reportClaudeLinkLifecycle, type LinkContext, type LinkLifecycleDeps,
+  abandonClaudeLinkStages, claudeModOwns, recordClaudeModObservation, reportClaudeLinkEnded, reportClaudeLinkLifecycle, type LinkContext, type LinkLifecycleDeps,
 } from "../../agent-integrations/claude/sessions.ts";
 import { getStateDb } from "../../state/db.ts";
 
@@ -128,6 +129,11 @@ export function createModSessionHandlers(deps: {
           await recordClaudeModObservation(link, { execution: "dead", background: "unknown" }, deps.lifecycle);
         } catch (err) {
           deps.lifecycle?.log?.("the ended session's observation was not recorded", { sessionId: link.sessionId, err: String(err) });
+        }
+        try {
+          await abandonClaudeLinkStages(link, deps.lifecycle);
+        } catch (err) {
+          deps.lifecycle?.log?.("the ended session's running stages were not marked abandoned", { sessionId: link.sessionId, err: String(err) });
         }
       }
       // The mod sends session:end once and the ended link never lapses, so this is the sign-out's only chance.

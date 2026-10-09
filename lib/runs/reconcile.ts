@@ -2,12 +2,41 @@
  * Reconciliation: only a person can decide a run is dead, and the record has
  * to stop claiming otherwise. The write itself goes through write.ts like
  * every other mutation.
+ *
+ * A session that ended can only say its own open stage stopped: the stage is
+ * marked abandoned and the run stays running for a person to resume or end.
  */
 import type { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 import { join } from "path";
+import type { SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
+import { ownedRunningRuns, type OwnedRunDeps } from "./resolve-db.ts";
 import { isPathComponent, runsRoot } from "./store.ts";
 import { fieldSet, openRunDb, runStatus } from "./write.ts";
+
+export const SESSION_ENDED_REASON = "the session that owned this run ended";
+
+/**
+ * Marks the running stage of every running run `binding` owns abandoned, and
+ * returns those runs' ids. Another session's run and a stage that already
+ * ended are left as they are.
+ */
+export function abandonSessionStages(binding: SessionBinding, deps: OwnedRunDeps & { now?: number } = {}): string[] {
+  const abandoned: string[] = [];
+  for (const run of ownedRunningRuns(binding, deps)) {
+    const db = openRunDb(run.db);
+    try {
+      db.run(
+        "UPDATE stages SET status='abandoned', ended_at=?, reason=? WHERE status='running' AND (SELECT status FROM runs LIMIT 1)='running'",
+        [deps.now ?? Date.now(), SESSION_ENDED_REASON],
+      );
+      if ((db.query("SELECT changes() AS n").get() as { n: number }).n > 0) abandoned.push(run.runId);
+    } finally {
+      db.close();
+    }
+  }
+  return abandoned;
+}
 
 export type AbandonResult = { ok: true } | { ok: false; error: string };
 

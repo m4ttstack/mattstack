@@ -419,7 +419,13 @@ bound binding gets `none`, which the blocks treat as no decision.
   not asked about. Only `refuse` stops the call, with rt's reason as the
   denial. No decision, an unavailable policy or a lost call lets it
   through, and the AskUserQuestion hook every `rt agent` launch installs
-  still runs.
+  still runs. Before the guards, a `fill` rule gives a run tool call that
+  names no `runDb` (`run_stage`, `run_field_set`, `run_field_get`,
+  `run_decision`, `run_status`, `run_snapshot`) the store `runs:owned`
+  returns: the one running run rt proves this session owns, from the live
+  link, with the session's current directory only picking among several. A
+  call that names a `runDb` keeps it, and a session that owns no running
+  run, or several with none in its directory, gets nothing filled.
 - **`stop-gate`** (`src/blocks/stop-gate.ts`) asks `policy:stop` on every
   Stop, afresh, and holds the turn with rt's reason on `continue`. The
   mattstack plugin's `pipeline-gate-stop.sh` stays installed and runs

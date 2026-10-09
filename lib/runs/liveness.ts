@@ -11,7 +11,9 @@
  *    status is mirrored verbatim: working suppresses stale, blocked IS
  *    attention ("agent waiting for input");
  *  - recent filesystem activity in the worktree's git dir (commits, index
- *    writes, checkouts).
+ *    writes, checkouts);
+ *  - the owning session's own fresh report that it is working (a Claude
+ *    mod's observation), with the switch on.
  *
  * herdr is OPTIONAL. Every probe failure — binary missing, socket down,
  * timeout, garbled output — degrades to "no evidence": no agent on the
@@ -20,10 +22,12 @@
  * answer ([]) so the status poller can hold last-known state through a herdr
  * restart instead of flapping every run to null and back.
  */
+import type { Database } from "bun:sqlite";
 import { readFileSync, statSync } from "fs";
 import { isAbsolute, join, resolve } from "path";
 import type { RunAgent } from "../../packages/rt-client/src/commands.ts";
 import { resolveHerdrBin } from "../agent-herdr.ts";
+import { pushedObservation, STALE_OBSERVATION_MS } from "../agent-integrations/observation-store.ts";
 import { createSessionStore, isDetachedAttachment } from "../agent-integrations/session-store.ts";
 import { integrationsEnabled } from "../agent-integrations/switch.ts";
 import { getStateDb } from "../state/db.ts";
@@ -89,14 +93,24 @@ const STATUS_PRIORITY: RunAgent["status"][] = ["blocked", "working", "idle", "do
 
 export type BoundSessionLookup = (sessionKey: string) => BoundRunSession | null;
 
-/** A run's owning binding, read only with the switch on; a detached or unreadable binding names no live session. */
-export function boundSessionFromStore(sessionKey: string): BoundRunSession | null {
-  if (!integrationsEnabled()) return null;
+export type BoundSessionDeps = { db?: Database; enabled?: () => boolean; now?: () => number };
+
+/**
+ * A run's owning binding, read only with the switch on; a detached or
+ * unreadable binding names no live session. It is `working` when the
+ * session's own fresh report at its current attachment says so: a mod's
+ * observation, which only the daemon's observation store holds.
+ */
+export function boundSessionFromStore(sessionKey: string, deps: BoundSessionDeps = {}): BoundRunSession | null {
+  if (!(deps.enabled ?? integrationsEnabled)()) return null;
   try {
-    const binding = createSessionStore(getStateDb()).get(sessionKey);
+    const binding = createSessionStore(deps.db ?? getStateDb()).get(sessionKey);
     if (!binding || isDetachedAttachment(binding)) return null;
     const pane = binding.attachment.pane;
-    return { session: binding.native.value, ...(pane && { pane }) };
+    const own = pushedObservation(sessionKey);
+    const working = own !== null && own.execution === "working" && own.generation === binding.attachment.generation
+      && (deps.now ?? Date.now)() - own.observedAt <= STALE_OBSERVATION_MS;
+    return { session: binding.native.value, ...(pane && { pane }), ...(working && { working }) };
   } catch {
     return null;
   }

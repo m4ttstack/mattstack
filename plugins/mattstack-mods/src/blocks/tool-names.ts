@@ -6,3 +6,6 @@ export const MATTSTACK_TOOL_PREFIX = 'mcp__plugin_mattstack_mattstack__'
 
 /** The run tools that move a run; `run_status` ends it. Reads and `run_start` act on no existing run. */
 export const RUN_TOOL = new RegExp(`^${MATTSTACK_TOOL_PREFIX}run_(stage|field_set|decision|status)$`)
+
+/** The run tools that act on one run's store and take its `runDb`; `run_start` makes one and `run_list` reads them all. */
+export const RUN_DB_TOOL = new RegExp(`^${MATTSTACK_TOOL_PREFIX}run_(stage|field_set|field_get|decision|status|snapshot)$`)

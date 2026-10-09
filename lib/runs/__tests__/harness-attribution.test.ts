@@ -3,15 +3,16 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { CallerContext, NativeSessionRef, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { CallerContext, NativeSessionRef, Observation, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { RunFieldRow, RunStageRow, RunSummary } from "../../../packages/rt-client/src/commands.ts";
 import { runWriteVerb } from "../../../commands/runs-write.ts";
+import { __test__ as observations, recordObservation, STALE_OBSERVATION_MS } from "../../agent-integrations/observation-store.ts";
 import { evaluateStop } from "../../agent-integrations/policy.ts";
 import { createSessionStore } from "../../agent-integrations/session-store.ts";
 import { openStateDb } from "../../state/db.ts";
 import { computeAttention } from "../attention.ts";
 import { recordIdentity } from "../identity.ts";
-import { livenessFrom } from "../liveness.ts";
+import { boundSessionFromStore, livenessFrom } from "../liveness.ts";
 import { resolveOwnedRun, resolveRunDb } from "../resolve-db.ts";
 import { runStart } from "../start.ts";
 import { bindRunSession } from "../store.ts";
@@ -320,5 +321,57 @@ describe("attention attributes a run through its bound session", () => {
     expect(computeAttention(run, stages, fields, [], 2000, liveness)).toEqual({
       needs: true, reason: "blocked", evidence: "agent waiting for input in pane w1:p2",
     });
+  });
+});
+
+describe("run liveness reads the session's own observations", () => {
+  const NOW = 10_000_000;
+  const quiet = (key: string) => {
+    const run: RunSummary = {
+      id: "r1", repo: "demo", work_type: "fix", pipeline: "default", status: "running", current_stage: "implement",
+      spawned_by: null, started_at: 1000, ended_at: null, pack_commits: null, pack_dirty: 0,
+      attention: { needs: false, reason: null, evidence: "" }, last_event_at: 1000, ticket: null, branch: null,
+    };
+    const stages: RunStageRow[] = [{ name: "implement", status: "running", attempt: 1, started_at: 1000, ended_at: null, reason: null, detail_path: null }];
+    const fields: RunFieldRow[] = [
+      { key: "session-key", value: key, produced_by: "run", at: 1000 },
+      { key: "claude-session", value: "sess-1", produced_by: "run", at: 1000 },
+    ];
+    return { run, stages, fields };
+  };
+  const lookup = (enabled = true) => (key: string) => boundSessionFromStore(key, { db: state, enabled: () => enabled, now: () => NOW });
+  const reading = (binding: SessionBinding, over: Partial<Observation> = {}): Observation => ({
+    connectivity: "connected", execution: "working", background: "inactive", observedAt: NOW - 1000, source: "claude-mod",
+    generation: binding.attachment.generation, ...over,
+  });
+
+  beforeEach(() => observations.reset());
+  afterEach(() => observations.reset());
+
+  test("a session its mod reports working is never marked stale, however long its run is quiet", () => {
+    const binding = bind("lead", claude("sess-1"), "w1:p1");
+    const { run, stages, fields } = quiet(binding.key);
+    const liveness = () => livenessFrom([], lookup());
+    expect(computeAttention(run, stages, fields, [], NOW, liveness()).reason).toBe("stale");
+
+    recordObservation(binding.key, reading(binding), "push");
+    expect(computeAttention(run, stages, fields, [], NOW, liveness())).toEqual({ needs: false, reason: null, evidence: "" });
+  });
+
+  test("an idle, stale, polled or earlier-generation reading, or the switch off, leaves today's ladder", () => {
+    const binding = bind("lead", claude("sess-1"), "w1:p1");
+    const { run, stages, fields } = quiet(binding.key);
+    const cases: [Observation, "poll" | "push", boolean][] = [
+      [reading(binding, { execution: "idle" }), "push", true],
+      [reading(binding, { observedAt: NOW - STALE_OBSERVATION_MS - 1 }), "push", true],
+      [reading(binding), "poll", true],
+      [reading(binding, { generation: binding.attachment.generation - 1 }), "push", true],
+      [reading(binding), "push", false],
+    ];
+    for (const [observation, origin, enabled] of cases) {
+      observations.reset();
+      recordObservation(binding.key, observation, origin);
+      expect(computeAttention(run, stages, fields, [], NOW, livenessFrom([], lookup(enabled))).reason).toBe("stale");
+    }
   });
 });

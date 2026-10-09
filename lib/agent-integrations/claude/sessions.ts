@@ -716,6 +716,8 @@ export type LinkLifecycleDeps = {
   now?: () => number;
   deleteSessionFile?: (sessionId: string) => void;
   log?: (message: string, context: Record<string, unknown>) => void;
+  /** The runs root a session end abandons stages under; RT_RUNS_ROOT or the default when omitted. */
+  runsRoot?: string;
 };
 
 function logLinkHint(message: string, context: Record<string, unknown>): void {
@@ -800,6 +802,25 @@ export async function recordClaudeModObservation(
     observedAt: (overrides.now ?? Date.now)(), source: "claude-mod", generation: binding.attachment.generation,
   }, "push");
   return "applied";
+}
+
+/**
+ * A session end reported by its link: the running stage of each running run
+ * the session's binding owns is marked abandoned. Asked before the sign-out,
+ * which detaches the binding.
+ */
+export async function abandonClaudeLinkStages(
+  link: Pick<ModLinkView, "sessionId">, overrides: LinkLifecycleDeps = {},
+): Promise<string[]> {
+  const enabled = overrides.enabled ?? (await import("../context.ts")).integrationsEnabled;
+  if (!enabled()) return [];
+  const db = overrides.db ?? (await import("../../state/db.ts")).getStateDb();
+  const binding = attachedClaudeBinding(db, link.sessionId);
+  if (!binding) return [];
+  const { abandonSessionStages } = await import("../../runs/reconcile.ts");
+  return abandonSessionStages(binding, {
+    stateDb: db, ...(overrides.runsRoot !== undefined && { root: overrides.runsRoot }), ...(overrides.now && { now: overrides.now() }),
+  });
 }
 
 /** Whether Claude Code's registry shows a live process for the session: the check the buddy list reads liveness from. */

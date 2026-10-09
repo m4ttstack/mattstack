@@ -54,6 +54,12 @@ export function latestObservation(bindingKey: string): Observation | null {
   return latest.get(bindingKey)?.observation ?? null;
 }
 
+/** The newest observation when it is the session's own report (a push), or null. */
+export function pushedObservation(bindingKey: string): Observation | null {
+  const held = latest.get(bindingKey);
+  return held?.origin === "push" ? held.observation : null;
+}
+
 /** The session's own report that it ended at `generation`, or null. */
 export function pushedDeath(bindingKey: string, generation: number): Observation | null {
   const death = deaths.get(bindingKey);

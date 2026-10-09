@@ -6,9 +6,11 @@ import { join } from "path";
 import pino from "pino";
 import type { ModBlock, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { createModLinks, TESTED_CLAUDE_CODE, type ModLinks } from "../../agent-integrations/claude/mod-links.ts";
+import { attachedClaudeBinding } from "../../agent-integrations/claude/sessions.ts";
 import { forkDenyReason, stopReason, type PolicyDeps } from "../../agent-integrations/policy.ts";
 import { createSessionStore } from "../../agent-integrations/session-store.ts";
 import { runStart } from "../../runs/start.ts";
+import { openRunDb, stageStart } from "../../runs/write.ts";
 import { openStateDb } from "../../state/db.ts";
 import type { EventsBus } from "../events-bus.ts";
 import { createGatesStore } from "../gates-store.ts";
@@ -66,7 +68,7 @@ function setup(opts: { blocks?: ModBlock[]; bound?: boolean; subject?: string; r
   const unavailable: string[] = [];
   const runs = { list: opts.runs ?? [] };
   const handlers = createPolicyHandlers({
-    links, db,
+    links, db, runsRoot: join(dir, "runs"),
     forkCheck: async (payload) => {
       forkChecks.push(payload);
       return opts.noVerdict ? null : gateHandlers["gate:fork-check"](payload);
@@ -154,13 +156,18 @@ describe("policy:authorize", () => {
       return started.runDb;
     };
     // The real run store readers, over real runs.
-    const { handlers, linkId } = setup({ policy: { env: { RT_RUNS_ROOT: root }, findRunning: undefined, snapshot: undefined } });
+    const { db, handlers, linkId } = setup({ policy: { env: { RT_RUNS_ROOT: root }, findRunning: undefined, snapshot: undefined } });
     const own = run(SID);
-    const foreign = run("someone-else");
+    const unproven = run("someone-else");
+    const other = bind(db, "sess-bound-elsewhere");
+    const started = runStart(root, { repo: "repo-a", workType: "feature", pipeline: "feature", env: {}, now: 1000, binding: other });
+    if (!started.ok) throw new Error(started.error);
     for (const action of ["continue", "complete"]) {
       expect(await call(handlers["policy:authorize"], { linkId, sessionId: SID, action, subject: own })).toEqual({ ok: true, data: { decision: "allow" } });
-      const refused = await call(handlers["policy:authorize"], { linkId, sessionId: SID, action, subject: foreign });
-      expect(refused.data).toEqual({ decision: "refuse", reason: expect.stringContaining("belongs to another session") });
+      const foreign = await call(handlers["policy:authorize"], { linkId, sessionId: SID, action, subject: started.runDb });
+      expect(foreign.data).toEqual({ decision: "refuse", reason: expect.stringContaining("belongs to another session") });
+      const refused = await call(handlers["policy:authorize"], { linkId, sessionId: SID, action, subject: unproven });
+      expect(refused.data).toEqual({ decision: "refuse", reason: expect.stringContaining("ownership cannot be proven") });
     }
   });
 
@@ -236,6 +243,71 @@ describe("policy:stop", () => {
     const { handlers, linkId } = setup();
     for (const bad of [undefined, {}, { linkId }, { linkId, sessionId: "" }, { sessionId: SID }]) {
       expect((await call(handlers["policy:stop"], bad)).failure?.code).toBe("invalid");
+    }
+  });
+});
+
+describe("runs:owned", () => {
+  /** A running run in `tree` with an open stage, owned by `owner` (a binding, or a bare Claude session id as a legacy run records). */
+  function ownedRun(runId: string, tree: string, owner: SessionBinding | string): string {
+    const root = join(dir, "runs");
+    const started = typeof owner === "string"
+      ? runStart(root, { repo: "repo-a", workType: "feature", pipeline: "feature", runId, env: { CLAUDE_CODE_SESSION_ID: owner }, now: 1000 })
+      : runStart(root, { repo: "repo-a", workType: "feature", pipeline: "feature", runId, env: {}, now: 1000, binding: owner });
+    if (!started.ok) throw new Error(started.error);
+    const run = openRunDb(started.runDb);
+    run.run("INSERT INTO fields (run_id, key, value, produced_by, at) SELECT id, 'worktree', ?, 'provision', 1000 FROM runs", [tree]);
+    stageStart(run, "implement", {}, 2000);
+    run.close();
+    return started.runDb;
+  }
+
+  test("run_* without runDb resolves the owned run", async () => {
+    const { db, handlers, linkId } = setup();
+    const own = ownedRun("r-own", join(dir, "tree-a"), attachedClaudeBinding(db, SID)!);
+    expect(await call(handlers["runs:owned"], { linkId, sessionId: SID })).toEqual({ ok: true, data: { runDb: own } });
+
+    // Two owned runs: the session's current directory picks, and with neither holding it nothing is named.
+    const second = ownedRun("r-own-2", join(dir, "tree-b"), attachedClaudeBinding(db, SID)!);
+    expect(await call(handlers["runs:owned"], { linkId, sessionId: SID, cwd: join(dir, "tree-b", "src") })).toEqual({ ok: true, data: { runDb: second } });
+    expect(await call(handlers["runs:owned"], { linkId, sessionId: SID, cwd: "/nowhere" }))
+      .toEqual({ ok: true, data: { runDb: null, reason: expect.stringContaining("more than one running run") } });
+  });
+
+  test("a legacy run recorded under the session's own id is its owned run", async () => {
+    const { handlers, linkId } = setup();
+    const legacy = ownedRun("r-legacy", join(dir, "tree"), SID);
+    expect(await call(handlers["runs:owned"], { linkId, sessionId: SID })).toEqual({ ok: true, data: { runDb: legacy } });
+  });
+
+  test("a foreign run is never filled", async () => {
+    const { db, handlers, linkId } = setup();
+    const tree = join(dir, "tree");
+    ownedRun("r-foreign", tree, bind(db, "sess-other"));
+    ownedRun("r-unproven", tree, "sess-nobody");
+    // Both runs sit in the session's own directory; one belongs to another session, the other to one nobody can prove.
+    expect(await call(handlers["runs:owned"], { linkId, sessionId: SID, cwd: tree }))
+      .toEqual({ ok: true, data: { runDb: null, reason: expect.stringContaining("no running run belongs to this session") } });
+  });
+
+  test("the caller comes from the live link only: the payload's session selects nothing the link does not prove", async () => {
+    const { db, handlers, linkId } = setup({ blocks: ["policy"] });
+    ownedRun("r-other", join(dir, "tree"), bind(db, "sess-other"));
+    expect((await call(handlers["runs:owned"], { linkId, sessionId: "sess-other" })).failure?.code).toBe("refused");
+    expect((await call(handlers["runs:owned"], { linkId: "ml-missing", sessionId: "sess-other" })).failure?.code).toBe("unknown-link");
+
+    const noBlock = setup({ blocks: ["stop-gate"] });
+    expect((await call(noBlock.handlers["runs:owned"], { linkId: noBlock.linkId, sessionId: SID })).failure?.code).toBe("refused");
+
+    const unbound = setup({ bound: false });
+    expect(await call(unbound.handlers["runs:owned"], { linkId: unbound.linkId, sessionId: SID }))
+      .toEqual({ ok: true, data: { runDb: null, reason: expect.any(String) } });
+  });
+
+  test("validates its payload", async () => {
+    const { handlers, linkId } = setup();
+    for (const bad of [undefined, {}, { linkId }, { linkId, sessionId: "" }, { sessionId: SID }, { linkId, sessionId: SID, cwd: "relative" }]) {
+      expect((await call(handlers["runs:owned"], bad)).failure?.code).toBe("invalid");
     }
   });
 });
