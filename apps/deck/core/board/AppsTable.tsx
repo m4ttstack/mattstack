@@ -13,16 +13,14 @@ import {
   TextField,
   Tooltip,
 } from '@mattstack/tui-kit';
-import { HAMMER, ROCKET } from './icons.ts';
+import { CommandButton } from './CommandButton.tsx';
 import {
-  commandButtonLabel,
   commandKey,
   isPlatform,
   servicePid,
   showDevLinkPrompt,
   showVersionColumn,
   versionCell,
-  type CommandPhase,
   type CommandRuns,
   type Row,
   type StatusData,
@@ -46,13 +44,6 @@ const COL_WIDTHS = {
   plain: ['36%', '8%', '11%', '21%', '24%'],
   versioned: ['28%', '7%', '10%', '16%', '17%', '22%'],
 };
-
-const BUILD_TIP =
-  'Runs the build command only. The running app does not change until you redeploy.';
-const REDEPLOY_TIP =
-  "Runs this app's deploy command from its linked checkout, so the running app picks up the new code.";
-
-const COMMAND_ICONS: Record<string, string> = { build: HAMMER, deploy: ROCKET };
 
 export interface AppsSection {
   key: string;
@@ -274,9 +265,12 @@ function PortCell({ row, data }: { row: Row; data: StatusData }) {
   );
 }
 
+export const OFF_TIP =
+  'Turned off. Turn it on in mattstack.app, Settings > Apps.';
+
 export function OffBadge() {
   return (
-    <Tooltip tip="Turned off. Turn it on in mattstack.app, Settings > Apps.">
+    <Tooltip tip={OFF_TIP}>
       <Badge intent="muted">off</Badge>
     </Tooltip>
   );
@@ -414,8 +408,8 @@ function RestartButton({
 
 /** Dev-mode source linking replaces the manifest command buttons rather than
     sharing the cell with them: `unlinked`/`broken` rows have nothing else to
-    run yet. Unlink lives in the drawer's source screen, not here — the table
-    carries commands and the link-fix affordance only. */
+    run yet. Unlink lives in the settings modal's Code block, not here: the
+    table carries commands and the link-fix affordance only. */
 function CommandsCell({
   row,
   canManage,
@@ -457,63 +451,6 @@ function CommandsCell({
         />
       ))}
     </>
-  );
-}
-
-function commandTip(
-  row: Row,
-  name: string,
-  phase: CommandPhase | undefined
-): string {
-  if (phase != null) return commandButtonLabel(name, phase);
-  if (name === 'build') return BUILD_TIP;
-  return row.newCode
-    ? `New code since last deploy: ${row.newCode.deployed} to ${row.newCode.head}. ${REDEPLOY_TIP}`
-    : REDEPLOY_TIP;
-}
-
-/** `build` and `deploy` are icon buttons; any other manifest command keeps
-    its text label. A busy icon button shows only the kit spinner, since
-    Button renders the spinner beside its children. */
-function CommandButton({
-  row,
-  name,
-  phase,
-  onRunCommand,
-}: {
-  row: Row;
-  name: string;
-  phase: CommandPhase | undefined;
-  onRunCommand: (row: Row, name: string) => void;
-}) {
-  const icon = COMMAND_ICONS[name];
-  if (!icon) {
-    return (
-      <Button
-        variant="subtle"
-        size="sm"
-        busy={phase != null}
-        aria-label={`${name} ${row.name}`}
-        onClick={() => onRunCommand(row, name)}
-      >
-        {commandButtonLabel(name, phase)}
-      </Button>
-    );
-  }
-  return (
-    <Tooltip tip={commandTip(row, name, phase)}>
-      <Button
-        variant="subtle"
-        size="sm"
-        iconOnly
-        busy={phase != null}
-        className={name === 'deploy' && row.newCode ? 't-warn' : 'row-icon'}
-        aria-label={`${name} ${row.name}`}
-        onClick={() => onRunCommand(row, name)}
-      >
-        {phase == null && <Icon d={icon} />}
-      </Button>
-    </Tooltip>
   );
 }
 

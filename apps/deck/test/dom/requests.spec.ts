@@ -2,7 +2,7 @@
 // methods. Redesigns move controls around and may only retarget the flow
 // helpers below, never EXPECTED_REQUESTS.
 import { expect, test } from 'bun:test';
-import type { Page, Route } from 'playwright';
+import type { Locator, Page, Route } from 'playwright';
 
 import { withBoard } from './rig.ts';
 
@@ -98,23 +98,29 @@ function sawRequest(key: string): () => boolean {
   return () => requestLog.slice(flowStart).includes(key);
 }
 
-async function openSettings(page: Page, name: string): Promise<void> {
-  if ((await page.locator('[data-part="sidedrawer"]').count()) > 0) {
-    await page.locator('[data-part="drawer-close"]').click();
-    await page.waitForSelector('[data-part="sidedrawer"]', {
-      state: 'detached',
-    });
+function settingsFor(page: Page, name: string): Locator {
+  return page.getByRole('dialog', {
+    name: `settings for ${name}`,
+    exact: true,
+  });
+}
+
+async function openSettings(page: Page, name: string): Promise<Locator> {
+  const open = page.getByRole('dialog', { name: /^settings for / });
+  if ((await open.count()) > 0) {
+    await open.getByRole('button', { name: 'close', exact: true }).click();
+    await open.waitFor({ state: 'detached' });
   }
   await page
     .getByRole('button', { name: `settings for ${name}`, exact: true })
     .click();
-  await page.waitForSelector('[data-part="sidedrawer"]');
+  const dlg = settingsFor(page, name);
+  await dlg.waitFor({ state: 'visible' });
+  return dlg;
 }
 
-async function openScreen(page: Page, label: string): Promise<void> {
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: label })
-    .click();
+function modalBlock(dlg: Locator, id: string): Locator {
+  return dlg.locator(`[data-block="${id}"]`);
 }
 
 function navAction(page: Page) {
@@ -173,35 +179,27 @@ async function driveManualAdd(page: Page): Promise<void> {
 }
 
 async function driveDevPortPublicFollows(page: Page): Promise<void> {
-  await openSettings(page, 'orbit');
-  await openScreen(page, 'dev port');
-  await page
-    .locator('[data-part="listgroup-toggle"] [data-part="switch-control"]')
+  const dlg = await openSettings(page, 'orbit');
+  await modalBlock(dlg, 'port')
+    .getByRole('switch', { name: "serve orbit's dev port publicly" })
     .click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/public-follows-override'));
 }
 
 async function driveDevPortRevert(page: Page): Promise<void> {
-  await openSettings(page, 'orbit');
-  await openScreen(page, 'dev port');
-  await page
-    .locator('[data-part="listgroup-action"] button', {
-      hasText: 'revert to 11007',
-    })
+  const dlg = await openSettings(page, 'orbit');
+  await modalBlock(dlg, 'port')
+    .getByRole('button', { name: 'revert to 11007', exact: true })
     .click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/override'));
 }
 
 async function driveDevPortSave(page: Page): Promise<void> {
-  await openSettings(page, 'atlas');
-  await openScreen(page, 'dev port');
-  await page
-    .locator('[data-part="listgroup-action"] button', {
-      hasText: 'set override…',
-    })
-    .click();
-  await page.getByRole('textbox', { name: 'dev port override' }).fill('5173');
-  await navAction(page).click();
+  const port = modalBlock(await openSettings(page, 'atlas'), 'port');
+  await port
+    .getByRole('textbox', { name: 'dev port override' })
+    .pressSequentially('5173');
+  await port.getByRole('button', { name: 'Route to it', exact: true }).click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/override'));
 }
 
@@ -253,23 +251,22 @@ async function driveGoogleSignInWho(page: Page): Promise<void> {
 }
 
 async function driveEditSave(page: Page): Promise<void> {
-  await openSettings(page, 'orbit');
-  await openScreen(page, 'edit app');
-  await page.getByRole('textbox', { name: 'base port' }).fill('12345');
-  await navAction(page).click();
+  const app = modalBlock(await openSettings(page, 'orbit'), 'app');
+  await app
+    .getByRole('textbox', { name: 'base port', exact: true })
+    .fill('12345');
+  await app.getByRole('button', { name: 'Save changes', exact: true }).click();
   await waitFor(sawRequest('PATCH /api/v1/apps/:app'));
 }
 
 async function driveSourceUnlink(page: Page): Promise<void> {
-  await openSettings(page, 'atlas');
-  await openScreen(page, 'source');
-  await page
-    .locator('[data-part="sidedrawer"] [data-part="listgroup-action"] button', {
-      hasText: 'Unlink',
-    })
+  const dlg = await openSettings(page, 'atlas');
+  await modalBlock(dlg, 'code')
+    .getByRole('button', { name: 'unlink', exact: true })
     .click();
   await page
-    .locator('[data-part="modal"] button', { hasText: 'unlink' })
+    .getByRole('dialog', { name: 'unlink atlas?', exact: true })
+    .getByRole('button', { name: 'unlink', exact: true })
     .click();
   await waitFor(sawRequest('PATCH /api/v1/apps/:app'));
 }

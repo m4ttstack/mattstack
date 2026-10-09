@@ -6,7 +6,7 @@ import {
   Spinner,
   Tooltip,
 } from '@mattstack/tui-kit';
-import { SiteMark } from '../AppsTable.tsx';
+import { OFF_TIP, SiteMark } from '../AppsTable.tsx';
 import { isMattstack, statusPill, type Row } from '../logic.ts';
 import type { BlockProps } from './block.ts';
 
@@ -34,6 +34,19 @@ export function SettingsHeader({ row, board, blocks }: BlockProps) {
   const restarting = board.isRestarting(row);
   const pill = statusPill(row, restarting);
   const owner = ownerBadge(row);
+  const badge = (
+    <Badge intent={pill.tone}>
+      {restarting ? (
+        <Spinner size="xs" />
+      ) : (
+        <span className="settings-pill-dot" aria-hidden="true" />
+      )}
+      <span>{pill.label}</span>
+      {pill.detail && (
+        <span className="settings-pill-detail">{pill.detail}</span>
+      )}
+    </Badge>
+  );
   return (
     <section data-block="status" aria-label="Status" className="settings-head">
       <SiteMark row={row} />
@@ -50,17 +63,11 @@ export function SettingsHeader({ row, board, blocks }: BlockProps) {
           data-part="status-pill"
           data-tone={pill.tone}
         >
-          <Badge intent={pill.tone}>
-            {restarting ? (
-              <Spinner size="xs" />
-            ) : (
-              <span className="settings-pill-dot" aria-hidden="true" />
-            )}
-            <span>{pill.label}</span>
-            {pill.detail && (
-              <span className="settings-pill-detail">{pill.detail}</span>
-            )}
-          </Badge>
+          {row.enabled === false ? (
+            <Tooltip tip={OFF_TIP}>{badge}</Tooltip>
+          ) : (
+            badge
+          )}
         </span>
         {blocks.restart && row.service && (
           <Tooltip tip="Restarts the service. The app is unavailable for a moment.">

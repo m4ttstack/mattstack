@@ -6,6 +6,7 @@ import { useState } from 'react';
 
 import { ListGroup } from '@mattstack/tui-kit';
 import type { Row } from '../logic.ts';
+import { SourceLinkInput } from '../settings/SourceLinkInput.tsx';
 import type { BoardState } from '../useBoardState.ts';
 import type { ScreenBuilder } from './RootScreen.tsx';
 
@@ -22,55 +23,6 @@ function linkFooter(row: Row): string {
   if (row.devLink === 'broken')
     return 'the linked directory is missing or its manifest is invalid — relink to fix';
   return 'link a source checkout to get build/deploy here and source serving in dev mode';
-}
-
-/** Inline path input for link/relink — the drawer twin of the table's
-    DevLinkPrompt, kept as a component so its state survives re-renders. */
-function SourceLinkInput({
-  row,
-  board,
-  done,
-}: {
-  row: Row;
-  board: BoardState;
-  done: () => void;
-}) {
-  const [value, setValue] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const submit = async () => {
-    const workingDirectory = value.trim();
-    if (!workingDirectory) return;
-    setBusy(true);
-    const message = await board.linkSource(row, workingDirectory);
-    setBusy(false);
-    if (message) {
-      setError(message);
-      return;
-    }
-    setValue('');
-    done();
-  };
-
-  return (
-    <ListGroup.Input
-      value={value}
-      onChange={ev => {
-        setValue(ev.target.value);
-        setError(null);
-      }}
-      placeholder="/path/to/source"
-      aria-label={`source path for ${row.name}`}
-      error={error ?? undefined}
-      disabled={busy}
-      inputRef={el => el?.focus()}
-      onKeyDown={ev => {
-        if (ev.key === 'Enter') submit();
-        if (ev.key === 'Escape') done();
-      }}
-    />
-  );
 }
 
 function SourceGroups({ row, board }: { row: Row; board: BoardState }) {
@@ -91,6 +43,7 @@ function SourceGroups({ row, board }: { row: Row; board: BoardState }) {
             row={row}
             board={board}
             done={() => setLinking(false)}
+            autoFocus
           />
         ) : (
           <ListGroup.Action

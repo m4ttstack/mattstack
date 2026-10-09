@@ -8,8 +8,11 @@ import {
   type StatusData,
 } from '../logic.ts';
 import type { BoardState } from '../useBoardState.ts';
+import { AppBlock } from './AppBlock.tsx';
 import type { BlockProps } from './block.ts';
+import { CodeBlock } from './CodeBlock.tsx';
 import { IssuesBlock, SettingsHeader } from './Header.tsx';
+import { PortBlock } from './PortBlock.tsx';
 import { RecentErrors } from './RecentErrors.tsx';
 import { ServiceForm } from './ServiceForm.tsx';
 import { TunnelForm } from './TunnelForm.tsx';
@@ -30,6 +33,9 @@ function AppForm(props: BlockProps) {
   return (
     <div className="settings-grid">
       <div className="settings-col">
+        <CodeBlock {...props} />
+        <AppBlock {...props} />
+        <PortBlock {...props} />
         <RecentErrors {...props} />
       </div>
     </div>

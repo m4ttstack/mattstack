@@ -151,7 +151,7 @@
 .settings-block {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-lg);
   min-width: 0;
 }
 .settings-heading {
@@ -168,17 +168,142 @@
   font-family: var(--font-mono);
 }
 
+/* Code and Port share one label column so their values line up. */
+.app-settings-modal {
+  --settings-label-col: calc(var(--spacing-rem150) * 4.5);
+}
+.settings-block-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xxs);
+}
+.settings-block-head .settings-note {
+  margin: 0;
+}
 .settings-facts {
   display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: var(--spacing-sm) var(--spacing-xxl);
+  grid-template-columns: var(--settings-label-col) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--spacing-rem80) 0;
   margin: 0;
 }
 .settings-facts dt {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
   color: var(--text-2);
 }
 .settings-facts dd {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settings-deployed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+.settings-override {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+/* A row of buttons: commands on the left, relink and unlink pushed right. */
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+/* Redeploy with new code to ship: the update strip's amber wash under the
+   kit's warn outline. */
+.settings-actions .command-labeled[data-intent='warn'] {
+  background: var(--surface-wash-amber-7);
+}
+.settings-actions .command-labeled[data-intent='warn']:hover:not(:disabled) {
+  background: var(--button-hover);
+}
+.settings-actions-end {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-left: auto;
+}
+.settings-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+.settings-link .settings-note {
+  margin: 0;
+}
+
+.settings-inline-form {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+}
+.settings-inline-form [data-part='field'] {
+  width: calc(var(--spacing-rem150) * 5);
+}
+
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+}
+.settings-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xxs);
+  min-width: 0;
+}
+.settings-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--text-1);
+}
+
+/* The App block: labels left, inputs right, on one grid via subgrid so
+   every field shares the label column. */
+.settings-form {
+  display: grid;
+  grid-template-columns: var(--settings-label-col) minmax(0, 1fr);
+  gap: var(--spacing-sm) 0;
+}
+.settings-form [data-part='field'] {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  row-gap: var(--spacing-xs);
+  font-size: inherit;
+}
+.settings-form [data-part='field-label'] {
+  color: var(--text-2);
+  font-size: inherit;
+}
+.settings-form [data-part='field-input'] {
+  font-family: var(--font-mono);
+}
+.settings-form [data-part='field-error'] {
+  grid-column: 2;
+}
+.settings-form-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+.settings-block [data-part='field'] {
+  font-size: inherit;
+}
+.settings-block [data-part='field-input'] {
+  padding: var(--spacing-xs) var(--spacing-sm);
 }
 
 .settings-help {
