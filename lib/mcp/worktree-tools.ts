@@ -1,18 +1,37 @@
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
+import type { CallerContext, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
+import type { WorktreeDeps } from "../agent-integrations/worktrees.ts";
+import { warn } from "../ui/warn.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
-import { checkOptional, checkRequired, err, fromResponse, REPO_NAME_RULE, type McpToolDef } from "./shared.ts";
+import {
+  boundCaller, callerRefusal, checkOptional, checkRequired, err, fromResponse, REPO_NAME_RULE, type McpToolDef, type ToolContext,
+} from "./shared.ts";
 
 const PROVISION_TIMEOUT_MS = 300_000;
 const DISPOSE_TIMEOUT_MS = 120_000;
 const REPO_PROP = { repoName: { type: "string", description: "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo." } };
 
-export function worktreeToolDefs(deps: { command: typeof rtCommand } = { command: rtCommand }): McpToolDef[] {
+export type WorktreeToolDeps = {
+  command: typeof rtCommand;
+  /** With the switch on, provision records the calling session as the tree's holder and dispose refuses a tree another session holds. */
+  caller?: (context?: ToolContext) => Promise<Outcome<CallerContext> | null>;
+  repo?: (repoName: unknown) => Promise<{ identity: string } | { error: string }>;
+  worktrees?: () => WorktreeDeps;
+};
+
+async function targetRepo(repoName: unknown): Promise<{ identity: string } | { error: string }> {
+  const t = await resolveRepoTarget({ repoName });
+  return t.ok ? { identity: t.identity } : { error: t.error };
+}
+
+export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }): McpToolDef[] {
+  const caller = deps.caller ?? boundCaller;
+  const worktrees = deps.worktrees ?? (() => ({}));
   async function repo(input: Record<string, unknown>): Promise<{ identity: string } | { error: string }> {
     const bad = checkRequired(input, [{ name: "repoName", type: "string" }]);
     if (bad) return { error: bad };
-    const t = await resolveRepoTarget({ repoName: input.repoName });
-    return t.ok ? { identity: t.identity } : { error: t.error };
+    return (deps.repo ?? targetRepo)(input.repoName);
   }
   return [
     {
@@ -25,7 +44,7 @@ export function worktreeToolDefs(deps: { command: typeof rtCommand } = { command
         additionalProperties: false,
       },
       shellForms: ["rt worktree provision", "git worktree add"],
-      async handler(input) {
+      async handler(input, _env, _signal, context) {
         const bad = checkOptional(input, [{ name: "ticket", type: "string" }, { name: "ticketTitle", type: "string" }, { name: "branch", type: "string" }, { name: "disposal", type: "string" }, { name: "owner", type: "string" }]);
         if (bad) return err(bad);
         if (typeof input.ticket !== "string" && typeof input.branch !== "string") return err("pass a ticket (with an optional ticketTitle) or a branch");
@@ -35,7 +54,15 @@ export function worktreeToolDefs(deps: { command: typeof rtCommand } = { command
         const payload: Commands["worktree:provision"]["payload"] = { repoName: r.identity };
         for (const k of ["ticket", "ticketTitle", "branch", "owner"] as const) if (typeof input[k] === "string") payload[k] = input[k] as string;
         if (input.disposal === "merge" || input.disposal === "job") payload.disposal = input.disposal;
-        return fromResponse(await deps.command<Commands["worktree:provision"]["data"]>("worktree:provision", payload, { timeoutMs: PROVISION_TIMEOUT_MS }));
+        const who = await caller(context);
+        if (who !== null && !who.ok) return err(callerRefusal(who.error));
+        const res = await deps.command<Commands["worktree:provision"]["data"]>("worktree:provision", payload, { timeoutMs: PROVISION_TIMEOUT_MS });
+        if (who !== null && res.ok && res.data) {
+          const { claimWorktree } = await import("../agent-integrations/worktrees.ts");
+          const held = claimWorktree(who.data, res.data.path, {}, worktrees());
+          if (!held.ok) warn("worktree-tools", `could not record the session holding ${res.data.path}: ${held.error.message}`);
+        }
+        return fromResponse(res);
       },
     },
     {
@@ -43,12 +70,21 @@ export function worktreeToolDefs(deps: { command: typeof rtCommand } = { command
       description: `Dispose a worktree by its tree name; it goes to the restorable trash. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...REPO_PROP, tree: { type: "string", description: "The tree name as worktree list prints it." } }, required: ["repoName", "tree"], additionalProperties: false },
       shellForms: ["rt worktree dispose"],
-      async handler(input) {
+      async handler(input, _env, _signal, context) {
         const bad = checkRequired(input, [{ name: "tree", type: "string" }]);
         if (bad) return err(bad);
         const r = await repo(input);
         if ("error" in r) return err(r.error);
-        return fromResponse(await deps.command<Commands["worktree:dispose"]["data"]>("worktree:dispose", { repoName: r.identity, tree: input.tree as string }, { timeoutMs: DISPOSE_TIMEOUT_MS }));
+        const who = await caller(context);
+        if (who !== null && !who.ok) return err(callerRefusal(who.error));
+        const service = who === null ? null : await import("../agent-integrations/worktrees.ts");
+        const tree = who !== null && service ? service.findManagedTree(r.identity, input.tree as string, worktrees()) : null;
+        if (who !== null && tree && service?.foreignHolder(who.data, tree, worktrees())) {
+          return err(`${tree.name} belongs to another session, so this session cannot dispose it`);
+        }
+        const res = await deps.command<Commands["worktree:dispose"]["data"]>("worktree:dispose", { repoName: r.identity, tree: input.tree as string }, { timeoutMs: DISPOSE_TIMEOUT_MS });
+        if (who !== null && tree && res.ok && res.data?.disposed.includes(tree.name)) service?.settleDisposed(who.data, tree, worktrees());
+        return fromResponse(res);
       },
     },
     {

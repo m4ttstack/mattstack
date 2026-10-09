@@ -57,6 +57,7 @@ import type { BgClaimsStore } from "../bg-claims-store.ts";
 import type { CommandResult } from "./types.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../../agent-integrations/context.ts";
+import { resumeWorktreeAccess } from "../../agent-integrations/worktrees.ts";
 import type { IntegrationRegistry, LaunchHost, LaunchSurface, WorkCompletion } from "../../agent-integrations/contracts.ts";
 import { createBoundLauncher, launchAttention, launchGuard, launchInProgress, type BoundLauncher } from "../../agent-integrations/launch.ts";
 import {
@@ -500,6 +501,12 @@ export function createAgentService(opts: AgentHandlerOpts): {
     });
   }
 
+  /** A resumed session keeps read access to the pool tree it holds when it is launched from outside that tree. */
+  function resumedWorktreeRoots(resumed: SessionBinding | undefined, attemptId: string | undefined, cwd: string): string[] {
+    if (!resumed) return [];
+    return resumeWorktreeAccess({ key: resumed.key, ...(attemptId !== undefined && { attemptId }) }, cwd, { db }).readRoots;
+  }
+
   /**
    * The agent.integrations.enabled path: the shared launcher prepares a bound
    * session (never sending work), then the prompt goes through its explicit
@@ -548,7 +555,7 @@ export function createAgentService(opts: AgentHandlerOpts): {
     const prepared = await bound().launchBoundAgent({
       reservationId, cwd: rec.cwd, mode: rec.surface, selection: selectionOf(rec), required: extra.attempt?.required ?? [],
       ...(resolvedPrompt !== undefined && { prompt: resolvedPrompt }),
-      access: { readRoots: addDirs ?? [] },
+      access: { readRoots: [...(addDirs ?? []), ...resumedWorktreeRoots(resumed, attemptId, rec.cwd)] },
       ...(resumed ? { resumeKey: resumed.key } : { nativeHint: rec.sessionId }),
       host,
     });

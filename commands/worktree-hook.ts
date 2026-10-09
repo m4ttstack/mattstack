@@ -1,31 +1,33 @@
 /**
- * rt worktree claude-hook (Claude Code WorktreeCreate/WorktreeRemove hook).
- * Protocol (probed 2026-09-01): stdin JSON; stdout = absolute tree path on
- * create; non-zero exit surfaces stderr verbatim in the Claude session.
- * The WorktreeRemove stdin shape is UNVERIFIED (never observed firing), so
- * the parser accepts worktree_path or path and treats absence as a noop.
+ * rt worktree claude-hook (Claude Code WorktreeCreate/WorktreeRemove hook)
+ * and rt worktree announce-relocation (its EnterWorktree PreToolUse hook).
+ * The hook protocol and the decisions live in Claude's integration
+ * (lib/agent-integrations/claude/worktrees.ts); with agent.integrations.enabled
+ * on, a bound session's events go through the shared worktree service.
  */
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { warn } from "../lib/ui/warn.ts";
 import { existsSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import { currentRepoIdentityFor } from "../lib/repo-arg.ts";
 import { isRepoRegistered } from "../lib/repo-index.ts";
 import { claudeWorktreeHookStatus, HOOK_TIMEOUT_SECONDS, installClaudeWorktreeHooks, uninstallClaudeWorktreeHooks } from "../lib/claude-settings.ts";
 import { explainSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
-import { decideCreate, decideRemove, stockWorktreeAdd } from "../lib/worktree/claude-hook.ts";
+import {
+  buildRelocationAnnouncement, claudeHookCaller, decideCreate, decideRemove, parseHookStdin, stockWorktreeAdd,
+  type HookCaller, type RelocationAnnouncement,
+} from "../lib/agent-integrations/claude/worktrees.ts";
 import { loadWorktreeAppConfig } from "../lib/worktree/config.ts";
 import { explainError } from "./worktree.ts";
 import { findTreeByPath } from "../lib/worktree/registry.ts";
 import { selfPaneRef } from "../lib/self-pane.ts";
 import { rtCommand } from "../packages/rt-client/src/index.ts";
-import type { Commands } from "../packages/rt-client/src/index.ts";
 
-type RelocationAnnouncement = Commands["pane:announce-relocation"]["payload"];
+export { buildRelocationAnnouncement, parseHookStdin };
 
 // One shared number with lib/claude-settings.ts's HOOK_TIMEOUT_SECONDS (the
 // installed hook entries' Claude Code `timeout` field) so the two can never
@@ -204,55 +206,54 @@ export async function hookStatusCommand(args: string[], _ctx: unknown): Promise<
   }
 }
 
-type ParsedStdin =
-  | { event: "create"; cwd: string; name: string; sessionId?: string }
-  | { event: "remove"; path: string | null }
-  | { event: "invalid" };
-
-export function parseHookStdin(raw: string): ParsedStdin {
-  try {
-    const j = JSON.parse(raw);
-    if (j.hook_event_name === "WorktreeCreate" && typeof j.cwd === "string" && typeof j.name === "string") {
-      return { event: "create", cwd: j.cwd, name: j.name, ...(typeof j.session_id === "string" ? { sessionId: j.session_id } : {}) };
-    }
-    if (j.hook_event_name === "WorktreeRemove") {
-      const p = typeof j.worktree_path === "string" ? j.worktree_path : typeof j.path === "string" ? j.path : null;
-      return { event: "remove", path: p };
-    }
-  } catch { /* fall through to invalid */ }
-  return { event: "invalid" };
-}
-
-/** Only EnterWorktree paints a Claude Code relocation dialog (ExitWorktree has none on 2.1.283), so any other tool is null. */
-export function buildRelocationAnnouncement(stdin: string, env: NodeJS.ProcessEnv): RelocationAnnouncement | null {
-  let hook: { session_id?: unknown; cwd?: unknown; tool_name?: unknown; tool_input?: unknown };
-  try {
-    hook = JSON.parse(stdin);
-  } catch {
-    return null;
-  }
-  if (!hook || typeof hook !== "object") return null;
-  if (hook.tool_name !== "EnterWorktree") return null;
-  if (typeof hook.session_id !== "string" || typeof hook.cwd !== "string") return null;
-  const out: RelocationAnnouncement = { sessionId: hook.session_id, tool: "EnterWorktree", cwd: hook.cwd };
-  const paneId = selfPaneRef(env);
-  if (paneId) out.paneId = paneId;
-  const input = hook.tool_input;
-  if (input && typeof input === "object" && typeof (input as { path?: unknown }).path === "string") {
-    out.path = (input as { path: string }).path;
-  }
-  return out;
-}
-
 /** Never call directly: Claude Code's PreToolUse hook drives this over stdin. Every path prints nothing and exits 0 so a daemon-down or malformed-input case never stalls the pane. */
 export async function announceRelocation(_args: string[]): Promise<void> {
   const stdin = process.stdin.isTTY ? "" : await Bun.stdin.text();
   const payload = buildRelocationAnnouncement(stdin, process.env);
   if (!payload) return;
   try {
+    if (!(await relocationIsCallers(payload))) return;
     await rtCommand("pane:announce-relocation", payload, { timeoutMs: 3_000 });
   } catch {
     // the daemon being unreachable falls through to the human's own dialog, not the hook's error
+  }
+}
+
+/**
+ * With the switch on, a bound session is announced only for a tree it holds,
+ * so the daemon never drives the dialog into another session's tree; that
+ * dialog stays with the person. Every other caller announces as before.
+ */
+export async function relocationIsCallers(payload: RelocationAnnouncement, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  if (payload.path === undefined) return true;
+  const caller = claudeHookCaller(payload.sessionId, env);
+  if (caller.kind !== "bound") return true;
+  const { applyWorktreeEvent } = await import("../lib/agent-integrations/worktrees.ts");
+  return (await applyWorktreeEvent(caller.context, { kind: "relocate", path: resolve(payload.cwd, payload.path) })).ok;
+}
+
+/** A bound session leaves only a tree it holds, and disposes it once; an unreachable daemon stays quiet, as on the legacy path. */
+async function leaveAsCaller(caller: Exclude<HookCaller, { kind: "legacy" }>, path: string | null): Promise<void> {
+  if (path === null) return;
+  if (caller.kind === "refused") {
+    out.diagnostic(`rt: tree kept: ${caller.error.message}\n`);
+    return;
+  }
+  const { applyWorktreeEvent } = await import("../lib/agent-integrations/worktrees.ts");
+  const left = await applyWorktreeEvent(caller.context, { kind: "leave", path });
+  if (!left.ok && left.error.code !== "transient") out.diagnostic(`rt: tree kept: ${left.error.message}\n`);
+}
+
+/** Records the bound session that asked for a provisioned tree as its holder; a failure is logged and never fails the create. */
+async function holdAsCaller(sessionId: string | undefined, path: string): Promise<void> {
+  try {
+    const caller = claudeHookCaller(sessionId, process.env);
+    if (caller.kind !== "bound") return;
+    const { claimWorktree } = await import("../lib/agent-integrations/worktrees.ts");
+    const held = claimWorktree(caller.context, path);
+    if (!held.ok) warn("worktree-hook", `could not record the session holding ${path}: ${held.error.message}`);
+  } catch (err) {
+    warn("worktree-hook", `could not record the session holding ${path}: ${String(err)}`);
   }
 }
 
@@ -297,6 +298,11 @@ export async function claudeHookCommand(args: string[], _ctx: unknown): Promise<
 
   if (parsed.event === "remove" || removeMode) {
     if (parsed.event !== "remove") process.exit(0);
+    const caller = claudeHookCaller(parsed.sessionId, process.env);
+    if (caller.kind !== "legacy") {
+      await leaveAsCaller(caller, parsed.path);
+      process.exit(0);
+    }
     const decision = decideRemove(parsed.path, (p) => findTreeByPath(p));
     if (decision.kind === "dispose") {
       const res = await daemonQuery("worktree:dispose", { repoName: decision.repoName, tree: decision.tree, force: false, callerPid: process.pid });
@@ -319,6 +325,7 @@ export async function claudeHookCommand(args: string[], _ctx: unknown): Promise<
     out.diagnostic(`rt worktree provision refused: ${explainError(decision.error)} (escape hatch: rt worktree hook uninstall)\n`);
     process.exit(2);
   }
+  if (decision.kind === "provisioned") await holdAsCaller(parsed.sessionId, decision.path);
   if (decision.kind === "provisioned" && parsed.sessionId) {
     const announce: RelocationAnnouncement = { sessionId: parsed.sessionId, tool: "EnterWorktree", path: decision.path, cwd: parsed.cwd };
     const paneId = selfPaneRef(process.env);

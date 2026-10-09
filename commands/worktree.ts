@@ -44,6 +44,8 @@ import type { EnrichedBranch } from "../lib/enrich.ts";
 import type { Block, PickRow, PickSegment, RenderStatus, Segment } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import type { RestorableEntry } from "../lib/worktree/restore.ts";
+import { warn } from "../lib/ui/warn.ts";
+import type { Database } from "bun:sqlite";
 
 // Provision and create both do a targeted `git fetch` / cold clone (up to
 // 5 min server-side per lib/daemon/handlers/worktree.ts) — give the round
@@ -522,6 +524,28 @@ function provisionBlocks(d: Record<string, any>): Block[] {
   return blocks;
 }
 
+/**
+ * With agent.integrations.enabled on, a bound session that provisions here
+ * becomes the tree's holder, the same as through worktree_provision. A
+ * person's shell, or an unresolved session, provisions exactly as before.
+ */
+export async function holdForBoundCaller(
+  path: string, deps: { enabled?: () => boolean; db?: Database; env?: NodeJS.ProcessEnv } = {},
+): Promise<void> {
+  try {
+    const { integrationsEnabled } = await import("../lib/agent-integrations/switch.ts");
+    if (!(deps.enabled ?? integrationsEnabled)()) return;
+    const { resolveCliBinding } = await import("../lib/agent-integrations/context.ts");
+    const binding = resolveCliBinding([], deps.env ?? process.env, deps.db ? { db: deps.db } : {});
+    if (!binding) return;
+    const { claimWorktree } = await import("../lib/agent-integrations/worktrees.ts");
+    const held = claimWorktree({ binding }, path, {}, deps.db ? { db: deps.db } : {});
+    if (!held.ok) warn("worktree", `could not record the session holding ${path}: ${held.error.message}`);
+  } catch (err) {
+    warn("worktree", `could not record the session holding ${path}: ${String(err)}`);
+  }
+}
+
 export async function worktreeProvision(args: string[], _ctx: unknown): Promise<void> {
   const parsed = parseProvisionArgs(args);
   const repoName = parsed.repoName ? await resolveRepo(parsed.json, parsed.repoName) : currentRepoIdentity();
@@ -540,6 +564,7 @@ export async function worktreeProvision(args: string[], _ctx: unknown): Promise<
 
   const res = await queryDaemon("worktree:provision", payload, PROVISION_TIMEOUT_MS);
   const ok = requireQueryResult(parsed.json, res);
+  await holdForBoundCaller((ok.data as { path: string }).path);
 
   if (parsed.json) { out.json(ok.data, 2); return; }
 
