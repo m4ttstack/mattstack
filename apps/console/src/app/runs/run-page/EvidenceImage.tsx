@@ -11,6 +11,8 @@ export interface EvidenceImageProps {
   onOpen?: () => void;
   /** Caps the image height; the compare modal and thumbnails differ. */
   maxHeight?: number | string;
+  /** A thumbnail: fills its frame at `maxHeight`, cropped from the top. */
+  cover?: boolean;
 }
 
 /** An image the run's evidence route serves. A failed load is remembered per
@@ -20,6 +22,7 @@ export function EvidenceImage({
   name,
   onOpen,
   maxHeight,
+  cover = false,
 }: EvidenceImageProps) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
 
@@ -44,8 +47,10 @@ export function EvidenceImage({
     <Image
       src={src}
       alt={name}
-      fit="contain"
+      fit={cover ? 'cover' : 'contain'}
+      h={cover ? maxHeight : undefined}
       mah={maxHeight}
+      className={cover ? classes.cover : undefined}
       onError={() => setFailedSrc(src)}
     />
   );

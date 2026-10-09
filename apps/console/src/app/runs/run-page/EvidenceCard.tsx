@@ -108,6 +108,7 @@ function Thumb({
           src={src}
           name={name}
           maxHeight={size === 'story' ? 144 : 132}
+          cover={size === 'record'}
           onOpen={onOpen}
         />
       </div>
@@ -349,6 +350,7 @@ function RecordColumn({
                               src={evidenceUrl(repo, runId, shot.key)}
                               name={shot.fileName}
                               maxHeight={132}
+                              cover
                             />
                           </UnstyledButton>
                         </div>

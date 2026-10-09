@@ -222,6 +222,31 @@ describe('EvidenceCard legacy and empty evidence', () => {
     }
   );
 
+  it('fills a record tile with each thumbnail, legacy or v1, and keeps the modal whole', async () => {
+    const fit = (img: Element) =>
+      (img as HTMLElement).style.getPropertyValue('--image-object-fit');
+    const legacy = mount(
+      <EvidenceCard
+        repo={REPO}
+        runId={RUN}
+        evidence={LEGACY}
+        variant="record"
+        ticket="WEB-377"
+      />
+    );
+    const thumbs = [...legacy.container.querySelectorAll('img')];
+    expect(thumbs.map(fit)).toEqual(['cover', 'cover']);
+    await userEvent.setup().click(thumbs[0]!);
+    const dialog = await screen.findByRole('dialog');
+    expect(fit(within(dialog).getByRole('img'))).not.toBe('cover');
+    legacy.unmount();
+    const v1 = record();
+    expect([...v1.container.querySelectorAll('img')].map(fit)).toEqual([
+      'cover',
+      'cover',
+    ]);
+  });
+
   it('opens a legacy screenshot full size under the ticket and its name', async () => {
     const user = userEvent.setup();
     const { getByRole } = story({ evidence: LEGACY, ticket: 'WEB-377' });
