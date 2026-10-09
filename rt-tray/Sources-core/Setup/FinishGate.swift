@@ -73,13 +73,17 @@ public final class ChoiceClient {
     /// making the app execute an arbitrary id as a top-level rt command.
     public func choose(verb: [String], id: String) async -> String? {
         guard !verb.isEmpty else { return "This choice has no command to run." }
-        let args = verb + [id, "--json"]
+        return await run(verb + [id, "--json"])
+    }
+
+    /// Runs argv a choice sheet built from the row's own verb; nil once it succeeded.
+    public func run(_ args: [String]) async -> String? {
         do {
             let result = try await rt.run(args, stdin: nil)
             if let e = result.userError { return e.message }
             if result.exitCode != 0 { return result.failureCopy(verb: args.dropLast().joined(separator: " ")) }
         } catch {
-            return (error as? RtClientError)?.copy ?? "rt \(verb.joined(separator: " ")) failed to start."
+            return (error as? RtClientError)?.copy ?? "rt \(args.dropLast().joined(separator: " ")) failed to start."
         }
         return nil
     }
@@ -90,6 +94,7 @@ public enum DoneRoute: Equatable, Sendable {
     case steps([String])
     case recheck
     case choose
+    case chooseHarnesses
 }
 
 /// The Done screen's only routing; the types it routes are pinned to
@@ -105,6 +110,7 @@ public enum DoneActions {
         // The only run verb a Done row carries is a re-check; Done re-reads the plan itself.
         case .run: return .recheck
         case .choose: return .choose
+        case .chooseHarnesses: return .chooseHarnesses
         case .openSettings, .requestPermission, .connect, .form, .oauth, .install, .ownerOnce, .linkBundled, .chooseFolder, .unknown:
             return nil
         }

@@ -178,7 +178,8 @@ describe("integrationPreferenceProblems", () => {
     setSetting("agent.provider", "codex", "user");
     expect(integrationPreferenceProblems()).toEqual([{
       code: "default-not-enabled",
-      message: "codex is your default for rt agent, but it is not turned on. Add it to agent.integrations, or set agent.provider to claude.",
+      message: "codex is your default for rt agent, but it is not turned on.",
+      next: "rt setup harnesses",
     }]);
     expect(enabledIntegrations()).toEqual(["claude"]);
     expect(getSetting("agent.provider").value).toBe("codex");
@@ -193,7 +194,17 @@ describe("integrationPreferenceProblems", () => {
     storeWrongType(userSettingsPath());
     expect(integrationPreferenceProblems()).toEqual([{
       code: "invalid-preference",
-      message: 'agent.integrations in your user settings needs fixing: it must be a list of integration names, such as ["claude"].',
+      message: "Your list of agent apps in your user settings cannot be read. Remove it.",
+      next: "rt settings unset agent.integrations --scope user",
+    }]);
+  });
+
+  test("a wrong-typed value in this Mac's settings is fixed by choosing again", () => {
+    storeWrongType(machineSettingsPath());
+    expect(integrationPreferenceProblems()).toEqual([{
+      code: "invalid-preference",
+      message: "Your list of agent apps in this Mac's settings cannot be read. Choose them again.",
+      next: "rt setup harnesses",
     }]);
   });
 
@@ -201,7 +212,8 @@ describe("integrationPreferenceProblems", () => {
     setSetting("agent.integrations", ["claude", "gemini"], "user");
     expect(integrationPreferenceProblems()).toEqual([{
       code: "invalid-preference",
-      message: "agent.integrations needs fixing: rt has no integration called gemini. Choose from claude and codex.",
+      message: "Your list of agent apps needs fixing: rt has no integration called gemini. Choose from claude and codex.",
+      next: "rt setup harnesses",
     }]);
   });
 });

@@ -13,6 +13,7 @@ struct DoneScreen: View {
     let onRetry: (String) -> Void
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
+    @State private var harnesses: PlanRow?
 
     var body: some View {
         // No outer padding: the grouped Form insets its own boxes 20pt, and the
@@ -143,6 +144,13 @@ struct DoneScreen: View {
                 return failure
             }
         }
+        .sheet(item: $harnesses) { row in
+            if let sheet = HarnessesSheet(row: row, onSave: { args in
+                let failure = await model.choices.run(args)
+                if failure == nil { await model.retryCheck() }
+                return failure
+            }) { sheet }
+        }
         // .contain: without it, the plain HStack's buttons (Open the board or console,
         // Invite teammates…) report THIS screen-level identifier instead of
         // their own -- same fix as InstallScreen's stepRow and ChecklistScreen.
@@ -176,6 +184,8 @@ struct DoneScreen: View {
             Task { await model.retryCheck() }
         case .choose:
             choose = row
+        case .chooseHarnesses:
+            harnesses = row
         }
     }
 

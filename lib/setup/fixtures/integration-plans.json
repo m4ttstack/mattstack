@@ -322,7 +322,32 @@
           },
           {
             "optionalNote": null,
-            "action": null,
+            "action": {
+              "type": "choose-harnesses",
+              "label": "Change…",
+              "verb": [
+                "setup",
+                "harnesses"
+              ],
+              "subtitle": "Turn on the agent apps you use, then pick the one rt agent starts by default.",
+              "footnote": "You can also run rt setup harnesses in a terminal.",
+              "options": [
+                {
+                  "id": "claude",
+                  "label": "Claude Code",
+                  "detail": "rt sets up Claude Code and can hand work to it"
+                },
+                {
+                  "id": "codex",
+                  "label": "Codex",
+                  "detail": "rt sets up Codex and can hand work to it"
+                }
+              ],
+              "enabled": [
+                "claude"
+              ],
+              "defaultHarness": "claude"
+            },
             "recheck": "on-change",
             "id": "tool.integrations",
             "kind": "info",
@@ -796,7 +821,32 @@
           },
           {
             "optionalNote": null,
-            "action": null,
+            "action": {
+              "type": "choose-harnesses",
+              "label": "Change…",
+              "verb": [
+                "setup",
+                "harnesses"
+              ],
+              "subtitle": "Turn on the agent apps you use, then pick the one rt agent starts by default.",
+              "footnote": "You can also run rt setup harnesses in a terminal.",
+              "options": [
+                {
+                  "id": "claude",
+                  "label": "Claude Code",
+                  "detail": "rt sets up Claude Code and can hand work to it"
+                },
+                {
+                  "id": "codex",
+                  "label": "Codex",
+                  "detail": "rt sets up Codex and can hand work to it"
+                }
+              ],
+              "enabled": [
+                "codex"
+              ],
+              "defaultHarness": null
+            },
             "recheck": "on-change",
             "id": "tool.integrations",
             "kind": "info",
@@ -1325,7 +1375,33 @@
           },
           {
             "optionalNote": null,
-            "action": null,
+            "action": {
+              "type": "choose-harnesses",
+              "label": "Change…",
+              "verb": [
+                "setup",
+                "harnesses"
+              ],
+              "subtitle": "Turn on the agent apps you use, then pick the one rt agent starts by default.",
+              "footnote": "You can also run rt setup harnesses in a terminal.",
+              "options": [
+                {
+                  "id": "claude",
+                  "label": "Claude Code",
+                  "detail": "rt sets up Claude Code and can hand work to it"
+                },
+                {
+                  "id": "codex",
+                  "label": "Codex",
+                  "detail": "rt sets up Codex and can hand work to it"
+                }
+              ],
+              "enabled": [
+                "claude",
+                "codex"
+              ],
+              "defaultHarness": "claude"
+            },
             "recheck": "on-change",
             "id": "tool.integrations",
             "kind": "info",
@@ -1767,13 +1843,28 @@
           {
             "optionalNote": null,
             "action": {
-              "type": "steps",
-              "label": "Show steps…",
-              "steps": [
-                "Open a terminal",
-                "Run: rt agent integrations",
-                "Turn on the agent apps you use, and make your default one of them"
-              ]
+              "type": "choose-harnesses",
+              "label": "Choose…",
+              "verb": [
+                "setup",
+                "harnesses"
+              ],
+              "subtitle": "Turn on the agent apps you use, then pick the one rt agent starts by default.",
+              "footnote": "You can also run rt setup harnesses in a terminal.",
+              "options": [
+                {
+                  "id": "claude",
+                  "label": "Claude Code",
+                  "detail": "rt sets up Claude Code and can hand work to it"
+                },
+                {
+                  "id": "codex",
+                  "label": "Codex",
+                  "detail": "rt sets up Codex and can hand work to it"
+                }
+              ],
+              "enabled": [],
+              "defaultHarness": null
             },
             "recheck": "on-change",
             "id": "tool.integrations",
@@ -1783,6 +1874,527 @@
             "required": false,
             "status": "needs-you",
             "detail": "No agent integration is turned on"
+          },
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-change",
+            "id": "tool.rt",
+            "kind": "tool",
+            "title": "rt binary",
+            "why": "rt itself must be on PATH before anything else can run.",
+            "required": true,
+            "status": "ready",
+            "detail": "rt"
+          },
+          {
+            "optionalNote": "Cosmetic: without this, `rt` may resolve to a different copy on PATH than the one inside mattstack.app.",
+            "action": {
+              "type": "link-bundled",
+              "label": "Use mattstack's",
+              "tool": "rt"
+            },
+            "recheck": "on-change",
+            "id": "tool.rt-link",
+            "kind": "tool",
+            "title": "rt PATH link",
+            "why": "Prod mode's ~/.local/bin/rt must point at the rt inside mattstack.app.",
+            "required": false,
+            "status": "needs-you",
+            "detail": "Not a link into mattstack.app. Run rt deps link rt"
+          },
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-change",
+            "id": "tool.legacy-dirs",
+            "kind": "tool",
+            "title": "Legacy state dirs",
+            "why": "rt reads only ~/.mattstack/rt, so a leftover legacy dir means state is split and silently ignored.",
+            "required": true,
+            "status": "ready",
+            "detail": "State lives only in ~/.mattstack/rt"
+          },
+          {
+            "optionalNote": "Works without this; team command intercepts (git, gh, …) just won't fire.",
+            "action": null,
+            "recheck": "on-change",
+            "id": "tool.intercepts",
+            "kind": "tool",
+            "title": "Intercept shims",
+            "why": "Team command intercepts (git, gh, …) only fire once their PATH shims are installed and current.",
+            "required": false,
+            "status": "ready",
+            "detail": "Not needed: your team has no intercepts"
+          },
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-activate",
+            "id": "tool.app",
+            "kind": "tool",
+            "title": "mattstack.app",
+            "why": "The tray app hosts the daemon, permissions, and every bundled tool.",
+            "required": true,
+            "status": "ready",
+            "detail": "<read from this Mac>"
+          },
+          {
+            "optionalNote": "Works without this; the rt-context editor extension just won't be pre-installed for you.",
+            "action": null,
+            "recheck": "on-change",
+            "id": "tool.vsix",
+            "kind": "tool",
+            "title": "Bundled extension",
+            "why": "mattstack.app can carry the rt-context editor extension pre-bundled.",
+            "required": false,
+            "status": "skipped",
+            "detail": "This build does not ship the extension"
+          },
+          {
+            "optionalNote": "Works without this; your editor just won't have rt-aware context.",
+            "action": null,
+            "recheck": "on-change",
+            "id": "tool.extension",
+            "kind": "tool",
+            "title": "rt-context extension",
+            "why": "Gives your editor rt-aware context.",
+            "required": false,
+            "status": "skipped",
+            "detail": "No editor extension folders found"
+          },
+          {
+            "optionalNote": "Works without this; you can still run `rt cd` directly, just not the `rtcd` shell alias.",
+            "action": null,
+            "recheck": "on-change",
+            "id": "tool.shell",
+            "kind": "tool",
+            "title": "Shell integration",
+            "why": "The rtcd alias and PATH precedence come from your shell rc file.",
+            "required": false,
+            "status": "needs-you",
+            "detail": "rt does not know this shell, so add the rtcd alias yourself"
+          },
+          {
+            "optionalNote": "Installed by Install (plugins.install).",
+            "action": {
+              "type": "run",
+              "label": "Register services",
+              "verb": [
+                "setup",
+                "apply",
+                "--only",
+                "services.register"
+              ]
+            },
+            "recheck": "on-activate",
+            "id": "tool.daemon",
+            "kind": "tool",
+            "title": "Daemon",
+            "why": "The daemon watches your repos and backs MRs and notifications.",
+            "required": false,
+            "status": "missing",
+            "detail": "Not registered yet"
+          },
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-activate",
+            "id": "tool.flavor",
+            "kind": "tool",
+            "title": "Flavor coherence",
+            "why": "One app serves this machine; a daemon of the other app means stale code answering fresh CLIs.",
+            "required": true,
+            "status": "ready",
+            "detail": "<read from this Mac>"
+          },
+          {
+            "optionalNote": "Works without this; local-only just means this machine is the only copy of your settings.",
+            "action": {
+              "type": "run",
+              "label": "Create home repo",
+              "verb": [
+                "setup",
+                "apply",
+                "--only",
+                "home.init"
+              ]
+            },
+            "recheck": "on-activate",
+            "id": "home.backup",
+            "kind": "tool",
+            "title": "Home repo backup",
+            "why": "Local-only is fully supported; this only confirms whether your settings are actually backed up anywhere, not just committed on this machine.",
+            "required": false,
+            "status": "needs-you",
+            "detail": "No home repo yet, so nothing is backed up"
+          }
+        ]
+      }
+    ],
+    "canInstall": true,
+    "requiredMissing": [],
+    "finishBlockedBy": [
+      "skills.writing-style"
+    ]
+  },
+  "absent": {
+    "contract": 1,
+    "at": "2026-10-09T00:00:00.000Z",
+    "team": {
+      "slug": "",
+      "name": "",
+      "mode": "none"
+    },
+    "groups": [
+      {
+        "id": "mac",
+        "title": "Your Mac",
+        "rows": [
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-activate",
+            "id": "perm.fda",
+            "kind": "permission",
+            "title": "Full Disk Access",
+            "why": "Reads your repositories' git state so the daemon can show branch and MR status.",
+            "required": true,
+            "status": "ready",
+            "detail": "Granted"
+          },
+          {
+            "optionalNote": "Installed by Install (plugins.install).",
+            "action": null,
+            "recheck": "on-activate",
+            "id": "perm.login-items",
+            "kind": "permission",
+            "title": "Login Items",
+            "why": "Lets mattstack.app start automatically and stay running in the background.",
+            "required": false,
+            "status": "ready",
+            "detail": "Enabled"
+          },
+          {
+            "optionalNote": "Works without this; you'll see menu-bar badges instead.",
+            "action": null,
+            "recheck": "on-activate",
+            "id": "perm.notifications",
+            "kind": "permission",
+            "title": "Notifications",
+            "why": "Shows menu-bar notifications when something needs your attention.",
+            "required": false,
+            "status": "ready",
+            "detail": "Allowed"
+          },
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-change",
+            "id": "tool.macos",
+            "kind": "tool",
+            "title": "macOS version",
+            "why": "rt and mattstack.app require macOS 14 or newer.",
+            "required": true,
+            "status": "ready",
+            "detail": "macOS 15.6"
+          },
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-change",
+            "id": "tool.clt",
+            "kind": "tool",
+            "title": "Command Line Tools",
+            "why": "Provides git and the other command-line build tools rt depends on.",
+            "required": true,
+            "status": "ready",
+            "detail": "Git is installed"
+          },
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-change",
+            "id": "tool.arch",
+            "kind": "tool",
+            "title": "Processor",
+            "why": "mattstack ships an Apple-silicon (arm64) build; Intel Macs are not supported.",
+            "required": true,
+            "status": "ready",
+            "detail": "Apple silicon (arm64)"
+          },
+          {
+            "optionalNote": null,
+            "action": {
+              "type": "run",
+              "label": "Set up PATH",
+              "verb": [
+                "setup",
+                "apply",
+                "--only",
+                "path.link"
+              ]
+            },
+            "recheck": "on-change",
+            "id": "tool.path",
+            "kind": "info",
+            "title": "PATH precedence",
+            "why": "Makes sure your shell finds rt's shims and team intercepts before any conflicting binary.",
+            "required": false,
+            "status": "missing",
+            "detail": "Install adds ~/.local/bin to your PATH in ~/.zshenv"
+          }
+        ]
+      },
+      {
+        "id": "accounts",
+        "title": "Accounts",
+        "rows": [
+          {
+            "optionalNote": "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.",
+            "action": null,
+            "recheck": "on-change",
+            "id": "account.github",
+            "kind": "account",
+            "title": "GitHub",
+            "why": "Lets rt open PRs, check CI status, and read repo metadata on GitHub.",
+            "required": false,
+            "status": "ready",
+            "detail": "Signed in through the gh CLI"
+          }
+        ]
+      },
+      {
+        "id": "access",
+        "title": "Access",
+        "rows": []
+      },
+      {
+        "id": "tools",
+        "title": "Tools",
+        "rows": [
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-change",
+            "id": "tool.herdr",
+            "kind": "tool",
+            "title": "herdr",
+            "why": "Drives Herdr panes for remote-control and multi-agent workflows.",
+            "required": true,
+            "status": "ready",
+            "detail": "herdr 0.9.2, Claude integration installed"
+          },
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-activate",
+            "id": "tool.claude",
+            "kind": "tool",
+            "title": "Claude Code",
+            "why": "Runs the agent sessions rt drives and hands work off to.",
+            "required": true,
+            "status": "ready",
+            "detail": "Claude Code 2.1.283, signed in"
+          },
+          {
+            "optionalNote": "Works without this; only the browser skills need it.",
+            "action": {
+              "type": "link-bundled",
+              "label": "Use mattstack's",
+              "tool": "fast-browser"
+            },
+            "recheck": "on-activate",
+            "id": "tool.fast-browser",
+            "kind": "tool",
+            "title": "Fast Browser",
+            "why": "Backs rt's macro-first browser automation.",
+            "required": false,
+            "status": "missing",
+            "detail": "Fast Browser is not installed"
+          },
+          {
+            "optionalNote": "You load this into Chrome yourself; Install cannot do it for you.",
+            "action": null,
+            "recheck": "on-activate",
+            "id": "tool.fast-browser-extension",
+            "kind": "tool",
+            "title": "Fast Browser extension",
+            "why": "Fast Browser drives your real Chrome session through this extension.",
+            "required": false,
+            "finishGated": false,
+            "status": "skipped",
+            "detail": "Google Chrome is not installed, so there is nothing to load it into"
+          },
+          {
+            "optionalNote": "Works without this; rt just won't have an editor to open files in.",
+            "action": null,
+            "recheck": "on-activate",
+            "id": "tool.editor",
+            "kind": "tool",
+            "title": "Editor",
+            "why": "Lets rt open the rt-context extension and hand files off to an editor.",
+            "required": false,
+            "status": "missing",
+            "detail": "<read from this Mac>"
+          },
+          {
+            "optionalNote": "Works without this unless your pack declares chrome.required.",
+            "action": {
+              "type": "open-url",
+              "label": "Download",
+              "url": "https://www.google.com/chrome/"
+            },
+            "recheck": "on-activate",
+            "id": "tool.chrome",
+            "kind": "tool",
+            "title": "Google Chrome",
+            "why": "Fast Browser and any Chrome-based pack tools drive Chrome directly.",
+            "required": false,
+            "status": "missing",
+            "detail": "Google Chrome is not installed"
+          },
+          {
+            "optionalNote": "Works without this; only matters if Control+Up doesn't reach rt's nav picker.",
+            "action": {
+              "type": "open-settings",
+              "label": "Open Keyboard Settings…",
+              "target": "keyboard"
+            },
+            "recheck": "on-activate",
+            "id": "tool.mission-control",
+            "kind": "tool",
+            "title": "Mission Control shortcut",
+            "why": "rt's nav picker uses Control+Up, which macOS binds to Mission Control by default.",
+            "required": false,
+            "status": "needs-you",
+            "detail": "Control+Up opens Mission Control, and rt's picker needs it"
+          },
+          {
+            "optionalNote": "Works without this; apps serve on their ports meanwhile.",
+            "action": null,
+            "recheck": "on-activate",
+            "id": "tool.proxy",
+            "kind": "tool",
+            "title": "Local proxy",
+            "why": "Serves apps on .localhost/.mattstack domains instead of raw ports.",
+            "required": false,
+            "status": "skipped",
+            "detail": "This build has no local proxy installer, so apps serve on their own ports"
+          },
+          {
+            "optionalNote": "Works without this; `rt state backup` is what needs them.",
+            "action": {
+              "type": "steps",
+              "label": "Show steps…",
+              "steps": [
+                "Update mattstack.app; it ships age, zstd and git-lfs",
+                "Or install them yourself: brew install age zstd git-lfs",
+                "Then re-run rt setup status"
+              ]
+            },
+            "recheck": "on-activate",
+            "id": "tool.state-backup",
+            "kind": "tool",
+            "title": "State backup tools",
+            "why": "Encrypted state backup compresses with zstd, encrypts with age, and ships the result through git-lfs.",
+            "required": false,
+            "status": "needs-you",
+            "detail": "Not installed: age, zstd, git-lfs"
+          },
+          {
+            "optionalNote": "Installed by Install (plugins.install).",
+            "action": {
+              "type": "run",
+              "label": "Install plugins",
+              "verb": [
+                "setup",
+                "pack"
+              ]
+            },
+            "recheck": "on-change",
+            "id": "tool.plugins",
+            "kind": "tool",
+            "title": "Claude plugins",
+            "why": "rt's skills, Fast Browser's and rt chat's all reach Claude Code as marketplace plugins.",
+            "required": false,
+            "status": "missing",
+            "detail": "Not installed: mattstack@mattstack, fast-browser@mattstack, chat@mattstack, superpowers@claude-plugins-official"
+          },
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-change",
+            "id": "skills.writing-style",
+            "kind": "tool",
+            "title": "Writing style",
+            "why": "How the reviews, replies and PR descriptions agents post under your name read. Without one they read like an AI assistant.",
+            "required": false,
+            "finishGated": true,
+            "status": "needs-you",
+            "detail": "You choose this after Install",
+            "waivable": false
+          },
+          {
+            "optionalNote": "Works without this; only the skills that read Linear tickets need it.",
+            "action": {
+              "type": "connect",
+              "label": "Connect Linear",
+              "integration": "linear",
+              "fields": [
+                {
+                  "name": "apiKey",
+                  "label": "Linear API key",
+                  "secret": true,
+                  "hint": "lin_api_…"
+                }
+              ]
+            },
+            "recheck": "on-change",
+            "id": "tool.linear-mcp",
+            "kind": "tool",
+            "title": "Linear MCP",
+            "why": "Skills that read and update Linear tickets reach them through this MCP server.",
+            "required": false,
+            "status": "needs-you",
+            "detail": "No Linear account connected yet"
+          },
+          {
+            "optionalNote": null,
+            "action": {
+              "type": "choose-harnesses",
+              "label": "Change…",
+              "verb": [
+                "setup",
+                "harnesses"
+              ],
+              "subtitle": "Turn on the agent apps you use, then pick the one rt agent starts by default.",
+              "footnote": "You can also run rt setup harnesses in a terminal.",
+              "options": [
+                {
+                  "id": "claude",
+                  "label": "Claude Code",
+                  "detail": "rt sets up Claude Code and can hand work to it"
+                },
+                {
+                  "id": "codex",
+                  "label": "Codex",
+                  "detail": "rt sets up Codex and can hand work to it"
+                }
+              ],
+              "enabled": [
+                "claude"
+              ],
+              "defaultHarness": "claude"
+            },
+            "recheck": "on-change",
+            "id": "tool.integrations",
+            "kind": "info",
+            "title": "Agent integrations",
+            "why": "The agent apps rt sets up and hands work to.",
+            "required": false,
+            "status": "ready",
+            "detail": "Turned on: Claude Code"
           },
           {
             "optionalNote": null,

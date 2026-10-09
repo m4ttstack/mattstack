@@ -39,7 +39,7 @@ export type OptionDescriptor = {
   name: keyof AgentOptions; kind: "text" | "boolean" | "choice"; choices?: string[];
 };
 /** Something wrong with the enabled set or the default that the user should fix; rt never fixes it by replacing either value. */
-export type IntegrationProblem = { code: "default-not-enabled" | "invalid-preference"; message: string };
+export type IntegrationProblem = { code: "default-not-enabled" | "invalid-preference"; message: string; next: string };
 /** What `agent:integrations` reports for one registered harness, for the asked mode. */
 export type IntegrationSummary = {
   id: HarnessId; label: string;

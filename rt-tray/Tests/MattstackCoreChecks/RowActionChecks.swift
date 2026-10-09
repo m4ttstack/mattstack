@@ -100,6 +100,12 @@ let rowActionChecks: [Check] = [
                       .rtVerb(args: ["skills", "writing-style", "use", "team-voice", "--json"], stdin: nil))
         c.expectEqual(RowActionDispatcher.dispatch(RowAction(type: .choose, label: "x"), fieldValues: ["id": "a"], alternative: nil), .none)
     },
+    Check("choose-harnesses: the sheet first; a row without a verb does nothing") { c in
+        let opts = [ChooseOption(id: "claude", label: "Claude Code", detail: "d")]
+        let a = RowAction(type: .chooseHarnesses, label: "Choose…", verb: ["setup", "harnesses"], options: opts, enabled: ["claude"], defaultHarness: "claude")
+        c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: nil, alternative: nil), .chooseHarnesses)
+        c.expectEqual(RowActionDispatcher.dispatch(RowAction(type: .chooseHarnesses, label: "x", options: opts), fieldValues: nil, alternative: nil), .none)
+    },
     Check("a step's [text](https URL) renders as that text, linked; everything else stays plain") { c in
         let url = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm"
         let step = StepText.attributed("Install Fast Browser from the [Chrome Web Store](\(url))")

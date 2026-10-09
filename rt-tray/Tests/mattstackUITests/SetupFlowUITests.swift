@@ -225,6 +225,7 @@ final class SetupFlowUITests: XCTestCase {
             "codex-only": (["tool.codex", "tool.codex-mcp", "tool.integrations"], ["tool.claude", "tool.plugins"]),
             "both": (["tool.claude", "tool.codex", "tool.integrations"], []),
             "none": (["tool.integrations"], ["tool.claude", "tool.codex"]),
+            "absent": (["tool.claude", "tool.integrations"], ["tool.codex", "tool.codex-mcp"]),
         ]
         for (profile, want) in rows.sorted(by: { $0.key < $1.key }) {
             for scheme in ["Light", "Dark"] {
@@ -242,6 +243,12 @@ final class SetupFlowUITests: XCTestCase {
                 for id in want.shown { waitFor("setup.checklist.row.\(id)") }
                 for id in want.hidden { XCTAssertFalse(el("setup.checklist.row.\(id)").exists, "\(profile) shows \(id)") }
                 shootWindow("harness-\(profile)-checklist-\(scheme)")
+                el("setup.checklist.row.tool.integrations.action").click()
+                waitFor("setup.harnesses")
+                for id in ["claude", "codex"] { waitFor("setup.harnesses.option.\(id)") }
+                shootWindow("harness-\(profile)-picker-\(scheme)")
+                el("setup.harnesses.cancel").click()
+                waitUntilGone("setup.harnesses")
                 XCTAssertTrue(el("setup.checklist.continue").isEnabled, "\(profile) can install")
                 el("setup.checklist.continue").click()
                 waitFor("setup.done.screen", 60)

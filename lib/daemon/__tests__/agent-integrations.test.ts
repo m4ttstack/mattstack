@@ -597,7 +597,7 @@ describe("integration metadata", () => {
   });
 
   test("a default outside the enabled set is reported as a problem with the switch on, and the envelope is unchanged with it off", async () => {
-    const problem = { code: "default-not-enabled" as const, message: "codex is your default for rt agent, but it is not turned on." };
+    const problem = { code: "default-not-enabled" as const, message: "codex is your default for rt agent, but it is not turned on.", next: "rt setup harnesses" };
     const deps = { integrations: threeHarnesses().registry, enabled: (id: string) => id === "claude", problems: () => [problem] };
     const on = await createAgentIntegrationHandlers({ ...deps, switchOn: () => true, modLinks: () => null })["agent:integrations"]({ mode: "herdr" });
     if (!on.ok) throw new Error(on.error);

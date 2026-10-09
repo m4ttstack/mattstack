@@ -2722,6 +2722,18 @@ export const TREE: Record<string, CommandNode> = {
         requiresTTY: true,
         args: [],
       },
+      harnesses: {
+        description: "Choose which agent apps rt turns on, and which one it starts by default",
+        module: "./commands/setup-harnesses.ts",
+        fn: "setupHarnesses",
+        omitBehavior: "picker",
+        args: [
+          { name: "Apps", type: "text", placeholder: "claude codex", hint: "The agent apps to turn on, in your order (claude, codex)" },
+          { name: "Default", flag: "--default", type: "text", placeholder: "claude", hint: "The app rt agent starts by default; one of those you turn on" },
+          { name: "None", flag: "--none", type: "boolean", default: false, hint: "Turn every agent app off" },
+          SETUP_JSON_ARG,
+        ],
+      },
       waive: {
         description: "Skip a finish-gated checklist row on this Mac so setup can finish without it",
         module: "./commands/setup.ts",

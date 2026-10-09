@@ -116,6 +116,22 @@ describe("planBlocks", () => {
     expect(renderPlain(planBlocks(p, "plan"))).toContain("[needs you] Writing style  Not chosen yet\n  note: You can also choose from a terminal: rt skills writing-style use\n");
   });
 
+  test("a harness picker row that needs you names its verb as the next command; a ready one draws its line alone", () => {
+    const harnesses = (status: Row["status"]): Row =>
+      row({
+        id: "tool.integrations",
+        title: "Agent integrations",
+        required: false,
+        status,
+        detail: status === "ready" ? "Turned on: Codex" : "No agent integration is turned on",
+        action: { type: "choose-harnesses", label: "Choose…", verb: ["setup", "harnesses"], options: [], enabled: [], defaultHarness: null },
+      });
+    expect(renderPlain(planBlocks(plan([{ id: "tools", title: "Tools", rows: [harnesses("needs-you")] }]), "plan"))).toContain(
+      "[needs you] Agent integrations  No agent integration is turned on\n  next: rt setup harnesses\n",
+    );
+    expect(renderPlain(planBlocks(plan([{ id: "tools", title: "Tools", rows: [harnesses("ready")] }]), "plan"))).not.toContain("next:");
+  });
+
   test("a row that could not be checked draws as a warning, never a failure", () => {
     const p = plan([{ id: "access", title: "Access", rows: [row({ id: "access.forge", kind: "access", title: "Forge", status: "error", detail: "Could not reach the forge" })] }]);
     expect(renderPlain(planBlocks(p, "plan"))).toBe("Access (0 of 1 ready)\n[warning] Forge  Could not reach the forge\n\n[ok] Install can run\n");

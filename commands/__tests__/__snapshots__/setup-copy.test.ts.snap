@@ -1,5 +1,121 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
+exports[`the setup plan's shape and copy integrations on, Codex only: the rows Codex adds 1`] = `
+{
+  "copy": {
+    "tool.codex-mcp.action.label": "Add to Codex",
+    "tool.codex-mcp.detail": "rt is not on this Mac's PATH yet",
+    "tool.codex-mcp.optionalNote": "Installed by Install (codex.mcp).",
+    "tool.codex-mcp.title": "Mattstack in Codex",
+    "tool.codex-mcp.why": "Codex reaches rt's tools through this MCP server.",
+    "tool.codex.detail": "Codex 0.160.0, signed in",
+    "tool.codex.optionalNote": null,
+    "tool.codex.title": "Codex",
+    "tool.codex.why": "Runs the agent sessions rt drives and hands work off to.",
+    "tool.integrations.action.footnote": "You can also run rt setup harnesses in a terminal.",
+    "tool.integrations.action.label": "Change…",
+    "tool.integrations.action.options[0].detail": "rt sets up Claude Code and can hand work to it",
+    "tool.integrations.action.options[0].label": "Claude Code",
+    "tool.integrations.action.options[1].detail": "rt sets up Codex and can hand work to it",
+    "tool.integrations.action.options[1].label": "Codex",
+    "tool.integrations.action.subtitle": "Turn on the agent apps you use, then pick the one rt agent starts by default.",
+    "tool.integrations.detail": "Turned on: Codex",
+    "tool.integrations.optionalNote": null,
+    "tool.integrations.title": "Agent integrations",
+    "tool.integrations.why": "The agent apps rt sets up and hands work to.",
+    "tools.title": "Tools",
+  },
+  "machine": {
+    "canInstall": false,
+    "contract": 1,
+    "finishBlockedBy": [
+      "skills.writing-style",
+    ],
+    "groups": [
+      {
+        "id": "tools",
+        "rows": [
+          {
+            "action": null,
+            "id": "tool.codex",
+            "kind": "tool",
+            "recheck": "on-activate",
+            "required": true,
+            "status": "ready",
+          },
+          {
+            "action": {
+              "type": "run",
+              "verb": [
+                "setup",
+                "apply",
+                "--only",
+                "codex.mcp",
+              ],
+            },
+            "id": "tool.codex-mcp",
+            "kind": "tool",
+            "recheck": "on-change",
+            "required": false,
+            "status": "missing",
+          },
+          {
+            "action": {
+              "defaultHarness": null,
+              "enabled": [
+                "codex",
+              ],
+              "options": [
+                {
+                  "id": "claude",
+                },
+                {
+                  "id": "codex",
+                },
+              ],
+              "type": "choose-harnesses",
+              "verb": [
+                "setup",
+                "harnesses",
+              ],
+            },
+            "id": "tool.integrations",
+            "kind": "info",
+            "recheck": "on-change",
+            "required": false,
+            "status": "ready",
+          },
+        ],
+      },
+    ],
+    "requiredMissing": [
+      "perm.fda",
+      "tool.arch",
+      "tool.herdr",
+      "tool.app",
+    ],
+    "team": {
+      "mode": "none",
+      "name": "",
+      "slug": "",
+    },
+  },
+}
+`;
+
+exports[`the setup plan's shape and copy apply emits the org pull and identity titles after a join 1`] = `
+[
+  {
+    "id": "org.pull",
+    "title": "Pull your org",
+  },
+  {
+    "id": "team.identity",
+    "title": "Record who you are",
+  },
+]
+`;
+
 exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`] = `
 {
   "canInstall": false,
@@ -1028,96 +1144,5 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tool.vsix.title": "Bundled extension",
   "tool.vsix.why": "mattstack.app can carry the rt-context editor extension pre-bundled.",
   "tools.title": "Tools",
-}
-`;
-
-exports[`the setup plan's shape and copy apply emits the org pull and identity titles after a join 1`] = `
-[
-  {
-    "id": "org.pull",
-    "title": "Pull your org",
-  },
-  {
-    "id": "team.identity",
-    "title": "Record who you are",
-  },
-]
-`;
-
-exports[`the setup plan's shape and copy integrations on, Codex only: the rows Codex adds 1`] = `
-{
-  "copy": {
-    "tool.codex-mcp.action.label": "Add to Codex",
-    "tool.codex-mcp.detail": "rt is not on this Mac's PATH yet",
-    "tool.codex-mcp.optionalNote": "Installed by Install (codex.mcp).",
-    "tool.codex-mcp.title": "Mattstack in Codex",
-    "tool.codex-mcp.why": "Codex reaches rt's tools through this MCP server.",
-    "tool.codex.detail": "Codex 0.160.0, signed in",
-    "tool.codex.optionalNote": null,
-    "tool.codex.title": "Codex",
-    "tool.codex.why": "Runs the agent sessions rt drives and hands work off to.",
-    "tool.integrations.detail": "Turned on: Codex",
-    "tool.integrations.optionalNote": null,
-    "tool.integrations.title": "Agent integrations",
-    "tool.integrations.why": "The agent apps rt sets up and hands work to.",
-    "tools.title": "Tools",
-  },
-  "machine": {
-    "canInstall": false,
-    "contract": 1,
-    "finishBlockedBy": [
-      "skills.writing-style",
-    ],
-    "groups": [
-      {
-        "id": "tools",
-        "rows": [
-          {
-            "action": null,
-            "id": "tool.codex",
-            "kind": "tool",
-            "recheck": "on-activate",
-            "required": true,
-            "status": "ready",
-          },
-          {
-            "action": {
-              "type": "run",
-              "verb": [
-                "setup",
-                "apply",
-                "--only",
-                "codex.mcp",
-              ],
-            },
-            "id": "tool.codex-mcp",
-            "kind": "tool",
-            "recheck": "on-change",
-            "required": false,
-            "status": "missing",
-          },
-          {
-            "action": null,
-            "id": "tool.integrations",
-            "kind": "info",
-            "recheck": "on-change",
-            "required": false,
-            "status": "ready",
-          },
-        ],
-      },
-    ],
-    "requiredMissing": [
-      "perm.fda",
-      "tool.arch",
-      "tool.herdr",
-      "tool.app",
-    ],
-    "team": {
-      "mode": "none",
-      "name": "",
-      "slug": "",
-    },
-  },
 }
 `;

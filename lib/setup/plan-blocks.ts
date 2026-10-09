@@ -37,6 +37,7 @@ export function rowTitles(plan: Plan, ids: readonly string[]): string[] {
 function rowBlocks(r: Row, mode: "plan" | "status"): Block[] {
   const blocks: Block[] = [out.line(rowStatus(r), r.title, r.detail)];
   if (r.action?.type === "choose" && r.action.footnote) blocks.push(out.callout("note", r.action.footnote));
+  if (r.action?.type === "choose-harnesses" && r.status !== "ready") blocks.push(out.callout("next", out.cmd(`rt ${r.action.verb.join(" ")}`)));
   const verb = mode === "status" ? accountConnectVerb(r) : null;
   if (verb) blocks.push(out.callout("next", out.cmd(verb)));
   return blocks;

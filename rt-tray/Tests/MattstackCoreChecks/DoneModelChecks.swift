@@ -296,7 +296,7 @@ let doneModelChecks: [Check] = [
     Check("Done routes exactly the contract's DONE_ACTION_TYPES (lib/setup/contract.ts)") { c in
         let sample = { (t: ActionType) in RowAction(type: t, label: "x", verb: ["a"], steps: ["s"], url: "https://example.com") }
         let routed = Set(ActionType.allCases.filter { DoneActions.route(sample($0)) != nil })
-        c.expectEqual(routed, Set([ActionType.openURL, .steps, .run, .choose]))
+        c.expectEqual(routed, Set([ActionType.openURL, .steps, .run, .choose, .chooseHarnesses]))
     },
     Check("ChoiceClient: nil on success; the exit-2 envelope's message on refusal") { c in
         let rt = ScriptedRt()

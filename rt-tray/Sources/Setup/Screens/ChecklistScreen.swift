@@ -10,6 +10,7 @@ struct ChecklistScreen: View {
     @State private var connect: (row: PlanRow, fields: [ActionField], alternatives: [ActionAlternative], create: ActionLink?)?
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
+    @State private var harnesses: PlanRow?
     @State private var actionError: (rowId: String, message: String)?
     @State private var waitingOnYou: [String: String] = [:]
 
@@ -78,6 +79,13 @@ struct ChecklistScreen: View {
                 if failure == nil { await model.afterAction(rowId: row.id) }
                 return failure
             }
+        }
+        .sheet(item: $harnesses) { row in
+            if let sheet = HarnessesSheet(row: row, onSave: { args in
+                let failure = await ChoiceClient(rt: rt).run(args)
+                if failure == nil { await model.afterAction(rowId: row.id) }
+                return failure
+            }) { sheet }
         }
         // .contain: without it, the footer HStack's only interactive child
         // (Re-check) reports THIS screen-level identifier instead of its own
@@ -170,6 +178,8 @@ struct ChecklistScreen: View {
             connect = (row, fields, alternatives, create)
         case .chooseOption:
             choose = row
+        case .chooseHarnesses:
+            harnesses = row
         case .none:
             break
         }

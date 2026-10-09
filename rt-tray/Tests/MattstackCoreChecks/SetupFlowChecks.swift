@@ -92,7 +92,7 @@ private let codexRowIds: Set<String> = ["tool.codex", "tool.codex-mcp"]
 let harnessProfileChecks: [Check] = [
     Check("harness profiles: every supported profile decodes, and the app gates exactly what rt's plan gates") { c in
         let plans = try harnessProfilePlans()
-        c.expectEqual(Set(plans.keys), ["claude-only", "codex-only", "both", "none"])
+        c.expectEqual(Set(plans.keys), ["claude-only", "codex-only", "both", "none", "absent"])
         for (name, plan) in plans {
             let m = await loadedReadiness(plan)
             await MainActor.run {
@@ -109,6 +109,7 @@ let harnessProfileChecks: [Check] = [
             "codex-only": (["tool.codex", "tool.codex-mcp"], ["tool.codex"]),
             "both": (claudeRowIds.union(codexRowIds), ["tool.claude", "tool.codex"]),
             "none": ([], []),
+            "absent": (["tool.claude", "tool.plugins", "tool.linear-mcp"], ["tool.claude"]),
         ]
         for (name, want) in expected {
             let plan = try c.requireSome(plans[name], name)
@@ -138,18 +139,54 @@ let harnessProfileChecks: [Check] = [
             c.expectEqual(m.row("tool.integrations")?.detail, "Turned on: Codex")
         }
     },
-    Check("harness profiles: with no agent app turned on, the reason and its steps come from rt and never block Install") { c in
+    Check("harness profiles: with no agent app turned on, the reason and its picker come from rt and never block Install") { c in
         let plan = try c.requireSome(try harnessProfilePlans()["none"])
         let m = await loadedReadiness(plan)
         await MainActor.run {
             let row = m.row("tool.integrations")
             c.expectEqual(row?.status, .needsYou)
             c.expectEqual(row?.detail, "No agent integration is turned on")
-            c.expectEqual(row?.action?.type, .steps)
+            c.expectEqual(row?.action?.type, .chooseHarnesses)
             c.expectEqual(row?.badge, .optional)
             c.expect(!m.requiredMissing.contains("tool.integrations"))
             c.expect(m.outstandingManualRows.contains { $0.id == "tool.integrations" }, "Done lists it as a step left for you")
         }
+    },
+    Check("harness picker: opens on rt's set and default, and each selection runs the exact rt setup harnesses argv") { c in
+        let plans = try harnessProfilePlans()
+        let both = try c.requireSome(plans["both"]?.groups.flatMap(\.rows).first { $0.id == "tool.integrations" }?.action)
+        var draft = try c.requireSome(HarnessChoiceDraft(action: both))
+        c.expectEqual(draft.options.map(\.id), ["claude", "codex"])
+        c.expectEqual(draft.enabled, ["claude", "codex"])
+        c.expectEqual(draft.defaultHarness, "claude")
+        c.expectEqual(draft.args, ["setup", "harnesses", "claude", "codex", "--default", "claude", "--json"])
+        draft.setDefault("codex")
+        c.expectEqual(draft.args, ["setup", "harnesses", "claude", "codex", "--default", "codex", "--json"])
+        draft.toggle("codex")
+        c.expectEqual(draft.args, ["setup", "harnesses", "claude", "--json"], "a default that is turned off is left to rt")
+        draft.toggle("claude")
+        c.expectEqual(draft.args, ["setup", "harnesses", "--none", "--json"])
+
+        let none = try c.requireSome(plans["none"]?.groups.flatMap(\.rows).first { $0.id == "tool.integrations" }?.action)
+        var fresh = try c.requireSome(HarnessChoiceDraft(action: none))
+        c.expectEqual(fresh.enabled, [])
+        c.expectEqual(fresh.defaultHarness, nil)
+        fresh.toggle("codex")
+        fresh.toggle("claude")
+        c.expectEqual(fresh.args, ["setup", "harnesses", "claude", "codex", "--json"], "ids keep rt's option order, not click order")
+        fresh.setDefault("gemini")
+        c.expectEqual(fresh.defaultHarness, nil, "a default must be one of those turned on")
+        c.expect(HarnessChoiceDraft(action: RowAction(type: .chooseHarnesses, label: "x", options: [])) == nil, "no verb, nothing to run")
+    },
+    Check("harness picker: the run is the draft's argv, and a refusal shows rt's own message") { c in
+        let rt = ScriptedRt()
+        rt.answers["setup harnesses claude codex --default codex"] = (0, #"{"contract":1,"at":"x","ok":true,"enabled":["claude","codex"],"default":"codex"}"#)
+        rt.answers["setup harnesses codex --default claude"] = (2, #"{"contract":1,"at":"x","error":{"code":"usage","message":"claude is not in the list you turned on. Choose your default from codex."}}"#)
+        let client = await ChoiceClient(rt: rt)
+        c.expect(await client.run(["setup", "harnesses", "claude", "codex", "--default", "codex", "--json"]) == nil)
+        c.expectEqual(rt.calls.last?.args, ["setup", "harnesses", "claude", "codex", "--default", "codex", "--json"])
+        c.expectEqual(await client.run(["setup", "harnesses", "codex", "--default", "claude", "--json"]),
+                      "claude is not in the list you turned on. Choose your default from codex.")
     },
     Check("process badges: harness metadata names the badge, and a row without it keeps today's Claude rule") { c in
         let claude = ProcessHarness(id: "claude", label: "Claude Code")

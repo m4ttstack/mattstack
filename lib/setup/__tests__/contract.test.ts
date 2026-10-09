@@ -130,7 +130,7 @@ describe("STEP_IDS", () => {
 
 describe("DONE_ACTION_TYPES", () => {
   test("matches the app's DoneActions.handled", () => {
-    expect([...DONE_ACTION_TYPES]).toEqual(["open-url", "steps", "run", "choose"]);
+    expect([...DONE_ACTION_TYPES]).toEqual(["open-url", "steps", "run", "choose", "choose-harnesses"]);
   });
 });
 

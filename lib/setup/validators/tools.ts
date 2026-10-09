@@ -35,7 +35,7 @@ import { writingStyleRowFor, writingStyleRowForInventory } from "./writing-style
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import { claudeUserSkillsDir } from "../../agent-integrations/claude/skills.ts";
 import { codexUserSkillsDir } from "../../agent-integrations/codex/skills.ts";
-import { integrationPreferenceProblems } from "../../agent-integrations/preferences.ts";
+import { CHOOSE_AGAIN, configuredHarness, integrationPreferenceProblems } from "../../agent-integrations/preferences.ts";
 import { parsePluginEntries, type PluginEntry } from "../../skills/writing-style-sources.ts";
 import { harnessSelected, herdrHosts, readIntegrationSelection, type IntegrationSelection } from "../integration-selection.ts";
 import { codexHomeOf, codexMcpRow, codexPluginEntries, codexPluginListing, codexToolRow } from "./codex.ts";
@@ -865,18 +865,33 @@ async function integrationWritingStyleRow(p: Probes, claudeList: ExecResult | nu
   return writingStyleRowForInventory(p, plugins, userSkillsDirs);
 }
 
-const INTEGRATIONS_SETTINGS_STEPS: Action = {
-  type: "steps",
-  label: "Show steps…",
-  steps: ["Open a terminal", "Run: rt agent integrations", "Turn on the agent apps you use, and make your default one of them"],
-};
+/** The picker that runs `rt setup harnesses`, opened on the current set and default. */
+function chooseHarnessesAction(label: string, enabled: string[]): Action {
+  const configured = configuredHarness();
+  return {
+    type: "choose-harnesses",
+    label,
+    verb: ["setup", "harnesses"],
+    subtitle: "Turn on the agent apps you use, then pick the one rt agent starts by default.",
+    footnote: `You can also run ${CHOOSE_AGAIN} in a terminal.`,
+    options: builtinRegistry().list().map((i) => ({ id: i.id, label: i.label, detail: `rt sets up ${i.label} and can hand work to it` })),
+    enabled: [...enabled],
+    defaultHarness: configured !== undefined && enabled.includes(configured) ? configured : null,
+  };
+}
 
 /** Which harnesses this Mac sets up, and anything wrong with that choice. */
 function integrationsRow(selection: Extract<IntegrationSelection, { switchOn: true }>): Row {
   const base = { id: "tool.integrations", kind: "info" as const, title: "Agent integrations", why: "The agent apps rt sets up and hands work to.", required: false };
   const problems = integrationPreferenceProblems();
-  if (problems.length > 0) return row({ ...base, status: "needs-you", detail: problems.map((pr) => pr.message).join(" "), action: INTEGRATIONS_SETTINGS_STEPS });
-  if (selection.enabled.length === 0) return row({ ...base, status: "needs-you", detail: "No agent integration is turned on", action: INTEGRATIONS_SETTINGS_STEPS });
+  if (problems.length > 0) {
+    const elsewhere = [...new Set(problems.map((pr) => pr.next).filter((next) => next !== CHOOSE_AGAIN))];
+    const action: Action = elsewhere.length > 0
+      ? { type: "steps", label: "Show steps…", steps: ["Open a terminal", ...elsewhere.map((next) => `Run: ${next}`)] }
+      : chooseHarnessesAction("Choose…", selection.enabled);
+    return row({ ...base, status: "needs-you", detail: problems.map((pr) => pr.message).join(" "), action });
+  }
+  if (selection.enabled.length === 0) return row({ ...base, status: "needs-you", detail: "No agent integration is turned on", action: chooseHarnessesAction("Choose…", []) });
   const labels = builtinRegistry().list().filter((i) => selection.enabled.includes(i.id)).map((i) => i.label);
-  return row({ ...base, status: "ready", detail: `Turned on: ${labels.join(", ")}` });
+  return row({ ...base, status: "ready", detail: `Turned on: ${labels.join(", ")}`, action: chooseHarnessesAction("Change…", selection.enabled) });
 }

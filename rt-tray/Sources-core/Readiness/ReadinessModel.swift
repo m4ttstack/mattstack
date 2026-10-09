@@ -103,7 +103,7 @@ public final class ReadinessModel: ObservableObject {
     public var outstandingManualRows: [PlanRow] {
         allRows.filter { row in
             guard !row.required, row.status != .ready, row.status != .skipped, !finishBlockedBy.contains(row.id) else { return false }
-            guard let type = row.action?.type, type == .steps || type == .openURL else { return false }
+            guard let type = row.action?.type, type == .steps || type == .openURL || type == .chooseHarnesses else { return false }
             if let note = row.optionalNote, note.lowercased().hasPrefix("works without") { return false }
             return true
         }

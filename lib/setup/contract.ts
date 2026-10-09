@@ -50,6 +50,19 @@ export type Action =
       options: ChooseOption[];
       selected?: string;
       other?: { label: string; hint: string; suggestions?: string[] };
+    }
+  // The app collects a set of option ids and one default from that set, then runs
+  // verb + ids + ["--default", id] (or verb + ["--none"] for an empty set) + ["--json"].
+  // enabled and defaultHarness are what the sheet opens on, never a value the app decides.
+  | {
+      type: "choose-harnesses";
+      label: string;
+      verb: string[];
+      subtitle?: string;
+      footnote?: string;
+      options: ChooseOption[];
+      enabled: string[];
+      defaultHarness: string | null;
     };
 
 export interface Row {
@@ -109,7 +122,7 @@ export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-exten
 export const WAIVABLE_ROW_IDS: readonly string[] = ["tool.fast-browser-extension"];
 
 /** Action types the app's Done screen can act on; a finish-gated row must only carry these (parity with DoneActions in rt-tray). */
-export const DONE_ACTION_TYPES = ["open-url", "steps", "run", "choose"] as const;
+export const DONE_ACTION_TYPES = ["open-url", "steps", "run", "choose", "choose-harnesses"] as const;
 
 export type StepKind = "rt" | "app" | "privileged";
 /**

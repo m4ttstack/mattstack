@@ -15,11 +15,14 @@ import { BUILTIN_HARNESS_IDS } from "./harness-ids.ts";
 
 export const INTEGRATIONS_SETTING = "agent.integrations";
 
+/** The verb that saves a fresh choice of apps and default, at the scope that outranks the rest. */
+export const CHOOSE_AGAIN = "rt setup harnesses";
+
 const registeredIds = (): HarnessId[] => [...BUILTIN_HARNESS_IDS];
 
 const invalid = <T>(message: string): Outcome<T> => ({ ok: false, error: { code: "invalid", message } });
 
-const joined = (ids: readonly string[], conj: "and" | "or"): string =>
+export const joined = (ids: readonly string[], conj: "and" | "or"): string =>
   ids.length < 2 ? ids.join("") : `${ids.slice(0, -1).join(", ")} ${conj} ${ids.at(-1)}`;
 
 /** The configured default harness (`agent.provider`), or undefined while none is set or the setting cannot be read. */
@@ -88,24 +91,21 @@ export function integrationPreferenceProblems(): IntegrationProblem[] {
   }
   const wrongShape = rows.filter((row) => row.invalid !== undefined || row.nonconforming !== undefined);
   if (wrongShape.length > 0) {
-    return wrongShape.map((row) => ({
-      code: "invalid-preference",
-      message: `${INTEGRATIONS_SETTING} in your ${row.scope} settings needs fixing: it must be a list of integration names, such as ["claude"].`,
-    }));
+    // A machine value is the one `rt setup harnesses` overwrites; a value in any other scope stays until removed.
+    return wrongShape.map((row) => row.scope === "machine"
+      ? { code: "invalid-preference", message: "Your list of agent apps in this Mac's settings cannot be read. Choose them again.", next: CHOOSE_AGAIN }
+      : { code: "invalid-preference", message: `Your list of agent apps in your ${row.scope} settings cannot be read. Remove it.`, next: `rt settings unset ${INTEGRATIONS_SETTING} --scope ${row.scope}` });
   }
   const stored = readStored();
   if (stored.kind === "absent") return [];
   if (stored.kind === "malformed") {
-    return [{ code: "invalid-preference", message: `${INTEGRATIONS_SETTING} needs fixing: it must be a list of integration names, such as ["claude"].` }];
+    return [{ code: "invalid-preference", message: "Your list of agent apps cannot be read. Choose them again.", next: CHOOSE_AGAIN }];
   }
   const valid = validateIntegrationPreference(stored.ids);
-  if (!valid.ok) return [{ code: "invalid-preference", message: `${INTEGRATIONS_SETTING} needs fixing: ${valid.error.message}` }];
+  if (!valid.ok) return [{ code: "invalid-preference", message: `Your list of agent apps needs fixing: ${valid.error.message}`, next: CHOOSE_AGAIN }];
   const provider = configuredHarness();
   if (stored.ids.length === 0 || provider === undefined || stored.ids.includes(provider)) return [];
-  return [{
-    code: "default-not-enabled",
-    message: `${provider} is your default for rt agent, but it is not turned on. Add it to ${INTEGRATIONS_SETTING}, or set agent.provider to ${joined(stored.ids, "or")}.`,
-  }];
+  return [{ code: "default-not-enabled", message: `${provider} is your default for rt agent, but it is not turned on.`, next: CHOOSE_AGAIN }];
 }
 
 export type IntegrationChoice = { enabled: string[]; defaultHarness?: string };

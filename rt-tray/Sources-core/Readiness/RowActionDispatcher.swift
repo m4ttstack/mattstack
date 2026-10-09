@@ -9,6 +9,7 @@ public enum DispatchedAction: Equatable, Sendable {
     case chooseFolder(startAt: String?)
     case collectFields([ActionField], integration: String, alternatives: [ActionAlternative], create: ActionLink?)
     case chooseOption(options: [ChooseOption], other: ChooseOther?)
+    case chooseHarnesses
     case none
 }
 
@@ -62,6 +63,8 @@ public enum RowActionDispatcher {
             guard let verb = action.verb, !verb.isEmpty else { return .none }
             if let id = fieldValues?["id"] { return .rtVerb(args: verb + [id, "--json"], stdin: nil) }
             return .chooseOption(options: action.options ?? [], other: action.other)
+        case .chooseHarnesses:
+            return HarnessChoiceDraft(action: action) == nil ? .none : .chooseHarnesses
         case .unknown: return .none
         }
     }

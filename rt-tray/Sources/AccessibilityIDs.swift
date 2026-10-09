@@ -64,6 +64,12 @@ enum AXID {
     static let chooseError = "setup.choose.error"
     static let chooseCancel = "setup.choose.cancel"
     static let chooseSubmit = "setup.choose.submit"
+    static let harnessesSheet = "setup.harnesses"
+    static func harnessesOption(_ id: String) -> String { "setup.harnesses.option.\(id)" }
+    static let harnessesDefault = "setup.harnesses.default"
+    static let harnessesError = "setup.harnesses.error"
+    static let harnessesCancel = "setup.harnesses.cancel"
+    static let harnessesSubmit = "setup.harnesses.submit"
 
     // Install
     static func installStep(_ id: String) -> String { "setup.install.step.\(id)" }

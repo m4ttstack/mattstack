@@ -55,6 +55,7 @@ public enum ActionType: String, Codable, Equatable, Sendable, CaseIterable {
     case linkBundled = "link-bundled"
     case openURL = "open-url"
     case chooseFolder = "choose-folder"
+    case chooseHarnesses = "choose-harnesses"
     case unknown
     public init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
@@ -147,17 +148,23 @@ public struct RowAction: Codable, Equatable, Sendable {
     public var footnote: String?
     /// `connect` only: the create-credential page the sheet links to.
     public var create: ActionLink?
+    /// `choose-harnesses` only: the option ids turned on now, which the sheet opens on.
+    public var enabled: [String]?
+    /// `choose-harnesses` only: the current default when it is one of `enabled`.
+    public var defaultHarness: String?
     public init(type: ActionType, label: String, target: String? = nil, which: String? = nil,
                 integration: String? = nil, fields: [ActionField]? = nil,
                 alternatives: [ActionAlternative]? = nil, verb: [String]? = nil, tool: String? = nil,
                 via: String? = nil, steps: [String]? = nil, url: String? = nil, startAt: String? = nil,
                 options: [ChooseOption]? = nil, selected: String? = nil, other: ChooseOther? = nil,
-                subtitle: String? = nil, footnote: String? = nil, create: ActionLink? = nil) {
+                subtitle: String? = nil, footnote: String? = nil, create: ActionLink? = nil,
+                enabled: [String]? = nil, defaultHarness: String? = nil) {
         self.type = type; self.label = label; self.target = target; self.which = which
         self.integration = integration; self.fields = fields; self.alternatives = alternatives
         self.verb = verb; self.tool = tool; self.via = via; self.steps = steps; self.url = url
         self.startAt = startAt; self.options = options; self.selected = selected; self.other = other
         self.subtitle = subtitle; self.footnote = footnote; self.create = create
+        self.enabled = enabled; self.defaultHarness = defaultHarness
     }
 }
 
