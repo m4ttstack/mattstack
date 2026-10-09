@@ -511,6 +511,13 @@ export function createHerdHandlers(deps: HerdDeps) {
         if (attemptId !== undefined) attempts.release(attemptId);
       }
       if (!started.ok) {
+        // The row names the worker of whichever attempt holds the job: a replacement that never took it gives the row back.
+        if (fenced && prior && store.activeAttempt(herdId, name)?.id !== attemptId) {
+          const row = store.getJob(herdId, name);
+          if (row?.handle === workerId) {
+            store.upsertJob({ ...row, handle: prior.handle, agentSession: prior.agentSession, agentId: prior.agentId, status: prior.status });
+          }
+        }
         // A kept session may have started, so its attempt stays reserved, holding nothing, for recovery to judge.
         if ("kept" in started) return { ok: false, error: started.error };
         if (attemptId !== undefined) attempts.endJobAttempt(attemptId);
@@ -630,11 +637,20 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
       if (enabled()) {
         const session = str(p?.session);
-        if (!session) return { ok: false, error: "this report cannot be attributed to a session, so its job did not accept it" };
+        if (!session) {
+          const error = "this report cannot be attributed to a session, so its job did not accept it";
+          return { ok: false, error, failure: { code: "ambiguous", message: error } };
+        }
         const caller = resolveCaller({ native: { harness: str(p?.harness) ?? "claude", kind: "id", value: session } });
-        if (!caller.ok) return { ok: false, error: `this report cannot be attributed to a session: ${caller.error.message}` };
+        if (!caller.ok) {
+          const error = `this report cannot be attributed to a session: ${caller.error.message}`;
+          return { ok: false, error, failure: { code: caller.error.code, message: error } };
+        }
         const held = attempts.authorizeJobReport(caller.data, herdId, name);
-        if (!held.ok) return { ok: false, error: `job "${name}" did not accept this report: ${held.error.message}` };
+        if (!held.ok) {
+          const error = `job "${name}" did not accept this report: ${held.error.message}`;
+          return { ok: false, error, failure: { code: held.error.code, message: error } };
+        }
       }
       const posted = await deps.chat["chat:post"]({ room: herd.room, handle: job.handle, body, mentions: [herd.shepherdHandle] });
       if (!posted.ok) return posted;

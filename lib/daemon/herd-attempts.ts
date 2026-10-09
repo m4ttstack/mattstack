@@ -55,6 +55,9 @@ export interface JobAttempts {
 /** Attempts whose launch is running in this process; recovery leaves them to it. */
 const LAUNCHING = new Set<string>();
 
+/** Tests simulate a process that died mid-launch by forgetting its launches. */
+export const __test__ = { reset: (): void => LAUNCHING.clear() };
+
 const ok = <T>(data: T): Outcome<T> => ({ ok: true, data });
 const fail = <T>(code: FaultCode, message: string): Outcome<T> => ({ ok: false, error: { code, message } });
 

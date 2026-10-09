@@ -12,13 +12,13 @@ import { resolveCallerContextNow } from "../../agent-integrations/context.ts";
 import type { HarnessIntegration, PolicyAdapter, SessionAdapter, WorkInput } from "../../agent-integrations/contracts.ts";
 import { createBoundLauncher } from "../../agent-integrations/launch.ts";
 import { createRegistry } from "../../agent-integrations/registry.ts";
-import { createSessionStore, markBindingReady, readBindingReadiness } from "../../agent-integrations/session-store.ts";
+import { claimReservation, createSessionStore, markBindingReady, readBindingReadiness } from "../../agent-integrations/session-store.ts";
 import { recordPolicyProof } from "../../agent-integrations/policy-readiness.ts";
-import { listSubmissions } from "../../agent-integrations/work-submissions.ts";
+import { findSubmission, listSubmissions } from "../../agent-integrations/work-submissions.ts";
 import { createAgentService } from "../handlers/agent.ts";
 import { createHerdHandlers, type HerdDeps } from "../handlers/herd.ts";
 import { createHerdStore, type HerdStore } from "../herd-store.ts";
-import { createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
+import { __test__ as attemptsInProcess, createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
 
 const log = pino({ level: "silent" });
 const HERD = "demo-20261008-120000";
@@ -41,9 +41,10 @@ const close = () => {
   herds.close_();
   state.close();
 };
-/** Closes and reopens both stores, as a daemon restart between two steps would. */
+/** Closes and reopens both stores and forgets this process's launches, as a daemon restart between two steps would. */
 const restart = (): JobAttempts => {
   close();
+  attemptsInProcess.reset();
   open();
   return attempts();
 };
@@ -58,6 +59,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  attemptsInProcess.reset();
   close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -142,6 +144,26 @@ describe("fenced job attempts", () => {
     await svc.reconcileJobAttempts();
     expect(herds.attempts(HERD, JOB)).toHaveLength(1);
     expect(herds.getAttempt(never.id)).toMatchObject({ state: "ended", selection: SELECTION });
+  });
+
+  test("after a restart, a claimed but unbound launch keeps its attempt reserved and an unclaimed one ends", async () => {
+    let svc = attempts();
+    const claimed = data(svc.reserveJobAttempt({ herd: HERD, job: JOB, selection: SELECTION }));
+    const unclaimed = data(svc.reserveJobAttempt({ herd: HERD, job: "job-b", selection: SELECTION }));
+    const store = createSessionStore(state);
+    const claimedLaunch = store.reserve({ identity: `${JOB}.w1`, attemptId: claimed.id });
+    store.reserve({ identity: "job-b.w1", attemptId: unclaimed.id });
+    data(claimReservation(state, claimedLaunch, "proc-gone", { cwd: "/w/job-a", mode: "herdr", selection: SELECTION, required: POLICY }));
+
+    svc = restart();
+    await svc.reconcileJobAttempts();
+    svc = restart();
+    await svc.reconcileJobAttempts();
+
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["reserved"]);
+    expect(herds.activeAttempt(HERD, JOB)).toBeNull();
+    expect(herds.attempts(HERD, "job-b").map((a) => a.state)).toEqual(["ended"]);
+    expect(state.query("SELECT count(*) AS n FROM agent_session_bindings").get()).toEqual({ n: 0 });
   });
 
   test("a reservation still launching in this process is left alone by recovery", async () => {
@@ -231,28 +253,38 @@ describe("fenced job attempts", () => {
 
 // --- The launch seam: prepare, activate, then work ---------------------------
 
-type Seen = { work: WorkInput[]; reports: Array<Outcome<unknown>> };
+type Seen = {
+  work: WorkInput[]; reports: Array<Outcome<unknown>>; launches?: number;
+  /** The next verify proves nothing, so that launch never takes its job. */
+  refuseProof?: boolean;
+  /** The next work submission's outcome is unknown. */
+  ambiguousWork?: boolean;
+};
 
 /** A Claude-shaped harness: its mode report lists no policy, which its adapter verifies per session. */
 function claudeLike(seen: Seen, onWork?: (binding: SessionBinding) => void): HarnessIntegration {
   const ok = <T>(value: T): Outcome<T> => ({ ok: true, data: value });
   const sessions: SessionAdapter = {
-    launch: async (req) => ok({ native: { harness: "claude", profile: "acct-2", kind: "id", value: req.nativeHint! }, attachment: { mode: req.mode, pane: "w3:p1" } }),
+    launch: async (req) => {
+      seen.launches = (seen.launches ?? 0) + 1;
+      return ok({ native: { harness: "claude", profile: "acct-2", kind: "id", value: req.nativeHint! }, attachment: { mode: req.mode, pane: "w3:p1" } });
+    },
     resume: async (native, req) => ok({ native, attachment: { mode: req.mode, pane: "w3:p2" } }),
     discover: async () => [],
     observe: async (b) => ok({ connectivity: "unknown", execution: "unknown", background: "unknown", observedAt: 1, source: "none", generation: b.attachment.generation }),
     startWork: async (b, input) => {
       seen.work.push(input);
       onWork?.(b);
+      if (seen.ambiguousWork) return { ok: false, error: { code: "ambiguous", message: "the session never acknowledged the work" } };
       return ok({ id: input.id, evidence: "submitted", nativeId: b.native.value });
     },
   };
   const policy: PolicyAdapter = {
     verifiesPerSession: true,
     prepare: async (req) => ok({ id: "pp", harness: "claude", profile: "acct-2", cwd: req.cwd, revision: "rev-1" }),
-    verify: async (b, prepared) => ok({
-      sessionKey: b.key, generation: b.attachment.generation, revision: prepared.revision, verified: POLICY, observedAt: 1, kind: "installation",
-    }),
+    verify: async (b, prepared) => (seen.refuseProof
+      ? { ok: false, error: { code: "not-ready", message: "the gate hook never ran in this session" } }
+      : ok({ sessionKey: b.key, generation: b.attachment.generation, revision: prepared.revision, verified: POLICY, observedAt: 1, kind: "installation" })),
   };
   return {
     id: "claude", label: "Claude Code", policyProofKind: "installation",
@@ -350,6 +382,43 @@ function herdHandlers(svc: JobAttempts, agent: ReturnType<typeof createAgentServ
 }
 
 describe("herd:spawn and herd:report with the switch on", () => {
+  test("an ambiguous work submission keeps the active attempt and its stable work id, and launches no replacement", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [], ambiguousWork: true };
+    const h = herdHandlers(svc, agentService(svc, claudeLike(seen)), []);
+
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    expect(spawned.ok).toBe(false);
+
+    const all = herds.attempts(HERD, JOB);
+    expect(all.map((a) => a.state)).toEqual(["active"]);
+    const attempt = all[0]!;
+    expect(seen.launches).toBe(1);
+    expect(seen.work.map((w) => w.id)).toEqual([`herd-work-${attempt.id}`]);
+    expect(findSubmission(state, attempt.bindingKey!, `herd-work-${attempt.id}`)).toMatchObject({ state: "ambiguous", attemptId: attempt.id });
+    expect(herds.getJob(HERD, JOB)?.handle).toBe("job-a.w1");
+  });
+
+  test("a respawn that never takes the job gives the row back to the worker that holds it", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [] };
+    const posted: Array<{ handle: string }> = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike(seen)), posted);
+
+    const first = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!first.ok) throw new Error(first.error);
+    const holder = herds.getJob(HERD, JOB)!;
+    seen.refuseProof = true;
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a" });
+    expect(refused.ok).toBe(false);
+
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["active", "reserved"]);
+    expect(herds.getJob(HERD, JOB)).toMatchObject({ handle: holder.handle, agentId: holder.agentId, agentSession: holder.agentSession, status: holder.status });
+    const report = await h["herd:report"]({ herd: HERD, job: JOB, body: "done", session: first.data.sessionId });
+    expect(report.ok).toBe(true);
+    expect(posted.map((p) => p.handle)).toEqual([first.data.handle]);
+  });
+
   test("a respawn mints a fresh worker identity and fences the predecessor's report", async () => {
     const svc = attempts();
     const seen: Seen = { work: [], reports: [] };
@@ -368,7 +437,8 @@ describe("herd:spawn and herd:report with the switch on", () => {
     expect(current!.selection).toEqual({ harness: "claude", options: { model: "opus" } });
 
     const refused = await h["herd:report"]({ herd: HERD, job: JOB, body: "done", session: first.data.sessionId });
-    expect(refused.ok).toBe(false);
+    expect(refused).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
+    if (!refused.ok) expect(refused.failure?.message).toBe(refused.error);
     const missing = await h["herd:report"]({ herd: HERD, job: JOB, body: "done" });
     expect(missing.ok).toBe(false);
     expect(posted).toHaveLength(0);
