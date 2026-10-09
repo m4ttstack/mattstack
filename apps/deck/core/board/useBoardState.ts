@@ -286,7 +286,14 @@ export function useBoardState() {
         }
         runId = body.runId ?? null;
       } catch {
-        runId = null; // died before answering: the restart branch below owns it
+        // Only deck's own deploy takes the server down mid-request; any other
+        // row's start failing to answer means it never started.
+        if (!row.self) {
+          addToast(`${cmd} could not start (no answer from deck).`);
+          setCommandPhase(key, null);
+          return 'not-started';
+        }
+        runId = null;
       }
 
       const outcome = runId
