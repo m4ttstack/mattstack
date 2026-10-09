@@ -27,7 +27,7 @@ const actionLayers = (board: (typeof app.boards)[number]) => {
 };
 
 describe('console parity boards', () => {
-  it('lists the twenty boards of the design README', () => {
+  it('lists the thirty boards of the design README', () => {
     expect(app.boards.map(b => b.slug)).toEqual([
       'template-work',
       'template-plan',
@@ -49,6 +49,16 @@ describe('console parity boards', () => {
       'run-story-edges',
       'run-record-abandoned',
       'run-record-review',
+      'runs-p2-live',
+      'runs-p2-gate',
+      'runs-p2-record',
+      'runs-p2-inputs',
+      'runs-p2-states',
+      'runs-p2-runs',
+      'runs-p2-review',
+      'runs-p2-story-details',
+      'runs-p2-overlays',
+      'runs-p2-search',
     ]);
   });
 

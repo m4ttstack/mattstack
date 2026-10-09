@@ -250,4 +250,135 @@ export const BOARDS: Board<Scenario>[] = [
     461,
     { appRoots: { 'Hero review': 'Hero' } }
   ),
+  // Pass 2 (docs/superpowers/specs/2026-10-09-console-runs-pass-2-design.md).
+  runsBoard(
+    'runs-p2-live',
+    'After · Live run page (quiet story)',
+    'BqEgW',
+    `${RUN}/20261008-1338`,
+    ['Hero', 'Story', 'Side'],
+    940
+  ),
+  runsBoard(
+    'runs-p2-gate',
+    'After · Gate open',
+    'Q6YEx',
+    `${RUN}/20261008-1340`,
+    ['Hero', 'Gate mine', 'Story list', 'Side'],
+    940,
+    { storage: pickedDraft('g-418-plan', 'approach', 'Server-side filter') }
+  ),
+  runsBoard(
+    'runs-p2-record',
+    'After · Record (finished run)',
+    'P1gMvv',
+    `${RUN}/20261008-1142`,
+    ['Hero', 'Tabs', 'Decision log', 'Evidence rail'],
+    1125
+  ),
+  runsBoard(
+    'runs-p2-inputs',
+    'After · Effective inputs drawer',
+    'aJIIw',
+    `${RUN}/20261008-1338?inputs`,
+    ['Drawer'],
+    900
+  ),
+  runsBoard(
+    'runs-p2-states',
+    'After · states',
+    'kxHe1',
+    `${RUN}/20261008-1338`,
+    ['Run load error', 'Runs outage', 'Gate refused', 'Toasts'],
+    962,
+    {
+      panels: [
+        {
+          label: 'run load error',
+          route: `${RUN}/20261001-0000`,
+          root: 'Run load error',
+        },
+        { label: 'runs outage', route: '/', root: 'Runs outage' },
+        {
+          label: 'gate refused',
+          route: `${RUN}/20261008-1340`,
+          root: 'Gate refused',
+        },
+        { label: 'toasts', route: `${RUN}/20261008-1338`, root: 'Toasts' },
+      ],
+    }
+  ),
+  runsBoard(
+    'runs-p2-runs',
+    'After · Runs page',
+    'dX37S',
+    '/',
+    ['Title row', 'Summary', 'Banner waiting', 'Live cards', 'History'],
+    1142,
+    {}
+  ),
+  runsBoard(
+    'runs-p2-review',
+    'After · Review run record',
+    'tsWMv',
+    `${RUN}/20261008-0940`,
+    ['Hero', 'Tabs', 'Review column', 'Side'],
+    979
+  ),
+  runsBoard(
+    'runs-p2-story-details',
+    'After · Story details',
+    'yFl93',
+    `${RUN}/20261008-1338`,
+    ['Hero', 'Story', 'Side'],
+    1108
+  ),
+  runsBoard(
+    'runs-p2-overlays',
+    'After · overlays',
+    'OID6c',
+    `${RUN}/20261008-1338`,
+    ['Stage doc drawer', 'Compare', 'Abandon dialog', 'Setting inline'],
+    962,
+    {
+      panels: [
+        {
+          label: 'stage doc drawer',
+          route: `${RUN}/20261008-1338`,
+          root: 'Stage doc drawer',
+        },
+        { label: 'compare', route: `${RUN}/20261008-1142`, root: 'Compare' },
+        {
+          label: 'abandon dialog',
+          route: `${RUN}/20261007-1310`,
+          root: 'Abandon dialog',
+        },
+        {
+          label: 'setting inline',
+          route: `${RUN}/20261008-1338`,
+          root: 'Setting inline',
+        },
+      ],
+    }
+  ),
+  runsBoard(
+    'runs-p2-search',
+    'After · search etc',
+    'n2WWXe',
+    '/search?q=filter',
+    ['Search', 'Palette', 'Not found', 'Timeline hover'],
+    962,
+    {
+      panels: [
+        { label: 'search', route: '/search?q=filter', root: 'Search' },
+        { label: 'palette', route: '/', root: 'Palette' },
+        { label: 'not found', route: '/nowhere', root: 'Not found' },
+        {
+          label: 'timeline hover',
+          route: '/?view=timeline',
+          root: 'Timeline hover',
+        },
+      ],
+    }
+  ),
 ];

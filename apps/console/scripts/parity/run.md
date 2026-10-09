@@ -28,6 +28,13 @@ names its content roots in `boards.ts`:
 | `run-story-edges`                                                            | `Now empty`, `Story list`                                                          |
 | `run-record-abandoned`                                                       | `Hero abandoned`                                                                   |
 | `run-record-review`                                                          | `Hero review`                                                                      |
+| `runs-p2-live`, `runs-p2-story-details`                                      | `Hero`, `Story`, `Side`                                                            |
+| `runs-p2-gate`                                                               | `Hero`, `Gate mine`, `Story list`, `Side`                                          |
+| `runs-p2-record`                                                             | `Hero`, `Tabs`, `Decision log`, `Evidence rail`                                    |
+| `runs-p2-review`                                                             | `Hero`, `Tabs`, `Review column`, `Side`                                            |
+| `runs-p2-inputs`                                                             | `Drawer`                                                                           |
+| `runs-p2-runs`                                                               | `Title row`, `Summary`, `Banner waiting`, `Live cards`, `History`                  |
+| `runs-p2-states`, `runs-p2-overlays`, `runs-p2-search`                       | one root per panel (`panels` in `boards.ts`)                                       |
 
 The Lanes boards compare their whole `Content`: the title row, stat cards,
 banner, lanes and Earlier list are all its children. The runs boards come from

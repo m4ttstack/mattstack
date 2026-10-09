@@ -450,3 +450,56 @@ are `--tk-text-3`; the tickets and "now" are `--tk-text-accent`.
 - The Lanes view carries the same Timeline/List toggle beside its filter,
   which the Lanes board does not draw: without it the timeline has no way in.
   It is a kit control and not keyed, so runs-lanes is unchanged.
+
+## Runs pass 2
+
+The second design pass over the runs pages: quieter run pages, a polished
+gate form, and a board for every surface a click or a failure can reach. The
+spec is `docs/superpowers/specs/2026-10-09-console-runs-pass-2-design.md`; the
+plan is `docs/superpowers/plans/2026-10-09-console-runs-pass-2.md`.
+
+In `runs.pen` the pass starts at y=6700. Each section pairs a `Before · …`
+frame (a capture of the app before this pass, from the design fixture or
+Storybook, images under `before/`) with its `After · …` board at x=1540 and
+the board's dark copy at x=3080. Light is the base; each dark board is the
+light one with `theme: { mode: "dark" }`, sharing its layer tree. The After
+boards are the design; the Before frames are reference only and are never
+compared.
+
+### Boards
+
+| slug                    | frame (light)                         | light id | dark id  | route                                     | roots                                                       |
+| ----------------------- | ------------------------------------- | -------- | -------- | ----------------------------------------- | ----------------------------------------------------------- |
+| `runs-p2-live`          | `After · Live run page (quiet story)` | `BqEgW`  | `viNUJ`  | `/runs/remote%3Aacme%2Fweb/20261008-1338` | `Hero`, `Story`, `Side`                                     |
+| `runs-p2-gate`          | `After · Gate open`                   | `Q6YEx`  | `HbRPU`  | `/runs/remote%3Aacme%2Fweb/20261008-1340` | `Hero`, `Gate mine`, `Story list`, `Side`                   |
+| `runs-p2-record`        | `After · Record (finished run)`       | `P1gMvv` | `sbDKY`  | `/runs/remote%3Aacme%2Fweb/20261008-1142` | `Hero`, `Tabs`, `Decision log`, `Evidence rail`             |
+| `runs-p2-inputs`        | `After · Effective inputs drawer`     | `aJIIw`  | `f8Bru`  | `/runs/remote%3Aacme%2Fweb/20261008-1338?inputs` | `Drawer`                                                    |
+| `runs-p2-states`        | `After · states`                      | `kxHe1`  | `YunJz`  | one route per panel                       | `Run load error`, `Runs outage`, `Gate refused`, `Toasts`   |
+| `runs-p2-runs`          | `After · Runs page`                   | `dX37S`  | `MHMfu`  | `/`                                       | `Title row`, `Summary`, `Banner waiting`, `Live cards`, `History` |
+| `runs-p2-review`        | `After · Review run record`           | `tsWMv`  | `P1PkfE` | `/runs/remote%3Aacme%2Fweb/20261008-0940` | `Hero`, `Tabs`, `Review column`, `Side`                     |
+| `runs-p2-story-details` | `After · Story details`               | `yFl93`  | `lV4r8`  | `/runs/remote%3Aacme%2Fweb/20261008-1338` | `Hero`, `Story`, `Side`                                     |
+| `runs-p2-overlays`      | `After · overlays`                    | `OID6c`  | `VEOxV`  | one route per panel                       | `Stage doc drawer`, `Compare`, `Abandon dialog`, `Setting inline` |
+| `runs-p2-search`        | `After · search etc`                  | `n2WWXe` | `mFvLi`  | one route per panel                       | `Search`, `Palette`, `Not found`, `Timeline hover`          |
+
+Every board uses the `runs` scenario except the outage panel of
+`runs-p2-states`, which needs `runs-outage`. The tile boards (`states`,
+`overlays`, `search`) compare each tile on its own route (`panels` in
+`boards.ts`); the task that builds a tile sets its route and action there.
+Exports are `parity/runs-p2-<slug>.<scheme>.html` and
+`renders/runs-p2-<slug>.<scheme>.png`.
+
+### Superseded first-pass boards
+
+These first-pass boards are replaced by pass 2 and are no longer parity
+gates; their frames stay in `runs.pen` for history:
+
+- `run-live` → `runs-p2-live` and `runs-p2-story-details`
+- `run-gate` → `runs-p2-gate`
+- `run-record` → `runs-p2-record`
+- `run-record-review` → `runs-p2-review`
+- `runs-lanes` → `runs-p2-runs`
+
+### Board-fix list (pass 2)
+
+Expected differences between a pass-2 board and the app. Each UI task adds
+its entries here as it lands.
