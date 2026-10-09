@@ -9,7 +9,7 @@ import type {
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { openStateDb } from "../../state/db.ts";
 import { resolveCallerContextNow, resolveCliWorkerSession } from "../../agent-integrations/context.ts";
-import type { HarnessIntegration, PolicyAdapter, SessionAdapter, WorkInput } from "../../agent-integrations/contracts.ts";
+import type { HarnessIntegration, PolicyAdapter, PolicyVerifyContext, SessionAdapter, WorkInput } from "../../agent-integrations/contracts.ts";
 import { createBoundLauncher } from "../../agent-integrations/launch.ts";
 import { createRegistry } from "../../agent-integrations/registry.ts";
 import { claimReservation, createSessionStore, markBindingReady, readBindingReadiness } from "../../agent-integrations/session-store.ts";
@@ -19,6 +19,7 @@ import { createAgentService } from "../handlers/agent.ts";
 import { createHerdHandlers, type HerdDeps } from "../handlers/herd.ts";
 import { createHerdStore, type HerdStore } from "../herd-store.ts";
 import { __test__ as attemptsInProcess, createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
+import { classifyJobObservation } from "../herd-watchdog.ts";
 import { reportJob, reportSession, workerCallPayload } from "../../../commands/herd.ts";
 
 const log = pino({ level: "silent" });
@@ -260,6 +261,10 @@ type Seen = {
   refuseProof?: boolean;
   /** The next work submission's outcome is unknown. */
   ambiguousWork?: boolean;
+  /** A resumed session proves its policy only in a check turn its caller agreed to, as Codex's does. */
+  checkOnResume?: boolean;
+  /** Every verify's context, in order. */
+  verifies?: PolicyVerifyContext[];
 };
 
 /** A Claude-shaped harness: its mode report lists no policy, which its adapter verifies per session. */
@@ -283,9 +288,14 @@ function claudeLike(seen: Seen, onWork?: (binding: SessionBinding) => void): Har
   const policy: PolicyAdapter = {
     verifiesPerSession: true,
     prepare: async (req) => ok({ id: "pp", harness: "claude", profile: "acct-2", cwd: req.cwd, revision: "rev-1" }),
-    verify: async (b, prepared) => (seen.refuseProof
-      ? { ok: false, error: { code: "not-ready", message: "the gate hook never ran in this session" } }
-      : ok({ sessionKey: b.key, generation: b.attachment.generation, revision: prepared.revision, verified: POLICY, observedAt: 1, kind: "installation" })),
+    verify: async (b, prepared, context = { kind: "launch" }) => {
+      (seen.verifies ??= []).push(context);
+      if (seen.refuseProof) return { ok: false, error: { code: "not-ready", message: "the gate hook never ran in this session" } };
+      if (seen.checkOnResume && context.kind === "resume" && context.check !== true) {
+        return { ok: false, error: { code: "not-ready", message: "the resumed session has not shown its hooks running" } };
+      }
+      return ok({ sessionKey: b.key, generation: b.attachment.generation, revision: prepared.revision, verified: POLICY, observedAt: 1, kind: "installation" });
+    },
   };
   return {
     id: "claude", label: "Claude Code", policyProofKind: "installation",
@@ -343,6 +353,74 @@ describe("the herd launch seam", () => {
     expect(seen.work.map((w) => w.id)).toEqual([`herd-work-${attempt.id}`]);
     expect(seen.reports).toHaveLength(1);
     expect(seen.reports[0]).toMatchObject({ ok: true, data: { id: attempt.id, state: "active" } });
+  });
+
+  test("rt agent resume of a herd worker re-proves its policy in a check turn and moves its attempt to the new generation", async () => {
+    const svc = attempts();
+    const attempt = data(svc.reserveJobAttempt({ herd: HERD, job: JOB, selection: SELECTION }));
+    const seen: Seen = { work: [], reports: [], checkOnResume: true };
+    const agent = agentService(svc, claudeLike(seen));
+    const started = await agent.startAttempt(workerPayload, { id: attempt.id, workId: `herd-work-${attempt.id}`, required: POLICY });
+    if (!started.ok) throw new Error(started.error);
+    const before = herds.getAttempt(attempt.id)!;
+
+    const resumed = await agent.handlers["agent:resume"]({ id: started.data.id });
+    if (!resumed.ok) throw new Error(resumed.error);
+
+    const binding = createSessionStore(state).get(before.bindingKey!)!;
+    expect(binding.attachment.generation).toBeGreaterThan(before.generation);
+    expect(seen.verifies?.at(-1)).toMatchObject({ kind: "resume", check: true });
+    expect(readBindingReadiness(state, binding.key)?.generation).toBe(binding.attachment.generation);
+    const after = herds.getAttempt(attempt.id)!;
+    expect(after).toMatchObject({ state: "active", bindingKey: binding.key, generation: binding.attachment.generation });
+    expect(data(svc.authorizeJobReport(callerOf(binding), HERD, JOB)).id).toBe(attempt.id);
+    const reading = { connectivity: "connected", execution: "working", background: "unknown", observedAt: Date.now(), source: "test", generation: binding.attachment.generation } as const;
+    expect(classifyJobObservation(after, reading, Date.now())).toBe("active");
+  });
+
+  test("a headless herd worker resumed with a prompt proves its policy and takes its attempt before that work is sent", async () => {
+    const svc = attempts();
+    const attempt = data(svc.reserveJobAttempt({ herd: HERD, job: JOB, selection: SELECTION, mode: "headless" }));
+    const seen: Seen = { work: [], reports: [], checkOnResume: true };
+    const agent = agentService(svc, claudeLike(seen, (binding) => {
+      seen.reports.push(svc.authorizeJobReport(callerOf(binding), HERD, JOB));
+    }));
+    const started = await agent.startAttempt({ ...workerPayload, surface: "headless" }, { id: attempt.id, workId: `herd-work-${attempt.id}`, required: POLICY });
+    if (!started.ok) throw new Error(started.error);
+
+    const resumed = await agent.handlers["agent:resume"]({ id: started.data.id, prompt: "carry on" });
+    if (!resumed.ok) throw new Error(resumed.error);
+    expect(seen.work.map((w) => w.text)).toEqual(["the brief", "carry on"]);
+    const binding = createSessionStore(state).get(herds.getAttempt(attempt.id)!.bindingKey!)!;
+    expect(herds.getAttempt(attempt.id)?.generation).toBe(binding.attachment.generation);
+    expect(seen.reports.at(-1)).toMatchObject({ ok: true, data: { id: attempt.id, generation: binding.attachment.generation } });
+  });
+
+  test("a resumed herd worker that cannot prove its policy stays not ready, its attempt keeps its old generation, and the next good resume recovers it", async () => {
+    const svc = attempts();
+    const attempt = data(svc.reserveJobAttempt({ herd: HERD, job: JOB, selection: SELECTION }));
+    const seen: Seen = { work: [], reports: [], checkOnResume: true };
+    const agent = agentService(svc, claudeLike(seen));
+    const started = await agent.startAttempt(workerPayload, { id: attempt.id, workId: `herd-work-${attempt.id}`, required: POLICY });
+    if (!started.ok) throw new Error(started.error);
+    const before = herds.getAttempt(attempt.id)!;
+
+    seen.refuseProof = true;
+    expect((await agent.handlers["agent:resume"]({ id: started.data.id })).ok).toBe(false);
+    const unproven = createSessionStore(state).get(before.bindingKey!)!;
+    expect(unproven.attachment.generation).toBeGreaterThan(before.generation);
+    expect(readBindingReadiness(state, unproven.key)?.generation).not.toBe(unproven.attachment.generation);
+    expect(herds.getAttempt(attempt.id)).toMatchObject({ state: "active", generation: before.generation });
+    const refused = svc.authorizeAttemptWork(attempt.id, unproven);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe("stale-binding");
+
+    seen.refuseProof = false;
+    const recovered = await agent.handlers["agent:resume"]({ id: started.data.id });
+    if (!recovered.ok) throw new Error(recovered.error);
+    const binding = createSessionStore(state).get(before.bindingKey!)!;
+    expect(herds.getAttempt(attempt.id)).toMatchObject({ state: "active", generation: binding.attachment.generation });
+    expect(svc.authorizeAttemptWork(attempt.id, binding).ok).toBe(true);
   });
 });
 

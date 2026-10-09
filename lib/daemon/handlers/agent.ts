@@ -557,6 +557,8 @@ export function createAgentService(opts: AgentHandlerOpts): {
       ...(resolvedPrompt !== undefined && { prompt: resolvedPrompt }),
       access: { readRoots: [...(addDirs ?? []), ...resumedWorktreeRoots(resumed, attemptId, rec.cwd)] },
       ...(resumed ? { resumeKey: resumed.key } : { nativeHint: rec.sessionId }),
+      // A resumed herd worker re-proves its policy now, so its attempt can move to the new generation before any work.
+      ...(resumed !== undefined && attemptId !== undefined && { policyCheck: true }),
       host,
     });
     if (!prepared.ok) {
