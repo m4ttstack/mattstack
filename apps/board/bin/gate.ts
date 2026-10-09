@@ -1,9 +1,13 @@
+import { existsSync } from 'fs';
+
 import {
   gateAnswer as facilityGateAnswer,
   gateAsk as facilityGateAsk,
   gateWait as facilityGateWait,
 } from '@mattstack/rt-client';
-import { callerSession, integrationsOn } from '../src/caller-session.ts';
+import { agentHarness } from '../src/agent-launch.ts';
+import { boardRootFromStatePath } from '../src/agent-status/emit.ts';
+import { integrationsOn, resolveCallerSession } from '../src/caller-session.ts';
 import {
   gateAnswer,
   gateOpen,
@@ -11,6 +15,11 @@ import {
   parseWaitMaxMs,
   type GateVerbIo,
 } from '../src/gates/verbs.ts';
+import {
+  dbPathForRoot,
+  openStateDb,
+  readByHandle,
+} from '../src/state/index.ts';
 
 const io: GateVerbIo = {
   gateAsk: facilityGateAsk,
@@ -29,7 +38,28 @@ function flag(argv: string[], name: string): string | undefined {
 
 const [verb, statePath, ...rest] = process.argv.slice(2);
 
-const caller = callerSession(process.env, integrationsOn());
+/** The agent the board launched for this state row, if any. */
+function stateAgentId(handle: string | undefined): string | undefined {
+  if (!handle) return undefined;
+  try {
+    const dbPath = dbPathForRoot(boardRootFromStatePath(handle));
+    if (!existsSync(dbPath)) return undefined;
+    const row = readByHandle(handle, openStateDb(dbPath, 'cli')) as {
+      agentId?: string;
+    } | null;
+    return row?.agentId;
+  } catch {
+    return undefined;
+  }
+}
+
+const caller = await resolveCallerSession(
+  process.env,
+  integrationsOn(),
+  'gate',
+  () => stateAgentId(statePath),
+  agentHarness
+);
 if (caller.problem) console.error(caller.problem);
 
 try {

@@ -313,6 +313,10 @@ export async function dispatchPrompt(
   let skillPath: string | null = null;
   if (o.skill) {
     skillPath = await resolvePath(o.skill, harness);
+    if (!skillPath && wrapperPath)
+      throw new Error(
+        `The ${o.skill} skill is not installed for ${harness}, so the board cannot start ${wrapper} there`
+      );
     if (skillPath) {
       console.log(
         `${wrapper} dispatch: --skill-path resolved -- "${o.skill}" -> ${skillPath}`
@@ -587,6 +591,15 @@ export async function launchDoctor(
   );
 }
 
+/** Why a session recorded with `sessionHarness` cannot take the legacy
+    `claude --resume` path, or null when it can (unset is Claude). */
+export function legacyResumeRefusal(sessionHarness?: string): Error | null {
+  if (!sessionHarness || sessionHarness === 'claude') return null;
+  return new Error(
+    `This pane ran in ${sessionHarness} and the board has no agent on file for it, so it cannot be reopened. Start it again from the board.`
+  );
+}
+
 /** Resume a session that predates rt agent adoption (a bare claude sessionId,
     no agentId) in a new pane under the given workspace, over the HerdrRunner.
     Ages out as panes relaunch through startAgentPane/launchReview et al.
@@ -610,10 +623,8 @@ export async function launchLegacyResume(
   },
   runner: HerdrRunner = defaultRunner
 ): Promise<{ tabId: string; workspaceId: string }> {
-  if (opts.sessionHarness && opts.sessionHarness !== 'claude')
-    throw new Error(
-      `This pane ran in ${opts.sessionHarness} and the board has no agent on file for it, so it cannot be reopened. Start it again from the board.`
-    );
+  const refusal = legacyResumeRefusal(opts.sessionHarness);
+  if (refusal) throw refusal;
   return launchInWorkspace(
     opts,
     buildResumePaneCommand(

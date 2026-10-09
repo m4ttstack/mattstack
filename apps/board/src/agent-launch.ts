@@ -6,28 +6,31 @@ import {
   type Commands,
   type HarnessId,
 } from '@mattstack/rt-client';
-import { integrationsOn } from './caller-session.ts';
+import { configuredProvider, integrationsOn } from './caller-session.ts';
 
 /** What picking a pane's harness reads: the integrations switch, the
     registry's metadata, and an agent record's provider. */
 export interface HarnessIo {
   switchOn(): boolean;
+  /** The user's default harness (`agent.provider`); unset when unreadable. */
+  defaultHarness(): HarnessId | undefined;
   agentIntegrations: typeof rtAgentIntegrations;
   agentGet: typeof rtAgentGet;
 }
 
 export const defaultHarnessIo: HarnessIo = {
   switchOn: () => integrationsOn(),
+  defaultHarness: () => configuredProvider(),
   agentIntegrations: rtAgentIntegrations,
   agentGet: rtAgentGet,
 };
 
 /**
  * The harness a fresh board pane runs: undefined while the integrations
- * switch is off, so the launch is what it always was. With it on, the first
- * integration the user turned on, in registry order, which puts Claude first
- * wherever it is on. Readiness is left to the launch itself, since a harness
- * can read not ready until something connects to it.
+ * switch is off, so the launch is what it always was. With it on, the
+ * user's default (`agent.provider`) when it is turned on, else the first
+ * integration turned on in registry order. Readiness is left to the launch
+ * itself, since a harness can read not ready until something connects.
  */
 export async function selectLaunchHarness(
   io: HarnessIo = defaultHarnessIo
@@ -38,7 +41,9 @@ export async function selectLaunchHarness(
     throw new Error(
       `The board could not read which agents are turned on: ${res.error ?? 'rt sent no answer'}`
     );
-  const chosen = res.data.integrations.find(i => i.enabled);
+  const enabled = res.data.integrations.filter(i => i.enabled);
+  const preferred = io.defaultHarness();
+  const chosen = enabled.find(i => i.id === preferred) ?? enabled[0];
   if (!chosen)
     throw new Error(
       'No agent is turned on, so the board cannot start one. Turn one on in setup.'

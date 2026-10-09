@@ -18,7 +18,7 @@ import {
   type IntegrationSummary,
 } from '@mattstack/rt-client';
 import type { AgentIo, HarnessIo } from '../agent-launch.ts';
-import { callerSession } from '../caller-session.ts';
+import { callerSession, resolveCallerSession } from '../caller-session.ts';
 import { migrateLegacySessions } from '../gates/legacy-session-migration.ts';
 import { resumeParkedGate, type KindResumeIo } from '../gates/resume.ts';
 import type { GateState } from '../gates/store.ts';
@@ -95,9 +95,10 @@ beforeEach(() => {
       claudeCalls++;
       throw new Error('the Claude inventory ran in a Codex launch');
     },
-    listCodexPlugins: async () => [
-      { id: 'acme@acme', enabled: true, installPath: pluginDir },
-    ],
+    listCodexPlugins: async () => ({
+      ok: true,
+      data: [{ id: 'acme@acme', enabled: true, installPath: pluginDir }],
+    }),
   });
 });
 
@@ -108,6 +109,7 @@ afterEach(() => {
 function codexOnly(provider = 'codex'): HarnessIo {
   return {
     switchOn: () => true,
+    defaultHarness: () => 'claude',
     agentIntegrations: async () => ({
       ok: true,
       data: {
@@ -256,7 +258,7 @@ describe('Codex review responds and reports without Claude', () => {
         claudeCalls++;
         return [];
       },
-      listCodexPlugins: async () => [],
+      listCodexPlugins: async () => ({ ok: true as const, data: [] }),
     };
     expect(await resolveAgentSkill('codex', 'board:review', deps)).toEqual({
       ok: true,
@@ -508,5 +510,209 @@ describe('legacy migration preserves explicit native reference', () => {
       )
     ).rejects.toThrow(/codex/i);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('harness choice and refusals', () => {
+  function bothOn(defaultHarness: string, codexOn = true): HarnessIo {
+    return {
+      ...codexOnly(),
+      defaultHarness: () => defaultHarness,
+      agentIntegrations: async () => ({
+        ok: true,
+        data: {
+          integrations: [summary('claude', true), summary('codex', codexOn)],
+        },
+      }),
+    };
+  }
+
+  test("both turned on and agent.provider is codex: the user's default wins", async () => {
+    const { io, starts } = recordingIo(bothOn('codex'));
+    await launchReview(launchOpts, io, resolver);
+    expect(starts[0]!.provider).toBe('codex');
+    expect(starts[0]!.prompt).toContain(reviewWrapper);
+    expect(claudeCalls).toBe(0);
+  });
+
+  test('agent.provider not turned on: the first integration turned on', async () => {
+    const { io, starts } = recordingIo(bothOn('codex', false));
+    await launchReview(launchOpts, io, async () => null);
+    expect(starts[0]!.provider).toBe('claude');
+    expect(starts[0]!.prompt!.startsWith('/board:review ')).toBe(true);
+    expect(starts[0]!.account).toBe('someone@example.com');
+  });
+
+  test('a domain skill Codex cannot find refuses the launch instead of dropping --skill-path', async () => {
+    const { io, starts } = recordingIo(codexOnly());
+    await expect(
+      launchReview({ ...launchOpts, skill: 'acme:nowhere' }, io, resolver)
+    ).rejects.toThrow(/acme:nowhere/);
+    expect(starts).toHaveLength(0);
+    expect(claudeCalls).toBe(0);
+  });
+
+  test('a Codex listing that fails refuses the launch with its reason', async () => {
+    const failing = agentSkillResolver({
+      home,
+      codexHome,
+      listClaudePlugins: async () => {
+        claudeCalls++;
+        return [];
+      },
+      listCodexPlugins: async () => ({
+        ok: false,
+        error: { code: 'not-ready', message: 'codex plugin list exited 3' },
+      }),
+    });
+    const { io, starts } = recordingIo(codexOnly());
+    await expect(launchReview(launchOpts, io, failing)).rejects.toThrow(
+      /exited 3/
+    );
+    expect(starts).toHaveLength(0);
+    expect(claudeCalls).toBe(0);
+  });
+
+  test('an environment naming both sessions keeps the one the agent runs', async () => {
+    const env = { CODEX_THREAD_ID: 'thread-1', CLAUDE_CODE_SESSION_ID: 's-1' };
+    const of = (h: string | undefined) => async () => h;
+    expect(
+      await resolveCallerSession(
+        env,
+        true,
+        'gate',
+        () => 'agent-1',
+        of('codex')
+      )
+    ).toEqual({ sessionId: 'thread-1', harness: 'codex' });
+    expect(
+      await resolveCallerSession(
+        env,
+        true,
+        'gate',
+        () => 'agent-1',
+        of('claude')
+      )
+    ).toEqual({ sessionId: 's-1', harness: 'claude' });
+    const none = await resolveCallerSession(
+      env,
+      true,
+      'gate',
+      () => undefined,
+      of('codex')
+    );
+    expect(none.sessionId).toBeUndefined();
+    expect(none.problem).toContain('this gate names no session');
+  });
+});
+
+describe('gate CLI wiring', () => {
+  test('gate open names the Codex thread the agent runs, through the daemon', async () => {
+    const prevHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      setSetting('agent.integrations.enabled', true, 'machine');
+    } finally {
+      process.env.HOME = prevHome;
+    }
+
+    const sockDir = mkdtempSync('/tmp/hw-');
+    const sock = join(sockDir, 'rt.sock');
+    const asks: Array<Record<string, unknown>> = [];
+    const daemon = Bun.serve({
+      unix: sock,
+      async fetch(req) {
+        const cmd = new URL(req.url).pathname.slice(1);
+        const body = (await req.json()) as Record<string, unknown>;
+        if (cmd === 'agent:get')
+          return Response.json({
+            ok: true,
+            data: {
+              id: body.id,
+              repo: 'remote:x',
+              cwd: '/repo',
+              provider: 'codex',
+              surface: 'herdr',
+              sessionId: 'thread-1',
+              createdAt: 0,
+            },
+          });
+        if (cmd === 'gate:ask') {
+          asks.push(body);
+          return Response.json({
+            ok: true,
+            data: {
+              id: 'g-1',
+              presentation: 'wait',
+              subject: body.subject,
+              supersededId: null,
+            },
+          });
+        }
+        return Response.json({ ok: false, error: `unexpected ${cmd}` });
+      },
+    });
+    try {
+      const gateRoot = join(root, 'gate');
+      mkdirSync(gateRoot);
+      const db = openStateDb(join(gateRoot, 'state.db'));
+      const handle = mintHandle('review', MR, gateRoot);
+      insertAgentState(
+        'review',
+        MR,
+        4821,
+        {
+          mrUrl: MR,
+          iid: 4821,
+          status: 'reviewing',
+          agentId: 'agent-1',
+          paneId: 'w1:p1',
+          startedAt: 0,
+          updatedAt: 0,
+        },
+        handle,
+        db
+      );
+      const cli = join(import.meta.dir, '..', '..', 'bin', 'gate.ts');
+      const env: Record<string, string> = {
+        ...(process.env as Record<string, string>),
+        HOME: home,
+        RT_DAEMON_SOCK: sock,
+        CODEX_THREAD_ID: 'thread-1',
+        CLAUDE_CODE_SESSION_ID: 'claude-1',
+      };
+      delete env.BOARD_STATE_DB;
+      const proc = Bun.spawn(
+        [
+          'bun',
+          'run',
+          cli,
+          'open',
+          handle,
+          '--kind',
+          'review-post',
+          '--questions',
+          JSON.stringify([
+            { id: 'q', label: 'Post?', multi: false, options: ['yes'] },
+          ]),
+        ],
+        { env, stdout: 'pipe', stderr: 'pipe' }
+      );
+      const [out, err, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      expect({ code, err }).toEqual({ code: 0, err: '' });
+      expect(JSON.parse(out).gateId).toBe('g-1');
+      expect(asks).toHaveLength(1);
+      expect(asks[0]!.sessionId).toBe('thread-1');
+      expect(asks[0]!.harness).toBe('codex');
+      expect(asks[0]!.subject).toBe(`mr:${MR}`);
+      expect(asks[0]!.paneId).toBe('w1:p1');
+    } finally {
+      daemon.stop(true);
+      rmSync(sockDir, { recursive: true, force: true });
+    }
   });
 });

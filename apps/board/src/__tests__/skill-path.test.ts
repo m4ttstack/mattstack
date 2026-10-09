@@ -3,6 +3,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -12,8 +13,11 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 
 import {
+  CODEX_PLUGIN_LIST_TIMEOUT_MS,
+  codexHomeFor,
   makeCachedPluginListRunner,
   resolveSkillPath,
+  runCodexPluginList,
   runPluginList,
   type PluginEntry,
 } from '../skill-path.ts';
@@ -260,5 +264,144 @@ describe('makeCachedPluginListRunner', () => {
     expect(await runner()).toEqual([]);
     expect(await runner()).toEqual([]);
     expect(calls).toBe(1);
+  });
+});
+
+/** A fake "codex" binary that records its CODEX_HOME, prints `stdout` and
+    exits `code`, optionally after sleeping. */
+function fakeCodexBin(
+  dir: string,
+  stdout: string,
+  code = 0,
+  sleepSeconds = 0
+): string {
+  const path = join(dir, 'fake-codex.sh');
+  const sleep = sleepSeconds ? `sleep ${sleepSeconds}\n` : '';
+  writeFileSync(
+    path,
+    `#!/bin/sh\nprintf '%s' "$CODEX_HOME" > ${JSON.stringify(join(dir, 'home-seen'))}\n${sleep}printf '%s' ${JSON.stringify(stdout)}\nexit ${code}\n`
+  );
+  chmodSync(path, 0o755);
+  return path;
+}
+
+describe('runCodexPluginList', () => {
+  const listing = JSON.stringify({
+    installed: [
+      {
+        pluginId: 'acme@acme',
+        name: 'acme',
+        marketplaceName: 'acme',
+        version: '1.2.0',
+        installed: true,
+        enabled: true,
+      },
+      {
+        name: 'gone',
+        marketplaceName: 'acme',
+        version: '0.1.0',
+        installed: false,
+      },
+    ],
+  });
+
+  test('reads the installed rows against exactly the given CODEX_HOME', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codex-list-'));
+    try {
+      const result = await runCodexPluginList(
+        fakeCodexBin(dir, listing),
+        '/codex-home'
+      );
+      expect(result).toEqual({
+        ok: true,
+        data: [
+          {
+            id: 'acme@acme',
+            installPath: '/codex-home/plugins/cache/acme/acme/1.2.0',
+            enabled: true,
+          },
+        ],
+      });
+      expect(readFileSync(join(dir, 'home-seen'), 'utf8')).toBe('/codex-home');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a non-zero exit says so', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codex-list-'));
+    try {
+      const result = await runCodexPluginList(fakeCodexBin(dir, '', 3), '/h');
+      expect(result.ok ? '' : result.error.message).toContain('exited 3');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('output the board cannot read says so', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codex-list-'));
+    try {
+      const result = await runCodexPluginList(
+        fakeCodexBin(dir, 'not json'),
+        '/h'
+      );
+      expect(result.ok ? '' : result.error.message).toContain('cannot read');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a hung codex is killed at the timeout', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codex-list-'));
+    try {
+      const started = Date.now();
+      const result = await runCodexPluginList(
+        fakeCodexBin(dir, listing, 0, 5),
+        '/h',
+        200
+      );
+      expect(result.ok ? '' : result.error.message).toContain('200ms');
+      expect(Date.now() - started).toBeLessThan(4000);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a missing binary is a failure, not an empty listing', async () => {
+    const result = await runCodexPluginList('/nonexistent/codex', '/h');
+    expect(result.ok).toBe(false);
+  });
+
+  test('the default timeout is rt plugin listing timeout', () => {
+    expect(CODEX_PLUGIN_LIST_TIMEOUT_MS).toBe(10_000);
+  });
+});
+
+describe('codexHomeFor', () => {
+  test('unset CODEX_HOME is <HOME>/.codex', () => {
+    expect(codexHomeFor({ HOME: '/u' })).toEqual({
+      ok: true,
+      data: '/u/.codex',
+    });
+  });
+  test('~ and ~/ expand against HOME', () => {
+    expect(codexHomeFor({ HOME: '/u', CODEX_HOME: '~' })).toEqual({
+      ok: true,
+      data: '/u',
+    });
+    expect(codexHomeFor({ HOME: '/u', CODEX_HOME: '~/c' })).toEqual({
+      ok: true,
+      data: '/u/c',
+    });
+  });
+  test('an absolute home is resolved', () => {
+    expect(codexHomeFor({ HOME: '/u', CODEX_HOME: '/x/../y' })).toEqual({
+      ok: true,
+      data: '/y',
+    });
+  });
+  test('a relative home is refused', () => {
+    const result = codexHomeFor({ HOME: '/u', CODEX_HOME: 'work' });
+    expect(result.ok ? '' : result.error.code).toBe('invalid');
   });
 });

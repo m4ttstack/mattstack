@@ -10,6 +10,7 @@ import {
   launchLegacyResume,
   launchRespond,
   launchReview,
+  legacyResumeRefusal,
   mrTabLabel,
   statusBinPath,
   type SkillPathResolver,
@@ -213,6 +214,8 @@ export async function launchReReview(
       ...lane,
     });
     try {
+      const refusal = legacyResumeRefusal(existing.sessionHarness);
+      if (refusal) throw refusal;
       const { tabId, workspaceId } = await io.launchLegacyResume({
         mrUrl,
         iid,

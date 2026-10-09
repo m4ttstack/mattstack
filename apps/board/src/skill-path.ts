@@ -1,7 +1,7 @@
 // src/skill-path.ts
 import { existsSync, readdirSync, realpathSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { isAbsolute, join, resolve } from 'path';
 
 import type { HarnessId, Outcome } from '@mattstack/rt-client';
 
@@ -146,11 +146,36 @@ const CODEX_BIN =
   Bun.which('codex') ||
   join(homedir(), '.local', 'bin', 'codex');
 
-/** The Codex home the board's Codex panes run under. */
-export function defaultCodexHome(
+/** Bounded: a hung codex CLI must not hold a launch forever. Equal to rt's
+    PLUGIN_LIST_TIMEOUT_MS; a parity test in rt pins the two together. */
+export const CODEX_PLUGIN_LIST_TIMEOUT_MS = 10_000;
+
+/**
+ * The Codex home the board's Codex panes run under, spelled the way rt's
+ * codexHomeFor spells it: unset CODEX_HOME is <HOME>/.codex, `~` and `~/`
+ * expand against HOME, and a relative value names no home and is refused.
+ */
+export function codexHomeFor(
   env: Record<string, string | undefined> = process.env
-): string {
-  return env.CODEX_HOME?.trim() || join(env.HOME ?? homedir(), '.codex');
+): Outcome<string> {
+  const home = env.HOME ?? homedir();
+  const named = env.CODEX_HOME?.trim();
+  if (!named) return { ok: true, data: join(home, '.codex') };
+  const expanded =
+    named === '~'
+      ? home
+      : named.startsWith('~/')
+        ? join(home, named.slice(2))
+        : named;
+  if (!isAbsolute(expanded))
+    return {
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: `Codex profile ${named} does not name a Codex home folder`,
+      },
+    };
+  return { ok: true, data: resolve(expanded) };
 }
 
 type CodexRow = {
@@ -164,8 +189,9 @@ type CodexRow = {
 
 /** The installed rows of `codex plugin list --json`, each at its cache
     version folder; null when the output is not that shape. Mirrors
-    parseCodexPluginList in rt's lib/agent-integrations/codex/skills.ts: the
-    board reaches rt only through rt-client, which has no skill inventory. */
+    parseCodexPluginList in rt's lib/agent-integrations/codex/skills.ts (a
+    parity test there holds the two together): the board reaches rt only
+    through rt-client, which has no skill inventory. */
 export function parseCodexPluginList(
   stdout: string,
   codexHome: string
@@ -206,47 +232,121 @@ export function parseCodexPluginList(
   return out;
 }
 
-/** Runs `<codexBin> plugin list --json` against exactly `codexHome`, once. */
+export type CodexPluginLister = () => Promise<Outcome<PluginEntry[]>>;
+
+const listFault = (message: string): Outcome<PluginEntry[]> => ({
+  ok: false,
+  error: { code: 'not-ready', message },
+});
+
+/** Runs `<codexBin> plugin list --json` against exactly `codexHome`, once,
+    killed after `timeoutMs`. Every failure says why. */
 export async function runCodexPluginList(
   codexBin: string,
-  codexHome: string
-): Promise<PluginListResult> {
+  codexHome: string,
+  timeoutMs: number = CODEX_PLUGIN_LIST_TIMEOUT_MS
+): Promise<Outcome<PluginEntry[]>> {
+  let proc: ReturnType<typeof Bun.spawn>;
   try {
-    const proc = Bun.spawn([codexBin, 'plugin', 'list', '--json'], {
+    proc = Bun.spawn([codexBin, 'plugin', 'list', '--json'], {
       env: { ...process.env, CODEX_HOME: codexHome },
+      stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
     });
-    const [out, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
+  } catch (err) {
+    return listFault(
+      `codex plugin list could not start: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'timeout'>(done => {
+    timer = setTimeout(() => done('timeout'), timeoutMs);
+  });
+  try {
+    // A child the CLI started can hold stdout open past the kill, so the
+    // timeout wins the race rather than waiting for the pipe to close.
+    const finished = await Promise.race([
+      Promise.all([
+        new Response(proc.stdout as ReadableStream).text(),
+        proc.exited,
+      ]),
+      timeout,
     ]);
-    if (code !== 0) return { ok: false };
+    if (finished === 'timeout') {
+      proc.kill();
+      return listFault(
+        `codex plugin list did not answer within ${timeoutMs}ms`
+      );
+    }
+    const [out, code] = finished;
+    if (code !== 0) return listFault(`codex plugin list exited ${code}`);
     const plugins = parseCodexPluginList(out, codexHome);
-    return plugins ? { ok: true, plugins } : { ok: false };
-  } catch {
-    return { ok: false };
+    return plugins
+      ? { ok: true, data: plugins }
+      : listFault('codex plugin list printed something the board cannot read');
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-export const defaultCodexPluginListRunner: PluginListRunner =
-  makeCachedPluginListRunner(() =>
-    runCodexPluginList(CODEX_BIN, defaultCodexHome())
-  );
+/** Remembers only a successful listing, so a transient failure retries. */
+export function makeCachedCodexPluginLister(
+  run: CodexPluginLister
+): CodexPluginLister {
+  let cached: PluginEntry[] | null = null;
+  return async () => {
+    if (cached) return { ok: true, data: cached };
+    const result = await run();
+    if (result.ok) cached = result.data;
+    return result;
+  };
+}
+
+export const defaultCodexPluginLister: CodexPluginLister =
+  makeCachedCodexPluginLister(async () => {
+    const home = codexHomeFor();
+    return home.ok ? runCodexPluginList(CODEX_BIN, home.data) : home;
+  });
 
 export interface AgentSkillDeps {
   /** Unset is $HOME. */
   home?: string;
-  /** Unset is $CODEX_HOME, else <home>/.codex. */
+  /** Unset is codexHomeFor's answer for the board's environment. */
   codexHome?: string;
   listClaudePlugins?: PluginListRunner;
-  listCodexPlugins?: PluginListRunner;
+  listCodexPlugins?: CodexPluginLister;
 }
 
 const fault = (
   code: 'not-ready' | 'unsupported' | 'transient',
   message: string
 ): Outcome<string> => ({ ok: false, error: { code, message } });
+
+async function codexSkill(
+  skill: string,
+  deps: AgentSkillDeps,
+  home: string
+): Promise<Outcome<string>> {
+  let codexHome = deps.codexHome;
+  if (codexHome === undefined) {
+    const found = codexHomeFor({ ...process.env, HOME: home });
+    if (!found.ok) return found;
+    codexHome = found.data;
+  }
+  const linked = skillMdIn(join(codexHome, 'skills', skill));
+  if (linked) return { ok: true, data: realpathSync(linked) };
+  const listed = await (deps.listCodexPlugins ?? defaultCodexPluginLister)();
+  if (!listed.ok)
+    return fault(
+      'not-ready',
+      `The board could not look up ${skill} for codex: ${listed.error.message}`
+    );
+  const fromPlugin = await pluginSkillPath(skill, async () => listed.data);
+  return fromPlugin
+    ? { ok: true, data: fromPlugin }
+    : fault('not-ready', `The ${skill} skill is not installed for codex`);
+}
 
 /**
  * The installed artifact of `skill` in `harness`'s own target: the skill
@@ -261,28 +361,22 @@ export async function resolveAgentSkill(
   deps: AgentSkillDeps = {}
 ): Promise<Outcome<string>> {
   const home = deps.home ?? process.env.HOME ?? homedir();
-  let skillsDir: string;
-  let listPlugins: PluginListRunner;
-  if (harness === 'claude') {
-    skillsDir = join(home, '.claude', 'skills');
-    listPlugins = deps.listClaudePlugins ?? defaultPluginListRunner;
-  } else if (harness === 'codex') {
-    const codexHome =
-      deps.codexHome ?? defaultCodexHome({ ...process.env, HOME: home });
-    skillsDir = join(codexHome, 'skills');
-    listPlugins = deps.listCodexPlugins ?? defaultCodexPluginListRunner;
-  } else {
-    return fault('unsupported', `The board cannot find skills for ${harness}`);
-  }
   try {
-    const linked = skillMdIn(join(skillsDir, skill));
+    if (harness === 'codex') return await codexSkill(skill, deps, home);
+    if (harness !== 'claude')
+      return fault(
+        'unsupported',
+        `The board cannot find skills for ${harness}`
+      );
+    const linked = skillMdIn(join(home, '.claude', 'skills', skill));
     if (linked) return { ok: true, data: realpathSync(linked) };
-    const fromPlugin = await pluginSkillPath(skill, listPlugins);
-    if (fromPlugin) return { ok: true, data: fromPlugin };
-    return fault(
-      'not-ready',
-      `The ${skill} skill is not installed for ${harness}`
+    const fromPlugin = await pluginSkillPath(
+      skill,
+      deps.listClaudePlugins ?? defaultPluginListRunner
     );
+    return fromPlugin
+      ? { ok: true, data: fromPlugin }
+      : fault('not-ready', `The ${skill} skill is not installed for claude`);
   } catch (err) {
     return fault(
       'transient',
@@ -291,8 +385,9 @@ export async function resolveAgentSkill(
   }
 }
 
-/** Resolves a skill name for the harness a pane runs, or null when it
-    cannot be found. No harness means the integrations switch is off. */
+/** Resolves a skill name for the harness a pane runs. No harness means the
+    integrations switch is off; with no harness or Claude a skill that
+    cannot be found is null, and any other harness throws its reason. */
 export type HarnessSkillResolver = (
   name: string,
   harness?: HarnessId
@@ -301,7 +396,8 @@ export type HarnessSkillResolver = (
 /**
  * The resolver a launch hands dispatchPrompt. No harness and Claude both
  * keep the historical Claude plugin lookup; any other harness reads only
- * its own target.
+ * its own target and refuses rather than dropping the path, since its
+ * wrapper would otherwise fall back to a Claude lookup.
  */
 export function agentSkillResolver(
   deps: AgentSkillDeps = {}
@@ -313,7 +409,8 @@ export function agentSkillResolver(
         deps.listClaudePlugins ?? defaultPluginListRunner
       );
     const found = await resolveAgentSkill(harness, name, deps);
-    return found.ok ? found.data : null;
+    if (!found.ok) throw new Error(found.error.message);
+    return found.data;
   };
 }
 

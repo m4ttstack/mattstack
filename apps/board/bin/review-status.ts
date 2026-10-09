@@ -1,10 +1,11 @@
 import { existsSync } from 'fs';
 
+import { agentHarness } from '../src/agent-launch.ts';
 import {
   boardRootFromStatePath,
   emitAgentStatus,
 } from '../src/agent-status/emit.ts';
-import { callerSession, integrationsOn } from '../src/caller-session.ts';
+import { integrationsOn, resolveCallerSession } from '../src/caller-session.ts';
 import type {
   ReviewOutcome,
   ReviewState,
@@ -14,6 +15,7 @@ import {
   dbPathForRoot,
   ingestReport,
   openStateDb,
+  readByHandle,
   updateByHandle,
 } from '../src/state/index.ts';
 
@@ -72,21 +74,29 @@ if (
 
 const status = parsed.status as ReviewStatus;
 const outcome = parsed.outcome as ReviewOutcome | undefined;
-// The pane's own session is exposed to its shell commands via env; capture
-// it on every write so a resume from the board finds the latest known id.
-const caller = callerSession(process.env, integrationsOn());
-if (caller.problem && parsed.session === undefined)
-  console.error(caller.problem);
-const sessionId = parsed.session ?? caller.sessionId;
-const sessionHarness =
-  parsed.session === undefined ? caller.harness : undefined;
-
 const dbPath = dbPathForRoot(boardRootFromStatePath(parsed.path));
 if (!existsSync(dbPath)) {
   console.error(`no board db at ${dbPath}; stale pre-upgrade handle?`);
   process.exit(1);
 }
 const db = openStateDb(dbPath, 'cli');
+// The pane's own session is exposed to its shell commands via env; capture
+// it on every write so a resume from the board finds the latest known id.
+const caller =
+  parsed.session === undefined
+    ? await resolveCallerSession(
+        process.env,
+        integrationsOn(),
+        'status',
+        () =>
+          (readByHandle(parsed.path!, db) as { agentId?: string } | null)
+            ?.agentId,
+        agentHarness
+      )
+    : {};
+if (caller.problem) console.error(caller.problem);
+const sessionId = parsed.session ?? caller.sessionId;
+const sessionHarness = caller.harness;
 const merged = updateByHandle(
   parsed.path,
   {
