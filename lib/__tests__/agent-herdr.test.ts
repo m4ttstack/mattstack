@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { defaultHerdrRunner, herdrAgentSessionId, herdrAgentWait, launchInWorkspace, loginPathHerdrProbe, resolveHerdrBin, type HerdrRunner } from "../agent-herdr.ts";
+import { defaultHerdrRunner, HerdrLaunchNotRun, herdrAgentSessionId, herdrAgentWait, launchInWorkspace, loginPathHerdrProbe, resolveHerdrBin, type HerdrRunner } from "../agent-herdr.ts";
 
 function scripted(responses: Record<string, { stdout: string; exitCode?: number }>) {
   const calls: string[][] = [];
@@ -92,6 +92,22 @@ test("a failed herdr call names its verb and cause, never the pane command it ca
     runner,
   ).catch((e: Error) => e);
   expect((err as Error).message).toBe("herdr pane run failed (127): claude: command not found");
+});
+
+test("a launch whose command never ran says so; a pane run with no answer may have run, so it does not", async () => {
+  const launch = (run: { stdout: string; exitCode: number }) => launchInWorkspace(
+    { workspaceLabel: "reviews", tabLabel: "!7", paneCommand: "X" },
+    scripted({ "workspace list": { stdout: JSON.stringify({ result: { workspaces: [] } }) }, "workspace create": { stdout: WS_CREATE }, "pane run": run }).runner,
+  ).catch((e: Error) => e);
+
+  const refused = await launch({ stdout: JSON.stringify({ error: { code: "refused", message: "no" }, id: "cli:request" }), exitCode: 1 });
+  expect(refused).toBeInstanceOf(HerdrLaunchNotRun);
+  expect((refused as Error).message).toStartWith("herdr pane run failed (1): ");
+  expect(await launch({ stdout: "", exitCode: 124 })).not.toBeInstanceOf(HerdrLaunchNotRun);
+
+  const beforeRun = await launchInWorkspace({ workspaceLabel: "w", tabLabel: "t", paneCommand: "X" }, async () => ({ stdout: "boom", exitCode: 1 })).catch((e: Error) => e);
+  expect(beforeRun).toBeInstanceOf(HerdrLaunchNotRun);
+  expect((beforeRun as Error).message).toBe("herdr workspace list failed (1): boom");
 });
 
 test("malformed workspace list JSON (exit 0) makes the launch throw", async () => {

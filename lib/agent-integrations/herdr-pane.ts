@@ -36,10 +36,22 @@ async function renamePane(runner: HerdrRunner, paneId: string, label: string, ho
   }
 }
 
-/** A focused existing tab ran nothing, so it is a definite refusal; a thrown herdr call may have opened something, so it is transient. */
+/** herdr cuts a `pane run` line longer than this, and a cut launch line starts nothing. */
+export const HERDR_LINE_LIMIT_BYTES = 1024;
+
+/**
+ * A focused existing tab, a command too long for one herdr line, and a launch
+ * herdr never ran (HerdrLaunchNotRun) ran nothing, so each is a definite
+ * refusal; any other thrown herdr call may have opened something, so it is
+ * transient.
+ */
 export async function openHostPane(launch: HostPaneLaunch): Promise<Outcome<HostPaneOpened>> {
   const { host } = launch;
   const tab = host?.tab ?? launch.reservationId;
+  const bytes = Buffer.byteLength(launch.command);
+  if (bytes > HERDR_LINE_LIMIT_BYTES) {
+    return fail("refused", `this session's launch command is ${bytes} bytes, longer than the ${HERDR_LINE_LIMIT_BYTES} herdr takes in one line, so rt did not start it; a shorter working directory path brings it under`);
+  }
   try {
     const { launchInWorkspace } = await import("../agent-herdr.ts");
     const runner = await runnerFor(host);
@@ -51,6 +63,6 @@ export async function openHostPane(launch: HostPaneLaunch): Promise<Outcome<Host
       data: { pane: out.paneId, tabId: out.tabId, workspaceId: out.workspaceId, ...(host?.socket !== undefined && { socket: host.socket }) },
     };
   } catch (err) {
-    return fail("transient", messageOf(err));
+    return fail(err instanceof Error && err.name === "HerdrLaunchNotRun" ? "refused" : "transient", messageOf(err));
   }
 }

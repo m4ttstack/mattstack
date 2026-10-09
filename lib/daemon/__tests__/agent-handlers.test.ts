@@ -2010,7 +2010,7 @@ describe("agent.integrations.enabled routes launches through the shared launcher
     const calls: string[][] = [];
     let herdrDown = true;
     const runner: HerdrRunner = async (args) => {
-      if (herdrDown && args[0] === "workspace" && args[1] === "create") throw new Error("herdr timed out creating the workspace");
+      if (herdrDown && args[0] === "pane" && args[1] === "run") throw new Error("herdr timed out running the launch line");
       return okRunner(calls)(args);
     };
     const h = fresh({ runner, herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codexIntegration]) });
@@ -2031,6 +2031,26 @@ describe("agent.integrations.enabled routes launches through the shared launcher
     const again = await h["agent:resume"]({ id: other.data.id });
     if (!again.ok) throw new Error(again.error);
     expect(calls.filter((c) => c[0] === "pane" && c[1] === "run").at(-1)![3]).toContain(`'--resume' '${other.data.sessionId}'`);
+  });
+
+  test("switch on: a herdr failure before the launch line runs started nothing, so the record rolls back and nothing holds the place", async () => {
+    const calls: string[][] = [];
+    let herdrDown = true;
+    const runner: HerdrRunner = async (args) => {
+      if (herdrDown && args[0] === "workspace" && args[1] === "create") throw new Error("herdr timed out creating the workspace");
+      return okRunner(calls)(args);
+    };
+    const h = fresh({ runner, herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codexIntegration]) });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr" });
+    expect(started).toEqual({ ok: false, error: "herdr timed out creating the workspace" });
+    const list = await h["agent:list"]({});
+    if (!list.ok) throw new Error(list.error);
+    expect(list.data.agents).toHaveLength(0);
+
+    herdrDown = false;
+    const again = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr" });
+    if (!again.ok) throw new Error(again.error);
+    expect(calls.filter((c) => c[0] === "pane" && c[1] === "run")).toHaveLength(1);
   });
 
   test("switch on: a launch whose adapter throws keeps its record and prompt, and a retry refuses naming it", async () => {
@@ -2071,7 +2091,7 @@ describe("agent.integrations.enabled routes launches through the shared launcher
   test("switch on: a successful resume clears the attention an earlier abandoned launch left", async () => {
     let herdrDown = true;
     const runner: HerdrRunner = async (args) => {
-      if (herdrDown && args[0] === "workspace" && args[1] === "create") throw new Error("herdr timed out creating the workspace");
+      if (herdrDown && args[0] === "pane" && args[1] === "run") throw new Error("herdr timed out running the launch line");
       return okRunner([])(args);
     };
     const h = fresh({ runner, herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codexIntegration]) });

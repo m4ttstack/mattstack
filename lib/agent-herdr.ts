@@ -101,13 +101,44 @@ export function defaultHerdrRunner(
   };
 }
 
+/**
+ * A launch whose command never ran: herdr failed a step before `pane run`, or
+ * answered the run itself with its own error. A run that failed any other
+ * way (a timeout, no answer) may have reached the pane, and is a plain Error.
+ */
+export class HerdrLaunchNotRun extends Error {
+  override name = "HerdrLaunchNotRun";
+}
+
+function answeredWithError(stdout: string): boolean {
+  try {
+    const parsed = JSON.parse(stdout) as { error?: unknown } | null;
+    return typeof parsed?.error === "object" && parsed.error !== null;
+  } catch {
+    return false;
+  }
+}
+
 /** Every herdr invocation in this module goes through here: a non-zero exit must fail the launch, never look like a quiet no-op. */
 async function runHerdr(runner: HerdrRunner, args: string[]): Promise<HerdrResult> {
   const r = await runner(args);
   // The verb only: a pane run's last arg is the whole agent command line
   // (env, settings JSON, prompt), which buries the cause and can carry secrets.
-  if (r.exitCode !== 0) throw new Error(`herdr ${args.slice(0, 2).join(" ")} failed (${r.exitCode}): ${r.stdout.slice(0, 400)}`);
+  if (r.exitCode !== 0) {
+    const message = `herdr ${args.slice(0, 2).join(" ")} failed (${r.exitCode}): ${r.stdout.slice(0, 400)}`;
+    throw answeredWithError(r.stdout) ? new HerdrLaunchNotRun(message) : new Error(message);
+  }
   return r;
+}
+
+/** Steps before `pane run` start nothing in a pane, so however they fail, the command never ran. */
+async function beforeRun<T>(step: () => Promise<T>): Promise<T> {
+  try {
+    return await step();
+  } catch (err) {
+    if (err instanceof HerdrLaunchNotRun) throw err;
+    throw new HerdrLaunchNotRun(err instanceof Error ? err.message : String(err));
+  }
 }
 
 async function herdrJson(runner: HerdrRunner, args: string[]): Promise<any> {
@@ -130,32 +161,38 @@ export async function launchInWorkspace(
   opts: { workspaceLabel: string; tabLabel: string; paneCommand: string },
   runner: HerdrRunner = defaultHerdrRunner(),
 ): Promise<LaunchOutcome> {
-  const list = await herdrJson(runner, ["workspace", "list"]);
+  const list = await beforeRun(() => herdrJson(runner, ["workspace", "list"]));
   const workspaces: any[] = list?.result?.workspaces ?? [];
   const existing = workspaces.find((w) => w?.label === opts.workspaceLabel);
 
   if (!existing) {
     // A fresh workspace ships with an initial tab; reuse it instead of
     // orphaning a blank one.
-    const created = await herdrJson(runner, ["workspace", "create", "--label", opts.workspaceLabel, "--no-focus"]);
-    const root = created?.result?.root_pane;
-    if (!root?.pane_id) throw new Error("herdr workspace create returned no root pane");
-    await runHerdr(runner, ["tab", "rename", root.tab_id, opts.tabLabel]);
+    const root = await beforeRun(async () => {
+      const created = await herdrJson(runner, ["workspace", "create", "--label", opts.workspaceLabel, "--no-focus"]);
+      const pane = created?.result?.root_pane;
+      if (!pane?.pane_id) throw new Error("herdr workspace create returned no root pane");
+      await runHerdr(runner, ["tab", "rename", pane.tab_id, opts.tabLabel]);
+      return pane;
+    });
     await runHerdr(runner, ["pane", "run", root.pane_id, opts.paneCommand]);
     return { workspaceId: root.workspace_id, tabId: root.tab_id, paneId: root.pane_id, focusedExisting: false };
   }
 
   const wsId: string = existing.workspace_id;
-  const tabs = await herdrJson(runner, ["tab", "list", "--workspace", wsId]);
+  const tabs = await beforeRun(() => herdrJson(runner, ["tab", "list", "--workspace", wsId]));
   const match = (tabs?.result?.tabs ?? []).find((t: any) => t?.label === opts.tabLabel);
   if (match) {
     await runHerdr(runner, ["tab", "focus", match.tab_id]);
     return { workspaceId: wsId, tabId: match.tab_id, paneId: "", focusedExisting: true };
   }
 
-  const created = await herdrJson(runner, ["tab", "create", "--workspace", wsId, "--label", opts.tabLabel, "--no-focus"]);
-  const root = created?.result?.root_pane;
-  if (!root?.pane_id) throw new Error("herdr tab create returned no root pane");
+  const root = await beforeRun(async () => {
+    const created = await herdrJson(runner, ["tab", "create", "--workspace", wsId, "--label", opts.tabLabel, "--no-focus"]);
+    const pane = created?.result?.root_pane;
+    if (!pane?.pane_id) throw new Error("herdr tab create returned no root pane");
+    return pane;
+  });
   await runHerdr(runner, ["pane", "run", root.pane_id, opts.paneCommand]);
   return { workspaceId: wsId, tabId: root.tab_id, paneId: root.pane_id, focusedExisting: false };
 }

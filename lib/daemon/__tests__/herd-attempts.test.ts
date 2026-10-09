@@ -23,6 +23,7 @@ import { classifyJobObservation } from "../herd-watchdog.ts";
 import { createJobObserver } from "../herd-watchdog-adapters.ts";
 import { createClaudeSessions, prepareClaudeSignIn, type ClaudeSessionDeps } from "../../agent-integrations/claude/sessions.ts";
 import { parsePaneRef } from "../../../packages/rt-client/src/pane-ref.ts";
+import { openHostPane, type HostPaneLaunch } from "../../agent-integrations/herdr-pane.ts";
 import { reportJob, reportSession, workerCallPayload } from "../../../commands/herd.ts";
 
 const log = pino({ level: "silent" });
@@ -1026,5 +1027,88 @@ describe("a Claude herdr worker whose process starts with its work", () => {
     expect(stale).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
     expect((await h["herd:report"]({ herd: HERD, job: JOB, body: "done", session: second.data.sessionId })).ok).toBe(true);
     expect(posted).toHaveLength(1);
+  });
+});
+
+// --- A Claude herdr worker whose launch line never ran ----------------------
+
+/** herdr as launchInWorkspace drives it, with `pane run` answered by `run`. */
+function herdrWhosePaneRun(run: { stdout: string; exitCode: number }, calls: string[][] = []) {
+  return async (args: string[]) => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return { stdout: JSON.stringify({ result: { workspaces: [{ label: `herd: ${HERD}`, workspace_id: "w5" }] } }), exitCode: 0 };
+    if (args[0] === "tab" && args[1] === "list") return { stdout: JSON.stringify({ result: { tabs: [] } }), exitCode: 0 };
+    if (args[0] === "tab" && args[1] === "create") return { stdout: JSON.stringify({ result: { root_pane: { pane_id: "w5:p7", tab_id: "w5:t7" } } }), exitCode: 0 };
+    if (args[0] === "pane" && args[1] === "run") return run;
+    return { stdout: "{}", exitCode: 0 };
+  };
+}
+
+/** The real pane opener (launchInWorkspace through openHostPane) over a fake herdr. */
+function claudeOverHerdr(seen: Seen, runner: ReturnType<typeof herdrWhosePaneRun>): HarnessIntegration {
+  return deferringClaude(seen, {
+    openPane: (launch) => openHostPane({ ...launch, host: { ...launch.host, herdr: { ...launch.host?.herdr, runner } } as HostPaneLaunch["host"] }),
+  });
+}
+
+const HERDR_REFUSED = { stdout: JSON.stringify({ error: { code: "refused", message: "pane.send_input refused" }, id: "cli:request" }), exitCode: 1 };
+
+describe("a Claude herdr worker whose launch line never ran", () => {
+  test("herdr refusing the pane run ends the attempt, crashes the job with a plain message, and a respawn is not held", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [] };
+    let run = HERDR_REFUSED;
+    const integration = claudeOverHerdr(seen, async (args) => herdrWhosePaneRun(run)(args));
+    const h = herdHandlers(svc, agentService(svc, integration), [], statusDeps(integration, []));
+
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.error).toContain("herdr pane run failed (1)");
+      expect(refused.error).not.toContain("may have started");
+    }
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended"]);
+    expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
+
+    run = { stdout: "{}", exitCode: 0 };
+    const respawned = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a" });
+    if (!respawned.ok) throw new Error(respawned.error);
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended", "active"]);
+  });
+
+  test("a launch line longer than herdr takes in one line is refused plainly and never sent", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [] };
+    const calls: string[][] = [];
+    const integration = claudeOverHerdr(seen, herdrWhosePaneRun({ stdout: "{}", exitCode: 0 }, calls));
+    const h = herdHandlers(svc, agentService(svc, integration), [], statusDeps(integration, []));
+    const deep = `/w/${"nested-directory-name/".repeat(40)}job-a`;
+
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: deep });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.error).toMatch(/launch command is \d+ bytes, longer than the 1024 herdr takes in one line, so rt did not start it/);
+      expect(refused.error).not.toContain("may have started");
+    }
+    expect(calls).toEqual([]);
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended"]);
+    expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
+  });
+
+  test("herd:close ends the active attempt of a job whose worker rt kept for an unknown launch outcome", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [] };
+    const integration = claudeOverHerdr(seen, herdrWhosePaneRun({ stdout: "", exitCode: 124 }));
+    const h = herdHandlers(svc, agentService(svc, integration), [], statusDeps(integration, []));
+
+    const unknown = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    expect(unknown.ok).toBe(false);
+    if (!unknown.ok) expect(unknown.error).toContain("may have started");
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["active"]);
+
+    const closed = await h["herd:close"]({ herd: HERD, job: JOB });
+    expect(closed).toMatchObject({ ok: true, data: { status: "closed" } });
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended"]);
+    expect(herds.activeAttempt(HERD, JOB)).toBeNull();
   });
 });

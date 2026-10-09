@@ -690,6 +690,9 @@ export function createHerdHandlers(deps: HerdDeps) {
       const job = herd ? store.getJob(herdId, name) : null;
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
       await closeWorker(herd, job);
+      // A closed job holds no worker, including one rt kept with no pane to close.
+      const holder = enabled() ? store.activeAttempt(herdId, name) : null;
+      if (holder) store.endAttempt(holder.id, ["active"]);
       store.setJobStatus(herdId, name, "closed");
       // Advisory, not a refusal: an abandoned run is resumable, so a running
       // pipeline in the job's worktree is worth flagging but never blocks close.
