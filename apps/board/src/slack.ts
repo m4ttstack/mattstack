@@ -793,6 +793,75 @@ export async function sweepSlackRefs(
   return { resolved, failed: errors.length, errors };
 }
 
+/** Whether a found ref's message is gone: absent from the channel, or the
+    tombstone Slack leaves for a deleted message that still has replies. */
+async function messageDeleted(
+  token: string,
+  channelId: string,
+  ts: string
+): Promise<boolean> {
+  const data = await call('conversations.history', token, {
+    channel: channelId,
+    oldest: ts,
+    latest: ts,
+    inclusive: 'true',
+    limit: '1',
+  });
+  const found = (
+    data.messages as Array<{ ts: string; subtype?: string; text?: string }>
+  ).find(m => m.ts === ts);
+  return !found || found.subtype === 'tombstone';
+}
+
+/**
+ * Re-check each found ref's message and demote it to `notfound` when Slack no
+ * longer has it, dropping it from the cached channel index too, since the
+ * index never forgets a message and would match the stale text again. A failed
+ * check leaves the ref alone. A multi-MR ref is judged by its thread parent.
+ */
+export async function verifyFoundRefs(
+  token: string,
+  targets: Array<{ ref: SlackRef; channel: string }>,
+  opts: { gapMs?: number; now?: number; db?: Database } = {}
+): Promise<{ removed: number; failed: number; errors: string[] }> {
+  const gapMs = opts.gapMs ?? 250;
+  const now = opts.now ?? Date.now();
+  const db = opts.db ?? getStateDb();
+  const errors: string[] = [];
+  let removed = 0;
+  for (const { ref, channel } of targets) {
+    const ts = ref.parentTs ?? ref.messageTs;
+    if (ref.status !== 'found' || !ref.channelId || !ts) continue;
+    try {
+      if (await messageDeleted(token, ref.channelId, ts)) {
+        const index = readIndex(channel, db);
+        if (index)
+          writeIndex(
+            channel,
+            { ...index, messages: index.messages.filter(m => m.ts !== ts) },
+            db
+          );
+        writeSlackRef(
+          {
+            mrUrl: ref.mrUrl,
+            iid: ref.iid,
+            status: 'notfound',
+            checkedAt: now,
+          },
+          db
+        );
+        removed++;
+      } else writeSlackRef({ ...ref, checkedAt: now }, db);
+    } catch (err) {
+      errors.push(
+        `!${ref.iid}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    if (gapMs > 0) await new Promise(r => setTimeout(r, gapMs));
+  }
+  return { removed, failed: errors.length, errors };
+}
+
 /**
  * Add a reaction to an MR's review signal and refresh its reactions. For a
  * multi-MR request message with no reply yet, first post a threaded reply
