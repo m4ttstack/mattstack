@@ -3,12 +3,14 @@ import {
   actionPrompt,
   buildPaneCommand,
   findWorkspaceIdByLabel,
+  launchAction,
   launchInWorkspace,
   parseTabCreate,
   parseTabList,
   parseWorkspaceCreate,
   statusBinPath,
   tabLabel,
+  type ActionLaunchIo,
 } from '../src/server/herdr.ts';
 
 const WS_LIST = JSON.stringify({ result: { workspaces: [{ workspace_id: 'ws1', label: 'gitq' }] } });
@@ -112,5 +114,120 @@ describe('launchInWorkspace', () => {
     const res = await launchInWorkspace(OPTS, runner);
     expect(res).toEqual({ tabId: 'tab9', workspaceId: 'ws1', focusedExisting: true });
     expect(seen.some((args) => args[0] === 'pane')).toBe(false);
+  });
+});
+
+describe('launchAction', () => {
+  const BASE = {
+    action: 'sync' as const,
+    repoPath: '/repo',
+    runDir: '/repo-slot',
+    stack: 'mystack',
+    statePath: '/state/job.json',
+    workspaceLabel: 'gitq',
+    tabLabel: 'gitq:mystack sync',
+  };
+  const RECORD = {
+    id: 'agent-1', repo: 'remote:host/repo', cwd: '/repo-slot', provider: 'codex', surface: 'herdr' as const,
+    sessionId: 'thread-1', tabId: 'tab7', workspaceId: 'ws7', paneId: 'pane7', createdAt: 1,
+  };
+  function fakes(over: Partial<ActionLaunchIo> = {}) {
+    const starts: Parameters<ActionLaunchIo['agentStart']>[0][] = [];
+    const herdrCommands: string[] = [];
+    const io: ActionLaunchIo = {
+      agentStart: async (payload) => {
+        starts.push(payload);
+        return { ok: true, data: { ...RECORD, provider: payload.provider ?? 'claude' } };
+      },
+      herdrLaunch: async (opts) => {
+        herdrCommands.push(opts.paneCommand);
+        throw new Error('a harness launch must not run a pane command');
+      },
+      codexSkillsDir: () => '/codex-home/skills',
+      exists: (p) => p === '/codex-home/skills/gitq:sync/SKILL.md',
+      rtRepo: () => 'remote:host/repo',
+      ...over,
+    };
+    return { io, starts, herdrCommands };
+  }
+
+  test('gitq action uses configured harness', async () => {
+    const { io, starts, herdrCommands } = fakes();
+    const launched = await launchAction({ ...BASE, harness: 'codex' }, io);
+    expect(starts).toHaveLength(1);
+    const launch = starts[0]!;
+    expect(launch.provider).toBe('codex');
+    expect(launch).toMatchObject({ repo: 'remote:host/repo', cwd: '/repo-slot', surface: 'herdr', workspace: 'gitq', tab: 'gitq:mystack sync' });
+    expect(launch.prompt).toBe(
+      `Use the gitq:sync skill at /codex-home/skills/gitq:sync/SKILL.md with these arguments: /repo-slot mystack --state /state/job.json --status-bin ${statusBinPath()}`,
+    );
+    expect(launch.prompt).not.toContain('claude');
+    expect(herdrCommands).toEqual([]);
+    expect(launched).toEqual({
+      tabId: 'tab7', workspaceId: 'ws7', focusedExisting: false,
+      launch: { harness: 'codex', agentId: 'agent-1', sessionId: 'thread-1' },
+    });
+  });
+
+  test('Claude under the switch launches through rt with the slash prompt', async () => {
+    const { io, starts, herdrCommands } = fakes();
+    const launched = await launchAction({ ...BASE, harness: 'claude' }, io);
+    expect(starts[0]!.provider).toBe('claude');
+    expect(starts[0]!.prompt).toBe(actionPrompt('sync', '/repo-slot', 'mystack', '/state/job.json'));
+    expect(herdrCommands).toEqual([]);
+    expect(launched.launch).toEqual({ harness: 'claude', agentId: 'agent-1', sessionId: 'thread-1' });
+  });
+
+  test('switch off runs the same herdr pane command as before and never calls rt', async () => {
+    const seen: unknown[] = [];
+    const { io, starts } = fakes({
+      herdrLaunch: async (opts) => {
+        seen.push(opts);
+        return { tabId: 't', workspaceId: 'w', focusedExisting: false };
+      },
+      rtRepo: () => {
+        throw new Error('switch off must not resolve an rt repo');
+      },
+    });
+    const launched = await launchAction({ ...BASE, harness: undefined }, io);
+    expect(seen).toEqual([
+      {
+        workspaceLabel: 'gitq',
+        tabLabel: 'gitq:mystack sync',
+        paneCommand: buildPaneCommand('/repo-slot', actionPrompt('sync', '/repo-slot', 'mystack', '/state/job.json')),
+      },
+    ]);
+    expect(starts).toEqual([]);
+    expect(launched).toEqual({ tabId: 't', workspaceId: 'w', focusedExisting: false });
+  });
+
+  test('a Codex launch refuses when the gitq skill is not installed for Codex', async () => {
+    const { io, starts } = fakes({ exists: () => false });
+    await expect(launchAction({ ...BASE, harness: 'codex' }, io)).rejects.toThrow(
+      'The gitq:sync skill is not installed for Codex, so gitq cannot start it there.',
+    );
+    expect(starts).toEqual([]);
+  });
+
+  test('a harness gitq has no skills for refuses', async () => {
+    const { io, starts } = fakes();
+    await expect(launchAction({ ...BASE, harness: 'pilot' }, io)).rejects.toThrow('gitq has no skills for pilot');
+    expect(starts).toEqual([]);
+  });
+
+  test('a repo rt does not know refuses before launching', async () => {
+    const { io, starts } = fakes({ rtRepo: () => null });
+    await expect(launchAction({ ...BASE, harness: 'codex' }, io)).rejects.toThrow('rt does not know /repo');
+    expect(starts).toEqual([]);
+  });
+
+  test('an already open tab is focused, with no session to bind', async () => {
+    const { io } = fakes({ agentStart: async () => ({ ok: false, error: 'tab gitq:mystack sync already open; focused it' }) });
+    expect(await launchAction({ ...BASE, harness: 'codex' }, io)).toEqual({ tabId: '', workspaceId: '', focusedExisting: true });
+  });
+
+  test("a refused launch surfaces rt's reason", async () => {
+    const { io } = fakes({ agentStart: async () => ({ ok: false, error: 'codex is not ready' }) });
+    await expect(launchAction({ ...BASE, harness: 'codex' }, io)).rejects.toThrow('codex is not ready');
   });
 });

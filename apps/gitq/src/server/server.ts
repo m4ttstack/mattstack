@@ -8,7 +8,7 @@ import type { BoardRepo } from './data.ts';
 import { IS_COMPILED } from '../core/app-root.ts';
 import { getClientAssets } from './client-assets.ts';
 import { getWorktreeMap } from '../core/worktrees.ts';
-import { actionPrompt, buildPaneCommand, focusTab, launchInWorkspace, tabLabel } from './herdr.ts';
+import { defaultActionLaunchIo, focusTab, launchAction, launchInWorkspace, selectActionHarness, tabLabel } from './herdr.ts';
 import { jobFilePath, pruneJobStates, readJobStates, writeJobState } from './job-state.ts';
 import embeddedCss from '../client/style.css' with { type: 'text' };
 import favicon from '../client/favicon.svg' with { type: 'text' };
@@ -126,15 +126,30 @@ const server = Bun.serve({
         const repoName = config.repos.find((r) => r.path === parsed.repoPath)?.name ?? parsed.repoPath;
         // Seed the state file before spawning so the skill's writes merge
         // into a fully-identified job (Plan 2 merge semantics).
-        writeJobState(statePath, { status: 'starting', repoPath: parsed.repoPath, stack: parsed.stack, action: parsed.action });
+        // A previous run's launch binding is cleared here, whatever this run does.
+        writeJobState(statePath, { status: 'starting', repoPath: parsed.repoPath, stack: parsed.stack, action: parsed.action, launch: undefined });
         try {
-          const prompt = actionPrompt(parsed.action, runDir, parsed.stack, statePath);
-          const launched = await launchInWorkspace({
-            workspaceLabel: config.herdrWorkspace,
-            tabLabel: tabLabel(repoName, parsed.stack, parsed.action),
-            paneCommand: buildPaneCommand(runDir, prompt),
+          const harness = await selectActionHarness();
+          if (harness !== undefined) writeJobState(statePath, { status: 'starting', launch: { harness } });
+          const launched = await launchAction(
+            {
+              action: parsed.action,
+              repoPath: parsed.repoPath,
+              runDir,
+              stack: parsed.stack,
+              statePath,
+              workspaceLabel: config.herdrWorkspace,
+              tabLabel: tabLabel(repoName, parsed.stack, parsed.action),
+              harness,
+            },
+            { ...defaultActionLaunchIo, herdrLaunch: launchInWorkspace },
+          );
+          writeJobState(statePath, {
+            status: 'starting',
+            tabId: launched.tabId,
+            workspaceId: launched.workspaceId,
+            ...(harness !== undefined ? { launch: launched.launch } : {}),
           });
-          writeJobState(statePath, { status: 'starting', tabId: launched.tabId, workspaceId: launched.workspaceId });
           return Response.json({ ok: true, focused: launched.focusedExisting });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

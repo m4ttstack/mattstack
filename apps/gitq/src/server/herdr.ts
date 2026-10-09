@@ -1,7 +1,18 @@
+import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import {
+  agentIntegrations as rtAgentIntegrations,
+  agentStart as rtAgentStart,
+  defaultHarness,
+  integrationsSwitchOn,
+  repoNameForPath,
+  selectLaunchHarness,
+  type HarnessId,
+  type LaunchHarnessIo,
+} from '@mattstack/rt-client';
 import { IS_COMPILED } from '../core/app-root.ts';
-import type { JobAction } from './job-state.ts';
+import type { JobAction, JobLaunch } from './job-state.ts';
 
 const HERDR_BIN = process.env.HERDR_BIN || join(homedir(), '.local', 'bin', 'herdr');
 const HERDR_SOCKET_PATH = process.env.HERDR_SOCKET_PATH || join(homedir(), '.config', 'herdr', 'herdr.sock');
@@ -156,6 +167,106 @@ export async function launchInWorkspace(
   if (!tab) throw new Error('herdr: could not create tab');
   await runner(['pane', 'run', tab.paneId, opts.paneCommand]);
   return { tabId: tab.tabId, workspaceId: tab.workspaceId, focusedExisting: false };
+}
+
+export interface ActionLaunchIo {
+  agentStart: typeof rtAgentStart;
+  /** The switch-off launch: a herdr pane running `claude` directly. */
+  herdrLaunch: (opts: LaunchOpts) => Promise<{ tabId: string; workspaceId: string; focusedExisting: boolean }>;
+  codexSkillsDir: () => string;
+  exists: (path: string) => boolean;
+  /** The serialized rt repo identity for a repo path, null when rt does not know it. */
+  rtRepo: (repoPath: string) => string | null;
+}
+
+export const defaultActionLaunchIo: Omit<ActionLaunchIo, 'herdrLaunch'> = {
+  agentStart: rtAgentStart,
+  codexSkillsDir: () => join(process.env.CODEX_HOME || join(process.env.HOME ?? homedir(), '.codex'), 'skills'),
+  exists: existsSync,
+  rtRepo: (repoPath) => repoNameForPath(repoPath),
+};
+
+const defaultActionHarnessIo: LaunchHarnessIo = {
+  switchOn: () => integrationsSwitchOn(),
+  defaultHarness: () => defaultHarness(),
+  agentIntegrations: rtAgentIntegrations,
+};
+
+/** The harness a board action runs under; undefined while the integrations switch is off. */
+export function selectActionHarness(io: LaunchHarnessIo = defaultActionHarnessIo): Promise<HarnessId | undefined> {
+  return selectLaunchHarness(io, 'gitq');
+}
+
+export interface ActionLaunchOpts {
+  action: JobAction;
+  repoPath: string;
+  runDir: string;
+  stack: string;
+  statePath: string;
+  workspaceLabel: string;
+  tabLabel: string;
+  /** Unset launches exactly as before the integrations switch. */
+  harness: HarnessId | undefined;
+}
+
+export interface ActionLaunched {
+  tabId: string;
+  workspaceId: string;
+  focusedExisting: boolean;
+  /** The session rt started, which alone may report the job. */
+  launch?: JobLaunch;
+}
+
+/** The first message of a harness with no slash commands: it names the installed skill by path. */
+function harnessActionPrompt(harness: HarnessId, opts: ActionLaunchOpts, io: ActionLaunchIo): string {
+  if (harness === 'claude') return actionPrompt(opts.action, opts.runDir, opts.stack, opts.statePath);
+  if (harness !== 'codex') throw new Error(`gitq has no skills for ${harness}, so it cannot start ${opts.action} there.`);
+  const skill = `gitq:${opts.action}`;
+  const path = join(io.codexSkillsDir(), skill, 'SKILL.md');
+  if (!io.exists(path)) {
+    throw new Error(`The ${skill} skill is not installed for Codex, so gitq cannot start it there. Run rt setup to link it.`);
+  }
+  const args = [opts.runDir, opts.stack, '--state', opts.statePath, '--status-bin', statusBinPath()].join(' ');
+  return `Use the ${skill} skill at ${path} with these arguments: ${args}`;
+}
+
+/**
+ * Start a board action's agent. With the integrations switch off this is
+ * the herdr pane running `claude` it always was; with it on, rt's shared
+ * launcher starts the selected harness and returns the session it bound.
+ */
+export async function launchAction(opts: ActionLaunchOpts, io: ActionLaunchIo): Promise<ActionLaunched> {
+  if (opts.harness === undefined) {
+    const prompt = actionPrompt(opts.action, opts.runDir, opts.stack, opts.statePath);
+    return io.herdrLaunch({
+      workspaceLabel: opts.workspaceLabel,
+      tabLabel: opts.tabLabel,
+      paneCommand: buildPaneCommand(opts.runDir, prompt),
+    });
+  }
+  const prompt = harnessActionPrompt(opts.harness, opts, io);
+  const repo = io.rtRepo(opts.repoPath);
+  if (!repo) throw new Error(`rt does not know ${opts.repoPath}, so gitq cannot start an agent there. Add the repo to rt first.`);
+  const res = await io.agentStart({
+    repo,
+    cwd: opts.runDir,
+    prompt,
+    surface: 'herdr',
+    workspace: opts.workspaceLabel,
+    tab: opts.tabLabel,
+    provider: opts.harness,
+  });
+  if (!res.ok) {
+    if (res.error && /already open; focused it/.test(res.error)) return { tabId: '', workspaceId: '', focusedExisting: true };
+    throw new Error(res.error || 'rt sent no answer');
+  }
+  if (!res.data) throw new Error('rt sent no agent record');
+  return {
+    tabId: res.data.tabId ?? '',
+    workspaceId: res.data.workspaceId ?? '',
+    focusedExisting: false,
+    launch: { harness: opts.harness, agentId: res.data.id, sessionId: res.data.sessionId },
+  };
 }
 
 export async function focusTab(tabId: string, runner: HerdrRunner = defaultRunner): Promise<void> {

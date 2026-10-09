@@ -20,8 +20,18 @@ export interface JobState {
   /** Claude Code session id, captured by the status CLI on any write so the
       board can relaunch the same conversation via `claude --resume`. */
   sessionId?: string;
+  /** The session a launch under the harness integrations switch started;
+      only that session may report this job. No sessionId yet means the
+      launch has not answered. */
+  launch?: JobLaunch;
   startedAt: number;
   updatedAt: number;
+}
+
+export interface JobLaunch {
+  harness: string;
+  agentId?: string;
+  sessionId?: string;
 }
 
 /** Per-job JSON files live here; the server owns naming, the agent just writes. */
@@ -38,7 +48,8 @@ export function jobFilePath(repoPath: string, stack: string, action: JobAction, 
 }
 
 /** Read-merge-write a job state file. First write stamps startedAt; every
-    write stamps updatedAt. Atomic via tmp file + rename. */
+    write stamps updatedAt. Atomic via tmp file + rename. A `launch` key in
+    the patch replaces the stored one, undefined clearing it. */
 export function writeJobState(
   path: string,
   patch: Partial<JobState> & { status: JobStatus },
@@ -59,6 +70,7 @@ export function writeJobState(
     tabId: patch.tabId ?? prev.tabId,
     workspaceId: patch.workspaceId ?? prev.workspaceId,
     sessionId: patch.sessionId ?? prev.sessionId,
+    launch: 'launch' in patch ? patch.launch : prev.launch,
     startedAt: prev.startedAt ?? now,
     updatedAt: now,
   };
@@ -67,6 +79,15 @@ export function writeJobState(
   writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n');
   renameSync(tmp, path);
   return next;
+}
+
+/** One job's state; undefined when the file is missing or unreadable. */
+export function readJobState(path: string): JobState | undefined {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as JobState;
+  } catch {
+    return undefined;
+  }
 }
 
 /** All job states in the dir; unreadable files are skipped. */
