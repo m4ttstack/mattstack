@@ -5,6 +5,7 @@ export const codexIntegration: HarnessIntegration = {
   id: "codex",
   label: "Codex",
   sessionEnv: ["CODEX_THREAD_ID"],
+  policyProofKind: "receipts",
   messagingConnection: codexMessagingConnection,
   sessionLive: (binding) => (binding.native.harness === "codex" && binding.native.kind === "id" ? codexSessionLive(binding) : undefined),
   capabilities: async (mode) => {

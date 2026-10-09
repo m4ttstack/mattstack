@@ -1460,6 +1460,32 @@ describe("policy check turn (M6c)", () => {
     expect(h.clock.active).toBe(0);
   });
 
+  test("a check turn that does not finish in time is interrupted before the hold goes, so the next check is not refused as busy", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    const h = await harness({
+      ...server.handlers,
+      "turn/start": (s, m) => {
+        s.push({ id: m.id, result: { turn: { id: "U7", items: [], status: "inProgress" } } });
+        s.push(turn("turn/started", m.params.threadId, "U7"));
+      },
+      "turn/interrupt": (s, m) => {
+        s.push({ id: m.id, result: {} });
+        s.push(turn("turn/completed", m.params.threadId, m.params.turnId, "interrupted"));
+      },
+    });
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => false });
+    const log: string[] = [];
+    const pending = sessions.policyCheck(binding("T1"), checkRun(log));
+    await Bun.sleep(1);
+    h.clock.advance(5000);
+    expect(await pending).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("interrupted") } });
+    expect(h.requests("turn/interrupt").map((m) => m.params)).toEqual([{ threadId: "T1", turnId: "U7" }]);
+    expect(log).toEqual(["issue U7"]);
+    expect(sessions.activeTurn(binding("T1"))).toBeUndefined();
+    expect(h.ops.at(-1)).toBe("thread/unsubscribe");
+    expect(h.clock.active).toBe(0);
+  });
+
   test("a check rt cannot observe, one beside a running turn, or one with the switch off starts nothing", async () => {
     const log: string[] = [];
     const unreadable = await harness({ "thread/read": (s, m) => s.push({ id: m.id, error: { code: -32600, message: "boom" } }) });

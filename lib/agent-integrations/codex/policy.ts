@@ -523,7 +523,14 @@ async function liveChecker(): Promise<CodexPolicyChecker | undefined> {
  * the policy service reached. A resumed session keeps the proof an earlier
  * attachment earned only while the hooks are unchanged and its hooks have
  * been seen running since it resumed; no check turn is started for it unless
- * its caller agreed to one. The verified capabilities are what the session
+ * its caller agreed to one. Every resume is a new attachment generation and
+ * the launcher verifies right after binding it, when no hook has run under
+ * that generation yet, so such a session is not ready at first: it becomes
+ * ready only when the same launch reservation is retried after both hooks
+ * ran under the new generation. A new reservation is another resume, a new
+ * generation, and starts unready again. `retainedFrom` always names the
+ * generation whose check turn earned the proof, however many resumes kept
+ * it. The verified capabilities are what the session
  * proved; whether Codex may be required to enforce them is prepare's
  * CODEX_PROVEN_POLICY.
  */
@@ -544,7 +551,12 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
   async function checkTurn(binding: SessionBinding, found: Inspection): Promise<Outcome<PolicyProof>> {
     const sourcePath = found.sourcePath;
     if (sourcePath === undefined) return fail("not-ready", "rt's policy hooks are split across project layers, so one check turn cannot prove them");
-    const checker = await deps.checker();
+    let checker: CodexPolicyChecker | undefined;
+    try {
+      checker = await deps.checker();
+    } catch (err) {
+      return fail("not-ready", `rt could not reach the Codex app server to check the session's hooks: ${err instanceof Error ? err.message : String(err)}`);
+    }
     if (!checker) return fail("not-ready", "rt has no live connection to the Codex app server, so the session's hooks cannot be checked");
     const { key, attachment: { generation } } = binding;
     let nonce: string | undefined;
@@ -552,14 +564,19 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
       const p = deps.receipts.proof(key, generation);
       return p !== null && p.nonce === nonce && CODEX_POLICY_EVENTS.every((e) => p.events[e] !== undefined);
     };
-    const ran = await checker.policyCheck(binding, {
-      prompt: CODEX_POLICY_CHECK_PROMPT,
-      timeoutMs: deps.checkTimeoutMs,
-      issue: (turnId) => { nonce = deps.receipts.issueDiagnostic(key, generation, turnId, sourcePath); },
-      settle: async () => {
-        for (let i = 0; i < EVIDENCE_POLLS && !complete(); i++) await deps.sleep(EVIDENCE_POLL_MS);
-      },
-    });
+    let ran: Outcome<{ turnId: string; status: string }>;
+    try {
+      ran = await checker.policyCheck(binding, {
+        prompt: CODEX_POLICY_CHECK_PROMPT,
+        timeoutMs: deps.checkTimeoutMs,
+        issue: (turnId) => { nonce = deps.receipts.issueDiagnostic(key, generation, turnId, sourcePath); },
+        settle: async () => {
+          for (let i = 0; i < EVIDENCE_POLLS && !complete(); i++) await deps.sleep(EVIDENCE_POLL_MS);
+        },
+      });
+    } catch (err) {
+      ran = fail("not-ready", err instanceof Error ? err.message : String(err));
+    }
     if (!ran.ok) return fail(ran.error.code === "stale-binding" ? "stale-binding" : "not-ready", `the policy check turn did not run: ${ran.error.message}`);
     if (ran.data.status !== "completed") return fail("not-ready", `the policy check turn ended ${ran.data.status}`);
     const proof = deps.receipts.proof(key, generation);
@@ -607,7 +624,8 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
       ok: true,
       data: {
         sessionKey: binding.key, generation: binding.attachment.generation, revision: found.revision, observedAt: deps.now(),
-        kind: "receipts", verified: [...retained.verified], evidence: { ...retained.evidence, retainedFrom: retained.generation },
+        kind: "receipts", verified: [...retained.verified],
+        evidence: { ...retained.evidence, retainedFrom: retained.evidence.retainedFrom ?? retained.generation },
       },
     };
   }

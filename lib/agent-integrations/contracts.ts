@@ -238,6 +238,8 @@ export type HarnessIntegration = {
    * such input reaches the session as peer input through its messaging.
    */
   readonly typedPaneInput?: boolean;
+  /** How this harness's sessions prove their policy; a policy proof of any other kind, or for a harness that declares none, is refused. */
+  readonly policyProofKind?: PolicyProofKind;
   capabilities(mode: Mode): Promise<CapabilityReport>;
   validateOptions(options: AgentOptions): Outcome<AgentOptions>;
   options(): Promise<OptionDescriptor[]>;

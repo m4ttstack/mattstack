@@ -6,8 +6,13 @@
  * When the launch requires policy, verify is the bound session's own proof
  * (a Codex check turn runs here, after bind and before any work), recorded
  * through policy-readiness.ts; a resumed session that required policy
- * requires it again. Each work submission rechecks that proof against the
- * policy as installed now, and a changed policy withdraws readiness.
+ * requires it again. A resume is a new attachment generation, verified
+ * right after its bind, before any hook has run under it: unless its caller
+ * agreed to a check turn, it becomes ready only when the same reservation is
+ * retried once its hooks have run under that generation (a new reservation
+ * is a new resume and starts unready again). Each work submission rechecks
+ * the proof against the policy as installed now, and a changed policy
+ * withdraws readiness. With agent.integrations off, none of this applies.
  * The reservation records each step before the side effect it guards, so a
  * launch that times out after making a native session is bound by the next
  * attempt, from any process, without making another; a launch interrupted
@@ -37,10 +42,11 @@ import { builtinRegistry } from "./builtins.ts";
 import {
   createObservationSweep,
   type HarnessIntegration, type IntegrationRegistry, type LaunchHost, type LaunchRequest, type LaunchSurface, type NativeLaunch,
-  type ObservationSweep, type PolicyAdapter, type PreparedLaunch, type PreparedPolicy, type SessionAdapter,
+  type ObservationSweep, type PolicyAdapter, type PolicyProof, type PolicyVerifyContext, type PreparedLaunch, type PreparedPolicy, type SessionAdapter,
   type WorkInput, type WorkReceipt,
 } from "./contracts.ts";
 import { policyCapabilities, recordPolicyProof, requirePolicyProof } from "./policy-readiness.ts";
+import { integrationsEnabled } from "./switch.ts";
 import {
   abandonStaleLaunches, claimReservation, createSessionStore, failReservation, isDetachedAttachment, LEGACY_DEFAULT_PROFILE,
   launchHolding, markBindingReady, noteReservationError, pruneReservations, readBindingReadiness, readBindingSelection,
@@ -81,6 +87,12 @@ export type LauncherDeps = {
   now(): number;
   /** The shared chat presence service, told each lifecycle event a launch observes. */
   presence(binding: SessionBinding, event: PresenceEvent): Promise<void>;
+  /**
+   * agent.integrations.enabled, read on every decision. Off, no policy proof
+   * is required or consulted, whatever a stored binding recorded, which is
+   * how the launcher behaved before session policy existed.
+   */
+  enabled(): boolean;
 };
 
 type PolicyReady = { adapter: PolicyAdapter; prepared: PreparedPolicy };
@@ -191,14 +203,15 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     syncAgent: overrides.syncAgent ?? syncAgentRecord,
     now: overrides.now ?? Date.now,
     presence: overrides.presence ?? ((binding, event) => applySessionPresence(binding, event, { db })),
+    enabled: overrides.enabled ?? integrationsEnabled,
   };
   const { store, registry, claimToken } = deps;
   /** The launch each binding was prepared by in this process, handed to its first work submission. */
   const prepared = new Map<string, PreparedLaunch>();
   /** Native sessions made here whose `launched` record could not be written. */
   const madeHere = new Map<string, NativeLaunch>();
-  /** Bindings whose resume running now was agreed to take a policy check turn. */
-  const checksAgreed = new Set<string>();
+  /** Bindings with a resume running now that was agreed to take a policy check turn, counted so one resume ending never withdraws another's agreement. */
+  const checksAgreed = new Map<string, number>();
 
   const flight = (...parts: string[]) => [claimToken, ...parts].join("\0");
 
@@ -215,16 +228,33 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     return registry.list().filter((i) => i.id !== harness).flatMap((i) => [...(i.sessionEnv ?? [])]);
   }
 
-  /** The policy capabilities a binding must prove, from the launch or from what its readiness recorded. */
+  /** The policy capabilities a binding must prove, from the launch or from what its readiness recorded; none while the switch is off. */
   function policyNeeded(required: readonly Capability[]): Capability[] {
-    return policyCapabilities(required);
+    return deps.enabled() ? policyCapabilities(required) : [];
   }
+
+  const proofKindOf = (harness: string) => registry.get(harness)?.policyProofKind;
 
   /** Read-only preflight; only a request that requires policy ever loads an integration's policy factory. */
   async function preparePolicy(integration: HarnessIntegration, request: LaunchRequest): Promise<Outcome<PolicyReady>> {
-    const adapter = await integration.loadPolicy!();
-    const preparedPolicy = await adapter.prepare(request);
-    return preparedPolicy.ok ? ok({ adapter, prepared: preparedPolicy.data }) : preparedPolicy;
+    try {
+      const adapter = await integration.loadPolicy!();
+      const preparedPolicy = await adapter.prepare(request);
+      return preparedPolicy.ok ? ok({ adapter, prepared: preparedPolicy.data }) : preparedPolicy;
+    } catch (err) {
+      return fail("not-ready", `${integration.label}'s policy could not be inspected: ${messageOf(err)}`);
+    }
+  }
+
+  /** A verify that throws proved nothing; the session stays bound and unready rather than its launch becoming unknown. */
+  async function verifyPolicy(
+    adapter: PolicyAdapter, binding: SessionBinding, inspected: PreparedPolicy, context: PolicyVerifyContext,
+  ): Promise<Outcome<PolicyProof>> {
+    try {
+      return await adapter.verify(binding, inspected, context);
+    } catch (err) {
+      return fail("not-ready", messageOf(err));
+    }
   }
 
   /** Verifies the bound session itself, then records readiness for its current generation only. */
@@ -232,7 +262,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     integration: HarnessIntegration, binding: SessionBinding, request: LaunchRequest, kind: PreparedLaunch["kind"],
     surface: LaunchSurface | undefined, policy?: Outcome<PolicyReady>,
   ): Promise<Outcome<PreparedBinding>> {
-    const check = checksAgreed.has(binding.key);
+    const check = (checksAgreed.get(binding.key) ?? 0) > 0;
     const needed = policyNeeded(request.required);
     let proof: PolicyProofRecord | undefined;
     if (needed.length > 0) {
@@ -241,15 +271,15 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
       if (!ready.ok) return fail("not-ready", `session ${session} is bound but its policy could not be prepared: ${ready.error.message}`);
       const { adapter, prepared: inspected } = ready.data;
       const retained = kind === "resume" ? readBindingReadiness(db, binding.key)?.proof : undefined;
-      const verified = await adapter.verify(binding, inspected, { kind, ...(retained !== undefined && { retained }), ...(check && { check }) });
+      const verified = await verifyPolicy(adapter, binding, inspected, { kind, ...(retained !== undefined && { retained }), ...(check && { check }) });
       if (!verified.ok) {
         return fail(notReadyUnlessStale(verified.error.code), `session ${session} is bound but has not proved its policy: ${verified.error.message}`);
       }
       if (verified.data.revision !== inspected.revision) return fail("not-ready", `session ${session} is bound but proved another policy revision than the one prepared`);
       const earned: PolicyProofRecord = { ...verified.data, cwd: inspected.cwd };
-      const recorded = recordPolicyProof(binding, earned, db);
+      const recorded = recordPolicyProof(binding, earned, db, integration.policyProofKind);
       if (!recorded.ok) return fail(notReadyUnlessStale(recorded.error.code), `session ${session} is bound but not ready: ${recorded.error.message}`);
-      const current = requirePolicyProof(binding, needed, inspected.revision, db);
+      const current = requirePolicyProof(binding, needed, inspected.revision, db, integration.policyProofKind);
       if (!current.ok) return fail(notReadyUnlessStale(current.error.code), `session ${session} is bound but not ready: ${current.error.message}`);
       proof = earned;
     }
@@ -345,7 +375,8 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     }
     const needed = policyNeeded(readiness.required);
     if (needed.length > 0) {
-      const proven = requirePolicyProof(current, needed, readiness.proof?.revision ?? "", db);
+      // The revision is the proof's own, so this checks only key, generation, kind and coverage; policyStillCurrent is the revision recheck.
+      const proven = requirePolicyProof(current, needed, readiness.proof?.revision ?? "", db, proofKindOf(current.native.harness));
       if (!proven.ok) return fail(proven.error.code, `${proven.error.message}; nothing was sent`);
     }
     return ok(current);
@@ -371,7 +402,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
       required: readiness?.required ?? [], access: { readRoots: [] },
     });
     const proven = inspected.ok
-      ? requirePolicyProof(current, needed, inspected.data.prepared.revision, db)
+      ? requirePolicyProof(current, needed, inspected.data.prepared.revision, db, integration.policyProofKind)
       : fail<void>("not-ready", `session ${session}'s policy could not be checked again: ${inspected.error.message}`);
     if (proven.ok) return proven;
     if (proven.error.code === "not-ready") withdrawBindingReady(db, current.key, current.attachment.generation);
@@ -513,7 +544,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
       };
       const kind: PreparedLaunch["kind"] = resumed ? "resume" : "launch";
       const agreed = resumed !== undefined && request.policyCheck === true ? resumed.key : undefined;
-      if (agreed !== undefined) checksAgreed.add(agreed);
+      if (agreed !== undefined) checksAgreed.set(agreed, (checksAgreed.get(agreed) ?? 0) + 1);
       try {
         if (reservation.boundKey !== undefined) {
           const bound = store.get(reservation.boundKey);
@@ -543,7 +574,11 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
           LAUNCHING.delete(inFlight);
         }
       } finally {
-        if (agreed !== undefined) checksAgreed.delete(agreed);
+        if (agreed !== undefined) {
+          const left = (checksAgreed.get(agreed) ?? 1) - 1;
+          if (left > 0) checksAgreed.set(agreed, left);
+          else checksAgreed.delete(agreed);
+        }
       }
     },
 

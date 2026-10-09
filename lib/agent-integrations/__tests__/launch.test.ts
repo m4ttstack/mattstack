@@ -121,13 +121,13 @@ function fake(o: FakeOptions = {}): { integration: HarnessIntegration; calls: Ca
       calls.order.push("verify");
       return ok({
         sessionKey: binding.key, generation: binding.attachment.generation, revision: prepared.revision,
-        verified: ["gate-policy"], observedAt: 5,
+        verified: ["gate-policy"], observedAt: 5, kind: "installation",
       });
     },
     ...(o.policy !== "absent" ? o.policy : {}),
   };
   const integration = {
-    id, label: id,
+    id, label: id, policyProofKind: "installation",
     ...(o.sessionEnv && { sessionEnv: o.sessionEnv }),
     async capabilities(mode: Mode): Promise<CapabilityReport> {
       calls.order.push("capabilities");
@@ -154,7 +154,7 @@ function fake(o: FakeOptions = {}): { integration: HarnessIntegration; calls: Ca
 
 function launcherFor(integrations: HarnessIntegration[], over: { claimToken?: string; store?: SessionStore; now?: () => number } = {}) {
   return createBoundLauncher({
-    db, registry: createRegistry(integrations), claimToken: over.claimToken ?? "proc-A",
+    db, registry: createRegistry(integrations), claimToken: over.claimToken ?? "proc-A", enabled: () => true,
     ...(over.store && { store: over.store }), ...(over.now && { now: over.now }),
   });
 }
@@ -285,7 +285,7 @@ describe("policy readiness", () => {
       (b: SessionBinding) => ({ sessionKey: b.key, generation: b.attachment.generation, revision: "rev-1", verified: [] as Capability[], observedAt: 1 }),
     ];
     for (const proof of proofs) {
-      const { integration } = fake({ policy: { verify: async (b) => ok(proof(b)) } });
+      const { integration } = fake({ policy: { verify: async (b) => ok({ ...proof(b), kind: "installation" as const }) } });
       const reservationId = createSessionStore(db).reserve({ identity: "w-proof" });
       const launched = await launcherFor([integration]).launchBoundAgent(request(reservationId, { required: ["gate-policy"], cwd: `/w/${reservationId}` }));
       expect(launched).toMatchObject({ ok: false, error: { code: "not-ready" } });

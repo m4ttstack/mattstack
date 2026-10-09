@@ -156,10 +156,11 @@ const covers = (root: string, path: string): boolean => root === path || isInsid
 /**
  * The integration resource and temporary roots (an installed harness's
  * plugin or cache folder, a temp folder rt owns for a session) that may
- * widen a guard, each only as a real directory owned by `uid`, named in
- * canonical form and narrower than the home directory and every shared
- * temp folder. A symlinked root, one reached through `..`, a foreign-owned
- * one, the filesystem root, the home directory or anything above it, and a
+ * widen a guard, each only as a real directory owned by `uid` and writable
+ * by no group or other user, named in canonical form and narrower than the
+ * home directory and every shared temp folder. A symlinked root, one reached
+ * through `..`, a foreign-owned or shared-writable one (anyone else who can
+ * write it could plant a link the guard would admit), the filesystem root, the home directory or anything above it, and a
  * shared temp folder itself are dropped, so a root an integration reports
  * can never become wider than the folder it names.
  */
@@ -180,7 +181,7 @@ export function admitResourceRoots(candidates: readonly unknown[], opts: { uid: 
     } catch {
       continue;
     }
-    if (!st.isDirectory() || st.uid !== opts.uid) continue;
+    if (!st.isDirectory() || st.uid !== opts.uid || (st.mode & 0o022) !== 0) continue;
     if (covers(resolved, homeReal) || shared.some((s) => covers(resolved, s))) continue;
     if (!admitted.includes(resolved)) admitted.push(resolved);
   }

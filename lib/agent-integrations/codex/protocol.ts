@@ -96,6 +96,9 @@ export const CODEX_METHODS: Readonly<Record<string, MethodSpec>> = {
     scope: "owned", experimental: true, required: ["threadId"], fields: ["cursor", "limit", "threadId"],
     experimentalFields: ["cursor", "limit", "threadId"], refused: [],
   },
+  "turn/interrupt": {
+    scope: "owned", experimental: false, required: ["threadId", "turnId"], fields: ["threadId", "turnId"], experimentalFields: [], refused: [],
+  },
 };
 
 /**
@@ -111,6 +114,8 @@ export const CODEX_METHODS_OUTSIDE_FIXTURE: Readonly<Record<string, string>> = {
     + "backwardsCursor }, each Turn with its id and TurnStatus; the paginated replacement Codex's deprecationNotice "
     + "names for thread/read includeTurns (0.160.0; .harness-spike/live-07 events.jsonl seq 218-220, "
     + ".harness-spike/live-10/turns-list-raw.jsonl, 0.161.0)",
+  "turn/interrupt": "sent as { threadId, turnId } and answered, the turn then completing with status interrupted "
+    + "(.harness-spike/live-12/turns/c7a-interrupt-in-continuation.jsonl, 0.160.0/0.162.0)",
 };
 
 /** The server requests Mattstack replies to, with the result fields its reply carries, checked against the saved schema. */

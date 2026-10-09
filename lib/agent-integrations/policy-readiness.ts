@@ -23,9 +23,8 @@ import {
 
 export const POLICY_CAPABILITIES: readonly Capability[] = ["gate-policy", "continuation-policy"];
 
-/** The proof each harness gives; a harness not listed names none, and any recorded kind is checked for shape only. */
+/** The proof each built-in harness gives, for a caller that has no integration declaring it; any other harness proves nothing. */
 const PROOF_KIND: Readonly<Record<string, PolicyProofKind>> = { claude: "installation", codex: "receipts" };
-const KINDS: readonly string[] = ["installation", "receipts"];
 
 const fail = <T>(code: FaultCode, message: string): Outcome<T> => ({ ok: false, error: { code, message } });
 const filled = (v: unknown): v is string => typeof v === "string" && v.length > 0;
@@ -35,8 +34,9 @@ export function policyCapabilities(required: readonly Capability[]): Capability[
   return [...new Set(required.filter((c) => POLICY_CAPABILITIES.includes(c)))];
 }
 
-/** Why this proof cannot stand for this harness's session, or undefined when its shape is sound. */
-function unsound(harness: string, proof: PolicyProofRecord): string | undefined {
+/** Why this proof cannot stand for a session whose harness proves by `expected`, or undefined when it is sound. */
+function unsound(harness: string, expected: PolicyProofKind | undefined, proof: PolicyProofRecord): string | undefined {
+  if (expected === undefined) return `rt does not know how a ${harness} session proves its policy`;
   if (!filled(proof.sessionKey) || !Number.isInteger(proof.generation) || !filled(proof.revision) || !Number.isFinite(proof.observedAt)) {
     return "the policy proof is incomplete";
   }
@@ -44,11 +44,7 @@ function unsound(harness: string, proof: PolicyProofRecord): string | undefined 
     return "the policy proof claims something that is not a policy capability";
   }
   if (proof.cwd !== undefined && !filled(proof.cwd)) return "the policy proof names no working directory";
-  const expected = PROOF_KIND[harness];
-  if (expected !== undefined && proof.kind !== expected) {
-    return `a ${harness} session proves its policy by ${expected}, not ${proof.kind ?? "an unnamed kind"}`;
-  }
-  if (proof.kind !== undefined && !KINDS.includes(proof.kind)) return "the policy proof is of an unknown kind";
+  if (proof.kind !== expected) return `a ${harness} session proves its policy by ${expected}, not ${proof.kind ?? "an unnamed kind"}`;
   if (proof.kind === "receipts") {
     const e = proof.evidence;
     if (!e || !filled(e.turnId) || !filled(e.nonce) || !filled(e.sourcePath) || !filled(e.manifest) || !filled(e.runs?.PreToolUse) || !filled(e.runs?.Stop)) {
@@ -58,11 +54,17 @@ function unsound(harness: string, proof: PolicyProofRecord): string | undefined 
   return undefined;
 }
 
-/** Keeps the proof `binding` earned for its own generation; a proof for anything else is refused, never stored. */
-export function recordPolicyProof(binding: SessionBinding, proof: PolicyProofRecord, db: Database = getStateDb()): Outcome<void> {
+/**
+ * Keeps the proof `binding` earned for its own generation; a proof for
+ * anything else is refused, never stored. `kind` is what the binding's
+ * integration declares; without it only a built-in harness has a kind.
+ */
+export function recordPolicyProof(
+  binding: SessionBinding, proof: PolicyProofRecord, db: Database = getStateDb(), kind?: PolicyProofKind,
+): Outcome<void> {
   if (proof.sessionKey !== binding.key) return fail("invalid", `the policy proof names another session than ${binding.native.value}`);
   if (proof.generation !== binding.attachment.generation) return fail("invalid", `the policy proof is for another attachment than ${binding.attachment.generation}`);
-  const why = unsound(binding.native.harness, proof);
+  const why = unsound(binding.native.harness, kind ?? PROOF_KIND[binding.native.harness], proof);
   if (why) return fail("invalid", why);
   return recordBindingProof(db, binding.key, binding.attachment.generation, proof);
 }
@@ -73,7 +75,7 @@ export function recordPolicyProof(binding: SessionBinding, proof: PolicyProofRec
  * every policy capability in `required`.
  */
 export function requirePolicyProof(
-  binding: SessionBinding, required: readonly Capability[], revision: string, db: Database = getStateDb(),
+  binding: SessionBinding, required: readonly Capability[], revision: string, db: Database = getStateDb(), kind?: PolicyProofKind,
 ): Outcome<void> {
   const session = binding.native.value;
   const current = createSessionStore(db).get(binding.key);
@@ -88,7 +90,7 @@ export function requirePolicyProof(
     return fail("not-ready", `session ${session}'s policy proof is for attachment ${proof.generation}, not ${binding.attachment.generation}`);
   }
   if (proof.revision !== revision) return fail("not-ready", `session ${session} proved a policy that has changed since; it must prove the current one`);
-  const why = unsound(binding.native.harness, proof);
+  const why = unsound(binding.native.harness, kind ?? PROOF_KIND[binding.native.harness], proof);
   if (why) return fail("not-ready", `session ${session}'s policy proof is not usable: ${why}`);
   const missing = policyCapabilities(required).filter((c) => !proof.verified.includes(c));
   if (missing.length > 0) return fail("not-ready", `session ${session} never proved: ${missing.join(", ")}`);

@@ -5,10 +5,12 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, relative } from "path";
-import { UPLOAD_MAX_BYTES, builtInEvidenceRoot, checkUploadPath, claudeTempRoots, isInsideRoot, runEvidenceRoot, workRoot } from "../upload-guard.ts";
+import {
+  UPLOAD_MAX_BYTES, admitResourceRoots, builtInEvidenceRoot, checkUploadPath, claudeTempRoots, isInsideRoot, runEvidenceRoot, workRoot,
+} from "../upload-guard.ts";
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
 const JPG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1]);
@@ -422,5 +424,50 @@ describe("root helpers", () => {
   test("claudeTempRoots names the private root and its /tmp alias, or nothing without a uid", () => {
     expect(claudeTempRoots(501)).toEqual(["/private/tmp/claude-501", "/tmp/claude-501"]);
     expect(claudeTempRoots(null)).toEqual([]);
+  });
+});
+
+describe("foreign temporary path remains refused: integration roots (M6c)", () => {
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  let dir: string;
+  let owned: string;
+  let foreign: string;
+
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-integration-roots-")));
+    owned = join(dir, "owned-root");
+    foreign = join(dir, "foreign");
+    mkdirSync(owned, { mode: 0o755 });
+    mkdirSync(foreign, { mode: 0o755 });
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("only a real, owned, unshared, narrow directory is admitted", () => {
+    const link = join(dir, "link-root");
+    symlinkSync(owned, link);
+    const home = join(dir, "home");
+    mkdirSync(home);
+    const opts = { uid, home };
+    expect(admitResourceRoots([owned], opts)).toEqual([owned]);
+    expect(admitResourceRoots([link, home, dir, "/", "/tmp", "/private/tmp", realpathSync(tmpdir()), "relative/root", `${owned}/../owned-root`, `${owned}/`, 7, ""], opts)).toEqual([]);
+    expect(admitResourceRoots([join(dir, "missing")], opts)).toEqual([]);
+    expect(admitResourceRoots([owned], { uid: (uid ?? 0) + 1, home })).toEqual([]);
+    expect(admitResourceRoots([owned], { uid: null, home })).toEqual([]);
+    for (const mode of [0o775, 0o757, 0o777]) {
+      chmodSync(owned, mode);
+      expect({ mode: mode.toString(8), roots: admitResourceRoots([owned], opts) }).toEqual({ mode: mode.toString(8), roots: [] });
+    }
+  });
+
+  test("uploads through an admitted root still refuse a symlink out of it and a foreign file", () => {
+    writeFileSync(join(foreign, "shot.png"), PNG);
+    writeFileSync(join(owned, "shot.png"), PNG);
+    symlinkSync(join(foreign, "shot.png"), join(owned, "linked.png"));
+    const admitted = admitResourceRoots([owned], { uid, home: join(dir, "home") });
+    const opts = { workRoot: join(dir, "work"), runsRoot: join(dir, "runs"), evidenceRoot: join(dir, "evidence") };
+    expect(checkUploadPath(join(owned, "shot.png"), admitted, opts).ok).toBe(true);
+    expect(checkUploadPath(join(owned, "linked.png"), admitted, opts).ok).toBe(false);
+    expect(checkUploadPath(join(foreign, "shot.png"), admitted, opts).ok).toBe(false);
+    expect(checkUploadPath(`${owned}/../foreign/shot.png`, admitted, opts).ok).toBe(false);
   });
 });

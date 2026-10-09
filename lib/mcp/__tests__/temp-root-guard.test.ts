@@ -3,7 +3,9 @@ import { execFileSync } from "child_process";
 import { linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { basename, dirname, join } from "path";
 import { homedir, tmpdir } from "os";
-import { cachedReadRoots, checkReadRootPath, checkTempRootPath, PLUGIN_LIST_TIMEOUT_MS, type ReadRootSources } from "../temp-root-guard.ts";
+import {
+  cachedReadRoots, checkReadRootPath, checkTempRootPath, PLUGIN_LIST_TIMEOUT_MS, tempRootsForThisProcess, type ReadRootSources,
+} from "../temp-root-guard.ts";
 
 const createdDirs: string[] = [];
 
@@ -340,5 +342,46 @@ describe("cachedReadRoots", () => {
     const rr = cachedReadRoots(src)();
     const r = checkReadRootPath(p, rr.roots, rr.pluginListError);
     expect(r.ok ? "" : r.error).toContain("installed plugins could not be listed (claude plugin list timed out");
+  });
+});
+
+describe("foreign temporary path remains refused: integration roots (M6c)", () => {
+  function roots() {
+    const dir = realTempDir("rt-integration-roots-");
+    const owned = join(dir, "owned-root");
+    const foreign = join(dir, "foreign");
+    mkdirSync(owned, { mode: 0o755 });
+    mkdirSync(foreign, { mode: 0o755 });
+    writeFileSync(join(foreign, "secret.md"), "# not yours\n");
+    return { dir, owned, foreign };
+  }
+
+  test("an admitted owned temp root confines writes: foreign, traversal and symlink escapes stay refused", () => {
+    const { dir, owned, foreign } = roots();
+    const link = join(dir, "link-root");
+    symlinkSync(foreign, link);
+    const temp = tempRootsForThisProcess([owned]);
+    expect(temp).toContain(owned);
+    expect(tempRootsForThisProcess([join(dir, "nope"), link, "/"])).toEqual(tempRootsForThisProcess());
+    expect(checkTempRootPath(join(owned, "brief.md"), temp)).toEqual({ ok: true });
+    expect(checkTempRootPath(join(foreign, "brief.md"), temp).ok).toBe(false);
+    expect(checkTempRootPath(`${owned}/../foreign/brief.md`, temp).ok).toBe(false);
+    symlinkSync(foreign, join(owned, "escape"));
+    expect(checkTempRootPath(join(owned, "escape", "brief.md"), temp).ok).toBe(false);
+  });
+
+  test("an admitted resource root confines reads, and an unadmitted one adds nothing", () => {
+    const { dir, owned, foreign } = roots();
+    writeFileSync(join(owned, "skill.md"), "# skill\n");
+    symlinkSync(join(foreign, "secret.md"), join(owned, "linked.md"));
+    const read = cachedReadRoots({
+      tempRoots: () => [], pluginRoots: () => [], packRoots: () => [], now: () => 1,
+      resourceRoots: () => [owned, `${foreign}/../foreign`, join(dir, "link-to-foreign")],
+    }, 0)();
+    expect(read.roots).toEqual([owned]);
+    expect(checkReadRootPath(join(owned, "skill.md"), read.roots).ok).toBe(true);
+    expect(checkReadRootPath(join(foreign, "secret.md"), read.roots).ok).toBe(false);
+    expect(checkReadRootPath(join(owned, "linked.md"), read.roots).ok).toBe(false);
+    expect(checkReadRootPath(`${owned}/../foreign/secret.md`, read.roots).ok).toBe(false);
   });
 });

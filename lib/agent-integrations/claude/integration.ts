@@ -6,6 +6,7 @@ export const claudeIntegration: HarnessIntegration = {
   label: "Claude Code",
   sessionEnv: ["CLAUDE_CODE_SESSION_ID"],
   typedPaneInput: true,
+  policyProofKind: "installation",
   sessionForPid: async (pid) => {
     const { registryRoots, sessionForPid } = await import("../../claude-registry.ts");
     return sessionForPid(pid, { roots: registryRoots(process.env.HOME ?? homedir()) });

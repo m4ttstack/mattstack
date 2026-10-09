@@ -76,7 +76,7 @@ export interface CodexPolicyReceipts {
   list(sessionKey: string, generation: number): CodexPolicyReceipt[];
   /** The issued check turn's proof, from that turn's own evidence, which receipt eviction never drops; null when none was issued for the generation. */
   proof(sessionKey: string, generation: number): CodexDiagnosticProof | null;
-  /** Whether the live connection recently saw a project command hook from `sourcePath` run for this receipt's thread, turn and event. */
+  /** Whether the live connection recently saw a project command hook from `sourcePath` run for this receipt's thread, turn and event, ending as its verdict says. */
   ran(receipt: CodexPolicyReceipt, sourcePath: string): boolean;
 }
 
@@ -183,6 +183,7 @@ export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPo
     ran(receipt, sourcePath) {
       return recentRuns.some((run) => run.threadId === receipt.threadId && run.turnId === receipt.turnId
         && run.eventName === NATIVE_EVENT[receipt.event] && run.sourcePath === sourcePath
+        && run.status === (BLOCKING.has(receipt.verdict) ? "blocked" : "completed")
         && run.source === "project" && run.handlerType === "command");
     },
   };
