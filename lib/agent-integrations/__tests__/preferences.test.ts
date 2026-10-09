@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath } from "../../rt-paths.ts";
+import { machineSettingsPath, userSettingsPath } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
 import { runUpdateWith, type ApplyContext } from "../../setup/apply.ts";
@@ -33,6 +33,11 @@ afterEach(() => {
   process.env.PATH = origPath;
   rmSync(home, { recursive: true, force: true });
 });
+
+function storeWrongType(path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, '{ "agent.integrations": "codex" }\n');
+}
 
 function installFakeBinaries(...names: string[]): void {
   const bin = join(home, "bin");
@@ -135,6 +140,27 @@ describe("writeIntegrationChoice", () => {
     expect(getSetting("agent.provider").provenance.at(-1)?.scope).toBe("default");
   });
 
+  test("a user write this Mac's own list would hide is refused and changes nothing; a machine write works", async () => {
+    setSetting("agent.provider", "codex", "user");
+    await MIGRATIONS.find((m) => m.id === MIGRATION_ID)!.run({} as ApplyContext);
+    const user = readFileSync(userSettingsPath(), "utf8");
+    const machine = readFileSync(machineSettingsPath(), "utf8");
+
+    expect(writeIntegrationChoice({ enabled: ["codex"], defaultHarness: "codex" }, "user")).toEqual({
+      ok: false,
+      error: {
+        code: "refused",
+        message: "This Mac has its own list of integrations, which would hide this change. Change this Mac's list instead: rt settings set agent.integrations '[\"codex\"]' --scope machine",
+      },
+    });
+    expect(readFileSync(userSettingsPath(), "utf8")).toBe(user);
+    expect(readFileSync(machineSettingsPath(), "utf8")).toBe(machine);
+
+    expect(writeIntegrationChoice({ enabled: ["codex"], defaultHarness: "codex" }, "machine")).toEqual({ ok: true, data: undefined });
+    expect(enabledIntegrations()).toEqual(["codex"]);
+    expect(getSetting("agent.provider").provenance.at(-1)?.scope).toBe("machine");
+  });
+
   test("refuses an invalid list and writes nothing", () => {
     expect(writeIntegrationChoice({ enabled: ["claude", "claude"] }, "user").ok).toBe(false);
     expect(getSetting("agent.integrations").value).toBeUndefined();
@@ -161,6 +187,14 @@ describe("integrationPreferenceProblems", () => {
   test("an empty list is a choice, not a problem", () => {
     setSetting("agent.integrations", [], "user");
     expect(integrationPreferenceProblems()).toEqual([]);
+  });
+
+  test("a stored value of the wrong type is reported, not lost", () => {
+    storeWrongType(userSettingsPath());
+    expect(integrationPreferenceProblems()).toEqual([{
+      code: "invalid-preference",
+      message: 'agent.integrations in your user settings needs fixing: it must be a list of integration names, such as ["claude"].',
+    }]);
   });
 
   test("an id rt does not know is reported", () => {
@@ -195,6 +229,14 @@ describe(MIGRATION_ID, () => {
   test("writes Claude alone when no provider is set", async () => {
     expect(await migration.run({} as ApplyContext)).toEqual({ state: "done", detail: "Kept claude turned on, as this Mac had it" });
     expect(getSetting("agent.integrations").value).toEqual(["claude"]);
+  });
+
+  test("a stored value of the wrong type counts as present: skipped, and nothing is written over or above it", async () => {
+    storeWrongType(userSettingsPath());
+    const user = readFileSync(userSettingsPath(), "utf8");
+    expect(await migration.run({} as ApplyContext)).toEqual({ state: "skipped", detail: "You already chose which integrations are on" });
+    expect(readFileSync(userSettingsPath(), "utf8")).toBe(user);
+    expect(existsSync(machineSettingsPath())).toBe(false);
   });
 
   test("leaves an explicit choice alone, the empty list included", async () => {

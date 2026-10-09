@@ -9,7 +9,7 @@
  */
 
 import type { HarnessId, IntegrationProblem, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
-import { getSetting } from "../settings/resolve.ts";
+import { explainSetting, getSetting, type ExplainRow } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
 import { builtinRegistry } from "./builtins.ts";
 
@@ -49,6 +49,15 @@ export function validateIntegrationPreference(ids: string[], registered: readonl
   return { ok: true, data: [...ids] };
 }
 
+/**
+ * Every scope that stores a value, including one the resolver refused or
+ * applied despite its schema, so a wrong-typed value is never mistaken for
+ * an absent one. Throws when the stores cannot be read.
+ */
+export function storedIntegrationScopes(): ExplainRow[] {
+  return explainSetting(INTEGRATIONS_SETTING).filter((row) => row.present);
+}
+
 type Stored = { kind: "absent" } | { kind: "malformed" } | { kind: "list"; ids: string[] };
 
 function readStored(): Stored {
@@ -71,6 +80,19 @@ export function enabledIntegrations(): HarnessId[] {
 
 /** What the user should fix in their integration settings; neither value is ever replaced here. */
 export function integrationPreferenceProblems(): IntegrationProblem[] {
+  let rows: ExplainRow[];
+  try {
+    rows = storedIntegrationScopes();
+  } catch {
+    rows = [];
+  }
+  const wrongShape = rows.filter((row) => row.invalid !== undefined || row.nonconforming !== undefined);
+  if (wrongShape.length > 0) {
+    return wrongShape.map((row) => ({
+      code: "invalid-preference",
+      message: `${INTEGRATIONS_SETTING} in your ${row.scope} settings needs fixing: it must be a list of integration names, such as ["claude"].`,
+    }));
+  }
   const stored = readStored();
   if (stored.kind === "absent") return [];
   if (stored.kind === "malformed") {
@@ -88,7 +110,11 @@ export function integrationPreferenceProblems(): IntegrationProblem[] {
 
 export type IntegrationChoice = { enabled: string[]; defaultHarness?: string };
 
-/** Setup's write of a chosen set and default. A default must be one of the chosen; nothing is written unless both are valid. */
+/**
+ * Setup's write of a chosen set and default. A default must be one of the
+ * chosen, and a user write this Mac's own list would hide is refused;
+ * nothing is written on a refusal.
+ */
 export function writeIntegrationChoice(choice: IntegrationChoice, scope: "user" | "machine"): Outcome<void> {
   const valid = validateIntegrationPreference(choice.enabled);
   if (!valid.ok) return valid;
@@ -97,7 +123,16 @@ export function writeIntegrationChoice(choice: IntegrationChoice, scope: "user" 
     const instead = valid.data.length === 0 ? "" : `, or pick ${joined(valid.data, "or")} as your default`;
     return invalid(`${def} is your default, but it is not turned on. Turn it on${instead}.`);
   }
-  setSetting(INTEGRATIONS_SETTING, valid.data, scope);
+  if (scope === "user" && storedIntegrationScopes().some((row) => row.scope === "machine")) {
+    return {
+      ok: false,
+      error: {
+        code: "refused",
+        message: `This Mac has its own list of integrations, which would hide this change. Change this Mac's list instead: rt settings set ${INTEGRATIONS_SETTING} '${JSON.stringify(valid.data)}' --scope machine`,
+      },
+    };
+  }
   if (def !== undefined) setSetting("agent.provider", def, scope);
+  setSetting(INTEGRATIONS_SETTING, valid.data, scope);
   return { ok: true, data: undefined };
 }
