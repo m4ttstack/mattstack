@@ -1,0 +1,135 @@
+/* A scope's rows sit on a wash of the scope's hue, a little lighter than the
+   shared --tk-wash so a page of blocks stays calm. */
+.block {
+  display: flow-root;
+  margin-top: 16px;
+  border-radius: var(--mantine-radius-lg);
+  background: color-mix(
+    in srgb,
+    var(--block-hue) calc(var(--tk-wash) * 0.5),
+    transparent
+  );
+}
+
+/* The heading takes a second layer of the wash, so it reads a step darker
+   than the rows under it. */
+.head {
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--tk-border-soft);
+  border-radius: var(--mantine-radius-lg) var(--mantine-radius-lg) 0 0;
+  background: color-mix(
+    in srgb,
+    var(--block-hue) calc(var(--tk-wash) * 1.25),
+    transparent
+  );
+}
+
+/* On the light heading's own wash a light badge almost vanishes, so it
+   lifts to a near-white tint of its hue and stands out against the wash.
+   Mantine sets the badge's fill variable inline, so this sets the
+   background itself. Dark reads already. */
+:where([data-mantine-color-scheme='light']) .head :global(.mantine-Badge-root) {
+  background: color-mix(
+    in srgb,
+    var(--block-hue) 4%,
+    var(--mantine-color-white)
+  );
+}
+
+/* With one scope picked every block is that scope, so the wash marks only
+   the heading and the rows sit on the page; the heading carries both
+   layers itself. */
+:global([data-scope-filter]:not([data-scope-filter='any'])) .block {
+  background: none;
+}
+
+:global([data-scope-filter]:not([data-scope-filter='any'])) .head {
+  background: color-mix(
+    in srgb,
+    var(--block-hue) calc(var(--tk-wash) * 1.75),
+    transparent
+  );
+}
+
+/* The space between sections belongs to the section above, so its pinned
+   header holds until the next one pushes it up, with no blank band. It is
+   content, not padding: a pinned header never enters its section's padding. */
+.section::after {
+  content: '';
+  display: block;
+  height: 28px;
+}
+
+/* A section's header stays pinned while its rows scroll under it, on the
+   page's own surface, and lets go where the section ends. */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-block: 12px;
+  /* Out through the list's 32px gutter to the pane's edges, with the text
+     kept in line with the rows. */
+  margin-inline: -32px;
+  padding-inline: 32px;
+  background: var(--tk-card);
+  transition:
+    box-shadow 150ms ease,
+    background-color 150ms ease;
+}
+
+/* Pinned, the header floats over the rows: frosted, so they show through
+   blurred, with a soft shadow in place of a rule. */
+.header[data-stuck] {
+  background: color-mix(in srgb, var(--tk-card) 55%, transparent);
+  backdrop-filter: blur(20px) saturate(1.6);
+  box-shadow:
+    0 1px 0
+      color-mix(in srgb, var(--mantine-color-black) var(--edge), transparent),
+    0 2px 4px -2px
+      color-mix(in srgb, var(--mantine-color-black) var(--drop), transparent);
+}
+
+/* A shadow is darker than the page in both schemes; the dark page needs
+   more of it to show. */
+:where([data-mantine-color-scheme='light']) .header {
+  --edge: 8%;
+  --drop: 18%;
+}
+
+:where([data-mantine-color-scheme='dark']) .header {
+  --edge: 60%;
+  --drop: 70%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header {
+    transition: none;
+  }
+}
+
+/* An open row is a card on the wash, so the wash shows on every side. */
+.block > [data-open] {
+  margin: 16px;
+}
+
+/* The card's shadow is its edge, so the rule above it (the heading's or the
+   previous row's) would draw a second line over the gap. */
+.block > :has(+ [data-open]) {
+  border-bottom-color: transparent;
+}
+
+/* The block's own edge closes the list, so the last row draws no rule. */
+.block > :last-child:not([data-open]) {
+  border-bottom-color: transparent;
+}
+
+/* A provider's run of keys inside the Agents group: its name and a hairline,
+   like the sidebar's group titles. Its own line opens the run, so the row
+   above draws none. */
+.run {
+  padding: 18px 12px 6px;
+}
+
+.block > :has(+ .run) {
+  border-bottom-color: transparent;
+}

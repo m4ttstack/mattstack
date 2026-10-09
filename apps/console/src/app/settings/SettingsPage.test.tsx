@@ -1,4 +1,7 @@
-import { renderWithProviders } from '@mattstack/app-kit/test-utils';
+import {
+  renderWithProviders,
+  stubVirtualLayout,
+} from '@mattstack/app-kit/test-utils';
 import type {
   ExplainRowWire,
   SettingDefWire,
@@ -12,10 +15,18 @@ import {
   describe,
   expect,
   it,
+  onTestFinished,
   vi,
   type Mock,
 } from 'vitest';
 
+import '../icons';
+
+import {
+  clickLayerAction,
+  closeLayerActions,
+  layerAction,
+} from './layerActions.testutil';
 import { schemaFields } from './testSchemas';
 
 vi.mock('../config/useSettings', () => ({
@@ -251,11 +262,14 @@ describe('SettingsPage', () => {
     expect(document.getElementById('page-shell-sidebar')).toContainElement(
       index
     );
-    expect(document.getElementById('page-shell-header')).toHaveTextContent(
-      'Settings'
-    );
-    expect(document.getElementById('page-shell-header')).toHaveTextContent(
-      /rt settings list\s*18 keys · as of \d/
+    expect(
+      within(document.getElementById('page-shell-header')!).getByRole(
+        'heading',
+        { level: 1, name: 'Settings' }
+      )
+    ).toBeInTheDocument();
+    expect(document.getElementById('page-shell-header')).not.toHaveTextContent(
+      'rt settings list'
     );
     expect(document.getElementById('page-shell-content')).toContainElement(
       screen.getByRole('heading', { name: 'Board' })
@@ -270,36 +284,6 @@ describe('SettingsPage', () => {
     expect(document.getElementById('page-shell-content')).not.toContainElement(
       filter
     );
-  });
-
-  it('the as-of time marks the last load, not each write', async () => {
-    vi.stubGlobal('fetch', async (url: string) =>
-      url.endsWith('/api/settings/set')
-        ? {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              effective: { scope: 'machine', file: '/m', value: 9 },
-            }),
-          }
-        : defsResponse()
-    );
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date(2026, 8, 23, 10, 0));
-    renderPage();
-    const header = () => document.getElementById('page-shell-header')!;
-    const days = await screen.findByLabelText('rt.logRetentionDays');
-    expect(header()).toHaveTextContent(/as of 10:00/);
-    vi.setSystemTime(new Date(2026, 8, 23, 10, 5));
-    await userEvent.clear(days);
-    await userEvent.type(days, '9');
-    days.blur();
-    await waitFor(() =>
-      expect(screen.getByLabelText('rt.logRetentionDays')).toHaveValue('9')
-    );
-    await new Promise(r => setTimeout(r, 0));
-    expect(header()).toHaveTextContent(/as of 10:00/);
-    vi.useRealTimers();
   });
 
   it('on a narrow screen, picking a group closes the index drawer', async () => {
@@ -343,7 +327,7 @@ describe('SettingsPage', () => {
     const index = await screen.findByRole('navigation', {
       name: 'settings groups',
     });
-    await userEvent.click(screen.getByRole('checkbox', { name: /Changed/ }));
+    await userEvent.click(screen.getByRole('radio', { name: 'machine' }));
     await userEvent.type(screen.getByLabelText('filter settings'), 'days');
     const board = within(index).getByRole('link', { name: /^Board/ });
     expect(board).toHaveAttribute('data-disabled');
@@ -359,8 +343,10 @@ describe('SettingsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Clear filter' }));
     expect(screen.getByRole('heading', { name: 'Board' })).toBeInTheDocument();
     expect(screen.getByLabelText('filter settings')).toHaveValue('');
-    expect(screen.getByRole('checkbox', { name: /Changed/ })).not.toBeChecked();
-    expect(within(daemon).getByText('2')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'any' })).toBeChecked();
+    expect(
+      within(daemon).getByRole('heading', { name: 'Daemon' }).nextSibling
+    ).toHaveTextContent('2');
   });
 
   it('shows an empty state when nothing matches', async () => {
@@ -376,7 +362,7 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('heading', { name: 'Board' })).toBeInTheDocument();
   });
 
-  it('keeps Needs fixing beside the title, out of the filter toolbar', async () => {
+  it('shows Needs fixing in the toolbar only while something is broken', async () => {
     renderPage();
     const toolbar = await screen.findByRole('toolbar', {
       name: 'settings filters',
@@ -384,17 +370,10 @@ describe('SettingsPage', () => {
     expect(
       within(toolbar).getByRole('textbox', { name: 'filter settings' })
     ).toBeInTheDocument();
-    expect(
-      within(toolbar).queryByRole('checkbox', { name: /^Needs fixing/ })
-    ).toBeNull();
-    const title = screen.getByRole('heading', { name: 'Settings' });
-    expect(
-      within(title.parentElement!).getByRole('checkbox', {
-        name: /^Needs fixing/,
-      })
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /need/ })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /Changed/ })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /Editable/ })).toBeNull();
   });
-
   it('a def with no description renders empty and still filters', async () => {
     const bare = def('board.bareKey');
     delete (bare as Partial<SettingDefWire>).description;
@@ -418,31 +397,18 @@ describe('SettingsPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('Changed keeps only keys a store sets', async () => {
-    renderPage();
-    await userEvent.click(
-      await screen.findByRole('checkbox', { name: /Changed/ })
-    );
-    expect(screen.queryByText('provider')).toBeNull();
-    expect(screen.getByText('logRetentionDays')).toBeInTheDocument();
-  });
-
-  it('splits a large section into subheads and hides badges that repeat them', async () => {
+  it('puts each scope on its own washed block, led by the scope badge', async () => {
     renderPage();
     const board = (
       await screen.findByRole('heading', { name: 'Board' })
     ).closest('section')!;
-    expect(within(board).getByText('Team')).toBeInTheDocument();
-    expect(within(board).getByText('You')).toBeInTheDocument();
-    const team = within(board).getByText('Team').parentElement!;
-    expect([...team.children].map(c => c.textContent)).toEqual([
-      'Team',
-      '7',
-      '· shared with your team through the org repo',
-    ]);
+    const team = board.querySelector<HTMLElement>('[data-scope="team"]')!;
+    expect(team).not.toBeNull();
     expect(
-      within(board).queryAllByText('team', { selector: '.mantine-Badge-label' })
-    ).toHaveLength(0);
+      [...team.firstElementChild!.children].map(c => c.textContent)
+    ).toEqual(['team']);
+    expect(within(team).queryAllByText('team')).toHaveLength(1);
+    expect(board.querySelector('[data-scope="user"]')).not.toBeNull();
     expect(
       within(board).getByRole('button', {
         name: 'open board.agent.model',
@@ -450,12 +416,20 @@ describe('SettingsPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('the Agents Codex tab swaps the provider keys and drops account', async () => {
+  it('Agents lists both providers keys in labelled runs, with no switch', async () => {
     renderPage();
-    expect(await screen.findByText('account')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('radio', { name: 'Codex' }));
-    expect(screen.queryByText('account')).toBeNull();
-    expect(screen.getByText('agent.codex.')).toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'Agents' });
+    const agents = document.getElementById('settings-agents')!;
+    expect(await within(agents).findByText('account')).toBeInTheDocument();
+    expect(within(agents).getAllByText('agent.codex.').length).toBeGreaterThan(
+      0
+    );
+    expect(
+      Array.from(agents.querySelectorAll('.mantine-Divider-label')).map(
+        l => l.textContent
+      )
+    ).toEqual(['Claude', 'Codex']);
+    expect(within(agents).queryByRole('radio', { name: 'Codex' })).toBeNull();
   });
 
   it('a failed load shows an alert and keeps the toolbar', async () => {
@@ -474,41 +448,34 @@ describe('SettingsPage', () => {
     });
   });
 
-  it('Agents follows the filter to the provider that has matches, then returns to the chosen tab', async () => {
-    defsResponse = serve([
-      ...DEFS.filter(d => d.key !== 'agent.codex.effort'),
-      def('agent.codex.effort', {
-        effective: { scope: 'user', file: '/u', value: 'high' },
-      }),
-    ]);
-    renderPage();
-    expect(await screen.findByText('account')).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Claude' })).toBeChecked();
-    const changed = screen.getByRole('checkbox', { name: /Changed/ });
-    await userEvent.click(changed);
-    expect(screen.getByText('effort')).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked();
-    await userEvent.click(changed);
-    expect(screen.getByRole('radio', { name: 'Claude' })).toBeChecked();
-    expect(screen.getByText('account')).toBeInTheDocument();
-    expect(screen.queryByText('effort')).toBeNull();
-  });
-
-  it('opens Agents on the effective provider even when the filter hides agent.provider', async () => {
+  it('the filter narrows Agents to the keys that match, under their run', async () => {
     window.history.replaceState(null, '', '/settings?q=effort');
     defsResponse = serve([
-      def('agent.provider', {
-        effective: { scope: 'user', file: '/u', value: 'codex' },
-      }),
+      def('agent.provider'),
       def('agent.claude.effort'),
       def('agent.codex.effort'),
     ]);
     renderPage();
-    expect(await screen.findAllByText('agent.codex.')).not.toHaveLength(0);
-    expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked();
-    expect(screen.queryAllByText('agent.claude.')).toHaveLength(0);
-    expect(screen.getByText('1 of 3')).toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'Agents' });
+    const agents = document.getElementById('settings-agents')!;
+    expect(
+      await within(agents).findByRole('button', {
+        name: 'open agent.claude.effort',
+      })
+    ).toBeInTheDocument();
+    expect(
+      within(agents).getByRole('button', { name: 'open agent.codex.effort' })
+    ).toBeInTheDocument();
+    expect(
+      Array.from(agents.querySelectorAll('.mantine-Divider-label')).map(
+        l => l.textContent
+      )
+    ).toEqual(['Claude', 'Codex']);
+    expect(
+      within(agents).queryByRole('button', { name: 'open agent.provider' })
+    ).toBeNull();
   });
+
   it('marks the group in view in the index as the reader scrolls', async () => {
     renderPage();
     await screen.findByRole('heading', { name: 'Board' });
@@ -609,7 +576,7 @@ describe('open rows', () => {
     await waitFor(() => expect(scrolled.mock.contexts).toContain(row));
   });
 
-  it('opening a second row closes the first, and a click scrolls nothing', async () => {
+  it('opening a second row closes the first, and a click never jumps the page', async () => {
     renderPage();
     await userEvent.click(
       await screen.findByRole('button', { name: 'open board.agent.model' })
@@ -626,7 +593,10 @@ describe('open rows', () => {
       'true'
     );
     expect(param('explain')).toBe('agent.claude.account');
-    expect(scrolled).not.toHaveBeenCalled();
+    // An opened card may scroll just into view, never jump to the top.
+    expect(scrolled).not.toHaveBeenCalledWith(
+      expect.objectContaining({ block: 'start' })
+    );
   });
 
   it('opening a row is not navigation: the history entry is replaced', async () => {
@@ -696,7 +666,7 @@ describe('open rows', () => {
     );
   });
 
-  it('a link to an Agents key of the provider not shown switches the section to it', async () => {
+  it('a link to an Agents codex key opens and reveals it', async () => {
     window.history.replaceState(
       null,
       '',
@@ -704,7 +674,6 @@ describe('open rows', () => {
     );
     renderPage();
     await screen.findByRole('button', { name: 'close agent.codex.effort' });
-    expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked();
     await waitFor(() =>
       expect(scrolled.mock.contexts).toContain(rowOf('agent.codex.effort'))
     );
@@ -726,14 +695,14 @@ describe('open rows', () => {
     const row = rowOf('board.agent.model');
     const layer = await within(row).findByTestId('layer-machine');
     expect(
-      within(layer).getByRole('button', {
-        name: 'cancel editing board.agent.model at machine',
-      })
+      await layerAction(layer, 'cancel editing board.agent.model at machine')
     ).toBeInTheDocument();
+    await closeLayerActions(layer);
     expect(
-      within(within(row).getByTestId('layer-user')).getByRole('button', {
-        name: 'set board.agent.model at user',
-      })
+      await layerAction(
+        within(row).getByTestId('layer-user'),
+        'set board.agent.model at user'
+      )
     ).toBeInTheDocument();
   });
 
@@ -751,9 +720,11 @@ describe('open rows', () => {
     renderPage();
     await screen.findByRole('button', { name: 'close board.agent.model' });
     const row = rowOf('board.agent.model');
-    await within(row).findByRole('button', {
-      name: 'cancel editing board.agent.model at machine',
-    });
+    await layerAction(
+      await within(row).findByTestId('layer-machine'),
+      'cancel editing board.agent.model at machine'
+    );
+    await closeLayerActions(within(row).getByTestId('layer-machine'));
     await userEvent.click(within(row).getByRole('radio', { name: 'Value' }));
     expect(param('fix')).toBeNull();
     await userEvent.click(
@@ -761,9 +732,7 @@ describe('open rows', () => {
     );
     const layer = await within(row).findByTestId('layer-machine');
     expect(
-      within(layer).getByRole('button', {
-        name: 'set board.agent.model at machine',
-      })
+      await layerAction(layer, 'set board.agent.model at machine')
     ).toBeInTheDocument();
   });
 
@@ -820,16 +789,14 @@ describe('open rows', () => {
     });
     renderPage();
     await userEvent.click(
-      await screen.findByRole('checkbox', { name: /Changed/ })
+      await screen.findByRole('radio', { name: 'machine' })
     );
     await userEvent.click(screen.getByRole('button', { name: `open ${KEY}` }));
     await userEvent.click(
       await within(rowOf(KEY)).findByRole('radio', { name: "Where it's set" })
     );
     const layer = await within(rowOf(KEY)).findByTestId('layer-machine');
-    await userEvent.click(
-      within(layer).getByRole('button', { name: `remove ${KEY} from machine` })
-    );
+    await clickLayerAction(layer, `remove ${KEY} from machine`);
     await waitFor(() => expect(rereads).toBeGreaterThan(0));
     await new Promise(r => setTimeout(r, 0));
     expect(rowOf(KEY)).not.toBeNull();
@@ -866,47 +833,7 @@ describe('page overflow', () => {
   });
 });
 
-describe('org and team names', () => {
-  const WITH_ORG = [
-    ...DEFS,
-    def('board.o0', {
-      scopes: ['team', 'org'],
-      effective: { scope: 'org', file: '/o', value: 'y' },
-    }),
-  ];
-
-  it('names the org on the org subhead and the active team on the team subhead', async () => {
-    defsResponse = () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        defs: WITH_ORG,
-        org: 'acme',
-        activeTeam: 'widgets',
-      }),
-    });
-    renderPage();
-    await screen.findByRole('heading', { name: 'Board' });
-    expect(
-      screen.getByText('· shared with every team through the acme org repo')
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('· shared with the widgets team through the org repo')
-    ).toBeInTheDocument();
-  });
-
-  it('stays bare when the defs name no org and no team', async () => {
-    defsResponse = serve(WITH_ORG);
-    renderPage();
-    await screen.findByRole('heading', { name: 'Board' });
-    expect(
-      screen.getByText('· shared with every team through the org repo')
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('· shared with your team through the org repo')
-    ).toBeInTheDocument();
-  });
-
+describe('the org scope', () => {
   it('offers org in the scope filter', async () => {
     renderPage();
     await screen.findByRole('heading', { name: 'Board' });
@@ -929,136 +856,184 @@ describe('repo picker', () => {
       issues,
     });
 
-  it('lists All repos plus each repo, and picking one keeps it in ?repo=', async () => {
-    defsResponse = serve([...DEFS, ROLES({ scope: null, file: null })]);
-    repoDefs = [
+  it('counts a broken value in any project, with no project picked', async () => {
+    defsResponse = serve([
       ...DEFS,
-      ROLES({
-        scope: 'team.repo',
-        file: '/home/team/settings.team.jsonc',
-        value: { dev: { fixedPort: 3000 } },
-      }),
-    ];
+      ROLES({ scope: null, file: null }, [
+        {
+          scope: 'team.repo',
+          file: '/home/team/settings.team.jsonc',
+          repo: REPO,
+          kind: 'nonconforming',
+          path: ['dev', 'fixedPort'],
+          message: 'expected number, got string',
+        },
+      ]),
+    ]);
     renderPage();
-    await screen.findByRole('heading', { name: 'Board' });
-    expect(screen.getByText('all repos · set in 1 repo')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('combobox', { name: 'repo' }));
+    expect(
+      await screen.findByRole('checkbox', { name: '1 needs fixing' })
+    ).toBeInTheDocument();
+  });
+
+  it('a per-project row picks its project in its own Value tab', async () => {
+    defsResponse = serve([...DEFS, ROLES({ scope: null, file: null })]);
+    const explained: string[] = [];
+    const read = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.startsWith('/api/settings/explain/')) explained.push(url);
+      return read(url);
+    });
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'open rt.roles' })
+    );
+    await userEvent.click(await screen.findByRole('radio', { name: 'Value' }));
+    const picker = (await screen.findAllByLabelText('project')).find(
+      el => el.tagName === 'INPUT'
+    )!;
+    expect(picker).toHaveValue('');
+    await userEvent.click(picker);
     await userEvent.click(
       await screen.findByRole('option', { name: 'acme/app' })
     );
     await waitFor(() =>
-      expect(new URLSearchParams(window.location.search).get('repo')).toBe(REPO)
+      expect(
+        explained.some(u => u.includes(`repo=${encodeURIComponent(REPO)}`))
+      ).toBe(true)
     );
-    expect(
-      await screen.findByText(
-        (_, el) =>
-          !!el?.matches('.mantine-Badge-label') &&
-          el.textContent === 'team · repo'
-      )
-    ).toBeInTheDocument();
     expect(screen.getByText('for acme/app')).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('repo')).toBeNull();
   });
+});
 
-  it('switching repo keeps the current list on screen while the repo loads', async () => {
-    defsResponse = serve([...DEFS, ROLES({ scope: null, file: null })]);
-    let release: () => void = () => {};
-    const held = new Promise<void>(r => (release = r));
-    vi.stubGlobal('fetch', async (url: string) => {
-      if (url.startsWith('/api/settings/repos'))
+describe('the context bar', () => {
+  const ADMIN = {
+    username: 'sam',
+    name: 'Sam Rivera',
+    role: 'admin',
+    team: 'widgets',
+    teams: ['gadgets', 'sprockets', 'widgets'],
+    owners: { gadgets: ['Ada Byron'], sprockets: [], widgets: ['Sam Rivera'] },
+  };
+  const urls: string[] = [];
+  const bodies: unknown[] = [];
+  const answer = (viewer: unknown) =>
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      urls.push(url);
+      if (url.endsWith('/api/settings/set')) {
+        bodies.push(JSON.parse(String(init?.body)));
         return {
           ok: true,
           status: 200,
           json: async () => ({
-            repos: [{ identity: REPO, label: 'acme/app' }],
+            effective: { scope: 'team', file: '/t', value: 'y' },
           }),
         };
-      if (url.includes(`repo=${encodeURIComponent(REPO)}`)) {
-        await held;
-        return serve([...DEFS, ROLES({ scope: null, file: null })])();
       }
-      return defsResponse();
+      const viewing = new URL(url, 'http://x').searchParams.get('team');
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          url.startsWith('/api/settings/explain/')
+            ? { def: null, rows: [] }
+            : {
+                defs: DEFS,
+                org: 'acme',
+                activeTeam: 'widgets',
+                viewing: viewing ?? 'widgets',
+                viewer,
+              },
+      };
     });
-    renderPage();
-    await screen.findByRole('heading', { name: 'Board' });
-    await userEvent.click(screen.getByRole('combobox', { name: 'repo' }));
-    await userEvent.click(
-      await screen.findByRole('option', { name: 'acme/app' })
-    );
-    await waitFor(() =>
-      expect(new URLSearchParams(window.location.search).get('repo')).toBe(REPO)
-    );
-    expect(screen.getByRole('heading', { name: 'Board' })).toBeInTheDocument();
-    expect(document.querySelector('.mantine-Skeleton-root')).toBeNull();
-    const list = screen.getByTestId('settings-list');
-    expect(list).toHaveAttribute('aria-busy', 'true');
-    expect(list).toHaveAttribute('inert');
-    release();
-    await waitFor(() => expect(list).not.toHaveAttribute('inert'));
+
+  beforeEach(() => {
+    urls.length = 0;
+    bodies.length = 0;
   });
 
-  it('the Changed count follows the picked repo', async () => {
-    defsResponse = serve([...DEFS, ROLES({ scope: null, file: null })]);
-    repoDefs = [
-      ...DEFS,
-      ROLES({
-        scope: 'team.repo',
-        file: '/home/team/settings.team.jsonc',
-        value: {},
-      }),
-    ];
-    window.history.replaceState(
-      null,
-      '',
-      `/settings?repo=${encodeURIComponent(REPO)}`
-    );
+  it('says where you are and who you are', async () => {
+    answer(ADMIN);
     renderPage();
-    const changed = await screen.findByRole('checkbox', { name: /^Changed/ });
-    const count = (n: number) =>
-      expect(
-        changed.closest('label') ?? changed.parentElement!
-      ).toHaveTextContent(`Changed ${n}`);
+    const header = document.getElementById('page-shell-header')!;
+    expect(await within(header).findByText('acme')).toBeInTheDocument();
+    expect(
+      within(header).getByRole('button', { name: 'team: widgets, switch team' })
+    ).toBeInTheDocument();
+    const who = within(header).getByTestId('settings-viewer');
+    expect(who).toHaveTextContent('Sam Rivera');
+    expect(who).toHaveTextContent('org admin');
+  });
+
+  it('a member gets a fixed team label, no switcher', async () => {
+    answer({ ...ADMIN, role: 'member', teams: ['widgets'] });
+    renderPage();
+    const header = document.getElementById('page-shell-header')!;
+    expect(await within(header).findByText('widgets')).toBeInTheDocument();
+    expect(
+      within(header).queryByRole('button', { name: /switch team/ })
+    ).toBeNull();
+    expect(within(header).getByTestId('settings-viewer')).toHaveTextContent(
+      'member'
+    );
+  });
+
+  it('picking another team reads it, notes where edits go, and Back returns', async () => {
+    const restore = stubVirtualLayout({
+      rowHeight: 40,
+      viewportHeight: 200,
+      contentHeight: 120,
+    });
+    onTestFinished(restore);
+    answer(ADMIN);
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'team: widgets, switch team' })
+    );
+    expect(
+      await screen.findByRole('menuitem', { name: /gadgets/ })
+    ).toHaveTextContent('Ada Byronowner');
+    const own = screen.getByRole('menuitem', { name: /widgets/ });
+    expect(own).toHaveTextContent('your team');
+    expect(own).toHaveTextContent('Sam Riveraowner');
+    await userEvent.click(screen.getByRole('menuitem', { name: /gadgets/ }));
     await waitFor(() =>
-      count(
-        DEFS.filter(
-          d => d.effective.scope !== null && d.effective.scope !== 'default'
-        ).length + 1
+      expect(new URLSearchParams(window.location.search).get('team')).toBe(
+        'gadgets'
       )
     );
+    await waitFor(() =>
+      expect(urls.some(u => u.includes('team=gadgets'))).toBe(true)
+    );
+    const back = await screen.findByRole('button', {
+      name: 'Back to widgets, your team',
+    });
+    expect(screen.queryByRole('radio', { name: 'user' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'machine' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'open board.u0' })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'open board.t0' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'team' })).toBeInTheDocument();
+    await userEvent.click(back);
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get('team')).toBeNull()
+    );
+    expect(
+      screen.queryByRole('button', { name: /^Back to .*, your team$/ })
+    ).toBeNull();
   });
 
-  it('the Needs fixing count follows the picked repo', async () => {
-    defsResponse = serve([...DEFS, ROLES({ scope: null, file: null })]);
-    repoDefs = [
-      ...DEFS,
-      ROLES(
-        {
-          scope: 'team.repo',
-          file: '/home/team/settings.team.jsonc',
-          value: { dev: { fixedPort: '3000' } },
-        },
-        [
-          {
-            scope: 'team.repo',
-            file: '/home/team/settings.team.jsonc',
-            repo: REPO,
-            kind: 'nonconforming',
-            path: ['dev', 'fixedPort'],
-            message: 'expected number, got string',
-          },
-        ]
-      ),
-    ];
+  it('a write while viewing another team names it', async () => {
+    window.history.replaceState(null, '', '/settings?team=gadgets');
+    answer(ADMIN);
     renderPage();
-    const chip = await screen.findByRole('checkbox', { name: /^Needs fixing/ });
-    const count = (n: number) =>
-      expect(chip.closest('label') ?? chip.parentElement!).toHaveTextContent(
-        `Needs fixing ${n}`
-      );
-    count(0);
-    await userEvent.click(screen.getByRole('combobox', { name: 'repo' }));
-    await userEvent.click(
-      await screen.findByRole('option', { name: 'acme/app' })
-    );
-    await waitFor(() => count(1));
+    const input = await screen.findByLabelText('board.t0');
+    await userEvent.clear(input);
+    await userEvent.type(input, 'y');
+    input.blur();
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ key: 'board.t0', team: 'gadgets' });
   });
 });

@@ -411,9 +411,9 @@ export function listUnregisteredSettings(): { key: string; scope: Scope; file: s
 }
 
 /** Which stores set `key` for each repo identity, weakest-to-strongest order per identity. */
-export function repoSectionsFor(key: string): { identity: string; scopes: SettingScope[] }[] {
+export function repoSectionsFor(key: string, view: { team?: string | null } = {}): { identity: string; scopes: SettingScope[] }[] {
   const def = getDef(key);
-  const stores = readStores();
+  const stores = readStores(view);
   const byId = new Map<string, SettingScope[]>();
   const note = (scope: SettingScope, store: StoreFile) => {
     for (const [id, section] of Object.entries(store.repos)) {

@@ -8,37 +8,28 @@
   margin-bottom: 8px;
 }
 
-.line {
-  --scope-w: 152px;
-  border-radius: var(--mantine-radius-md);
+/* The layers table sits on the card surface. */
+.layers {
+  background: var(--tk-card);
 }
 
-.line + .line {
-  margin-top: 2px;
+/* A layer is one tbody: its row and, when it has one, the row under it. Only
+   the last row of a layer draws the rule. */
+.line > tr:not(:last-child) {
+  border-bottom-color: transparent;
 }
 
 :where([data-mantine-color-scheme='light']) .line {
-  --row-hover: var(--mantine-color-gray-1);
+  --row-hover: var(--mantine-color-gray-0);
 }
 
 :where([data-mantine-color-scheme='dark']) .line {
-  --row-hover: var(--mantine-color-dark-5);
-}
-
-.actions {
-  width: 0;
-  overflow: hidden;
-  opacity: 0;
+  --row-hover: var(--mantine-color-dark-6);
 }
 
 @media (hover: hover) {
   .line:hover {
     background-color: var(--row-hover);
-  }
-  .line:hover .actions {
-    width: auto;
-    overflow: visible;
-    opacity: 1;
   }
 }
 
@@ -46,37 +37,46 @@
   background-color: var(--row-hover);
 }
 
-.line:focus-within .actions,
-.line[data-editing] .actions,
-.actions:has([data-expanded]) {
-  width: auto;
-  overflow: visible;
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .actions {
-    width: auto;
-    overflow: visible;
-    opacity: 1;
-  }
+/* Every layer's row is one height, with or without action buttons. */
+.line > tr:first-child > td {
+  height: 44px;
+  padding-block: 0;
+  vertical-align: middle;
 }
 
 .scope {
-  flex: none;
-  display: flex;
-  align-items: center;
-  width: var(--scope-w);
+  width: 168px;
 }
 
 .value {
-  flex: 1;
   min-width: 0;
 }
 
-/* Lines up under the value: the line's 8px padding, the column, the 12px gap. */
-.sub {
-  padding: 0 8px 8px calc(8px + var(--scope-w) + 12px);
+.status {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* A badge's label clips by default, which gives it no minimum width, so a
+   column sized to its content would squeeze it to nothing. */
+.status :global(.mantine-Badge-root),
+.status :global(.mantine-Badge-label) {
+  flex: none;
+  overflow: visible;
+}
+
+.actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.actions > * {
+  margin-inline: auto;
+}
+
+.below {
+  padding-top: 0;
 }
 
 .reposHead {

@@ -210,16 +210,13 @@ const TK_APP_LAUNCHER_NAMES = new Set([
   '--tk-text-accent-vivid',
 ]);
 
-// Read by packages/ui/src/lazy/codemirror/highlightStyle.ts and
-// CodeMirror.Base.tsx, so these are never a real defined-but-unreferenced
-// failure and stay out of this waiver set.
+// Read by packages/ui/src/lazy/codemirror/CodeMirror.Base.tsx (its lint
+// marks), so these are never a real defined-but-unreferenced failure and
+// stay out of this waiver set. Its syntax colours are GitHub's theme's.
 const TK_CODEMIRROR_NAMES = new Set([
   '--tk-text-accent',
   '--tk-text-bad-vivid',
   '--tk-text-warn-vivid',
-  '--tk-text-purple',
-  '--tk-text-cyan',
-  '--tk-text-gold',
 ]);
 
 // Read by packages/ui/src/charts/chart-defaults.ts, so these are never a

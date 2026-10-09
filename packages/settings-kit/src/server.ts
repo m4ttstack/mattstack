@@ -22,15 +22,23 @@ import {
   isMigrated,
   listStoreRepoIdentities,
   listOrgs,
+  listTeamFolders,
   listUnregisteredSettings,
   pruneStoreName,
+  readOrgRoles,
+  readOrgRoster,
   repoSectionsFor,
+  roleOf,
+  sameUser,
   setSetting,
   unsetSetting,
   validateValue,
   validateWrite,
+  type ActiveTeam,
   type ExplainRow,
   type JsonSchema,
+  type OrgRoles,
+  type RosterEntry,
   type SchemaIssue,
   type SettingDef,
   type SettingScope,
@@ -116,6 +124,49 @@ export interface EffectiveWire {
   invalid?: string;
 }
 
+/** Who is looking and which teams' settings they may open. `team` is this
+    Mac's own team; `teams` lists every team the role reaches, `team`
+    included. `role: "none"` is a Mac with no org. */
+export interface ViewerWire {
+  username: string | null;
+  name: string | null;
+  role: "admin" | "owner" | "member" | "unknown" | "none";
+  team: string | null;
+  teams: string[];
+  /** Each reachable team's owners, by roster name (username when the
+      roster names none). */
+  owners: Record<string, string[]>;
+}
+
+/** An admin reaches every team folder, an owner the teams they own, and
+    anyone else only their own team. */
+export function viewerFrom(input: { active: ActiveTeam; roles: OrgRoles; roster: RosterEntry[]; folders: string[] }): ViewerWire {
+  const { active, roles, roster, folders } = input;
+  if (active.org === null) return { username: null, name: null, role: "none", team: null, teams: [], owners: {} };
+  const role = roleOf(active.username, roles);
+  const own = active.team === null ? [] : [active.team];
+  const reach = role.kind === "admin" ? folders : role.kind === "owner" ? role.teams.filter((t) => folders.includes(t)) : [];
+  const name = active.username === null ? null : (roster.find((r) => sameUser(r.username, active.username!))?.name ?? null);
+  const teams = [...new Set([...reach, ...own])].sort();
+  const display = (u: string) => roster.find((r) => sameUser(r.username, u))?.name ?? u;
+  const owners = Object.fromEntries(teams.map((t) => [t, (roles.teams[t]?.owners ?? []).map(display)]));
+  return { username: active.username, name, role: role.kind, team: active.team, teams, owners };
+}
+
+function readViewer(rt: Pick<RtSettingsApi, "activeTeam">): ViewerWire {
+  const active = rt.activeTeam();
+  if (active.org === null) return viewerFrom({ active, roles: { admins: [], teams: {} }, roster: [], folders: [] });
+  return viewerFrom({ active, roles: readOrgRoles(active.org), roster: readOrgRoster(active.org), folders: listTeamFolders(active.org) });
+}
+
+const PERSONAL = new Set(["user", "machine", "user.repo", "machine.repo"]);
+
+/** While someone views another team, the page shows what that team's members
+    get, so this Mac's own layers never reach the wire. */
+function withoutPersonal<T extends { scope: string }>(rows: T[], other: boolean): T[] {
+  return other ? rows.filter((r) => !PERSONAL.has(r.scope)) : rows;
+}
+
 /** The slice of rt-client the handler consumes — injectable so tests fake it
     without `mock.module`, which mutates the shared module registry and
     poisons every later test importing rt-client in the same process. */
@@ -134,6 +185,8 @@ export interface RtSettingsApi {
   listStoreRepoIdentities: typeof listStoreRepoIdentities;
   listOrgs: typeof listOrgs;
   activeTeam: typeof activeTeam;
+  /** Who is looking; defaults to this Mac's forge user, org roles and roster. */
+  viewer?: () => ViewerWire;
   /** Repo identities known to the host app (e.g. its own repo registry), merged
       with the store-derived list on `GET {base}/repos`. Optional: a host with
       no such registry answers from stores alone. */
@@ -361,6 +414,27 @@ function json(body: unknown, status = 200): Response {
   return Response.json(body, { status });
 }
 
+type View = { team: string | null; other: boolean; viewer: ViewerWire };
+
+/** The team a request reads or writes: the one it names, else this Mac's.
+    Naming a team the viewer's role does not reach answers a 403. */
+function resolveView(rt: RtSettingsApi, named: string | undefined): View | Response {
+  const viewer = rt.viewer ? rt.viewer() : readViewer(rt);
+  if (!named || named === viewer.team) return { team: viewer.team, other: false, viewer };
+  if (!viewer.teams.includes(named)) return json({ error: `you can't open the ${named} team's settings` }, 403);
+  return { team: named, other: true, viewer };
+}
+
+/** Another team's values reach only a local caller, the same as a write:
+    over an edge an admin's Mac would otherwise serve every team's settings. */
+function otherTeamRemote(): Response {
+  return json({ error: "another team's settings are local-only" }, 403);
+}
+
+function explainOpts(view: View, repo: string | undefined) {
+  return view.other ? { repoIdentity: repo ?? null, team: view.team } : { repoIdentity: repo ?? null };
+}
+
 /**
  * Answers:
  *   GET  {base}/defs[?prefix=board.][?repo=host/owner/name]  → { defs: SettingDefWire[], unregistered, org, activeTeam }
@@ -414,11 +488,14 @@ export async function settingsHandler(
   if (path === `${base}/defs` && req.method === "GET") {
     const prefix = url.searchParams.get("prefix") ?? "";
     const repo = normalizeRepo(url.searchParams.get("repo"));
+    const view = resolveView(rt, url.searchParams.get("team") ?? undefined);
+    if (view instanceof Response) return view;
+    if (view.other && !(opts.allowWrite ?? defaultAllowWrite)(req)) return otherTeamRemote();
     const mode = opts.allowComposite ?? false;
     const defs = rt.allDefs()
       .filter((d) => d.key.startsWith(prefix))
       .map((d) => {
-        const rows = rt.explainSetting(d.key, { repoIdentity: repo ?? null });
+        const rows = withoutPersonal(rt.explainSetting(d.key, explainOpts(view, repo)), view.other);
         const effective = effectiveFromRows(d, rows);
         const wire = defToWire(d, rt.isMigrated, effective, mode);
         wire.issues = issuesFromRows(d, rows, repo);
@@ -426,12 +503,16 @@ export async function settingsHandler(
           wire.mergedIssues = checkSchema(d, effective.value, { layer: false });
         }
         if (d.repoScoped === true) {
-          wire.repos = rt.repoSectionsFor(d.key);
+          wire.repos = view.other
+            ? rt.repoSectionsFor(d.key, { team: view.team })
+                .map((s) => ({ ...s, scopes: s.scopes.filter((sc) => !PERSONAL.has(sc)) }))
+                .filter((s) => s.scopes.length > 0)
+            : rt.repoSectionsFor(d.key);
           // With no repo picked the resolver reads no repo rung, so a broken
           // repo override would stay invisible; sweep each section's rungs.
           if (!repo) {
             for (const section of wire.repos) {
-              const sectionRows = rt.explainSetting(d.key, { repoIdentity: section.identity });
+              const sectionRows = withoutPersonal(rt.explainSetting(d.key, explainOpts(view, section.identity)), view.other);
               wire.issues.push(...issuesFromRows(d, sectionRows.filter((r) => r.scope.endsWith(".repo")), section.identity));
             }
           }
@@ -439,7 +520,16 @@ export async function settingsHandler(
         return wire;
       });
     const active = rt.activeTeam();
-    return json({ defs, unregistered: rt.listUnregisteredSettings(), org: active.org, activeTeam: active.team });
+    return json({
+      defs,
+      // Read from this Mac's own team and personal stores, so it never rides
+      // along with another team's view.
+      unregistered: view.other ? [] : rt.listUnregisteredSettings(),
+      org: active.org,
+      activeTeam: active.team,
+      viewing: view.team,
+      viewer: view.viewer,
+    });
   }
 
   if (path.startsWith(`${base}/explain/`) && req.method === "GET") {
@@ -447,7 +537,10 @@ export async function settingsHandler(
     const def = rt.getDef(key);
     if (!def) return json({ error: `unknown setting "${key}"` }, 404);
     const repo = normalizeRepo(url.searchParams.get("repo"));
-    const rows = rt.explainSetting(key, { repoIdentity: repo ?? null });
+    const view = resolveView(rt, url.searchParams.get("team") ?? undefined);
+    if (view instanceof Response) return view;
+    if (view.other && !(opts.allowWrite ?? defaultAllowWrite)(req)) return otherTeamRemote();
+    const rows = withoutPersonal(rt.explainSetting(key, explainOpts(view, repo)), view.other);
     return json({
       def: defToWire(def, rt.isMigrated, effectiveFromRows(def, rows), opts.allowComposite ?? false),
       rows: sanitizeRows(def, rows),
@@ -482,6 +575,11 @@ export async function settingsHandler(
     const scope = (typeof body?.scope === "string" ? body.scope : "") as SettingScope;
     const team = typeof body?.team === "string" ? body.team : undefined;
     const repo = normalizeRepo(typeof body?.repo === "string" ? body.repo : undefined);
+    const view = resolveView(rt, team);
+    if (view instanceof Response) return view;
+    if (view.other && PERSONAL.has(scope)) {
+      return json({ error: `your ${scope} settings are hidden while you view the ${view.team} team` }, 400);
+    }
     const value = body?.value;
 
     const def = rt.getDef(key);
@@ -515,7 +613,7 @@ export async function settingsHandler(
     } catch (err) {
       return json({ error: (err as Error).message }, 400);
     }
-    const after = rt.explainSetting(key, { repoIdentity: repo ?? null });
+    const after = withoutPersonal(rt.explainSetting(key, explainOpts(view, repo)), view.other);
     return json({ rows: sanitizeRows(def, after), effective: effectiveFromRows(def, after) });
   }
 
@@ -534,6 +632,11 @@ export async function settingsHandler(
     const scope = (typeof body?.scope === "string" ? body.scope : "") as SettingScope;
     const team = typeof body?.team === "string" ? body.team : undefined;
     const repo = normalizeRepo(typeof body?.repo === "string" ? body.repo : undefined);
+    const view = resolveView(rt, team);
+    if (view instanceof Response) return view;
+    if (view.other && PERSONAL.has(scope)) {
+      return json({ error: `your ${scope} settings are hidden while you view the ${view.team} team` }, 400);
+    }
 
     // Same ladder as set, minus the value check: removal has no value. The
     // writable/composite gates stay: a row the UI renders read-only must not
@@ -563,7 +666,7 @@ export async function settingsHandler(
     } catch (err) {
       return json({ error: (err as Error).message }, 400);
     }
-    const after = rt.explainSetting(key, { repoIdentity: repo ?? null });
+    const after = withoutPersonal(rt.explainSetting(key, explainOpts(view, repo)), view.other);
     return json({ rows: sanitizeRows(def, after), effective: effectiveFromRows(def, after) });
   }
 
@@ -582,6 +685,11 @@ export async function settingsHandler(
     const scope = (typeof body?.scope === "string" ? body.scope : "") as SettingScope;
     const team = typeof body?.team === "string" ? body.team : undefined;
     const repo = normalizeRepo(typeof body?.repo === "string" ? body.repo : undefined);
+    const view = resolveView(rt, team);
+    if (view instanceof Response) return view;
+    if (view.other && PERSONAL.has(scope)) {
+      return json({ error: `your ${scope} settings are hidden while you view the ${view.team} team` }, 400);
+    }
     const storeName = typeof body?.storeName === "string" ? body.storeName : "";
 
     const def = rt.getDef(key);
@@ -611,7 +719,7 @@ export async function settingsHandler(
     } catch (err) {
       return json({ error: (err as Error).message }, 400);
     }
-    const after = rt.explainSetting(key, { repoIdentity: repo ?? null });
+    const after = withoutPersonal(rt.explainSetting(key, explainOpts(view, repo)), view.other);
     return json({ rows: sanitizeRows(def, after), effective: effectiveFromRows(def, after) });
   }
 

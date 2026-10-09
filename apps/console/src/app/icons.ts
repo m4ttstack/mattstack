@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   Bot,
   Braces,
+  Building2,
   Circle,
   CircleCheck,
   CircleDot,
@@ -34,6 +35,7 @@ import {
   Replace,
   Signpost,
   SquareTerminal,
+  UsersRound,
   Workflow,
   WrapText,
 } from 'lucide-react';
@@ -72,4 +74,6 @@ registerIcons({
   hand: lucideWrapperFn(Hand),
   bot: lucideWrapperFn(Bot),
   image: lucideWrapperFn(ImageGlyph),
+  building: lucideWrapperFn(Building2),
+  team: lucideWrapperFn(UsersRound),
 });

@@ -1046,5 +1046,16 @@ describe("settings/resolve", () => {
       writeTeam({ repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 1 } } } });
       expect(repoSectionsFor("rt.worktrees")).toEqual([{ identity: IDENTITY, scopes: ["team"] }]);
     });
+
+    test("repoSectionsFor reads a named team's store instead of the active one", () => {
+      seedOrg({
+        org: ORG,
+        username: "dev1",
+        roster: [{ username: "dev1", teams: [TEAM] }],
+        teams: { [TEAM]: {}, gadgets: { repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 3 } } } } },
+      });
+      expect(repoSectionsFor("rt.worktrees")).toEqual([]);
+      expect(repoSectionsFor("rt.worktrees", { team: "gadgets" })).toEqual([{ identity: IDENTITY, scopes: ["team"] }]);
+    });
   });
 });

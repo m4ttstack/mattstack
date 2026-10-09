@@ -1,4 +1,7 @@
 import {
+  Children,
+  createContext,
+  useContext,
   useEffect,
   useState,
   type KeyboardEventHandler,
@@ -7,18 +10,21 @@ import {
 import {
   ActionIcon,
   Alert,
+  Badge,
   Box,
   Button,
   Group,
   Menu,
+  Popover,
   SegmentedControl,
   Skeleton,
   Stack,
+  Table,
   Text,
-  Tooltip,
 } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
+import { CodeMirror } from '@mattstack/app-kit/lazy';
 import type {
   ExplainRowWire,
   SettingDefWire,
@@ -28,13 +34,13 @@ import { rowKind, type SchemaIssue } from '@mattstack/settings-kit/shapes';
 import { analyzeChain, shortValue } from '../config/chain';
 import { useAgentModels } from '../config/useSettings';
 import { useEditorHref } from '../editorHref';
-import { rowSummary } from './CompositeControls';
 import { DivergedPanel } from './DivergedPanel';
 import { DraftEditor } from './DraftEditor';
 import { editorKind, formOf } from './formShape';
 import { isDiverged, issueText, type WireIssue } from './issues';
 import classes from './KeyPanel.module.css';
 import { PanelToolbarSlot } from './PanelToolbar';
+import { ProjectPicker } from './RowProject';
 import { ScalarControl } from './ScalarControl';
 import { ScopeBadge, ScopeDot } from './ScopeBadge';
 import {
@@ -42,6 +48,7 @@ import {
   useSettingsOrg,
   useSettingsRepo,
   useSettingsTeam,
+  useSettingsViewTeam,
   type ConsoleStore,
 } from './useConsoleSettings';
 import { useRowSave, type RowStore } from './useRowSave';
@@ -144,24 +151,26 @@ const STATUS: Partial<Record<Role, string>> = {
 function Status({ role, row }: { role: Role; row: ExplainRowWire }) {
   const said = STATUS[role];
   return (
-    <Group gap={8} wrap="nowrap">
+    <Group gap={6} wrap="nowrap">
       {row.shadowed && (
-        <Text fz={12} c="var(--tk-text-warn-small)">
+        <Badge color="warn" variant="light" tt="none">
           ignored, teamLocked
-        </Text>
+        </Badge>
       )}
       {row.invalid && (
-        <Text fz={12} c="var(--tk-text-bad-small)">
+        <Badge color="bad" variant="light" tt="none">
           refused
-        </Text>
+        </Badge>
       )}
       {said && (
-        <Group gap={4} wrap="nowrap">
-          <Icons.check size={12} color="var(--tk-text-ok-vivid)" />
-          <Text fz={12} c="var(--tk-text-ok-small)">
-            {said}
-          </Text>
-        </Group>
+        <Badge
+          color="ok"
+          variant="light"
+          tt="none"
+          leftSection={<Icons.check size={12} />}
+        >
+          {said}
+        </Badge>
       )}
     </Group>
   );
@@ -178,8 +187,91 @@ function LayerBadge({ scope }: { scope: string }) {
   );
 }
 
-/** A layer's value as its line reads it: a string bare, a scalar's JSON
-    text, a composite's summary, never a JSON block. */
+/** Opens the panel's Value tab, where the value in effect is shown whole. */
+const ShowValueTab = createContext<(() => void) | null>(null);
+
+const POPOVER_MAX_PX = 320;
+
+/** Two JSON values alike, whatever their objects' key order. */
+export function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b))
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((v, i) => sameJson(v, b[i]))
+    );
+  if (typeof a !== 'object' || typeof b !== 'object' || !a || !b) return false;
+  const ka = Object.keys(a);
+  const rb = b as Record<string, unknown>;
+  return (
+    ka.length === Object.keys(rb).length &&
+    ka.every(k => k in rb && sameJson((a as Record<string, unknown>)[k], rb[k]))
+  );
+}
+
+/** A composite layer value's shape, counted plainly. */
+export function shapeOf(value: unknown): string {
+  if (Array.isArray(value))
+    return `${value.length} ${value.length === 1 ? 'item' : 'items'}`;
+  if (typeof value === 'object' && value !== null) {
+    const n = Object.keys(value).length;
+    return `${n} ${n === 1 ? 'field' : 'fields'}`;
+  }
+  return valueText(value);
+}
+
+/** A composite layer's value: its shape, opening the whole value. A layer
+    whose value is the one in effect (it wins, or it is the only part of a
+    merge) opens the Value tab; any other layer shows its own JSON. */
+function CompositeValue({
+  value,
+  inEffect,
+  muted,
+  testId,
+}: {
+  value: unknown;
+  inEffect: boolean;
+  muted: boolean;
+  testId: string;
+}) {
+  const showTab = useContext(ShowValueTab);
+  const { text } = useSchemeColors();
+  const shape = shapeOf(value);
+  const json = JSON.stringify(value, null, 2);
+  const trigger = (onClick?: () => void) => (
+    <Button
+      size="compact-sm"
+      variant="subtle"
+      color="gray"
+      c={muted ? text.muted : undefined}
+      rightSection={
+        inEffect ? <Icons.arrowRight size={12} /> : <Icons.eye size={12} />
+      }
+      aria-label={`${shape}, ${inEffect ? 'show the value in effect' : "show this layer's value"}`}
+      data-testid={testId}
+      onClick={onClick}
+    >
+      {shape}
+    </Button>
+  );
+  if (inEffect && showTab) return trigger(showTab);
+  return (
+    <Popover position="bottom-start" shadow="md" withinPortal>
+      <Popover.Target>{trigger()}</Popover.Target>
+      <Popover.Dropdown p={4} w={480}>
+        <CodeMirror
+          value={json}
+          language="json"
+          readOnly
+          height={`${Math.min(POPOVER_MAX_PX, json.split('\n').length * 20 + 20)}px`}
+        />
+      </Popover.Dropdown>
+    </Popover>
+  );
+}
+
 function LayerValue({
   def,
   row,
@@ -203,18 +295,31 @@ function LayerValue({
       </Text>
     );
   const composite = def.type === 'object' || def.type === 'array';
+  const muted = role === 'overridden' || role === 'inert';
+  if (composite)
+    return (
+      <CompositeValue
+        value={row.value}
+        inEffect={
+          role === 'winner' ||
+          (role === 'contributor' && sameJson(row.value, def.effective.value))
+        }
+        muted={muted}
+        testId={`layer-value-${row.scope}`}
+      />
+    );
+  // The status badge marks the layer in effect, so no weight does.
   return (
     <Text
       fz={13}
       lh="17px"
       ff="monospace"
       truncate
-      fw={role === 'winner' ? 500 : undefined}
-      c={role === 'overridden' || role === 'inert' ? text.muted : undefined}
+      c={muted ? text.muted : undefined}
       data-role={role}
       data-testid={`layer-value-${row.scope}`}
     >
-      {composite ? rowSummary(layerDef(def, row)) : valueText(row.value)}
+      {valueText(row.value)}
     </Text>
   );
 }
@@ -226,31 +331,80 @@ function Line({
   scope,
   value,
   onValueKeyDown,
-  trailing,
+  status,
+  actions,
   editing = false,
   testId,
   children,
 }: {
   scope: string;
   value: ReactNode;
-  onValueKeyDown?: KeyboardEventHandler<HTMLDivElement>;
-  trailing?: ReactNode;
+  onValueKeyDown?: KeyboardEventHandler<HTMLTableCellElement>;
+  status?: ReactNode;
+  actions?: ReactNode;
   editing?: boolean;
   testId?: string;
   children?: ReactNode;
 }) {
+  // A layer's sub-lines and editor sit in a row of their own under it, in
+  // the same tbody, so the pair hovers and reads as one layer.
+  const below = Children.toArray(children).length > 0;
   return (
-    <Box className={classes.line} mod={{ editing }} data-testid={testId}>
-      <Group gap={12} wrap="nowrap" mih={38} px={8}>
-        <Box className={classes.scope}>
+    <Table.Tbody
+      className={classes.line}
+      mod={{ editing }}
+      data-testid={testId}
+    >
+      <Table.Tr>
+        <Table.Td className={classes.scope}>
           <LayerBadge scope={scope} />
-        </Box>
-        <Box className={classes.value} onKeyDown={onValueKeyDown}>
+        </Table.Td>
+        <Table.Td className={classes.value} onKeyDown={onValueKeyDown}>
           {value}
-        </Box>
-        {trailing}
-      </Group>
-      {children}
+        </Table.Td>
+        <Table.Td className={classes.status}>{status}</Table.Td>
+        <Table.Td className={classes.actions}>{actions}</Table.Td>
+      </Table.Tr>
+      {below && (
+        <Table.Tr>
+          <Table.Td />
+          <Table.Td colSpan={3} className={classes.below}>
+            {children}
+          </Table.Td>
+        </Table.Tr>
+      )}
+    </Table.Tbody>
+  );
+}
+
+/** The layers as a table: which layer, what it holds, how it counts, and
+    what can be done there. */
+function LayerTable({
+  first = 'Layer',
+  children,
+}: {
+  first?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Box maw={840}>
+      <Table
+        variant="soft"
+        radius="md"
+        fullWidth
+        withColumnBorders
+        className={classes.layers}
+      >
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th className={classes.scope}>{first}</Table.Th>
+            <Table.Th>Value</Table.Th>
+            <Table.Th className={classes.status}>Status</Table.Th>
+            <Table.Th className={classes.actions}>Actions</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        {children}
+      </Table>
     </Box>
   );
 }
@@ -303,8 +457,12 @@ function LayerLine({
     !(def.repoOnly && !isRung(scope)) &&
     writable &&
     (composite ? EDITOR_KINDS.has(edit) : kind === 'scalar' || kind === 'enum');
-  const moves =
-    writable && scope === def.effective.scope ? moveTargets(def) : [];
+  // Another team's view writes only to the shared layers, so a move to a
+  // personal one would always be refused.
+  const viewing = useSettingsViewTeam() !== null;
+  const moves = (
+    writable && scope === def.effective.scope ? moveTargets(def) : []
+  ).filter(to => !viewing || to === 'org' || to === 'team');
   // Fix seeds editing open only when the row is editable; a row with no
   // console control keeps Remove as its only remedy.
   const [editing, setEditing] = useState(startEditing && editable);
@@ -314,7 +472,6 @@ function LayerLine({
     if (!editing) setReveal(false);
   }, [editing]);
   const [saved, setSaved] = useState(false);
-  const [moveOpen, setMoveOpen] = useState(false);
   // Close on the re-read, not the write, so the old value never flashes.
   useEffect(() => {
     if (!saved) return;
@@ -355,87 +512,81 @@ function LayerLine({
   const subs =
     Boolean(row.invalid) || issues.length > 0 || stray || Boolean(offerOlder);
 
-  const trailing = (
-    <>
-      <Status role={role} row={row} />
-      <Group gap={2} wrap="nowrap" className={classes.actions}>
-        {row.file !== null && (
-          <Tooltip label={`Open ${row.file}`}>
-            <ActionIcon
-              component="a"
-              href={editorHref(row.file)}
-              variant="subtle"
-              color="gray"
-              aria-label={`open ${row.file}`}
-            >
-              <Icons.externalLink size={14} />
-            </ActionIcon>
-          </Tooltip>
+  const status = <Status role={role} row={row} />;
+  const canEdit = editable && store !== null;
+  const canRemove = writable && store !== null && row.present;
+  // Each item's name is its visible text; `data-action` keeps the wording
+  // its own button had, for tests to find it by.
+  const actions = (row.file !== null ||
+    canEdit ||
+    moves.length > 0 ||
+    canRemove) && (
+    <Menu position="bottom-end" withinPortal>
+      <Menu.Target>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          disabled={busy}
+          aria-label={`actions for ${def.key} at ${label ?? scope}`}
+        >
+          <Icons.moreHorizontal size={16} />
+        </ActionIcon>
+      </Menu.Target>
+      <Menu.Dropdown>
+        {canEdit && (
+          <Menu.Item
+            leftSection={
+              editing ? <Icons.close size={14} /> : <Icons.edit size={14} />
+            }
+            data-action={
+              editing
+                ? `cancel editing ${def.key} at ${label}`
+                : `set ${def.key} at ${label}`
+            }
+            onClick={() => setEditing(e => !e)}
+          >
+            {editing ? 'Cancel editing' : `Set at ${named}`}
+          </Menu.Item>
         )}
-        {editable && store && (
-          <Tooltip label={editing ? 'Cancel' : `Set at ${named}`}>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              disabled={busy}
-              aria-label={
-                editing
-                  ? `cancel editing ${def.key} at ${label}`
-                  : `set ${def.key} at ${label}`
-              }
-              onClick={() => setEditing(e => !e)}
-            >
-              {editing ? <Icons.close size={14} /> : <Icons.edit size={14} />}
-            </ActionIcon>
-          </Tooltip>
+        {row.file !== null && (
+          <Menu.Item
+            component="a"
+            href={editorHref(row.file)}
+            leftSection={<Icons.externalLink size={14} />}
+            data-action={`open ${row.file}`}
+          >
+            Open the file
+          </Menu.Item>
         )}
         {moves.length > 0 && (
-          <Menu
-            position="bottom-end"
-            withinPortal
-            opened={moveOpen}
-            onChange={setMoveOpen}
-          >
-            <Tooltip label="Move to another layer" disabled={moveOpen}>
-              <Menu.Target>
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  disabled={busy}
-                  aria-label={`move ${def.key} from ${label}`}
-                >
-                  <Icons.arrowRight size={14} />
-                </ActionIcon>
-              </Menu.Target>
-            </Tooltip>
-            <Menu.Dropdown>
-              {moves.map(to => (
-                <Menu.Item
-                  key={to}
-                  leftSection={<ScopeDot scope={to} />}
-                  onClick={() => void onMove(scope, to)}
-                >
-                  {`Move to ${scopeLabel(to, team, org)}`}
-                </Menu.Item>
-              ))}
-            </Menu.Dropdown>
-          </Menu>
+          <>
+            <Menu.Divider />
+            {moves.map(to => (
+              <Menu.Item
+                key={to}
+                leftSection={<ScopeDot scope={to} />}
+                onClick={() => void onMove(scope, to)}
+              >
+                {`Move to ${scopeLabel(to, team, org)}`}
+              </Menu.Item>
+            ))}
+          </>
         )}
-        {writable && store && row.present && (
-          <Tooltip label={`Remove from ${named}${allRepos}`}>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              disabled={busy}
-              aria-label={`remove ${def.key} from ${label}`}
+        {canRemove && (
+          <>
+            <Menu.Divider />
+            <Menu.Item
+              color="bad"
+              leftSection={<Icons.trash size={14} />}
+              data-action={`remove ${def.key} from ${label}`}
               onClick={() => void onRemove(scope)}
             >
-              <Icons.trash size={14} />
-            </ActionIcon>
-          </Tooltip>
+              {`Remove from ${named}${allRepos}`}
+            </Menu.Item>
+          </>
         )}
-      </Group>
-    </>
+      </Menu.Dropdown>
+    </Menu>
   );
 
   return (
@@ -447,12 +598,13 @@ function LayerLine({
           ? cancelOnEscape(() => setEditing(false))
           : undefined
       }
-      trailing={trailing}
+      status={status}
+      actions={actions}
       editing={editing}
       testId={`layer-${scope}`}
     >
       {subs && (
-        <Stack gap={2} className={classes.sub}>
+        <Stack gap={2}>
           {row.invalid && (
             <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">
               {row.invalid}
@@ -493,7 +645,7 @@ function LayerLine({
         </Stack>
       )}
       {editing && composite && store && (
-        <Box className={classes.sub}>
+        <Box>
           <DraftEditor
             def={def}
             form={formOf(def)}
@@ -546,10 +698,10 @@ function RepoSection({
           <Button
             size="sm"
             variant="default"
-            aria-label={`Show ${repoLabel(identity)}`}
+            aria-label={`Edit ${repoLabel(identity)}`}
             onClick={() => onPick(identity)}
           >
-            Show
+            Edit
           </Button>
         )}
       </Group>
@@ -558,13 +710,17 @@ function RepoSection({
       ) : (
         // The section header already names the repo, so each line's badge
         // names only the store.
-        set.map(r => (
-          <Line
-            key={r.scope}
-            scope={rungBase(r.scope) ?? r.scope}
-            value={<LayerValue def={def} row={r} />}
-          />
-        ))
+        set.length > 0 && (
+          <LayerTable first="Store">
+            {set.map(r => (
+              <Line
+                key={r.scope}
+                scope={rungBase(r.scope) ?? r.scope}
+                value={<LayerValue def={def} row={r} />}
+              />
+            ))}
+          </LayerTable>
+        )
       )}
       {!loading && set.length === 0 && (
         <Text fz={12} c={text.muted} className={classes.repoNote}>
@@ -745,9 +901,8 @@ function WhereTab({
           ))}
         </Stack>
       ) : (
-        rows
-          .filter(shown)
-          .map(r => (
+        <LayerTable>
+          {rows.filter(shown).map(r => (
             <LayerLine
               key={`${r.scope}:${r.file ?? 'default'}`}
               def={def}
@@ -761,7 +916,8 @@ function WhereTab({
               replaceWith={replaceWithFor(r)}
               reported={reportedFor(r)}
             />
-          ))
+          ))}
+        </LayerTable>
       )}
       {layers.error && (
         <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)" pt={8}>
@@ -802,10 +958,10 @@ function WhereTab({
         <>
           <Group gap={8} wrap="nowrap" className={classes.reposHead}>
             <Text fz={12} fw={500} tt="uppercase" lts={0.6} c={text.muted}>
-              Repos
+              Projects
             </Text>
             <Text fz={12} c={text.muted}>
-              · sections that override every repo's value for one repo
+              · each project's value, from every layer that sets it
             </Text>
           </Group>
           {def.repos!.map(r => (
@@ -817,6 +973,22 @@ function WhereTab({
             />
           ))}
         </>
+      )}
+      {def.repoScoped && repo === null && onPickRepo && (
+        <Group gap={8} wrap="nowrap" data-testid="another-project">
+          <ProjectPicker
+            def={def}
+            value={null}
+            onPick={onPickRepo}
+            exclude={(def.repos ?? []).map(r => r.identity)}
+            placeholder={
+              (def.repos?.length ?? 0) > 0
+                ? 'Set it for another project'
+                : 'Set it for a project'
+            }
+            label="set it for another project"
+          />
+        </Group>
       )}
     </Stack>
   );
@@ -875,15 +1047,17 @@ export function KeyPanel({
         // A new Fix on the open panel starts its layer's editor afresh. A
         // repo switch does too: a rung's line is the same for every repo,
         // and its editor would save the old repo's draft into the new one.
-        <WhereTab
-          key={`${def.key}:${fix ?? ''}:${repo ?? ''}`}
-          def={def}
-          store={store}
-          fix={fix}
-          externalWrites={externalWrites}
-          onChanged={onChanged}
-          onPickRepo={onPickRepo}
-        />
+        <ShowValueTab.Provider value={() => onTab('value')}>
+          <WhereTab
+            key={`${def.key}:${fix ?? ''}:${repo ?? ''}`}
+            def={def}
+            store={store}
+            fix={fix}
+            externalWrites={externalWrites}
+            onChanged={onChanged}
+            onPickRepo={onPickRepo}
+          />
+        </ShowValueTab.Provider>
       )}
     </Stack>
   );

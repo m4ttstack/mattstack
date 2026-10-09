@@ -16,7 +16,7 @@ import {
   useConsoleSettings,
   type ConsoleStore,
 } from './useConsoleSettings';
-import { buildSections, ESCAPE_OWNERS, NO_FILTER, type Provider } from './view';
+import { buildSections, ESCAPE_OWNERS, NO_FILTER } from './view';
 
 const REVEAL_GAP = 24;
 const REVEAL_WATCH_MS = 1500;
@@ -40,11 +40,6 @@ export function SettingsEmbed({ group }: { group: string }) {
       ) ?? null,
     [store.defs, group, openRow.open?.key]
   );
-  const agentProvider: Provider =
-    store.defs.find(d => d.key === 'agent.provider')?.effective.value ===
-    'codex'
-      ? 'codex'
-      : 'claude';
 
   // The host's modal is the surface: the frame paints nothing of its own.
   useEffect(() => {
@@ -164,7 +159,6 @@ export function SettingsEmbed({ group }: { group: string }) {
                   store={store}
                   query=""
                   filtering={false}
-                  agentProvider={agentProvider}
                   bare
                   open={openRow.open}
                   onOpenChange={(key, next) =>

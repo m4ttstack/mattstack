@@ -1,3 +1,5 @@
+import '../icons';
+
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type {
   ExplainRowWire,
@@ -7,6 +9,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { clickLayerAction, layerAction } from './layerActions.testutil';
 
 vi.mock('@mattstack/app-kit/lazy', () => ({
   CodeMirror: ({
@@ -217,10 +221,7 @@ describe('Needs fixing on the page', () => {
 
   it('counts, lists and filters the keys that need fixing', async () => {
     renderPage();
-    const chip = await screen.findByRole('checkbox', { name: /^Needs fixing/ });
-    expect(chip.closest('label') ?? chip.parentElement!).toHaveTextContent(
-      'Needs fixing 2'
-    );
+    const chip = await screen.findByRole('checkbox', { name: '2 need fixing' });
     expect(
       screen.getByText('user · [2].url: expected string, got number')
     ).toBeInTheDocument();
@@ -274,7 +275,7 @@ describe('Needs fixing on the page', () => {
       },
     }));
     renderPage();
-    const chip = await screen.findByRole('checkbox', { name: /^Needs fixing/ });
+    const chip = await screen.findByRole('checkbox', { name: /needs? fixing/ });
     await userEvent.click(chip.closest('label') ?? chip);
     await fix(
       await screen.findByText('user · [2].url: expected string, got number')
@@ -291,7 +292,7 @@ describe('Needs fixing on the page', () => {
     await waitFor(() => expect(rereads).toBeGreaterThan(0));
     await waitFor(() =>
       expect(chip.closest('label') ?? chip.parentElement!).toHaveTextContent(
-        'Needs fixing 0'
+        '0 need fixing'
       )
     );
     expect(
@@ -533,9 +534,7 @@ describe('Fix in the explain modal', () => {
     );
     expect(within(layer).getByRole('button', { name: 'Save' })).toBeDisabled();
     expect(
-      within(layer).getByRole('button', {
-        name: 'remove rt.notify.eventBridges from user',
-      })
+      await layerAction(layer, 'remove rt.notify.eventBridges from user')
     ).toBeInTheDocument();
   });
 
@@ -576,11 +575,7 @@ describe('Fix in the explain modal', () => {
       await userEvent.click(
         within(layer).getByRole('button', { name: 'Cancel' })
       );
-      await userEvent.click(
-        within(layer).getByRole('button', {
-          name: 'set rt.notify.eventBridges at user',
-        })
-      );
+      await clickLayerAction(layer, 'set rt.notify.eventBridges at user');
       await within(layer).findByRole('textbox', { name: 'JSON' });
       expect(scrolled).toEqual([]);
     } finally {
@@ -659,11 +654,7 @@ describe('Fix in the explain modal', () => {
     await waitFor(() =>
       expect(within(layer).queryByTestId('item-0')).toBeNull()
     );
-    await userEvent.click(
-      within(layer).getByRole('button', {
-        name: 'set rt.notify.eventBridges at user',
-      })
-    );
+    await clickLayerAction(layer, 'set rt.notify.eventBridges at user');
     await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     await within(layer).findByTestId('item-0');
     expect(url()).not.toHaveAttribute('aria-invalid', 'true');
@@ -726,11 +717,7 @@ describe('Fix in the explain modal', () => {
       expect(within(layer).queryByTestId('item-0')).toBeNull()
     );
     rerender(modal(store([{ ...d, issues: issues() }])));
-    await userEvent.click(
-      within(layer).getByRole('button', {
-        name: 'set rt.notify.eventBridges at user',
-      })
-    );
+    await clickLayerAction(layer, 'set rt.notify.eventBridges at user');
     await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     await within(layer).findByTestId('item-0');
     expect(url()).toHaveAttribute('aria-invalid', 'true');
@@ -769,11 +756,7 @@ describe('Fix in the explain modal', () => {
     await userEvent.click(
       within(layer).getByRole('button', { name: 'Cancel' })
     );
-    await userEvent.click(
-      within(layer).getByRole('button', {
-        name: 'set rt.notify.eventBridges at user',
-      })
-    );
+    await clickLayerAction(layer, 'set rt.notify.eventBridges at user');
     await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     await within(layer).findByTestId('item-0');
     expect(url()).toHaveAttribute('aria-invalid', 'true');
@@ -881,14 +864,12 @@ describe('Fix in the explain modal', () => {
     const layer = await screen.findByTestId('layer-user');
     expect(within(layer).queryByText(/^Editing the/)).toBeNull();
     expect(
-      within(layer).queryByRole('button', {
+      await layerAction(layer, 'remove board.hiddenMembers from user')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', {
         name: 'set board.hiddenMembers at user',
       })
     ).toBeNull();
-    expect(
-      within(layer).getByRole('button', {
-        name: 'remove board.hiddenMembers from user',
-      })
-    ).toBeInTheDocument();
   });
 });

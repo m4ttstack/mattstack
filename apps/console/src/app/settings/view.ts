@@ -7,13 +7,11 @@ import {
   ENUMS,
   filterDefs,
   getLeaf,
-  isSet,
   setLeaf,
   targetScope,
   type RowKind,
 } from '@mattstack/settings-kit/shapes';
 
-import { editorKind } from './formShape';
 import { groupOf, GROUPS, type Group } from './groups';
 
 export type StoreScope = 'org' | 'team' | 'user' | 'machine';
@@ -21,16 +19,12 @@ export type ScopeFilter = 'any' | StoreScope;
 
 export interface ViewFilter {
   query: string;
-  changedOnly: boolean;
-  editableOnly: boolean;
   needsFixing: boolean;
   scope: ScopeFilter;
 }
 
 export const NO_FILTER: ViewFilter = {
   query: '',
-  changedOnly: false,
-  editableOnly: false,
   needsFixing: false,
   scope: 'any',
 };
@@ -47,11 +41,10 @@ export function needsFixing(def: SettingDefWire): boolean {
   return (def.issues?.length ?? 0) > 0 || (def.mergedIssues?.length ?? 0) > 0;
 }
 
-export const SUBHEAD_THRESHOLD = 12;
 const SUB_ORDER: StoreScope[] = ['org', 'team', 'user', 'machine'];
 
 export interface Subsection {
-  scope: StoreScope | null;
+  scope: StoreScope;
   defs: SettingDefWire[];
 }
 
@@ -129,19 +122,25 @@ export interface WriteTarget {
 /** Where an edit of `def` lands. With a repo picked, a repo-scoped key
     writes that repo's section of the layer its value comes from, so a value
     inherited from a global layer gets a repo override rather than a global
-    write; with no allowed winning layer, the key's first scope. */
+    write; with no allowed winning layer, the key's first scope. While
+    another team is open (`sharedOnly`) only the org and team stores take
+    writes, so the edit lands on the shared layer serving the value, else the
+    key's first shared scope. */
 export function writeTarget(
   def: SettingDefWire,
-  repo: string | null
+  repo: string | null,
+  sharedOnly = false
 ): WriteTarget {
-  if (def.repoScoped && repo) {
-    const base = rungBase(def.effective.scope);
-    const scope =
-      base && (def.scopes as readonly string[]).includes(base)
-        ? base
-        : (def.scopes[0] as StoreScope);
-    return { scope, repo };
-  }
+  const scopes = def.scopes as readonly string[];
+  const base = rungBase(def.effective.scope);
+  const fallback = (
+    sharedOnly ? scopes.find(s => isShared(s)) : scopes[0]
+  ) as StoreScope;
+  const allowed =
+    base !== null && scopes.includes(base) && (!sharedOnly || isShared(base));
+  if (def.repoScoped && repo)
+    return { scope: allowed ? (base as StoreScope) : fallback, repo };
+  if (sharedOnly) return { scope: allowed ? (base as StoreScope) : fallback };
   return { scope: targetScope(def) as StoreScope };
 }
 
@@ -179,11 +178,6 @@ export const EDITOR_KINDS: ReadonlySet<RowKind> = new Set<RowKind>([
     commands; console never edits it, only revokes it. */
 export const APPROVAL_KEY = 'rt.worktreeReadyApproval';
 
-export function isEditable(def: SettingDefWire): boolean {
-  if (def.key === APPROVAL_KEY) return false;
-  return EDITOR_KINDS.has(editorKind(def));
-}
-
 /** `keep` (the open row) passes the chips and the scope filter, which its
     own writes can stop it matching; the query reads only key and
     description, so it still applies. */
@@ -195,9 +189,7 @@ export function applyFilter(
   return filterDefs(defs, f.query).filter(
     d =>
       d.key === keep ||
-      ((!f.changedOnly || isSet(d)) &&
-        (!f.editableOnly || isEditable(d)) &&
-        (!f.needsFixing || needsFixing(d)) &&
+      ((!f.needsFixing || needsFixing(d)) &&
         (f.scope === 'any' || rungBase(d.effective.scope) === f.scope))
   );
 }
@@ -221,9 +213,16 @@ const isShared = (s: string | null | undefined): s is 'org' | 'team' =>
 /** A key sits under its first scope, except that a key the org and a team
     both hold sits under whichever of the two serves its value, and a key a
     shared store's repo section serves sits under that store. */
-function subheadOf(def: SettingDefWire): string | undefined {
-  const first = def.scopes[0];
+function subheadOf(
+  def: SettingDefWire,
+  sharedOnly = false
+): string | undefined {
   const served = rungBase(def.effective.scope);
+  if (sharedOnly)
+    return isShared(served) && def.scopes.includes(served)
+      ? served
+      : def.scopes.find(isShared);
+  const first = def.scopes[0];
   if (isRung(def.effective.scope) && isShared(served)) return served;
   if (isShared(first) && isShared(served) && def.scopes.includes(served))
     return served;
@@ -233,11 +232,17 @@ function subheadOf(def: SettingDefWire): string | undefined {
 /** Every group with at least one registered key, in GROUPS order, with
     unknown first segments after them. Empty-after-filter sections are kept
     so the index can show zeros. */
+/** `sharedOnly` is for viewing another team: only keys a shared store can
+    hold are listed, each under the shared scope that serves it or its
+    first shared scope. */
 export function buildSections(
-  all: SettingDefWire[],
+  every: SettingDefWire[],
   f: ViewFilter,
-  keep: string | null = null
+  keep: string | null = null,
+  opts: { sharedOnly?: boolean } = {}
 ): Section[] {
+  const sharedOnly = opts.sharedOnly === true;
+  const all = sharedOnly ? every.filter(d => d.scopes.some(isShared)) : every;
   const shownKeys = new Set(applyFilter(all, f, keep).map(d => d.key));
   const byGroup = new Map<string, { group: Group; defs: SettingDefWire[] }>();
   for (const d of all) {
@@ -255,13 +260,10 @@ export function buildSections(
       const shown = defs
         .filter(d => shownKeys.has(d.key))
         .sort((a, b) => rowRank(a) - rowRank(b));
-      const subsections =
-        defs.length > SUBHEAD_THRESHOLD
-          ? SUB_ORDER.map(scope => ({
-              scope,
-              defs: shown.filter(d => subheadOf(d) === scope),
-            })).filter(s => s.defs.length > 0)
-          : [{ scope: null, defs: shown }];
+      const subsections = SUB_ORDER.map(scope => ({
+        scope,
+        defs: shown.filter(d => subheadOf(d, sharedOnly) === scope),
+      })).filter(s => s.defs.length > 0);
       return { group, total: defs.length, shown: shown.length, subsections };
     });
 }

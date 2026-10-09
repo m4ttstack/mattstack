@@ -32,10 +32,28 @@ export interface RepoOption {
 
 type Write = Promise<string | null>;
 
+/** Who is looking and which teams' settings they may open (settings-kit's
+    ViewerWire). */
+export interface Viewer {
+  username: string | null;
+  name: string | null;
+  role: 'admin' | 'owner' | 'member' | 'unknown' | 'none';
+  team: string | null;
+  teams: string[];
+  /** Each reachable team's owners, by roster name. */
+  owners?: Record<string, string[]>;
+}
+
 export interface ConsoleStore {
   defs: SettingDefWire[];
   unregistered: Unregistered[];
+  /** The team the page reads: this Mac's own, or the one being viewed. */
   team: string | null;
+  /** This Mac's own team. */
+  ownTeam: string | null;
+  /** The team a load named that this viewer may not open, if any. */
+  refused: string | null;
+  viewer: Viewer | null;
   org: string | null;
   loading: boolean;
   error: string | null;
@@ -95,8 +113,16 @@ export function useInheritedValue(
   return undefined;
 }
 
-/** The team this Mac reads settings as, or null. */
+/** The team the page reads settings as, or null. */
 export const SettingsTeamContext = createContext<string | null>(null);
+
+/** The other team being viewed, or null on this Mac's own team; every read
+    and write the page makes names it. */
+export const SettingsViewTeamContext = createContext<string | null>(null);
+
+export function useSettingsViewTeam(): string | null {
+  return useContext(SettingsViewTeamContext);
+}
 
 export function useSettingsTeam(): string | null {
   return useContext(SettingsTeamContext);
@@ -114,7 +140,10 @@ async function getJson<T>(url: string): Promise<T> {
   const body = (await res.json().catch(() => null)) as
     (T & { error?: string }) | null;
   if (!res.ok)
-    throw new Error(body?.error ?? `settings request failed: ${res.status}`);
+    throw Object.assign(
+      new Error(body?.error ?? `settings request failed: ${res.status}`),
+      { status: res.status }
+    );
   if (body === null) throw new Error('settings response was not JSON');
   return body;
 }
@@ -149,21 +178,28 @@ const STILL_LOADING =
     repos that set it. */
 export function useConsoleSettings(
   repo: string | null,
-  prefix = ''
+  prefix = '',
+  viewTeam: string | null = null
 ): ConsoleStore {
   const [defs, setDefs] = useState<SettingDefWire[]>([]);
   const [unregistered, setUnregistered] = useState<Unregistered[]>([]);
   const [team, setTeam] = useState<string | null>(null);
+  const [ownTeam, setOwnTeam] = useState<string | null>(null);
+  const [viewer, setViewer] = useState<Viewer | null>(null);
   const [org, setOrg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const quiet = useRef(false);
   // The repo the defs on screen were read for. A repo switch keeps the old
   // list on screen while the new one loads, and a write from it would land
   // in the newly picked repo, so every write waits until the two agree.
   const loadedFor = useRef<string | null | undefined>(undefined);
-  const kit = useSettingsScope(MOVE_ONLY_PREFIX);
+  const kit = useSettingsScope(
+    MOVE_ONLY_PREFIX,
+    viewTeam ? { team: viewTeam } : {}
+  );
 
   useEffect(() => {
     let alive = true;
@@ -174,18 +210,28 @@ export function useConsoleSettings(
       unregistered?: Unregistered[];
       org?: string | null;
       activeTeam?: string | null;
-    }>(`${BASE}/defs${query({ prefix, repo })}`)
+      viewing?: string | null;
+      viewer?: Viewer;
+    }>(`${BASE}/defs${query({ prefix, repo, team: viewTeam })}`)
       .then(body => {
         if (!alive) return;
         setDefs(body.defs.map(withDescription));
         loadedFor.current = repo;
         setUnregistered(body.unregistered ?? []);
-        setTeam(typeof body.activeTeam === 'string' ? body.activeTeam : null);
+        const own =
+          typeof body.activeTeam === 'string' ? body.activeTeam : null;
+        setOwnTeam(own);
+        setTeam(typeof body.viewing === 'string' ? body.viewing : own);
+        setViewer(body.viewer ?? null);
         setOrg(typeof body.org === 'string' ? body.org : null);
         setError(null);
+        setRefused(null);
       })
-      .catch((err: Error) => {
-        if (alive) setError(err.message);
+      .catch((err: Error & { status?: number }) => {
+        if (!alive) return;
+        setError(err.message);
+        // A team this viewer may not open: the page goes back to their own.
+        setRefused(err.status === 403 && viewTeam ? viewTeam : null);
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -193,7 +239,7 @@ export function useConsoleSettings(
     return () => {
       alive = false;
     };
-  }, [prefix, repo, generation]);
+  }, [prefix, repo, viewTeam, generation]);
 
   const refresh = useCallback(() => setGeneration(g => g + 1), []);
   const reread = useCallback(() => {
@@ -212,7 +258,11 @@ export function useConsoleSettings(
         const res = await fetch(`${BASE}/${path}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ key, ...body }),
+          body: JSON.stringify({
+            key,
+            ...body,
+            ...(viewTeam ? { team: viewTeam } : {}),
+          }),
         });
         const out = (await res.json().catch(() => null)) as {
           effective?: EffectiveWire;
@@ -240,7 +290,7 @@ export function useConsoleSettings(
         return (err as Error).message;
       }
     },
-    [reread, repo]
+    [reread, repo, viewTeam]
   );
 
   const set = useCallback(
@@ -274,9 +324,12 @@ export function useConsoleSettings(
       defs,
       unregistered,
       team,
+      ownTeam,
+      viewer,
       org,
       loading,
       error,
+      refused,
       refresh,
       set,
       unset,
@@ -287,9 +340,12 @@ export function useConsoleSettings(
       defs,
       unregistered,
       team,
+      ownTeam,
+      viewer,
       org,
       loading,
       error,
+      refused,
       refresh,
       set,
       unset,
@@ -304,7 +360,8 @@ interface ExplainBody {
   rows: ExplainRowWire[];
 }
 
-const explainId = (key: string, repo: string | null) => `${key}\n${repo ?? ''}`;
+const explainId = (key: string, repo: string | null, team: string | null) =>
+  `${key}\n${repo ?? ''}\n${team ?? ''}`;
 // The last answer per key and repo. A panel seeded from it draws at its
 // final height on its first frame, so its open animates once instead of
 // growing to a placeholder and then jumping to the real rows.
@@ -316,24 +373,32 @@ const explainInFlight = new Map<string, Promise<void>>();
 const explainLatest = new Map<string, number>();
 let explainRequests = 0;
 
-function readExplain(key: string, repo: string | null): Promise<ExplainBody> {
-  const id = explainId(key, repo);
+function readExplain(
+  key: string,
+  repo: string | null,
+  team: string | null
+): Promise<ExplainBody> {
+  const id = explainId(key, repo, team);
   const request = ++explainRequests;
   explainLatest.set(id, request);
   return getJson<ExplainBody>(
-    `${BASE}/explain/${encodeURIComponent(key)}${query({ repo })}`
+    `${BASE}/explain/${encodeURIComponent(key)}${query({ repo, team })}`
   ).then(body => {
     if (explainLatest.get(id) === request) explainCache.set(id, body);
     return body;
   });
 }
 
-function warm(key: string, repo: string | null): Promise<void> {
-  const id = explainId(key, repo);
+function warm(
+  key: string,
+  repo: string | null,
+  team: string | null
+): Promise<void> {
+  const id = explainId(key, repo, team);
   if (explainCache.has(id)) return Promise.resolve();
   const pending =
     explainInFlight.get(id) ??
-    readExplain(key, repo)
+    readExplain(key, repo, team)
       .then(() => undefined)
       .catch(() => undefined)
       .finally(() => explainInFlight.delete(id));
@@ -345,12 +410,13 @@ function warm(key: string, repo: string | null): Promise<void> {
     the picked repo, or, with none picked, each repo section's too. */
 export function prefetchKeyExplain(
   def: Pick<SettingDefWire, 'key' | 'repos'>,
-  repo: string | null
+  repo: string | null,
+  team: string | null = null
 ): Promise<void> {
   const sections = repo === null ? (def.repos ?? []) : [];
   return Promise.all([
-    warm(def.key, repo),
-    ...sections.map(r => warm(def.key, r.identity)),
+    warm(def.key, repo, team),
+    ...sections.map(r => warm(def.key, r.identity, team)),
   ]).then(() => undefined);
 }
 
@@ -367,9 +433,11 @@ export function resetExplainCache() {
 export function useKeyExplain(
   key: string,
   repo: string | null,
-  revision = 0
+  revision = 0,
+  enabled = true
 ): KeyExplain {
-  const [seed] = useState(() => explainCache.get(explainId(key, repo)));
+  const team = useContext(SettingsViewTeamContext);
+  const [seed] = useState(() => explainCache.get(explainId(key, repo, team)));
   const [def, setDef] = useState<SettingDefWire | null>(seed?.def ?? null);
   const [rows, setRows] = useState<ExplainRowWire[]>(seed?.rows ?? []);
   const [loading, setLoading] = useState(true);
@@ -377,9 +445,13 @@ export function useKeyExplain(
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     let alive = true;
     setLoading(true);
-    readExplain(key, repo)
+    readExplain(key, repo, team)
       .then(body => {
         if (!alive) return;
         setDef(body.def);
@@ -395,7 +467,7 @@ export function useKeyExplain(
     return () => {
       alive = false;
     };
-  }, [key, repo, generation, revision]);
+  }, [key, repo, team, generation, revision, enabled]);
 
   const refresh = useCallback(() => setGeneration(g => g + 1), []);
   return useMemo(

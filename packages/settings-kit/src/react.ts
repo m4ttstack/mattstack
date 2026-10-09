@@ -15,6 +15,8 @@ export type { EffectiveWire, ExplainRowWire, SettingDefWire };
 export interface SettingsKitOptions {
   /** Where the host mounted settingsHandler. Default "/api/settings". */
   basePath?: string;
+  /** Read and write as this team rather than this Mac's own. */
+  team?: string;
 }
 
 export interface SettingsScopeState {
@@ -65,6 +67,8 @@ async function getJson<T>(url: string): Promise<T> {
 /** Every registered def whose key starts with `prefix` ("" = all). */
 export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}): SettingsScopeState {
   const base = opts.basePath ?? "/api/settings";
+  const team = opts.team;
+  const teamQuery = team ? `team=${encodeURIComponent(team)}` : "";
   const [defs, setDefs] = useState<SettingDefWire[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +77,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    getJson<{ defs: SettingDefWire[] }>(`${base}/defs?prefix=${encodeURIComponent(prefix)}`)
+    getJson<{ defs: SettingDefWire[] }>(`${base}/defs?prefix=${encodeURIComponent(prefix)}${teamQuery ? `&${teamQuery}` : ""}`)
       .then((body) => {
         if (!alive) return;
         setDefs(body.defs);
@@ -88,7 +92,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
     return () => {
       alive = false;
     };
-  }, [base, prefix, generation]);
+  }, [base, prefix, teamQuery, generation]);
 
   const refresh = useCallback(() => setGeneration((g) => g + 1), []);
 
@@ -100,7 +104,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
         const res = await fetch(`${base}/set`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key, scope, value }),
+          body: JSON.stringify({ key, scope, value, ...(team ? { team } : {}) }),
         });
         const body = (await res.json().catch(() => null)) as
           | { effective?: EffectiveWire; error?: string }
@@ -115,7 +119,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
         setSaving(null);
       }
     },
-    [base],
+    [base, team],
   );
 
   const unset = useCallback(
@@ -125,7 +129,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
         const res = await fetch(`${base}/unset`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key, scope }),
+          body: JSON.stringify({ key, scope, ...(team ? { team } : {}) }),
         });
         const body = (await res.json().catch(() => null)) as
           | { effective?: EffectiveWire; error?: string }
@@ -140,7 +144,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
         setSaving(null);
       }
     },
-    [base],
+    [base, team],
   );
 
   const prune = useCallback(
@@ -150,7 +154,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
         const res = await fetch(`${base}/prune`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key, scope, storeName, force: opts.force === true, ...(opts.repo ? { repo: opts.repo } : {}), ...(opts.team ? { team: opts.team } : {}) }),
+          body: JSON.stringify({ key, scope, storeName, force: opts.force === true, ...(opts.repo ? { repo: opts.repo } : {}), ...((opts.team ?? team) ? { team: opts.team ?? team } : {}) }),
         });
         const body = (await res.json().catch(() => null)) as { effective?: EffectiveWire; error?: string } | null;
         if (!res.ok || !body?.effective) return body?.error ?? `remove failed: ${res.status}`;
@@ -162,7 +166,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
         setSaving(null);
       }
     },
-    [base, refresh],
+    [base, team, refresh],
   );
 
   const move = useCallback(
@@ -170,7 +174,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
       let explained: { def: SettingDefWire; rows: ExplainRowWire[] };
       try {
         explained = await getJson<{ def: SettingDefWire; rows: ExplainRowWire[] }>(
-          `${base}/explain/${encodeURIComponent(key)}`,
+          `${base}/explain/${encodeURIComponent(key)}${teamQuery ? `?${teamQuery}` : ""}`,
         );
       } catch (err) {
         return (err as Error).message;
@@ -192,7 +196,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
         },
       );
     },
-    [base, set, unset],
+    [base, teamQuery, set, unset],
   );
 
   return useMemo(

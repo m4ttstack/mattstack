@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 
-import { useSettingsRepo, type ConsoleStore } from './useConsoleSettings';
+import {
+  useSettingsRepo,
+  useSettingsViewTeam,
+  type ConsoleStore,
+} from './useConsoleSettings';
 import { targetAt, writeTarget, type WriteTarget } from './view';
 
 export type RowStore = Pick<ConsoleStore, 'set' | 'unset' | 'move'>;
@@ -46,7 +50,8 @@ export function useRowSave(store: RowStore, def: SettingDefWire) {
     return t ?? `${layer} is not a writable layer here`;
   };
 
-  const target = writeTarget(def, repo);
+  // Another team's view takes writes only on the shared layers.
+  const target = writeTarget(def, repo, useSettingsViewTeam() !== null);
   return {
     status,
     error,

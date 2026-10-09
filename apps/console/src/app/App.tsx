@@ -1,6 +1,7 @@
-import { Component, type ReactNode } from 'react';
+import { Component, useEffect, type ReactNode } from 'react';
 import { MattstackShell } from '@mattstack/app-kit/app';
-import { GenericError, PageShell } from '@mattstack/app-kit/core';
+import { GenericError, Group, PageShell, Text } from '@mattstack/app-kit/core';
+import { Icons } from '@mattstack/app-kit/icons';
 import { RailLink } from '@mattstack/app-kit/router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Redirect, useLocation } from 'wouter';
@@ -23,6 +24,13 @@ import { WiringRailEntry } from './wiring/WiringRailEntry';
 const queryClient = createQueryClient();
 
 type ConsoleSection = 'runs' | 'search' | 'wiring' | 'settings';
+
+const SECTION_LABEL: Record<ConsoleSection, string> = {
+  runs: 'Runs',
+  search: 'Search',
+  wiring: 'Wiring',
+  settings: 'Settings',
+};
 
 function chromeSection(route: AppRoute): ConsoleSection | null {
   if (route.name === 'search') return 'search';
@@ -92,6 +100,10 @@ export function App() {
   const [path] = useLocation();
   const route = useAppRoute();
   const section = chromeSection(route);
+  const label = section ? SECTION_LABEL[section] : null;
+  useEffect(() => {
+    document.title = label ? `${label} · console` : 'console';
+  }, [label]);
 
   // Framed by another app: no shell, no palette, only the group itself.
   if (route.name === 'settings-embed')
@@ -122,6 +134,19 @@ export function App() {
           />
         }
       >
+        {label && (
+          <MattstackShell.Header>
+            <Group gap={8} wrap="nowrap" data-testid="app-bar-page">
+              <Text fw={700} fz={15} lh={1} style={{ whiteSpace: 'nowrap' }}>
+                console
+              </Text>
+              <Icons.chevronRight size={14} color="var(--tk-text-4)" />
+              <Text fz={14} fw={500} lh={1} c="var(--tk-text-3)">
+                {label}
+              </Text>
+            </Group>
+          </MattstackShell.Header>
+        )}
         <MattstackShell.Rail>
           <RailLink
             icon="layers"

@@ -59,7 +59,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/variations.ts": { count: 2, reason: "saveVariation starts from the org store's own map, never the merged view" },
     "lib/worktree/config.ts": { count: 3, reason: "declared-presence check and ready-ladder owner need per-rung presence" },
     "lib/worktree/ready-approval.ts": { count: 2, reason: "approval is trusted only from user.repo/machine.repo rungs, never a team rung" },
-    "packages/settings-kit/src/server.ts": { count: 15, reason: "the console's scope-chain editor shows every rung and every repo section" },
+    "packages/settings-kit/src/server.ts": { count: 16, reason: "the console's scope-chain editor shows every rung and every repo section, for your team or one you are viewing" },
     "packages/rt-client/src/index.ts": { count: 7, reason: "rt-client's public entry re-exports the resolver" },
     "lib/skills/init.ts": { count: 2, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
   },

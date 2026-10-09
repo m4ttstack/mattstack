@@ -65,6 +65,9 @@ export interface SearchableMenuProps<T extends Record<string, unknown>> {
   items: T[];
   itemTitle: (item: T) => string;
   itemSubtitle?: (item: T, filterKeyword?: string) => ReactNode;
+  /** Drawn right after an item's title, on the same line (a tag such as
+      "your team"). */
+  itemTitleSuffix?: (item: T) => ReactNode;
   isSelectedItem?: (item: T) => boolean;
   showItemBadge?: (item: T) => boolean;
   itemBadgeText?: ((item: T) => string) | string;
@@ -124,6 +127,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
   items: unsortedItems,
   itemTitle,
   itemSubtitle,
+  itemTitleSuffix,
   isSelectedItem,
   showItemBadge,
   itemBadgeText,
@@ -191,8 +195,12 @@ export function SearchableMenu<T extends Record<string, unknown>>({
             ? 'var(--mantine-primary-color-light)'
             : undefined
         }
-        rightSection={<Icons.chevronRight size={16} />}
-        p="xs"
+        rightSection={
+          <Text c="gray" lh={0}>
+            <Icons.chevronRight size={16} />
+          </Text>
+        }
+        p={12}
         mb={4}
       >
         <Group gap="xs">
@@ -200,25 +208,38 @@ export function SearchableMenu<T extends Record<string, unknown>>({
           <Flex justify="space-between" align="center" flex={1} mih={30}>
             <Flex direction="column">
               {itemTitleText && (
-                <Highlight
-                  truncate="end"
-                  maw="16rem"
-                  title={itemTitleText}
-                  fw={500}
-                  highlight={filterKeyword}
-                  color="blue"
-                >
-                  {itemTitleText}
-                </Highlight>
+                <Group gap={6} wrap="nowrap">
+                  <Highlight
+                    truncate="end"
+                    maw="16rem"
+                    title={itemTitleText}
+                    fw={500}
+                    fz={14}
+                    highlight={filterKeyword}
+                    color="blue"
+                  >
+                    {itemTitleText}
+                  </Highlight>
+                  {itemTitleSuffix?.(item)}
+                </Group>
               )}
               {itemSubtitle?.(item, filterKeyword) && (
-                <Text size="sm" c="dimmed">
+                <Text
+                  component="div"
+                  fz={12}
+                  c="light-dark(var(--mantine-color-gray-8), var(--mantine-color-gray-5))"
+                >
                   {itemSubtitle(item, filterKeyword)}
                 </Text>
               )}
             </Flex>
             {showItemBadge?.(item) && (
-              <Badge color={itemBadgeColor?.(item)}>
+              <Badge
+                // A light badge vanishes into the selected row's light tint;
+                // white keeps it readable there.
+                variant={isSelectedItem?.(item) ? 'white' : 'light'}
+                color={itemBadgeColor?.(item)}
+              >
                 {typeof itemBadgeText === 'string'
                   ? itemBadgeText
                   : itemBadgeText?.(item)}
@@ -235,6 +256,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
       opened={opened}
       onChange={handleOpenChange}
       shadow="lg"
+      radius="lg"
       width="28rem"
       position={position}
       portalProps={{ style: { zIndex: 9999 } }}
@@ -263,9 +285,11 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         {toolbar}
         {!hideTitleBar && (
           <Flex px={4} py={4} align="center" justify="space-between">
-            <Center fz="sm" style={{ gap: 8 }}>
+            <Center style={{ gap: 8 }}>
               {titleIcon}
-              <Text>{title}</Text>
+              <Text fz={13} fw={500}>
+                {title}
+              </Text>
             </Center>
             {onViewAllClick && (
               <Button
@@ -284,6 +308,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         )}
         <TextInput
           my={8}
+          styles={{ input: { fontSize: 14 } }}
           value={filterKeyword}
           disabled={loading}
           onChange={event => setFilterKeyword(event.currentTarget.value)}
