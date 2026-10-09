@@ -89,13 +89,13 @@ export const MR_DASHBOARD_FRAGMENT = `
     conflicts
     detailedMergeStatus
     approved
-    approvalsRequired
+    approvalsRequired: groupedApprovalsRequired
     diffStatsSummary { additions deletions fileCount }
     author { id username name avatarUrl }
     assignees(first: 20) { nodes { id username name avatarUrl } }
     reviewers(first: 20) { nodes { id username name avatarUrl mergeRequestInteraction { reviewState } } }
     approvedBy(first: 20) { nodes { id username name avatarUrl } }
-    approvalsLeft
+    approvalsLeft: groupedApprovalsLeft
     resolvableDiscussionsCount
     resolvedDiscussionsCount
     autoMergeEnabled
@@ -148,13 +148,13 @@ export const MR_LIST_FRAGMENT = `
     conflicts
     detailedMergeStatus
     approved
-    approvalsRequired
+    approvalsRequired: groupedApprovalsRequired
     diffStatsSummary { additions deletions fileCount }
     author { id username name avatarUrl }
     assignees(first: 20) { nodes { id username name avatarUrl } }
     reviewers(first: 20) { nodes { id username name avatarUrl mergeRequestInteraction { reviewState } } }
     approvedBy(first: 20) { nodes { id username name avatarUrl } }
-    approvalsLeft
+    approvalsLeft: groupedApprovalsLeft
     resolvableDiscussionsCount
     resolvedDiscussionsCount
     autoMergeEnabled
