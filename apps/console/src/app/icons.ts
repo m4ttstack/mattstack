@@ -35,6 +35,7 @@ import {
   Replace,
   Signpost,
   SquareTerminal,
+  UsersRound,
   Workflow,
   WrapText,
 } from 'lucide-react';
@@ -74,4 +75,5 @@ registerIcons({
   bot: lucideWrapperFn(Bot),
   image: lucideWrapperFn(ImageGlyph),
   building: lucideWrapperFn(Building2),
+  team: lucideWrapperFn(UsersRound),
 });

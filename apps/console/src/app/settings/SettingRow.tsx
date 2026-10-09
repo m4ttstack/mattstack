@@ -15,7 +15,6 @@ import {
   Highlight,
   Stack,
   Text,
-  Tooltip,
   type TextProps,
 } from '@mattstack/app-kit/core';
 import {
@@ -196,6 +195,7 @@ function RowBody({
   const setAsJson = (on: boolean) => setFormIn(on ? null : opening);
   const parts = useRowParts(def, row, { suggestions, asJson, setAsJson });
   const chevron = useRef<HTMLButtonElement>(null);
+  const card = useRef<HTMLDivElement>(null);
   const panelId = useId();
   const [ns, name] = splitKey(def.key);
   const badge = badgeScope(def, subhead);
@@ -210,7 +210,11 @@ function RowBody({
   const rejected =
     def.issues === undefined && !onWhere ? def.effective.invalid : undefined;
 
-  const toggle = () => setOpen(isOpen ? null : { tab: 'value', fix: null });
+  // An unset key has no value to show, so it opens on where it could be set.
+  // A per-project key's Value tab is its project picker, so it keeps that.
+  const firstTab =
+    def.effective.scope === null && !def.repoOnly ? 'where' : 'value';
+  const toggle = () => setOpen(isOpen ? null : { tab: firstTab, fix: null });
   const warmPanel = () => {
     if (!isOpen) void prefetchKeyExplain(def, repo, viewTeam);
   };
@@ -234,6 +238,7 @@ function RowBody({
 
   return (
     <Box
+      ref={card}
       data-key={def.key}
       style={{ '--row-motion': `${ROW_MOTION_MS}ms` }}
       className={classes.item}
@@ -248,6 +253,21 @@ function RowBody({
         onPointerEnter={warmPanel}
         onFocus={warmPanel}
       >
+        {/* A leading disclosure chevron: › closed, turning to ⌄ open. */}
+        <ActionIcon
+          ref={chevron}
+          size="sm"
+          variant="subtle"
+          color="gray"
+          className={classes.disclosure}
+          aria-expanded={isOpen}
+          // Under reduced motion a closed collapse renders nothing.
+          aria-controls={isOpen || !reduceMotion ? panelId : undefined}
+          aria-label={`${isOpen ? 'close' : 'open'} ${def.key}`}
+          onClick={toggle}
+        >
+          <Icons.chevronRight size={16} />
+        </ActionIcon>
         <Stack gap={4} className={classes.text}>
           <Group gap={8} wrap="nowrap">
             <Text fz={14} lh="18px" ff="monospace" span>
@@ -291,24 +311,6 @@ function RowBody({
           {parts.control}
           <SaveStatus row={row} />
         </Group>
-        <Tooltip label={isOpen ? 'Close' : 'Open'}>
-          <ActionIcon
-            ref={chevron}
-            variant="subtle"
-            color="gray"
-            aria-expanded={isOpen}
-            // Under reduced motion a closed collapse renders nothing.
-            aria-controls={isOpen || !reduceMotion ? panelId : undefined}
-            aria-label={`${isOpen ? 'close' : 'open'} ${def.key}`}
-            onClick={toggle}
-          >
-            {isOpen ? (
-              <Icons.chevronUp size={16} />
-            ) : (
-              <Icons.chevronDown size={16} />
-            )}
-          </ActionIcon>
-        </Tooltip>
       </Group>
       {(row.error || rejected) && (
         <Stack gap={4} pb={12} className={classes.inset}>
@@ -331,7 +333,15 @@ function RowBody({
         expanded={isOpen}
         keepMounted={false}
         transitionDuration={reduceMotion ? 0 : ROW_MOTION_MS}
-        onTransitionEnd={settle}
+        onTransitionEnd={() => {
+          settle();
+          // A card taller than the frame lines its top up with the frame's.
+          if (isOpen)
+            card.current?.scrollIntoView({
+              block: 'nearest',
+              behavior: reduceMotion ? 'auto' : 'smooth',
+            });
+        }}
         id={panelId}
         role="region"
         aria-label={`${def.key} settings`}

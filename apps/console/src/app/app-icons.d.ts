@@ -2,6 +2,7 @@ declare module '@mattstack/app-kit/icons' {
   interface AppIcons {
     workflow: true;
     building: true;
+    team: true;
     layoutDashboard: true;
     fileText: true;
     fileX: true;

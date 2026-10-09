@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Box,
   Group,
@@ -16,7 +16,6 @@ import type { PanelStore } from './KeyPanel';
 import { SCOPE_COLOR, ScopeBadge } from './ScopeBadge';
 import { SettingRow, type RowOpen } from './SettingRow';
 import classes from './SettingsSection.module.css';
-import { useSettingsOrg, useSettingsTeam } from './useConsoleSettings';
 import {
   providerOf,
   type Provider,
@@ -24,38 +23,14 @@ import {
   type StoreScope,
 } from './view';
 
-const NOTE: Record<StoreScope, string> = {
-  org: 'shared with every team through the org repo',
-  team: 'shared with your team through the org repo',
-  user: 'your home repo, follows you to every machine',
-  machine: 'never leaves this Mac',
-};
-
-function subheadNote(
-  scope: StoreScope,
-  team: string | null,
-  org: string | null
-): string {
-  if (scope === 'org' && org)
-    return `shared with every team through the ${org} org repo`;
-  if (scope === 'team' && team)
-    return `shared with the ${team} team through the org repo`;
-  return NOTE[scope];
-}
-
 /** One scope's rows on a wash of the scope's colour, led by its badge. */
 function ScopeBlock({
   scope,
-  count,
   children,
 }: {
   scope: StoreScope;
-  count: number;
   children: ReactNode;
 }) {
-  const { text } = useSchemeColors();
-  const team = useSettingsTeam();
-  const org = useSettingsOrg();
   return (
     <Box
       className={classes.block}
@@ -64,12 +39,6 @@ function ScopeBlock({
     >
       <Group gap={8} wrap="nowrap" className={classes.head}>
         <ScopeBadge scope={scope} />
-        <Text fz={12} ff="monospace" c={text.muted}>
-          {count}
-        </Text>
-        <Text fz={12} c={text.muted}>
-          {`· ${subheadNote(scope, team, org)}`}
-        </Text>
       </Group>
       {children}
     </Box>
@@ -88,6 +57,31 @@ function rowOpen(key: string, open: OpenRow | null): RowOpen | null {
   return open?.key === key ? { tab: open.tab, fix: open.fix } : null;
 }
 
+/** Whether a sticky element is pinned to the top of its scroll frame: it
+    then sits a pixel past the frame's top edge the observer watches. */
+function useStuck<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const frame = el.closest<HTMLElement>('.mantine-ScrollArea-viewport');
+    const seen = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.rootBounds) return;
+        setStuck(
+          entry.intersectionRatio < 1 &&
+            entry.boundingClientRect.top <= entry.rootBounds.top
+        );
+      },
+      { root: frame, rootMargin: '-1px 0px 0px 0px', threshold: [1] }
+    );
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, []);
+  return [ref, stuck] as const;
+}
+
 function Header({
   section,
   count,
@@ -98,8 +92,9 @@ function Header({
   right?: ReactNode;
 }) {
   const { text } = useSchemeColors();
+  const [ref, stuck] = useStuck<HTMLDivElement>();
   return (
-    <Stack gap={4} pt={28} pb={8}>
+    <Stack ref={ref} gap={4} className={classes.header} mod={{ stuck }}>
       <Group justify="space-between" wrap="nowrap">
         <Group gap={8}>
           <Title order={2} size={16} fw={700}>
@@ -155,7 +150,7 @@ function AgentsSection({
     d => d.key === 'agent.provider' || d.key.startsWith(`agent.${provider}.`)
   );
   return (
-    <Box component="section" id="settings-agents">
+    <Box component="section" id="settings-agents" className={classes.section}>
       <Header
         section={section}
         count={countText(filtering, defs.length, section.total)}
@@ -176,7 +171,7 @@ function AgentsSection({
         const rows = sub.defs.filter(d => defs.includes(d));
         if (rows.length === 0) return null;
         return (
-          <ScopeBlock key={sub.scope} scope={sub.scope} count={rows.length}>
+          <ScopeBlock key={sub.scope} scope={sub.scope}>
             {rows.map(def => (
               <SettingRow
                 key={def.key}
@@ -234,7 +229,11 @@ export function SettingsSection({
       />
     );
   return (
-    <Box component="section" id={`settings-${section.group.id}`}>
+    <Box
+      component="section"
+      id={`settings-${section.group.id}`}
+      className={bare ? undefined : classes.section}
+    >
       {!bare && (
         <Header
           section={section}
@@ -242,7 +241,7 @@ export function SettingsSection({
         />
       )}
       {section.subsections.map(sub => (
-        <ScopeBlock key={sub.scope} scope={sub.scope} count={sub.defs.length}>
+        <ScopeBlock key={sub.scope} scope={sub.scope}>
           {sub.defs.map(def => (
             <SettingRow
               key={def.key}

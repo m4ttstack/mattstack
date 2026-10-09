@@ -10,6 +10,8 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { clickLayerAction, layerAction } from './layerActions.testutil';
+
 vi.mock('@mattstack/app-kit/lazy', () => ({
   CodeMirror: ({
     value,
@@ -532,9 +534,7 @@ describe('Fix in the explain modal', () => {
     );
     expect(within(layer).getByRole('button', { name: 'Save' })).toBeDisabled();
     expect(
-      within(layer).getByRole('button', {
-        name: 'remove rt.notify.eventBridges from user',
-      })
+      await layerAction(layer, 'remove rt.notify.eventBridges from user')
     ).toBeInTheDocument();
   });
 
@@ -575,11 +575,7 @@ describe('Fix in the explain modal', () => {
       await userEvent.click(
         within(layer).getByRole('button', { name: 'Cancel' })
       );
-      await userEvent.click(
-        within(layer).getByRole('button', {
-          name: 'set rt.notify.eventBridges at user',
-        })
-      );
+      await clickLayerAction(layer, 'set rt.notify.eventBridges at user');
       await within(layer).findByRole('textbox', { name: 'JSON' });
       expect(scrolled).toEqual([]);
     } finally {
@@ -658,11 +654,7 @@ describe('Fix in the explain modal', () => {
     await waitFor(() =>
       expect(within(layer).queryByTestId('item-0')).toBeNull()
     );
-    await userEvent.click(
-      within(layer).getByRole('button', {
-        name: 'set rt.notify.eventBridges at user',
-      })
-    );
+    await clickLayerAction(layer, 'set rt.notify.eventBridges at user');
     await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     await within(layer).findByTestId('item-0');
     expect(url()).not.toHaveAttribute('aria-invalid', 'true');
@@ -725,11 +717,7 @@ describe('Fix in the explain modal', () => {
       expect(within(layer).queryByTestId('item-0')).toBeNull()
     );
     rerender(modal(store([{ ...d, issues: issues() }])));
-    await userEvent.click(
-      within(layer).getByRole('button', {
-        name: 'set rt.notify.eventBridges at user',
-      })
-    );
+    await clickLayerAction(layer, 'set rt.notify.eventBridges at user');
     await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     await within(layer).findByTestId('item-0');
     expect(url()).toHaveAttribute('aria-invalid', 'true');
@@ -768,11 +756,7 @@ describe('Fix in the explain modal', () => {
     await userEvent.click(
       within(layer).getByRole('button', { name: 'Cancel' })
     );
-    await userEvent.click(
-      within(layer).getByRole('button', {
-        name: 'set rt.notify.eventBridges at user',
-      })
-    );
+    await clickLayerAction(layer, 'set rt.notify.eventBridges at user');
     await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     await within(layer).findByTestId('item-0');
     expect(url()).toHaveAttribute('aria-invalid', 'true');
@@ -880,14 +864,12 @@ describe('Fix in the explain modal', () => {
     const layer = await screen.findByTestId('layer-user');
     expect(within(layer).queryByText(/^Editing the/)).toBeNull();
     expect(
-      within(layer).queryByRole('button', {
+      await layerAction(layer, 'remove board.hiddenMembers from user')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', {
         name: 'set board.hiddenMembers at user',
       })
     ).toBeNull();
-    expect(
-      within(layer).getByRole('button', {
-        name: 'remove board.hiddenMembers from user',
-      })
-    ).toBeInTheDocument();
   });
 });

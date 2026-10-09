@@ -22,6 +22,11 @@ import {
 
 import '../icons';
 
+import {
+  clickLayerAction,
+  closeLayerActions,
+  layerAction,
+} from './layerActions.testutil';
 import { schemaFields } from './testSchemas';
 
 vi.mock('../config/useSettings', () => ({
@@ -401,7 +406,7 @@ describe('SettingsPage', () => {
     expect(team).not.toBeNull();
     expect(
       [...team.firstElementChild!.children].map(c => c.textContent)
-    ).toEqual(['team', '7', '· shared with your team through the org repo']);
+    ).toEqual(['team']);
     expect(within(team).queryAllByText('team')).toHaveLength(1);
     expect(board.querySelector('[data-scope="user"]')).not.toBeNull();
     expect(
@@ -569,7 +574,7 @@ describe('open rows', () => {
     await waitFor(() => expect(scrolled.mock.contexts).toContain(row));
   });
 
-  it('opening a second row closes the first, and a click scrolls nothing', async () => {
+  it('opening a second row closes the first, and a click never jumps the page', async () => {
     renderPage();
     await userEvent.click(
       await screen.findByRole('button', { name: 'open board.agent.model' })
@@ -586,7 +591,10 @@ describe('open rows', () => {
       'true'
     );
     expect(param('explain')).toBe('agent.claude.account');
-    expect(scrolled).not.toHaveBeenCalled();
+    // An opened card may scroll just into view, never jump to the top.
+    expect(scrolled).not.toHaveBeenCalledWith(
+      expect.objectContaining({ block: 'start' })
+    );
   });
 
   it('opening a row is not navigation: the history entry is replaced', async () => {
@@ -686,14 +694,14 @@ describe('open rows', () => {
     const row = rowOf('board.agent.model');
     const layer = await within(row).findByTestId('layer-machine');
     expect(
-      within(layer).getByRole('button', {
-        name: 'cancel editing board.agent.model at machine',
-      })
+      await layerAction(layer, 'cancel editing board.agent.model at machine')
     ).toBeInTheDocument();
+    await closeLayerActions(layer);
     expect(
-      within(within(row).getByTestId('layer-user')).getByRole('button', {
-        name: 'set board.agent.model at user',
-      })
+      await layerAction(
+        within(row).getByTestId('layer-user'),
+        'set board.agent.model at user'
+      )
     ).toBeInTheDocument();
   });
 
@@ -711,9 +719,11 @@ describe('open rows', () => {
     renderPage();
     await screen.findByRole('button', { name: 'close board.agent.model' });
     const row = rowOf('board.agent.model');
-    await within(row).findByRole('button', {
-      name: 'cancel editing board.agent.model at machine',
-    });
+    await layerAction(
+      await within(row).findByTestId('layer-machine'),
+      'cancel editing board.agent.model at machine'
+    );
+    await closeLayerActions(within(row).getByTestId('layer-machine'));
     await userEvent.click(within(row).getByRole('radio', { name: 'Value' }));
     expect(param('fix')).toBeNull();
     await userEvent.click(
@@ -721,9 +731,7 @@ describe('open rows', () => {
     );
     const layer = await within(row).findByTestId('layer-machine');
     expect(
-      within(layer).getByRole('button', {
-        name: 'set board.agent.model at machine',
-      })
+      await layerAction(layer, 'set board.agent.model at machine')
     ).toBeInTheDocument();
   });
 
@@ -787,9 +795,7 @@ describe('open rows', () => {
       await within(rowOf(KEY)).findByRole('radio', { name: "Where it's set" })
     );
     const layer = await within(rowOf(KEY)).findByTestId('layer-machine');
-    await userEvent.click(
-      within(layer).getByRole('button', { name: `remove ${KEY} from machine` })
-    );
+    await clickLayerAction(layer, `remove ${KEY} from machine`);
     await waitFor(() => expect(rereads).toBeGreaterThan(0));
     await new Promise(r => setTimeout(r, 0));
     expect(rowOf(KEY)).not.toBeNull();
@@ -826,47 +832,7 @@ describe('page overflow', () => {
   });
 });
 
-describe('org and team names', () => {
-  const WITH_ORG = [
-    ...DEFS,
-    def('board.o0', {
-      scopes: ['team', 'org'],
-      effective: { scope: 'org', file: '/o', value: 'y' },
-    }),
-  ];
-
-  it('names the org on the org subhead and the active team on the team subhead', async () => {
-    defsResponse = () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        defs: WITH_ORG,
-        org: 'acme',
-        activeTeam: 'widgets',
-      }),
-    });
-    renderPage();
-    await screen.findByRole('heading', { name: 'Board' });
-    expect(
-      screen.getByText('· shared with every team through the acme org repo')
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('· shared with the widgets team through the org repo')
-    ).toBeInTheDocument();
-  });
-
-  it('stays bare when the defs name no org and no team', async () => {
-    defsResponse = serve(WITH_ORG);
-    renderPage();
-    await screen.findByRole('heading', { name: 'Board' });
-    expect(
-      screen.getByText('· shared with every team through the org repo')
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('· shared with your team through the org repo')
-    ).toBeInTheDocument();
-  });
-
+describe('the org scope', () => {
   it('offers org in the scope filter', async () => {
     renderPage();
     await screen.findByRole('heading', { name: 'Board' });
@@ -921,6 +887,7 @@ describe('repo picker', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: 'open rt.roles' })
     );
+    await userEvent.click(await screen.findByRole('radio', { name: 'Value' }));
     const picker = (await screen.findAllByLabelText('project')).find(
       el => el.tagName === 'INPUT'
     )!;
@@ -1039,7 +1006,7 @@ describe('the context bar', () => {
       expect(urls.some(u => u.includes('team=gadgets'))).toBe(true)
     );
     const back = await screen.findByRole('button', {
-      name: 'Back to your team (widgets)',
+      name: 'back to your team, widgets',
     });
     expect(screen.queryByRole('radio', { name: 'user' })).toBeNull();
     expect(screen.queryByRole('radio', { name: 'machine' })).toBeNull();
@@ -1053,7 +1020,7 @@ describe('the context bar', () => {
       expect(new URLSearchParams(window.location.search).get('team')).toBeNull()
     );
     expect(
-      screen.queryByRole('button', { name: /^Back to your team/ })
+      screen.queryByRole('button', { name: /^back to your team/ })
     ).toBeNull();
   });
 

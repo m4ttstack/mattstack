@@ -20,6 +20,13 @@ import {
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  allLayerActionNames,
+  clickLayerAction,
+  clickNamedLayerAction,
+  layerAction,
+  namedLayerAction,
+} from './layerActions.testutil';
 import { SettingRow } from './SettingRow';
 import { schemaFields } from './testSchemas';
 import { SettingsRepoContext, SettingsTeamContext } from './useConsoleSettings';
@@ -55,7 +62,7 @@ function renderRow(ui: ReactElement) {
   );
 }
 
-/** Opens a row, which lands on Value, and turns to Where it's set. */
+/** Opens a row and turns to Where it's set, wherever it landed. */
 async function openWhere(key: string) {
   await userEvent.click(screen.getByRole('button', { name: `open ${key}` }));
   const tabs = await screen.findByRole('radiogroup', { name: `${key} panel` });
@@ -107,6 +114,48 @@ describe('SettingRow disclosure', () => {
     expect(await screen.findByRole('radio', { name: 'Value' })).toBeChecked();
     await userEvent.click(screen.getByText('What it does.'));
     expect(screen.queryByRole('radio', { name: 'Value' })).toBeNull();
+  });
+
+  it('an unset key opens on Where it’s set', async () => {
+    renderRow(
+      <SettingRow
+        def={def('board.agent.model')}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'open board.agent.model' })
+    );
+    expect(
+      await screen.findByRole('radio', { name: "Where it's set" })
+    ).toBeChecked();
+  });
+
+  it('a set key opens on Value', async () => {
+    renderRow(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'open board.agent.model' })
+    );
+    expect(await screen.findByRole('radio', { name: 'Value' })).toBeChecked();
+  });
+
+  it('an unset repo-only key still opens on Value', async () => {
+    renderRow(
+      <SettingRow
+        def={def('rt.worktreeCwd', { repoScoped: true, repoOnly: true })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'open rt.worktreeCwd' })
+    );
+    expect(await screen.findByRole('radio', { name: 'Value' })).toBeChecked();
   });
 
   it('hovering a closed row reads its layers ahead, once', async () => {
@@ -418,11 +467,7 @@ describe('SettingRow disclosure', () => {
 
     it('reopening starts a fresh panel', async () => {
       openRow();
-      await userEvent.click(
-        await screen.findByRole('button', {
-          name: 'set board.agent.model at user',
-        })
-      );
+      await clickNamedLayerAction('set board.agent.model at user');
       await userEvent.click(
         screen.getByRole('button', { name: 'close board.agent.model' })
       );
@@ -433,12 +478,10 @@ describe('SettingRow disclosure', () => {
         screen.getByRole('radio', { name: "Where it's set" })
       );
       expect(
-        await screen.findByRole('button', {
-          name: 'set board.agent.model at user',
-        })
+        await namedLayerAction('set board.agent.model at user')
       ).toBeInTheDocument();
       expect(
-        screen.queryByRole('button', {
+        screen.queryByRole('menuitem', {
           name: 'cancel editing board.agent.model at user',
         })
       ).toBeNull();
@@ -496,7 +539,7 @@ describe('SettingRow disclosure', () => {
             r instanceof CSSStyleRule && r.selectorText === '.item'
         )!;
         const moved = item.style.getPropertyValue('transition-property');
-        expect(moved).toContain('margin-block');
+        expect(moved).toContain('margin');
         expect(moved).toContain('border-width');
         expect(item.style.getPropertyValue('transition-duration')).toBe(
           'var(--row-motion)'
@@ -935,13 +978,9 @@ describe('SettingRow', () => {
     );
     expect(screen.queryByText('machine')).toBeNull();
     await openWhere('board.agent.model');
-    await userEvent.click(
-      within(await screen.findByTestId('layer-machine')).getByRole('button', {
-        name: 'move board.agent.model from machine',
-      })
-    );
-    await userEvent.click(
-      await screen.findByRole('menuitem', { name: 'Move to user' })
+    await clickLayerAction(
+      await screen.findByTestId('layer-machine'),
+      'Move to user'
     );
     await waitFor(() =>
       expect(s.move).toHaveBeenCalledWith(
@@ -971,11 +1010,7 @@ describe('SettingRow', () => {
       />
     );
     await openWhere('agent.claude.yolo');
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: 'remove agent.claude.yolo from user',
-      })
-    );
+    await clickNamedLayerAction('remove agent.claude.yolo from user');
     await waitFor(() =>
       expect(s.unset).toHaveBeenCalledWith('agent.claude.yolo', 'user')
     );
@@ -1059,7 +1094,9 @@ describe('SettingRow', () => {
     await waitFor(() =>
       expect(screen.getAllByTestId('layer-user')).toHaveLength(2)
     );
-    expect(screen.queryByRole('button', { name: /^remove / })).toBeNull();
+    expect(
+      (await allLayerActionNames()).filter(n => n.startsWith('remove '))
+    ).toEqual([]);
   });
 
   it('the team badge names the machine team when the page knows it', () => {
@@ -1097,7 +1134,9 @@ describe('SettingRow', () => {
     );
     await openWhere('rt.logLevel');
     await screen.findByTestId('layer-default');
-    expect(screen.queryByRole('button', { name: /^remove / })).toBeNull();
+    expect(
+      (await allLayerActionNames()).filter(n => n.startsWith('remove '))
+    ).toEqual([]);
   });
 
   it('an unset secret says unset once and shows no mask', () => {
@@ -1236,12 +1275,12 @@ describe('with a repo picked', () => {
     ).toBeInTheDocument();
     await openWhere('rt.worktreeCwd');
     const rung = await screen.findByTestId('layer-team.repo');
-    expect(within(rung).queryByRole('button', { name: /^move / })).toBeNull();
-    await userEvent.click(
-      within(rung).getByRole('button', {
-        name: 'remove rt.worktreeCwd from team · repo',
-      })
+    const remove = await layerAction(
+      rung,
+      'remove rt.worktreeCwd from team · repo'
     );
+    expect(screen.queryByRole('menuitem', { name: /^Move to / })).toBeNull();
+    await userEvent.click(remove);
     await waitFor(() =>
       expect(s.unset).toHaveBeenCalledWith('rt.worktreeCwd', 'team', REPO)
     );

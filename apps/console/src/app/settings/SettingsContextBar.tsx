@@ -6,7 +6,6 @@ import {
   SearchableMenu,
   Text,
 } from '@mattstack/app-kit/core';
-import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icon, Icons } from '@mattstack/app-kit/icons';
 
 import classes from './SettingsContextBar.module.css';
@@ -14,22 +13,20 @@ import type { Viewer } from './useConsoleSettings';
 
 type Role = Viewer['role'];
 
-const ROLE_BADGE: Record<
-  Exclude<Role, 'none'>,
-  { label: string; color: string; variant: 'light' | 'outline' }
-> = {
-  admin: { label: 'org admin', color: 'gold', variant: 'light' },
-  owner: { label: 'team owner', color: 'purple', variant: 'light' },
-  member: { label: 'member', color: 'gray', variant: 'outline' },
-  unknown: { label: 'not connected', color: 'gray', variant: 'light' },
+const ROLE_LABEL: Record<Exclude<Role, 'none'>, string> = {
+  admin: 'org admin',
+  owner: 'team owner',
+  member: 'member',
+  unknown: 'not connected',
 };
 
 export function RoleBadge({ role }: { role: Role }) {
   if (role === 'none') return null;
-  const { label, color, variant } = ROLE_BADGE[role];
+  // A neutral badge: the gold and purple pills beside it already mean the
+  // org and the team.
   return (
-    <Badge size="sm" radius="xl" tt="uppercase" color={color} variant={variant}>
-      {label}
+    <Badge size="sm" radius="xl" tt="uppercase" variant="default">
+      {ROLE_LABEL[role]}
     </Badge>
   );
 }
@@ -41,26 +38,26 @@ function initials(name: string): string {
   return (first + last).toUpperCase();
 }
 
-/** You on the right: name, role badge, avatar. With no forge user rt cannot
-    tell who you are, so there is no name, only the badge. */
+/** You on the right: your name, then your role. With no forge user rt
+    cannot tell who you are, so there is no name, only the badge. */
 function Who({ viewer }: { viewer: Viewer }) {
   const label = viewer.name ?? viewer.username;
   return (
     <Group
-      gap={10}
+      gap={8}
       wrap="nowrap"
       data-testid="settings-viewer"
       style={{ flex: 'none' }}
     >
       {label && (
-        <Text fz={13} fw={500} style={{ whiteSpace: 'nowrap' }}>
-          {label}
-        </Text>
+        <Group gap={6} wrap="nowrap">
+          <Icons.user size={14} />
+          <Text fz={13} fw={500} style={{ whiteSpace: 'nowrap' }}>
+            {label}
+          </Text>
+        </Group>
       )}
       <RoleBadge role={viewer.role} />
-      <Avatar size={30} radius="xl" color="cyan" variant="light">
-        {label ? initials(label) : <Icons.user size={15} />}
-      </Avatar>
     </Group>
   );
 }
@@ -114,14 +111,12 @@ function TeamMenu({
   owners,
   ownTeam,
   team,
-  other,
   onPick,
 }: {
   teams: string[];
   owners: Record<string, string[]>;
   ownTeam: string | null;
   team: string;
-  other: boolean;
   onPick: (team: string | null) => void;
 }) {
   const items: TeamItem[] = teams.map(t => ({
@@ -134,13 +129,13 @@ function TeamMenu({
     <SearchableMenu<TeamItem>
       menuTrigger={
         <Button
-          size="sm"
-          variant={other ? 'light' : 'subtle'}
-          color={other ? 'purple' : 'gray'}
-          fz={14}
+          size="compact-sm"
+          radius="xl"
+          variant="light"
+          color="purple"
           className={classes.trigger}
           aria-label={`team: ${team}, switch team`}
-          leftSection={<Icons.users size={15} />}
+          leftSection={<Icon name="team" size={14} />}
           rightSection={<Icons.chevronsUpDown size={14} />}
         >
           {team}
@@ -148,7 +143,7 @@ function TeamMenu({
       }
       items={items}
       title="Teams"
-      titleIcon={<Icons.users size={14} />}
+      titleIcon={<Icon name="team" size={14} />}
       itemTitle={item => item.name}
       itemSubtitle={item => <OwnersLine item={item} />}
       itemTitleSuffix={item =>
@@ -192,19 +187,25 @@ export function SettingsContextBar({
   other: boolean;
   onPickTeam: (team: string | null) => void;
 }) {
-  const { text } = useSchemeColors();
   if (!viewer || viewer.role === 'none' || !org)
     return viewer ? <Who viewer={viewer} /> : null;
   const canSwitch = viewer.teams.length > 1;
   return (
     <Group justify="space-between" wrap="nowrap" w="100%" gap={16}>
       <Group gap={10} wrap="nowrap" miw={0}>
-        <Group gap={8} wrap="nowrap" c={text.muted}>
-          <Icon name="building" size={15} />
-          <Text fz={14} c={text.muted}>
-            {org}
-          </Text>
-        </Group>
+        {/* The org in its scope's gold, the same as its org badges. */}
+        <Badge
+          size="md"
+          h={22}
+          color="gold"
+          variant="light"
+          tt="none"
+          fw={500}
+          leftSection={<Icon name="building" size={13} />}
+          style={{ flex: 'none' }}
+        >
+          {org}
+        </Badge>
         {team && (
           <>
             <Text fz={16} c="var(--tk-text-4)" aria-hidden>
@@ -216,12 +217,11 @@ export function SettingsContextBar({
                 owners={viewer.owners ?? {}}
                 ownTeam={ownTeam}
                 team={team}
-                other={other}
                 onPick={onPickTeam}
               />
             ) : (
               <Group gap={7} h={32} wrap="nowrap">
-                <Icons.users size={15} />
+                <Icon name="team" size={14} />
                 <Text fz={14} fw={500}>
                   {team}
                 </Text>
@@ -232,13 +232,14 @@ export function SettingsContextBar({
         {other && ownTeam && (
           <Button
             size="compact-sm"
-            variant="light"
-            color="gray"
+            radius="xl"
+            variant="default"
             leftSection={<Icons.arrowLeft size={13} />}
+            aria-label={`back to your team, ${ownTeam}`}
             onClick={() => onPickTeam(null)}
             style={{ flex: 'none' }}
           >
-            {`Back to your team (${ownTeam})`}
+            {`Back to ${ownTeam}`}
           </Button>
         )}
       </Group>

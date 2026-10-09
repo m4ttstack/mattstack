@@ -5,6 +5,7 @@ import {
   Button,
   Chip,
   CloseButton,
+  Divider,
   Group,
   Kbd,
   NavLink,
@@ -82,16 +83,20 @@ function Index({
     <Box component="nav" aria-label="settings groups" p="12px 12px 20px 16px">
       {TIERS.map((tier, i) => (
         <Box key={tier}>
-          <Text
-            fz={12}
-            fw={500}
-            c="var(--tk-text-3)"
-            px={8}
+          <Divider
+            label={TIER_LABEL[tier]}
+            labelPosition="left"
+            pl={8}
             pt={i === 0 ? 8 : 20}
-            pb={4}
-          >
-            {TIER_LABEL[tier]}
-          </Text>
+            pb={6}
+            styles={{
+              label: {
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--tk-text-1)',
+              },
+            }}
+          />
           {sections
             .filter(s => s.group.tier === tier)
             .map(s => {
@@ -103,19 +108,6 @@ function Index({
                   href={`#${s.group.id}`}
                   label={s.group.label}
                   active={current}
-                  leftSection={
-                    <Box
-                      component="span"
-                      aria-hidden
-                      w={7}
-                      h={7}
-                      style={{
-                        flex: 'none',
-                        borderRadius: '50%',
-                        border: '1.5px solid var(--tk-line-1)',
-                      }}
-                    />
-                  }
                   disabled={empty}
                   aria-disabled={empty || undefined}
                   tabIndex={empty ? -1 : undefined}
@@ -127,13 +119,11 @@ function Index({
                   styles={{
                     root: {
                       height: 30,
-                      padding: '0 8px 0 20px',
+                      padding: '0 8px 0 16px',
                       borderRadius: 4,
-                      background: current ? 'var(--tk-raised)' : undefined,
-                      color:
-                        current || (filtering && !empty)
-                          ? 'var(--tk-text-1)'
-                          : 'var(--tk-text-2)',
+                      // The active item takes NavLink's own light primary
+                      // fill and text; the rest read in body text.
+                      color: current ? undefined : 'var(--tk-text-1)',
                       opacity: empty ? 0.45 : undefined,
                       marginBottom: 2,
                     },
@@ -474,6 +464,7 @@ export function SettingsPage() {
                         ) : (
                           <Box
                             data-testid="settings-list"
+                            data-scope-filter={scope}
                             inert={store.loading}
                             aria-busy={store.loading || undefined}
                             style={{

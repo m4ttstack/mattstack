@@ -11,6 +11,13 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ExplainModal, type ExplainStore } from './ExplainModal';
+import {
+  clickLayerAction,
+  clickNamedLayerAction,
+  closeLayerActions,
+  layerAction,
+  namedLayerAction,
+} from './layerActions.testutil';
 import { schemaFields } from './testSchemas';
 import { SettingsRepoContext } from './useConsoleSettings';
 
@@ -147,11 +154,11 @@ describe('ExplainModal', () => {
     expect(screen.queryByTestId('layer-team')).toBeNull();
     expect(screen.queryByTestId('layer-machine')).toBeNull();
     expect(
-      within(user).queryByRole('button', { name: /^set rt\.logDir/ })
-    ).toBeNull();
-    expect(
-      within(user).getByRole('button', { name: 'remove rt.logDir from user' })
+      await layerAction(user, 'remove rt.logDir from user')
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: /^set rt\.logDir/ })
+    ).toBeNull();
   });
 
   it('opens on the Value tab', async () => {
@@ -242,9 +249,7 @@ describe('ExplainModal', () => {
     renderModal(s);
     await toWhere();
 
-    const remove = await screen.findByRole('button', {
-      name: `remove ${KEY} from machine`,
-    });
+    const remove = await namedLayerAction(`remove ${KEY} from machine`);
     expect(explainGet).toHaveBeenCalledTimes(1);
     await userEvent.click(remove);
 
@@ -258,11 +263,12 @@ describe('ExplainModal', () => {
     await toWhere();
 
     await screen.findByTestId('layer-machine');
+    expect(screen.queryByTestId('layer-team')).toBeNull();
     expect(
-      screen.queryByRole('button', { name: `remove ${KEY} from team` })
-    ).not.toBeInTheDocument();
+      screen.queryByRole('button', { name: `actions for ${KEY} at team` })
+    ).toBeNull();
     expect(
-      screen.getByRole('button', { name: `remove ${KEY} from user` })
+      await namedLayerAction(`remove ${KEY} from user`)
     ).toBeInTheDocument();
   });
 
@@ -272,9 +278,7 @@ describe('ExplainModal', () => {
     renderModal(s);
     await toWhere();
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: `remove ${KEY} from user` })
-    );
+    await clickNamedLayerAction(`remove ${KEY} from user`);
     expect(await screen.findByText('store is read-only')).toBeInTheDocument();
     await waitFor(() => expect(explainGet).toHaveBeenCalledTimes(2));
   });
@@ -287,9 +291,7 @@ describe('ExplainModal', () => {
     renderModal(s);
     await toWhere();
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: `set ${KEY} at user` })
-    );
+    await clickNamedLayerAction(`set ${KEY} at user`);
     const input = within(screen.getByTestId('layer-user')).getByRole(
       'textbox',
       { name: KEY }
@@ -301,9 +303,10 @@ describe('ExplainModal', () => {
     await waitFor(() => expect(explainGet).toHaveBeenCalledTimes(2));
     await waitFor(() =>
       expect(
-        screen.getByRole('button', { name: `set ${KEY} at user` })
-      ).toBeInTheDocument()
+        within(screen.getByTestId('layer-user')).queryByRole('textbox')
+      ).toBeNull()
     );
+    expect(await namedLayerAction(`set ${KEY} at user`)).toBeInTheDocument();
   });
 
   it('Escape inside an edit reverts it without closing the modal', async () => {
@@ -311,9 +314,7 @@ describe('ExplainModal', () => {
     const { onClose } = renderModal(store());
     await toWhere();
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: `set ${KEY} at user` })
-    );
+    await clickNamedLayerAction(`set ${KEY} at user`);
     const input = within(screen.getByTestId('layer-user')).getByRole(
       'textbox',
       { name: KEY }
@@ -348,11 +349,7 @@ describe('ExplainModal', () => {
     const { onClose } = renderModal(s, 'rt.runsPruneDays');
     await toWhere();
 
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: 'set rt.runsPruneDays at machine',
-      })
-    );
+    await clickNamedLayerAction('set rt.runsPruneDays at machine');
     const input = within(screen.getByTestId('layer-machine')).getByRole(
       'textbox',
       { name: 'rt.runsPruneDays' }
@@ -398,11 +395,7 @@ describe('ExplainModal', () => {
     );
     await toWhere();
 
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: 'set rt.notify.eventBridges at user',
-      })
-    );
+    await clickNamedLayerAction('set rt.notify.eventBridges at user');
     const layer = screen.getByTestId('layer-user');
     within(layer).getByRole('radio', { name: 'Form' }).focus();
     await userEvent.keyboard('{Escape}');
@@ -437,9 +430,7 @@ describe('ExplainModal', () => {
     const { onClose } = renderModal(s, 'rt.flag');
     await toWhere();
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'set rt.flag at user' })
-    );
+    await clickNamedLayerAction('set rt.flag at user');
     const layer = screen.getByTestId('layer-user');
     within(layer).getByRole('switch', { name: 'rt.flag' }).focus();
     await userEvent.keyboard('{Escape}');
@@ -540,9 +531,7 @@ describe('ExplainModal', () => {
     );
     expect(layer).not.toHaveTextContent('nightly-sync');
 
-    await userEvent.click(
-      within(layer).getByRole('button', { name: 'set rt.cron at machine' })
-    );
+    await clickLayerAction(layer, 'set rt.cron at machine');
     const json = within(layer).getByRole('textbox', { name: 'JSON' });
     expect(json).toHaveValue(JSON.stringify(LONG, null, 2));
   });
@@ -570,11 +559,7 @@ describe('ExplainModal', () => {
     renderModal(store({ defs: [BRIDGES] }), 'rt.notify.eventBridges');
     await toWhere();
 
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: 'set rt.notify.eventBridges at user',
-      })
-    );
+    await clickNamedLayerAction('set rt.notify.eventBridges at user');
     const layer = screen.getByTestId('layer-user');
     expect(
       within(layer).getByText('Editing the user layer')
@@ -627,17 +612,13 @@ describe('ExplainModal', () => {
     await toWhere();
 
     const layer = await screen.findByTestId('layer-user');
-    expect(
-      within(layer).queryByRole('button', {
-        name: `set ${APPROVAL.key} at user`,
-      })
-    ).toBeNull();
     expect(within(layer).queryByRole('textbox')).toBeNull();
     expect(
-      within(layer).getByRole('button', {
-        name: `remove ${APPROVAL.key} from user`,
-      })
+      await layerAction(layer, `remove ${APPROVAL.key} from user`)
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: `set ${APPROVAL.key} at user` })
+    ).toBeNull();
   });
 });
 
@@ -703,19 +684,20 @@ describe('with a repo picked', () => {
     );
     await toWhere();
 
-    const globalRemove = await screen.findByRole('button', {
-      name: `remove ${REPO_KEY} from team`,
-    });
-    const rungRemove = screen.getByRole('button', {
-      name: `remove ${REPO_KEY} from team · repo`,
-    });
-    expect(globalRemove).not.toBe(rungRemove);
-
+    const global = await screen.findByTestId('layer-team');
+    const rung = screen.getByTestId('layer-team.repo');
     expect(
-      screen.getByRole('button', { name: `set ${REPO_KEY} at team` })
+      await layerAction(global, `remove ${REPO_KEY} from team`)
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: `set ${REPO_KEY} at team · repo` })
+      screen.getByRole('menuitem', { name: `set ${REPO_KEY} at team` })
+    ).toBeInTheDocument();
+    await closeLayerActions(global);
+    expect(
+      await layerAction(rung, `remove ${REPO_KEY} from team · repo`)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: `set ${REPO_KEY} at team · repo` })
     ).toBeInTheDocument();
   });
 
@@ -734,11 +716,7 @@ describe('with a repo picked', () => {
     );
     await toWhere();
 
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: `set ${REPO_KEY} at team · repo`,
-      })
-    );
+    await clickNamedLayerAction(`set ${REPO_KEY} at team · repo`);
     const layer = screen.getByTestId('layer-team.repo');
     const input = within(layer).getByRole('textbox', { name: REPO_KEY });
     await userEvent.clear(input);
