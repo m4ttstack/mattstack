@@ -35,8 +35,7 @@ import { answerFingerprint } from "../agent-integrations/questions.ts";
 import { deliverToInbox, wrapCrossSession } from "./inbox.ts";
 import type { GateRow, GateSubscription, GatesStore } from "./gates-store.ts";
 import { GATE_BY_PANE, answeredBySession } from "./gates-store.ts";
-import type { EscapeInjector, PaneStatusProbe } from "./gate-escape.ts";
-import type { PaneHints } from "./pane-resolve-live.ts";
+import type { EscapeInjector, PaneHints, PaneStatusProbe } from "./pane-hints.ts";
 
 /** Shared hint-construction for the Escape injector here and for the
     answer-time executor guarantee (handlers/gate.ts): origin.paneId wins

@@ -1,11 +1,9 @@
 import { herdrRequest } from "../herdr/client.ts";
 import { hasQuestionForm } from "../agent-integrations/claude/questions.ts";
-import { resolveLivePane, snapshotPanes, type LivePane, type PaneHints } from "./pane-resolve-live.ts";
+import type { EscapeInjector, LivePane, PaneStatusProbe } from "./pane-hints.ts";
+import { resolveLivePane, snapshotPanes } from "./pane-resolve-live.ts";
 
-export type EscapeInjector = (
-  hints: PaneHints,
-  opts?: { paneRef?: string },
-) => Promise<{ ok: true; paneRef: string } | { ok: false; error: string }>;
+export type { EscapeInjector, PaneStatusProbe } from "./pane-hints.ts";
 
 /** Drives herdr's existing pane.send_keys verb; deliberately NOT
     injectIntoPane, which refuses blocked panes, and a pane holding a
@@ -37,8 +35,6 @@ export function createEscapeInjector(deps: {
       : { ok: false as const, error: `${res.code}: ${res.message}` };
   };
 }
-
-export type PaneStatusProbe = (hints: PaneHints) => Promise<{ paneRef: string; status: LivePane["agentStatus"] } | null>;
 
 /** The pane's visible screen text via herdr's pane.read; throws when the
     read fails. */

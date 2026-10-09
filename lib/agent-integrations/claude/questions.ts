@@ -15,10 +15,9 @@
 import type { Logger } from "pino";
 import type { FaultCode, Outcome, QuestionBinding, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { resolveLiveInbox } from "../../claude-registry.ts";
-import type { EscapeInjector, PaneStatusProbe } from "../../daemon/gate-escape.ts";
 import { answeredByNudgedPane, answeredBySession, type GateRow } from "../../daemon/gates-store.ts";
 import { deliverToInbox, wrapCrossSession } from "../../daemon/inbox.ts";
-import type { PaneHints } from "../../daemon/pane-resolve-live.ts";
+import type { EscapeInjector, PaneHints, PaneStatusProbe } from "../../daemon/pane-hints.ts";
 import type { QuestionAdapter } from "../contracts.ts";
 import type { CompletionPath, CompletionState } from "../question-store.ts";
 import { installedModLinks, MOD_COMMAND_ACK_MS, pushModCommand, type ModLinks } from "./mod-links.ts";

@@ -3,12 +3,9 @@ import { herdrRequest, herdrSocketPath } from "../herdr/client.ts";
 import { bgSocketPath } from "./bg-service.ts";
 import type { HerdrSnapshot } from "./handlers/pane.ts";
 
-export interface PaneHints { paneId?: string; sessionId?: string; worktree?: string }
-export interface LivePane {
-  paneRef: string; sockPath: string; workspaceId: string;
-  agentStatus: "idle" | "working" | "blocked" | "done" | "unknown";
-  cwd?: string; sessionId?: string;
-}
+import type { LivePane, PaneHints } from "./pane-hints.ts";
+
+export type { LivePane, PaneHints } from "./pane-hints.ts";
 
 function normalizePath(p: string): string {
   const trimmed = p.replace(/\/+$/, "");
