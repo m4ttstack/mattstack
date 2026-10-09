@@ -13,7 +13,7 @@ codec is not yours to write.
 
 1. Identities come from `@mattstack/rt-client` (`deriveRepoIdentity`,
    `serializeIdentity`, `parseIdentity`, `identityFromRemote`), the private
-   workspace package every app links — never re-derive with your own git
+   workspace package every app links. Never re-derive with your own git
    calls, URL surgery, or basename. Inside the mattstack repo itself, import
    the same helpers from `lib/settings/identity.ts`.
 2. The SERIALIZED wire form (`remote:gitlab.com%2Fgroup%2Frepo` /
