@@ -32,6 +32,7 @@ import { createAgentService } from "./handlers/agent.ts";
 import { createPaneHandlers } from "./handlers/pane.ts";
 import { createAgentIntegrationHandlers } from "./handlers/agent-integrations.ts";
 import { createModSessionHandlers } from "./handlers/mod-session.ts";
+import { createPolicyHandlers } from "./handlers/policy.ts";
 import { pushModCommand, type ModLinks } from "../agent-integrations/claude/mod-links.ts";
 import { handOverWaitGate } from "../agent-integrations/claude/questions.ts";
 import { claudeModOwns } from "../agent-integrations/claude/sessions.ts";
@@ -296,6 +297,9 @@ export function buildRoutedHandlers(opts: {
     ...agentHandlers,
     ...createAgentIntegrationHandlers({ integrations }),
     ...createModSessionHandlers({ links: opts.modLinks }),
+    ...createPolicyHandlers({
+      links: opts.modLinks, db: opts.stateDb, forkCheck: (payload) => gateHandlers["gate:fork-check"](payload),
+    }),
     ...paneHandlers,
     ...createEndpointHandlers({ log: ctx.log, repoIndex: ctx.repoIndex }),
     ...createSettingsHandlers(),

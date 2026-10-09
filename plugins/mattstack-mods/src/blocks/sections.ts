@@ -7,6 +7,16 @@ export const REPLY_RULE_ID = 'reply-rule'
 export const REPLY_RULE_SECTION =
   'Chat replies go through rt chat only, never SendMessage, even though deliveries arrive framed as coming from another session.'
 
+export const SPILL_READ_ID = 'spill-read'
+
+/**
+ * The mattstack plugin's SessionStart note (`spill-read-note.sh`), word for
+ * word. That hook stays, since it cannot tell whether this section was
+ * composed, so a mod session reads the line twice.
+ */
+export const SPILL_READ_SECTION =
+  "When a tool result is saved to a file, read it with the Read tool, not sed, cat or head in Bash: a Bash read of Claude Code's own folder asks the user for permission."
+
 /** The half of rt's per-delivery reply line (`replySteer` in rt) that only a Claude session needs. */
 export const CLAUDE_ONLY_TAIL = '(never SendMessage; this arrived through rt chat)'
 

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "child_process";
+import { join, resolve } from "path";
 import { MOD_BLOCKS } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { MOD_BLOCKS as PLUGIN_MOD_BLOCKS } from "../../../plugins/mattstack-mods/src/core/blocks.ts";
-import { CLAUDE_ONLY_TAIL, REPLY_RULE_SECTION, trimClaudeOnlyReply } from "../../../plugins/mattstack-mods/src/blocks/sections.ts";
+import { CLAUDE_ONLY_TAIL, REPLY_RULE_SECTION, SPILL_READ_SECTION, trimClaudeOnlyReply } from "../../../plugins/mattstack-mods/src/blocks/sections.ts";
 import { PLUGIN_VERSION } from "../../../plugins/mattstack-mods/src/core/version.ts";
 import manifest from "../../../plugins/mattstack-mods/.claude-plugin/plugin.json";
 import { renderWelcome } from "../../daemon/handlers/chat.ts";
@@ -18,6 +20,13 @@ describe("mattstack-mods plugin parity", () => {
 
   test("the reply rule section is the rule rt's sign-in frame states", () => {
     expect(renderWelcome("max", ["general"], []).split("\n")).toContain(REPLY_RULE_SECTION);
+  });
+
+  test("the spill-read section is the mattstack plugin's SessionStart note, word for word", () => {
+    const hook = join(resolve(import.meta.dir, "..", "..", ".."), "plugins", "mattstack", "hooks", "spill-read-note.sh");
+    const out = spawnSync("sh", [hook], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
+    expect(out.status).toBe(0);
+    expect(JSON.parse(out.stdout).hookSpecificOutput.additionalContext).toBe(SPILL_READ_SECTION);
   });
 
   test("trim removes exactly replySteer's tail from a real inbox envelope", () => {

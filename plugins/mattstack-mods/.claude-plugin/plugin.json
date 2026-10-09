@@ -1,6 +1,6 @@
 {
   "name": "mattstack-mods",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Claude Code mod for the mattstack harness integrations; installed by rt only when agent integrations are on.",
   "author": {
     "name": "Matthew Goodwin"

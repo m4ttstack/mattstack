@@ -942,6 +942,25 @@ export interface Commands {
   "session:delivered": { payload: { linkId: string; deliveryId: string }; data: Record<string, never> };
   /** Sends the command `kind` to the session's mod; `acked` is false when no ack came within 5 s. */
   "session:push": { payload: { sessionId: string; kind: string; data?: unknown }; data: { acked: boolean } };
+  /**
+   * The mod's `policy` block asks the shared workflow policy before a native
+   * question (`ask`) or a run tool that moves (`continue`) or ends
+   * (`complete`) the run whose store is `subject`. The caller is the session
+   * `linkId` is the live link of, at the directory and pane the link
+   * recorded; an `ask` files under the binding's own gate subject, so it
+   * takes no `subject`. `none` is no decision (no bound session). A policy
+   * that cannot decide fails with "transient"; a link of another session or
+   * without the block, with "refused"; an unknown link, with "unknown-link".
+   */
+  "policy:authorize": {
+    payload: { linkId: string; sessionId: string; action: "ask" | "continue" | "complete"; subject?: string };
+    data: { decision: "allow" | "refuse" | "none"; reason?: string };
+  };
+  /** The mod's `stop-gate` block asks whether its session may end its turn; failures as `policy:authorize`. */
+  "policy:stop": {
+    payload: { linkId: string; sessionId: string };
+    data: { decision: "allow" | "continue" | "none"; reason?: string; runId?: string; stage?: string };
+  };
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read": { payload: { branches?: string[]; maxAgeMs?: number; repoIdentity?: string }; data: Record<string, BranchEnrichment> };
@@ -1301,6 +1320,8 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "session:report",
   "session:delivered",
   "session:owned",
+  "policy:authorize",
+  "policy:stop",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",

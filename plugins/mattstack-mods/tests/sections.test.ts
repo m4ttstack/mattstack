@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { register } from '../hooks/register.ts'
-import { CLAUDE_ONLY_TAIL, REPLY_RULE_SECTION, trimClaudeOnlyReply } from '../src/blocks/sections.ts'
+import { CLAUDE_ONLY_TAIL, REPLY_RULE_SECTION, SPILL_READ_SECTION, trimClaudeOnlyReply } from '../src/blocks/sections.ts'
 import { flush, harness as stub, type Respond } from './stub.ts'
 
 /** The plugin as hooks.json loads it, over the stubbed engine. */
@@ -23,6 +23,8 @@ const ENGINE_SECTIONS = [
   { id: 'memory', text: 'Remember things.', scope: 'session' },
 ]
 const REPLY_SECTION = { id: 'mattstack-mods:reply-rule', text: REPLY_RULE_SECTION, scope: 'session' }
+const SPILL_SECTION = { id: 'mattstack-mods:spill-read', text: SPILL_READ_SECTION, scope: 'session' }
+const CORE_SECTIONS = [REPLY_SECTION, SPILL_SECTION]
 
 function compose(h: ReturnType<typeof stub>, traits: string[] = []) {
   const e = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal'], tools: [], outputStyle: null, traits }
@@ -51,7 +53,7 @@ describe('reply rule section', () => {
     await h.sessionStart('startup')
     expect(h.state.get('sectionComposed')).not.toBe(true)
 
-    expect(await compose(h)).toEqual({ sections: [...ENGINE_SECTIONS, REPLY_SECTION] })
+    expect(await compose(h)).toEqual({ sections: [...ENGINE_SECTIONS, ...CORE_SECTIONS] })
     expect(h.state.get('sectionComposed')).toBe(true)
 
     const { queued } = await deliver(h)
@@ -71,12 +73,28 @@ describe('reply rule section', () => {
     expect(h.state.get('sectionComposed')).toBe(true)
   })
 
+  test('the spill-read section is present for a new conversation', async () => {
+    for (const opening of [(h: ReturnType<typeof stub>) => h.sessionStart('startup'), (h: ReturnType<typeof stub>) => h.clear('sess-2')]) {
+      const h = harness()
+      await h.start()
+      await opening(h)
+      const { sections } = await compose(h)
+      expect(sections.filter((s: { id: string }) => s.id === 'mattstack-mods:spill-read')).toEqual([SPILL_SECTION])
+    }
+
+    // The note is not a block's: a session whose daemon keeps no block still gets it.
+    const h = harness({ respond: keepNoBlocks })
+    await h.start()
+    await h.sessionStart('startup')
+    expect((await compose(h)).sections).toContainEqual(SPILL_SECTION)
+  })
+
   test('a resumed conversation without the marker keeps the full reply line', async () => {
     for (const source of ['resume', 'fork']) {
       const h = harness()
       await h.start()
       await h.sessionStart(source)
-      expect(await compose(h)).toEqual({ sections: [...ENGINE_SECTIONS, REPLY_SECTION] })
+      expect(await compose(h)).toEqual({ sections: [...ENGINE_SECTIONS, ...CORE_SECTIONS] })
       expect(h.state.get('sectionComposed')).not.toBe(true)
       const { delivery, queued } = await deliver(h)
       expect(queued).toBe(delivery)
@@ -111,7 +129,7 @@ describe('reply rule section', () => {
     expect(await compose(h, ['teammate'])).toEqual({ sections: ENGINE_SECTIONS })
     expect(await compose(h, ['skills', 'teammate'])).toEqual({ sections: ENGINE_SECTIONS })
     expect(h.state.get('sectionComposed')).not.toBe(true)
-    expect(await compose(h, ['skills'])).toEqual({ sections: [...ENGINE_SECTIONS, REPLY_SECTION] })
+    expect(await compose(h, ['skills'])).toEqual({ sections: [...ENGINE_SECTIONS, ...CORE_SECTIONS] })
     expect(h.state.get('sectionComposed')).toBe(true)
   })
 
@@ -124,7 +142,7 @@ describe('reply rule section', () => {
     const { delivery, queued } = await deliver(h)
     expect(queued).toBe(delivery)
 
-    expect(await compose(h)).toEqual({ sections: [...ENGINE_SECTIONS, REPLY_SECTION] })
+    expect(await compose(h)).toEqual({ sections: [...ENGINE_SECTIONS, ...CORE_SECTIONS] })
     expect(h.state.get('sectionComposed')).toBe(true)
   })
 
