@@ -6,8 +6,9 @@ footguns first.
 ## Distribution reality
 
 - The pipeline is proven: its first shipped release was `v2.8.0` (2026-09-01), a signed,
-  notarized `mattstack.app` as dmg + zip + `appcast.xml` + `SHA256SUMS`, release body from the
-  committed `RELEASE_NOTES.md`. For the newest tag, ask `gh release list -R m4ttstack/mattstack`,
+  notarized `mattstack.app` as dmg + zip + `appcast.xml` + `SHA256SUMS` (plus
+  `mattstack-dev-<ver>.zip` and its sums line once update-machine's dev-publish leg runs), release
+  body from the committed `RELEASE_NOTES.md`. For the newest tag, ask `gh release list -R m4ttstack/mattstack`,
   not this document.
 - There is no homebrew tap and no standalone CLI tarball. `rt` is the binary at
   `Contents/MacOS/rt` inside the bundle; updates flow through Sparkle.
@@ -22,8 +23,10 @@ footguns first.
 ## Key material (verify, don't assume)
 
 - Secrets on `m4ttstack/mattstack`: check with `gh secret list -R m4ttstack/mattstack`
-  (`APPLE_CERT_P12_BASE64`, `APPLE_CERT_P12_PASSWORD`, `APPLE_ID`, `APPLE_ID_PASSWORD`,
-  `APPLE_TEAM_ID`, `SPARKLE_ED_KEY`, `MARKETPLACE_TOKEN`).
+  (`APPLE_CERT_P12_BASE64`, `APPLE_CERT_P12_PASSWORD`, `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`,
+  `APPLE_API_ISSUER_ID`, `APPLE_ID`, `APPLE_ID_PASSWORD`, `APPLE_TEAM_ID`, `SPARKLE_ED_KEY`,
+  `MARKETPLACE_TOKEN`); `release.yml` passes the API key set and the Apple ID set, and
+  `notarize.sh` prefers the API key.
 - Sparkle EdDSA: public key committed at `rt-tray/SUPublicEDKey`; private key in the login
   keychain (`security find-generic-password -s "Sparkle EdDSA Private Key"`) and the gh secret.
   `generate_keys` never regenerates an existing key; `-x <file>` re-exports it. If every copy is

@@ -119,8 +119,8 @@ digraph sdm_connect {
     "Pick from the full list?" -> "Not connected: the user declined or chose none" [label="none of them"];
     "Chosen connection already live and no reconnect asked?" -> "Report the tunnel" [label="yes: connected is true"];
     "Chosen connection already live and no reconnect asked?" -> "Chosen connection is production?" [label="no"];
-    "Chosen connection is production?" -> "rt sdm connect '<key>' --json" [label="no"];
-    "Chosen connection is production?" -> "Production: attended session?" [label="yes"];
+    "Chosen connection is production?" -> "rt sdm connect '<key>' --json" [label="no: production is false"];
+    "Chosen connection is production?" -> "Production: attended session?" [label="yes: production is true"];
     "Chosen connection is production?" -> "STOP: confirm production only on the user's yes to that question" [label="tempted to confirm production on an earlier blanket yes"];
     "STOP: confirm production only on the user's yes to that question" -> "Production: attended session?";
     "Production: attended session?" -> "AskUserQuestion {questions}: this is production, connect?" [label="yes"];
@@ -162,8 +162,14 @@ recorded answer. When `gate_ask` returns `presentation: wait`, run
 
 ### Match the request against label, tier and key
 
-"staging" matches a connection whose `tier` or `label` says staging; a
-named database matches on `label` or `key`. Count a connection as plausible
+A connection's `label` is built from its StrongDM tags, as "<carrier> <env>
+<domain> <access>", and its `tier` from the `env` tag (`dev` reads
+development, `prod` reads production), so "staging" matches a connection
+whose `tier` or `label` says staging, a carrier's name matches on `label`,
+and a named database matches on `label` or `key`. The envelope's
+`production` boolean, true for any resource tagged `env=prod` unless the
+team's `sdm.resources` setting turns it off, is what decides the production
+confirmation; never judge production from the words in a label. Count a connection as plausible
 only when a reasonable person would accept it for the words the user used.
 Two plausible connections are two environments: never pick one because the
 user is in a hurry.
@@ -213,8 +219,9 @@ and suggest retrying their query. Never paste the whole envelope.
   command to run in a terminal; the SAML hop is theirs.
 - `health: "error"` with `appRunning: false` is fine: connect launches the
   desktop app itself and waits for it.
-- `rt sdm connect` defaults to 8h and the enrichment-authored reason: omit
-  `--duration` and `--reason`. Pass `--duration` only when the user asked
+- `rt sdm connect` defaults to 8h and the envelope's `defaultReason` (the
+  `reasonSuggestion` from the team's `sdm.resources` setting, else
+  "investigating <label> data"): omit `--duration` and `--reason`. Pass `--duration` only when the user asked
   for one, and only a value from the envelope's `durations`.
 - `connected: true` in the connections envelope means a tunnel is already
   live at `address`: report it instead of reconnecting, unless the user

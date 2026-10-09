@@ -11,10 +11,11 @@ codec is not yours to write.
 
 ## The contract
 
-1. Identities come from `@mattstack/rt-client` 0.4.0+ (`deriveRepoIdentity`,
-   `serializeIdentity`, `parseIdentity`, `identityFromRemote`) — never
-   re-derive with your own git calls, URL surgery, or basename. Inside
-   repo-tools itself, import the same helpers from `lib/settings/identity.ts`.
+1. Identities come from `@mattstack/rt-client` (`deriveRepoIdentity`,
+   `serializeIdentity`, `parseIdentity`, `identityFromRemote`), the private
+   workspace package every app links. Never re-derive with your own git
+   calls, URL surgery, or basename. Inside the mattstack repo itself, import
+   the same helpers from `lib/settings/identity.ts`.
 2. The SERIALIZED wire form (`remote:gitlab.com%2Fgroup%2Frepo` /
    `path:%2Fabs%2Fpath` — kind, literal colon, encodeURIComponent'd id,
    slash-free) keys state.db tables and kv, daemon payloads, REST path
@@ -37,7 +38,10 @@ codec is not yours to write.
 
 Legacy state heals itself: the daemon boot migration re-keys old stores
 one-shot, the repo index heals additively, and `rt repos prune` collapses
-leftover name/identity pairs. An empty result for a repo you know exists
+leftover name/identity pairs. A moved folder is `rt repos locate`, and a
+renamed remote (so the identity itself changed) is `rt repos reidentify`;
+one identity is one index row, so an ordinary checkout of the org repo and
+the org clone share one. An empty result for a repo you know exists
 means wrong key form or an untouched legacy row — resolve through rt-client,
 never name-match around it.
 
@@ -45,6 +49,6 @@ never name-match around it.
 
 | Need | Read |
 |---|---|
-| Full contract: derivation rules, verb families, legacy re-key/heal/prune, footguns | `docs/repo-identity.md` in the checkout this skill symlinks from (here: `~/Documents/GitHub/mattstack`) |
+| Full contract: derivation rules, verb families, legacy re-key/heal/prune, footguns | `docs/repo-identity.md` in the mattstack checkout (on a dev Mac the one `rt dev setup` recorded, else `~/Documents/GitHub/mattstack`) |
 | Settings scopes, registry checklist, adding a repo-scoped key | `docs/settings-architecture.md`, same checkout |
-| Codec signatures + copy-paste example while standing in a consumer repo | `node_modules/@mattstack/rt-client/README.md` (from that repo's root) |
+| Codec signatures + copy-paste example | `packages/rt-client/README.md`, same checkout |

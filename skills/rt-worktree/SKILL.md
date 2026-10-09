@@ -13,10 +13,13 @@ of the guarded disposal, freshening, or auto-cleanup.
 Two graphs: starting work in a tree, and finishing or recovering one.
 
 An **attended** session has a human at this pane's prompt: ask with
-`AskUserQuestion`. A pane that a herd, a board or a pipeline launched is
-unattended: ask with `gate_ask {questions, context}` and act only on the
-recorded answer. When `gate_ask` returns `presentation: wait`, run
-`rt gate wait <id>` as a background Bash command and end the turn. Every
+`AskUserQuestion`. A herd worker asks with `herd_ask`, as its brief says. A
+pane a board or a pipeline launched is unattended: ask with
+`gate_ask {questions, context}` and act only on the recorded answer. When
+`gate_ask` returns `presentation: form`, ask it in the pane with
+`AskUserQuestion` and record the answer with `gate_answer {id, answers}`;
+when it returns `presentation: wait`, run `rt gate wait <id>` as a
+background Bash command and end the turn. Every
 gate below offers the same four answers: **take** (the move the gate
 proposes), **iterate** (Matt fixed the cause; try the same call again),
 **hold** (end the turn, nothing moved) and **hand back** (Matt takes it
@@ -206,7 +209,9 @@ whether Claude Code's `EnterWorktree` is routed through rt. When it is,
 into the tree, promptless; non-rt repos fall back to stock
 `.claude/worktrees`. When the hook is not installed, or a path is needed
 before entering, provision explicitly and enter the result's `path` by path
-mode, which always prompts. When name mode lands in a stock
+mode, which prompts; with `panes.relocationAutoAccept` on, rt answers that
+prompt itself for a path in its registry once the mattstack plugin's hook
+has announced it. When name mode lands in a stock
 `.claude/worktrees` tree, the session is inside it: leave it with
 `ExitWorktree {action: keep}`, then provision and enter by path.
 
@@ -215,13 +220,14 @@ mode, which always prompts. When name mode lands in a stock
 `worktree_provision` claims a tree and returns its path: by ticket
 (`{repoName, ticket, ticketTitle}`) or by branch (`{repoName, branch}`).
 Repos can opt into a warm pool ("on-deck" trees) that makes claiming
-instant; without one, provision creates fresh. `rt worktree create`
-pre-warms the pool; it is not how work starts. Provision returns as soon as
+instant; without one, provision creates fresh. `rt worktree create
+--on-deck` pre-warms the pool (without the flag it claims a tree); neither
+is how work starts. Provision returns as soon as
 the branch is checked out; dependency steps the branch triggers (install,
 migrations) keep running in the background, reported as `readyPending`, and
 a step that fails surfaces at await-ready. `readyHeld: true` rides beside
-the path: enter the tree anyway, and note in the pane that the team's ready
-steps wait on approval.
+the path: enter the tree anyway, and note in the pane that the org's or
+team's ready steps wait on approval.
 
 ### Provision refused: attended session?
 
@@ -254,8 +260,8 @@ Never poll the worktree list for readiness.
 
 ### Surface the held ready steps to Matt
 
-The list's `readyHeldRepos` names a repo whose team-authored `ready` steps
-are held pending approval, so await-ready's `ready: true` covers only the
+The list's `readyHeldRepos` names a repo whose shared-scope (org, team,
+org.repo or team.repo) `ready` steps are held pending approval, so await-ready's `ready: true` covers only the
 steps that ran. Only a human clears that: tell Matt to run `rt worktree
 ready-approve <repo>`, and do not work around it.
 
@@ -318,7 +324,7 @@ digraph rt_worktree_finish {
     "rt_verb {args: [worktree, list]}" -> "worktree_dispose {repoName, tree}";
     "worktree_dispose {repoName, tree}" -> "worktree_dispose lists the tree under?";
     "worktree_dispose lists the tree under?" -> "Tree disposed; trash keeps it for the window" [label="disposed"];
-    "worktree_dispose lists the tree under?" -> "Dispose off-script rounds = 2?" [label="refused: dirty or unpushed"];
+    "worktree_dispose lists the tree under?" -> "Dispose off-script rounds = 2?" [label="refused: the result names the reason"];
     "worktree_dispose lists the tree under?" -> "STOP: a refused tree stays until Matt clears the reason" [label="tempted to push or clean it so dispose succeeds"];
     "STOP: a refused tree stays until Matt clears the reason" -> "Dispose off-script rounds = 2?";
     "Dispose off-script rounds = 2?" -> "Dispose refused: attended session?" [label="no: open the gate"];
@@ -341,7 +347,7 @@ digraph rt_worktree_finish {
     "Tree listed as recoverable?" -> "STOP: recovery goes through rt worktree restore; git plumbing is off-script" [label="tempted to recover with git plumbing"];
     "STOP: recovery goes through rt worktree restore; git plumbing is off-script" -> "Restore off-script rounds = 2?";
     "rt worktree restore <tree>" -> "rt worktree restore result?";
-    "rt worktree restore result?" -> "Tree, branch and retained files restored" [label="restored"];
+    "rt worktree restore result?" -> "Tree, branch and retained files restored" [label="restored, or restored with a submodules or ready-step warning: relay its remedy to Matt"];
     "rt worktree restore result?" -> "Restore off-script rounds = 2?" [label="failed"];
     "Restore off-script rounds = 2?" -> "Restore failed: attended session?" [label="no: open the gate"];
     "Restore off-script rounds = 2?" -> "Handed back: Matt takes over the recovery" [label="yes: budget spent"];
@@ -361,14 +367,18 @@ digraph rt_worktree_finish {
 ```
 
 Trees claimed with the default `merge` disposal auto-dispose after their MR
-merges, so cleanup usually needs no command. `worktree_dispose` is the
-manual path, and it is soft: the tree stays in trash for a window. It does
-not error on a dirty or unpushed tree; read the result's `disposed` and
-`refused` lists. `ExitWorktree` never removes an rt tree.
+merges, so cleanup usually needs no command, except in a repo the list
+reports under `mergeCleanupOff` (no forge token, or no branches grant):
+there a merged tree waits for `worktree_dispose`. `worktree_dispose` is
+the manual path, and it is soft: the tree stays in trash for a window. It
+does not error on a tree it will not remove; read the result's `disposed`
+and `refused` lists, each refusal carrying its code (`changed`, `dirty`,
+`unpushed`, `running-run`, `runs-unreadable`, `attended`, `grace`,
+`no-trash`, `remove-failed`, `busy`, `unknown`). `ExitWorktree` never removes an rt tree.
 
 ### Dispose refused: attended session?
 
-Quote the refused reason (dirty, unpushed). Take: keep the tree for now.
+Quote the refused code and its reason. Take: keep the tree for now.
 Iterate: Matt cleared the reason himself (committed, pushed or discarded),
 so dispose again. Never push, commit or clean the tree yourself so that
 dispose succeeds; that is the choice this gate hands to Matt.
@@ -377,7 +387,11 @@ dispose succeeds; that is the choice this gate hands to Matt.
 
 `rt worktree restore --list` shows what is recoverable, and `rt worktree
 restore <tree>` rebuilds the tree, its branch and its retained untracked
-files. Both default to the current directory's repo; pass `--repo <repo>`
+files (symlinks copied as they were), and sets its submodules up again. A
+restore that ends `restored` can still carry `submodulesFailed` or
+`readyFailed`: the CLI prints the remedy (move the named folders aside,
+then `git submodule update --init --recursive`), which you relay to Matt
+rather than run. Both default to the current directory's repo; pass `--repo <repo>`
 for a tree from another repo. Reach for them before any git plumbing. When the tree is not listed
 or the restore fails, quote what rt said and propose one named recovery
 move (for example, a branch from a named reflog entry). Take: Matt approves
@@ -400,7 +414,9 @@ second move is a new gate.
 - Pass explicit args: omitted args open pickers in a TTY and exit with
   usage otherwise.
 - `rt_verb {args: ["worktree", "list"]}` is ground truth for what exists
-  and where. Tree kinds: `main`, `claimed`, `on-deck`, `unmanaged`.
+  and where. A tree's `kind` is `main`, `ephemeral`, `unmanaged` or
+  `golden` (the pool's donor, never worked in); an ephemeral tree's `state`
+  is `creating`, `on-deck`, `claimed` or `disposable`.
 
 ## Rationalizations
 

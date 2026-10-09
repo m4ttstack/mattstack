@@ -210,11 +210,13 @@ gate: it is yes once Matt has answered iterate twice.
 | board, console, chat, boxscore (served apps) | in the shared checkout, `git branch --show-current`, confirm main, pull, then `deck cmd <app> deploy` |
 | deck source | the same pull, then `deck cmd deck deploy` |
 | rt CLI or daemon source (`lib/`, `commands/`) | the same pull, then the source restart announce and `rt daemon restart` |
+| the org repo's layout (a bump of `ORG_LAYOUT`) | the same pull and restart; then convert your own org clone on a branch, per rt:settings "Changing the org repo's layout" |
 | gitq source | nothing to do: deck neither registers nor serves gitq, so a merge and pull change nothing running; the CLI only picks up the change at the next release |
 
-The shared checkout is `~/Documents/GitHub/mattstack` (served apps live under
-its `apps/<name>`), or the older `~/Documents/GitHub/repo-tools` folder on a
-machine that has not moved it. Run `cd <shared checkout>` as its own Bash
+The shared checkout is the one dev mode recorded (`rt dev setup` or
+`rt settings source-path` wrote it), else `~/Documents/GitHub/mattstack`
+(served apps live under its `apps/<name>`), or the older
+`~/Documents/GitHub/repo-tools` folder on a machine that has not moved it. Run `cd <shared checkout>` as its own Bash
 call, then `git branch --show-current` as the next one. Never `git -C`.
 
 `rt daemon restart` runs on Bash: it is not agent-safe, so `rt_verb` refuses
@@ -256,7 +258,12 @@ resume at the shim restart announce only once he confirms he restarted.
 
 ### Fix what the failed local step names
 
-The log's `✗` line names the failed step. Fix its cause in the worktree that
+The log's `✗` line names the failed step. One `✗` is not a step: every
+`--yes` run first looks for the maintainers' Developer ID signing
+certificate and, without it, prints that it is needed and exits 1. Nothing
+in a worktree fixes that; on a collaborator's Mac the dev app comes from
+the release through `rt dev setup` and `rt dev update`, so hand back
+instead of retrying. Otherwise the `✗` line names a real step. Fix its cause in the worktree that
 has the change, never inside the script's own scratch copy: that copy is
 discarded and rebuilt fresh on every run, so a hand patch there vanishes at
 the next rerun. Then run `bun scripts/build-dev-app.ts --local --yes` again.
@@ -352,12 +359,13 @@ message names the gate. A #rt post is never the question.
 
 ## What the script already does
 
-Scratch copy (or clone); for `--local`, after `fetch-deps.sh` it also runs
+The signing-certificate check first, then the scratch copy (or clone); for `--local`, after `fetch-deps.sh` it also runs
 `bun install` and `scripts/build-apps.ts` in the scratch copy to build the
 tree rows (board, boxscore, chat, console, gitq), since fetch-deps does not
 cover them; then `rt-tray/build.sh dev`, then a swap with rollback that
 reopens the app (a `--ref` build only when it was running) and restarts deck
-and its managed apps. Doing any of this by
+and its managed apps; a `--local` build stages instead and swaps only when
+Matt clicks restart. Doing any of this by
 hand is how the app ends up built in a shared checkout, opened from a
 worktree path (a new identity for Login Items and TCC), or with managed apps
 failing with EPERM on the deleted old bundle.

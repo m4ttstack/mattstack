@@ -282,8 +282,10 @@ branch, never a by-hand publish.
 
 ### Watch the dispatch run
 
-`gh workflow run release.yml` (no inputs) runs the whole pipeline against a synthetic
-`v0.0.0-ci<run>` tag and skips only the publish. This pipeline's defects are invisible until the
+`gh workflow run release.yml` (no inputs) runs the whole pipeline against a synthetic tag that
+patch-bumps the latest release (`vX.Y.(Z+1)-ci<run>`), skips the tag and version assert,
+dry-runs the catalog and skips the publish. While `rt-tray/sparkle-minimum-update` declares a
+minimum that is not yet the latest release, that rehearsal fails at the appcast step by design. This pipeline's defects are invisible until the
 step before them works, and a tag that fails midway has already re-signed the app, so a release is
 rehearsed at the exact commit its tag will point to. After a merge, a PR branch's commit is not that
 commit: rehearsing main again before the tag belongs to `rt:release`.
@@ -320,9 +322,11 @@ Mirror the workflow's env and order. The deltas that matter outside CI:
   xcframework rides `deps.lock` (`sparkle-xcframework` row) and `Package.swift` consumes it as a
   local `.binaryTarget`. If `fetch-deps.sh` hasn't run, the swift build fails naming the missing
   path: run `scripts/fetch-deps.sh arm64`, don't add a remote dep back.
-- **Notarization**: `scripts/release/notarize.sh` takes `NOTARY_PROFILE` (local keychain profile
-  via `xcrun notarytool store-credentials`) or the three `APPLE_ID`/`APPLE_ID_PASSWORD`/
-  `APPLE_TEAM_ID` vars (what CI uses).
+- **Notarization**: `scripts/release/notarize.sh` prefers an App Store Connect API key
+  (`APPLE_API_KEY_P8` or `APPLE_API_KEY_PATH`, with `APPLE_API_KEY_ID` and
+  `APPLE_API_ISSUER_ID`, what CI uses), then `NOTARY_PROFILE` (a local keychain profile via
+  `xcrun notarytool store-credentials`), then the three `APPLE_ID`/`APPLE_ID_PASSWORD`/
+  `APPLE_TEAM_ID` vars.
 - **Clean-room gate**: `scripts/e2e-cleanroom.sh out/mattstack-*.zip` refuses to run on a
   provisioned Mac (exit 3); use the VM harness (`rt-tray/vm/README.md`), the second-user smoke, or
   `--home <throwaway>` after reading the script's guard message.
@@ -344,11 +348,14 @@ zip (`ditto` is not deterministic across mounts), so a hand-completed release re
 metadata instead:
 
 1. Mount CI's dmg and `make-zip.sh` the app out of it (bit-identical bundle, new container).
-2. Regenerate the appcast with the real key: `SPARKLE_ED_KEY` exported from the login keychain via
-   `deps/tools/sparkle/bin/generate_keys -x <fresh path>`. The delta step failing is expected:
-   Sparkle deltas are impossible while `Contents/Helpers` is signed per-file (the MAT-395 ruling),
-   and full downloads are the accepted path.
-3. Regenerate SHA256SUMS for all three (dmg, zip, appcast).
+2. Regenerate the appcast through `scripts/release/appcast.sh out "$TAG"` with the real key
+   (`SPARKLE_ED_KEY` exported from the login keychain via
+   `deps/tools/sparkle/bin/generate_keys -x <fresh path>`), never a bare `generate_appcast`: the
+   script writes and checks the Sparkle minimum `rt-tray/sparkle-minimum-update` declares. The
+   delta step failing is expected: Sparkle deltas are impossible while `Contents/Helpers` is
+   signed per-file (the MAT-395 ruling), and full downloads are the accepted path.
+3. Regenerate SHA256SUMS for the dmg, the zip and the appcast, keeping the `mattstack-dev-<ver>.zip`
+   line when update-machine's dev-publish leg already added it (`rt dev setup` checks it).
 
 ### Gate: upload the hand-completed assets
 

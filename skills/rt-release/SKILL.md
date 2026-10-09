@@ -7,8 +7,9 @@ description: Use when the user says release, cut a release, tag and release, shi
 
 Pushing a version tag is what publishes. `.github/workflows/release.yml` (`on: push: tags: v*`)
 builds and notarizes mattstack.app, creates the GitHub release from the committed
-`RELEASE_NOTES.md`, and attaches the dmg, the zip, the Sparkle deltas, `appcast.xml` and
-`SHA256SUMS`. CI owns the release object. The workflow's first step publishes the plugin
+`RELEASE_NOTES.md`, and attaches the dmg, the zip, `appcast.xml` and `SHA256SUMS` (no Sparkle
+deltas: they never materialize while `Contents/Helpers` is signed per file, by the MAT-395
+ruling, and every update ships as the full zip). CI owns the release object. The workflow's first step publishes the plugin
 catalog (`scripts/release/marketplace.sh` pushes `marketplace/` to
 `m4ttstack/mattstack-marketplace`) and needs `MARKETPLACE_TOKEN` only when the catalog changed.
 rt ships only inside mattstack.app (`Contents/MacOS/rt`, updated through Sparkle); there are
@@ -149,6 +150,10 @@ Read three facts after the fetch, all against origin rather than the local check
 lag origin/main), then take the first edge that matches:
 
 1. The newest tag on origin/main: `git describe --tags --abbrev=0 --match "v[0-9]*" origin/main`.
+   A patch release tagged from a release branch (`release/vX.Y.x`, below) is not reachable from
+   main, so also read `gh api repos/m4ttstack/mattstack/releases/latest --jq .tag_name`: when
+   it names a newer tag than describe does, that tag is the newest release, and its verify is
+   fact 3's.
 2. The newest full-path notes commit after it: `git log <newest-tag>..origin/main --format='%H %s' --grep "chore(release): docs and notes for"`.
    Read only the newest match (the first line): after a re-prepare there are two notes commits,
    and the newest is the one in play. It names its `<tag>`; `git ls-remote --tags origin <tag>`
@@ -209,8 +214,8 @@ Quote each stale row as preflight printed it (pinned vs current). Recommend per 
   `.claude-plugin/plugin.json` version when it changes.
 - **Standalone fast-browser**: compared against `m4ttstack/fast-browser`'s main `package.json`
   (it publishes to npm, not GitHub releases). Hold only as Matt's recorded decision.
-- **Tool rows** (bun, sparkle, age, zstd, git-lfs, gh, glab, jq, node, sops, cloudflared,
-  portless): hand-pinned in `rt-tray/deps.lock`, which Renovate does not watch, so preflight is
+- **Tool rows** (bun, sparkle, age, age-keygen, zstd, git-lfs, gh, glab, jq, node, sops,
+  cloudflared, portless, logdy): hand-pinned in `rt-tray/deps.lock`, which Renovate does not watch, so preflight is
   the only drift signal. A bump PR pending on main rides or holds by Matt's call, never silently.
   A sparkle bump never rides another release: it changes the updater and gets its own tested
   release.
@@ -253,8 +258,9 @@ into a held-pins line.
 ### Audit the range for what set-up Macs miss
 
 An app update never re-runs Install. A Mac that is already set up gets only what
-`rt setup update` runs at its first launch on the new version: pending migrations, then the
-steps flagged `updateSafe`, then `verify` (AGENTS.md, "Setup after an update"). Anything else
+`rt setup update` runs at its first launch on the new version: `org.folder` and `org.pull`,
+then pending migrations, then `team.identity` and the other steps flagged `updateSafe`, then
+`verify` (AGENTS.md, "Setup after an update"). Anything else
 this release changes about setup reaches new installs and nobody else, with no error anywhere.
 Preflight does not see this: it reads pins and settings schemas.
 
@@ -264,8 +270,10 @@ Three reads, in this order:
    pins, the `MIGRATIONS` list in `lib/setup/migrations/index.ts`, and the rows `verify` checks
    (`lib/setup/validators/`).
 2. The range against origin, `git log <newest-tag>..origin/main --stat`, then the diff of every
-   commit that touches `lib/setup/`, `commands/setup.ts` or `commands/post-install.ts`, or that
-   changes where rt reads or writes a file, key or link on the user's machine.
+   commit that touches `lib/setup/`, `commands/setup.ts`, `commands/post-install.ts`,
+   `lib/team/` (the org clone's folder, marker and layout) or the daemon's pull hooks
+   (`lib/daemon/home-snapshot.ts`, `lib/daemon/team-snapshots.ts`), or that changes where rt
+   reads or writes a file, key or link on the user's machine.
 3. Each such change against every row. One commit can fit several of the first three (a new
    step that also needs a token scope), and each fit is settled on its own:
 
@@ -273,6 +281,7 @@ Three reads, in this order:
 | --- | --- | --- |
 | A setup step is new, or an existing one now does more | the step is in the list `lib/setup/__tests__/update-safe.test.ts` pins | flag it `updateSafe: true` when it is idempotent, never calls `ctx.need` and never overwrites a value the user chose; when it cannot be, a migration |
 | A file, key or link outside the settings stores is renamed, moved, reshaped or retired | a reader still accepts the old shape, or a `MigrationDef` in `lib/setup/migrations/index.ts` carries it over | add the migration: a dated id appended to the list, returning `done`, `skipped` or `failed`, with its test |
+| The org repo's own shape changes in a way an older rt cannot read | never by a member's Mac: `ORG_LAYOUT` in `lib/team/org-marker.ts` is bumped, so an older app holds its pull and a newer one follows the commit the admin converted | the runbook in rt:settings, "Changing the org repo's layout": the bump, the conversion the admin runs, and whether this release declares a Sparkle minimum |
 | rt now needs something only a person can grant (a token scope, a permission, an account) | a `verify` row turns needs-you on a Mac that lacks it, which is what makes the update run notify | add or fix that row |
 | A settings-store key changes | preflight's schema lock and settings stores rows pass | never this step's: those rows own it |
 | Served-app, daemon or CLI behavior, or state a reader derives each time | the update itself | never a gap |
@@ -312,8 +321,9 @@ into an existing-installs line.
 ### Off-script gate: preflight git state
 
 Quote the `git state` row (off main, or a dirty tree). Take: Matt rules
-the tree releasable as it is. Iterate: Matt fixed the cause, and preflight runs again. Never
-switch the branch, stash or clean the tree yourself.
+the tree releasable as it is, which is the answer for a patch release from a release branch
+("A patch release from a release branch", below). Iterate: Matt fixed the cause, and preflight
+runs again. Never switch the branch, stash or clean the tree yourself.
 
 ### Off-script gate: preflight rows still not current
 
@@ -345,6 +355,19 @@ Read `prove-and-tag.md` now and follow its graph; its sections are there.
 Verify what release.yml published, deploy the docs site, bring this machine onto the release, and
 close a team pack sync held on it.
 Read `publish-and-finish.md` now and follow its graph; its sections are there.
+
+## A patch release from a release branch
+
+When main already carries a change the patch must not ship (v2.21.1 carried the org layout
+gate to Macs on v2.21.0 while main had the breaking layout), the patch is cut from the last
+tag: `release/vX.Y.x` branched from `vX.Y.0`, the fix landed there by PR, and the tag pushed
+from that branch. The graph is the same with four substitutions: preflight's `git state` row
+reads off main and Matt takes it; every `--ref main` is `--ref release/vX.Y.x`; the branch,
+not main, is what gets pushed; and `releases/latest`, not describe on main, names the newest
+release afterwards (the next main release's notes compare link and update leg start from it).
+A release that then requires Macs to install the patch first declares it in
+`rt-tray/sparkle-minimum-update` (prepare.md, "Choose the version bump"); a dispatch rehearsal
+from main fails by design until that patch is the latest release, so publish it first.
 
 ## How every gate asks
 

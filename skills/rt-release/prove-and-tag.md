@@ -187,17 +187,25 @@ Matt has answered iterate twice.
 
 On the reuse path, the run is the one `gh run list` found with `headSha` equal to the exercised
 sha. After a fresh dispatch, take the newest `workflow_dispatch` run created after the dispatch (it
-takes a few seconds to list): `gh workflow run release.yml --ref main` runs main's head, so compare
+takes a few seconds to list): `gh workflow run release.yml --ref main` (`--ref release/vX.Y.x`
+for a patch release from a release branch) runs that ref's head, so compare
 that run's `headSha` with the exercised sha rather than searching for it, since after main moves
 no run has it. Poll `gh run view <run-id> --json status,conclusion,headSha` every few minutes in the background;
 never a bare `gh run watch --exit-status`, which exits nonzero on a false failure while the run is
 still in progress. The rehearsal stamps `<next-patch>-ci<run>`, so read the artifact's actual dmg
 filename rather than assuming it. check-bundle asserts `Contents/Helpers/gate-fork.sh` exists and
-is executable, so a missing copy fails the rehearsal itself.
+is executable, so a missing copy fails the rehearsal itself. A dispatch rehearses a patch bump
+of the latest release, so while `rt-tray/sparkle-minimum-update` declares a minimum that is not
+yet the latest release, every dispatch fails at the appcast step by design: that is not a red
+rehearsal to rerun; publish the intermediate release first.
 
 ### Stage the update leg's feed
 
-The update leg installs the previous release and lets Sparkle update it to the rehearsal. The
+The update leg installs the previous release and lets Sparkle update it to the rehearsal.
+`<previous-tag>` is the tag `gh api repos/m4ttstack/mattstack/releases/latest --jq .tag_name`
+names, never describe on main: a patch release from a release branch is not reachable from main,
+and a declared Sparkle minimum is that latest release, so the leg starts where a real Mac would.
+The
 rehearsal's `appcast.xml` points its enclosure at a GitHub release tag that does not exist, so the
 leg gets a feed of its own until the harness rewrites it itself:
 
@@ -235,9 +243,9 @@ Four scenarios, every one on the rehearsal build. Set the environment above in e
 
 Two runs may go at once, never more (the macOS cap), and never two that attach the same dmg at
 the same time. Every run's preflight attaches its `--dmg` for a moment to read the version, so
-start the second run of a pair only once the first has passed preflight. Join's invite phase also
-attaches the dmg to read rt unless `--mint-rt` is given, which is why join takes the rt from the
-extracted zip. Pair create with join first, then solo with the update leg, so the kept update VM
+start the second run of a pair only once the first has passed preflight. Join's invite phase
+reads rt from the zip beside the dmg when one exists, never attaching the dmg; `--mint-rt` names
+the rt to read when there is no zip beside it. Pair create with join first, then solo with the update leg, so the kept update VM
 is the last guest up and `Check the kept update VM` reads it before anything else boots; a kept
 guest left running would count against the two-VM cap. Between pairs, take the `tart list` and
 `hdiutil info` checks again. On a rerun, run only the scenarios not yet green, and run a scenario
@@ -289,8 +297,6 @@ Check the result against the expected noise first. These are not failures of the
 - In the kept update VM, verify's `fastbrowser.setup` external drift (the VM has no Chrome and no
   extension) and its github and Team repo rows (the guest's forge account and team repo are the
   harness's throwaway ones).
-- Solo's `team-upgrade` phase failing at `setup.team.create.remote`: a known script bug, since
-  the form defaults to "Create a private GitHub repo" once GitHub is connected.
 
 Anything else red is a failure. Tell VM degradation from a regression by where it failed and by
 history: a failure inside macOS's own UI (the System Settings Full Disk Access toggle, an AX fill
