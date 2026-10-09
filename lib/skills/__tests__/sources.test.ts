@@ -15,6 +15,7 @@ import {
   readManifestBindings,
   readManifestPipelines,
   readVerbRoster,
+  resourceKey,
   stageRoster,
   stripFrontmatter,
   type PluginRoots,
@@ -746,5 +747,15 @@ describe("org base pack roots", () => {
     writeFileSync(join(base, "skills", "watch", "SKILL.md"), "---\nname: watch\nmetadata:\n  provides: forge\n---\nbody\n");
     const roots: PluginRoots = { byName: { "acme-base": { dir: base, version: "org" } }, list: [], folderOnly: new Set(["acme-base"]) };
     expect(() => loadAttachment("acme-base:watch", "forge", roots)).toThrow(/move it under attachments\//);
+  });
+});
+
+describe("resourceKey", () => {
+  test("keys a resource by harness, profile, plugin and version, never by its display id alone", () => {
+    const a = resourceKey({ id: "demo@mk", installPath: "/a", version: "1.0.0", harness: "claude", profile: "default" });
+    const b = resourceKey({ id: "demo@mk", installPath: "/b", version: "1.0.0", harness: "codex", profile: "default" });
+    const c = resourceKey({ id: "demo@mk", installPath: "/c", version: "2.0.0", harness: "codex", profile: "default" });
+    const d = resourceKey({ id: "demo@mk", installPath: "/d", version: "2.0.0", harness: "codex", profile: "/elsewhere" });
+    expect(new Set([a, b, c, d]).size).toBe(4);
   });
 });

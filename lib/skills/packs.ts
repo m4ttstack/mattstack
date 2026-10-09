@@ -2,6 +2,8 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 import { fileURLToPath } from "url";
+import { claudeSettingsPath } from "../agent-integrations/claude/skills.ts";
+import { codexHomeForPacks, codexLocalMarketplaces, codexMarketplacePlugins } from "../agent-integrations/codex/skills.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { stripJsonc } from "./sources.ts";
 
@@ -22,12 +24,9 @@ export type DiscoverOpts = {
   extraPackDirs?: { name: string; dir: string }[];
   /** The `~/.mattstack` root to scan for org clones; defaults to the real one. Pass null to skip the folder scan. */
   mattstackRoot?: string | null;
+  /** The Codex home whose local marketplaces serve packs; defaults to the ambient one only while the integrations switch is on and Codex is enabled. Pass null to skip. */
+  codexHome?: string | null;
 };
-
-function claudeSettingsPath(): string {
-  const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-  return join(configDir, "settings.json");
-}
 
 function readJsonc(path: string): unknown {
   return JSON.parse(stripJsonc(readFileSync(path, "utf8")));
@@ -199,6 +198,16 @@ export function discoverPacks(opts: DiscoverOpts = {}): PackInfo[] {
         const pluginDir = pluginDirOf(marketDir, entry.source);
         if (!pluginDir) continue;
         const pack = packFromDir(entry.name, pluginDir, marketplaceKey);
+        if (pack && !found.has(pack.name)) found.set(pack.name, pack);
+      }
+    }
+  }
+
+  const codexHome = opts.codexHome === undefined ? codexHomeForPacks() : opts.codexHome;
+  if (codexHome !== null) {
+    for (const marketplace of codexLocalMarketplaces(codexHome)) {
+      for (const entry of codexMarketplacePlugins(marketplace.dir)) {
+        const pack = packFromDir(entry.name, entry.dir, marketplace.name);
         if (pack && !found.has(pack.name)) found.set(pack.name, pack);
       }
     }

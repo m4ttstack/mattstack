@@ -1,9 +1,8 @@
-import { execFileSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { dirname, join, relative, sep } from "path";
 import { parse as parseYaml } from "yaml";
-import { resolveClaudeBin } from "../claude-bin.ts";
+import { listInstalledPlugins } from "../agent-integrations/claude/skills.ts";
 import { stripJsonc } from "../jsonc.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
@@ -36,7 +35,16 @@ export function stripFrontmatter(
   return { body, frontmatter, bodyStartLine };
 }
 
-export type PluginListEntry = { id: string; installPath: string; enabled?: boolean; scope?: string; version?: string };
+export type PluginListEntry = {
+  id: string; installPath: string; enabled?: boolean; scope?: string; version?: string;
+  /** Set by an integration's inventory: the harness and profile whose cache holds this install. */
+  harness?: string; profile?: string;
+};
+
+/** One canonical resource: the same `id` installed for two harnesses, profiles or versions is two resources. */
+export function resourceKey(entry: PluginListEntry): string {
+  return [entry.harness ?? "", entry.profile ?? "", entry.id, entry.version ?? ""].join("\0");
+}
 
 export type PluginRoots = {
   byName: Record<string, { dir: string; version: string }>;
@@ -45,11 +53,7 @@ export type PluginRoots = {
   folderOnly?: Set<string>;
 };
 
-export function listInstalledPlugins(opts: { timeoutMs?: number } = {}): PluginListEntry[] {
-  const bin = resolveClaudeBin() ?? "claude";
-  const raw = execFileSync(bin, ["plugin", "list", "--json"], { encoding: "utf8", ...(opts.timeoutMs !== undefined && { timeout: opts.timeoutMs }) });
-  return JSON.parse(raw) as PluginListEntry[];
-}
+export { listInstalledPlugins };
 
 export function installedVersionFor(list: PluginListEntry[], id: string): string | null {
   const entry = list.find((e) => e.id === id);

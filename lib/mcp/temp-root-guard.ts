@@ -10,6 +10,12 @@
 import { lstatSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, sep } from "path";
+import { execFileSync } from "child_process";
+import {
+  CODEX_PLUGIN_LIST_ARGS, codexHomeFor, codexListEnv, codexPluginCacheRoot, codexReadRoots, parseCodexPluginList,
+  resolveCodexBinIfPresent,
+} from "../agent-integrations/codex/skills.ts";
+import { admitRoots } from "../skills/installed-plugins.ts";
 import { admitResourceRoots, claudeTempRoots, isInsideRoot } from "../daemon/upload-guard.ts";
 import { discoverPacks } from "../skills/packs.ts";
 import { buildPluginRoots, listInstalledPlugins } from "../skills/sources.ts";
@@ -98,8 +104,23 @@ export const readRootsForThisProcess = cachedReadRoots({
   tempRoots: tempRootsForThisProcess,
   pluginRoots: () => Object.values(buildPluginRoots(listInstalledPlugins({ timeoutMs: PLUGIN_LIST_TIMEOUT_MS })).byName).map((p) => p.dir),
   packRoots: () => discoverPacks().map((p) => p.dir),
+  resourceRoots: () => codexReadRoots({ roots: codexPluginRootsSync }),
   now: Date.now,
 });
+
+/** The guard resolves synchronously, so it lists Codex here the way it lists Claude: one bounded subprocess per TTL. */
+function codexPluginRootsSync(): string[] {
+  const home = codexHomeFor(undefined, process.env);
+  if (!home.ok) throw new Error(home.error.message);
+  const bin = resolveCodexBinIfPresent();
+  if (bin === null) throw new Error("Codex is not installed");
+  const raw = execFileSync(bin, CODEX_PLUGIN_LIST_ARGS, {
+    encoding: "utf8", env: codexListEnv(process.env, home.data.home), timeout: PLUGIN_LIST_TIMEOUT_MS, stdio: ["ignore", "pipe", "ignore"],
+  });
+  const list = parseCodexPluginList(raw, home.data.home, home.data.profile);
+  if (!list.ok) throw new Error(list.error.message);
+  return admitRoots(codexPluginCacheRoot(home.data.home), list.data);
+}
 
 function matchingRoot(real: string, roots: readonly string[]): string | null {
   for (const root of roots) {

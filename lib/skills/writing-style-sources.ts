@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join, resolve } from "path";
+import { claudeUserSkillsDir } from "../agent-integrations/claude/skills.ts";
 import { reconcileSkillLinks, type ReconcileResult } from "./link.ts";
 import { stripFrontmatter } from "./sources.ts";
 import { WRITING_STYLE_PRESETS, isPresetId, type ResolvedWritingStyle } from "./writing-style.ts";
@@ -8,6 +9,8 @@ export interface PluginEntry {
   id: string;
   enabled: boolean;
   installPath: string | null;
+  /** The harness that installed it, which decides the manifest folder; absent is Claude. */
+  harness?: string;
 }
 
 export function parsePluginEntries(stdout: string): PluginEntry[] | null {
@@ -45,11 +48,16 @@ function skillDirNames(root: string): string[] {
   return childDirs(root).filter((name) => existsSync(join(root, name, "SKILL.md")));
 }
 
-/** Mirrors Claude Code: the manifest's `skills` roots, each scanned one level deep; `./skills` when absent. */
-export function pluginSkillRoots(installPath: string): string[] {
+/** Both hosts read the same manifest shape; only its folder differs. */
+export function manifestDirFor(harness: string | undefined): string {
+  return harness === "codex" ? ".codex-plugin" : ".claude-plugin";
+}
+
+/** Mirrors Claude Code, and Codex, which reads the same shape: the manifest's `skills` roots, each scanned one level deep; `./skills` when absent. */
+export function pluginSkillRoots(installPath: string, manifestDir = ".claude-plugin"): string[] {
   let roots: string[] = ["./skills"];
   try {
-    const manifest = JSON.parse(readFileSync(join(installPath, ".claude-plugin", "plugin.json"), "utf8")) as { skills?: unknown };
+    const manifest = JSON.parse(readFileSync(join(installPath, manifestDir, "plugin.json"), "utf8")) as { skills?: unknown };
     if (typeof manifest.skills === "string") roots = [manifest.skills];
     else if (Array.isArray(manifest.skills)) roots = manifest.skills.filter((r): r is string => typeof r === "string");
   } catch {
@@ -77,17 +85,19 @@ function frontmatterName(dir: string): string | null {
   }
 }
 
-export function readSkillInventory(home: string, plugins: PluginEntry[] | null): SkillInventory {
+/** `userSkillsDirs` are the harness's own skills folders; unset is Claude's. */
+export function readSkillInventory(home: string, plugins: PluginEntry[] | null, opts: { userSkillsDirs?: string[] } = {}): SkillInventory {
   const installed = new Set<string>();
   const disabledPluginFor = new Map<string, string>();
 
-  const claudeSkills = join(home, ".claude", "skills");
-  for (const name of skillDirNames(claudeSkills)) installed.add(name);
+  for (const dir of opts.userSkillsDirs ?? [claudeUserSkillsDir(home)]) {
+    for (const name of skillDirNames(dir)) installed.add(name);
+  }
 
   for (const plugin of plugins ?? []) {
     if (!plugin.installPath) continue;
     const pluginName = plugin.id.split("@")[0]!;
-    for (const root of pluginSkillRoots(plugin.installPath)) {
+    for (const root of pluginSkillRoots(plugin.installPath, manifestDirFor(plugin.harness))) {
       for (const dir of skillDirNames(root)) {
         const id = `${pluginName}:${dir}`;
         if (plugin.enabled) {
