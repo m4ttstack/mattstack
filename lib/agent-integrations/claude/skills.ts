@@ -10,7 +10,7 @@ import { join } from "path";
 import type { Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { resolveClaudeBin } from "../../claude-bin.ts";
 import {
-  listingFault, MAINTAIN_TIMEOUT_MS, PLUGIN_LIST_TIMEOUT_MS, pluginResourceAdapter, spawnRunner,
+  listingFault, PLUGIN_LIST_TIMEOUT_MS, pluginResourceAdapter, spawnRunner,
   type HarnessPluginCli, type RunResult, type SkillRunner,
 } from "../../skills/installed-plugins.ts";
 import type { PluginListEntry } from "../../skills/sources.ts";
@@ -23,6 +23,19 @@ export function listInstalledPlugins(opts: { timeoutMs?: number } = {}): PluginL
   const bin = resolveClaudeBin() ?? "claude";
   const raw = execFileSync(bin, ["plugin", "list", "--json"], { encoding: "utf8", ...(opts.timeoutMs !== undefined && { timeout: opts.timeoutMs }) });
   return JSON.parse(raw) as PluginListEntry[];
+}
+
+/**
+ * The listing `rt skills sync` has always read: Claude's rows as printed,
+ * and a failure in the words its --json step detail has always carried.
+ */
+export async function listClaudePluginsAsSync(
+  bin: string,
+  run: (cmd: string, args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>,
+): Promise<PluginListEntry[]> {
+  const res = await run(bin, ["plugin", "list", "--json"]);
+  if (res.code !== 0) throw new Error(`Listing Claude Code's plugins failed: ${res.stderr.trim()}`);
+  return JSON.parse(res.stdout) as PluginListEntry[];
 }
 
 /** The settings file whose `extraKnownMarketplaces` name Claude's directory marketplaces. */
@@ -48,6 +61,7 @@ export type ClaudeSkillDeps = {
   bin?: () => string | null;
   run?: SkillRunner;
   timeoutMs?: number;
+  /** Unset leaves an install or update unbounded, as rt always ran Claude Code's. */
   maintainTimeoutMs?: number;
 };
 
@@ -118,7 +132,7 @@ export function createClaudeSkills(deps: ClaudeSkillDeps = {}): SkillAdapter {
     harness: HARNESS,
     cacheRoot: () => ({ ok: true, data: claudePluginCacheRoot(env) }),
     skillsDir: () => ({ ok: true, data: claudeUserSkillsDir(env.HOME ?? "") }),
-    cli: claudePluginCli({ bin, run, env, timeoutMs: deps.maintainTimeoutMs ?? MAINTAIN_TIMEOUT_MS }),
+    cli: claudePluginCli({ bin, run, env, timeoutMs: deps.maintainTimeoutMs ?? Number.POSITIVE_INFINITY }),
     list: async () => {
       const path = bin();
       if (path === null) return { ok: false, error: { code: "not-ready", message: "Claude Code is not installed, so its plugins cannot be listed" } };

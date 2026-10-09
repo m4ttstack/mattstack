@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { createClaudeSkills } from "../../lib/agent-integrations/claude/skills.ts";
 import { createCodexSkills } from "../../lib/agent-integrations/codex/skills.ts";
 import type { SkillRunner } from "../../lib/skills/installed-plugins.ts";
 import type { InitDeps } from "../../lib/skills/init.ts";
-import { selectSkillsHarness, type HostChoice, type SkillsHost } from "../../lib/skills/maintain-host.ts";
+import { selectSkillsHarness, takeHarnessFlag, type HostChoice, type SkillsHost } from "../../lib/skills/maintain-host.ts";
 import type { PackInfo } from "../../lib/skills/packs.ts";
 import { syncPack, type SyncDeps } from "../../lib/skills/sync.ts";
 import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
@@ -13,6 +14,7 @@ import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { skillsAudit } from "../skills-audit.ts";
 import { skillsInit } from "../skills-init.ts";
 import { skillsLink } from "../skills-link.ts";
+import { skillsSync } from "../skills-sync.ts";
 import { realWritingStyleDeps, writingStyleUse } from "../skills-writing-style.ts";
 
 let root: string;
@@ -253,5 +255,74 @@ describe("skills maintenance through the selected integration", () => {
     expect(errors[0]).toContain("does not name a Codex home folder");
     expect(existsSync(join(codexHome, "skills"))).toBe(false);
     expect(existsSync(join(home, ".claude"))).toBe(false);
+  });
+});
+
+describe("Claude Code keeps what it did before", () => {
+  const claudeWorld = (list: { code: number; stdout: string; stderr: string }) => {
+    const world = syncWorld(fakeCodex().host);
+    const deps: SyncDeps = {
+      ...world.deps,
+      host: undefined,
+      claudeBin: "/fake/claude",
+      run: async (cmd, args) => {
+        if (cmd === "/fake/claude") return list;
+        if (args[0] === "branch") return { code: 0, stdout: "main\n", stderr: "" };
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    };
+    return { pack: world.pack, deps };
+  };
+
+  test("a failed claude plugin list reads as it always did inside sync's guards step", async () => {
+    const failing = claudeWorld({ code: 1, stdout: "", stderr: "  not signed in\nrun claude login  \n" });
+    const report = await syncPack(failing.pack, failing.pack, failing.deps);
+    expect(report.steps[0]).toEqual({ name: "guards", status: "failed", detail: "Listing Claude Code's plugins failed: not signed in\nrun claude login" });
+
+    let parseError = "";
+    try {
+      JSON.parse("Claude Code v2 plugins:");
+    } catch (err) {
+      parseError = (err as Error).message;
+    }
+    const garbled = claudeWorld({ code: 0, stdout: "Claude Code v2 plugins:", stderr: "" });
+    const again = await syncPack(garbled.pack, garbled.pack, garbled.deps);
+    expect(again.steps[0]).toEqual({ name: "guards", status: "failed", detail: parseError });
+  });
+
+  test("Claude's init install runs unbounded, and a Codex install that times out says so plainly", async () => {
+    const bounds: number[] = [];
+    const claude = createClaudeSkills({
+      env: { HOME: home },
+      bin: () => "/fake/claude",
+      run: async (_bin, _args, o) => { bounds.push(o.timeoutMs); return { status: 0, stdout: "[]", stderr: "" }; },
+    });
+    expect(await claude.maintain("init", join(root, "org"), { plugin: "acme@acme-market" })).toEqual({ ok: true, data: undefined });
+    expect(bounds.length).toBe(3);
+    expect(bounds.every((b) => b === Number.POSITIVE_INFINITY)).toBe(true);
+
+    const codex = createCodexSkills({
+      env: { HOME: home, CODEX_HOME: codexHome }, bin: () => "/fake/codex",
+      run: async () => ({ status: null, stdout: "", stderr: "", timedOut: true }),
+    });
+    expect(await codex.maintain("init", join(root, "org"), { plugin: "acme@acme-market" })).toEqual({
+      ok: false, error: { code: "transient", message: "Adding the team's marketplace to Codex did not finish in 600s" },
+    });
+  });
+
+  test("the dispatcher's (args, ctx) call reaches sync with no deps and answers in its envelope", async () => {
+    const { exitCode } = await runExpectingCleanExit(() => skillsSync(["--pack", "rt-s12-no-such-pack", "--json"], {}));
+    expect(exitCode).toBe(1);
+    const envelope = JSON.parse(io.stdout()) as { ok: boolean; error: string };
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error).toMatch(/no pack named "rt-s12-no-such-pack"|no packs discovered/);
+  });
+
+  test("--harness never takes a skill id a verb passes verbatim", () => {
+    expect(takeHarnessFlag(["--harness"], { onlyKnown: true })).toEqual({ ok: true, rest: ["--harness"] });
+    expect(takeHarnessFlag(["--harness", "my-voice"], { onlyKnown: true })).toEqual({ ok: true, rest: ["--harness", "my-voice"] });
+    expect(takeHarnessFlag(["my-voice", "--harness", "codex"], { onlyKnown: true })).toEqual({ ok: true, harness: "codex", rest: ["my-voice"] });
+    expect(takeHarnessFlag(["--", "--harness", "codex"])).toEqual({ ok: true, rest: ["--", "--harness", "codex"] });
+    expect(takeHarnessFlag(["--harness"])).toEqual({ ok: false });
   });
 });

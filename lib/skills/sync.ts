@@ -5,7 +5,7 @@ import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChan
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 import type { HarnessId } from "../../packages/rt-client/src/agent-integrations.ts";
-import { createClaudeSkills } from "../agent-integrations/claude/skills.ts";
+import { createClaudeSkills, listClaudePluginsAsSync } from "../agent-integrations/claude/skills.ts";
 import type { SkillAdapter } from "../agent-integrations/contracts.ts";
 import type { SkillRunner } from "./installed-plugins.ts";
 
@@ -29,7 +29,11 @@ export type SyncDeps = {
   host?: SyncHost;
 };
 
-export type SyncHost = { harness: HarnessId; label: string; bin: string | null; skills: Pick<SkillAdapter, "inventory" | "maintain"> };
+export type SyncHost = {
+  harness: HarnessId; label: string; bin: string | null; skills: Pick<SkillAdapter, "inventory" | "maintain">;
+  /** Overrides the inventory read; throws with the step detail a failed listing reports. */
+  list?: () => Promise<PluginListEntry[]>;
+};
 
 /** Claude Code reached through the deps' own runner, so a caller that injects `run` sees every native call. */
 function claudeHostOf(deps: SyncDeps): SyncHost {
@@ -37,7 +41,11 @@ function claudeHostOf(deps: SyncDeps): SyncHost {
     const res = await deps.run(bin, args);
     return { status: res.code, stdout: res.stdout, stderr: res.stderr };
   };
-  return { harness: "claude", label: "Claude Code", bin: deps.claudeBin, skills: createClaudeSkills({ bin: () => deps.claudeBin, run }) };
+  return {
+    harness: "claude", label: "Claude Code", bin: deps.claudeBin,
+    skills: createClaudeSkills({ bin: () => deps.claudeBin, run }),
+    list: () => listClaudePluginsAsSync(deps.claudeBin!, (cmd, args) => deps.run(cmd, args)),
+  };
 }
 
 export function syncHostOf(deps: SyncDeps): SyncHost {
@@ -343,6 +351,7 @@ function changedSinceShown(pack: string): Outcome {
 }
 
 async function listInstalled(host: SyncHost): Promise<PluginListEntry[]> {
+  if (host.list) return host.list();
   const listed = await host.skills.inventory();
   if (!listed.ok) throw new Error(`Listing ${host.label}'s plugins failed: ${listed.error.message}`);
   return listed.data;

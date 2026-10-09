@@ -325,7 +325,7 @@ test("skillsSync sends the missing Claude Code note to stderr and keeps exit 1",
     materialize: unexpected, configDir: join(dir, "config"), cswapSessionsDir: join(dir, "sessions"), inTreeRoot: null,
   };
   try {
-    await skillsSync([], { packs: [{ ...pack("mattstack"), dir }], deps });
+    await skillsSync([], {}, { packs: [{ ...pack("mattstack"), dir }], deps });
     expect(io.stderr()).toBe(renderPlain(syncCommand.claudeMissingBlocks()));
     expect(io.stdout()).toBe("");
     expect(process.exitCode).toBe(1);
@@ -344,7 +344,7 @@ for (const json of [false, true]) test(`a lone base pack asks for --pack without
     materialize: unexpected, configDir: "/fake/config", cswapSessionsDir: "/fake/sessions", inTreeRoot: null,
   };
   try {
-    const result = await runExpectingCleanExit(() => skillsSync(json ? ["--json"] : [], { packs: [{ ...pack("acme-base"), marketplace: null, base: true }], deps }));
+    const result = await runExpectingCleanExit(() => skillsSync(json ? ["--json"] : [], {}, { packs: [{ ...pack("acme-base"), marketplace: null, base: true }], deps }));
     expect(result.exitCode).toBe(1);
     if (json) expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "which pack? pass --pack <name> (discovered: acme-base)" });
     else expect(io.stderr()).toBe("Which pack?\n  why: Only base packs are here (acme-base), and rt never picks one for you.\n  next: rt skills sync --pack <name>\n");

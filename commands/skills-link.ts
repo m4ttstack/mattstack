@@ -18,7 +18,7 @@ import { join, resolve } from "path";
 import { pruneLinksFrom, readSkillsIgnore, reconcileSkillLinks, type LinkAction, type ReconcileResult } from "../lib/skills/link.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
-import { REAL_HOSTS, type HostChoice, type SkillsHost } from "../lib/skills/maintain-host.ts";
+import { REAL_HOSTS, type HostChoice } from "../lib/skills/maintain-host.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 
@@ -102,9 +102,8 @@ export async function skillsLink(args: string[], _ctx: CommandContext = {}, host
     // drop the links that pointed into it. With none to drop it IS a bad
     // argument (a typo), so the original error still stands.
     if (from !== undefined) {
-      const gone = pruneLinksFrom({ skillsDir: resolve(from), claudeSkillsDir, dryRun: true });
+      const gone = pruneLinksFrom({ skillsDir: resolve(from), claudeSkillsDir, dryRun });
       if (gone.actions.length > 0) {
-        if (!dryRun) await apply(host, resolve(from), []);
         report(resolve(from), claudeSkillsDir, gone, dryRun, json);
         return;
       }
@@ -118,15 +117,7 @@ export async function skillsLink(args: string[], _ctx: CommandContext = {}, host
   // own work, author-only skills included.
   const ignore = from === undefined ? [] : readSkillsIgnore(source.dir);
 
-  const plan = reconcileSkillLinks({ skillsDir: source.dir, claudeSkillsDir, dryRun: true, ignore });
-  if (!dryRun) await apply(host, source.dir, ignore);
-  report(source.dir, claudeSkillsDir, plan, dryRun, json);
-}
-
-/** The host makes the links the plan read; a host that fails leaves the run failed. */
-async function apply(host: SkillsHost, source: string, ignore: string[]): Promise<void> {
-  const done = await host.skills.maintain("link", source, { ignore });
-  if (!done.ok) fail(`rt could not link the skills for ${host.label}`, undefined, done.error.message);
+  report(source.dir, claudeSkillsDir, reconcileSkillLinks({ skillsDir: source.dir, claudeSkillsDir, dryRun, ignore }), dryRun, json);
 }
 
 export function linkBlocks(skillsDir: string, claudeSkillsDir: string, result: ReconcileResult, dryRun: boolean): Block[] {

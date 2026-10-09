@@ -56,10 +56,12 @@ export const spawnRunner: SkillRunner = async (bin, args, opts) => {
     return { status: null, stdout: "", stderr: err instanceof Error ? err.message : String(err) };
   }
   let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    proc.kill();
-  }, opts.timeoutMs);
+  const timer = Number.isFinite(opts.timeoutMs)
+    ? setTimeout(() => {
+        timedOut = true;
+        proc.kill();
+      }, opts.timeoutMs)
+    : undefined;
   try {
     const [stdout, stderr, status] = await Promise.all([
       new Response(proc.stdout as ReadableStream).text(),
@@ -186,11 +188,13 @@ async function initOn(cli: HarnessPluginCli, call: (args: string[]) => Promise<R
   const known = await cli.marketplaces(call);
   if (!known || !known.has(marketplace)) {
     const added = await call(cli.addMarketplace(dir));
+    if (added.timedOut) return fail("transient", `Adding the team's marketplace to ${cli.label} did not finish in ${cli.timeoutMs / 1000}s`);
     if (added.status !== 0 && !cli.alreadyDone(added)) {
       return fail("not-ready", `Adding the team's marketplace to ${cli.label} failed (exit ${added.status}): ${exitDetail(added)}`);
     }
   }
   const installed = await call(cli.install(plugin));
+  if (installed.timedOut) return fail("transient", `Installing ${plugin} in ${cli.label} did not finish in ${cli.timeoutMs / 1000}s`);
   if (installed.status !== 0 && !cli.alreadyDone(installed)) {
     return fail("not-ready", `Installing ${plugin} in ${cli.label} failed (exit ${installed.status}): ${exitDetail(installed)}`);
   }

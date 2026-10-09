@@ -12,6 +12,7 @@
  */
 
 import { homedir } from "os";
+import type { CommandContext } from "../lib/command-tree.ts";
 import { join } from "path";
 import { existsSync, realpathSync } from "fs";
 import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
@@ -70,6 +71,14 @@ function realDir(path: string): string | null {
 /** An unreadable listing reads as nothing installed, so deriveEngine refuses with its own message rather than this one's. */
 async function installedPlugins(host: SyncHost): Promise<PluginListEntry[]> {
   if (!host.bin) return [];
+  if (host.list) {
+    try {
+      const rows: unknown = await host.list();
+      return Array.isArray(rows) ? (rows as PluginListEntry[]) : [];
+    } catch {
+      return [];
+    }
+  }
   const listed = await host.skills.inventory();
   return listed.ok ? listed.data : [];
 }
@@ -196,7 +205,7 @@ export function claudeMissingBlocks(): Block[] {
   return hostMissingBlocks("Claude Code");
 }
 
-export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]; deps: SyncDeps }): Promise<void> {
+export async function skillsSync(args: string[], _ctx: CommandContext = {}, overrides?: { packs: PackInfo[]; deps: SyncDeps }): Promise<void> {
   const json = args.includes("--json");
   const packFlag = flagValue(args, "--pack");
   const target = manifestTarget(args);
@@ -217,8 +226,8 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
 
   const flag = takeHarnessFlag(args);
   if (!flag.ok) fail("--harness needs a value", usageFailure("Which harness?", "rt skills sync --harness <claude|codex>"));
-  let harness = overrides?.deps?.host?.harness ?? "claude";
-  if (!overrides?.deps) {
+  let harness = overrides?.deps.host?.harness ?? "claude";
+  if (!overrides) {
     const chosen = await selectSkillsHarness(flag.ok ? flag.harness : undefined);
     if (!chosen.ok) fail(chosen.error.message, { title: chosen.error.message });
     else harness = chosen.data;

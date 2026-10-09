@@ -6,13 +6,15 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { claudeUserSkillsDir } from "../lib/agent-integrations/claude/skills.ts";
+import { resolveClaudeBin } from "../lib/claude-bin.ts";
+import { execWithTimeout } from "../lib/setup/probes.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, userErrorPayload } from "../lib/errors.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { REAL_HOSTS, takeHarnessFlag, type HostChoice, type SkillsHost } from "../lib/skills/maintain-host.ts";
 import { isValidSkillId, presetById, resolveWritingStyle, WRITING_STYLE_KEY, WRITING_STYLE_SOURCE_LABEL, type ResolvedWritingStyle } from "../lib/skills/writing-style.ts";
-import { isStyleUsable, linkPersonalSkills, listWritingStyles, manifestDirFor, personalSkillsDir, pluginSkillRoots, readSkillInventory, type PluginEntry } from "../lib/skills/writing-style-sources.ts";
+import { isStyleUsable, linkPersonalSkills, listWritingStyles, manifestDirFor, parsePluginEntries, personalSkillsDir, pluginSkillRoots, readSkillInventory, type PluginEntry } from "../lib/skills/writing-style-sources.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
@@ -62,7 +64,10 @@ export function realWritingStyleDeps(host: SkillsHost | null = null): WritingSty
       return v.trim() === "" ? null : v.trim();
     },
     plugins: async () => {
-      if (host === null) return null;
+      if (host === null || host.harness === "claude") {
+        const res = await execWithTimeout([resolveClaudeBin() ?? "claude", "plugin", "list", "--json"], { timeoutMs: 15_000 });
+        return res.code === 0 ? parsePluginEntries(res.stdout) : null;
+      }
       const listed = await host.skills.inventory();
       return listed.ok ? listed.data.map((e) => ({ id: e.id, enabled: e.enabled === true, installPath: e.installPath, ...(e.harness !== undefined && { harness: e.harness }) })) : null;
     },
@@ -101,7 +106,8 @@ async function inventory(deps: WritingStyleDeps) {
  */
 async function forHarness(verb: string, args: string[], given: WritingStyleDeps | undefined, hosts: HostChoice): Promise<{ args: string[]; deps: WritingStyleDeps }> {
   const json = args.includes("--json");
-  const taken = takeHarnessFlag(args);
+  // use and new take their positional verbatim, so only a registered id is read as the flag's value there.
+  const taken = takeHarnessFlag(args, { onlyKnown: verb !== "list" });
   const fallback = given ?? realWritingStyleDeps();
   if (!taken.ok) {
     return refuse(new UserActionableError("usage", "--harness needs a value"), json, fallback, usageFailure("Which harness?", `rt skills writing-style ${verb} --harness <claude|codex>`));

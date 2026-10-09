@@ -19,21 +19,35 @@ import type { PluginListEntry } from "./sources.ts";
 
 export type HarnessFlag = { ok: true; harness?: string; rest: string[] } | { ok: false };
 
-/** `--harness <id>` or `--harness=<id>` out of `args`; a flag with no value is `ok: false`. */
-export function takeHarnessFlag(args: string[]): HarnessFlag {
+/**
+ * `--harness <id>` or `--harness=<id>` out of `args`, never past `--`; a flag
+ * with no value is `ok: false`. With `onlyKnown`, only a registered id is
+ * taken and anything else stays where it was, so a verb whose positional is
+ * passed verbatim (a skill id) never loses it to this flag.
+ */
+export function takeHarnessFlag(args: string[], opts: { onlyKnown?: boolean } = {}): HarnessFlag {
   const rest: string[] = [];
   let harness: string | undefined;
+  const takes = (v: string | undefined): v is string =>
+    v !== undefined && v !== "" && !v.startsWith("--") && (!opts.onlyKnown || BUILTIN_HARNESS_IDS.includes(v));
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
+    if (a === "--") {
+      rest.push(...args.slice(i));
+      break;
+    }
     if (a === "--harness") {
       const v = args[i + 1];
-      if (v === undefined || v === "" || v.startsWith("--")) return { ok: false };
-      harness = v;
-      i++;
+      if (takes(v)) {
+        harness = v;
+        i++;
+      } else if (opts.onlyKnown) rest.push(a);
+      else return { ok: false };
     } else if (a.startsWith("--harness=")) {
       const v = a.slice("--harness=".length);
-      if (v === "") return { ok: false };
-      harness = v;
+      if (takes(v)) harness = v;
+      else if (opts.onlyKnown) rest.push(a);
+      else return { ok: false };
     } else {
       rest.push(a);
     }
