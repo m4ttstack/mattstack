@@ -1,26 +1,38 @@
 /**
  * The CI attendant lease tools (claim, heartbeat, release, read) and
  * ci_watch, which polls a pipeline to a terminal state under the caller's
- * lease. Every tool acts only as this session: the owner comes from
- * CLAUDE_CODE_SESSION_ID via ownerFromEnv, never from input, so a caller
- * cannot claim, heartbeat, release or watch on another session's behalf.
+ * lease. Every tool acts only as this session, and the owner never comes
+ * from input, so a caller cannot claim, heartbeat, release or watch on
+ * another session's behalf. With agent.integrations.enabled on, the owner is
+ * the caller's binding (ciLeaseOwner); otherwise it is CLAUDE_CODE_SESSION_ID
+ * (ownerFromEnv).
  */
 import {
-  boardDoctorOwner, claimCiLease, getSetting, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, releaseCiLease, rtCommand,
-  type CiLeaseHolder, type CiLeaseOpts, type Commands,
+  boardDoctorOwner, claimCiLease, getSetting, heartbeatCiLease, ownsCiLease, parseMrIid, readCiLease, releaseCiLease, rtCommand,
+  type CiLeaseCaller, type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
+import type { CallerContext, Outcome, SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
+import { resolveLegacySession } from "../agent-integrations/legacy.ts";
 import { readChatSession } from "../chat-session.ts";
 import { watchPipeline, type WatchDeps, type WatchPipeline } from "../ci/watch.ts";
 import type { Pipeline as GlancePipeline } from "@mattstack/glance";
 import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget } from "./mr-target.ts";
 import { tailTrace } from "./mr-read-tools.ts";
-import { checkOptional, checkPositiveInts, checkRequired, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
+import {
+  boundCaller, callerRefusal, checkOptional, checkPositiveInts, checkRequired, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE,
+  type McpToolDef, type ToolContext, type ToolResult,
+} from "./shared.ts";
 
 export interface CiLeaseToolDeps {
   leaseOpts: () => CiLeaseOpts;
-  label: (env: NodeJS.ProcessEnv) => string | undefined;
+  /** `binding` is the verified caller's; without one the label is the environment session's. */
+  label: (env: NodeJS.ProcessEnv, binding?: SessionBinding) => string | undefined;
   owner: (env: NodeJS.ProcessEnv) => string | null;
+  /** The verified caller with agent.integrations.enabled on; null for the environment path. */
+  caller: (context?: ToolContext) => Promise<Outcome<CallerContext> | null>;
+  /** The binding a legacy Claude session id is proven to belong to. */
+  legacy: (claudeSession: string) => Outcome<SessionBinding>;
 }
 
 const TTL_MIN = 60;
@@ -31,8 +43,65 @@ const HOLDERS: CiLeaseHolder[] = ["watch-ci", "doctor"];
 const NO_SESSION = "CLAUDE_CODE_SESSION_ID is not set; the lease is owned by a Claude Code session";
 const LEASE_NOTE = "One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.";
 
+const LEGACY_PREFIX = "session:";
+
 export function ownerFromEnv(env: NodeJS.ProcessEnv): string | null {
-  return env.CLAUDE_CODE_SESSION_ID ? `session:${env.CLAUDE_CODE_SESSION_ID}` : null;
+  return env.CLAUDE_CODE_SESSION_ID ? `${LEGACY_PREFIX}${env.CLAUDE_CODE_SESSION_ID}` : null;
+}
+
+/**
+ * The binding's key, which survives a resume or continuation of the same
+ * session; a managed caller's attempt qualifies it, so a replacement attempt
+ * on the same session is never its predecessor.
+ */
+export function ciLeaseOwner(context: CallerContext): string {
+  const owner = `binding:${context.binding.key}`;
+  return context.assignment ? `${owner}:attempt:${context.assignment.attemptId}` : owner;
+}
+
+/**
+ * A `session:<id>` token is this caller's only when the session store proves
+ * that Claude session is this binding's: its own native id, or a legacy
+ * record tied to its key. An attempt-qualified token never matches here.
+ */
+function legacyOwnership(binding: SessionBinding, legacy: CiLeaseToolDeps["legacy"]): (token: string) => boolean {
+  const seen = new Map<string, boolean>();
+  return (token) => {
+    if (!token.startsWith(LEGACY_PREFIX)) return false;
+    const raw = token.slice(LEGACY_PREFIX.length);
+    if (raw === "") return false;
+    if (binding.native.harness === "claude" && binding.native.value === raw) return true;
+    let owns = seen.get(raw);
+    if (owns === undefined) {
+      let proven: Outcome<SessionBinding>;
+      try {
+        proven = legacy(raw);
+      } catch {
+        proven = { ok: false, error: { code: "transient", message: "the session store could not be read" } };
+      }
+      owns = proven.ok && proven.data.key === binding.key;
+      seen.set(raw, owns);
+    }
+    return owns;
+  };
+}
+
+type LeaseActor = { caller: CiLeaseCaller; token: string; binding?: SessionBinding };
+
+function refusal(error: { code: string; message: string }): string {
+  const base = callerRefusal(error);
+  return error.code === "stale-binding" ? `${base}; another session now holds this work, so its CI leases are not this session's` : base;
+}
+
+async function leaseActor(env: NodeJS.ProcessEnv, context: ToolContext | undefined, deps: CiLeaseToolDeps): Promise<LeaseActor | { error: string }> {
+  const caller = await deps.caller(context);
+  if (caller === null) {
+    const owner = deps.owner(env);
+    return owner ? { caller: owner, token: owner } : { error: NO_SESSION };
+  }
+  if (!caller.ok) return { error: refusal(caller.error) };
+  const token = ciLeaseOwner(caller.data);
+  return { caller: { owner: token, alsoOwns: legacyOwnership(caller.data.binding, deps.legacy) }, token, binding: caller.data.binding };
 }
 
 /** An https MR or PR URL. A scheme-less URL fails `new URL` and would slug from
@@ -48,8 +117,10 @@ export function isHttpsMrUrl(mrUrl: string): boolean {
 
 const realLeaseDeps: CiLeaseToolDeps = {
   leaseOpts: () => ({}),
-  label: (env) => readChatSession(env.CLAUDE_CODE_SESSION_ID)?.handle,
+  label: (env, binding) => readChatSession(binding ? binding.native.value : env.CLAUDE_CODE_SESSION_ID)?.handle,
   owner: ownerFromEnv,
+  caller: boundCaller,
+  legacy: (claudeSession) => resolveLegacySession(claudeSession, "claude"),
 };
 
 const MR_URL_PROP = { mrUrl: { type: "string", description: "The MR or PR https URL (.../-/merge_requests/<iid> or .../pull/<n>)." } };
@@ -108,15 +179,18 @@ function toWatchPipeline(p: GlancePipeline | null | undefined): WatchPipeline | 
 /** Shared claim/heartbeat/release/read shape: validate mrUrl and the session
     owner, then run the lease op, turning any thrown error (a busy lock or an
     fs failure) into an ordinary tool error instead of a throw. */
-function leaseCall(input: Record<string, unknown>, env: NodeJS.ProcessEnv, ownerOf: CiLeaseToolDeps["owner"], run: (mrUrl: string, owner: string) => unknown): ToolResult {
+async function leaseCall(
+  input: Record<string, unknown>, env: NodeJS.ProcessEnv, context: ToolContext | undefined, deps: CiLeaseToolDeps,
+  run: (mrUrl: string, actor: LeaseActor) => unknown,
+): Promise<ToolResult> {
   const bad = checkRequired(input, [{ name: "mrUrl", type: "string" }]);
   if (bad) return err(bad);
   const mrUrl = (input.mrUrl as string).trim();
   if (!isHttpsMrUrl(mrUrl)) return err('"mrUrl" must be an https MR or PR URL ending in /-/merge_requests/<iid> or /pull/<n>');
-  const owner = ownerOf(env);
-  if (!owner) return err(NO_SESSION);
+  const actor = await leaseActor(env, context, deps);
+  if ("error" in actor) return err(actor.error);
   try {
-    return ok(run(mrUrl, owner));
+    return ok(run(mrUrl, actor));
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }
@@ -131,7 +205,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
       description: `Claim this MR's CI attendant lease for this session. Returns {claimed: true, lease, previousOwner?} or {claimed: false, holder}. Re-claiming a lease this session holds refreshes it. holder is the role (watch-ci default, or doctor); ttlSeconds ${TTL_MIN} to ${TTL_MAX}, default 600. ${LEASE_NOTE}`,
       inputSchema: { type: "object", properties: { ...MR_URL_PROP, holder: { type: "string", enum: HOLDERS }, branch: { type: "string", description: "The MR's source branch; pass it so the board's stack preflight sees this attendant." }, ttlSeconds: { type: "number" } }, required: ["mrUrl"], additionalProperties: false },
       shellForms: ["rt ci lease claim"],
-      async handler(input, env) {
+      async handler(input, env, _signal, context) {
         const bad = checkOptional(input, [{ name: "holder", type: "string" }, { name: "branch", type: "string" }, { name: "ttlSeconds", type: "number" }]);
         if (bad) return err(bad);
         const holder = (input.holder as CiLeaseHolder | undefined) ?? "watch-ci";
@@ -139,10 +213,11 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         const ttl = input.ttlSeconds as number | undefined;
         if (ttl !== undefined && !(Number.isInteger(ttl) && ttl >= TTL_MIN && ttl <= TTL_MAX)) return err(`"ttlSeconds" must be an integer from ${TTL_MIN} to ${TTL_MAX}`);
         const branch = typeof input.branch === "string" && input.branch.trim() !== "" ? input.branch : undefined;
-        return leaseCall(input, env, deps.owner, (mrUrl, owner) => {
-          const label = deps.label(env);
+        return leaseCall(input, env, context, deps, (mrUrl, actor) => {
+          const label = deps.label(env, actor.binding);
           return claimCiLease({
-            mrUrl, owner, holder,
+            mrUrl, owner: actor.token, holder,
+            ...(typeof actor.caller !== "string" && { alsoOwns: actor.caller.alsoOwns }),
             ...(branch !== undefined && { branch }),
             ...(label !== undefined && { sessionLabel: label }),
             ...(ttl !== undefined && { ttlSeconds: ttl }),
@@ -155,8 +230,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
       description: `Refresh this session's CI attendant lease on the MR. Returns {ok: true, lease}, or {ok: false, reason: "lost", holder} when another owner holds it now, or {ok: false, reason: "none"}. ci_watch heartbeats on every poll, so call this only between watches (during a long fix). ${LEASE_NOTE}`,
       inputSchema: { type: "object", properties: { ...MR_URL_PROP }, required: ["mrUrl"], additionalProperties: false },
       shellForms: ["rt ci lease heartbeat"],
-      async handler(input, env) {
-        return leaseCall(input, env, deps.owner, (mrUrl, owner) => heartbeatCiLease(mrUrl, owner, deps.leaseOpts()));
+      async handler(input, env, _signal, context) {
+        return leaseCall(input, env, context, deps, (mrUrl, actor) => heartbeatCiLease(mrUrl, actor.caller, deps.leaseOpts()));
       },
     },
     {
@@ -164,8 +239,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
       description: `Release this session's CI attendant lease on the MR. Returns {released: true}, or {released: false, reason} when the lease is absent or another owner's. ${LEASE_NOTE}`,
       inputSchema: { type: "object", properties: { ...MR_URL_PROP }, required: ["mrUrl"], additionalProperties: false },
       shellForms: ["rt ci lease release"],
-      async handler(input, env) {
-        return leaseCall(input, env, deps.owner, (mrUrl, owner) => releaseCiLease(mrUrl, owner, deps.leaseOpts()));
+      async handler(input, env, _signal, context) {
+        return leaseCall(input, env, context, deps, (mrUrl, actor) => releaseCiLease(mrUrl, actor.caller, deps.leaseOpts()));
       },
     },
     {
@@ -173,10 +248,10 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
       description: `Read the MR's CI attendant lease: {lease: <fresh lease or null>, stale: <a stale lease on disk or null>, mine: <true when the fresh lease is this session's>}. A lease with no owner field was written by the pack script and reads as owner legacy:<holder>. A stale lease of this session's own is revived by calling ci_lease_heartbeat, which checks ownership only, not freshness. ${LEASE_NOTE}`,
       inputSchema: { type: "object", properties: { ...MR_URL_PROP }, required: ["mrUrl"], additionalProperties: false },
       shellForms: ["rt ci lease show"],
-      async handler(input, env) {
-        return leaseCall(input, env, deps.owner, (mrUrl, owner) => {
+      async handler(input, env, _signal, context) {
+        return leaseCall(input, env, context, deps, (mrUrl, actor) => {
           const r = readCiLease(mrUrl, deps.leaseOpts());
-          return { ...r, mine: r.lease !== null && leaseOwner(r.lease) === owner };
+          return { ...r, mine: r.lease !== null && ownsCiLease(r.lease, actor.caller) };
         });
       },
     },
@@ -200,7 +275,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         additionalProperties: false,
       },
       shellForms: ["rt ci watch"],
-      async handler(input, env, signal) {
+      async handler(input, env, signal, context) {
         const bad = checkRequired(input, [{ name: "sha", type: "string" }])
           ?? checkOptional(input, [{ name: "maxWaitSeconds", type: "number" }, { name: "intervalSeconds", type: "number" }, { name: "budgetMinutes", type: "number" }, { name: "extendMinutes", type: "number" }, { name: "freshWindow", type: "boolean" }, { name: "priorPipelineId", type: "number" }, { name: "underBoardLease", type: "boolean" }])
           ?? checkPositiveInts(input, ["priorPipelineId"]);
@@ -218,8 +293,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         const setting = w.budgetMinutes();
         const budgetMinutes = fresh ? setting : (input.budgetMinutes as number | undefined) ?? setting;
         const extendMinutes = fresh ? setting : (input.extendMinutes as number | undefined);
-        const owner = deps.owner(env);
-        if (!owner) return err(NO_SESSION);
+        const actor = await leaseActor(env, context, deps);
+        if ("error" in actor) return err(actor.error);
         const target = await w.resolve(input);
         if (!target.ok) return err(target.error);
 
@@ -237,7 +312,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
               // A board-launched doctor never claims, so a missing board lease is a stand-down, not a cue to claim.
               return { ok: false, holder: lease, reason: "lost" };
             }
-            const hb = heartbeatCiLease(mrUrl, owner, deps.leaseOpts());
+            const hb = heartbeatCiLease(mrUrl, actor.caller, deps.leaseOpts());
             return hb.ok ? { ok: true, lease: hb.lease } : { ok: false, holder: hb.reason === "lost" ? hb.holder : null, reason: hb.reason };
           },
           readMr: async () => {

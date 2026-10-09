@@ -218,10 +218,10 @@ export {
 
 export {
   adoptLegacyCiLease, boardDoctorOwner, ciLeaseDir, ciLeaseFileName, CiLeaseError, CiLeaseLockBusyError, claimCiLease,
-  DEFAULT_CI_LEASE_TTL_SECONDS, heartbeatCiLease, isLeaseFresh, leaseOwner, parseMrIid, readCiLease,
+  DEFAULT_CI_LEASE_TTL_SECONDS, heartbeatCiLease, isLeaseFresh, leaseOwner, ownsCiLease, parseMrIid, readCiLease,
   readCiLeaseByBranch, releaseCiLease,
 } from "./ci-lease.ts";
-export type { CiLease, CiLeaseHolder, CiLeaseOpts, ClaimRequest, ClaimResult, HeartbeatResult, ReleaseResult } from "./ci-lease.ts";
+export type { CiLease, CiLeaseCaller, CiLeaseHolder, CiLeaseOpts, ClaimRequest, ClaimResult, HeartbeatResult, ReleaseResult } from "./ci-lease.ts";
 export type {
   AgentOptions, Attachment, CallerContext, Capability, CapabilityReport, DeliveryReceipt, FaultCode,
   HarnessId, IntegrationSummary, ModBlock, Mode, NativeSessionRef, Observation, OptionDescriptor, Outcome, PeerInput,

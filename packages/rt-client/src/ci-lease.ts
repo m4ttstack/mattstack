@@ -69,6 +69,23 @@ export function leaseOwner(lease: CiLease): string {
   return lease.owner ?? `legacy:${lease.holder}`;
 }
 
+/**
+ * Who is acting on a lease: an owner token, or that token with a check that
+ * an older token on a lease names the same owner. A lease held under such a
+ * token is this owner's, and any write it makes records the current token.
+ */
+export type CiLeaseCaller = string | { owner: string; alsoOwns: (token: string) => boolean };
+
+function callerToken(caller: CiLeaseCaller): string {
+  return typeof caller === "string" ? caller : caller.owner;
+}
+
+export function ownsCiLease(lease: CiLease, caller: CiLeaseCaller): boolean {
+  const held = leaseOwner(lease);
+  if (held === callerToken(caller)) return true;
+  return typeof caller !== "string" && caller.alsoOwns(held);
+}
+
 export function boardDoctorOwner(mrUrl: string): string {
   return `board:doctor:${ciLeaseFileName(mrUrl)}`;
 }
@@ -264,6 +281,8 @@ export function readCiLeaseByBranch(branch: string, opts: CiLeaseOpts = {}): CiL
 export type ClaimRequest = {
   mrUrl: string;
   owner: string;
+  /** An older token proven to name this owner: a lease held under it is reclaimed, not taken over. */
+  alsoOwns?: (token: string) => boolean;
   holder: CiLeaseHolder;
   branch?: string;
   sessionLabel?: string;
@@ -281,10 +300,10 @@ export function claimCiLease(req: ClaimRequest, opts: CiLeaseOpts = {}): ClaimRe
       const now = clock(opts);
       const { existing, absent } = readLeaseState(p.lease);
       opts.onLeaseRead?.();
-      if (existing && isLeaseFresh(existing, now) && leaseOwner(existing) !== req.owner) {
+      const reclaim = existing !== null && ownsCiLease(existing, req.alsoOwns ? { owner: req.owner, alsoOwns: req.alsoOwns } : req.owner);
+      if (existing && isLeaseFresh(existing, now) && !reclaim) {
         return { claimed: false, holder: existing };
       }
-      const reclaim = existing !== null && leaseOwner(existing) === req.owner;
       // The branch belongs to the MR, not the owner, so a takeover keeps it too:
       // readCiLeaseByBranch (the board's stack preflight) finds a lease only by it.
       const branch = req.branch ?? existing?.branch;
@@ -307,7 +326,7 @@ export function claimCiLease(req: ClaimRequest, opts: CiLeaseOpts = {}): ClaimRe
       } else {
         commitReplace(tmp, p.lease);
       }
-      const previous = existing && leaseOwner(existing) !== req.owner ? leaseOwner(existing) : undefined;
+      const previous = existing && !reclaim ? leaseOwner(existing) : undefined;
       return previous ? { claimed: true, lease, previousOwner: previous } : { claimed: true, lease };
     }
   });
@@ -318,17 +337,18 @@ export type HeartbeatResult =
   | { ok: false; reason: "lost"; holder: CiLease }
   | { ok: false; reason: "none" };
 
-export function heartbeatCiLease(mrUrl: string, owner: string, opts: CiLeaseOpts = {}): HeartbeatResult {
+export function heartbeatCiLease(mrUrl: string, owner: CiLeaseCaller, opts: CiLeaseOpts = {}): HeartbeatResult {
   const p = paths(mrUrl, opts);
   const seen = readFileLease(p.lease);
   if (!seen) return { ok: false, reason: "none" };
   // Only this owner writes its own owner token, so a foreign lease seen here cannot become ours under the lock.
-  if (leaseOwner(seen) !== owner) return { ok: false, reason: "lost", holder: seen };
+  if (!ownsCiLease(seen, owner)) return { ok: false, reason: "lost", holder: seen };
   return withLock(p.lock, opts, (stillMine) => {
     const existing = readFileLease(p.lease);
     if (!existing) return { ok: false, reason: "none" };
-    if (leaseOwner(existing) !== owner) return { ok: false, reason: "lost", holder: existing };
-    const lease = { ...existing, heartbeatAt: clock(opts) };
+    if (!ownsCiLease(existing, owner)) return { ok: false, reason: "lost", holder: existing };
+    const token = callerToken(owner);
+    const lease = { ...existing, ...(leaseOwner(existing) !== token && { owner: token }), heartbeatAt: clock(opts) };
     const tmp = writeTmp(p.lease, lease);
     checkStillMine(tmp, stillMine);
     commitReplace(tmp, p.lease);
@@ -341,15 +361,15 @@ export type ReleaseResult =
   | { released: false; reason: "not-owner"; holder: CiLease }
   | { released: false; reason: "none" };
 
-export function releaseCiLease(mrUrl: string, owner: string, opts: CiLeaseOpts = {}): ReleaseResult {
+export function releaseCiLease(mrUrl: string, owner: CiLeaseCaller, opts: CiLeaseOpts = {}): ReleaseResult {
   const p = paths(mrUrl, opts);
   const seen = readFileLease(p.lease);
   if (!seen) return { released: false, reason: "none" };
-  if (leaseOwner(seen) !== owner) return { released: false, reason: "not-owner", holder: seen };
+  if (!ownsCiLease(seen, owner)) return { released: false, reason: "not-owner", holder: seen };
   return withLock(p.lock, opts, (stillMine) => {
     const existing = readFileLease(p.lease);
     if (!existing) return { released: false, reason: "none" };
-    if (leaseOwner(existing) !== owner) return { released: false, reason: "not-owner", holder: existing };
+    if (!ownsCiLease(existing, owner)) return { released: false, reason: "not-owner", holder: existing };
     stillMine();
     try { unlinkSync(p.lease); } catch { /* already gone */ }
     return { released: true };

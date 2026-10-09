@@ -203,3 +203,34 @@ describe("heartbeat, release, read, adopt", () => {
     expect(adoptLegacyCiLease(MR, boardDoctorOwner(MR), "doctor", opts())).toEqual({ adopted: false });
   });
 });
+
+describe("an owner with a proven older token", () => {
+  const caller = { owner: "binding:k1", alsoOwns: (token: string) => token === "session:old" };
+
+  test("claim reclaims the older token's lease under the current one, keeping its start", () => {
+    claimCiLease({ mrUrl: MR, owner: "session:old", holder: "watch-ci" }, opts());
+    t += 5_000;
+    const r = claimCiLease({ mrUrl: MR, owner: caller.owner, alsoOwns: caller.alsoOwns, holder: "watch-ci" }, opts());
+    expect(r).toEqual({ claimed: true, lease: expect.objectContaining({ owner: "binding:k1", startedAt: 1_000_000 }) });
+  });
+
+  test("heartbeat moves the lease to the current token; release removes it", () => {
+    claimCiLease({ mrUrl: MR, owner: "session:old", holder: "watch-ci" }, opts());
+    expect(heartbeatCiLease(MR, caller, opts())).toMatchObject({ ok: true, lease: { owner: "binding:k1" } });
+    expect(onDisk().owner).toBe("binding:k1");
+    expect(releaseCiLease(MR, caller, opts())).toEqual({ released: true });
+  });
+
+  test("a token the check does not prove stays foreign", () => {
+    claimCiLease({ mrUrl: MR, owner: "session:other", holder: "watch-ci" }, opts());
+    expect(heartbeatCiLease(MR, caller, opts())).toMatchObject({ ok: false, reason: "lost" });
+    expect(releaseCiLease(MR, caller, opts())).toMatchObject({ released: false, reason: "not-owner" });
+    expect(claimCiLease({ mrUrl: MR, owner: caller.owner, alsoOwns: caller.alsoOwns, holder: "watch-ci" }, opts())).toMatchObject({ claimed: false });
+  });
+
+  test("a heartbeat under the lease's own token leaves an ownerless lease ownerless", () => {
+    writeFileSync(file(), JSON.stringify({ mr: MR, holder: "doctor", startedAt: t, heartbeatAt: t, ttlSeconds: 600 }));
+    expect(heartbeatCiLease(MR, "legacy:doctor", opts())).toMatchObject({ ok: true });
+    expect(onDisk().owner).toBeUndefined();
+  });
+});
