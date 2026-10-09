@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   addPayload,
   autoBanner,
+  behindRows,
   commandButtonLabel,
   commandKey,
   commandStuckToast,
@@ -14,6 +15,7 @@ import {
   NAME_PATTERN,
   PROXY_WAIT_MS,
   reconcileRestarting,
+  redeployAllTargets,
   REFRESH_MS,
   registerOutcome,
   removeFailure,
@@ -21,10 +23,14 @@ import {
   sections,
   showDevLinkPrompt,
   showUnlinkButton,
+  showVersionColumn,
   subline,
   sublineHealthy,
   tunnelDomain,
   tunnels,
+  updateStripText,
+  versionCell,
+  type CommandRuns,
   type RestartingMap,
   type Row,
   type StatusData,
@@ -575,4 +581,64 @@ test('deployPill: never on other commands, without newCode, or mid-run', () => {
   expect(deployPill(baseRow, 'deploy', undefined)).toBeNull();
   expect(deployPill(stale, 'deploy', 'running')).toBeNull();
   expect(deployPill(stale, 'deploy', 'restarting')).toBeNull();
+});
+
+test('versionCell: behind when newCode is set', () => {
+  const row = {
+    name: 'a',
+    devLink: 'linked',
+    newCode: { deployed: 'a3f19c2', head: 'e81d4b0' },
+  } as Row;
+  expect(versionCell(row)).toEqual({
+    kind: 'behind',
+    deployed: 'a3f19c2',
+    head: 'e81d4b0',
+  });
+});
+test('versionCell: current when linked with no newCode', () => {
+  expect(versionCell({ name: 'a', devLink: 'linked' } as Row)).toEqual({
+    kind: 'current',
+  });
+});
+test('versionCell: untracked for unlinked, broken, undefined devLink', () => {
+  for (const devLink of ['unlinked', 'broken', undefined])
+    expect(versionCell({ name: 'a', devLink } as Row)).toEqual({
+      kind: 'untracked',
+    });
+});
+test('showVersionColumn follows data.devMode', () => {
+  expect(showVersionColumn({ devMode: true } as StatusData)).toBe(true);
+  expect(showVersionColumn({ devMode: false } as StatusData)).toBe(false);
+  expect(showVersionColumn({} as StatusData)).toBe(false);
+});
+test('behindRows: newCode and a deploy command, off rows excluded', () => {
+  const nc = { deployed: 'x', head: 'y' };
+  const rows = [
+    { name: 'a', newCode: nc, commands: ['build', 'deploy'] },
+    { name: 'b', newCode: nc, commands: ['build'] },
+    { name: 'c', commands: ['deploy'] },
+    { name: 'd', newCode: nc, commands: ['deploy'], enabled: false },
+  ] as Row[];
+  expect(behindRows(rows).map(r => r.name)).toEqual(['a']);
+});
+test('updateStripText', () => {
+  expect(updateStripText(1)).toBe('New code for 1 app since its last deploy');
+  expect(updateStripText(5)).toBe(
+    'New code for 5 apps since their last deploy'
+  );
+});
+test('redeployAllTargets: table order, self last, in-flight skipped', () => {
+  const nc = { deployed: 'x', head: 'y' };
+  const rows = [
+    { name: 'deck', self: true, newCode: nc, commands: ['deploy'] },
+    { name: 'board', newCode: nc, commands: ['build', 'deploy'] },
+    { name: 'chat', newCode: nc, commands: ['deploy'] },
+    { name: 'console', newCode: nc, commands: ['deploy'] },
+  ] as Row[];
+  const runs = { [commandKey('chat', 'deploy')]: 'running' } as CommandRuns;
+  expect(redeployAllTargets(rows, runs).map(r => r.name)).toEqual([
+    'board',
+    'console',
+    'deck',
+  ]);
 });

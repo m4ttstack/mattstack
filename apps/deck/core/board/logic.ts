@@ -383,3 +383,44 @@ export function commandToast(
 export function commandStuckToast(app: string, cmd: string): string {
   return `${cmd} is still running after 10 minutes · deck logs ${app}`;
 }
+
+export type VersionCell =
+  | { kind: 'behind'; deployed: string; head: string }
+  | { kind: 'current' }
+  | { kind: 'untracked' };
+
+export function versionCell(row: Row): VersionCell {
+  if (row.newCode)
+    return {
+      kind: 'behind',
+      deployed: row.newCode.deployed,
+      head: row.newCode.head,
+    };
+  return row.devLink === 'linked' ? { kind: 'current' } : { kind: 'untracked' };
+}
+
+export function showVersionColumn(data: StatusData): boolean {
+  return data.devMode === true;
+}
+
+export function behindRows(rows: Row[]): Row[] {
+  return rows.filter(
+    r =>
+      r.enabled !== false &&
+      r.newCode != null &&
+      (r.commands ?? []).includes('deploy')
+  );
+}
+
+export function updateStripText(count: number): string {
+  return count === 1
+    ? 'New code for 1 app since its last deploy'
+    : `New code for ${count} apps since their last deploy`;
+}
+
+export function redeployAllTargets(rows: Row[], runs: CommandRuns): Row[] {
+  const idle = behindRows(rows).filter(
+    r => !runs[commandKey(r.name, 'deploy')]
+  );
+  return [...idle.filter(r => !r.self), ...idle.filter(r => r.self)];
+}
