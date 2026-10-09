@@ -8,14 +8,18 @@ import {
 } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
+import type { RunSummary } from '@mattstack/rt-client';
 
 import { PAGE_ROW_HEIGHT } from '../chrome';
-import type { BoardRun } from './bands';
 import { CommandProvenance } from './CommandProvenance';
-import classes from './RunPanel.module.css';
-import { RunRow } from './RunRow';
+import { nowOf } from './derive/clock';
+import { runTitle } from './derive/kind';
+import { dayGroups } from './derive/lanes';
+import { answeredGates } from './derive/record';
+import { EarlierList } from './runs-page/EarlierList';
+import { useLinkedGates } from './runs-page/useLinkedGates';
 import { matchRun, parseQuery } from './search';
-import { useRunList, useRunsPruneDays, useSeen } from './useRuns';
+import { useRunList, useRunsPruneDays } from './useRuns';
 
 function RetentionNotice({ days }: { days: number | undefined }) {
   const { text } = useSchemeColors();
@@ -31,16 +35,15 @@ function RetentionNotice({ days }: { days: number | undefined }) {
 export function RunSearch() {
   const [query, setQuery] = useState('');
   const runsQuery = useRunList();
-  const seenQuery = useSeen();
   const pruneDaysQuery = useRunsPruneDays();
+  const linked = useLinkedGates();
   const { text } = useSchemeColors();
+  const now = nowOf(runsQuery.data);
 
-  const runs: BoardRun[] = useMemo(() => {
-    const list = runsQuery.data?.runs ?? [];
-    const seen = seenQuery.data ?? {};
-    return list.map(run => ({ ...run, seen: run.id in seen }));
-  }, [runsQuery.data, seenQuery.data]);
-
+  const runs = useMemo(
+    () => (runsQuery.data?.runs ?? []) as RunSummary[],
+    [runsQuery.data]
+  );
   const terms = useMemo(() => parseQuery(query), [query]);
   const results = useMemo(
     () => runs.filter(run => matchRun(run, terms)),
@@ -82,14 +85,18 @@ export function RunSearch() {
             {query.trim() ? 'No runs match.' : 'No retained runs yet.'}
           </Text>
         ) : (
-          <div
-            className={`${classes.panel} ${classes.divided}`}
-            data-testid="run-search-results"
-          >
-            {results.map(run => (
-              <RunRow key={run.id} run={run} />
-            ))}
-          </div>
+          <EarlierList
+            groups={dayGroups(results, now)}
+            now={now}
+            info={run => ({
+              ticket: run.ticket,
+              title: runTitle(run, {}),
+              href: `/runs/${run.repo}/${run.id}`,
+              decisions: answeredGates(linked.byRun.get(run.id) ?? []).length,
+              inBoard: false,
+              aging: null,
+            })}
+          />
         )}
       </Stack>
     </PageShell>

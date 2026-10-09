@@ -1,0 +1,59 @@
+{
+  "run": {
+    "id": "20261008-1502",
+    "work_type": "review",
+    "pipeline": "review",
+    "status": "running",
+    "started_at": "2026-10-08T15:02:00-05:00",
+    "ended_at": null,
+    "outcome": {
+      "status": "running",
+      "reviewed": {
+        "iid": 412,
+        "url": "https://gitlab.com/acme/web/-/merge_requests/412",
+        "posted": null
+      }
+    }
+  },
+  "stages": [
+    {
+      "name": "review",
+      "status": "running",
+      "started_at": "2026-10-08T15:04:00-05:00",
+      "ended_at": null
+    }
+  ],
+  "fields": [
+    {
+      "key": "branch",
+      "value": "dedupe-contacts",
+      "produced_by": "review",
+      "at": "2026-10-08T15:02:10-05:00"
+    },
+    {
+      "key": "worktree",
+      "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/molly",
+      "produced_by": "review",
+      "at": "2026-10-08T15:02:20-05:00"
+    },
+    {
+      "key": "mr",
+      "value": "!412",
+      "produced_by": "review",
+      "at": "2026-10-08T15:03:00-05:00"
+    },
+    {
+      "key": "findings",
+      "value": "4 (2 must fix, 2 suggestions)",
+      "produced_by": "review",
+      "at": "2026-10-08T15:08:00-05:00"
+    },
+    {
+      "key": "tiers",
+      "value": "correctness, tests",
+      "produced_by": "review",
+      "at": "2026-10-08T15:08:10-05:00"
+    }
+  ],
+  "decisions": []
+}

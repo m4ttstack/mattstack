@@ -132,6 +132,19 @@ describe("gateList", () => {
     expect(seen).toEqual([{ cmd: "gate:list", payload }]);
   });
 
+  test("forwards run and linked when present", async () => {
+    const { sock, seen, stop } = fakeDaemon({
+      "gate:list": { ok: true, data: { gates: [], cursor: 0 } },
+    });
+    stops.push(stop);
+    await gateList({ run: "r1" }, { sockPath: sock });
+    await gateList({ linked: true }, { sockPath: sock });
+    expect(seen).toEqual([
+      { cmd: "gate:list", payload: { run: "r1" } },
+      { cmd: "gate:list", payload: { linked: true } },
+    ]);
+  });
+
   test("forwards limit and cursor when present", async () => {
     const { sock, seen, stop } = fakeDaemon({
       "gate:list": { ok: true, data: { gates: [], cursor: 5 } },

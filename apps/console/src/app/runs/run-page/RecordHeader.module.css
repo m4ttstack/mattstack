@@ -1,0 +1,23 @@
+.hero {
+  padding: 22px 24px;
+}
+
+.stats {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 14px;
+  border-top: 1px solid var(--tk-line-3);
+}
+
+.stat {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 16px;
+}
+
+.stat + .stat {
+  border-left: 1px solid var(--tk-line-3);
+}

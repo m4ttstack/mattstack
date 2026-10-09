@@ -1,9 +1,12 @@
 import type { RunDecisionRow, RunStageRow } from '@mattstack/rt-client';
 
 export type FieldKind =
-  'cleared' | 'url' | 'sha-list' | 'json' | 'gate-ref' | 'text';
+  'cleared' | 'url' | 'sha-list' | 'json' | 'gate-ref' | 'path' | 'text';
 
 const GATE_REF_KEYS = new Set(['waiting-gate', 'gate']);
+
+/** One file path with at least one folder and an extension, nothing else. */
+const FILE_PATH = /^\/?[\w.@-]+(\/[\w.@-]+)*\/[\w@-][\w.@-]*\.\w+$/;
 
 function isJson(v: string): boolean {
   try {
@@ -21,6 +24,7 @@ export function fieldKind(key: string, value: string): FieldKind {
   if (/^[0-9a-f]{7,40}(\s+[0-9a-f]{7,40})*$/i.test(v)) return 'sha-list';
   if (/^[[{]/.test(v) && isJson(v)) return 'json';
   if (GATE_REF_KEYS.has(key)) return 'gate-ref';
+  if (FILE_PATH.test(v)) return 'path';
   return 'text';
 }
 

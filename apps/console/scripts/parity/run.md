@@ -1,9 +1,9 @@
 # Design parity run
 
 How to check one console board, in one scheme, against its design. Every UI
-task on the Wiring page's Graph tab ends with this run for its boards in `dark`
-and `light`, and the result must be **0 mismatches** outside the board-fix list
-in `docs/apps/design/console/README.md`.
+task on the Wiring page's Graph tab or on the runs and run pages ends with this
+run for its boards in `dark` and `light`, and the result must be **0
+mismatches** outside the board-fix list in `docs/apps/design/console/README.md`.
 
 ## What is compared
 
@@ -19,17 +19,38 @@ names its content roots in `boards.ts`:
 | `drawer-include-row`, `drawer-input-card`, `drawer-history`, `drawer-rebind` | `Focus list`, `Stage`, `Focus header`, `Drawer`                                    |
 | `unsynced-banner`                                                            | `Focus list`, `Stage`, `Focus header`, `Banner · unsynced`                         |
 | `unsynced-confirm`                                                           | `Focus list`, `Stage`, `Focus header`, `Banner · unsynced`, `Modal · sync changes` |
+| `runs-lanes`, `runs-empty`                                                   | `Content`                                                                          |
+| `runs-timeline`                                                              | `Title row`, `Legend`, `Timeline card`, `Summary row`                              |
+| `run-live`, `run-review-live`                                                | `Hero`, `Story`, `Story list`, `Side`                                              |
+| `run-gate`                                                                   | `Hero`, `Gate mine`, `Side`                                                        |
+| `run-record`                                                                 | `Hero`, `Tabs`, `Columns`                                                          |
+| `run-two-gates`                                                              | `Gate herd-owned`, `Gate mine`                                                     |
+| `run-story-edges`                                                            | `Now empty`, `Story list`                                                          |
+| `run-record-abandoned`                                                       | `Hero abandoned`                                                                   |
+| `run-record-review`                                                          | `Hero review`                                                                      |
+
+The Lanes boards compare their whole `Content`: the title row, stat cards,
+banner, lanes and Earlier list are all its children. The runs boards come from
+`runs.pen` (each board's `penPath`), the Graph tab's from `console.pen`.
 
 `Focus header` sits inside `Stage` and is also compared as its own root.
 Inside `Stage` the design keys straight through it, since its frame paints
 nothing, and the compare keys through the app's copy the same way, so its
-layers carry the same keys in both roots.
+layers carry the same keys in both roots. `Story list` sits inside `Story`
+on `run-live` and `run-review-live` the same way: `run-story-edges` compares
+it as a root, so the app names it, and the run boards key through it.
 `Focus list` is the content of the kit's `PageShell.Sidebar`, and it is
 compared.
 
+The record headers board draws two headers in one frame, so it names them
+`Hero abandoned` and `Hero review`. The app has one `Hero`: a board's
+`appRoots` maps a design root to the app's `data-parity` for it, and the
+runner collects the app root under the design root's name.
+
 Every root is its own target with its own output stem (`<slug>.<root>`, e.g.
 `template-plan.focus-header`), and boxes are relative to that root. The boards
-are 1680 wide (`viewportWidth` in `harness.ts`); after the route loads the
+are 1680 wide (`viewportWidth` in `harness.ts`; the runs boards are 1440, and
+the story edges board 1040); after the route loads the
 runner resizes the app viewport until the widest root matches its design
 width. Paths below are relative to the repo root unless they start with `~`.
 The collector, runner, compare CLI and harness server are shared by every app
@@ -99,8 +120,9 @@ own tab, since the runner navigates the current one.
 ## Steps for one board and scheme
 
 `<slug>` is a slug from `boards.ts`, `<scheme>` is `dark` or `light`,
-`<scenario>` is that board's `scenario` (`clean`, or `unsynced` for the two
-`unsynced-*` boards).
+`<scenario>` is that board's `scenario` (`clean`, `unsynced` for the two
+`unsynced-*` boards, `runs` for the runs boards, `runs-empty` for
+`runs-empty`).
 
 ### 1. Start three background processes
 
@@ -127,12 +149,15 @@ reaches the fixture:
 curl -s 'http://localhost:5307/api/skills/composition?pack=acme' | head -c 200
 ```
 
-It must mention `"packDir":"/fixture/packs/acme"`. If a port is taken, find
+It must mention `"packDir":"/fixture/packs/acme"`. For a runs board,
+`curl -s 'http://localhost:5307/api/runs' | head -c 200` must list a
+`remote:acme%2Fweb` run and end its answer with an `asOf`. If a port is taken, find
 the owner with `lsof -nP -iTCP:<port> -sTCP:LISTEN`; stop it only if it is one
 of yours.
 
 The scenario is fixed per server process. The `unsynced-*` boards need the
-fixture server restarted with `CONSOLE_FIXTURE_SCENARIO=unsynced`; the rest use
+fixture server restarted with `CONSOLE_FIXTURE_SCENARIO=unsynced`, the runs
+boards with `runs` (and `runs-empty` for that one board); the rest use
 `clean`. Vite and the harness keep running across boards.
 
 ### 2. Load the browser tools
@@ -213,8 +238,9 @@ It prints `<title>: 0 mismatches` and exits 0, or a table (`key`, `field`,
 `design`, `app`) and exits 1. Per design key it checks presence, one app node
 per key, `x`, `y`, `h` within 1px, `w` within 1px except text, `fill`,
 `stroke`, `color`, cumulative `opacity`, and `text`; then every app key must
-exist in the design. No console board has time-based text, so every text is
-compared as written.
+exist in the design. Text compares as written, except a board's `dynamicText`
+layers (the runs pages' ages and stats), which compare with their numbers
+masked.
 
 ### 5. Look at the side-by-side
 

@@ -116,7 +116,7 @@ One sentence above the form: the printed tier and why.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `tier` | the printed tier `(Recommended)`, then the other two | always |
+| `tier` | the printed tier, its label ending ` (Recommended)`, then the other two | always |
 | `failing_test` | the FAILING TEST line to keep, or their rename as text | direct-tdd |
 | the domain's own | as the domain policy words them | the domain declares them |
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |

@@ -111,7 +111,7 @@ function notFound(path: string): Error {
 }
 
 /** Where a `/fixture/...` path lives on disk; anything outside `/fixture` is absent. */
-function onDisk(path: string): string {
+export function onDisk(path: string): string {
   const clean = posix.normalize(path);
   if (!clean.startsWith(`${FIXTURE_ROOT}/`)) throw notFound(path);
   return join(FILES, clean.slice(FIXTURE_ROOT.length + 1));

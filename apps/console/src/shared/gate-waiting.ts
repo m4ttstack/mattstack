@@ -1,7 +1,5 @@
 import type { GateRow } from '@mattstack/rt-client';
 
-export type RunGateMarker = 'blocked' | 'shepherd';
-
 export function isWaiting(g: GateRow): boolean {
   return g.status === 'open' || g.status === 'parked';
 }
@@ -10,18 +8,6 @@ export function isWaiting(g: GateRow): boolean {
     only be answered by that herd's shepherd. */
 export function isMine(g: GateRow): boolean {
   return g.owner == null || g.owner === 'human';
-}
-
-export function runGateMarker(
-  gates: GateRow[] | undefined,
-  runId: string
-): RunGateMarker | null {
-  const subject = `run:${runId}`;
-  const waiting = (gates ?? []).filter(
-    g => g.subject === subject && isWaiting(g)
-  );
-  if (waiting.some(isMine)) return 'blocked';
-  return waiting.length > 0 ? 'shepherd' : null;
 }
 
 /** The board also counts a `run:` gate shown on one of its MR rows; the

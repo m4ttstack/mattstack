@@ -100,6 +100,66 @@ describe('GET /api/gates', () => {
     });
   });
 
+  it('passes run through alone and keeps only the rows linked to that run', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        gates: [
+          row({ id: 'a', subject: 'run:r1' }),
+          row({ id: 'b', subject: 'mr:acme/web!412', origin: { runId: 'r1' } }),
+          row({ id: 'c', subject: 'run:r12' }),
+        ],
+        cursor: 3,
+      },
+    });
+    const res = await gates.fetch(
+      new Request('http://localhost/api/gates?run=r1')
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { gates: GateRow[] };
+    expect(body.gates.map(g => g.id)).toEqual(['a', 'b']);
+    expect(vi.mocked(rt.gateList).mock.calls[0]![0]).toEqual({
+      run: 'r1',
+      limit: 200,
+      cursor: undefined,
+    });
+  });
+
+  it('passes linked through alone and keeps only run-linked rows', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        gates: [
+          row({ id: 'a', subject: 'run:r1' }),
+          row({ id: 'b', subject: 'mr:acme/web!412', origin: { runId: 'r9' } }),
+          row({ id: 'c', subject: 'mr:acme/web!9' }),
+        ],
+        cursor: 3,
+      },
+    });
+    const res = await gates.fetch(
+      new Request('http://localhost/api/gates?linked=1')
+    );
+    const body = (await res.json()) as { gates: GateRow[] };
+    expect(body.gates.map(g => g.id)).toEqual(['a', 'b']);
+    expect(vi.mocked(rt.gateList).mock.calls[0]![0]).toEqual({
+      linked: true,
+      limit: 200,
+      cursor: undefined,
+    });
+  });
+
+  it('ignores linked unless it is 1', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: { gates: [], cursor: 0 },
+    });
+    await gates.fetch(new Request('http://localhost/api/gates?linked=true'));
+    expect(vi.mocked(rt.gateList).mock.calls[0]![0]).toMatchObject({
+      subjectPrefix: 'run:',
+    });
+  });
+
   it('ignores a subject that is not a run subject', async () => {
     vi.mocked(rt.gateList).mockResolvedValueOnce({
       ok: true,

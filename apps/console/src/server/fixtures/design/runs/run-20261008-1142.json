@@ -1,0 +1,153 @@
+{
+  "run": {
+    "id": "20261008-1142",
+    "work_type": "feature",
+    "pipeline": "work",
+    "status": "done",
+    "started_at": "2026-10-08T11:42:00-05:00",
+    "ended_at": "2026-10-08T14:12:00-05:00",
+    "outcome": {
+      "status": "done",
+      "mr": {
+        "iid": 405,
+        "state": "merged",
+        "url": "https://gitlab.com/acme/web/-/merge_requests/405",
+        "mergedAt": "2026-10-08T14:14:00-05:00"
+      },
+      "ci": "success"
+    }
+  },
+  "stages": [
+    {
+      "name": "provision",
+      "status": "done",
+      "started_at": "2026-10-08T11:42:00-05:00",
+      "ended_at": "2026-10-08T11:43:00-05:00"
+    },
+    {
+      "name": "plan",
+      "status": "done",
+      "started_at": "2026-10-08T11:43:00-05:00",
+      "ended_at": "2026-10-08T11:55:00-05:00"
+    },
+    {
+      "name": "gates",
+      "status": "done",
+      "started_at": "2026-10-08T11:55:00-05:00",
+      "ended_at": "2026-10-08T11:56:00-05:00"
+    },
+    {
+      "name": "evidence",
+      "status": "done",
+      "started_at": "2026-10-08T11:56:00-05:00",
+      "ended_at": "2026-10-08T12:40:00-05:00"
+    },
+    {
+      "name": "implement",
+      "status": "done",
+      "started_at": "2026-10-08T12:40:00-05:00",
+      "ended_at": "2026-10-08T13:20:00-05:00"
+    },
+    {
+      "name": "self-review",
+      "status": "done",
+      "started_at": "2026-10-08T13:20:00-05:00",
+      "ended_at": "2026-10-08T13:28:00-05:00"
+    },
+    {
+      "name": "ship",
+      "status": "done",
+      "started_at": "2026-10-08T13:28:00-05:00",
+      "ended_at": "2026-10-08T13:36:00-05:00"
+    },
+    {
+      "name": "watch-ci",
+      "status": "done",
+      "started_at": "2026-10-08T13:36:00-05:00",
+      "ended_at": "2026-10-08T14:12:00-05:00"
+    }
+  ],
+  "fields": [
+    {
+      "key": "pipeline-stages",
+      "value": "provision plan gates evidence implement self-review ship watch-ci",
+      "produced_by": "provision",
+      "at": "2026-10-08T11:42:05-05:00"
+    },
+    {
+      "key": "ticket",
+      "value": "WEB-409",
+      "produced_by": "provision",
+      "at": "2026-10-08T11:42:10-05:00"
+    },
+    {
+      "key": "branch",
+      "value": "web-409-tracking-summary",
+      "produced_by": "provision",
+      "at": "2026-10-08T11:42:20-05:00"
+    },
+    {
+      "key": "worktree",
+      "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/merry",
+      "produced_by": "provision",
+      "at": "2026-10-08T11:42:30-05:00"
+    },
+    {
+      "key": "approach",
+      "value": "Backend data + panel component",
+      "produced_by": "plan",
+      "at": "2026-10-08T11:50:00-05:00"
+    },
+    {
+      "key": "evidence-plan",
+      "value": "Before and after of the shipping panel on a rush order",
+      "produced_by": "plan",
+      "at": "2026-10-08T11:54:00-05:00"
+    },
+    {
+      "key": "case",
+      "value": "Rush order, Sep 14 delay, Denver",
+      "produced_by": "evidence",
+      "at": "2026-10-08T12:32:00-05:00"
+    },
+    {
+      "key": "evidence",
+      "value": "{\"v\":1,\"before\":\"/fixture/evidence/web-409/before.png\",\"after\":\"/fixture/evidence/web-409/after.png\",\"afterAnnotated\":\"/fixture/evidence/web-409/after-annotated.png\",\"transcript\":\"/fixture/evidence/web-409/transcript-after.md\",\"case\":\"Rush order, Sep 14 delay, Denver\",\"attach\":\"ship\"}",
+      "produced_by": "evidence",
+      "at": "2026-10-08T12:38:00-05:00"
+    },
+    {
+      "key": "strategy",
+      "value": "subagent-driven, 4 tasks",
+      "produced_by": "implement",
+      "at": "2026-10-08T12:41:00-05:00"
+    },
+    {
+      "key": "commits",
+      "value": "5d6e7f8..b3a9c41 (4): tracking client, summary resolver, panel component, tests",
+      "produced_by": "implement",
+      "at": "2026-10-08T13:18:00-05:00"
+    },
+    {
+      "key": "self-review",
+      "value": "two notes fixed",
+      "produced_by": "self-review",
+      "at": "2026-10-08T13:27:00-05:00"
+    },
+    {
+      "key": "mr",
+      "value": "https://gitlab.com/acme/web/-/merge_requests/405",
+      "produced_by": "ship",
+      "at": "2026-10-08T13:34:00-05:00"
+    }
+  ],
+  "decisions": [
+    {
+      "contract": "execution-strategy@1",
+      "scope": "implement:1",
+      "selection": { "strategy": "subagent-driven", "tasks": 4 },
+      "decided_by": "agent",
+      "decided_at": "2026-10-08T12:41:00-05:00"
+    }
+  ]
+}

@@ -80,7 +80,8 @@ import { runBootIdentityMigration } from "./daemon/boot-migrate.ts";
 import { detectRenamedRepos, realRenameDetectDeps, startRenameDetector } from "./daemon/rename-detect.ts";
 import { runCapture } from "./subprocess.ts";
 import { buildRoutedHandlers } from "./daemon/command-router.ts";
-import { findRunningRunByWorktree } from "./runs/store.ts";
+import { findRunningRunByWorktree, listRuns } from "./runs/store.ts";
+import { createOutcomeRefresher, lookupFromMrGet, postedFromGateRows } from "./daemon/run-outcome-refresher.ts";
 import { createChatDeliverySweep } from "./daemon/handlers/chat.ts";
 import { startSocketServer } from "./daemon/socket-server.ts";
 import { startApiServer, withApiPortParkRetry, broadcast, apiWsClientCount, clearWsClients } from "./daemon/api-server.ts";
@@ -1177,6 +1178,51 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           },
           log: loggerHandle.childLogger("agent-status"),
         });
+
+        // Fills the run outcome cache (MR state, CI, a review's posted label)
+        // so listRuns never waits on the forge. A tick that finds the last one
+        // still running does nothing.
+        const outcomeLog = loggerHandle.childLogger("run-outcome");
+        const outcomeRefresher = createOutcomeRefresher({
+          listRunsForOutcome: () => listRuns().flatMap((run) => {
+            const ref = run.outcome?.mr ?? run.outcome?.reviewed;
+            if (!ref) return [];
+            return [{
+              id: run.id, repo: run.repo, work_type: run.work_type, status: run.status,
+              started_at: run.started_at, ended_at: run.ended_at,
+              mr: { value: String(ref.iid), produced_by: run.outcome?.mr ? "ship" : "review" },
+            }];
+          }),
+          getMr: async (repoName, iid, signal) => {
+            const handler = routedHandlers?.["mr:get"];
+            if (!handler) return { ok: false };
+            try {
+              // mr:get takes the signal but its forge fetch does not read it
+              // yet, so a timed-out call is dropped, not cancelled.
+              const res = (await handler({ repoName, iid }, signal)) as CommandResult<"mr:get">;
+              if (!res.ok) outcomeLog.debug({ repoName, iid, error: res.error }, "mr lookup refused");
+              return lookupFromMrGet(res);
+            } catch (err) {
+              outcomeLog.debug({ repoName, iid, err }, "mr lookup threw");
+              return { ok: false };
+            }
+          },
+          knownRepos: () => new Set(Object.keys(loadRepoIndex())),
+          postedFromGates: (runId) => postedFromGateRows(gatesStore.list({ run: runId, status: ["answered"] }).gates),
+          emitRunUpdated: (runId, repo) => {
+            const emittedAt = Date.now();
+            const payload = { repo, runId, stage: null, kind: "outcome" };
+            const id = eventsBus.emitAt("run-updated", payload, emittedAt);
+            emit("event", { id, topic: "run-updated", payload, emittedAt });
+          },
+          now: () => Date.now(),
+        });
+        sweepHandles.push(scheduleSweep(
+          "run-outcome-refresh",
+          () => outcomeRefresher.tick(),
+          { bootDelayMs: 45_000, intervalMs: 60_000 },
+          log,
+        ));
 
         // Settings-driven notifier event bridge: turns a matching
         // events-bus broadcast into a queued desktop notification,

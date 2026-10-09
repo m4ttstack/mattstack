@@ -1,0 +1,16 @@
+.columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  width: 100%;
+}
+
+.story {
+  flex: 1;
+  min-width: 0;
+}
+
+.slot {
+  width: 100%;
+  scroll-margin-top: var(--mantine-spacing-xl);
+}
