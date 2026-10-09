@@ -32,7 +32,8 @@ export type Section =
 export type ActionGlyph =
   | {
       kind: 'menu';
-      name: 'file' | 'people' | 'copy' | 'branch' | 'dismiss' | 'note';
+      name:
+        'file' | 'people' | 'copy' | 'branch' | 'dismiss' | 'note' | 'refresh';
     }
   | { kind: 'flag'; name: 'conflicts' | 'auto-merge' | 'draft' }
   | { kind: 'out' }
@@ -53,6 +54,7 @@ export type LaunchFlow =
 export type ActionRequest =
   | { kind: 'launch'; flow: LaunchFlow; intent?: 'focus' }
   | { kind: 'mr'; action: MrAction }
+  | { kind: 'refresh' }
   | { kind: 'draft'; draft: boolean }
   | { kind: 'react'; emoji: string; glyph: string; remove: boolean }
   | {
@@ -144,6 +146,7 @@ const PEOPLE: ActionGlyph = { kind: 'menu', name: 'people' };
 const DISMISS: ActionGlyph = { kind: 'menu', name: 'dismiss' };
 const COPY: ActionGlyph = { kind: 'menu', name: 'copy' };
 const NOTE: ActionGlyph = { kind: 'menu', name: 'note' };
+const REFRESH: ActionGlyph = { kind: 'menu', name: 'refresh' };
 const DRAFT: ActionGlyph = { kind: 'flag', name: 'draft' };
 const AGENT_CLOUD: ActionGlyph = { kind: 'agent-cloud' };
 const SLACK: ActionGlyph = { kind: 'slack' };
@@ -557,6 +560,12 @@ export function rowActions(
       { kind: 'open', url: mrx.webUrl ?? '' }
     )
   );
+  if (env.local)
+    gitlab.push(
+      item('gitlab', 'refresh-mr', 'refresh from gitlab', REFRESH, {
+        kind: 'refresh',
+      })
+    );
 
   const s = mrx.slack;
   if (env.local && env.slackEnabled) {
