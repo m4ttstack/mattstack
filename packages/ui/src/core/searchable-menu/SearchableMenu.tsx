@@ -65,6 +65,9 @@ export interface SearchableMenuProps<T extends Record<string, unknown>> {
   items: T[];
   itemTitle: (item: T) => string;
   itemSubtitle?: (item: T, filterKeyword?: string) => ReactNode;
+  /** Drawn right after an item's title, on the same line (a tag such as
+      "your team"). */
+  itemTitleSuffix?: (item: T) => ReactNode;
   isSelectedItem?: (item: T) => boolean;
   showItemBadge?: (item: T) => boolean;
   itemBadgeText?: ((item: T) => string) | string;
@@ -124,6 +127,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
   items: unsortedItems,
   itemTitle,
   itemSubtitle,
+  itemTitleSuffix,
   isSelectedItem,
   showItemBadge,
   itemBadgeText,
@@ -204,20 +208,24 @@ export function SearchableMenu<T extends Record<string, unknown>>({
           <Flex justify="space-between" align="center" flex={1} mih={30}>
             <Flex direction="column">
               {itemTitleText && (
-                <Highlight
-                  truncate="end"
-                  maw="16rem"
-                  title={itemTitleText}
-                  fw={500}
-                  fz={14}
-                  highlight={filterKeyword}
-                  color="blue"
-                >
-                  {itemTitleText}
-                </Highlight>
+                <Group gap={6} wrap="nowrap">
+                  <Highlight
+                    truncate="end"
+                    maw="16rem"
+                    title={itemTitleText}
+                    fw={500}
+                    fz={14}
+                    highlight={filterKeyword}
+                    color="blue"
+                  >
+                    {itemTitleText}
+                  </Highlight>
+                  {itemTitleSuffix?.(item)}
+                </Group>
               )}
               {itemSubtitle?.(item, filterKeyword) && (
                 <Text
+                  component="div"
                   fz={12}
                   c="light-dark(var(--mantine-color-gray-8), var(--mantine-color-gray-5))"
                 >

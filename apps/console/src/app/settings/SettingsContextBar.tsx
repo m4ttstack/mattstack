@@ -9,6 +9,7 @@ import {
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icon, Icons } from '@mattstack/app-kit/icons';
 
+import classes from './SettingsContextBar.module.css';
 import type { Viewer } from './useConsoleSettings';
 
 type Role = Viewer['role'];
@@ -66,13 +67,41 @@ function Who({ viewer }: { viewer: Viewer }) {
 
 type TeamItem = { name: string; own: boolean; owners: string[] };
 
-/** Who to ask about a team's settings: its owners. */
-function ownersLine(item: TeamItem): string {
-  const who =
-    item.owners.length === 0
-      ? 'no owner yet'
-      : `${item.owners.length === 1 ? 'owner' : 'owners'}: ${item.owners.join(', ')}`;
-  return item.own ? `your team · ${who}` : who;
+/** Who to ask about a team's settings: its owners, by face and name. A
+    span, since the menu sets the line inside a paragraph. */
+function OwnersLine({ item }: { item: TeamItem }) {
+  return (
+    <Group component="span" gap={6} wrap="nowrap" mt={2}>
+      {item.owners.length === 0 ? (
+        <Text span fz={12} fs="italic" c="dimmed">
+          no owner yet
+        </Text>
+      ) : (
+        <>
+          <Group component="span" gap={2} wrap="nowrap">
+            {item.owners.slice(0, 3).map(name => (
+              <Avatar
+                key={name}
+                size={18}
+                radius="xl"
+                color="cyan"
+                variant="light"
+                fz={9}
+              >
+                {initials(name)}
+              </Avatar>
+            ))}
+          </Group>
+          <Text span fz={12}>
+            {item.owners.join(', ')}
+          </Text>
+          <Text span fz={12} c="dimmed">
+            {item.owners.length === 1 ? 'owner' : 'owners'}
+          </Text>
+        </>
+      )}
+    </Group>
+  );
 }
 
 function TeamMenu({
@@ -103,6 +132,7 @@ function TeamMenu({
           variant={other ? 'light' : 'subtle'}
           color={other ? 'purple' : 'gray'}
           fz={14}
+          className={classes.trigger}
           aria-label={`team: ${team}, switch team`}
           leftSection={<Icons.users size={15} />}
           rightSection={<Icons.chevronsUpDown size={14} />}
@@ -114,10 +144,18 @@ function TeamMenu({
       title="Teams"
       titleIcon={<Icons.users size={14} />}
       itemTitle={item => item.name}
-      itemSubtitle={ownersLine}
+      itemSubtitle={item => <OwnersLine item={item} />}
+      itemTitleSuffix={item =>
+        item.own ? (
+          <Badge size="xs" radius="xl" color="cyan" variant="light">
+            your team
+          </Badge>
+        ) : null
+      }
       isSelectedItem={item => item.name === team}
       showItemBadge={item => item.name === team}
       itemBadgeText="Selected"
+      itemBadgeColor={() => 'purple'}
       onItemClick={item => onPick(item.own ? null : item.name)}
       filterPlaceholder={() => 'Find team…'}
       emptyMessage="No team matches"

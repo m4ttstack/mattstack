@@ -1025,10 +1025,10 @@ describe('the context bar', () => {
     );
     expect(
       await screen.findByRole('menuitem', { name: /gadgets/ })
-    ).toHaveTextContent('owner: Ada Byron');
-    expect(screen.getByRole('menuitem', { name: /widgets/ })).toHaveTextContent(
-      'your team · owner: Sam Rivera'
-    );
+    ).toHaveTextContent('Ada Byronowner');
+    const own = screen.getByRole('menuitem', { name: /widgets/ });
+    expect(own).toHaveTextContent('your team');
+    expect(own).toHaveTextContent('Sam Riveraowner');
     await userEvent.click(screen.getByRole('menuitem', { name: /gadgets/ }));
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get('team')).toBe(

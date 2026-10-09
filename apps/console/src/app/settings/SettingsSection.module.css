@@ -5,7 +5,7 @@
   border-radius: var(--mantine-radius-lg);
   background: color-mix(
     in srgb,
-    var(--block-hue) calc(var(--tk-wash) * 0.7),
+    var(--block-hue) calc(var(--tk-wash) * 0.5),
     transparent
   );
 }

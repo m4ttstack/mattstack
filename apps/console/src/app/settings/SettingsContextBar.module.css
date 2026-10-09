@@ -1,0 +1,5 @@
+/* Mantine marks a Menu's trigger data-expanded while the menu is open; the
+   trigger keeps its own hover colour for that time. */
+.trigger[data-expanded] {
+  background-color: var(--button-hover);
+}
