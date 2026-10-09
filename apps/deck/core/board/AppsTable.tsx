@@ -17,6 +17,7 @@ import { CommandButton } from './CommandButton.tsx';
 import { GLOBE } from './icons.ts';
 import {
   commandKey,
+  effectiveOverride,
   isPlatform,
   servicePid,
   showDevLinkPrompt,
@@ -46,11 +47,11 @@ export interface AppsSection {
   rows: Row[];
 }
 
-export interface DrawerRowProps {
+export interface SettingsRowProps {
   onOpenRow: (name: string) => void;
-  /** Registers/unregisters a row's gear DOM node so the drawer can restore
-      focus to it on close, including after the row that opened it switches
-      (arrow keys) or is later removed. */
+  /** Registers/unregisters a row's gear DOM node so the settings modal can restore
+      focus to it on close, including after the row that opened it is later
+      removed. */
   registerGear: (name: string, el: HTMLButtonElement | null) => void;
 }
 
@@ -66,7 +67,7 @@ export function AppsTable({
   showHead: boolean;
   data: StatusData;
   board: BoardState;
-} & DrawerRowProps) {
+} & SettingsRowProps) {
   const {
     isRestarting,
     onRestart,
@@ -238,8 +239,7 @@ function PortCell({ row, data }: { row: Row; data: StatusData }) {
   // The board's own row can never carry an override in practice, but the
   // dev chip still checks `self` defensively: showing "override" on the
   // board's own listing of itself would be self-contradictory.
-  const override =
-    row.override && data.canManage && !row.self ? row.override : null;
+  const override = effectiveOverride(row, data);
   return (
     <span>
       {row.port}
@@ -543,7 +543,7 @@ function DevLinkPrompt({
 
 /** The only way into the row's settings. Always in the tab order; board.css
     keeps it transparent until the row is hovered or holds focus.
-    `registerRef` feeds the drawer's gear map, read on close to restore
+    `registerRef` feeds the board's gear map, read on close to restore
     focus. */
 function RowGear({
   row,

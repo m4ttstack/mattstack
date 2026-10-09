@@ -1,6 +1,6 @@
 import { useOptimistic, useTransition } from 'react';
 
-import { ListGroup, Switch, Tooltip } from '@mattstack/tui-kit';
+import { Switch, Tooltip } from '@mattstack/tui-kit';
 
 /** Optimistic boolean for a Switch backed by a server mutation: the shown
     value flips the moment the user clicks, and the canonical value takes
@@ -22,11 +22,8 @@ export function useOptimisticToggle(
   return [shown, toggle];
 }
 
-/* Drawer screens are built by plain ScreenBuilder functions, which cannot
-   call hooks — these two wrappers are the hook's only legal home there and
-   keep the table cell on the same mechanism. */
-
-/** `disabled` with a `disabledTip` wraps only the Switch in the tooltip, so
+/** The Switch for the table cell and the settings modal, on the same
+    optimistic mechanism. `disabled` with a `disabledTip` wraps only the Switch in the tooltip, so
     the reason shows on the control that refuses the click. */
 export function OptimisticSwitch({
   checked,
@@ -54,65 +51,5 @@ export function OptimisticSwitch({
     <Tooltip tip={disabledTip}>{control}</Tooltip>
   ) : (
     control
-  );
-}
-
-export function OptimisticToggleRow({
-  label,
-  checked,
-  mutate,
-  'aria-label': ariaLabel,
-}: {
-  label: string;
-  checked: boolean;
-  mutate: () => Promise<void>;
-  'aria-label': string;
-}) {
-  const [shown, toggle] = useOptimisticToggle(checked, mutate);
-  return (
-    <ListGroup.Toggle
-      label={label}
-      checked={shown}
-      onChange={toggle}
-      aria-label={ariaLabel}
-    />
-  );
-}
-
-/** Same shell as ListGroup.Toggle (label span + Switch, same `data-part`s so
-    it reads identically to app-side CSS and to `[data-part="listgroup-*"]`
-    queries) but with a `disabled` + tooltip escape hatch the kit row has no
-    prop for -- same "hand-roll the shell" move `.drawer-mode-row` already
-    makes for the radio rows the kit doesn't offer either. Only the Switch,
-    not the whole row, is tooltip-wrapped: wrapping the `<li>` itself in
-    Tooltip's `<span>` would nest a list item inside inline content. */
-export function OptimisticGatedToggleRow({
-  label,
-  checked,
-  mutate,
-  disabled,
-  disabledTip,
-  'aria-label': ariaLabel,
-}: {
-  label: string;
-  checked: boolean;
-  mutate: () => Promise<void>;
-  disabled?: boolean;
-  disabledTip?: string;
-  'aria-label': string;
-}) {
-  return (
-    <li className="drawer-toggle-row" data-part="listgroup-toggle">
-      <span className="drawer-toggle-label" data-part="listgroup-label">
-        {label}
-      </span>
-      <OptimisticSwitch
-        checked={checked}
-        mutate={mutate}
-        disabled={disabled}
-        disabledTip={disabledTip}
-        aria-label={ariaLabel}
-      />
-    </li>
   );
 }

@@ -6,8 +6,8 @@
 }
 /* The page ground is --page with the kit's graph-paper grid (board's own
    canvas, replicated by hand rather than importing canvas.css -- that file
-   also resets `* { box-sizing: border-box }`, which this app's drawer rows
-   are deliberately written without, see .drawer-toggle-row below).
+   also resets `* { box-sizing: border-box }`, which this app's rows are
+   deliberately written without).
    Each apps table sits on a raised --card panel below -- see .apps-panel --
    which is where the on-card ink roles apply. */
 body {
@@ -111,7 +111,7 @@ body {
 }
 
 /* Cloudflare tunnel health, collapsed from its own row to a header badge that
-   opens the tunnel drawer -- a bare button reset to read as a status chip. */
+   opens the tunnel's settings -- a bare button reset to read as a status chip. */
 .tunnel-badge {
   display: inline-flex;
   align-items: center;
@@ -442,149 +442,4 @@ body {
 }
 .railway-globe.railway-error {
   color: var(--text-bad-small);
-}
-
-/* The drawer is a side panel, not a modal: the composite mock keeps the
-   table plainly legible beside it. Overrides the kit SideDrawer's own
-   overlay (Modal-strength wash-bg-55 + blur(2px), tuned for a dialog that
-   fully claims attention) with the lightest wash token available and no
-   blur -- unlayered, so it wins over the kit's `@layer soribashi.recipes`
-   rule regardless of selector specificity. */
-[data-part='sidedrawer-overlay'] {
-  background: var(--surface-wash-fg-5);
-  backdrop-filter: none;
-}
-
-/* The drawer root's status strip, rendered in the kit Drawer's `header`
-   slot -- not a ListGroup row, so it needs its own line treatment. */
-.drawer-status {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  margin: 0;
-  color: var(--text-4);
-  font-size: var(--font-size-sm);
-  font-variant-numeric: var(--font-numeric);
-}
-.drawer-status-link {
-  margin-left: auto;
-  color: var(--text-accent-small);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.drawer-groups {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-.drawer-danger-group {
-  margin-top: var(--spacing-xs);
-}
-.drawer-accent-label {
-  color: var(--text-accent-small);
-}
-
-/* The remote toggle row: same shell ListGroup.Toggle renders (label +
-   control), hand-rolled because the kit row has no `disabled` prop -- see
-   OptimisticGatedToggleRow. Matches ListGroup's own row padding/gap tokens
-   so it reads identically next to the "public" toggle above it. */
-.drawer-toggle-row {
-  /* No `width: 100%`: this row is an `<li>` (content-box, no border-box
-     reset in this app), so width:100% plus the horizontal padding would
-     overflow the card and push the right-aligned Switch past its edge. The
-     block-level `<li>` already fills the list; padding then insets inward.
-     The kit's own `.toggleRow` omits width for the same reason -- only its
-     button rows (border-box UA default) set it. */
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  list-style: none;
-}
-.drawer-toggle-label {
-  color: inherit;
-  min-width: 0;
-}
-
-/* Access "who" mode picker: two ListGroup rows acting as a radiogroup
-   (checkmark-selected, not a chevron nav) -- ListGroup has no radio row of
-   its own, so these replicate its row shell (kit tokens only). */
-.drawer-mode-row {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: none;
-  border: none;
-  border-bottom: 1px solid var(--border-soft);
-  margin: 0;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.drawer-mode-item:last-child .drawer-mode-row {
-  border-bottom: none;
-}
-.drawer-mode-check {
-  color: var(--text-accent-small);
-}
-
-/* Access "who" allowlist rows: entry text + a remove affordance, the whole
-   row clickable -- no separate hit target for the glyph. */
-.drawer-entry-row {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: none;
-  border: none;
-  border-bottom: 1px solid var(--border-soft);
-  margin: 0;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.drawer-mode-row:hover,
-.drawer-entry-row:hover {
-  background: var(--surface-wash-fg-5);
-}
-.drawer-mode-row:focus-visible,
-.drawer-entry-row:focus-visible {
-  outline: 1px solid var(--fill-accent);
-  outline-offset: 1px;
-}
-.drawer-entry-remove {
-  color: var(--text-bad-small);
-  flex-shrink: 0;
-}
-
-/* Logs: a genuinely dark surface regardless of page scheme. The kit's
-   `light-dark()`-defined tokens (--page/--text-1/--border) collapse to one
-   branch once at `:root` -- a descendant's own `color-scheme` cannot
-   re-resolve a `var()` that has already been substituted upstream, so there
-   is no token chain that pins a leaf element dark in day scheme.
-   `--terminal-bg`/`--terminal-fg`/`--terminal-border` are the kit's
-   scheme-invariant answer: plain hex aliased off the night palette, not
-   `light-dark()`, so they stay dark no matter what scheme the page is in. */
-.drawer-logbox {
-  margin: 0;
-  background: var(--terminal-bg);
-  color: var(--terminal-fg);
-  border: 1px solid var(--terminal-border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-md) var(--spacing-lg);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-base);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 320px;
-  overflow-y: auto;
 }

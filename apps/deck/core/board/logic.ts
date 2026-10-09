@@ -470,7 +470,7 @@ export function settingsBlocks(row: Row, data: StatusData): SettingsBlocks {
   const m = data.canManage;
   const on = row.enabled !== false;
   const managed = isMattstack(row);
-  const overridden = !!row.override && m && !row.self;
+  const overridden = effectiveOverride(row, data) != null;
   const code = managed && !row.self && row.devLink !== undefined;
   return {
     code,
@@ -546,9 +546,15 @@ function tunnelPill(row: Row): StatusPill {
   };
 }
 
-/** The settings modal's status pill. Same branch order as the drawer status
-    strips it replaces: off, then restarting, then the HTTP probe, falling
-    back to the service's own pid for a row nothing probes. */
+/** The dev port override a row shows: only where the board can manage it,
+    and never on deck's own row. */
+export function effectiveOverride(row: Row, data: StatusData): Row['override'] {
+  return row.override && data.canManage && !row.self ? row.override : null;
+}
+
+/** The settings modal's status pill. Branch order: off, then restarting,
+    then the HTTP probe, falling back to the service's own pid for a row
+    nothing probes. */
 export function statusPill(row: Row, restarting: boolean): StatusPill {
   if (row.enabled === false) return { tone: 'muted', label: 'Off', detail: '' };
   if (restarting) return { tone: 'warn', label: 'Restarting…', detail: '' };

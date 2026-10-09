@@ -167,7 +167,7 @@ tunnel.
 The page ground is `--bg` with the kit's graph-paper grid, replicated by
 hand in `core/board/board.css`'s own `body` rule rather than importing
 `canvas.css` (that file also resets `* { box-sizing: border-box }`, which
-`.drawer-toggle-row` is deliberately written without). Each section's `.apps-grid`
+the board's hand-rolled rows are deliberately written without). Each section's `.apps-grid`
 table sits in a raised `--card` panel, `.apps-panel` (border + radius,
 shared with the mattstack update strip), the same
 bg-then-panel relationship `apps/board` gives its `Panel`-wrapped row groups

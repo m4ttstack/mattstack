@@ -648,6 +648,25 @@ test('site mark: a row with an icon shows its brand image, a row without shows i
   );
 });
 
+test('the table has no access glyph cell and no access column', async () => {
+  await withBoard(async page => {
+    expect(await page.locator('[aria-label$=", change access"]').count()).toBe(
+      0
+    );
+    expect(await page.locator('th', { hasText: 'access' }).count()).toBe(0);
+  });
+});
+
+test('no Access modal and no stderr trigger exist on the board at rest', async () => {
+  await withBoard(async page => {
+    expect(await page.locator('[aria-label^="Access ·"]').count()).toBe(0);
+    expect(
+      await page.locator('[aria-label^="show recent stderr for"]').count()
+    ).toBe(0);
+    expect(await page.locator('[data-part="modal"]').count()).toBe(0);
+  });
+});
+
 test('public host: no write controls in the table', async () => {
   await withBoard(
     async page => {
