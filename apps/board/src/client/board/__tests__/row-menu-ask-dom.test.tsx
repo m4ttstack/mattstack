@@ -54,6 +54,16 @@ test('engaged peers block the item with a reason', async () => {
   expect(harness.effects).toEqual([]);
 });
 
+test('with no teammate board connected, the ask says so', async () => {
+  await openMenu(mrx(1418, {}), {
+    self: 'pat',
+    roster: ['pat', 'kim', 'jo'],
+    peers: ['pat'],
+  });
+  const ask = itemTexts().find(t => t.includes('request review from'));
+  expect(ask).toContain('no teammate boards connected');
+});
+
 test("a commented review on a teammate's MR offers the respond ask", async () => {
   await openMenu(
     mrx(1418, {
