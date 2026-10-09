@@ -40,5 +40,9 @@ Badge recipe (tone at 12% fill, 40% border). Weights are 400, 500, 700.
 - Each row's chevron becomes a settings (gear) icon button that shows on
   row hover or focus; clicking the row itself does nothing. The FINAL
   boards still draw the chevron.
+- `renders/01-main-page.dark.png` predates removing the strip's "what
+  changed" control; the light render and the `.pen` board are current.
+- With no API change, a linked row without new code reads "current" in the
+  Version column, and the column shows only in dev mode.
 - `renders/02-app-settings-modal.dark.png` predates swapping the page behind
   the modal to the final main page; the `.pen` board is current.
