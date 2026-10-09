@@ -19,8 +19,11 @@
  * The turn a receipt names is recorded against the live turn (`current`,
  * `other`, `unknown`), and whether the hook process's own CODEX_THREAD_ID
  * agreed with it. Neither ever weakens the hook's decision, which keys on
- * the exact session binding; a proof requires `current` and an agreeing
- * thread. Held in memory only.
+ * the exact session binding. A proof requires `current` and `absent`: Codex
+ * runs a real hook process with no CODEX_THREAD_ID (live-12, 0.160 and
+ * 0.162), while a command from the worker's own shell carries its thread, so
+ * `same` marks a shell-run forgery and `other` a foreign process. Held in
+ * memory only.
  */
 
 import { randomUUID } from "crypto";
@@ -83,7 +86,7 @@ function confirms(run: CodexHookRun, receipt: CodexPolicyReceipt, sourcePath: st
     && run.eventName === NATIVE_EVENT[receipt.event]
     && run.status === (BLOCKING.has(receipt.verdict) ? "blocked" : "completed")
     && run.sourcePath === sourcePath && run.source === "project" && run.handlerType === "command"
-    && receipt.turn === "current" && receipt.threadEnv !== "other";
+    && receipt.turn === "current" && receipt.threadEnv === "absent";
 }
 
 /** The receipt each event's proof rests on, with its run; an event whose evidence is not exactly one-to-one is absent. */
@@ -192,7 +195,8 @@ function invalid<T>(message: string): Outcome<T> {
 /** The payload's fields exactly, or why not; a field it does not know is refused, not ignored. */
 export function checkReceiptPayload(raw: unknown): Outcome<ReceiptPayload> {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return invalid("a receipt is an object");
-  const p = raw as Record<string, unknown>;
+  // The daemon's transports stamp the caller's X-RT-Client header as `_client` on every payload; it is not the receipt's.
+  const { _client: _transport, ...p } = raw as Record<string, unknown>;
   const extra = Object.keys(p).find((k) => !RECEIPT_FIELDS.has(k));
   if (extra !== undefined) return invalid(`a receipt has no ${extra} field`);
   if (!validInstallationId(p.installation)) return invalid("installation is not an installation id");

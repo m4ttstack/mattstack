@@ -28,7 +28,12 @@ function flag(args: string[], name: string): string | undefined {
   return value === undefined || value.startsWith("--") ? undefined : value;
 }
 
-export async function agentPolicyHook(args: string[], io: PolicyHookIo = defaultIo): Promise<void> {
+/** The dispatcher's handler; it passes `(args, ctx)`, so the io seam lives on runPolicyHook. */
+export async function agentPolicyHook(args: string[]): Promise<void> {
+  await runPolicyHook(args, defaultIo);
+}
+
+export async function runPolicyHook(args: string[], io: PolicyHookIo): Promise<void> {
   out.payloadOnStdout();
   // An --event that names no policy event matches no payload, so the hook passes.
   const event = flag(args, "--event") as CodexPolicyEvent | undefined;

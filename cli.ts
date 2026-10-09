@@ -29,6 +29,8 @@ const args = process.argv.slice(2);
 // command, not to rt. Decided here, before the migration block below, because
 // that block is the first thing on the entry path that prints.
 const isInterceptRun = args[0] === "intercept" && args[1] === "run";
+// A Codex policy hook's stderr is the model's refusal feedback, so nothing else may write there.
+const isPolicyHookRun = args[0] === "agent" && args[1] === "policy-hook";
 
 // ─── Legacy state migration (RT-46) ──────────────────────────────────────────
 // Move a real legacy rt dir into place BEFORE anything (the CLI logger
@@ -47,7 +49,7 @@ const pluginsMigration = migrateLegacyPluginsDir();
 // warning would land there on every invocation. The daemon stays silent too:
 // its stderr is a log, and drawing here could spawn rt-ui from it.
 async function reportMigrations(): Promise<void> {
-  if (isInterceptRun || args[0] === "--daemon") return;
+  if (isInterceptRun || isPolicyHookRun || args[0] === "--daemon") return;
   const acted = (result: string) => result === "migrated" || result === "conflict";
   if (!acted(stateMigration) && !acted(pluginsMigration)) return;
   const out = await import("./lib/ui/out.ts");
@@ -102,7 +104,7 @@ if (args[0] !== "--daemon") {
   installCliLogging(args);
   // The daemon never sets this: its warnings stay on its own log surface.
   const { setWarningLog } = await import("./lib/ui/warn.ts");
-  setWarningLog((module, message, context) => logCliEvent("warn", module, message, context), { quiet: isInterceptRun });
+  setWarningLog((module, message, context) => logCliEvent("warn", module, message, context), { quiet: isInterceptRun || isPolicyHookRun });
 }
 await reportMigrations();
 

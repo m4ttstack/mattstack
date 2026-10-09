@@ -7,6 +7,9 @@ import pino from "pino";
 import type { CallerContext, NativeSessionRef, Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { createGatesStore } from "../../daemon/gates-store.ts";
 import { createAgentIntegrationHandlers } from "../../daemon/handlers/agent-integrations.ts";
+import { startSocketServer } from "../../daemon/socket-server.ts";
+import { DAEMON_SOCK_PATH, RT_DIR } from "../../daemon-config.ts";
+import { agentPolicyReceipt } from "../../../packages/rt-client/src/client.ts";
 import { insertAgent } from "../../state/agents-store.ts";
 import { openStateDb } from "../../state/db.ts";
 import { bindingGateSubject, resolveCallerContextNow } from "../context.ts";
@@ -23,7 +26,7 @@ import {
 import { codexSupported } from "../codex/sessions.ts";
 import { createGateQuestions } from "../questions.ts";
 import { createSessionStore } from "../session-store.ts";
-import { agentPolicyHook } from "../../../commands/agent-policy-hook.ts";
+import { runPolicyHook } from "../../../commands/agent-policy-hook.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import { stopReason, type ForkCheckPayload, type ForkCheckResponse } from "../policy.ts";
 import type { LaunchRequest } from "../contracts.ts";
@@ -435,7 +438,7 @@ describe("policy receipts", () => {
       sourcePath: SOURCE, source: "project", handlerType: "command", ...over,
     });
     const preRun = (over: Partial<CodexHookRun> = {}) => run({ id: "run-pre", eventName: "preToolUse", ...over });
-    const stopReceipt = (over: Partial<ReceiptPayload> = {}) => receipt({ turnId: DIAG, threadEnv: "same", verdict: "allow", ...over });
+    const stopReceipt = (over: Partial<ReceiptPayload> = {}) => receipt({ turnId: DIAG, threadEnv: "absent", verdict: "allow", ...over });
     const preReceipt = (over: Partial<ReceiptPayload> = {}) => stopReceipt({ event: "PreToolUse", tool: "shell", ...over });
 
     function setup() {
@@ -498,6 +501,7 @@ describe("policy receipts", () => {
         ["another thread", { threadId: OTHER_THREAD }, {}],
         ["a status that disagrees with the verdict", { status: "blocked" }, {}],
         ["a receipt whose process named another thread", {}, { threadEnv: "other" }],
+        ["a receipt from the worker's own shell, which names its thread", {}, { threadEnv: "same" }],
         ["a receipt for a turn the connection does not run", {}, {}],
       ];
       for (const [name, runOver, receiptOver] of cases) {
@@ -540,6 +544,33 @@ describe("policy receipts", () => {
     expect(await acceptCodexPolicyReceipt(receipt(), { ...deps, enabled: () => false }))
       .toEqual({ ok: false, error: { code: "unsupported", message: "agent integrations are switched off on this Mac" } });
     expect(store.list(createSessionStore(db).find(codex(THREAD))!.key, 1)).toEqual([]);
+  });
+
+  test("a receipt sent over rt.sock is recorded despite the transport's _client stamp", async () => {
+    const bound = bindAgent(THREAD);
+    const store = createCodexPolicyReceipts();
+    const handlers = createAgentIntegrationHandlers({
+      receipts: { enabled: () => true, resolve, store, activeTurn: () => TURN, attention: () => {} },
+    });
+    const seen: unknown[] = [];
+    mkdirSync(RT_DIR, { recursive: true });
+    const server = startSocketServer({
+      handleCommand: async (cmd, p) => {
+        seen.push(p);
+        return cmd === "agent:policy-receipt" ? handlers["agent:policy-receipt"](p) : { ok: false, error: "unknown" };
+      },
+      log: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as never,
+    });
+    try {
+      expect(await agentPolicyReceipt(receipt({ threadEnv: "absent" }), { sockPath: DAEMON_SOCK_PATH }))
+        .toMatchObject({ ok: true, data: { turn: "current", diagnostic: false } });
+    } finally {
+      server.stop(true);
+    }
+    expect(seen).toEqual([expect.objectContaining({ _client: expect.stringMatching(/^rt-client\//) })]);
+    expect(store.list(bound.key, bound.attachment.generation)).toHaveLength(1);
+    expect(checkReceiptPayload({ ...receipt(), _client: "rt-client/1" })).toEqual({ ok: true, data: receipt() });
+    expect(checkReceiptPayload({ ...receipt(), client: "rt-client/1" }).ok).toBe(false);
   });
 
   test("an unavailable or escaped verdict raises its own attention through the daemon", async () => {
@@ -678,7 +709,7 @@ describe("rt agent policy-hook", () => {
     const exits: number[] = [];
     const cap = captureOut();
     try {
-      await agentPolicyHook(args, {
+      await runPolicyHook(args, {
         readStdin: async () => stdin,
         handle: async (input, deps) => { seen.push({ input, deps }); return result; },
         exit: (code) => { exits.push(code); },
