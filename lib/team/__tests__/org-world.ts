@@ -5,6 +5,7 @@ import { join } from "path";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import { createRealProbes } from "../../setup/probes.ts";
 import { childEnv } from "../../subprocess.ts";
+import { ORG_LAYOUT } from "../org-marker.ts";
 
 const worlds: { home: string; prior: string | undefined }[] = [];
 
@@ -25,7 +26,7 @@ export function orgWorld(username = "dev1", extra: { settings?: Record<string, u
   const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-org-world-")));
   worlds.push({ home, prior });
   process.env.HOME = home;
-  seedOrg({ org: "acme", username, settings: extra.settings, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: { "board.title": "widgets" } } });
+  seedOrg({ org: "acme", layout: ORG_LAYOUT, username, settings: extra.settings, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: { "board.title": "widgets" } } });
   const root = join(home, ".mattstack", "orgs", "acme");
   const remote = join(home, "origin.git");
   mkdirSync(join(root, ".claude-plugin"), { recursive: true });

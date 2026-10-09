@@ -48,7 +48,7 @@ never `ORG_LAYOUT`, so a bump never reads an unconverted repo as ready). Every
 marker rt writes carries an explicit `layout`: `rt team create` writes
 `ORG_LAYOUT`, and `scripts/move-team-packs-to-plugin.ts` writes 2.
 `ORG_LAYOUT` in `lib/team/org-marker.ts` is the highest layout this rt reads
-and moves only with a breaking change to the repo's shape, never with a
+and moves only with a breaking change to the repo's shape or to the shared settings' shape, never with a
 release; the admin's runbook for such a change is the `rt-settings` skill
 (`skills/rt-settings/SKILL.md`, "Changing the org repo's layout"). `orgLayoutState` (`lib/team/org-layout.ts`) is the one classifier
 every reader uses, and it shares `pickOrgClone` with `readZonesFrom`: a clone

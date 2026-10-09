@@ -9,6 +9,7 @@ import { UserActionableError } from "../../errors.ts";
 import { createRealProbes } from "../probes.ts";
 import { ENGINE_PACK_MISSING_CODE, findEnginePackDir, materializeSkills } from "../skills-materialize.ts";
 import { fakeProbes } from "./fakes.ts";
+import { ORG_LAYOUT } from "../../team/org-marker.ts";
 
 const CACHE = "/fake-home/.claude/plugins/cache/mattstack/mattstack";
 
@@ -59,7 +60,7 @@ describe("materializeSkills", () => {
   function seedZone(): void {
     const orgMattstack = join(home, ".mattstack", "orgs", "acme", "mattstack");
     write(join(home, ".mattstack", "orgs", "acme", ".git", "config"), "");
-    write(join(orgMattstack, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
+    write(join(orgMattstack, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }));
     write(join(orgMattstack, "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }));
     write(join(orgMattstack, "teams", "widgets", "settings.team.jsonc"), "{}");
     write(join(orgMattstack, "teams", "widgets", "plugin", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } }));

@@ -20,6 +20,8 @@ export function writeSharedStore(org: string, value: unknown): string {
 
 export interface SeedOrg {
   org?: string;
+  /** Written into the marker when given; omitted, the marker carries no layout key. */
+  layout?: number;
   settings?: Record<string, unknown>;
   teams?: Record<string, Record<string, unknown>>;
   /** Stored as this Mac's forge username for the org. */
@@ -36,7 +38,7 @@ export function seedOrg(opts: SeedOrg = {}): { org: string; orgStore: string; te
   // A run that skipped the bunfig preload keeps the real HOME, and every org-seeding test would then write the real ~/.mattstack.
   const refusal = realStoreRefusal({ target: orgMarkerPath(org), account: opts.account ?? accountHome(), home: process.env.HOME, signal: "seedOrg" });
   if (refusal !== null) throw new Error(refusal);
-  writeJson(orgMarkerPath(org), { role: "org", org });
+  writeJson(orgMarkerPath(org), { role: "org", org, ...(opts.layout !== undefined ? { layout: opts.layout } : {}) });
   const settings: Record<string, unknown> = { ...(opts.settings ?? {}) };
   if (opts.roster) settings["mattstack.roster"] = opts.roster;
   if (opts.roles) settings["mattstack.org"] = opts.roles;

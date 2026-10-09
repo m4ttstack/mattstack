@@ -8,11 +8,12 @@ import type { ApplyContext } from "../apply.ts";
 import { MIGRATIONS } from "../migrations/index.ts";
 import { sdmResourcesKeyMigration } from "../migrations/sdm-resources-key.ts";
 import { createRealProbes } from "../probes.ts";
+import { ORG_LAYOUT } from "../../team/org-marker.ts";
 
 const ENR = { "acme-db-qa": { label: "Acme QA" } };
 const run = () => sdmResourcesKeyMigration.run({ p: { ...createRealProbes(), home: process.env.HOME! } } as Partial<ApplyContext> as ApplyContext);
 function seedClone(opts: SeedOrg) {
-  const seeded = seedOrg(opts);
+  const seeded = seedOrg({ layout: ORG_LAYOUT, ...opts });
   const dir = join(process.env.HOME!, ".mattstack", "orgs", seeded.org);
   mkdirSync(join(dir, ".git"), { recursive: true });
   writeFileSync(join(dir, ".git", "config"), "");

@@ -1,3 +1,4 @@
+import { ORG_LAYOUT } from "../../team/org-marker.ts";
 /** `siblingFragment` adds a second team folder, `gadgets`, whose pack claims the same repo through the org's claim. */
 export function materializeWorld(home: string, opts: { fragment?: string; remote?: string; siblingFragment?: string } = {}) {
   const org = `${home}/.mattstack/orgs/acme/mattstack`;
@@ -15,7 +16,7 @@ export function materializeWorld(home: string, opts: { fragment?: string; remote
     files: {
       [`${engine}/pack/skills.jsonc`]: "{}",
       [`${home}/.mattstack/orgs/acme/.git/config`]: "",
-      [`${org}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
+      [`${org}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }),
       [`${org}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
       [`${org}/teams/widgets/settings.team.jsonc`]: "{}",
       [`${org}/teams/widgets/plugin/pack/skills.jsonc`]: opts.fragment ?? "{}",

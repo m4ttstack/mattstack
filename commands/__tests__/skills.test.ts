@@ -14,6 +14,7 @@ import type { VerbDef } from "../../lib/skills/types.ts";
 import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import * as ui from "../../lib/ui/out.ts";
+import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 
 const realInitFsForTests: MaterializeFs = {
   exists: existsSync,
@@ -201,7 +202,7 @@ function makeMattstackDir(): string {
 function seedOrg(mattstackRoot: string, org: string, opts: { projects: string[]; host?: string | null; teams: string[] }): void {
   const dir = join(mattstackRoot, "orgs", org, "mattstack");
   writeFile(join(mattstackRoot, "orgs", org, ".git", "config"), "");
-  writeFile(join(dir, "mattstack.jsonc"), JSON.stringify({ role: "org", org }));
+  writeFile(join(dir, "mattstack.jsonc"), JSON.stringify({ role: "org", org, layout: ORG_LAYOUT }));
   const settings: Record<string, unknown> = { "board.projects": opts.projects };
   if (opts.host !== null) settings["board.gitlabHost"] = opts.host ?? "https://gitlab.example.com";
   writeFile(join(dir, "org", "settings.org.jsonc"), JSON.stringify(settings));

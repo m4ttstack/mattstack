@@ -40,6 +40,7 @@ import { finalizePlan, type Row } from "../contract.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
 import { updateNotification } from "../update.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
+import { ORG_LAYOUT } from "../../team/org-marker.ts";
 
 // ─── shared fakes (mirrors steps-a/b.test.ts's trivial no-ops) ─────────────
 
@@ -442,7 +443,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
           [`${home}/.mattstack/orgs/acme/.git/config`]: "",
-          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }),
           [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
           [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
           [`${zone}/teams/widgets/plugin/pack/skills.jsonc`]: "{}",
@@ -473,7 +474,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
           [`${home}/.mattstack/orgs/acme/.git/config`]: "",
-          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }),
           [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
           [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
           [`${zone}/teams/widgets/plugin/pack/skills.jsonc`]: "{}",
@@ -507,7 +508,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
           [`${home}/.mattstack/orgs/acme/.git/config`]: "",
-          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }),
           [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
           [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
           [`${zone}/teams/widgets/plugin/pack/skills.jsonc`]: "{ nope",
