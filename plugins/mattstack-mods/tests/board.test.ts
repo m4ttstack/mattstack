@@ -50,10 +50,30 @@ describe('board status tool', () => {
     // The board's own writer, its own verb and argv: the same write, validation and signal a Bash call makes.
     expect(h.ran).toEqual([
       {
-        argv: [BIN, 'doctor-status', STATE, 'rebasing', 'rebasing onto main'],
-        init: { env: { CLAUDE_CODE_SESSION_ID: 'sess-1', HOME: '/home/u', PATH: '/usr/bin:/bin' }, timeoutMs: STATUS_TIMEOUT_MS },
+        argv: ['/usr/bin/env', '-i', 'CLAUDE_CODE_SESSION_ID=sess-1', 'HOME=/home/u', 'PATH=/usr/bin:/bin', BIN, 'doctor-status', STATE, 'rebasing', 'rebasing onto main'],
+        init: { timeoutMs: STATUS_TIMEOUT_MS },
       },
     ])
+  })
+
+  test("the status writer gets only what it needs, never the pane's messaging socket or token", async () => {
+    const h = harness({
+      env: {
+        MATTSTACK_BOARD_STATUS_BIN: BIN, PATH: '/usr/bin:/bin', BOARD_STATE_DB: '/u/board.db', MATTSTACK_PACK: 'acme',
+        CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc.sock', CLAUDE_CODE_MESSAGING_TOKEN: 'secret-token', GITLAB_TOKEN: 'glpat-x',
+      },
+    })
+    h.script.run = () => ({ exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
+    await h.start()
+
+    await h.fire('tool.call', status({ verb: 'review-status', args: [STATE, 'reviewing'] }), recorder({}).next)
+    const run = h.ran[0]!
+    expect(run.argv.slice(0, run.argv.indexOf(BIN))).toEqual([
+      '/usr/bin/env', '-i', 'CLAUDE_CODE_SESSION_ID=sess-1', 'HOME=/home/u', 'PATH=/usr/bin:/bin', 'BOARD_STATE_DB=/u/board.db', 'MATTSTACK_PACK=acme',
+    ])
+    expect(run.init.env).toBeUndefined()
+    expect(JSON.stringify(run)).not.toContain('secret-token')
+    expect(JSON.stringify(run)).not.toContain('MESSAGING')
   })
 
   test("a write the status writer refuses comes back as its own words", async () => {

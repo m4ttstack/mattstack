@@ -27,6 +27,7 @@ import type {
   UiScrollResult,
 } from 'claude-code'
 import type { ModBlock } from './blocks.ts'
+import type { BoardVar } from '../blocks/board-names.ts'
 import { supportedEngine } from './version.ts'
 
 // The engine follows `$` only into top-level functions of the file that
@@ -83,6 +84,8 @@ export type ModApi = {
     pane(): Promise<string | undefined>
     /** The board's status writer, which the board sets on the panes it launches. */
     boardStatusBin(): Promise<string | undefined>
+    /** The pane's value of `name`, one of the board's own variables its status writer reads. */
+    boardVar(name: BoardVar): Promise<string | undefined>
   }
   state: {
     linkId: Slot<ModState['linkId']>
@@ -624,6 +627,7 @@ function facade($: EngineInterface): ModApi {
       pane: () => $.env.get('HERDR_PANE_ID'),
       path: () => $.env.get('PATH'),
       boardStatusBin: () => $.env.get('MATTSTACK_BOARD_STATUS_BIN'),
+      boardVar: name => $.env.get(name),
     },
     state: {
       linkId: {

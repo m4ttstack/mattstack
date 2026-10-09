@@ -1,13 +1,14 @@
 import type { ToolSpec } from 'claude-code'
 import type { Hub, ModApi, PermitNext } from '../core/hub.ts'
 import type { Command, Link } from '../core/link.ts'
-import { STAND_DOWN_NOTICE, STATUS_TOOL, STATUS_TOOL_NAME, STATUS_VERBS, type StatusVerb } from './board-names.ts'
+import { BOARD_VARS, STAND_DOWN_NOTICE, STATUS_TOOL, STATUS_TOOL_NAME, STATUS_VERBS, type StatusVerb } from './board-names.ts'
 
 export { STATUS_TOOL_NAME, STATUS_VERBS }
 
 /** How long one status write may run; status-bin opens the board db and emits one signal. */
 export const STATUS_TIMEOUT_MS = 30_000
 const MAX_ARGS = 32
+const ENV_BIN = '/usr/bin/env'
 
 export const NOT_LIVE =
   "The mattstack status tool is not live in this session. Run the same write with the board's status-bin in Bash instead: `<status-bin> <verb> <args...>`."
@@ -97,16 +98,18 @@ export function registerBoard(hub: Hub, link: Link): void {
     if (statusBin === null) return { deny: NOT_LIVE }
     let out
     try {
-      // HOME and PATH are passed whole, so the writer finds bun and the board db whether the engine merges or replaces env.
-      const [home, path] = await Promise.all([a.env.home(), a.env.path()])
-      out = await a.process.run([statusBin, call.verb, ...call.args], {
-        env: {
-          CLAUDE_CODE_SESSION_ID: await a.session.id(),
-          ...(home !== undefined && { HOME: home }),
-          ...(path !== undefined && { PATH: path }),
-        },
-        timeoutMs: STATUS_TIMEOUT_MS,
-      })
+      // The engine merges `env` over the whole pane environment (its messaging socket and token included), so the writer
+      // runs under `env -i` with only what it reads: HOME and PATH to find bun and the board db, the session, the board's own.
+      const [session, home, path, ...board] = await Promise.all([
+        a.session.id(), a.env.home(), a.env.path(), ...BOARD_VARS.map(name => a.env.boardVar(name)),
+      ])
+      const vars = [
+        `CLAUDE_CODE_SESSION_ID=${session}`,
+        ...(home !== undefined ? [`HOME=${home}`] : []),
+        ...(path !== undefined ? [`PATH=${path}`] : []),
+        ...BOARD_VARS.flatMap((name, i) => (board[i] !== undefined ? [`${name}=${board[i]}`] : [])),
+      ]
+      out = await a.process.run([ENV_BIN, '-i', ...vars, statusBin, call.verb, ...call.args], { timeoutMs: STATUS_TIMEOUT_MS })
     } catch (err) {
       log(`${call.verb} did not run: ${err instanceof Error ? err.message : String(err)}`)
       return { deny: `${call.verb} did not run here. ${NOT_LIVE}` }
