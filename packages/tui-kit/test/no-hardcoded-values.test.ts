@@ -221,7 +221,9 @@ const ALLOWED_NAMED_COLOR_KEYWORDS = new Set(["transparent", "currentcolor", "in
 // `.tui-toast`, `.tui-drawer`, `.tui-menu`; docs/token-census.md), so it earns
 // a shared outlet here rather than a per-recipe bend or four duplicated
 // recipe-local scalars for the exact same number.
-const ALLOWED_LENGTH_LITERALS = new Set(["0", "1px", "2px", "100%", "320px"]);
+// `240px` (ToastHost): the toast's minimum width, so a one-word toast does
+// not shrink to a stub. Same floating-panel width class as `320px`.
+const ALLOWED_LENGTH_LITERALS = new Set(["0", "1px", "2px", "100%", "240px", "320px"]);
 
 const HEX_COLOR = /#[0-9a-f]{3,8}\b/gi;
 const FUNCTIONAL_COLOR = /\b(rgb|rgba|hsl|hsla|oklch|oklab|lab|lch|color)\(/gi;
