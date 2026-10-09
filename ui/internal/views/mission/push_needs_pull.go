@@ -21,10 +21,10 @@ const (
 func pushNeedsPullItems() []picker.MenuItem {
 	return []picker.MenuItem{
 		questionBody("glitter is unable to push commits to this branch"),
-		questionBody("because there are commits on the remote that are not"),
-		questionBody("present on your local branch. Fetch these new commits"),
-		questionBody("before pushing in order to reconcile them with your"),
-		questionBody("local commits."),
+		questionBody("because there are commits on the remote that are"),
+		questionBody("not present on your local branch. Fetch these"),
+		questionBody("new commits before pushing in order to reconcile"),
+		questionBody("them with your local commits."),
 		questionChoice(pushNeedsPullFetchID, "Fetch"),
 		cancelChoice(),
 	}
