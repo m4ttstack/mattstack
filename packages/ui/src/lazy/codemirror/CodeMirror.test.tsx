@@ -114,21 +114,19 @@ test('does not call onChange when the controlled `value` prop changes externally
   expect(onChange).not.toHaveBeenCalled();
 });
 
-test('mounts with the scheme-aware editor theme (kit CSS vars in the injected styles)', async () => {
+test("mounts with GitHub's light theme by default", async () => {
   renderWithProviders(<CodeMirror value="x" />);
 
   await waitFor(() => {
     expect(screen.getByTestId('codemirror-editor').textContent).toContain('x');
   });
 
-  // CodeMirror injects its theme via StyleModule <style> tags; the kit's
-  // editorTheme references the scheme vars, so their presence proves the
-  // theme (and with it the light/dark flag machinery) is wired in.
+  // CodeMirror injects its theme via StyleModule <style> tags; GitHub
+  // light's foreground proves its theme is wired in.
   const styleText = Array.from(document.querySelectorAll('style'))
     .map(tag => tag.textContent ?? '')
     .join('\n');
-  expect(styleText).toContain('var(--ui-bg-4)');
-  expect(styleText).toContain('var(--ui-bg-3)');
+  expect(styleText).toContain('#24292e');
 });
 
 test('applies a custom extension passed via `extensions`', async () => {
@@ -226,7 +224,7 @@ test('an Extension `theme` prop replaces the auto scheme theme entirely', async 
   // extension. Scope the assertion to the rules for THIS element's own
   // classes -- the shared jsdom document accumulates every `<style>` tag
   // CodeMirror has ever injected across every test in this file (including
-  // the kit's default `var(--ui-bg-4)` chrome from earlier tests), so
+  // GitHub's colours from earlier tests), so
   // searching the whole document's style text would false-positive on
   // theme output left behind by unrelated renders.
   const styleModuleClasses = Array.from(cmEditor.classList).filter(cls =>
@@ -241,7 +239,7 @@ test('an Extension `theme` prop replaces the auto scheme theme entirely', async 
     .join(' ');
 
   expect(ownRules).toContain('ui-custom-marker-font');
-  expect(ownRules).not.toContain('var(--ui-bg-4)');
+  expect(ownRules).not.toContain('#24292e');
 });
 
 test('jsonCheck underlines schema issues, and a changed checker re-lints', async () => {
@@ -292,7 +290,7 @@ test('jsonCheck underlines schema issues, and a changed checker re-lints', async
   });
 });
 
-test('JSON property names, strings, numbers and booleans read through kit role tokens, not the red-string CodeMirror default', async () => {
+test("JSON property names and strings take GitHub's colours, not the red-string CodeMirror default", async () => {
   const ref = createRef<CodeMirrorRef>();
   renderWithProviders(
     <CodeMirror
@@ -316,13 +314,8 @@ test('JSON property names, strings, numbers and booleans read through kit role t
   ).toBeTruthy();
   expect(view.dom.querySelector(`.${stringClass!.split(' ')[0]}`)).toBeTruthy();
 
-  const styleText = Array.from(document.querySelectorAll('style'))
-    .map(tag => tag.textContent ?? '')
-    .join('\n');
-  expect(styleText).toContain('var(--tk-text-accent)');
-  expect(styleText).toContain('var(--tk-text-cyan)');
-  expect(styleText).toContain('var(--tk-text-gold)');
-  expect(styleText).toContain('var(--tk-text-purple)');
+  expect(ruleFor(propertyClass!)).toContain('#6f42c1');
+  expect(ruleFor(stringClass!)).toContain('#032f62');
 });
 
 // Finds the CSS rule for the first class in a (possibly multi-class)
@@ -331,7 +324,7 @@ test('JSON property names, strings, numbers and booleans read through kit role t
 // fallback `defaultHighlightStyle` (installed by `basicSetup` with
 // `{fallback: true}`) answers the same query when no non-fallback
 // highlighter is configured, so the class alone doesn't distinguish "the
-// kit's role-token style is wired in" from "only the CodeMirror default is".
+// GitHub style is wired in" from "only the CodeMirror default is".
 function ruleFor(cls: string): string {
   const className = cls.split(' ')[0]!;
   const styleText = Array.from(document.querySelectorAll('style'))
@@ -342,7 +335,7 @@ function ruleFor(cls: string): string {
   );
 }
 
-test('the kit highlight style (not the CodeMirror default) is installed for both the light and dark theme compartment configuration', async () => {
+test("GitHub's highlight style follows the colour scheme through the theme compartment", async () => {
   const lightRef = createRef<CodeMirrorRef>();
   const { unmount } = renderWithProviders(
     <CodeMirror ref={lightRef} value="[1]" language="json" />
@@ -351,7 +344,7 @@ test('the kit highlight style (not the CodeMirror default) is installed for both
   const lightView = lightRef.current!.view!;
   const lightClass = highlightingFor(lightView.state, [tags.string]);
   expect(lightClass).toBeTruthy();
-  expect(ruleFor(lightClass!)).toContain('var(--tk-text-cyan)');
+  expect(ruleFor(lightClass!)).toContain('#032f62');
   expect(lightView.state.facet(EditorView.darkTheme)).toBe(false);
   unmount();
 
@@ -365,10 +358,9 @@ test('the kit highlight style (not the CodeMirror default) is installed for both
     const darkView = darkRef.current!.view!;
     const darkClass = highlightingFor(darkView.state, [tags.string]);
     expect(darkClass).toBeTruthy();
-    // Same static role-token style, but reinstalled alongside the dark chrome
-    // -- proves the highlight extension lives in the reconfigured theme
-    // compartment rather than a fixed top-level extension.
-    expect(ruleFor(darkClass!)).toContain('var(--tk-text-cyan)');
+    // GitHub dark's string colour proves the highlight extension lives in
+    // the reconfigured theme compartment rather than a fixed one.
+    expect(ruleFor(darkClass!)).toContain('#a5d6ff');
     expect(darkView.state.facet(EditorView.darkTheme)).toBe(true);
   } finally {
     // The simulated dark preference must not outlive this test; later tests
@@ -389,24 +381,6 @@ test('the lint underline and gutter marker use the bad/warn role tokens instead 
     .join('\n');
   expect(styleText).toContain('var(--tk-text-bad-vivid)');
   expect(styleText).toContain('var(--tk-text-warn-vivid)');
-});
-
-test('the active line and selection washes are a subtle token tint, not a heavy fixed color', async () => {
-  renderWithProviders(<CodeMirror value="x" />);
-
-  await waitFor(() => {
-    expect(screen.getByTestId('codemirror-editor').textContent).toContain('x');
-  });
-
-  const styleText = Array.from(document.querySelectorAll('style'))
-    .map(tag => tag.textContent ?? '')
-    .join('\n');
-  expect(styleText).toContain(
-    'color-mix(in srgb, var(--mantine-color-text) var(--tk-wash), transparent)'
-  );
-  expect(styleText).toContain(
-    'color-mix(in srgb, var(--tk-fill-accent) var(--tk-wash), transparent)'
-  );
 });
 
 const DESCRIBED = {
@@ -447,7 +421,7 @@ test("the editor's own box styles stay off the outside tooltip container", async
   const style = getComputedStyle(container);
   expect(style.overflow).not.toBe('hidden');
   expect(style.height).not.toBe('300px');
-  expect(style.backgroundColor).not.toBe('var(--ui-bg-4)');
+  expect(style.height).not.toBe('100%');
 });
 
 test('tooltips, the selected completion and the info panel take the kit surface tokens', async () => {
@@ -469,7 +443,7 @@ test('tooltips, the selected completion and the info panel take the kit surface 
   );
 });
 
-test('the kit highlight style also colors javascript, the other language the kit offers', async () => {
+test("GitHub's highlight style also colors javascript, the other language the kit offers", async () => {
   const ref = createRef<CodeMirrorRef>();
   renderWithProviders(
     <CodeMirror
@@ -486,7 +460,7 @@ test('the kit highlight style also colors javascript, the other language the kit
   expect(
     view.dom.querySelector(`.${keywordClass!.split(' ')[0]}`)
   ).toBeTruthy();
-  expect(ruleFor(keywordClass!)).toContain('var(--tk-text-purple)');
+  expect(ruleFor(keywordClass!)).toContain('#d73a49');
 });
 
 test('a zero-width diagnostic renders a lint point styled from the bad-hue role token, not a raw colour', async () => {

@@ -96,6 +96,7 @@
     "@lezer/highlight": "^1.2.3",
     "@mattstack/settings-kit": "workspace:*",
     "@tanstack/react-virtual": "^3.14.6",
+    "@uiw/codemirror-theme-github": "4.25.12",
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",
     "dayjs": "^1.11.21",

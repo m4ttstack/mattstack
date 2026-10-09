@@ -9,7 +9,6 @@ import { autocompletion } from '@codemirror/autocomplete';
 import { indentWithTab } from '@codemirror/commands';
 import { javascript } from '@codemirror/lang-javascript';
 import { json } from '@codemirror/lang-json';
-import { syntaxHighlighting } from '@codemirror/language';
 import { linter, lintGutter } from '@codemirror/lint';
 import { Annotation, Compartment, EditorState } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
@@ -22,9 +21,9 @@ import {
 } from '@codemirror/view';
 import type { ViewUpdate } from '@codemirror/view';
 import { useComputedColorScheme } from '@mantine/core';
+import { githubDark, githubLight } from '@uiw/codemirror-theme-github';
 import { basicSetup } from 'codemirror';
 
-import { kitHighlightStyle } from './highlightStyle';
 import {
   jsonDiagnostics,
   jsonSchemaCompletion,
@@ -101,15 +100,17 @@ export interface CodeMirrorRef {
 const MIN_RESIZABLE_HEIGHT_PX = 60;
 const KEY_STEP_PX = 20;
 const MAX_RESIZABLE_HEIGHT_PX = 2000;
+// The grip floats over the editor's bottom edge, so the frame keeps one
+// surface and one border rather than a band of its own.
 const GRIP_STYLE = {
-  flex: 'none',
+  position: 'absolute',
+  insetInline: 0,
+  bottom: 0,
   height: 12,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   cursor: 'ns-resize',
-  background: 'var(--ui-bg-4)',
-  borderTop: '1px solid var(--mantine-color-default-border)',
   touchAction: 'none',
   outlineOffset: -2,
 } as const;
@@ -122,12 +123,9 @@ const GRIP_BAR_STYLE = {
 } as const;
 
 /**
- * Scheme-aware editor chrome. Colors reference the kit's CSS vars, so the
- * palette flips with the color scheme on its own; the `dark` flag flips
- * CodeMirror's OWN defaults (caret, selection, active line) that don't go
- * through our vars -- overridden below instead, since `@codemirror/view`'s
- * own dark active-line color is a fixed, too-heavy teal wash. The frame
- * polish (padding, theme radius) rides along.
+ * The kit's frame around GitHub's editor theme: height, radius, padding,
+ * the lint marks and the tooltips. The code's own colours (surface, gutter,
+ * active line, selection, syntax) are `githubLight`/`githubDark`'s.
  */
 const editorTheme = (height: string, dark: boolean): Extension =>
   EditorView.theme(
@@ -136,28 +134,12 @@ const editorTheme = (height: string, dark: boolean): Extension =>
       // editor's theme classes outside the editor (see `tooltips` below).
       '&.cm-editor': {
         height,
-        backgroundColor: 'var(--ui-bg-4)',
-        color: 'var(--mantine-color-text)',
         borderRadius: 'var(--mantine-radius-default)',
         overflow: 'hidden',
       },
       '.cm-content': {
         padding: 'var(--mantine-spacing-xs)',
       },
-      '.cm-gutters': {
-        backgroundColor: 'var(--ui-bg-3)',
-        color: 'var(--mantine-color-dimmed)',
-        border: 'none',
-      },
-      '.cm-activeLine': {
-        backgroundColor:
-          'color-mix(in srgb, var(--mantine-color-text) var(--tk-wash), transparent)',
-      },
-      '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground':
-        {
-          backgroundColor:
-            'color-mix(in srgb, var(--tk-fill-accent) var(--tk-wash), transparent)',
-        },
       // A squiggle/dot rendered from a raw hex data-uri (CodeMirror's own
       // lint theme) can't reference a CSS var, so the underline and gutter
       // marker are redrawn as plain CSS shapes on the bad/warn role tokens
@@ -280,30 +262,18 @@ function schemaExtensions(
 
 /**
  * Resolves the `theme` prop into the extension the theme compartment holds.
- * Omitted -> the auto scheme theme (follows the computed color scheme) plus
- * the kit's role-token syntax highlighting. `'light'` / `'dark'` -> the
- * kit's own chrome (and highlighting), forced to that scheme. An
- * `Extension` -> used as-is, replacing the kit's theme (and its chrome and
- * highlighting) entirely.
+ * Omitted -> GitHub's light or dark theme, following the computed color
+ * scheme, inside the kit's frame. `'light'` / `'dark'` -> the same, forced
+ * to that scheme. An `Extension` -> used as-is, replacing both entirely.
  */
 function resolveThemeExtension(
   theme: 'light' | 'dark' | Extension | undefined,
   height: string,
   computedColorScheme: 'light' | 'dark'
 ): Extension {
-  if (theme === undefined) {
-    return [
-      editorTheme(height, computedColorScheme === 'dark'),
-      syntaxHighlighting(kitHighlightStyle),
-    ];
-  }
-  if (theme === 'light' || theme === 'dark') {
-    return [
-      editorTheme(height, theme === 'dark'),
-      syntaxHighlighting(kitHighlightStyle),
-    ];
-  }
-  return theme;
+  if (typeof theme === 'object') return theme;
+  const dark = (theme ?? computedColorScheme) === 'dark';
+  return [dark ? githubDark : githubLight, editorTheme(height, dark)];
 }
 
 /**
@@ -546,9 +516,10 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
         minHeight: MIN_RESIZABLE_HEIGHT_PX,
         display: 'flex',
         flexDirection: 'column',
+        position: 'relative',
         borderRadius: 'var(--mantine-radius-default)',
+        border: '1px solid var(--mantine-color-default-border)',
         overflow: 'hidden',
-        background: 'var(--ui-bg-4)',
       }}
     >
       {editor}
