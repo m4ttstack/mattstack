@@ -152,6 +152,7 @@ export type {
   HerdListRow,
   HerdJobInfo,
   HerdStatusData,
+  HerdWorkerAssignment,
 } from "./commands.ts";
 
 export { subscribe, createRelay, DEFAULT_WS_URL } from "./relay.ts";

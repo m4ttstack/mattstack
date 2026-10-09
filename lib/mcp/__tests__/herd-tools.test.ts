@@ -392,3 +392,75 @@ describe("herd_milestone: resolved caller sessions", () => {
     expect(after.calls).toEqual(before.calls);
   });
 });
+
+describe("herd tools: worker selection and a Codex shepherd", () => {
+  let originalHome: string | undefined;
+  beforeEach(() => {
+    originalHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "rt-herd-tools-select-"));
+  });
+  afterEach(() => {
+    process.env.HOME = originalHome;
+  });
+
+  const codexBinding = (value: string, attemptId?: string) => ({
+    key: `sk-${value}`, identity: "remy.ab12", native: { harness: "codex", profile: "default", kind: "id" as const, value },
+    attachment: { generation: 1, mode: "headless" as const }, ...(attemptId && { attemptId }),
+  });
+  const asCodex = (value: string, attemptId?: string): ToolContext => ({ caller: async () => ({ ok: true, data: { binding: codexBinding(value, attemptId) } }) });
+  const CODEX_ENV = { CODEX_THREAD_ID: "thread-shep" } as NodeJS.ProcessEnv;
+  const codexHerd = { statusData: { herd: { id: "hd-1", shepherdSession: "thread-shep" }, jobs: [] } };
+
+  test("herd_spawn passes the shepherd's harness, mode and the user's explicit assignment", async () => {
+    const { tool, calls } = fake();
+    const r = await tool("herd_spawn").handler({ herd: "hd-1", job: "j", harness: "claude", model: "opus", mode: "herdr", assignment: { harness: "codex", model: "gpt-5.1" } }, SESSION);
+    expect(r.ok).toBe(true);
+    expect(calls.find((c) => c.fn === "spawn")!.a).toEqual({ herd: "hd-1", job: "j", harness: "claude", model: "opus", mode: "herdr", assignment: { harness: "codex", model: "gpt-5.1" } });
+  });
+
+  test("herd_spawn refuses a malformed assignment or mode before any daemon call", async () => {
+    for (const input of [{ assignment: { model: "x" } }, { assignment: "codex" }, { assignment: { harness: "-x" } }, { mode: "tmux" }, { harness: "--yolo" }]) {
+      const { tool, calls } = fake();
+      const r = await tool("herd_spawn").handler({ herd: "hd-1", job: "j", ...input }, SESSION);
+      expect(r.ok, JSON.stringify(input)).toBe(false);
+      expect(calls, JSON.stringify(input)).toEqual([]);
+    }
+  });
+
+  test("a Codex shepherd passes the shepherd guard through its verified session", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const { tool, calls } = fake(codexHerd);
+    const r = await tool("herd_spawn").handler({ herd: "hd-1", job: "j", harness: "codex" }, CODEX_ENV, undefined, asCodex("thread-shep"));
+    expect(r.ok).toBe(true);
+    expect(calls.map((c) => c.fn)).toEqual(["status", "spawn"]);
+  });
+
+  test("a Codex session that is not the shepherd, or is a herd worker, is refused", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const other = fake(codexHerd);
+    const r1 = await other.tool("herd_close").handler({ herd: "hd-1", job: "j" }, CODEX_ENV, undefined, asCodex("thread-other"));
+    expect(r1.ok).toBe(false);
+    expect(r1.error).toContain("not the shepherd");
+    expect(other.destructive()).toEqual([]);
+
+    const worker = fake(codexHerd);
+    const r2 = await worker.tool("herd_spawn").handler({ herd: "hd-1", job: "j" }, CODEX_ENV, undefined, asCodex("thread-shep", "att-1"));
+    expect(r2.ok).toBe(false);
+    expect(r2.error).toContain("herd worker");
+    expect(worker.calls).toEqual([]);
+  });
+
+  test("herd_resume records a Codex shepherd's verified session", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const { tool, calls } = fake();
+    await tool("herd_resume").handler({ herd: "hd-1" }, CODEX_ENV, undefined, asCodex("thread-shep"));
+    expect(calls[0]!.a).toMatchObject({ herd: "hd-1", session: "thread-shep" });
+  });
+
+  test("a Claude shepherd with the switch off keeps its environment session", async () => {
+    const { tool, calls } = fake();
+    const r = await tool("herd_spawn").handler({ herd: "hd-1", job: "j" }, SESSION, undefined, asCodex("thread-shep"));
+    expect(r.ok).toBe(true);
+    expect(calls.map((c) => c.fn)).toEqual(["status", "spawn"]);
+  });
+});

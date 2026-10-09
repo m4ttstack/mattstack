@@ -375,6 +375,7 @@ function herdHandlers(svc: JobAttempts, agent: ReturnType<typeof createAgentServ
     jobsRoot: join(dir, "herds"),
     log,
     integrationsEnabled: () => switchOn,
+    integrations: createRegistry([claudeLike({ work: [], reports: [] })]),
     attempts: svc,
     resolveCaller: (evidence: Parameters<typeof resolveCallerContextNow>[0]) => resolveCallerContextNow(evidence, { db: state }),
   } as unknown as HerdDeps;
@@ -446,6 +447,22 @@ describe("herd:spawn and herd:report with the switch on", () => {
     const accepted = await h["herd:report"]({ herd: HERD, job: JOB, body: "done", session: second.data.sessionId });
     expect(accepted.ok).toBe(true);
     expect(posted).toHaveLength(1);
+  });
+
+  test("a worker that names no herd or job reports for the job its own attempt holds", async () => {
+    const svc = attempts();
+    const posted: Array<{ handle: string }> = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike({ work: [], reports: [] })), posted);
+    const spawned = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    if (!spawned.ok) throw new Error(spawned.error);
+
+    const reported = await h["herd:report"]({ body: "done", session: spawned.data.sessionId });
+    expect(reported.ok).toBe(true);
+    expect(posted.map((p) => p.handle)).toEqual([spawned.data.handle]);
+    expect(herds.getJob(HERD, JOB)?.status).toBe("done");
+
+    const nobody = await h["herd:report"]({ body: "done" });
+    expect(nobody).toMatchObject({ ok: false, error: "herd, job, and a non-empty body are required" });
   });
 
   test("switch off: spawn records an unbound attempt and a report needs no session", async () => {

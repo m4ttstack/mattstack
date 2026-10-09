@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.30.2 + mattstack:model-tiering@0.30.2 + mattstack:execution-strategy@0.30.2 + mattstack:cswap-accounts@0.30.2"
+  compiled: "mattstack@0.30.21 + mattstack:model-tiering@0.30.21 + mattstack:execution-strategy@0.30.21 + mattstack:cswap-accounts@0.30.21"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.30.2 path=attachments/orchestration/shepherdr/SKILL.md lines=15-888 -->
+<!-- part: step source=mattstack:shepherdr version=0.30.21 path=attachments/orchestration/shepherdr/SKILL.md lines=15-905 -->
 
 # shepherdr
 
@@ -27,7 +27,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.30.2 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.30.21 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -143,7 +143,7 @@ this skill is the generic framework they override.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.30.2 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.30.21 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -258,7 +258,7 @@ When nothing is inlined above, every default in this engine stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.30.2 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.30.21 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -328,12 +328,14 @@ cache is a shared symlink), so a worker pane missing a plugin's tools is a
 real failure: check the pane's plugin list and the shared cache instead of
 dismissing it.
 
-When the section above is non-empty, follow it: it owns the pool
-question (asked once per herd, AFTER models are chosen), the per-spawn
-pick, and the exhaustion decision tree. Pass the account it picks as
-`account` on `herd_spawn` (`--account <A>` on a Bash spawn). Empty:
-single-account mode -- no account question, spawns omit the account, and
-workers launch as plain `claude`.
+Accounts are cswap accounts, so this section applies to Claude Code
+workers only: a worker on any other harness takes no account, and its
+spawn omits it. When the section above is non-empty, follow it for the
+Claude Code workers: it owns the pool question (asked once per herd, AFTER
+models are chosen), the per-spawn pick, and the exhaustion decision tree.
+Pass the account it picks as `account` on `herd_spawn` (`--account <A>`
+on a Bash spawn). Empty: single-account mode -- no account question,
+spawns omit the account, and Claude Code workers launch as plain `claude`.
 
 ## Start and spawn
 
@@ -370,7 +372,7 @@ digraph shepherdr_start {
     "Fix what the refusal names" [shape=box];
     "STOP: fix the refusal; never copy the template or strategies file elsewhere" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Domain provisions the tree?" [shape=diamond];
-    "herd_spawn {herd, job, brief, model, effort?, account?}" [shape=plaintext];
+    "herd_spawn {herd, job, brief, harness?, model, effort?, account?, assignment?}" [shape=plaintext];
     "rt herd spawn --herd <id> --job <job> --brief <brief> --model <model> --dir <its tree> [--account <A>]" [shape=plaintext]; // <!-- mcp-lint: allow -->
     "Spawn result?" [shape=diamond];
     "STOP: never hand-roll a tree, a pane or a launch" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -413,9 +415,9 @@ digraph shepherdr_start {
     "Brief retries = 2?" -> "Fix what the refusal names" [label="no"];
     "Brief retries = 2?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
     "Fix what the refusal names" -> "herd_brief {job, template, strategy, strategies, fill, out}";
-    "Domain provisions the tree?" -> "herd_spawn {herd, job, brief, model, effort?, account?}" [label="no: herd_spawn provisions"];
+    "Domain provisions the tree?" -> "herd_spawn {herd, job, brief, harness?, model, effort?, account?, assignment?}" [label="no: herd_spawn provisions"];
     "Domain provisions the tree?" -> "rt herd spawn --herd <id> --job <job> --brief <brief> --model <model> --dir <its tree> [--account <A>]" [label="yes: its tree, its Bash line"]; // <!-- mcp-lint: allow -->
-    "herd_spawn {herd, job, brief, model, effort?, account?}" -> "Spawn result?";
+    "herd_spawn {herd, job, brief, harness?, model, effort?, account?, assignment?}" -> "Spawn result?";
     "rt herd spawn --herd <id> --job <job> --brief <brief> --model <model> --dir <its tree> [--account <A>]" -> "Spawn result?"; // <!-- mcp-lint: allow -->
     "Spawn result?" -> "More jobs in this batch (cap 6)?" [label="ok"];
     "Spawn result?" -> "Shepherd off-script gate: ask the user" [label="error: quote it"];
@@ -489,6 +491,21 @@ skill, use the model's default effort and deviate only when the user names
 a reason. Every spawn carries the chosen model (`model` on `herd_spawn`,
 `--model` on a Bash spawn) and carries effort only when overridden; a spawn
 without a model launches on the default model and silently defeats tiering.
+
+**Harness per job.** Each worker runs on one harness (Claude Code, Codex),
+whatever harness you run on. Before asking, read the integration metadata
+on Bash: `rt agent integrations --json`. Choose only a harness it lists as
+`enabled`, and only models and options its `options` list for that
+harness; the model tiers above are Claude Code's, so for another harness
+the model is one the user names or that harness's default. When the user
+assigns a job a harness (and model), that assignment wins: pass it as
+`assignment` on `herd_spawn` (`--harness <h>` on a Bash spawn). Your own
+choice goes in `harness`. A spawn whose harness is not enabled, not ready
+or cannot run the job refuses with the reason before anything is made;
+report that reason to the user and ask. Never respawn the job on a
+different harness to get past a refusal: a harness change is the user's
+call, made as a new spawn that names it. A respawn that names no harness,
+model or mode keeps the job's recorded selection.
 
 **Domain hook -- model floor and strategy pin.** Unbound: both halves are
 open and the tier table's recommendation stands. A bound domain part may
@@ -1131,7 +1148,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.30.2 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.30.21 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait

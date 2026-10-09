@@ -23,6 +23,8 @@ rt herd spawn [flags]
 | `--job` | text |  | Job name; also the worktree and handle stem |
 | `--brief` | text |  | File whose text becomes the job brief |
 | `--dir` | text |  | Existing directory to run in instead of a fresh worktree |
+| `--harness` | text |  | Run this worker on that harness; needs agent integrations on for anything but Claude |
+| `--mode` | text |  | herdr for a pane, headless for none; default is the first one the harness can run the job in |
 | `--model` | text |  | Override agent.claude.model for this worker |
 | `--effort` | text |  | Override agent.claude.effort for this worker |
 | `--account` | text |  | cswap account for this worker; defaults to the account this session runs under |

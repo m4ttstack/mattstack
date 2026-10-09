@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { Database } from "bun:sqlite";
 import pino from "pino";
 import { createHerdStore, herdSubject, mintHerdId, isValidJobName, type HerdStore } from "../herd-store.ts";
 
@@ -115,6 +116,24 @@ describe("herd-store", () => {
     expect(j.updatedAt).toBeGreaterThanOrEqual(before);
     s.setJobStatus(h.id, "job-a", "done", { lastReport: 42 });
     expect(s.getJob(h.id, "job-a")).toMatchObject({ status: "done", lastReport: 42, lastGate: "gt-1" });
+  });
+
+  test("an attempt records its mode; one from a herds.db that predates modes reads as a herdr pane", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-herd-store-"));
+    dirs.push(dir);
+    const path = join(dir, "herds.db");
+    const old = new Database(path, { create: true });
+    old.exec("CREATE TABLE herd_job_attempts (id TEXT PRIMARY KEY, herd TEXT NOT NULL, job TEXT NOT NULL, selection TEXT NOT NULL, bindingKey TEXT, generation INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, replaces TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, activatedAt INTEGER, endedAt INTEGER)");
+    old.run("INSERT INTO herd_job_attempts (id, herd, job, selection, state, createdAt, updatedAt) VALUES ('att-old', 'h', 'job-a', ?, 'active', 1, 1)", [JSON.stringify({ harness: "claude", options: {} })]);
+    old.close();
+
+    const s = createHerdStore({ dbPath: path, log });
+    expect(s.getAttempt("att-old")?.mode).toBe("herdr");
+    s.reserveAttempt({ id: "att-new", herd: "h", job: "job-b", selection: { harness: "codex", options: {} }, mode: "headless" });
+    s.close_();
+    const reopened = createHerdStore({ dbPath: path, log });
+    expect(reopened.getAttempt("att-new")?.mode).toBe("headless");
+    reopened.close_();
   });
 
   test("an attempt activates only over the attempt it was reserved to replace", () => {

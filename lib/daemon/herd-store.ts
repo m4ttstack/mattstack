@@ -7,7 +7,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
 import type { Logger } from "pino";
-import type { FaultCode, Outcome, Selection } from "../../packages/rt-client/src/agent-integrations.ts";
+import type { FaultCode, Mode, Outcome, Selection } from "../../packages/rt-client/src/agent-integrations.ts";
 import { isCorruptionError } from "../state/db.ts";
 
 export type HerdStatus = "active" | "wrapped";
@@ -39,6 +39,8 @@ export type JobAttemptState = "reserved" | "active" | "replaced" | "ended";
  */
 export interface JobAttempt {
   id: string; herd: string; job: string; selection: Selection;
+  /** A herdr pane or a headless worker; an attempt recorded before modes were stored ran in a herdr pane. */
+  mode: Mode;
   bindingKey?: string;
   /** The binding's attachment generation the attempt was activated for; 0 while unbound. */
   generation: number;
@@ -67,7 +69,7 @@ export interface HerdStore {
   recordPaneStatus(pane: string, status: string, changedAt: number): void;
   paneStatusRows(): Array<{ pane: string; status: string; changedAt: number }>;
   forgetPaneStatus(pane: string): void;
-  reserveAttempt(input: { id: string; herd: string; job: string; selection: Selection; replaces?: string }): JobAttempt;
+  reserveAttempt(input: { id: string; herd: string; job: string; selection: Selection; mode?: Mode; replaces?: string }): JobAttempt;
   getAttempt(id: string): JobAttempt | null;
   activeAttempt(herd: string, job: string): JobAttempt | null;
   /** Every attempt a job has had, oldest first. */
@@ -108,11 +110,11 @@ export function mintHerdId(name: string, now: Date = new Date()): string {
 interface HerdColumns { id: string; repo: string; room: string; workspace: string; shepherdSession: string; shepherdHandle: string; shepherdPane: string | null; herdrSocket: string | null; hidden: number; status: HerdStatus; createdAt: number; wrappedAt: number | null }
 interface JobColumns { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; status: HerdJobStatus; disposable: number; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number }
 
-interface AttemptColumns { id: string; herd: string; job: string; selection: string; bindingKey: string | null; generation: number; state: JobAttemptState; replaces: string | null; createdAt: number; updatedAt: number; activatedAt: number | null; endedAt: number | null }
+interface AttemptColumns { id: string; herd: string; job: string; selection: string; mode: Mode | null; bindingKey: string | null; generation: number; state: JobAttemptState; replaces: string | null; createdAt: number; updatedAt: number; activatedAt: number | null; endedAt: number | null }
 
 function toAttempt(r: AttemptColumns): JobAttempt {
   const a: JobAttempt = {
-    id: r.id, herd: r.herd, job: r.job, selection: JSON.parse(r.selection) as Selection,
+    id: r.id, herd: r.herd, job: r.job, selection: JSON.parse(r.selection) as Selection, mode: r.mode ?? "herdr",
     generation: r.generation, state: r.state, createdAt: r.createdAt, updatedAt: r.updatedAt,
   };
   if (r.bindingKey !== null) a.bindingKey = r.bindingKey;
@@ -200,6 +202,7 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
       herd        TEXT NOT NULL,
       job         TEXT NOT NULL,
       selection   TEXT NOT NULL,
+      mode        TEXT,
       bindingKey  TEXT,
       generation  INTEGER NOT NULL DEFAULT 0,
       state       TEXT NOT NULL,
@@ -219,6 +222,10 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
     (db.query("PRAGMA table_info(herds)").all() as Array<{ name: string }>).map((c) => c.name),
   );
   if (!herdCols.has("shepherdPane")) db.exec("ALTER TABLE herds ADD COLUMN shepherdPane TEXT;");
+  const attemptCols = new Set(
+    (db.query("PRAGMA table_info(herd_job_attempts)").all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  if (!attemptCols.has("mode")) db.exec("ALTER TABLE herd_job_attempts ADD COLUMN mode TEXT;");
 
   const getHerd = db.prepare("SELECT * FROM herds WHERE id = ?");
   const insertHerd = db.prepare("INSERT INTO herds (id, repo, room, workspace, shepherdSession, shepherdHandle, herdrSocket, hidden, status, createdAt, wrappedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL)");
@@ -335,8 +342,8 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
     reserveAttempt(input) {
       const now = Date.now();
       db.run(
-        "INSERT INTO herd_job_attempts (id, herd, job, selection, bindingKey, generation, state, replaces, createdAt, updatedAt) VALUES (?, ?, ?, ?, NULL, 0, 'reserved', ?, ?, ?)",
-        [input.id, input.herd, input.job, JSON.stringify(input.selection), input.replaces ?? null, now, now],
+        "INSERT INTO herd_job_attempts (id, herd, job, selection, mode, bindingKey, generation, state, replaces, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, NULL, 0, 'reserved', ?, ?, ?)",
+        [input.id, input.herd, input.job, JSON.stringify(input.selection), input.mode ?? "herdr", input.replaces ?? null, now, now],
       );
       return attemptById(input.id)!;
     },

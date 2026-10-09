@@ -15,3 +15,23 @@ export function integrationsEnabled(): boolean {
     return false;
   }
 }
+
+/** The configured default harness (`agent.provider`), or undefined while none is set or the setting cannot be read. */
+export function configuredHarness(): string | undefined {
+  try {
+    return getSetting<string>("agent.provider").value ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether the user enabled a harness. There is no enabled-set setting yet;
+ * until there is, the set reads as Claude plus `agent.provider`, since Claude
+ * runs herds, chat and gates on every existing installation whatever that
+ * default names.
+ */
+export function harnessEnabled(): (id: string) => boolean {
+  const provider = configuredHarness();
+  return (id) => id === "claude" || id === provider;
+}

@@ -145,6 +145,8 @@ export interface SessionAdapter {
   startWork(binding: SessionBinding, input: WorkInput, prepared?: PreparedLaunch): Promise<Outcome<WorkReceipt>>;
   /** Native evidence that an interrupted submission reached the session; null when there is none. */
   reconcileWork?(binding: SessionBinding, probe: WorkProbe, sweep?: ObservationSweep): Promise<Outcome<DeliveryReceipt | null>>;
+  /** Stops a session rt runs with no pane to close: its running turn is interrupted and the harness lets it go. */
+  end?(binding: SessionBinding): Promise<Outcome<void>>;
 }
 /**
  * Peer input into a bound session. `input.id` is the logical delivery id and

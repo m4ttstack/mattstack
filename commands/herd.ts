@@ -32,6 +32,7 @@ import { resolveRepoArg, currentRepoIdentity } from "../lib/repo-arg.ts";
 import { assembleBrief, type BriefInputs } from "../lib/herd-brief.ts";
 import { selfPaneRef } from "../lib/self-pane.ts";
 import { callerCswapAccount } from "../lib/cswap.ts";
+import { integrationsEnabled } from "../lib/agent-integrations/switch.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
 
 function fail(msg: string): never {
@@ -129,7 +130,10 @@ export function herdStatusBlocks(data: HerdStatusData): Block[] {
   for (const j of data.jobs) {
     const s = j.sessionDead ? { word: "session gone", role: "failed" as const } : JOB_STATUS[j.status];
     const poked = j.watchdog && j.watchdog.strikes > 0 ? `poked ${j.watchdog.strikes}x${j.watchdog.lastPokeAt === null ? "" : ` ${ago(j.watchdog.lastPokeAt)}`}` : "";
-    rows.push([out.strong(j.name), { text: s.word, role: s.role }, out.dim(`pane ${j.pane ?? "-"}`), out.dim([j.sessionDead ? "" : j.paneStatus ?? "-", j.openGate ? `gate ${j.openGate}` : "", poked].filter(Boolean).join(" · "))]);
+    const worker = [j.harness, j.model, j.mode].filter(Boolean).join(" ");
+    const where = j.mode === "headless" ? "no pane" : `pane ${j.pane ?? "-"}`;
+    const liveness = j.sessionDead || j.mode === "headless" ? "" : j.paneStatus ?? "-";
+    rows.push([out.strong(j.name), { text: s.word, role: s.role }, out.dim(where), out.dim([worker, liveness, j.openGate ? `gate ${j.openGate}` : "", poked].filter(Boolean).join(" · "))]);
     if (j.sessionDead) problems.push(out.line("failed", `${j.name}: the pane is open but Claude is gone`), out.callout("next", out.cmd(`rt herd spawn --herd ${j.herd} --job ${j.name}`)));
     if (j.status === "stuck-at-modal") problems.push(out.line("needs-you", `${j.name} is waiting at a trust prompt`, `accept it in pane ${j.pane ?? "-"}`));
     const terminal = j.lastGateStatus === "answered" || j.lastGateStatus === "closed";
@@ -177,21 +181,41 @@ export function buildSpawnPayload(args: string[]): Commands["herd:spawn"]["paylo
   const brief = briefFile ? readFileSync(briefFile, "utf8") : undefined;
   const p: Commands["herd:spawn"]["payload"] = { herd, job };
   if (brief !== undefined) p.brief = brief;
-  for (const k of ["dir", "model", "effort", "account"] as const) {
+  const dir = flagValue(args, "--dir");
+  if (dir) p.dir = dir;
+  const options: { model?: string; effort?: string; account?: string } = {};
+  for (const k of ["model", "effort", "account"] as const) {
     const v = flagValue(args, `--${k}`);
-    if (v) p[k] = v;
+    if (v) options[k] = v;
+  }
+  // A person naming a harness here is the user's explicit assignment, which wins over any shepherd choice.
+  const harness = flagValue(args, "--harness");
+  if (harness) p.assignment = { harness, ...options };
+  else Object.assign(p, options);
+  const mode = flagValue(args, "--mode");
+  if (mode) {
+    if (mode !== "herdr" && mode !== "headless") throw new Error(`--mode must be herdr or headless; got ${mode}`);
+    p.mode = mode;
   }
   if (args.includes("--disposable")) p.disposable = true;
   return p;
 }
 
+/**
+ * The caller's cswap account, for a Claude Code worker that names none. With
+ * agent integrations on, only when the spawn names Claude Code: a respawn
+ * naming no harness keeps its recorded one, which may take no account.
+ */
 export async function withCallerAccount(
   p: Commands["herd:spawn"]["payload"],
   resolveAccount: () => Promise<string | undefined> = () => callerCswapAccount(process.env),
+  switchOn: () => boolean = integrationsEnabled,
 ): Promise<Commands["herd:spawn"]["payload"]> {
-  if (p.account) return p;
+  if (p.account || p.assignment?.account) return p;
+  if (switchOn() && p.assignment?.harness !== "claude") return p;
   const account = await resolveAccount();
-  return account ? { ...p, account } : p;
+  if (!account) return p;
+  return p.assignment ? { ...p, assignment: { ...p.assignment, account } } : { ...p, account };
 }
 
 export function buildWrapUpPayload(args: string[]): Commands["herd:wrap-up"]["payload"] {

@@ -265,6 +265,8 @@ const herdSubcommands: Record<string, CommandNode> = {
       { name: "Job", flag: "--job", type: "text", placeholder: "acme-1483-facts", hint: "Job name; also the worktree and handle stem" },
       { name: "Brief", flag: "--brief", type: "text", placeholder: "brief.md", hint: "File whose text becomes the job brief" },
       { name: "Dir", flag: "--dir", type: "text", placeholder: "~/Documents/GitHub/x", hint: "Existing directory to run in instead of a fresh worktree" },
+      { name: "Harness", flag: "--harness", type: "text", placeholder: "codex", hint: "Run this worker on that harness; needs agent integrations on for anything but Claude" },
+      { name: "Mode", flag: "--mode", type: "text", placeholder: "headless", hint: "herdr for a pane, headless for none; default is the first one the harness can run the job in" },
       { name: "Model", flag: "--model", type: "text", placeholder: "opus", hint: "Override agent.claude.model for this worker" },
       { name: "Effort", flag: "--effort", type: "text", placeholder: "high", hint: "Override agent.claude.effort for this worker" },
       { name: "Account", flag: "--account", type: "text", placeholder: "me@example.com", hint: "cswap account for this worker; defaults to the account this session runs under" },

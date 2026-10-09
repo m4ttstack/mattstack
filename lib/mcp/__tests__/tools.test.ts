@@ -1567,6 +1567,19 @@ describe("resolved caller sessions", () => {
     { tool: "herd_ask", input: { questions: GATE }, cmd: "herd:ask" },
   ];
 
+  test("herd_report from a headless worker with no HERD_ID names no job and lets its session's attempt decide", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const worker: ToolContext = { caller: async () => ({ ok: true, data: { binding: { ...BINDING, attemptId: "att-1" } } }) };
+    const res = await tool("herd_report").handler({ body: "done" }, {} as NodeJS.ProcessEnv, undefined, worker);
+    expect(res.ok).toBe(true);
+    expect(calls).toEqual([{ cmd: "herd:report", payload: { body: "done", session: "thread-one", harness: "codex" } }]);
+
+    calls = [];
+    const notWorker = await tool("herd_report").handler({ body: "done" }, {} as NodeJS.ProcessEnv, undefined, RESOLVED);
+    expect(notWorker.error).toContain("HERD_ID and HERD_JOB are not set");
+    expect(calls).toEqual([]);
+  });
+
   test("the other session-handle and worker consumers take the resolved session", async () => {
     setSetting("agent.integrations.enabled", true, "machine");
     const env = { HERD_ID: "hd-1", HERD_JOB: "j", HERDR_PANE_ID: "wMP:p0" } as NodeJS.ProcessEnv;

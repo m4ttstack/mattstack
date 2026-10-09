@@ -985,6 +985,29 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       return ok({ ...receipt, completion });
     },
 
+    /** A headless thread stays loaded only while rt holds it, so letting it go after interrupting its turn stops it. */
+    async end(binding) {
+      const valid = checkRef(binding.native);
+      if (!valid.ok) return valid;
+      if (control.closed) return fail("not-ready", "the Codex control connection is closed, so the thread was not stopped");
+      const threadId = binding.native.value;
+      const turnId = hub.turns(threadId).active;
+      if (turnId !== undefined) {
+        try {
+          await control.request("turn/interrupt", { threadId, turnId });
+        } catch (err) {
+          return failFrom(err, `Codex could not interrupt the running turn on thread ${threadId}: `);
+        }
+      }
+      try {
+        await deps.lifecycle(ref(threadId), "ended", binding.attachment.generation);
+      } catch {
+        // The thread is still let go; its binding and presence follow on the next observation of the unloaded thread.
+      }
+      unsubscribe(threadId);
+      return ok(undefined);
+    },
+
     /** The thread's own history is the evidence: a turn whose user message is the submitted text. */
     async reconcileWork(binding, probe) {
       const valid = checkRef(binding.native);

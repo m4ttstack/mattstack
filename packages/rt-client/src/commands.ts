@@ -243,7 +243,10 @@ export interface GateSubscription {
 export interface HerdInfo { id: string; repo: string; room: string; workspace: string; shepherdSession: string; shepherdHandle: string; shepherdName: string; herdrSocket: string | null; hidden: boolean; status: "active" | "wrapped"; createdAt: number; wrappedAt: number | null }
 /** A herd row as `herd:list` reports it: the registry row plus how many jobs hang off it. */
 export interface HerdListRow extends HerdInfo { jobs: number }
-export interface HerdJobInfo { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; handleName: string; status: "spawning" | "active" | "at-gate" | "at-milestone" | "done" | "closed" | "crashed" | "stuck-at-modal"; disposable: boolean; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number }
+/** A user's explicit choice of worker for one job. */
+export type HerdWorkerAssignment = { harness: HarnessId; model?: string; effort?: string; account?: string };
+/** `harness`, `model` and `mode` are the selection the job's latest attempt launched with; present only while agent.integrations.enabled is on. */
+export interface HerdJobInfo { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; handleName: string; status: "spawning" | "active" | "at-gate" | "at-milestone" | "done" | "closed" | "crashed" | "stuck-at-modal"; disposable: boolean; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number; harness?: HarnessId; model?: string; mode?: Mode }
 /** `lastGateStatus`/`lastGateDelivery` come from the job's `lastGate` row: a TERMINAL gate (answered or closed) whose delivery is `dead-pane` is the "worker not woken" case the shepherd must act on. `lastGateConsumed` is `null` when there is nothing to consume (no last gate, not answered, or not nudged), and otherwise reports whether the nudged pane has read its answer. */
 export interface HerdStatusData {
   herd: HerdInfo;
@@ -1213,13 +1216,21 @@ export interface Commands {
   /** Reopens a done job for a follow-up round in its same pane: it goes back to active until its next report. */
   "herd:follow-up": { payload: { herd: string; job: string }; data: { job: string; status: "active" } };
   /** `brief` is the brief TEXT, not a path: the CLI reads the file. It is stored at `<jobsRoot>/<herd>/<job>/job.md`, so a respawn with `dir` and no `brief` reads it back. */
-  "herd:spawn":  { payload: { herd: string; job: string; brief?: string; dir?: string; model?: string; effort?: string; account?: string; disposable?: boolean }; data: { herd: string; job: string; pane: string; worktree: string; branch: string | null; tree: string | null; /** null = no provisioning ran (--dir); false = cold create, worth announcing. */ wasOnDeck: boolean | null; agentId: string; sessionId: string; handle: string; /** What the folder-trust check established: no modal was up, one was accepted and verified gone, one is still up (the job reads `stuck-at-modal`), or herdr could not be read. */ trust: "none" | "accepted" | "stuck" | "unchecked" } };
+  /**
+   * `harness` with `model`/`effort`/`account` is the shepherd's own choice of worker; `assignment` is the user's explicit one and wins.
+   * `mode` asks for a herdr pane or a headless worker; omitted, the first mode the harness can run the job in. A respawn naming none
+   * of these keeps the selection its latest attempt recorded. A harness other than Claude Code needs agent.integrations.enabled on.
+   */
+  "herd:spawn":  { payload: { herd: string; job: string; brief?: string; dir?: string; harness?: HarnessId; model?: string; effort?: string; account?: string; mode?: Mode; assignment?: HerdWorkerAssignment; disposable?: boolean }; data: { herd: string; job: string; pane: string; worktree: string; branch: string | null; tree: string | null; /** null = no provisioning ran (--dir); false = cold create, worth announcing. */ wasOnDeck: boolean | null; agentId: string; sessionId: string; handle: string; /** What the folder-trust check established: no modal was up, one was accepted and verified gone, one is still up (the job reads `stuck-at-modal`), or herdr could not be read. */ trust: "none" | "accepted" | "stuck" | "unchecked" } };
   "herd:gates":  { payload: { herd: string }; data: { gates: GateRow[] } };
   "herd:ask":       { payload: { herd: string; job: string; session: string; pane?: string; questions: GateQuestion[]; context?: string }; data: { gate: string } };
   "herd:milestone": { payload: { herd: string; job: string; session: string; pane?: string; artifact: string; summary?: string }; data: { gate: string; message: number } };
   "herd:answer":    { payload: { gate: string; sessionId?: string }; data: { gate: string; status: GateStatus; answer: GateAnswer | null; closedReason: GateRow["closedReason"] } };
-  /** `session` (and `harness`, when not Claude Code) is the caller's resolved native session; with agent.integrations.enabled on the daemon authorizes the report by it, and off it is ignored. */
-  "herd:report":    { payload: { herd: string; job: string; body: string; session?: string; harness?: string }; data: { message: number } };
+  /**
+   * `session` (and `harness`, when not Claude Code) is the caller's resolved native session; with agent.integrations.enabled on the daemon
+   * authorizes the report by it, and off it is ignored. On, a caller naming no `herd`/`job` reports for the job its session's attempt holds.
+   */
+  "herd:report":    { payload: { herd?: string; job?: string; body: string; session?: string; harness?: string }; data: { message: number } };
   /** `callerWorkspace` is the attending session's own HERDR_WORKSPACE_ID: the attached tab opens there, not in the herd's workspace. */
   "herd:attend":      { payload: { herd: string; job: string; callerWorkspace: string }; data: { tab: string; pane: string } };
   "herd:stop-hidden": { payload: Record<string, never>; data: { stopped: boolean } };

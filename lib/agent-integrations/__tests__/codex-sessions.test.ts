@@ -823,6 +823,30 @@ describe("work on a bound thread", () => {
     const sessions = h.sessions();
     h.control.close();
     expect(await sessions.startWork(binding("T1"), { id: "w1", text: "go" })).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(await sessions.end!(binding("T1"))).toMatchObject({ ok: false, error: { code: "not-ready" } });
+  });
+
+  test("ending a headless thread interrupts its running turn, reports it ended and lets it go", async () => {
+    const h = await harness({
+      "turn/start": (s, m) => {
+        s.push({ id: m.id, result: { turn: { id: "U0", items: [], status: "inProgress" } } });
+        s.push(turn("turn/started", m.params.threadId, "U0"));
+      },
+      "turn/interrupt": (s, m) => {
+        s.push({ id: m.id, result: {} });
+        s.push(turn("turn/completed", m.params.threadId, m.params.turnId, "interrupted"));
+      },
+    });
+    const gone: Array<{ value: string; event: string; generation?: number }> = [];
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return true; } });
+    const headless = binding("T1", { attachment: { generation: 1, mode: "headless" } });
+    const receipt = data(await sessions.startWork(headless, { id: "w1", text: "go" }));
+
+    data(await sessions.end!(headless));
+    expect(await receipt.completion).toMatchObject({ exitCode: 1 });
+    expect(h.requests("turn/interrupt").map((m) => m.params)).toEqual([{ threadId: "T1", turnId: "U0" }]);
+    expect(gone).toEqual([{ value: "T1", event: "ended", generation: 1 }]);
+    expect(h.requests("thread/unsubscribe").map((m) => m.params)).toEqual([{ threadId: "T1" }]);
   });
 
   test("an interrupted submission is found in the thread's own history, or not at all", async () => {

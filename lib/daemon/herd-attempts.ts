@@ -17,7 +17,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import type { CallerContext, FaultCode, Outcome, Selection, SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
+import type { CallerContext, FaultCode, Mode, Outcome, Selection, SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
 import { POLICY_CAPABILITIES, requirePolicyProof } from "../agent-integrations/policy-readiness.ts";
 import {
   createSessionStore, isDetachedAttachment, launchClaimedForAttempt, readBindingReadiness,
@@ -37,7 +37,7 @@ export type JobAttemptDeps = {
 };
 
 export interface JobAttempts {
-  reserveJobAttempt(input: { herd: string; job: string; selection: Selection; replaces?: string }): Outcome<JobAttempt>;
+  reserveJobAttempt(input: { herd: string; job: string; selection: Selection; mode?: Mode; replaces?: string }): Outcome<JobAttempt>;
   /** Commits the attempt's authority to `binding`; a resumed binding of the same attempt refreshes its generation. */
   activateJobAttempt(attemptId: string, binding: SessionBinding): Outcome<JobAttempt>;
   /** A worker launched with the switch off: active with no binding, so it never authorizes a fenced report. */

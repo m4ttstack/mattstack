@@ -1010,7 +1010,7 @@ Read the answer to a gate previously opened with herd_ask.
 ### herd_report
 
 <!-- mcp-lint: allow -->
-Post a status report message to this worker's herd room, using HERD_ID and HERD_JOB from the environment.
+Post a status report message to this worker's herd room, using HERD_ID and HERD_JOB from the environment; a headless worker with neither reports for the job its own session was launched for.
 
 ```json
 {
@@ -1872,7 +1872,7 @@ Start a herd (room, workspace, gate subscription) for this shepherd session. rep
 ### herd_spawn
 
 <!-- mcp-lint: allow -->
-Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. account, model and effort are plain tokens. Only the herd's shepherd session may call it. Takes minutes.
+Spawn a worker for a job (provisions its worktree, launches the selected harness with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. harness, account, model and effort are plain tokens: harness with its options is your own choice of worker, assignment is the user's explicit one and wins. Choose only an enabled, ready harness from agent integrations metadata; a harness that cannot run the job refuses, and none is substituted. A respawn naming no harness, options or mode keeps the job's recorded selection. Only the herd's shepherd session may call it. Takes minutes.
 
 ```json
 {
@@ -1889,6 +1889,10 @@ Spawn a worker pane for a job (provisions its worktree, launches claude with the
       "type": "string",
       "description": "Absolute path to the brief file; its contents are sent, not the path."
     },
+    "harness": {
+      "type": "string",
+      "description": "The harness you chose for this worker (claude, codex)."
+    },
     "model": {
       "type": "string"
     },
@@ -1896,7 +1900,38 @@ Spawn a worker pane for a job (provisions its worktree, launches claude with the
       "type": "string"
     },
     "account": {
-      "type": "string"
+      "type": "string",
+      "description": "A cswap account; Claude Code workers only."
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "herdr",
+        "headless"
+      ],
+      "description": "herdr (a pane) or headless; omitted, the first mode the harness can run the job in."
+    },
+    "assignment": {
+      "type": "object",
+      "description": "The user's explicit worker for this job; wins over harness, model, effort and account.",
+      "properties": {
+        "harness": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "harness"
+      ],
+      "additionalProperties": false
     },
     "disposable": {
       "type": "boolean"

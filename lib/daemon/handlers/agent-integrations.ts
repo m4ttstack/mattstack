@@ -18,8 +18,7 @@ import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import type { ModLinks } from "../../agent-integrations/claude/mod-links.ts";
 import { codexExperimentalApi } from "../../agent-integrations/codex/link.ts";
 import type { AcceptReceiptDeps } from "../../agent-integrations/codex/policy-receipts.ts";
-import { integrationsEnabled } from "../../agent-integrations/switch.ts";
-import { getSetting } from "../../settings/resolve.ts";
+import { harnessEnabled, integrationsEnabled } from "../../agent-integrations/switch.ts";
 
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
 type IntegrationsResult = { ok: true; data: Commands["agent:integrations"]["data"] } | { ok: false; error: string };
@@ -44,21 +43,6 @@ const OPTION_NAMES: ReadonlySet<string> = new Set<keyof AgentOptions>(["model", 
 const OPTION_KINDS: ReadonlySet<string> = new Set<OptionDescriptor["kind"]>(["text", "boolean", "choice"]);
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-
-/**
- * There is no enabled-set setting yet; until there is, the set reads as Claude
- * plus `agent.provider`, since Claude runs herds, chat and gates on every
- * existing installation whatever that default names.
- */
-function defaultEnabled(): (id: string) => boolean {
-  let provider: string | undefined;
-  try {
-    provider = getSetting<string>("agent.provider").value ?? undefined;
-  } catch {
-    provider = undefined;
-  }
-  return (id) => id === "claude" || id === provider;
-}
 
 /** Only descriptors a consumer can render: a known option, a known kind, choices exactly when it is a choice, each name once. */
 function validOptions(descriptors: unknown): OptionDescriptor[] {
@@ -147,7 +131,7 @@ async function summarize(
 
 export async function listAgentIntegrations(mode: Mode, deps: IntegrationListDeps = {}): Promise<IntegrationSummary[]> {
   const registry = deps.integrations ?? builtinRegistry();
-  const enabled = deps.enabled ?? defaultEnabled();
+  const enabled = deps.enabled ?? harnessEnabled();
   return Promise.all(registry.list().map((integration) => summarize(integration, mode, enabled(integration.id), deps)));
 }
 

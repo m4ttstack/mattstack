@@ -61,6 +61,21 @@ describe("rt herd payload builders", () => {
     expect(await withCallerAccount({ herd: "h", job: "j" }, async () => undefined)).toEqual({ herd: "h", job: "j" });
   });
 
+  test("buildSpawnPayload: --harness is the user's explicit assignment and carries the options; --mode rides beside it", () => {
+    expect(buildSpawnPayload(["--herd", "h", "--job", "j", "--harness", "codex", "--model", "gpt-5.1", "--mode", "headless"]))
+      .toEqual({ herd: "h", job: "j", assignment: { harness: "codex", model: "gpt-5.1" }, mode: "headless" });
+    expect(() => buildSpawnPayload(["--herd", "h", "--job", "j", "--mode", "tmux"])).toThrow("--mode must be herdr or headless");
+  });
+
+  test("withCallerAccount with integrations on fills the account only for a spawn that names Claude Code", async () => {
+    const resolve = async () => "alex@acme.test";
+    const on = () => true;
+    expect(await withCallerAccount({ herd: "h", job: "j" }, resolve, on)).toEqual({ herd: "h", job: "j" });
+    expect(await withCallerAccount({ herd: "h", job: "j", assignment: { harness: "codex" } }, resolve, on)).toEqual({ herd: "h", job: "j", assignment: { harness: "codex" } });
+    expect(await withCallerAccount({ herd: "h", job: "j", assignment: { harness: "claude" } }, resolve, on))
+      .toEqual({ herd: "h", job: "j", assignment: { harness: "claude", account: "alex@acme.test" } });
+  });
+
   test("buildWrapUpPayload collects repeated --dispose values and booleans", () => {
     expect(buildWrapUpPayload(["h-1", "--close-panes", "--dispose", "a", "--dispose", "b", "--archive-room"])).toEqual({ herd: "h-1", closePanes: true, dispose: ["a", "b"], deleteJobDirs: false, archiveRoom: true });
   });
@@ -412,6 +427,16 @@ describe("herd views at a terminal", () => {
     const row = renderPlain(blocks).split("\n").find((line) => /^job-a +/.test(line));
     expect(row).toMatch(/^job-a +session gone +pane w1:p3 *$/);
     expect(row).not.toContain("working");
+  });
+
+  test("status: each job names its harness, model and mode, and a headless worker has no pane", () => {
+    const blocks = herdStatusBlocks(statusData({ jobs: [
+      { ...job, harness: "claude", model: "opus", mode: "herdr" },
+      { ...job, name: "job-b", pane: null, paneStatus: null, sessionDead: null, harness: "codex", model: "gpt-5.1", mode: "headless" },
+    ] }));
+    const lines = renderPlain(blocks).split("\n");
+    expect(lines.find((l) => /^job-a +/.test(l))).toMatch(/^job-a +working +pane w1:p3 +claude opus herdr · working *$/);
+    expect(lines.find((l) => /^job-b +/.test(l))).toMatch(/^job-b +working +no pane +codex gpt-5\.1 headless *$/);
   });
 
   test("status: a dead session uses the failed role in the job row", () => {
