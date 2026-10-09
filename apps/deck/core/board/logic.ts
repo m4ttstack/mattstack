@@ -9,6 +9,8 @@ export const PROXY_WAIT_MS = 45000;
 
 interface StatusRow {
   name: string;
+  /** Launcher name; the record name when the identity has none. */
+  displayName?: string;
   enabled?: boolean;
   requiresTeam?: boolean;
   description?: string;
@@ -429,6 +431,19 @@ export function behindRows(rows: Row[]): Row[] {
       r.newCode != null &&
       (r.commands ?? []).includes('deploy')
   );
+}
+
+/** The update strip's button: names the one app it would deploy, says "all"
+    only when every deployable app is behind, and counts otherwise. */
+export function redeployButtonText(rows: Row[]): string {
+  const behind = behindRows(rows);
+  const deployable = rows.filter(
+    r => r.enabled !== false && (r.commands ?? []).includes('deploy')
+  );
+  if (behind.length === 1)
+    return `Redeploy ${behind[0]!.displayName ?? behind[0]!.name}`;
+  if (behind.length === deployable.length) return 'Redeploy all';
+  return `Redeploy ${behind.length} apps`;
 }
 
 export function updateStripText(count: number): string {

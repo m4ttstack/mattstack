@@ -2,6 +2,7 @@ import { Button, Icon } from '@mattstack/tui-kit';
 import { CIRCLE_ARROW_UP, ROCKET } from './icons.ts';
 import {
   behindRows,
+  redeployButtonText,
   redeployingText,
   updateStripText,
   type RedeployAllRun,
@@ -10,7 +11,7 @@ import {
 import { Tooltip } from './Tooltip.tsx';
 
 /** The head of the mattstack section's panel: how many apps have new code
-    since their last deploy, and the Redeploy all button. Renders nothing
+    since their last deploy, and the button that redeploys them. Renders nothing
     when none do. The button is hidden where the server refuses deploys. */
 export function UpdateStrip({
   rows,
@@ -32,7 +33,7 @@ export function UpdateStrip({
         {run ? redeployingText(run) : updateStripText(count)}
       </span>
       {canManage && (
-        <Tooltip tip="Deploy every app with new code">
+        <Tooltip tip="Deploy each app with new code">
           <Button
             variant="filled"
             intent="warn"
@@ -41,7 +42,7 @@ export function UpdateStrip({
             onClick={onRedeployAll}
           >
             {run == null && <Icon d={ROCKET} />}
-            {run ? 'Redeploying…' : 'Redeploy all'}
+            {run ? 'Redeploying…' : redeployButtonText(rows)}
           </Button>
         </Tooltip>
       )}

@@ -18,6 +18,7 @@ import {
   PROXY_WAIT_MS,
   reconcileRestarting,
   redeployAllTargets,
+  redeployButtonText,
   redeployingText,
   REFRESH_MS,
   registerOutcome,
@@ -1162,4 +1163,33 @@ test('isRowRestarting: a settled flag reads restarting only while the row is unr
     isRowRestarting(up, { 'com.deck.app': { pid: 111, at: 1000 } }, {})
   ).toBe(true);
   expect(isRowRestarting(down, {}, {})).toBe(false);
+});
+
+// ---- redeployButtonText ----
+
+const deployRow = (name: string, behind: boolean) =>
+  makeRow({
+    name,
+    displayName: name[0]!.toUpperCase() + name.slice(1),
+    commands: ['deploy'],
+    newCode: behind ? { sha: 'abc' } : null,
+  } as Partial<Row>);
+
+test('redeployButtonText: one app behind names it', () => {
+  const rows = [deployRow('console', true), deployRow('deck', false)];
+  expect(redeployButtonText(rows)).toBe('Redeploy Console');
+});
+
+test('redeployButtonText: every deployable app behind reads all', () => {
+  const rows = [deployRow('console', true), deployRow('deck', true)];
+  expect(redeployButtonText(rows)).toBe('Redeploy all');
+});
+
+test('redeployButtonText: some but not all behind counts them', () => {
+  const rows = [
+    deployRow('console', true),
+    deployRow('deck', true),
+    deployRow('chat', false),
+  ];
+  expect(redeployButtonText(rows)).toBe('Redeploy 2 apps');
 });
