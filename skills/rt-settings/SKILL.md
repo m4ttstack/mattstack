@@ -26,7 +26,14 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
 2. Every key is DECLARED: a registry row in
    `packages/rt-client/src/settings/registry-defs.ts` (type, allowed scopes,
    merge, description — add a `default` only after clearing line 5; a
-   ported `board.*` row never has one). An explicit `getSetting` of an undeclared key
+   ported `board.*` row never has one). Before the console can edit it, a
+   new key also needs a zod schema in `registry-schemas.ts` (every key,
+   scalars too), examples in `schema-examples.ts`, `.meta({ title,
+   description })` on every object property, a console group in
+   `apps/console/src/app/settings/groups.ts` and a regenerated lock
+   (`bun run cli.ts settings schema lock`), enforced by
+   `registry-console-ready.test.ts`, `schema-examples.test.ts` and the
+   console's `groups.test.ts`. An explicit `getSetting` of an undeclared key
    THROWS; an undeclared key found in a store file warns and is skipped.
    A new key is the registry row first, then delivery: rt itself sees the
    row immediately. Board, console, deck and gitq link rt-client as an
@@ -131,6 +138,25 @@ move on any "why is this value what it is" question.
 
 ## Changing the org repo's layout
 
+First, which tool a change takes:
+
+- **Only this Mac** (user or machine settings, local files, cron, app
+  config): a setup migration (`MigrationDef`).
+- **The org or team stores, even one added key or one seeded value**: never
+  a migration.
+  - A value older apps ignore or read correctly (a new key, a value every
+    team should get once): no layout bump. The admin writes it with
+    `rt settings set <key> <value> --scope team --team <team>`, once per
+    team (or `--scope org`), or with a one-off script the admin runs.
+  - A shape an older app would misread or lose (a moved, renamed or deleted
+    key, a moved folder): a layout change, an `ORG_LAYOUT` bump plus a
+    conversion script the admin runs, by the runbook below.
+
+Why: a migration runs unreviewed on the first admin Mac that launches, on
+whatever branch the clone has checked out, and sync carries the result to
+every member, older apps included. CI (`no-shared-store-migrations`) and the
+runtime both refuse a migration that writes the org or team stores.
+
 A layout change is a change to the org repo's shape that an older rt cannot
 read: a moved folder, a renamed store, or a change to the shape of the
 shared settings that an older app would misread or lose, such as a
@@ -155,12 +181,14 @@ the conversion is a script the admin runs once.
 In this order:
 
 1. **Land the rt change on main** (a PR, as any rt change): bump `ORG_LAYOUT`, write the readers
-   for the new shape, and write the conversion script. The layout 2 one is
+   for the new shape, and write the conversion script. Layout 2's is
    `bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username>`
-   (plans; `--write` moves and commits). A conversion to layout 3 or later
+   and layout 3's is
+   `bun scripts/move-to-team-directory.ts <clone-dir> --admin <username>`
+   (each plans; `--write` moves and commits). A conversion to layout 3 or later
    also writes `layout: <n>` in the marker. Every marker rt writes carries
    an explicit `layout` (`rt team create` writes `ORG_LAYOUT`, the layout 2
-   script writes 2), and a `role: "org"` marker with no field reads 2, a
+   script writes 2, the layout 3 script 3), and a `role: "org"` marker with no field reads 2, a
    fixed default (`ORG_LAYOUT_ABSENT_DEFAULT`) that never follows the bump,
    so an unconverted clone never reads as ready.
 2. **Test it on the dev app.** The dev app runs rt from the shared

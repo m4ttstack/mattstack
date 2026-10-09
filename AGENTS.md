@@ -839,7 +839,9 @@ never overwrites a value the user chose; under `ctx.update` it also leaves
 alone what the member undid since rt put it there (a disabled or removed
 plugin, an editor setup-state has no record of).
 `lib/setup/__tests__/update-safe.test.ts` pins the set. Add a one-time fix as a `MigrationDef` in
-`lib/setup/migrations/index.ts` with a dated id that is never renamed; it
+`lib/setup/migrations/index.ts` with a dated id that is never renamed; a
+migration changes only this Mac and never writes the org or team stores (a
+change there is a layout change, see the `rt:settings` skill); it
 runs once per machine and is recorded when `done` or `skipped`. The tray
 only spawns the verb and routes the `setup_update` notification click to the
 Setup status window; put no decision in Swift.
