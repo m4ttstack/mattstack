@@ -26,6 +26,13 @@ const EXPECTED_REQUESTS: string[] = [
 ];
 
 const recorded = new Set<string>();
+const requestLog: string[] = [];
+let flowStart = 0;
+
+async function flow(drive: (page: Page) => Promise<void>, page: Page) {
+  flowStart = requestLog.length;
+  await drive(page);
+}
 
 function normalize(method: string, rawUrl: string): string | null {
   const { pathname } = new URL(rawUrl);
@@ -47,7 +54,9 @@ function fulfillJson(route: Route, body: unknown) {
 async function instrument(page: Page): Promise<void> {
   page.on('request', req => {
     const key = normalize(req.method(), req.url());
-    if (key) recorded.add(key);
+    if (!key) return;
+    recorded.add(key);
+    requestLog.push(key);
   });
   await page.route('**/api/v1/**', async route => {
     const req = route.request();
@@ -86,7 +95,7 @@ async function waitFor(
 }
 
 function sawRequest(key: string): () => boolean {
-  return () => recorded.has(key);
+  return () => requestLog.slice(flowStart).includes(key);
 }
 
 async function openSettings(page: Page, name: string): Promise<void> {
@@ -152,6 +161,7 @@ async function driveManualAdd(page: Page): Promise<void> {
   await modal.waitFor({ state: 'visible' });
   await modal.locator('[name="app-dir"]').fill('/Users/matt/code/newapp');
   await modal.locator('button[type="submit"]').click();
+  await waitFor(sawRequest('POST /api/v1/apps/register'));
   await modal.locator('[name="app-name"]').waitFor({ state: 'visible' });
   await modal.locator('[name="app-name"]').fill('newapp');
   await modal.getByPlaceholder('bun src/server.ts').click();
@@ -219,7 +229,6 @@ async function drivePasswordSet(page: Page): Promise<void> {
 }
 
 async function drivePasswordRemove(page: Page): Promise<void> {
-  recorded.delete('PUT /api/v1/apps/:app/password');
   await openAccessScreen(page, 'atlas');
   await accessNav(page, 'password').locator('button').click();
   await page
@@ -250,7 +259,6 @@ async function driveEditSave(page: Page): Promise<void> {
 }
 
 async function driveSourceUnlink(page: Page): Promise<void> {
-  recorded.delete('PATCH /api/v1/apps/:app');
   await openSettings(page, 'atlas');
   await openScreen(page, 'source');
   await page
@@ -308,39 +316,39 @@ async function drivePush(page: Page): Promise<void> {
 test('the board page calls exactly the pinned set of /api/ requests', async () => {
   await withBoard(async page => {
     await instrument(page);
-    await drivePublish(page);
-    await driveRestart(page);
-    await driveReloadProxy(page);
-    await driveRegisterApp(page);
-    await driveDevPortPublicFollows(page);
-    await driveDevPortRevert(page);
-    await driveDevPortSave(page);
-    await drivePasswordSet(page);
-    await drivePasswordRemove(page);
-    await driveGoogleSignInWho(page);
-    await driveEditSave(page);
-    await driveSourceUnlink(page);
-    await driveRemove(page);
+    await flow(drivePublish, page);
+    await flow(driveRestart, page);
+    await flow(driveReloadProxy, page);
+    await flow(driveRegisterApp, page);
+    await flow(driveDevPortPublicFollows, page);
+    await flow(driveDevPortRevert, page);
+    await flow(driveDevPortSave, page);
+    await flow(drivePasswordSet, page);
+    await flow(drivePasswordRemove, page);
+    await flow(driveGoogleSignInWho, page);
+    await flow(driveEditSave, page);
+    await flow(driveSourceUnlink, page);
+    await flow(driveRemove, page);
   });
   await withBoard(
     async page => {
       await instrument(page);
-      await driveManualAdd(page);
+      await flow(driveManualAdd, page);
     },
     { fixture: 'status.json' }
   );
   await withBoard(
     async page => {
       await instrument(page);
-      await driveCommand(page);
+      await flow(driveCommand, page);
     },
     { fixture: 'status-commands.json' }
   );
   await withBoard(
     async page => {
       await instrument(page);
-      await driveRemoteToggle(page);
-      await drivePush(page);
+      await flow(driveRemoteToggle, page);
+      await flow(drivePush, page);
     },
     { fixture: 'status-remote.json' }
   );
