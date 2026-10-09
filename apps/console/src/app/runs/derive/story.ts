@@ -6,8 +6,9 @@ import type {
 } from '@mattstack/rt-client';
 import { parseEvidence } from '@mattstack/rt-client/evidence';
 
-import { placeFields, storyFields } from './fields';
+import { fieldLabel, placeFields, storyFields } from './fields';
 import { gateStage, pickedText, questionAnswer } from './gates';
+import { answeredQuestionCount } from './record';
 import { stageAttempts, type StageAttempt } from './stages';
 
 export type StoryEvidence = 'before' | 'after' | 'legacy';
@@ -262,35 +263,32 @@ export function runBlock(input: StoryInput): StoryEntry | null {
   };
 }
 
-export interface DecisionEntry {
-  gateId: string;
-  questionId: string;
-  stage: string | null;
-  /** The picked options' labels, as the story's decision row reads them. */
-  pick: string;
+/** A folded stage row's one line: "3 decisions · <first pick>" when the
+    attempt has answered questions, else its first field as "<Label>:
+    <value>", else why it failed, else nothing. */
+export function stageSummary(entry: StoryEntry): string {
+  const count = answeredQuestionCount(entry.gates);
+  if (count > 0) {
+    const first = firstPick(entry.gates);
+    const head = `${count} ${count === 1 ? 'decision' : 'decisions'}`;
+    return first ? `${head} · ${first}` : head;
+  }
+  const field = entry.fields[0];
+  if (field) return `${fieldLabel(field.key)}: ${oneLine(field.value)}`;
+  return entry.failure?.reason ?? '';
 }
 
-/** One row per answered question on the run's answered gates, in the order
-    they were answered. */
-export function decisionEntries(
-  gates: GateRow[],
-  stages: RunStageRow[]
-): DecisionEntry[] {
-  return gates
-    .filter(g => g.status === 'answered' && g.answer)
-    .sort((x, y) => x.answer!.answeredAt - y.answer!.answeredAt)
-    .flatMap(g =>
-      g.questions.flatMap(q => {
-        const answer = questionAnswer(g.answer, q);
-        if (!answer || answer.picked.length === 0) return [];
-        return [
-          {
-            gateId: g.id,
-            questionId: q.id,
-            stage: gateStage(g, stages),
-            pick: pickedText(q, answer.picked),
-          },
-        ];
-      })
-    );
+const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+function firstPick(gates: GateRow[]): string | null {
+  for (const g of gates) {
+    if (g.status !== 'answered') continue;
+    for (const q of g.questions) {
+      const answer = questionAnswer(g.answer, q);
+      if (!answer) continue;
+      if (answer.picked.length > 0) return pickedText(q, answer.picked);
+      if (answer.text) return oneLine(answer.text);
+    }
+  }
+  return null;
 }

@@ -13,7 +13,12 @@ import { useDisclosure } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { GateQuestion, GateRow } from '@mattstack/rt-client';
 
-import { answerStamp, structuredContextSummary } from '../derive/answers';
+import {
+  answerStamp,
+  contextMeta,
+  prettyContext,
+  structuredContextSummary,
+} from '../derive/answers';
 import {
   gateEndNote,
   optionViews,
@@ -22,18 +27,6 @@ import {
 } from '../derive/gates';
 import { GateContext } from '../GateContext';
 import classes from './DecisionCard.module.css';
-
-function prettyJson(text: string): string {
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2);
-  } catch {
-    return text;
-  }
-}
-
-function lineCount(text: string): number {
-  return text.trimEnd().split('\n').length;
-}
 
 /** A collapsed context: a prose context renders as markdown, a structured one
     shows its summary line over the raw JSON in a monospace block, never as
@@ -49,8 +42,7 @@ function ContextDisclosure({
 }) {
   const [open, { toggle }] = useDisclosure(false);
   const summary = structuredContextSummary(context);
-  const lines = lineCount(context);
-  const meta = summary ?? `${lines} ${lines === 1 ? 'line' : 'lines'}`;
+  const meta = contextMeta(context);
   return (
     <Stack gap="xs">
       <Anchor
@@ -76,7 +68,7 @@ function ContextDisclosure({
       </Anchor>
       <Collapse expanded={open} id={id}>
         {summary ? (
-          <Code block>{prettyJson(context)}</Code>
+          <Code block>{prettyContext(context)}</Code>
         ) : (
           <GateContext text={context} />
         )}

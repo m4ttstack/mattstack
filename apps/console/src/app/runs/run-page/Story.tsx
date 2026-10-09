@@ -1,8 +1,10 @@
-import { Stack, Text } from '@mattstack/app-kit/core';
+import { useState } from 'react';
+import { Paper, Text } from '@mattstack/app-kit/core';
 import type { RunFieldRow } from '@mattstack/rt-client';
 
 import type { StoryEntry } from '../derive/story';
-import { StorySection } from './StorySection';
+import { StageRow } from './StageRow';
+import classes from './Story.module.css';
 
 export interface StoryProps {
   repo: string;
@@ -13,11 +15,17 @@ export interface StoryProps {
   entries: StoryEntry[];
   evidenceField: RunFieldRow | null;
   pathHref?: (path: string) => string | null;
-  /** A one-stage run's single block, which draws no line below it. */
-  block?: boolean;
+  /** The gate a deep link names: its stage and its decision open. */
+  focusGateId?: string | null;
 }
 
-/** The run's attempts so far, oldest first. */
+const keyOfGate = (entries: StoryEntry[], gateId: string | null) =>
+  gateId
+    ? (entries.find(e => e.gates.some(g => g.id === gateId))?.key ?? null)
+    : null;
+
+/** The run's attempts so far, oldest first, as one list of stage rows. The
+    newest starts opened; the rest start folded. */
 export function Story({
   repo,
   runId,
@@ -25,9 +33,26 @@ export function Story({
   entries,
   evidenceField,
   pathHref,
-  block = false,
+  focusGateId = null,
 }: StoryProps) {
+  const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(
+    () => new Map()
+  );
+  const [seenFocus, setSeenFocus] = useState<string | null>(null);
+  const linked = keyOfGate(entries, focusGateId);
+  if (linked && focusGateId !== seenFocus) {
+    setSeenFocus(focusGateId);
+    setOverrides(new Map(overrides).set(linked, true));
+  }
+
   if (entries.length === 0) return null;
+  const newest = entries.at(-1)!.key;
+  const isOpen = (key: string) => overrides.get(key) ?? key === newest;
+  const toggle = (key: string) =>
+    setOverrides(prev =>
+      new Map(prev).set(key, !(prev.get(key) ?? key === newest))
+    );
+
   return (
     <>
       <Text
@@ -41,19 +66,29 @@ export function Story({
       >
         {label}
       </Text>
-      <Stack gap={0} w="100%" data-testid="story" data-parity="Story list">
-        {entries.map(entry => (
-          <StorySection
+      <Paper
+        variant="ground"
+        withBorder
+        radius={12}
+        className={classes.list}
+        data-testid="story"
+        data-parity="Story list"
+      >
+        {entries.map((entry, i) => (
+          <StageRow
             key={entry.key}
+            last={i === entries.length - 1}
+            entry={entry}
+            open={isOpen(entry.key)}
+            onToggle={() => toggle(entry.key)}
             repo={repo}
             runId={runId}
-            entry={entry}
             evidenceField={evidenceField}
             pathHref={pathHref}
-            last={block}
+            focusGateId={focusGateId}
           />
         ))}
-      </Stack>
+      </Paper>
     </>
   );
 }
@@ -68,6 +103,7 @@ export function RunStory({
   block,
   evidenceField,
   pathHref,
+  focusGateId,
 }: {
   repo: string;
   runId: string;
@@ -79,29 +115,18 @@ export function RunStory({
   block: StoryEntry | null;
   evidenceField: RunFieldRow | null;
   pathHref?: (path: string) => string | null;
+  focusGateId?: string | null;
 }) {
-  if (story)
-    return (
-      <Story
-        repo={repo}
-        runId={runId}
-        label={storyLabel}
-        entries={story.entries}
-        evidenceField={evidenceField}
-        pathHref={pathHref}
-      />
-    );
-  if (block)
-    return (
-      <Story
-        repo={repo}
-        runId={runId}
-        label={label}
-        entries={[block]}
-        evidenceField={evidenceField}
-        pathHref={pathHref}
-        block
-      />
-    );
-  return null;
+  const entries = story ? story.entries : block ? [block] : [];
+  return (
+    <Story
+      repo={repo}
+      runId={runId}
+      label={story ? storyLabel : label}
+      entries={entries}
+      evidenceField={evidenceField}
+      pathHref={pathHref}
+      focusGateId={focusGateId}
+    />
+  );
 }

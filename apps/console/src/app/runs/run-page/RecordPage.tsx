@@ -12,7 +12,6 @@ import {
   recordStats,
   type RecordTab,
 } from '../derive/record';
-import type { DecisionEntry } from '../derive/story';
 import { EffectiveInputs } from '../EffectiveInputs';
 import { DecisionsTab } from './DecisionsTab';
 import { EvidenceCard } from './EvidenceCard';
@@ -108,18 +107,6 @@ export function RecordPage({
           : undefined,
   };
 
-  const openDecision = (entry: DecisionEntry | null) => {
-    if (!withDecisions) return;
-    setTab('decisions');
-    const id = entry ? `decision-${entry.gateId}` : null;
-    requestAnimationFrame(() => {
-      const target = id
-        ? document.getElementById(id)
-        : document.querySelector('[data-testid="decision-log"]');
-      target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    });
-  };
-
   return (
     <Stack gap={20} data-testid="run-record">
       <RecordHeader
@@ -173,9 +160,6 @@ export function RecordPage({
               </Stack>
               <SideCards
                 facts={parts.factRows}
-                decisions={parts.decisionEntries}
-                onOpenDecision={openDecision}
-                noDecisions="None."
                 inputs={parts.sideInputs}
                 onViewInputs={drawer.open}
               />

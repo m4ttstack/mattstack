@@ -50,7 +50,6 @@ export function RecordHeader({
           <HeroTitle
             ticket={ticket}
             ticketUrl={ticketUrl}
-            hotkey={false}
             meta={meta}
             title={title}
           />

@@ -7,7 +7,6 @@ import { gateStage } from '../derive/gates';
 import { heroLiveness } from '../derive/liveness';
 import { heldSpans } from '../derive/run';
 import { railStages, stageAttempts } from '../derive/stages';
-import type { DecisionEntry } from '../derive/story';
 import { GatePanels, typingTarget } from './GatePanel';
 import { HandoffCard } from './HandoffCard';
 import { InputsDrawer } from './InputsDrawer';
@@ -21,21 +20,29 @@ import { useRunParts, type RunPageData } from './useRunParts';
 
 export type { RunPageData } from './useRunParts';
 
+/** The gate the URL names, as `?gate=<id>` or `#gate-<id>`. */
+function linkedGate(search: string): string | null {
+  const fromQuery = new URLSearchParams(search).get('gate');
+  const fromHash = /^#gate-(.+)$/.exec(location.hash)?.[1];
+  return fromQuery ?? (fromHash ? decodeURIComponent(fromHash) : null);
+}
+
 /** Scrolls a gate in the page into view when the URL names it, as
     `?gate=<id>` (stripped once it lands) or `#gate-<id>`, and leaves focus in
-    its panel so the number keys answer at once. With no gate named, the
+    its panel so the number keys answer at once. An answered gate is a
+    decision in the story, which opens its stage for it. With no gate named, the
     first panel the user owns takes focus the first time one shows, unless
     they are typing somewhere; a shepherd's gate never takes the keys
     unasked. A gate the queries have not caught up with yet waits
     for the next gates update. */
-function useGateDeepLink(gates: GateRow[]) {
+function useGateDeepLink(gates: GateRow[]): string | null {
   const search = useSearch();
   const consumed = useRef<string | null>(null);
   const focusedFirst = useRef(false);
+  const linked = linkedGate(search);
   useEffect(() => {
     const fromQuery = new URLSearchParams(search).get('gate');
-    const fromHash = /^#gate-(.+)$/.exec(location.hash)?.[1];
-    const id = fromQuery ?? (fromHash ? decodeURIComponent(fromHash) : null);
+    const id = linkedGate(search);
     if (!id) {
       if (focusedFirst.current) return;
       const first = document.querySelector<HTMLElement>(
@@ -69,6 +76,7 @@ function useGateDeepLink(gates: GateRow[]) {
       );
     }
   }, [search, gates]);
+  return linked;
 }
 
 /** The run page while a run is live: header and rail, what it is doing now
@@ -85,30 +93,20 @@ export function RunPage({
   const { run, stages, fields, decisions } = data;
   const parts = useRunParts(repo, runId, data);
   const { now, kind, gates, facts, story, drawer, pathHref } = parts;
-  useGateDeepLink(gates);
+  const linkedGateId = useGateDeepLink(gates);
   usePruneGateDrafts(gates);
   const { live, answerable, handoff, mine } = facts;
 
   const rail =
     kind === 'work'
-      ? {
-          stages: railStages(
-            fields.find(f => f.key === 'pipeline-stages')?.value ?? null,
-            stageAttempts(stages, run, now),
-            heldSpans(stages, decisions),
-            mine ? gateStage(mine, stages) : null,
-            now
-          ),
-          gateCounts: facts.gateCounts,
-        }
+      ? railStages(
+          fields.find(f => f.key === 'pipeline-stages')?.value ?? null,
+          stageAttempts(stages, run, now),
+          heldSpans(stages, decisions),
+          mine ? gateStage(mine, stages) : null,
+          now
+        )
       : null;
-
-  const openDecision = (entry: DecisionEntry | null) => {
-    const target = entry
-      ? document.getElementById(`decision-${entry.gateId}-${entry.questionId}`)
-      : document.querySelector('[data-testid="story"]');
-    target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  };
 
   const gatePanels =
     answerable.length > 0 ? (
@@ -149,7 +147,6 @@ export function RunPage({
         runId={runId}
         ticket={facts.hero.ticket}
         ticketUrl={facts.hero.ticketUrl}
-        ticketHotkey={facts.hero.ticketHotkey}
         meta={facts.hero.meta}
         title={parts.title}
         liveness={heroLiveness(run, { handoff, mine }, now)}
@@ -173,19 +170,11 @@ export function RunPage({
             block={parts.block}
             evidenceField={parts.evidenceField}
             pathHref={pathHref}
+            focusGateId={linkedGateId}
           />
         </Stack>
         <SideCards
           facts={parts.factRows}
-          decisions={parts.decisionEntries}
-          onOpenDecision={openDecision}
-          noDecisions={
-            facts.handedOff
-              ? 'None yet. Your answer in the board lands here.'
-              : answerable.length > 0
-                ? 'None yet. What you answer above lands here.'
-                : 'None yet.'
-          }
           inputs={parts.sideInputs}
           onViewInputs={drawer.open}
         />

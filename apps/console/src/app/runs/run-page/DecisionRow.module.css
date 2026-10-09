@@ -1,11 +1,65 @@
-.row {
+.row,
+.open {
   width: 100%;
   min-width: 0;
-  padding: 10px 14px;
+  padding: 0 14px;
   scroll-margin-top: var(--mantine-spacing-xl);
 }
 
-.qa {
+.open {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background-color: var(--tk-panel);
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -1px;
+}
+
+.head {
+  width: 100%;
+}
+
+.q {
+  flex: 0 0 146px;
+  width: 146px;
+}
+
+.a {
   flex: 1;
   min-width: 0;
+}
+
+.stamp,
+.chevron {
+  flex-shrink: 0;
+}
+
+.chevron {
+  display: flex;
+}
+
+/* Lines up under the answer: the question column and its gap. */
+.inset {
+  padding-left: 158px;
+}
+
+.found {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+}
+
+.dash {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 1.5px;
+  background-color: var(--tk-line-2);
+}
+
+.noteIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
 }

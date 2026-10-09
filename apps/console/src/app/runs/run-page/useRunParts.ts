@@ -1,6 +1,4 @@
 import { useCallback } from 'react';
-import { useClipboard, useHotkeys } from '@mattstack/app-kit/hooks';
-import { notifications } from '@mattstack/app-kit/notifications';
 import type { RunDetail } from '@mattstack/rt-client';
 
 import { useEditorHref } from '../../editorHref';
@@ -9,7 +7,7 @@ import { filePath } from '../derive/fields';
 import { inputsSummary } from '../derive/inputs';
 import { runKind, runTitle } from '../derive/kind';
 import { runPageFacts } from '../derive/page';
-import { decisionEntries, liveStory, runBlock } from '../derive/story';
+import { liveStory, runBlock } from '../derive/story';
 import { useEffectiveInputs } from '../EffectiveInputs';
 import { useLinearWorkspace, useRunsEnrich } from '../useRuns';
 import { useInputsDrawer } from './InputsDrawer';
@@ -22,8 +20,8 @@ export type RunPageData = RunDetail & {
 };
 
 /** What the live page and the record both read from a run: its gates and
-    enrichment, the page facts, the story, the side card rows, the inputs
-    drawer and the copy hotkeys. */
+    enrichment, the page facts, the story, the side card rows and the inputs
+    drawer. */
 export function useRunParts(repo: string, runId: string, data: RunPageData) {
   const { run, stages, fields, decisions } = data;
   const now = nowOf(data);
@@ -35,7 +33,6 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
   const editorHref = useEditorHref();
   const drawer = useInputsDrawer();
   const inputs = useEffectiveInputs(repo, runId);
-  const clipboard = useClipboard();
 
   const worktreePath = fields.find(f => f.key === 'worktree')?.value ?? null;
   const pathHref = useCallback(
@@ -50,7 +47,6 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
     repo,
     runId,
     run,
-    stages,
     fields,
     gates,
     kind,
@@ -72,8 +68,7 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
       value: facts.mr.value,
       empty: 'not opened yet',
       href: facts.mr.url,
-      hotkey: 'm',
-      copy: facts.copies.mr,
+      copy: facts.mr.url ?? facts.mr.value,
       sub: facts.mr.sub,
     },
     {
@@ -83,7 +78,6 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
       iconLayer: 'git-branch',
       value: facts.branch.value,
       empty: 'not recorded',
-      hotkey: 'b',
       sub: facts.branch.sub,
     },
     {
@@ -93,29 +87,10 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
       iconLayer: 'folder',
       value: facts.worktree.value,
       empty: 'not recorded',
-      hotkey: 'w',
       copy: facts.worktree.path,
       sub: facts.worktree.sub,
     },
   ];
-
-  const copyKeys: [string, string, string | null][] = [
-    ['t', 'ticket', facts.copies.ticket],
-    ['b', 'branch', facts.copies.branch],
-    ['w', 'worktree', facts.copies.worktree],
-    ['m', 'MR', facts.copies.mr],
-    ['c', 'commits', facts.copies.commits],
-  ];
-  useHotkeys(
-    copyKeys.map(([key, label, value]) => [
-      key,
-      () => {
-        if (!value) return;
-        clipboard.copy(value);
-        notifications.success(`Copied ${label}`);
-      },
-    ])
-  );
 
   const summary = inputs.data ? inputsSummary(inputs.data) : null;
   const sideInputs: SideCardsProps['inputs'] = summary
@@ -134,7 +109,6 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
     block,
     factRows,
     sideInputs,
-    decisionEntries: decisionEntries(gates, stages),
     evidenceField: fields.find(f => f.key === 'evidence') ?? null,
     title: runTitle(run, { ticketTitle: enrichment?.ticket?.title }),
     pathHref,

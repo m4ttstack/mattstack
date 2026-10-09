@@ -171,6 +171,7 @@
       "meta": { "stage": "plan" },
       "owner": "human",
       "openedAt": "2026-10-08T13:41:00-05:00",
+      "context": "The order overview shows the order's lines and totals only.\nThe parcels API already returns linked parcels per order.\nRecipients come from the address book, with no order link yet.\nThe backend needs one field to join recipients to an order.\nThe overview cards are plain components with no data layer.\nTracking status can be unknown for a fresh parcel.",
       "questions": [
         {
           "id": "approach",
@@ -189,7 +190,12 @@
         }
       ],
       "answer": {
-        "answers": { "approach": "Backend gap-fill + component work" },
+        "answers": {
+          "approach": {
+            "value": "Backend gap-fill + component work",
+            "note": "Recipients need the backend field anyway, so do it once."
+          }
+        },
         "by": "console",
         "answeredAt": "2026-10-08T13:41:00-05:00",
         "overridden": true

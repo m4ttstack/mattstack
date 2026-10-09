@@ -278,19 +278,48 @@ describe('RunDetail: live work run', () => {
     expect(panel).toHaveAttribute('data-gate-id', 'g-open');
     const main = panel.closest('[data-parity="Story"]');
     expect(main?.firstElementChild).toContainElement(panel);
-    expect(
-      screen.getByText('None yet. What you answer above lands here.')
-    ).toBeInTheDocument();
     expect(screen.queryByTestId('now-card')).toBeNull();
     expect(screen.getByTestId('liveness')).toHaveTextContent(
       'waiting on you · 1m'
     );
   });
 
-  it('lists its answered decisions on the side', async () => {
+  it('keeps decisions in the story only, with no side card for them', async () => {
     render(workRun(), [gate()]);
-    await screen.findByTestId('run-page');
-    expect(await screen.findByText('Decisions · 1')).toBeInTheDocument();
+    const page = await screen.findByTestId('run-page');
+    await waitFor(() =>
+      expect(within(page).getByTestId('story')).toHaveTextContent(
+        'Which approach?'
+      )
+    );
+    expect(within(page).queryByText(/^Decisions/)).toBeNull();
+    expect(within(page).queryByText('Open log →')).toBeNull();
+  });
+
+  it('draws no copy key chips on the page metadata', async () => {
+    render(workRun(), [gate()]);
+    const page = await screen.findByTestId('run-page');
+    await waitFor(() =>
+      expect(page.querySelector('[data-fact="Branch"]')).not.toBeNull()
+    );
+    const keys = [...page.querySelectorAll('kbd')].map(k => k.textContent);
+    for (const key of ['t', 'm', 'b', 'w', 'c'])
+      expect(keys).not.toContain(key);
+  });
+
+  it('copies nothing when a metadata key is pressed', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    render(workRun(), [gate()]);
+    const page = await screen.findByTestId('run-page');
+    await waitFor(() =>
+      expect(page.querySelector('[data-fact="Branch"]')).not.toBeNull()
+    );
+    await userEvent.keyboard('tbwmc');
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it('offers Focus pane while an agent holds the pane, and Resume when none does', async () => {
@@ -388,6 +417,52 @@ describe('RunDetail: live work run', () => {
     render(workRun(), [gate()]);
     await screen.findByTestId('run-page');
     await waitFor(() => expect(scroll).toHaveBeenCalled());
+  });
+
+  it('opens the folded stage and the decision a ?gate= link names', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    window.history.pushState(null, '', '/runs/x/run-412?gate=g-approach');
+    render(
+      workRun({
+        stages: [
+          stage('provision', 'done', 0, 1),
+          stage('plan', 'done', 1, 2),
+          stage('evidence', 'done', 2, 30),
+          stage('implement', 'running', 30, null),
+        ],
+        fields: [
+          ...workRun().fields,
+          field('case', 'An order with one linked parcel', 3),
+        ],
+      }),
+      [
+        gate({
+          questions: [
+            {
+              id: 'approach',
+              label: 'Which approach?',
+              options: [
+                { value: 'gap-fill', label: 'Backend gap-fill' },
+                { value: 'stub', label: 'Stub the data' },
+              ],
+            },
+          ],
+        } as Partial<GateRow>),
+      ]
+    );
+    const page = await screen.findByTestId('run-page');
+    const plan = await waitFor(() => {
+      const el = page.querySelector<HTMLElement>(
+        '[data-testid="story"] [data-stage="plan"]'
+      );
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(await within(plan).findByText('Passed on')).toBeInTheDocument();
+    expect(within(plan).getByText('Stub the data')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+    );
   });
 
   const openGate = (id: string, minute: number) =>
@@ -682,19 +757,15 @@ describe('RunDetail: finished run', () => {
     expect(within(record).getByText('attached to !405')).toBeInTheDocument();
   });
 
-  it('draws the story on its tab, and Open log takes you to Decisions', async () => {
+  it('draws the story on its tab, with no decisions card beside it', async () => {
     const user = userEvent.setup();
     render(merged(), mergedGates);
     const record = await screen.findByTestId('run-record');
     await user.click(await within(record).findByRole('tab', { name: 'Story' }));
     const story = within(record).getByTestId('story');
     expect(story.querySelector('[data-stage="implement"]')).not.toBeNull();
-    await user.click(within(record).getByText('Open log →'));
-    await waitFor(() =>
-      expect(
-        within(record).getByRole('tab', { name: /Decisions/ })
-      ).toHaveAttribute('aria-selected', 'true')
-    );
+    expect(within(record).queryByText('Open log →')).toBeNull();
+    expect(record.querySelector('[data-parity="Decisions mini"]')).toBeNull();
   });
 
   it('hides took-the-recommendation when no answer had one', async () => {

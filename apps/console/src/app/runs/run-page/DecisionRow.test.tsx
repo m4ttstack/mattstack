@@ -70,8 +70,8 @@ describe('DecisionRow', () => {
     ).toBeInTheDocument();
   });
 
-  it('expands to the note, the other options and the recommendation mark', async () => {
-    const { getByRole, getByText } = row(
+  it('opens to the options passed on and the note', async () => {
+    const { getByRole, getByText, queryByText } = row(
       gateOf({
         answer: answeredWith({
           approach: { value: 'panel', note: 'The service is not ready' },
@@ -80,17 +80,33 @@ describe('DecisionRow', () => {
     );
     const toggle = getByRole('button', { name: 'Show details' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(getByText('The service is not ready')).not.toBeVisible();
+    expect(queryByText('Passed on')).toBeNull();
 
     await userEvent.click(toggle);
 
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await waitFor(() =>
-      expect(getByText('The service is not ready')).toBeVisible()
+    expect(getByRole('button', { name: 'Hide details' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
     );
+    expect(getByText('Passed on')).toBeVisible();
+    expect(getByText('“The service is not ready”')).toBeVisible();
     expect(getByText('Spike first, then decide')).toBeVisible();
     expect(getByText('Backend gap-fill + component work')).toBeVisible();
-    expect(getByText('went against the recommendation')).toBeVisible();
+  });
+
+  it('starts opened when a deep link names its gate', () => {
+    const { getByText } = renderWithProviders(
+      <DecisionRow gate={gateOf()} question={approachQuestion} focused />
+    );
+    expect(getByText('Passed on')).toBeVisible();
+  });
+
+  it('offers what the agent found when the gate has context', async () => {
+    const { getByRole, getByText } = row(
+      gateOf({ context: 'one\ntwo\nthree' })
+    );
+    await userEvent.click(getByRole('button', { name: 'Show details' }));
+    expect(getByText('What the agent found · 3 lines')).toBeVisible();
   });
 
   it('shows the edited reply text when the answer carries one', async () => {
@@ -105,12 +121,6 @@ describe('DecisionRow', () => {
     await waitFor(() =>
       expect(getByText('Posting this reply instead')).toBeVisible()
     );
-  });
-
-  it('draws no recommendation mark when the pick took it', async () => {
-    const { getByRole, queryByText } = row();
-    await userEvent.click(getByRole('button', { name: 'Show details' }));
-    expect(queryByText('went against the recommendation')).toBeNull();
   });
 
   it('draws a closed gate muted with its reason and no expander', () => {
@@ -134,7 +144,7 @@ describe('DecisionRow', () => {
     expect(getByText('No answer recorded')).toBeInTheDocument();
   });
 
-  it('carries the gate and question as an anchor for the side card', () => {
+  it('carries the gate and question as an anchor for deep links', () => {
     const { container } = row();
     expect(
       container.querySelector('#decision-g-20261008-0412-approach')

@@ -29,7 +29,7 @@ names its content roots in `boards.ts`:
 | `run-record-abandoned`                                                       | `Hero abandoned`                                                                   |
 | `run-record-review`                                                          | `Hero review`                                                                      |
 | `runs-p2-live`, `runs-p2-story-details`                                      | `Hero`, `Story`, `Side`                                                            |
-| `runs-p2-gate`                                                               | `Hero`, `Gate mine`, `Story list`, `Side`                                          |
+| `runs-p2-gate`                                                               | `Hero`, `Gate mine`, `Side`                                                        |
 | `runs-p2-record`                                                             | `Hero`, `Tabs`, `Decision log`, `Evidence rail`                                    |
 | `runs-p2-review`                                                             | `Hero`, `Tabs`, `Review column`, `Side`                                            |
 | `runs-p2-inputs`                                                             | `Drawer`                                                                           |
@@ -205,13 +205,15 @@ in localStorage, loads the board's route, disables transitions and
 animations, waits for the first root (or the action's first layer), asserts
 `data-mantine-color-scheme` is the scheme, does the board's action, waits for
 every root, matches the content width, and collects and screenshots each root
-with its side-by-side. Two boards have an action:
+with its side-by-side. Three boards have an action:
 
 - `drawer-rebind` clicks `Select`, then `option · plan-policy-strict`, then
   `Select` again, and waits for `options`: the board draws the picker open on
   its new choice.
 - `unsynced-confirm` clicks `button · Sync changes` in the banner and waits
   for `Modal · sync changes`.
+- `runs-p2-story-details` clicks `Stage plan` to open the plan stage, then
+  the first decision's chevron `c`, and waits for `decision open`.
 
 It uploads everything to `~/.fast-browser/output/parity/console/`:
 

@@ -43,8 +43,6 @@ const STATUS_SUFFIX: Partial<Record<Status, string>> = {
 
 export interface StageRailProps {
   stages: RailStage[];
-  /** Gates placed at each stage, by stage name. */
-  gateCounts: Record<string, number>;
   /** Bars only, for a card that names the current stage elsewhere. */
   compact?: boolean;
   /** A stage still marked running on a run that has ended finished. */
@@ -75,15 +73,7 @@ function Bar({
   );
 }
 
-function Column({
-  stage,
-  status,
-  gates,
-}: {
-  stage: RailStage;
-  status: Status;
-  gates: number;
-}) {
+function Column({ stage, status }: { stage: RailStage; status: Status }) {
   const notStarted = status === 'not-started';
   const icon = STATUS_ICON[status];
   const duration =
@@ -130,24 +120,15 @@ function Column({
             ×{stage.attempts}
           </Text>
         ) : null}
-        {gates > 0 ? (
-          <Group gap={3} wrap="nowrap" data-part="gates">
-            <Icon name="signpost" size={11} data-parity="signpost" />
-            <Text fz={11.5} lh="normal" c="dimmed" data-parity={String(gates)}>
-              {gates}
-            </Text>
-          </Group>
-        ) : null}
       </Group>
     </Stack>
   );
 }
 
-/** One column per pipeline stage: a bar colored by status, the stage name,
-    and its duration and gate count. */
+/** One column per pipeline stage: a bar colored by status, the stage name
+    and its duration. */
 export function StageRail({
   stages,
-  gateCounts,
   compact = false,
   finished = false,
 }: StageRailProps) {
@@ -173,12 +154,7 @@ export function StageRail({
   return (
     <Group gap={4} wrap="nowrap" grow align="flex-start" data-part="rail">
       {stages.map(s => (
-        <Column
-          key={s.name}
-          stage={s}
-          status={statusOf(s)}
-          gates={gateCounts[s.name] ?? 0}
-        />
+        <Column key={s.name} stage={s} status={statusOf(s)} />
       ))}
     </Group>
   );

@@ -88,23 +88,20 @@ const field = (d: RunDetail, key: string) =>
   d.fields.find(f => f.key === key)?.value;
 
 describe('the runs boards draw the fixture', () => {
-  it('run-live: WEB-412, its story fields and the answers in its story', async () => {
-    const texts = boardTexts('run-live');
+  it('runs-p2-live and runs-p2-story-details: WEB-412, its story fields and its answers', async () => {
+    const texts = new Set([
+      ...boardTexts('runs-p2-live'),
+      ...boardTexts('runs-p2-story-details'),
+    ]);
+    const has = (t: string) => [...texts].some(x => x.includes(t));
     const d = await detail('20261008-1338');
     const branch = field(d, 'branch')!;
     const enrichment = (await runs.enrich([branch]))[branch]!;
     expect(texts).toContain(enrichment.ticket!.identifier);
     expect(texts).toContain(enrichment.ticket!.title);
     expect(texts).toContain(branch);
-    for (const key of [
-      'approach',
-      'evidence-plan',
-      'extra-gates',
-      'case',
-      'strategy',
-      'plan',
-    ])
-      expect(texts).toContain(field(d, key));
+    for (const key of ['approach', 'extra-gate', 'case', 'strategy', 'plan'])
+      expect([key, has(field(d, key)!)]).toEqual([key, true]);
     for (const stage of field(d, 'pipeline-stages')!.split(' '))
       expect(texts).toContain(stage);
     const gates = await runs.gates({ run: '20261008-1338' });
@@ -112,8 +109,12 @@ describe('the runs boards draw the fixture', () => {
     for (const g of gates) {
       expect(texts).toContain(g.questions[0]!.label);
       expect(texts).toContain(picked(g));
-      expect(texts).toContain(g.answer!.answers[g.questions[0]!.id]);
     }
+    const approach = gates.find(g => g.id === 'g-412-approach')!;
+    const note = (approach.answer!.answers.approach as { note: string }).note;
+    expect(texts).toContain(`“${note}”`);
+    const lines = approach.context!.trimEnd().split('\n').length;
+    expect(texts).toContain(`What the agent found · ${lines} lines`);
     expect(texts).toContain(
       `${countCommits(field(d, 'commits')!)} commits @ 9f2c1a7`
     );

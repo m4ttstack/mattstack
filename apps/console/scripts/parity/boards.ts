@@ -265,7 +265,7 @@ export const BOARDS: Board<Scenario>[] = [
     'After · Gate open',
     'Q6YEx',
     `${RUN}/20261008-1340`,
-    ['Hero', 'Gate mine', 'Story list', 'Side'],
+    ['Hero', 'Gate mine', 'Side'],
     940,
     { storage: pickedDraft('g-418-plan', 'approach', 'Server-side filter') }
   ),
@@ -332,7 +332,15 @@ export const BOARDS: Board<Scenario>[] = [
     'yFl93',
     `${RUN}/20261008-1338`,
     ['Hero', 'Story', 'Side'],
-    1108
+    1108,
+    {
+      // The board opens the plan stage and its first decision.
+      action: {
+        kind: 'clicks',
+        layers: ['Stage plan', 'c'],
+        waitFor: 'decision open',
+      },
+    }
   ),
   runsBoard(
     'runs-p2-overlays',

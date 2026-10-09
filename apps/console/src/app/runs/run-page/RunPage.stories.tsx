@@ -70,29 +70,25 @@ export const HeaderWorkRun: S = {
       runId={RUN}
       ticket="WEB-412"
       ticketUrl="https://linear.app/acme/issue/WEB-412"
-      ticketHotkey
       meta="work pipeline · started 1:38 PM · 2h 43m"
       title="Show linked parcels and recipients on the order overview"
       liveness={{ tone: 'ok', label: 'agent working' }}
-      rail={{
-        stages: [
-          { name: 'provision', status: 'done', durationMs: MIN, attempts: 1 },
-          { name: 'plan', status: 'done', durationMs: MIN, attempts: 1 },
-          {
-            name: 'implement',
-            status: 'running',
-            durationMs: 33 * MIN,
-            attempts: 1,
-          },
-          {
-            name: 'ship',
-            status: 'not-started',
-            durationMs: null,
-            attempts: 0,
-          },
-        ],
-        gateCounts: { plan: 3 },
-      }}
+      rail={[
+        { name: 'provision', status: 'done', durationMs: MIN, attempts: 1 },
+        { name: 'plan', status: 'done', durationMs: MIN, attempts: 1 },
+        {
+          name: 'implement',
+          status: 'running',
+          durationMs: 33 * MIN,
+          attempts: 1,
+        },
+        {
+          name: 'ship',
+          status: 'not-started',
+          durationMs: null,
+          attempts: 0,
+        },
+      ]}
       finished={false}
       focusPane="pane-1"
       canResume={false}
@@ -109,7 +105,6 @@ export const HeaderReviewRun: S = {
       runId={RUN}
       ticket="!412"
       ticketUrl="https://gitlab.com/acme/web/-/merge_requests/412"
-      ticketHotkey={false}
       meta="review pipeline · started 3:02 PM · 9m"
       title="dedupe-contacts"
       liveness={{ tone: 'warn', label: 'waiting in the board · 2m' }}
@@ -218,7 +213,6 @@ export const ReviewBlock: S = {
       runId={RUN}
       label="review"
       evidenceField={null}
-      block
       entries={[
         entry({
           key: 'review#1',
@@ -246,7 +240,6 @@ export const SideWorkRun: S = {
           iconLayer: 'git-pull-request',
           value: null,
           empty: 'not opened yet',
-          hotkey: 'm',
           sub: 'opens at ship',
         },
         {
@@ -256,20 +249,9 @@ export const SideWorkRun: S = {
           iconLayer: 'git-branch',
           value: 'web-412-linked-parcels',
           empty: 'not recorded',
-          hotkey: 'b',
           sub: '4 commits @ 9f2c1a7',
         },
       ]}
-      decisions={[
-        {
-          gateId: 'g1',
-          questionId: 'q',
-          stage: 'plan',
-          pick: 'Backend gap-fill',
-        },
-      ]}
-      onOpenDecision={() => {}}
-      noDecisions="None yet."
       inputs={{
         state: 'ready',
         pack: 'acme pack 4c1d9e2 · in sync',

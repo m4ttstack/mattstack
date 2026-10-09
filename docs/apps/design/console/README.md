@@ -473,7 +473,7 @@ compared.
 | slug                    | frame (light)                         | light id | dark id  | route                                     | roots                                                       |
 | ----------------------- | ------------------------------------- | -------- | -------- | ----------------------------------------- | ----------------------------------------------------------- |
 | `runs-p2-live`          | `After · Live run page (quiet story)` | `BqEgW`  | `viNUJ`  | `/runs/remote%3Aacme%2Fweb/20261008-1338` | `Hero`, `Story`, `Side`                                     |
-| `runs-p2-gate`          | `After · Gate open`                   | `Q6YEx`  | `HbRPU`  | `/runs/remote%3Aacme%2Fweb/20261008-1340` | `Hero`, `Gate mine`, `Story list`, `Side`                   |
+| `runs-p2-gate`          | `After · Gate open`                   | `Q6YEx`  | `HbRPU`  | `/runs/remote%3Aacme%2Fweb/20261008-1340` | `Hero`, `Gate mine`, `Side`                                 |
 | `runs-p2-record`        | `After · Record (finished run)`       | `P1gMvv` | `sbDKY`  | `/runs/remote%3Aacme%2Fweb/20261008-1142` | `Hero`, `Tabs`, `Decision log`, `Evidence rail`             |
 | `runs-p2-inputs`        | `After · Effective inputs drawer`     | `aJIIw`  | `f8Bru`  | `/runs/remote%3Aacme%2Fweb/20261008-1338?inputs` | `Drawer`                                                    |
 | `runs-p2-states`        | `After · states`                      | `kxHe1`  | `YunJz`  | one route per panel                       | `Run load error`, `Runs outage`, `Gate refused`, `Toasts`   |
@@ -540,3 +540,43 @@ Gate panel (runs-p2-gate `Gate mine`):
   (`light`, `bad`) holding the message and a kit `Button`; the tile draws a
   shortened panel with no context column, so it is compared by eye, not by
   a root.
+
+Live run page (runs-p2-live, runs-p2-story-details `Hero`, `Story`, `Side`):
+
+- The first pass's run page entries still apply: the Hero, Now, Story list,
+  Facts and Inputs cards are kit `Paper` ruled in `--tk-border`; quiet text
+  (durations, field labels, questions, stamps, "Passed on", the Story and
+  card labels, not-started stage names) is `--tk-text-3`; accent text (the
+  ticket, Now, Stage doc, What the agent found, View inputs) is
+  `--tk-text-accent`; the liveness `Badge`, Focus pane `Button`, overflow
+  `ActionIcon`, `CopyActionIcon`s and the rail's not-started `Progress`
+  track keep the kit's sizes and colours; and the Inputs card names the
+  pack's recorded sha and the docs the run read (5), with no source for
+  "1.4.2" or 8.
+- The two boards draw the same run differently, and the app follows
+  runs-p2-story-details where they disagree. runs-p2-live paints each stage
+  row white and rules the last row, which the list's own border already
+  closes; the app paints no row fill and no last rule, so the last row is
+  not a keyed layer and its layers key straight under `Story list`.
+- runs-p2-live draws the opened evidence row with no "Stage doc" link, and
+  its two decisions as bare rows (a 160px question column, `stamp`, no
+  chevron). The app draws every decision as runs-p2-story-details does: the
+  14px inset, the 146px column, `s`, and `c` when the decision can open.
+  The evidence decisions have options passed on, so they can open.
+  runs-p2-story-details draws the evidence row with no decisions at all.
+- A stage's summary is its decision count and first pick, or its first
+  field, on every stage. The boards word the evidence row by its evidence
+  ("screenshot captured", "2 screenshots, 1 link"); the app reads "2
+  decisions · Spotlight the parcel card, arrow at “Tracking unknown”".
+- Stage names are 500 and an opened decision's answer is 700: the boards
+  set 600, which the type rules leave out.
+- The fixture's WEB-412 run carries these boards' text: the gates stage
+  records `extra-gate` ("read the area docs before implement") in place of
+  `extra-gates`, the plan stage no longer records `evidence-plan`, and the
+  approach answer has the boards' note and a six-line context. Pass 1's
+  run-live board no longer matches its text.
+- runs-p2-gate draws its story as a provision row ("Worktree ready at
+  …/acme-web/molly", in a layer named `Stage plan`). Provision records only
+  the side facts, and the story leaves out an attempt with nothing to tell,
+  as runs-p2-live draws it, so this run has no story yet: runs-p2-gate
+  compares Hero, Gate mine and Side only.

@@ -41,16 +41,18 @@ function StageDocBody({
   return <Code block>{query.data.text}</Code>;
 }
 
-/** The "stage doc" link of a story section: the compiled stage doc the run
-    read, in a modal. */
+/** The "Stage doc" link in an opened stage row's head: the compiled stage
+    doc the run read, in a modal. */
 export function StageDocLink({
   repo,
   runId,
   stage,
+  className,
 }: {
   repo: string;
   runId: string;
   stage: string;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -58,14 +60,19 @@ export function StageDocLink({
       <Anchor
         component="button"
         type="button"
-        fz={12}
+        fz={12.5}
+        fw={500}
         lh="normal"
-        c="dimmed"
-        onClick={() => setOpen(true)}
+        c="accent"
+        className={className}
+        onClick={e => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
         aria-label={`stage doc for ${stage}`}
-        data-parity="stage doc"
+        data-parity="doc"
       >
-        stage doc
+        Stage doc
       </Anchor>
       <Modal
         opened={open}

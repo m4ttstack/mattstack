@@ -5,7 +5,6 @@ import {
   Badge,
   Button,
   Group,
-  Kbd,
   Menu,
   Paper,
   Stack,
@@ -20,7 +19,6 @@ import { client } from '../../api';
 import type { HeroLiveness } from '../derive/liveness';
 import type { RailStage } from '../derive/stages';
 import { Dot } from './Dot';
-import inline from './inline.module.css';
 import classes from './RunHeader.module.css';
 import { StageRail } from './StageRail';
 
@@ -30,14 +28,12 @@ export interface RunHeaderProps {
   /** The ticket id, or `!<iid>` for the MR a review or respond run read. */
   ticket: string | null;
   ticketUrl: string | null;
-  /** The `t` hotkey copies a ticket; an MR reference has none. */
-  ticketHotkey: boolean;
   /** "work pipeline · started 1:38 PM · 2h 43m". */
   meta: string;
   title: string;
   liveness: HeroLiveness;
   /** Null for a run kind with no rail. */
-  rail: { stages: RailStage[]; gateCounts: Record<string, number> } | null;
+  rail: RailStage[] | null;
   finished: boolean;
   focusPane: string | null;
   canResume: boolean;
@@ -56,18 +52,15 @@ async function focusPane(pane: string) {
   }
 }
 
-/** The hero's ticket line (ticket, its `t` hint, meta) over the run's
-    title. */
+/** The hero's ticket line (ticket, meta) over the run's title. */
 export function HeroTitle({
   ticket,
   ticketUrl,
-  hotkey,
   meta,
   title,
 }: {
   ticket: string | null;
   ticketUrl: string | null;
-  hotkey: boolean;
   meta: string;
   title: string;
 }) {
@@ -109,11 +102,6 @@ export function HeroTitle({
             </Text>
           )
         ) : null}
-        {ticket && hotkey ? (
-          <Kbd size="xs" className={inline.kbd} data-parity="kbd t">
-            <span data-parity="t">t</span>
-          </Kbd>
-        ) : null}
         <Text fz={12.5} lh="normal" c="dimmed" truncate data-parity="meta">
           {ticket ? `· ${meta}` : meta}
         </Text>
@@ -132,7 +120,6 @@ export function RunHeader({
   runId,
   ticket,
   ticketUrl,
-  ticketHotkey,
   meta,
   title,
   liveness,
@@ -213,7 +200,6 @@ export function RunHeader({
           <HeroTitle
             ticket={ticket}
             ticketUrl={ticketUrl}
-            hotkey={ticketHotkey}
             meta={meta}
             title={title}
           />
@@ -292,13 +278,7 @@ export function RunHeader({
             </Menu>
           </Group>
         </Group>
-        {rail ? (
-          <StageRail
-            stages={rail.stages}
-            gateCounts={rail.gateCounts}
-            finished={finished}
-          />
-        ) : null}
+        {rail ? <StageRail stages={rail} finished={finished} /> : null}
       </Stack>
     </Paper>
   );

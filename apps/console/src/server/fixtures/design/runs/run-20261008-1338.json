@@ -79,14 +79,8 @@
       "at": "2026-10-08T13:39:30-05:00"
     },
     {
-      "key": "evidence-plan",
-      "value": "Screenshot of the overview with the new parcel and recipient cards",
-      "produced_by": "plan",
-      "at": "2026-10-08T13:39:40-05:00"
-    },
-    {
-      "key": "extra-gates",
-      "value": "Component conventions gate (read the area docs before implement)",
+      "key": "extra-gate",
+      "value": "read the area docs before implement",
       "produced_by": "gates",
       "at": "2026-10-08T14:03:30-05:00"
     },

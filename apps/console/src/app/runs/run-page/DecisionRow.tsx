@@ -1,51 +1,107 @@
+import { useState } from 'react';
 import {
-  ActionIcon,
-  Badge,
+  Anchor,
+  Code,
   Collapse,
   Group,
-  Paper,
   Stack,
   Text,
   Tooltip,
+  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { useDisclosure } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { GateQuestion, GateRow } from '@mattstack/rt-client';
 
-import { answerStamp, answerSurface } from '../derive/answers';
+import {
+  answerStamp,
+  answerSurface,
+  contextMeta,
+  prettyContext,
+  structuredContextSummary,
+} from '../derive/answers';
 import {
   gateEndNote,
   optionViews,
   pickedText,
   questionAnswer,
-  tookRecommendation,
 } from '../derive/gates';
+import { GateContext } from '../GateContext';
 import classes from './DecisionRow.module.css';
 
 export interface DecisionRowProps {
   gate: GateRow;
   question: GateQuestion;
+  /** A deep link names this gate: the row starts opened. */
+  focused?: boolean;
 }
 
-/** One answered gate question in the story: the question, the pick, who
-    answered and when. Expands to the note, the other options and whether the
-    pick went against the recommendation. A closed or superseded gate draws
-    muted with why it ended. */
-export function DecisionRow({ gate, question }: DecisionRowProps) {
-  const [expanded, { toggle }] = useDisclosure(false);
+/** "What the agent found · N lines", opening to the gate's context. */
+function Found({ id, context }: { id: string; context: string }) {
+  const [open, { toggle }] = useDisclosure(false);
+  return (
+    <Stack gap={6} className={classes.inset}>
+      <Anchor
+        component="button"
+        type="button"
+        fz={12.5}
+        fw={500}
+        lh="normal"
+        c="accent"
+        className={classes.found}
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={toggle}
+      >
+        <Icon
+          name={open ? 'chevronDown' : 'chevronRight'}
+          size={13}
+          data-parity="i"
+        />
+        <span data-parity="t">
+          What the agent found · {contextMeta(context)}
+        </span>
+      </Anchor>
+      <Collapse expanded={open} id={id}>
+        {structuredContextSummary(context) ? (
+          <Code block>{prettyContext(context)}</Code>
+        ) : (
+          <GateContext text={context} />
+        )}
+      </Collapse>
+    </Stack>
+  );
+}
+
+/** One gate question in an opened stage: the question, the pick, who
+    answered and when. Opens to the options passed on, the note, any
+    replacement text and what the agent found. A closed or superseded gate
+    draws muted with why it ended. */
+export function DecisionRow({
+  gate,
+  question,
+  focused = false,
+}: DecisionRowProps) {
+  const [expanded, setExpanded] = useState(focused);
+  const [seenFocus, setSeenFocus] = useState(focused);
+  if (focused !== seenFocus) {
+    setSeenFocus(focused);
+    if (focused) setExpanded(true);
+  }
+
   const ended = gateEndNote(gate);
   const answer = questionAnswer(gate.answer, question);
   const stamp = ended ? null : answerStamp(gate);
   const surface = answerSurface(gate);
-  const views = optionViews(question);
   const others = answer
-    ? views.filter(o => !answer.picked.includes(o.value))
+    ? optionViews(question).filter(o => !answer.picked.includes(o.value))
     : [];
-  const against = tookRecommendation(question, gate.answer) === false;
+  const context = question.context ?? gate.context ?? null;
   const expandable =
     !ended &&
     answer !== null &&
-    (others.length > 0 || !!answer.note || !!answer.text || against);
+    (others.length > 0 || !!answer.note || !!answer.text || !!context);
+  const open = expandable && expanded;
   const detailId = `decision-${gate.id}-${question.id}-detail`;
 
   let pick: string;
@@ -56,32 +112,33 @@ export function DecisionRow({ gate, question }: DecisionRowProps) {
   const muted = ended !== null || answer === null;
 
   return (
-    <Paper
+    <div
       id={`decision-${gate.id}-${question.id}`}
-      variant="ground"
-      withBorder
-      radius={10}
-      className={classes.row}
+      className={open ? classes.open : classes.row}
       data-muted={muted ? 'true' : undefined}
       data-gate-id={gate.id}
-      data-parity="Decision"
+      data-parity={open ? 'decision open' : undefined}
     >
-      <Group wrap="nowrap" gap={10} align="center">
-        <Icon name="signpost" size={14} data-parity="signpost" />
-        <Stack gap={2} className={classes.qa}>
-          <Text fz={12} lh="normal" c="dimmed" data-parity="q">
-            {question.label}
-          </Text>
-          <Text
-            fz={13.5}
-            fw={500}
-            lh="normal"
-            c={muted ? 'dimmed' : undefined}
-            data-parity="a"
-          >
-            {pick}
-          </Text>
-        </Stack>
+      <Group wrap="nowrap" gap={12} align="center" className={classes.head}>
+        <Text
+          fz={12.5}
+          lh="normal"
+          c="dimmed"
+          className={classes.q}
+          data-parity="q"
+        >
+          {question.label}
+        </Text>
+        <Text
+          fz={13}
+          fw={open ? 700 : 500}
+          lh="normal"
+          c={muted ? 'dimmed' : undefined}
+          className={classes.a}
+          data-parity="a"
+        >
+          {pick}
+        </Text>
         {stamp ? (
           <Tooltip
             label={surface}
@@ -93,69 +150,80 @@ export function DecisionRow({ gate, question }: DecisionRowProps) {
               lh="normal"
               c="dimmed"
               tabIndex={0}
-              data-parity="stamp"
+              className={classes.stamp}
+              data-parity="s"
             >
               {stamp}
             </Text>
           </Tooltip>
         ) : null}
         {expandable ? (
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="sm"
-            aria-label={expanded ? 'Hide details' : 'Show details'}
-            aria-expanded={expanded}
+          <UnstyledButton
+            className={classes.chevron}
+            aria-label={open ? 'Hide details' : 'Show details'}
+            aria-expanded={open}
             aria-controls={detailId}
-            onClick={toggle}
+            onClick={() => setExpanded(e => !e)}
           >
             <Icon
-              name={expanded ? 'chevronUp' : 'chevronDown'}
+              name={open ? 'chevronUp' : 'chevronDown'}
               size={14}
-              data-parity="chevron-down"
+              data-parity="c"
             />
-          </ActionIcon>
+          </UnstyledButton>
         ) : null}
       </Group>
-      {expandable ? (
-        <Collapse expanded={expanded} id={detailId}>
-          <Stack gap="xs" pt="sm">
-            {answer?.note ? (
-              <Group gap="xs" wrap="nowrap" align="flex-start">
-                <Icon name="messageSquare" size={14} />
-                <Text size="sm">{answer.note}</Text>
-              </Group>
-            ) : null}
-            {answer?.text ? (
-              <Text size="sm" fs="italic">
-                {answer.text}
+      {open && answer ? (
+        <Stack gap={8} id={detailId}>
+          {others.length > 0 ? (
+            <Stack gap={4} className={classes.inset}>
+              <Text fz={11.5} fw={500} lh="normal" c="dimmed" data-parity="h">
+                Passed on
               </Text>
-            ) : null}
-            {others.length > 0 ? (
-              <Stack gap={4}>
-                {others.map(o => (
-                  <Group key={o.value} gap="xs" wrap="nowrap">
-                    <Icon name="circle" size={13} />
-                    <Text size="sm" c="dimmed">
-                      {o.text}
-                    </Text>
-                    {o.recommended ? (
-                      <Badge size="xs" variant="default" tt="none">
-                        recommended
-                      </Badge>
-                    ) : null}
-                  </Group>
-                ))}
-              </Stack>
-            ) : null}
-            {against ? (
-              <Badge size="sm" variant="light" color="warn" tt="none">
-                went against the recommendation
-              </Badge>
-            ) : null}
-          </Stack>
-        </Collapse>
+              {others.map(o => (
+                <Group key={o.value} gap={8} wrap="nowrap">
+                  <span className={classes.dash} data-parity="dash" />
+                  <Text fz={12.5} lh="normal" c="dimmed" data-parity="t">
+                    {o.text}
+                  </Text>
+                </Group>
+              ))}
+            </Stack>
+          ) : null}
+          {answer.note ? (
+            <Group
+              gap={8}
+              wrap="nowrap"
+              align="flex-start"
+              className={classes.inset}
+            >
+              <Icon
+                name="messageSquare"
+                size={13}
+                className={classes.noteIcon}
+                data-parity="i"
+              />
+              <Text fz={12.5} lh="normal" data-parity="t">
+                “{answer.note}”
+              </Text>
+            </Group>
+          ) : null}
+          {answer.text ? (
+            <Text
+              fz={12.5}
+              lh="normal"
+              fs="italic"
+              className={classes.inset}
+              data-parity="text"
+            >
+              {answer.text}
+            </Text>
+          ) : null}
+          {context ? (
+            <Found id={`${detailId}-context`} context={context} />
+          ) : null}
+        </Stack>
       ) : null}
-    </Paper>
+    </div>
   );
 }
