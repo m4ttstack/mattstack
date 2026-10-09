@@ -28,7 +28,7 @@ export interface SetupState {
   finishedAt?: string;
   /** Codex config files rt added its MCP entry to, each with that entry's fingerprint: a table whose fingerprint still matches is rt's to replace, any other is the member's. */
   codexMcp?: Record<string, string>;
-  /** What rt wrote for Codex's reviewed project policy (policy-install.ts). Only these entries are rt's to replace or remove; an identical entry the member wrote is never listed. */
+  /** What rt wrote for Codex's reviewed policy hooks in the user layer (policy-install.ts). Only these entries are rt's to replace or remove; an identical entry the member wrote is never listed. */
   codexPolicy?: CodexPolicyState;
 }
 
@@ -37,14 +37,12 @@ export interface CodexPolicyState {
   installationId: string;
   /** Hook executables rt copied, each with the digest its path is named for. Kept while an old session may still run one. */
   artifacts: Record<string, string>;
-  /** Per project hooks file, the hook commands rt added there. */
+  /** Per user-layer hooks file (`$CODEX_HOME/hooks.json`), the hook commands rt added there. */
   hooks: Record<string, string[]>;
-  /** Per Codex config file, the folders rt trusted and the hook keys it trusted with the hash it wrote. */
-  trust: Record<string, { folders: string[]; hooks: Record<string, string> }>;
-  /** The review each boundary's entries were last written under. */
-  reviewed: Record<string, { folder?: string; hooks?: string; at: string }>;
-  /** Per boundary, the lines rt added to its repo's git info/exclude (only for a hooks file rt created). */
-  excludes?: Record<string, string[]>;
+  /** Per Codex config file, the hook keys rt trusted with the hash it wrote. */
+  trust: Record<string, { hooks: Record<string, string> }>;
+  /** Per hooks file, the review its trust was last written under. */
+  reviewed: Record<string, { hooks: string; at: string }>;
 }
 
 const EMPTY_STATE: SetupState = { v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };

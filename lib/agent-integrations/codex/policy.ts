@@ -32,7 +32,7 @@ import type { LaunchRequest, PolicyAdapter, PolicyProof, PolicyVerifyContext, Pr
 import type { PolicyDeps } from "../policy.ts";
 import { CODEX_POLICY_CHECK_TURN_TIMEOUT_MS } from "../timeouts.ts";
 import {
-  CODEX_POLICY_EVENTS, CODEX_PROVEN_POLICY, MAX_ID_LENGTH, MAX_PATH_LENGTH, codexPolicyManifest, parseCodexPolicyHookCommand, plainText,
+  CODEX_POLICY_EVENTS, CODEX_POLICY_SOURCE, CODEX_PROVEN_POLICY, codexUserHooksPath, MAX_ID_LENGTH, MAX_PATH_LENGTH, codexPolicyManifest, parseCodexPolicyHookCommand, plainText,
   validInstallationId, type CodexHookHandler, type CodexPolicyEvent,
 } from "./hook-manifest.ts";
 import {
@@ -41,7 +41,7 @@ import {
 import type { CodexListedHook, CodexSessionAdapter } from "./sessions.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { isRecord } from "./protocol.ts";
-import { codexConfigPath, codexFolderTrust } from "./trust.ts";
+import { codexConfigPath } from "./trust.ts";
 
 // ─── Native payload ──────────────────────────────────────────────────────────
 
@@ -327,7 +327,6 @@ export type CodexPolicyInspectDeps = {
   readFile?: (path: string) => string;
   /** The sha256 of the hook executable's bytes. */
   fingerprint?: (path: string) => string;
-  folderTrust?: typeof codexFolderTrust;
   now?: () => number;
   /** Why the executable is not the copy setup reviewed, or undefined when it is. */
   artifact?: (executable: string, digest: string) => string | undefined;
@@ -367,7 +366,7 @@ export type CodexPolicyDeps = CodexPolicyInspectDeps & {
 };
 
 type Located = { event: CodexPolicyEvent; sourcePath: string; group: number; handler: number; executable: string; installationId: string; entry: unknown; groupKeys: string[] };
-/** `manifest` is the revision a receipt from these hooks names; `sourcePath` is set when both entries live in one hooks file. */
+/** `manifest` is the revision a receipt from these hooks names; `sourcePath` is the profile's user hooks file holding both entries. */
 type Inspection = { revision: string; installation: string; manifest: string; sourcePath?: string };
 
 /**
@@ -418,7 +417,8 @@ function mainCheckoutOf(top: string): string | undefined {
 
 /**
  * The folders from `cwd` up to its checkout's top level, where Codex looks
- * for a project `.codex` layer. Codex 0.162 reads a linked worktree's layers
+ * for a project `.codex` layer. rt installs nothing there; they are read
+ * only to find a second copy of rt's hooks that Codex would also run. Codex 0.162 reads a linked worktree's layers
  * from its repository's main checkout (live-16), so those folders are taken
  * at the same place under the main checkout.
  */
@@ -481,22 +481,45 @@ function trustedHash(config: Record<string, unknown>, located: Located): string 
   return undefined;
 }
 
+/** rt policy hooks a config lists inline (`[[hooks.<Event>]]`), which Codex loads beside hooks.json. */
+function inlinePolicyHooks(config: Record<string, unknown>): boolean {
+  const hooks = isRecord(config.hooks) ? config.hooks : {};
+  return Object.entries(hooks).some(([event, groups]) => event !== "state" && Array.isArray(groups) && groups.some((group: unknown) =>
+    isRecord(group) && Array.isArray(group.hooks) && group.hooks.some((h: unknown) => isRecord(h) && typeof h.command === "string" && parseCodexPolicyHookCommand(h.command) !== null)));
+}
+
+/**
+ * rt's hooks live only in the profile's user layer, `$CODEX_HOME/hooks.json`,
+ * whose trust is the profile config's own `hooks.state`. User hooks need no
+ * folder trust: Codex runs them in every working folder. A project layer or
+ * an inline config copy of rt's hooks would run a second time, so either
+ * one is not ready.
+ */
 function inspect(cwd: string, profile: string, deps: Required<CodexPolicyInspectDeps>): Outcome<Inspection> {
-  const located: Located[] = [];
+  const configPath = codexConfigPath(profile, deps.env);
+  if (configPath === undefined) return fail("not-ready", "rt cannot find this Codex profile's settings, so it cannot read its hooks or their trust");
+  const sourcePath = codexUserHooksPath(configPath);
+  let text: string;
+  try {
+    text = deps.readFile(sourcePath);
+  } catch {
+    return fail("not-ready", `Codex's user hooks file ${sourcePath} does not install rt's policy hooks`);
+  }
+  const located = locate(sourcePath, text);
+  for (const event of CODEX_POLICY_EVENTS) {
+    const n = located.filter((l) => l.event === event).length;
+    if (n === 0) return fail("not-ready", `${sourcePath} does not install rt's ${event} policy hook`);
+    if (n > 1) return fail("not-ready", `more than one ${event} policy hook is installed in ${sourcePath}, so rt cannot tell which one Codex trusts`);
+  }
   for (const dir of projectLayers(cwd)) {
-    const sourcePath = join(dir, ".codex", "hooks.json");
-    let text: string;
+    const layer = join(dir, ".codex", "hooks.json");
+    let other: string;
     try {
-      text = deps.readFile(sourcePath);
+      other = deps.readFile(layer);
     } catch {
       continue;
     }
-    located.push(...locate(sourcePath, text));
-  }
-  for (const event of CODEX_POLICY_EVENTS) {
-    const n = located.filter((l) => l.event === event).length;
-    if (n === 0) return fail("not-ready", `no project .codex layer for ${cwd} installs rt's ${event} policy hook`);
-    if (n > 1) return fail("not-ready", `more than one ${event} policy hook is installed for ${cwd}, so rt cannot tell which one Codex trusts`);
+    if (locate(layer, other).length > 0) return fail("not-ready", `rt's policy hook is also in ${layer}, so Codex would run it twice for ${cwd}`);
   }
   const [first] = located;
   if (located.some((l) => l.executable !== first!.executable || l.installationId !== first!.installationId)) {
@@ -510,18 +533,20 @@ function inspect(cwd: string, profile: string, deps: Required<CodexPolicyInspect
     }
   }
 
-  const configPath = codexConfigPath(profile, deps.env);
-  if (configPath === undefined) return fail("not-ready", "rt cannot find this Codex profile's settings, so it cannot read hook trust");
-  const root = dirname(dirname(first!.sourcePath));
-  const folder = deps.folderTrust(configPath, root);
-  if (!folder.ok) return fail("not-ready", folder.error.message);
   let config: Record<string, unknown>;
   try {
-    const parsed: unknown = Bun.TOML.parse(deps.readFile(configPath));
+    let text = "";
+    try {
+      text = deps.readFile(configPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    const parsed: unknown = Bun.TOML.parse(text);
     config = isRecord(parsed) ? parsed : {};
   } catch (err) {
     return fail("not-ready", `Codex's settings could not be read for hook trust: ${err instanceof Error ? err.message : String(err)}`);
   }
+  if (inlinePolicyHooks(config)) return fail("not-ready", `${configPath} also lists rt's policy hooks inline, so Codex would run them twice`);
   const trusted: string[] = [];
   for (const l of located) {
     const hash = trustedHash(config, l);
@@ -539,21 +564,15 @@ function inspect(cwd: string, profile: string, deps: Required<CodexPolicyInspect
   const revision = createHash("sha256")
     .update(JSON.stringify({ manifest: manifest.revision, trusted: trusted.sort(), executable, profile }))
     .digest("hex");
-  const sources = new Set(located.map((l) => l.sourcePath));
-  return {
-    ok: true,
-    data: {
-      revision, installation: first!.installationId, manifest: manifest.revision,
-      ...(sources.size === 1 && { sourcePath: first!.sourcePath }),
-    },
-  };
+  return { ok: true, data: { revision, installation: first!.installationId, manifest: manifest.revision, sourcePath } };
 }
 
 /**
  * Codex's own word on where it loads rt's hooks for `cwd`. A check turn only
  * proves the file Codex runs, so that file must be the one inspected: each
- * event has exactly one rt policy hook in the listing, enabled, from that
- * project file.
+ * event has exactly one rt policy hook in the listing, across every layer,
+ * enabled and trusted, from the profile's user hooks file. An empty listing
+ * (a trusted repo can turn every hook off in its own config) is not ready.
  */
 function loadedFromInspected(listed: CodexListedHook[], cwd: string, sourcePath: string): Outcome<void> {
   for (const event of CODEX_POLICY_EVENTS) {
@@ -561,10 +580,13 @@ function loadedFromInspected(listed: CodexListedHook[], cwd: string, sourcePath:
       && h.command !== undefined && parseCodexPolicyHookCommand(h.command)?.event === event);
     if (ours.length !== 1) return fail("not-ready", `Codex loads ${ours.length} copies of rt's ${event} policy hook for ${cwd}, where rt needs exactly one`);
     const [hook] = ours;
-    if (hook!.source !== "project" || hook!.sourcePath !== sourcePath) {
+    if (hook!.source !== CODEX_POLICY_SOURCE || hook!.sourcePath !== sourcePath) {
       return fail("not-ready", `Codex loads rt's ${event} policy hook for ${cwd} from ${hook!.sourcePath ?? "an unnamed file"} (${hook!.source ?? "unknown"} layer), not from the inspected ${sourcePath}`);
     }
     if (hook!.enabled === false) return fail("not-ready", `Codex lists rt's ${event} policy hook in ${sourcePath} as disabled`);
+    if (hook!.trustStatus !== undefined && hook!.trustStatus !== "trusted") {
+      return fail("not-ready", `Codex will not run rt's ${event} policy hook in ${sourcePath} (${hook!.trustStatus}); review it again with rt setup codex-policy`);
+    }
   }
   return { ok: true, data: undefined };
 }
@@ -583,8 +605,8 @@ async function liveChecker(): Promise<CodexPolicyChecker | undefined> {
 }
 
 /**
- * Prepare only reads: the project's hook definitions, Codex's folder and
- * hook trust for them, and the executable's bytes. The native hash Codex
+ * Prepare only reads: the profile's user hook definitions, Codex's hook
+ * trust for them, and the executable's bytes. The native hash Codex
  * trusted cannot be recomputed here, so inspection alone never proves a
  * session; verify needs the session's own hooks to have run.
  *
@@ -613,7 +635,6 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
     env: overrides.env ?? process.env,
     readFile: overrides.readFile ?? ((path) => readFileSync(path, "utf8")),
     fingerprint: overrides.fingerprint ?? ((path) => createHash("sha256").update(readFileSync(path)).digest("hex")),
-    folderTrust: overrides.folderTrust ?? codexFolderTrust,
     now: overrides.now ?? Date.now,
     artifact: overrides.artifact ?? reviewedArtifactProblem(overrides.env ?? process.env),
     checker: overrides.checker ?? liveChecker,
@@ -625,7 +646,7 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
 
   async function checkTurn(binding: SessionBinding, found: Inspection, cwd: string): Promise<Outcome<PolicyProof>> {
     const sourcePath = found.sourcePath;
-    if (sourcePath === undefined) return fail("not-ready", "rt's policy hooks are split across project layers, so one check turn cannot prove them");
+    if (sourcePath === undefined) return fail("not-ready", "rt cannot tell which hooks file holds its policy hooks, so one check turn cannot prove them");
     let checker: CodexPolicyChecker | undefined;
     try {
       checker = await deps.checker();

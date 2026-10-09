@@ -465,7 +465,7 @@ describe("policy receipts", () => {
     const SOURCE = "/sandbox/project/.codex/hooks.json";
     const run = (over: Partial<CodexHookRun> = {}): CodexHookRun => ({
       threadId: THREAD, turnId: DIAG, id: "run-stop", eventName: "stop", status: "completed",
-      sourcePath: SOURCE, source: "project", handlerType: "command", ...over,
+      sourcePath: SOURCE, source: "user", handlerType: "command", ...over,
     });
     const preRun = (over: Partial<CodexHookRun> = {}) => run({ id: "run-pre", eventName: "preToolUse", ...over });
     const stopReceipt = (over: Partial<ReceiptPayload> = {}) => receipt({ turnId: DIAG, threadEnv: "absent", verdict: "allow", ...over });
@@ -527,7 +527,7 @@ describe("policy receipts", () => {
         ["another hooks file", { sourcePath: "/sandbox/elsewhere/.codex/hooks.json" }, {}],
         ["no source", { source: undefined }, {}],
         ["no handler type", { handlerType: undefined }, {}],
-        ["a user-level hook", { source: "user" }, {}],
+        ["a project-layer hook", { source: "project" }, {}],
         ["another thread", { threadId: OTHER_THREAD }, {}],
         ["a status that disagrees with the verdict", { status: "blocked" }, {}],
         ["a receipt whose process named another thread", {}, { threadEnv: "other" }],
@@ -548,7 +548,7 @@ describe("policy receipts", () => {
 
     test("observeCodexHookEvent feeds only completed runs with a turn", () => {
       const { store, deps, proven } = setup();
-      const ev = { method: "hook/completed", threadId: THREAD, turnId: DIAG, run: { id: "run-stop", eventName: "stop", status: "completed", sourcePath: SOURCE, source: "project", handlerType: "command" } };
+      const ev = { method: "hook/completed", threadId: THREAD, turnId: DIAG, run: { id: "run-stop", eventName: "stop", status: "completed", sourcePath: SOURCE, source: "user", handlerType: "command" } };
       observeCodexHookEvent({ ...ev, method: "hook/started" }, store);
       observeCodexHookEvent({ ...ev, turnId: null }, store);
       observeCodexHookEvent(ev, store);
@@ -653,16 +653,15 @@ describe("createCodexPolicy", () => {
     const root = join(dir, "project");
     const cwd = join(root, "packages", "app");
     mkdirSync(join(root, ".git"), { recursive: true });
-    mkdirSync(join(root, ".codex"), { recursive: true });
     mkdirSync(cwd, { recursive: true });
     const manifest = codexPolicyManifest({ executable: EXE, installationId: INSTALLATION });
     const hooks = JSON.parse(JSON.stringify(manifest.hooks)) as typeof manifest.hooks;
     if (opts.command) hooks.Stop[0]!.hooks[0]!.command = opts.command;
     if (opts.matcher) (hooks.PreToolUse[0] as Record<string, unknown>).matcher = opts.matcher;
-    writeFileSync(join(root, ".codex", "hooks.json"), JSON.stringify({ hooks }, null, 2));
     const home = join(dir, "codex-home");
     mkdirSync(home, { recursive: true });
-    const source = join(root, ".codex", "hooks.json");
+    const source = join(home, "hooks.json");
+    writeFileSync(source, JSON.stringify({ hooks }, null, 2));
     const lines = [
       ...(opts.trust === false ? [] : [`[projects.${JSON.stringify(root)}]`, `trust_level = "trusted"`]),
       ...(opts.hookTrust === false ? [] : [
@@ -712,7 +711,6 @@ describe("createCodexPolicy", () => {
 
   test("prepare is not ready for a missing, edited, untrusted or unreviewed hook", async () => {
     const cases: Array<[string, Parameters<typeof project>[0], string]> = [
-      ["untrusted folder", { trust: false }, "does not trust"],
       ["untrusted hook", { hookTrust: false }, "has not trusted rt's PreToolUse policy hook"],
       ["edited command", { command: `'${EXE}' agent policy-hook --installation 'inst-test-2' --event 'Stop' --executable '${EXE}'` }, "different executables or installations"],
       ["matcher added", { matcher: "request_user_input" }, "differs from the reviewed manifest"],
@@ -725,9 +723,16 @@ describe("createCodexPolicy", () => {
       if (!prepared.ok) expect({ name, message: prepared.error.message }).toEqual({ name, message: expect.stringContaining(want) });
     }
     const bare = join(dir, "bare");
+    mkdirSync(join(dir, "empty-home"), { recursive: true });
     mkdirSync(bare, { recursive: true });
-    const none = await createCodexPolicy({ env: { HOME: dir, CODEX_HOME: join(dir, "codex-home") }, artifact: () => undefined, fingerprint: () => "x" }).prepare(request(bare));
-    expect(none).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("installs rt's PreToolUse policy hook") } });
+    const none = await createCodexPolicy({ env: { HOME: dir, CODEX_HOME: join(dir, "empty-home") }, artifact: () => undefined, fingerprint: () => "x" }).prepare(request(bare));
+    expect(none).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("does not install rt's policy hooks") } });
+  });
+
+  test("user-layer hooks need no folder trust", async () => {
+    rmSync(join(dir, "project"), { recursive: true, force: true });
+    const p = project({ trust: false });
+    expect(await createCodexPolicy({ env: p.env, artifact: () => undefined, fingerprint: () => "x" }).prepare({ ...request(p.cwd), mode: "headless" })).toMatchObject({ ok: true });
   });
 });
 

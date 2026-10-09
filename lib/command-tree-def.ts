@@ -2706,12 +2706,12 @@ export const TREE: Record<string, CommandNode> = {
         args: [SETUP_JSON_ARG],
       },
       "codex-policy": {
-        description: "Review and trust rt's Codex hooks for your repos",
+        description: "Review and trust rt's Codex policy hooks",
         module: "./commands/setup.ts",
         fn: "setupCodexPolicy",
         hidden: true,
         requiresTTY: true,
-        args: [{ name: "Repo", flag: "--repo", type: "text", placeholder: "~/code/app", hint: "A folder inside one repo; leave it out to review every repo rt knows" }],
+        args: [],
       },
       waive: {
         description: "Skip a finish-gated checklist row on this Mac so setup can finish without it",

@@ -11,7 +11,7 @@
  */
 
 import { createHash } from "crypto";
-import { isAbsolute } from "path";
+import { dirname, isAbsolute, join } from "path";
 
 export const CODEX_POLICY_EVENTS = ["PreToolUse", "Stop"] as const;
 
@@ -26,6 +26,18 @@ export const CODEX_PROVEN_POLICY: Readonly<Record<"herdr" | "headless", readonly
   herdr: [],
 };
 export type CodexPolicyEvent = (typeof CODEX_POLICY_EVENTS)[number];
+
+/**
+ * hooks/list's `source` for the layer rt installs into: the profile's own
+ * `$CODEX_HOME/hooks.json`. rt never writes into a repository, so a project
+ * layer never holds its policy hooks (userhooks spike).
+ */
+export const CODEX_POLICY_SOURCE = "user";
+
+/** The profile's user-layer hooks file, beside its config.toml. */
+export function codexUserHooksPath(configPath: string): string {
+  return join(dirname(configPath), "hooks.json");
+}
 
 /** Bumped whenever the command's shape changes, so an installed older shape reads as another revision. */
 export const CODEX_POLICY_MANIFEST_VERSION = 2;

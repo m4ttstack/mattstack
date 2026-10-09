@@ -137,6 +137,8 @@ export interface CodexSessionAdapter extends SessionAdapter {
 /** One hooks/list entry, reduced to what says which hook it is and where Codex loaded it from. */
 export type CodexListedHook = {
   eventName: string; handlerType?: string; command?: string; sourcePath?: string; source?: string; enabled?: boolean;
+  /** `trusted`, or Codex's word for why it will not run the hook (`untrusted`, `modified`). */
+  trustStatus?: string;
 };
 
 export type CodexPolicyCheckRun = { prompt: string; timeoutMs: number; issue(turnId: string): void; settle(): Promise<void> };
@@ -875,6 +877,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
         ...(typeof h.sourcePath === "string" && { sourcePath: h.sourcePath }),
         ...(typeof h.source === "string" && { source: h.source }),
         ...(typeof h.enabled === "boolean" && { enabled: h.enabled }),
+        ...(typeof h.trustStatus === "string" && { trustStatus: h.trustStatus }),
       })));
     },
     disown(binding) {

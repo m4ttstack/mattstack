@@ -11,7 +11,7 @@
  * run. Proof is a diagnostic nonce for one controller-issued turn, named by
  * the turn id Codex returned and the exact hooks file inspected for it. For
  * each event, that turn must hold exactly one receipt and exactly one native
- * `hook/completed` from that file, a project command hook whose status
+ * `hook/completed` from that file, a user-layer command hook whose status
  * agrees with the receipt's verdict. Any extra receipt, any extra or
  * unreceipted run, or an overflow leaves the event unproven. A model that
  * sabotages its own check turn can only make it unproven, never proven.
@@ -27,6 +27,7 @@
  */
 
 import { randomUUID } from "crypto";
+import { CODEX_POLICY_SOURCE } from "./hook-manifest.ts";
 import type { CallerContext, NativeSessionRef, Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import {
@@ -76,7 +77,7 @@ export interface CodexPolicyReceipts {
   list(sessionKey: string, generation: number): CodexPolicyReceipt[];
   /** The issued check turn's proof, from that turn's own evidence, which receipt eviction never drops; null when none was issued for the generation. */
   proof(sessionKey: string, generation: number): CodexDiagnosticProof | null;
-  /** Whether the live connection recently saw a project command hook from `sourcePath` run for this receipt's thread, turn and event, ending as its verdict says. */
+  /** Whether the live connection recently saw a user-layer command hook from `sourcePath` run for this receipt's thread, turn and event, ending as its verdict says. */
   ran(receipt: CodexPolicyReceipt, sourcePath: string): boolean;
 }
 
@@ -102,7 +103,7 @@ function confirms(run: CodexHookRun, receipt: CodexPolicyReceipt, sourcePath: st
   return run.threadId === receipt.threadId && run.turnId === receipt.turnId
     && run.eventName === NATIVE_EVENT[receipt.event]
     && run.status === (BLOCKING.has(receipt.verdict) ? "blocked" : "completed")
-    && run.sourcePath === sourcePath && run.source === "project" && run.handlerType === "command"
+    && run.sourcePath === sourcePath && run.source === CODEX_POLICY_SOURCE && run.handlerType === "command"
     && receipt.turn === "current" && receipt.threadEnv === "absent";
 }
 
@@ -184,7 +185,7 @@ export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPo
       return recentRuns.some((run) => run.threadId === receipt.threadId && run.turnId === receipt.turnId
         && run.eventName === NATIVE_EVENT[receipt.event] && run.sourcePath === sourcePath
         && run.status === (BLOCKING.has(receipt.verdict) ? "blocked" : "completed")
-        && run.source === "project" && run.handlerType === "command");
+        && run.source === CODEX_POLICY_SOURCE && run.handlerType === "command");
     },
   };
 }

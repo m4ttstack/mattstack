@@ -3,10 +3,10 @@
  "result": {
   "data": [
    {
-    "cwd": "{{TREE}}",
+    "cwd": "{{CWD}}",
     "hooks": [
      {
-      "key": "{{MAIN}}/.codex/hooks.json:pre_tool_use:0:0",
+      "key": "{{CODEXHOME}}/hooks.json:pre_tool_use:0:0",
       "eventName": "preToolUse",
       "handlerType": "command",
       "command": "'{{EXE}}' agent policy-hook --installation '{{INSTALLATION}}' --event 'PreToolUse' --executable '{{EXE}}'",
@@ -15,17 +15,17 @@
       "timeoutSec": 10,
       "statusMessage": null,
       "additionalContextLimit": null,
-      "sourcePath": "{{MAIN}}/.codex/hooks.json",
-      "source": "project",
+      "sourcePath": "{{CODEXHOME}}/hooks.json",
+      "source": "user",
       "pluginId": null,
       "displayOrder": 0,
       "enabled": true,
       "isManaged": false,
-      "currentHash": "sha256:f5f24786da807353e757f0ea52fd9aa01e06f3325b8f61a0ce41bfe287ca88ec",
+      "currentHash": "sha256:252ddb07eef0519efaecaee71919647e9f8fa6283a699b21f297302ccd93772a",
       "trustStatus": "trusted"
      },
      {
-      "key": "{{MAIN}}/.codex/hooks.json:stop:0:0",
+      "key": "{{CODEXHOME}}/hooks.json:stop:0:0",
       "eventName": "stop",
       "handlerType": "command",
       "command": "'{{EXE}}' agent policy-hook --installation '{{INSTALLATION}}' --event 'Stop' --executable '{{EXE}}'",
@@ -34,13 +34,13 @@
       "timeoutSec": 10,
       "statusMessage": null,
       "additionalContextLimit": null,
-      "sourcePath": "{{MAIN}}/.codex/hooks.json",
-      "source": "project",
+      "sourcePath": "{{CODEXHOME}}/hooks.json",
+      "source": "user",
       "pluginId": null,
       "displayOrder": 1,
       "enabled": true,
       "isManaged": false,
-      "currentHash": "sha256:c5743444acc11505730065839c4285c927398d8852f6b3d8d1554429d773e99d",
+      "currentHash": "sha256:18cc80e7bb994553c849055d128ca0bdf9a9c3f03fe7d1c6ab65a9fd0045e38c",
       "trustStatus": "trusted"
      }
     ],

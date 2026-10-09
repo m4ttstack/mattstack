@@ -1728,7 +1728,7 @@ describe("hooks Codex loads for a folder", () => {
     expect(h.requests("hooks/list").map((m) => m.params)).toEqual([{ cwds: ["/pool/t1"] }]);
     expect(listed).toEqual([{
       eventName: "preToolUse", handlerType: "command", command: "'/opt/rt' agent policy-hook",
-      sourcePath: "/work/main/.codex/hooks.json", source: "project", enabled: true,
+      sourcePath: "/work/main/.codex/hooks.json", source: "project", enabled: true, trustStatus: "trusted",
     }]);
   });
 

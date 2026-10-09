@@ -53,7 +53,7 @@ let installed: { source: string; executable: string } = { source: "", executable
 /** hooks/list's entries for rt's two policy hooks, loaded from `source`, shaped like Codex 0.162's answer. */
 function listing(source = installed.source, executable = installed.executable): CodexListedHook[] {
   return (["PreToolUse", "Stop"] as const).map((event) => ({
-    eventName: event === "Stop" ? "stop" : "preToolUse", handlerType: "command", source: "project", sourcePath: source, enabled: true,
+    eventName: event === "Stop" ? "stop" : "preToolUse", handlerType: "command", source: "user", sourcePath: source, enabled: true,
     command: codexPolicyManifest({ executable, installationId: INSTALLATION }).hooks[event][0]!.hooks[0]!.command,
   }));
 }
@@ -70,27 +70,25 @@ function linkedTree(main: string, name = "t1"): string {
   return tree;
 }
 
-/** live-16's hooks/list answer for a pool tree (evidence d1-hooks-list-t1.json), with this test's paths in it. */
-function recordedListing(main: string, tree: string, executable = EXE): CodexListedHook[] {
-  const text = readFileSync(join(import.meta.dir, "fixtures", "codex", "hooks-list-linked-worktree-0.162.json"), "utf8")
-    .replaceAll("{{TREE}}", tree).replaceAll("{{MAIN}}", main).replaceAll("{{EXE}}", executable).replaceAll("{{INSTALLATION}}", INSTALLATION);
+/** The userhooks spike's hooks/list answer (evidence hooks-list-q4-user-rt-trusted.json), with this test's paths in it. */
+function recordedListing(codexHome: string, cwd: string, executable = EXE): CodexListedHook[] {
+  const text = readFileSync(join(import.meta.dir, "fixtures", "codex", "hooks-list-user-layer-0.162.json"), "utf8")
+    .replaceAll("{{CWD}}", cwd).replaceAll("{{CODEXHOME}}", codexHome).replaceAll("{{EXE}}", executable).replaceAll("{{INSTALLATION}}", INSTALLATION);
   const entry = (JSON.parse(text) as { result: { data: Array<{ cwd: string; hooks: CodexListedHook[] }> } }).result.data[0]!;
-  expect(entry.cwd).toBe(tree);
+  expect(entry.cwd).toBe(cwd);
   return entry.hooks;
 }
 
-/** A project whose .codex layer installs rt's reviewed manifest, with folder and hook trust recorded for it. */
+/** A project folder, and a Codex profile whose user layer installs rt's reviewed manifest with hook trust recorded for it; no folder trust. */
 function project(executable = EXE) {
   const root = join(dir, "project");
   mkdirSync(join(root, ".git"), { recursive: true });
-  mkdirSync(join(root, ".codex"), { recursive: true });
   const manifest = codexPolicyManifest({ executable, installationId: INSTALLATION });
-  const source = join(root, ".codex", "hooks.json");
-  writeFileSync(source, JSON.stringify({ hooks: manifest.hooks }, null, 2));
   const home = join(dir, "codex-home");
   mkdirSync(home, { recursive: true });
+  const source = join(home, "hooks.json");
+  writeFileSync(source, JSON.stringify({ hooks: manifest.hooks }, null, 2));
   writeFileSync(join(home, "config.toml"), [
-    `[projects.${JSON.stringify(root)}]`, `trust_level = "trusted"`,
     `[hooks.state.${JSON.stringify(`${source}:pre_tool_use:0:0`)}]`, `trusted_hash = "sha256:${"a".repeat(64)}"`,
     `[hooks.state.${JSON.stringify(`${source}:stop:0:0`)}]`, `trusted_hash = "sha256:${"b".repeat(64)}"`,
   ].join("\n") + "\n");
@@ -117,7 +115,7 @@ function simulate(store: CodexPolicyReceipts, binding: SessionBinding, source: s
     if (hook.run !== false) {
       store.observe({
         threadId: binding.native.value, turnId, id: `${hook.event}:1`, eventName: hook.event === "Stop" ? "stop" : "preToolUse",
-        status: "completed", sourcePath: source, source: "project", handlerType: "command", ...hook.run,
+        status: "completed", sourcePath: source, source: "user", handlerType: "command", ...hook.run,
       });
     }
   }
@@ -353,8 +351,16 @@ describe("trusted inventory without executed receipts is not ready", () => {
   });
 });
 
-describe("a linked worktree's project layer is its main checkout's, as Codex loads it", () => {
-  test("a pool tree proves the hooks Codex lists from the main checkout, and the proof names that file", async () => {
+describe("a pool tree and any folder in it prove the profile's user-layer hooks", () => {
+  test("a second copy of rt's hooks in a project layer is not ready", async () => {
+    const p = project();
+    mkdirSync(join(p.root, ".codex"), { recursive: true });
+    writeFileSync(join(p.root, ".codex", "hooks.json"), JSON.stringify({ hooks: p.manifest.hooks }));
+    const policy = codexPolicy(p, createCodexPolicyReceipts(), undefined);
+    expect(await policy.prepare(launchRequest(p.root))).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("run it twice") } });
+  });
+
+  test("a pool tree proves the hooks Codex lists from the user layer, and the proof names that file", async () => {
     const p = project();
     const tree = linkedTree(p.root);
     const binding = bind("codex", THREAD, p.home);
@@ -362,7 +368,7 @@ describe("a linked worktree's project layer is its main checkout's, as Codex loa
     const listedFor: string[] = [];
     const policy = codexPolicy(p, store, checker(
       (turnId) => simulate(store, binding, p.source, p.manifest.revision, BOTH, turnId),
-      { listed: ok(recordedListing(p.root, tree)), listedFor },
+      { listed: ok(recordedListing(p.home, tree)), listedFor },
     ));
     const prepared = data(await policy.prepare(launchRequest(tree)));
     expect(prepared.cwd).toBe(tree);
@@ -371,7 +377,7 @@ describe("a linked worktree's project layer is its main checkout's, as Codex loa
     expect(listedFor).toEqual([tree]);
   });
 
-  test("a folder inside a pool tree reads the main checkout's layer too", async () => {
+  test("a folder inside a pool tree proves the same user-layer hooks", async () => {
     const p = project();
     const sub = join(linkedTree(p.root), "packages", "app");
     mkdirSync(sub, { recursive: true });
@@ -389,7 +395,9 @@ describe("a linked worktree's project layer is its main checkout's, as Codex loa
     const [pre, stop] = listing(p.source);
     const cases: Array<[string, Outcome<CodexListedHook[]>, string]> = [
       ["the tree's own path", ok(listing(elsewhere)), elsewhere],
-      ["a user layer", ok([{ ...pre!, source: "user" }, stop!]), "user"],
+      ["a project layer", ok([{ ...pre!, source: "project" }, stop!]), "project"],
+      ["a modified hook", ok([{ ...pre!, trustStatus: "modified" }, stop!]), "modified"],
+      ["no hooks at all (a repo turned hooks off)", ok([]), "0 copies of rt's PreToolUse"],
       ["a second Stop", ok([pre!, stop!, { ...stop!, sourcePath: elsewhere }]), "2 copies of rt's Stop"],
       ["no PreToolUse", ok([stop!]), "0 copies of rt's PreToolUse"],
       ["a disabled hook", ok([{ ...pre!, enabled: false }, stop!]), "disabled"],
@@ -407,14 +415,14 @@ describe("a linked worktree's project layer is its main checkout's, as Codex loa
     }
   });
 
-  test("runs reported from the tree's own path never prove the main checkout's hooks", async () => {
+  test("runs reported from a project layer never prove the user-layer hooks", async () => {
     const p = project();
     const tree = linkedTree(p.root);
     const binding = bind("codex", THREAD, p.home);
     const store = createCodexPolicyReceipts();
     const policy = codexPolicy(p, store, checker(
       (turnId) => simulate(store, binding, join(tree, ".codex", "hooks.json"), p.manifest.revision, BOTH, turnId),
-      { listed: ok(recordedListing(p.root, tree)) },
+      { listed: ok(recordedListing(p.home, tree)) },
     ));
     const prepared = data(await policy.prepare(launchRequest(tree)));
     expect(await policy.verify(binding, prepared, { kind: "launch" })).toMatchObject({ ok: false, error: { code: "not-ready" } });

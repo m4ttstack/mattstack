@@ -1,10 +1,10 @@
 /**
  * What setup installs for Codex: the Mattstack MCP entry in the selected
- * Codex home's user config, and a check of the reviewed project policy. The
- * CLI, its sign-in and the skills links are shared setup's rows and steps.
- * Project hooks and trust are written only by `rt setup codex-policy`, after
- * a person at a terminal approves each review; Install only reports what
- * waits on one.
+ * Codex home's user config, and rt's policy hooks in that home's user layer.
+ * The CLI, its sign-in and the skills links are shared setup's rows and
+ * steps. Hook trust is written only by `rt setup codex-policy`, after a
+ * person at a terminal approves the review; Install writes the untrusted
+ * definitions and reports that the review waits.
  */
 
 import { dirname, isAbsolute, join } from "path";
@@ -16,9 +16,8 @@ import { toFailedOutcome } from "../../setup/steps/step-utils.ts";
 import { codexHomeOf, codexMcpRow, codexToolRow, desiredCodexMcpEntry } from "../../setup/validators/codex.ts";
 import type { HarnessInstall, InstallAdapter } from "../install.ts";
 import { CODEX_MCP_SERVER, codexConfigFile, codexMcpFingerprint, editCodexMcpEntry, readCodexMcpState } from "./mcp-config.ts";
-import { planCodexPolicyInstall } from "./policy-install.ts";
+import { applyCodexPolicyInstall, planCodexPolicyInstall } from "./policy-install.ts";
 import { canonicalCodexProfile } from "./profile.ts";
-import { gitTrustRoot } from "./trust.ts";
 
 type WriteProbes = Pick<Probes, "mkdirp" | "writeFile" | "rename" | "chmod" | "removeFile" | "fileMode" | "readlink">;
 
@@ -91,40 +90,42 @@ export const codexMcpStep: StepDef = {
   run: installCodexMcp,
 };
 
-/** The main checkouts of the repos rt knows, each once: pool worktrees share their main checkout's Codex project layer. */
-export async function codexPolicyTargets(): Promise<string[]> {
-  const { loadRepoIndex } = await import("../../repo-index.ts");
-  const roots = Object.values(loadRepoIndex()).map((path) => gitTrustRoot(path) ?? path);
-  return [...new Set(roots)].sort();
-}
-
 export type CodexPolicyStepDeps = {
-  targets?: () => Promise<string[]>;
   plan?: typeof planCodexPolicyInstall;
+  apply?: typeof applyCodexPolicyInstall;
 };
 
 const REVIEW_COMMAND = "rt setup codex-policy";
 
+/**
+ * Writes rt's hook definitions into the profile's user layer (Codex runs
+ * none of them until a person trusts them) and reports the review that
+ * trusting them waits on. It never passes a review id, so it can never
+ * trust anything.
+ */
 async function codexPolicyRun(ctx: ApplyContext, deps: CodexPolicyStepDeps): Promise<StepOutcome> {
-  const targets = await (deps.targets ?? codexPolicyTargets)();
-  if (targets.length === 0) return { state: "skipped", detail: "No repos are registered yet" };
   const profile = canonicalCodexProfile(undefined, ctx.p.env);
-  const pending: string[] = [];
-  for (const cwd of targets) {
-    const planned = await (deps.plan ?? planCodexPolicyInstall)({ cwd, profile });
-    if (!planned.ok) ctx.log("codex.policy", `${cwd}: ${planned.error.message}`);
-    if (!planned.ok || planned.data.stage !== "installed") pending.push(cwd);
+  const plan = deps.plan ?? planCodexPolicyInstall;
+  let planned = await plan({ profile });
+  if (planned.ok && planned.data.stage === "definitions") {
+    const wrote = await (deps.apply ?? applyCodexPolicyInstall)(planned.data, []);
+    if (!wrote.ok) return { state: "failed", detail: wrote.error.message, remedy: "Retry." };
+    ctx.log("codex.policy", `added rt's untrusted policy hooks to ${planned.data.hooksPath}`);
+    planned = await plan({ profile });
   }
-  if (pending.length === 0) return { state: "done", detail: targets.length === 1 ? "Codex's policy is set up in your repo" : `Codex's policy is set up in all ${targets.length} repos` };
-  const names = pending.map((path) => path.split("/").pop() || path).join(", ");
-  return { state: "needs-you", detail: `Codex's policy waits on your review for ${names}. Review it in a terminal: ${REVIEW_COMMAND}` };
+  if (!planned.ok) {
+    ctx.log("codex.policy", planned.error.message);
+    return { state: "needs-you", detail: `Codex's policy is not set up: ${planned.error.message}` };
+  }
+  if (planned.data.stage === "installed") return { state: "done", detail: "Codex's policy is set up for every repo" };
+  return { state: "needs-you", detail: `Codex's policy hooks wait on your review. Review them in a terminal: ${REVIEW_COMMAND}` };
 }
 
-/** Reads only: it never trusts or writes anything, so nothing here can approve a review. */
+/** Never approves a review: trust is written only by `rt setup codex-policy` at a terminal. */
 export function createCodexPolicyStep(deps: CodexPolicyStepDeps = {}): StepDef {
   return {
     id: "codex.policy",
-    title: "Check Codex's project policy",
+    title: "Set up Codex's policy hooks",
     kind: "rt",
     applies: (ctx) => harnessSelected(selectionFor(ctx), "codex"),
     run: async (ctx) => {

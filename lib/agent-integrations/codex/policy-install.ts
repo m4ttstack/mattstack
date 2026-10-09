@@ -1,36 +1,36 @@
 /**
- * Installs rt's Codex policy hooks (hook-manifest.ts) where Codex itself
- * loads project hooks for a working folder, and trusts exactly what a person
- * reviewed. Codex finds project hooks only inside a trusted project
- * boundary: a checkout's top folder, or for a linked worktree its main
- * checkout (live-16). The install is two reviews, because Codex can only
- * name a hook's native hash once the folder is trusted:
+ * Installs rt's Codex policy hooks (hook-manifest.ts) in the profile's user
+ * layer, `$CODEX_HOME/hooks.json`, and trusts exactly what a person
+ * reviewed in that profile's config. rt leaves no footprint in any
+ * repository: user hooks load for every working folder and need no folder
+ * trust (userhooks spike), so one install covers every repo.
  *
- * - folder: rt's executable copy, the owned entries in the boundary's
- *   `.codex/hooks.json`, and folder trust for the boundary itself;
- * - hooks: Codex's own keys and hashes for those entries (hooks/list),
- *   trusted one by one in the profile's config.
+ * Two steps, one review. Codex can only name a hook's native hash once its
+ * definition is in the hooks file, and an untrusted definition never runs,
+ * so the definitions (and the hook program they name) are written first
+ * without a review. The review then shows the exact file, program, commands
+ * and the hashes Codex reported, and its approval writes only the matching
+ * `[hooks.state."<key>"] trusted_hash` entries.
  *
- * Nothing here creates a repository, trusts a parent folder, turns a trust
- * check off, replaces a hooks file wholesale, or restarts a shared service.
- * Every write compares the file with what the review was planned against
- * first, and only entries rt wrote are recorded as rt's own.
+ * Nothing here trusts a folder, turns a trust check off, replaces a hooks
+ * file wholesale, or restarts a shared service. Every write compares the
+ * file with what was planned first, and only entries rt wrote are recorded
+ * as rt's own.
  */
 
-import { createHash } from "crypto";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
 import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { bundledToolPath } from "../../deps/resolve.ts";
-import { ensureInfoExclude, runGit } from "../../worktree/git-async.ts";
 import { readSetupState, updateSetupState, type CodexPolicyState, type SetupState } from "../../setup/state.ts";
 import {
-  CODEX_POLICY_EVENTS, codexPolicyManifest, parseCodexPolicyHookCommand, validInstallationId, type CodexHookHandler, type CodexPolicyEvent,
+  CODEX_POLICY_EVENTS, CODEX_POLICY_SOURCE, codexPolicyManifest, codexUserHooksPath, parseCodexPolicyHookCommand, validInstallationId,
+  type CodexHookHandler, type CodexPolicyEvent,
 } from "./hook-manifest.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { isRecord } from "./protocol.ts";
-import { codexConfigPath, gitTrustRoot } from "./trust.ts";
+import { codexConfigPath } from "./trust.ts";
 
 /** One hooks/list entry with the native key, hash and trust Codex reports for it. */
 export type ListedPolicyHook = {
@@ -47,36 +47,29 @@ export type PolicyInstallDeps = {
   attachedSessions: (profile: string) => SessionBinding[] | Promise<SessionBinding[]>;
   now: () => Date;
   randomId: () => string;
-  /** Test seam: runs between the hooks file write and the config write of a folder review. */
-  afterHooksWrite?: () => void;
 };
 
-export type PolicyStage = "folder" | "hooks";
+export type PolicyStage = "definitions" | "hooks" | "installed";
 export type ReviewedCommand = { event: CodexPolicyEvent; command: string };
 export type ReviewedHook = { event: CodexPolicyEvent; key: string; command: string; hash: string };
 
-/** Everything one approval covers, so its id changes whenever any of it does. */
+/** Everything the one approval covers, so its id changes whenever any of it does. */
 export type PolicyReview = {
   id: string;
-  stage: PolicyStage;
-  boundary: string;
+  codexHome: string;
   hooksPath: string;
   configPath: string;
   executable: string;
   digest: string;
   commands: ReviewedCommand[];
-  trustFolder: boolean;
-  /** The boundary's own `.codex/config.toml`, which trusting the folder also turns on. */
-  projectConfig: string | null;
-  /** The line rt adds to the repo's git exclude list, when rt creates the hooks file. */
-  exclude: string | null;
   hooks: ReviewedHook[];
 };
 
 export type PolicyInstallPlan = {
+  /** The folder hooks/list is asked about; user hooks are the same for every folder. */
   cwd: string;
   profile: string;
-  boundary: string;
+  codexHome: string;
   configPath: string;
   hooksPath: string;
   installationId: string;
@@ -84,11 +77,11 @@ export type PolicyInstallPlan = {
   artifact: { source: string; path: string; digest: string; present: boolean };
   /** M6b's manifest revision for this executable and installation. */
   manifest: { revision: string; commands: ReviewedCommand[] };
-  stage: PolicyStage | "installed";
+  /** `definitions` writes rt's untrusted hooks and needs no review; `hooks` trusts them and needs one. */
+  stage: PolicyStage;
   /** `before` is the file's fingerprint when planned; `text` is null when the file already holds rt's entries. */
-  hooksFile: { before: string; text: string | null; adds: string[]; exclude: string | null };
-  projectConfig: string | null;
-  config: { before: string; addFolder: boolean; hooks: ReviewedHook[]; replace: string[] };
+  hooksFile: { before: string; text: string | null; adds: string[] };
+  config: { before: string; hooks: ReviewedHook[]; replace: string[] };
   reviews: PolicyReview[];
 };
 
@@ -405,22 +398,11 @@ function mergeHooks(path: string, text: string | null, desired: Record<CodexPoli
 
 // ─── Codex's config ──────────────────────────────────────────────────────────
 
-/** A config that turns hooks off, or that lists hooks inline, can never load rt's hooks file as reviewed. */
-function hooksBlocked(config: Record<string, unknown>, path: string, project: boolean): string | undefined {
-  if (isRecord(config.features) && config.features.hooks === false) {
-    return `${path} turns Codex hooks off, so rt's policy could never run. Turn hooks back on there, then run this again.`;
-  }
-  if (project && isRecord(config.hooks) && Object.keys(config.hooks).some((k) => k !== "state")) {
-    return `${path} lists hooks inside the config, and rt only adds its hooks to .codex/hooks.json; installing both would run them twice. Move those hooks to .codex/hooks.json, then run this again.`;
-  }
-  return undefined;
-}
-
-function trustLevels(config: Record<string, unknown>, folder: string): unknown[] {
-  const projects = isRecord(config.projects) ? config.projects : {};
-  return [...new Set([folder, realOr(folder)])]
-    .filter((spelling) => Object.hasOwn(projects, spelling))
-    .map((spelling) => (isRecord(projects[spelling]) ? (projects[spelling] as Record<string, unknown>).trust_level : undefined));
+/** rt's hooks listed inline (`[[hooks.<Event>]]`) as well as in hooks.json would load twice (userhooks Q1b). */
+function inlinePolicyHooks(config: Record<string, unknown>): boolean {
+  const hooks = isRecord(config.hooks) ? config.hooks : {};
+  return Object.entries(hooks).some(([event, groups]) => event !== "state" && Array.isArray(groups) && groups.some((group: unknown) =>
+    isRecord(group) && Array.isArray(group.hooks) && group.hooks.some((h: unknown) => isRecord(h) && typeof h.command === "string" && parseCodexPolicyHookCommand(h.command) !== null)));
 }
 
 function stateEntry(config: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
@@ -450,17 +432,14 @@ function replaceHashLine(text: string, key: string, hash: string): string | null
   return null;
 }
 
-type ConfigEdit = { addFolder?: string; hooks: ReviewedHook[]; replace: readonly string[] };
-
-/** The edited text, or null when the result would change anything beyond the reviewed entries. */
-function editConfig(text: string | null, edit: ConfigEdit): string | null {
+/** The edited text, or null when the result would change anything beyond the reviewed trust entries. */
+function editConfig(text: string | null, hooks: ReviewedHook[], replace: readonly string[]): string | null {
   const before = parseToml(text);
   if (before === null) return null;
   let next = text ?? "";
   const blocks: string[] = [];
-  if (edit.addFolder !== undefined) blocks.push(`[projects.${tomlString(edit.addFolder)}]\ntrust_level = "trusted"\n`);
-  for (const hook of edit.hooks) {
-    if (edit.replace.includes(hook.key)) {
+  for (const hook of hooks) {
+    if (replace.includes(hook.key)) {
       const replaced = replaceHashLine(next, hook.key, hook.hash);
       if (replaced === null) return null;
       next = replaced;
@@ -472,26 +451,18 @@ function editConfig(text: string | null, edit: ConfigEdit): string | null {
   const after = parseToml(next);
   if (after === null) return null;
   const expected = structuredClone(before) as Record<string, any>;
-  if (edit.addFolder !== undefined) {
-    expected.projects = isRecord(expected.projects) ? expected.projects : {};
-    expected.projects[edit.addFolder] = { trust_level: "trusted" };
-  }
-  if (edit.hooks.length > 0) {
-    expected.hooks = isRecord(expected.hooks) ? expected.hooks : {};
-    expected.hooks.state = isRecord(expected.hooks.state) ? expected.hooks.state : {};
-    for (const hook of edit.hooks) expected.hooks.state[hook.key] = { ...(expected.hooks.state[hook.key] ?? {}), trusted_hash: hook.hash };
-  }
+  expected.hooks = isRecord(expected.hooks) ? expected.hooks : {};
+  expected.hooks.state = isRecord(expected.hooks.state) ? expected.hooks.state : {};
+  for (const hook of hooks) expected.hooks.state[hook.key] = { ...(expected.hooks.state[hook.key] ?? {}), trusted_hash: hook.hash };
   return Bun.deepEquals(canonical(after), canonical(expected)) ? next : null;
 }
 
 // ─── Plan ────────────────────────────────────────────────────────────────────
 
-function reviewOf(plan: Omit<PolicyInstallPlan, "reviews">, stage: PolicyStage): PolicyReview {
+function reviewOf(plan: Omit<PolicyInstallPlan, "reviews">): PolicyReview {
   const body = {
-    stage, boundary: plan.boundary, hooksPath: plan.hooksPath, configPath: plan.configPath, executable: plan.artifact.path, digest: plan.artifact.digest,
-    commands: plan.manifest.commands, trustFolder: stage === "folder" && plan.config.addFolder,
-    projectConfig: stage === "folder" && plan.config.addFolder ? plan.projectConfig : null,
-    exclude: stage === "folder" ? plan.hooksFile.exclude : null, hooks: stage === "hooks" ? plan.config.hooks : [],
+    codexHome: plan.codexHome, hooksPath: plan.hooksPath, configPath: plan.configPath, executable: plan.artifact.path, digest: plan.artifact.digest,
+    commands: plan.manifest.commands, hooks: plan.config.hooks,
   };
   return { id: `cp-${sha256(JSON.stringify(body)).slice(0, 32)}`, ...body };
 }
@@ -524,15 +495,7 @@ function presentDigest(path: string): string | undefined {
 }
 
 function policyState(state: SetupState): CodexPolicyState {
-  return state.codexPolicy ?? { installationId: "", artifacts: {}, hooks: {}, trust: {}, reviewed: {}, excludes: {} };
-}
-
-/** The hooks file's path relative to its boundary, the form git and info/exclude use. */
-const HOOKS_REL = ".codex/hooks.json";
-const HOOKS_EXCLUDE = `/${HOOKS_REL}`;
-
-async function trackedByGit(boundary: string): Promise<boolean> {
-  return (await runGit(boundary, ["ls-files", "--error-unmatch", "--", HOOKS_REL])).exitCode === 0;
+  return state.codexPolicy ?? { installationId: "", artifacts: {}, hooks: {}, trust: {}, reviewed: {} };
 }
 
 function stateProbes(home: string, now: () => Date) {
@@ -548,42 +511,36 @@ function stateProbes(home: string, now: () => Date) {
 }
 
 /**
- * Works out what installing rt's policy for `cwd` would change, and which
- * review that needs. It writes nothing. A plan at stage `installed` needs no
- * review; any other carries exactly one.
+ * Works out what installing rt's policy for `profile` would change. It
+ * writes nothing. A `definitions` plan needs no review (it writes hooks
+ * Codex will not run until trusted); a `hooks` plan carries exactly one
+ * review; an `installed` plan needs nothing. `cwd` is only the folder
+ * hooks/list is asked about, the profile's Codex home by default.
  */
-export async function planCodexPolicyInstall(input: { cwd: string; profile: string }, overrides: Partial<PolicyInstallDeps> = {}): Promise<Outcome<PolicyInstallPlan>> {
+export async function planCodexPolicyInstall(input: { cwd?: string; profile: string }, overrides: Partial<PolicyInstallDeps> = {}): Promise<Outcome<PolicyInstallPlan>> {
   const deps = withDefaults(overrides);
-  const { cwd, profile } = input;
-  const boundary = gitTrustRoot(cwd);
-  if (boundary === undefined) {
-    return fail("refused", `${cwd} is not inside a git checkout rt can follow. rt installs Codex's policy at a checkout's top folder and never creates a repository for it.`);
-  }
+  const { profile } = input;
   const configPath = codexConfigPath(profile, deps.env);
   if (configPath === undefined) return fail("refused", `rt cannot find the settings for the Codex profile ${profile}.`);
+  const codexHome = dirname(configPath);
+  const hooksPath = codexUserHooksPath(configPath);
+  const cwd = input.cwd ?? codexHome;
 
   let configText: string | null;
   let hooksText: string | null;
-  let projectText: string | null;
-  const hooksPath = join(boundary, ".codex", "hooks.json");
-  const projectPath = join(boundary, ".codex", "config.toml");
   try {
     configText = readText(configPath);
     hooksText = readText(hooksPath);
-    projectText = readText(projectPath);
   } catch (err) {
     return fail("not-ready", `rt could not read Codex's settings: ${err instanceof Error ? err.message : String(err)}`);
   }
   const config = parseToml(configText);
   if (config === null) return fail("refused", `${configPath} is not valid TOML. Fix that file, then run this again.`);
-  const project = parseToml(projectText);
-  if (project === null) return fail("refused", `${projectPath} is not valid TOML. Fix that file, then run this again.`);
-  const blocked = hooksBlocked(config, configPath, false) ?? hooksBlocked(project, projectPath, true);
-  if (blocked !== undefined) return fail("refused", blocked);
-
-  const levels = trustLevels(config, boundary);
-  if (levels.some((level) => level !== "trusted")) {
-    return fail("refused", `Codex is set not to trust ${boundary}, and rt never overrides that. Trust that folder in Codex yourself if you want rt's policy there.`);
+  if (isRecord(config.features) && config.features.hooks === false) {
+    return fail("refused", `${configPath} turns Codex hooks off, so rt's policy could never run. Turn hooks back on there, then run this again.`);
+  }
+  if (inlinePolicyHooks(config)) {
+    return fail("refused", `${configPath} lists rt's policy hooks inline, and rt keeps them only in ${hooksPath}; both would run. Remove the inline copy, then run this again.`);
   }
 
   const artifact = readArtifact(deps);
@@ -597,27 +554,17 @@ export async function planCodexPolicyInstall(input: { cwd: string; profile: stri
   const desired = Object.fromEntries(CODEX_POLICY_EVENTS.map((e) => [e, manifest.hooks[e][0]!.hooks[0]!])) as Record<CodexPolicyEvent, CodexHookHandler>;
   const commands = CODEX_POLICY_EVENTS.map((event) => ({ event, command: desired[event].command }));
 
-  if (await trackedByGit(boundary)) {
-    return fail(
-      "not-ready",
-      `${hooksPath} is committed to this repo, and rt does not add its hooks to a file your repo commits. Add rt's two hooks to that file in a commit your team reviews, or remove it from the repo, then run this again.`,
-    );
-  }
   const merge = mergeHooks(hooksPath, hooksText, desired, owned.hooks[hooksPath] ?? []);
   if (!merge.ok) return fail("refused", merge.message);
-  const addFolder = levels.length === 0;
 
   const base = {
-    cwd, profile, boundary, configPath, hooksPath, installationId,
+    cwd, profile, codexHome, configPath, hooksPath, installationId,
     artifact: { source: artifact.source, path: artifactPath, digest: artifact.digest, present },
     manifest: { revision: manifest.revision, commands },
-    hooksFile: { before: fingerprint(hooksText), text: merge.text, adds: merge.adds, exclude: hooksText === null && merge.text !== null ? HOOKS_EXCLUDE : null },
-    projectConfig: projectText === null ? null : projectPath,
+    hooksFile: { before: fingerprint(hooksText), text: merge.text, adds: merge.adds },
   };
-
-  if (merge.text !== null || addFolder || !present) {
-    const plan = { ...base, stage: "folder" as const, config: { before: fingerprint(configText), addFolder, hooks: [], replace: [] } };
-    return { ok: true, data: { ...plan, reviews: [reviewOf(plan, "folder")] } };
+  if (merge.text !== null || !present) {
+    return { ok: true, data: { ...base, stage: "definitions", config: { before: fingerprint(configText), hooks: [], replace: [] }, reviews: [] } };
   }
 
   let listed: Outcome<ListedPolicyHook[]>;
@@ -632,12 +579,16 @@ export async function planCodexPolicyInstall(input: { cwd: string; profile: stri
   const replace: string[] = [];
   const ownedTrust = owned.trust[configPath]?.hooks ?? {};
   for (const { event, command } of commands) {
-    const ours = listed.data.filter((h) => h.eventName === LISTED[event] && h.command === command);
-    const hook = ours.length === 1 ? ours[0]! : undefined;
-    if (hook === undefined || hook.source !== "project" || hook.sourcePath === undefined || realOr(hook.sourcePath) !== wantSource) {
+    const anyRt = listed.data.filter((h) => h.eventName === LISTED[event] && h.command !== undefined && parseCodexPolicyHookCommand(h.command)?.event === event);
+    const hook = anyRt.length === 1 && anyRt[0]!.command === command ? anyRt[0]! : undefined;
+    if (anyRt.length > 1) {
+      const elsewhere = anyRt.map((h) => h.sourcePath).filter((p) => p === undefined || realOr(p) !== wantSource);
+      return fail("not-ready", `Codex loads more than one rt ${event} policy hook (also from ${elsewhere.join(", ") || "another layer"}), so it would run twice. Remove the other copy, then run this again.`);
+    }
+    if (hook === undefined || hook.source !== CODEX_POLICY_SOURCE || hook.sourcePath === undefined || realOr(hook.sourcePath) !== wantSource) {
       return fail(
         "not-ready",
-        `Codex does not load rt's ${event} policy hook for ${cwd} from ${hooksPath}, so rt cannot treat that folder as ready. Check that Codex trusts ${boundary} and that nothing else in .codex overrides it.`,
+        `Codex does not load rt's ${event} policy hook from ${hooksPath}, so rt cannot install its policy. If Codex has hooks turned off, turn them back on, then run this again.`,
       );
     }
     if (hook.enabled === false) return fail("not-ready", `Codex lists rt's ${event} policy hook in ${hooksPath} as turned off. Turn it back on in Codex, then run this again.`);
@@ -655,28 +606,28 @@ export async function planCodexPolicyInstall(input: { cwd: string; profile: stri
     if (existing !== undefined) replace.push(hook.key);
     toWrite.push({ event, key: hook.key, command, hash: hook.currentHash });
   }
-  const configPlan = { before: fingerprint(configText), addFolder: false, hooks: toWrite, replace };
+  const configPlan = { before: fingerprint(configText), hooks: toWrite, replace };
   if (toWrite.length === 0) return { ok: true, data: { ...base, stage: "installed", config: configPlan, reviews: [] } };
   const plan = { ...base, stage: "hooks" as const, config: configPlan };
-  return { ok: true, data: { ...plan, reviews: [reviewOf(plan, "hooks")] } };
+  return { ok: true, data: { ...plan, reviews: [reviewOf(plan)] } };
 }
 
 // ─── Apply ───────────────────────────────────────────────────────────────────
 
 const changed = (path: string): Outcome<void> =>
-  fail("refused", `${path} changed after you reviewed this, so rt wrote nothing more. Review it again.`);
+  fail("refused", `${path} changed after rt planned this, so rt wrote nothing more. Run it again.`);
 
 /** Atomic and mode-preserving, through a symlink to the file it names, and only while the file still matches `before`. */
 function replaceFile(path: string, before: string, text: string): Outcome<void> {
   if (fingerprint(readText(path)) !== before) return changed(path);
   const target = existsSync(path) ? realOr(path) : path;
-  mkdirSync(join(target, ".."), { recursive: true });
-  let mode = 0o644;
+  mkdirSync(dirname(target), { recursive: true });
+  let mode = 0o600;
   try {
     mode = statSync(target).mode & 0o777;
   } catch { /* a new file */ }
-  const tmp = `${target}.rt-${process.pid}.tmp`;
-  writeFileSync(tmp, text, { mode });
+  const tmp = `${target}.${randomBytes(8).toString("hex")}.tmp`;
+  writeFileSync(tmp, text, { mode, flag: "wx" });
   chmodSync(tmp, mode);
   if (fingerprint(readText(path)) !== before) {
     rmSync(tmp, { force: true });
@@ -687,7 +638,7 @@ function replaceFile(path: string, before: string, text: string): Outcome<void> 
 }
 
 function installArtifact(plan: PolicyInstallPlan, bytes: Uint8Array): Outcome<void> {
-  const dir = join(plan.artifact.path, "..");
+  const dir = dirname(plan.artifact.path);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const held = lstatSync(dir);
   if (!held.isDirectory() || held.isSymbolicLink() || (process.getuid !== undefined && held.uid !== process.getuid())) {
@@ -698,57 +649,54 @@ function installArtifact(plan: PolicyInstallPlan, bytes: Uint8Array): Outcome<vo
   chmodSync(tmp, 0o755);
   if (presentDigest(tmp) !== plan.artifact.digest) {
     rmSync(tmp, { force: true });
-    return fail("refused", `The copy of rt at ${plan.artifact.path} did not match what you reviewed, so rt did not install it.`);
+    return fail("refused", `The copy of rt at ${plan.artifact.path} did not match the planned bytes, so rt did not install it.`);
   }
   renameSync(tmp, plan.artifact.path);
   return { ok: true, data: undefined };
 }
 
 /**
- * Writes what `plan` describes, and only with its review approved: every id
- * in `reviewed` must be this plan's, and the plan's review must be among
- * them. `reviewed` comes from a person approving that review in setup; a
- * plan whose files changed since it was made is refused, not merged.
+ * Writes what `plan` describes. A `definitions` plan writes the hook
+ * program and rt's untrusted hook entries; a `hooks` plan writes trust, and
+ * only with its review approved: every id in `reviewed` must be this
+ * plan's, and the plan's review must be among them. `reviewed` comes from a
+ * person approving that review in setup; a plan whose files changed since
+ * it was made is refused, not merged.
  */
 export async function applyCodexPolicyInstall(plan: PolicyInstallPlan, reviewed: readonly string[], overrides: Partial<PolicyInstallDeps> = {}): Promise<Outcome<void>> {
   const deps = withDefaults(overrides);
   const known = new Set(plan.reviews.map((r) => r.id));
   const stale = reviewed.find((id) => !known.has(id));
-  if (stale !== undefined) return fail("refused", `The review ${stale} is not the one rt planned now. Review the current changes again.`);
+  if (stale !== undefined) return fail("refused", `The review ${stale} is not the one rt planned now. Review the current hooks again.`);
   const missing = plan.reviews.find((r) => !reviewed.includes(r.id));
-  if (missing !== undefined) return fail("refused", `Nothing was approved for ${missing.boundary}, so rt changed nothing there.`);
+  if (missing !== undefined) return fail("refused", `Nothing was approved for ${missing.hooksPath}, so rt trusted nothing.`);
   if (plan.stage === "installed") return { ok: true, data: undefined };
+  if (plan.stage === "hooks" && plan.reviews.length !== 1) return fail("invalid", "A hooks plan carries exactly one review.");
 
-  const review = plan.reviews[0]!;
-  if (review.digest !== plan.artifact.digest || review.boundary !== plan.boundary) return fail("invalid", "The review does not describe this plan.");
   if (fingerprint(readText(plan.configPath)) !== plan.config.before) return changed(plan.configPath);
   if (fingerprint(readText(plan.hooksPath)) !== plan.hooksFile.before) return changed(plan.hooksPath);
   const artifact = readArtifact(deps);
   if (!artifact.ok || artifact.digest !== plan.artifact.digest) {
-    return fail("refused", "rt itself changed after you reviewed this, so the reviewed hook executable no longer exists. Review it again.");
+    return fail("refused", "rt itself changed after this was planned, so the planned hook program no longer exists. Run it again.");
+  }
+  if (plan.stage === "hooks" && presentDigest(plan.artifact.path) !== plan.artifact.digest) {
+    return fail("refused", `The hook program at ${plan.artifact.path} changed after you reviewed it, so rt trusted nothing. Run it again.`);
   }
 
-  const at = deps.now().toISOString();
   const probes = stateProbes(deps.home, deps.now);
   const record = (patch: (cp: CodexPolicyState) => Partial<CodexPolicyState>) =>
     updateSetupState(probes, (s) => {
       const cp = policyState(s);
       return { ...s, codexPolicy: { ...cp, installationId: plan.installationId, ...patch(cp) } };
     });
-  if (plan.stage === "folder") {
-    // Built before any write, so a folder trust rt cannot add leaves nothing half done.
-    const configText = plan.config.addFolder ? editConfig(readText(plan.configPath), { addFolder: plan.boundary, hooks: [], replace: [] }) : undefined;
-    if (configText === null) return fail("refused", `rt could not add folder trust to ${plan.configPath} without changing your other Codex settings.`);
+
+  if (plan.stage === "definitions") {
     if (presentDigest(plan.artifact.path) !== plan.artifact.digest) {
       const installed = installArtifact(plan, artifact.bytes);
       if (!installed.ok) return installed;
     }
     record((cp) => ({ artifacts: { ...cp.artifacts, [plan.artifact.path]: plan.artifact.digest } }));
     if (plan.hooksFile.text !== null) {
-      if (plan.hooksFile.exclude !== null && (await ensureInfoExclude(plan.boundary, plan.hooksFile.exclude))) {
-        const line = plan.hooksFile.exclude;
-        record((cp) => ({ excludes: { ...cp.excludes, [plan.boundary]: [...new Set([...(cp.excludes?.[plan.boundary] ?? []), line])] } }));
-      }
       const wrote = replaceFile(plan.hooksPath, plan.hooksFile.before, plan.hooksFile.text);
       if (!wrote.ok) return wrote;
       record((cp) => {
@@ -757,35 +705,19 @@ export async function applyCodexPolicyInstall(plan: PolicyInstallPlan, reviewed:
         return { hooks: { ...cp.hooks, [plan.hooksPath]: [...stillOurs, ...plan.hooksFile.adds] } };
       });
     }
-    deps.afterHooksWrite?.();
-    if (configText !== undefined) {
-      const wrote = replaceFile(plan.configPath, plan.config.before, configText);
-      if (!wrote.ok) return wrote;
-      record((cp) => {
-        const trust = cp.trust[plan.configPath] ?? { folders: [], hooks: {} };
-        return { trust: { ...cp.trust, [plan.configPath]: { ...trust, folders: [...new Set([...trust.folders, plan.boundary])] } } };
-      });
-    }
-    record((cp) => ({ reviewed: { ...cp.reviewed, [plan.boundary]: { ...cp.reviewed[plan.boundary], folder: review.id, at } } }));
     return { ok: true, data: undefined };
   }
 
-  const before = readText(plan.configPath);
-  const text = editConfig(before, { hooks: plan.config.hooks, replace: plan.config.replace });
+  const review = plan.reviews[0]!;
+  const text = editConfig(readText(plan.configPath), plan.config.hooks, plan.config.replace);
   if (text === null) return fail("refused", `rt could not trust its hooks in ${plan.configPath} without changing your other Codex settings.`);
   const wrote = replaceFile(plan.configPath, plan.config.before, text);
   if (!wrote.ok) return wrote;
-  updateSetupState(probes, (s) => {
-    const cp = policyState(s);
-    const trust = cp.trust[plan.configPath] ?? { folders: [], hooks: {} };
+  record((cp) => {
+    const trust = cp.trust[plan.configPath] ?? { hooks: {} };
     return {
-      ...s,
-      codexPolicy: {
-        ...cp,
-        installationId: plan.installationId,
-        trust: { ...cp.trust, [plan.configPath]: { ...trust, hooks: { ...trust.hooks, ...Object.fromEntries(plan.config.hooks.map((h) => [h.key, h.hash])) } } },
-        reviewed: { ...cp.reviewed, [plan.boundary]: { ...cp.reviewed[plan.boundary], hooks: review.id, at } },
-      },
+      trust: { ...cp.trust, [plan.configPath]: { ...trust, hooks: { ...trust.hooks, ...Object.fromEntries(plan.config.hooks.map((h) => [h.key, h.hash])) } } },
+      reviewed: { ...cp.reviewed, [plan.hooksPath]: { hooks: review.id, at: deps.now().toISOString() } },
     };
   });
   return { ok: true, data: undefined };
