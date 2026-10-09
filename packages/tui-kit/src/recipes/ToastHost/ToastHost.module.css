@@ -32,6 +32,7 @@
     box-shadow: var(--shadow-toast);
     color: var(--text-1);
     font-size: var(--font-size-px13);
+    min-width: 240px;
     max-width: 320px;
   }
 
