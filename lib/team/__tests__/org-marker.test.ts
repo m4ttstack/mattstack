@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { markerOrg, markerState, ORG_LAYOUT, ORG_MARKER_REL, parseMarker } from "../org-marker.ts";
+import { markerOrg, markerState, ORG_LAYOUT, ORG_LAYOUT_ABSENT_DEFAULT, ORG_MARKER_REL, parseMarker } from "../org-marker.ts";
 
 const dir = "/h/.mattstack/orgs/acme";
 const at = (raw: string) => fakeProbes({ home: "/h", files: { [`${dir}/${ORG_MARKER_REL}`]: raw } });
@@ -34,8 +37,8 @@ describe("markerState", () => {
 });
 
 describe("layout", () => {
-  test("an org marker without the field reads as ORG_LAYOUT, a one-team marker as 1", () => {
-    expect(markerState(at('{ "role": "org", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: ORG_LAYOUT });
+  test("an org marker without the field reads as 2, a one-team marker as 1", () => {
+    expect(markerState(at('{ "role": "org", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: 2 });
     expect(markerState(at('{ "role": "team", "namespace": "widgets", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: 1 });
   });
   test("an explicit positive integer wins over the default", () => {
@@ -52,5 +55,26 @@ describe("layout", () => {
   });
   test("ORG_LAYOUT is 2", () => {
     expect(ORG_LAYOUT).toBe(2);
+  });
+  test("the absent default is the literal 2, apart from ORG_LAYOUT", () => {
+    expect(ORG_LAYOUT_ABSENT_DEFAULT).toBe(2);
+  });
+  test("after ORG_LAYOUT moves to 3, a marker without the field still reads 2 for an org and 1 for one team", async () => {
+    const source = readFileSync(join(import.meta.dir, "..", "org-marker.ts"), "utf8");
+    const bumped = source
+      .replace(/^export const ORG_LAYOUT = 2;$/m, "export const ORG_LAYOUT = 3;")
+      .replaceAll('from "../', `from "${join(import.meta.dir, "..", "..")}/`);
+    expect(bumped).toContain("export const ORG_LAYOUT = 3;");
+    const scratch = mkdtempSync(join(tmpdir(), "org-marker-bump-"));
+    try {
+      writeFileSync(join(scratch, "org-marker.ts"), bumped);
+      const next = (await import(join(scratch, "org-marker.ts"))) as typeof import("../org-marker.ts");
+      expect(next.ORG_LAYOUT).toBe(3);
+      expect(next.parseMarker('{ "role": "org", "org": "acme" }')).toEqual({ kind: "org", org: "acme", layout: 2 });
+      expect(next.parseMarker('{ "role": "team", "org": "acme" }')).toEqual({ kind: "org", org: "acme", layout: 1 });
+      expect(next.parseMarker('{ "role": "org", "org": "acme", "layout": 3 }')).toEqual({ kind: "org", org: "acme", layout: 3 });
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
   });
 });

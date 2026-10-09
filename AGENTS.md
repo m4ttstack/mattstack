@@ -42,7 +42,11 @@ Never hard-code `main` for the org clone: publish, team sync, pack sync,
 exceptions: `rt team create` starts a new org on main, and `rt team invite`
 refuses off main, because joiners clone main.
 The org marker carries a layout version (`layout` in `mattstack/mattstack.jsonc`;
-absent reads as 2 for `role: "org"` and 1 for a one-team `role: "team"`).
+an explicit positive integer wins, and absent reads as 2 for `role: "org"` and 1
+for a one-team `role: "team"`, a fixed default (`ORG_LAYOUT_ABSENT_DEFAULT`),
+never `ORG_LAYOUT`, so a bump never reads an unconverted repo as ready). Every
+marker rt writes carries an explicit `layout`: `rt team create` writes
+`ORG_LAYOUT`, and `scripts/move-team-packs-to-plugin.ts` writes 2.
 `ORG_LAYOUT` in `lib/team/org-marker.ts` is the highest layout this rt reads
 and moves only with a breaking change to the repo's shape, never with a
 release; the admin's runbook for such a change is the `rt-settings` skill

@@ -53,6 +53,18 @@ describe("planMove", () => {
     ]);
   });
 
+  test("writes layout 2 into the marker, keeping its other keys and header", () => {
+    const plan = planMove(orgRepo({ files: { "mattstack/mattstack.jsonc": `// org marker\n${JSON.stringify({ role: "org", org: "acme", extra: true })}` } }));
+    expect(plan.writes["mattstack/mattstack.jsonc"]!.startsWith("// org marker\n")).toBe(true);
+    expect(parse(plan.writes["mattstack/mattstack.jsonc"]!)).toEqual({ role: "org", org: "acme", extra: true, layout: 2 });
+    expect(plan.report).toContain("marker: layout 2");
+  });
+
+  test("leaves a marker that already says layout 2 alone", () => {
+    const plan = planMove(orgRepo({ files: { "mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme", layout: 2 }) } }));
+    expect(plan.writes["mattstack/mattstack.jsonc"]).toBeUndefined();
+  });
+
   test("a marketplace entry that carries its own version gets the bumped version", () => {
     const market = JSON.stringify({ name: "acme", plugins: [{ name: "widgets", source: `./${NESTED}`, version: "1.4.2" }] });
     const plan = planMove(orgRepo({ files: { ".claude-plugin/marketplace.json": market } }));
@@ -250,6 +262,7 @@ describe("the wrapper", () => {
     expect(JSON.parse(readFileSync(join(dir, MOVED, ".claude-plugin", "plugin.json"), "utf8")).version).toBe("1.4.3");
     expect(JSON.parse(readFileSync(join(dir, ".claude-plugin", "marketplace.json"), "utf8")).plugins[0].source).toBe(`./${MOVED}`);
     expect(parse(readFileSync(join(dir, ORG_STORE), "utf8")).repos["gitlab.example.com/acme/widgets"]["rt.roles"].dev.hook).toBe("${org}/mattstack/teams/widgets/plugin/hooks/dev.sh");
+    expect(parse(readFileSync(join(dir, "mattstack", "mattstack.jsonc"), "utf8")).layout).toBe(2);
     const git = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", env: childEnv() });
     expect(git("log", "--format=%s", "-1").trim()).toBe("org: move team packs to plugin/");
     expect(git("rev-list", "--count", "origin/main..HEAD").trim()).toBe("1");
