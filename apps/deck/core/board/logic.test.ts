@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 
 import fixture from '../../test/fixture/status.json' with { type: 'json' };
-import fixture from '../../test/fixture/status.json' with { type: 'json' };
 import {
   addPayload,
   autoBanner,
