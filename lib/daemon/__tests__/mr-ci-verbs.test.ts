@@ -223,6 +223,16 @@ describe("mr:get", () => {
     expect(await h["mr:get"]!({ repoName: "proj", iid: 7 })).toEqual({ ok: false, error: "repo-unknown" });
   });
 
+  test("refresh: true writes the fresh MR into the stores", async () => {
+    const written: Array<[string, string, unknown]> = [];
+    const h = createMRHandlers(fakeCtx(), () => {}, {
+      getContext: async () => ({ provider: { fetchSingleMR: async () => mr }, projectPath: "grp/proj" }),
+      writeback: (repo: string, projectPath: string, pr: unknown) => { written.push([repo, projectPath, pr]); },
+    });
+    expect(await h["mr:get"]!({ repoName: REPO, iid: 7, refresh: true })).toMatchObject({ ok: true, data: { mr } });
+    expect(written).toEqual([[REPO, "grp/proj", mr]]);
+  });
+
   test("refuses a provider without fetchSingleMR", async () => {
     const r = await handlers({})["mr:get"]!({ repoName: REPO, iid: 7 });
     expect(String((r as { error: string }).error)).toContain("unsupported");

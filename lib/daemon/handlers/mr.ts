@@ -12,7 +12,7 @@
  *   mr:commit-parents        - a commit's parent shas (GitLab providers only)
  *   mr:pipeline-failed-jobs  - a pipeline's failed jobs (GitLab providers only)
  *   mr:by-target             - every MR targeting a branch, live and unscoped (GitLab providers only)
- *   mr:get                   - one MR by iid, read from GitLab (GitLab providers only)
+ *   mr:get                   - one MR by iid, read from GitLab; `refresh` also writes it into the stores (GitLab providers only)
  *   mr:list-live             - a project's MRs filtered by author, branch, state or text (GitLab providers only)
  *   mr:live-by-branch        - the open MR for each named source branch (GitLab providers only)
  *   project:labels           - a project's labels, optionally searched (GitLab providers only)
@@ -472,7 +472,7 @@ export function createMRHandlers(
     },
 
     "mr:get": async (payload) => {
-      const p = payload as { iid?: unknown } | undefined;
+      const p = payload as { iid?: unknown; refresh?: unknown } | undefined;
       if (typeof p?.iid !== "number") return { ok: false, error: "missing repoName/iid" };
       if (!(Number.isInteger(p.iid) && p.iid > 0)) return { ok: false, error: '"iid" must be a positive integer' };
       const decoded = decodeIndexedRepo(payload);
@@ -481,6 +481,7 @@ export function createMRHandlers(
         const { provider, projectPath } = await contextFor(decoded.repo);
         if (typeof provider.fetchSingleMR !== "function") return { ok: false, error: "unsupported: mr:get needs a GitLab repo" };
         const mr = await fetchSingle(provider, projectPath, p.iid);
+        if (mr && p.refresh === true) writeback(decoded.repo, projectPath, mr);
         if (mr) return { ok: true, data: { mr, fetchedAt: Date.now() } };
         if (typeof provider.restRequest !== "function") return { ok: false, error: `GitLab returned no MR !${p.iid} in ${projectPath}` };
         return { ok: false, error: await missingMrReason(provider, projectPath, p.iid) };
