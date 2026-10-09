@@ -213,8 +213,9 @@ regenerate the reference: `bun cli.ts mcp tools --json | bun
 plugins/mattstack/scripts/gen-mcp-tools.ts >
 plugins/mattstack/attachments/mcp-tools/reference.md`. An edit under
 `plugins/mattstack/attachments/gate-protocol` needs `bun run
-skills:expand:board` and a committed `apps/board/skills` in the same PR, or
-the always-run board skills guard fails.
+skills:expand:board`, which writes both the Claude copy `apps/board/skills`
+and the Codex copy `apps/board/skills-targets/codex`, and both committed in
+the same PR, or the always-run board skills guard fails.
 
 ## rt-ui
 

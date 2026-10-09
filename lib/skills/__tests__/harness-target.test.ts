@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -8,7 +8,7 @@ import { checkExpanded, expandSkills, writeExpanded } from "../expand.ts";
 import { parseFragments, resolveHarnessTarget, TARGET_MARKER, type SkillTarget } from "../harness-target.ts";
 import { outDirFor } from "../layout.ts";
 import { resolvePluginRootsFromDir } from "../sources.ts";
-import type { CompiledFile, StepSource, VerbDef } from "../types.ts";
+import type { AttachmentSource, CompiledFile, StepSource, VerbDef } from "../types.ts";
 import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 
 const FRAGMENTS = {
@@ -24,12 +24,28 @@ async function target(harness: "claude" | "codex", fragments: Record<string, str
 
 const verb: VerbDef = { name: "ask", engine: "ask", description: "Ask the operator" };
 
+// A real step dir: a non-Claude compile reads its shipped scripts for advisories.
+const STEP_DIR = mkdtempSync(join(tmpdir(), "rt-harness-step-"));
+mkdirSync(join(STEP_DIR, "scripts"), { recursive: true });
+writeFileSync(join(STEP_DIR, "scripts", "ask.sh"), "#!/bin/sh\n# Invoke: \"${CLAUDE_SKILL_DIR}/scripts/ask.sh\"\necho ask\n");
+
+afterAll(() => {
+  rmSync(STEP_DIR, { recursive: true, force: true });
+});
+
+function attachment(binding: string, body: string, provides = ""): AttachmentSource {
+  return {
+    binding, plugin: binding.split(":")[0]!, version: "1.0.0", dir: STEP_DIR, srcPath: `attachments/${binding.split(":")[1]}/SKILL.md`,
+    bodyStartLine: 5, body, provides, allowedTools: [], extraFiles: [], registered: false,
+  };
+}
+
 function step(body: string, requires: string[] = []): StepSource {
   return {
     name: "ask",
     plugin: "mattstack",
     version: "1.0.0",
-    dir: "/plugins/mattstack/skills/flow/ask",
+    dir: STEP_DIR,
     srcPath: "skills/flow/ask/SKILL.md",
     bodyStartLine: 6,
     body,
@@ -128,6 +144,37 @@ describe("compiling one source for two harnesses", () => {
     expect(legacy.errors).toEqual(['verb "ask": {{harness:questions}} at line 5 has no "questions" fragment in the claude target']);
   });
 
+  test("a script line that uses a Claude variable is reported for codex, a comment line is not", async () => {
+    writeFileSync(join(STEP_DIR, "scripts", "live.sh"), "#!/bin/sh\n# see ${CLAUDE_SKILL_DIR}\nexec \"${CLAUDE_SKILL_DIR}/scripts/ask.sh\"\n");
+    const withScript = { ...step("Run it."), stepFiles: ["scripts/ask.sh", "scripts/live.sh"] };
+    const codex = compileSkill(verb, withScript, {}, new Set(), { target: await target("codex") });
+    expect(codex.warnings.filter((w) => w.includes("does not set"))).toEqual([
+      "scripts/live.sh:3 uses ${CLAUDE_SKILL_DIR}, which the codex target does not set",
+    ]);
+    const claude = compileSkill(verb, withScript, {}, new Set(), { target: await target("claude") });
+    expect(claude.warnings.filter((w) => w.includes("does not set"))).toEqual([]);
+  });
+
+  test("a companion file that names a Claude-only tool is reported for codex", async () => {
+    mkdirSync(join(STEP_DIR, "references"), { recursive: true });
+    writeFileSync(join(STEP_DIR, "references", "notes.md"), "Ask with AskUserQuestion.\n");
+    const withNotes = { ...step("Run it."), stepFiles: ["references/notes.md"] };
+    const codex = compileSkill(verb, withNotes, {}, new Set(), { target: await target("codex") });
+    expect(codex.warnings).toContain("references/notes.md: body names AskUserQuestion, which the codex target does not have");
+  });
+
+  test("a missing fragment in an include or a fill names that source", async () => {
+    const t = await target("codex");
+    const viaInclude = compileSkill(verb, step("# Ask\n\n{{include:note}}"), {}, new Set(), {
+      target: t, includes: { note: attachment("mattstack:note", "Shared.\n{{harness:wait}}") },
+    });
+    expect(viaInclude.errors).toEqual(['verb "ask": mattstack:note: {{harness:wait}} at line 2 has no "wait" fragment in the codex target']);
+
+    const slotted = { ...step("# Ask"), slots: { domain: { contract: "domain@1" } } };
+    const viaFill = compileSkill(verb, slotted, { domain: attachment("acme:domain", "Domain.\n{{harness:wait}}", "domain@1") }, new Set(), { target: t });
+    expect(viaFill.errors).toEqual(['verb "ask": acme:domain: {{harness:wait}} at line 2 has no "wait" fragment in the codex target']);
+  });
+
   test("a codex body that still names a Claude-only tool is reported", async () => {
     const codex = compileSkill(verb, step("Use AskUserQuestion here."), {}, new Set(), { target: await target("codex") });
     expect(codex.warnings).toContain("body names AskUserQuestion, which the codex target does not have");
@@ -195,7 +242,7 @@ describe("target outputs never overwrite each other", () => {
     expect(checkExpanded(claudeOut, claude)).toEqual([]);
     expect(checkExpanded(codexOut, codex)).toEqual([]);
 
-    expect(() => writeExpanded(claudeOut, codex)).toThrow(/holds claude output/);
+    expect(() => writeExpanded(claudeOut, codex)).toThrow(/holds claude output; .*delete it and run expand again/);
     expect(() => writeExpanded(codexOut, claude)).toThrow(/holds codex output/);
     expect(readFileSync(join(claudeOut, "ask", "SKILL.md"), "utf8")).toBe(claudeMd);
     expect(readFileSync(join(codexOut, "ask", "SKILL.md"), "utf8")).toBe(codexMd);
@@ -207,6 +254,19 @@ describe("target outputs never overwrite each other", () => {
     writeExpanded(codexOut, expandSkills({ srcDir: src, outDir: codexOut, roots, target: await target("codex") }));
     const claude = expandSkills({ srcDir: src, outDir: codexOut, roots, target: await target("claude") });
     expect(checkExpanded(codexOut, claude)).toContainEqual({ skill: TARGET_MARKER, causes: ["holds codex output"] });
+  });
+
+  test("codex advisories cover companion files and live script lines; claude has none", async () => {
+    writeFileSync(join(src, "ask", "step.md"), "Ask with AskUserQuestion.\n");
+    writeFileSync(join(src, "ask", "scripts", "ask.sh"), "#!/bin/sh\n# Invoke: ${CLAUDE_SKILL_DIR}/scripts/ask.sh\ncd \"${CLAUDE_SKILL_DIR}\"\n");
+    const roots = resolvePluginRootsFromDir(root);
+    const [codex] = expandSkills({ srcDir: src, outDir: join(root, "codex"), roots, target: await target("codex") });
+    expect(codex!.advisories).toEqual([
+      "ask/scripts/ask.sh:3 uses ${CLAUDE_SKILL_DIR}, which the codex target does not set",
+      "ask/step.md: body names AskUserQuestion, which the codex target does not have",
+    ]);
+    const [claude] = expandSkills({ srcDir: src, outDir: join(root, "claude"), roots, target: await target("claude") });
+    expect(claude!.advisories).toEqual([]);
   });
 
   test("an expand source missing a capability is refused", async () => {

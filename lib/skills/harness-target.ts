@@ -226,6 +226,29 @@ export function foreignToolWarnings(text: string, target: SkillTarget): string[]
     .map((tool) => `body names ${tool}, which the ${target.harness} target does not have`);
 }
 
+const SCRIPT_COMMENT_RE = /^\s*(#|\/\/)/;
+const SCRIPT_EXTS = [".sh", ".bash", ".py", ".ts", ".js", ".mjs"];
+
+export function isShippedScript(path: string): boolean {
+  return SCRIPT_EXTS.some((e) => path.endsWith(e));
+}
+
+/**
+ * Advisories for a file the target ships without rendering: a script runs
+ * under the host's shell, where only Claude sets `${CLAUDE_*}`, so a live
+ * line naming one breaks there. Comment lines are documentation.
+ */
+export function scriptAdvisories(text: string, path: string, target: SkillTarget): string[] {
+  if (keepsLegacyTokens(target)) return [];
+  const out: string[] = [];
+  text.split("\n").forEach((line, i) => {
+    if (SCRIPT_COMMENT_RE.test(line)) return;
+    const hit = line.match(CLAUDE_VAR_RE);
+    if (hit) out.push(`${path}:${i + 1} uses ${hit[0]}, which the ${target.harness} target does not set`);
+  });
+  return out;
+}
+
 /** Space- or comma-separated string, or a YAML list. */
 export function readRequires(frontmatter: Record<string, unknown>): string[] {
   const meta = frontmatter.metadata && typeof frontmatter.metadata === "object" ? (frontmatter.metadata as Record<string, unknown>) : {};

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { isAbsolute, relative as relativePath, resolve as resolvePath, sep } from "path";
 import {
-  capabilityError, foreignToolWarnings, keepsLegacyTokens, LEGACY_CLAUDE_TARGET, missingCapabilities, renderForTarget, type SkillTarget,
+  capabilityError, foreignToolWarnings, keepsLegacyTokens, LEGACY_CLAUDE_TARGET, isShippedScript, missingCapabilities, renderForTarget, scriptAdvisories, type SkillTarget,
 } from "./harness-target.ts";
 import { assertNoPlaceholders, findPlaceholders, skillDirFor, substitute, substituteIncludesOnly, type TraceEntry } from "./placeholders.ts";
 import type {
@@ -593,7 +593,17 @@ export function compileSkill(
 
   // Lint reads the source spelling above, so its coordinates stay the source's.
   const rendered = keepsLegacyTokens(target) ? files : files.map((file) => renderFile(file, target, where));
+  if (!keepsLegacyTokens(target)) warnings.push(...renderedFileWarnings(rendered, target));
   return { files: rendered, warnings, errors, ...(gaps.length > 0 && { targetGaps: gaps }) };
+}
+
+/** SKILL.md's own foreign tools are already counted from the body above. */
+function renderedFileWarnings(files: CompiledFile[], target: SkillTarget): string[] {
+  return files.flatMap((file) => {
+    if (file.path === "SKILL.md") return [];
+    if ("content" in file) return foreignToolWarnings(file.content, target).map((w) => `${file.path}: ${w}`);
+    return isShippedScript(file.path) ? scriptAdvisories(readFileSync(file.copyFrom, "utf8"), file.path, target) : [];
+  });
 }
 
 /** A companion Markdown file is read by the agent like SKILL.md, so it is rendered the same way; anything else ships byte for byte. */

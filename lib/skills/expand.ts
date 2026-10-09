@@ -2,8 +2,8 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { dirname, join, resolve, sep } from "path";
 import { skillMdDriftCauses } from "./drift.ts";
 import {
-  capabilityError, DEFAULT_HARNESS, keepsLegacyTokens, LEGACY_CLAUDE_TARGET, missingCapabilities, readRequires,
-  readTargetMarker, renderForTarget, TARGET_MARKER, targetMarkerText, type SkillTarget,
+  capabilityError, DEFAULT_HARNESS, foreignToolWarnings, keepsLegacyTokens, LEGACY_CLAUDE_TARGET, missingCapabilities, readRequires,
+  isShippedScript, readTargetMarker, renderForTarget, scriptAdvisories, TARGET_MARKER, targetMarkerText, type SkillTarget,
 } from "./harness-target.ts";
 import { findPlaceholders, substituteIncludesOnly } from "./placeholders.ts";
 import { maskProvenance } from "./provenance.ts";
@@ -25,6 +25,8 @@ export type ExpandedSkill = {
   files: ExpandedFile[];
   includes: string[];
   harness: string;
+  /** What the target cannot carry as written, by file: foreign native tools and `${CLAUDE_*}` in scripts. Never fatal. */
+  advisories: string[];
 };
 
 export type ExpandDrift = { skill: string; causes: string[] };
@@ -182,14 +184,16 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
       files.push({ path: `parts/include-${n}/${extra}`, copyFrom: join(includes[n]!.dir, extra) });
     }
   }
-  if (keepsLegacyTokens(target)) return { name, skillMd, files, includes: names, harness: target.harness };
-  return {
-    name,
-    skillMd: renderForTarget(skillMd, target, where),
-    files: files.map((f) => renderCompanion(f, target, `${name}/${f.path}`)),
-    includes: names,
-    harness: target.harness,
-  };
+  if (keepsLegacyTokens(target)) return { name, skillMd, files, includes: names, harness: target.harness, advisories: [] };
+  const renderedMd = renderForTarget(skillMd, target, where);
+  const rendered = files.map((f) => renderCompanion(f, target, `${name}/${f.path}`));
+  const advisories = [
+    ...foreignToolWarnings(renderedMd, target).map((w) => `${name}/SKILL.md: ${w}`),
+    ...rendered.flatMap((f) => "content" in f
+      ? foreignToolWarnings(f.content, target).map((w) => `${name}/${f.path}: ${w}`)
+      : isShippedScript(f.path) ? scriptAdvisories(readFileSync(f.copyFrom, "utf8"), `${name}/${f.path}`, target) : []),
+  ];
+  return { name, skillMd: renderedMd, files: rendered, includes: names, harness: target.harness, advisories };
 }
 
 /** A companion Markdown file is read like SKILL.md, so it is rendered the same way; anything else ships byte for byte. */
@@ -252,7 +256,7 @@ export function planRemoval(outDir: string, skills: ExpandedSkill[]): string[] {
   const harness = harnessOf(skills);
   const held = heldTarget(outDir);
   if (held !== null && held !== harness) {
-    throw new Error(`${outDir} holds ${held} output; expand the ${harness} skills into their own --out`);
+    throw new Error(`${outDir} holds ${held} output; expand the ${harness} skills into their own --out, or, if that folder should hold ${harness} output, delete it and run expand again`);
   }
   const { orphans, foreign } = survey(outDir, skills);
   if (foreign.length > 0) {

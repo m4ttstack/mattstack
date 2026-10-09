@@ -17,7 +17,7 @@ import { TREE } from "../lib/command-tree-def.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { checkExpanded, expandSkills, planRemoval, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
-import { DEFAULT_HARNESS, foreignToolWarnings, knownHarnesses, resolveHarnessTarget, type SkillTarget } from "../lib/skills/harness-target.ts";
+import { DEFAULT_HARNESS, knownHarnesses, resolveHarnessTarget, type SkillTarget } from "../lib/skills/harness-target.ts";
 import { deriveRules, formatHit, isScriptPath, lintScriptFile, lintSkillText } from "../lib/skills/mcp-lint.ts";
 import { resolvePluginRoots, resolvePluginRootsFromDir } from "../lib/skills/sources.ts";
 import * as out from "../lib/ui/out.ts";
@@ -122,7 +122,7 @@ export async function skillsExpand(args: string[]): Promise<void> {
   const { lint, advisory } = flags.strict ? lintExpanded(flags.out, skills) : { lint: [], advisory: [] };
   if (advisory.length > 0) out.note(out.verbatim(advisory, "advisory"));
   // Advisory until every source carries its native sequences as fragments.
-  const foreign = skills.flatMap((s) => foreignToolWarnings(s.skillMd, target).map((w) => `${s.name}: ${w}`));
+  const foreign = skills.flatMap((s) => s.advisories);
   if (foreign.length > 0) out.note(out.verbatim(foreign, "advisory"));
 
   if (flags.check) {

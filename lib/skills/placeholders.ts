@@ -62,7 +62,7 @@ function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContex
   const body = rewritten.split("\n").map((line, i) =>
     line.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
       if (kind !== "harness") throw new Error(`${inc.binding}: ${raw} -- an include may carry {{harness}} only (line ${i + 1})`);
-      return harnessText(line, i, raw, arg, ctx, inc.binding);
+      return harnessText(line, i, raw, arg, ctx, inc.binding, true);
     }),
   ).join("\n");
   return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${body}`;
@@ -73,7 +73,8 @@ function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContex
  * placeholder is alone on its line and the fragment's seam starts that line,
  * the shape every other multi-line part takes.
  */
-function harnessText(line: string, i: number, raw: string, arg: string | undefined, ctx: PlaceholderContext, where: string): string {
+/** `nested` is a fill or include body: its line numbers are its own, so a collected gap names it. */
+function harnessText(line: string, i: number, raw: string, arg: string | undefined, ctx: PlaceholderContext, where: string, nested = false): string {
   if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
   if (arg === undefined || !VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- fragment name must match [a-z][a-z0-9-]*`);
   const target = ctx.target ?? LEGACY_CLAUDE_TARGET;
@@ -81,7 +82,7 @@ function harnessText(line: string, i: number, raw: string, arg: string | undefin
   if (fragment === undefined) {
     const gap = `${raw} at line ${i + 1} has no "${arg}" fragment in the ${target.harness} target`;
     if (!ctx.missingFragments) throw new Error(`${where}: ${gap}`);
-    ctx.missingFragments.push(gap);
+    ctx.missingFragments.push(nested ? `${where}: ${gap}` : gap);
     return "";
   }
   const span = target.fragmentSpans?.[arg];
@@ -111,7 +112,7 @@ export function substituteIncludesOnly(body: string, ctx: PlaceholderContext, wh
           packPaths.push(rendered);
           return rendered;
         }
-        case "harness": return harnessText(line, i, raw, arg, ctx, where);
+        case "harness": return harnessText(line, i, raw, arg, ctx, where, true);
         default:
           throw new Error(`${where}: ${raw} -- a fill may carry {{include}}, {{verb.path}} or {{pack.path}} only (line ${i + 1})`);
       }
