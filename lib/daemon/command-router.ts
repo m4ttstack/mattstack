@@ -315,6 +315,7 @@ export function buildRoutedHandlers(opts: {
     }),
     ...createRelocationHandlers({
       links: opts.modLinks, db: opts.stateDb, autoAccept: opts.relocationAutoAccept ?? (() => false),
+      ...(opts.relocationInSession && { inSession: opts.relocationInSession }),
     }),
     ...paneHandlers,
     ...createEndpointHandlers({ log: ctx.log, repoIndex: ctx.repoIndex }),

@@ -563,9 +563,9 @@ export function createPaneHandlers(opts: {
       if (p.path !== undefined && (typeof p.path !== "string" || p.path.length === 0)) return { ok: false, error: "path must be a non-empty string" };
       if (p.paneId !== undefined && typeof p.paneId !== "string") return { ok: false, error: "paneId must be a string" };
       if (p.origin !== undefined && p.origin !== "create") return { ok: false, error: "origin must be create" };
-      if (!relocation) return { ok: true, data: { scheduled: false, pane: null, reason: "disabled" } };
       if (p.origin === "create") opts.relocationInSession?.noteCreate(p.sessionId);
-      else if (opts.relocationInSession?.answers({ sessionId: p.sessionId })) return { ok: true, data: { scheduled: false, pane: null, reason: "mod" } };
+      if (!relocation) return { ok: true, data: { scheduled: false, pane: null, reason: "disabled" } };
+      if (p.origin !== "create" && opts.relocationInSession?.answers({ sessionId: p.sessionId })) return { ok: true, data: { scheduled: false, pane: null, reason: "mod" } };
       return { ok: true, data: await relocation.announce(p) };
     },
   };

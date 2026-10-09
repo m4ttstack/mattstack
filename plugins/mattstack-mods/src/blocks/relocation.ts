@@ -6,6 +6,35 @@ export type Registered = { registered: boolean }
 
 const ENTER_TOOL = 'EnterWorktree'
 
+/** How long the prompt waits on rt's answer before it shows anyway; well under the link's own 25 s cap. */
+export const REGISTERED_DEADLINE_MS = 2_500
+
+/** `call`'s result, or null once `REGISTERED_DEADLINE_MS` passes first; a late result is dropped. */
+function withinDeadline<T>(api: ModApi, call: Promise<T>): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const timer = api.clock.after(REGISTERED_DEADLINE_MS, () => {
+      if (settled) return
+      settled = true
+      resolve(null)
+    })
+    call.then(
+      value => {
+        if (settled) return
+        settled = true
+        timer.cancel()
+        resolve(value)
+      },
+      error => {
+        if (settled) return
+        settled = true
+        timer.cancel()
+        reject(error)
+      },
+    )
+  })
+}
+
 /**
  * The `relocation` block: answers EnterWorktree's permission-root relocation
  * prompt inside the session, so no daemon seam reads the screen or presses a
@@ -39,7 +68,11 @@ export function registerRelocation(hub: Hub, link: Link): void {
         if (typeof path !== 'string' || path === '') return
         const verdict = await beneath()
         if (verdict.decision !== 'ask') return verdict
-        const out = await link.call<Registered>('worktree:registered', { sessionId: await a.session.id(), path, cwd: await a.session.cwd() })
+        const out = await withinDeadline(a, link.call<Registered>('worktree:registered', { sessionId: await a.session.id(), path, cwd: await a.session.cwd() }))
+        if (out === null) {
+          log(`worktree:registered gave no answer within ${REGISTERED_DEADLINE_MS} ms; the prompt shows`)
+          return verdict
+        }
         if (!out.ok) {
           if (out.error.code !== 'no-link') log(`worktree:registered gave no answer (${out.error.code}: ${out.error.message}); the prompt shows`)
           return verdict

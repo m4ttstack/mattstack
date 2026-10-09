@@ -793,7 +793,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             // Off maps to "no-dialog": the normal attention-gate path takes the pane.
             if (!relocationAutoAcceptEnabled()) return "no-dialog";
             if (isHerdOwnedPane(pane.paneRef)) return "no-dialog";
-            if (relocationInSession.answers({ paneRef: pane.paneRef, ...(pane.sessionId !== undefined && { sessionId: pane.sessionId }) })) return "no-dialog";
+            if (relocationInSession.answered({ paneRef: pane.paneRef, ...(pane.sessionId !== undefined && { sessionId: pane.sessionId }) })) return "no-dialog";
             const paneId = parsePaneRef(pane.paneRef).paneId;
             const outcome = await relocationDriveGuard(pane.paneRef, () => driveRelocationAccept({
               herdr: herdrRequest, sock: { sockPath: pane.sockPath }, pane: paneId,
@@ -1416,7 +1416,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           sensors: watchdogSensors,
           act: createWatchdogActuators({
             herdStore, db: getStateDb("daemon"), socketFor: watchdogSensors.socketFor, herdr: herdrRequest, log: watchdogLog,
-            relocationInMod: (pane) => relocationInSession.answers({ paneRef: pane }),
+            relocationInMod: (pane) => relocationInSession.answered({ paneRef: pane }),
           }),
           cfg: watchdogConfig,
           log: watchdogLog,

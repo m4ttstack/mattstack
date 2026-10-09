@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { registerRelocation } from '../src/blocks/relocation.ts'
+import { REGISTERED_DEADLINE_MS, registerRelocation } from '../src/blocks/relocation.ts'
 import { attachHub, createHub } from '../src/core/hub.ts'
 import { createLink } from '../src/core/link.ts'
 import { harness as stub, recorder, type Respond } from './stub.ts'
@@ -57,6 +57,17 @@ describe('relocation permit', () => {
       expect(result).toEqual(RELOCATION_ASK)
       expect(h.hub.liveBlocks()).toContain('relocation')
     }
+  })
+
+  test('a daemon that does not answer within the deadline leaves the prompt', async () => {
+    const h = harness()
+    h.script.respond = daemon(h, () => new Promise(() => {}))
+    await h.start()
+
+    const pending = h.fire('tool.check', ENTER({ path: '/pool/r/fred' }), recorder(RELOCATION_ASK).next)
+    await h.clock.advance(REGISTERED_DEADLINE_MS)
+    expect(await pending).toEqual(RELOCATION_ASK)
+    expect(h.hub.liveBlocks()).toContain('relocation')
   })
 
   test('name mode, an allow or a deny beneath, and other tools are never asked about', async () => {

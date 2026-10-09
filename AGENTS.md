@@ -879,9 +879,11 @@ announced path.
 
 A bound session whose mattstack-mods `relocation` block is live answers a
 path-mode prompt itself: its `tool.check` rule allows a path
-`worktree:registered` confirms, and all three seams stand down for that
-session, except for the window after a create-hook (name-mode) announce,
-which keeps today's handling (`lib/agent-integrations/claude/relocation.ts`).
+`worktree:registered` confirms. The announce watcher stands down for that
+session; the watchdog and the reconciler stand down only while a
+`worktree:registered` answer for it is under 20 s old, so a lost call
+leaves them pressing. The window after a create-hook (name-mode) announce
+keeps today's handling (`lib/agent-integrations/claude/relocation.ts`).
 
 Claude Code 2.1.281 draws the dialog under a full-width rule with a
 " Tool use" heading, an "   Entering worktree(<path>)" echo and a

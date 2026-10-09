@@ -280,6 +280,11 @@ export function findManagedTree(repoName: string, name: string, deps: WorktreeDe
   return resolved(deps).findTreeByName(repoName, name);
 }
 
+/** The registry tree at `path`, as written or canonicalised; null when rt's registry holds none there. */
+export function findManagedTreeByPath(path: string, deps: WorktreeDeps = {}): ManagedTree | null {
+  return resolved(deps).findTree(path);
+}
+
 /** The session that holds a tree, when it is not the caller; null when the caller holds it or nobody does. */
 export function foreignHolder(context: CallerContext, tree: ManagedTree, deps: WorktreeDeps = {}): WorktreeHolder | null {
   const holder = readHolder(resolved(deps).db, tree.path);

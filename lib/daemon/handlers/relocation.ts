@@ -11,15 +11,17 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import type { CallerContext } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import { resolveCallerContextNow } from "../../agent-integrations/context.ts";
 import { UNKNOWN_LINK, type ModLinks, type ModLinkView } from "../../agent-integrations/claude/mod-links.ts";
 import { modContext, modPath } from "../../agent-integrations/claude/mod-path.ts";
-import { applyWorktreeEvent, liveHolder, worktreeOwner, type WorktreeDeps } from "../../agent-integrations/worktrees.ts";
-import { findTreeByPath } from "../../worktree/registry.ts";
+import type { RelocationInSession } from "../../agent-integrations/claude/relocation.ts";
+import {
+  applyWorktreeEvent, findManagedTreeByPath, liveHolder, worktreeOwner, type WorktreeDeps,
+} from "../../agent-integrations/worktrees.ts";
+import { canon } from "../../fs-canon.ts";
 
 type Verb = "worktree:registered" | "worktree:entered";
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
@@ -32,9 +34,10 @@ export type RelocationHandlerDeps = {
   db: Database;
   /** panes.relocationAutoAccept, read on every call. */
   autoAccept: () => boolean;
-  /** Whether rt's worktree registry holds `path`; findTreeByPath by default. */
-  registered?: (path: string) => boolean;
+  /** Registry and holder reads; the daemon's own state.db and registry by default. */
   worktrees?: WorktreeDeps;
+  /** Where each answer is recorded, so the screen-reading seams stand down only for a session the mod asked about. */
+  inSession?: RelocationInSession;
 };
 
 const declined = (code: string, message: string, error = message) => ({ ok: false as const, error, failure: { code, message } });
@@ -45,22 +48,11 @@ const isAbsolutePath = (v: unknown): v is string => isText(v) && isAbsolute(v) &
 const record = (payload: unknown): Record<string, unknown> =>
   payload !== null && typeof payload === "object" ? payload as Record<string, unknown> : {};
 
-function inRegistry(path: string): boolean {
-  if (findTreeByPath(path) !== null) return true;
-  try {
-    return findTreeByPath(realpathSync(path)) !== null;
-  } catch {
-    // A path that does not exist on disk is not one the registry could hold.
-    return false;
-  }
-}
-
 type Caller = { link: ModLinkView; context: CallerContext | null; unbound?: string };
 
 export function createRelocationHandlers(deps: RelocationHandlerDeps): { [K in Verb]: (payload: unknown) => Promise<Result<K>> } {
   const { links, db } = deps;
   const worktrees: WorktreeDeps = deps.worktrees ?? { db };
-  const registered = deps.registered ?? inRegistry;
 
   function callerOf(linkId: unknown, sessionId: unknown): Caller | ReturnType<typeof declined> {
     if (!isText(linkId)) return invalid("linkId must be a non-empty string");
@@ -87,9 +79,11 @@ export function createRelocationHandlers(deps: RelocationHandlerDeps): { [K in V
       if (!modPath(caller.context.binding, "relocation", links)) return refused("this session's relocation block is not live; the person answers the prompt");
       if (!deps.autoAccept()) return refused("relocation auto-accept is off; the person answers the prompt");
       const target = resolve(cwd, path);
+      const tree = findManagedTreeByPath(target, worktrees);
+      deps.inSession?.noteAnswer(caller.link.sessionId, tree?.path ?? canon(target));
       const holder = liveHolder(target, worktrees);
       if (holder !== null && holder.owner !== worktreeOwner(caller.context)) return refused(`${holder.tree} belongs to another session`);
-      return { ok: true, data: { registered: registered(target) } };
+      return { ok: true, data: { registered: tree !== null } };
     },
 
     "worktree:entered": async (payload) => {

@@ -43,10 +43,8 @@ function setup(opts: { blocks?: ModBlock[]; bound?: boolean; autoAccept?: boolea
   });
   if (!registered.ok) throw new Error(registered.error.message);
   const worktrees: WorktreeDeps = { db, findTree: (p) => TREES[p] ?? null };
-  const handlers = createRelocationHandlers({
-    links, db, autoAccept: () => opts.autoAccept ?? true, registered: (p) => TREES[p] !== undefined, worktrees,
-  });
   const inSession = createRelocationInSession({ db: () => db, links: () => links, now: opts.now ?? (() => 5_000) });
+  const handlers = createRelocationHandlers({ links, db, autoAccept: () => opts.autoAccept ?? true, worktrees, inSession });
   const armed: Commands["pane:announce-relocation"]["payload"][] = [];
   const watcher: RelocationWatcher = {
     announce: async (a) => {
@@ -140,19 +138,61 @@ describe("relocation answered inside the Claude session", () => {
       expect(other.armed).toHaveLength(1);
     }
 
-    // The herd watchdog presses nothing on a block-live pane, and drives a pane without one.
+  });
+
+  test("the watchdog and reconciler stand down only once the mod has asked about the session", async () => {
+    let now = 5_000;
+    const live = setup({ now: () => now });
     const herdr: string[] = [];
-    const act = (answers: (pane: string) => boolean) => createWatchdogActuators({
+    const act = createWatchdogActuators({
       herdStore: { setJobStatus: () => {} }, db: live.db, socketFor: () => "/tmp/h.sock", log: pino({ level: "silent" }),
       herdr: (async (_sock: unknown, method: string) => {
         herdr.push(method);
         throw new Error("no herdr in this test");
       }) as never,
-      relocationInMod: answers,
+      relocationInMod: (pane) => live.inSession.answered({ paneRef: pane }),
     });
-    expect(await act(() => true).acceptRelocationModal("h1", "j1", PANE)).toBe(false);
-    expect(herdr).toHaveLength(0);
-    await act(() => false).acceptRelocationModal("h1", "j1", PANE);
+
+    // Block live but no worktree:registered answer recorded (lost or slow): the watchdog drives as today.
+    expect(live.inSession.answered({ paneRef: PANE })).toBe(false);
+    await act.acceptRelocationModal("h1", "j1", PANE);
     expect(herdr.length).toBeGreaterThan(0);
+
+    // A recorded answer, whatever it said, keeps the seams down for its window.
+    for (const path of ["/pool/r/fred", "/elsewhere/wt"]) {
+      now += 21_000;
+      live.links.heartbeat(live.linkId);
+      expect(live.inSession.answered({ paneRef: PANE })).toBe(false);
+      await call(live.handlers["worktree:registered"], { linkId: live.linkId, sessionId: SID, path, cwd: CWD });
+      expect(live.inSession.answered({ paneRef: PANE })).toBe(true);
+      expect(live.inSession.answered({ sessionId: SID })).toBe(true);
+      herdr.length = 0;
+      expect(await act.acceptRelocationModal("h1", "j1", PANE)).toBe(false);
+      expect(herdr).toHaveLength(0);
+    }
+    now += 21_000;
+    live.links.heartbeat(live.linkId);
+    claimWorktree({ binding: bind(live.db, OTHER, "w1:p9") }, "/pool/r/wilma", {}, live.worktrees);
+    expect((await call(live.handlers["worktree:registered"], { linkId: live.linkId, sessionId: SID, path: "/pool/r/wilma", cwd: CWD })).failure?.code).toBe("refused");
+    expect(live.inSession.answered({ paneRef: PANE })).toBe(true);
+    now += 21_000;
+    expect(live.inSession.answered({ paneRef: PANE })).toBe(false);
+
+    // A refusal before the question (auto-accept off) records nothing.
+    const off = setup({ autoAccept: false });
+    await call(off.handlers["worktree:registered"], { linkId: off.linkId, sessionId: SID, path: "/pool/r/fred", cwd: CWD });
+    expect(off.inSession.answered({ sessionId: SID })).toBe(false);
+  });
+
+  test("a create announce is noted even with no watcher to arm", async () => {
+    const db = openStateDb(":memory:");
+    const links = createModLinks({ now: () => 5_000, integrationsEnabled: () => true, store: createSessionStore(db) });
+    bind(db, SID);
+    links.register({ sessionId: SID, cwd: CWD, root: CWD, pane: PANE, claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.2.4", blocks: ["relocation"] });
+    const inSession = createRelocationInSession({ db: () => db, links: () => links, now: () => 5_000 });
+    const pane = createPaneHandlers({ db, repoIndex: () => ({}), relocationInSession: inSession });
+    expect(inSession.answers({ sessionId: SID })).toBe(true);
+    expect(await call(pane["pane:announce-relocation"], announce({ origin: "create" }))).toEqual({ ok: true, data: { scheduled: false, pane: null, reason: "disabled" } });
+    expect(inSession.answers({ sessionId: SID })).toBe(false);
   });
 });
