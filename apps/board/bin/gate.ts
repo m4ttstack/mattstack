@@ -3,6 +3,7 @@ import {
   gateAsk as facilityGateAsk,
   gateWait as facilityGateWait,
 } from '@mattstack/rt-client';
+import { callerSession, integrationsOn } from '../src/caller-session.ts';
 import {
   gateAnswer,
   gateOpen,
@@ -28,6 +29,9 @@ function flag(argv: string[], name: string): string | undefined {
 
 const [verb, statePath, ...rest] = process.argv.slice(2);
 
+const caller = callerSession(process.env, integrationsOn());
+if (caller.problem) console.error(caller.problem);
+
 try {
   if (verb === 'open') {
     const kind = flag(rest, '--kind');
@@ -38,14 +42,15 @@ try {
       );
     const result = await gateOpen(statePath, kind, questions, io, {
       context: flag(rest, '--context'),
-      sessionId: process.env.CLAUDE_CODE_SESSION_ID,
+      sessionId: caller.sessionId,
+      harness: caller.harness,
       worktree: process.cwd(),
     });
     console.log(JSON.stringify(result));
   } else if (verb === 'wait') {
     if (!statePath) throw new Error('usage: gate wait <state> [--max-ms <n>]');
     const result = await gateWait(statePath, io, parseWaitMaxMs(rest), {
-      sessionId: process.env.CLAUDE_CODE_SESSION_ID,
+      sessionId: caller.sessionId,
     });
     // "pending" is its own line so the caller re-runs; an answered result
     // keeps the historical shape (no status field) the wrapper parses.

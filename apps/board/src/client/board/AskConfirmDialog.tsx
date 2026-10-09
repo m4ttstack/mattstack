@@ -53,7 +53,7 @@ export function AskConfirmDialog({
     >
       <div className="tui-ask-send-body">
         <p className="tui-ask-send-copy">
-          It runs on {who}'s Mac with {who}'s Claude usage, once {who} says go
+          It runs on {who}'s Mac with {who}'s agent usage, once {who} says go
           ahead.
         </p>
         <TextField

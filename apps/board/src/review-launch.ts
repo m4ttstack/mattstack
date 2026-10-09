@@ -1,4 +1,8 @@
-import { resumeAgentPane, resumePackEnv } from './agent-launch.ts';
+import {
+  agentHarness,
+  resumeAgentPane,
+  resumePackEnv,
+} from './agent-launch.ts';
 import type { BoardConfig } from './config.ts';
 import { reviewSkillForTab } from './data.ts';
 import {
@@ -23,7 +27,7 @@ import {
   reviewReportPath,
   writeReviewState,
 } from './review-state.ts';
-import { resolveSkillPath } from './skill-path.ts';
+import { resolveDispatchSkill } from './skill-path.ts';
 
 /** How the re-review actually started. Callers that only want the board's
     optimistic response ignore this; triage awaits it to learn whether the pane
@@ -105,6 +109,8 @@ export interface ReReviewIo {
   writeReviewState: typeof writeReviewState;
   readReviewStates: typeof readReviewStates;
   reviewFilePath: typeof reviewFilePath;
+  /** The harness a recorded agent runs; unset resumes it as Claude. */
+  agentHarness?: typeof agentHarness;
 }
 
 export const defaultReReviewIo: ReReviewIo = {
@@ -114,6 +120,7 @@ export const defaultReReviewIo: ReReviewIo = {
   writeReviewState,
   readReviewStates,
   reviewFilePath,
+  agentHarness: id => agentHarness(id),
 };
 
 /** Start a re-review of an MR: resume the prior session if there is one, else
@@ -132,32 +139,35 @@ export const defaultReReviewIo: ReReviewIo = {
     (launchLegacyResume, `claude --resume`); neither on file launches a fresh
     review with the re-review framing (the wrapper reads any prior report at
     reportPath, and falls back to a normal review if the author hasn't acted).
-    Both resume arms carry the SAME re-review prompt, built once below. */
+    Both resume arms carry the same re-review prompt, built for the harness
+    the resumed session runs. */
 export async function launchReReview(
   mrUrl: string,
   iid: number,
   ctx: ReReviewCtx,
   io: ReReviewIo = defaultReReviewIo,
-  resolvePath: SkillPathResolver = resolveSkillPath
+  resolvePath: SkillPathResolver = resolveDispatchSkill
 ): Promise<ReReviewLaunch> {
   const existing = io.readReviewStates().get(mrUrl);
   const statePath = io.reviewFilePath(mrUrl);
   const boardTabId = laneBoardTab(existing?.boardTabId, ctx.boardTabId);
   const { skill, pack } = ctx.forTab(boardTabId);
   const lane = { boardTabId: boardTabId ?? '', noPack: !pack };
-  const prompt = await dispatchPrompt(
-    'board:review',
-    {
-      mrUrl,
-      statePath,
-      statusBin: statusBinPath(),
-      reportPath: reviewReportPath(statePath),
-      skill,
-      reReview: ctx.reReview ?? true,
-      note: ctx.note,
-    },
-    resolvePath
-  );
+  const resumePrompt = (harness?: string) =>
+    dispatchPrompt(
+      'board:review',
+      {
+        mrUrl,
+        statePath,
+        statusBin: statusBinPath(),
+        reportPath: reviewReportPath(statePath),
+        skill,
+        reReview: ctx.reReview ?? true,
+        note: ctx.note,
+      },
+      resolvePath,
+      harness
+    );
 
   if (existing?.agentId) {
     io.writeReviewState(statePath, {
@@ -166,9 +176,11 @@ export async function launchReReview(
       ...lane,
     });
     try {
+      const agentId = existing.agentId;
+      const harness = await io.agentHarness?.(agentId);
       const result = await io.resumeAgentPane({
-        agentId: existing.agentId,
-        prompt,
+        agentId,
+        prompt: await resumePrompt(harness),
         workspaceLabel: ctx.workspaceLabel,
         tabLabel: mrTabLabel(iid, ctx.author, 'RE'),
         env: resumePackEnv(pack),
@@ -209,8 +221,9 @@ export async function launchReReview(
         workspaceLabel: ctx.workspaceLabel,
         statePath,
         sessionId: existing.sessionId,
+        sessionHarness: existing.sessionHarness,
         workspaceKind: 'review',
-        prompt,
+        prompt: await resumePrompt(),
         tabPrefix: 'RE',
         author: ctx.author,
         claudeCommand: ctx.claudeCommand,
@@ -300,7 +313,7 @@ export async function launchRespondAsk(
   iid: number,
   ctx: RespondAskCtx,
   io: RespondAskIo = defaultRespondAskIo,
-  resolvePath: SkillPathResolver = resolveSkillPath
+  resolvePath: SkillPathResolver = resolveDispatchSkill
 ): Promise<ReReviewLaunch> {
   const statePath = io.respondFilePath(mrUrl);
   io.writeRespondState(statePath, {

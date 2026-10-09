@@ -210,7 +210,7 @@ export function AsksDropdown({
       </div>
       <footer className="tui-asks-foot">
         <AskGlyph name="cpu" size={12} />
-        Asks run on this Mac with your Claude usage.
+        Asks run on this Mac with your agent usage.
       </footer>
     </div>
   );

@@ -2,7 +2,9 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
+import type { HarnessId } from '@mattstack/rt-client';
 import {
+  selectLaunchHarness,
   startAgentPane,
   type AgentIo,
   type AgentLaunchResult,
@@ -10,7 +12,10 @@ import {
 import { respondReportPath } from './respond-state.ts';
 import { reviewReportPath } from './review-state.ts';
 import { shellSingleQuote } from './shell-quote.ts';
-import { resolveSkillPath } from './skill-path.ts';
+import {
+  resolveDispatchSkill,
+  type HarnessSkillResolver,
+} from './skill-path.ts';
 
 export type HerdrRunner = (args: string[]) => Promise<string>;
 
@@ -264,9 +269,10 @@ export function doctorPrompt(o: SkillPromptOpts): string {
   return buildSkillPrompt('board:doctor', o);
 }
 
-/** Resolves a skill name (e.g. "acme:board-review") to the absolute
-    path of its SKILL.md, or null when it can't be found (see skill-path.ts). */
-export type SkillPathResolver = (name: string) => Promise<string | null>;
+/** Resolves a skill name (e.g. "acme:board-review") to the absolute path of
+    its SKILL.md for the pane's harness, or null when it can't be found (see
+    skill-path.ts). */
+export type SkillPathResolver = HarnessSkillResolver;
 
 /**
  * Build the prompt a launched pane runs. The pane ALWAYS starts the generic
@@ -284,15 +290,29 @@ export type SkillPathResolver = (name: string) => Promise<string | null>;
  * --skill-path and reproduces the historical flag string byte-for-byte
  * (buildSkillPrompt) -- the wrapper then falls back to its own binding
  * resolution, unchanged.
+ *
+ * `harness` is the pane's harness, unset while the integrations switch is
+ * off. A harness other than Claude has no slash command for the wrapper, so
+ * its prompt names the wrapper's own installed SKILL.md for that harness;
+ * a launch fails when that file cannot be found.
  */
 export async function dispatchPrompt(
   wrapper: string,
   o: SkillPromptOpts,
-  resolvePath: SkillPathResolver = resolveSkillPath
+  resolvePath: SkillPathResolver = resolveDispatchSkill,
+  harness?: HarnessId
 ): Promise<string> {
+  let wrapperPath: string | null = null;
+  if (harness !== undefined && harness !== 'claude') {
+    wrapperPath = await resolvePath(wrapper, harness);
+    if (!wrapperPath)
+      throw new Error(
+        `The ${wrapper} skill is not installed for ${harness}, so the board cannot start it there`
+      );
+  }
   let skillPath: string | null = null;
   if (o.skill) {
-    skillPath = await resolvePath(o.skill);
+    skillPath = await resolvePath(o.skill, harness);
     if (skillPath) {
       console.log(
         `${wrapper} dispatch: --skill-path resolved -- "${o.skill}" -> ${skillPath}`
@@ -303,6 +323,11 @@ export async function dispatchPrompt(
       );
     }
   }
+  if (wrapperPath)
+    return withNote(
+      `Use the ${wrapper} skill at ${wrapperPath} with these arguments:${FLAG_SEPARATOR}${dispatchArgs(o, skillPath)}`,
+      o.note
+    );
   return withNote(`/${wrapper} ${dispatchArgs(o, skillPath)}`, o.note);
 }
 
@@ -452,12 +477,50 @@ async function launchInWorkspace(
   return { tabId: tab.tabId, workspaceId };
 }
 
+/** Start `wrapper` in a fresh rt-agent pane through the shared launcher, on
+    the harness selectLaunchHarness picks. The board.agent.* account, model
+    and effort are Claude's, so a pane on another harness takes that
+    harness's own defaults instead. */
+async function launchWrapper(
+  wrapper: string,
+  promptOpts: SkillPromptOpts,
+  opts: LaunchPaneOpts,
+  tabLabel: string,
+  io: AgentIo | undefined,
+  resolvePath: SkillPathResolver
+): Promise<AgentLaunchResult> {
+  const harness = await selectLaunchHarness(io?.harness);
+  const prompt = await dispatchPrompt(
+    wrapper,
+    promptOpts,
+    resolvePath,
+    harness
+  );
+  const claudeOptions = harness === undefined || harness === 'claude';
+  return startAgentPane(
+    {
+      repo: opts.repo,
+      cwd: opts.cwd,
+      prompt,
+      workspaceLabel: opts.workspaceLabel,
+      tabLabel,
+      subject: `mr:${opts.mrUrl}`,
+      ...(claudeOptions
+        ? { account: opts.account, model: opts.model, effort: opts.effort }
+        : {}),
+      ...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {}),
+      ...(harness !== undefined ? { harness } : {}),
+    },
+    io
+  );
+}
+
 export async function launchReview(
   opts: LaunchPaneOpts,
   io?: AgentIo,
-  resolvePath: SkillPathResolver = resolveSkillPath
+  resolvePath: SkillPathResolver = resolveDispatchSkill
 ): Promise<AgentLaunchResult> {
-  const prompt = await dispatchPrompt(
+  return launchWrapper(
     'board:review',
     {
       mrUrl: opts.mrUrl,
@@ -468,27 +531,10 @@ export async function launchReview(
       reReview: opts.reReview,
       note: opts.note,
     },
+    opts,
+    mrTabLabel(opts.iid, opts.author, opts.reReview ? 'RE' : undefined),
+    io,
     resolvePath
-  );
-  const tabLabel = mrTabLabel(
-    opts.iid,
-    opts.author,
-    opts.reReview ? 'RE' : undefined
-  );
-  return startAgentPane(
-    {
-      repo: opts.repo,
-      cwd: opts.cwd,
-      prompt,
-      workspaceLabel: opts.workspaceLabel,
-      tabLabel,
-      subject: `mr:${opts.mrUrl}`,
-      account: opts.account,
-      model: opts.model,
-      effort: opts.effort,
-      ...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {}),
-    },
-    io
   );
 }
 
@@ -496,9 +542,9 @@ export async function launchReview(
 export async function launchRespond(
   opts: LaunchPaneOpts,
   io?: AgentIo,
-  resolvePath: SkillPathResolver = resolveSkillPath
+  resolvePath: SkillPathResolver = resolveDispatchSkill
 ): Promise<AgentLaunchResult> {
-  const prompt = await dispatchPrompt(
+  return launchWrapper(
     'board:respond',
     {
       mrUrl: opts.mrUrl,
@@ -509,23 +555,10 @@ export async function launchRespond(
       note: opts.note,
       round: opts.round,
     },
+    opts,
+    mrTabLabel(opts.iid, opts.author),
+    io,
     resolvePath
-  );
-  const tabLabel = mrTabLabel(opts.iid, opts.author);
-  return startAgentPane(
-    {
-      repo: opts.repo,
-      cwd: opts.cwd,
-      prompt,
-      workspaceLabel: opts.workspaceLabel,
-      tabLabel,
-      subject: `mr:${opts.mrUrl}`,
-      account: opts.account,
-      model: opts.model,
-      effort: opts.effort,
-      ...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {}),
-    },
-    io
   );
 }
 
@@ -533,9 +566,9 @@ export async function launchRespond(
 export async function launchDoctor(
   opts: LaunchPaneOpts,
   io?: AgentIo,
-  resolvePath: SkillPathResolver = resolveSkillPath
+  resolvePath: SkillPathResolver = resolveDispatchSkill
 ): Promise<AgentLaunchResult> {
-  const prompt = await dispatchPrompt(
+  return launchWrapper(
     'board:doctor',
     {
       mrUrl: opts.mrUrl,
@@ -547,23 +580,10 @@ export async function launchDoctor(
       draftBin: opts.draftBin,
       note: opts.note,
     },
+    opts,
+    mrTabLabel(opts.iid, opts.author),
+    io,
     resolvePath
-  );
-  const tabLabel = mrTabLabel(opts.iid, opts.author);
-  return startAgentPane(
-    {
-      repo: opts.repo,
-      cwd: opts.cwd,
-      prompt,
-      workspaceLabel: opts.workspaceLabel,
-      tabLabel,
-      subject: `mr:${opts.mrUrl}`,
-      account: opts.account,
-      model: opts.model,
-      effort: opts.effort,
-      ...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {}),
-    },
-    io
   );
 }
 
@@ -577,16 +597,23 @@ export async function launchDoctor(
     visually distinct from a fresh launch when the workspace has both. An
     optional `prompt` is sent as the first message (re-review uses this to
     direct the resumed session); `tabPrefix` overrides the marker (e.g. `RE` for
-    a re-review resume). */
+    a re-review resume). A session recorded with another harness has no
+    `claude --resume`, so it is refused before anything runs. */
 export async function launchLegacyResume(
   opts: LaunchPaneOpts & {
     sessionId: string;
+    /** The harness the status CLI recorded beside `sessionId`; unset is Claude. */
+    sessionHarness?: string;
     workspaceKind: string;
     prompt?: string;
     tabPrefix?: string;
   },
   runner: HerdrRunner = defaultRunner
 ): Promise<{ tabId: string; workspaceId: string }> {
+  if (opts.sessionHarness && opts.sessionHarness !== 'claude')
+    throw new Error(
+      `This pane ran in ${opts.sessionHarness} and the board has no agent on file for it, so it cannot be reopened. Start it again from the board.`
+    );
   return launchInWorkspace(
     opts,
     buildResumePaneCommand(

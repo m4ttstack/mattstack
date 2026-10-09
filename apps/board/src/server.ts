@@ -35,7 +35,7 @@ import {
 } from '@mattstack/rt-client';
 import { settingsHandler } from '@mattstack/settings-kit/server';
 import pkg from '../package.json';
-import { resumeAgentPane } from './agent-launch.ts';
+import { agentHarness, resumeAgentPane } from './agent-launch.ts';
 import { signalEmoji, type AgentSignal } from './agent-signal.ts';
 import {
   AGENT_STATUS_PATTERN,
@@ -4042,7 +4042,8 @@ function reviewResumeIo(): KindResumeIo {
       skill,
       resumedGate,
       resumedGateKind,
-      resolvePath
+      resolvePath,
+      harness
     ) =>
       dispatchPrompt(
         'board:review',
@@ -4055,7 +4056,8 @@ function reviewResumeIo(): KindResumeIo {
           resumedGate,
           resumedGateKind,
         },
-        resolvePath
+        resolvePath,
+        harness
       ),
     resumedStatus: 'reviewing',
     workspaceLabel: config.reviewsWorkspace,
@@ -4080,7 +4082,8 @@ function respondResumeIo(): KindResumeIo {
       skill,
       resumedGate,
       resumedGateKind,
-      resolvePath
+      resolvePath,
+      harness
     ) =>
       dispatchPrompt(
         'board:respond',
@@ -4094,7 +4097,8 @@ function respondResumeIo(): KindResumeIo {
           resumedGateKind,
           ...respondResumeDispatchFields(readRespondStates().get(mrUrl)),
         },
-        resolvePath
+        resolvePath,
+        harness
       ),
     resumedStatus: 'implementing',
     workspaceLabel: config.respondsWorkspace,
@@ -4119,7 +4123,8 @@ function doctorResumeIo(): KindResumeIo {
       skill,
       resumedGate,
       resumedGateKind,
-      resolvePath
+      resolvePath,
+      harness
     ) =>
       dispatchPrompt(
         'board:doctor',
@@ -4132,7 +4137,8 @@ function doctorResumeIo(): KindResumeIo {
           resumedGateKind,
           ...doctorResumeDispatchFields(readDoctorStates().get(mrUrl)),
         },
-        resolvePath
+        resolvePath,
+        harness
       ),
     resumedStatus: 'fixing',
     workspaceLabel: config.doctorsWorkspace,
@@ -4153,6 +4159,7 @@ function gateResumeIo(): GateResumeEventIo {
     applyRow: row => gateCache.applyRow(row),
     gateList,
     resumeAgentPane,
+    agentHarness: agentId => agentHarness(agentId),
     notify: message => console.error(`gate resume: ${message}`),
   };
 }

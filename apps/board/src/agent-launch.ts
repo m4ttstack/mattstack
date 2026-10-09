@@ -1,8 +1,64 @@
 import {
+  agentGet as rtAgentGet,
+  agentIntegrations as rtAgentIntegrations,
   agentResume as rtAgentResume,
   agentStart as rtAgentStart,
   type Commands,
+  type HarnessId,
 } from '@mattstack/rt-client';
+import { integrationsOn } from './caller-session.ts';
+
+/** What picking a pane's harness reads: the integrations switch, the
+    registry's metadata, and an agent record's provider. */
+export interface HarnessIo {
+  switchOn(): boolean;
+  agentIntegrations: typeof rtAgentIntegrations;
+  agentGet: typeof rtAgentGet;
+}
+
+export const defaultHarnessIo: HarnessIo = {
+  switchOn: () => integrationsOn(),
+  agentIntegrations: rtAgentIntegrations,
+  agentGet: rtAgentGet,
+};
+
+/**
+ * The harness a fresh board pane runs: undefined while the integrations
+ * switch is off, so the launch is what it always was. With it on, the first
+ * integration the user turned on, in registry order, which puts Claude first
+ * wherever it is on. Readiness is left to the launch itself, since a harness
+ * can read not ready until something connects to it.
+ */
+export async function selectLaunchHarness(
+  io: HarnessIo = defaultHarnessIo
+): Promise<HarnessId | undefined> {
+  if (!io.switchOn()) return undefined;
+  const res = await io.agentIntegrations({ mode: 'herdr' });
+  if (!res.ok || !res.data)
+    throw new Error(
+      `The board could not read which agents are turned on: ${res.error ?? 'rt sent no answer'}`
+    );
+  const chosen = res.data.integrations.find(i => i.enabled);
+  if (!chosen)
+    throw new Error(
+      'No agent is turned on, so the board cannot start one. Turn one on in setup.'
+    );
+  return chosen.id;
+}
+
+/** The harness an existing agent record runs; undefined while the switch is off. */
+export async function agentHarness(
+  agentId: string,
+  io: HarnessIo = defaultHarnessIo
+): Promise<HarnessId | undefined> {
+  if (!io.switchOn()) return undefined;
+  const res = await io.agentGet({ id: agentId });
+  if (!res.ok || !res.data)
+    throw new Error(
+      `The board could not read agent ${agentId}: ${res.error ?? 'rt sent no answer'}`
+    );
+  return res.data.provider;
+}
 
 export interface AgentLaunchResult {
   agentId: string;
@@ -25,6 +81,8 @@ export function resumePackEnv(
 export interface AgentIo {
   agentStart: typeof rtAgentStart;
   agentResume: typeof rtAgentResume;
+  /** Unset reads the real switch and daemon. */
+  harness?: HarnessIo;
 }
 
 export async function startAgentPane(
@@ -39,6 +97,8 @@ export async function startAgentPane(
     model?: string;
     effort?: string;
     env?: Record<string, string>;
+    /** Unset lets the daemon pick, as before the integrations switch. */
+    harness?: HarnessId;
   },
   io?: AgentIo
 ): Promise<AgentLaunchResult> {
@@ -55,6 +115,7 @@ export async function startAgentPane(
     workspace: opts.workspaceLabel,
     tab: opts.tabLabel,
     subject: opts.subject,
+    ...(opts.harness !== undefined ? { provider: opts.harness } : {}),
     ...(opts.account !== undefined ? { account: opts.account } : {}),
     ...(opts.model !== undefined ? { model: opts.model } : {}),
     ...(opts.effort !== undefined ? { effort: opts.effort } : {}),

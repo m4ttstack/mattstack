@@ -125,7 +125,13 @@ export async function gateOpen(
   kind: string,
   questionsJson: string,
   io: GateVerbIo,
-  extras: { context?: string; sessionId?: string; worktree?: string } = {}
+  extras: {
+    context?: string;
+    sessionId?: string;
+    /** The asking session's harness; the daemon records only one that is not Claude Code's. */
+    harness?: string;
+    worktree?: string;
+  } = {}
 ): Promise<GateOpenResult> {
   const questions = JSON.parse(questionsJson) as GateQuestion[];
   const db = openDbForHandle(statePath);
@@ -165,6 +171,8 @@ export async function gateOpen(
   };
   if (state.paneId) payload.paneId = state.paneId;
   if (extras.sessionId) payload.sessionId = extras.sessionId;
+  if (extras.sessionId && extras.harness && extras.harness !== 'claude')
+    payload.harness = extras.harness;
   if (context !== undefined) payload.context = context;
 
   const res = await io.gateAsk(payload);

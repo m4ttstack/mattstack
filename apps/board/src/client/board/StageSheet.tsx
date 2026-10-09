@@ -408,7 +408,7 @@ function PaneSheetBody({
         <section className="tui-gate-question" aria-label="pane screen">
           <div className="tui-gate-question-head">
             <span className="tui-gate-question-label">
-              {gone ? 'Its last screen' : 'Claude Code is asking'}
+              {gone ? 'Its last screen' : 'The agent is asking'}
             </span>
           </div>
           {prompt ? (

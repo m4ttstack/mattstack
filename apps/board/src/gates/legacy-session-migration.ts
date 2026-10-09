@@ -6,6 +6,8 @@ export interface LegacySessionState {
   mrUrl: string;
   status: string;
   sessionId?: string;
+  /** Set when the status CLI recorded which harness `sessionId` belongs to. */
+  sessionHarness?: string;
   agentId?: string;
 }
 
@@ -16,8 +18,10 @@ export interface LegacySessionState {
  * rather than the facility's agent-pane resume. Writes the explicit
  * `sessionId: ""` clear: `writeState`'s merge is `patch.sessionId ??
  * prev.sessionId`, so leaving the field out would be a silent no-op (the
- * same convention `tabId` uses elsewhere). A state with an `agentId`, or
- * with no `sessionId` to begin with, is left untouched.
+ * same convention `tabId` uses elsewhere). A state with an `agentId`, with
+ * no `sessionId` to begin with, or whose `sessionId` carries a recorded
+ * harness (an explicit native reference, written after rt agent adoption),
+ * is left untouched.
  */
 export function migrateLegacySessions<S extends LegacySessionState>(
   domain: string,
@@ -30,7 +34,7 @@ export function migrateLegacySessions<S extends LegacySessionState>(
   log: (message: string) => void
 ): void {
   for (const state of states.values()) {
-    if (!state.sessionId || state.agentId) continue;
+    if (!state.sessionId || state.agentId || state.sessionHarness) continue;
     writeState(filePath(state.mrUrl), { status: state.status, sessionId: '' });
     log(
       `legacy session migration: cleared stale sessionId for ${domain} ${state.mrUrl}`

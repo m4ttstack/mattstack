@@ -4,6 +4,7 @@ import {
   boardRootFromStatePath,
   emitAgentStatus,
 } from '../src/agent-status/emit.ts';
+import { callerSession, integrationsOn } from '../src/caller-session.ts';
 import type {
   ReviewOutcome,
   ReviewState,
@@ -71,10 +72,14 @@ if (
 
 const status = parsed.status as ReviewStatus;
 const outcome = parsed.outcome as ReviewOutcome | undefined;
-// The Claude Code session id is exposed to Bash tool commands via env; capture
+// The pane's own session is exposed to its shell commands via env; capture
 // it on every write so a resume from the board finds the latest known id.
-const sessionId =
-  parsed.session ?? process.env.CLAUDE_CODE_SESSION_ID ?? undefined;
+const caller = callerSession(process.env, integrationsOn());
+if (caller.problem && parsed.session === undefined)
+  console.error(caller.problem);
+const sessionId = parsed.session ?? caller.sessionId;
+const sessionHarness =
+  parsed.session === undefined ? caller.harness : undefined;
 
 const dbPath = dbPathForRoot(boardRootFromStatePath(parsed.path));
 if (!existsSync(dbPath)) {
@@ -89,6 +94,7 @@ const merged = updateByHandle(
     ...(parsed.message ? { message: parsed.message } : {}),
     ...(outcome ? { outcome } : {}),
     ...(sessionId ? { sessionId } : {}),
+    ...(sessionId && sessionHarness ? { sessionHarness } : {}),
   },
   Date.now(),
   db

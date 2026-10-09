@@ -683,7 +683,7 @@ test('a blocked pane shows its prompt as terminal text with earlier output folde
   expect(text('.tui-sheet-list-title')).toBe('Pane waiting on a prompt');
   const card = $('.tui-sheet-main .tui-gate-question')!;
   expect(card.querySelector('.tui-gate-question-label')?.textContent).toBe(
-    'Claude Code is asking'
+    'The agent is asking'
   );
   const screen = card.querySelector('pre.tui-pane-screen')!;
   expect(screen.textContent).toBe(

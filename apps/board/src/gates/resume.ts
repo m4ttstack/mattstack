@@ -1,7 +1,7 @@
 import type { GateRow as FacilityGateRow } from '@mattstack/rt-client';
 import { resumePackEnv, type AgentLaunchResult } from '../agent-launch.ts';
 import { mrTabLabel, type SkillPathResolver } from '../herdr.ts';
-import { resolveSkillPath } from '../skill-path.ts';
+import { resolveDispatchSkill } from '../skill-path.ts';
 import { GATE_LIST_PAGE_LIMIT, type GateEventFrame } from './ingest.ts';
 import type { GateQuestion, GateState } from './store.ts';
 import { domainForKind, GATE_KINDS, type GateDomain } from './sweep.ts';
@@ -44,16 +44,17 @@ export interface KindResumeIo {
       means the generic skill, recorded on the state as `noPack`. */
   resolvePack(tabId?: string): string | undefined;
   /** Builds the wrapper's `--resumed-gate` re-entry prompt for this kind --
-      each domain's own `dispatchPrompt("board:<domain>", {...}, resolvePath)`
-      call, since the SkillPromptOpts fields a domain needs (e.g. review's
-      `reportPath`) differ. */
+      each domain's own `dispatchPrompt("board:<domain>", {...}, resolvePath,
+      harness)` call, since the SkillPromptOpts fields a domain needs (e.g.
+      review's `reportPath`) differ. `harness` is the resumed agent's. */
   prompt(
     mrUrl: string,
     statePath: string,
     skill: string,
     resumedGate: string,
     resumedGateKind: string,
-    resolvePath: SkillPathResolver
+    resolvePath: SkillPathResolver,
+    harness?: string
   ): Promise<string>;
   /** The status this kind's state settles into once its pane resumes.
       Review has exactly one in-flight status ("reviewing"), reproduced
@@ -75,6 +76,8 @@ export interface ResumeParkedGateIo {
     tabLabel: string;
     env?: Record<string, string>;
   }): Promise<AgentLaunchResult>;
+  /** The harness a recorded agent runs; unset resumes it as Claude. */
+  agentHarness?(agentId: string): Promise<string | undefined>;
   notify(message: string): void;
 }
 
@@ -119,7 +122,7 @@ export function buildResumers(
 export async function resumeParkedGate(
   gate: GateState,
   io: ResumeParkedGateIo,
-  resolvePath: SkillPathResolver = resolveSkillPath
+  resolvePath: SkillPathResolver = resolveDispatchSkill
 ): Promise<boolean> {
   if (!gate.agentId) {
     io.notify(
@@ -144,14 +147,24 @@ export async function resumeParkedGate(
   const skill = kindIo.resolveSkill(gate.mrUrl, gate.boardTabId);
   const pack = kindIo.resolvePack(gate.boardTabId);
   const noPack = !pack;
-  const prompt = await kindIo.prompt(
-    gate.mrUrl,
-    statePath,
-    skill,
-    gate.gateId,
-    gate.kind,
-    resolvePath
-  );
+  let prompt: string;
+  try {
+    const harness = await io.agentHarness?.(gate.agentId);
+    prompt = await kindIo.prompt(
+      gate.mrUrl,
+      statePath,
+      skill,
+      gate.gateId,
+      gate.kind,
+      resolvePath,
+      harness
+    );
+  } catch (err) {
+    console.error(
+      `parked gate resume failed: ${err instanceof Error ? err.message : err}`
+    );
+    return false;
+  }
 
   let result;
   try {
@@ -318,7 +331,7 @@ async function fetchGateRowById(
 export async function handleAnsweredEvent(
   frame: GateEventFrame,
   io: GateResumeEventIo,
-  resolvePath: SkillPathResolver = resolveSkillPath
+  resolvePath: SkillPathResolver = resolveDispatchSkill
 ): Promise<void> {
   if (!frame.topic.startsWith('gate/answered/')) return;
   if (!isRecord(frame.payload)) return;
@@ -348,7 +361,7 @@ export async function handleAnsweredEvent(
  */
 export async function bootResumePass(
   io: GateResumeEventIo,
-  resolvePath: SkillPathResolver = resolveSkillPath
+  resolvePath: SkillPathResolver = resolveDispatchSkill
 ): Promise<void> {
   let cursor: number | undefined;
   for (;;) {

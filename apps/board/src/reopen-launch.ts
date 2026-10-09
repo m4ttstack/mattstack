@@ -14,6 +14,7 @@ export interface ReopenableState {
   status: string;
   agentId?: string;
   sessionId?: string;
+  sessionHarness?: string;
 }
 
 /** The patch a reopen writes back: the untouched status, the fresh pane ids,
@@ -135,6 +136,7 @@ export async function launchReopen(
       workspaceLabel: ctx.workspaceLabel,
       statePath: ctx.statePath,
       sessionId: existing.sessionId,
+      sessionHarness: existing.sessionHarness,
       workspaceKind: ctx.workspaceKind,
       author: ctx.author,
       prompt: ctx.prompt,

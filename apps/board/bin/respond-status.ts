@@ -4,6 +4,7 @@ import {
   boardRootFromStatePath,
   emitAgentStatus,
 } from '../src/agent-status/emit.ts';
+import { callerSession, integrationsOn } from '../src/caller-session.ts';
 import { respondOutcome } from '../src/respond-outcome.ts';
 import type { RespondState, RespondStatus } from '../src/respond-state.ts';
 import {
@@ -127,8 +128,14 @@ if (held !== undefined && threads === undefined) {
   process.exit(1);
 }
 
-const sessionId =
-  parsed.session ?? process.env.CLAUDE_CODE_SESSION_ID ?? undefined;
+// The pane's own session is exposed to its shell commands via env; capture
+// it on every write so a resume from the board finds the latest known id.
+const caller = callerSession(process.env, integrationsOn());
+if (caller.problem && parsed.session === undefined)
+  console.error(caller.problem);
+const sessionId = parsed.session ?? caller.sessionId;
+const sessionHarness =
+  parsed.session === undefined ? caller.harness : undefined;
 
 const dbPath = dbPathForRoot(boardRootFromStatePath(parsed.path));
 if (!existsSync(dbPath)) {
@@ -146,6 +153,7 @@ const merged = updateByHandle(
     ...(held !== undefined ? { held } : {}),
     ...(round !== undefined ? { round } : {}),
     ...(sessionId ? { sessionId } : {}),
+    ...(sessionId && sessionHarness ? { sessionHarness } : {}),
   },
   Date.now(),
   db

@@ -47,6 +47,9 @@ export interface RespondState {
       relaunch the same conversation via `claude --resume <sessionId>`
       (see launchLegacyResume) when no agentId is on file. */
   sessionId?: string;
+  /** The harness `sessionId` belongs to, recorded with the integrations
+      switch on; unset is a Claude Code session. */
+  sessionHarness?: string;
   /** rt agent record id from the launch/resume result. When present, a resume
       goes through resumeAgentPane instead of the legacy claude --resume path. */
   agentId?: string;
@@ -131,6 +134,7 @@ export function writeRespondState(
     boardTabId: patch.boardTabId,
     workspaceId: patch.workspaceId,
     sessionId: patch.sessionId,
+    sessionHarness: patch.sessionHarness,
     agentId: patch.agentId,
     paneId: patch.paneId,
     gateId: patch.gateId,

@@ -72,7 +72,9 @@ function trimBlankLines(lines: string[]): string {
 
 /** A pane's last screen split into the prompt it is waiting on and the
     output above it: the prompt is everything after the last prompt-box rule
-    that has anything after it, else the last twelve non-blank lines. */
+    that has anything after it, else the last twelve non-blank lines. A
+    screen with no such rule, whatever harness drew it, takes the fallback;
+    the board reads no other harness's screen layout. */
 export function splitPaneScreen(screen: string): {
   prompt: string;
   earlier: string;
