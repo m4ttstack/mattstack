@@ -11,6 +11,7 @@ import { openStateDb } from "../../state/db.ts";
 import { closeStateDb, getKvValue } from "../../state/index.ts";
 import { readHomePushRecord } from "../../home/push-record.ts";
 import { rtDir } from "../../rt-paths.ts";
+import { ORG_LAYOUT } from "../../team/org-marker.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { Probes } from "../../setup/probes.ts";
 import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
@@ -2825,8 +2826,9 @@ describe("layoutGate", () => {
   test("reads the marker at the ref through git show", async () => {
     expect(await layoutGate(exec({ code: 0, stdout: '{ "role": "org", "org": "acme", "layout": 4 }', stderr: "" }), "/clone", "refs/remotes/origin/main")).toEqual({ layout: 4 });
   });
-  test("a one-team marker, an org marker at ORG_LAYOUT or an unparsable one passes", async () => {
-    for (const stdout of ['{ "role": "team", "org": "acme" }', '{ "role": "org", "org": "acme" }', "{ nope"]) {
+  test("a one-team marker, an org marker at ORG_LAYOUT or with no layout, or an unparsable one passes", async () => {
+    const atOrgLayout = JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT });
+    for (const stdout of ['{ "role": "team", "org": "acme" }', atOrgLayout, '{ "role": "org", "org": "acme" }', "{ nope"]) {
       expect(await layoutGate(exec({ code: 0, stdout, stderr: "" }), "/clone", "ref")).toBeNull();
     }
   });

@@ -1578,8 +1578,8 @@ describe("team.sync for a clone waiting on its layout", () => {
 describe("held layout and row position", () => {
   const entry = (extra: Record<string, unknown>) => ({ slug: "widgets", enabled: true, pullOnly: true, unownedDirty: [], conflicted: null, lastPullError: null, lastPushError: null, lastPullAt: 1000, ...extra }) as unknown as TeamSnapshotEntry;
   test("team.sync does not call a held pull-only clone stuck or tell it to reset", async () => {
-    const sentence = "Your org uses layout 4 and this app reads up to 3. Update the app.";
-    const r = await teamSyncRow(["widgets"], async () => [entry({ lastPullSkipped: sentence, layoutHold: { layout: 3, reads: 2 } })], () => 1000, 300, true);
+    const sentence = `Your org uses layout ${ORG_LAYOUT + 1} and this app reads up to ${ORG_LAYOUT}. Update the app.`;
+    const r = await teamSyncRow(["widgets"], async () => [entry({ lastPullSkipped: sentence, layoutHold: { layout: ORG_LAYOUT + 1, reads: ORG_LAYOUT } })], () => 1000, 300, true);
     expect(r?.detail).not.toContain("reset it to origin");
     expect(r?.detail).not.toContain("cannot fast-forward");
     expect(r?.status).toBe("ready");
@@ -1589,7 +1589,7 @@ describe("held layout and row position", () => {
       home: "/h",
       files: {
         "/h/.mattstack/orgs/acme/.git/config": "",
-        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme" }),
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }),
         "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}",
       },
       dirs: { "/h/.mattstack/orgs": ["acme"] },
