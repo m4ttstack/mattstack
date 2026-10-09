@@ -117,6 +117,16 @@ function removedKeys(write: Write): string {
   }
 }
 
+/** One added entry's fields, e.g. `linear CLAIM, review #pod-claim-internal, code owners #pod-claim`. */
+function entryFields(entry: DirectoryTeam): string {
+  const fields = [
+    ...(entry.linear?.team ? [`linear ${entry.linear.team}`] : []),
+    ...(entry.slack?.channels ?? []).map((c) => `${c.kind} #${c.name}`),
+    ...(entry.slack?.codeOwnersChannel ? [`code owners #${entry.slack.codeOwnersChannel}`] : []),
+  ];
+  return fields.join(", ");
+}
+
 const removeLine = (store: string, writes: Write[]) => `${store}: remove ${writes.map(removedKeys).join(", ")}`;
 
 /** Pure: reads no store and writes none. Throws DirectoryRefusal when the existing directory already has a duplicate code owners channel. */
@@ -141,7 +151,7 @@ export function planDirectoryMove(orgValues: Values, teamValues: Record<string, 
     if (own && claimed.has(normalizeChannel(own))) continue;
     if (own) claimed.add(normalizeChannel(own));
     teams[team] = entry;
-    report.push(`directory: add ${team}`);
+    report.push(`directory: add ${team} (${entryFields(entry)})`);
     added++;
   }
   const teamWrites: Record<string, Write[]> = {};

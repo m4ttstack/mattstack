@@ -4,7 +4,7 @@ import { join } from "path";
 import { UserActionableError, failureFor, logFailureDetail } from "../lib/errors.ts";
 import { stripJsonc } from "../lib/jsonc.ts";
 import { orgDir } from "../lib/rt-paths.ts";
-import { setSetting } from "../lib/settings/write.ts";
+import { setSetting, setSettingsNoticeSink, storeUnparseable } from "../lib/settings/write.ts";
 import { ORG_CLONE_FOLDERS } from "../lib/team/org-clone.ts";
 import { ORG_MARKER_REL, parseMarker } from "../lib/team/org-marker.ts";
 import * as out from "../lib/ui/out.ts";
@@ -23,6 +23,8 @@ function refuse(title: string, why?: string, next?: string | string[]): never {
   out.note(out.line("refused", title), ...(why ? [out.callout("why", why)] : []), ...(commands.length ? [out.callout("next", ...commands.map(out.cmd))] : []));
   process.exit(2);
 }
+
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 function guarded<T>(check: () => T): T {
   try {
@@ -77,7 +79,12 @@ function main(): void {
     refuse("Run this on the org clone rt reads", undefined, `bun scripts/move-to-team-directory.ts ~/.mattstack/orgs/${slug} --admin ${admin}`);
   }
 
+  // readStore reads a malformed store as empty, which would plan from nothing.
+  const parseable = (rel: string): void => {
+    if (storeUnparseable(join(clone, rel))) refuse("A settings store cannot be read", `${rel} has a syntax error. Fix it, then run this again.`);
+  };
   noLink(ORG_STORE_REL);
+  parseable(ORG_STORE_REL);
   if (!readOrgRoles(slug).admins.some((name) => sameUser(name, adminName))) refuse(`${admin} is not an admin of this org`);
 
   const teamsRel = "mattstack/teams";
@@ -87,6 +94,7 @@ function main(): void {
   const teamValues: Record<string, Record<string, unknown>> = {};
   for (const team of teams) {
     noLink(teamStoreRel(team));
+    parseable(teamStoreRel(team));
     if (existsSync(join(clone, teamStoreRel(team)))) teamValues[team] = values(teamStoreRel(team));
   }
   let plan;
@@ -103,6 +111,8 @@ function main(): void {
     return;
   }
   const { start } = guarded(() => preflight(repo, adminName, { managedFolders: ORG_CLONE_FOLDERS, usage: USAGE }));
+  // Team sync is off, so each write's publish notice is noise; the closing callout says it once.
+  const previousSink = setSettingsNoticeSink(() => {});
   try {
     if (plan.directory !== null) setSetting("mattstack.directory", plan.directory, "org");
     for (const [team, writes] of Object.entries(plan.teamWrites)) apply(slug, writes, "team", { team });
@@ -111,8 +121,19 @@ function main(): void {
     git("add", "-A", "--", "mattstack");
     git("commit", "-q", "-m", "org: move team channels and Linear keys into the team directory");
   } catch (err) {
-    git("reset", "-q", "--hard", start);
-    throw new UserActionableError("move-stopped", "The move stopped partway, and the clone is back as it was", {}, { log: err instanceof Error ? err.message : String(err) });
+    try {
+      git("reset", "-q", "--hard", start);
+    } catch (resetErr) {
+      throw new UserActionableError(
+        "move-rollback-failed",
+        "The move stopped partway, and the clone could not be put back",
+        {},
+        { log: `move: ${errorText(err)}\nreset: ${errorText(resetErr)}`, next: `git -C ${clone} status` },
+      );
+    }
+    throw new UserActionableError("move-stopped", "The move stopped partway, and the clone is back as it was", {}, { log: errorText(err) });
+  } finally {
+    setSettingsNoticeSink(previousSink);
   }
   out.print(out.line("done", "Moved this org onto the team directory in one commit", "Review the commit before publishing, then turn team sync back on"), out.callout("next", out.cmd("git show"), out.cmd("rt team publish")));
 }
@@ -120,7 +141,7 @@ function main(): void {
 try {
   main();
 } catch (err) {
-  const failure = err instanceof UserActionableError ? err : new UserActionableError("move-failed", "The move could not continue", {}, { log: err instanceof Error ? err.message : String(err) });
+  const failure = err instanceof UserActionableError ? err : new UserActionableError("move-failed", "The move could not continue", {}, { log: errorText(err) });
   logFailureDetail(failure);
   out.fail(failureFor(failure));
   process.exit(1);

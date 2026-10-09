@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { parse } from "jsonc-parser";
@@ -98,7 +98,7 @@ test("plan mode prints each entry and each removed key, and changes no file", ()
   const result = run(dir, "me");
   expect(result.exitCode).toBe(0);
   const stdout = result.stdout.toString();
-  expect(stdout).toContain("directory: add claim");
+  expect(stdout).toContain("directory: add claim (linear CV, review #claim-internal, code owners #pod-claim)");
   expect(stdout).toContain("team claim: remove board.slack.channel, mattstack.integrations.linear.teamKey, board.tabs[].slackChannel");
   expect(stdout).toContain("Nothing was written");
   expect(snapshot(dir)).toBe(before);
@@ -108,6 +108,8 @@ test("--write writes the directory, deletes the moved keys, writes layout 3, and
   const dir = org();
   const result = run(dir, "me", "--write");
   expect(result.stderr.toString()).not.toContain("[failed]");
+  // Team sync is off here, so an unsilenced write would print a per-store "Run: rt team publish" notice.
+  expect(result.stderr.toString()).not.toContain("Run: ");
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString()).toContain("Moved this org onto the team directory in one commit");
   expect(read(dir, ORG_STORE)["mattstack.directory"]).toEqual({
@@ -201,4 +203,32 @@ test("a team store that is a symbolic link is refused before it is read", () => 
   expect(result.stderr.toString()).toContain("symbolic link");
   expect(snapshot(dir)).toBe(before);
   expect(readFileSync(outside, "utf8")).toContain("OUT");
+});
+
+test("a team store with a syntax error is refused, and nothing changes", () => {
+  const dir = org();
+  writeFileSync(join(dir, CLAIM_STORE), '{ "board.title": "Claim", ');
+  commitAndPush(dir);
+  const before = snapshot(dir);
+  const result = run(dir, "me", "--write");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain("A settings store cannot be read");
+  expect(result.stderr.toString()).toContain(`${CLAIM_STORE} has a syntax error. Fix it, then run this again.`);
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("a write that fails after the directory is written puts the clone back as it was", () => {
+  const dir = org();
+  const before = snapshot(dir);
+  const claimDir = dirname(join(dir, CLAIM_STORE));
+  // The directory lands in the org store first; the claim store's write then cannot make its temp file.
+  chmodSync(claimDir, 0o555);
+  try {
+    const result = run(dir, "me", "--write");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain("The move stopped partway, and the clone is back as it was");
+  } finally {
+    chmodSync(claimDir, 0o755);
+  }
+  expect(snapshot(dir)).toBe(before);
 });

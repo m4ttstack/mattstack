@@ -71,7 +71,7 @@ describe("planDirectoryMove", () => {
   test("the report names every key deleted per store and one line per entry added", () => {
     const plan = planDirectoryMove({ "board.slack": { channel: "org-old" } }, { claim: CLAIM_STORE });
     expect(plan.report).toEqual([
-      "directory: add claim",
+      "directory: add claim (linear CV, review #claim-internal, code owners #pod-claim)",
       "team claim: remove board.slack.channel, mattstack.integrations.linear.teamKey, board.tabs[].slackChannel, board.ticketPrefixes",
       "org: remove board.slack.channel",
     ]);
