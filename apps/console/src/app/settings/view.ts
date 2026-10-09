@@ -137,9 +137,7 @@ export function writeTarget(
     sharedOnly ? scopes.find(s => isShared(s)) : scopes[0]
   ) as StoreScope;
   const allowed =
-    base !== null &&
-    scopes.includes(base) &&
-    (!sharedOnly || isShared(base));
+    base !== null && scopes.includes(base) && (!sharedOnly || isShared(base));
   if (def.repoScoped && repo)
     return { scope: allowed ? (base as StoreScope) : fallback, repo };
   if (sharedOnly) return { scope: allowed ? (base as StoreScope) : fallback };
