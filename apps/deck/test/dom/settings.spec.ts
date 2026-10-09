@@ -914,6 +914,58 @@ test('app: after Enter saves, the form stays mounted through the refresh and foc
   });
 }, 12000);
 
+test('app: a rename keeps the modal open on the renamed row with focus in the name field', async () => {
+  await withBoard(async page => {
+    let patched = false;
+    await page.route('**/api/v1/apps/orbit', async route => {
+      if (route.request().method() !== 'PATCH') {
+        await route.continue();
+        return;
+      }
+      patched = true;
+      await route.fulfill(ok);
+    });
+
+    const dlg = await openSettings(page, 'orbit');
+    let release = () => {};
+    const held = new Promise<void>(r => (release = r));
+    await page.route('**/api/v1/status', async route => {
+      if (!patched) {
+        await route.continue();
+        return;
+      }
+      await held;
+      const next = structuredClone(fixture) as typeof fixture;
+      const orbit = next.apps.find(a => a.name === 'orbit');
+      if (!orbit) throw new Error('fixture missing orbit');
+      orbit.name = 'nova';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(next),
+      });
+    });
+
+    const name = appField(dlg, 'name');
+    await name.fill('nova');
+    await name.press('Enter');
+    await waitUntil(async () => patched);
+    await new Promise(r => setTimeout(r, 100));
+    expect(await anySettings(page).count()).toBe(1);
+
+    release();
+    const renamed = settingsFor(page, 'nova');
+    await renamed.waitFor({ state: 'visible', timeout: 4000 });
+    await new Promise(r => setTimeout(r, 200));
+    expect(await renamed.isVisible()).toBe(true);
+    expect(await settingsFor(page, 'orbit').count()).toBe(0);
+    expect(await appField(renamed, 'name').inputValue()).toBe('nova');
+    expect(await appField(renamed, 'base port').inputValue()).toBe('11007');
+    expect(await activeLabel(page)).toBe('name');
+    expect(consoleErrors(page)).toEqual([]);
+  });
+}, 12000);
+
 test('app: an API validation error renders inline on the name field; the modal stays open', async () => {
   await withBoard(async page => {
     await page.route('**/api/v1/apps/orbit', async route => {

@@ -588,33 +588,37 @@ export function useBoardState() {
   const updateEditModal = useCallback((patch: Partial<EditModalState>) => {
     setEditModal(prev => (prev ? { ...prev, ...patch } : prev));
   }, []);
-  const submitEdit = useCallback(async () => {
-    if (!editModal) return false;
-    const patch = editPatch(editModal);
-    let res: Response | null = null;
-    try {
-      res = await apiPatch(`/api/v1/apps/${editModal.original}`, patch);
-    } catch {
-      res = null;
-    }
-    const body = res
-      ? await res
-          .json()
-          .catch(() => ({}) as { message?: string; error?: string })
-      : {};
-    if (!res || !res.ok) {
-      updateEditModal({
-        error:
-          (body as { message?: string; error?: string }).message ||
-          (body as { error?: string }).error ||
-          'edit failed',
-      });
-      return false;
-    }
-    setEditModal(null);
-    await refresh();
-    return true;
-  }, [editModal, refresh, updateEditModal]);
+  const submitEdit = useCallback(
+    async (onSaved?: (name: string) => void) => {
+      if (!editModal) return false;
+      const patch = editPatch(editModal);
+      let res: Response | null = null;
+      try {
+        res = await apiPatch(`/api/v1/apps/${editModal.original}`, patch);
+      } catch {
+        res = null;
+      }
+      const body = res
+        ? await res
+            .json()
+            .catch(() => ({}) as { message?: string; error?: string })
+        : {};
+      if (!res || !res.ok) {
+        updateEditModal({
+          error:
+            (body as { message?: string; error?: string }).message ||
+            (body as { error?: string }).error ||
+            'edit failed',
+        });
+        return false;
+      }
+      setEditModal(null);
+      onSaved?.(editModal.name.trim());
+      await refresh();
+      return true;
+    },
+    [editModal, refresh, updateEditModal]
+  );
 
   // ---- remove ----
   const onRemove = useCallback((row: Row) => setPendingRemove(row), []);

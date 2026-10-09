@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   Alert,
@@ -85,9 +85,13 @@ export function Board() {
     else gearRefs.delete(name);
   };
   const [open, setOpen] = useState<{
+    id: number;
     name: string;
+    /** The name before a saved rename, until a refresh carries the new one. */
+    was?: string;
     opener: HTMLElement | null;
   } | null>(null);
+  const openCount = useRef(0);
   const [showSettings, setShowSettings] = useState(false);
   const allRows = useMemo(
     () => [...sections.flatMap(s => s.rows), ...tunnels],
@@ -95,13 +99,26 @@ export function Board() {
   );
   const openSettings = useCallback(
     (name: string, opener?: HTMLElement) =>
-      setOpen({ name, opener: opener ?? gearRefs.get(name) ?? null }),
+      setOpen({
+        id: ++openCount.current,
+        name,
+        opener: opener ?? gearRefs.get(name) ?? null,
+      }),
     [gearRefs]
   );
   const closeSettings = useCallback(() => setOpen(null), []);
-  const openRow = open
-    ? (allRows.find(r => r.name === open.name) ?? null)
-    : null;
+  const followRename = useCallback(
+    (name: string) =>
+      setOpen(o => (o && o.name !== name ? { ...o, name, was: o.name } : o)),
+    []
+  );
+  const findRow = (name: string | undefined) =>
+    allRows.find(r => r.name === name) ?? null;
+  const openRow = open ? (findRow(open.name) ?? findRow(open.was)) : null;
+  useEffect(() => {
+    if (open?.was && openRow?.name === open.name)
+      setOpen(o => o && { id: o.id, name: o.name, opener: o.opener });
+  }, [open, openRow]);
   const healthy = data ? sublineHealthy(data) : null;
 
   return (
@@ -210,11 +227,12 @@ export function Board() {
           ))}
           {open && (
             <AppSettingsModal
-              key={open.name}
+              key={open.id}
               row={openRow}
               data={data}
               board={board}
               onClose={closeSettings}
+              onRenamed={followRename}
               returnFocusTo={() =>
                 open.opener?.isConnected
                   ? open.opener

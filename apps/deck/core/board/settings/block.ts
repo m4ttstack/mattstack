@@ -8,4 +8,6 @@ export interface BlockProps {
   data: StatusData;
   board: BoardState;
   blocks: SettingsBlocks;
+  /** Called once a rename is saved, before the refresh carries the new name. */
+  onRenamed?: (name: string) => void;
 }

@@ -20,7 +20,7 @@ function isSaveable(m: EditModalState): boolean {
 
 /** A user app's own record. The draft is board state (`editModal`), opened
     when the block mounts and discarded by the modal's close. */
-export function AppBlock({ row, board, blocks }: BlockProps) {
+export function AppBlock({ row, board, blocks, onRenamed }: BlockProps) {
   const { openEdit, updateEditModal, editModal: m } = board;
   const name = row.name;
   const rowRef = useRef(row);
@@ -51,7 +51,7 @@ export function AppBlock({ row, board, blocks }: BlockProps) {
     if (!draft || !saveable || saving) return;
     const saved = draft;
     setSaving(saved);
-    const ok = await board.submitEdit();
+    const ok = await board.submitEdit(onRenamed);
     if (!mounted.current) return;
     if (ok) {
       openEdit(rowRef.current);

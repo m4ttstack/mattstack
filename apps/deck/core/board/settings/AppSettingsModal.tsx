@@ -27,6 +27,7 @@ export interface AppSettingsModalProps {
   data: StatusData;
   board: BoardState;
   onClose: () => void;
+  onRenamed: (name: string) => void;
   /** The gear or tunnel badge that opened the modal, resolved at close. */
   returnFocusTo: () => HTMLElement | null;
   /** Where focus lands when the row vanishes, or its opener has. */
@@ -74,6 +75,7 @@ export function AppSettingsModal({
   data,
   board,
   onClose,
+  onRenamed,
   returnFocusTo,
   fallbackFocusRef,
 }: AppSettingsModalProps) {
@@ -121,6 +123,7 @@ export function AppSettingsModal({
     data,
     board,
     blocks: settingsBlocks(row, data),
+    onRenamed,
   };
   return (
     <Modal
