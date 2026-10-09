@@ -36,7 +36,10 @@
  * follow-up), adds no turn, and a question it replays is never answered
  * unless a gate answers it. A thread that is not loaded is never resumed,
  * since that would load it with no terminal: it is reported gone instead, as
- * an unload, close or sessionEnd hook heard later is. A close is an unload:
+ * an unload, close or sessionEnd hook heard later is. A thread rt runs
+ * headless is the exception: it has no terminal, and a restarted app server
+ * has it on disk but not loaded, so it is loaded again and keeps its binding
+ * and generation; only one Codex refuses to read is reported gone. A close is an unload:
  * Codex closes a thread about 60 s after its last subscriber leaves (live-04),
  * terminal quit or not, so it detaches the binding and never signs the
  * session out; only the sessionEnd hook ends one. A Herdr attachment is
@@ -50,7 +53,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { existsSync, realpathSync } from "fs";
+import { existsSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { isAbsolute, join, resolve } from "path";
 import type {
@@ -459,13 +462,13 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     if (deps.enabled()) void reportGone(event.threadId, gone);
   });
 
-  /** The thread's status, read off the thread and kept in the hub. */
-  async function readStatus(threadId: string): Promise<CodexThreadStatus | undefined> {
+  /** The thread's status, read off the thread and kept in the hub; "missing" when Codex refused the read, as it does for a thread it no longer has. */
+  async function readStatus(threadId: string): Promise<CodexThreadStatus | "missing" | undefined> {
     let status: CodexThreadStatus | undefined;
     try {
       status = threadStatus(threadOf(await control.request("thread/read", { threadId, includeTurns: false }))?.status);
-    } catch {
-      return undefined;
+    } catch (err) {
+      return err instanceof CodexControlError && err.code === "refused" ? "missing" : undefined;
     }
     if (status) hub.refresh(threadId, status);
     return status;
@@ -475,14 +478,18 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
    * Reads the thread's status and, when the app server has it loaded,
    * subscribes this connection with a bare resume. An unloaded thread is
    * reported gone and left unloaded, since resuming would load it with no
-   * terminal (live-04). A failed read or resume leaves it unsubscribed.
+   * terminal (live-04), unless `load` says it runs headless: then it has no
+   * terminal to lose, and a restarted app server has every such thread on
+   * disk and none loaded, so it is loaded again, and only a thread Codex no
+   * longer has is reported gone. A failed read or resume leaves it
+   * unsubscribed.
    */
-  async function subscribeThread(threadId: string, generation: number): Promise<SubscribeResult> {
+  async function subscribeThread(threadId: string, generation: number, load: boolean): Promise<SubscribeResult> {
     if (subscribed.has(threadId)) return "subscribed";
     if (control.closed) return "unknown";
     const status = await readStatus(threadId);
-    if (!status) return "unknown";
-    if (status.type === "notLoaded") {
+    if (status === undefined || (status === "missing" && !load)) return "unknown";
+    if (status === "missing" || (status.type === "notLoaded" && !load)) {
       await reportGone(threadId, "unloaded", generation);
       return "unloaded";
     }
@@ -538,7 +545,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     holders.set(threadId, held);
     if (held.has(id)) deps.clock.clearTimeout(held.get(id));
     held.set(id, deps.clock.setTimeout(() => release(threadId, id), HOLD_MS));
-    const result = await subscribeOnce(threadId, binding.attachment.generation);
+    const result = await subscribeOnce(threadId, binding.attachment.generation, binding.attachment.mode === "headless");
     if (result === "unloaded") {
       release(threadId, id);
       return fail("not-ready", `Codex is not running thread ${threadId} now, so nothing was sent`);
@@ -552,10 +559,10 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     return ok(undefined);
   }
 
-  function subscribeOnce(threadId: string, generation: number): Promise<SubscribeResult> {
+  function subscribeOnce(threadId: string, generation: number, load: boolean): Promise<SubscribeResult> {
     let pending = subscribing.get(threadId);
     if (!pending) {
-      pending = subscribeThread(threadId, generation).finally(() => subscribing.delete(threadId));
+      pending = subscribeThread(threadId, generation, load).finally(() => subscribing.delete(threadId));
       subscribing.set(threadId, pending);
     }
     return pending;
@@ -578,7 +585,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     const threadId = binding.native.value;
     const marked = headless.has(threadId);
     headless.add(threadId);
-    const result = await subscribeOnce(threadId, binding.attachment.generation);
+    const result = await subscribeOnce(threadId, binding.attachment.generation, true);
     if (result === "subscribed") return ok(undefined);
     // Only this keep's own mark comes off, and only while nothing subscribed the thread meanwhile: a headless launch or resume marks what it subscribes.
     if (!marked && !subscribed.has(threadId)) headless.delete(threadId);
@@ -967,8 +974,8 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       const threadId = binding.native.value;
       control.adopt(threadId);
       if (deps.enabled()) {
-        if (binding.attachment.mode === "headless" && !isDetachedAttachment(binding) && !subscribed.has(threadId) && hub.live(threadId) !== false) {
-          // A keep the connection failed at is made again here; it reads the status itself and reports an unloaded thread gone.
+        if (binding.attachment.mode === "headless" && !isDetachedAttachment(binding) && !subscribed.has(threadId)) {
+          // A keep the connection failed at is made again here; it reads the status itself and reports a thread Codex no longer has gone.
           await keep(binding);
         } else {
           // Status changes reach a connection that is not subscribed (live-04), so one read keeps the hub current.
@@ -1089,6 +1096,8 @@ export type CodexSessionLoaderDeps = {
   outstanding(): Array<{ binding: SessionBinding; ids: string[] }>;
   /** Attached Codex bindings rt runs headless; each is subscribed again, and kept, when a connection opens. */
   headless(): SessionBinding[];
+  /** Identifies the file at the app server's control socket path, or null when there is none; a new value is a restarted server. */
+  socketStamp(path: string): string | null;
 };
 
 export type CodexSessionLoader = {
@@ -1128,10 +1137,24 @@ const controlLog: CodexControlLog = (level, message, fields) => {
   void import("../../ui/warn.ts").then(({ warn }) => warn("codex-control", message, { context: fields }));
 };
 
+/** The socket file's identity: a restarted app server binds a new one at the same path. */
+function socketStampOf(path: string): string | null {
+  try {
+    const st = statSync(path);
+    return `${st.dev}:${st.ino}:${st.mtimeMs}`;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * One live connection per loader; a closed one is replaced on the next load.
  * A failed attempt is answered from cache until its backoff ends, so a
  * poller ticking against a stopped app server spawns and connects nothing.
+ * The one exception is a new socket file at the path the last connection
+ * used, which only a restarted server makes: that is tried at once, one
+ * attempt per new socket, so a server that comes back is reached without
+ * waiting out a backoff its downtime grew.
  */
 export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDeps> = {}): CodexSessionLoader {
   const deps: CodexSessionLoaderDeps = {
@@ -1144,6 +1167,7 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     questions: {},
     db: () => getStateDb(),
     headless: () => (integrationsEnabled() ? listAttachedBindings(deps.db(), HARNESS).filter((b) => b.attachment.mode === "headless") : []),
+    socketStamp: socketStampOf,
     outstanding: () => {
       if (!integrationsEnabled()) return [];
       const db = deps.db();
@@ -1157,18 +1181,32 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     control: CodexControl; adapter: CodexSessionAdapter; questions: QuestionAdapter; messaging?: Promise<MessageAdapter>;
   } | undefined;
   let opening: Promise<SessionAdapter> | undefined;
-  let failure: { error: { code: FaultCode; message: string }; attempts: number; retryAt: number; adapter: SessionAdapter } | undefined;
+  let failure: {
+    error: { code: FaultCode; message: string }; attempts: number; retryAt: number; adapter: SessionAdapter; socket: string | null;
+  } | undefined;
+  /** The control socket path the last discovery reported. */
+  let lastSocket: string | undefined;
+
+  const stampOf = (): string | null => (lastSocket === undefined ? null : deps.socketStamp(lastSocket));
 
   function failed(error: { code: FaultCode; message: string }): SessionAdapter {
     const attempts = (failure?.attempts ?? 0) + 1;
     const wait = Math.min(DISCOVERY_BACKOFF_MS * 2 ** (attempts - 1), DISCOVERY_BACKOFF_CAP_MS);
-    failure = { error, attempts, retryAt: deps.now() + wait, adapter: unavailableSessions(error) };
+    failure = { error, attempts, retryAt: deps.now() + wait, adapter: unavailableSessions(error), socket: stampOf() };
     return failure.adapter;
+  }
+
+  /** Still inside the backoff, and no new socket file says the server came back since the last attempt. */
+  function waiting(): boolean {
+    if (!failure || deps.now() >= failure.retryAt) return false;
+    const now = stampOf();
+    return now === null || now === failure.socket;
   }
 
   async function open(): Promise<SessionAdapter> {
     const endpoint = await deps.discover();
     if (!endpoint.ok) return failed(endpoint.error);
+    lastSocket = endpoint.data.socketPath;
     let control: CodexControl;
     try {
       control = await deps.connect({ socketPath: endpoint.data.socketPath, profile: canonicalCodexProfile(undefined, deps.env) });
@@ -1208,7 +1246,7 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
 
   function load(): Promise<SessionAdapter> {
     if (current && !current.control.closed) return Promise.resolve(current.adapter);
-    if (failure && deps.now() < failure.retryAt) return Promise.resolve(failure.adapter);
+    if (failure && waiting()) return Promise.resolve(failure.adapter);
     return (opening ??= open().finally(() => {
       opening = undefined;
     }));

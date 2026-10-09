@@ -17,7 +17,9 @@ import {
 } from "../codex/sessions.ts";
 import { DELIVERY_SWEEP_INTERVAL_MS, MAX_DELIVERY_BACKOFF_TICKS } from "../delivery.ts";
 import { readDelivery, recordAttempt, settleAttempt } from "../delivery-store.ts";
-import { createSessionStore } from "../session-store.ts";
+import { resolveCallerContextNow } from "../context.ts";
+import { reportSessionGone } from "../presence.ts";
+import { createSessionStore, isDetachedAttachment, listAttachedBindings } from "../session-store.ts";
 import { setSetting } from "../../settings/write.ts";
 import { openStateDb } from "../../state/db.ts";
 import { workDigest } from "../work-submissions.ts";
@@ -1406,13 +1408,18 @@ describe("round 4: headless bindings as the store records them, keep retries, cl
     }
   });
 
-  test("observe subscribes a headless thread again when its keep failed at connect, once, and never an unloaded one", async () => {
+  test("observe subscribes a headless thread again when its keep failed at connect, once, loads one Codex has not loaded, and lets go only of one Codex no longer has", async () => {
     const server = subscribingServer({ T1: "idle", T2: "notLoaded" });
     let failing = 1;
     const resume = server.handlers["thread/resume"]!;
     server.handlers["thread/resume"] = (s, m) => {
       if (failing-- > 0) s.push({ id: m.id, error: { code: -32603, message: "resume failed" } });
       else resume(s, m);
+    };
+    const read = server.handlers["thread/read"]!;
+    server.handlers["thread/read"] = (s, m) => {
+      if (m.params.threadId === "T3") s.push({ id: m.id, error: { code: -32600, message: "thread not found: T3" } });
+      else read(s, m);
     };
     const h = await harness(server.handlers);
     const gone: Gone[] = [];
@@ -1437,10 +1444,16 @@ describe("round 4: headless bindings as the store records them, keep retries, cl
     expect(gone).toEqual([]);
 
     await sessions.observe(headlessT2);
-    expect(gone).toEqual([{ value: "T2", event: "unloaded", generation: 3 }]);
-    expect(h.requests("thread/resume")).toHaveLength(2);
-    expect(h.requests("thread/unsubscribe").map((m) => m.params.threadId)).toEqual(["T2"]);
-    expect(loader.bindingLive(headlessT2)).toBe(false);
+    expect(gone).toEqual([]);
+    expect(h.requests("thread/resume").map((m) => m.params.threadId)).toEqual(["T1", "T1", "T2"]);
+    expect(loader.bindingLive(headlessT2)).toBe(true);
+
+    const headlessT3 = headlessBinding("T3", "k3");
+    await sessions.observe(headlessT3);
+    expect(gone).toEqual([{ value: "T3", event: "unloaded", generation: 3 }]);
+    expect(h.requests("thread/resume")).toHaveLength(3);
+    expect(h.requests("thread/unsubscribe").map((m) => m.params.threadId)).toEqual(["T3"]);
+    expect(loader.bindingLive(headlessT3)).toBe(false);
   });
 
   test("a keep that fails leaves alone the headless mark a launch set meanwhile, so the launched thread is never let go", async () => {
@@ -1462,6 +1475,129 @@ describe("round 4: headless bindings as the store records them, keep retries, cl
     sessions.release("T1", "d-1-remy");
     expect(h.requests("thread/unsubscribe")).toEqual([]);
     expect(h.clock.active).toBe(0);
+  });
+});
+
+describe("an app server restart (live-16 D6)", () => {
+  /** A restarted app server has every thread on disk and none loaded; `missing` threads are gone, and reading one is refused. */
+  function restartedServer(missing: string[]) {
+    const server = subscribingServer({});
+    const read = server.handlers["thread/read"]!;
+    server.handlers["thread/read"] = (s, m) => {
+      if (missing.includes(m.params.threadId)) s.push({ id: m.id, error: { code: -32600, message: `thread not found: ${m.params.threadId}` } });
+      else read(s, m);
+    };
+    return server;
+  }
+
+  test("headless threads that still exist stay attached at their generation and are subscribed again; only a gone thread detaches", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-codex-restart-"));
+    try {
+      const db = openStateDb(join(dir, "state.db"));
+      const store = createSessionStore(db);
+      const bindHeadless = (identity: string, value: string) =>
+        data(store.bind(store.reserve({ identity }), { harness: "codex", profile: "default", kind: "id", value }, { mode: "headless" }));
+      const shepherd = bindHeadless("shep.1abc", "S1");
+      const worker = bindHeadless("job-a.w1", "T1");
+      const gone = bindHeadless("job-b.w1", "T9");
+
+      const before = await harness(subscribingServer({ S1: "idle", T1: "idle", T9: "idle" }).handlers);
+      const server = restartedServer(["T9"]);
+      const after = await harness(server.handlers);
+      const controls = [before.control, after.control];
+      const loader = createCodexSessionLoader({
+        env: {}, now: () => 0,
+        discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
+        connect: async () => controls.shift()!,
+        db: () => db,
+        outstanding: () => [],
+        headless: () => listAttachedBindings(db, "codex").filter((b) => b.attachment.mode === "headless"),
+        messaging: { currentBinding: (key) => store.get(key), persisted: () => null },
+        sessions: { ...before.deps, enabled: () => true, lifecycle: (native, event, generation) => reportSessionGone(native, event, generation, { db, enabled: () => true }) },
+      });
+      await loader.load();
+      before.control.close();
+      const sessions = (await loader.load()) as CodexSessionAdapter;
+
+      expect(after.requests("thread/resume").map((m) => m.params.threadId).sort()).toEqual(["S1", "T1"]);
+      expect(after.requests("thread/unsubscribe").map((m) => m.params.threadId)).toEqual(["T9"]);
+      expect([...server.subscribed].sort()).toEqual(["S1", "T1"]);
+      for (const kept of [shepherd, worker]) {
+        const now = store.get(kept.key)!;
+        expect(isDetachedAttachment(now)).toBe(false);
+        expect(now.attachment.generation).toBe(kept.attachment.generation);
+        expect(loader.bindingLive(now)).toBe(true);
+      }
+      expect(isDetachedAttachment(store.get(gone.key)!)).toBe(true);
+
+      server.userMessage(after.socket(), "T1", "d-7-remy");
+      expect(sessions.activeTurn(store.get(worker.key)!)).toBe("U9");
+      const caller = resolveCallerContextNow({ native: { harness: "codex", profile: "default", kind: "id", value: "S1" } }, { db });
+      expect(caller).toMatchObject({ ok: true, data: { binding: { key: shepherd.key } } });
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("observe subscribes a headless thread the restarted server has not loaded, and never a Herdr one", async () => {
+    const server = restartedServer([]);
+    const h = await harness(server.handlers);
+    const gone: Gone[] = [];
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return true; } });
+    const headless = binding("T1", { attachment: { generation: 3, mode: "headless" } });
+    expect(data(await sessions.observe(headless))).toMatchObject({ connectivity: "connected", generation: 3 });
+    expect(h.requests("thread/resume").map((m) => m.params)).toEqual([{ threadId: "T1", excludeTurns: true }]);
+    expect(gone).toEqual([]);
+
+    await sessions.observe(binding("T2", { key: "k2" }));
+    expect(gone).toEqual([{ value: "T2", event: "unloaded", generation: 3 }]);
+    expect(h.requests("thread/resume")).toHaveLength(1);
+  });
+
+  test("the loader tries again as soon as the app server's socket comes back, once per new socket, and keeps its backoff otherwise", async () => {
+    let now = 0;
+    let socket: string | null = "ino-1";
+    let running = true;
+    let discovers = 0;
+    const h1 = await harness();
+    const h2 = await harness();
+    const controls = [h1.control, h2.control];
+    const loader = createCodexSessionLoader({
+      env: {}, now: () => now,
+      discover: async () => {
+        discovers++;
+        return running ? { ok: true, data: { socketPath: SOCKET } } : { ok: false, error: { code: "not-ready", message: "The Codex app server is not running." } };
+      },
+      connect: async () => controls.shift()!,
+      socketStamp: (path) => (path === SOCKET ? socket : null),
+      sessions: h1.deps,
+    });
+    await loader.load();
+    expect(loader.status()).toEqual({ state: "live" });
+
+    running = false;
+    h1.control.close();
+    for (const at of [1, 15_001, 45_001, 105_001]) { now = at; await loader.load(); }
+    expect(discovers).toBe(5);
+    now = 105_002;
+    await loader.load();
+    expect(discovers).toBe(5);
+
+    socket = null;
+    await loader.load();
+    expect(discovers).toBe(5);
+    socket = "ino-2";
+    await loader.load();
+    expect(discovers).toBe(6);
+    await loader.load();
+    expect(discovers).toBe(6);
+
+    running = true;
+    socket = "ino-3";
+    await loader.load();
+    expect(discovers).toBe(7);
+    expect(loader.status()).toEqual({ state: "live" });
   });
 });
 
