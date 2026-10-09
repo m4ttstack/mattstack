@@ -213,7 +213,7 @@ in localStorage, loads the board's route, disables transitions and
 animations, waits for the first root (or the action's first layer), asserts
 `data-mantine-color-scheme` is the scheme, does the board's action, waits for
 every root, matches the content width, and collects and screenshots each root
-with its side-by-side. Three boards have an action:
+with its side-by-side. These boards have an action:
 
 - `drawer-rebind` clicks `Select`, then `option · plan-policy-strict`, then
   `Select` again, and waits for `options`: the board draws the picker open on

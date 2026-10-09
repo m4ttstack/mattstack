@@ -185,6 +185,9 @@ export function targetsOf(board: Board, panel?: string): ParityTarget[] {
       action: p.action ?? board.action,
     }));
   }
+  if (panel) {
+    throw new Error(`${board.slug} has no panels; drop the panel filter`);
+  }
   return board.roots.map(root => ({
     stem: `${board.slug}.${stemPart(root)}`,
     root,

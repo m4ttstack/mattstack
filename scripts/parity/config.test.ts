@@ -80,6 +80,12 @@ describe('targetsOf actions and panel filter', () => {
       'no panel "nope" on 01-demo; one of: One, Two'
     );
   });
+
+  it('refuses a panel filter on a board without panels', () => {
+    expect(() => targetsOf(board(), 'one')).toThrow(
+      '01-demo has no panels; drop the panel filter'
+    );
+  });
 });
 
 describe('boardBySlug', () => {
