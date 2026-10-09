@@ -52,6 +52,8 @@ export interface Probes {
   mkdirp(path: string, mode?: number): void;
   /** Creates exactly `path` (its parent must exist): true when this call made it, false when it already existed. Other errors throw. */
   mkdirExclusive(path: string): boolean;
+  /** Blocks the thread: for short lock-retry waits on sync paths only. */
+  sleepSync(ms: number): void;
   /** Never throws: network failure yields status 0, body "", headers {}. Header names are lowercased. */
   fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }): Promise<{ status: number; body: string; headers: Record<string, string> }>;
   tray: TrayClient;
@@ -320,6 +322,10 @@ export function createRealProbes(): Probes {
         if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
         throw err;
       }
+    },
+
+    sleepSync(ms) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
     },
 
     async fetch(url, init) {
