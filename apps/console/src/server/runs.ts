@@ -26,7 +26,7 @@ import {
   type RunsFixture,
 } from './fixtures/design/runsFixture';
 import { listAllRunGates } from './gates';
-import { LEGACY_IMAGE_MIME, legacyImageAllowed } from './legacyEvidence';
+import { LEGACY_IMAGE_MIME, legacyImagePath } from './legacyEvidence';
 import { markSeen, readSeen } from './seen';
 
 /** Hono's c.req.param() always URI-decodes a captured segment; a repo
@@ -227,7 +227,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           }
           const evidence =
             detail.data.fields.find(f => f.key === 'evidence')?.value ?? null;
-          const allowed = legacyImageAllowed({
+          const resolved = legacyImagePath({
             evidence,
             path,
             realpath: p => {
@@ -240,10 +240,11 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
             evidenceRoot: join(homedir(), '.mattstack', 'evidence'),
           });
           const mime = LEGACY_IMAGE_MIME[extname(path).toLowerCase()];
-          if (!allowed || !mime) return c.json({ error: 'no evidence' }, 404);
+          if (resolved === null || !mime)
+            return c.json({ error: 'no evidence' }, 404);
           let bytes: Buffer;
           try {
-            bytes = await readFile(realpathSync(path));
+            bytes = await readFile(resolved);
           } catch {
             return c.json({ error: 'no evidence' }, 404);
           }
