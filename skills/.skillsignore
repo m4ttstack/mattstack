@@ -29,3 +29,6 @@ mattstack-release
 doc-standards
 docusaurus-config
 docusaurus-documentation
+
+# Writing short UI copy for mattstack apps. Maintainer action.
+rt-ui-copy
