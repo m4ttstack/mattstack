@@ -1,7 +1,6 @@
 // Per-app settings modal: open/close/focus, header and status, the reduced
-// forms, and the Code, App, Port and footer blocks. Ported from
-// drawer.spec.ts onto the modal DOM contract; every selector inside the
-// modal is scoped to its dialog.
+// forms, and the Code, App, Port and footer blocks. Every selector inside
+// the modal is scoped to its dialog.
 import { expect, test } from 'bun:test';
 import type { Locator, Page, Route } from 'playwright';
 
