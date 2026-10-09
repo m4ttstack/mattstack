@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import pino from "pino";
@@ -462,7 +462,7 @@ describe("policy receipts", () => {
 
   describe("diagnostic proof", () => {
     const DIAG = "019a0000-0000-7000-8000-00000000d1a6";
-    const SOURCE = "/sandbox/project/.codex/hooks.json";
+    const SOURCE = "/sandbox/codex-home/hooks.json";
     const run = (over: Partial<CodexHookRun> = {}): CodexHookRun => ({
       threadId: THREAD, turnId: DIAG, id: "run-stop", eventName: "stop", status: "completed",
       sourcePath: SOURCE, source: "user", handlerType: "command", ...over,
@@ -487,6 +487,25 @@ describe("policy receipts", () => {
       store.observe(run());
       expect(await acceptCodexPolicyReceipt(stopReceipt(), deps)).toEqual({ ok: true, data: { turn: "current", diagnostic: true } });
       expect(proven()).toEqual([["PreToolUse", "run-pre"], ["Stop", "run-stop"]]);
+    });
+
+    test("a run Codex names by the resolved path of a symlinked Codex home still proves", async () => {
+      const real = join(dir, "real-codex-home");
+      mkdirSync(real, { recursive: true });
+      writeFileSync(join(real, "hooks.json"), "{}");
+      symlinkSync(real, join(dir, "linked-codex-home"));
+      const inspected = join(dir, "linked-codex-home", "hooks.json");
+      const resolved = realpathSync(join(real, "hooks.json"));
+      const bound = bindAgent(THREAD);
+      const store = createCodexPolicyReceipts();
+      const nonce = store.issueDiagnostic(bound.key, bound.attachment.generation, DIAG, inspected);
+      const deps = { enabled: () => true, resolve, store, activeTurn: () => DIAG, attention: () => {} };
+      await acceptCodexPolicyReceipt(preReceipt(), deps);
+      store.observe(preRun({ sourcePath: resolved }));
+      store.observe(run({ sourcePath: resolved }));
+      await acceptCodexPolicyReceipt(stopReceipt(), deps);
+      const proven = store.list(bound.key, bound.attachment.generation).filter((r) => r.nonce === nonce).map((r) => [r.event, r.hookRun]);
+      expect(proven).toEqual([["PreToolUse", "run-pre"], ["Stop", "run-stop"]]);
     });
 
     test("a receipt from a non-hook caller with no native run is not diagnostic", async () => {
@@ -649,7 +668,7 @@ describe("policy receipts", () => {
 // ─── Adapter ─────────────────────────────────────────────────────────────────
 
 describe("createCodexPolicy", () => {
-  function project(opts: { trust?: boolean; hookTrust?: boolean; command?: string; matcher?: string } = {}) {
+  function project(opts: { hookTrust?: boolean; command?: string; matcher?: string } = {}) {
     const root = join(dir, "project");
     const cwd = join(root, "packages", "app");
     mkdirSync(join(root, ".git"), { recursive: true });
@@ -663,7 +682,6 @@ describe("createCodexPolicy", () => {
     const source = join(home, "hooks.json");
     writeFileSync(source, JSON.stringify({ hooks }, null, 2));
     const lines = [
-      ...(opts.trust === false ? [] : [`[projects.${JSON.stringify(root)}]`, `trust_level = "trusted"`]),
       ...(opts.hookTrust === false ? [] : [
         `[hooks.state.${JSON.stringify(`${source}:pre_tool_use:0:0`)}]`, `trusted_hash = "sha256:${"a".repeat(64)}"`,
         `[hooks.state.${JSON.stringify(`${source}:stop:0:0`)}]`, `trusted_hash = "sha256:${"b".repeat(64)}"`,
@@ -731,7 +749,7 @@ describe("createCodexPolicy", () => {
 
   test("user-layer hooks need no folder trust", async () => {
     rmSync(join(dir, "project"), { recursive: true, force: true });
-    const p = project({ trust: false });
+    const p = project();
     expect(await createCodexPolicy({ env: p.env, artifact: () => undefined, fingerprint: () => "x" }).prepare({ ...request(p.cwd), mode: "headless" })).toMatchObject({ ok: true });
   });
 });

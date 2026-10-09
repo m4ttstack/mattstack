@@ -386,8 +386,8 @@ enforce question and Stop policy as the project layer did. A trusted project
 can still switch every hook off in its own configuration, so each session's
 hook listing and check turn stay mandatory and report not-ready, never a pass.
 
-Setup presents the exact project boundary, definitions and native hashes for
-review. Runtime launch never grants trust, changes global sandbox policy or
+Setup presents the exact user hooks file, hook program, definitions, native
+keys and hashes for review. Runtime launch never grants trust, changes global sandbox policy or
 restarts a shared daemon. Install/update/restore owns only its exact entries;
 user edits and unrelated settings are preserved. A changed native hook hash
 requires review again. Stable versioned executable paths and an owned artifact

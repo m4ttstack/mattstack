@@ -35,7 +35,7 @@ export interface SetupState {
 export interface CodexPolicyState {
   /** Names this Mac's hooks in their command line, so a receipt says which installation ran. */
   installationId: string;
-  /** Hook executables rt copied, each with the digest its path is named for. Kept while an old session may still run one. */
+  /** Hook executables rt copied, each with the digest its path is named for (the bytes setup installed). Kept while an old session may still run one. */
   artifacts: Record<string, string>;
   /** Per user-layer hooks file (`$CODEX_HOME/hooks.json`), the hook commands rt added there. */
   hooks: Record<string, string[]>;

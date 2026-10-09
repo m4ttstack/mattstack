@@ -193,6 +193,12 @@ rules remain in the setup framework.
 
 ### S4b: Install reviewed Codex policy at the actual project boundary
 
+> **Superseded in part (2026-10-09):** the project-layer arrangement below
+> (`.codex/hooks.json` at a project boundary, folder trust) is replaced by
+> Codex's user layer, the profile's `$CODEX_HOME/hooks.json`, per Matt's
+> tenet that rt leaves no footprint in any repo. The spec was amended at
+> 3f2d79de5; the evidence is `.harness-spike/userhooks/report.md`.
+
 **Files:** Create `lib/agent-integrations/codex/policy-install.ts`,
 `lib/setup/__tests__/codex-policy-install.test.ts`;
 modify `lib/agent-integrations/codex/install.ts`, `lib/setup/state.ts`,

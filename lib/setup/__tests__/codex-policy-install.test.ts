@@ -39,6 +39,8 @@ type World = {
   hashSalt: string;
   /** Folders whose repo turns hooks off (`[features] hooks = false`): hooks/list is empty there. */
   hooksOff: Set<string>;
+  /** A symlink to the Codex home, used as the profile when set. */
+  profileLink?: string;
   listCalls: string[];
   deps: Partial<PolicyInstallDeps>;
 };
@@ -139,8 +141,8 @@ afterEach(() => {
   rmSync(world.root, { recursive: true, force: true });
 });
 
-async function plan(): Promise<PolicyInstallPlan> {
-  const planned = await planCodexPolicyInstall({ profile: world.codexHome }, world.deps);
+async function plan(cwd?: string): Promise<PolicyInstallPlan> {
+  const planned = await planCodexPolicyInstall({ ...(cwd !== undefined && { cwd }), profile: profileOf() }, world.deps);
   if (!planned.ok) throw new Error(`plan failed: ${planned.error.message}`);
   return planned.data;
 }
@@ -150,15 +152,15 @@ async function approve(p: PolicyInstallPlan): Promise<Outcome<void>> {
 }
 
 /** The untrusted definitions, then the one review approved as a person would. */
-async function install(): Promise<{ definitions: PolicyInstallPlan; hooks: PolicyInstallPlan }> {
-  const definitions = await plan();
+async function install(cwd?: string): Promise<{ definitions: PolicyInstallPlan; hooks: PolicyInstallPlan }> {
+  const definitions = await plan(cwd);
   expect(definitions.stage).toBe("definitions");
   expect(definitions.reviews).toEqual([]);
   expect(await applyCodexPolicyInstall(definitions, [], world.deps)).toEqual({ ok: true, data: undefined });
-  const hooks = await plan();
+  const hooks = await plan(cwd);
   expect(hooks.stage).toBe("hooks");
   expect(await approve(hooks)).toEqual({ ok: true, data: undefined });
-  expect((await plan()).stage).toBe("installed");
+  expect((await plan(cwd)).stage).toBe("installed");
   return { definitions, hooks };
 }
 
@@ -185,14 +187,17 @@ function stateOf() {
   return readSetupState(fakeProbes({ home: world.home, files: existsSync(path) ? { [path]: readFileSync(path, "utf8") } : {} }));
 }
 
+/** The profile rt is given: the Codex home itself, or a symlink to it when a test sets `world.profileLink`. */
+const profileOf = (): string => world.profileLink ?? world.codexHome;
+
 const policy = (checker?: CodexPolicyChecker) =>
-  createCodexPolicy({ env: { HOME: world.home, CODEX_HOME: world.codexHome }, ...(checker && { checker: async () => checker }) });
+  createCodexPolicy({ env: { HOME: world.home, CODEX_HOME: profileOf() }, ...(checker && { checker: async () => checker }) });
 const launch = (cwd: string) => ({
   reservationId: "r1", cwd, mode: "headless" as const, selection: { harness: "codex" as const, options: {} },
   required: ["gate-policy", "continuation-policy"] as const, access: { readRoots: [] },
 });
 const binding = (value = "thread-1"): SessionBinding => ({
-  key: `codex:${value}`, identity: `id-${value}`, native: { harness: "codex", profile: world.codexHome, kind: "id", value },
+  key: `codex:${value}`, identity: `id-${value}`, native: { harness: "codex", profile: profileOf(), kind: "id", value },
   attachment: { generation: 1, mode: "headless" },
 });
 
@@ -212,7 +217,19 @@ function countingChecker(): CodexPolicyChecker & { turns: number } {
 describe("Codex policy install in the user layer", () => {
   test("install touches nothing under any repo", async () => {
     const before = repoFootprint();
-    await install();
+    await install(world.main);
+    world.hashSalt = "a new Codex";
+    const again = await plan(world.tree);
+    expect(again.stage).toBe("hooks");
+    expect(await approve(again)).toEqual({ ok: true, data: undefined });
+    const checker = countingChecker();
+    for (const cwd of [world.main, world.tree]) {
+      const prepared = await policy(checker).prepare(launch(cwd));
+      if (!prepared.ok) throw new Error(prepared.error.message);
+      await policy(checker).verify(binding(`thread-${cwd.length}`), prepared.data, { kind: "launch" });
+    }
+    expect(checker.turns).toBe(2);
+    expect(world.listCalls).toEqual(expect.arrayContaining([world.main, world.tree]));
     expect(repoFootprint()).toBe(before);
     expect(existsSync(join(world.main, ".codex"))).toBe(false);
     expect(readFileSync(join(world.main, ".git", "info", "exclude"), "utf8")).not.toContain("codex");
@@ -463,6 +480,20 @@ describe("Codex policy install in the user layer", () => {
     expect(await applyCodexPolicyInstall(definitions, [], world.deps)).toMatchObject({ ok: false, error: { code: "refused" } });
     expect(readdirSync(elsewhere)).toEqual([]);
     expect(existsSync(world.hooksPath)).toBe(false);
+  });
+
+  test("a symlinked Codex home installs once and reads ready through either spelling", async () => {
+    world.profileLink = join(world.home, "codex-link");
+    symlinkSync(world.codexHome, world.profileLink);
+    world.deps.env = { HOME: world.home, CODEX_HOME: world.profileLink };
+    const { hooks } = await install(world.main);
+    expect(hooks.hooksPath).toBe(join(world.profileLink, "hooks.json"));
+    expect(hooks.reviews[0]!.hooks[0]!.key.startsWith(world.hooksPath)).toBe(true);
+    const checker = countingChecker();
+    const prepared = await policy(checker).prepare(launch(world.tree));
+    if (!prepared.ok) throw new Error(prepared.error.message);
+    await policy(checker).verify(binding(), prepared.data, { kind: "launch" });
+    expect(checker.turns).toBe(1);
   });
 
   test("a profile that turns hooks off is refused", async () => {

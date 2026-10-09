@@ -328,30 +328,30 @@ export type CodexPolicyInspectDeps = {
   /** The sha256 of the hook executable's bytes. */
   fingerprint?: (path: string) => string;
   now?: () => number;
-  /** Why the executable is not the copy setup reviewed, or undefined when it is. */
+  /** Why the executable is not the copy setup installed, or undefined when it is. */
   artifact?: (executable: string, digest: string) => string | undefined;
 };
 
 /**
- * Setup names each reviewed hook executable by its own digest and records
- * that digest (policy-install.ts). Codex's native hash covers only the
+ * Setup names each hook executable it installs by its own digest and
+ * records that digest (policy-install.ts); the trust review then shows it. Codex's native hash covers only the
  * command line, so a copy changed in place is caught only here. Read
  * straight from setup's state file: the daemon must not load setup modules.
  */
-export function reviewedArtifactProblem(env: NodeJS.ProcessEnv): (executable: string, digest: string) => string | undefined {
+export function installedArtifactProblem(env: NodeJS.ProcessEnv): (executable: string, digest: string) => string | undefined {
   return (executable, digest) => {
     const segment = basename(dirname(executable));
     if (!/^[0-9a-f]{16}$/.test(segment) || !digest.startsWith(segment)) {
-      return `the policy hook's executable ${executable} is not a copy setup reviewed, or its bytes changed after the review`;
+      return `the policy hook's executable ${executable} is not a copy setup installed, or its bytes changed after setup installed it`;
     }
-    let reviewed: unknown;
+    let installed: unknown;
     try {
       const state: unknown = JSON.parse(readFileSync(join(env.HOME ?? homedir(), ".mattstack", "rt", "setup-state.json"), "utf8"));
-      reviewed = isRecord(state) && isRecord(state.codexPolicy) && isRecord(state.codexPolicy.artifacts) ? state.codexPolicy.artifacts[executable] : undefined;
+      installed = isRecord(state) && isRecord(state.codexPolicy) && isRecord(state.codexPolicy.artifacts) ? state.codexPolicy.artifacts[executable] : undefined;
     } catch {
-      reviewed = undefined;
+      installed = undefined;
     }
-    return reviewed === digest ? undefined : `the policy hook's executable ${executable} does not hold the bytes setup reviewed`;
+    return installed === digest ? undefined : `the policy hook's executable ${executable} does not hold the bytes setup installed`;
   };
 }
 
@@ -580,7 +580,7 @@ function loadedFromInspected(listed: CodexListedHook[], cwd: string, sourcePath:
       && h.command !== undefined && parseCodexPolicyHookCommand(h.command)?.event === event);
     if (ours.length !== 1) return fail("not-ready", `Codex loads ${ours.length} copies of rt's ${event} policy hook for ${cwd}, where rt needs exactly one`);
     const [hook] = ours;
-    if (hook!.source !== CODEX_POLICY_SOURCE || hook!.sourcePath !== sourcePath) {
+    if (hook!.source !== CODEX_POLICY_SOURCE || hook!.sourcePath === undefined || realOr(hook!.sourcePath) !== realOr(sourcePath)) {
       return fail("not-ready", `Codex loads rt's ${event} policy hook for ${cwd} from ${hook!.sourcePath ?? "an unnamed file"} (${hook!.source ?? "unknown"} layer), not from the inspected ${sourcePath}`);
     }
     if (hook!.enabled === false) return fail("not-ready", `Codex lists rt's ${event} policy hook in ${sourcePath} as disabled`);
@@ -636,7 +636,7 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
     readFile: overrides.readFile ?? ((path) => readFileSync(path, "utf8")),
     fingerprint: overrides.fingerprint ?? ((path) => createHash("sha256").update(readFileSync(path)).digest("hex")),
     now: overrides.now ?? Date.now,
-    artifact: overrides.artifact ?? reviewedArtifactProblem(overrides.env ?? process.env),
+    artifact: overrides.artifact ?? installedArtifactProblem(overrides.env ?? process.env),
     checker: overrides.checker ?? liveChecker,
     receipts: overrides.receipts ?? codexPolicyReceipts(),
     sleep: overrides.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),

@@ -27,6 +27,7 @@
  */
 
 import { randomUUID } from "crypto";
+import { realpathSync } from "fs";
 import { CODEX_POLICY_SOURCE } from "./hook-manifest.ts";
 import type { CallerContext, NativeSessionRef, Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
@@ -99,11 +100,24 @@ type Diagnostic = {
 };
 
 /** Whether rt's own installed hook, and nothing else, produced this receipt's native run. */
+function realOr(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/** Codex may name the hooks file through a symlinked CODEX_HOME, or by its resolved path; both are the same file. */
+function sameFile(a: string | undefined, b: string): boolean {
+  return a !== undefined && (a === b || realOr(a) === realOr(b));
+}
+
 function confirms(run: CodexHookRun, receipt: CodexPolicyReceipt, sourcePath: string): boolean {
   return run.threadId === receipt.threadId && run.turnId === receipt.turnId
     && run.eventName === NATIVE_EVENT[receipt.event]
     && run.status === (BLOCKING.has(receipt.verdict) ? "blocked" : "completed")
-    && run.sourcePath === sourcePath && run.source === CODEX_POLICY_SOURCE && run.handlerType === "command"
+    && sameFile(run.sourcePath, sourcePath) && run.source === CODEX_POLICY_SOURCE && run.handlerType === "command"
     && receipt.turn === "current" && receipt.threadEnv === "absent";
 }
 
@@ -143,7 +157,7 @@ export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPo
         if (r.generation === generation && r.turnId === turnId) hold(d, d.receipts, r);
       }
       for (const run of recentRuns) {
-        if (run.turnId === turnId && run.sourcePath === sourcePath) hold(d, d.runs, run);
+        if (run.turnId === turnId && sameFile(run.sourcePath, sourcePath)) hold(d, d.runs, run);
       }
       diagnostics.set(sessionKey, d);
       return nonce;
@@ -166,7 +180,7 @@ export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPo
       recentRuns.push(run);
       if (recentRuns.length > RECENT_RUNS_KEPT) recentRuns.shift();
       for (const d of diagnostics.values()) {
-        if (d.turnId === run.turnId && run.sourcePath === d.sourcePath) hold(d, d.runs, run);
+        if (d.turnId === run.turnId && sameFile(run.sourcePath, d.sourcePath)) hold(d, d.runs, run);
       }
     },
     list(sessionKey, generation) {
@@ -183,7 +197,7 @@ export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPo
     },
     ran(receipt, sourcePath) {
       return recentRuns.some((run) => run.threadId === receipt.threadId && run.turnId === receipt.turnId
-        && run.eventName === NATIVE_EVENT[receipt.event] && run.sourcePath === sourcePath
+        && run.eventName === NATIVE_EVENT[receipt.event] && sameFile(run.sourcePath, sourcePath)
         && run.status === (BLOCKING.has(receipt.verdict) ? "blocked" : "completed")
         && run.source === CODEX_POLICY_SOURCE && run.handlerType === "command");
     },
