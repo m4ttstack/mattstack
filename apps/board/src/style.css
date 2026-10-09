@@ -2774,7 +2774,19 @@ a.tui-id-card-ref:focus-visible {
 .tui-owners-modal .tui-modal-sub {
   margin-bottom: 0;
 }
-.tui-owners-modal .tui-draft-actions {
+.tui-owners-modal .tui-draft-edit {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  overflow-y: auto;
+  max-height: 40vh;
+}
+.tui-draft-edit:focus {
+  outline: none;
+  border-color: var(--fill-accent);
+}
+.tui-draft-actions {
   margin-top: 0;
 }
 .tui-owners-note {

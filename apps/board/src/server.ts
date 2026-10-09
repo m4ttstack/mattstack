@@ -1062,7 +1062,8 @@ async function postReviewRequest(
   slackToken: string,
   picked: BoardMR[],
   targetChannel: string,
-  header: string | null
+  header: string | null,
+  textOverride?: string
 ): Promise<ReviewRequestResult> {
   const existingRefs = readSlackRefs();
   const toResolve = picked.filter(
@@ -1106,7 +1107,7 @@ async function postReviewRequest(
     const refs = await postToSlack(
       slackToken,
       targetChannel,
-      mrPostText(picked, header),
+      textOverride ?? mrPostText(picked, header),
       picked.map(m => ({ webUrl: m.webUrl!, iid: m.iid }))
     );
     return {
@@ -1156,14 +1157,14 @@ const ownerPostsRunning = new Set<string>();
 async function ownersPreviewOrPost(
   mr: BoardMR,
   slackToken: string,
-  request: { team?: unknown; channels?: unknown } | null
+  request: { team?: unknown; channels?: unknown; text?: unknown } | null
 ): Promise<Response> {
   if (!withReviewChannel(() => channelForMR(config, mr), Boolean))
     return new Response(NO_REVIEW_CHANNEL, { status: 400 });
   const planned = await ownersPostPlan(mr, slackToken);
   if (planned instanceof Response) return planned;
   const team = await teamThread(mr, slackToken);
-  const text = mrPostText([mr]);
+  const defaultText = mrPostText([mr]);
   const { plan } = planned;
   if (request === null) {
     const direct =
@@ -1173,13 +1174,17 @@ async function ownersPreviewOrPost(
         s => s.reason === 'approved' || s.reason === 'already-posted'
       );
     return Response.json({
-      text,
+      text: defaultText,
       ...plan,
       team,
       direct,
       unchecked: planned.unchecked,
     });
   }
+  const edited = typeof request.text === 'string' ? request.text.trim() : '';
+  if (request.text !== undefined && !edited)
+    return new Response('the message is empty', { status: 400 });
+  const text = edited || defaultText;
   const offered = new Set(plan.channels.map(c => c.channel));
   const channels = request.channels ?? [];
   const wantsTeam = request.team === true;
@@ -1207,7 +1212,8 @@ async function ownersPreviewOrPost(
       slackToken,
       [mr],
       team.channel,
-      null
+      null,
+      edited || undefined
     );
     if (result.kind === 'posted' || result.kind === 'linked')
       posted.push({
@@ -3993,10 +3999,11 @@ const httpServer = Bun.serve({
         } catch {
           return new Response('invalid json', { status: 400 });
         }
-        const { mrUrl, team, channels } = (body ?? {}) as {
+        const { mrUrl, team, channels, text } = (body ?? {}) as {
           mrUrl?: unknown;
           team?: unknown;
           channels?: unknown;
+          text?: unknown;
         };
         if (typeof mrUrl !== 'string')
           return new Response('expected { mrUrl: string }', { status: 400 });
@@ -4012,7 +4019,11 @@ const httpServer = Bun.serve({
           });
         ownerPostsRunning.add(mrUrl);
         try {
-          return await ownersPreviewOrPost(mr, slackToken, { team, channels });
+          return await ownersPreviewOrPost(mr, slackToken, {
+            team,
+            channels,
+            text,
+          });
         } finally {
           ownerPostsRunning.delete(mrUrl);
         }
