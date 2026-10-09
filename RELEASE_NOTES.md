@@ -1,59 +1,65 @@
-An organizations release: one org can hold several teams with shared settings, the org's skills and board fills live in an org base pack, each team's pack moves to its own `plugin/` folder, and members move onto the new layout on their own. The board gets an asks inbox, the docs site gets board and flock guides, and the StrongDM picker groups by tags.
+A team directory release: each team's Linear key and Slack channels move into one org source, which is a new org layout (3). The console gets a redesigned runs view, deck a facelift, the board one Slack post across its channels, and `rt cd`'s restore rows are grouped by cleanup date.
 
-Macs update to v2.21.1 first, then to this release: Sparkle offers v2.21.1 to a Mac still on v2.21.0 and this release only after it.
+When your org's admin moves the org onto layout 3, a Mac still on v2.22 holds its org pull and shows one row asking you to update; after the update it moves itself onto the new layout.
 
 ### Organizations and teams
 
-- one org can hold several teams, with org and team settings and shared write permissions decided by role (#667)
-- the org clone lives under `~/.mattstack/orgs/<org>`, and `rt setup update` moves an older clone there and keeps its folder named after the org (#727, #731)
-- `rt team rename` renames your org on this Mac and for every member at their next update (#730)
-- rt follows whatever branch the org clone has checked out, so an admin can try a breaking change on a branch (#722)
-- `rt team join` refuses a stale invite and clones only the folders rt uses (#728, #741)
-- the org marker carries a layout version: a member's Mac holds a pull onto a layout it cannot read, shows one calm row asking to update, and moves itself onto the new layout when the app and the org are both ready, in either order (#744)
-- the org folder step no longer reports a clone already in place as a second copy (#739)
-- `rt dev setup` and `rt dev update` for collaborators (#715)
+- the team directory: one org source for each team's Linear key and Slack channels, and the org layout moves to 3 (#763, #772)
+- an org marker with no layout field reads as layout 2, never the newest layout (#768)
+- a setup migration never writes the org or team stores (#772)
+- `rt setup update` moves the org folder even when the org repo has a working checkout (#764)
 
-### Skills
+### Setup
 
-- an org base pack shares its attachments and board fills with every team pack that extends it, and compile copies them in with their provenance (#729, #733)
-- a team's pack lives at `mattstack/teams/<team>/plugin/`, beside its settings; an older layout is converted once by the org admin (#737)
-- compile warns about a link in a copied base attachment that the team pack cannot satisfy (#740)
+- the shims and PATH rows are judged from your login shell, so they match what your terminal runs (#756)
+- an older rt block in your shell profile with no end marker can be repaired from setup (#766)
 
 ### Console
 
-- the Wiring page tells an org base pack apart from installed plugins, badges base copies and shows their history (#734)
+- a redesigned runs view: a run page, answering a run's gates in place, the run's record and a runs page (#770, #777)
+- a held run whose pane is gone can be resumed, and runs register their Claude session as an agent (#760)
+- gate steps advance on the first click in the app's viewer (#761)
+- the palette shows results once you type, at most ten
+- a run row keeps the full ticket id and truncates the title instead
+- structured settings open in the JSON editor (#769)
+
+### Deck
+
+- a settings modal, a version column, Redeploy all and shared tooltips (#773)
+- tooltips wait 750ms on hover and read as short plain sentences
 
 ### Board
 
-- an asks inbox: an agent from another member's board asks before it acts on your MR, and waits for your OK (#721)
-- one re-review latch per reviewer, and a bot's resolvable thread no longer waits on the author (#724, #738)
-- your drafts stay off the All view and out of every count, and Show chip counts match what each chip shows (#714, #719)
-- a long gate question collapses to a count on the row, and a thread's outcome chip stays whole beside a long path
+- one post to Slack item across the team channel and the code owners channel (#758)
+- the agent menu offers focus, resume, redo and follow-up review (#755)
 
-### Boxscore
+### Worktrees
 
-- viewer roles, and a preview of a member's Self view (#713, #717)
+- `rt cd`'s restore rows are grouped by cleanup date, with days left and the repo in the breadcrumb (#749)
+- a restored worktree sets its submodules up again and keeps its relative symlinks (#752, #754)
 
-### Chat
+### glitter
 
-- every speaker gets a distinct avatar colour and creature (#735, #736)
-
-### StrongDM
-
-- the sdm picker groups resources by StrongDM tags, read from the team's `sdm.*` settings (#742)
+- a push the remote rejects opens Newer Commits on Remote, as in GitHub Desktop (#778)
 
 ### Gates
 
-- no false "answer not delivered", and focusing an MR's gate opens its live pane (#725)
+- the gate log records what the pane showed when a form gate gets no Escape (#762)
+
+### Skills
+
+- the pipeline gate Stop hook lets a turn end while a background task is pending, and CI watches run in the background (#779)
+- rt:settings, rt:ui-copy and other maintainer skills stay out of user installs, and an installer guard fails on a skill header it cannot read (#780)
 
 ### Docs
 
-- docs.mattstack.dev, with new board and flock guide pages (#716, #720, #748)
-- the orgs root, `rt team rename` and base pack attachments are documented (#732)
+- one page per app for board and flock, grounded in the code, with docs conventions and a lint gate (#750, #753)
+- the team directory, the board's Slack item and agent menu are documented (#757, #759, #765)
+- the console runs view, deck's dev mode, `rt worktree restore`, glitter's rejected push, the PATH row and moving an org onto layout 3 are documented
 
 ### Release
 
-- a release can require an intermediate update, so Sparkle never skips it (#747)
-- fast-browser 0.1.10, glab 1.121.0, cloudflared 2026.10.0 and portless 0.15.7 (#743)
+- CI skips the suites a change cannot affect (#751)
+- held: glab stays at 1.121.0 (1.122.0 is out); it rides the next release
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.21.0...v2.22.0
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.22.0...v2.23.0

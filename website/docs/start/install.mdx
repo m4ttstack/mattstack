@@ -129,7 +129,7 @@ It installs the `mattstack`, `fast-browser`, and `chat` plugins from the mattsta
 
 Helpers resolve by absolute path inside the app bundle. The ones meant to be typed (`rt`, `fast-browser`, `gitq`, `deck`) are linked into `~/.local/bin`.
 
-The checklist's **PATH precedence** row confirms `~/.local/bin` comes first on your PATH through rt's own line in `~/.zshenv`, so your shell finds rt's shims and team intercepts before any conflicting binary. When something else claims first place, the row says so and offers to add rt's line.
+The checklist's **PATH precedence** row confirms `~/.local/bin` comes first on your PATH through rt's own line in `~/.zshenv`, so your shell finds rt's shims and team intercepts before any conflicting binary. It reads PATH the way a new terminal tab sees it, from a fresh login shell, not from the app. When `~/.local/bin` is missing or not first, the row says so, and offers to add rt's line when that line is not there yet. When the shell does not answer, the row shows an error with **Re-check**.
 
 ## Updates
 
