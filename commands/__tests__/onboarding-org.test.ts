@@ -24,6 +24,7 @@ import type { RelayClient } from "../../lib/team/relay-client.ts";
 import { updateTeamLocal } from "../../lib/team/team-local.ts";
 import type { InvitePointer } from "../../lib/setup/intent.ts";
 import { teamUse, type TeamDeps } from "../team.ts";
+import * as out from "../../lib/ui/out.ts";
 
 const REMOTE = "https://github.com/acme/org.git";
 const PENDING_MAIN = "a".repeat(40);
@@ -87,6 +88,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  out.__test__.reset();
   process.env.HOME = ORIG_HOME;
   for (const dir of scratch) rmSync(dir, { recursive: true, force: true });
 });
