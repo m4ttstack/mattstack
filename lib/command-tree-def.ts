@@ -623,6 +623,9 @@ const endpointSubcommands: Record<string, CommandNode> = {
 
 const SETUP_JSON_ARG = { name: "JSON", flag: "--json", type: "boolean" as const, default: false, hint: "Machine-readable result" };
 
+/** The agent a skills maintenance verb works on; it names no path. */
+const SKILLS_HARNESS_ARG = { name: "Harness", flag: "--harness", type: "text" as const, placeholder: "codex", hint: "Do this for one agent (claude or codex); omit for your default agent" };
+
 /**
  * One `status`/`connect` pair per integration id, generated so the tree, the
  * module's `setup<Id>Status`/`setup<Id>Connect` exports, and the app's
@@ -2327,12 +2330,13 @@ export const TREE: Record<string, CommandNode> = {
     description: "Compile, check, and manage the surface of the pack's committed skills",
     subcommands: {
       link: {
-        description: "Symlink a skills/*/SKILL.md tree into ~/.claude/skills by frontmatter name (create, repoint, prune; conflicts reported, never touched)",
+        description: "Symlink a skills/*/SKILL.md tree into your agent's skills folder by frontmatter name (create, repoint, prune; conflicts reported, never touched)",
         module: "./commands/skills-link.ts",
         fn: "skillsLink",
         args: [
           { name: "From", flag: "--from", type: "text", placeholder: "path/to/skills", hint: "Link this directory instead of the current repo's skills/ (no checkout needed)" },
           { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Print what would change without touching disk" },
+          SKILLS_HARNESS_ARG,
           SETUP_JSON_ARG,
         ],
       },
@@ -2405,6 +2409,7 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name; omit with --pack-dir" },
           { name: "Pack dir", flag: "--pack-dir", type: "text", placeholder: "/path/to/pack", hint: "Audit this pack directory instead of resolving --pack" },
+          SKILLS_HARNESS_ARG,
           SETUP_JSON_ARG,
         ],
       },
@@ -2422,6 +2427,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
           { name: "Commit pending", flag: "--commit-pending", type: "boolean", default: false, hint: "Commit this pack's changes that are not synced yet, then sync them" },
           { name: "Expect", flag: "--expect", type: "text", placeholder: "<signature>", hint: "Sync only if the pack's changes are still the ones rt skills changes showed with this signature" },
+          SKILLS_HARNESS_ARG,
           SETUP_JSON_ARG,
         ],
       },
@@ -2433,6 +2439,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Repo", flag: "--repo", type: "text", placeholder: "/path/to/repo", hint: "Repo to declare; defaults to the current directory" },
           { name: "Team", flag: "--team", type: "text", placeholder: "widgets", hint: "The team folder that gets the pack; your own team when left out" },
           { name: "Zone", flag: "--zone", type: "text", placeholder: "acme", hint: "The org, which must be the one this Mac uses" },
+          SKILLS_HARNESS_ARG,
           SETUP_JSON_ARG,
         ],
       },
@@ -2538,7 +2545,7 @@ export const TREE: Record<string, CommandNode> = {
             description: "The three presets, plus your own and installed styles you can type as suggestions",
             module: "./commands/skills-writing-style.ts",
             fn: "writingStyleList",
-            args: [SETUP_JSON_ARG],
+            args: [SKILLS_HARNESS_ARG, SETUP_JSON_ARG],
           },
           use: {
             description: "Choose the writing style for prose posted under your name",
@@ -2548,6 +2555,7 @@ export const TREE: Record<string, CommandNode> = {
             args: [
               { name: "Skill", type: "text", placeholder: "mattstack:writing-style-sparse", hint: "A preset or any installed skill id; omit to pick" },
               { name: "Scope", flag: "--scope", type: "select", options: [{ value: "user", label: "user" }, { value: "team", label: "team" }], default: "user", hint: "user (just you) or team (the team default)" },
+              SKILLS_HARNESS_ARG,
               SETUP_JSON_ARG,
             ],
           },
@@ -2559,6 +2567,7 @@ export const TREE: Record<string, CommandNode> = {
             args: [
               { name: "Name", type: "text", placeholder: "my-voice", hint: "Lowercase name for the new skill" },
               { name: "From", flag: "--from", type: "select", options: [{ value: "sparse", label: "sparse" }, { value: "conversational", label: "conversational" }, { value: "structured", label: "structured" }], default: "conversational", hint: "Preset to start from" },
+              SKILLS_HARNESS_ARG,
               SETUP_JSON_ARG,
             ],
           },

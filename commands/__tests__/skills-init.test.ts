@@ -266,7 +266,7 @@ function stubDeps(overrides: Partial<InitDeps> = {}): InitDeps {
     mayWrite: () => null,
     declareClaim: () => {},
     engineDescription: () => "engine description",
-    claude: async () => ({ code: 0, stdout: "", stderr: "" }),
+    skills: { maintain: async () => ({ ok: true, data: undefined }) },
     registerRepo: async () => "repo-slug",
     materialize: async () => ({ ok: true, detail: "materialized" }),
     compile: async () => ({ ok: true, errors: [] }),
@@ -317,7 +317,7 @@ describe("skillsInit", () => {
   });
 
   test("claude-missing prints the same needs-you note as sync, exit 2", async () => {
-    await skillsInit([], {}, stubDeps({ claude: null, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
+    await skillsInit([], {}, stubDeps({ skills: null, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
     expect(io.errLines()[0]).toBe("[needs you] Claude Code is not installed  rt installs and syncs packs through it");
     expect(io.stderr()).toBe(renderPlain(syncCommand.claudeMissingBlocks()));
     expect(io.stdout()).toBe("");
@@ -482,7 +482,7 @@ describe("skillsInit", () => {
       home: HOME,
       gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }),
       engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
-      claude: async () => ({ code: 0, stdout: "", stderr: "" }),
+      skills: { maintain: async () => ({ ok: true, data: undefined }) },
       registerRepo: async () => "gitlab.com/acme/api",
       materialize: async () => {
         fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc`, "{}");

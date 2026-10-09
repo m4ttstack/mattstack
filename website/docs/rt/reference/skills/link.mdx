@@ -7,7 +7,7 @@ sidebar_label: link
 
 `rt › skills › link`
 
-Symlink a skills/*/SKILL.md tree into ~/.claude/skills by frontmatter name (create, repoint, prune; conflicts reported, never touched)
+Symlink a skills/*/SKILL.md tree into your agent's skills folder by frontmatter name (create, repoint, prune; conflicts reported, never touched)
 
 ## Usage
 
@@ -21,6 +21,7 @@ rt skills link [flags]
 | --- | --- | --- | --- |
 | `--from` | text |  | Link this directory instead of the current repo's skills/ (no checkout needed) |
 | [`--dry-run`](/rt/guides/common-flags) | boolean | `false` | Print what would change without touching disk |
+| `--harness` | text |  | Do this for one agent (claude or codex); omit for your default agent |
 | [`--json`](/rt/guides/common-flags) | boolean | `false` | Machine-readable result |
 
 _See code: [commands/skills-link.ts › skillsLink](https://github.com/m4ttstack/mattstack/blob/main/commands/skills-link.ts)_

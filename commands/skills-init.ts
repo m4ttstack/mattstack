@@ -1,5 +1,5 @@
 /**
- * rt skills init [--repo <path>] [--team <name>] [--zone <org>] [--json]
+ * rt skills init [--repo <path>] [--team <name>] [--zone <org>] [--harness <id>] [--json]
  *
  * Scaffolds a zero-fill team pack named after its team folder (roster
  * `work` only, every domain slot unbound), adds the repo to the team's claim,
@@ -15,7 +15,7 @@ import { activeTeam, readOrgRoles } from "../packages/rt-client/src/settings/act
 import { currentOrg } from "../lib/settings/stores.ts";
 import { readForgeUsername } from "../packages/rt-client/src/settings/team-local-read.ts";
 import { roleOf, writeRefusalFor } from "../packages/rt-client/src/settings/org-roles.ts";
-import { resolveClaudeBin } from "../lib/claude-bin.ts";
+import { pluginEntriesFor, selectSkillsHarness, skillsHostFor, type SkillsHost } from "../lib/skills/maintain-host.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { updateRepoIndexAsync, type IndexHealResult } from "../lib/repo-index.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.ts";
@@ -27,15 +27,15 @@ import { createTeam } from "../lib/team/create.ts";
 import { packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { initPack, NEEDS_YOU_REFUSALS, POLICY_REFUSALS, type InitDeps, type InitOutcome, type InitRemedy } from "../lib/skills/init.ts";
-import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
+import { buildPluginRoots, loadStepSource, resolvePluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
 import { textInput } from "../lib/ui/prompts.ts";
 import * as ui from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
 import { checkPack, compilePackAll } from "./skills.ts";
-import { claudeMissingBlocks } from "./skills-sync.ts";
+import { claudeMissingBlocks, hostMissingBlocks } from "./skills-sync.ts";
 import { childEnv } from "../lib/subprocess.ts";
 
-export type InitArgs = { repo: string; zone: string | null; team: string | null; json: boolean };
+export type InitArgs = { repo: string; zone: string | null; team: string | null; json: boolean; harness?: string };
 
 export function parseInitArgs(args: string[]): InitArgs {
   const out: InitArgs = { repo: process.cwd(), zone: null, team: null, json: false };
@@ -51,13 +51,15 @@ export function parseInitArgs(args: string[]): InitArgs {
       case "--team": out.team = value(a); break;
       case "--zone": out.zone = value(a); break;
       case "--json": out.json = true; break;
+      case "--harness": out.harness = value(a); break;
       default: throw new UserActionableError("usage", `unrecognized argument "${a}"`);
     }
   }
   return out;
 }
 
-export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[] {
+export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>, harness: string = "claude"): Block[] {
+  const codex = harness === "codex";
   return [
     ui.line("done", `Created the ${o.pack.name} pack`, o.pack.dir),
     ui.kv("Zone", o.pack.zone),
@@ -65,8 +67,8 @@ export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[
     ui.kv("Installed", `${o.installed.plugin} ${o.installed.version}`),
     ui.kv("Repo bindings", o.repo.manifest),
     ...(o.published.pushed
-      ? [...packShareBlocks(o.pack.name, o.published), ui.callout("next", ["Run ", ui.cmd("/reload-plugins"), " in your Claude session, then try ", ui.cmd(o.tryNext)])]
-      : packShareBlocks(o.pack.name, o.published, [", then run ", ui.cmd("/reload-plugins"), " in your Claude session and try ", ui.cmd(o.tryNext)])),
+      ? [...packShareBlocks(o.pack.name, o.published), ui.callout("next", codex ? ["Start a new Codex session, then try ", ui.cmd(o.tryNext)] : ["Run ", ui.cmd("/reload-plugins"), " in your Claude session, then try ", ui.cmd(o.tryNext)])]
+      : packShareBlocks(o.pack.name, o.published, codex ? [", then start a new Codex session and try ", ui.cmd(o.tryNext)] : [", then run ", ui.cmd("/reload-plugins"), " in your Claude session and try ", ui.cmd(o.tryNext)])),
   ];
 }
 
@@ -127,14 +129,12 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function realDeps(opts: { json: boolean }): InitDeps {
+/** `entries` is the host's own plugin listing, read up front for a host other than Claude Code. */
+function realDeps(opts: { json: boolean; host: SkillsHost; entries: PluginListEntry[] | undefined }): InitDeps {
   const p = createRealProbes();
-  const claudeBin = resolveClaudeBin();
-  const run = async (cmd: string, args: string[]) => {
-    const proc = Bun.spawn([cmd, ...args], { env: childEnv(), stdout: "pipe", stderr: "pipe" });
-    const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-    return { code: await proc.exited, stdout, stderr };
-  };
+  const { host, entries } = opts;
+  const roots = () => (entries ? buildPluginRoots(entries) : resolvePluginRoots());
+  const listed = entries ? { pluginEntries: entries } : {};
   return {
     fs: {
       exists: (path) => existsSync(path),
@@ -195,12 +195,13 @@ function realDeps(opts: { json: boolean }): InitDeps {
     declareClaim: (zone, projects) => setSetting("board.projects", projects, "team", { team: zone.team }),
     engineDescription: (engine) => {
       try {
-        return loadStepSource(engine, resolvePluginRoots()).description;
+        return loadStepSource(engine, roots()).description;
       } catch {
         return null;
       }
     },
-    claude: claudeBin ? (args) => run(claudeBin, args) : null,
+    harness: host.harness,
+    skills: host.bin ? host.skills : null,
     registerRepo: async (dir) => {
       const identity = serializeIdentity(await deriveRepoIdentity(dir));
       const indexed = await updateRepoIndexAsync(identity, dir);
@@ -217,14 +218,14 @@ function realDeps(opts: { json: boolean }): InitDeps {
     // pack resolution would escape as an uncaught throw and lose the `wrote` list.
     compile: async (packDir, manifest) => {
       try {
-        return await compilePackAll({ packDir, manifest });
+        return await compilePackAll({ packDir, manifest, ...listed });
       } catch (err) {
         return { ok: false, errors: [message(err)] };
       }
     },
     check: async (packDir, manifest) => {
       try {
-        return { drift: (await checkPack({ packDir, manifest })).drift };
+        return { drift: (await checkPack({ packDir, manifest, ...listed })).drift };
       } catch (err) {
         ui.note(ui.line("warn", "The check could not run", message(err)));
         return { drift: true };
@@ -248,7 +249,26 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
     }
     throw err;
   }
-  const resolvedDeps = deps ?? realDeps({ json: parsed.json });
+  let resolvedDeps: InitDeps;
+  if (deps) resolvedDeps = deps;
+  else {
+    const chosen = await selectSkillsHarness(parsed.harness);
+    if (!chosen.ok) {
+      if (parsed.json) ui.json(userErrorPayload(new UserActionableError("harness", chosen.error.message, { refused: true })));
+      else ui.fail({ title: chosen.error.message });
+      process.exitCode = 2;
+      return;
+    }
+    const host = skillsHostFor(chosen.data, childEnv());
+    let entries: PluginListEntry[] | undefined;
+    try {
+      entries = host.bin ? await pluginEntriesFor(host) : undefined;
+    } catch {
+      entries = [];
+    }
+    resolvedDeps = realDeps({ json: parsed.json, host, entries: host.harness === "claude" ? undefined : entries ?? [] });
+  }
+  const harness = resolvedDeps.harness ?? "claude";
   let out: InitOutcome;
   try {
     out = await initPack({ repoDir: parsed.repo, zone: parsed.zone, team: parsed.team }, resolvedDeps);
@@ -273,9 +293,11 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
     else if (out.refused) ui.json(userErrorPayload(new UserActionableError(out.code, [out.detail, out.why, out.next ? `Run ${out.next}` : undefined].filter(Boolean).join(". "), { refused: true })));
     else ui.json(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: false, wrote: out.wrote })));
   } else if (out.ok) {
-    ui.print(...initOutcomeBlocks(out));
+    ui.print(...initOutcomeBlocks(out, harness));
   } else if (out.code === "claude-missing") {
     ui.note(...claudeMissingBlocks());
+  } else if (out.code === "codex-missing") {
+    ui.note(...hostMissingBlocks("Codex"));
   } else if (out.refused && (POLICY_REFUSALS.has(out.code) || NEEDS_YOU_REFUSALS.has(out.code))) {
     ui.note(...initRefusalBlocks(out));
   } else {

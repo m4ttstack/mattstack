@@ -4,10 +4,10 @@
  * recompile and recheck on drift, commit and push, update the pack plugin,
  * and flag any cswap session whose plugins symlink has drifted.
  *
- *   rt skills sync [--pack <name>] [--manifest <path>] [--repo <slug or host/path>] [--commit-pending] [--expect <signature>] [--json]
+ *   rt skills sync [--pack <name>] [--manifest <path>] [--repo <slug or host/path>] [--commit-pending] [--expect <signature>] [--harness <id>] [--json]
  *
  * The full step chain and its refusal conditions live in lib/skills/sync.ts;
- * this file only wires real dependencies (git/claude subprocesses, checkPack,
+ * this file only wires real dependencies (git subprocesses, the selected harness, checkPack,
  * compilePackAll, materializeSkills) and renders the resulting SyncReport.
  */
 
@@ -19,7 +19,8 @@ import { currentRole, mayWritePath } from "../packages/rt-client/src/settings/or
 import { discoverPacks, packFromDir, solePack, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
-import { syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
+import { syncHostOf, syncPack, type SyncDeps, type SyncEngine, type SyncHost, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
+import { pluginEntriesFor, selectSkillsHarness, skillsHostFor, takeHarnessFlag } from "../lib/skills/maintain-host.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
 import { checkPack, compilePackAll, NO_PACKS_WHY } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
@@ -41,7 +42,7 @@ import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "..
  * read from its installed cache, chosen as compile chooses it from `claude plugin
  * list` (the last enabled `mattstack@` entry).
  */
-export function deriveEngine(packs: PackInfo[], pack: PackInfo, installed: PluginListEntry[] = []): { engine: SyncEngine } | { error: string } {
+export function deriveEngine(packs: PackInfo[], pack: PackInfo, installed: PluginListEntry[] = [], harness: string = "claude"): { engine: SyncEngine } | { error: string } {
   const mattstack = packs.find((p) => p.name === "mattstack");
   if (mattstack) return { engine: mattstack };
   if (pack.name === "mattstack") return { engine: pack };
@@ -50,8 +51,11 @@ export function deriveEngine(packs: PackInfo[], pack: PackInfo, installed: Plugi
   const entry = root ? candidates.findLast((e) => realDir(e.installPath) === root.dir) : undefined;
   const cached = entry ? packFromDir("mattstack", entry.installPath, entry.id.slice("mattstack@".length)) : null;
   if (cached) return { engine: { ...cached, installedCache: true, ...(entry?.scope ? { scope: entry.scope } : {}) } };
+  const looked = harness === "codex"
+    ? "a directory checkout registered as a local marketplace in Codex's config.toml, then an installed mattstack plugin in codex plugin list"
+    : "a directory checkout registered via extraKnownMarketplaces in Claude's settings.json, then an installed mattstack plugin in claude plugin list";
   return {
-    error: `no "mattstack" engine found for "${pack.name}" (looked for a directory checkout registered via extraKnownMarketplaces in Claude's settings.json, then an installed mattstack plugin in claude plugin list); install the mattstack plugin and re-run`,
+    error: `no "mattstack" engine found for "${pack.name}" (looked for ${looked}); install the mattstack plugin and re-run`,
   };
 }
 
@@ -64,16 +68,10 @@ function realDir(path: string): string | null {
 }
 
 /** An unreadable listing reads as nothing installed, so deriveEngine refuses with its own message rather than this one's. */
-async function installedPlugins(deps: SyncDeps): Promise<PluginListEntry[]> {
-  if (!deps.claudeBin) return [];
-  const res = await deps.run(deps.claudeBin, ["plugin", "list", "--json"]);
-  if (res.code !== 0) return [];
-  try {
-    const parsed: unknown = JSON.parse(res.stdout);
-    return Array.isArray(parsed) ? (parsed as PluginListEntry[]) : [];
-  } catch {
-    return [];
-  }
+async function installedPlugins(host: SyncHost): Promise<PluginListEntry[]> {
+  if (!host.bin) return [];
+  const listed = await host.skills.inventory();
+  return listed.ok ? listed.data : [];
 }
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -136,7 +134,7 @@ const stepTitle = (step: SyncStep): string => STEP_TITLE[step.name] ?? step.name
 const stops = (step: SyncStep): boolean => step.status === "refused" || step.status === "failed";
 
 /** What a person reads on stdout: the steps up to the one that stopped the run, then a summary only when none did. */
-export function syncBlocks(report: SyncReport): Block[] {
+export function syncBlocks(report: SyncReport, harness: string = "claude"): Block[] {
   const stop = report.steps.findIndex(stops);
   const shown = stop === -1 ? report.steps : report.steps.slice(0, stop);
   const blocks: Block[] = shown.map((step) => out.line(STEP_STATUS[step.status], stepTitle(step), step.detail));
@@ -145,7 +143,11 @@ export function syncBlocks(report: SyncReport): Block[] {
   if (pack.installedBefore !== pack.installedAfter) blocks.push(out.kv("Installed pack", `${pack.installedBefore ?? "unknown"} -> ${pack.installedAfter ?? "unknown"}`));
   for (const warning of report.warnings) blocks.push(out.line("warn", warning));
   if (stop !== -1) return blocks;
-  if (report.restartNeeded) blocks.push(out.summary("done", "Synced"), out.callout("next", ["Run ", out.cmd("/reload-plugins"), " in any Claude session that is already running"]));
+  if (report.restartNeeded) {
+    blocks.push(out.summary("done", "Synced"), out.callout("next", harness === "codex"
+      ? "Start a new Codex session to load it"
+      : ["Run ", out.cmd("/reload-plugins"), " in any Claude session that is already running"]));
+  }
   else blocks.push(out.summary("done", "Already current"));
   return blocks;
 }
@@ -186,8 +188,12 @@ export function syncFailure(report: SyncReport): out.FailureInput | null {
   return { title: `The sync stopped at: ${stepTitle(failed)}`, why, ...(rest.length > 0 ? { details: rest.join("\n") } : {}) };
 }
 
+export function hostMissingBlocks(label: string): Block[] {
+  return [out.line("needs-you", `${label} is not installed`, "rt installs and syncs packs through it"), out.callout("next", `Install ${label}, then run this again`)];
+}
+
 export function claudeMissingBlocks(): Block[] {
-  return [out.line("needs-you", "Claude Code is not installed", "rt installs and syncs packs through it"), out.callout("next", "Install Claude Code, then run this again")];
+  return hostMissingBlocks("Claude Code");
 }
 
 export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]; deps: SyncDeps }): Promise<void> {
@@ -207,6 +213,15 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
   } catch (err) {
     if (!(err instanceof ExpectFlagError)) throw err;
     fail(err.message, usageFailure("Which signature?", "rt skills sync --commit-pending --expect <signature>", "Pass the signature rt skills changes --json printed for the changes you looked at."));
+  }
+
+  const flag = takeHarnessFlag(args);
+  if (!flag.ok) fail("--harness needs a value", usageFailure("Which harness?", "rt skills sync --harness <claude|codex>"));
+  let harness = overrides?.deps?.host?.harness ?? "claude";
+  if (!overrides?.deps) {
+    const chosen = await selectSkillsHarness(flag.ok ? flag.harness : undefined);
+    if (!chosen.ok) fail(chosen.error.message, { title: chosen.error.message });
+    else harness = chosen.data;
   }
 
   const packs = overrides?.packs ?? discoverPacks();
@@ -231,6 +246,12 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     process.exit(2);
   }
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+  const realHost = harness === "claude" ? null : skillsHostFor(harness, childEnv());
+  // Read at each call: the engine's update can move what is installed between check and compile.
+  const listedNow = async () => {
+    const entries = realHost ? await pluginEntriesFor(realHost) : undefined;
+    return entries ? { pluginEntries: entries } : {};
+  };
   const deps: SyncDeps = overrides?.deps ?? {
     mayCompile: (name) => {
       const dir = packs.find(p => p.name === name)?.dir;
@@ -244,21 +265,23 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
       const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
       return { code: await proc.exited, stdout, stderr };
     },
-    claudeBin: resolveClaudeBin(),
+    claudeBin: harness === "claude" ? resolveClaudeBin() : null,
     checkPack: async (name) => {
-      const payload = await checkPack({ pack: name, ...target });
+      const payload = await checkPack({ pack: name, ...target, ...(await listedNow()) });
       return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint };
     },
-    compilePack: (name) => compilePackAll({ pack: name, ...target }),
+    compilePack: async (name) => compilePackAll({ pack: name, ...target, ...(await listedNow()) }),
     materialize: async (name) => syncMaterializeVerdict(await materializeSkills(createRealProbes(), {}), name),
     configDir,
     cswapSessionsDir: join(homedir(), ".claude-swap-backup", "sessions"),
     inTreeRoot: resolveSharedCheckout(homedir(), existsSync, readDevModeConfig().sourcePath ?? null),
     orgsRoot: teamsDir(),
+    ...(realHost && { host: realHost }),
   };
+  const host = syncHostOf(deps);
 
   const needsInstalled = !packs.some((p) => p.name === "mattstack") && pack!.name !== "mattstack";
-  const engineResult = deriveEngine(packs, pack!, needsInstalled ? await installedPlugins(deps) : []);
+  const engineResult = deriveEngine(packs, pack!, needsInstalled ? await installedPlugins(host) : [], host.harness);
   if ("error" in engineResult) {
     fail(engineResult.error, {
       title: `rt could not find the mattstack plugin that ${pack!.name} is built on`,
@@ -279,10 +302,10 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
   if (json) {
     out.json(report);
   } else {
-    const blocks = syncBlocks(report);
+    const blocks = syncBlocks(report, host.harness);
     if (blocks.length > 0) out.print(...blocks);
     const refusal = syncRefusal(report);
-    if (deps.claudeBin === null && report.steps.some((step) => step.name === "guards" && step.status === "refused")) out.note(...claudeMissingBlocks());
+    if (host.bin === null && report.steps.some((step) => step.name === "guards" && step.status === "refused")) out.note(...hostMissingBlocks(host.label));
     else if (refusal) out.note(...refusal);
     const failure = syncFailure(report);
     if (failure) out.fail(failure);

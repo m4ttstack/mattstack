@@ -10,7 +10,8 @@ import { join } from "path";
 import type { Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { resolveClaudeBin } from "../../claude-bin.ts";
 import {
-  listingFault, PLUGIN_LIST_TIMEOUT_MS, pluginResourceAdapter, spawnRunner, type SkillRunner,
+  listingFault, MAINTAIN_TIMEOUT_MS, PLUGIN_LIST_TIMEOUT_MS, pluginResourceAdapter, spawnRunner,
+  type HarnessPluginCli, type RunResult, type SkillRunner,
 } from "../../skills/installed-plugins.ts";
 import type { PluginListEntry } from "../../skills/sources.ts";
 import type { SkillAdapter } from "../contracts.ts";
@@ -47,7 +48,39 @@ export type ClaudeSkillDeps = {
   bin?: () => string | null;
   run?: SkillRunner;
   timeoutMs?: number;
+  maintainTimeoutMs?: number;
 };
+
+/** Anchored to the CLI's own "already ..." phrasings so a failing call that merely mentions the word does not read as success. */
+function claudeAlreadyDone(res: RunResult): boolean {
+  return /already (on disk|added|installed|exists)/i.test(`${res.stdout}\n${res.stderr}`);
+}
+
+function claudePluginCli(deps: { bin: () => string | null; run: SkillRunner; env: Record<string, string | undefined>; timeoutMs: number }): HarnessPluginCli {
+  return {
+    label: "Claude Code",
+    bin: deps.bin,
+    run: deps.run,
+    env: () => deps.env,
+    timeoutMs: deps.timeoutMs,
+    marketplaces: async (call) => {
+      const res = await call(["plugin", "marketplace", "list", "--json"]);
+      if (res.status !== 0) return null;
+      try {
+        const parsed: unknown = JSON.parse(res.stdout);
+        if (!Array.isArray(parsed)) return null;
+        return new Set(parsed.map((m) => (m as { name?: unknown })?.name).filter((n): n is string => typeof n === "string"));
+      } catch {
+        return null;
+      }
+    },
+    alreadyDone: claudeAlreadyDone,
+    addMarketplace: (dir) => ["plugin", "marketplace", "add", dir],
+    install: (plugin) => ["plugin", "install", plugin],
+    refreshMarketplace: (name) => ["plugin", "marketplace", "update", name],
+    update: (plugin, opts) => ["plugin", "update", plugin, ...(opts.scope ? ["--scope", opts.scope] : []), ...(opts.assumeYes ? ["-y"] : [])],
+  };
+}
 
 /** Claude's rows as its CLI printed them, tagged with harness and profile; anything not shaped like a row is a fault. */
 export function parseClaudePluginList(stdout: string, profile: string): Outcome<PluginListEntry[]> {
@@ -84,6 +117,8 @@ export function createClaudeSkills(deps: ClaudeSkillDeps = {}): SkillAdapter {
   return pluginResourceAdapter({
     harness: HARNESS,
     cacheRoot: () => ({ ok: true, data: claudePluginCacheRoot(env) }),
+    skillsDir: () => ({ ok: true, data: claudeUserSkillsDir(env.HOME ?? "") }),
+    cli: claudePluginCli({ bin, run, env, timeoutMs: deps.maintainTimeoutMs ?? MAINTAIN_TIMEOUT_MS }),
     list: async () => {
       const path = bin();
       if (path === null) return { ok: false, error: { code: "not-ready", message: "Claude Code is not installed, so its plugins cannot be listed" } };

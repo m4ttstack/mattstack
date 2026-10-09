@@ -1,8 +1,9 @@
-import { lstatSync, realpathSync } from "fs";
+import { existsSync, lstatSync, realpathSync, statSync } from "fs";
 import { isAbsolute, join, normalize, relative, sep } from "path";
 import type { FaultCode, HarnessId, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
-import type { SkillAdapter } from "../agent-integrations/contracts.ts";
+import type { MaintainOptions, SkillAdapter } from "../agent-integrations/contracts.ts";
 import { isInsideRoot } from "../daemon/upload-guard.ts";
+import { pruneLinksFrom, reconcileSkillLinks } from "./link.ts";
 import type { PluginListEntry } from "./sources.ts";
 
 export type PluginFs = { exists(p: string): boolean; readDir(p: string): string[] };
@@ -143,13 +144,82 @@ export function resolveInside(root: string, relativePath: string): Outcome<strin
   return { ok: true, data: real };
 }
 
+/** Bounded like a listing, but long enough for a plugin install that copies a whole pack. */
+export const MAINTAIN_TIMEOUT_MS = 600_000;
+
+/** How one harness's own CLI registers marketplaces and installs and updates plugins. */
+export type HarnessPluginCli = {
+  /** How a person names the harness in a sentence. */
+  label: string;
+  bin: () => string | null;
+  run: SkillRunner;
+  env: () => Record<string, string | undefined>;
+  timeoutMs: number;
+  /** The marketplace names the harness knows; null when it cannot say. */
+  marketplaces: (call: (args: string[]) => Promise<RunResult>) => Promise<Set<string> | null>;
+  /** The harness declined an add or install only because it was already done. */
+  alreadyDone: (res: RunResult) => boolean;
+  addMarketplace: (dir: string) => string[];
+  install: (plugin: string) => string[];
+  refreshMarketplace: (name: string) => string[];
+  update: (plugin: string, opts: { scope?: string; assumeYes?: boolean }) => string[];
+};
+
 export type HarnessPluginSource = {
   harness: HarnessId;
   /** The cache every installed version folder of this harness and profile must sit in. */
   cacheRoot: () => Outcome<string>;
   /** What the harness itself reports as installed, each entry tagged with harness and profile. */
   list: () => Promise<Outcome<PluginListEntry[]>>;
+  /** The harness's own user skills folder. */
+  skillsDir: () => Outcome<string>;
+  cli: HarnessPluginCli;
 };
+
+function exitDetail(res: RunResult): string {
+  return res.stderr.trim() || res.stdout.trim();
+}
+
+async function initOn(cli: HarnessPluginCli, call: (args: string[]) => Promise<RunResult>, dir: string, plugin: string | undefined): Promise<Outcome<void>> {
+  const marketplace = plugin?.split("@")[1];
+  if (!plugin || !marketplace) return fail("invalid", "Installing a pack needs its plugin as plugin@marketplace");
+  const known = await cli.marketplaces(call);
+  if (!known || !known.has(marketplace)) {
+    const added = await call(cli.addMarketplace(dir));
+    if (added.status !== 0 && !cli.alreadyDone(added)) {
+      return fail("not-ready", `Adding the team's marketplace to ${cli.label} failed (exit ${added.status}): ${exitDetail(added)}`);
+    }
+  }
+  const installed = await call(cli.install(plugin));
+  if (installed.status !== 0 && !cli.alreadyDone(installed)) {
+    return fail("not-ready", `Installing ${plugin} in ${cli.label} failed (exit ${installed.status}): ${exitDetail(installed)}`);
+  }
+  return { ok: true, data: undefined };
+}
+
+function linkInto(target: Outcome<string>, source: string, ignore: string[] | undefined): Outcome<void> {
+  if (!target.ok) return target;
+  try {
+    if (existsSync(source) && statSync(source).isDirectory()) reconcileSkillLinks({ skillsDir: source, claudeSkillsDir: target.data, ignore });
+    else pruneLinksFrom({ skillsDir: source, claudeSkillsDir: target.data });
+  } catch (err) {
+    return fail("transient", err instanceof Error ? err.message : String(err));
+  }
+  return { ok: true, data: undefined };
+}
+
+async function maintainOn(source: HarnessPluginSource, operation: "init" | "sync" | "link", target: string, options: MaintainOptions): Promise<Outcome<void>> {
+  if (operation === "link") return linkInto(source.skillsDir(), target, options.ignore);
+  const { cli } = source;
+  const path = cli.bin();
+  if (path === null) return fail("not-ready", `${cli.label} is not installed, so rt cannot change its plugins`);
+  const call = (args: string[]) => cli.run(path, args, { env: cli.env(), timeoutMs: cli.timeoutMs });
+  if (operation === "init") return initOn(cli, call, target, options.plugin);
+  const res = await call(options.catalog ? cli.refreshMarketplace(target) : cli.update(target, options));
+  if (res.timedOut) return fail("transient", `${cli.label} did not finish in ${cli.timeoutMs / 1000}s`);
+  if (res.status !== 0) return fail("not-ready", res.stderr.trim());
+  return { ok: true, data: undefined };
+}
 
 async function listed(source: HarnessPluginSource): Promise<Outcome<{ cache: string; entries: PluginListEntry[] }>> {
   const cache = source.cacheRoot();
@@ -200,8 +270,7 @@ export function pluginResourceAdapter(source: HarnessPluginSource): SkillAdapter
       }
       return resolveInside(root, relativePath);
     },
-    async maintain() {
-      return fail("unsupported", `skill maintenance through the ${source.harness} integration is not available yet`);
-    },
+    skillsDir: () => source.skillsDir(),
+    maintain: (operation, target, options = {}) => maintainOn(source, operation, target, options),
   };
 }

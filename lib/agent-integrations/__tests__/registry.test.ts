@@ -183,6 +183,7 @@ const declaredOperations: HarnessIntegration = {
     inventory: async () => ({ ok: true, data: [{ id: "fixture", installPath: "/fixture/plugin" }] }),
     resourceRoots: async () => ({ ok: true, data: ["/fixture/plugin"] }),
     resolveResource: async (_plugin, _relativePath) => ({ ok: true, data: "/fixture/plugin/SKILL.md" }),
+    skillsDir: () => ({ ok: true, data: "/fixture/skills" }),
     maintain: async (_operation, _source) => ({ ok: true, data: undefined }),
   }),
 };

@@ -5,8 +5,22 @@ import { cleanupOrgWorlds, orgWorld } from "../../team/__tests__/org-world.ts";
 import { rememberPackShare, sharePack } from "../../team/share-pack.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import { teamPublish } from "../../../commands/team.ts";
-import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, readOrgSlugs, type InitDeps, type RunResult } from "../init.ts";
+import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, readOrgSlugs, type InitDeps } from "../init.ts";
 import { UserActionableError } from "../../errors.ts";
+import { createClaudeSkills } from "../../agent-integrations/claude/skills.ts";
+
+type RunResult = { code: number; stdout: string; stderr: string };
+
+/** Claude Code's skills adapter over a fake CLI, so a test sees each native call's argv. */
+function claudeVia(cli: (args: string[]) => Promise<RunResult>) {
+  return createClaudeSkills({
+    bin: () => "/fake/claude",
+    run: async (_bin, args) => {
+      const r = await cli(args);
+      return { status: r.code, stdout: r.stdout, stderr: r.stderr };
+    },
+  });
+}
 import { stripJsonc } from "../sources.ts";
 
 /** mkdirp'd dirs and dirs that already hold a file are writable; anything else throws ENOENT, mirroring a real fs. */
@@ -337,12 +351,12 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
     mayWrite: () => null,
     declareClaim: (zone, projects) => { calls.claims.push([zone.slug, projects]); },
     engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
-    claude: async (args) => {
+    skills: claudeVia(async (args) => {
       calls.claude.push(args);
       if (args[1] === "marketplace" && args[2] === "list") return ok(JSON.stringify(marketplaces.map((name) => ({ name }))));
       if (args[1] === "marketplace" && args[2] === "add") return ok("Marketplace already on disk");
       return ok("");
-    },
+    }),
     registerRepo: async (dir) => { calls.registered.push(dir); return "gitlab.com/acme/api"; },
     materialize: async (name) => {
       calls.materialized.push(name);
@@ -463,7 +477,7 @@ describe("initPack", () => {
     mayWrite: () => null,
       declareClaim: () => {},
       engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
-      claude: async (args) => (args[1] === "marketplace" && args[2] === "list" ? ok("[]") : ok("")),
+      skills: claudeVia(async (args) => (args[1] === "marketplace" && args[2] === "list" ? ok("[]") : ok(""))),
       registerRepo: async () => "gitlab.com/acme/api",
       materialize: async () => {
         fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme`);
@@ -490,12 +504,12 @@ describe("initPack", () => {
 
   test("a marketplace add that exits non-zero with already wording still installs", async () => {
     const { deps, calls } = world({
-      claude: async (args) => {
+      skills: claudeVia(async (args) => {
         calls.claude.push(args);
         if (args[2] === "list") return ok("[]");
         if (args[2] === "add") return { code: 1, stdout: "", stderr: "Marketplace acme-market already added" };
         return ok("");
-      },
+      }),
     });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out.ok).toBe(true);
@@ -504,12 +518,12 @@ describe("initPack", () => {
 
   test("install failing with stderr empty still surfaces the CLI's stdout detail", async () => {
     const { deps } = world({
-      claude: async (args) => {
+      skills: claudeVia(async (args) => {
         if (args[2] === "list") return ok("[]");
         if (args[2] === "add") return ok("");
         if (args[0] === "plugin" && args[1] === "install") return { code: 1, stdout: "no such plugin", stderr: "" };
         return ok("");
-      },
+      }),
     });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: false, code: "install-failed" });
@@ -651,7 +665,8 @@ describe("initPack", () => {
     ["no-remote", { gitRemote: async () => ({ kind: "no-remote" as const }) }],
     ["not-a-repo", { gitRemote: async () => ({ kind: "not-a-repo" as const }) }],
     ["mattstack-missing", { engineDescription: () => null }],
-    ["claude-missing", { claude: null }],
+    ["claude-missing", { skills: null }],
+    ["codex-missing", { skills: null, harness: "codex" }],
   ])("refuses with %s", async (code, over) => {
     const { deps, calls } = world(over as Partial<InitDeps>);
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
@@ -931,7 +946,7 @@ describe("initPack against a real org clone", () => {
       mayWrite: () => null,
       declareClaim: (zone, projects) => realFs.writeFile(join(zone.dir, "settings.team.jsonc"), JSON.stringify({ "board.title": "widgets", "board.projects": projects })),
       engineDescription: () => "Use when running a unit of work.",
-      claude: async (args) => (args[2] === "list" ? ok("[]") : ok("")),
+      skills: claudeVia(async (args) => (args[2] === "list" ? ok("[]") : ok(""))),
       registerRepo: async () => "gitlab.com/acme/api",
       materialize: async () => { realFs.writeFile(manifest, "{}"); return { ok: true, detail: "merged" }; },
       compile: async (packDir) => { realFs.writeFile(join(packDir, "skills", "work", "SKILL.md"), "compiled\n"); return { ok: true, errors: [] }; },

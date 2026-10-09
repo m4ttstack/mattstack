@@ -185,8 +185,29 @@ export interface SkillAdapter {
   inventory(): Promise<Outcome<PluginListEntry[]>>;
   resourceRoots(): Promise<Outcome<string[]>>;
   resolveResource(plugin: string, relativePath: string): Promise<Outcome<string>>;
-  maintain(operation: "init" | "sync" | "link", source: string): Promise<Outcome<void>>;
+  /** The folder this harness loads a user's own skills from; links made for it land here and nowhere else. */
+  skillsDir(): Outcome<string>;
+  /**
+   * A change on the host, through the harness's own CLI where it has one.
+   * `init` registers the marketplace folder `source` and installs
+   * `options.plugin` from it; `sync` updates the installed plugin `source`
+   * (`plugin@marketplace`), or with `options.catalog` refreshes the
+   * marketplace named `source`; `link` reconciles the skills folder `source`
+   * into `skillsDir()`, or drops the links into it once `source` is gone.
+   * A fault carries the harness's own words.
+   */
+  maintain(operation: "init" | "sync" | "link", source: string, options?: MaintainOptions): Promise<Outcome<void>>;
 }
+export type MaintainOptions = {
+  plugin?: string;
+  catalog?: boolean;
+  /** The install scope an update moves; one id can sit at several. */
+  scope?: string;
+  /** Answers the harness's own confirmation prompt. */
+  assumeYes?: boolean;
+  /** Skill folder names the source declines to distribute. */
+  ignore?: string[];
+};
 type AdapterFactories = {
   loadSessions(): Promise<SessionAdapter>;
   loadMessaging(): Promise<MessageAdapter>;

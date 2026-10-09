@@ -15,7 +15,7 @@ import { isAbsolute, join, relative, resolve, sep } from "path";
 import type { Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { resolveCodexBin } from "../../agent-argv/codex.ts";
 import {
-  listingFault, PLUGIN_LIST_TIMEOUT_MS, pluginResourceAdapter, spawnRunner,
+  listingFault, MAINTAIN_TIMEOUT_MS, PLUGIN_LIST_TIMEOUT_MS, pluginResourceAdapter, spawnRunner,
   type HarnessPluginSource, type SkillRunner,
 } from "../../skills/installed-plugins.ts";
 import type { PluginListEntry } from "../../skills/sources.ts";
@@ -33,6 +33,7 @@ export type CodexSkillDeps = {
   bin?: () => string | null;
   run?: SkillRunner;
   timeoutMs?: number;
+  maintainTimeoutMs?: number;
 };
 
 /** The Codex home a profile names, with the profile's canonical spelling; a bare name names no home. */
@@ -93,6 +94,32 @@ function codexSource(deps: CodexSkillDeps): HarnessPluginSource {
       const h = home();
       return h.ok ? { ok: true, data: codexPluginCacheRoot(h.data.home) } : h;
     },
+    skillsDir: () => {
+      const h = home();
+      return h.ok ? { ok: true, data: codexUserSkillsDir(h.data.home) } : h;
+    },
+    cli: {
+      label: "Codex",
+      bin,
+      run,
+      env: () => {
+        const h = home();
+        return h.ok ? codexListEnv(env, h.data.home) : env;
+      },
+      timeoutMs: deps.maintainTimeoutMs ?? MAINTAIN_TIMEOUT_MS,
+      marketplaces: async () => {
+        const h = home();
+        return h.ok ? codexMarketplaceNames(h.data.home) : null;
+      },
+      alreadyDone: (res) => {
+        const text = `${res.stdout}\n${res.stderr}`;
+        return /already (added|installed)/i.test(text) && !/different source/i.test(text);
+      },
+      addMarketplace: (dir) => ["plugin", "marketplace", "add", dir],
+      install: (plugin) => ["plugin", "add", plugin],
+      refreshMarketplace: (name) => ["plugin", "marketplace", "upgrade", name],
+      update: (plugin) => ["plugin", "add", plugin],
+    },
     list: async () => {
       const h = home();
       if (!h.ok) return h;
@@ -141,16 +168,30 @@ export function codexHomeForPacks(): string | null {
   return h.ok ? h.data.home : null;
 }
 
-/** Codex's local marketplaces from `config.toml`, by name; a marketplace of any other source type has no folder rt can read. */
-export function codexLocalMarketplaces(codexHome: string): { name: string; dir: string }[] {
+/** The `[marketplaces.*]` tables of `config.toml`: empty when it has none, null when it cannot be read. */
+function marketplaceTables(codexHome: string): Record<string, unknown> | null {
+  const path = join(codexHome, "config.toml");
+  if (!existsSync(path)) return {};
   let config: Record<string, unknown>;
   try {
-    config = Bun.TOML.parse(readFileSync(join(codexHome, "config.toml"), "utf8")) as Record<string, unknown>;
+    config = Bun.TOML.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
   } catch {
-    return [];
+    return null;
   }
   const tables = config.marketplaces;
-  if (!tables || typeof tables !== "object") return [];
+  return tables && typeof tables === "object" ? (tables as Record<string, unknown>) : {};
+}
+
+/** Every marketplace `config.toml` names, whatever its source; null when the file cannot be read. */
+export function codexMarketplaceNames(codexHome: string): Set<string> | null {
+  const tables = marketplaceTables(codexHome);
+  return tables === null ? null : new Set(Object.keys(tables));
+}
+
+/** Codex's local marketplaces from `config.toml`, by name; a marketplace of any other source type has no folder rt can read. */
+export function codexLocalMarketplaces(codexHome: string): { name: string; dir: string }[] {
+  const tables = marketplaceTables(codexHome);
+  if (tables === null) return [];
   const out: { name: string; dir: string }[] = [];
   for (const [name, raw] of Object.entries(tables as Record<string, unknown>)) {
     const m = raw as { source_type?: unknown; source?: unknown } | null;

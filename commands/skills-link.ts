@@ -17,6 +17,8 @@ import { existsSync, statSync } from "fs";
 import { join, resolve } from "path";
 import { pruneLinksFrom, readSkillsIgnore, reconcileSkillLinks, type LinkAction, type ReconcileResult } from "../lib/skills/link.ts";
 import { envelope } from "../lib/setup/contract.ts";
+import type { CommandContext } from "../lib/command-tree.ts";
+import { REAL_HOSTS, type HostChoice, type SkillsHost } from "../lib/skills/maintain-host.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 
@@ -62,10 +64,11 @@ function gitRepoRoot(): string | null {
   }
 }
 
-export async function skillsLink(args: string[]): Promise<void> {
+export async function skillsLink(args: string[], _ctx: CommandContext = {}, hosts: HostChoice = REAL_HOSTS): Promise<void> {
   let dryRun = false;
   let json = false;
   let from: string | undefined;
+  let harness: string | undefined;
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case "--dry-run": dryRun = true; break;
@@ -76,11 +79,22 @@ export async function skillsLink(args: string[]): Promise<void> {
         from = value;
         break;
       }
+      case "--harness": {
+        const value = args[++i];
+        if (value === undefined || value.startsWith("--")) fail("Which harness are the links for?", "rt skills link --harness <claude|codex>");
+        harness = value;
+        break;
+      }
       default: fail("rt skills link does not take that option", undefined, args[i]);
     }
   }
 
-  const claudeSkillsDir = join(process.env.HOME ?? "", ".claude", "skills");
+  const chosen = await hosts.select(harness);
+  if (!chosen.ok) fail(chosen.error.message);
+  const host = hosts.hostFor(chosen.data);
+  const target = host.skills.skillsDir();
+  if (!target.ok) fail(target.error.message);
+  const claudeSkillsDir = target.data;
   const source = resolveSkillsDir({ from, repoRoot: gitRepoRoot });
 
   if ("error" in source) {
@@ -88,8 +102,9 @@ export async function skillsLink(args: string[]): Promise<void> {
     // drop the links that pointed into it. With none to drop it IS a bad
     // argument (a typo), so the original error still stands.
     if (from !== undefined) {
-      const gone = pruneLinksFrom({ skillsDir: resolve(from), claudeSkillsDir, dryRun });
+      const gone = pruneLinksFrom({ skillsDir: resolve(from), claudeSkillsDir, dryRun: true });
       if (gone.actions.length > 0) {
+        if (!dryRun) await apply(host, resolve(from), []);
         report(resolve(from), claudeSkillsDir, gone, dryRun, json);
         return;
       }
@@ -103,7 +118,15 @@ export async function skillsLink(args: string[]): Promise<void> {
   // own work, author-only skills included.
   const ignore = from === undefined ? [] : readSkillsIgnore(source.dir);
 
-  report(source.dir, claudeSkillsDir, reconcileSkillLinks({ skillsDir: source.dir, claudeSkillsDir, dryRun, ignore }), dryRun, json);
+  const plan = reconcileSkillLinks({ skillsDir: source.dir, claudeSkillsDir, dryRun: true, ignore });
+  if (!dryRun) await apply(host, source.dir, ignore);
+  report(source.dir, claudeSkillsDir, plan, dryRun, json);
+}
+
+/** The host makes the links the plan read; a host that fails leaves the run failed. */
+async function apply(host: SkillsHost, source: string, ignore: string[]): Promise<void> {
+  const done = await host.skills.maintain("link", source, { ignore });
+  if (!done.ok) fail(`rt could not link the skills for ${host.label}`, undefined, done.error.message);
 }
 
 export function linkBlocks(skillsDir: string, claudeSkillsDir: string, result: ReconcileResult, dryRun: boolean): Block[] {

@@ -21,6 +21,7 @@ rt skills writing-style use <skill> [flags]
 | --- | --- | --- | --- |
 | `<skill>` | text |  | A preset or any installed skill id; omit to pick |
 | `--scope` | select | `user` | user (just you) or team (the team default) |
+| `--harness` | text |  | Do this for one agent (claude or codex); omit for your default agent |
 | [`--json`](/rt/guides/common-flags) | boolean | `false` | Machine-readable result |
 
 _See code: [commands/skills-writing-style.ts › writingStyleUse](https://github.com/m4ttstack/mattstack/blob/main/commands/skills-writing-style.ts)_

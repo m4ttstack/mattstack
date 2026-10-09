@@ -4,6 +4,10 @@ import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
+import type { HarnessId } from "../../packages/rt-client/src/agent-integrations.ts";
+import { createClaudeSkills } from "../agent-integrations/claude/skills.ts";
+import type { SkillAdapter } from "../agent-integrations/contracts.ts";
+import type { SkillRunner } from "./installed-plugins.ts";
 
 export type RunResult = { code: number; stdout: string; stderr: string };
 
@@ -21,7 +25,24 @@ export type SyncDeps = {
   inTreeRoot: string | null;
   /** Where org clones live: a pack inside one follows whatever branch that clone has checked out. */
   orgsRoot?: string | null;
+  /** The harness whose installed copies sync brings current; omitted, Claude Code through `claudeBin` and `run`. */
+  host?: SyncHost;
 };
+
+export type SyncHost = { harness: HarnessId; label: string; bin: string | null; skills: Pick<SkillAdapter, "inventory" | "maintain"> };
+
+/** Claude Code reached through the deps' own runner, so a caller that injects `run` sees every native call. */
+function claudeHostOf(deps: SyncDeps): SyncHost {
+  const run: SkillRunner = async (bin, args) => {
+    const res = await deps.run(bin, args);
+    return { status: res.code, stdout: res.stdout, stderr: res.stderr };
+  };
+  return { harness: "claude", label: "Claude Code", bin: deps.claudeBin, skills: createClaudeSkills({ bin: () => deps.claudeBin, run }) };
+}
+
+export function syncHostOf(deps: SyncDeps): SyncHost {
+  return deps.host ?? claudeHostOf(deps);
+}
 
 export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string };
 
@@ -179,15 +200,15 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
-function guardSummary(engineInTree: boolean, packInTree: boolean, engineCache: string | null, pendingCount: number): string {
-  const base = guardBase(engineInTree, packInTree, engineCache);
+function guardSummary(engineInTree: boolean, packInTree: boolean, engineCache: string | null, pendingCount: number, hostLabel: string): string {
+  const base = guardBase(engineInTree, packInTree, engineCache, hostLabel);
   return pendingCount > 0 ? `${base}, apart from ${plural(pendingCount, "pack file")} waiting to commit` : base;
 }
 
-function guardBase(engineInTree: boolean, packInTree: boolean, engineCache: string | null): string {
+function guardBase(engineInTree: boolean, packInTree: boolean, engineCache: string | null, hostLabel: string): string {
   if (engineCache !== null) {
     const packPart = packInTree ? "the pack is in the shared checkout, so its git checks are skipped" : "pack checkout clean on main";
-    return `${packPart}; the engine is Claude Code's installed cache at ${engineCache}, which git never touches`;
+    return `${packPart}; the engine is ${hostLabel}'s installed cache at ${engineCache}, which git never touches`;
   }
   if (engineInTree && packInTree) return "the engine and the pack are in the shared checkout, so git checks are skipped";
   if (engineInTree) return "pack checkout clean on main; the engine is in the shared checkout, so its git checks are skipped";
@@ -321,10 +342,10 @@ function changedSinceShown(pack: string): Outcome {
   return refused(`The ${pack} pack changed since its pending changes were shown, so rt synced nothing. Look over the changes again, then sync`);
 }
 
-async function listInstalled(deps: SyncDeps): Promise<PluginListEntry[]> {
-  const res = await deps.run(deps.claudeBin!, ["plugin", "list", "--json"]);
-  if (res.code !== 0) throw new Error(`Listing Claude Code's plugins failed: ${res.stderr.trim()}`);
-  return JSON.parse(res.stdout) as PluginListEntry[];
+async function listInstalled(host: SyncHost): Promise<PluginListEntry[]> {
+  const listed = await host.skills.inventory();
+  if (!listed.ok) throw new Error(`Listing ${host.label}'s plugins failed: ${listed.error.message}`);
+  return listed.data;
 }
 
 /**
@@ -344,6 +365,7 @@ function chosenEntryVersion(list: PluginListEntry[], id: string, scope: string |
 }
 
 export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDeps, opts: SyncOptions = {}): Promise<SyncReport> {
+  const host = syncHostOf(deps);
   const mayWritePack = deps.mayCompile(pack.name);
   const NOT_YOURS = "This pack is out of date, but only its team's owners recompile it";
   const steps: SyncStep[] = [];
@@ -412,7 +434,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   // NOT read here -- pull-engine/pull-pack can move them, so they are read
   // fresh right after each pull instead (see below).
   const guards = await tryStep(async () => {
-    if (!deps.claudeBin) {
+    if (!host.bin) {
+      if (host.harness !== "claude") return refused(`${host.label} is not on your PATH. Install it, then run this again`);
       return refused(
         `Claude Code is not on your PATH or at ${CLAUDE_BIN_FALLBACKS.join(", ")}. Install it, then run this again`,
       );
@@ -499,11 +522,11 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       if (branchNote !== "") warnings.push(sentenceCase(branchNote.slice(2)));
     }
 
-    const list = await listInstalled(deps);
+    const list = await listInstalled(host);
     installedEngineBefore = engineCached ? chosenEntryVersion(list, pluginId(engine), engine.scope) : installedVersionFor(list, pluginId(engine));
     installedPackBefore = installedVersionFor(list, pluginId(pack));
 
-    return ran(guardSummary(engineInTree, packInTree, engineCached ? engine.dir : null, pending.length));
+    return ran(guardSummary(engineInTree, packInTree, engineCached ? engine.dir : null, pending.length, host.label));
   });
   steps.push({ name: "guards", ...guards });
   if (stops(guards)) return finish();
@@ -513,7 +536,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     : await tryStep(async () => {
         if (engineCached) {
           engineSourceVersion = readManifestVersion(engine.dir);
-          return skipped(`The engine is Claude Code's installed cache from the ${engine.marketplace} marketplace, so rt never pulls it; the next step refreshes it`);
+          return skipped(`The engine is ${host.label}'s installed cache from the ${engine.marketplace} marketplace, so rt never pulls it; the next step refreshes it`);
         }
         if (engineInTree) {
           engineSourceVersion = await readInTreeVersion(deps, inTreeRoot!, engine.dir);
@@ -574,21 +597,20 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   /**
    * A cached engine older than the one the pack was last compiled against
    * would compile, recheck clean and push a downgrade, so the cache is brought
-   * current through Claude Code (which owns it) before check ever runs, and a
+   * current through the harness (which owns it) before check ever runs, and a
    * refresh that fails stops the chain here. The update installs into a new
    * version folder, so the version is re-read from a fresh listing.
    */
   async function refreshCachedEngine(): Promise<Outcome> {
     const id = pluginId(engine);
     const stopped = "rt stopped so the pack is not compiled against an old engine";
-    const market = await deps.run(deps.claudeBin!, ["plugin", "marketplace", "update", engine.marketplace!]);
-    if (market.code !== 0) {
-      return refused(`Updating the ${engine.marketplace} marketplace failed: ${market.stderr.trim()}. ${stopped}`);
+    const market = await host.skills.maintain("sync", engine.marketplace!, { catalog: true });
+    if (!market.ok) {
+      return refused(`Updating the ${engine.marketplace} marketplace failed: ${market.error.message}. ${stopped}`);
     }
-    const scopeArgs = engine.scope ? ["--scope", engine.scope] : [];
-    const update = await deps.run(deps.claudeBin!, ["plugin", "update", id, ...scopeArgs, "-y"]);
-    if (update.code !== 0) return refused(`Updating ${id} failed: ${update.stderr.trim()}. ${stopped}`);
-    installedEngineAfter = chosenEntryVersion(await listInstalled(deps), id, engine.scope);
+    const update = await host.skills.maintain("sync", id, { ...(engine.scope && { scope: engine.scope }), assumeYes: true });
+    if (!update.ok) return refused(`Updating ${id} failed: ${update.error.message}. ${stopped}`);
+    installedEngineAfter = chosenEntryVersion(await listInstalled(host), id, engine.scope);
     if (installedEngineAfter === null) return refused(`${id} is not installed after its update. ${stopped}`);
     engineSourceVersion = installedEngineAfter;
     if (installedEngineAfter === installedEngineBefore) return skipped(`engine already current at ${installedEngineAfter} in the ${engine.marketplace} marketplace`);
@@ -600,8 +622,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (engineCached) return refreshCachedEngine();
     if (installedEngineBefore === engineSourceVersion) return skipped(`engine already at ${engineSourceVersion}`);
     const id = pluginId(engine);
-    const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
-    if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);
+    const res = await host.skills.maintain("sync", id);
+    if (!res.ok) return failed(`Updating ${id} failed: ${res.error.message}`);
     installedEngineAfter = engineSourceVersion;
     return ran(`updated ${id}`);
   });
@@ -890,8 +912,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (installedPackBefore === null) return skipped(notInstalled);
     if (!mine && installedPackBefore === packSourceVersion) return skipped("the installed copy already matches the source");
     const id = pluginId(pack);
-    const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
-    if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);
+    const res = await host.skills.maintain("sync", id);
+    if (!res.ok) return failed(`Updating ${id} failed: ${res.error.message}`);
     return ran(`updated ${id}`);
   });
   steps.push({ name: "update-pack", ...updatePack });
@@ -899,7 +921,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
 
   const verifyInstalled = await tryStep(async () => {
     if (installedPackBefore === null) return skipped(notInstalled);
-    const list = await listInstalled(deps);
+    const list = await listInstalled(host);
     installedPackAfter = installedVersionFor(list, pluginId(pack));
     installedEngineAfter = installedVersionFor(list, pluginId(engine));
     if (installedPackAfter !== packSourceVersion) {
@@ -911,6 +933,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(verifyInstalled)) return finish();
 
   const cswapSweep = await tryStep(async () => {
+    if (host.harness !== "claude") return skipped(`cswap accounts hold Claude Code's plugins, so there is nothing to check for ${host.label}`);
     if (!existsSync(deps.cswapSessionsDir)) return skipped(`no cswap sessions folder at ${deps.cswapSessionsDir}`);
     const target = join(deps.configDir, "plugins");
     let flagged = 0;

@@ -79,10 +79,12 @@ import {
   readManifestPipelines,
   readSurface,
   readVerbRoster,
+  buildPluginRoots,
   resolvePluginRoots,
   resolvePluginRootsFromDir,
   stageRoster,
   stripFrontmatter,
+  type PluginListEntry,
   type PluginRoots,
   type SurfaceConfig,
 } from "../lib/skills/sources.ts";
@@ -165,6 +167,8 @@ type Flags = {
   /** The build target named on the command line; unset is Claude, never a machine setting. */
   harness: string | null;
   bind?: boolean;
+  /** What a caller's own harness reports installed, read instead of Claude Code's listing; never a command-line flag. */
+  pluginEntries?: PluginListEntry[];
 };
 
 function parseFlags(args: string[]): Flags {
@@ -616,7 +620,9 @@ async function resolve(flags: Flags): Promise<Resolved> {
     ? { byName: {}, list: [] }
     : flags.mattstackDir
       ? resolvePluginRootsFromDir(mattstackRoot)
-      : resolvePluginRoots();
+      : flags.pluginEntries
+        ? buildPluginRoots(flags.pluginEntries)
+        : resolvePluginRoots();
   // The pack being compiled is the plugin its own fills are bound as. The installed
   // cache is the previous release of it, so reading fills from there inlines stale
   // bodies and pins their version token one release behind -- every `check` after a
@@ -1172,14 +1178,14 @@ export async function skillsCompile(args: string[]): Promise<void> {
  * verbs -- each named in `errors` -- with no partial write on failure,
  * exactly as the handler behaves today.
  */
-export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[] } & CompileWrites> {
+export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean; pluginEntries?: PluginListEntry[] }): Promise<{ ok: boolean; errors: string[] } & CompileWrites> {
   const args: string[] = [];
   if (opts.pack) args.push("--pack", opts.pack);
   if (opts.packDir) args.push("--pack-dir", opts.packDir);
   if (opts.manifest) args.push("--manifest", opts.manifest);
   if (opts.repo) args.push("--repo", opts.repo);
   if (opts.mattstackDir) args.push("--mattstack-dir", opts.mattstackDir);
-  const resolved = await resolve(parseFlags(args));
+  const resolved = await resolve({ ...parseFlags(args), ...(opts.pluginEntries && { pluginEntries: opts.pluginEntries }) });
   const chainErrors = pipelineChainErrors(resolved);
   if (chainErrors.length > 0) return { ok: false, errors: chainErrors, written: [], removed: [] };
   try {
@@ -1336,14 +1342,14 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint };
 }
 
-export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
+export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; pluginEntries?: PluginListEntry[] }): Promise<CheckPayload> {
   const args: string[] = [];
   if (opts.pack) args.push("--pack", opts.pack);
   if (opts.packDir) args.push("--pack-dir", opts.packDir);
   if (opts.manifest) args.push("--manifest", opts.manifest);
   if (opts.repo) args.push("--repo", opts.repo);
   if (opts.mattstackDir) args.push("--mattstack-dir", opts.mattstackDir);
-  return computeCheck(parseFlags(args));
+  return computeCheck({ ...parseFlags(args), ...(opts.pluginEntries && { pluginEntries: opts.pluginEntries }) });
 }
 
 export function installedCacheBlocks(installed: InstalledInfo): Block[] {

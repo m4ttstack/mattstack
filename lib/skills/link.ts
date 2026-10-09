@@ -13,7 +13,7 @@
 
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, symlinkSync, unlinkSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve } from "path";
-import { stripFrontmatter } from "./sources.ts";
+import { stripFrontmatter } from "./frontmatter.ts";
 
 export type LinkActionKind =
   | "create"   // link missing → symlink created (or would be, dry run)

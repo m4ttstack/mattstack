@@ -9,6 +9,8 @@ import { FragmentError, parseFragment } from "./manifest-merge.ts";
 import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
+import type { HarnessId } from "../../packages/rt-client/src/agent-integrations.ts";
+import type { SkillAdapter } from "../agent-integrations/contracts.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
 function withoutCredentials(message: string): string {
@@ -300,8 +302,6 @@ function marketplaceSourceOf(marketplaceJson: string, pack: string): unknown {
   return (Array.isArray(parsed.plugins) ? parsed.plugins : []).find((p) => p?.name === pack)?.source;
 }
 
-export type RunResult = { code: number; stdout: string; stderr: string };
-
 export type InitDeps = {
   mayWrite(zone: ZoneInfo, relPath: string): { message: string; why: string } | null;
   fs: InitFs;
@@ -314,7 +314,10 @@ export type InitDeps = {
   createZone(name: string, remote: string): Promise<{ slug: string; team: string; dir: string }>;
   declareClaim(zone: ZoneInfo, projects: string[]): void;
   engineDescription(engine: string): string | null;
-  claude: ((args: string[]) => Promise<RunResult>) | null;
+  /** The harness the pack installs into; omitted is Claude Code. */
+  harness?: HarnessId;
+  /** That harness's skills, or null when its CLI is not installed. */
+  skills: Pick<SkillAdapter, "maintain"> | null;
   registerRepo(repoDir: string): Promise<string>;
   materialize(repoName: string, pack: string): Promise<{ ok: boolean; detail: string }>;
   compile(packDir: string, manifestPath: string): Promise<{ ok: boolean; errors: string[] }>;
@@ -333,7 +336,7 @@ function sharePathsFor(zone: ZoneInfo, packDir: string, wrote: string[]): string
 export type InitRefusalCode =
   | "not-yours" | "other-org"
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host"
-  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict";
+  | "pack-exists" | "mattstack-missing" | "claude-missing" | "codex-missing" | "team-marketplace-conflict";
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
 
@@ -363,21 +366,15 @@ function refuse(code: InitRefusalCode, detail: string, next?: string, why?: stri
   return { ok: false, refused: true, code, detail, ...(next ? { next } : {}), ...(why ? { why } : {}) };
 }
 
-/** Anchored to the CLI's own "already ..." phrasings so a failing call that merely mentions the word does not read as success. */
-function isAlreadyDone(res: RunResult): boolean {
-  return /already (on disk|added|installed|exists)/i.test(`${res.stdout}\n${res.stderr}`);
+/** The harness's own commands for what init's install step does, for a person to run by hand. */
+function installCommands(harness: HarnessId, marketDir: string, pluginId: string): string[] {
+  if (harness === "codex") return [`codex plugin marketplace add ${marketDir}`, `codex plugin add ${pluginId}`];
+  return [`claude plugin marketplace add ${marketDir}`, `claude plugin install ${pluginId}`];
 }
 
-async function marketplaceNames(claude: NonNullable<InitDeps["claude"]>): Promise<Set<string> | null> {
-  const res = await claude(["plugin", "marketplace", "list", "--json"]);
-  if (res.code !== 0) return null;
-  try {
-    const parsed: unknown = JSON.parse(res.stdout);
-    if (!Array.isArray(parsed)) return null;
-    return new Set(parsed.map((m) => (m as { name?: unknown })?.name).filter((n): n is string => typeof n === "string"));
-  } catch {
-    return null;
-  }
+function hostMissing(harness: HarnessId): InitOutcome {
+  if (harness === "codex") return refuse("codex-missing", "Codex is not on your PATH. Install it, then run this again");
+  return refuse("claude-missing", "Claude Code is not on your PATH. Install it, then run this again");
 }
 
 export async function initPack(opts: { repoDir: string; zone: string | null; team: string | null }, deps: InitDeps): Promise<InitOutcome> {
@@ -391,8 +388,9 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   if (workDescription === null) {
     return refuse("mattstack-missing", "The mattstack plugin is not installed, so rt cannot read the work engine", "rt setup pack");
   }
-  if (!deps.claude) return refuse("claude-missing", "Claude Code is not on your PATH. Install it, then run this again");
-  const claude = deps.claude;
+  const harness = deps.harness ?? "claude";
+  if (!deps.skills) return hostMissing(harness);
+  const skills = deps.skills;
 
   if (opts.team !== null && !TEAM_NAME_RE.test(opts.team)) {
     return refuse("zone-missing", `${opts.team || "An empty name"} is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter`, "rt skills init --team <name>");
@@ -474,7 +472,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     if (code === "compile-failed" || code === "check-drift") {
       return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`, share] };
     }
-    return { commands: [`claude plugin marketplace add ${zone.orgDir}`, `claude plugin install ${pluginId}`, share] };
+    return { commands: [...installCommands(harness, zone.orgDir, pluginId), share] };
   };
 
   const failed = (code: FailureCode, detail: string, from?: { why?: string; next?: string }): InitOutcome => ({
@@ -539,20 +537,9 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   if ("outcome" in checkedAttempt) return checkedAttempt.outcome;
   if (checkedAttempt.value.drift) return failed("check-drift", "The pack was out of date right after it compiled");
 
-  const known = await attempt("install-failed", () => marketplaceNames(claude));
-  if ("outcome" in known) return known.outcome;
-  if (!known.value || !known.value.has(marketplace)) {
-    const added = await attempt("install-failed", () => claude(["plugin", "marketplace", "add", zone.orgDir]));
-    if ("outcome" in added) return added.outcome;
-    if (added.value.code !== 0 && !isAlreadyDone(added.value)) {
-      return failed("install-failed", `Adding the team's marketplace to Claude Code failed (exit ${added.value.code}): ${added.value.stderr.trim() || added.value.stdout.trim()}`);
-    }
-  }
-  const installed = await attempt("install-failed", () => claude(["plugin", "install", pluginId]));
+  const installed = await attempt("install-failed", () => skills.maintain("init", zone.orgDir, { plugin: pluginId }));
   if ("outcome" in installed) return installed.outcome;
-  if (installed.value.code !== 0 && !isAlreadyDone(installed.value)) {
-    return failed("install-failed", `Installing ${pluginId} in Claude Code failed (exit ${installed.value.code}): ${installed.value.stderr.trim() || installed.value.stdout.trim()}`);
-  }
+  if (!installed.value.ok) return failed("install-failed", installed.value.error.message);
 
   const published = await deps.sharePack(zone, sharePathsFor(zone, packDir, wrote));
 

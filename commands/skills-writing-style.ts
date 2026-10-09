@@ -5,14 +5,14 @@
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
-import { resolveClaudeBin } from "../lib/claude-bin.ts";
+import { claudeUserSkillsDir } from "../lib/agent-integrations/claude/skills.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, userErrorPayload } from "../lib/errors.ts";
-import { execWithTimeout } from "../lib/setup/probes.ts";
 import { setSetting } from "../lib/settings/write.ts";
+import { REAL_HOSTS, takeHarnessFlag, type HostChoice, type SkillsHost } from "../lib/skills/maintain-host.ts";
 import { isValidSkillId, presetById, resolveWritingStyle, WRITING_STYLE_KEY, WRITING_STYLE_SOURCE_LABEL, type ResolvedWritingStyle } from "../lib/skills/writing-style.ts";
-import { isStyleUsable, linkPersonalSkills, listWritingStyles, parsePluginEntries, personalSkillsDir, pluginSkillRoots, readSkillInventory } from "../lib/skills/writing-style-sources.ts";
+import { isStyleUsable, linkPersonalSkills, listWritingStyles, manifestDirFor, personalSkillsDir, pluginSkillRoots, readSkillInventory, type PluginEntry } from "../lib/skills/writing-style-sources.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
@@ -30,14 +30,21 @@ export interface WritingStyleDeps {
   isTTY: () => boolean;
   pick: (message: string, options: { value: string; label: string; hint?: string }[]) => Promise<string | null>;
   prompt: (message: string) => Promise<string | null>;
-  pluginListStdout: () => Promise<string | null>;
+  /** What the selected harness reports installed; null when it cannot say. */
+  plugins: () => Promise<PluginEntry[] | null>;
+  /** The selected harness's own skills folder, where personal styles are linked. */
+  skillsDir: () => string;
+  /** The harness's short name, for a sentence about its skills folder. */
+  hostName: () => string;
   writeSetting: (key: string, value: unknown, scope: "user" | "team") => void;
   resolve: () => ResolvedWritingStyle;
 }
 
-export function realWritingStyleDeps(): WritingStyleDeps {
+/** `host` is the harness list, use and new read; show reads none. */
+export function realWritingStyleDeps(host: SkillsHost | null = null): WritingStyleDeps {
+  const home = () => process.env.HOME ?? "";
   return {
-    home: () => process.env.HOME ?? "",
+    home,
     now: () => new Date(),
     print: (s) => out.payload(`${s}\n`),
     show: (...blocks) => out.print(...blocks),
@@ -54,10 +61,16 @@ export function realWritingStyleDeps(): WritingStyleDeps {
       const v = await textInput({ message, stderr: true });
       return v.trim() === "" ? null : v.trim();
     },
-    pluginListStdout: async () => {
-      const res = await execWithTimeout([resolveClaudeBin() ?? "claude", "plugin", "list", "--json"], { timeoutMs: 15_000 });
-      return res.code === 0 ? res.stdout : null;
+    plugins: async () => {
+      if (host === null) return null;
+      const listed = await host.skills.inventory();
+      return listed.ok ? listed.data.map((e) => ({ id: e.id, enabled: e.enabled === true, installPath: e.installPath, ...(e.harness !== undefined && { harness: e.harness }) })) : null;
     },
+    skillsDir: () => {
+      const dir = host?.skills.skillsDir();
+      return dir?.ok ? dir.data : claudeUserSkillsDir(home());
+    },
+    hostName: () => (host === null || host.harness === "claude" ? "Claude" : host.label),
     writeSetting: (key, value, scope) => setSetting(key, value, scope),
     resolve: () => resolveWritingStyle(),
   };
@@ -79,8 +92,24 @@ function decline(err: UserActionableError, json: boolean, deps: WritingStyleDeps
 const NO_HOME: out.FailureInput = { title: "Your home repo does not exist yet", next: out.cmd("rt setup") };
 
 async function inventory(deps: WritingStyleDeps) {
-  const stdout = await deps.pluginListStdout();
-  return readSkillInventory(deps.home(), stdout === null ? null : parsePluginEntries(stdout));
+  return readSkillInventory(deps.home(), await deps.plugins(), { userSkillsDirs: [deps.skillsDir()] });
+}
+
+/**
+ * Takes `--harness` out of `args` and picks the harness once. Deps a caller
+ * passed keep their own host; only real deps are built for the pick.
+ */
+async function forHarness(verb: string, args: string[], given: WritingStyleDeps | undefined, hosts: HostChoice): Promise<{ args: string[]; deps: WritingStyleDeps }> {
+  const json = args.includes("--json");
+  const taken = takeHarnessFlag(args);
+  const fallback = given ?? realWritingStyleDeps();
+  if (!taken.ok) {
+    return refuse(new UserActionableError("usage", "--harness needs a value"), json, fallback, usageFailure("Which harness?", `rt skills writing-style ${verb} --harness <claude|codex>`));
+  }
+  if (given) return { args: taken.rest, deps: given };
+  const chosen = await hosts.select(taken.harness);
+  if (!chosen.ok) return refuse(new UserActionableError("harness", chosen.error.message), json, fallback);
+  return { args: taken.rest, deps: realWritingStyleDeps(hosts.hostFor(chosen.data)) };
 }
 
 export async function writingStyleShow(args: string[], _ctx: CommandContext = {}, deps: WritingStyleDeps = realWritingStyleDeps()): Promise<void> {
@@ -92,7 +121,8 @@ export async function writingStyleShow(args: string[], _ctx: CommandContext = {}
   deps.show(out.kv("Writing style", resolved.skill, WRITING_STYLE_SOURCE_LABEL[resolved.source]));
 }
 
-export async function writingStyleList(args: string[], _ctx: CommandContext = {}, deps: WritingStyleDeps = realWritingStyleDeps()): Promise<void> {
+export async function writingStyleList(rawArgs: string[], _ctx: CommandContext = {}, given?: WritingStyleDeps, hosts: HostChoice = REAL_HOSTS): Promise<void> {
+  const { args, deps } = await forHarness("list", rawArgs, given, hosts);
   const listing = listWritingStyles(await inventory(deps), deps.resolve());
   if (args.includes("--json")) {
     deps.print(JSON.stringify(envelope(listing, deps.now())));
@@ -129,7 +159,8 @@ function parseUseArgs(args: string[]): { id: string | undefined; scope: string; 
   return { id, scope, json };
 }
 
-export async function writingStyleUse(args: string[], _ctx: CommandContext = {}, deps: WritingStyleDeps = realWritingStyleDeps()): Promise<void> {
+export async function writingStyleUse(rawArgs: string[], _ctx: CommandContext = {}, givenDeps?: WritingStyleDeps, hosts: HostChoice = REAL_HOSTS): Promise<void> {
+  const { args, deps } = await forHarness("use", rawArgs, givenDeps, hosts);
   const { id: given, scope, json } = parseUseArgs(args);
   // The app's "Use my own skill..." text reaches argv verbatim, so a leading
   // dash must be validated as an id rather than parsed as a flag.
@@ -140,7 +171,7 @@ export async function writingStyleUse(args: string[], _ctx: CommandContext = {},
     return refuse(new UserActionableError("no-home-repo", "your home repo does not exist yet; finish rt setup first"), json, deps, NO_HOME);
   }
 
-  linkPersonalSkills(deps.home());
+  linkPersonalSkills(deps.home(), deps.skillsDir());
   const inv = await inventory(deps);
   const listing = listWritingStyles(inv, deps.resolve());
 
@@ -189,7 +220,8 @@ function retarget(text: string, presetId: string, name: string): string | null {
   return frontmatter + normalized.slice(end);
 }
 
-export async function writingStyleNew(args: string[], _ctx: CommandContext = {}, deps: WritingStyleDeps = realWritingStyleDeps()): Promise<void> {
+export async function writingStyleNew(rawArgs: string[], _ctx: CommandContext = {}, given?: WritingStyleDeps, hosts: HostChoice = REAL_HOSTS): Promise<void> {
+  const { args, deps } = await forHarness("new", rawArgs, given, hosts);
   const json = args.includes("--json");
   let from = "conversational";
   let name: string | undefined;
@@ -221,10 +253,9 @@ export async function writingStyleNew(args: string[], _ctx: CommandContext = {},
     ]);
   }
 
-  const stdout = await deps.pluginListStdout();
-  const mattstack = (stdout === null ? null : parsePluginEntries(stdout))?.find((p) => p.id.startsWith("mattstack@") && p.enabled && p.installPath);
+  const mattstack = (await deps.plugins())?.find((p) => p.id.startsWith("mattstack@") && p.enabled && p.installPath);
   const source = mattstack?.installPath
-    ? pluginSkillRoots(mattstack.installPath)
+    ? pluginSkillRoots(mattstack.installPath, manifestDirFor(mattstack.harness))
         .map((root) => join(root, presetId.split(":")[1]!))
         .find((candidate) => existsSync(join(candidate, "SKILL.md"))) ?? null
     : null;
@@ -253,7 +284,7 @@ export async function writingStyleNew(args: string[], _ctx: CommandContext = {},
     mkdirSync(target, { recursive: true });
     writeFileSync(join(target, "SKILL.md"), skillContent);
     if (prDescContent !== undefined) writeFileSync(join(target, "pr-description.md"), prDescContent);
-    linkResult = linkPersonalSkills(deps.home());
+    linkResult = linkPersonalSkills(deps.home(), deps.skillsDir());
   } catch (err) {
     try {
       // The exists check ran before this call, and name passed NAME_RE, so target is a directory this call just created.
@@ -267,7 +298,7 @@ export async function writingStyleNew(args: string[], _ctx: CommandContext = {},
   if (conflict) {
     rmSync(target, { recursive: true, force: true });
     return decline(new UserActionableError("exists", `${conflict.link} already exists`), json, deps, [
-      out.line("refused", `Your Claude skills folder already has something called ${name}`, conflict.link),
+      out.line("refused", `Your ${deps.hostName()} skills folder already has something called ${name}`, conflict.link),
       out.callout("note", "rt left it alone and removed the copy it had just made."),
     ]);
   }

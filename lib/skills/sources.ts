@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { dirname, join, relative, sep } from "path";
-import { parse as parseYaml } from "yaml";
+import { stripFrontmatter } from "./frontmatter.ts";
 import { listInstalledPlugins } from "../agent-integrations/claude/skills.ts";
 import { stripJsonc } from "../jsonc.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
@@ -11,30 +11,10 @@ import { readRequires } from "./harness-target.ts";
 import { findPlaceholders } from "./placeholders.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
 
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-
 /** Single definition lives in lib/jsonc.ts — a line-filter fork here previously missed block comments, trailing commas, and inline `//` after content. */
 export { stripJsonc };
 
-export function stripFrontmatter(
-  md: string,
-): { body: string; frontmatter: Record<string, unknown>; bodyStartLine: number } {
-  const match = md.match(FRONTMATTER_RE);
-  const fmBlock = match?.[0] ?? "";
-  const rest = match ? md.slice(match[0].length) : md;
-  const parsed = match ? parseYaml(match[1] ?? "") : undefined;
-  const frontmatter = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-  const body = rest.trim();
-
-  // Measure the head only: `body` is trimmed at both ends, so a
-  // length-difference formula would count trailing blank lines as leading
-  // ones and silently mis-locate every seam that points into a real file.
-  const lead = rest.length - rest.trimStart().length;
-  const countLines = (s: string) => (s.match(/\n/g) ?? []).length;
-  const bodyStartLine = countLines(fmBlock) + countLines(rest.slice(0, lead)) + 1;
-
-  return { body, frontmatter, bodyStartLine };
-}
+export { stripFrontmatter };
 
 export type PluginListEntry = {
   id: string; installPath: string; enabled?: boolean; scope?: string; version?: string;
