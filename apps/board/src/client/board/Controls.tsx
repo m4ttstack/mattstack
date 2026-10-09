@@ -26,6 +26,8 @@ export interface ShowMenuModel {
   counts: Record<ShowItem, number>;
   channel: string | null;
   toggle: (item: ShowItem) => void;
+  /** Your own rows are GitHub pull requests: My PRs, not My MRs. */
+  prs?: boolean;
   /** The board's whose-turn signals, which the Waiting on author tip names. */
   turn?: TurnConfig;
 }
@@ -33,7 +35,11 @@ export interface ShowMenuModel {
 const slackPlace = (channel: string | null) =>
   channel ? `#${channel}` : 'team channel';
 
-export function showLabel(item: ShowItem, channel: string | null): string {
+export function showLabel(
+  item: ShowItem,
+  channel: string | null,
+  prs = false
+): string {
   switch (item) {
     case 'posted':
       return `Posted to ${slackPlace(channel)}`;
@@ -43,6 +49,8 @@ export function showLabel(item: ShowItem, channel: string | null): string {
       return 'Waiting on author';
     case 'myDrafts':
       return 'My drafts';
+    case 'mine':
+      return prs ? 'My PRs' : 'My MRs';
   }
 }
 
@@ -59,6 +67,8 @@ export function showDescription(
       return 'comments, red CI, conflicts, ready to merge';
     case 'myDrafts':
       return 'your own draft MRs';
+    case 'mine':
+      return 'your own MRs';
   }
 }
 
@@ -215,7 +225,7 @@ function Controls({
                     data-active={on || undefined}
                     onClick={() => show.toggle(item)}
                   >
-                    {on ? '✓' : '+'} {showLabel(item, show.channel)} ·{' '}
+                    {on ? '✓' : '+'} {showLabel(item, show.channel, show.prs)} ·{' '}
                     {show.counts[item]}
                   </button>
                 );

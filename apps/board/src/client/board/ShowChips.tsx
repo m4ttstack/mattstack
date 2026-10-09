@@ -19,6 +19,8 @@ export function showTip(item: ShowItem, turn: TurnConfig): string {
         : 'MRs waiting on the author to act. Configure this behavior in settings.';
     case 'myDrafts':
       return 'Show or hide your own draft MRs. Other users’ drafts are never shown.';
+    case 'mine':
+      return 'Show or hide your own MRs, to see only your teammates’ work.';
   }
 }
 
@@ -51,7 +53,7 @@ export function ShowChips({ show }: { show: ShowMenuModel }) {
                   onChange={() => show.toggle(item)}
                 />
                 <span className="tui-show-chip-label">
-                  {showLabel(item, show.channel)}
+                  {showLabel(item, show.channel, show.prs)}
                 </span>
                 <span className="tui-show-chip-count">{show.counts[item]}</span>
               </label>

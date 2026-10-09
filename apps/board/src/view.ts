@@ -12,7 +12,8 @@ export type GroupKey = 'age' | 'author' | 'status' | 'review' | 'needs';
     'none' keeps each group whole. Rows are always oldest first. */
 export type SortKey = 'none' | GroupKey;
 
-export type ShowItem = 'posted' | 'notPosted' | 'authorTurn' | 'myDrafts';
+export type ShowItem =
+  'posted' | 'notPosted' | 'authorTurn' | 'myDrafts' | 'mine';
 
 export const GROUP_KEYS: readonly GroupKey[] = [
   'age',
@@ -27,6 +28,7 @@ export const SHOW_ITEMS: readonly ShowItem[] = [
   'notPosted',
   'authorTurn',
   'myDrafts',
+  'mine',
 ];
 
 /** Whether `tab` fades its zero-count roster members: its own `dimEmpty`,
@@ -455,6 +457,8 @@ export function matchesShowItem(
       return !isOwnMr(mr, seat) && authorTurn(mr, cfg) !== null;
     case 'myDrafts':
       return !!mr.isDraft;
+    case 'mine':
+      return isOwnMr(mr, seat);
   }
 }
 
@@ -475,6 +479,7 @@ export function filterByShow<T extends ShowRow>(
     notPosted: 0,
     authorTurn: 0,
     myDrafts: 0,
+    mine: 0,
   };
   const active = off.filter(i => offered.includes(i));
   if (!offered.includes('myDrafts')) active.push('myDrafts');
@@ -491,8 +496,9 @@ export function filterByShow<T extends ShowRow>(
 }
 
 /** The items the toolbar renders. My drafts shows only on your own roster
-    entry, Needs me is already turn-based, and none of your own MRs waits on
-    its author. */
+    entry, My MRs only on All (to hide your own rows from the team view),
+    Needs me is already turn-based, and none of your own MRs waits on its
+    author. */
 export function offeredShowItems(o: {
   slackEnabled: boolean;
   seatTab: boolean;
@@ -504,6 +510,9 @@ export function offeredShowItems(o: {
     ...(o.slackEnabled ? (['posted', 'notPosted'] as const) : []),
     ...(o.seatTab || own ? [] : (['authorTurn'] as const)),
     ...(own ? (['myDrafts'] as const) : []),
+    ...(o.member === 'all' && o.seat !== null && !o.seatTab
+      ? (['mine'] as const)
+      : []),
   ];
 }
 
