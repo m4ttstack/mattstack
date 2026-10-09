@@ -1,5 +1,8 @@
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { isAbsolute, relative as relativePath, resolve as resolvePath, sep } from "path";
+import {
+  capabilityError, foreignToolWarnings, keepsLegacyTokens, LEGACY_CLAUDE_TARGET, missingCapabilities, renderForTarget, type SkillTarget,
+} from "./harness-target.ts";
 import { assertNoPlaceholders, findPlaceholders, skillDirFor, substitute, substituteIncludesOnly, type TraceEntry } from "./placeholders.ts";
 import type {
   AttachmentSource,
@@ -506,11 +509,17 @@ export function compileSkill(
     verbSides?: Record<string, Side>;
     side?: Side;
     trace?: (entry: TraceEntry) => void;
+    /** Unset compiles the legacy Claude artifact with no fragments. */
+    target?: SkillTarget;
+    /** `../`-hops from the compiled target's root back to the pack's sources, for a target written outside the pack's own skills/. */
+    packFromTargetRoot?: string;
   } = {},
 ): CompileResult {
   const internalRoster = opts.internalRoster ?? new Set<string>();
   const where = opts.where ?? `verb "${verb.name}"`;
+  const target = opts.target ?? LEGACY_CLAUDE_TARGET;
   const boundSlots = resolveBoundSlots(where, step, fills);
+  const gaps = missingCapabilities(step.requires ?? [], target).map((c) => capabilityError(where, c, target));
 
   const compiledParts = [
     `${step.plugin}@${step.version}`,
@@ -540,6 +549,9 @@ export function compileSkill(
     verbSides: opts.verbSides ?? {},
     side: opts.side ?? "skills",
     packRoot: opts.packRoot ?? null,
+    target,
+    ...(opts.packFromTargetRoot && { packFromTargetRoot: opts.packFromTargetRoot }),
+    missingFragments: [],
   };
 
   const allowedTools = buildAllowedTools(step, boundSlots, opts.stageAllowedTools ?? [], ctx);
@@ -549,6 +561,7 @@ export function compileSkill(
     stageDir: opts.stageDir ?? null,
     trace: opts.trace,
   });
+  gaps.push(...(ctx.missingFragments ?? []).map((gap) => `${where}: ${gap}`));
   const frontmatter = buildFrontmatter(verb, allowedTools, compiledParts);
   const content = `${frontmatter}\n\n${body}\n`;
 
@@ -571,10 +584,21 @@ export function compileSkill(
     }),
     ...notes,
   ];
+  warnings.push(...foreignToolWarnings(stripCompilerComments(body), target));
   const errors = [
+    ...gaps,
     ...lintInternalRoster(body, internalRoster, "body"),
     ...lintInternalRoster(verb.description, internalRoster, "description"),
   ];
 
-  return { files, warnings, errors };
+  // Lint reads the source spelling above, so its coordinates stay the source's.
+  const rendered = keepsLegacyTokens(target) ? files : files.map((file) => renderFile(file, target, where));
+  return { files: rendered, warnings, errors, ...(gaps.length > 0 && { targetGaps: gaps }) };
+}
+
+/** A companion Markdown file is read by the agent like SKILL.md, so it is rendered the same way; anything else ships byte for byte. */
+function renderFile(file: CompiledFile, target: SkillTarget, where: string): CompiledFile {
+  if ("content" in file) return { path: file.path, content: renderForTarget(file.content, target, `${where}: ${file.path}`) };
+  if (!file.path.endsWith(".md")) return file;
+  return { path: file.path, content: renderForTarget(readFileSync(file.copyFrom, "utf8"), target, `${where}: ${file.path}`) };
 }

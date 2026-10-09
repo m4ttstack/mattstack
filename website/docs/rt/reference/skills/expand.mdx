@@ -21,6 +21,7 @@ rt skills expand [flags]
 | --- | --- | --- | --- |
 | `--src` | text |  | Directory holding one skill dir per skill |
 | `--out` | text |  | Directory expand owns: every skill dir in it is regenerated or removed |
+| `--harness` | text |  | Expand for this harness (claude or codex); omit for claude |
 | `--mattstack-dir` | text |  | Resolve plugins from &lt;dir&gt;/plugins/&lt;name&gt; instead of the installed set |
 | `--check` | boolean | `false` | Compare the output to a fresh expansion and exit 1 on drift; write nothing |
 | `--strict` | boolean | `false` | Fail on mcp-lint hits in the output (shell forms a mattstack tool covers) |

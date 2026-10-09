@@ -1,6 +1,10 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, join, resolve, sep } from "path";
 import { skillMdDriftCauses } from "./drift.ts";
+import {
+  capabilityError, DEFAULT_HARNESS, keepsLegacyTokens, LEGACY_CLAUDE_TARGET, missingCapabilities, readRequires,
+  readTargetMarker, renderForTarget, TARGET_MARKER, targetMarkerText, type SkillTarget,
+} from "./harness-target.ts";
 import { findPlaceholders, substituteIncludesOnly } from "./placeholders.ts";
 import { maskProvenance } from "./provenance.ts";
 import { listFilesUnder, loadInclude, stripFrontmatter, type PluginRoots } from "./sources.ts";
@@ -13,11 +17,14 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
 const SKILL_DIR_PATH_RE = /\$\{CLAUDE_SKILL_DIR\}\/[^\s"'`)]+/g;
 
+export type ExpandedFile = { path: string; copyFrom: string } | { path: string; content: string };
+
 export type ExpandedSkill = {
   name: string;
   skillMd: string;
-  files: { path: string; copyFrom: string }[];
+  files: ExpandedFile[];
   includes: string[];
+  harness: string;
 };
 
 export type ExpandDrift = { skill: string; causes: string[] };
@@ -52,7 +59,7 @@ function stampFrontmatter(raw: string, stamp: string | null, where: string): str
   return lines.join("\n");
 }
 
-function includeOnlyContext(includes: Record<string, AttachmentSource>): PlaceholderContext {
+function includeOnlyContext(includes: Record<string, AttachmentSource>, target: SkillTarget): PlaceholderContext {
   return {
     fills: {},
     slotMode: {},
@@ -69,6 +76,7 @@ function includeOnlyContext(includes: Record<string, AttachmentSource>): Placeho
     verbSides: {},
     side: "skills",
     packRoot: null,
+    target,
   };
 }
 
@@ -111,7 +119,7 @@ function filesOnDisk(dir: string, sub = ""): string[] {
   return out;
 }
 
-function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRoots): ExpandedSkill {
+function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRoots, target: SkillTarget): ExpandedSkill {
   const dir = join(srcDir, name);
   const skillMdPath = join(dir, "SKILL.md");
   const where = `${name}/SKILL.md`;
@@ -128,12 +136,20 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   const fileLine = (bodyLine: number) => bodyLine + bodyStartLine - 1;
   const includes: Record<string, AttachmentSource> = {};
   const names: string[] = [];
+  const missing = missingCapabilities(readRequires(stripFrontmatter(raw).frontmatter), target)[0];
+  if (missing !== undefined) throw new Error(capabilityError(where, missing, target));
   for (const p of findPlaceholders(body)) {
-    if (p.kind !== "include" || !p.arg) {
-      throw new Error(`${where}: ${p.raw} at line ${fileLine(p.line)} -- only {{include:<name>}} is allowed here`);
+    if ((p.kind !== "include" && p.kind !== "harness") || !p.arg) {
+      throw new Error(`${where}: ${p.raw} at line ${fileLine(p.line)} -- only {{include:<name>}} and {{harness:<fragment>}} are allowed here`);
     }
     if (bodyLines[p.line - 1]!.trim() !== p.raw) {
       throw new Error(`${where}: ${p.raw} must be alone on its line (line ${fileLine(p.line)})`);
+    }
+    if (p.kind === "harness") {
+      if (!Object.hasOwn(target.fragments, p.arg)) {
+        throw new Error(`${where}: ${p.raw} at line ${fileLine(p.line)} has no "${p.arg}" fragment in the ${target.harness} target`);
+      }
+      continue;
     }
     if (!(p.arg in includes)) {
       includes[p.arg] = loadInclude(p.arg, roots);
@@ -151,7 +167,7 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
     }
   }
 
-  const expanded = substituteIncludesOnly(body, includeOnlyContext(includes), where).body;
+  const expanded = substituteIncludesOnly(body, includeOnlyContext(includes, target), where).body;
   assertPathsInside(fm[0], outDir, name, where);
   assertPathsInside(expanded, outDir, name, where);
 
@@ -160,21 +176,40 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   const span = `path=${where} lines=${bodyStartLine}-${bodyStartLine + bodyLines.length - 1}`;
   const skillMd = `${frontmatter}\n\n${EXPAND_HEADER}\n\n<!-- part: step source=${where} ${span} -->\n${expanded}\n`;
 
-  const files = listFilesUnder(dir, new Set(["SKILL.md"])).map((path) => ({ path, copyFrom: join(dir, path) }));
+  const files: ExpandedFile[] = listFilesUnder(dir, new Set(["SKILL.md"])).map((path) => ({ path, copyFrom: join(dir, path) }));
   for (const n of names) {
     for (const extra of includes[n]!.extraFiles) {
       files.push({ path: `parts/include-${n}/${extra}`, copyFrom: join(includes[n]!.dir, extra) });
     }
   }
-  return { name, skillMd, files, includes: names };
+  if (keepsLegacyTokens(target)) return { name, skillMd, files, includes: names, harness: target.harness };
+  return {
+    name,
+    skillMd: renderForTarget(skillMd, target, where),
+    files: files.map((f) => renderCompanion(f, target, `${name}/${f.path}`)),
+    includes: names,
+    harness: target.harness,
+  };
 }
 
-export function expandSkills(opts: { srcDir: string; outDir: string; roots: PluginRoots }): ExpandedSkill[] {
+/** A companion Markdown file is read like SKILL.md, so it is rendered the same way; anything else ships byte for byte. */
+function renderCompanion(file: ExpandedFile, target: SkillTarget, where: string): ExpandedFile {
+  if ("content" in file || !file.path.endsWith(".md")) return file;
+  return { path: file.path, content: renderForTarget(readFileSync(file.copyFrom, "utf8"), target, where) };
+}
+
+function expectedBytes(file: ExpandedFile): Buffer {
+  return "content" in file ? Buffer.from(file.content) : readFileSync(file.copyFrom);
+}
+
+/** Unset `target` expands for Claude with no fragments, the output expand always wrote. */
+export function expandSkills(opts: { srcDir: string; outDir: string; roots: PluginRoots; target?: SkillTarget }): ExpandedSkill[] {
   if (!existsSync(opts.srcDir) || !statSync(opts.srcDir).isDirectory()) throw new Error(`${opts.srcDir} does not exist`);
   if (overlaps(opts.srcDir, opts.outDir)) {
     throw new Error(`out dir ${opts.outDir} overlaps src dir ${opts.srcDir}; expand deletes inside the out dir, so they must be disjoint`);
   }
-  return listSkillDirs(opts.srcDir).map((name) => expandOne(opts.srcDir, opts.outDir, name, opts.roots));
+  const target = opts.target ?? LEGACY_CLAUDE_TARGET;
+  return listSkillDirs(opts.srcDir).map((name) => expandOne(opts.srcDir, opts.outDir, name, opts.roots, target));
 }
 
 /** Authorship is the header, as compile decides it: a dir expand did not write is never deleted, whatever its name. */
@@ -196,8 +231,29 @@ function survey(outDir: string, skills: ExpandedSkill[]): { orphans: string[]; f
   return { orphans, foreign };
 }
 
-/** The orphan dirs a write would remove; throws, touching nothing, when --out holds a dir expand did not write. */
+/**
+ * The harness whose output `outDir` holds: its marker's, else Claude's when it
+ * holds any expand output, since Claude's root predates markers and carries none.
+ */
+function heldTarget(outDir: string): string | null {
+  const marker = readTargetMarker(outDir);
+  if (!marker.ok) throw new Error(marker.error.message);
+  if (marker.data !== null) return marker.data;
+  if (!existsSync(outDir)) return null;
+  return listSkillDirs(outDir).some((d) => isExpandOutput(join(outDir, d))) ? DEFAULT_HARNESS : null;
+}
+
+function harnessOf(skills: ExpandedSkill[]): string {
+  return skills[0]?.harness ?? DEFAULT_HARNESS;
+}
+
+/** The orphan dirs a write would remove; throws, touching nothing, when --out holds a dir expand did not write or another harness's output. */
 export function planRemoval(outDir: string, skills: ExpandedSkill[]): string[] {
+  const harness = harnessOf(skills);
+  const held = heldTarget(outDir);
+  if (held !== null && held !== harness) {
+    throw new Error(`${outDir} holds ${held} output; expand the ${harness} skills into their own --out`);
+  }
   const { orphans, foreign } = survey(outDir, skills);
   if (foreign.length > 0) {
     const named = foreign.map((d) => join(outDir, d)).join(", ");
@@ -217,9 +273,12 @@ export function writeExpanded(outDir: string, skills: ExpandedSkill[]): { writte
     writeFileSync(join(dir, "SKILL.md"), s.skillMd);
     for (const f of s.files) {
       mkdirSync(dirname(join(dir, f.path)), { recursive: true });
-      copyFileSync(f.copyFrom, join(dir, f.path));
+      if ("content" in f) writeFileSync(join(dir, f.path), f.content);
+      else copyFileSync(f.copyFrom, join(dir, f.path));
     }
   }
+  const harness = harnessOf(skills);
+  if (harness !== DEFAULT_HARNESS) writeFileSync(join(outDir, TARGET_MARKER), targetMarkerText(harness));
   return { written: skills.map((s) => s.name), removed };
 }
 
@@ -231,12 +290,18 @@ function firstVendoredDrift(dir: string, s: ExpandedSkill): string | null {
   if (extra) return extra;
   const missing = [...want].filter((p) => !have.has(p)).sort()[0];
   if (missing) return missing;
-  return s.files.find((f) => !readFileSync(join(dir, f.path)).equals(readFileSync(f.copyFrom)))?.path ?? null;
+  return s.files.find((f) => !readFileSync(join(dir, f.path)).equals(expectedBytes(f)))?.path ?? null;
 }
 
 /** SKILL.md compares with provenance masked, so a plugin version bump alone is not drift; a write still stamps the real version. */
 export function checkExpanded(outDir: string, skills: ExpandedSkill[]): ExpandDrift[] {
   const drift: ExpandDrift[] = [];
+  const harness = harnessOf(skills);
+  const marker = readTargetMarker(outDir);
+  const held = marker.ok ? heldTarget(outDir) : null;
+  if (!marker.ok) drift.push({ skill: TARGET_MARKER, causes: ["invalid"] });
+  else if (held !== null && held !== harness) drift.push({ skill: TARGET_MARKER, causes: [`holds ${held} output`] });
+  else if (harness !== DEFAULT_HARNESS && existsSync(outDir) && marker.data === null) drift.push({ skill: TARGET_MARKER, causes: ["missing"] });
   const { orphans, foreign } = survey(outDir, skills);
   const foreignSet = new Set(foreign);
   for (const s of skills) {

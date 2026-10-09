@@ -11,6 +11,7 @@ packages/tui-kit
 apps/*/design
 apps/board/skills/*/SKILL.md
 apps/board/skills-src/*/SKILL.md
+apps/board/skills-targets/
 apps/deck/core/generated
 apps/deck/src/registry/__fixtures__/deps-lock-serve.fixture.json
 packages/tokens/src/radix.ts

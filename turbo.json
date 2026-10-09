@@ -271,6 +271,7 @@
         "$TURBO_ROOT$/apps/*/skills/**",
         "$TURBO_ROOT$/apps/board/skills/**",
         "$TURBO_ROOT$/apps/board/skills-src/**",
+        "$TURBO_ROOT$/apps/board/skills-targets/**",
         "$TURBO_ROOT$/plugins/mattstack/attachments/**",
         "$TURBO_ROOT$/plugins/mattstack/.claude-plugin/plugin.json",
         "$TURBO_ROOT$/apps/*/package.json",

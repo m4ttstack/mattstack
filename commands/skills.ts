@@ -3,8 +3,8 @@
  * committed SKILL.md files, check compiled output against its sources, and
  * materialize skill bindings for registered repos.
  *
- *   rt skills compile [--team <name>] [--verb <name> ...] [--manifest <path>] [--dry-run]
- *   rt skills check [--team <name>] [--verb <name> ...] [--manifest <path>]
+ *   rt skills compile [--team <name>] [--verb <name> ...] [--manifest <path>] [--harness <id>] [--dry-run]
+ *   rt skills check [--team <name>] [--verb <name> ...] [--manifest <path>] [--harness <id>]
  *   rt skills materialize [--repo <name> | --dir <path>] [--json]
  *
  * --pack-dir names the pack directory to act on directly, bypassing registry
@@ -61,7 +61,10 @@ import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } fr
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
-import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
+import { buildStageEntries, hostDir, outDirFor, otherSideDir, packFromTargetRoot, targetOutDirs, targetRoot } from "../lib/skills/layout.ts";
+import {
+  DEFAULT_HARNESS, knownHarnesses, readTargetMarker, resolveHarnessTarget, TARGET_MARKER, targetMarkerText, type SkillTarget,
+} from "../lib/skills/harness-target.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
   installedVersionFor,
@@ -159,6 +162,8 @@ type Flags = {
   mattstackDir: string | null;
   json: boolean;
   strict: boolean;
+  /** The build target named on the command line; unset is Claude, never a machine setting. */
+  harness: string | null;
   bind?: boolean;
 };
 
@@ -173,6 +178,7 @@ function parseFlags(args: string[]): Flags {
   let mattstackDir: string | null = null;
   let json = false;
   let strict = false;
+  let harness: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -188,12 +194,13 @@ function parseFlags(args: string[]): Flags {
       case "--mattstack-dir": mattstackDir = args[++i] ?? null; break;
       case "--json": json = true; break;
       case "--strict": strict = true; break;
+      case "--harness": harness = requireFlagValue("--harness", args[++i]); break;
       default:
         throw new SkillsUsageError(`unrecognized argument "${a}"`);
     }
   }
 
-  return { team, verbs: verbs.length ? verbs : null, manifest, repo, dryRun, preview, packDir, mattstackDir, json, strict };
+  return { team, verbs: verbs.length ? verbs : null, manifest, repo, dryRun, preview, packDir, mattstackDir, json, strict, harness };
 }
 
 function packRootDir(mattstackRoot: string, team: string): string | null {
@@ -555,6 +562,7 @@ type Resolved = {
   mattstackSha: string;
   mattstackDirty: 0 | 1;
   packSha: string;
+  target: SkillTarget;
 };
 
 /**
@@ -651,10 +659,33 @@ async function resolve(flags: Flags): Promise<Resolved> {
     throw new SkillsUsageError((err as Error).message);
   }
 
+  const target = await resolveTarget(flags.harness, pluginRoots);
+
   return {
     packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, base, provenance,
-    pipelines, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha,
+    pipelines, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha, target,
   };
+}
+
+async function resolveTarget(harness: string | null, pluginRoots: PluginRoots): Promise<SkillTarget> {
+  const resolved = await resolveHarnessTarget(harness ?? DEFAULT_HARNESS, { roots: pluginRoots });
+  if (resolved.ok) return resolved.data;
+  if (resolved.error.code === "unsupported") {
+    throw new SkillsUsageError(resolved.error.message, usageFailure(
+      `There is no ${harness} skill target`, "rt skills compile --harness <claude|codex>", `Skills compile for ${knownHarnesses().join(" or ")}.`,
+    ));
+  }
+  throw new SkillsUsageError(resolved.error.message);
+}
+
+/** A target root names its harness, so a stray marker never lets one harness's compile land on another's. */
+function refuseOtherTargetRoot(resolved: Resolved): void {
+  const root = targetRoot(resolved.packDir, resolved.target.harness);
+  const marker = readTargetMarker(root);
+  if (!marker.ok) throw new SkillsUsageError(marker.error.message);
+  if (marker.data !== null && marker.data !== resolved.target.harness) {
+    throw new SkillsUsageError(`${root} holds ${marker.data} output, not ${resolved.target.harness}`);
+  }
 }
 
 function loadFillsFor(step: StepSource, resolved: Resolved, where: string): Record<string, AttachmentSource | null> {
@@ -760,6 +791,7 @@ function compileVerb(
   const stageNames = new Set(resolved.stages.map((s) => s.name));
   // Only a public roster verb is ever invoked by name, so only its ${CLAUDE_SKILL_DIR}
   // is its own directory; every other target is read as a file from a public skill.
+  const harness = resolved.target.harness;
   const stageDir = isStage
     ? allStageDirs.find((d) => d.endsWith(`/${verb.name}`)) ?? null
     : isPublic ? null : hostDir(verb.name, "attachments");
@@ -783,12 +815,14 @@ function compileVerb(
       stageAllowedTools: isOrchestrator ? stageAllowedToolsFor(resolved, entries) : [],
       emittedSiblingDirs: [...allStageDirs, ...internalVerbDirs],
       packRoot: resolved.packDir,
-      compiledDir: outDirFor(resolved.packDir, verb.name, isPublic),
+      compiledDir: outDirFor(resolved.packDir, verb.name, isPublic, harness),
       emittedTargetDirs,
       where,
       verbSides,
       side: isPublic ? "skills" : "attachments",
       trace,
+      target: resolved.target,
+      packFromTargetRoot: packFromTargetRoot(harness),
     });
     if (!trace) return result;
     const slotMode: Record<string, "inline" | "reference"> = {};
@@ -819,6 +853,13 @@ function packRelativeFiles(packDir: string, dir: string, files: string[]): strin
 function removeCompiledDir(packDir: string, dir: string, into: CompileWrites): void {
   into.removed.push(...packRelativeFiles(packDir, dir, listFilesRecursive(dir)));
   rmSync(dir, { recursive: true, force: true });
+}
+
+function writeTargetMarker(packDir: string, harness: string, into: CompileWrites): void {
+  const root = targetRoot(packDir, harness);
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, TARGET_MARKER), targetMarkerText(harness));
+  into.written.push(...packRelativeFiles(packDir, root, [TARGET_MARKER]));
 }
 
 function writeCompiledVerb(packDir: string, outDir: string, result: CompileResult, into: CompileWrites): void {
@@ -913,7 +954,7 @@ function compileTargets(resolved: Resolved, publicSet: Set<string> | null, verbF
   ];
   const verbSides: Record<string, Side> = {};
   for (const t of all) verbSides[t.verb.name] = t.isPublic ? "skills" : "attachments";
-  const knownTargetDirs = targetOutDirs(resolved, all);
+  const knownTargetDirs = targetOutDirs(resolved, all, resolved.target.harness);
   if (!verbFilter) return { targets: all, verbSides, knownTargetDirs };
 
   const byName = new Map(all.map((t) => [t.verb.name, t]));
@@ -941,6 +982,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   writes: CompileWrites;
 } {
   if (write) refuseUnlessPackOwned(resolved.packDir);
+  refuseOtherTargetRoot(resolved);
+  const harness = resolved.target.harness;
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
   const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, verbFilter);
   // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
@@ -963,14 +1006,16 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       // A pack's own engine source may live at attachments/<verb>/SKILL.md while
       // its door compiles into skills/<verb>/: the other side is only stale when
       // it carries the compiler header, never when it is the hand-written source.
-      const stale = otherSideDir(resolved.packDir, verb.name, isPublic);
+      const stale = otherSideDir(resolved.packDir, verb.name, isPublic, harness);
       if (existsSync(stale) && !isHandWrittenDir(stale)) removeCompiledDir(resolved.packDir, stale, writes);
-      writeCompiledVerb(resolved.packDir, outDirFor(resolved.packDir, verb.name, isPublic), outcome.result, writes);
+      writeCompiledVerb(resolved.packDir, outDirFor(resolved.packDir, verb.name, isPublic, harness), outcome.result, writes);
     }
+    if (harness !== DEFAULT_HARNESS && outcomes.length > 0) writeTargetMarker(resolved.packDir, harness, writes);
   }
 
   const misplaced: string[] = [];
-  if (publicSet) {
+  // Only the pack's own skills/ holds hand-written skills a surface can misplace.
+  if (publicSet && harness === DEFAULT_HARNESS) {
     // Prediction must match what the write pass leaves behind: a target's
     // stale compiler-headed other-side dir gets swept by the real run, so
     // a dry-run must not call it misplaced. A failure-aborted run sweeps
@@ -979,7 +1024,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     if (!write && failures.length === 0) {
       for (const { target, outcome } of outcomes) {
         if (!outcome.ok) continue;
-        const stale = otherSideDir(resolved.packDir, target.verb.name, target.isPublic);
+        const stale = otherSideDir(resolved.packDir, target.verb.name, target.isPublic, harness);
         if (existsSync(stale) && !isHandWrittenDir(stale)) wouldBeSwept.add(target.verb.name);
       }
     }
@@ -1215,9 +1260,10 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // scoped compile still renders {{verb.path}} to siblings it is not writing.
   const emittedTargetDirs = knownTargetDirs;
 
+  refuseOtherTargetRoot(resolved);
   for (const target of targets) {
     const { verb, isPublic } = target;
-    const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
+    const outDir = outDirFor(resolved.packDir, verb.name, isPublic, resolved.target.harness);
     const side: Side = isPublic ? "skills" : "attachments";
 
     if (!existsSync(outDir)) {
@@ -1227,6 +1273,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     }
 
     const result = compileVerb(target, resolved, emittedTargetDirs, verbSides);
+    // A source this target cannot carry has no current artifact to compare against.
+    if (result.targetGaps) throw new SkillsUsageError(result.targetGaps.join("\n"));
     const staleFiles: string[] = [];
     const orphanFiles: string[] = [];
     const expectedPaths = new Set(result.files.map((f) => f.path));
@@ -2770,6 +2818,7 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
     mattstackDir: bindFlags.mattstackDir,
     json: false,
     strict: false,
+    harness: null,
   });
 
   const { filterableSelect } = await import("../lib/pick-wrappers.ts");
@@ -2975,6 +3024,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       mattstackDir: bindFlags.mattstackDir,
       json: false,
       strict: false,
+      harness: null,
       bind: true,
     });
 

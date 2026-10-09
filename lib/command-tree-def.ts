@@ -2343,6 +2343,7 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Source", flag: "--src", type: "text", placeholder: "apps/board/skills-src", hint: "Directory holding one skill dir per skill" },
           { name: "Output", flag: "--out", type: "text", placeholder: "apps/board/skills", hint: "Directory expand owns: every skill dir in it is regenerated or removed" },
+          { name: "Harness", flag: "--harness", type: "text", placeholder: "codex", hint: "Expand for this harness (claude or codex); omit for claude" },
           { name: "Mattstack dir", flag: "--mattstack-dir", type: "text", placeholder: ".", hint: "Resolve plugins from <dir>/plugins/<name> instead of the installed set" },
           { name: "Check", flag: "--check", type: "boolean", default: false, hint: "Compare the output to a fresh expansion and exit 1 on drift; write nothing" },
           { name: "Strict", flag: "--strict", type: "boolean", default: false, hint: "Fail on mcp-lint hits in the output (shell forms a mattstack tool covers)" },
@@ -2374,6 +2375,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
           { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
           { name: "Pack dir", flag: "--pack-dir", type: "text", placeholder: "/path/to/pack", hint: "Compile this pack directory's sources (a worktree, say) instead of resolving --pack through the registry" },
+          { name: "Harness", flag: "--harness", type: "text", placeholder: "codex", hint: "Compile for this harness (claude or codex); omit for claude, which writes the pack's own skills/" },
           { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Print what would be written without touching disk" },
           { name: "Preview", flag: "--preview", type: "boolean", default: false, hint: "Print the compiled SKILL.md to stdout and write nothing (needs a single --verb)" },
           SETUP_JSON_ARG,
@@ -2391,6 +2393,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
           { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
           { name: "Pack dir", flag: "--pack-dir", type: "text", placeholder: "/path/to/pack", hint: "Check this pack directory's sources (a worktree, say) instead of resolving --pack through the registry" },
+          { name: "Harness", flag: "--harness", type: "text", placeholder: "codex", hint: "Check the output for this harness (claude or codex); omit for claude" },
           { name: "Strict", flag: "--strict", type: "boolean", default: false, hint: "Fail the exit code on mcp lint hits (the plugin-mattstack CI job uses this; rt skills sync applies it to a pack whose plugin.json sets strictLint)" },
           SETUP_JSON_ARG,
         ],

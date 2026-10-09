@@ -1,12 +1,14 @@
 /**
  * rt skills expand -- paste mattstack attachments into hand-written skills.
  *
- *   rt skills expand --src <dir> --out <dir> [--mattstack-dir <root>] [--check] [--strict] [--dry-run] [--json]
+ *   rt skills expand --src <dir> --out <dir> [--harness <id>] [--mattstack-dir <root>] [--check] [--strict] [--dry-run] [--json]
  *
  * The source dir holds one directory per skill; each SKILL.md may carry
  * `{{include:<attachment>}}` lines and nothing else placeholder-shaped. The
  * output dir is owned by expand: every dir in it is regenerated or removed,
  * and a dir expand did not write stops the run before anything is touched.
+ * One run writes one harness's skills; with no --harness that is Claude's,
+ * whatever this machine's own harness setting says.
  */
 
 import { readFileSync } from "fs";
@@ -15,13 +17,14 @@ import { TREE } from "../lib/command-tree-def.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { checkExpanded, expandSkills, planRemoval, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
+import { DEFAULT_HARNESS, foreignToolWarnings, knownHarnesses, resolveHarnessTarget, type SkillTarget } from "../lib/skills/harness-target.ts";
 import { deriveRules, formatHit, isScriptPath, lintScriptFile, lintSkillText } from "../lib/skills/mcp-lint.ts";
 import { resolvePluginRoots, resolvePluginRootsFromDir } from "../lib/skills/sources.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 
-type Flags = { src: string; out: string; mattstackDir: string | null; check: boolean; strict: boolean; dryRun: boolean; json: boolean };
+type Flags = { src: string; out: string; harness: string | null; mattstackDir: string | null; check: boolean; strict: boolean; dryRun: boolean; json: boolean };
 
 function fail(failure: out.FailureInput, ...after: Block[]): never {
   out.fail(failure, ...after);
@@ -32,6 +35,7 @@ const MISSING_VALUE: Record<string, out.FailureInput> = {
   "--src": usageFailure("Which folder holds the skills to expand?", "rt skills expand --src <dir> --out <dir>"),
   "--out": usageFailure("Which folder should the expanded skills go in?", "rt skills expand --src <dir> --out <dir>"),
   "--mattstack-dir": usageFailure("Which mattstack folder?", "rt skills expand --mattstack-dir <dir>"),
+  "--harness": usageFailure("Which harness are the skills for?", "rt skills expand --harness <claude|codex>"),
 };
 
 function requireFlagValue(flag: string, value: string | undefined): string {
@@ -40,13 +44,14 @@ function requireFlagValue(flag: string, value: string | undefined): string {
 }
 
 function parseFlags(args: string[]): Flags {
-  const flags: Flags = { src: "", out: "", mattstackDir: null, check: false, strict: false, dryRun: false, json: false };
+  const flags: Flags = { src: "", out: "", harness: null, mattstackDir: null, check: false, strict: false, dryRun: false, json: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     switch (a) {
       case "--src": flags.src = requireFlagValue(a, args[++i]); break;
       case "--out": flags.out = requireFlagValue(a, args[++i]); break;
       case "--mattstack-dir": flags.mattstackDir = requireFlagValue(a, args[++i]); break;
+      case "--harness": flags.harness = requireFlagValue(a, args[++i]); break;
       case "--check": flags.check = true; break;
       case "--strict": flags.strict = true; break;
       case "--dry-run": flags.dryRun = true; break;
@@ -75,10 +80,11 @@ function lintExpanded(outDir: string, skills: ExpandedSkill[]): { lint: string[]
     const home = join(outDir, s.name);
     lint.push(...lintSkillText(s.skillMd, join(home, "SKILL.md"), rules).map(formatHit));
     for (const f of s.files) {
+      const text = () => ("content" in f ? f.content : readFileSync(f.copyFrom, "utf8"));
       if (f.path.endsWith(".md")) {
-        lint.push(...lintSkillText(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules).map(formatHit));
+        lint.push(...lintSkillText(text(), join(home, f.path), rules).map(formatHit));
       } else if (isScriptPath(f.path)) {
-        advisory.push(...lintScriptFile(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules).map(formatHit));
+        advisory.push(...lintScriptFile(text(), join(home, f.path), rules).map(formatHit));
       }
     }
   }
@@ -98,16 +104,26 @@ const hits = (n: number): string => `${n} lint ${n === 1 ? "hit" : "hits"}`;
 export async function skillsExpand(args: string[]): Promise<void> {
   const flags = parseFlags(args);
   const roots = flags.mattstackDir ? resolvePluginRootsFromDir(flags.mattstackDir) : resolvePluginRoots();
+  const resolvedTarget = await resolveHarnessTarget(flags.harness ?? DEFAULT_HARNESS, { roots });
+  if (!resolvedTarget.ok) {
+    fail(resolvedTarget.error.code === "unsupported"
+      ? usageFailure(`rt skills expand has no ${flags.harness} target`, "rt skills expand --harness <claude|codex>", `It can expand for ${knownHarnesses().join(" or ")}.`)
+      : { title: resolvedTarget.error.message });
+  }
+  const target: SkillTarget = resolvedTarget.data;
 
   let skills: ExpandedSkill[];
   try {
-    skills = expandSkills({ srcDir: flags.src, outDir: flags.out, roots });
+    skills = expandSkills({ srcDir: flags.src, outDir: flags.out, roots, target });
   } catch (err) {
     fail({ title: (err as Error).message });
   }
 
   const { lint, advisory } = flags.strict ? lintExpanded(flags.out, skills) : { lint: [], advisory: [] };
   if (advisory.length > 0) out.note(out.verbatim(advisory, "advisory"));
+  // Advisory until every source carries its native sequences as fragments.
+  const foreign = skills.flatMap((s) => foreignToolWarnings(s.skillMd, target).map((w) => `${s.name}: ${w}`));
+  if (foreign.length > 0) out.note(out.verbatim(foreign, "advisory"));
 
   if (flags.check) {
     const drift = checkExpanded(flags.out, skills);
@@ -120,7 +136,7 @@ export async function skillsExpand(args: string[]): Promise<void> {
     if (!ok) {
       fail({
         title: drift.length > 0 ? "The expanded skills are out of date" : `The expanded skills have ${hits(lint.length)}`,
-        ...(drift.length > 0 ? { next: out.cmd(`rt skills expand --src ${flags.src} --out ${flags.out}${flags.mattstackDir ? ` --mattstack-dir ${flags.mattstackDir}` : ""}`) } : {}),
+        ...(drift.length > 0 ? { next: out.cmd(`rt skills expand${flags.harness ? ` --harness ${flags.harness}` : ""} --src ${flags.src} --out ${flags.out}${flags.mattstackDir ? ` --mattstack-dir ${flags.mattstackDir}` : ""}`) } : {}),
       }, out.verbatim([...drift.map((d) => `${d.skill}: ${d.causes.join(", ")}`), ...lint], "diagnostics"));
     }
     return;

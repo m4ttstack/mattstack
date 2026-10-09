@@ -87,6 +87,7 @@ test('the board skills drift guard runs in //#turbo:test and rehashes on its sou
       'commands/skills-expand.ts',
       '$TURBO_ROOT$/apps/board/skills/**',
       '$TURBO_ROOT$/apps/board/skills-src/**',
+      '$TURBO_ROOT$/apps/board/skills-targets/**',
       '$TURBO_ROOT$/plugins/mattstack/attachments/**',
       '!$TURBO_ROOT$/**/node_modules/**',
       '!$TURBO_ROOT$/**/.turbo/**',

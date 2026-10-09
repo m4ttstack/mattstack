@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "fs";
 import { join } from "path";
+import { LEGACY_CLAUDE_TARGET } from "./harness-target.ts";
 import type { AttachmentSource, PlaceholderContext, StageEntry } from "./types.ts";
 
 export type Placeholder = { kind: string; arg: string | null; line: number; raw: string };
@@ -57,8 +58,35 @@ function slotText(name: string, fill: AttachmentSource | null, mode: "inline" | 
 }
 
 function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext): string {
-  const body = inc.body.split(SKILL_DIR_TOKEN).join(skillDirFor(inc, ctx, `include-${name}`));
+  const rewritten = inc.body.split(SKILL_DIR_TOKEN).join(skillDirFor(inc, ctx, `include-${name}`));
+  const body = rewritten.split("\n").map((line, i) =>
+    line.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
+      if (kind !== "harness") throw new Error(`${inc.binding}: ${raw} -- an include may carry {{harness}} only (line ${i + 1})`);
+      return harnessText(line, i, raw, arg, ctx, inc.binding);
+    }),
+  ).join("\n");
   return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${body}`;
+}
+
+/**
+ * A fragment is a native sequence, so it stands as its own block: the
+ * placeholder is alone on its line and the fragment's seam starts that line,
+ * the shape every other multi-line part takes.
+ */
+function harnessText(line: string, i: number, raw: string, arg: string | undefined, ctx: PlaceholderContext, where: string): string {
+  if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
+  if (arg === undefined || !VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- fragment name must match [a-z][a-z0-9-]*`);
+  const target = ctx.target ?? LEGACY_CLAUDE_TARGET;
+  const fragment = Object.hasOwn(target.fragments, arg) ? target.fragments[arg] : undefined;
+  if (fragment === undefined) {
+    const gap = `${raw} at line ${i + 1} has no "${arg}" fragment in the ${target.harness} target`;
+    if (!ctx.missingFragments) throw new Error(`${where}: ${gap}`);
+    ctx.missingFragments.push(gap);
+    return "";
+  }
+  const span = target.fragmentSpans?.[arg];
+  const at = span ? ` path=${span.path} lines=${span.start}-${span.end}` : "";
+  return `<!-- part: harness:${arg} target=${target.harness}${at} -->\n${fragment}`;
 }
 
 /**
@@ -83,6 +111,7 @@ export function substituteIncludesOnly(body: string, ctx: PlaceholderContext, wh
           packPaths.push(rendered);
           return rendered;
         }
+        case "harness": return harnessText(line, i, raw, arg, ctx, where);
         default:
           throw new Error(`${where}: ${raw} -- a fill may carry {{include}}, {{verb.path}} or {{pack.path}} only (line ${i + 1})`);
       }
@@ -159,7 +188,7 @@ function packPath(ctx: PlaceholderContext, arg: string | undefined, raw: string,
   if (!side) throw new Error(`${where}: ${raw} -- ${attachment} is not a directory under attachments/ or skills/`);
   const rel = `${side}/${attachment}/${file}`;
   if (!existsSync(join(packRoot, rel))) throw new Error(`${where}: ${raw} -- ${rel} does not exist`);
-  return `${SKILL_DIR_TOKEN}/../../${rel}`;
+  return `${SKILL_DIR_TOKEN}/../../${ctx.packFromTargetRoot ?? ""}${rel}`;
 }
 
 function stageFields(meta: NonNullable<PlaceholderContext["stageMeta"]>): string {
@@ -230,6 +259,7 @@ function substituteLine(line: string, i: number, ctx: PlaceholderContext, where:
         used.packPaths.push(rendered);
         return rendered;
       }
+      case "harness": return harnessText(line, i, raw, arg, ctx, where);
       case "compiled-from": return ctx.compiledFrom;
       case "stage.dir":
         if (!ctx.stageDir) throw new Error(`${where}: {{stage.dir}} used in a public verb`);

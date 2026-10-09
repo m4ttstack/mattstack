@@ -1,4 +1,5 @@
 import { join } from "path";
+import { DEFAULT_HARNESS } from "./harness-target.ts";
 import { loadStepSource, parseStageQualifiedName, type PluginRoots } from "./sources.ts";
 import type { Side, StageEntry, StepSource, VerbDef } from "./types.ts";
 
@@ -58,13 +59,27 @@ export function buildStageEntries(
   return out;
 }
 
-/** outDirFor/otherSideDir also name the stale side of a name that flips public/internal, so compile can clean it up. */
-export function outDirFor(packDir: string, name: string, isPublic: boolean): string {
-  return join(packDir, isPublic ? "skills" : "attachments", name);
+/**
+ * Where a harness's compiled skills and attachments land. Claude's are the
+ * pack's own skills/ and attachments/, which is what Claude loads; any other
+ * harness gets its own root, so one target's output never replaces another's.
+ */
+export function targetRoot(packDir: string, harness: string = DEFAULT_HARNESS): string {
+  return harness === DEFAULT_HARNESS ? packDir : join(packDir, "targets", harness);
 }
 
-export function otherSideDir(packDir: string, name: string, isPublic: boolean): string {
-  return join(packDir, isPublic ? "attachments" : "skills", name);
+/** The `../`-hops from a target root back to the pack root, for a compiled path that names a pack source file. */
+export function packFromTargetRoot(harness: string = DEFAULT_HARNESS): string {
+  return harness === DEFAULT_HARNESS ? "" : "../../";
+}
+
+/** outDirFor/otherSideDir also name the stale side of a name that flips public/internal, so compile can clean it up. */
+export function outDirFor(packDir: string, name: string, isPublic: boolean, harness: string = DEFAULT_HARNESS): string {
+  return join(targetRoot(packDir, harness), isPublic ? "skills" : "attachments", name);
+}
+
+export function otherSideDir(packDir: string, name: string, isPublic: boolean, harness: string = DEFAULT_HARNESS): string {
+  return join(targetRoot(packDir, harness), isPublic ? "attachments" : "skills", name);
 }
 
 /**
@@ -72,6 +87,6 @@ export function otherSideDir(packDir: string, name: string, isPublic: boolean): 
  * (outDirFor), where a StageEntry's `dir` is the orchestrator-relative token
  * form the compiled body carries.
  */
-export function targetOutDirs(resolved: Resolved, targets: CompileTarget[]): string[] {
-  return targets.map((t) => outDirFor(resolved.packDir, t.verb.name, t.isPublic));
+export function targetOutDirs(resolved: Resolved, targets: CompileTarget[], harness: string = DEFAULT_HARNESS): string[] {
+  return targets.map((t) => outDirFor(resolved.packDir, t.verb.name, t.isPublic, harness));
 }

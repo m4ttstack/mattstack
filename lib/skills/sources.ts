@@ -7,6 +7,7 @@ import { stripJsonc } from "../jsonc.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
+import { readRequires } from "./harness-target.ts";
 import { findPlaceholders } from "./placeholders.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
 
@@ -369,6 +370,7 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
     stepFiles: listFilesUnder(foundDir, new Set(["SKILL.md"])),
     stageMeta: readStageMeta(frontmatter),
     description: typeof frontmatter.description === "string" ? frontmatter.description : "",
+    ...(readRequires(frontmatter).length > 0 && { requires: readRequires(frontmatter) }),
   };
 }
 
@@ -480,7 +482,8 @@ export function loadInclude(name: string, roots: PluginRoots): AttachmentSource 
   if (frontmatter.slots || metadata.slots) {
     throw new Error(`loadInclude: include "${name}" declares slots; an include target must be slotless`);
   }
-  if (findPlaceholders(body).length > 0) {
+  // A harness fragment is the one call-site context an include may name: the target, not the caller, supplies it.
+  if (findPlaceholders(body).some((p) => p.kind !== "harness")) {
     throw new Error(`loadInclude: include "${name}" contains a placeholder; an include target must be inert`);
   }
 

@@ -1,3 +1,5 @@
+import type { SkillTarget } from "./harness-target.ts";
+
 export type Side = "skills" | "attachments";
 
 export type SlotSpec = { contract: string; required?: boolean };
@@ -15,6 +17,8 @@ export type StepSource = {
   stepFiles: string[]; // non-SKILL.md files relative to dir (scripts/, references/, ...), vendored path-preserving
   stageMeta: { stage: string; consumes: string[]; produces: string[] } | null;
   description: string;
+  /** metadata.harness-requires: the skill capabilities this workflow cannot run without. */
+  requires?: string[];
 };
 
 export type AttachmentSource = {
@@ -35,7 +39,13 @@ export type VerbDef = { name: string; engine: string; description: string };
 
 export type CompiledFile = { path: string; content: string } | { path: string; copyFrom: string };
 
-export type CompileResult = { files: CompiledFile[]; warnings: string[]; errors: string[] };
+export type CompileResult = {
+  files: CompiledFile[];
+  warnings: string[];
+  errors: string[];
+  /** The errors that say the target cannot carry this source; also in `errors`. */
+  targetGaps?: string[];
+};
 
 export type StageEntry = {
   name: string; stage: string; dir: string; consumes: string[]; produces: string[];
@@ -57,4 +67,10 @@ export type PlaceholderContext = {
   verbSides: Record<string, Side>;
   side: Side;
   packRoot: string | null;
+  /** Unset is the legacy Claude target with no fragments. */
+  target?: SkillTarget;
+  /** The `../`-hops from a compiled target's root back to the pack's own sources; unset is none. */
+  packFromTargetRoot?: string;
+  /** Collected rather than thrown, so a compile reports every gap at once; expand throws on the first. */
+  missingFragments?: string[];
 };
