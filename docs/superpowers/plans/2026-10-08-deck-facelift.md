@@ -22,6 +22,10 @@
 - Never deploy, restart or touch the live deck, `~/.mattstack`, or the shared checkout at `~/Documents/GitHub/mattstack` / `~/Documents/GitHub/repo-tools`. All work happens in this worktree. Screenshots come from the fixture server only.
 - DOM bar per task: `bun run test:dom` has no failure outside the 11 pre-existing ones listed below, and pass count never drops below the previous task's except for tests the plan deletes by name. Unit bar: `bun run test` 0 failures.
 - The 11 pre-existing DOM failures on main (f54729aaf), by name: board.spec "renders one row per fixture app; site cell links name + suffix", "every row carries a focusable chevron with a details aria-label", "ownership chip: this board vs managed by", "strays section and tunnel section render", "subline matches logic.subline of the fixture", "subline: healthy fraction renders in bad tone when an app is down (3/4 fixture)"; commands.spec "no command buttons when the row omits commands"; drawer.spec "↑/↓ move the drawer to the adjacent row, resetting to its root", "root screens render per row kind: app (public+nav+actions+danger), service (reduced), tunnel (facts+restart)", "edit app: an external row shows only name and base port"; remote.spec "a live-remote row shows a public: railway marker and a Push to Railway button". A task that touches one of these either fixes it or leaves it failing for the same pre-existing reason; it never adds a new failure.
+- Notes and screenshots that are not committed go in `/private/tmp/deck-facelift-scratch/` (outside the worktree, so `prettier --check .` never sees them).
+- Before every commit, run `bunx prettier --write` on every file you touched (the root `format:check` gate runs `prettier --check .`).
+- DOM selectors for anything inside the modal are always scoped to the dialog (`const dlg = page.getByRole('dialog', { name: 'settings for <name>' })`, then `dlg.getByRole(...)`): the table behind it carries the same aria-labels (`publish <name>`, `deploy <name>`, `restart <short>`), and page-wide selectors hit Playwright strict-mode errors.
+- Any DOM test that waits on polls or runs several deploys passes an explicit timeout as the test's third argument (existing specs do this, e.g. `}, 12000)`); bun:test's default is 5s.
 - Commit after every task (and inside tasks where marked). Commit message trailer: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ## Branches (stacked)
@@ -56,7 +60,7 @@ Tests and implementation both use exactly these hooks:
 - The dev port input: typing then closing the modal must release `board.editing`, or polling freezes for the rest of the session (pinned in Task 10).
 - A public host (`canManage: false`): no write control may render anywhere, including inside the modal and the strip (pinned in Tasks 5, 9, 10, 11, 15).
 - Redeploy all while a per-row deploy for one target is already running: that row is skipped, not double-run, and the run still completes (pinned in Task 14).
-- Two tooltips in quick succession and a tooltip near the right viewport edge: the arrow stays on the trigger and the card stays on screen (pinned in Task 1's oracle states).
+- Escape pressed inside an input in the modal (dev port, password, add email): it cancels that input's draft and leaves the modal open; a second Escape closes the modal (pinned in Tasks 8 and 10).
 
 ---
 
@@ -78,24 +82,24 @@ Tests and implementation both use exactly these hooks:
 
 Target look (from `apps/board/src/style.css`, the recipe being lifted): background `color-mix(in srgb, var(--fg) 92%, var(--card))` light / `88%` dark via `light-dark()`; text `var(--card)`; no border; radius 6px; padding 6px 10px; 12px, weight 500, line-height 1.4; max-width 280px; shadow `0 1px 2px` 18% black plus `0 6px 16px -4px` 28% black; 8px gap below the trigger; a 12x6 triangle arrow at `top: -6px`, `left: clamp(6px, calc(var(--tooltip-arrow-x, 50%) - 6px), calc(100% - 18px))`, `clip-path: polygon(50% 0, 100% 100%, 0 100%)`; animation `translateY(-4px) scale(0.97)` to rest over 140ms `cubic-bezier(0.2, 0.8, 0.3, 1)`, `transform-origin: var(--tooltip-arrow-x, 50%) top`; no animation under `prefers-reduced-motion: reduce`.
 
-- [ ] **Step 1: Capture the board app's tooltips before any change.** From the worktree root, start the board app's dev server per `apps/board/AGENTS.md` (or its Storybook/fixture mode if it has one; read `apps/board/package.json` scripts) on a free port, never the live board. With Fast Browser (`fast-browser:fast-browsing` skill), hover two different Tooltip triggers (e.g. a ShowChips chip and the StatusLine no-pack tooltip), in light and dark, and save PNGs to `<worktree>/.scratch/tooltip-before/`. If the board cannot be served from the worktree without touching real state, instead render the kit's own Tooltip visual-test states before the change (`bun run tui-kit:oracles` from the root, then copy the current `__screenshots__` PNGs for Tooltip to `.scratch/tooltip-before/`) and note in the commit message which path was used.
+- [ ] **Step 1: Capture the board app's tooltips before any change.** From the worktree root, start the board app's dev server per `apps/board/AGENTS.md` (or its Storybook/fixture mode if it has one; read `apps/board/package.json` scripts) on a free port, never the live board. With Fast Browser (`fast-browser:fast-browsing` skill), hover two different Tooltip triggers (e.g. a ShowChips chip and the StatusLine no-pack tooltip), in light and dark, and save PNGs to `/private/tmp/deck-facelift-scratch/tooltip-before/`. If the board cannot be served from the worktree without touching real state, instead render the kit's own Tooltip visual-test states before the change (`bun run tui-kit:oracles` from the root, then copy the current `__screenshots__` PNGs for Tooltip to `/private/tmp/deck-facelift-scratch/tooltip-before/`) and note in the commit message which path was used.
 - [ ] **Step 2: Write the failing kit test.** In `Tooltip.test.tsx`, add a test that renders a `Tooltip`, opens it (hover or focus, as the file's existing tests do), and asserts the card's computed style: `border-top-width` is `0px`, `font-weight` is `500`, and `max-width` is `280px`. Run `cd packages/tui-kit && bunx vitest run src/recipes/Tooltip/Tooltip.test.tsx`. Expected: FAIL on border width (the current card has a 1px border).
-- [ ] **Step 3: Implement.** Move the values above into `Tooltip.module.css` through tokens and scalars only. Use the kit's existing tokens where one matches (search `packages/tui-kit/src/generated/theme.css` for `--radius-md` (6px), `--font-size-px12`, spacing tokens for 6px/10px/8px); for anything with no token (280px, the shadow, the arrow geometry, the 92%/88% mix), add an entry to `TOOLTIP_SCALARS` in `Tooltip.tsx` (as `MODAL_PARTS`/`MODAL_SCALARS` style does in `Modal.tsx`) and read it with `var(--sb-tooltip-...)`. Put `@keyframes` and the `animation` declaration in `Tooltip.keyframes.css` following the existing keyframes-sibling convention. Draw the arrow with a `::before` on the card. Keep the `@layer soribashi.recipes {` first statement.
-- [ ] **Step 4: Run the kit gates.** `cd packages/tui-kit && bunx vitest run src/recipes/Tooltip test/no-hardcoded-values.test.ts` then the ramps/contrast matrix test file(s) found above. Expected: PASS. If the contrast matrix has no tooltip pair, add one: text `--card` on the tooltip background, both schemes, bar 4.5, following the file's existing pair format.
+- [ ] **Step 3: Implement.** Move the values above into `Tooltip.module.css` through tokens and scalars only. Use the kit's existing tokens where one matches (search `packages/tui-kit/src/generated/theme.css` for `--radius-md` (6px), `--font-size-px12`, spacing tokens for 6px/10px/8px); for anything with no token (280px, the shadow, the arrow geometry, the 92%/88% mix), add an entry to `TOOLTIP_SCALARS` in `Tooltip.tsx` (as `MODAL_PARTS`/`MODAL_SCALARS` style does in `Modal.tsx`) and read it with `var(--sb-tooltip-...)`. The card is portaled to `document.body`, so vars spread on `root` never reach it: declare the card's vars under a `card:` key in the recipe's `vars` (`vars: () => ({ root: {...}, card: { ...TOOLTIP_CARD_SCALARS } })`); `getStyles('card')` already flows into the card's style. The gap must equal the board app's effective gap today: the kit gap it already resolves (`--sb-tooltip-gap`, `--spacing-xxs`) plus the board's `margin-top: 8px`; set the kit's value so the total matches. Put `@keyframes` and the `animation` declaration in `Tooltip.keyframes.css` following the existing keyframes-sibling convention. Draw the arrow with a `::before` on the card. Keep the `@layer soribashi.recipes {` first statement. `Tooltip.keyframes.css` is swept by the same no-hardcoded-values rules, so its `translateY(-4px)` and `scale(0.97)` must come from a var or token too. Register the new keyframe ident in the hard-coded list in `packages/tui-kit/test/bun-build-keyframes.test.ts`.
+- [ ] **Step 4: Run the kit gates.** `cd packages/tui-kit && bunx vitest run src/recipes/Tooltip test/no-hardcoded-values.test.ts`, plus `test/bun-build-keyframes.test.ts` with whichever runner its imports require (`bun test` for a bun:test file), then the ramps/contrast matrix test file(s) found above. Expected: PASS. If the contrast matrix has no tooltip pair, add one: text `--card` on the tooltip background, both schemes, bar 4.5, following the file's existing pair format, and update the Tooltip entry's `exempt` reason in `packages/tui-kit/src/a11y/matrix-classification.ts` to match.
 - [ ] **Step 5: Delete the board app's local block** in `apps/board/src/style.css` (the `[data-part='tooltip-card']` rules, its `::before`, `@keyframes tui-tip-in`, and the reduced-motion rule for it). Leave every other rule untouched.
 - [ ] **Step 6: Regenerate kit visual baselines deliberately.** From the worktree root: `bun run tui-kit:oracles`. If the Tooltip visual test fails only because of the intended new look, update its baselines with the command the oracle script prints for updating (read `packages/tui-kit/package.json` `test:oracles` and the vitest browser config for the update flag) and inspect every changed PNG with the Read tool: it must show the inverted label with an arrow. Any other recipe's baseline changing is a failure to investigate, not to accept.
-- [ ] **Step 7: Board app after-screenshots.** Repeat Step 1's captures after the change into `.scratch/tooltip-after/` and compare each pair with the Read tool: the board's tooltips must look the same (same colours, arrow, size, position). Run the board app's suite from `apps/board` (`bun test` or its `test` script) and confirm no new failures versus a run on the step's base commit.
+- [ ] **Step 7: Board app after-screenshots.** Repeat Step 1's captures after the change into `/private/tmp/deck-facelift-scratch/tooltip-after/` and compare each pair with the Read tool: the board's tooltips must look the same (same colours, arrow, size, position). Run the board app's suite from `apps/board` (`bun test` or its `test` script) and confirm no new failures versus a run on the step's base commit.
 - [ ] **Step 8: Run `bun run check` from the worktree root.** Expected: green. Fix anything this task caused.
-- [ ] **Step 9: Commit** (`git add packages/tui-kit apps/board/src/style.css`; do not add `.scratch/`): `tui-kit: Tooltip takes the board app's inverted label recipe`.
+- [ ] **Step 9: Commit** (`git add packages/tui-kit apps/board/src/style.css`; nothing outside the worktree is committed): `tui-kit: Tooltip takes the board app's inverted label recipe`.
 
 ### Task 2: Step 1 gate
 
 **Model:** sonnet. Runs the bars and writes a short gate note; changes no product code.
 
 - [ ] **Step 1:** From `apps/deck`: `bun run test` (0 fail) and `bun run test:dom` (only the 11 listed failures). Record counts.
-- [ ] **Step 2:** From the root: `bun run check` and `bun run tui-kit:oracles` green.
-- [ ] **Step 3:** Start the deck fixture server the way `test/dom/rig.ts` does (`PORT=<free> DECK_FIXTURE=$PWD/test/fixture LOCAL_STATE_DIR=$(mktemp -d) LOCAL_APPS_NO_GATEWAY=1 LOCAL_APPS_AUTO_HEAL=0 bun run src/main.ts serve` from `apps/deck`), hover the header settings button and one health badge with Fast Browser in light and dark, save PNGs to `.scratch/step1/`, and confirm with the Read tool that deck's tooltips now use the new look. Stop the server.
-- [ ] **Step 4:** Append the counts and screenshot paths to `.scratch/gates.md` (untracked). No commit.
+- [ ] **Step 2:** From the root: `bun run check` and `bun run tui-kit:oracles` green. If `check` fails, reproduce it on the step's base commit in a throwaway checkout under `/private/tmp/deck-facelift-base` (a second worktree of this repo at the base sha, with `bun install --frozen-lockfile`), and record which failures are inherited (the rt unit suite has known rotating flakes); only a failure that does not reproduce on the base is this step's to fix. Remove that throwaway checkout after.
+- [ ] **Step 3:** Start the deck fixture server the way `test/dom/rig.ts` does (`PORT=<free> DECK_FIXTURE=$PWD/test/fixture LOCAL_STATE_DIR=$(mktemp -d) LOCAL_APPS_NO_GATEWAY=1 LOCAL_APPS_AUTO_HEAL=0 bun run src/main.ts serve` from `apps/deck`), hover the header settings button and one health badge with Fast Browser in light and dark, save PNGs to `/private/tmp/deck-facelift-scratch/step1/`, and confirm with the Read tool that deck's tooltips now use the new look. Stop the server.
+- [ ] **Step 4:** Append the counts and screenshot paths to `/private/tmp/deck-facelift-scratch/gates.md` (untracked). No commit.
 
 ---
 
@@ -114,7 +118,7 @@ Target look (from `apps/board/src/style.css`, the recipe being lifted): backgrou
 - [ ] **Step 2: Run it.** `cd apps/deck && bun test test/dom/requests.spec.ts`. Expected: PASS against today's code (this test guards, it is not red first). If a flow cannot be driven with today's selectors, drive the endpoint via its table control instead, or leave it out and list it in the commit message.
 - [ ] **Step 3: Commit:** `deck: pin the board page's request set before the facelift`.
 
-Later tasks (5, 9-13, 14) MUST keep this test green, updating only its flow-driving selectors (never `EXPECTED_REQUESTS`) as the UI moves into the modal.
+Later tasks MUST keep this test green, updating only its flow-driving selectors (never `EXPECTED_REQUESTS`) as the UI moves into the modal. One carve-out: in Tasks 9 and 10 it may fail only for flows whose modal block is not built yet (Task 9 replaces the drawer before Tasks 10 and 11 add the blocks); it must be fully green again by Task 11 Step 3 and stay green after.
 
 ### Task 4: Pure logic for the version cell, update strip and Redeploy all targets
 
@@ -249,6 +253,7 @@ export function redeployAllTargets(rows: Row[], runs: CommandRuns): Row[] {
   - `drawer.spec` "closing the drawer returns focus to the row's chevron" becomes "... to the row's gear".
   - `logic.test.ts` `deployPill` tests: delete them with `deployPill` if Step 4 removes it; keep `commandButtonLabel` tests unchanged.
   - `commands.spec` "renders a button per command and POSTs on click": keep selecting by aria-label `<command> <app>`; add an assertion that `build` and `deploy` buttons render an `svg` and no visible text.
+  - Every helper that opens the drawer through the chevron switches to the gear (`page.getByRole('button', { name: 'settings for <name>' })`) with no other change: `test/dom/access.spec.ts` (around line 20), `test/dom/logs.spec.ts` (around line 20), `test/dom/remote.spec.ts` (around line 23), the `chevronFor` helper in `test/dom/drawer.spec.ts` (around line 24, rename to `gearFor`), and `openDrawerFor` in `test/capture.ts` (around line 199). Every drawer, access, logs and remote test must still pass (or fail only as one of the 11) after this switch.
   Run `bun run test:dom` and `bun run test`: the edited tests FAIL for the expected reasons.
 - [ ] **Step 3: New tests (red).** Add to `board.spec.ts` using `withBoard(fn, { fixture: 'status-newcode.json' })`:
   - "version column: behind shows deployed → head, linked-current shows current, others not tracked" (atlas: text contains `a3f19c2` and `e81d4b0`; zenith: `current`; ledger: `not tracked`).
@@ -256,6 +261,7 @@ export function redeployAllTargets(rows: Row[], runs: CommandRuns): Row[] {
   - "update strip shows the behind count and hides when none": newcode fixture shows `[data-block="update-strip"]` with text `New code for 3 apps since their last deploy` (atlas, meridian, forecast); default fixture shows no strip.
   - "row gear is hidden until hover or focus": on a non-hovered row the gear's computed `opacity` is `0`; after `row.hover()` it is `1`; after focusing the gear with the keyboard it is `1`.
   - "header settings button is icon-only with its tooltip": the header button `settings` (rename aria-label to `Deck settings`) has a bounding box at least as large as its svg's and shows tooltip text `Deck settings` on hover.
+  - "a running command shows busy, its tooltip reads the phase, and a second click does not post again": on the default fixture, intercept atlas's `POST .../commands/deploy` to return a run id and hold its run-status poll open (never fulfil it until the end of the test); click `deploy atlas`; assert the button shows the kit Button's busy state (read `packages/tui-kit/src/recipes/Button/Button.tsx` for the attribute it sets when `busy`), hovering it shows a tooltip containing `deploy`, and a second click sends no second POST.
   - "public host: no write controls in the table": on a fixture copy with `canManage: false` (create `status-readonly.json` from `status.json` with `canManage: false`, `canRestart: false`), assert no publish switch, no restart, no `Link source`, and the gear still opens (read-only drawer for now).
   Run: FAIL.
 - [ ] **Step 4: Implement.**
@@ -264,6 +270,7 @@ export function redeployAllTargets(rows: Row[], runs: CommandRuns): Row[] {
   - `UpdateStrip.tsx`: renders nothing when `behindRows(mattstackSectionRows).length === 0`; else `<div data-block="update-strip" className="update-strip">` with the circle-arrow-up glyph (kit `ICONS` if present, else add `CIRCLE_ARROW_UP` to `icons.ts`), the `updateStripText(n)` text, and no button in this step. Style: `background: color-mix(in srgb, var(--amber) 7%, transparent)`, bottom border `var(--border-soft-on-card)` (or the on-card soft border token deck already uses), padding using the kit spacing tokens, matching the board render. Render it as the first child inside the mattstack section's panel; if `Table` cannot take a leading child, render it immediately above the table inside a wrapper that carries the panel's border and radius so the two read as one card.
   - `Board.tsx`: header gear becomes `<Tooltip tip="Deck settings"><Button size="sm" iconOnly aria-label="Deck settings" ...>{ICONS.settings}</Button></Tooltip>`; pass `registerGear`; render `UpdateStrip` for the mattstack section.
   - Delete `deployPill` from `logic.ts` if unused.
+  - `board.css` has `.t-ok` and `.t-bad` but no `.t-warn`: add `.t-warn` with the kit's warn text role (`color: var(--text-warn)`; `--text-warn-small` where the text is under 12.5px), written the way `.t-bad` is.
 - [ ] **Step 5: Keep `requests.spec.ts` green** by updating its flow selectors (gear instead of chevron/row click). `EXPECTED_REQUESTS` must not change.
 - [ ] **Step 6: Run** `cd apps/deck && bun run build:board && bun run test && bun run test:dom`. Expected: unit 0 fail; DOM no failures outside the 11 (some of the 11 may now pass; note which).
 - [ ] **Step 7: Capture baselines.** Add `board-newcode` (light and dark) states to `test/capture.ts` using the newcode fixture the way it uses `status-stale.json`, run `bun run capture:baseline`, and Read every changed PNG in `test/baselines/`: it must match the FINAL main page board in layout, colour roles and states (data differs). Commit the baselines.
@@ -271,7 +278,7 @@ export function redeployAllTargets(rows: Row[], runs: CommandRuns): Row[] {
 
 ### Task 6: Step 2 gate
 
-**Model:** sonnet. Same as Task 2, plus: on the fixture server with `status-newcode.json` (copy it to a temp dir as `status.json` and point `DECK_FIXTURE` there), take Fast Browser screenshots of the main page in light and dark and of a hovered row, Read them next to `docs/apps/design/deck/renders/01-main-page.{dark,light}.png`, and list any difference in layout, spacing, type, colour role or shown state in `.scratch/gates.md`. A difference is reported back to the controller as a failure; the controller sends it to a fix subagent before step 3 starts.
+**Model:** sonnet. Same as Task 2, plus: on the fixture server with `status-newcode.json` (copy it to a temp dir as `status.json` and point `DECK_FIXTURE` there), take Fast Browser screenshots of the main page in light and dark and of a hovered row, Read them next to `docs/apps/design/deck/renders/01-main-page.{dark,light}.png`, and list any difference in layout, spacing, type, colour role or shown state in `/private/tmp/deck-facelift-scratch/gates.md`. A difference is reported back to the controller as a failure; the controller sends it to a fix subagent before step 3 starts.
 
 ---
 
@@ -302,7 +309,7 @@ Rules (from the spec and today's drawer gates; cite the drawer line in a test na
 - For `app` form, with `m = data.canManage`, `on = row.enabled !== false`, `managed = isMattstack(row)`:
   - `code`: `managed && !row.self && row.devLink !== undefined`
   - `relink`: `code && m`
-  - `app`: `!managed && m && on` (today: edit app is user rows only, under canManage)
+  - `app`: `!managed && m` (today: edit app is user rows only, under canManage, and the drawer still shows it on an off user row)
   - `port`: `true`; `portInput`: `m && !row.self && !override(row, data)`; `overrideControls`: `m && !row.self && override(row, data)` where override is `row.override && data.canManage && !row.self`
   - `errors`: `true`
   - `reach`: `m && on`; `gates`: `m`
@@ -333,7 +340,8 @@ For every test in the spec's "Drawer feature parity" table, write its modal twin
 - "the modal opens only from the row gear; esc, close and backdrop close it; focus returns to the gear".
 - "initial focus lands on the close button".
 - "polling continues while the modal is open with the dev port input empty": count `GET /api/v1/status` requests over 11 seconds with the modal open (`REFRESH_MS` is 5000): at least 2.
-- "typing in the dev port input then closing the modal releases the draft": type `5173`, press Escape twice (input, then modal) or click close, then count status polls over 11s: at least 2.
+- "typing in the dev port input then closing the modal releases the draft": type `5173`, press Escape once and assert the modal is still open and the input is empty, press Escape again and assert the modal closed, then count status polls over 11s: at least 2.
+- "closing with the close button while the dev port draft has text releases the draft": type `5173`, click close, count status polls over 11s: at least 2.
 - "blur with text keeps the draft until submit": type `5173`, click elsewhere in the modal, `Route to it` posts the override (assert the PUT body the drawer spec asserts today).
 - "public host shows no write control in the modal": on `status-readonly.json` (from Task 5), open each fixture row's modal and assert none of the contract's write controls exist (switches, inputs, `relink`, `unlink`, `Remove app…`, `give it a route…`), while restart follows `canRestart`.
 - "an apply error does not survive closing the modal": port of the who-error-does-not-survive test with close instead of the back chevron.
@@ -353,7 +361,26 @@ For every test in the spec's "Drawer feature parity" table, write its modal twin
 
 **Interfaces:** `AppSettingsModal({ row, data, board, onClose, returnFocusTo, fallbackFocusRef })`. Block components share props `{ row: Row; data: StatusData; board: BoardState; blocks: SettingsBlocks }`.
 
-Also create `settings/Help.tsx`: a help icon (`HELP` path from `icons.ts`, 13px, `--text-2`-role colour via the existing muted text token) wrapped in the kit `Tooltip`, with `aria-label` equal to its tip. Tasks 10 and 11 place it next to Deployed, Assigned, Dev override, Public follows dev, Public through the tunnel, Railway, Password and Google sign-in, with the copy from `docs/apps/design/deck/renders/04-tooltips.light.png` (the FINAL Tooltips board), verbatim, except that Dev override's copy names the row's own URL and assigned port instead of `board.mattstack` and `11006`.
+Also create `settings/Help.tsx`: a help icon (`HELP` path from `icons.ts`, 13px, `--text-2`-role colour via the existing muted text token) wrapped in the kit `Tooltip`, with `aria-label` equal to its tip. Tasks 10 and 11 place it next to Deployed, Assigned, Dev override, Public follows dev, Public through the tunnel, Railway, Password and Google sign-in, with this copy, verbatim (from the FINAL Tooltips board), except that Dev override names the row's own host and assigned port instead of `board.mattstack` and `11006`:
+
+| anchor | tip |
+| --- | --- |
+| Redeploy (button) | Runs this app's deploy command from its linked checkout, so the running app picks up the new code. |
+| Build (button) | Runs the build command only. The running app does not change until you redeploy. |
+| Deployed | Left is the commit running now. Right is the newest commit in the linked checkout. |
+| relink | Point deck at a different checkout of this app. |
+| unlink | Serve from the installed bundle instead of source. Build and deploy disappear until you relink. |
+| Assigned | The port deck gave this app. The route points here unless an override is set. |
+| Dev override | Send board.mattstack to a dev server you are running on another port. Revert to go back to 11006. |
+| Public follows dev | On: tunnel visitors also see your dev server. Off: they keep getting the assigned port. |
+| Public, through the tunnel | Publishes this app on your public domain through deck's Cloudflare tunnel. Off: visitors get the tunnel's 404 page. |
+| Railway | Pushes this app to Railway so it keeps serving when this Mac is off. Needs Google sign-in; a password alone does not protect it there. |
+| Password | Tunnel visitors enter this before the gateway lets them through. |
+| Google sign-in | Visitors sign in with Google at Cloudflare's edge before they reach the app. Choose the people or domains allowed in. |
+| Restart (modal header) | Restarts the service. The app is unavailable for a moment. |
+| Redeploy all (strip button) | Runs deploy for every app with new code. |
+
+Task 5's table tooltips use the Build and Redeploy rows; Task 14 uses the Redeploy all row.
 
 - [ ] **Step 1:** Unit-test `statusPill(row, restarting)` first (red then green) with the states Healthy, Down (unreachable, exit N), Restarting…, Off, No route, mirroring every branch of today's `RootStatusStrip` and `TunnelStatusStrip`.
 - [ ] **Step 2:** Implement the host and the listed blocks with kit components (`Modal`, `Badge`, `Alert`, `Button`, `Tooltip`, `CopyButton` if it fits `Copy`, else `Button` + `navigator.clipboard.writeText` as today). Width ~1000px via `className`; two-column grid in `settings.css` using kit spacing tokens; stack to one column under 760px.
@@ -369,7 +396,7 @@ Also create `settings/Help.tsx`: a help icon (`HELP` path from `icons.ts`, 13px,
 
 - Code reuses the table's command button component (extract it from `AppsTable.tsx` into `core/board/CommandButton.tsx` so table and modal share one implementation, same aria-labels, guard and phases), relink via the existing `SourceLinkInput` behaviour (move it out of `drawer/SourceScreen.tsx` into `settings/SourceLinkInput.tsx` unchanged), unlink via `board.onUnlink(row)` (today's `UnlinkConfirm`), help icon tooltips with the Tooltips board copy.
 - App uses `board.openEdit(row)` when the block mounts and `board.updateEditModal` / `board.submitEdit` exactly as `drawer/EditScreen.tsx` does; validation via `NAME_PATTERN`; API error inline on `name`.
-- Port: input `dev port override` calls `board.startEdit(row)` on the first keystroke only, then `board.setEditValue`; `Route to it` and Enter call `board.submitPort()`; Escape in the input and blur while empty call `board.cancelEdit()`; override state shows the override port (`t-warn`), `revert to <base>` (`board.clearPort(row)`) and the public-follows switch (`board.onPublicFollows(row)`, today's aria-labels); `self` shows "overrides don't apply to deck itself".
+- Port: input `dev port override` calls `board.startEdit(row)` on the first keystroke only, then `board.setEditValue`; `Route to it` and Enter call `board.submitPort()`; Escape in the input calls `board.cancelEdit()`, clears the input and stops the event's propagation (`ev.stopPropagation()`, plus `ev.nativeEvent.stopImmediatePropagation()` if the kit Modal listens on `document`) so the modal stays open; blur while empty calls `board.cancelEdit()`; the same Escape rule applies to the password and add-entry inputs; override state shows the override port (`t-warn`), `revert to <base>` (`board.clearPort(row)`) and the public-follows switch (`board.onPublicFollows(row)`, today's aria-labels); `self` shows "overrides don't apply to deck itself".
 
 - [ ] **Step 1:** Run the Code/App/Port tests in `settings.spec.ts`: FAIL.
 - [ ] **Step 2:** Implement.
@@ -397,9 +424,9 @@ Also create `settings/Help.tsx`: a help icon (`HELP` path from `icons.ts`, 13px,
 
 **Model:** sonnet.
 
-**Files:** Delete `apps/deck/core/board/drawer/` (after moving anything still imported elsewhere), `test/dom/drawer.spec.ts`, `access.spec.ts`, `remote.spec.ts` drawer-only tests (keep any test that asserts table behaviour by moving it to `board.spec.ts`), `logs.spec.ts` drawer tests; remove `AppDrawer`, `registerGear`'s drawer wiring, drawer CSS in `board.css`; update `test/capture.ts` drawer states to modal states (`modal-app`, `modal-app-override`, `modal-user-app`, `modal-tunnel`, `modal-service`, `modal-readonly`, `modal-access-on`) and regenerate baselines; remove `test/baselines/drawer-*.png`.
+**Files:** Delete `apps/deck/core/board/drawer/` (after moving anything still imported elsewhere), `test/dom/drawer.spec.ts`, `access.spec.ts`, `remote.spec.ts` drawer-only tests (keep any test that asserts table behaviour by moving it to `board.spec.ts`), `logs.spec.ts` drawer tests; remove `AppDrawer`, `registerGear`'s drawer wiring, drawer CSS in `board.css`; update `test/capture.ts` drawer states to modal states (`modal-app`, `modal-app-override`, `modal-user-app`, `modal-tunnel`, `modal-service`, `modal-readonly`, `modal-access-on`) and regenerate baselines; remove `test/baselines/drawer-*.png`; update `apps/deck/AGENTS.md`, whose "Board surface" section mentions `.drawer-toggle-row`, so it describes the code as it now is (no drawer).
 
-- [ ] **Step 1:** Before deleting, run the spec's parity table as a checklist: for each row, name the `settings*.spec.ts` test that covers it in `.scratch/parity.md`. A row with no passing test blocks this task: report it to the controller.
+- [ ] **Step 1:** Before deleting, run the spec's parity table as a checklist: for each row, name the `settings*.spec.ts` test that covers it in `/private/tmp/deck-facelift-scratch/parity.md`. A row with no passing test blocks this task: report it to the controller.
 - [ ] **Step 2:** Delete and clean up; `rg -n "drawer|Drawer" apps/deck/core apps/deck/test` must return only intentional leftovers (none expected).
 - [ ] **Step 3:** `bun run build:board && bun run test && bun run test:dom`: unit 0 fail; DOM no failures except the pre-existing ones whose tests still exist (the drawer ones are deleted with their files; the † behaviours are covered by passing modal tests).
 - [ ] **Step 4:** `bun run capture:baseline`; Read every new modal baseline against `renders/02-app-settings-modal.*.png` and `renders/03-modal-states.dark.png`.
@@ -440,6 +467,7 @@ redeployAllRun: { index: number; total: number; app: string } | null;
   - "stops at the first failure and names the app": meridian's run polls to a non-zero exit; assert atlas then meridian were posted, forecast never; exactly one toast contains `Redeploy all stopped at meridian`.
   - "skips a row whose deploy is already running": start atlas's deploy from its row (hold its poll open), then click Redeploy all; atlas is not posted twice.
   - "the button disables while running and a second run cannot start": clicking twice posts each target once.
+  - "deck's own deploy, last, waits for deck and reloads the page with no stop toast": atlas and meridian succeed; forecast's (self) start returns a run id, its run-status poll answers 404 (the server restarted), and the endpoint `waitForBoard` polls (read it in `useBoardState.ts` or `api.ts`) answers 200; assert the page navigates (reload) and that no toast containing `Redeploy all stopped` appeared before it.
   - "hidden on a public host": `canManage: false` copy of the newcode fixture shows no Redeploy all button.
 - [ ] **Step 2:** Run: FAIL.
 - [ ] **Step 3:** Implement.
