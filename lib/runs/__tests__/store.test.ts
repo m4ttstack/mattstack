@@ -33,7 +33,7 @@ describe("runs store", () => {
     expect(d.run.ticket).toBe("ACME-1");
     expect(d.run.branch).toBe("goodwin/mat-1");
     expect(d.run.last_event_at).toBe(1000 + 5000); // the branch field, seeded latest
-    expect(d.run.stages).toEqual([{ name: "plan", status: "running", started_at: 1000 }]);
+    expect(d.run.stages).toEqual([{ name: "plan", status: "running", started_at: 1000, ended_at: null, attempt: 1 }]);
   });
 
   test("listRuns denormalizes last_event_at/ticket/branch onto the summary row too", () => {
@@ -49,8 +49,8 @@ describe("runs store", () => {
     expect(row!.branch).toBe("goodwin/mat-1");
     expect(row!.last_event_at).toBe(1000 + 5000);
     expect(row!.stages).toEqual([
-      { name: "provision", status: "done", started_at: 1000 },
-      { name: "implement", status: "running", started_at: 1500 },
+      { name: "provision", status: "done", started_at: 1000, ended_at: null, attempt: 1 },
+      { name: "implement", status: "running", started_at: 1500, ended_at: null, attempt: 1 },
     ]);
   });
 
@@ -132,6 +132,33 @@ function setSessionField(dir: string, repo: string, id: string, sessionId: strin
   db.close();
 }
 
+describe("run summary stage and count fields", () => {
+  test("summary carries stage ended_at and attempt, decision_count and evidence_count", () => {
+    const dir = root();
+    seedRun(dir, "remote:alpha", "r-1", 1000, 1, {
+      stages: [{ name: "plan", status: "done", startedAt: 1000, endedAt: 2000 }, { name: "evidence", status: "running", attempt: 2, startedAt: 3000 }],
+      fields: [{ key: "evidence", value: JSON.stringify({ v: 1, before: "/e/b.png", beforeAnnotated: "/e/ba.png" }), producedBy: "evidence" }],
+    });
+    const [s] = listRuns("remote:alpha");
+    expect(s!.stages).toEqual([
+      { name: "plan", status: "done", started_at: 1000, ended_at: 2000, attempt: 1 },
+      { name: "evidence", status: "running", started_at: 3000, ended_at: null, attempt: 2 },
+    ]);
+    expect(s!.decision_count).toBe(1);
+    expect(s!.evidence_count).toBe(2);
+    const detail = readRun("remote:alpha", "r-1")!;
+    expect(detail.run.stages).toEqual(s!.stages);
+    expect(detail.run.decision_count).toBe(1);
+    expect(detail.run.evidence_count).toBe(2);
+  });
+
+  test("legacy evidence counts zero", () => {
+    const dir = root();
+    seedRun(dir, "remote:alpha", "r-2", 1000, 1, { fields: [{ key: "evidence", value: "see /tmp/x.png" }] });
+    expect(listRuns("remote:alpha")[0]!.evidence_count).toBe(0);
+  });
+});
+
 describe("findRunsBySession", () => {
   test("matches only the run DB whose claude-session field equals the given id, newest first", () => {
     const dir = root();
@@ -151,7 +178,7 @@ describe("findRunsBySession", () => {
     // overwritten by withAttention before a row leaves the store.
     expect(matches[0]!.summary.ticket).toBe("ACME-1");
     expect(matches[0]!.summary.branch).toBe("goodwin/mat-1");
-    expect(matches[0]!.summary.stages).toEqual([{ name: "plan", status: "running", started_at: 3000 }]);
+    expect(matches[0]!.summary.stages).toEqual([{ name: "plan", status: "running", started_at: 3000, ended_at: null, attempt: 1 }]);
   });
 
   test("no match is an empty array, not an error", () => {

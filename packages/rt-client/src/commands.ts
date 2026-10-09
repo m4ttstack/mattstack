@@ -392,7 +392,10 @@ export interface RunSummary {
       pre-mirror daemons. */
   agent?: RunAgent | null;
   /** Executed stages only, in run order — the pipeline may define more that have not started. */
-  stages?: { name: string; status: string; started_at: number | null }[];
+  stages?: { name: string; status: string; started_at: number | null; ended_at: number | null; attempt: number }[];
+  decision_count?: number;
+  /** Images the run's `evidence` field serves; 0 for legacy or absent evidence. */
+  evidence_count?: number;
 }
 export interface RunAgent {
   status: "working" | "idle" | "blocked" | "done" | "unknown";

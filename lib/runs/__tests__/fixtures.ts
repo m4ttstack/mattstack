@@ -19,6 +19,8 @@ type SeedOpts = {
   stageDetailPath?: string;
   /** Overrides the default single running "plan" stage row. */
   stages?: StageSeed[];
+  /** Extra field rows, inserted after the default ticket and branch rows. */
+  fields?: { key: string; value: string; producedBy?: string; at?: number }[];
 };
 
 export function seedRun(dir: string, repo: string, id: string, startedAt: number, userVersion = 1, o: SeedOpts = {}): void {
@@ -36,6 +38,9 @@ export function seedRun(dir: string, repo: string, id: string, startedAt: number
       return `INSERT INTO stages VALUES ('${id}', '${s.name}', '${s.status}', ${attempt}, ${sAt}, ${eAt === null ? "NULL" : eAt}${v2Cols});`;
     })
     .join("\n    ");
+  const fieldInserts = (o.fields ?? [])
+    .map((f) => `INSERT OR REPLACE INTO fields VALUES ('${id}', '${f.key}', '${f.value.replace(/'/g, "''")}', '${f.producedBy ?? "plan"}', ${f.at ?? startedAt});`)
+    .join("\n    ");
   db.exec(`
     PRAGMA user_version=${userVersion};
     CREATE TABLE runs (id TEXT PRIMARY KEY, repo TEXT NOT NULL, work_type TEXT NOT NULL,
@@ -50,6 +55,7 @@ export function seedRun(dir: string, repo: string, id: string, startedAt: number
     INSERT INTO fields VALUES ('${id}', 'ticket', 'ACME-1', 'plan', ${startedAt});
     INSERT INTO fields VALUES ('${id}', 'branch', 'goodwin/mat-1', 'plan', ${startedAt + 5000});
     INSERT INTO decisions VALUES ('${id}', 'execution-strategy@1', 'run', '{"tier":"direct-tdd"}', 'stage-plan', ${startedAt});
+    ${fieldInserts}
   `);
   db.close();
 }
