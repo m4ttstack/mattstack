@@ -54,9 +54,14 @@ function initials(name: string): string {
 function Who({ viewer }: { viewer: Viewer }) {
   const label = viewer.name ?? viewer.username;
   return (
-    <Group gap={10} wrap="nowrap" data-testid="settings-viewer">
+    <Group
+      gap={10}
+      wrap="nowrap"
+      data-testid="settings-viewer"
+      style={{ flex: 'none' }}
+    >
       {label && (
-        <Text fz={13} fw={500}>
+        <Text fz={13} fw={500} style={{ whiteSpace: 'nowrap' }}>
           {label}
         </Text>
       )}
@@ -230,6 +235,7 @@ export function SettingsContextBar({
             </Group>
             <Button
               size="compact-sm"
+              style={{ flex: 'none' }}
               variant="default"
               leftSection={<Icons.arrowLeft size={13} />}
               onClick={() => onPickTeam(null)}

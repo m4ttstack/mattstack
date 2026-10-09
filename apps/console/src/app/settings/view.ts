@@ -207,9 +207,16 @@ const isShared = (s: string | null | undefined): s is 'org' | 'team' =>
 /** A key sits under its first scope, except that a key the org and a team
     both hold sits under whichever of the two serves its value, and a key a
     shared store's repo section serves sits under that store. */
-function subheadOf(def: SettingDefWire): string | undefined {
-  const first = def.scopes[0];
+function subheadOf(
+  def: SettingDefWire,
+  sharedOnly = false
+): string | undefined {
   const served = rungBase(def.effective.scope);
+  if (sharedOnly)
+    return isShared(served) && def.scopes.includes(served)
+      ? served
+      : def.scopes.find(isShared);
+  const first = def.scopes[0];
   if (isRung(def.effective.scope) && isShared(served)) return served;
   if (isShared(first) && isShared(served) && def.scopes.includes(served))
     return served;
@@ -219,11 +226,17 @@ function subheadOf(def: SettingDefWire): string | undefined {
 /** Every group with at least one registered key, in GROUPS order, with
     unknown first segments after them. Empty-after-filter sections are kept
     so the index can show zeros. */
+/** `sharedOnly` is for viewing another team: only keys a shared store can
+    hold are listed, each under the shared scope that serves it or its
+    first shared scope. */
 export function buildSections(
-  all: SettingDefWire[],
+  every: SettingDefWire[],
   f: ViewFilter,
-  keep: string | null = null
+  keep: string | null = null,
+  opts: { sharedOnly?: boolean } = {}
 ): Section[] {
+  const sharedOnly = opts.sharedOnly === true;
+  const all = sharedOnly ? every.filter(d => d.scopes.some(isShared)) : every;
   const shownKeys = new Set(applyFilter(all, f, keep).map(d => d.key));
   const byGroup = new Map<string, { group: Group; defs: SettingDefWire[] }>();
   for (const d of all) {
@@ -243,7 +256,7 @@ export function buildSections(
         .sort((a, b) => rowRank(a) - rowRank(b));
       const subsections = SUB_ORDER.map(scope => ({
         scope,
-        defs: shown.filter(d => subheadOf(d) === scope),
+        defs: shown.filter(d => subheadOf(d, sharedOnly) === scope),
       })).filter(s => s.defs.length > 0);
       return { group, total: defs.length, shown: shown.length, subsections };
     });

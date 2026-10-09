@@ -100,6 +100,23 @@ describe('applyFilter', () => {
 });
 
 describe('buildSections', () => {
+  it('viewing another team keeps only keys a shared store can hold, under their first shared scope', () => {
+    const [board] = buildSections(
+      [
+        def('board.mine', { scopes: ['user', 'machine'] }),
+        def('board.model', { scopes: ['user', 'team', 'machine'] }),
+        def('board.title', { scopes: ['team', 'org'] }),
+      ],
+      NO_FILTER,
+      null,
+      { sharedOnly: true }
+    );
+    expect(
+      board!.subsections.map(x => [x.scope, x.defs.map(d => d.key).sort()])
+    ).toEqual([['team', ['board.model', 'board.title']]]);
+    expect(board!.total).toBe(2);
+  });
+
   it('orders sections by GROUPS and counts total and shown', () => {
     const s = buildSections(
       [def('board.title'), def('agent.provider'), def('rt.logLevel')],

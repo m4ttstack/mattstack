@@ -215,9 +215,10 @@ export function SettingsPage() {
       buildSections(
         store.defs,
         { query, needsFixing: needsFixingOnly, scope },
-        openKey
+        openKey,
+        { sharedOnly: other }
       ),
-    [store.defs, query, needsFixingOnly, scope, openKey]
+    [store.defs, query, needsFixingOnly, scope, openKey, other]
   );
   const total = store.defs.length;
   const agentProvider: Provider =
@@ -314,14 +315,14 @@ export function SettingsPage() {
                       background: 'var(--tk-panel)',
                       borderBottom: '1px solid var(--tk-border)',
                       boxShadow: scrolled
-                        ? '0 2px 10px color-mix(in srgb, var(--tk-text-1) 8%, transparent)'
+                        ? '0 2px 12px color-mix(in srgb, var(--tk-text-1) 14%, transparent)'
                         : undefined,
                       transition: 'box-shadow 120ms',
                     }}
                   >
                     <VisuallyHidden component="h1">Settings</VisuallyHidden>
                     <Stack gap={0} w="100%">
-                      <Group h={PAGE_ROW_HEIGHT} px={24} wrap="nowrap">
+                      <Group h={PAGE_ROW_HEIGHT} px={32} wrap="nowrap">
                         <SettingsContextBar
                           org={store.org}
                           team={store.team}
@@ -335,7 +336,7 @@ export function SettingsPage() {
                         role="toolbar"
                         aria-label="settings filters"
                         gap={10}
-                        px={24}
+                        px={32}
                         h={TOOLBAR_ROW}
                         pb={4}
                         wrap="nowrap"

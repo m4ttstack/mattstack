@@ -1012,6 +1012,10 @@ describe('the context bar', () => {
     );
     expect(screen.queryByRole('radio', { name: 'user' })).toBeNull();
     expect(screen.queryByRole('radio', { name: 'machine' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'open board.u0' })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'open board.t0' })
+    ).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'team' })).toBeInTheDocument();
     await userEvent.click(
       within(note).getByRole('button', { name: 'Back to widgets' })
