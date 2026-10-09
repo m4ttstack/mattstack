@@ -210,9 +210,8 @@ function rowRank(d: SettingDefWire): number {
 const isShared = (s: string | null | undefined): s is 'org' | 'team' =>
   s === 'org' || s === 'team';
 
-/** A key sits under its first scope, except that a key the org and a team
-    both hold sits under whichever of the two serves its value, and a key a
-    shared store's repo section serves sits under that store. */
+/** A key sits under the layer its value comes from, so its block and its row
+    say the same thing; a key nothing sets yet sits under its first scope. */
 function subheadOf(
   def: SettingDefWire,
   sharedOnly = false
@@ -222,11 +221,11 @@ function subheadOf(
     return isShared(served) && def.scopes.includes(served)
       ? served
       : def.scopes.find(isShared);
-  const first = def.scopes[0];
-  if (isRung(def.effective.scope) && isShared(served)) return served;
-  if (isShared(first) && isShared(served) && def.scopes.includes(served))
+  // A repo section's store serves it even when the key does not list that
+  // store among its scopes.
+  if (served && (isRung(def.effective.scope) || def.scopes.includes(served)))
     return served;
-  return first;
+  return def.scopes[0];
 }
 
 /** Every group with at least one registered key, in GROUPS order, with

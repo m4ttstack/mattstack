@@ -178,8 +178,20 @@ describe('buildSections', () => {
     ).toEqual([
       ['org', ['board.gitlabHost', 'board.repoHost', 'board.roster']],
       ['team', ['board.tabs', 'board.title']],
-      ['user', ['board.u0', 'board.u1', 'board.u2', 'board.u3']],
-      ['machine', ['board.m0', 'board.m1', 'board.m2', 'board.m3']],
+      // Set on machine, so they sit with machine whatever their first scope.
+      [
+        'machine',
+        [
+          'board.m0',
+          'board.m1',
+          'board.m2',
+          'board.m3',
+          'board.u0',
+          'board.u1',
+          'board.u2',
+          'board.u3',
+        ],
+      ],
     ]);
   });
 
