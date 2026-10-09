@@ -256,20 +256,35 @@ describe('the runs boards draw the fixture', () => {
     expect(texts).toContain(span(waitingOnYou(gates.filter(isMine), 0)));
   });
 
-  it('run-record-review: the review record header', async () => {
-    const texts = boardTexts('run-record-review');
-    const { run } = await detail('20261008-0940');
-    const { iid, posted } = run.outcome!.reviewed!;
-    expect(texts).toContain(`!${iid}`);
-    expect(texts).toContain(`reviewed !${iid} · ${posted}`);
+  it('runs-p2-review: the review record hero and its decisions', async () => {
+    const texts = boardTexts('runs-p2-review');
+    const d = await detail('20261008-0940');
+    const { run } = d;
+    expect(texts).toContain(field(d, 'ticket'));
+    expect(texts).toContain(field(d, 'branch'));
+    expect(texts).toContain(
+      `Requested changes on !${run.outcome!.reviewed!.iid}`
+    );
+    expect(texts).toContain(
+      `· review pipeline · Oct 8, ${clock.format(run.started_at)} → ${clock.format(run.ended_at!)}`
+    );
     expect(texts).toContain(span(run.ended_at! - run.started_at));
-    const posts = await runs.gates({ run: run.id });
-    expect(texts).toContain(String(posts.length));
-    expect(texts).toContain(span(waitingOnYou(posts, 0)));
+    const gates = await runs.gates({ run: run.id });
+    expect(texts).toContain(span(waitingOnYou(gates.filter(isMine), 0)));
+    for (const g of gates) {
+      const q = g.questions.at(-1)!;
+      expect(texts).toContain(q.label);
+      expect(texts).toContain(picked(g, q));
+      expect(texts).toContain(
+        `${g.answer!.by === 'shepherd' ? 'shepherd' : 'you'} · ${clock.format(g.answer!.answeredAt)}`
+      );
+    }
   });
 
   it('the review run offers its findings as a multi-select, all four picked', async () => {
-    const [gate] = await runs.gates({ run: '20261008-0940' });
+    const gate = (await runs.gates({ run: '20261008-0940' })).find(
+      g => g.id === 'g-0940-post'
+    );
     const findings = gate!.questions.find(q => q.id === 'findings-1')!;
     expect(findings.label).toBe('Post which findings to !412?');
     expect(findings.multi).toBe(true);

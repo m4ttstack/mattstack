@@ -888,41 +888,89 @@ describe('RunDetail: finished run', () => {
     expect(within(story).queryByText('ShipTarget')).toBeNull();
   });
 
-  it('leaves evidence off a review record and says what it posted', async () => {
-    render(
-      workRun({
-        run: summary({
-          work_type: 'review',
-          pipeline: 'review',
-          ticket: null,
-          branch: 'dedupe-contacts',
+  const reviewRecord = () =>
+    workRun({
+      run: summary({
+        work_type: 'review',
+        pipeline: 'review',
+        ticket: null,
+        branch: 'dedupe-contacts',
+        status: 'done',
+        ended_at: at(23),
+        agent: null,
+        outcome: {
           status: 'done',
-          ended_at: at(23),
-          agent: null,
-          outcome: {
-            status: 'done',
-            reviewed: {
-              iid: 412,
-              url: 'https://forge.test/acme/web/-/merge_requests/412',
-              posted: 'request changes',
-            },
+          reviewed: {
+            iid: 412,
+            url: 'https://forge.test/acme/web/-/merge_requests/412',
+            posted: 'request changes',
           },
-        }),
-        stages: [stage('review', 'done', 0, 23)],
-        fields: [
-          field('branch', 'dedupe-contacts', 0),
-          field('mr', '!412', 0.5),
-          field('evidence', '{"v":1,"before":"/e/before.png"}', 5),
-          field('commits', 'abc1234', 6),
-        ],
+        },
       }),
-      [picked('p', 'review', 15, 21, { rec: false })]
-    );
+      stages: [stage('review', 'done', 0, 23)],
+      fields: [
+        field('branch', 'dedupe-contacts', 0),
+        field('mr', '!412', 0.5),
+        field('evidence', '{"v":1,"before":"/e/before.png"}', 5),
+        field('commits', 'abc1234', 6),
+      ],
+    });
+  const reviewPost = () =>
+    gate({
+      id: 'g-post',
+      subject: 'mr:acme/web!412',
+      origin: { runId: 'run-412' },
+      kind: 'review-post',
+      meta: { stage: 'review' },
+      openedAt: at(15),
+      questions: [
+        {
+          id: 'findings-1',
+          label: 'Post which findings to !412?',
+          multi: true,
+          context: JSON.stringify({
+            'gate-ctx': 'findings@1',
+            findings: [
+              {
+                id: 'f1',
+                severity: 'important',
+                title: 'Dedupe matches on email only.',
+                file: 'contacts/import/dedupe.ts:58',
+              },
+              { id: 'f2', severity: 'minor', title: 'The skip log is noisy.' },
+              { id: 'f3', severity: 'minor', title: 'Rename the helper.' },
+            ],
+          }),
+          options: [
+            { value: 'f1', label: '[Important] Dedupe matches on email only.' },
+            { value: 'f2', label: '[Minor] The skip log is noisy.' },
+            { value: 'f3', label: '[Minor] Rename the helper.' },
+          ],
+        },
+        {
+          id: 'outcome',
+          label: 'What should the review post?',
+          multi: false,
+          options: [
+            { value: 'Approve', label: 'Approve' },
+            { value: 'Request changes', label: 'Request changes' },
+          ],
+        },
+      ],
+      answer: {
+        answers: { 'findings-1': ['f1', 'f2'], outcome: 'Request changes' },
+        by: 'board',
+        answeredAt: at(21),
+      },
+    });
+
+  it('leaves evidence off a review record and says what it posted', async () => {
+    render(reviewRecord(), [reviewPost()]);
     const record = await screen.findByTestId('run-record');
     const header = within(record).getByTestId('record-header');
     expect(within(header).getByText('!412')).toBeInTheDocument();
     await waitFor(() =>
-      expect(outcomesOf(header)).toEqual(['reviewed !412 · Request changes'])
+      expect(outcomesOf(header)).toEqual(['Requested changes on !412'])
     );
     await waitFor(() =>
       expect(statsOf(header).map(([id]) => id)).toEqual([
@@ -939,6 +987,34 @@ describe('RunDetail: finished run', () => {
     expect(
       within(record).queryByRole('navigation', { name: 'Decisions by stage' })
     ).toBeNull();
+  });
+
+  it('leads a review record with the verdict and the findings it posted, then its decisions', async () => {
+    render(reviewRecord(), [reviewPost()]);
+    const record = await screen.findByTestId('run-record');
+    const verdict = await within(record).findByTestId('review-verdict');
+    expect(within(verdict).getByText('Posted to !412')).toBeInTheDocument();
+    expect(
+      within(verdict).getByText('Request changes · 2 findings')
+    ).toBeInTheDocument();
+    expect(
+      within(verdict).getByRole('link', { name: /Open the MR/ })
+    ).toHaveAttribute(
+      'href',
+      'https://forge.test/acme/web/-/merge_requests/412'
+    );
+    expect(within(verdict).getAllByText('Important')).toHaveLength(1);
+    expect(within(verdict).getAllByText('Minor')).toHaveLength(1);
+    expect(within(record).queryByText(/\[Important\]|\[Minor\]/)).toBeNull();
+    const log = within(record).getByTestId('decision-log');
+    expect(
+      verdict.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      within(log).getByText('What should the review post?')
+    ).toBeInTheDocument();
+    expect(within(log).queryByText('Post which findings to !412?')).toBeNull();
+    expect(within(record).getByTestId('review-side')).toBeInTheDocument();
   });
 
   it('opens on the Story when nothing was answered', async () => {

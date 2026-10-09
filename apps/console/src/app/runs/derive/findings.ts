@@ -1,10 +1,12 @@
+export type FindingSeverity = 'critical' | 'important' | 'minor';
+
 export interface ParsedFinding {
-  severity: 'important' | 'minor' | null;
+  severity: FindingSeverity | null;
   text: string;
   where: string | null;
 }
 
-const SEVERITY = /^\[(important|minor)\]\s*/i;
+const SEVERITY = /^\[(critical|important|minor)\]\s*/i;
 const NON_BLOCKING = /^\[non-blocking\]\s*/i;
 const WHERE = /\s*\(([^()\s]+(?::\d+)?)\)\s*$/;
 
@@ -15,7 +17,7 @@ export function parseFinding(text: string): ParsedFinding {
   let severity: ParsedFinding['severity'] = null;
   const tag = SEVERITY.exec(rest);
   if (tag) {
-    severity = tag[1]!.toLowerCase() as 'important' | 'minor';
+    severity = tag[1]!.toLowerCase() as FindingSeverity;
     rest = rest.slice(tag[0].length);
   }
   rest = rest.replace(NON_BLOCKING, '');

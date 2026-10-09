@@ -1,4 +1,5 @@
 import type {
+  GateQuestion,
   GateRow,
   RunFieldRow,
   RunStageRow,
@@ -6,9 +7,18 @@ import type {
 } from '@mattstack/rt-client';
 
 import { isMine } from '../../../shared/gate-waiting';
+import { contextSchema } from './answers';
 import { formatClock } from './clock';
 import { formatDuration } from './duration';
-import { gateStage, tookRecommendation, waitingOnYou } from './gates';
+import { parseFinding, type ParsedFinding } from './findings';
+import {
+  gateStage,
+  optionViews,
+  pickedText,
+  questionAnswer,
+  tookRecommendation,
+  waitingOnYou,
+} from './gates';
 import { stageAttempts, type StageAttempt } from './stages';
 
 /** The run's answered gates. */
@@ -208,4 +218,104 @@ export function postedLabel(posted: string): string {
   const words = posted.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
   const flat = words === words.toUpperCase() ? words.toLowerCase() : words;
   return flat.charAt(0).toUpperCase() + flat.slice(1);
+}
+
+const FINDINGS_SCHEMA = 'findings@1';
+
+/** A question asking which findings to post: its context names the findings
+    schema, or the review skill numbered it `findings-N`. */
+const isFindingsQuestion = (q: GateQuestion) =>
+  contextSchema(q.context) === FINDINGS_SCHEMA || /^findings-\d+$/.test(q.id);
+
+/** The gate a review posts through: it asks for findings, or it is the
+    `review-post` gate, whose `outcome` question is the verdict. */
+const isPostingGate = (g: GateRow) =>
+  g.kind === 'review-post' || g.questions.some(isFindingsQuestion);
+
+interface ContextFinding {
+  id?: unknown;
+  severity?: unknown;
+  title?: unknown;
+  file?: unknown;
+}
+
+/** A findings context's entries by id; empty for prose or another schema. */
+function contextFindings(
+  context: string | null | undefined
+): Map<string, ContextFinding> {
+  const byId = new Map<string, ContextFinding>();
+  if (contextSchema(context) !== FINDINGS_SCHEMA) return byId;
+  const { findings } = JSON.parse(context!) as { findings?: unknown };
+  if (!Array.isArray(findings)) return byId;
+  for (const f of findings as (ContextFinding | null)[])
+    if (f && typeof f.id === 'string') byId.set(f.id, f);
+  return byId;
+}
+
+const SEVERITIES = ['critical', 'important', 'minor'] as const;
+
+function findingOf(
+  entry: ContextFinding | undefined,
+  label: string
+): ParsedFinding {
+  if (typeof entry?.title !== 'string') return parseFinding(label);
+  const tier =
+    typeof entry.severity === 'string' ? entry.severity.toLowerCase() : null;
+  return {
+    severity: SEVERITIES.find(s => s === tier) ?? null,
+    text: entry.title.trim(),
+    where: typeof entry.file === 'string' && entry.file ? entry.file : null,
+  };
+}
+
+const iidOf = (text: string) => /!(\d+)\b/.exec(text)?.[1] ?? null;
+
+export interface ReviewVerdict {
+  /** The verdict question's pick, "Request changes"; empty when none was
+      answered. */
+  verdict: string;
+  /** The findings picked to post, across every findings question. */
+  findings: ParsedFinding[];
+  mrIid: string | null;
+}
+
+/** What a review posted: its verdict and the findings it picked, each read
+    from its question's structured findings context, else from its option
+    label. Null when the run answered no posting gate. */
+export function reviewVerdict(gates: GateRow[]): ReviewVerdict | null {
+  const posting = answeredGates(gates).filter(isPostingGate);
+  if (posting.length === 0) return null;
+  let verdict = '';
+  const findings: ParsedFinding[] = [];
+  let mrIid: string | null = null;
+  for (const g of posting) {
+    mrIid ??= iidOf(g.subject);
+    for (const q of g.questions) {
+      const answer = questionAnswer(g.answer, q);
+      if (!answer) continue;
+      if (isFindingsQuestion(q)) {
+        mrIid ??= iidOf(q.label);
+        const entries = contextFindings(q.context);
+        const labels = new Map(optionViews(q).map(o => [o.value, o.text]));
+        for (const v of answer.picked)
+          findings.push(findingOf(entries.get(v), labels.get(v) ?? v));
+      } else if (q.id === 'outcome') {
+        verdict = pickedText(q, answer.picked);
+      }
+    }
+  }
+  return { verdict, findings, mrIid };
+}
+
+/** A review's gates as its decision log lists them: the findings questions
+    the verdict already shows, and a gate context that only lists them, left
+    out; a gate left with no question is dropped. */
+export function reviewDecisionGates(gates: GateRow[]): GateRow[] {
+  return gates.flatMap(g => {
+    const questions = g.questions.filter(q => !isFindingsQuestion(q));
+    if (questions.length === 0 && g.questions.length > 0) return [];
+    const context =
+      contextSchema(g.context) === FINDINGS_SCHEMA ? null : g.context;
+    return [{ ...g, questions, context }];
+  });
 }

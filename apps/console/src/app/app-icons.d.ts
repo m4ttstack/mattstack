@@ -22,6 +22,7 @@ declare module '@mattstack/app-kit/icons' {
     circleX: true;
     circleSlash: true;
     messageSquare: true;
+    messageSquareDiff: true;
     signpost: true;
     circle: true;
     braces: true;

@@ -4,8 +4,8 @@
     "work_type": "review",
     "pipeline": "review",
     "status": "done",
-    "started_at": "2026-10-08T09:40:00-05:00",
-    "ended_at": "2026-10-08T10:03:00-05:00",
+    "started_at": "2026-10-08T09:17:00-05:00",
+    "ended_at": "2026-10-08T09:40:00-05:00",
     "outcome": {
       "status": "done",
       "reviewed": {
@@ -19,40 +19,46 @@
     {
       "name": "review",
       "status": "done",
-      "started_at": "2026-10-08T09:40:00-05:00",
-      "ended_at": "2026-10-08T10:03:00-05:00"
+      "started_at": "2026-10-08T09:17:00-05:00",
+      "ended_at": "2026-10-08T09:40:00-05:00"
     }
   ],
   "fields": [
     {
-      "key": "branch",
-      "value": "dedupe-contacts",
+      "key": "ticket",
+      "value": "WEB-388",
       "produced_by": "review",
-      "at": "2026-10-08T09:40:10-05:00"
+      "at": "2026-10-08T09:17:05-05:00"
+    },
+    {
+      "key": "branch",
+      "value": "web-388-dedupe-contacts",
+      "produced_by": "review",
+      "at": "2026-10-08T09:17:10-05:00"
     },
     {
       "key": "worktree",
       "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/molly",
       "produced_by": "review",
-      "at": "2026-10-08T09:40:20-05:00"
+      "at": "2026-10-08T09:17:20-05:00"
     },
     {
       "key": "mr",
       "value": "!412",
       "produced_by": "review",
-      "at": "2026-10-08T09:40:30-05:00"
+      "at": "2026-10-08T09:17:30-05:00"
     },
     {
       "key": "findings",
       "value": "4 (2 must fix, 2 suggestions)",
       "produced_by": "review",
-      "at": "2026-10-08T09:52:00-05:00"
+      "at": "2026-10-08T09:30:00-05:00"
     },
     {
       "key": "tiers",
       "value": "correctness, tests",
       "produced_by": "review",
-      "at": "2026-10-08T09:52:10-05:00"
+      "at": "2026-10-08T09:30:10-05:00"
     }
   ],
   "decisions": [
@@ -61,7 +67,7 @@
       "scope": "post",
       "selection": { "findings": 4, "disposition": "request changes" },
       "decided_by": "board",
-      "decided_at": "2026-10-08T10:01:00-05:00"
+      "decided_at": "2026-10-08T09:40:00-05:00"
     }
   ]
 }

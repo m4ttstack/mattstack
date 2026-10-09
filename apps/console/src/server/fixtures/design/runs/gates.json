@@ -800,12 +800,38 @@
       ]
     },
     {
+      "id": "g-0940-tiers",
+      "subject": "mr:acme/web!412",
+      "kind": "clarify",
+      "origin": { "runId": "20261008-0940" },
+      "owner": "herd:acme-web-1008",
+      "openedAt": "2026-10-08T09:24:00-05:00",
+      "questions": [
+        {
+          "id": "tiers",
+          "label": "Which tiers should the review cover?",
+          "options": [
+            {
+              "value": "correctness, tests",
+              "label": "Correctness, tests (Recommended)"
+            },
+            { "value": "everything", "label": "Everything" }
+          ]
+        }
+      ],
+      "answer": {
+        "answers": { "tiers": "correctness, tests" },
+        "by": "shepherd",
+        "answeredAt": "2026-10-08T09:25:00-05:00"
+      }
+    },
+    {
       "id": "g-0940-post",
       "subject": "mr:acme/web!412",
       "kind": "review-post",
       "origin": { "runId": "20261008-0940" },
       "owner": "human",
-      "openedAt": "2026-10-08T09:55:00-05:00",
+      "openedAt": "2026-10-08T09:36:00-05:00",
       "context": "{\"gate-ctx\":\"findings@1\",\"findings\":[{\"id\":\"f1\",\"severity\":\"important\",\"title\":\"Dedupe matches on email only, so contacts without an email import twice.\",\"body\":\"the importer keys duplicates on the email address alone, so two rows with no email never match and both are created.\",\"file\":\"contacts/import/dedupe.ts:58\"},{\"id\":\"f2\",\"severity\":\"important\",\"title\":\"No test covers merging two contacts that share a phone number.\",\"body\":\"mergeContacts has tests for shared emails only; the phone path is untested.\"},{\"id\":\"f3\",\"severity\":\"minor\",\"title\":\"mergeContacts deletes the losing record; the name doesn't say so.\",\"body\":\"a caller reading the name would not expect the second contact to be deleted.\",\"file\":\"contacts/merge.ts:12\"},{\"id\":\"f4\",\"severity\":\"minor\",\"title\":\"The skip log prints the whole contact record, email included.\",\"body\":\"the skipped-row log line serializes the full record.\"}]}",
       "questions": [
         {
@@ -841,7 +867,7 @@
             { "value": "Approve", "label": "Approve" },
             {
               "value": "Request changes",
-              "label": "Request changes"
+              "label": "Request changes (Recommended)"
             },
             { "value": "Comment only", "label": "Comment only" }
           ]
@@ -850,13 +876,10 @@
       "answer": {
         "answers": {
           "findings-1": ["f1", "f2", "f3", "f4"],
-          "outcome": {
-            "value": "Request changes",
-            "text": "Two important items before this merges: the importer matches on email only, and nothing tests merging contacts that share a phone number."
-          }
+          "outcome": "Request changes"
         },
         "by": "board",
-        "answeredAt": "2026-10-08T10:01:00-05:00"
+        "answeredAt": "2026-10-08T09:40:00-05:00"
       }
     },
 

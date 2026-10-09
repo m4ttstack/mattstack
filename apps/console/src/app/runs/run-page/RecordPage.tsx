@@ -11,6 +11,8 @@ import {
   recordEnd,
   recordSpan,
   recordStats,
+  reviewDecisionGates,
+  reviewVerdict,
   type RecordTab,
 } from '../derive/record';
 import { EffectiveInputs } from '../EffectiveInputs';
@@ -18,6 +20,7 @@ import { DecisionsTab } from './DecisionsTab';
 import { EvidenceCard } from './EvidenceCard';
 import { InputsDrawer } from './InputsDrawer';
 import { RecordHeader } from './RecordHeader';
+import { ReviewDecisions } from './ReviewVerdict';
 import classesPage from './RunPage.module.css';
 import { SideCards } from './SideCards';
 import { RunStory } from './Story';
@@ -57,21 +60,25 @@ export function RecordPage({
   const { run, stages, fields, decisions } = data;
   const parts = useRunParts(repo, runId, data);
   const { now, kind, gates, facts, drawer } = parts;
+  const handedOff = kind === 'review' || kind === 'respond';
+  const verdict = handedOff ? reviewVerdict(gates) : null;
+  const logGates = handedOff ? reviewDecisionGates(gates) : gates;
   const [tab, setTab] = useState<RecordTab | null>(null);
-  const shown = tab ?? defaultRecordTab(gates);
+  const shown = tab ?? (verdict ? 'decisions' : defaultRecordTab(logGates));
 
   const end = recordEnd(run, now);
   const meta = `${run.pipeline} pipeline · ${recordSpan(run.started_at, end.at)}`;
-  const stats = recordStats({ run, gates, now });
+  const stats = recordStats({ run, gates: logGates, now });
   const groups = decisionStages(
-    gates,
+    logGates,
     stages,
     run,
     now,
     fields.find(f => f.key === 'pipeline-stages')?.value ?? null
   );
-  const answered = answeredQuestionCount(gates);
-  const withDecisions = hasSettledGates(gates);
+  const answered = answeredQuestionCount(logGates);
+  const withDecisions = verdict != null || hasSettledGates(logGates);
+  const reviewed = run.outcome?.reviewed ?? null;
   const evidenceValue = parts.evidenceField?.value;
   const evidence =
     kind === 'work' ? parseEvidence(evidenceValue ?? undefined) : null;
@@ -169,11 +176,27 @@ export function RecordPage({
           </Tabs.Panel>
           {withDecisions ? (
             <Tabs.Panel value="decisions">
-              <DecisionsTab
-                groups={groups}
-                byStage={kind === 'work'}
-                evidence={evidenceColumn}
-              />
+              {handedOff ? (
+                <ReviewDecisions
+                  verdict={
+                    verdict && {
+                      ...verdict,
+                      mrIid:
+                        verdict.mrIid ??
+                        (reviewed ? String(reviewed.iid) : null),
+                      mrUrl: reviewed?.url ?? facts.mr.url,
+                    }
+                  }
+                  gates={groups.flatMap(g => g.gates)}
+                  facts={parts.factRows.filter(f => f.name !== 'Worktree')}
+                />
+              ) : (
+                <DecisionsTab
+                  groups={groups}
+                  byStage={kind === 'work'}
+                  evidence={evidenceColumn}
+                />
+              )}
             </Tabs.Panel>
           ) : null}
           {kind === 'work' ? (

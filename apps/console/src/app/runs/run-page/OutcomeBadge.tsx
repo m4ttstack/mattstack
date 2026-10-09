@@ -14,6 +14,8 @@ interface Pill {
   color: MantineColor;
   icon: IconName;
   label: string;
+  /** The review board names its pill's icon and label `i` and `l`. */
+  layers?: { icon: string; label: string };
 }
 
 /** The boards name an icon layer after its lucide glyph. */
@@ -51,6 +53,56 @@ function ciPill(ci: string | null | undefined): Pill | null {
   return null;
 }
 
+const REVIEW_POSTS: {
+  match: RegExp;
+  color: MantineColor;
+  icon: IconName;
+  label: (iid: number) => string;
+}[] = [
+  {
+    match: /request/i,
+    color: 'warn',
+    icon: 'messageSquareDiff',
+    label: iid => `Requested changes on !${iid}`,
+  },
+  {
+    match: /approv/i,
+    color: 'ok',
+    icon: 'circleCheck',
+    label: iid => `Approved !${iid}`,
+  },
+  {
+    match: /comment/i,
+    color: 'accent',
+    icon: 'messageSquare',
+    label: iid => `Commented on !${iid}`,
+  },
+];
+
+/** What a review posted on the MR: "Requested changes on !412", "Approved
+    !406", "Commented on !399"; a disposition it does not know reads as it
+    was posted. */
+function reviewedPill({
+  iid,
+  posted,
+}: NonNullable<RunOutcome['reviewed']>): Pill {
+  const post = posted ? REVIEW_POSTS.find(p => p.match.test(posted)) : null;
+  return {
+    layer: 'primary',
+    id: 'reviewed',
+    layers: { icon: 'i', label: 'l' },
+    ...(post
+      ? { color: post.color, icon: post.icon, label: post.label(iid) }
+      : {
+          color: 'accent',
+          icon: 'messageSquare',
+          label: posted
+            ? `Reviewed !${iid} · ${postedLabel(posted)}`
+            : `Reviewed !${iid}`,
+        }),
+  };
+}
+
 function primaryPill(outcome: RunOutcome): Pill | null {
   const base = { layer: 'primary' } as const;
   if (outcome.status === 'abandoned') {
@@ -72,18 +124,7 @@ function primaryPill(outcome: RunOutcome): Pill | null {
     };
   }
   if (outcome.status !== 'done') return null;
-  if (outcome.reviewed) {
-    const { iid, posted } = outcome.reviewed;
-    return {
-      ...base,
-      id: 'reviewed',
-      color: 'accent',
-      icon: 'messageSquare',
-      label: posted
-        ? `reviewed !${iid} · ${postedLabel(posted)}`
-        : `reviewed !${iid}`,
-    };
-  }
+  if (outcome.reviewed) return reviewedPill(outcome.reviewed);
   const mr = outcome.mr;
   if (!mr || mr.state === 'unknown') return null;
   if (mr.state === 'merged') {
@@ -104,7 +145,7 @@ function primaryPill(outcome: RunOutcome): Pill | null {
   };
 }
 
-function badge({ id, layer, color, icon, label }: Pill): ReactNode {
+function badge({ id, layer, color, icon, label, layers }: Pill): ReactNode {
   return (
     <Badge
       key={id}
@@ -114,9 +155,11 @@ function badge({ id, layer, color, icon, label }: Pill): ReactNode {
       tt="none"
       data-outcome={id}
       data-parity={layer}
-      leftSection={<Icon name={icon} size={13} data-parity={GLYPH[icon]} />}
+      leftSection={
+        <Icon name={icon} size={13} data-parity={layers?.icon ?? GLYPH[icon]} />
+      }
     >
-      <span data-parity="label">{label}</span>
+      <span data-parity={layers?.label ?? 'label'}>{label}</span>
     </Badge>
   );
 }

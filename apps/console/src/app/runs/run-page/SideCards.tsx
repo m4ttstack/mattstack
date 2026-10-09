@@ -14,7 +14,7 @@ import type { IconName } from '@mattstack/app-kit/icons';
 import inline from './inline.module.css';
 import classes from './SideCards.module.css';
 
-const LABEL_TYPE = {
+export const LABEL_TYPE = {
   fz: 10.5,
   fw: 500,
   lh: 'normal',
@@ -123,6 +123,23 @@ function SideCard({
   );
 }
 
+/** The run's links in one card; `name` is the card's board layer. */
+export function FactsCard({
+  facts,
+  name = 'Facts',
+}: {
+  facts: FactProps[];
+  name?: string;
+}) {
+  return (
+    <SideCard name={name} gap={14}>
+      {facts.map(f => (
+        <Fact key={f.name} {...f} />
+      ))}
+    </SideCard>
+  );
+}
+
 export interface SideCardsProps {
   facts: FactProps[];
   inputs:
@@ -137,11 +154,7 @@ export interface SideCardsProps {
 export function SideCards({ facts, inputs, onViewInputs }: SideCardsProps) {
   return (
     <Stack gap={14} className={classes.side} data-parity="Side">
-      <SideCard name="Facts" gap={14}>
-        {facts.map(f => (
-          <Fact key={f.name} {...f} />
-        ))}
-      </SideCard>
+      <FactsCard facts={facts} />
       <SideCard name="Inputs" gap={8}>
         <Text {...LABEL_TYPE} data-parity="title">
           Effective inputs

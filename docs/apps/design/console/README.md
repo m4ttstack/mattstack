@@ -631,3 +631,37 @@ Finished run record (runs-p2-record `Hero`, `Tabs`, `Decision log`,
   question reads no count.
 - The evidence card, its thumbnails, Compare and transcript belong to the
   evidence pass (section E); their mismatches are not this section's.
+
+Review run record (runs-p2-review `Hero`, `Tabs`, `Review column`, `Side`):
+
+- The finished record's entries above still apply to the hero card, ticket,
+  tabs and counts, and to the decision cards.
+- The outcome pill is the kit `Badge lg` in `warn`, as it ships: its fill,
+  label colour and padding are the kit's, so it is 9px wider and starts 9px
+  further left. The severity pills are kit `Badge sm`: Important in `warn`
+  `light`, Minor in `gray` `outline` like the recommended mark (no fill, a
+  ring in the label's tone, bright in dark), each 1px taller than the board's.
+- The verdict's quiet text (POSTED TO, each file and line, the DECISIONS
+  label) is the console's dimmed tone (slate 11), as the gate panel's is.
+- The verdict head's rule sits inside its box, where the board's straddles
+  the edge, so the head reads 1.5px shorter.
+- Fixture versus board: findings f2 and f4 record no file, as a real review
+  may, so their rows have no `w` line and are 11.5px shorter; the board
+  invents `contacts/import/dedupe.test.ts` and `contacts/import/run.ts:91`.
+  Every layer under them sits higher by the same amount.
+- The board draws the decision cards with its own layer names (`i`, `s`,
+  `pick`, `pick/t`, `pick/r`, a plain-text "recommended") where
+  runs-p2-record names the same card `signpost`, `stamp`, `opt`,
+  `opt/label`, `opt/rec`. The app has one `DecisionCard`, keyed as
+  runs-p2-record, so those keys compare as missing and extra here, and the
+  card is 6px taller with the record's padding.
+- The board names the side facts `k`, `i`, `t`, `s` where the run boards
+  name them `label`, the glyph, `value`, `sub`; the app keeps one fact row,
+  keyed as the run boards. Neither the forge nor the fixture gives an MR
+  title or author, so Reviewed MR reads "!412" with no second line, where
+  the board draws "!412 Dedupe contacts on import" and "by an author on the
+  team · open". Without that line the card is 17px shorter. The copy
+  buttons are the kit's `CopyActionIcon` at `xs`.
+- The review run's findings question is the verdict, so the decision log,
+  the decision count and the tab count leave it out: the record counts the
+  two decisions the board draws.

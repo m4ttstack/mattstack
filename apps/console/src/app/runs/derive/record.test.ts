@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
+  GateAnswer,
   GateRow,
   RunFieldRow,
   RunStageRow,
@@ -17,6 +21,8 @@ import {
   recordEnd,
   recordSpan,
   recordStats,
+  reviewDecisionGates,
+  reviewVerdict,
 } from './record';
 
 const MIN = 60_000;
@@ -421,5 +427,143 @@ describe('answeredQuestionCount', () => {
       answer: { answers: { 'findings-1': ['x', 'y'] } },
     } as unknown as GateRow;
     expect(answeredQuestionCount([gate])).toBe(1);
+  });
+});
+
+/** The design fixture's gates for one run, read from disk: the import wall
+    keeps `server/` modules out of app code, tests included. */
+function fixtureGates(runId: string): GateRow[] {
+  const path = join(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../../server/fixtures/design/runs/gates.json'
+  );
+  const { gates } = JSON.parse(readFileSync(path, 'utf8')) as {
+    gates: (Omit<GateRow, 'openedAt' | 'answer'> & {
+      openedAt: string;
+      answer: (Omit<GateAnswer, 'answeredAt'> & { answeredAt: string }) | null;
+      origin?: { runId?: string };
+    })[];
+  };
+  return gates
+    .filter(g => g.origin?.runId === runId)
+    .map(g =>
+      gate({
+        ...g,
+        status: g.answer ? 'answered' : 'open',
+        openedAt: Date.parse(g.openedAt),
+        answer: g.answer
+          ? { ...g.answer, answeredAt: Date.parse(g.answer.answeredAt) }
+          : null,
+      })
+    );
+}
+
+/** A review-post gate whose findings questions carry no structured context,
+    as an older review skill asks it. */
+const plainPost = (questions: [string, string[], string[]][]): GateRow =>
+  gate({
+    id: 'g-post',
+    subject: 'mr:acme/web!406',
+    kind: 'review-post',
+    questions: [
+      ...questions.map(([id, labels]) => ({
+        id,
+        label: 'Post which findings to !406?',
+        multi: true,
+        options: labels.map((label, i) => ({ value: `${id}-${i}`, label })),
+      })),
+      {
+        id: 'outcome',
+        label: 'What should the review post?',
+        multi: false,
+        options: [
+          { value: 'approve', label: 'Approve' },
+          { value: 'comment', label: 'Comment' },
+        ],
+      },
+    ],
+    answer: {
+      answers: {
+        ...Object.fromEntries(questions.map(([id, , picks]) => [id, picks])),
+        outcome: 'approve',
+      },
+      by: 'console',
+      answeredAt: at(5),
+    },
+  });
+
+describe('reviewVerdict', () => {
+  it('reads the verdict and each posted finding from the structured context', () => {
+    const verdict = reviewVerdict(fixtureGates('20261008-0940'));
+    expect(verdict?.verdict).toBe('Request changes');
+    expect(verdict?.mrIid).toBe('412');
+    expect(verdict?.findings.map(f => f.severity)).toEqual([
+      'important',
+      'important',
+      'minor',
+      'minor',
+    ]);
+    expect(verdict?.findings.filter(f => f.where).map(f => f.where)).toEqual([
+      'contacts/import/dedupe.ts:58',
+      'contacts/merge.ts:12',
+    ]);
+    expect(verdict?.findings[0]).toEqual({
+      severity: 'important',
+      text: 'Dedupe matches on email only, so contacts without an email import twice.',
+      where: 'contacts/import/dedupe.ts:58',
+    });
+  });
+
+  it('parses the option label when a findings question has no context, across every findings question', () => {
+    const verdict = reviewVerdict([
+      plainPost([
+        [
+          'findings-1',
+          [
+            '[Important] Retry count resets (queue/retry.ts:18)',
+            '[Minor] Typo',
+          ],
+          ['findings-1-0'],
+        ],
+        ['findings-2', ['[Minor] Log is noisy'], ['findings-2-0']],
+      ]),
+    ]);
+    expect(verdict).toEqual({
+      verdict: 'Approve',
+      mrIid: '406',
+      findings: [
+        {
+          severity: 'important',
+          text: 'Retry count resets',
+          where: 'queue/retry.ts:18',
+        },
+        { severity: 'minor', text: 'Log is noisy', where: null },
+      ],
+    });
+  });
+
+  it('is null for a run that posted nothing', () => {
+    expect(reviewVerdict(workGates)).toBeNull();
+  });
+});
+
+describe('reviewDecisionGates', () => {
+  it('leaves out the findings the verdict shows, and the gate context that lists them', () => {
+    const gates = reviewDecisionGates(fixtureGates('20261008-0940'));
+    expect(
+      gates.map(g => [g.id, g.questions.map(q => q.id), g.context ?? null])
+    ).toEqual([
+      ['g-0940-tiers', ['tiers'], null],
+      ['g-0940-post', ['outcome'], null],
+    ]);
+    expect(answeredQuestionCount(gates)).toBe(2);
+  });
+
+  it('drops a gate that asked only for findings', () => {
+    const post = plainPost([
+      ['findings-1', ['[Minor] Typo'], ['findings-1-0']],
+    ]);
+    const onlyFindings = { ...post, questions: post.questions.slice(0, 1) };
+    expect(reviewDecisionGates([onlyFindings])).toEqual([]);
   });
 });
