@@ -1,9 +1,13 @@
 // src/skill-path.ts
 import { existsSync, readdirSync, realpathSync } from 'fs';
 import { homedir } from 'os';
-import { isAbsolute, join, resolve } from 'path';
+import { join } from 'path';
 
-import type { HarnessId, Outcome } from '@mattstack/rt-client';
+import {
+  codexHomeFor,
+  type HarnessId,
+  type Outcome,
+} from '@mattstack/rt-client';
 
 export interface PluginEntry {
   id: string;
@@ -150,33 +154,7 @@ const CODEX_BIN =
     PLUGIN_LIST_TIMEOUT_MS; a parity test in rt pins the two together. */
 export const CODEX_PLUGIN_LIST_TIMEOUT_MS = 10_000;
 
-/**
- * The Codex home the board's Codex panes run under, spelled the way rt's
- * codexHomeFor spells it: unset CODEX_HOME is <HOME>/.codex, `~` and `~/`
- * expand against HOME, and a relative value names no home and is refused.
- */
-export function codexHomeFor(
-  env: Record<string, string | undefined> = process.env
-): Outcome<string> {
-  const home = env.HOME ?? homedir();
-  const named = env.CODEX_HOME?.trim();
-  if (!named) return { ok: true, data: join(home, '.codex') };
-  const expanded =
-    named === '~'
-      ? home
-      : named.startsWith('~/')
-        ? join(home, named.slice(2))
-        : named;
-  if (!isAbsolute(expanded))
-    return {
-      ok: false,
-      error: {
-        code: 'invalid',
-        message: `Codex profile ${named} does not name a Codex home folder`,
-      },
-    };
-  return { ok: true, data: resolve(expanded) };
-}
+export { codexHomeFor };
 
 type CodexRow = {
   pluginId?: unknown;

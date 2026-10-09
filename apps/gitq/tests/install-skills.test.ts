@@ -1,9 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, lstatSync, readlinkSync, realpathSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, lstatSync, readlinkSync, realpathSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 import { setSetting } from '@mattstack/rt-client';
+import { claudeOnlyFile } from '../scripts/install-skills.ts';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'install-skills.ts');
 const SKILLS_SRC = join(import.meta.dir, '..', 'skills');
@@ -47,17 +48,28 @@ describe('install-skills', () => {
     }
   });
 
-  test('a harness gitq has no skills for is refused', () => {
+  test('a harness gitq has no skills for is skipped with one line', () => {
     const res = spawnSync('bun', ['run', SCRIPT, '--harness', 'pilot', dest], { encoding: 'utf8' });
-    expect(res.status).toBe(1);
-    expect(res.stderr).toContain('gitq has no skills for pilot');
+    expect(res.status).toBe(0);
+    expect(res.stderr.trim()).toBe('skip    pilot: gitq has no skills for pilot');
+    expect(readdirSync(dest)).toEqual([]);
   });
 
-  test('no gitq skill names a Claude-only variable, so its source is also its Codex build', () => {
-    for (const dir of readdirSync(SKILLS_SRC)) {
-      const md = join(SKILLS_SRC, dir, 'SKILL.md');
-      if (existsSync(md)) expect(readFileSync(md, 'utf8')).not.toContain('${CLAUDE_');
-    }
+  test('no gitq skill file is written for Claude only, so its source is also its Codex build', () => {
+    for (const dir of readdirSync(SKILLS_SRC)) expect(claudeOnlyFile(join(SKILLS_SRC, dir))).toBeNull();
+  });
+
+  test('a Claude-only variable or a harness fragment anywhere in a skill folder marks it', () => {
+    const skill = join(dest, 'fixture-skill');
+    mkdirSync(join(skill, 'refs', 'deep'), { recursive: true });
+    writeFileSync(join(skill, 'SKILL.md'), 'name: x\n');
+    writeFileSync(join(skill, 'refs', 'notes.md'), 'plain\n');
+    expect(claudeOnlyFile(skill)).toBeNull();
+    writeFileSync(join(skill, 'refs', 'deep', 'step.md'), 'before\n{{harness:questions}}\n');
+    expect(claudeOnlyFile(skill)).toBe(join('refs', 'deep', 'step.md'));
+    rmSync(join(skill, 'refs', 'deep', 'step.md'));
+    writeFileSync(join(skill, 'run.sh'), 'cd "${CLAUDE_SKILL_DIR}"\n');
+    expect(claudeOnlyFile(skill)).toBe('run.sh');
   });
 
   describe('with no folder given', () => {
@@ -94,6 +106,13 @@ describe('install-skills', () => {
       expect(res.status).toBe(0);
       for (const name of SKILLS) expect(lstatSync(join(home, 'codex', 'skills', name)).isSymbolicLink()).toBe(true);
       expect(existsSync(join(home, '.claude'))).toBe(false);
+    });
+
+    test('switch on: an id gitq has no skills for is skipped and the rest are linked', () => {
+      const res = runIn({ 'agent.integrations.enabled': true, 'agent.integrations': ['pilot', 'codex'] });
+      expect(res.status).toBe(0);
+      expect(res.stderr.trim()).toBe('skip    pilot: gitq has no skills for pilot');
+      for (const name of SKILLS) expect(lstatSync(join(home, 'codex', 'skills', name)).isSymbolicLink()).toBe(true);
     });
   });
 

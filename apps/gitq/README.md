@@ -278,7 +278,7 @@ A local web board showing every configured repo's stacks: per branch status badg
 
 Right-clicking a stack offers four actions. Each one spawns a herdr tab running `claude` with the matching `gitq:*` skill, so the badge updates live while the agent works. Relaunching a live action refocuses its tab instead of double-spawning.
 
-With mattstack's agent integrations turned on (`agent.integrations.enabled`), rt starts the action instead, with your default agent when it is turned on, else the first one that is (Claude Code or Codex). Only the session rt started can then report that job's status.
+With mattstack's agent integrations turned on (`agent.integrations.enabled`), rt starts the action instead, with your default agent when it is turned on, else the first one that is (Claude Code or Codex). Only the session rt started can then report that job's status. That check reads the session from the reporting command's environment, so it catches a worker reporting the wrong job by accident; it does not stop a process that deliberately sets another session's id.
 
 ```bash
 mkdir -p ~/.mattstack/gitq

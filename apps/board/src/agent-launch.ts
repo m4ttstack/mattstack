@@ -3,6 +3,7 @@ import {
   agentIntegrations as rtAgentIntegrations,
   agentResume as rtAgentResume,
   agentStart as rtAgentStart,
+  selectLaunchHarness as selectSharedHarness,
   type Commands,
   type HarnessId,
 } from '@mattstack/rt-client';
@@ -35,20 +36,10 @@ export const defaultHarnessIo: HarnessIo = {
 export async function selectLaunchHarness(
   io: HarnessIo = defaultHarnessIo
 ): Promise<HarnessId | undefined> {
-  if (!io.switchOn()) return undefined;
-  const res = await io.agentIntegrations({ mode: 'herdr' });
-  if (!res.ok || !res.data)
-    throw new Error(
-      `The board could not read which agents are turned on: ${res.error ?? 'rt sent no answer'}`
-    );
-  const enabled = res.data.integrations.filter(i => i.enabled);
-  const preferred = io.defaultHarness();
-  const chosen = enabled.find(i => i.id === preferred) ?? enabled[0];
-  if (!chosen)
-    throw new Error(
-      'No agent is turned on, so the board cannot start one. Turn one on in setup.'
-    );
-  return chosen.id;
+  return selectSharedHarness(io, {
+    sentenceStart: 'The board',
+    inSentence: 'the board',
+  });
 }
 
 /** The harness an existing agent record runs; undefined while the switch is off. */

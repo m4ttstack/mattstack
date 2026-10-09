@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   CODEX_PLUGIN_LIST_TIMEOUT_MS,
-  codexHomeFor as boardCodexHomeFor,
   parseCodexPluginList as boardParse,
 } from "../../../../apps/board/src/skill-path.ts";
+import { codexHomeFor as clientCodexHomeFor } from "../../../../packages/rt-client/src/harness-context.ts";
 import { PLUGIN_LIST_TIMEOUT_MS } from "../../../skills/installed-plugins.ts";
 import { codexHomeFor, parseCodexPluginList } from "../skills.ts";
 
-/** The board copies rt's Codex listing parser and home rule because it reaches rt only through rt-client. */
+/** The board copies rt's Codex listing parser, and rt-client copies its home rule (Board and gitq use it), because apps reach rt only through rt-client. */
 const HOME = "/codex-home";
 
 const row = (over: Record<string, unknown>) => ({
@@ -50,7 +50,7 @@ describe("the board's Codex plugin listing matches rt's", () => {
     test(`the Codex home for CODEX_HOME=${JSON.stringify(codexHome)}`, () => {
       const env = { HOME: "/u", ...(codexHome !== undefined && { CODEX_HOME: codexHome }) };
       const rt = codexHomeFor(undefined, env);
-      const board = boardCodexHomeFor(env);
+      const board = clientCodexHomeFor(env);
       expect(board.ok).toBe(rt.ok);
       if (rt.ok && board.ok) expect(board.data).toBe(rt.data.home);
     });

@@ -232,5 +232,5 @@ export type {
 export { MOD_BLOCKS } from "./agent-integrations.ts";
 export { agentCatalog, CLAUDE_EFFORT_CATALOG, CLAUDE_MODEL_CATALOG, codexModelCatalog } from "./agent-catalog.ts";
 export type { AgentCatalog, AgentCatalogDeps, AgentCatalogOption } from "./agent-catalog.ts";
-export { defaultHarness, enabledHarnesses, integrationsSwitchOn, nativeCallerFromEnv, selectLaunchHarness } from "./harness-context.ts";
-export type { LaunchHarnessIo, NativeCaller } from "./harness-context.ts";
+export { codexHomeFor, defaultHarness, enabledHarnesses, integrationsSwitchOn, nativeCallerFromEnv, selectLaunchHarness } from "./harness-context.ts";
+export type { AppName, LaunchHarnessIo, NativeCaller } from "./harness-context.ts";

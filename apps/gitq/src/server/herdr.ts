@@ -4,6 +4,7 @@ import { join } from 'path';
 import {
   agentIntegrations as rtAgentIntegrations,
   agentStart as rtAgentStart,
+  codexHomeFor,
   defaultHarness,
   integrationsSwitchOn,
   repoNameForPath,
@@ -181,7 +182,11 @@ export interface ActionLaunchIo {
 
 export const defaultActionLaunchIo: Omit<ActionLaunchIo, 'herdrLaunch'> = {
   agentStart: rtAgentStart,
-  codexSkillsDir: () => join(process.env.CODEX_HOME || join(process.env.HOME ?? homedir(), '.codex'), 'skills'),
+  codexSkillsDir: () => {
+    const home = codexHomeFor();
+    if (!home.ok) throw new Error(home.error.message);
+    return join(home.data, 'skills');
+  },
   exists: existsSync,
   rtRepo: (repoPath) => repoNameForPath(repoPath),
 };

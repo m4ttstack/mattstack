@@ -9,7 +9,7 @@ import { IS_COMPILED } from '../core/app-root.ts';
 import { getClientAssets } from './client-assets.ts';
 import { getWorktreeMap } from '../core/worktrees.ts';
 import { defaultActionLaunchIo, focusTab, launchAction, launchInWorkspace, selectActionHarness, tabLabel } from './herdr.ts';
-import { jobFilePath, pruneJobStates, readJobStates, writeJobState } from './job-state.ts';
+import { jobFilePath, pruneJobStates, readJobState, readJobStates, writeJobState } from './job-state.ts';
 import embeddedCss from '../client/style.css' with { type: 'text' };
 import favicon from '../client/favicon.svg' with { type: 'text' };
 
@@ -126,7 +126,9 @@ const server = Bun.serve({
         const repoName = config.repos.find((r) => r.path === parsed.repoPath)?.name ?? parsed.repoPath;
         // Seed the state file before spawning so the skill's writes merge
         // into a fully-identified job (Plan 2 merge semantics).
-        // A previous run's launch binding is cleared here, whatever this run does.
+        // A previous run's launch binding is cleared here, and restored only
+        // when this launch focuses the pane that run started.
+        const previousLaunch = readJobState(statePath)?.launch;
         writeJobState(statePath, { status: 'starting', repoPath: parsed.repoPath, stack: parsed.stack, action: parsed.action, launch: undefined });
         try {
           const harness = await selectActionHarness();
@@ -148,7 +150,7 @@ const server = Bun.serve({
             status: 'starting',
             tabId: launched.tabId,
             workspaceId: launched.workspaceId,
-            ...(harness !== undefined ? { launch: launched.launch } : {}),
+            ...(launched.focusedExisting ? { launch: previousLaunch } : harness !== undefined ? { launch: launched.launch } : {}),
           });
           return Response.json({ ok: true, focused: launched.focusedExisting });
         } catch (err) {

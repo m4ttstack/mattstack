@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  codexHomeFor,
   defaultHarness,
   enabledHarnesses,
   integrationsSwitchOn,
@@ -96,5 +97,26 @@ describe("selectLaunchHarness", () => {
       .rejects.toThrow("No agent is turned on, so gitq cannot start one. Turn one on in setup.");
     await expect(selectLaunchHarness(io({ agentIntegrations: async () => ({ ok: false, error: "no daemon" }) }), "gitq"))
       .rejects.toThrow("gitq could not read which agents are turned on: no daemon");
+  });
+
+  test("an app name with two spellings opens a sentence with one and sits inside it with the other", async () => {
+    const who = { sentenceStart: "The board", inSentence: "the board" };
+    await expect(selectLaunchHarness(io({ ids: [] }), who))
+      .rejects.toThrow("No agent is turned on, so the board cannot start one. Turn one on in setup.");
+    await expect(selectLaunchHarness(io({ agentIntegrations: async () => ({ ok: false }) }), who))
+      .rejects.toThrow("The board could not read which agents are turned on: rt sent no answer");
+  });
+});
+
+describe("codexHomeFor", () => {
+  test("unset is ~/.codex, ~ and ~/ expand, an absolute path is resolved, a relative one is refused", () => {
+    expect(codexHomeFor({ HOME: "/u" })).toEqual({ ok: true, data: "/u/.codex" });
+    expect(codexHomeFor({ HOME: "/u", CODEX_HOME: "  " })).toEqual({ ok: true, data: "/u/.codex" });
+    expect(codexHomeFor({ HOME: "/u", CODEX_HOME: "~" })).toEqual({ ok: true, data: "/u" });
+    expect(codexHomeFor({ HOME: "/u", CODEX_HOME: "~/other" })).toEqual({ ok: true, data: "/u/other" });
+    expect(codexHomeFor({ HOME: "/u", CODEX_HOME: "/abs/../codex" })).toEqual({ ok: true, data: "/codex" });
+    expect(codexHomeFor({ HOME: "/u", CODEX_HOME: "relative/codex" })).toEqual({
+      ok: false, error: { code: "invalid", message: "Codex profile relative/codex does not name a Codex home folder" },
+    });
   });
 });

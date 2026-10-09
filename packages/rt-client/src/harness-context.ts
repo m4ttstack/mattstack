@@ -5,7 +5,9 @@
  * app does not keep its own copy.
  */
 
-import type { HarnessId, IntegrationSummary } from "./agent-integrations.ts";
+import { homedir } from "os";
+import { isAbsolute, join, resolve } from "path";
+import type { HarnessId, IntegrationSummary, Outcome } from "./agent-integrations.ts";
 import { getSetting } from "./settings/resolve.ts";
 import type { RtResponse } from "./transport.ts";
 
@@ -79,6 +81,9 @@ export interface LaunchHarnessIo {
   agentIntegrations(a: { mode: "herdr" }): Promise<RtResponse<{ integrations: IntegrationSummary[] }>>;
 }
 
+/** How a refusal names the app: one spelling, or one to open a sentence and one inside it. */
+export type AppName = string | { sentenceStart: string; inSentence: string };
+
 /**
  * The harness a fresh pane runs: undefined while the switch is off, so the
  * caller launches as it always did. With it on, the default harness when it
@@ -86,13 +91,32 @@ export interface LaunchHarnessIo {
  * left to the launch, since a harness can read not ready until something
  * connects. `who` names the app in its refusals.
  */
-export async function selectLaunchHarness(io: LaunchHarnessIo, who: string): Promise<HarnessId | undefined> {
+export async function selectLaunchHarness(io: LaunchHarnessIo, who: AppName): Promise<HarnessId | undefined> {
   if (!io.switchOn()) return undefined;
+  const start = typeof who === "string" ? who : who.sentenceStart;
+  const inSentence = typeof who === "string" ? who : who.inSentence;
   const res = await io.agentIntegrations({ mode: "herdr" });
-  if (!res.ok || !res.data) throw new Error(`${who} could not read which agents are turned on: ${res.error ?? "rt sent no answer"}`);
+  if (!res.ok || !res.data) throw new Error(`${start} could not read which agents are turned on: ${res.error ?? "rt sent no answer"}`);
   const enabled = res.data.integrations.filter((i) => i.enabled);
   const preferred = io.defaultHarness();
   const chosen = enabled.find((i) => i.id === preferred) ?? enabled[0];
-  if (!chosen) throw new Error(`No agent is turned on, so ${who} cannot start one. Turn one on in setup.`);
+  if (!chosen) throw new Error(`No agent is turned on, so ${inSentence} cannot start one. Turn one on in setup.`);
   return chosen.id;
+}
+
+/**
+ * The Codex home an environment names, spelled the way rt spells it
+ * (lib/agent-integrations/codex/skills.ts, pinned by a parity test there):
+ * unset CODEX_HOME is <HOME>/.codex, `~` and `~/` expand against HOME, and a
+ * relative value names no home and is refused.
+ */
+export function codexHomeFor(env: Record<string, string | undefined> = process.env): Outcome<string> {
+  const home = env.HOME ?? homedir();
+  const named = env.CODEX_HOME?.trim();
+  if (!named) return { ok: true, data: join(home, ".codex") };
+  const expanded = named === "~" ? home : named.startsWith("~/") ? join(home, named.slice(2)) : named;
+  if (!isAbsolute(expanded)) {
+    return { ok: false, error: { code: "invalid", message: `Codex profile ${named} does not name a Codex home folder` } };
+  }
+  return { ok: true, data: resolve(expanded) };
 }

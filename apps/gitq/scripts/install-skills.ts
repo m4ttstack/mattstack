@@ -9,21 +9,26 @@
     picks one harness, and a folder given as the last argument replaces its
     default (used by tests).
 
-    gitq's skills name no Claude-only variable, so skills/ is also their
-    Codex build; a skill that does is not linked for Codex. */
+    gitq's skills name no Claude-only variable and no harness fragment, so
+    skills/ is also their Codex build; a skill with a file that does is not
+    linked for another harness. An id gitq has no skills for is skipped. */
 import { readFileSync, readdirSync, existsSync, lstatSync, readlinkSync, symlinkSync, rmSync, mkdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { enabledHarnesses, integrationsSwitchOn } from '@mattstack/rt-client';
+import { codexHomeFor, enabledHarnesses, integrationsSwitchOn } from '@mattstack/rt-client';
 
 const ROOT = join(import.meta.dir, '..');
 const SKILLS_SRC = join(ROOT, 'skills');
 const HOME = process.env.HOME ?? homedir();
 
-function skillsDirFor(harness: string): string | null {
-  if (harness === 'claude') return join(HOME, '.claude', 'skills');
-  if (harness === 'codex') return join(process.env.CODEX_HOME || join(HOME, '.codex'), 'skills');
-  return null;
+/** The harness's own skills folder, or why gitq cannot link into it. */
+function skillsDirFor(harness: string): { dir: string } | { skip: string } {
+  if (harness === 'claude') return { dir: join(HOME, '.claude', 'skills') };
+  if (harness === 'codex') {
+    const home = codexHomeFor({ ...process.env, HOME });
+    return home.ok ? { dir: join(home.data, 'skills') } : { skip: home.error.message };
+  }
+  return { skip: `gitq has no skills for ${harness}` };
 }
 
 function parseArgs(argv: string[]): { harness?: string; dest?: string } {
@@ -38,13 +43,13 @@ function parseArgs(argv: string[]): { harness?: string; dest?: string } {
 function targets(): { harness: string; dest: string }[] {
   const args = parseArgs(process.argv.slice(2));
   const chosen = args.harness !== undefined ? [args.harness] : integrationsSwitchOn() && !args.dest ? enabledHarnesses() : ['claude'];
-  return chosen.map((harness) => {
-    const dest = args.dest ?? skillsDirFor(harness);
-    if (dest === null || skillsDirFor(harness) === null) {
-      console.error(`gitq has no skills for ${harness}`);
-      process.exit(1);
+  return chosen.flatMap((harness) => {
+    const found = skillsDirFor(harness);
+    if ('skip' in found) {
+      console.error(`skip    ${harness}: ${found.skip}`);
+      return [];
     }
-    return { harness, dest };
+    return [{ harness, dest: args.dest ?? found.dir }];
   });
 }
 
@@ -55,8 +60,21 @@ function skillName(dir: string): string | null {
   return match ? match[1]! : null;
 }
 
-function claudeOnly(dir: string): boolean {
-  return readFileSync(join(SKILLS_SRC, dir, 'SKILL.md'), 'utf8').includes('${CLAUDE_');
+const CLAUDE_ONLY_MARKERS = ['${CLAUDE_', '{{harness:'];
+
+/** The first file under a skill folder that only Claude's build can carry as written, relative to it; null when none does. */
+export function claudeOnlyFile(skillDir: string, rel = ''): string | null {
+  for (const entry of readdirSync(join(skillDir, rel), { withFileTypes: true })) {
+    const path = rel ? join(rel, entry.name) : entry.name;
+    if (entry.isDirectory()) {
+      const found = claudeOnlyFile(skillDir, path);
+      if (found) return found;
+    } else if (entry.isFile()) {
+      const text = readFileSync(join(skillDir, path), 'utf8');
+      if (CLAUDE_ONLY_MARKERS.some((m) => text.includes(m))) return path;
+    }
+  }
+  return null;
 }
 
 function linkInto(harness: string, dest: string): void {
@@ -65,8 +83,9 @@ function linkInto(harness: string, dest: string): void {
     if (!statSync(join(SKILLS_SRC, dir)).isDirectory()) continue;
     const name = skillName(dir);
     if (!name) continue;
-    if (harness !== 'claude' && claudeOnly(dir)) {
-      console.error(`skip    ${name}: it names a Claude-only variable, so it has no ${harness} build`);
+    const claudeOnly = harness === 'claude' ? null : claudeOnlyFile(join(SKILLS_SRC, dir));
+    if (claudeOnly) {
+      console.error(`skip    ${name}: ${claudeOnly} is written for Claude's build only, so it has no ${harness} build`);
       continue;
     }
     const src = join(SKILLS_SRC, dir);
@@ -91,6 +110,8 @@ function linkInto(harness: string, dest: string): void {
   }
 }
 
-const chosen = targets();
-if (chosen.length === 0) console.log('No agent is turned on, so no skills were linked.');
-for (const { harness, dest } of chosen) linkInto(harness, dest);
+if (import.meta.main) {
+  const chosen = targets();
+  if (chosen.length === 0) console.log('No skills were linked: no agent gitq has skills for is turned on.');
+  for (const { harness, dest } of chosen) linkInto(harness, dest);
+}

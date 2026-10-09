@@ -1,4 +1,10 @@
-import { getSetting, type HarnessId } from '@mattstack/rt-client';
+import {
+  defaultHarness,
+  getSetting,
+  integrationsSwitchOn,
+  nativeCallerFromEnv,
+  type HarnessId,
+} from '@mattstack/rt-client';
 
 /** The native session a status or gate CLI call comes from. `problem` says
     why none is named. `both` carries the two ids an environment named, for
@@ -15,11 +21,7 @@ export type CallerCli = 'status' | 'gate';
 
 /** Read at call time; unreadable settings keep the switch off. */
 export function integrationsOn(read: typeof getSetting = getSetting): boolean {
-  try {
-    return read<boolean>('agent.integrations.enabled').value === true;
-  } catch {
-    return false;
-  }
+  return integrationsSwitchOn(read);
 }
 
 /** The user's default harness (`agent.provider`), through the resolver;
@@ -27,16 +29,8 @@ export function integrationsOn(read: typeof getSetting = getSetting): boolean {
 export function configuredProvider(
   read: typeof getSetting = getSetting
 ): HarnessId | undefined {
-  try {
-    const value = read<string>('agent.provider').value;
-    return typeof value === 'string' && value ? value : undefined;
-  } catch {
-    return undefined;
-  }
+  return defaultHarness(read);
 }
-
-const text = (v: string | undefined): string | undefined =>
-  v && v.trim() ? v : undefined;
 
 function bothProblem(cli: CallerCli): string {
   const outcome =
@@ -57,16 +51,8 @@ export function callerSession(
   switchOn: boolean,
   cli: CallerCli = 'status'
 ): CallerSession {
-  if (!switchOn) {
-    const raw = env.CLAUDE_CODE_SESSION_ID;
-    return raw ? { sessionId: raw } : {};
-  }
-  const claude = text(env.CLAUDE_CODE_SESSION_ID);
-  const codex = text(env.CODEX_THREAD_ID);
-  if (codex && claude)
-    return { problem: bothProblem(cli), both: { codex, claude } };
-  if (codex) return { sessionId: codex, harness: 'codex' };
-  return claude ? { sessionId: claude, harness: 'claude' } : {};
+  const found = nativeCallerFromEnv(env, switchOn);
+  return found.both ? { problem: bothProblem(cli), both: found.both } : found;
 }
 
 /**
