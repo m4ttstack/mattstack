@@ -7,12 +7,17 @@
 import { findRun, listRuns, readRun } from "../../runs/store.ts";
 import { getRunLiveness } from "../../runs/liveness.ts";
 import { abandonRun } from "../../runs/reconcile.ts";
+import { checkUploadPath } from "../upload-guard.ts";
+import { EVIDENCE_IMAGE_KEYS, parseEvidence, type EvidenceImageKey } from "../../../packages/rt-client/src/evidence.ts";
 import type { HandlerContext, CommandResult } from "./types.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 
+const EVIDENCE_MAX_BYTES = 15 * 1024 * 1024;
+
 type RunsHandlers = { "runs:list": (payload: unknown) => Promise<CommandResult<"runs:list">> }
   & { "runs:get": (payload: unknown) => Promise<CommandResult<"runs:get">> }
-  & { "runs:abandon": (payload: unknown) => Promise<CommandResult<"runs:abandon">> };
+  & { "runs:abandon": (payload: unknown) => Promise<CommandResult<"runs:abandon">> }
+  & { "runs:evidence": (payload: unknown) => Promise<CommandResult<"runs:evidence">> };
 
 export function createRunsHandlers(
   ctx: Pick<HandlerContext, "log">,
@@ -62,6 +67,27 @@ export function createRunsHandlers(
         return { ok: true as const, data: { ok: true } };
       } catch (err) {
         ctx.log.warn({ err, runId }, "runs:abandon failed");
+        return { ok: false as const, error: String(err) };
+      }
+    },
+    "runs:evidence": async (rawPayload: unknown): Promise<CommandResult<"runs:evidence">> => {
+      const payload = rawPayload as Commands["runs:evidence"]["payload"] | undefined;
+      const runId = typeof payload?.runId === "string" ? payload.runId.trim() : "";
+      if (!runId) return { ok: false as const, error: "missing runId" };
+      const key = payload?.key as EvidenceImageKey;
+      if (!(EVIDENCE_IMAGE_KEYS as readonly string[]).includes(key)) return { ok: false as const, error: "unknown key" };
+      try {
+        const detail = payload?.repo ? readRun(payload.repo, runId) : findRun(runId);
+        if (!detail) return { ok: false as const, error: "run not found" };
+        const parsed = parseEvidence(detail.fields.find((f) => f.key === "evidence")?.value);
+        const path = parsed.version === 1 ? parsed.images.find((i) => i.key === key)?.path : undefined;
+        if (!path) return { ok: false as const, error: "no evidence" };
+        const worktree = detail.fields.find((f) => f.key === "worktree")?.value;
+        const checked = checkUploadPath(path, worktree ? [worktree] : [], { maxBytes: EVIDENCE_MAX_BYTES });
+        if (!checked.ok) return { ok: false as const, error: checked.error };
+        return { ok: true as const, data: { mime: checked.mime, base64: Buffer.from(checked.bytes).toString("base64") } };
+      } catch (err) {
+        ctx.log.warn({ err, runId }, "runs:evidence failed");
         return { ok: false as const, error: String(err) };
       }
     },
