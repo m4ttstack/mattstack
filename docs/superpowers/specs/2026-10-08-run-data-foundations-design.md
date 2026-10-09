@@ -100,8 +100,10 @@ merged-count source wait for the runs page spec.
    `{version: 1, items, meta}` for `evidence@1`, and for anything else a
    `{version: 0, links}` list of every absolute path or URL it finds, so runs
    recorded before this change still show their files.
-4. **Image route.** `GET /api/runs/:repo/:runId/evidence/:key`, chained in
-   the `runs` router:
+4. **Image route.** The console server never reads rt's files, so the check
+   lives in a daemon verb, `runs:evidence {runId, repo?, key}`, which returns
+   `{mime, base64}` (capped at 15MB for the socket). The console's
+   `GET /api/runs/:repo/:runId/evidence/:key` only relays it. The verb:
    - `key` must be one of `before`, `beforeAnnotated`, `after`,
      `afterAnnotated`; anything else is 404.
    - The path is the value under `key` in that run's own `evidence` field,
@@ -111,7 +113,7 @@ merged-count source wait for the runs page spec.
      realpath first, a regular single-link file, inside the evidence roots,
      image bytes matching the extension, read without following symlinks,
      capped at 50MB.
-   - The response is the bytes with their mime type and
+   - The console route returns the bytes with their mime type and
      `Cache-Control: private, max-age=3600`.
 
 ### D. Pure selectors (console)
