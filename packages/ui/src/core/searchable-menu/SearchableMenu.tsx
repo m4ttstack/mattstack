@@ -187,11 +187,12 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         component={component}
         {...getItemProps?.(item)}
         onClick={() => onItemClick?.(item)}
-        // A neutral tint, so a row's light badges and avatars keep their
-        // contrast on the selected row.
+        // Selected tint follows the theme's primary color (same calm
+        // `-light` tint SelectableList uses for its selected rows), not a
+        // hardcoded palette color.
         bg={
           isSelectedItem?.(item)
-            ? 'light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))'
+            ? 'var(--mantine-primary-color-light)'
             : undefined
         }
         rightSection={
@@ -233,7 +234,12 @@ export function SearchableMenu<T extends Record<string, unknown>>({
               )}
             </Flex>
             {showItemBadge?.(item) && (
-              <Badge variant="light" color={itemBadgeColor?.(item)}>
+              <Badge
+                // A light badge vanishes into the selected row's light tint;
+                // white keeps it readable there.
+                variant={isSelectedItem?.(item) ? 'white' : 'light'}
+                color={itemBadgeColor?.(item)}
+              >
                 {typeof itemBadgeText === 'string'
                   ? itemBadgeText
                   : itemBadgeText?.(item)}

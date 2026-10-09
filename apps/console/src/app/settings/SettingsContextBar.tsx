@@ -65,7 +65,12 @@ function Who({ viewer }: { viewer: Viewer }) {
   );
 }
 
-type TeamItem = { name: string; own: boolean; owners: string[] };
+type TeamItem = {
+  name: string;
+  own: boolean;
+  owners: string[];
+  selected: boolean;
+};
 
 /** Who to ask about a team's settings: its owners, by face and name. A
     span, since the menu sets the line inside a paragraph. */
@@ -85,7 +90,7 @@ function OwnersLine({ item }: { item: TeamItem }) {
                 size={18}
                 radius="xl"
                 color="cyan"
-                variant="light"
+                variant={item.selected ? 'white' : 'light'}
                 fz={9}
               >
                 {initials(name)}
@@ -123,6 +128,7 @@ function TeamMenu({
     name: t,
     own: t === ownTeam,
     owners: owners[t] ?? [],
+    selected: t === team,
   }));
   return (
     <SearchableMenu<TeamItem>
@@ -147,7 +153,12 @@ function TeamMenu({
       itemSubtitle={item => <OwnersLine item={item} />}
       itemTitleSuffix={item =>
         item.own ? (
-          <Badge size="xs" radius="xl" color="cyan" variant="light">
+          <Badge
+            size="xs"
+            radius="xl"
+            color="cyan"
+            variant={item.selected ? 'white' : 'light'}
+          >
             your team
           </Badge>
         ) : null
@@ -220,8 +231,8 @@ export function SettingsContextBar({
         )}
         {other && ownTeam && (
           <Button
-            size="xs"
-            variant="subtle"
+            size="compact-sm"
+            variant="light"
             color="gray"
             leftSection={<Icons.arrowLeft size={13} />}
             onClick={() => onPickTeam(null)}
