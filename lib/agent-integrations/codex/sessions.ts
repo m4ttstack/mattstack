@@ -39,7 +39,8 @@
  * an unload, close or sessionEnd hook heard later is. A thread rt runs
  * headless is the exception: it has no terminal, and a restarted app server
  * has it on disk but not loaded, so it is loaded again and keeps its binding
- * and generation; only one Codex refuses to read is reported gone. A close is an unload:
+ * and generation; only one Codex answers it has no thread or rollout for, or
+ * one it reports archived (rt never unarchives), is reported gone. A close is an unload:
  * Codex closes a thread about 60 s after its last subscriber leaves (live-04),
  * terminal quit or not, so it detaches the binding and never signs the
  * session out; only the sessionEnd hook ends one. A Herdr attachment is
@@ -209,18 +210,25 @@ const failFrom = <T>(err: unknown, prefix = ""): Outcome<T> => fail(codeOf(err),
 const INVALID_REQUEST = -32600;
 /**
  * The reasons Codex 0.162 gives, per method, for a thread rt can never use
- * again: thread/read of an id it has no thread for, and thread/resume of one
- * with no rollout. Every other refusal (a malformed id, an internal error, a
+ * again: thread/read of an id it has no thread for, thread/resume of one with
+ * no rollout, and thread/resume of an archived session, which rt never
+ * unarchives. Every other refusal (a malformed id, an internal error, a
  * server still starting) says nothing about the thread.
  */
-const THREAD_GONE: Record<"thread/read" | "thread/resume", readonly string[]> = {
-  "thread/read": ["thread not loaded"],
-  "thread/resume": ["no rollout found for thread id"],
+const THREAD_GONE: Record<"thread/read" | "thread/resume", ReadonlyArray<(reason: string) => boolean>> = {
+  "thread/read": [(reason) => reason.startsWith("thread not loaded")],
+  "thread/resume": [
+    (reason) => reason.startsWith("no rollout found for thread id"),
+    (reason) => reason.startsWith("session ") && reason.includes(" is archived. Run `codex unarchive "),
+  ],
 };
 
 function threadGone(err: unknown, method: keyof typeof THREAD_GONE): boolean {
-  return err instanceof CodexControlError && err.code === "refused" && err.nativeCode === INVALID_REQUEST
-    && THREAD_GONE[method].some((reason) => err.message.includes(`Codex refused ${method}: ${reason}`));
+  if (!(err instanceof CodexControlError) || err.code !== "refused" || err.nativeCode !== INVALID_REQUEST) return false;
+  const prefix = `Codex refused ${method}: `;
+  if (!err.message.startsWith(prefix)) return false;
+  const reason = err.message.slice(prefix.length);
+  return THREAD_GONE[method].some((gone) => gone(reason));
 }
 const home = (): string => process.env.HOME ?? homedir();
 const flat = (s: string): string => s.replace(/\s+/g, " ").trim();

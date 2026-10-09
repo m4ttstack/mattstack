@@ -1603,6 +1603,20 @@ describe("an app server restart (live-16 D6)", () => {
     }
   });
 
+  test("an archived headless thread is gone for rt: it is detached, never unarchived (live-17 D8)", async () => {
+    const server = restartedServer([]);
+    server.handlers["thread/resume"] = (s, m) => s.push({
+      id: m.id, error: { code: -32600, message: `session ${m.params.threadId} is archived. Run \`codex unarchive ${m.params.threadId}\` to unarchive it first.` },
+    });
+    const h = await harness(server.handlers);
+    const gone: Gone[] = [];
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return true; } });
+    const archived = binding("T1", { attachment: { generation: 6, mode: "headless" } });
+    expect(await sessions.keep(archived)).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(gone).toEqual([{ value: "T1", event: "unloaded", generation: 6 }]);
+    expect(h.ops.filter((op) => op.includes("unarchive"))).toEqual([]);
+  });
+
   test("a headless binding whose job attempt was ended or replaced is never loaded again", async () => {
     const server = restartedServer([]);
     const h = await harness(server.handlers);
