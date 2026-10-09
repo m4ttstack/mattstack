@@ -136,6 +136,10 @@ export function VirtualList<T>({
               key={virtualRow.key}
               data-index={virtualRow.index}
               ref={virtualizer.measureElement}
+              // Holds a row's own margins inside the box measureElement
+              // reads; collapsed outside it, the list measures short and
+              // scrolls by that margin.
+              style={{ display: 'flow-root' }}
             >
               {renderRow(items[virtualRow.index], virtualRow.index, visible)}
             </div>
