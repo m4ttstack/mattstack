@@ -8,13 +8,17 @@ export const ORG_MARKER_REL = join("mattstack", "mattstack.jsonc");
 /** The highest org layout this rt reads. Moves only with a breaking change to the org repo's shape, never with a release. */
 export const ORG_LAYOUT = 2;
 
+/** What a `role: "org"` marker without `layout` reads as. Fixed, never ORG_LAYOUT: a bump must not turn an unconverted repo ready. */
+export const ORG_LAYOUT_ABSENT_DEFAULT = 2;
+
 export type MarkerState = { kind: "none" } | { kind: "invalid"; why: string } | { kind: "org"; org: string; layout: number };
 
 /**
  * An old clone may still carry a `role: "team"` marker with an `org` field; a
  * marker of any other role is not an org clone. `layout` is the marker's own
- * when present; else 2 for the org layout and 1 for the one-team layout, so
- * no repo converted before the field existed has to write it.
+ * when present; else ORG_LAYOUT_ABSENT_DEFAULT for the org layout and 1 for
+ * the one-team layout, so no repo converted before the field existed has to
+ * write it.
  */
 export function parseMarker(raw: string | null): MarkerState {
   if (raw === null) return { kind: "none" };
@@ -36,7 +40,7 @@ export function parseMarker(raw: string | null): MarkerState {
   if (layout !== undefined && (typeof layout !== "number" || !Number.isInteger(layout) || layout < 1)) {
     return { kind: "invalid", why: "its layout is not a positive whole number" };
   }
-  return { kind: "org", org, layout: typeof layout === "number" ? layout : role === "org" ? ORG_LAYOUT : 1 };
+  return { kind: "org", org, layout: typeof layout === "number" ? layout : role === "org" ? ORG_LAYOUT_ABSENT_DEFAULT : 1 };
 }
 
 export function markerState(p: Pick<Probes, "readFile">, dir: string): MarkerState {
