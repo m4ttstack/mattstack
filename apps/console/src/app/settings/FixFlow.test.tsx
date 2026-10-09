@@ -862,7 +862,7 @@ describe('Fix in the explain modal', () => {
       },
     ]);
     const layer = await screen.findByTestId('layer-user');
-    expect(within(layer).queryByText(/^Editing the/)).toBeNull();
+    expect(within(layer).queryByText(/^Saves to/)).toBeNull();
     expect(
       await layerAction(layer, 'remove board.hiddenMembers from user')
     ).toBeInTheDocument();

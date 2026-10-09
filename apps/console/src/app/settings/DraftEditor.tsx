@@ -46,6 +46,14 @@ function emptyOf(def: SettingDefWire): unknown {
     form is out of reach while the JSON does not parse or does not fit it.
     Escape and Cancel discard the draft; Escape is marked handled so an
     enclosing modal stays open. */
+/** Where Save writes, short: a project's own section reads "for this
+    project", since the toolbar's picker already names the project. */
+function saveTarget(label: string): string {
+  const [layer, where] = label.split(' · ');
+  if (where === undefined) return layer!;
+  return where.includes('/') ? `${layer} for this project` : label;
+}
+
 export function DraftEditor({
   def,
   form,
@@ -165,8 +173,13 @@ export function DraftEditor({
   };
   const onKeyDown = cancelOnEscape(onCancel);
 
+  // Where Save writes, beside Save. The project picker in the toolbar
+  // already names the project, so the layer's own name is enough here.
   const footerEnd = (
     <>
+      <Text fz={12} c={colors.muted}>
+        {`Saves to ${saveTarget(targetLabel)}`}
+      </Text>
       <Button size="compact-sm" variant="default" onClick={onCancel}>
         Cancel
       </Button>
@@ -185,10 +198,7 @@ export function DraftEditor({
   return (
     <Stack ref={root} gap={10} onKeyDown={onKeyDown}>
       <PanelToolbar>
-        <Group justify="space-between" wrap="nowrap" gap={8}>
-          <Text fz={12} c={colors.muted}>
-            {`Editing the ${targetLabel} layer`}
-          </Text>
+        <Group justify="flex-end" wrap="nowrap" gap={8}>
           {(form || onForm || replaceWith) && (
             <Group gap={8} wrap="nowrap">
               {form && mode === 'json' && !fits && (

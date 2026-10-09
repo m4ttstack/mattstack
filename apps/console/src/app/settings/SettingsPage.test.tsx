@@ -876,7 +876,7 @@ describe('repo picker', () => {
     ).toBeInTheDocument();
   });
 
-  it('a per-project row picks its project in its own Value tab', async () => {
+  it('a per-project row opens on the first project that sets it, in its own Value tab', async () => {
     defsResponse = serve([...DEFS, ROLES({ scope: null, file: null })]);
     const explained: string[] = [];
     const read = globalThis.fetch;
@@ -892,11 +892,8 @@ describe('repo picker', () => {
     const picker = (await screen.findAllByLabelText('project')).find(
       el => el.tagName === 'INPUT'
     )!;
-    expect(picker).toHaveValue('');
-    await userEvent.click(picker);
-    await userEvent.click(
-      await screen.findByRole('option', { name: 'acme/app' })
-    );
+    // No project is named, so it starts on the one project that sets it.
+    await waitFor(() => expect(picker).toHaveValue('acme/app'));
     await waitFor(() =>
       expect(
         explained.some(u => u.includes(`repo=${encodeURIComponent(REPO)}`))

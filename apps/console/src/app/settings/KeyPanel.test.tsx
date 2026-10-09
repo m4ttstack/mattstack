@@ -771,7 +771,7 @@ describe('KeyPanel', () => {
       'set board.ticketPrefixes at user · repo'
     );
     expect(
-      screen.getByText('Editing the user · repo layer')
+      screen.getByText('Saves to user · repo')
     ).toBeInTheDocument();
 
     let loaded: (body: unknown) => void = () => {};
@@ -781,7 +781,7 @@ describe('KeyPanel', () => {
       })
     );
     repick('gitlab.example.com/acme/b');
-    expect(screen.queryByText('Editing the user · repo layer')).toBeNull();
+    expect(screen.queryByText('Saves to user · repo')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
 
     loaded(ok({ def: d, rows: rows(['B']) }));
@@ -790,7 +790,7 @@ describe('KeyPanel', () => {
         name: 'actions for board.ticketPrefixes at user · repo',
       })
     ).toBeEnabled();
-    expect(screen.queryByText('Editing the user · repo layer')).toBeNull();
+    expect(screen.queryByText('Saves to user · repo')).toBeNull();
     expect(s.set).not.toHaveBeenCalled();
   });
 });
