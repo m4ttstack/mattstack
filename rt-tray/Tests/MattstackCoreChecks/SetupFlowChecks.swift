@@ -69,3 +69,103 @@ let setupFlowChecks: [Check] = [
         }
     },
 ]
+
+/// The plans rt composes for each harness profile, read from the file
+/// `lib/setup/__tests__/integration-plan-fixtures.test.ts` holds to rt's output.
+private func harnessProfilePlans() throws -> [String: Plan] {
+    let repo = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+    let url = repo.appendingPathComponent("lib/setup/fixtures/integration-plans.json")
+    return try JSONDecoder().decode([String: Plan].self, from: Data(contentsOf: url))
+}
+
+@MainActor private func loadedReadiness(_ plan: Plan) async -> ReadinessModel {
+    let m = ReadinessModel(plans: FakePlans([plan]), permissions: FakePermissions(), ticker: FakeTicker())
+    await m.load()
+    return m
+}
+
+private let claudeRowIds: Set<String> = ["tool.claude", "tool.plugins", "tool.linear-mcp"]
+private let codexRowIds: Set<String> = ["tool.codex", "tool.codex-mcp"]
+
+let harnessProfileChecks: [Check] = [
+    Check("harness profiles: every supported profile decodes, and the app gates exactly what rt's plan gates") { c in
+        let plans = try harnessProfilePlans()
+        c.expectEqual(Set(plans.keys), ["claude-only", "codex-only", "both", "none"])
+        for (name, plan) in plans {
+            let m = await loadedReadiness(plan)
+            await MainActor.run {
+                c.expectEqual(m.requiredMissing, plan.requiredMissing, "\(name): Install waits on rt's required rows and no others")
+                c.expectEqual(m.finishBlockedRows.map(\.id), plan.finishBlockedBy, "\(name): Finish waits on rt's finish gates and no others")
+                c.expectEqual(m.canInstall, plan.canInstall, name)
+            }
+        }
+    },
+    Check("harness profiles: each shows only its own harness rows, and those required are the ones rt requires") { c in
+        let plans = try harnessProfilePlans()
+        let expected: [String: (shown: Set<String>, required: Set<String>)] = [
+            "claude-only": (["tool.claude", "tool.plugins", "tool.linear-mcp"], ["tool.claude"]),
+            "codex-only": (["tool.codex", "tool.codex-mcp"], ["tool.codex"]),
+            "both": (claudeRowIds.union(codexRowIds), ["tool.claude", "tool.codex"]),
+            "none": ([], []),
+        ]
+        for (name, want) in expected {
+            let plan = try c.requireSome(plans[name], name)
+            let rows = plan.groups.flatMap(\.rows)
+            let harnessRows = rows.filter { claudeRowIds.union(codexRowIds).contains($0.id) }
+            c.expectEqual(Set(harnessRows.map(\.id)), want.shown, name)
+            c.expectEqual(Set(harnessRows.filter(\.required).map(\.id)), want.required, name)
+        }
+    },
+    Check("harness profiles: a Mac without Claude Code can install and finish on Codex alone") { c in
+        let plan = try c.requireSome(try harnessProfilePlans()["codex-only"])
+        let m = await loadedReadiness(plan)
+        await MainActor.run {
+            c.expect(m.row("tool.claude") == nil, "Claude Code is not offered on a Codex-only Mac")
+            c.expect(!m.requiredMissing.contains { claudeRowIds.contains($0) }, "Install never waits on Claude Code")
+            c.expect(!m.finishBlockedRows.contains { claudeRowIds.contains($0.id) }, "Finish never waits on Claude Code")
+            c.expectEqual(m.row("tool.codex")?.required, true)
+            c.expectEqual(m.row("tool.codex")?.status, .ready)
+            c.expectEqual(m.row("tool.integrations")?.detail, "Turned on: Codex")
+        }
+    },
+    Check("harness profiles: with no agent app turned on, the reason and its steps come from rt and never block Install") { c in
+        let plan = try c.requireSome(try harnessProfilePlans()["none"])
+        let m = await loadedReadiness(plan)
+        await MainActor.run {
+            let row = m.row("tool.integrations")
+            c.expectEqual(row?.status, .needsYou)
+            c.expectEqual(row?.detail, "No agent integration is turned on")
+            c.expectEqual(row?.action?.type, .steps)
+            c.expectEqual(row?.badge, .optional)
+            c.expect(!m.requiredMissing.contains("tool.integrations"))
+            c.expect(m.outstandingManualRows.contains { $0.id == "tool.integrations" }, "Done lists it as a step left for you")
+        }
+    },
+    Check("process badges: harness metadata names the badge, and a row without it keeps today's Claude rule") { c in
+        let claude = ProcessHarness(id: "claude", label: "Claude Code")
+        let codex = ProcessHarness(id: "codex", label: "Codex")
+        let other = ProcessHarness(id: "gemini", label: "Gemini CLI")
+        c.expectEqual(HarnessBadge.forProcess(harness: claude, command: "claude › node"),
+                      HarnessBadge(text: "\u{273B} claude", tooltip: "Claude Code session", tint: .claude))
+        c.expectEqual(HarnessBadge.forProcess(harness: codex, command: "node › codex"),
+                      HarnessBadge(text: "codex", tooltip: "Codex session", tint: .harness))
+        c.expectEqual(HarnessBadge.forProcess(harness: other, command: "gemini"),
+                      HarnessBadge(text: "gemini", tooltip: "Gemini CLI session", tint: .harness))
+        c.expectEqual(HarnessBadge.forProcess(harness: nil, command: "claude › node")?.text, "\u{273B} claude",
+                      "a daemon that sends no metadata (integrations off, or an older rt) keeps the Claude badge")
+        c.expectEqual(HarnessBadge.forProcess(harness: nil, command: "claude-ish › node"), nil)
+        c.expectEqual(HarnessBadge.forProcess(harness: nil, command: "node › codex"), nil,
+                      "without metadata a Codex process gets no badge, exactly as before")
+        c.expectEqual(HarnessBadge.forProcess(harness: nil, command: "bun › node"), nil)
+    },
+    Check("process badges: a process row decodes its harness, and an older payload without one still decodes") { c in
+        let tagged = try JSONDecoder().decode(ProcessHarnessCarrier.self, from: Data(#"{"harness":{"id":"codex","label":"Codex"}}"#.utf8))
+        c.expectEqual(tagged.harness, ProcessHarness(id: "codex", label: "Codex"))
+        let bare = try JSONDecoder().decode(ProcessHarnessCarrier.self, from: Data("{}".utf8))
+        c.expectEqual(bare.harness, nil)
+    },
+]
+
+private struct ProcessHarnessCarrier: Decodable { let harness: ProcessHarness? }

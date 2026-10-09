@@ -412,3 +412,18 @@ test("clone-partial scenario: the first apply reports repos.clone partial and fi
   const retry = (await run("clone-partial", ["setup", "apply", "--from", "repos.clone", "--json"], "", stateDir)).lines;
   expect(retry).toContainEqual(expect.objectContaining({ event: "step", id: "repos.clone", state: "done" }));
 });
+
+test("harness-<profile> scenarios carry that profile's agent-app rows and stay installable", async () => {
+  const rowIds = async (scenario: string) => {
+    const { lines } = await run(scenario, ["setup", "plan", "--json"]);
+    expect(lines[0].canInstall).toBe(true);
+    return lines[0].groups.flatMap((g: { rows: { id: string }[] }) => g.rows.map((r) => r.id)) as string[];
+  };
+  const codex = await rowIds("harness-codex-only");
+  expect(codex).toEqual(expect.arrayContaining(["tool.codex", "tool.codex-mcp", "tool.integrations"]));
+  expect(codex).not.toContain("tool.claude");
+  expect(await rowIds("harness-both")).toEqual(expect.arrayContaining(["tool.claude", "tool.codex"]));
+  expect(await rowIds("harness-none")).not.toEqual(expect.arrayContaining(["tool.claude"]));
+  const unknown = await run("harness-gemini", ["setup", "plan", "--json"]);
+  expect(unknown.code).toBe(2);
+});

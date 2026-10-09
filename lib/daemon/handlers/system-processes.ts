@@ -2,6 +2,8 @@ import type { HandlerMap, HandlerContext } from "./types.ts";
 import type { SystemProcessScanner, SystemProcess } from "../system-process-scanner.ts";
 import { repoLabel } from "../../repo-label.ts";
 import { composeKey } from "../../state/branch-cache.ts";
+import { builtinRegistry } from "../../agent-integrations/builtins.ts";
+import { integrationsEnabled } from "../../agent-integrations/switch.ts";
 
 function shortName(proc: SystemProcess): string {
   // Use fullCommand (complete argv) to get the real binary name,
@@ -77,6 +79,29 @@ function buildProcessTree(flat: SystemProcess[]): SystemProcess[] {
   return flattened;
 }
 
+export type ProcessHarness = { id: string; label: string };
+
+/**
+ * A harness is matched by its id appearing as a whole segment of the row's
+ * breadcrumb chain: each built-in integration's id is also the name of the
+ * executable its sessions run as ("claude", "codex").
+ */
+function tagHarnesses(node: SystemProcess, harnesses: readonly ProcessHarness[]): SystemProcess {
+  const segments = node.command.split(" › ");
+  const harness = harnesses.find((h) => segments.includes(h.id));
+  return {
+    ...node,
+    ...(harness && { harness: { id: harness.id, label: harness.label } }),
+    ...(node.children && { children: node.children.map((child) => tagHarnesses(child, harnesses)) }),
+  };
+}
+
+/** Off, rows carry no tag, so the payload stays as it was before integrations. */
+function defaultHarnesses(): ProcessHarness[] | null {
+  if (!integrationsEnabled()) return null;
+  return builtinRegistry().list().map(({ id, label }) => ({ id, label }));
+}
+
 // Loose `Promise<any>` carve-out (same trick as endpoint.ts/repos.ts): the
 // tree-building above mutates rows with recursive `children`/`chainPids`/
 // `totalCpuPercent`/`totalRssKb` fields, which a precise Commands["data"]
@@ -84,6 +109,7 @@ function buildProcessTree(flat: SystemProcess[]): SystemProcess[] {
 export function createSystemProcessHandlers(
   scanner: SystemProcessScanner,
   ctx: Pick<HandlerContext, "portCacheRef" | "cache">,
+  deps: { harnesses?: () => ProcessHarness[] | null } = {},
 ): Record<"system-processes", (payload: any, signal?: AbortSignal) => Promise<any>> & HandlerMap {
   // The background scanner refreshes every 10s; the tray polls far faster
   // while its panel is open. Re-discover on read when the cache is older than
@@ -114,7 +140,9 @@ export function createSystemProcessHandlers(
         return { ...proc, repo: repoLabel(proc.repo), linearTicket };
       });
 
-      const tree = buildProcessTree(processes);
+      const harnesses = (deps.harnesses ?? defaultHarnesses)();
+      const built = buildProcessTree(processes);
+      const tree = harnesses ? built.map((root) => tagHarnesses(root, harnesses)) : built;
 
       return {
         ok: true,

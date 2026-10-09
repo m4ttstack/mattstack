@@ -141,3 +141,50 @@ describe("system-processes handler", () => {
     expect(res.data.processes[0].children).toHaveLength(2);
   });
 });
+
+describe("system-processes harness tags", () => {
+  const HARNESSES = [{ id: "claude", label: "Claude Code" }, { id: "codex", label: "Codex" }];
+
+  function tagged(processes: SystemProcess[], harnesses: () => { id: string; label: string }[] | null) {
+    const scanner = { getProcesses: () => processes, msSinceLastScan: () => 0, refresh: () => processes } as any;
+    const ctx = { cache: { entries: {} }, portCacheRef: { ports: [] } } as any;
+    return createSystemProcessHandlers(scanner, ctx, { harnesses });
+  }
+
+  test("integrations on: a row whose chain names a harness carries that harness, and other rows carry none", async () => {
+    const claude = makeProcess({ pid: 10, ppid: 1, fullCommand: "/usr/local/bin/claude --resume" });
+    const node = makeProcess({ pid: 11, ppid: 10, fullCommand: "node cli.js" });
+    const codex = makeProcess({ pid: 20, ppid: 1, fullCommand: "/opt/homebrew/bin/codex" });
+    const plain = makeProcess({ pid: 30, ppid: 1, fullCommand: "node server.js" });
+    const res = await tagged([claude, node, codex, plain], () => HARNESSES)["system-processes"]!({}) as any;
+
+    const byPid = new Map<number, any>(res.data.processes.map((p: any) => [p.pid, p]));
+    expect(byPid.get(10).command).toBe("claude › node");
+    expect(byPid.get(10).harness).toEqual({ id: "claude", label: "Claude Code" });
+    expect(byPid.get(20).harness).toEqual({ id: "codex", label: "Codex" });
+    expect(Object.keys(byPid.get(30))).not.toContain("harness");
+  });
+
+  test("integrations on: a nested child is tagged too", async () => {
+    const shell = makeProcess({ pid: 1, ppid: 0, fullCommand: "zsh" });
+    const codex = makeProcess({ pid: 2, ppid: 1, fullCommand: "codex" });
+    const other = makeProcess({ pid: 3, ppid: 1, fullCommand: "vim" });
+    const res = await tagged([shell, codex, other], () => HARNESSES)["system-processes"]!({}) as any;
+
+    const root = res.data.processes[0];
+    expect(Object.keys(root)).not.toContain("harness");
+    expect(root.children.find((c: any) => c.pid === 2).harness).toEqual({ id: "codex", label: "Codex" });
+  });
+
+  test("integrations off: no row carries a harness key, so the payload is unchanged", async () => {
+    const claude = makeProcess({ pid: 10, ppid: 1, fullCommand: "claude" });
+    const res = await tagged([claude], () => null)["system-processes"]!({}) as any;
+    expect(Object.keys(res.data.processes[0])).not.toContain("harness");
+  });
+
+  test("a segment only matches whole: claude-ish is not Claude", async () => {
+    const wrapper = makeProcess({ pid: 10, ppid: 1, fullCommand: "claude-ish" });
+    const res = await tagged([wrapper], () => HARNESSES)["system-processes"]!({}) as any;
+    expect(Object.keys(res.data.processes[0])).not.toContain("harness");
+  });
+});

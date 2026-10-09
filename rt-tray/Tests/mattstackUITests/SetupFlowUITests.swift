@@ -214,6 +214,45 @@ final class SetupFlowUITests: XCTestCase {
         }
     }
 
+    /// Each agent-app profile end to end, from the rows rt composes for it:
+    /// only that profile's rows show, Install opens, and Finish is never held
+    /// by an agent app the Mac does not use.
+    func testHarnessProfilesInstallAndFinishLightAndDark() {
+        let rows: [String: (shown: [String], hidden: [String])] = [
+            "claude-only": (["tool.claude", "tool.integrations"], ["tool.codex", "tool.codex-mcp"]),
+            "codex-only": (["tool.codex", "tool.codex-mcp", "tool.integrations"], ["tool.claude", "tool.plugins"]),
+            "both": (["tool.claude", "tool.codex", "tool.integrations"], []),
+            "none": (["tool.integrations"], ["tool.claude", "tool.codex"]),
+        ]
+        for (profile, want) in rows.sorted(by: { $0.key < $1.key }) {
+            for scheme in ["Light", "Dark"] {
+                prepare("harness-\(profile)")
+                app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
+                app.launch()
+                waitFor("setup.welcome.screen")
+                XCTAssertTrue(app.staticTexts["Install the mattstack skills into the agent apps you use, such as Claude Code or Codex."].exists)
+                shootWindow("harness-\(profile)-welcome-\(scheme)")
+                el("setup.welcome.continue").click()
+                waitFor("setup.team.screen"); el("setup.team.card.join").click()
+                el("setup.team.join.code").click()
+                el("setup.team.join.code").typeText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ-2345-6789-ABCD-EFGH")
+                el("setup.team.continue").click()
+                waitFor("setup.checklist.screen")
+                for id in want.shown { waitFor("setup.checklist.row.\(id)") }
+                for id in want.hidden { XCTAssertFalse(el("setup.checklist.row.\(id)").exists, "\(profile) shows \(id)") }
+                shootWindow("harness-\(profile)-checklist-\(scheme)")
+                XCTAssertTrue(el("setup.checklist.continue").isEnabled, "\(profile) can install")
+                el("setup.checklist.continue").click()
+                waitFor("setup.done.screen", 60)
+                waitUntilEnabled("setup.done.continue")
+                shootWindow("harness-\(profile)-done-\(scheme)")
+                el("setup.done.continue").click()
+                waitUntilGone("setup.done.screen")
+                app.terminate()
+            }
+        }
+    }
+
     func testDevLoginsPaneLightAndDark() {
         for scheme in ["Light", "Dark"] {
             prepare("solo")
@@ -356,8 +395,11 @@ final class SetupFlowUITests: XCTestCase {
         waitFor("settings.tab.uninstall")
         el("settings.tab.uninstall").click()
         waitFor("settings.uninstall.button")
+        XCTAssertTrue(app.staticTexts["Reverses what the installer did on this Mac, such as the services, the proxy, the ~/.local/bin links and the plugins added to your agent apps, then moves the app to the Trash. You see the full list before anything is removed."].exists)
+        shoot("uninstall-pane")
         el("settings.uninstall.button").click()
         waitFor("settings.uninstall.confirm")
         XCTAssertTrue(app.staticTexts["Stop and remove the rt daemon and deck services"].exists)
+        shoot("uninstall-confirm")
     }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MattstackCore
 
 // MARK: - Outline Item Wrappers (reference types for NSOutlineView)
 
@@ -662,9 +663,9 @@ struct ProcessOutlineView: NSViewRepresentable {
             label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             leafRow.addArrangedSubview(label)
 
-            if proc.isClaudeCode {
-                leafRow.addArrangedSubview(makeBadge("\u{273B} claude", color: Self.claudeCoral,
-                                                     tooltip: "Claude Code session", dimmed: killing))
+            if let badge = proc.harnessBadge {
+                let color: NSColor = badge.tint == .claude ? Self.claudeCoral : .systemTeal
+                leafRow.addArrangedSubview(makeBadge(badge.text, color: color, tooltip: badge.tooltip, dimmed: killing))
             }
 
             if currentHerdrPids.contains(proc.pid) {

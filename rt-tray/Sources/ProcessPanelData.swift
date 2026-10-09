@@ -1,4 +1,5 @@
 import Foundation
+import MattstackCore
 
 struct SystemProcess: Codable, Identifiable {
     let pid: Int
@@ -25,6 +26,7 @@ struct SystemProcess: Codable, Identifiable {
     // Pids collapsed into this row when the daemon flattens single-child
     // chains for display ("doppler › node" is two real processes).
     let chainPids: [Int]?
+    let harness: ProcessHarness?
 
     var id: Int { pid }
 
@@ -47,10 +49,8 @@ struct SystemProcess: Codable, Identifiable {
         (children ?? []).count
     }
 
-    /// Exact name match anywhere in the breadcrumb chain, so a collapsed
-    /// "claude › node" row counts but "claude-ish" wrappers don't.
-    var isClaudeCode: Bool {
-        command.components(separatedBy: " › ").contains("claude")
+    var harnessBadge: HarnessBadge? {
+        HarnessBadge.forProcess(harness: harness, command: command)
     }
 
     var memoryMB: String {

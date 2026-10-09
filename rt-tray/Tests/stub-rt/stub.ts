@@ -155,6 +155,19 @@ function writingStyleRow() {
   };
 }
 
+// The harness-<profile> scenarios: join-happy plus the agent-app rows rt
+// composes for that profile, taken from the fixture the app's checks pin.
+const HARNESS_PROFILE = scenario.startsWith("harness-") ? scenario.slice("harness-".length) : null;
+const HARNESS_ROW_IDS = new Set(["tool.claude", "tool.plugins", "tool.linear-mcp", "tool.codex", "tool.codex-mcp", "tool.integrations"]);
+function harnessRows(): { id: string; required: boolean; status: string }[] {
+  if (!HARNESS_PROFILE) return [];
+  const plans = JSON.parse(readFileSync(join(import.meta.dir, "../../../lib/setup/fixtures/integration-plans.json"), "utf8")) as
+    Record<string, { groups: { rows: { id: string; required: boolean; status: string }[] }[] }>;
+  const profile = plans[HARNESS_PROFILE];
+  if (!profile) fail("unknown-scenario", `no harness profile named ${HARNESS_PROFILE}`);
+  return profile.groups.flatMap((g) => g.rows).filter((r) => HARNESS_ROW_IDS.has(r.id));
+}
+
 function plan(): unknown {
   const fdaCalls = stateBump("plan-calls");
   const fdaGranted = scenario !== "perm-denied-then-granted" || fdaCalls >= 3;
@@ -202,7 +215,7 @@ function plan(): unknown {
   // Scenarios other than perm-denied-then-granted are installable out of the box so
   // flows can reach Install without connecting anything; perm-denied-then-granted
   // gates only on perm.fda so the second plan() call can flip canInstall to true.
-  const installableScenario = ["join-happy", "create-happy", "apply-fail-retry", "clone-partial", "restore", "uninstall", "perm-denied-then-granted", "finish-gate", "writing-style"].includes(scenario);
+  const installableScenario = HARNESS_PROFILE !== null || ["join-happy", "create-happy", "apply-fail-retry", "clone-partial", "restore", "uninstall", "perm-denied-then-granted", "finish-gate", "writing-style"].includes(scenario);
   // accounts[0] and tools[1] are the fixed literal elements built above — non-null
   // is safe, not a runtime guess.
   if (installableScenario) { accounts[0]!.status = "ready"; accounts[0]!.detail = "token can see group acme"; tools[1]!.status = "ready"; tools[1]!.detail = "extension loaded"; }
@@ -210,6 +223,7 @@ function plan(): unknown {
     scenario === "finish-gate" ? [extensionRow()]
     : scenario === "writing-style" ? [REAL_WRITING_STYLE ? realWritingStyleRow() : writingStyleRow()]
     : [];
+  tools.push(...(harnessRows() as typeof tools));
   const requiredMissing = [...mac, ...accounts, ...access, ...tools].filter((r) => r.required && r.status !== "ready").map((r) => r.id);
   const finishBlockedBy = gated.filter((r) => r.status !== "ready" && !r.waived).map((r) => r.id);
   return {
