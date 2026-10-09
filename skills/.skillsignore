@@ -32,3 +32,7 @@ docusaurus-documentation
 
 # Writing short UI copy for mattstack apps. Maintainer action.
 rt-ui-copy
+
+# The settings contract for writing mattstack code and the org admin's
+# layout runbook. Names maintainer verbs and skills a user's Mac lacks.
+rt-settings
