@@ -18,6 +18,7 @@ import {
   vividTextDebtKey,
 } from "../src/a11y/known-contrast-debt.ts";
 import { TuiKitProvider } from "../src/provider.tsx";
+import { Tooltip, TOOLTIP_PARTS } from "../src/recipes/Tooltip/Tooltip.tsx";
 
 const SURFACES = [1, 2, 3, 4] as const;
 const TEXT_BAR: Record<number, number> = { 1: 7.0, 2: 4.5, 3: 4.8, 4: 4.8 };
@@ -71,6 +72,9 @@ describe("ramp contrast matrix (text steps, hue text, on-fill labels and fills a
             <span data-testid={id("fill", "line-1", s)} style={{ background: "var(--line-1)", display: "inline-block", width: 12, height: 12 }} />
           </div>
         ))}
+        <Tooltip tip="label" data-testid="ramp-tooltip-trigger">
+          <button type="button">tip</button>
+        </Tooltip>
         {HUES.map((h) => (
           <span
             key={`${h}-on-fill`}
@@ -111,6 +115,29 @@ describe("ramp contrast matrix (text steps, hue text, on-fill labels and fills a
   function onFillRatio(hue: string): number {
     const cs = getComputedStyle(el(id("on-fill", hue, "fill")));
     return contrastRatio(toRgbString(cs.color), toRgbString(cs.backgroundColor));
+  }
+
+  /** The card portals to `document.body`, outside the container's `.dark`,
+      so the scheme is set on the body for the length of the reading. */
+  async function tooltipLabelRatio(scheme: (typeof SCHEMES)[number]): Promise<number> {
+    document.body.classList.toggle("dark", scheme === "dark");
+    const button = el("ramp-tooltip-trigger").querySelector("button");
+    if (!button) throw new Error("ramp matrix: no tooltip trigger button");
+    const cardSelector = `[data-part="${TOOLTIP_PARTS.card}"]`;
+    try {
+      button.focus();
+      await expect.poll(() => document.querySelector(cardSelector), { timeout: 1000 }).not.toBeNull();
+      const cs = getComputedStyle(document.querySelector(cardSelector)!);
+      return contrastRatio(toRgbString(cs.color), toRgbString(cs.backgroundColor));
+    } finally {
+      button.blur();
+      document.body.classList.remove("dark");
+    }
+  }
+
+  async function assertTooltipLabel(scheme: (typeof SCHEMES)[number]) {
+    const ratio = await tooltipLabelRatio(scheme);
+    expect(ratio, `${scheme} card text on tooltip surface ratio=${ratio.toFixed(3)}`).toBeGreaterThanOrEqual(TEXT_LABEL_BAR);
   }
 
   function assertScheme(scheme: (typeof SCHEMES)[number]) {
@@ -208,6 +235,7 @@ describe("ramp contrast matrix (text steps, hue text, on-fill labels and fills a
 
   describe("light scheme", () => {
     test("every cell clears its bar or matches its ledger entry", () => assertScheme("light"));
+    test("the tooltip's card text clears the label bar on its inverted surface", () => assertTooltipLabel("light"));
   });
 
   describe("dark scheme", () => {
@@ -219,5 +247,6 @@ describe("ramp contrast matrix (text steps, hue text, on-fill labels and fills a
       container.classList.remove("dark");
     });
     test("every cell clears its bar or matches its ledger entry", () => assertScheme("dark"));
+    test("the tooltip's card text clears the label bar on its inverted surface", () => assertTooltipLabel("dark"));
   });
 });

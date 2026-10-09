@@ -358,18 +358,6 @@ export function commandButtonLabel(
   return phase === 'running' ? `${cmd}…` : cmd;
 }
 
-export function deployPill(
-  row: Row,
-  cmd: string,
-  phase: CommandPhase | undefined
-): { label: string; tip: string } | null {
-  if (cmd !== 'deploy' || !row.newCode || phase != null) return null;
-  return {
-    label: 'Redeploy',
-    tip: `New code since last deploy: ${row.newCode.deployed} to ${row.newCode.head}`,
-  };
-}
-
 export function commandToast(
   app: string,
   cmd: string,
@@ -382,4 +370,235 @@ export function commandToast(
 
 export function commandStuckToast(app: string, cmd: string): string {
   return `${cmd} is still running after 10 minutes · deck logs ${app}`;
+}
+
+export type VersionCell =
+  | { kind: 'behind'; deployed: string; head: string }
+  | { kind: 'current' }
+  | { kind: 'untracked' };
+
+export function versionCell(row: Row): VersionCell {
+  if (row.newCode)
+    return {
+      kind: 'behind',
+      deployed: row.newCode.deployed,
+      head: row.newCode.head,
+    };
+  return row.devLink === 'linked' ? { kind: 'current' } : { kind: 'untracked' };
+}
+
+export function showVersionColumn(data: StatusData): boolean {
+  return data.devMode === true;
+}
+
+export function behindRows(rows: Row[]): Row[] {
+  return rows.filter(
+    r =>
+      r.enabled !== false &&
+      r.newCode != null &&
+      (r.commands ?? []).includes('deploy')
+  );
+}
+
+export function updateStripText(count: number): string {
+  return count === 1
+    ? 'New code for 1 app since its last deploy'
+    : `New code for ${count} apps since their last deploy`;
+}
+
+/** How one `onRunCommand` call ended. `skipped`: the in-flight guard
+    returned early. `reloading`: deck restarted itself and the page is about
+    to reload. `no-return`: deck did not answer again within BOARD_WAIT_MS. */
+export type CommandOutcome =
+  | 'ok'
+  | 'failed'
+  | 'timeout'
+  | 'busy'
+  | 'not-started'
+  | 'skipped'
+  | 'reloading'
+  | 'no-return';
+
+export interface RedeployAllRun {
+  /** 1-based position in the run. */
+  index: number;
+  total: number;
+  app: string;
+}
+
+export function redeployingText(run: RedeployAllRun): string {
+  return `Redeploying ${run.index} of ${run.total} · ${run.app}`;
+}
+
+export function redeployAllTargets(rows: Row[], runs: CommandRuns): Row[] {
+  const idle = behindRows(rows).filter(
+    r => !runs[commandKey(r.name, 'deploy')]
+  );
+  return [...idle.filter(r => !r.self), ...idle.filter(r => r.self)];
+}
+
+export type SettingsForm = 'app' | 'service' | 'tunnel';
+
+export function settingsFormFor(row: Row): SettingsForm {
+  if (row.isTunnel) return 'tunnel';
+  if (row.port == null) return 'service';
+  return 'app';
+}
+
+export interface SettingsBlocks {
+  code: boolean;
+  app: boolean;
+  port: boolean;
+  portInput: boolean;
+  overrideControls: boolean;
+  errors: boolean;
+  reach: boolean;
+  gates: boolean;
+  remove: boolean;
+  giveRoute: boolean;
+  restart: boolean;
+  relink: boolean;
+}
+
+const NO_BLOCKS: SettingsBlocks = {
+  code: false,
+  app: false,
+  port: false,
+  portInput: false,
+  overrideControls: false,
+  errors: false,
+  reach: false,
+  gates: false,
+  remove: false,
+  giveRoute: false,
+  restart: false,
+  relink: false,
+};
+
+/** Which blocks the settings modal renders for a row. Every write control
+    needs canManage: the server 403s them from a public host. */
+export function settingsBlocks(row: Row, data: StatusData): SettingsBlocks {
+  const canRestart = data.canRestart && row.service != null;
+  const form = settingsFormFor(row);
+  if (form === 'tunnel') {
+    return { ...NO_BLOCKS, errors: true, restart: canRestart };
+  }
+  if (form === 'service') {
+    return {
+      ...NO_BLOCKS,
+      errors: true,
+      restart: canRestart,
+      giveRoute: data.canManage,
+    };
+  }
+  const m = data.canManage;
+  const on = row.enabled !== false;
+  const managed = isMattstack(row);
+  const overridden = effectiveOverride(row, data) != null;
+  const code = managed && !row.self && row.devLink !== undefined;
+  return {
+    code,
+    relink: code && m,
+    app: !managed && m,
+    port: true,
+    portInput: m && !row.self && !overridden,
+    overrideControls: m && !row.self && overridden,
+    errors: true,
+    reach: m && on,
+    gates: m,
+    remove: m && !row.self,
+    restart: on && canRestart,
+    giveRoute: false,
+  };
+}
+
+/** The hosts a row answers on from this Mac: portless serves mattstack's
+    own apps on both TLDs, everything else on .localhost alone. */
+export function localHosts(row: Row): string[] {
+  const local = `${row.name}.localhost`;
+  return isMattstack(row) ? [`${row.name}.mattstack`, local] : [local];
+}
+
+// Only enabling remote requires a sign-in gate (the server's own refuse
+// check applies to `{enabled:true}` only) -- disabling a row that is
+// already remote must stay reachable even if oauth was since turned off, or
+// there would be no way back out of that state from the board.
+export function remoteToggleTip(row: Row): string | undefined {
+  if (row.remote == null && row.hasPassword && row.oauth.mode === 'off') {
+    return 'add sign-in access before pushing this app to Railway (a password alone does not gate the public origin)';
+  }
+  return undefined;
+}
+
+/** The running pid a service actually answers on: launchd's own `pid` when
+    managed, the foreign process's when a route is served unmanaged. */
+export function servicePid(
+  service: NonNullable<Row['service']>
+): number | null {
+  return service.unmanaged ? service.unmanaged.pid : service.pid;
+}
+
+export type PillTone = 'ok' | 'bad' | 'warn' | 'muted';
+
+export interface StatusPill {
+  tone: PillTone;
+  label: string;
+  detail: string;
+}
+
+function serviceTail(service: Row['service']): string[] {
+  if (!service) return [];
+  const pid = servicePid(service);
+  if (pid !== null) return [`pid ${pid}`];
+  if (service.lastExitStatus != null) return [`exit ${service.lastExitStatus}`];
+  return [];
+}
+
+function tunnelPill(row: Row): StatusPill {
+  const up = row.service ? servicePid(row.service) !== null : false;
+  const health = row.health;
+  const ok = health ? health.ok : up;
+  const parts = [
+    ...(health?.detail ? [health.detail] : []),
+    ...serviceTail(row.service),
+    ...(health?.hint ? [health.hint] : []),
+  ];
+  return {
+    tone: health?.tone ?? (up ? 'ok' : 'bad'),
+    label: ok ? 'Healthy' : 'Down',
+    detail: parts.join(' · '),
+  };
+}
+
+/** The dev port override a row shows: only where the board can manage it,
+    and never on deck's own row. */
+export function effectiveOverride(row: Row, data: StatusData): Row['override'] {
+  return row.override && data.canManage && !row.self ? row.override : null;
+}
+
+/** The settings modal's status pill. Branch order: off, then restarting,
+    then the HTTP probe, falling back to the service's own pid for a row
+    nothing probes. */
+export function statusPill(row: Row, restarting: boolean): StatusPill {
+  if (row.enabled === false) return { tone: 'muted', label: 'Off', detail: '' };
+  if (restarting) return { tone: 'warn', label: 'Restarting…', detail: '' };
+  if (row.isTunnel) return tunnelPill(row);
+  const pid = row.service ? servicePid(row.service) : null;
+  const ok = row.health ? row.health.ok : pid !== null;
+  const parts: string[] = [];
+  if (row.health) {
+    parts.push(
+      row.health.status !== null
+        ? `${row.health.status} · ${row.health.ms}ms`
+        : 'unreachable'
+    );
+  } else if (row.service) {
+    parts.push(pid !== null ? 'running' : 'stopped');
+  }
+  parts.push(...serviceTail(row.service));
+  return {
+    tone: ok ? 'ok' : 'bad',
+    label: row.port == null ? 'No route' : ok ? 'Healthy' : 'Down',
+    detail: parts.join(' · '),
+  };
 }

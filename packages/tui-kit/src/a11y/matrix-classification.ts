@@ -93,6 +93,6 @@ export const MATRIX_CLASSIFICATION: Record<string, MatrixClassification> = {
   },
   ToastHost: { exempt: "structural chrome: fixed --card/--fg pairs, no intent axis" },
   Tooltip: {
-    exempt: "structural chrome: fixed --panel/--fg/--border pairs (lifted from StatusDot's own tooltip), no intent axis",
+    exempt: "structural chrome: one fixed pair, --card text on the inverted --fg/--card mix (measured in test/ramps.matrix.test.tsx), no intent axis",
   },
 };

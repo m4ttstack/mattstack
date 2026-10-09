@@ -138,8 +138,6 @@ const WAIVED_TUI: Record<string, string> = {
     "ported wholesale from mr-board's real stylesheet census (docs/token-census.md, scripts/census.ts) into the fontSize scale; referenced only from *.visual.test.tsx / workshop pages today.",
   '--font-size-px9':
     "ported wholesale from mr-board's real stylesheet census (docs/token-census.md, scripts/census.ts) into the fontSize scale; this repo's currently-ported recipes do not reference this rung.",
-  '--font-size-px12':
-    "ported wholesale from mr-board's real stylesheet census (docs/token-census.md, scripts/census.ts) into the fontSize scale; this repo's currently-ported recipes do not reference this rung.",
   '--font-size-rem60':
     "ported wholesale from mr-board's real stylesheet census (docs/token-census.md, scripts/census.ts) into the fontSize scale; this repo's currently-ported recipes do not reference this rung.",
   '--font-size-rem65':
@@ -156,8 +154,6 @@ const WAIVED_TUI: Record<string, string> = {
     "ported wholesale from mr-board's real stylesheet census (docs/token-census.md, scripts/census.ts) into the fontSize scale; this repo's currently-ported recipes do not reference this rung.",
   '--radius-xs':
     "ported wholesale from mr-board's real stylesheet census (docs/token-census.md, scripts/census.ts) into the radius scale; this repo's currently-ported recipes do not reference this rung.",
-  '--spacing-px10':
-    "ported wholesale from mr-board's real stylesheet census (docs/token-census.md, scripts/census.ts) into the spacing scale; this repo's currently-ported recipes do not reference this rung.",
   '--spacing-rem35':
     "ported wholesale from mr-board's real stylesheet census (docs/token-census.md, scripts/census.ts) into the spacing scale; this repo's currently-ported recipes do not reference this rung.",
   '--spacing-rem80':

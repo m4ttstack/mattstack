@@ -5,6 +5,7 @@ import { tuiTheme } from '@mattstack/tui-kit/theme';
 
 import '@mattstack/tui-kit/theme.css';
 import './board.css';
+import './settings/settings.css';
 
 import { Board } from './Board.tsx';
 
