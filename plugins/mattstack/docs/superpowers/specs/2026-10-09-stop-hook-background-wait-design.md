@@ -107,15 +107,10 @@ No run field, no console or board change, no rt change.
    hook test scripts.
 4. **The plan stays local** in the gitignored plans folder; only this spec
    is committed.
-
-## Open decisions
-
-1. **Size and time caps.** Recommendation: 64 MB and 1.5 s inside the scan
-   (the reviewed transcript was 14 MB and the scan takes well under a
-   second; `hooks.json` gives the whole hook 5 s).
-2. **The standalone `watch-ci` engine.** Its flow graph has the same
-   `ci_watch state?` node. Recommendation: give it the same branch in the
-   same PR; the RED/GREEN scenario is identical.
+5. **Caps:** the scan skips a transcript over 64 MB and gives up after
+   1.5 s, falling back to today's block.
+6. **The standalone `watch-ci` engine** gets the same backgrounded branch
+   in the same PR.
 
 ## Out of scope
 
