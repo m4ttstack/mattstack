@@ -18,6 +18,7 @@ import { attendPane } from "../attend.ts";
 import { withIntegrationSession, withProcessSession } from "../pane-process-session.ts";
 import { cwdPath, driveTrustAccept } from "../trust-accept.ts";
 import type { RelocationWatcher } from "../relocation-announce.ts";
+import type { RelocationInSession } from "../../agent-integrations/claude/relocation.ts";
 import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { shellQuote } from "../../herdr-launch.ts";
@@ -193,6 +194,8 @@ export function createPaneHandlers(opts: {
   delivery?: DeliveryService;
   /** A bound session's observed state before input reaches it as peer input; its integration's own observation by default. */
   observeSession?: (binding: SessionBinding) => Promise<Observation | null>;
+  /** Whether a session's mod answers the relocation prompt itself; omitted, every announcement is handled as before. */
+  relocationInSession?: RelocationInSession;
 }):
   // Declared as direct `unknown`-payload members (not `Pick<TypedHandlers, ...>`)
   // rather than the narrower per-command payload types the catalog would
@@ -559,7 +562,10 @@ export function createPaneHandlers(opts: {
       if (p.tool !== "EnterWorktree") return { ok: false, error: "tool must be EnterWorktree" };
       if (p.path !== undefined && (typeof p.path !== "string" || p.path.length === 0)) return { ok: false, error: "path must be a non-empty string" };
       if (p.paneId !== undefined && typeof p.paneId !== "string") return { ok: false, error: "paneId must be a string" };
+      if (p.origin !== undefined && p.origin !== "create") return { ok: false, error: "origin must be create" };
       if (!relocation) return { ok: true, data: { scheduled: false, pane: null, reason: "disabled" } };
+      if (p.origin === "create") opts.relocationInSession?.noteCreate(p.sessionId);
+      else if (opts.relocationInSession?.answers({ sessionId: p.sessionId })) return { ok: true, data: { scheduled: false, pane: null, reason: "mod" } };
       return { ok: true, data: await relocation.announce(p) };
     },
   };

@@ -304,6 +304,29 @@ describe('hub', () => {
     expect(result).toEqual({ decision: 'allow', reason: 'registered tree' })
     expect(engine.seen).toHaveLength(0)
   })
+  test("check rules read the engine's verdict once, and its failure keeps the block", async () => {
+    const h = harness()
+    h.hub.block('relocation', async (_api, b) => {
+      b.onToolCall({ stage: 'check', tool: 'EnterWorktree', run: async (_a, _e, beneath) => void (await beneath()) })
+      b.onToolCall({ stage: 'check', tool: 'EnterWorktree', run: async (_a, _e, beneath) => ((await beneath()).decision === 'ask' ? { decision: 'allow' } : undefined) })
+    })
+    await h.start()
+
+    const engine = recorder({ decision: 'ask' })
+    expect(await h.fire('tool.check', { tool: 'EnterWorktree', input: {} }, engine.next)).toEqual({ decision: 'allow' })
+    expect(engine.seen).toHaveLength(1)
+
+    const allowed = recorder({ decision: 'deny' })
+    expect(await h.fire('tool.check', { tool: 'EnterWorktree', input: {} }, allowed.next)).toEqual({ decision: 'deny' })
+    expect(allowed.seen).toHaveLength(1)
+
+    const broken = new Error('engine check failed')
+    let thrown: unknown
+    await h.fire('tool.check', { tool: 'EnterWorktree', input: {} }, async () => { throw broken }).catch(err => { thrown = err })
+    expect(thrown).toBe(broken)
+    expect(h.hub.liveBlocks()).toContain('relocation')
+  })
+
   test('a start that never settles times out, and the blocks after it still start', async () => {
     const h = harness()
     h.hub.block('gate-form', () => new Promise(() => {}))

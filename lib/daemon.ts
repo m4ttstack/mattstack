@@ -127,6 +127,7 @@ import { createGateEscalation, type GateEscalation } from "./daemon/gate-escalat
 import { createEscapeInjector, createPaneStatusProbe, readVisibleScreen } from "./daemon/gate-escape.ts";
 import { createReconciler, type Reconciler } from "./daemon/reconciler.ts";
 import { createPaneDriveGuard, createRelocationWatcher, type RelocationWatcher } from "./daemon/relocation-announce.ts";
+import { createRelocationInSession } from "./agent-integrations/claude/relocation.ts";
 import { snapshotPanes, type LivePane } from "./daemon/pane-resolve-live.ts";
 import type { CommandResult } from "./daemon/handlers/types.ts";
 import { deliverToInbox } from "./daemon/inbox.ts";
@@ -354,6 +355,18 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   let reconciler: Reconciler;
   let relocationWatcher: RelocationWatcher;
   const relocationDriveGuard = createPaneDriveGuard();
+  const relocationInSession = createRelocationInSession({ db: () => getStateDb("daemon") });
+  // The same key the watchdog reads, resolved per attempt so a settings
+  // flip needs no restart. An unreadable key keeps the default (on).
+  const relocationAutoAcceptEnabled = (): boolean => {
+    try {
+      const v = getSetting<unknown>("panes.relocationAutoAccept").value;
+      return typeof v === "boolean" ? v : true;
+    } catch (err) {
+      log.warn({ err }, "relocation: panes.relocationAutoAccept unreadable; keeping the default");
+      return true;
+    }
+  };
   let gitBadges: GitBadgesStore;
   let gitStatusSweep: GitStatusSweep;
   let identity: {
@@ -762,17 +775,6 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             return true;
           }
         };
-        // The same key the watchdog reads, resolved per attempt so a settings
-        // flip needs no restart. An unreadable key keeps the default (on).
-        const relocationAutoAcceptEnabled = (): boolean => {
-          try {
-            const v = getSetting<unknown>("panes.relocationAutoAccept").value;
-            return typeof v === "boolean" ? v : true;
-          } catch (err) {
-            log.warn({ err }, "relocation: panes.relocationAutoAccept unreadable; keeping the default");
-            return true;
-          }
-        };
         reconciler = createReconciler({
           store: gatesStore,
           listAgents: () => listAgents({}, getStateDb("daemon")),
@@ -791,6 +793,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             // Off maps to "no-dialog": the normal attention-gate path takes the pane.
             if (!relocationAutoAcceptEnabled()) return "no-dialog";
             if (isHerdOwnedPane(pane.paneRef)) return "no-dialog";
+            if (relocationInSession.answers({ paneRef: pane.paneRef, ...(pane.sessionId !== undefined && { sessionId: pane.sessionId }) })) return "no-dialog";
             const paneId = parsePaneRef(pane.paneRef).paneId;
             const outcome = await relocationDriveGuard(pane.paneRef, () => driveRelocationAccept({
               herdr: herdrRequest, sock: { sockPath: pane.sockPath }, pane: paneId,
@@ -1385,6 +1388,8 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           chatDelivery,
           accountsSweep: accountsSweepFn,
           relocation: relocationWatcher,
+          relocationInSession,
+          relocationAutoAccept: relocationAutoAcceptEnabled,
           modLinks,
         });
         void createJobAttempts({ herds: herdStore, db: () => getStateDb("daemon") }).reconcileJobAttempts()
@@ -1409,7 +1414,10 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         });
         const watchdog = new HerdWatchdog({
           sensors: watchdogSensors,
-          act: createWatchdogActuators({ herdStore, db: getStateDb("daemon"), socketFor: watchdogSensors.socketFor, herdr: herdrRequest, log: watchdogLog }),
+          act: createWatchdogActuators({
+            herdStore, db: getStateDb("daemon"), socketFor: watchdogSensors.socketFor, herdr: herdrRequest, log: watchdogLog,
+            relocationInMod: (pane) => relocationInSession.answers({ paneRef: pane }),
+          }),
           cfg: watchdogConfig,
           log: watchdogLog,
         });

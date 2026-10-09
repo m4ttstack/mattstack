@@ -34,6 +34,8 @@ import { createPaneHandlers } from "./handlers/pane.ts";
 import { createAgentIntegrationHandlers } from "./handlers/agent-integrations.ts";
 import { createModSessionHandlers } from "./handlers/mod-session.ts";
 import { createPolicyHandlers } from "./handlers/policy.ts";
+import { createRelocationHandlers } from "./handlers/relocation.ts";
+import type { RelocationInSession } from "../agent-integrations/claude/relocation.ts";
 import { pushModCommand, type ModLinks } from "../agent-integrations/claude/mod-links.ts";
 import { handOverWaitGate } from "../agent-integrations/claude/questions.ts";
 import { claudeModOwns } from "../agent-integrations/claude/sessions.ts";
@@ -156,6 +158,10 @@ export function buildRoutedHandlers(opts: {
   accountsSweep?: () => Promise<void>;
   /** Drives the relocation dialog for pane:announce-relocation; omitted, the handler reports `disabled`. */
   relocation?: RelocationWatcher;
+  /** Whether a session's mod answers the relocation prompt itself, shared with the watchdog and reconciler seams. */
+  relocationInSession?: RelocationInSession;
+  /** panes.relocationAutoAccept, which the mod's relocation answer honours like every seam; off when omitted. */
+  relocationAutoAccept?: () => boolean;
   /** The daemon's one live mod-link registry behind session:*, shared with its reconcile sweep and every Claude adapter. */
   modLinks: ModLinks;
 }): Record<string, Handler> {
@@ -192,7 +198,7 @@ export function buildRoutedHandlers(opts: {
   const paneHandlers = createPaneHandlers({
     db: opts.stateDb, repoIndex: ctx.repoIndex, bg: opts.bgService, log: ctx.log,
     herdrRunnerFor: (socket) => defaultHerdrRunner(socket ? { ...process.env, HERDR_SOCKET_PATH: socket } : process.env),
-    relocation: opts.relocation, integrations, startAgent: agentService.start, registryDeps: presenceRegistry, delivery: opts.chatDelivery,
+    relocation: opts.relocation, relocationInSession: opts.relocationInSession, integrations, startAgent: agentService.start, registryDeps: presenceRegistry, delivery: opts.chatDelivery,
   });
   const worktreeHandlers = createWorktreeHandlers({ repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log }, opts.worktree);
   const worktreeTriageHandlers = createWorktreeTriageHandlers(
@@ -306,6 +312,9 @@ export function buildRoutedHandlers(opts: {
     ...createModSessionHandlers({ links: opts.modLinks }),
     ...createPolicyHandlers({
       links: opts.modLinks, db: opts.stateDb, forkCheck: (payload) => gateHandlers["gate:fork-check"](payload),
+    }),
+    ...createRelocationHandlers({
+      links: opts.modLinks, db: opts.stateDb, autoAccept: opts.relocationAutoAccept ?? (() => false),
     }),
     ...paneHandlers,
     ...createEndpointHandlers({ log: ctx.log, repoIndex: ctx.repoIndex }),

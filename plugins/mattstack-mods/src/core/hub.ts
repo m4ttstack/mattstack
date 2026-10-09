@@ -113,7 +113,12 @@ export type ToolRule =
       run(api: ModApi, e: ToolCall, next: PermitNext): Promise<ToolCallResult>
     }
   | { stage: 'tap'; tool: ToolMatch; run(api: ModApi, e: ToolCall, result: ToolCallResult): void | Promise<void> }
-  | { stage: 'check'; tool: ToolMatch; run(api: ModApi, e: ToolCheck): Maybe<ToolCheckResult> }
+  | {
+      stage: 'check'
+      tool: ToolMatch
+      /** `beneath` resolves to the engine's own verdict, asked at most once per check. */
+      run(api: ModApi, e: ToolCheck, beneath: () => Promise<ToolCheckResult>): Maybe<ToolCheckResult>
+    }
 
 /**
  * Answers a delivery itself (consumed), passes it down edited or unchanged with
@@ -413,13 +418,28 @@ export function createHub(): Hub {
     },
 
     async toolCheck(api, e, next) {
+      let verdict: Promise<ToolCheckResult> | undefined
+      let failed: { error: unknown } | undefined
+      const beneath = (): Promise<ToolCheckResult> => {
+        verdict ??= next(e).catch(error => {
+          failed = { error }
+          throw error
+        })
+        return verdict
+      }
       for (const sub of rules) {
         const rule = sub.rule
         if (rule.stage !== 'check' || !active(sub) || !matches(rule.tool, e.tool)) continue
-        const out = await attempt(api, sub, 'tool.check', () => rule.run(api, e))
-        if (out.ok && out.value) return out.value
+        try {
+          const answer = await rule.run(api, e, beneath)
+          if (answer) return answer
+        } catch (err) {
+          // The engine's own failure is not the rule's and keeps its block.
+          if (failed && failed.error === err) throw err
+          fail(api, sub, 'tool.check', err)
+        }
       }
-      return next(e)
+      return beneath()
     },
 
     receive(api, e, next) {

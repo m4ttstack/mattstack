@@ -6,6 +6,7 @@ import { registerGateWait } from '../src/blocks/gate-wait.ts'
 import { registerObserve } from '../src/blocks/observe.ts'
 import { registerPolicy } from '../src/blocks/policy.ts'
 import { registerPresence } from '../src/blocks/presence.ts'
+import { registerRelocation } from '../src/blocks/relocation.ts'
 import { REPLY_RULE_ID, REPLY_RULE_SECTION, SPILL_READ_ID, SPILL_READ_SECTION } from '../src/blocks/sections.ts'
 import { registerStopGate } from '../src/blocks/stop-gate.ts'
 import { attachHub, createHub } from '../src/core/hub.ts'
@@ -27,6 +28,7 @@ export const register: Register = on => {
   registerGateWait(hub, link)
   registerGatePanel(hub, link, dialogs)
   registerPolicy(hub, link)
+  registerRelocation(hub, link)
   registerStopGate(hub, link)
   attachHub(on, hub)
 }

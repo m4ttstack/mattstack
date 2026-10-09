@@ -899,10 +899,13 @@ export interface Commands {
   "pane:focus": { payload: { paneId: string; callerWorkspace?: string }; data: PaneFocusResult };
   /** Name mode is two announcements: the PreToolUse hook's (no path; the
       tree does not exist yet) then the provisioning hook's, sent once the
-      tree exists with its path. Path mode is one announcement with the path. */
+      tree exists with its path, marked `origin: "create"`. Path mode is one
+      announcement with the path. `mod`: the session's mattstack-mods
+      `relocation` block answers a path-mode prompt itself, so nothing is
+      armed; a create-origin announcement is always handled as before. */
   "pane:announce-relocation": {
-    payload: { sessionId: string; paneId?: string; tool: "EnterWorktree"; path?: string; cwd: string };
-    data: { scheduled: boolean; pane: string | null; reason?: "no-pane" | "herd-pane" | "disabled" | "awaiting-path" };
+    payload: { sessionId: string; paneId?: string; tool: "EnterWorktree"; path?: string; cwd: string; origin?: "create" };
+    data: { scheduled: boolean; pane: string | null; reason?: "no-pane" | "herd-pane" | "disabled" | "awaiting-path" | "mod" };
   };
 
   // ─── Claude mod links (the mattstack-mods plugin) ────────────────────────
@@ -985,6 +988,28 @@ export interface Commands {
   "runs:owned": {
     payload: { linkId: string; sessionId: string; cwd?: string };
     data: { runDb: string | null; reason?: string };
+  };
+  /**
+   * The mod's `relocation` block asks, before EnterWorktree's relocation
+   * prompt shows, whether `path` (resolved against `cwd`) is a worktree rt's
+   * registry holds. The caller is the session `linkId` is the live link of.
+   * Fails with "refused" when relocation auto-accept is off, the session is
+   * not bound or its block is not live, or another session holds the tree;
+   * the mod then leaves the prompt to the person.
+   */
+  "worktree:registered": {
+    payload: { linkId: string; sessionId: string; path: string; cwd: string };
+    data: { registered: boolean };
+  };
+  /**
+   * The mod's `relocation` block reports that EnterWorktree moved its session
+   * into `path`, so the tree the session holds there becomes its current one.
+   * `recorded` is false, with the reason, when no session holds the tree, the
+   * session is not bound, or the tree is another session's.
+   */
+  "worktree:entered": {
+    payload: { linkId: string; sessionId: string; path: string };
+    data: { recorded: boolean; reason?: string };
   };
 
   // ─── R013/R016 ────────────────────────────────────────────────
@@ -1360,6 +1385,8 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "policy:authorize",
   "policy:stop",
   "runs:owned",
+  "worktree:registered",
+  "worktree:entered",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",

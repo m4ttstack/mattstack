@@ -25,7 +25,9 @@ import { loadWorktreeAppConfig } from "../lib/worktree/config.ts";
 import { explainError } from "./worktree.ts";
 import { findTreeByPath } from "../lib/worktree/registry.ts";
 import { selfPaneRef } from "../lib/self-pane.ts";
-import { rtCommand } from "../packages/rt-client/src/index.ts";
+import { rtCommand, type RtResponse } from "../packages/rt-client/src/index.ts";
+import type { Outcome } from "../packages/rt-client/src/agent-integrations.ts";
+import type { Commands } from "../packages/rt-client/src/commands.ts";
 
 export { buildRelocationAnnouncement, parseHookStdin };
 
@@ -212,11 +214,36 @@ export async function announceRelocation(_args: string[]): Promise<void> {
   const payload = buildRelocationAnnouncement(stdin, process.env);
   if (!payload) return;
   try {
-    if (!(await relocationIsCallers(payload))) return;
-    await rtCommand("pane:announce-relocation", payload, { timeoutMs: 3_000 });
+    await announceAndRelocate(payload);
   } catch {
-    // the daemon being unreachable falls through to the human's own dialog, not the hook's error
+    // an unreadable holder record falls through to the human's own dialog, not the hook's error
   }
+}
+
+type SendAnnouncement = (payload: RelocationAnnouncement) => Promise<RtResponse<Commands["pane:announce-relocation"]["data"]>>;
+
+const sendAnnouncement: SendAnnouncement = (payload) => rtCommand("pane:announce-relocation", payload, { timeoutMs: 3_000 });
+
+/**
+ * Announces the relocation, then makes the tree the caller's current one,
+ * unless the daemon answers that the session's mod handles the prompt: the
+ * mod records the move once EnterWorktree has actually run, so a declined
+ * prompt never moves it. An unreachable daemon leaves the dialog to the
+ * person and moves it here, as before the mod.
+ */
+export async function announceAndRelocate(
+  payload: RelocationAnnouncement, env: NodeJS.ProcessEnv = process.env, send: SendAnnouncement = sendAnnouncement,
+): Promise<void> {
+  const plan = await relocationPlan(payload, env);
+  if (!plan.announce) return;
+  let inSession = false;
+  try {
+    const reply = await send(payload);
+    inSession = reply.ok && reply.data?.reason === "mod";
+  } catch {
+    // the daemon being unreachable falls through to the human's own dialog
+  }
+  if (!inSession) await plan.move?.();
 }
 
 /**
@@ -224,17 +251,28 @@ export async function announceRelocation(_args: string[]): Promise<void> {
  * for its holder, so the daemon never drives the dialog into another
  * session's tree; that dialog stays with the person. A tree nobody holds
  * (claimed before the switch, by a herd spawn, or by another verb) and every
- * other caller announce as before.
+ * other caller announce as before. `move` makes a held tree the caller's
+ * current one.
  */
-export async function relocationIsCallers(payload: RelocationAnnouncement, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
-  if (payload.path === undefined) return true;
+async function relocationPlan(
+  payload: RelocationAnnouncement, env: NodeJS.ProcessEnv,
+): Promise<{ announce: boolean; move?: () => Promise<Outcome<void>> }> {
+  if (payload.path === undefined) return { announce: true };
   const caller = claudeHookCaller(payload.sessionId, env);
-  if (caller.kind === "legacy") return true;
-  const { applyWorktreeEvent, liveHolder } = await import("../lib/agent-integrations/worktrees.ts");
+  if (caller.kind === "legacy") return { announce: true };
+  const { applyWorktreeEvent, liveHolder, worktreeOwner } = await import("../lib/agent-integrations/worktrees.ts");
   const path = resolve(payload.cwd, payload.path);
-  if (!liveHolder(path)) return true;
-  if (caller.kind === "refused") return false;
-  return (await applyWorktreeEvent(caller.context, { kind: "relocate", path })).ok;
+  const holder = liveHolder(path);
+  if (!holder) return { announce: true };
+  if (caller.kind === "refused" || holder.owner !== worktreeOwner(caller.context)) return { announce: false };
+  return { announce: true, move: () => applyWorktreeEvent(caller.context, { kind: "relocate", path }) };
+}
+
+/** Whether the caller's announcement goes out, applying its move as the hook does without the mod. */
+export async function relocationIsCallers(payload: RelocationAnnouncement, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  const plan = await relocationPlan(payload, env);
+  if (!plan.announce || !plan.move) return plan.announce;
+  return (await plan.move()).ok;
 }
 
 /**
@@ -347,7 +385,7 @@ export async function claudeHookCommand(args: string[], _ctx: unknown, deps: Hoo
   }
   if (decision.kind === "provisioned") await holdAsCaller(parsed.sessionId, decision.path);
   if (decision.kind === "provisioned" && parsed.sessionId) {
-    const announce: RelocationAnnouncement = { sessionId: parsed.sessionId, tool: "EnterWorktree", path: decision.path, cwd: parsed.cwd };
+    const announce: RelocationAnnouncement = { sessionId: parsed.sessionId, tool: "EnterWorktree", path: decision.path, cwd: parsed.cwd, origin: "create" };
     const paneId = selfPaneRef(process.env);
     if (paneId) announce.paneId = paneId;
     try {

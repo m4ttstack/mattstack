@@ -13,7 +13,7 @@ import { __test__ as warnTest, setWarningLog } from "../../lib/ui/warn.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import type { TreeRecord } from "../../lib/worktree/registry.ts";
 import { holdForBoundCaller } from "../worktree.ts";
-import { claudeHookCommand, relocationIsCallers } from "../worktree-hook.ts";
+import { announceAndRelocate, claudeHookCommand, relocationIsCallers } from "../worktree-hook.ts";
 
 const REPO = "remote:example%2Fr";
 let home = "";
@@ -156,6 +156,41 @@ describe("relocation announcements", () => {
     expect(currentWorktree({ binding })?.path).toBe("/pool/r/fred");
     claimWorktree({ binding: bind("ola.cd34", "s-other", "att-2") }, "/pool/r/wilma");
     expect(await relocationIsCallers(announce("/pool/r/wilma"), {})).toBe(true);
+  });
+
+  test("with the mod answering in the session, the current tree moves only on the tool's completion", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const binding = bind("remy.ab12", "s-bound", "att-1");
+    claimWorktree({ binding }, "/pool/r/fred");
+    claimWorktree({ binding }, "/pool/r/wilma");
+    const sent: unknown[] = [];
+    const reply = (data: Record<string, unknown>) => async (payload: unknown) => {
+      sent.push(payload);
+      return { ok: true, data } as never;
+    };
+
+    await announceAndRelocate(announce("/pool/r/fred"), {}, reply({ scheduled: false, pane: null, reason: "mod" }));
+    expect(sent).toEqual([announce("/pool/r/fred")]);
+    expect(currentWorktree({ binding })?.path).toBe("/pool/r/wilma");
+
+    await announceAndRelocate(announce("/pool/r/fred"), {}, reply({ scheduled: true, pane: "w1:p1" }));
+    expect(currentWorktree({ binding })?.path).toBe("/pool/r/fred");
+
+    claimWorktree({ binding }, "/pool/r/wilma");
+    await announceAndRelocate(announce("/pool/r/fred"), {}, async () => { throw new Error("daemon down"); });
+    expect(currentWorktree({ binding })?.path).toBe("/pool/r/fred");
+  });
+
+  test("a tree another session holds is never announced, with or without the mod", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    claimWorktree({ binding: bind("ola.cd34", "s-other", "att-2") }, "/pool/r/wilma");
+    bind("remy.ab12", "s-bound", "att-1");
+    const sent: unknown[] = [];
+    await announceAndRelocate(announce("/pool/r/wilma"), {}, async (payload) => {
+      sent.push(payload);
+      return { ok: true, data: { scheduled: true, pane: "w1:p1" } } as never;
+    });
+    expect(sent).toHaveLength(0);
   });
 
   test("a bound session is not announced for a tree another session holds", async () => {

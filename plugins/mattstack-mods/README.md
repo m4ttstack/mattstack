@@ -21,7 +21,7 @@ so every feature takes its existing path.
 | `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
-| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `observe.ts` reports the session's state to the herd watchdog and takes its nudges; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane; `policy.ts` guards questions and run tools with rt's shared policy; `stop-gate.ts` holds a turn a pipeline run must continue. |
+| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `observe.ts` reports the session's state to the herd watchdog and takes its nudges; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane; `policy.ts` guards questions and run tools with rt's shared policy; `relocation.ts` answers EnterWorktree's relocation prompt for a path rt manages; `stop-gate.ts` holds a turn a pipeline run must continue. |
 | `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane. Each kit owns one pane id: the gate form's, or the gate panel's. `gate-view.ts` holds its drawing parts, and `gate-ctx.ts` the port of the board's gate-ctx parser. |
 | `src/blocks/sections.ts` | The reply rule and spill-read sections' text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/blocks/tool-names.ts` | The mattstack MCP tool prefix and the run tools the policy guard covers. It imports nothing, so an rt-side bun test can hold it to the mattstack plugin's names. |
@@ -63,7 +63,9 @@ Tool rules run in five stages:
   `signal`, which aborts when the person interrupts the call, so a wait the
   rule starts can end with it.
 - `tap` sees the result after the call.
-- `check` answers `tool.check` with a decision.
+- `check` answers `tool.check` with a decision. Its `beneath` resolves to
+  the engine's own verdict, so a rule can answer only what the engine
+  would ask about.
 
 ## The daemon link
 

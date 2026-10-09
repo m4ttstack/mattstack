@@ -311,6 +311,8 @@ export interface WatchdogActuatorDeps {
   trustStepMs?: number;
   /** Pushes a command to a Claude session's mod and waits for its ack; pushModCommand when omitted. */
   push?: (session: string, kind: string, data: unknown) => Promise<Outcome<{ acked: boolean }>>;
+  /** Whether the session in `pane` answers the relocation prompt through its mod; such a pane gets no key press. */
+  relocationInMod?: (pane: string) => boolean;
 }
 
 /** None of these throw into the ladder: one party's failed side effect must
@@ -362,6 +364,10 @@ export function createWatchdogActuators(deps: WatchdogActuatorDeps): WatchdogAct
     },
     async acceptRelocationModal(herd, job, pane) {
       if (!deps.herdr) return false;
+      if (deps.relocationInMod?.(pane)) {
+        log.debug({ herd, job, pane }, "watchdog: the session's mod answers relocation; pressing nothing");
+        return false;
+      }
       const sockPath = deps.socketFor(pane);
       try {
         const outcome = await driveRelocationAccept({

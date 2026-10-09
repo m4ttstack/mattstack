@@ -877,6 +877,12 @@ plugin's `PreToolUse` hook on EnterWorktree (through the hidden
 provisions a tree, and only inside the watcher's 8-second window and for the
 announced path.
 
+A bound session whose mattstack-mods `relocation` block is live answers a
+path-mode prompt itself: its `tool.check` rule allows a path
+`worktree:registered` confirms, and all three seams stand down for that
+session, except for the window after a create-hook (name-mode) announce,
+which keeps today's handling (`lib/agent-integrations/claude/relocation.ts`).
+
 Claude Code 2.1.281 draws the dialog under a full-width rule with a
 " Tool use" heading, an "   Entering worktree(<path>)" echo and a
 " │ permission-root relocation to ..." gutter line; the parser matches those
