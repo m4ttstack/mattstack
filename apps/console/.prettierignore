@@ -21,3 +21,7 @@ docs/design/**
 # Design-fixture skill files: their line numbers and spacing are the data the
 # parity boards are compared against.
 src/server/fixtures/design/files/**
+
+# Design-fixture stage docs keep a compiled doc's exact shape: the compile
+# banner sits directly above the frontmatter, which prettier would split.
+src/server/fixtures/design/runs/stage-docs/**
