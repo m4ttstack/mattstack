@@ -79,8 +79,9 @@ the rt:settings skill, 'Changing the org repo's layout'."
 **Runtime refusal**: the migration loop in `runUpdateWith`
 (`lib/setup/apply.ts`) marks a migration as running for the length of its
 `run()`, unless its id is on the allowlist. While marked, `setSetting`,
-`unsetSetting` and `pruneStoreName` throw at `org` or `team` scope with the
-same sentence. The throw makes the migration `failed`, which is not
+`unsetSetting` and `pruneStoreName` throw at `org` or `team` scope, and
+`renameRepoSection` throws on an org or team store's path, with the same
+sentence. The throw makes the migration `failed`, which is not
 recorded, so it runs again next update; tests that exercise a migration hit
 it directly. The mark lives in rt-client's write module (a module-level flag
 with a setter, cleared in a `finally`), so a write through any helper that

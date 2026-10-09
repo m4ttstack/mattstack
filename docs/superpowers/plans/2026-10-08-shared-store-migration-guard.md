@@ -108,7 +108,9 @@ function assertSharedWriteAllowed(scope: SettingScope): void {
 }
 ```
 
-  Call `assertSharedWriteAllowed(scope)` as the first statement of `setSetting`, `unsetSetting` (before the retired-key branch), `pruneStoreName` and `renameRepoSection`. Those are the four exported functions in `write.ts` that write a store.
+  Call `assertSharedWriteAllowed(scope)` as the first statement of `setSetting`, `unsetSetting` (before the retired-key branch) and `pruneStoreName`.
+
+  `renameRepoSection(storePath, oldId, newId, opts)` takes a path, not a scope, and wraps its body in a try that turns any throw into a `refused` result. So it gets its own check before that try: `if (sharedWriteRefusal !== null && orgHolding(storePath) !== null) throw new SharedStoreWriteRefused(sharedWriteRefusal);`. It uses the `orgHolding` the function already uses to tell a shared store from this Mac's own.
 - Produces, in `lib/setup/migrations/index.ts`:
 
 ```ts
@@ -139,7 +141,7 @@ Steps:
   3. A test migration given the real allowlisted id `2026-10-07-sdm-resources-key` may write `team`.
   4. A migration that throws after a refused write leaves the flag cleared: a later `setSetting(..., "team")` outside any migration succeeds.
   5. A helper defined outside `lib/setup/migrations/` that writes `org` is refused when a migration calls it.
-  6. `unsetSetting`, `pruneStoreName` and `renameRepoSection` at `team` scope are each refused inside a migration.
+  6. `unsetSetting` and `pruneStoreName` at `team` scope, and `renameRepoSection` on the team store's path (`teamSettingsPath("acme", "claim")`), are each refused inside a migration with `SharedStoreWriteRefused`. `renameRepoSection` on the user store's path is not refused.
 
   Run it and expect FAIL.
 - [ ] **Step 2: Implement.** Make the changes above, then rebuild rt-client. Run the new test, `lib/setup/__tests__/migration-sdm-resources-key.test.ts`, `lib/setup/__tests__/migrations.test.ts`, `packages/rt-client/src/settings/__tests__/write.test.ts` and `packages/rt-client/test/dist-freshness.test.ts`. Expect PASS.
@@ -201,7 +203,7 @@ describe("setup migrations never write the org or team stores", () => {
   - `"team"`, `"org"` and a variable scope are hits;
   - `"user"` is not;
   - a `teamSettingsPath` mention is a hit;
-  - a known miss, `setSetting("k", f("user"), "team")`, is caught by the `"team"` literal; note in the test that `setSetting("k", f("team"), scopeVar)` with a nested literal is left to the runtime refusal.
+  - a known miss: `setSetting("k", f("user"), "team")` is **not** a hit, because the lazy match stops at the first `)`. Assert the miss, with a comment that the runtime refusal (Task 2) covers it.
 
 Steps:
 - [ ] **Step 1: Write the test and confirm it catches a bad migration.** Temporarily add `lib/setup/migrations/zz-probe.ts` containing `export const x = { id: "zz", run: () => setSetting("a", 1, "team") };`. Run `bun test lib/__tests__/no-shared-store-migrations.test.ts` and expect `zz-probe.ts` to FAIL with the sentence. Delete the probe and expect PASS.
@@ -259,6 +261,8 @@ export function preflight(clone: Clone, admin: string, opts: { managedFolders: r
   3. the tree is clean, and the managed folders hold no ignored files;
   4. a branch is checked out;
   5. after a fetch from origin, the branch is neither ahead nor behind origin.
+
+  A failed fetch stays a `UserActionableError("fetch-failed", "Could not fetch origin to check that the clone is current", ...)`, which exits 1, not a `ConversionRefusal`. `move-team-packs.test.ts` L468-476 pins that.
 - Modify: `scripts/move-team-packs-to-plugin.ts`.
   - Its `refuse` stays in the script. It catches `ConversionRefusal` around `cloneRoot`, `assertNoLink` and `preflight`, and prints it the same way.
   - Order:
