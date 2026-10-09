@@ -29,6 +29,7 @@ import {
 } from '../derive/gates';
 import { GateContext } from '../GateContext';
 import classes from './DecisionCard.module.css';
+import { PassedOnList } from './PassedOnList';
 
 /** A collapsed context: a prose context renders as markdown, a structured one
     shows its summary line over the raw JSON in a monospace block, never as
@@ -115,7 +116,8 @@ const quoted = (options: OptionView[]) =>
   options.map(o => `“${o.text}”`).join(', ');
 
 /** The options the answer passed on, folded to one line that opens to list
-    them. The line names the recommendation when the pick went against it. */
+    them. While folded, the line names the recommendation the pick went
+    against; once open, the listed row's mark names it. */
 function OtherOptions({
   id,
   others,
@@ -134,7 +136,7 @@ function OtherOptions({
     : `${n} ${n === 1 ? 'option' : 'options'}`;
   const passedRecommended = others.filter(o => o.recommended);
   const line =
-    overrode && passedRecommended.length > 0
+    !open && overrode && passedRecommended.length > 0
       ? `${count} · recommended was ${quoted(passedRecommended)}`
       : count;
   return (
@@ -156,17 +158,12 @@ function OtherOptions({
         </Text>
       </UnstyledButton>
       {open ? (
-        <Stack gap={4} id={id} className={classes.passed}>
-          {others.map(o => (
-            <Group key={o.value} gap={8} wrap="nowrap" data-option={o.value}>
-              <span className={classes.dash} />
-              <Text fz={12.5} lh="normal" c="dimmed">
-                {o.text}
-              </Text>
-              {o.recommended ? <RecommendedMark /> : null}
-            </Group>
-          ))}
-        </Stack>
+        <PassedOnList
+          id={id}
+          options={others}
+          recommendedMark={<RecommendedMark />}
+          className={classes.passed}
+        />
       ) : null}
     </>
   );

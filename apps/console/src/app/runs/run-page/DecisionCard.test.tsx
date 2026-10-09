@@ -67,6 +67,19 @@ describe('DecisionCard', () => {
     ).toBeInTheDocument();
   });
 
+  it('names an overridden recommendation once when the line is open', async () => {
+    const { getByRole, getAllByText } = card(
+      gateOf({ answer: answeredWith({ approach: 'panel' }) })
+    );
+    await userEvent.click(
+      getByRole('button', { name: /^2 other options · recommended was/ })
+    );
+    const line = getByRole('button', { name: '2 other options' });
+    expect(line).toHaveAttribute('aria-expanded', 'true');
+    expect(getAllByText(/Backend gap-fill \+ component work/)).toHaveLength(1);
+    expect(getAllByText('recommended')).toHaveLength(1);
+  });
+
   it('says one other option in the singular', () => {
     const { getByRole } = card(
       gateOf({

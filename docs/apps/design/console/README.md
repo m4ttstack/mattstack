@@ -500,6 +500,8 @@ gates; their frames stay in `runs.pen` for history:
 - `run-record` → `runs-p2-record`
 - `run-record-review` → `runs-p2-review`
 - `runs-lanes` → `runs-p2-runs`
+- `run-record-abandoned` → `runs-p2-record`: it draws the evidence and
+  commits stats pass 2 removed, so it can no longer pass
 
 ### Board-fix list (pass 2)
 
@@ -595,7 +597,7 @@ Live run page (runs-p2-live, runs-p2-story-details `Hero`, `Story`, `Side`):
   compares Hero, Gate mine and Side only.
 
 Finished run record (runs-p2-record `Hero`, `Tabs`, `Decision log`,
-`Evidence rail`; run-record-abandoned `Hero abandoned`):
+`Evidence rail`):
 
 - The first pass's record entries still apply: the Hero, Decision, Evidence
   and Case cards are kit `Paper` ruled in `--tk-border`; answer stamps and
@@ -617,15 +619,15 @@ Finished run record (runs-p2-record `Hero`, `Tabs`, `Decision log`,
   story's stage rows draw it. The board rings it in the page surface to
   break the log's rule; the app paints that ring on a wrapper behind the
   icon, so `bullet` has no stroke.
-- The record header shows four stats (duration, decisions, took the
-  recommendation, waiting on you). run-record-abandoned, a first-pass
-  board, still draws the evidence and commits stats, so on that board
-  `Stat evidence` and `Stat commits` are missing and the other cells are
-  wider.
-- An abandoned run's line ("Abandoned · Oct 8, 2:14 PM · “Superseded by
-  WEB-430”") sits under the hero card and no board draws it. The abandon
-  record keeps no actor, so the line names nobody.
+- An abandoned run's reason ("“Superseded by WEB-430”") sits muted under
+  the hero card, and no board draws it. The outcome pill already says
+  abandoned and the hero span already ends at the abandon time, so the line
+  carries only the reason, and nothing when the reason is blank.
 - The options a decision passed on open from the folded line to a dashed
-  list, as the story's "Passed on" list draws them; no board draws it open.
+  list, the story's "Passed on" list (`PassedOnList`); no board draws it
+  open. While open, the line drops "recommended was …", since the listed
+  row's mark names it.
+- A stage head leaves out a part it has none of: a stage with no answered
+  question reads no count.
 - The evidence card, its thumbnails, Compare and transcript belong to the
   evidence pass (section E); their mismatches are not this section's.

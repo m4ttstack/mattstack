@@ -116,19 +116,17 @@ export function recordStats({
   return stats;
 }
 
-/** "Abandoned · Oct 8, 2:14 PM · “Superseded by WEB-430”", from the note
-    `rt runs abandon` records. The note keeps no actor, so the line names
-    nobody. Null unless the run was abandoned and the note is there. */
-export function abandonedLine(
+/** “Superseded by WEB-430”: the reason `rt runs abandon` noted. The hero
+    already says the run was abandoned, and the note's time is the run's
+    end, so the reason is all that is new. Null when the run was not
+    abandoned or the reason is blank. */
+export function abandonReason(
   run: Pick<RunSummary, 'status'>,
   fields: RunFieldRow[]
 ): string | null {
   if (run.status !== 'abandoned') return null;
-  const note = fields.find(f => f.key === 'reconciled');
-  if (!note) return null;
-  const when = `${dayOf(note.at)}, ${formatClock(note.at)}`;
-  const reason = note.value.trim();
-  return reason ? `Abandoned · ${when} · “${reason}”` : `Abandoned · ${when}`;
+  const reason = fields.find(f => f.key === 'reconciled')?.value.trim();
+  return reason ? `“${reason}”` : null;
 }
 
 export type RecordTab = 'story' | 'decisions' | 'evidence' | 'inputs';

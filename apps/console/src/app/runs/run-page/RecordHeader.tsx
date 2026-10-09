@@ -22,12 +22,12 @@ export interface RecordHeaderProps {
   title: string;
   outcome: RunOutcome | undefined;
   stats: RecordStat[];
-  /** "Abandoned · <when> · “<reason>”", under the card, when recorded. */
+  /** An abandoned run's quoted reason, under the card, when recorded. */
   abandoned?: string | null;
 }
 
 /** A finished run's hero: ticket, span and title, how it ended, and the
-    numbers that apply to it; an abandoned run's when and why under it. */
+    numbers that apply to it; an abandoned run's reason under it. */
 export function RecordHeader({
   ticket,
   ticketUrl,

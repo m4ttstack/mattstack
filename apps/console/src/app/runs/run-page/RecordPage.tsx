@@ -3,7 +3,7 @@ import { Badge, Stack, Tabs, Text } from '@mattstack/app-kit/core';
 import { parseEvidence } from '@mattstack/rt-client/evidence';
 
 import {
-  abandonedLine,
+  abandonReason,
   answeredQuestionCount,
   decisionStages,
   defaultRecordTab,
@@ -117,7 +117,7 @@ export function RecordPage({
         title={parts.title}
         outcome={run.outcome}
         stats={stats}
-        abandoned={abandonedLine(run, fields)}
+        abandoned={abandonReason(run, fields)}
       />
       <Tabs
         value={shown}

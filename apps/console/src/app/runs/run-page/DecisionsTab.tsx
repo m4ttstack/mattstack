@@ -13,9 +13,11 @@ const stageName = (stage: string | null) => stage ?? 'other';
 const counted = (n: number, one: string, many: string) =>
   `${n} ${n === 1 ? one : many}`;
 
-/** "3 decisions · 12m · 1 override". */
+/** "3 decisions · 12m · 1 override", each part only when there is one. */
 function stageMeta(group: DecisionStage): string {
-  const parts = [counted(group.answered, 'decision', 'decisions')];
+  const parts: string[] = [];
+  if (group.answered > 0)
+    parts.push(counted(group.answered, 'decision', 'decisions'));
   if (group.durationMs != null) parts.push(formatDuration(group.durationMs));
   if (group.overrides > 0)
     parts.push(counted(group.overrides, 'override', 'overrides'));
@@ -28,6 +30,7 @@ function stageMeta(group: DecisionStage): string {
 function StageHead({ group }: { group: DecisionStage }) {
   const name = stageName(group.stage);
   const bullet = group.status ? STAGE_BULLET[group.status] : null;
+  const meta = stageMeta(group);
   return (
     <Group
       gap={10}
@@ -51,9 +54,11 @@ function StageHead({ group }: { group: DecisionStage }) {
       <Text fz={15} fw={700} lh="normal" data-parity="name">
         {name}
       </Text>
-      <Text fz={12.5} lh="normal" c="dimmed" data-parity="meta">
-        {stageMeta(group)}
-      </Text>
+      {meta ? (
+        <Text fz={12.5} lh="normal" c="dimmed" data-parity="meta">
+          {meta}
+        </Text>
+      ) : null}
     </Group>
   );
 }

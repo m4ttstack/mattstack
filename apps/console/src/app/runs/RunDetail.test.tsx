@@ -845,7 +845,7 @@ describe('RunDetail: finished run', () => {
     expect(within(record).queryByTestId('abandoned-line')).toBeNull();
   });
 
-  it('says when and why a run was abandoned, under the hero', async () => {
+  it('says why a run was abandoned under the hero, and only why', async () => {
     render(
       workRun({
         run: summary({
@@ -867,10 +867,7 @@ describe('RunDetail: finished run', () => {
     );
     const record = await screen.findByTestId('run-record');
     const line = await within(record).findByTestId('abandoned-line');
-    expect(line).toHaveTextContent(
-      /^Abandoned · Oct 8, \d+:\d\d [AP]M · “Superseded by WEB-430”$/
-    );
-    expect(line.textContent).not.toMatch(/by you/);
+    expect(line).toHaveTextContent(/^“Superseded by WEB-430”$/);
   });
 
   it('labels a raw field key in sentence case on the story', async () => {

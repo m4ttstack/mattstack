@@ -73,7 +73,7 @@ export const HeaderAbandoned: S = {
         { id: 'decisions', value: '3', label: 'decisions' },
         { id: 'waiting', value: '40m', label: 'waiting on you' },
       ]}
-      abandoned="Abandoned · Oct 8, 2:14 PM · “Superseded by WEB-430”"
+      abandoned="“Superseded by WEB-430”"
     />
   ),
 };

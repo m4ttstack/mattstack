@@ -35,13 +35,6 @@
   padding-left: 29px;
 }
 
-.dash {
-  flex: 0 0 8px;
-  width: 8px;
-  height: 1.5px;
-  background-color: var(--tk-line-2);
-}
-
 .note {
   display: flex;
   align-items: flex-start;

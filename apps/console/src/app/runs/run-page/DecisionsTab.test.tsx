@@ -70,7 +70,8 @@ describe('DecisionsTab', () => {
     expect(head('plan')).toHaveTextContent(
       /^plan3 decisions · 12m · 1 override$/
     );
-    expect(head('ship')).toHaveTextContent(/^ship0 decisions$/);
+    expect(head('ship')).toHaveTextContent(/^ship$/);
+    expect(head('ship').querySelector('[data-parity="meta"]')).toBeNull();
     expect(head('evidence')).toHaveTextContent(
       /^evidence1 decision · 44m · 2 overrides$/
     );

@@ -7,7 +7,7 @@ import type {
 import { describe, expect, it } from 'vitest';
 
 import {
-  abandonedLine,
+  abandonReason,
   answeredQuestionCount,
   decisionStages,
   defaultRecordTab,
@@ -256,30 +256,30 @@ describe('recordStats', () => {
   });
 });
 
-describe('abandonedLine', () => {
+describe('abandonReason', () => {
   const abandoned = run({
     status: 'abandoned',
     outcome: { status: 'abandoned' },
   });
 
-  it('reads when and why a run was abandoned, naming nobody', () => {
+  it('quotes the reason an abandoned run recorded, and nothing else', () => {
     expect(
-      abandonedLine(abandoned, [
-        { ...field('reconciled', 'Superseded by WEB-430'), at: at(152) },
+      abandonReason(abandoned, [
+        { ...field('reconciled', ' Superseded by WEB-430 '), at: at(152) },
       ])
-    ).toBe('Abandoned · Oct 8, 2:14 PM · “Superseded by WEB-430”');
+    ).toBe('“Superseded by WEB-430”');
   });
 
-  it('leaves the reason off when none was given', () => {
+  it('is null when the reason is blank', () => {
     expect(
-      abandonedLine(abandoned, [{ ...field('reconciled', ' '), at: at(152) }])
-    ).toBe('Abandoned · Oct 8, 2:14 PM');
+      abandonReason(abandoned, [{ ...field('reconciled', ' '), at: at(152) }])
+    ).toBeNull();
   });
 
   it('is null for a run that was not abandoned or recorded nothing', () => {
-    expect(abandonedLine(abandoned, [])).toBeNull();
+    expect(abandonReason(abandoned, [])).toBeNull();
     expect(
-      abandonedLine(run(), [field('reconciled', 'Superseded by WEB-430')])
+      abandonReason(run(), [field('reconciled', 'Superseded by WEB-430')])
     ).toBeNull();
   });
 });

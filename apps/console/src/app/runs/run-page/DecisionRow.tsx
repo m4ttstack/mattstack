@@ -29,6 +29,7 @@ import {
 } from '../derive/gates';
 import { GateContext } from '../GateContext';
 import classes from './DecisionRow.module.css';
+import { PassedOnList } from './PassedOnList';
 
 export interface DecisionRowProps {
   gate: GateRow;
@@ -173,19 +174,7 @@ export function DecisionRow({
     open && answer ? (
       <Stack gap={8} id={detailId}>
         {others.length > 0 ? (
-          <Stack gap={4} className={classes.inset}>
-            <Text fz={11.5} fw={500} lh="normal" c="dimmed" data-parity="h">
-              Passed on
-            </Text>
-            {others.map(o => (
-              <Group key={o.value} gap={8} wrap="nowrap">
-                <span className={classes.dash} data-parity="dash" />
-                <Text fz={12.5} lh="normal" c="dimmed" data-parity="t">
-                  {o.text}
-                </Text>
-              </Group>
-            ))}
-          </Stack>
+          <PassedOnList options={others} heading className={classes.inset} />
         ) : null}
         {answer.note ? (
           <Group
