@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { AgentModelOption } from '../../server/agent-models';
 import { client } from '../api';
 
-export function useAgentModels(provider: 'claude' | 'codex') {
+export function useAgentModels(provider: string) {
   return useQuery({
     queryKey: ['agent', 'models', provider],
     queryFn: async () => {

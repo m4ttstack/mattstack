@@ -230,3 +230,5 @@ export type {
   QuestionBinding, Readiness, Selection, SessionBinding,
 } from "./agent-integrations.ts";
 export { MOD_BLOCKS } from "./agent-integrations.ts";
+export { agentCatalog, CLAUDE_EFFORT_CATALOG, CLAUDE_MODEL_CATALOG, codexModelCatalog } from "./agent-catalog.ts";
+export type { AgentCatalog, AgentCatalogDeps, AgentCatalogOption } from "./agent-catalog.ts";

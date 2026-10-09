@@ -14,7 +14,12 @@ import { notifications } from '@mattstack/app-kit/notifications';
 import { sameNameOrdinals } from '../display-name';
 import { NewPaneForm, type NewPaneArgs } from './NewPaneForm';
 import { paneName, PaneRow } from './PaneRow';
-import type { ChatPane, PaneHarnesses, PickPanesOptions } from './types';
+import type {
+  ChatPane,
+  HarnessState,
+  PaneHarnesses,
+  PickPanesOptions,
+} from './types';
 
 const ORDER: Record<string, number> = { live: 0, idle: 1 };
 
@@ -52,6 +57,8 @@ interface Starting {
   label?: string;
 }
 
+const UNREADABLE = 'Chat could not read which agents are turned on.';
+
 function readHarnesses(body: unknown): PaneHarnesses {
   const b = body as Partial<Extract<PaneHarnesses, { enabled: true }>> | null;
   return b?.enabled === true && Array.isArray(b.harnesses)
@@ -59,6 +66,7 @@ function readHarnesses(body: unknown): PaneHarnesses {
         enabled: true,
         harnesses: b.harnesses,
         defaultHarness: b.defaultHarness ?? null,
+        ...(typeof b.notice === 'string' && { notice: b.notice }),
       }
     : { enabled: false };
 }
@@ -81,8 +89,9 @@ export function PanePickerModal({
   const [filter, setFilter] = useState('');
   const [peeks, setPeeks] = useState<Record<string, string[] | 'loading'>>({});
   const [view, setView] = useState<'list' | 'new'>('list');
-  const [harnesses, setHarnesses] = useState<PaneHarnesses | null>(null);
-  const on = harnesses?.enabled === true ? harnesses : null;
+  const [harnesses, setHarnesses] = useState<HarnessState>(null);
+  const on =
+    harnesses && 'enabled' in harnesses && harnesses.enabled ? harnesses : null;
   const labelOf = (id: string) =>
     on?.harnesses.find(h => h.id === id)?.label ?? id;
   const mobile = useIsMobile();
@@ -107,12 +116,19 @@ export function PanePickerModal({
   useEffect(() => {
     let cancelled = false;
     fetch('/api/panes/harnesses')
-      .then(res => (res.ok ? res.json() : null))
-      .then((data: unknown) => {
-        if (!cancelled) setHarnesses(readHarnesses(data));
+      .then(async res => {
+        const data = (await res.json().catch(() => null)) as {
+          error?: unknown;
+        } | null;
+        if (cancelled) return;
+        if (res.ok) setHarnesses(readHarnesses(data));
+        else
+          setHarnesses({
+            error: typeof data?.error === 'string' ? data.error : UNREADABLE,
+          });
       })
       .catch(() => {
-        if (!cancelled) setHarnesses({ enabled: false });
+        if (!cancelled) setHarnesses({ error: UNREADABLE });
       });
     return () => {
       cancelled = true;

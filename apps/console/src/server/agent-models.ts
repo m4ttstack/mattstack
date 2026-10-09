@@ -1,59 +1,14 @@
 import {
+  agentCatalog,
   agentIntegrations,
+  codexModelCatalog,
   getSetting,
+  type AgentCatalogOption,
   type IntegrationSummary,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
 
-export interface AgentModelOption {
-  value: string;
-  label: string;
-}
-
-// No live catalog command exists for claude (verified: no model-list
-// subcommand in `claude --help`). Maintained by hand; a stale entry here is
-// a documentation debt, not a correctness bug -- these are suggestions, not
-// validated choices.
-const CLAUDE_MODELS: AgentModelOption[] = [
-  { value: 'sonnet', label: 'Sonnet (latest)' },
-  { value: 'opus', label: 'Opus (latest)' },
-  { value: 'haiku', label: 'Haiku (latest)' },
-  { value: 'fable', label: 'Fable (latest)' },
-];
-
-interface CodexCatalogModel {
-  slug: string;
-  display_name: string;
-  visibility: string;
-}
-
-/** `codex debug models` returns the real, live catalog -- confirmed against
-    the installed codex-cli 0.153.4. Filtered to visibility: "list" (the
-    user-facing set; "hide" entries are internal/experimental). */
-// A hung `codex` binary must not hold the HTTP request (or the child
-// process) open forever; Bun kills the process once `timeout` elapses.
-const CODEX_MODELS_TIMEOUT_MS = 5000;
-
-async function codexModels(): Promise<AgentModelOption[]> {
-  const proc = Bun.spawn(['codex', 'debug', 'models'], {
-    stdout: 'pipe',
-    stderr: 'ignore',
-    timeout: CODEX_MODELS_TIMEOUT_MS,
-  });
-  try {
-    const [text, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
-    ]);
-    if (exitCode !== 0) return [];
-    const parsed = JSON.parse(text) as { models: CodexCatalogModel[] };
-    return parsed.models
-      .filter(m => m.visibility === 'list')
-      .map(m => ({ value: m.slug, label: m.display_name }));
-  } finally {
-    proc.kill();
-  }
-}
+export type AgentModelOption = AgentCatalogOption;
 
 export interface AgentModelsDeps {
   /** agent.integrations.enabled; off, the routes answer as they always did. */
@@ -78,26 +33,19 @@ const realDeps: AgentModelsDeps = {
     );
     return res.ok && res.data ? res.data.integrations : null;
   },
-  codexCatalog: codexModels,
+  codexCatalog: () => codexModelCatalog(),
 };
 
-/** A harness whose model option is free text keeps its own catalog as
-    suggestions; one that offers no catalog suggests nothing. */
-const CATALOGS: Record<
-  string,
-  (deps: AgentModelsDeps) => Promise<AgentModelOption[]>
-> = {
-  claude: async () => CLAUDE_MODELS,
-  codex: async deps => {
-    try {
-      return await deps.codexCatalog();
-    } catch {
-      // codex not installed / catalog shape changed: an empty list degrades
-      // to free-text entry in the UI rather than a broken page.
-      return [];
-    }
-  },
-};
+/** A harness whose model option is free text suggests its shared catalog;
+    one with no catalog suggests nothing. */
+async function catalogModels(
+  id: string,
+  deps: AgentModelsDeps
+): Promise<AgentModelOption[]> {
+  return (
+    (await agentCatalog(id, { codexModels: deps.codexCatalog }))?.model ?? []
+  );
+}
 
 function providerError(ids: string[]): string {
   const quoted = ids.map(id => `"${id}"`);
@@ -114,9 +62,7 @@ async function modelsFor(
   if (!model) return [];
   if (model.kind === 'choice')
     return (model.choices ?? []).map(c => ({ value: c, label: c }));
-  return Object.hasOwn(CATALOGS, integration.id)
-    ? CATALOGS[integration.id]!(deps)
-    : [];
+  return catalogModels(integration.id, deps);
 }
 
 export function createAgentModels(deps: AgentModelsDeps = realDeps) {
@@ -124,7 +70,7 @@ export function createAgentModels(deps: AgentModelsDeps = realDeps) {
     const provider = c.req.query('provider');
     if (!deps.switchOn()) {
       if (provider === 'claude' || provider === 'codex')
-        return c.json({ models: await CATALOGS[provider]!(deps) }, 200);
+        return c.json({ models: await catalogModels(provider, deps) }, 200);
       return c.json({ error: providerError(['claude', 'codex']) }, 400);
     }
     const integrations = await deps.integrations();

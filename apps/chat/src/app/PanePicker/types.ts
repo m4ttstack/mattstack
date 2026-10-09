@@ -1,5 +1,7 @@
 import type { ChatPane } from '@mattstack/rt-client';
 
+import type { PaneHarnesses } from '../../server/harness-panes';
+
 export type {
   AgentStatus,
   ChatPane,
@@ -7,7 +9,11 @@ export type {
   PaneAccount,
   PaneDirectory,
 } from '@mattstack/rt-client';
+
 export type { PaneHarness, PaneHarnesses } from '../../server/harness-panes';
+/** The new pane form's agent list: null while loading, an error when it
+    could not be read. */
+export type HarnessState = PaneHarnesses | { error: string } | null;
 export interface PickPanesOptions {
   context?: string;
   multiple?: boolean;

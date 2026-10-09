@@ -230,6 +230,7 @@ test('new pane is hidden without allowCreate and present with it; the form posts
   let release: (r: Response) => void = () => {};
   route({
     'GET /api/panes': () => json({ available: true, panes: PANES }),
+    'GET /api/panes/harnesses': () => json({ enabled: false }),
     'GET /api/panes/accounts': () =>
       json({
         accounts: [
@@ -294,6 +295,7 @@ test('new pane is hidden without allowCreate and present with it; the form posts
 test('a ready:false spawn keeps the row, unselectable, with its state', async () => {
   route({
     'GET /api/panes': () => json({ available: true, panes: [] }),
+    'GET /api/panes/harnesses': () => json({ enabled: false }),
     'GET /api/panes/accounts': () => json({ accounts: [] }),
     'GET /api/panes/directories': () => json({ directories: [] }),
     'POST /api/panes': () =>
@@ -452,6 +454,10 @@ const HARNESSES = {
         { name: 'effort', kind: 'text' },
         { name: 'account', kind: 'text' },
       ],
+      suggestions: {
+        model: ['sonnet', 'opus', 'haiku', 'fable'],
+        effort: ['low', 'medium', 'high', 'max'],
+      },
     },
     {
       id: 'codex',
@@ -462,6 +468,7 @@ const HARNESSES = {
         { name: 'model', kind: 'text' },
         { name: 'effort', kind: 'text' },
       ],
+      suggestions: { model: ['gpt-5'], effort: [] },
     },
     {
       id: 'pilot',
@@ -472,18 +479,31 @@ const HARNESSES = {
   ],
 };
 
-async function pickAgent(label: string) {
-  await userEvent.click(screen.getByRole('combobox', { name: 'Agent' }));
-  await userEvent.click(await screen.findByRole('option', { name: label }));
+/** The input a label names; a combobox's listbox carries the same label. */
+function input(label: string): HTMLInputElement {
+  return screen
+    .getAllByLabelText(label)
+    .find((el): el is HTMLInputElement => el instanceof HTMLInputElement)!;
 }
 
-test('picker lists enabled ready harnesses and preserves explicit choice', async () => {
+function stubScrollIntoView() {
   // jsdom has no scrollIntoView, which Combobox calls on a selected option.
   const native = Element.prototype.scrollIntoView;
   Element.prototype.scrollIntoView = () => {};
   onTestFinished(() => {
     Element.prototype.scrollIntoView = native;
   });
+}
+
+async function pickAgent(label: string) {
+  await userEvent.click(screen.getByRole('combobox', { name: 'Agent' }));
+  await userEvent.click(
+    await screen.findByRole('option', { name: new RegExp(`^${label}`) })
+  );
+}
+
+test('picker lists enabled ready harnesses and preserves explicit choice', async () => {
+  stubScrollIntoView();
   let release: (r: Response) => void = () => {};
   route({
     'GET /api/panes': () =>
@@ -518,13 +538,30 @@ test('picker lists enabled ready harnesses and preserves explicit choice', async
   const agent = await screen.findByRole('combobox', { name: 'Agent' });
   expect(agent).toHaveValue('Claude Code');
   await userEvent.click(agent);
-  expect(
-    (await screen.findAllByRole('option')).map(o => o.textContent)
-  ).toEqual(['Claude Code', 'Codex', 'Pilot']);
-  await userEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
+  const options = await screen.findAllByRole('option');
+  expect(options.map(o => o.textContent)).toEqual([
+    'Claude Code',
+    'Codexnot ready',
+    'Pilot',
+  ]);
+  expect(within(options[1]!).getByText('not ready')).toBeInTheDocument();
+  await userEvent.click(options[0]!);
   expect(
     await screen.findByRole('combobox', { name: 'Account' })
   ).toBeInTheDocument();
+
+  await userEvent.click(input('Model'));
+  expect(
+    (await screen.findAllByRole('option')).map(o => o.textContent)
+  ).toEqual(['sonnet', 'opus', 'haiku', 'fable']);
+  await userEvent.click(screen.getByRole('option', { name: 'opus' }));
+  expect(input('Model')).toHaveValue('opus');
+  await userEvent.click(input('Effort'));
+  expect(
+    (await screen.findAllByRole('option')).map(o => o.textContent)
+  ).toEqual(['low', 'medium', 'high', 'max']);
+  await userEvent.click(screen.getByRole('option', { name: 'high' }));
+  expect(input('Effort')).toHaveValue('high');
 
   await pickAgent('Pilot');
   await userEvent.click(screen.getByRole('combobox', { name: 'Model' }));
@@ -540,7 +577,7 @@ test('picker lists enabled ready harnesses and preserves explicit choice', async
     screen.getByText('rt has no connection to the Codex app server yet')
   ).toBeInTheDocument();
   await userEvent.type(screen.getByLabelText('Directory'), '/r/acme-wt');
-  await userEvent.type(screen.getByRole('textbox', { name: 'Model' }), 'gpt-5');
+  await userEvent.type(input('Model'), 'gpt-5');
   await userEvent.click(screen.getByTestId('pane-start'));
 
   expect(
@@ -590,4 +627,94 @@ test('with the integrations switch off the new pane form keeps its Claude model 
     'claude-fable-5'
   );
   expect(screen.getByText('claude --model claude-fable-5')).toBeInTheDocument();
+});
+
+test('a not-ready harness with no reason still says so', async () => {
+  stubScrollIntoView();
+  route({
+    'GET /api/panes': () => json({ available: true, panes: [] }),
+    'GET /api/panes/harnesses': () =>
+      json({
+        enabled: true,
+        defaultHarness: 'codex',
+        harnesses: [
+          {
+            id: 'codex',
+            label: 'Codex',
+            ready: false,
+            options: [{ name: 'model', kind: 'text' }],
+          },
+        ],
+      }),
+    'GET /api/panes/accounts': () => json({ accounts: [] }),
+    'GET /api/panes/directories': () => json({ directories: [] }),
+  });
+  mount({ allowCreate: true });
+  await userEvent.click(screen.getByText('open'));
+  await userEvent.click(await screen.findByTestId('pane-new'));
+  expect(
+    await screen.findByText(
+      'Codex is not ready, so starting it may be refused.'
+    )
+  ).toBeInTheDocument();
+});
+
+test('Start waits for the agent list, and an unreadable list is shown, not taken for the switch being off', async () => {
+  let answer: (r: Response) => void = () => {};
+  route({
+    'GET /api/panes': () => json({ available: true, panes: [] }),
+    'GET /api/panes/harnesses': () => new Promise<Response>(r => (answer = r)),
+    'GET /api/panes/accounts': () => json({ accounts: [] }),
+    'GET /api/panes/directories': () => json({ directories: [] }),
+  });
+  mount({ allowCreate: true });
+  await userEvent.click(screen.getByText('open'));
+  await userEvent.click(await screen.findByTestId('pane-new'));
+  await userEvent.type(screen.getByLabelText('Directory'), '/r/x');
+  expect(screen.getByTestId('pane-start')).toBeDisabled();
+  await act(async () => {
+    answer(
+      json(
+        {
+          error:
+            'Chat could not read which agents are turned on: rt daemon unreachable',
+        },
+        502
+      )
+    );
+  });
+  expect(
+    await screen.findByText(
+      'Chat could not read which agents are turned on: rt daemon unreachable'
+    )
+  ).toBeInTheDocument();
+  expect(screen.getByTestId('pane-start')).toBeDisabled();
+  expect(screen.queryByRole('combobox', { name: 'Agent' })).toBeNull();
+});
+
+test('switch on with no agent turned on: Start stays off and says why', async () => {
+  route({
+    'GET /api/panes': () => json({ available: true, panes: [] }),
+    'GET /api/panes/harnesses': () =>
+      json({
+        enabled: true,
+        harnesses: [],
+        defaultHarness: null,
+        notice:
+          'No agent is turned on, so Chat cannot start one. Turn one on in setup.',
+      }),
+    'GET /api/panes/accounts': () => json({ accounts: [] }),
+    'GET /api/panes/directories': () => json({ directories: [] }),
+  });
+  mount({ allowCreate: true });
+  await userEvent.click(screen.getByText('open'));
+  await userEvent.click(await screen.findByTestId('pane-new'));
+  await userEvent.type(screen.getByLabelText('Directory'), '/r/x');
+  expect(
+    await screen.findByText(
+      'No agent is turned on, so Chat cannot start one. Turn one on in setup.'
+    )
+  ).toBeInTheDocument();
+  expect(screen.getByTestId('pane-start')).toBeDisabled();
+  expect(screen.queryByRole('combobox', { name: 'Agent' })).toBeNull();
 });

@@ -43,7 +43,9 @@ import {
 } from './useConsoleSettings';
 import { useSectionSpy } from './useSectionSpy';
 import {
+  agentProviders,
   buildSections,
+  defaultProvider,
   isEditable,
   needsFixing,
   type Provider,
@@ -222,11 +224,10 @@ export function SettingsPage() {
     ]
   );
   const total = store.defs.length;
-  const agentProvider: Provider =
-    store.defs.find(d => d.key === 'agent.provider')?.effective.value ===
-    'codex'
-      ? 'codex'
-      : 'claude';
+  const agentProvider: Provider = defaultProvider(
+    store.defs,
+    agentProviders(store.defs)
+  );
   const shown = sections.reduce((n, s) => n + s.shown, 0);
   const filtering =
     query !== '' ||

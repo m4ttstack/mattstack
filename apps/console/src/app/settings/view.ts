@@ -35,12 +35,51 @@ export const NO_FILTER: ViewFilter = {
   scope: 'any',
 };
 
-export type Provider = 'claude' | 'codex';
+/** An agent harness with its own `agent.<id>.*` settings. */
+export type Provider = string;
 
-/** The agent provider an `agent.<provider>.*` key belongs to. */
-export function providerOf(key: string | undefined): Provider | null {
-  const m = /^agent\.(claude|codex)\./.exec(key ?? '');
-  return m ? (m[1] as Provider) : null;
+/** The provider whose model an `agent.<id>.model` key sets. */
+export function modelKeyProvider(key: string): Provider | null {
+  return /^agent\.([^.]+)\.model$/.exec(key)?.[1] ?? null;
+}
+
+/** Every provider the registry has `agent.<id>.*` settings for, in registry
+    order. `agent.integrations` is a setting of its own, so the keys under it
+    name no provider. */
+export function agentProviders(defs: readonly { key: string }[]): Provider[] {
+  const keys = new Set(defs.map(d => d.key));
+  const ids: Provider[] = [];
+  for (const { key } of defs) {
+    const id = /^agent\.([^.]+)\./.exec(key)?.[1];
+    if (id !== undefined && !keys.has(`agent.${id}`) && !ids.includes(id))
+      ids.push(id);
+  }
+  return ids;
+}
+
+/** `agent.provider` when it names one of `providers`, else the first. */
+export function defaultProvider(
+  defs: readonly SettingDefWire[],
+  providers: readonly Provider[]
+): Provider {
+  const v = defs.find(d => d.key === 'agent.provider')?.effective.value;
+  return typeof v === 'string' && providers.includes(v)
+    ? v
+    : (providers[0] ?? 'claude');
+}
+
+/** The provider an `agent.<provider>.*` key belongs to, among `providers`. */
+export function providerOf(
+  key: string | undefined,
+  providers: readonly Provider[]
+): Provider | null {
+  const id = /^agent\.([^.]+)\./.exec(key ?? '')?.[1];
+  return id !== undefined && providers.includes(id) ? id : null;
+}
+
+/** A provider's tab label: its id, capitalized. */
+export function providerLabel(id: Provider): string {
+  return id.charAt(0).toUpperCase() + id.slice(1);
 }
 
 export function needsFixing(def: SettingDefWire): boolean {

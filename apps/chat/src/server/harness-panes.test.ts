@@ -1,6 +1,12 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 
-vi.mock('@mattstack/rt-client', () => ({
+vi.mock('@mattstack/rt-client', async () => ({
+  agentCatalog: (
+    await vi.importActual<typeof import('@mattstack/rt-client')>(
+      '@mattstack/rt-client'
+    )
+  ).agentCatalog,
+  codexModelCatalog: vi.fn(),
   chatRooms: vi.fn(),
   chatWho: vi.fn(),
   chatMessages: vi.fn(),
@@ -23,6 +29,7 @@ vi.mock('@mattstack/rt-client', () => ({
 }));
 const rt = await import('@mattstack/rt-client');
 const { routes } = await import('./routes');
+const { resetCodexCatalogForTests } = await import('./harness-panes');
 
 type Summary = Awaited<
   ReturnType<typeof rt.agentIntegrations>
@@ -102,7 +109,13 @@ function post(body: Record<string, unknown>) {
   });
 }
 
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  resetCodexCatalogForTests();
+  vi.mocked(rt.codexModelCatalog).mockResolvedValue([
+    { value: 'gpt-5', label: 'GPT-5' },
+  ]);
+});
 
 test('switch off: no harness list, no daemon read, and a spawn carries no provider', async () => {
   settings({ 'agent.integrations.enabled': false });
@@ -248,4 +261,39 @@ test('switch on: an unknown harness is refused', async () => {
   const res = await post({ cwd: '/r/x', provider: 'nope' });
   expect(res.status).toBe(400);
   expect(rt.paneSpawn).not.toHaveBeenCalled();
+});
+
+test('switch on: each harness with a catalog carries its suggestions, from the one shared catalog', async () => {
+  settings({ 'agent.integrations.enabled': true });
+  metadata([CLAUDE, CODEX, THIRD]);
+  const body = (await (
+    await routes.request('/api/panes/harnesses')
+  ).json()) as {
+    harnesses: Array<{
+      id: string;
+      suggestions?: { model: string[]; effort: string[] };
+    }>;
+  };
+  const by = Object.fromEntries(body.harnesses.map(h => [h.id, h]));
+  expect(by.claude!.suggestions).toEqual({
+    model: ['sonnet', 'opus', 'haiku', 'fable'],
+    effort: ['low', 'medium', 'high', 'max'],
+  });
+  expect(by.codex!.suggestions).toEqual({ model: ['gpt-5'], effort: [] });
+  expect(by.pilot!.suggestions).toBeUndefined();
+
+  await routes.request('/api/panes/harnesses');
+  expect(rt.codexModelCatalog).toHaveBeenCalledTimes(1);
+});
+
+test('switch on with nothing turned on: an empty list and the reason Start is off', async () => {
+  settings({ 'agent.integrations.enabled': true });
+  metadata([OFF]);
+  expect(await (await routes.request('/api/panes/harnesses')).json()).toEqual({
+    enabled: true,
+    harnesses: [],
+    defaultHarness: null,
+    notice:
+      'No agent is turned on, so Chat cannot start one. Turn one on in setup.',
+  });
 });

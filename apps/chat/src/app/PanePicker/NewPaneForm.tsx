@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  Autocomplete,
   Button,
   Group,
   Select,
@@ -11,10 +12,10 @@ import {
 } from '@mattstack/app-kit/core';
 
 import type {
+  HarnessState,
   PaneAccount,
   PaneDirectory,
   PaneHarness,
-  PaneHarnesses,
 } from './types';
 
 /** Always rendered inside `PanePickerModal`, outside
@@ -22,6 +23,7 @@ import type {
     small band under the base tokyo theme. */
 const MUTED = 'var(--tk-text-4)';
 const BORDER = 'var(--tk-border)';
+const BAD = 'var(--mantine-color-bad-text)';
 
 const MODELS = ['claude-fable-5', 'claude-opus-5', 'claude-sonnet-5'];
 const EFFORTS = [
@@ -43,14 +45,17 @@ export interface NewPaneArgs {
 }
 
 export interface NewPaneFormProps {
-  /** Null or `enabled: false`: the Claude-only form, as before the switch. */
-  harnesses: PaneHarnesses | null;
+  /** `enabled: false`: the Claude-only form, as before the switch. Null
+      while the list is loading and an error when it could not be read: the
+      form cannot know what Start would run, so Start stays off. */
+  harnesses: HarnessState;
   onBack: () => void;
   onStart: (args: NewPaneArgs) => void;
 }
 
 /** A harness option as a form control: a choice is a Select of its
-    choices, text is free entry, and an option it does not offer is absent. */
+    choices, text is free entry with the harness's catalog as suggestions
+    when it has one, and an option it does not offer is absent. */
 function OptionField({
   harness,
   name,
@@ -77,6 +82,17 @@ function OptionField({
         clearable
       />
     );
+  const suggested = harness.suggestions?.[name] ?? [];
+  if (suggested.length > 0)
+    return (
+      <Autocomplete
+        label={label}
+        placeholder="default"
+        data={suggested}
+        value={value}
+        onChange={onChange}
+      />
+    );
   return (
     <TextInput
       label={label}
@@ -87,8 +103,22 @@ function OptionField({
   );
 }
 
+function notReadyText(harness: PaneHarness): string {
+  return (
+    harness.reason ??
+    `${harness.label} is not ready, so starting it may be refused.`
+  );
+}
+
 export function NewPaneForm({ harnesses, onBack, onStart }: NewPaneFormProps) {
-  const on = harnesses?.enabled === true ? harnesses : null;
+  const on =
+    harnesses && 'enabled' in harnesses && harnesses.enabled ? harnesses : null;
+  const blocked =
+    harnesses === null
+      ? ''
+      : 'error' in harnesses
+        ? harnesses.error
+        : (on?.notice ?? null);
   const [cwd, setCwd] = useState('');
   const [suggestions, setSuggestions] = useState<PaneDirectory[]>([]);
   const [accounts, setAccounts] = useState<PaneAccount[]>([]);
@@ -210,7 +240,7 @@ export function NewPaneForm({ harnesses, onBack, onStart }: NewPaneFormProps) {
           </Stack>
         )}
       </Stack>
-      {on && (
+      {on && on.harnesses.length > 0 && (
         <Select
           label="Agent"
           data={on.harnesses.map(h => ({ value: h.id, label: h.label }))}
@@ -219,7 +249,19 @@ export function NewPaneForm({ harnesses, onBack, onStart }: NewPaneFormProps) {
             setPicked(v);
             setOption({ model: '', effort: '' });
           }}
-          description={harness && !harness.ready ? harness.reason : undefined}
+          description={
+            harness && !harness.ready ? notReadyText(harness) : undefined
+          }
+          renderOption={({ option: item }) => (
+            <Group gap="xs" wrap="nowrap">
+              <span>{item.label}</span>
+              {on.harnesses.find(h => h.id === item.value)?.ready === false && (
+                <Text component="span" size="xs" style={{ color: MUTED }}>
+                  not ready
+                </Text>
+              )}
+            </Group>
+          )}
         />
       )}
       {takesAccount && accounts.length > 0 && (
@@ -294,6 +336,16 @@ export function NewPaneForm({ harnesses, onBack, onStart }: NewPaneFormProps) {
       >
         {command}
       </Text>
+      {blocked && (
+        <Text
+          size="xs"
+          style={{
+            color: harnesses && 'error' in harnesses ? BAD : MUTED,
+          }}
+        >
+          {blocked}
+        </Text>
+      )}
       <Group
         justify="flex-end"
         gap="xs"
@@ -312,7 +364,11 @@ export function NewPaneForm({ harnesses, onBack, onStart }: NewPaneFormProps) {
         </Button>
         <Button
           size="sm"
-          disabled={!cwd.startsWith('/') || (on !== null && !harness)}
+          disabled={
+            !cwd.startsWith('/') ||
+            blocked !== null ||
+            (on !== null && !harness)
+          }
           onClick={submit}
           data-testid="pane-start"
         >

@@ -33,6 +33,10 @@ import type {
   PresenceRow,
   RoomSummary,
 } from '@mattstack/rt-client';
+import {
+  CLAUDE_EFFORT_CATALOG,
+  CLAUDE_MODEL_CATALOG,
+} from '@mattstack/rt-client';
 
 import type { PaneHarnesses } from './harness-panes';
 import { buildInbox, type InboxPayload } from './inbox';
@@ -838,6 +842,10 @@ export function fixtureHarnesses(): PaneHarnesses {
           { name: 'extraArgs', kind: 'text' },
           { name: 'yolo', kind: 'boolean' },
         ],
+        suggestions: {
+          model: CLAUDE_MODEL_CATALOG.map(o => o.value),
+          effort: CLAUDE_EFFORT_CATALOG.map(o => o.value),
+        },
       },
       {
         id: 'codex',

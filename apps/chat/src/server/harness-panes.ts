@@ -1,6 +1,9 @@
 import {
+  agentCatalog,
   agentIntegrations,
+  codexModelCatalog,
   getSetting,
+  type AgentCatalogOption,
   type HarnessId,
   type IntegrationSummary,
   type OptionDescriptor,
@@ -14,6 +17,9 @@ export interface PaneHarness {
   ready: boolean;
   reason?: string;
   options: OptionDescriptor[];
+  /** Values a free-text model or effort field suggests; absent for a
+      harness with no catalog. */
+  suggestions?: { model: string[]; effort: string[] };
 }
 
 /** `enabled: false` while agent.integrations.enabled is off: the form stays
@@ -24,7 +30,40 @@ export type PaneHarnesses =
       enabled: true;
       harnesses: PaneHarness[];
       defaultHarness: HarnessId | null;
+      /** Why nothing can start, when no harness is turned on. */
+      notice?: string;
     };
+
+export const NO_AGENT =
+  'No agent is turned on, so Chat cannot start one. Turn one on in setup.';
+
+const CODEX_CATALOG_TTL_MS = 5 * 60 * 1000;
+let codexCatalog: { at: number; models: Promise<AgentCatalogOption[]> } | null =
+  null;
+
+/** `codex debug models` spawns a process, so one answer serves every
+    picker opened within the TTL. */
+function cachedCodexModels(): Promise<AgentCatalogOption[]> {
+  const now = Date.now();
+  if (!codexCatalog || now - codexCatalog.at > CODEX_CATALOG_TTL_MS)
+    codexCatalog = { at: now, models: codexModelCatalog() };
+  return codexCatalog.models;
+}
+
+export function resetCodexCatalogForTests(): void {
+  codexCatalog = null;
+}
+
+async function suggestionsFor(
+  id: HarnessId
+): Promise<PaneHarness['suggestions']> {
+  const catalog = await agentCatalog(id, { codexModels: cachedCodexModels });
+  if (!catalog) return undefined;
+  return {
+    model: catalog.model.map(o => o.value),
+    effort: catalog.effort.map(o => o.value),
+  };
+}
 
 /** Read at call time; an unreadable store keeps the switch off. */
 export function integrationsOn(): boolean {
@@ -72,16 +111,26 @@ export async function paneHarnesses(
   const registry = await readRegistry(opts);
   if (!registry.ok) return { error: registry.error };
   const enabled = registry.integrations.filter(i => i.enabled);
+  const harnesses = await Promise.all(
+    enabled.map(async (i): Promise<PaneHarness> => {
+      const suggestions = await suggestionsFor(i.id);
+      return {
+        id: i.id,
+        label: i.label,
+        ready: i.readiness.ready,
+        ...(i.readiness.reason !== undefined && {
+          reason: i.readiness.reason,
+        }),
+        options: i.options,
+        ...(suggestions && { suggestions }),
+      };
+    })
+  );
   return {
     enabled: true,
-    harnesses: enabled.map(i => ({
-      id: i.id,
-      label: i.label,
-      ready: i.readiness.ready,
-      ...(i.readiness.reason !== undefined && { reason: i.readiness.reason }),
-      options: i.options,
-    })),
+    harnesses,
     defaultHarness: defaultOf(enabled),
+    ...(harnesses.length === 0 && { notice: NO_AGENT }),
   };
 }
 
@@ -115,13 +164,7 @@ export async function spawnChoice(
     asked ??
     defaultOf(registry.integrations.filter(i => i.enabled)) ??
     undefined;
-  if (id === undefined)
-    return {
-      ok: false,
-      status: 409,
-      error:
-        'No agent is turned on, so Chat cannot start one. Turn one on in setup.',
-    };
+  if (id === undefined) return { ok: false, status: 409, error: NO_AGENT };
   const harness = registry.integrations.find(i => i.id === id);
   if (!harness)
     return {

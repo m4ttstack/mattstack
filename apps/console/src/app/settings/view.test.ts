@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { schemaFields } from './testSchemas';
 import {
+  agentProviders,
   applyFilter,
   badgeScope,
   buildSections,
@@ -18,6 +19,7 @@ import {
   moveTargets,
   needsFixing,
   NO_FILTER,
+  providerLabel,
   providerOf,
   rungBase,
   rungOf,
@@ -410,15 +412,46 @@ describe('layer rungs and write targets', () => {
 });
 
 describe('providerOf', () => {
+  const providers = ['claude', 'codex'];
   it('names the provider an agent.<provider>.* key belongs to', () => {
-    expect(providerOf('agent.claude.model')).toBe('claude');
-    expect(providerOf('agent.codex.effort')).toBe('codex');
+    expect(providerOf('agent.claude.model', providers)).toBe('claude');
+    expect(providerOf('agent.codex.effort', providers)).toBe('codex');
   });
   it('is null for any other key, and for no key', () => {
-    expect(providerOf('agent.provider')).toBeNull();
-    expect(providerOf('agent.gemini.model')).toBeNull();
-    expect(providerOf('board.agent.claude.model')).toBeNull();
-    expect(providerOf(undefined)).toBeNull();
+    expect(providerOf('agent.provider', providers)).toBeNull();
+    expect(providerOf('agent.gemini.model', providers)).toBeNull();
+    expect(providerOf('agent.integrations.enabled', providers)).toBeNull();
+    expect(providerOf('board.agent.claude.model', providers)).toBeNull();
+    expect(providerOf(undefined, providers)).toBeNull();
+  });
+  it('knows a third provider once the registry has its model key', () => {
+    expect(providerOf('agent.gemini.model', [...providers, 'gemini'])).toBe(
+      'gemini'
+    );
+  });
+});
+
+describe('agentProviders', () => {
+  it('lists each provider with agent.<id>.* keys once, in registry order, never agent.integrations', () => {
+    expect(
+      agentProviders([
+        { key: 'agent.provider' },
+        { key: 'agent.claude.model' },
+        { key: 'agent.claude.effort' },
+        { key: 'agent.codex.model' },
+        { key: 'agent.integrations' },
+        { key: 'agent.integrations.enabled' },
+        { key: 'agent.pilot.model' },
+        { key: 'board.agent.claude.model' },
+      ])
+    ).toEqual(['claude', 'codex', 'pilot']);
+  });
+  it('labels a provider by its capitalized id', () => {
+    expect(['claude', 'codex', 'pilot'].map(providerLabel)).toEqual([
+      'Claude',
+      'Codex',
+      'Pilot',
+    ]);
   });
 });
 

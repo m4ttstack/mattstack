@@ -52,8 +52,8 @@ import {
   isRung,
   isStoreScope,
   layerLabel,
+  modelKeyProvider,
   moveTargets,
-  providerOf,
   repoLabel,
   rungBase,
   scopeLabel,
@@ -106,9 +106,7 @@ export function Suggested({
 }) {
   // Same rule as the Agents section: a provider's `.model` keys suggest
   // that provider's model catalog.
-  const provider = settingKey.endsWith('.model')
-    ? providerOf(settingKey)
-    : null;
+  const provider = modelKeyProvider(settingKey);
   return provider ? (
     <Catalog provider={provider}>{children}</Catalog>
   ) : (

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useContext, useState, type ReactNode } from 'react';
 import {
   Box,
   Group,
@@ -15,8 +15,14 @@ import type { WireIssue } from './issues';
 import type { PanelStore } from './KeyPanel';
 import { scopeTextColor } from './ScopeBadge';
 import { SettingRow, type RowOpen } from './SettingRow';
-import { useSettingsOrg, useSettingsTeam } from './useConsoleSettings';
 import {
+  SettingsDefsContext,
+  useSettingsOrg,
+  useSettingsTeam,
+} from './useConsoleSettings';
+import {
+  agentProviders,
+  providerLabel,
   providerOf,
   type Provider,
   type Section,
@@ -119,14 +125,17 @@ function AgentsSection({
   initialProvider: Provider;
 } & RowWiring) {
   const all = section.subsections.flatMap(s => s.defs);
+  const loaded = useContext(SettingsDefsContext);
+  const providers = agentProviders(loaded.length > 0 ? loaded : all);
   const [chosen, setChosen] = useState<Provider>(
-    () => providerOf(open?.key) ?? initialProvider
+    () => providerOf(open?.key, providers) ?? initialProvider
   );
   const shownFor = (p: Provider) =>
     all.some(d => d.key.startsWith(`agent.${p}.`));
-  const other: Provider = chosen === 'claude' ? 'codex' : 'claude';
   // Derived, never written back: clearing the filter returns to `chosen`.
-  const provider = !shownFor(chosen) && shownFor(other) ? other : chosen;
+  const provider = shownFor(chosen)
+    ? chosen
+    : (providers.find(shownFor) ?? chosen);
   const models = useAgentModels(provider);
   const suggestions = (models.data?.models ?? []).map(m => m.value);
   const defs = all.filter(
@@ -143,10 +152,7 @@ function AgentsSection({
             withItemsBorders={false}
             value={provider}
             onChange={v => setChosen(v as Provider)}
-            data={[
-              { value: 'claude', label: 'Claude' },
-              { value: 'codex', label: 'Codex' },
-            ]}
+            data={providers.map(p => ({ value: p, label: providerLabel(p) }))}
           />
         }
       />

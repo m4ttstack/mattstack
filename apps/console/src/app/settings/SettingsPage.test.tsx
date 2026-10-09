@@ -455,6 +455,17 @@ describe('SettingsPage', () => {
     expect(screen.getByText('agent.codex.')).toBeInTheDocument();
   });
 
+  it('a third registered harness gets its own Agents tab with no UI change', async () => {
+    defsResponse = serve([...DEFS, def('agent.pilot.model')]);
+    renderPage();
+    expect(await screen.findByText('account')).toBeInTheDocument();
+    for (const name of ['Claude', 'Codex', 'Pilot'])
+      expect(screen.getByRole('radio', { name })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('radio', { name: 'Pilot' }));
+    expect(screen.getByText('agent.pilot.')).toBeInTheDocument();
+    expect(screen.queryByText('account')).toBeNull();
+  });
+
   it('a failed load shows an alert and keeps the toolbar', async () => {
     defsResponse = () => ({
       ok: false,
