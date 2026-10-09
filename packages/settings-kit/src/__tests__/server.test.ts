@@ -187,7 +187,8 @@ describe("settingsHandler routing", () => {
   });
 
   test("a set naming a bad team answers 400 with the error instead of throwing", async () => {
-    const res = await handle(post("/api/settings/set", { key: "board.slack", scope: "team", team: "bad/name", value: { webhookUrl: "https://hooks.example.com/x" } }), { allowComposite: true });
+    const viewer = () => ({ username: "dev1", name: null, role: "admin" as const, team: "widgets", teams: ["bad/name", "widgets"] });
+    const res = await handle(post("/api/settings/set", { key: "board.slack", scope: "team", team: "bad/name", value: { webhookUrl: "https://hooks.example.com/x" } }), { allowComposite: true, rt: { ...RT, viewer } });
     expect(res!.status).toBe(400);
     expect(await res!.json()).toEqual({ error: 'rt: "bad/name" is not a team name' });
     expect(setCalls).toHaveLength(0);
