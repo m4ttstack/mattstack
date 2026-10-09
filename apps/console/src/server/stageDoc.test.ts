@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   parsePackTokens,
@@ -51,6 +51,12 @@ const org = {
     bbb2222: {
       'mattstack/teams/acme/plugin/attachments/stage-plan/SKILL.md': 'NEW PLAN',
     },
+    ccc3333: {
+      'mattstack/teams/other/plugin/attachments/stage-plan/SKILL.md':
+        'OTHER PLAN',
+      'mattstack/teams/acme/plugin/attachments/stage-plan/SKILL.md':
+        'ACME PLAN',
+    },
   },
 };
 
@@ -77,7 +83,33 @@ describe('parsePackTokens', () => {
   });
 });
 
+describe('parsePackTokens version tokens', () => {
+  it('rejects a version with path characters', () => {
+    expect(parsePackTokens('mattstack=0.30.20/../x')).toEqual([]);
+  });
+});
+
 describe('resolveStageDoc', () => {
+  it('prefers the pack dir own path when a commit holds several matches', async () => {
+    expect(
+      await resolveStageDoc(deps(), {
+        packCommits: 'acme=ccc3333',
+        stage: 'plan',
+      })
+    ).toMatchObject({ text: 'ACME PLAN' });
+  });
+
+  it('never reads outside the plugin cache for a traversal version', async () => {
+    const readFile = vi.fn(async () => 'SECRET');
+    expect(
+      await resolveStageDoc(deps({ readFile }), {
+        packCommits: 'mattstack=0.30.20/../../../x',
+        stage: 'ship',
+      })
+    ).toBeNull();
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
   it('finds a doc at an old sha after the pack moved', async () => {
     expect(
       await resolveStageDoc(deps(), {
@@ -93,7 +125,7 @@ describe('resolveStageDoc', () => {
         packCommits: 'plugin=bbb2222,mattstack=0.30.20',
         stage: 'plan',
       })
-    ).toMatchObject({ text: 'NEW PLAN' });
+    ).toMatchObject({ text: 'NEW PLAN', pack: 'acme' });
   });
 
   it('reads a version-recorded mattstack doc from the plugin cache', async () => {

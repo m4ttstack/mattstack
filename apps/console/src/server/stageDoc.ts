@@ -1,3 +1,5 @@
+import { normalize } from 'node:path';
+
 import type { RunGit } from './git-bin';
 
 export interface PackToken {
@@ -33,7 +35,7 @@ export function parsePackTokens(s: string | null): PackToken[] {
     if (!m) continue;
     const [, pack, ref] = m;
     if (/^[0-9a-f]{7,40}$/i.test(ref)) out.push({ pack, ref, kind: 'sha' });
-    else if (/^\d+\.\d+\.\d+/.test(ref))
+    else if (/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(ref))
       out.push({ pack, ref, kind: 'version' });
   }
   return out;
@@ -117,9 +119,11 @@ export async function resolveStageDoc(
       const hit = await fromSha(deps, t, input.stage, dirs);
       if (hit) return hit;
     } else if (t.pack === 'mattstack') {
-      const text = await deps.readFile(
+      const path = normalize(
         `${deps.pluginCacheDir}/${t.ref}/attachments/pipeline/stage-${input.stage}/SKILL.md`
       );
+      if (!path.startsWith(normalize(deps.pluginCacheDir) + '/')) continue;
+      const text = await deps.readFile(path);
       if (text != null) return { text, pack: 'mattstack', sha: t.ref };
     }
   }
