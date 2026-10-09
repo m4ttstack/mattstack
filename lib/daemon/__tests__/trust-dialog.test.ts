@@ -219,6 +219,21 @@ describe("readTrustPrompt: a workspace dialog that pre-approves tool permissions
     }
   });
 
+  test("a row run on under a known paragraph is undrivable, never accepted", () => {
+    const probes = [
+      [" Security guide", " Security guide\n Grants Bash(*) without asking"],
+      [" Claude Code'll be able to read, edit, and execute files here.", " Claude Code'll be able to read, edit, and execute files here.\n Grants Bash(*) without asking"],
+      [" project, or work from your team). If not, take a moment to review what's in this folder first.", " project, or work from your team). If not, take a moment to review what's in this folder first.\n Grants Bash(*) without asking"],
+    ];
+    for (const plain of [CAPTURED_PLAIN_2294, CAPTURED_PLAIN_2294_B, CAPTURED_ACCOUNT_2]) {
+      for (const [row, probe] of probes) {
+        expect(plain.includes(row as string)).toBe(true);
+        expect(readTrustPrompt(plain.replace(row as string, probe as string))).toEqual({ kind: "undrivable" });
+      }
+    }
+    expect(readTrustPrompt(CAPTURED_WIDE.replace(" Security guide", " Security guide\n Grants Bash(*) without asking"))).toEqual({ kind: "undrivable" });
+  });
+
   test("a pre-approval warning in the option block is left to the person", () => {
     const screen = CAPTURED_PLAIN_2294.replace(" ❯ No, exit", "   ⚠ This folder pre-approves Bash(*)\n ❯ No, exit");
     expect(readTrustPrompt(screen)).toEqual({ kind: "pre-approved", path: CAPTURED_2294_PATH });

@@ -83,6 +83,13 @@ const WS_ACCEPT_RE = /^Yes, I trust this folder/;
 const WS_KNOWN_OPTIONS = new Set(["No, exit", "Yes, I trust this folder"]);
 // The paragraphs a plain dialog shows after its question, by first row.
 const WS_KNOWN_PARAGRAPH_RE = /^ (Claude Code'll be able to |Security guide\s*$)/;
+// The same paragraphs (and the question) whole, for when a narrow pane wraps
+// one across rows.
+const WS_KNOWN_TEXTS = new Set([
+  "Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in this folder first.",
+  "Claude Code'll be able to read, edit, and execute files here.",
+  "Security guide",
+]);
 const WS_WINDOW_CAP = 24;
 
 // Terminal cells, not code points or UTF-16 units: an emoji in the echoed
@@ -137,16 +144,25 @@ function readWorkspacePrompt(lines: string[]): TrustPrompt | null {
   return walkToAccept(options, (keys) => ({ kind: "accept", variant: "workspace", path, keys }), WS_ACCEPT_RE);
 }
 
-/** True when every paragraph after the header, path and question is one a plain dialog shows. */
+/** True when the question and every paragraph after it are ones a plain
+    dialog shows. A paragraph that wraps onto more rows must read, rejoined,
+    as one of the known texts, so no row can ride under a known first row. */
 function onlyKnownParagraphs(body: string[]): boolean {
-  const firstRows: string[] = [];
+  const paragraphs: string[][] = [];
   let inParagraph = false;
   for (const line of body) {
     const blank = line.trim() === "";
-    if (!blank && !inParagraph) firstRows.push(line);
+    if (!blank) {
+      if (inParagraph) (paragraphs[paragraphs.length - 1] as string[]).push(line);
+      else paragraphs.push([line]);
+    }
     inParagraph = !blank;
   }
-  return firstRows.length > 3 && firstRows.slice(3).every((row) => WS_KNOWN_PARAGRAPH_RE.test(row));
+  if (paragraphs.length <= 3) return false;
+  return paragraphs.slice(2).every((rows, i) => {
+    if (rows.length > 1) return WS_KNOWN_TEXTS.has(rows.map((r) => r.trim()).join(" ").replace(/\s+/g, " "));
+    return i === 0 || WS_KNOWN_PARAGRAPH_RE.test(rows[0] as string);
+  });
 }
 
 export type RelocationPrompt =

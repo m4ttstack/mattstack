@@ -503,7 +503,7 @@ describe("watchdog actuators", () => {
     expect(notified[0].message).toBe("click to focus pane w1:p1, accept the dialog");
   });
 
-  test("a failed park notification never escapes the actuator", () => {
+  test("a failed park notification never escapes the actuator", async () => {
     const a = createWatchdogActuators({
       herdStore: { setJobStatus: () => {} },
       db: freshDb(),
@@ -511,7 +511,7 @@ describe("watchdog actuators", () => {
       enqueue: () => { throw new Error("queue full"); },
       log,
     });
-    expect(() => a.notifyStuckAtModal("demo-1", "job-a", "w1:p1", "/w")).not.toThrow();
+    await expect(a.notifyStuckAtModal("demo-1", "job-a", "w1:p1", "/w")).resolves.toBeUndefined();
   });
 
   test("notifyHuman enqueues a herd-watchdog notification carrying the summary and the party's pane", () => {

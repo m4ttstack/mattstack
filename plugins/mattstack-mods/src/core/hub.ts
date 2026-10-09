@@ -627,11 +627,18 @@ function facade($: EngineInterface): ModApi {
       pane: () => $.env.get('HERDR_PANE_ID'),
       path: () => $.env.get('PATH'),
       boardStatusBin: () => $.env.get('MATTSTACK_BOARD_STATUS_BIN'),
-      boardVar: name =>
-        name === 'BOARD_STATE_DB' ? $.env.get('BOARD_STATE_DB')
-        : name === 'BOARD_APP_ROOT' ? $.env.get('BOARD_APP_ROOT')
-        : name === 'BOARD_FIXTURE' ? $.env.get('BOARD_FIXTURE')
-        : $.env.get('MATTSTACK_PACK'),
+      boardVar: name => {
+        switch (name) {
+          case 'BOARD_STATE_DB': return $.env.get('BOARD_STATE_DB')
+          case 'BOARD_APP_ROOT': return $.env.get('BOARD_APP_ROOT')
+          case 'BOARD_FIXTURE': return $.env.get('BOARD_FIXTURE')
+          case 'MATTSTACK_PACK': return $.env.get('MATTSTACK_PACK')
+          default: {
+            const unread: never = name
+            throw new Error(`mattstack-mods: no literal read for board variable ${String(unread)}`)
+          }
+        }
+      },
     },
     state: {
       linkId: {

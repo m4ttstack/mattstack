@@ -327,8 +327,6 @@ export interface WatchdogActuatorDeps {
 /** The from-name a watchdog poke carries into a session's peer input; no chat identity has it. */
 const WATCHDOG_SENDER = "rt herd watchdog";
 
-/** None of these throw into the ladder: one party's failed side effect must
-    not end the sweep for every other herd. */
 /** The folder a pre-approval trust prompt on `pane` asks about, or null when the screen shows no such prompt or cannot be read. */
 async function preApprovedFolder(herdr: typeof herdrRequest, sockPath: string, pane: string, worktreePath: string): Promise<string | null> {
   try {
@@ -342,6 +340,8 @@ async function preApprovedFolder(herdr: typeof herdrRequest, sockPath: string, p
   }
 }
 
+/** None of these throw into the ladder: one party's failed side effect must
+    not end the sweep for every other herd. */
 export function createWatchdogActuators(deps: WatchdogActuatorDeps): WatchdogActuators {
   const inject = deps.inject ?? injectIntoPane;
   const enqueue = deps.enqueue ?? enqueueNotification;

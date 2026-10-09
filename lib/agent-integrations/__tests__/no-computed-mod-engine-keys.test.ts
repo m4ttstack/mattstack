@@ -25,6 +25,14 @@ function computedKeys(file: string, text: string): string[] {
   const src = code(text);
   const found: string[] = [];
   const lineOf = (i: number) => src.slice(0, i).split("\n").length;
+  const evasions: Array<[RegExp, string]> = [
+    [/\b(?:const|let|var)\s*\{[^}]*\}\s*=\s*\$(?![\w$])/g, "$ destructured"],
+    [/(?<![\w$])\$\s*(?:\?\.|\[)/g, "$ reached by bracket or optional access"],
+    [/(?<![\w$])(?!\$\s*:)[A-Za-z_$][\w$]*\s*:\s*EngineInterface\b/g, "the engine held under a name other than $"],
+  ];
+  for (const [re, what] of evasions) {
+    for (const m of src.matchAll(re)) found.push(`${file}:${lineOf(m.index)}: ${what}`);
+  }
   for (const m of src.matchAll(/\$\.(env|state)\b(\.(get|set)\()?/g)) {
     const at = `${file}:${lineOf(m.index)}`;
     if (!m[2]) {
@@ -59,8 +67,23 @@ describe("mattstack-mods engine keys are literal", () => {
     expect(computedKeys("a.ts", "$.env.get(`HOME`)")).toHaveLength(1);
   });
 
+  test("the scan flags every way around a direct $ call", () => {
+    for (const evasion of [
+      "const { env } = $",
+      "let { state: s } = $",
+      "await $['env'].get('HOME')",
+      "await $?.env.get('HOME')",
+      "function facade(api: EngineInterface) {",
+      "const read = (engine: EngineInterface) => engine.env.get(name)",
+    ]) {
+      expect(computedKeys("a.ts", evasion)).toHaveLength(1);
+    }
+  });
+
   test("the scan passes literal names and ignores comments", () => {
     const ok = [
+      "function facade($: EngineInterface): ModApi {",
+      "const tpl = `${a}[${b}]`",
       "home: () => $.env.get('HOME'),",
       "await $.state.set({ plugin: 'mattstack-mods', key: 'linkId' }, value)",
       "// boardVar: name => $.env.get(name)",
