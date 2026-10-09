@@ -1,16 +1,16 @@
 ---
 name: rt:create-plugin
-description: Use when asked to create, extend, debug, or validate an rt user plugin, to add a custom command to rt, or when working in a plugin folder under ~/.rt/plugins/.
+description: Use when asked to create, extend, debug, or validate an rt user plugin, to add a custom command to rt, or when working in a plugin folder under ~/.mattstack/user/plugins/.
 ---
 
 # Building rt user plugins
 
-rt supports user plugins: a folder at `~/.rt/plugins/<name>/` with a declarative `plugin.json` manifest whose commands are TypeScript modules (run in-process with an injected API) or existing executables (spawned as subprocesses). Plugin commands mount into rt's root command tree and inherit picker navigation, context resolution, logging, and error capture for free.
+rt supports user plugins: a folder at `~/.mattstack/user/plugins/<name>/` (inside the personal home repo, so a plugin follows its author to every Mac; the older `~/.mattstack/rt/plugins/` is migrated on boot) with a declarative `plugin.json` manifest whose commands are TypeScript modules (run in-process with an injected API) or existing executables (spawned as subprocesses). Plugin commands mount into rt's root command tree and inherit picker navigation, context resolution, logging, and error capture for free.
 
 Two contract references, in order of authority:
 
-1. `~/.rt/plugin-api/index.d.ts` ... the exact injected-API types for the rt version installed on this machine (rt writes and refreshes this file itself). Trust it over anything else.
-2. The full plugin guide (manifest reference, exec env vars, troubleshooting): `docs/plugins.md` in the repo-tools repo if it is checked out locally, otherwise fetch <https://raw.githubusercontent.com/m4ttstack/mattstack/main/docs/plugins.md>.
+1. `~/.mattstack/rt/plugin-api/index.d.ts` ... the exact injected-API types for the rt version installed on this machine (rt writes and refreshes this file itself). Trust it over anything else.
+2. The full plugin guide (manifest reference, exec env vars, troubleshooting): <https://docs.mattstack.dev/rt/guides/plugins>, which is `website/docs/rt/guides/plugins.mdx` in the mattstack checkout when it is checked out locally.
 
 ## Workflow
 
@@ -31,9 +31,9 @@ Two contract references, in order of authority:
 
    The manifest's `fn` field picks a different export; default is `"run"`.
 4. **Validate**: `rt plugin validate <name> --json`. It checks structure, that files exist, that modules import, and that declared exports exist, and prints one JSON object: `ok` is `true` when the plugin is sound, and `plugins[0].problems` lists every problem, each naming the exact schema path, so iterate against that list. The exit code is 1 while any problem remains. Then typecheck: `bunx tsc --noEmit` in the plugin folder.
-5. **Run it for real**: invoke each new command (`rt <command> ...`) and confirm output. Commands using `"context"` should be run from inside a git repo. Persistent data lands in `~/.rt/plugin-data/<name>/<key>.json`; plugin log lines in `~/.rt/logs/plugins.YYYY-MM-DD.log`; every invocation outcome in `~/.rt/logs/cli.YYYY-MM-DD.log`.
+5. **Run it for real**: invoke each new command (`rt <command> ...`) and confirm output. Commands using `"context"` should be run from inside a git repo. Persistent data lands in `~/.mattstack/rt/plugin-data/<name>/<key>.json`; plugin log lines in `~/.mattstack/rt/logs/plugins.YYYY-MM-DD.log`; every invocation outcome in `~/.mattstack/rt/logs/cli.YYYY-MM-DD[.N].log`.
 
-To experiment without touching the user's real setup, point rt at a throwaway home: `HOME=/tmp/rt-sandbox RT_SKIP_SETUP=1 rt ...`.
+To experiment without touching the user's real setup, run rt under an isolated HOME, every invocation: `env -i HOME=/tmp/rt-sandbox PATH="$PATH" RT_SKIP_SETUP=1 rt ...`. A bare `HOME=` override is not enough: rt and its daemon read and act on `~/.mattstack`, and one unisolated run has started a real daemon against the user's own state.
 
 ## Manifest cheat sheet
 
@@ -68,7 +68,7 @@ Exec nodes: a spec containing `/` resolves against the plugin folder, a bare nam
 
 | Symptom / temptation | Reality |
 |---|---|
-| `rt plugin --help` errors | Subtrees do not take `--help`; run bare `rt plugin` to see `new`, `list`, `validate` |
+| Looking for the subcommands | `rt plugin --help` (or `-h`, at any node) prints the branch's usage and its commands `new`, `list`, `validate`; bare `rt plugin` opens the picker at a terminal |
 | Importing npm packages in handler code | Unsupported at runtime; `node_modules` exists for the IDE only. Runtime surface = Bun/Node builtins + `ctx.rt` |
 | Command missing from `rt --help` | Name collision (built-ins always win; a warning names both sides) or `hidden: true`; rename the command |
 | `pick`/`prompt`/`confirm` in scripts or CI | They need a TTY; take arguments as a non-interactive fallback |
