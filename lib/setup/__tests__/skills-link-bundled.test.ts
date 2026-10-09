@@ -29,7 +29,7 @@ describe("linkBundledSkills", () => {
     bundleSkill("gitq", "track", "gitq:track");
     bundleSkill("deck", "add-app", "deck:add-app");
 
-    const result = linkBundledSkills({ skillsRoot, claudeSkillsDir: claudeDir, isBundled: all });
+    const result = linkBundledSkills({ skillsRoot, hostSkillsDir: claudeDir, isBundled: all });
 
     expect(result.map((r) => r.app).sort()).toEqual(["deck", "gitq"]);
     expect(existsSync(join(claudeDir, "gitq:track"))).toBe(true);
@@ -42,7 +42,7 @@ describe("linkBundledSkills", () => {
 
     const result = linkBundledSkills({
       skillsRoot,
-      claudeSkillsDir: claudeDir,
+      hostSkillsDir: claudeDir,
       isBundled: (app) => app !== "chat",
     });
 
@@ -56,7 +56,7 @@ describe("linkBundledSkills", () => {
     bundleSkill("rt", "rt-release", "rt:release");
     writeFileSync(join(skillsRoot, "rt", ".skillsignore"), "# maintainer only\nrt-release\n");
 
-    linkBundledSkills({ skillsRoot, claudeSkillsDir: claudeDir, isBundled: all });
+    linkBundledSkills({ skillsRoot, hostSkillsDir: claudeDir, isBundled: all });
 
     expect(existsSync(join(claudeDir, "rt:chat"))).toBe(true);
     expect(existsSync(join(claudeDir, "rt:release"))).toBe(false);
@@ -64,8 +64,8 @@ describe("linkBundledSkills", () => {
 
   test("is idempotent", () => {
     bundleSkill("gitq", "track", "gitq:track");
-    linkBundledSkills({ skillsRoot, claudeSkillsDir: claudeDir, isBundled: all });
-    const second = linkBundledSkills({ skillsRoot, claudeSkillsDir: claudeDir, isBundled: all });
+    linkBundledSkills({ skillsRoot, hostSkillsDir: claudeDir, isBundled: all });
+    const second = linkBundledSkills({ skillsRoot, hostSkillsDir: claudeDir, isBundled: all });
 
     expect(second.find((r) => r.app === "gitq")?.changed).toBe(false);
     expect(existsSync(join(claudeDir, "gitq:track"))).toBe(true);
@@ -73,7 +73,7 @@ describe("linkBundledSkills", () => {
 
   test("a dry run reports without linking", () => {
     bundleSkill("gitq", "track", "gitq:track");
-    const result = linkBundledSkills({ skillsRoot, claudeSkillsDir: claudeDir, isBundled: all, dryRun: true });
+    const result = linkBundledSkills({ skillsRoot, hostSkillsDir: claudeDir, isBundled: all, dryRun: true });
 
     expect(result.find((r) => r.app === "gitq")?.linked).toBe(1);
     expect(existsSync(join(claudeDir, "gitq:track"))).toBe(false);
@@ -83,12 +83,12 @@ describe("linkBundledSkills", () => {
     bundleSkill("gitq", "track", "gitq:track");
     writeFileSync(join(skillsRoot, "README"), "not an app");
 
-    const result = linkBundledSkills({ skillsRoot, claudeSkillsDir: claudeDir, isBundled: all });
+    const result = linkBundledSkills({ skillsRoot, hostSkillsDir: claudeDir, isBundled: all });
     expect(result.map((r) => r.app)).toEqual(["gitq"]);
   });
 
   test("an absent skills root yields no work rather than throwing", () => {
-    const result = linkBundledSkills({ skillsRoot: join(root, "nope"), claudeSkillsDir: claudeDir, isBundled: all });
+    const result = linkBundledSkills({ skillsRoot: join(root, "nope"), hostSkillsDir: claudeDir, isBundled: all });
     expect(result).toEqual([]);
   });
 });

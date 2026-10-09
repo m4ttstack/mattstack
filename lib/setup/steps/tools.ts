@@ -17,7 +17,8 @@ import type { StepDef, StepOutcome } from "../apply.ts";
 import { hasRemote } from "../home-git.ts";
 import type { Probes } from "../probes.ts";
 import { readSetupState } from "../state.ts";
-import { claudeConfigDirs, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
+import { NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
+import { fastBrowserHost, herdrHosts, hostSetupFor, selectionFor } from "../integration-selection.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 function realSleep(ms: number): Promise<void> {
@@ -37,7 +38,10 @@ async function fastbrowserSetupRun(ctx: ApplyContext): Promise<StepOutcome> {
   const resolved = resolveTool(ctx.p, "fast-browser");
   if (!resolved.exec) return { state: "skipped", detail: "Fast Browser is not in this build" };
 
-  const result = await setupTool(ctx.p, "fast-browser", { configDirs: [], marketplaceSource: fastBrowserMarketplaceSource(ctx.p.env) });
+  const selection = selectionFor(ctx);
+  const host = fastBrowserHost(selection);
+  if (selection.switchOn && host === null) return { state: "skipped", detail: "No agent integration is turned on" };
+  const result = await setupTool(ctx.p, "fast-browser", { configDirs: [], marketplaceSource: fastBrowserMarketplaceSource(ctx.p.env), ...(selection.switchOn ? { host } : {}) });
   if (result.ok) return { state: "done", detail: result.detail };
 
   // fast-browser integrates INTO a host (Claude Code / Codex) and refuses to
@@ -75,10 +79,13 @@ async function herdrIntegrationRun(ctx: ApplyContext): Promise<StepOutcome> {
   const resolved = resolveTool(ctx.p, "herdr");
   if (!resolved.chosen) return { state: "skipped", detail: "herdr is not installed (see the Tools section)" };
 
-  const configDirs = claudeConfigDirs(ctx.p, []);
-  const result = await setupTool(ctx.p, "herdr", { configDirs });
+  const selection = selectionFor(ctx);
+  const { configDirs, codexHomes } = hostSetupFor(ctx.p, selection);
+  if (configDirs.length === 0 && codexHomes.length === 0) return { state: "skipped", detail: "No agent integration is turned on" };
+  const result = await setupTool(ctx.p, "herdr", { configDirs, codexHomes });
   if (result.ok) return { state: "done", detail: result.detail };
-  return { state: "failed", detail: result.detail, remedy: "Run herdr integration install claude in a terminal for details" };
+  const commands = herdrHosts(selection).map((host) => `herdr integration install ${host}`).join(" or ");
+  return { state: "failed", detail: result.detail, remedy: `Run ${commands} in a terminal for details` };
 }
 
 async function herdrIntegrationRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

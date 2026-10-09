@@ -137,6 +137,14 @@ describe("the setup plan's shape and copy", () => {
     expect(event.steps.slice(at + 1, at + 3).map((step) => ({ id: step.id, title: step.title }))).toMatchSnapshot();
   });
 
+  test("integrations on, Codex only: the rows Codex adds", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "codex" && argv[1] === "--version" ? ok("codex-cli 0.160.0") : readyExec(argv));
+    const p = await composePlan({ p: fakeProbes({ exec }), secrets, ci: false, mode: "plan", orgs: [], waived: [], integrations: { switchOn: true, enabled: ["codex"] } });
+    const ids = new Set(["tool.codex", "tool.codex-mcp", "tool.integrations"]);
+    const only: Plan = { ...p, groups: p.groups.map((g) => ({ ...g, rows: g.rows.filter((r) => ids.has(r.id)) })).filter((g) => g.rows.length > 0) };
+    expect(views(only)).toMatchSnapshot();
+  });
+
   for (const mode of ["plan", "status"] as const) {
     test(`${mode}: the machine view is unchanged`, async () => {
       expect(machineView(await plan(mode))).toMatchSnapshot();

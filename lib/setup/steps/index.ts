@@ -20,6 +20,7 @@ import { skillsMaterializeStep, skillsLinkStep, boardKeysStep, cronTriageStep } 
 import { pluginsInstallStep } from "./plugins.ts";
 import { linearMcpStep } from "./linear-mcp.ts";
 import { claudePermissionsStep } from "./claude-permissions.ts";
+import { codexMcpStep } from "../../agent-integrations/codex/install.ts";
 import { fastbrowserSetupStep, herdrIntegrationStep, extensionInstallStep, servicesStartStep, snapshotPushStep } from "./tools.ts";
 import { verifyStep } from "./verify.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -78,6 +79,7 @@ export const STEPS: StepDef[] = [
   pluginsInstallStep,
   linearMcpStep,
   claudePermissionsStep,
+  codexMcpStep,
   fastbrowserSetupStep,
   herdrIntegrationStep,
   extensionInstallStep,

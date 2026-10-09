@@ -19,6 +19,7 @@ import { fetchPermissions, permissionRows } from "./permissions.ts";
 import { createRealProbes, type Probes } from "./probes.ts";
 import { readPackRequirements } from "./requirements.ts";
 import { readStagedSecret } from "./staging.ts";
+import type { IntegrationSelection } from "./integration-selection.ts";
 import { forgeFromRemote, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { accessRows } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
@@ -38,6 +39,8 @@ export interface PlanInputs {
   teamOverride?: string;
   /** Row ids waived on this Mac; defaults to the resolver's `setup.waived`. Tests inject their own list instead of writing a store. */
   waived?: string[];
+  /** The harnesses whose rows the tools group shows; defaults to the settings stores. Tests inject their own. */
+  integrations?: IntegrationSelection;
 }
 
 const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
@@ -181,7 +184,7 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
-      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs) });
+      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs), ...(i.integrations ? { integrations: i.integrations } : {}) });
       const repoRoot = repoRootRow(i.p, team, snapshot);
       return [...tools, ...(repoRoot ? [repoRoot] : []), ...healthRows];
     }),

@@ -25,7 +25,7 @@ import { listOrgs } from "../lib/settings/stores.ts";
 import { getOrgSetting, getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
-import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
+import { createApplyContext, runApplyWith, runUpdateWith, stepsForRun, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
 import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
 import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
@@ -57,7 +57,6 @@ import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
 import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
 import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../lib/setup/team-slack-secret.ts";
-import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
@@ -288,7 +287,7 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
       ...(human ? { tip: human.tip } : {}),
     });
     await human?.settle();
-    result = await runApplyWith(deps.steps ?? STEPS, ctx, selection);
+    result = await runApplyWith(deps.steps ?? stepsForRun(ctx), ctx, selection);
   } catch (err) {
     await human?.flush();
     if (err instanceof UserActionableError) {
@@ -407,7 +406,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
       ...(human ? { tip: human.tip } : {}),
     });
     await human?.settle();
-    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
+    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? stepsForRun(ctx), deps.migrations ?? MIGRATIONS, ctx);
     const lastId = result.outcomes.at(-1)?.id;
     if (lockError && lastId) emit({ event: "log", id: lastId, line: `warn: setup update lock not taken, running unguarded: ${lockError}` });
 

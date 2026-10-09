@@ -25,6 +25,9 @@ import { forgeLogin } from "../../team/forge.ts";
 import { resolveForge } from "./forge-identity.ts";
 import { repoBasename, skippedIdentities } from "./repos.ts";
 import { toFailedOutcome, unwritten } from "./step-utils.ts";
+import { codexUserSkillsDir } from "../../agent-integrations/codex/skills.ts";
+import { harnessSelected, selectionFor, type IntegrationSelection } from "../integration-selection.ts";
+import { codexHomeOf } from "../validators/codex.ts";
 
 // ─── skills.materialize ──────────────────────────────────────────────────────
 
@@ -56,6 +59,8 @@ export const skillsMaterializeStep: StepDef = {
 // ─── skills.link ─────────────────────────────────────────────────────────────
 
 async function skillsLinkRun(ctx: ApplyContext): Promise<StepOutcome> {
+  const selection = selectionFor(ctx);
+  if (selection.switchOn) return skillsLinkForHosts(ctx, skillsHosts(ctx, selection));
   const personal = linkPersonalSkills(ctx.p.home);
   for (const a of personal?.actions ?? []) {
     if (a.kind === "conflict" || a.kind === "skip") ctx.log("skills.link", `personal ${a.name}: ${a.detail ?? a.kind}`);
@@ -68,7 +73,7 @@ async function skillsLinkRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   const results = linkBundledSkills({
     skillsRoot: join(root, HELPERS_DIR, "skills"),
-    claudeSkillsDir: join(ctx.p.home, ".claude", "skills"),
+    hostSkillsDir: join(ctx.p.home, ".claude", "skills"),
     isBundled: (app) => bundledToolPath(ctx.p, app) !== null,
   });
   if (results.length === 0) return personal ? { state: "done", detail: `The app ships no skills${personalNote}` } : { state: "skipped", detail: "The app ships no skills" };
@@ -77,6 +82,54 @@ async function skillsLinkRun(ctx: ApplyContext): Promise<StepOutcome> {
   const linked = results.filter((r) => !r.skipped);
   const total = linked.reduce((n, r) => n + r.linked, 0);
   return { state: "done", detail: `Linked ${total} skill${total === 1 ? "" : "s"} from ${linked.length} app${linked.length === 1 ? "" : "s"}${personalNote}` };
+}
+
+/** Where Codex's own build of each app's skills lands in the bundle, beside Claude's `skills/`. */
+const CODEX_BUNDLED_SKILLS = ["skills-targets", "codex"];
+
+type SkillsHost = { harness: string; dir: string; bundled: string };
+
+/** Each selected harness's own skills folder, with the bundle folder holding the skills built for it. */
+function skillsHosts(ctx: ApplyContext, selection: IntegrationSelection): SkillsHost[] {
+  const hosts: SkillsHost[] = [];
+  if (harnessSelected(selection, "claude")) hosts.push({ harness: "claude", dir: join(ctx.p.home, ".claude", "skills"), bundled: join(HELPERS_DIR, "skills") });
+  const codexHome = harnessSelected(selection, "codex") ? codexHomeOf(ctx.p) : null;
+  if (codexHome !== null) hosts.push({ harness: "codex", dir: codexUserSkillsDir(codexHome), bundled: join(HELPERS_DIR, ...CODEX_BUNDLED_SKILLS) });
+  return hosts;
+}
+
+async function skillsLinkForHosts(ctx: ApplyContext, hosts: SkillsHost[]): Promise<StepOutcome> {
+  if (hosts.length === 0) return { state: "skipped", detail: "No agent integration is turned on" };
+
+  let personalCount = 0;
+  let hasPersonal = false;
+  for (const host of hosts) {
+    const personal = linkPersonalSkills(ctx.p.home, host.dir);
+    if (!personal) continue;
+    hasPersonal = true;
+    for (const a of personal.actions) {
+      if (a.kind === "conflict" || a.kind === "skip") ctx.log("skills.link", `personal ${a.name} (${host.harness}): ${a.detail ?? a.kind}`);
+    }
+    personalCount = Math.max(personalCount, personal.actions.filter((a) => a.kind === "create" || a.kind === "relink" || a.kind === "ok").length);
+  }
+  const personalNote = hasPersonal ? `, ${personalCount} personal` : "";
+
+  const root = appBundlePath(ctx.p);
+  if (!root) return hasPersonal ? { state: "done", detail: `Linked your personal skills only; rt is not running from the app${personalNote}` } : { state: "skipped", detail: "rt is not running from the app" };
+
+  let total = 0;
+  const apps = new Set<string>();
+  for (const host of hosts) {
+    const results = linkBundledSkills({ skillsRoot: join(root, host.bundled), hostSkillsDir: host.dir, isBundled: (app) => bundledToolPath(ctx.p, app) !== null });
+    if (results.length === 0) ctx.log("skills.link", `${host.harness}: this build ships no skills for it`);
+    for (const r of results.filter((x) => x.skipped)) ctx.log("skills.link", `${r.app} (${host.harness}): ${r.skipped}`);
+    for (const r of results.filter((x) => !x.skipped)) {
+      total += r.linked;
+      apps.add(r.app);
+    }
+  }
+  if (apps.size === 0) return hasPersonal ? { state: "done", detail: `The app ships no skills${personalNote}` } : { state: "skipped", detail: "The app ships no skills" };
+  return { state: "done", detail: `Linked ${total} skill${total === 1 ? "" : "s"} from ${apps.size} app${apps.size === 1 ? "" : "s"}${personalNote}` };
 }
 
 async function skillsLinkRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

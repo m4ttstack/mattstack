@@ -26,6 +26,8 @@ export interface SetupState {
   lastApplyOk?: boolean;
   /** When setup finished on this Mac. mattstack.app reads this file directly (rt-tray's SetupCompletion). */
   finishedAt?: string;
+  /** Codex config files rt added its MCP entry to, each with that entry's fingerprint: a table whose fingerprint still matches is rt's to replace, any other is the member's. */
+  codexMcp?: Record<string, string>;
 }
 
 const EMPTY_STATE: SetupState = { v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };

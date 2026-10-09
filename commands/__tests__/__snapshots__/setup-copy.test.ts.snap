@@ -1043,3 +1043,81 @@ exports[`the setup plan's shape and copy apply emits the org pull and identity t
   },
 ]
 `;
+
+exports[`the setup plan's shape and copy integrations on, Codex only: the rows Codex adds 1`] = `
+{
+  "copy": {
+    "tool.codex-mcp.action.label": "Add to Codex",
+    "tool.codex-mcp.detail": "rt is not on this Mac's PATH yet",
+    "tool.codex-mcp.optionalNote": "Installed by Install (codex.mcp).",
+    "tool.codex-mcp.title": "Mattstack in Codex",
+    "tool.codex-mcp.why": "Codex reaches rt's tools through this MCP server.",
+    "tool.codex.detail": "Codex 0.160.0, signed in",
+    "tool.codex.optionalNote": null,
+    "tool.codex.title": "Codex",
+    "tool.codex.why": "Runs the agent sessions rt drives and hands work off to.",
+    "tool.integrations.detail": "Turned on: Codex",
+    "tool.integrations.optionalNote": null,
+    "tool.integrations.title": "Agent integrations",
+    "tool.integrations.why": "The agent apps rt sets up and hands work to.",
+    "tools.title": "Tools",
+  },
+  "machine": {
+    "canInstall": false,
+    "contract": 1,
+    "finishBlockedBy": [
+      "skills.writing-style",
+    ],
+    "groups": [
+      {
+        "id": "tools",
+        "rows": [
+          {
+            "action": null,
+            "id": "tool.codex",
+            "kind": "tool",
+            "recheck": "on-activate",
+            "required": true,
+            "status": "ready",
+          },
+          {
+            "action": {
+              "type": "run",
+              "verb": [
+                "setup",
+                "apply",
+                "--only",
+                "codex.mcp",
+              ],
+            },
+            "id": "tool.codex-mcp",
+            "kind": "tool",
+            "recheck": "on-change",
+            "required": false,
+            "status": "missing",
+          },
+          {
+            "action": null,
+            "id": "tool.integrations",
+            "kind": "info",
+            "recheck": "on-change",
+            "required": false,
+            "status": "ready",
+          },
+        ],
+      },
+    ],
+    "requiredMissing": [
+      "perm.fda",
+      "tool.arch",
+      "tool.herdr",
+      "tool.app",
+    ],
+    "team": {
+      "mode": "none",
+      "name": "",
+      "slug": "",
+    },
+  },
+}
+`;

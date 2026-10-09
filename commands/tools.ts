@@ -18,7 +18,8 @@ import { usageFailure } from "../lib/ui/usage.ts";
 import { readIntent, orgRefFromIntent } from "../lib/setup/intent.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { readPackRequirements, type PackRequirements } from "../lib/setup/requirements.ts";
-import { BREW_FORMULAE, VENDOR_INSTALLERS, claudeConfigDirs, installTool, setupTool } from "../lib/setup/tools-install.ts";
+import { BREW_FORMULAE, VENDOR_INSTALLERS, installTool, setupTool } from "../lib/setup/tools-install.ts";
+import { hostSetupFor, readIntegrationSelection } from "../lib/setup/integration-selection.ts";
 import { bundledToolExec } from "../lib/deps/resolve.ts";
 import { DEFAULT_EXPOSED } from "../lib/deps/links.ts";
 import { listOrgs } from "../lib/settings/stores.ts";
@@ -107,11 +108,12 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
     }
   }
 
-  const configDirs = claudeConfigDirs(p, flagValues(args, "--config-dir"));
+  const selection = readIntegrationSelection();
+  const { configDirs, codexHomes, host } = hostSetupFor(p, selection, flagValues(args, "--config-dir"));
 
   let result: Awaited<ReturnType<typeof setupTool>>;
   try {
-    result = await setupTool(p, t, { configDirs, marketplaceSource: fastBrowserMarketplaceSource(p.env) });
+    result = await setupTool(p, t, { configDirs, marketplaceSource: fastBrowserMarketplaceSource(p.env), ...(selection.switchOn ? { host, codexHomes } : {}) });
   } catch (err) {
     if (err instanceof UserActionableError) exitUserError(err, json);
     throw err;

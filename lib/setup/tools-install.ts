@@ -321,7 +321,7 @@ export interface SetupResult {
   detail: string;
 }
 
-async function setupFastBrowser(p: Probes, seams: ToolsInstallSeams, marketplaceSource: string | undefined): Promise<SetupResult> {
+async function setupFastBrowser(p: Probes, seams: ToolsInstallSeams, marketplaceSource: string | undefined, host: "claude" | "codex" | "both"): Promise<SetupResult> {
   const resolved = seams.resolveTool(p, "fast-browser");
   if (!resolved.exec) throw new UserActionableError("tool-missing", "fast-browser is not resolvable (not bundled, no user copy on PATH)");
 
@@ -334,17 +334,23 @@ async function setupFastBrowser(p: Probes, seams: ToolsInstallSeams, marketplace
   // Non-interactive setup refuses to guess a host even when only one is
   // detected, and refuses a "mattstack" marketplace registered from any
   // source but the one it is told — so it is told the one plugins.install used.
-  const args = ["setup", "--host", "claude", ...(marketplaceSource ? ["--source", marketplaceSource] : [])];
+  // --source names the Claude marketplace, so a Codex-only setup has none to name.
+  const source = marketplaceSource && host !== "codex" ? ["--source", marketplaceSource] : [];
+  const args = ["setup", "--host", host, ...source];
   const res = await p.exec([...resolved.exec, ...args], { timeoutMs: INSTALL_TIMEOUT_MS });
   if (res.code === 124) return { ok: false, detail: "Fast Browser's setup did not finish in time" };
   if (res.code !== 0) return { ok: false, detail: `Fast Browser's setup failed (exit ${res.code}): ${firstLine(res.stderr || res.stdout)}` };
   return { ok: true, detail: "Fast Browser is set up" };
 }
 
-async function setupHerdr(p: Probes, configDirs: string[]): Promise<SetupResult> {
+async function setupHerdr(p: Probes, configDirs: string[], codexHomes: string[]): Promise<SetupResult> {
   const results: { dir: string; ok: boolean; detail: string }[] = [];
-  for (const dir of configDirs) {
-    const res = await p.exec(["herdr", "integration", "install", "claude"], { env: { CLAUDE_CONFIG_DIR: dir }, timeoutMs: INSTALL_TIMEOUT_MS });
+  const targets = [
+    ...configDirs.map((dir) => ({ dir, host: "claude", env: { CLAUDE_CONFIG_DIR: dir } })),
+    ...codexHomes.map((dir) => ({ dir, host: "codex", env: { CODEX_HOME: dir } })),
+  ];
+  for (const { dir, host, env } of targets) {
+    const res = await p.exec(["herdr", "integration", "install", host], { env, timeoutMs: INSTALL_TIMEOUT_MS });
     if (res.code === 124) results.push({ dir, ok: false, detail: "timed out" });
     else if (res.code !== 0) results.push({ dir, ok: false, detail: `exit ${res.code}` });
     else results.push({ dir, ok: true, detail: "ok" });
@@ -357,6 +363,7 @@ async function setupHerdr(p: Probes, configDirs: string[]): Promise<SetupResult>
 /** Exported so a caller classifying `SetupResult.detail` (extension.install's apply step) matches against the same value this emits, rather than a copy of the prose. */
 export const VSIX_NOT_FOUND_DETAIL = "The editor extension file was not found in the app or next to rt";
 export const NO_EDITORS_DETAIL = "No compatible editor found";
+export const NO_HOST_SELECTED_DETAIL = "No agent integration is turned on, so there is nothing to set up in";
 export const NO_RECORDED_EDITORS_DETAIL = "No editor on this Mac has the extension from an earlier setup";
 
 /** `onlyEditors` narrows the install to those editor names; an editor it leaves out is never touched. */
@@ -388,9 +395,18 @@ async function setupExtension(p: Probes, seams: ToolsInstallSeams, onlyEditors: 
   return { ok, detail };
 }
 
-export async function setupTool(p: Probes, tool: string, opts: { configDirs: string[]; marketplaceSource?: string; onlyEditors?: readonly string[] }, seams: ToolsInstallSeams = REAL_SEAMS): Promise<SetupResult> {
-  if (tool === "fast-browser") return setupFastBrowser(p, seams, opts.marketplaceSource);
-  if (tool === "herdr") return setupHerdr(p, opts.configDirs);
+/** `host` and `codexHomes` default to Claude alone, the setup every Mac ran before Codex could be selected. */
+export async function setupTool(
+  p: Probes,
+  tool: string,
+  opts: { configDirs: string[]; marketplaceSource?: string; onlyEditors?: readonly string[]; host?: "claude" | "codex" | "both" | null; codexHomes?: string[] },
+  seams: ToolsInstallSeams = REAL_SEAMS,
+): Promise<SetupResult> {
+  if (tool === "fast-browser") {
+    if (opts.host === null) return { ok: false, detail: NO_HOST_SELECTED_DETAIL };
+    return setupFastBrowser(p, seams, opts.marketplaceSource, opts.host ?? "claude");
+  }
+  if (tool === "herdr") return setupHerdr(p, opts.configDirs, opts.codexHomes ?? []);
   if (tool === "extension") return setupExtension(p, seams, opts.onlyEditors);
   throw new UserActionableError("unknown-tool-setup", `no setup routine for "${tool}"`);
 }

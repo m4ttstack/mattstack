@@ -141,6 +141,7 @@ export const STEP_IDS = [
   "plugins.install",
   "linear.mcp",
   "claude.permissions",
+  "codex.mcp",
   "fastbrowser.setup",
   "herdr.integration",
   "extension.install",

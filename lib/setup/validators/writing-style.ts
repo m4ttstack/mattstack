@@ -3,7 +3,7 @@ import type { ExecResult, Probes } from "../probes.ts";
 import { homeGitDir } from "../steps/home.ts";
 import { presetById, resolveWritingStyle, WRITING_STYLE_SOURCE_LABEL, type ResolvedWritingStyle } from "../../skills/writing-style.ts";
 import {
-  isStyleUsable, listWritingStyles, parsePluginEntries, readSkillInventory, type SkillInventory, type WritingStyleOption,
+  isStyleUsable, listWritingStyles, parsePluginEntries, readSkillInventory, type PluginEntry, type SkillInventory, type WritingStyleOption,
 } from "../../skills/writing-style-sources.ts";
 
 export const WRITING_STYLE_ROW_ID = "skills.writing-style";
@@ -59,8 +59,17 @@ export function writingStyleRow(input: { homeReady: boolean; resolved: ResolvedW
  * be waived and carries no action, so gating on it would strand Finish.
  */
 export function writingStyleRowFor(p: Pick<Probes, "home" | "exists">, pluginList: ExecResult): Row {
+  return inventoryRow(p, () => readSkillInventory(p.home, pluginList.code === 0 ? parsePluginEntries(pluginList.stdout) : null));
+}
+
+/** The same row over plugins and user skills folders a caller gathered from the selected harnesses. */
+export function writingStyleRowForInventory(p: Pick<Probes, "home" | "exists">, plugins: PluginEntry[], userSkillsDirs: string[]): Row {
+  return inventoryRow(p, () => readSkillInventory(p.home, plugins, { userSkillsDirs }));
+}
+
+function inventoryRow(p: Pick<Probes, "home" | "exists">, read: () => SkillInventory): Row {
   try {
-    const inventory = readSkillInventory(p.home, pluginList.code === 0 ? parsePluginEntries(pluginList.stdout) : null);
+    const inventory = read();
     const resolved = resolveWritingStyle({ home: p.home });
     return writingStyleRow({ homeReady: p.exists(homeGitDir(p.home)), resolved, inventory, options: listWritingStyles(inventory, resolved).options });
   } catch (err) {

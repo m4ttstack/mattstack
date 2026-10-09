@@ -31,7 +31,14 @@ import { atLeast } from "../semver.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
 import { isValidBrewFormula } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
-import { writingStyleRowFor } from "./writing-style.ts";
+import { writingStyleRowFor, writingStyleRowForInventory } from "./writing-style.ts";
+import { builtinRegistry } from "../../agent-integrations/builtins.ts";
+import { claudeUserSkillsDir } from "../../agent-integrations/claude/skills.ts";
+import { codexUserSkillsDir } from "../../agent-integrations/codex/skills.ts";
+import { integrationPreferenceProblems } from "../../agent-integrations/preferences.ts";
+import { parsePluginEntries, type PluginEntry } from "../../skills/writing-style-sources.ts";
+import { harnessSelected, herdrHosts, readIntegrationSelection, type IntegrationSelection } from "../integration-selection.ts";
+import { codexHomeOf, codexMcpRow, codexPluginEntries, codexPluginListing, codexToolRow } from "./codex.ts";
 
 const HERDR_FLOOR = "0.7.5";
 /** Every exec in this module is bounded: a hung team-declared `--version`, or a wedged herdr/claude subprocess, must surface as "error" (124), never hang `rt setup plan` forever. This is the bound for a quick `--version`/status probe; `fast-browser doctor` is slow by design and uses DOCTOR_TIMEOUT_MS instead. */
@@ -96,16 +103,20 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * `herdr integration status` prints one line per KNOWN integration whether
  * installed or not — "claude: not installed (...)" contains the substring
  * "claude" too, so a bare `.includes("claude")` is always true. The actual
- * signal is the claude line's state word, which this parses out.
+ * signal is that host's line's state word, which this parses out.
  */
-function parseHerdrClaudeState(stdout: string): { known: boolean; installed: boolean; state: string } {
-  const m = stdout.match(/^\s*claude:\s*([^\n(]+)/m);
+function parseHerdrIntegrationState(stdout: string, host: HerdrHost): { known: boolean; installed: boolean; state: string } {
+  const m = stdout.match(new RegExp(`^\\s*${host}:\\s*([^\\n(]+)`, "m"));
   if (!m) return { known: false, installed: false, state: "" };
   const state = m[1]!.trim();
   return { known: true, installed: state.toLowerCase().startsWith("current"), state };
 }
 
-async function herdrRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
+type HerdrHost = "claude" | "codex";
+const HERDR_HOST_LABEL: Record<HerdrHost, string> = { claude: "Claude", codex: "Codex" };
+
+/** `hosts` is the integrations herdr must carry: Claude's alone unless the integrations switch selects others. */
+async function herdrRow(p: Probes, opts: { hasBrew: boolean }, hosts: readonly HerdrHost[] = ["claude"]): Promise<Row> {
   const base = { id: "tool.herdr", kind: "tool" as const, title: "herdr", why: "Drives Herdr panes for remote-control and multi-agent workflows.", required: true };
 
   const versionRes = await exec(p, ["herdr", "--version"]);
@@ -118,27 +129,34 @@ async function herdrRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
     return row({ ...base, status: "invalid", detail: /^[0-9]/.test(version) ? `${named("herdr", version)} is older than ${HERDR_FLOOR}` : `rt could not read herdr's version (it needs ${HERDR_FLOOR} or newer)`, action: provisionedInstallAction("herdr", opts.hasBrew, "Upgrade") });
   }
 
+  if (hosts.length === 0) return row({ ...base, status: "ready", detail: named("herdr", version) });
+  const labels = hosts.map((h) => HERDR_HOST_LABEL[h]).join(" and ");
+  const integrations = hosts.length === 1 ? "integration" : "integrations";
+
   const integrationRes = await exec(p, ["herdr", "integration", "status"]);
   if (integrationRes.code === 124) return row({ ...base, status: "error", detail: "herdr's integration check did not answer in time" });
-  if (integrationRes.code !== 0) return row({ ...base, status: "error", detail: `Could not check herdr's Claude integration (exit ${integrationRes.code})` });
+  if (integrationRes.code !== 0) return row({ ...base, status: "error", detail: `Could not check herdr's ${labels} ${integrations} (exit ${integrationRes.code})` });
 
-  const claude = parseHerdrClaudeState(integrationRes.stdout);
-  if (!claude.known) return row({ ...base, status: "error", detail: "Could not tell whether herdr's Claude integration is installed" });
-  if (claude.installed) return row({ ...base, status: "ready", detail: `${named("herdr", version)}, Claude integration installed` });
-  // Install's own herdr.integration step adds this; only the binary gates Install.
-  return row({
-    ...base,
-    required: false,
-    optionalNote: "Installed by Install (herdr.integration).",
-    status: "needs-you",
-    detail: `${named("herdr", version)}, Claude integration ${claude.state}`,
-    action: { type: "run", label: "Install integration", verb: ["tools", "setup", "herdr"] },
-  });
+  for (const host of hosts) {
+    const state = parseHerdrIntegrationState(integrationRes.stdout, host);
+    if (!state.known) return row({ ...base, status: "error", detail: `Could not tell whether herdr's ${HERDR_HOST_LABEL[host]} integration is installed` });
+    if (state.installed) continue;
+    // Install's own herdr.integration step adds this; only the binary gates Install.
+    return row({
+      ...base,
+      required: false,
+      optionalNote: "Installed by Install (herdr.integration).",
+      status: "needs-you",
+      detail: `${named("herdr", version)}, ${HERDR_HOST_LABEL[host]} integration ${state.state}`,
+      action: { type: "run", label: "Install integration", verb: ["tools", "setup", "herdr"] },
+    });
+  }
+  return row({ ...base, status: "ready", detail: `${named("herdr", version)}, ${labels} ${integrations} installed` });
 }
 
 // ─── tool.claude ───────────────────────────────────────────────────────────
 
-async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
+export async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
   const base = { id: "tool.claude", kind: "tool" as const, title: "Claude Code", why: "Runs the agent sessions rt drives and hands work off to.", required: true, recheck: "on-activate" as const };
 
   const versionRes = await exec(p, ["claude", "--version"]);
@@ -582,7 +600,7 @@ function packRow(req: PackRequirements, pluginList: ExecResult, served?: ServedP
 // ─── tool.plugins ───────────────────────────────────────────────────────────
 
 /** Exactly the classification packRow uses, so the two rows never disagree about what a `claude plugin list --json` result means. */
-function pluginsRow(pluginList: ExecResult): Row {
+export function pluginsRow(pluginList: ExecResult): Row {
   const base = {
     id: "tool.plugins",
     kind: "tool" as const,
@@ -767,14 +785,18 @@ export async function toolRows(
   // Optional, not required: the existing test call sites pass only
   // { hasBrew, secrets }, and tests are inside the root tsconfig, so a required
   // field turns `bunx tsc --noEmit` red while `bun test` stays green.
-  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null },
+  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null; integrations?: IntegrationSelection },
   seams: ToolsSeams = REAL_SEAMS,
 ): Promise<Row[]> {
+  const selection = opts.integrations ?? readIntegrationSelection();
+  const claudeOn = harnessSelected(selection, "claude");
+  const codexOn = harnessSelected(selection, "codex");
   const fastBrowser = await probeFastBrowser(p, seams);
   const solo = opts.solo === true;
   const rows: Row[] = [
-    await herdrRow(p, opts),
-    await claudeRow(p, opts),
+    selection.switchOn ? await herdrRow(p, opts, herdrHosts(selection)) : await herdrRow(p, opts),
+    ...(claudeOn ? [await claudeRow(p, opts)] : []),
+    ...(codexOn ? [await codexToolRow(p)] : []),
     fastBrowserRow(fastBrowser, solo),
     fastBrowserExtensionRow(p, fastBrowser, solo),
     editorRow(seams),
@@ -790,11 +812,11 @@ export async function toolRows(
 
   for (const tool of dedupeTeamTools(reqs)) rows.push(await teamToolRow(p, tool, opts.hasBrew));
 
-  // One listing feeds tool.plugins and every pack row; tool.plugins is
-  // unconditional, so there is no longer a case where nothing needs it.
-  const pluginList = await exec(p, ["claude", "plugin", "list", "--json"]);
-  rows.push(pluginsRow(pluginList));
-  rows.push(writingStyleRowFor(p, pluginList));
+  // With Claude selected, one listing feeds tool.plugins and every pack row.
+  const pluginList = claudeOn ? await exec(p, ["claude", "plugin", "list", "--json"]) : null;
+  if (pluginList) rows.push(pluginsRow(pluginList));
+  if (!selection.switchOn && pluginList) rows.push(writingStyleRowFor(p, pluginList));
+  else rows.push(await integrationWritingStyleRow(p, pluginList, codexOn));
 
   const only = opts.activeTeam !== undefined ? opts.activeTeam : opts.teamSlug ? activeTeamFor(p, opts.teamSlug).team : null;
   const served = opts.teamSlug ? readServedPacks(p, opts.teamSlug, { only }) : { packs: [], error: null };
@@ -810,10 +832,51 @@ export async function toolRows(
   const names = [...new Set([...reqs.map((r) => r.pack), ...served.packs.map((s) => s.name)])].sort();
   for (const name of names) {
     const req = reqs.find((r) => r.pack === name) ?? { pack: name, tools: [], integrations: [] };
-    rows.push(packRow(req, pluginList, byPack.get(name)));
+    rows.push(pluginList ? packRow(req, pluginList, byPack.get(name)) : packNeedsClaudeRow(req));
   }
 
-  rows.push(await linearMcpRow(p, opts.secrets));
+  if (claudeOn) rows.push(await linearMcpRow(p, opts.secrets));
+  if (codexOn) rows.push(codexMcpRow(p));
+  if (selection.switchOn) rows.push(integrationsRow(selection));
 
   return rows;
+}
+
+/** Team packs install as Claude Code plugins, so with Claude turned off one is reported, never installed. */
+function packNeedsClaudeRow(req: PackRequirements): Row {
+  const base = { id: `pack.${req.pack}`, kind: "tool" as const, title: req.pack, why: `Installed by Install for the ${req.pack} pack.`, required: false };
+  if (req.error) return row({ ...base, status: "error", detail: req.error });
+  return row({ ...base, status: "skipped", detail: "Team packs install into Claude Code, which is turned off on this Mac" });
+}
+
+/** The writing style read from the skills of every selected harness, so a Codex-only Mac never asks Claude. */
+async function integrationWritingStyleRow(p: Probes, claudeList: ExecResult | null, codexOn: boolean): Promise<Row> {
+  const plugins: PluginEntry[] = [];
+  const userSkillsDirs: string[] = [];
+  if (claudeList) {
+    plugins.push(...(claudeList.code === 0 ? parsePluginEntries(claudeList.stdout) ?? [] : []));
+    userSkillsDirs.push(claudeUserSkillsDir(p.home));
+  }
+  const codexHome = codexOn ? codexHomeOf(p) : null;
+  if (codexHome !== null) {
+    plugins.push(...(codexPluginEntries(await codexPluginListing(p), codexHome) ?? []));
+    userSkillsDirs.push(codexUserSkillsDir(codexHome));
+  }
+  return writingStyleRowForInventory(p, plugins, userSkillsDirs);
+}
+
+const INTEGRATIONS_SETTINGS_STEPS: Action = {
+  type: "steps",
+  label: "Show steps…",
+  steps: ["Open a terminal", "Run: rt agent integrations", "Fix the agent.integrations setting it names"],
+};
+
+/** Which harnesses this Mac sets up, and anything wrong with that choice. */
+function integrationsRow(selection: Extract<IntegrationSelection, { switchOn: true }>): Row {
+  const base = { id: "tool.integrations", kind: "info" as const, title: "Agent integrations", why: "The agent apps rt sets up and hands work to.", required: false };
+  const problems = integrationPreferenceProblems();
+  if (problems.length > 0) return row({ ...base, status: "needs-you", detail: problems.map((pr) => pr.message).join(" "), action: INTEGRATIONS_SETTINGS_STEPS });
+  if (selection.enabled.length === 0) return row({ ...base, status: "needs-you", detail: "No agent integration is turned on", action: INTEGRATIONS_SETTINGS_STEPS });
+  const labels = builtinRegistry().list().filter((i) => selection.enabled.includes(i.id)).map((i) => i.label);
+  return row({ ...base, status: "ready", detail: `Turned on: ${labels.join(", ")}` });
 }

@@ -154,9 +154,9 @@ export function listWritingStyles(inv: SkillInventory, current: ResolvedWritingS
   return { current, options, suggestions };
 }
 
-/** Links only into ~/.claude/skills and only prunes links pointing into the personal directory. */
-export function linkPersonalSkills(home: string): ReconcileResult | null {
+/** Links into `hostSkillsDir` (~/.claude/skills unless given) and only prunes links pointing into the personal directory. */
+export function linkPersonalSkills(home: string, hostSkillsDir: string = join(home, ".claude", "skills")): ReconcileResult | null {
   const dir = personalSkillsDir(home);
   if (!existsSync(dir)) return null;
-  return reconcileSkillLinks({ skillsDir: dir, claudeSkillsDir: join(home, ".claude", "skills") });
+  return reconcileSkillLinks({ skillsDir: dir, claudeSkillsDir: hostSkillsDir });
 }

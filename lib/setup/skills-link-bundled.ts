@@ -2,7 +2,8 @@
  * Link the skills the .app bundle ships. Each managed app's release artifact
  * carries its `skills/` dir verbatim, which the build lands at
  * `Contents/Helpers/skills/<app>/`; this walks that tree and reconciles each
- * app's skills into ~/.claude/skills by frontmatter name.
+ * app's skills into a harness's own skills folder by frontmatter name. Codex
+ * links its own build of them, from `Contents/Helpers/skills-targets/codex/<app>/`.
  *
  * A user machine never has a checkout, so this is the only path by which an
  * app's skills reach them. The per-app gate is the app's own binary being
@@ -26,7 +27,8 @@ export interface BundledSkillsResult {
 export function linkBundledSkills(opts: {
   /** `<bundle>/Contents/Helpers/skills`. */
   skillsRoot: string;
-  claudeSkillsDir: string;
+  /** The harness's skills folder the links land in, such as ~/.claude/skills. */
+  hostSkillsDir: string;
   /** True when the app's own binary is in the bundle. */
   isBundled: (app: string) => boolean;
   dryRun?: boolean;
@@ -44,7 +46,7 @@ export function linkBundledSkills(opts: {
     const skillsDir = join(opts.skillsRoot, app);
     const result = reconcileSkillLinks({
       skillsDir,
-      claudeSkillsDir: opts.claudeSkillsDir,
+      claudeSkillsDir: opts.hostSkillsDir,
       dryRun: opts.dryRun,
       ignore: readSkillsIgnore(skillsDir),
     });

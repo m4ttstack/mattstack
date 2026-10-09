@@ -20,6 +20,8 @@ import type { Probes } from "./probes.ts";
 import { realSecretPresence } from "./plan.ts";
 import { readPackRequirements, type PackRequirements } from "./requirements.ts";
 import { STEPS } from "./steps/index.ts";
+import { setupSteps } from "./steps/agent-integrations.ts";
+import { selectionFor, type IntegrationSelection } from "./integration-selection.ts";
 import { MIGRATIONS, migrationEventId, type MigrationDef } from "./migrations/index.ts";
 import { readSetupState, setupStatePath, storedVersion, updateSetupState } from "./state.ts";
 import { discoverOrgs, readTeamSnapshot, type TeamSnapshot, type SettingsReader } from "./team-settings.ts";
@@ -57,6 +59,8 @@ export interface ApplyContext {
   nonInteractive: boolean;
   /** Set only for `rt setup update`: a step must not re-assert anything the member undid since rt put it there (a disabled or removed plugin, an editor rt never installed into). */
   update?: true;
+  /** Test seam: the harnesses this run installs for. Production reads the settings stores at call time. */
+  integrations?: IntegrationSelection;
   teamOfOne: boolean;
   appPath: string | null;
   ci: boolean;
@@ -331,8 +335,13 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
   return result;
 }
 
+/** The registry this run installs from: today's with the integrations switch off, else only the enabled harnesses' own steps. */
+export function stepsForRun(ctx: ApplyContext): StepDef[] {
+  return setupSteps(STEPS, selectionFor(ctx));
+}
+
 export async function runApply(ctx: ApplyContext, opts: { from?: StepId; only?: StepId } = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
-  return runApplyWith(STEPS, ctx, opts);
+  return runApplyWith(stepsForRun(ctx), ctx, opts);
 }
 
 export interface UpdateOutcome {
@@ -430,7 +439,7 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
 }
 
 export async function runUpdate(ctx: ApplyContext): Promise<UpdateRunResult> {
-  return runUpdateWith(STEPS, MIGRATIONS, ctx);
+  return runUpdateWith(stepsForRun(ctx), MIGRATIONS, ctx);
 }
 
 export interface CreateApplyContextDeps {

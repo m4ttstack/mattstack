@@ -30,6 +30,7 @@ import { readSetupState, updateSetupState } from "../state.ts";
 import { activeTeamFor } from "../../team/active-team.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
+import { harnessSelected, selectionFor } from "../integration-selection.ts";
 
 export const MATTSTACK_MARKETPLACE_SOURCE = "https://github.com/m4ttstack/mattstack-marketplace.git";
 /** The source plugins.install adds the mattstack marketplace from on this machine. */
@@ -229,6 +230,8 @@ async function runMaterializeAfterInstall(ctx: ApplyContext): Promise<string> {
 }
 
 async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
+  // `rt setup pack` reaches this step without setup's per-harness composition.
+  if (!harnessSelected(selectionFor(ctx), "claude")) return { state: "skipped", detail: "Claude Code is turned off on this Mac" };
   const claude = resolveTool(ctx.p, "claude");
   if (!claude.exec) {
     // The app gates Install on tool.claude (required:true), so this branch
