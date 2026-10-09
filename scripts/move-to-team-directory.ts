@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { UserActionableError, failureFor, logFailureDetail } from "../lib/errors.ts";
+import { stripJsonc } from "../lib/jsonc.ts";
 import { orgDir } from "../lib/rt-paths.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { ORG_CLONE_FOLDERS } from "../lib/team/org-clone.ts";
@@ -63,7 +64,11 @@ function main(): void {
   const markerPath = join(clone, ORG_MARKER_REL);
   const markerText = existsSync(markerPath) ? readFileSync(markerPath, "utf8") : null;
   const marker = parseMarker(markerText);
-  if (marker.kind !== "org") refuse("This is not a mattstack org repo", "mattstack/mattstack.jsonc does not name an org.");
+  if (marker.kind === "invalid") refuse("This is not a mattstack org repo", `mattstack/mattstack.jsonc cannot be read: ${marker.why}.`);
+  // parseMarker also reads an old role: "team" marker as an org; only role: "org" converts.
+  if (marker.kind !== "org" || (JSON.parse(stripJsonc(markerText!)) as { role?: unknown }).role !== "org") {
+    refuse("This is not a mattstack org repo", "mattstack/mattstack.jsonc does not say role: org.");
+  }
   if (marker.layout >= DIRECTORY_LAYOUT) refuse("This org is already on the team directory layout");
   if (marker.layout < 2) refuse(`This org is on layout ${marker.layout}`, "Convert it to layout 2 first.");
   const slug = marker.org;

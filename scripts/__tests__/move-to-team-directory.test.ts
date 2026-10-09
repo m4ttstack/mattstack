@@ -12,6 +12,10 @@ const ORG_STORE = "mattstack/org/settings.org.jsonc";
 const CLAIM_STORE = "mattstack/teams/claim/settings.team.jsonc";
 const MARKER = "mattstack/mattstack.jsonc";
 const GIT_IDENTITY = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+const TABS = [
+  { id: "team", label: "Team", source: { kind: "authors" } },
+  { id: "q", label: "Q", source: { kind: "codeowners", section: "Claim - #pod-claim" }, slackChannel: "pod-claim" },
+];
 const script = join(import.meta.dir, "..", "move-to-team-directory.ts");
 
 const origHome = process.env.HOME;
@@ -42,6 +46,8 @@ function org(opts: { layout?: number; settings?: Record<string, unknown> } = {})
         "mattstack.integrations": { linear: { teamKey: "CV" } },
         "board.slack": { channel: "claim-internal", singleTemplate: "{title}: {url}" },
         "board.title": "Claim",
+        // The v1 store name; board.tabs is stored as board.tabs@2 now.
+        "board.tabs": TABS,
       },
       gadgets: { "board.title": "Gadgets" },
     },
@@ -93,7 +99,7 @@ test("plan mode prints each entry and each removed key, and changes no file", ()
   expect(result.exitCode).toBe(0);
   const stdout = result.stdout.toString();
   expect(stdout).toContain("directory: add claim");
-  expect(stdout).toContain("team claim: remove board.slack.channel, mattstack.integrations.linear.teamKey");
+  expect(stdout).toContain("team claim: remove board.slack.channel, mattstack.integrations.linear.teamKey, board.tabs[].slackChannel");
   expect(stdout).toContain("Nothing was written");
   expect(snapshot(dir)).toBe(before);
 });
@@ -105,12 +111,14 @@ test("--write writes the directory, deletes the moved keys, writes layout 3, and
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString()).toContain("Moved this org onto the team directory in one commit");
   expect(read(dir, ORG_STORE)["mattstack.directory"]).toEqual({
-    teams: { claim: { linear: { team: "CV" }, slack: { channels: [{ name: "claim-internal", kind: "review" }] } } },
+    teams: { claim: { linear: { team: "CV" }, slack: { codeOwnersChannel: "pod-claim", channels: [{ name: "claim-internal", kind: "review" }] } } },
   });
   const claim = read(dir, CLAIM_STORE);
   expect(claim["mattstack.integrations"]).toBeUndefined();
   expect(claim["board.slack"]).toEqual({ singleTemplate: "{title}: {url}" });
   expect(claim["board.title"]).toBe("Claim");
+  expect(claim["board.tabs@2"]).toEqual([TABS[0], { id: "q", label: "Q", source: TABS[1]!.source }]);
+  expect(claim["board.tabs"]).toBeUndefined();
   expect(read(dir, MARKER)).toEqual({ role: "org", org: "acme", layout: 3 });
   expect(git(dir, "log", "-1", "--format=%s").trim()).toBe("org: move team channels and Linear keys into the team directory");
   expect(git(dir, "rev-list", "--count", "origin/main..HEAD").trim()).toBe("1");
@@ -123,6 +131,18 @@ test("a clone already on layout 3 is refused and left alone", () => {
   const result = run(dir, "me", "--write");
   expect(result.exitCode).toBe(2);
   expect(result.stderr.toString()).toContain("already on the team directory layout");
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("a role: team marker is refused even at layout 2, and nothing changes", () => {
+  const dir = org();
+  writeFileSync(join(dir, MARKER), JSON.stringify({ role: "team", org: "acme", layout: 2 }));
+  commitAndPush(dir);
+  const before = snapshot(dir);
+  const result = run(dir, "me", "--write");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain("This is not a mattstack org repo");
+  expect(result.stderr.toString()).toContain("does not say role: org");
   expect(snapshot(dir)).toBe(before);
 });
 
