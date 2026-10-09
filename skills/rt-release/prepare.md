@@ -58,12 +58,15 @@ digraph prepare_release {
     "Local main diverged after the release-day merges: gate rounds = 2?" [shape=diamond];
     "Off-script gate: notes push refused" [shape=box];
     "Notes push refused: gate rounds = 2?" [shape=diamond];
+    "Sparkle minimum check passed?" [shape=diamond];
 
     "Trigger: preflight passed on the full path" -> "Choose the version bump";
     "Choose the version bump" -> "Bump clear from the subjects?";
-    "Bump clear from the subjects?" -> "main ahead of origin/main?" [label="yes"];
+    "Bump clear from the subjects?" -> "Sparkle minimum check passed?" [label="yes"];
     "Bump clear from the subjects?" -> "Gate: which version bump?" [label="no: ask"];
-    "Gate: which version bump?" -> "main ahead of origin/main?" [label="Matt names the bump"];
+    "Gate: which version bump?" -> "Sparkle minimum check passed?" [label="Matt names the bump"];
+    "Sparkle minimum check passed?" -> "main ahead of origin/main?" [label="yes: nothing declared, or latest is the minimum"];
+    "Sparkle minimum check passed?" -> "Gate: which version bump?" [label="no: quote the refusal"];
     "Gate: which version bump?" -> "Held: release paused, resume point named" [label="hold"];
     "Gate: which version bump?" -> "Handed back to Matt" [label="hand back"];
     "main ahead of origin/main?" -> "Curated notes already in RELEASE_NOTES.md?" [label="no"];
@@ -179,7 +182,7 @@ appcast step runs the same check, after the build and notarization:
 - refuses because the file names an earlier release: that release has shipped. Run
   `git rm rt-tray/sparkle-minimum-update` and commit it as
   `chore(release): clear the Sparkle minimum for <that release>`; the commit rides the notes
-  commit's push.
+  commit's push. It is an `rt-tray/` change, so the release it rides is a full-path release.
 - any other refusal: quote it at `Gate: which version bump?`.
 
 A release that bumps `ORG_LAYOUT` (the org repo's shape changed) follows the runbook in
@@ -188,7 +191,8 @@ what order the converted org branch merges.
 
 ### Gate: which version bump?
 
-Quote the subjects that make the bump unclear and recommend one.
+Quote the subjects that make the bump unclear and recommend one, or quote the Sparkle minimum
+check's refusal and name the intermediate release that must be the latest first.
 
 ### Gate: push main now or with the notes
 
@@ -236,9 +240,11 @@ Refine `RELEASE_NOTES.md` into the body CI publishes verbatim:
 - one held-pins line per row from `Record each held row for the notes` (SKILL.md);
 - one existing-installs line per gap from `Record each held setup gap for the notes` (SKILL.md),
   naming the manual step;
-- a `**Full Changelog**` compare link from the previous tag to the new tag at the bottom.
+- a `**Full Changelog**` compare link from the previous release's tag to the new tag at the
+  bottom; the previous release is what `releases/latest` names, which after a patch release from
+  a release branch is not the newest tag on main.
 
-Calibrate the tone against a prior release with `gh release view <last-tag>`. When the
+Calibrate the tone against a prior release with `gh release view <that tag>`. When the
 `schema lock` row lists `storeVersion bumps for the release notes`, add a "Settings store
 versions" section naming each key and its new store name (`rt.roles@2`). Never run
 `rt settings migrate --write` on any machine before every app has moved to a build that reads the

@@ -7,7 +7,12 @@ leaf is agent-safe, so `rt_verb` refuses them.
 Every served app that moved, released together by one verb that qualifies origin/main, writes
 and commits the notes, tags the next patch without a rehearsal, and verifies the publish. The
 verb takes no app name: it works out which apps moved and the notes name each one. Before it
-runs, the docs pages for the apps that moved are updated, approved and pushed to main.
+runs, the docs pages for the apps that moved are updated, approved and pushed to main, and
+`bash scripts/release/minimum-update.sh v<the next patch>` prints nothing: the verb never reads
+`rt-tray/sparkle-minimum-update`, and a declaration that names an earlier release fails the
+tag's appcast step after the push. Anything it prints is handled as prepare.md's "Choose the
+version bump" says, and the clearing commit is an `rt-tray/` change that takes this release
+off the fast path.
 
 ```dot
 digraph fast_path_release_apps {
