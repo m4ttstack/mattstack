@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
@@ -426,7 +426,6 @@ describe("Codex ownership across update, restore and uninstall", () => {
     expect(after.hooks.state["member-hook"]).toEqual(before.hooks.state["member-hook"]);
   });
 
-  const programsDir = () => join(world.home, ".mattstack", "rt", "codex-policy", "bin");
   const keptNotes = (outcomes: StepOutcome[]) => outcomes.filter((o) => o.state === "needs-you").map((o) => ("detail" in o ? o.detail : ""));
 
   test("uninstall keeps the hook program while Codex runs on that home, never ends it, and says what to do by hand", async () => {
@@ -437,7 +436,7 @@ describe("Codex ownership across update, restore and uninstall", () => {
 
     const outcomes = await adapter().reconcile("uninstall", ctxFor());
     expect(keptNotes(outcomes)).toEqual([
-      `rt's Codex hook program in ${programsDir()}, because Codex is still running on ${world.codexHome}. Quit Codex there, then delete that folder`,
+      `rt's Codex hook program in ${dirname(program[0]!)}, because Codex is still running on ${world.codexHome}. Quit Codex there, then delete that folder`,
     ]);
     expect(artifactPaths()).toEqual(program);
     expect(Object.keys(stateOf().codexPolicy!.artifacts)).toEqual(program);
@@ -464,7 +463,7 @@ describe("Codex ownership across update, restore and uninstall", () => {
     await installAndReview();
     world.running = null;
     expect(keptNotes(await adapter().reconcile("uninstall", ctxFor()))).toEqual([
-      `rt's Codex hook program in ${programsDir()}, because rt could not tell whether Codex is still running. Once Codex is closed, delete that folder`,
+      `rt's Codex hook program in ${dirname(artifactPaths()[0]!)}, because rt could not tell whether Codex is still running. Once Codex is closed, delete that folder`,
     ]);
     expect(artifactPaths()).toHaveLength(1);
   });
@@ -498,7 +497,69 @@ describe("Codex ownership across update, restore and uninstall", () => {
     expect(existsSync(program!)).toBe(true);
     expect(readdirSync(join(world.home, ".mattstack"))).toEqual(["rt"]);
     expect(readdirSync(join(world.home, ".mattstack", "rt"))).toEqual(["codex-policy"]);
-    expect(result.stayed).toContain(`${dirname(program!)} (rt's Codex hook program, which Codex was still running; delete it once Codex is closed)`);
+    expect(result.stayed.filter((s) => s.includes(dirname(program!)))).toEqual([
+      `rt's Codex hook program in ${dirname(program!)}, because Codex is still running on ${world.codexHome}. Quit Codex there, then delete that folder`,
+    ]);
+  });
+
+  const removeAll = async () => {
+    const actions = [
+      { id: "integrations.remove" as const, title: "Remove what rt added to Codex", kind: "rt" as const },
+      { id: "data" as const, title: "Delete ~/.mattstack (settings, teams, secrets)", kind: "rt" as const },
+    ];
+    const { ctx } = makeCtx(world.p, { integrations: CODEX_ONLY });
+    return runUninstall(ctx, actions, { detectEditors: () => [], harnessInstalls: [{ id: "codex", loadInstall: async () => adapter() }] });
+  };
+
+  /** Every file under `dir`, relative to it. */
+  function filesUnder(dir: string, prefix = ""): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? filesUnder(join(dir, e.name), `${prefix}${e.name}/`) : [`${prefix}${e.name}`])).sort();
+  }
+
+  test("delete-data never follows a symlinked ~/.mattstack: only the link goes", async () => {
+    const outside = join(world.home, "elsewhere", "mattstack");
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(world.home, ".mattstack"));
+    await installAndReview();
+    world.running = [world.codexHome];
+    const before = filesUnder(outside);
+
+    const result = await removeAll();
+    expect(result.ok).toBe(true);
+    expect(existsSync(join(world.home, ".mattstack"))).toBe(false);
+    expect(filesUnder(outside)).toEqual(before);
+    expect(filesUnder(outside).some((f) => f.startsWith("rt/codex-policy/bin/"))).toBe(true);
+    expect(result.stayed).toContain(`${join(world.home, ".mattstack")} was a link, so rt removed only the link and left what it points to`);
+  });
+
+  test("delete-data never follows a symlinked bin folder: only the link goes", async () => {
+    await installAndReview();
+    world.running = [world.codexHome];
+    const bin = join(world.home, ".mattstack", "rt", "codex-policy", "bin");
+    const outside = join(world.home, "elsewhere", "bin");
+    mkdirSync(dirname(outside), { recursive: true });
+    renameSync(bin, outside);
+    symlinkSync(outside, bin);
+    const before = filesUnder(outside);
+
+    const result = await removeAll();
+    expect(result.ok).toBe(true);
+    expect(filesUnder(outside)).toEqual(before);
+    expect(existsSync(bin)).toBe(false);
+    expect(result.stayed).toContain(`${bin} was a link, so rt removed only the link and left what it points to`);
+  });
+
+  test("retained homes go once no recorded program needs them", async () => {
+    await installAndReview();
+    world.running = [world.codexHome];
+    await adapter().reconcile("uninstall", ctxFor());
+    expect(stateOf().codexPolicy!.retainedFor).toEqual([world.codexHome]);
+
+    world.running = [];
+    await installAndReview();
+    await adapter().reconcile("update", ctxFor());
+    expect(stateOf().codexPolicy!.retainedFor).toBeUndefined();
+    expect(artifactPaths()).toHaveLength(1);
   });
 
   test("delete-data with no Codex running removes all of ~/.mattstack", async () => {
@@ -630,12 +691,27 @@ describe("which Codex homes a running Codex uses", () => {
     const ps = async (argv: string[]) => {
       calls.push(argv);
       if (argv[1] === "-A") {
-        return { exitCode: 0, stdout: ["  11 /opt/homebrew/bin/codex app-server", "  12 /usr/bin/vim notes", "  13 node /usr/local/lib/node_modules/@openai/codex/bin/codex.js", "  14 /bin/zsh -c codex-like"].join("\n") };
+        return {
+          exitCode: 0,
+          stdout: ["  11 /Applications/My Tools/codex", "  12 /usr/bin/vim", "  13 /usr/local/bin/node", "  14 /bin/zsh", "  15 /usr/local/bin/node"].join("\n"),
+        };
       }
-      return { exitCode: 0, stdout: ["11 /opt/homebrew/bin/codex app-server HOME=/Users/a CODEX_HOME=/Users/a/work codex", "13 node codex.js HOME=/Users/b"].join("\n") };
+      if (argv.includes("pid=,args=")) {
+        return { exitCode: 0, stdout: ["13 node /usr/local/lib/node_modules/@openai/codex/bin/codex.js", "15 node server.js"].join("\n") };
+      }
+      return { exitCode: 0, stdout: ["11 /Applications/My Tools/codex app-server HOME=/Users/a CODEX_HOME=/Users/a/work", "13 node codex.js HOME=/Users/b"].join("\n") };
     };
     expect(await runningCodexHomes({ home: "/Users/x", ps })).toEqual(["/Users/a/work", "/Users/b/.codex"]);
-    expect(calls[1]).toEqual(["ps", "eww", "-o", "pid=,command=", "-p", "11,13"]);
+    expect(calls.at(-1)).toEqual(["ps", "eww", "-o", "pid=,command=", "-p", "11,13"]);
+  });
+
+  test("a node it cannot read counts as Codex, so nothing in use is deleted", async () => {
+    const ps = async (argv: string[]) => {
+      if (argv[1] === "-A") return { exitCode: 0, stdout: "  13 /usr/local/bin/node" };
+      if (argv.includes("pid=,args=")) return { exitCode: 1, stdout: "" };
+      return { exitCode: 0, stdout: "13 node x HOME=/Users/b" };
+    };
+    expect(await runningCodexHomes({ home: "/Users/x", ps })).toEqual(["/Users/b/.codex"]);
   });
 
   test("an unreadable process table is unknown, and no codex process is none", async () => {

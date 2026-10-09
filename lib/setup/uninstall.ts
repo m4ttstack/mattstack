@@ -355,7 +355,7 @@ function mattstackDataDir(p: Pick<Probes, "home">): string {
  * the resolved target's shape (mirrors `appTrashRun`'s own target-shape
  * check below) — validate first, remove second.
  */
-async function dataRun(ctx: ApplyContext): Promise<ActionResult> {
+async function dataRun(ctx: ApplyContext, stayedSoFar: readonly string[] = []): Promise<ActionResult> {
   const dir = mattstackDataDir(ctx.p);
   const homeUnsafe = !ctx.p.home || ctx.p.home.trim() === "" || ctx.p.home === "/" || !isAbsolute(ctx.p.home);
   if (homeUnsafe || basename(dir) !== ".mattstack") {
@@ -363,13 +363,16 @@ async function dataRun(ctx: ApplyContext): Promise<ActionResult> {
   }
   if (!ctx.p.exists(dir)) return { outcome: { state: "skipped", detail: `${dir} does not exist` } };
 
-  const keep = keptHookPrograms(ctx.p);
-  removeAllBut(ctx.p, dir, keep);
-  if (keep.length === 0) return { outcome: { state: "done", detail: `Removed ${dir}` } };
-  return {
-    outcome: { state: "done", detail: `Removed ${dir}, except rt's Codex hook program, which Codex is still running` },
-    stayed: keep.map((k) => `${k} (rt's Codex hook program, which Codex was still running; delete it once Codex is closed)`),
-  };
+  const wanted = keptHookPrograms(ctx.p);
+  const links: string[] = [];
+  removeAllBut(ctx.p, dir, wanted, links);
+  const kept = wanted.filter((k) => !links.some((l) => k.startsWith(`${l}/`)));
+  const stayed = [
+    ...links.map((l) => `${l} was a link, so rt removed only the link and left what it points to`),
+    ...kept.filter((k) => !stayedSoFar.some((s) => s.includes(k))).map((k) => `${k} (rt's Codex hook program, which Codex may still be running; delete it once Codex is closed)`),
+  ];
+  const detail = kept.length === 0 ? `Removed ${dir}` : `Removed ${dir}, except rt's Codex hook program, which Codex may still be running`;
+  return { outcome: { state: "done", detail }, ...(stayed.length > 0 ? { stayed } : {}) };
 }
 
 /** The folders of hook programs `integrations.remove` kept for a running Codex: still recorded, so still rt's own bytes at their own path. */
@@ -378,14 +381,25 @@ function keptHookPrograms(p: Probes): string[] {
   return Object.entries(artifacts).filter(([path, digest]) => isRecordedCodexProgram(p.home, path, digest)).map(([path]) => dirname(path));
 }
 
-/** Removes `dir` whole, or, when a kept path is inside it, everything in it but that path. */
-function removeAllBut(p: Probes, dir: string, keep: readonly string[]): void {
+/**
+ * Removes `dir` whole, or, when a kept path is inside it, everything in it
+ * but that path. A symlink is never followed: only the link goes, so nothing
+ * outside `~/.mattstack` is deleted. Links that stood on the way to a kept
+ * path are added to `links`.
+ */
+function removeAllBut(p: Probes, dir: string, keep: readonly string[], links: string[]): void {
   if (keep.includes(dir)) return;
-  if (!keep.some((k) => k.startsWith(`${dir}/`))) {
+  const leadsToKept = keep.some((k) => k.startsWith(`${dir}/`));
+  if (p.readlink(dir) !== null) {
+    p.removeFile(dir);
+    if (leadsToKept) links.push(dir);
+    return;
+  }
+  if (!leadsToKept) {
     p.removeDir(dir);
     return;
   }
-  for (const name of p.readDir(dir)) removeAllBut(p, join(dir, name), keep);
+  for (const name of p.readDir(dir)) removeAllBut(p, join(dir, name), keep, links);
 }
 
 /** Refuses BEFORE trashing anything: `appBundlePath` only ever resolves to a real ".app" bundle root, but this still validates the shape rather than trusting a computed path blindly. */
@@ -404,7 +418,7 @@ async function appTrashRun(ctx: ApplyContext): Promise<ActionResult> {
   return { outcome: { state: "done", detail: `Moved ${appPath} to the Trash` } };
 }
 
-async function runAction(ctx: ApplyContext, id: UninstallActionId, seams: UninstallSeams): Promise<ActionResult> {
+async function runAction(ctx: ApplyContext, id: UninstallActionId, seams: UninstallSeams, stayed: readonly string[] = []): Promise<ActionResult> {
   switch (id) {
     case "services.unregister":
       return servicesUnregisterRun(ctx);
@@ -423,7 +437,7 @@ async function runAction(ctx: ApplyContext, id: UninstallActionId, seams: Uninst
     case "integrations.remove":
       return integrationsRemoveRun(ctx, seams);
     case "data":
-      return dataRun(ctx);
+      return dataRun(ctx, stayed);
     case "app.trash":
       return appTrashRun(ctx);
     default:
@@ -459,7 +473,7 @@ export async function runUninstall(ctx: ApplyContext, actions: UninstallAction[]
 
     let run: ActionResult;
     try {
-      run = await runAction(ctx, action.id, seams);
+      run = await runAction(ctx, action.id, seams, stayed);
     } catch (err) {
       run = { outcome: toFailedOutcome(err) };
     }

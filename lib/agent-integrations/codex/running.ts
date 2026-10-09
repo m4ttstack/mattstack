@@ -7,19 +7,19 @@
  */
 
 import { realpathSync } from "fs";
-import { basename, join } from "path";
+import { join } from "path";
 import { runCapture } from "../../subprocess.ts";
 
 export type PsRun = (argv: [string, ...string[]]) => Promise<{ stdout: string; exitCode: number }>;
 
 const realPs: PsRun = (argv) => runCapture(argv, { timeoutMs: 5000 });
 
-/** `codex ...`, or the npm launcher run through node. */
-function isCodex(args: string[]): boolean {
-  const [first, second] = args;
-  if (first === undefined) return false;
-  if (basename(first) === "codex") return true;
-  return basename(first) === "node" && second !== undefined && /(^|\/)codex(\.js)?$/.test(second);
+/** Each pid with its executable path, which is the rest of the line and may hold spaces. */
+function pidLines(stdout: string): { pid: string; rest: string }[] {
+  return stdout.split("\n").flatMap((line) => {
+    const m = /^\s*(\d+)\s+(.*?)\s*$/.exec(line);
+    return m ? [{ pid: m[1]!, rest: m[2]! }] : [];
+  });
 }
 
 /** Each pid's CODEX_HOME, else its HOME's `.codex`, else `home`'s. */
@@ -37,12 +37,19 @@ export function parseCodexHomes(psEnvOutput: string, home: string): string[] {
 /** Null when the process table cannot be read, which callers treat as in use. */
 export async function runningCodexHomes(opts: { home: string; ps?: PsRun }): Promise<string[] | null> {
   const ps = opts.ps ?? realPs;
-  const all = await ps(["ps", "-A", "-ww", "-o", "pid=,args="]);
+  const all = await ps(["ps", "-A", "-o", "pid=,comm="]);
   if (all.exitCode !== 0) return null;
   const pids: string[] = [];
-  for (const line of all.stdout.split("\n")) {
-    const m = /^\s*(\d+)\s+(.*)$/.exec(line);
-    if (m && isCodex(m[2]!.trim().split(/\s+/))) pids.push(m[1]!);
+  const launchers: string[] = [];
+  for (const { pid, rest } of pidLines(all.stdout)) {
+    if (/(^|\/)codex$/.test(rest)) pids.push(pid);
+    else if (/(^|\/)node$/.test(rest)) launchers.push(pid);
+  }
+  if (launchers.length > 0) {
+    const args = await ps(["ps", "-ww", "-o", "pid=,args=", "-p", launchers.join(",")]);
+    // Unsure which node runs Codex: every one counts, so nothing in use is deleted.
+    if (args.exitCode !== 0 && args.stdout.trim() === "") pids.push(...launchers);
+    else for (const { pid, rest } of pidLines(args.stdout)) if (/(^|[/\s])codex(\.js)?(\s|$)/.test(rest)) pids.push(pid);
   }
   if (pids.length === 0) return [];
   const env = await ps(["ps", "eww", "-o", "pid=,command=", "-p", pids.join(",")]);

@@ -974,20 +974,23 @@ export async function collectCodexPolicyArtifacts(overrides: Partial<PolicyInsta
   const deps = withDefaults(overrides);
   const probes = stateProbes(deps.home, deps.now);
   const owned = policyState(readSetupState(probes));
-  if (Object.keys(owned.artifacts).length === 0) return [];
-  if ((await deps.codexBindings()).length > 0) return [];
-  if ((await programUse(deps, hookHomes(owned))).inUse !== false) return [];
   const named = new Set(Object.values(owned.hooks).flat().map((c) => parseCodexPolicyHookCommand(c)?.executable));
+  const unnamed = Object.entries(owned.artifacts).filter(([path]) => !named.has(path));
   const done: string[] = [];
-  for (const [path, digest] of Object.entries(owned.artifacts)) {
-    if (named.has(path)) continue;
-    const fate = dropArtifact(deps.home, path, digest);
-    if (fate !== "changed") done.push(path);
+  const busy = unnamed.length > 0 && ((await deps.codexBindings()).length > 0 || (await programUse(deps, hookHomes(owned))).inUse !== false);
+  if (!busy) {
+    for (const [path, digest] of unnamed) {
+      if (dropArtifact(deps.home, path, digest) !== "changed") done.push(path);
+    }
   }
-  if (done.length > 0) {
+  // The retained homes only serve programs no recorded hook names; once none is left they go.
+  const stillUnnamed = unnamed.some(([path]) => !done.includes(path));
+  if (done.length > 0 || (!stillUnnamed && owned.retainedFor !== undefined)) {
     updateSetupState(probes, (s) => {
-      const cp = policyState(s);
-      return { ...s, codexPolicy: { ...cp, artifacts: Object.fromEntries(Object.entries(cp.artifacts).filter(([p]) => !done.includes(p))) } };
+      const { retainedFor, ...cp } = policyState(s);
+      if (s.codexPolicy === undefined) return s;
+      const artifacts = Object.fromEntries(Object.entries(cp.artifacts).filter(([p]) => !done.includes(p)));
+      return { ...s, codexPolicy: { ...cp, artifacts, ...(stillUnnamed && retainedFor ? { retainedFor } : {}) } };
     });
   }
   return done;
@@ -998,11 +1001,6 @@ export type PolicyRemoval = { removed: string[]; kept: string[] };
 /** Whether `path` is the hook program its recorded digest names and still holds those bytes. */
 export function isRecordedCodexProgram(home: string, path: string, digest: string): boolean {
   return path === codexPolicyArtifactPath(home, digest) && presentDigest(path) === digest;
-}
-
-/** The folder every hook program rt copied lives under. */
-export function codexPolicyProgramsDir(home: string): string {
-  return join(home, ".mattstack", "rt", "codex-policy", "bin");
 }
 
 /**
@@ -1085,11 +1083,12 @@ export async function removeCodexPolicyInstall(overrides: Partial<PolicyInstallD
 
   const artifacts = Object.entries(owned.artifacts);
   const use = artifacts.length > 0 ? await programUse(deps, homes) : ({ inUse: false } as const);
-  const folder = codexPolicyProgramsDir(deps.home);
+  const folders = artifacts.map(([path]) => dirname(path));
+  const those = folders.length === 1 ? "that folder" : "those folders";
   if (use.inUse === true) {
-    kept.push(`rt's Codex hook program in ${folder}, because Codex is still running on ${use.homes.join(", ")}. Quit Codex there, then delete that folder`);
+    kept.push(`rt's Codex hook program in ${folders.join(", ")}, because Codex is still running on ${use.homes.join(", ")}. Quit Codex there, then delete ${those}`);
   } else if (use.inUse === "unknown") {
-    kept.push(`rt's Codex hook program in ${folder}, because rt could not tell whether Codex is still running. Once Codex is closed, delete that folder`);
+    kept.push(`rt's Codex hook program in ${folders.join(", ")}, because rt could not tell whether Codex is still running. Once Codex is closed, delete ${those}`);
   } else {
     for (const [path, digest] of artifacts) {
       const fate = dropArtifact(deps.home, path, digest);
