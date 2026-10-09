@@ -12,6 +12,7 @@ import { formatClock } from './clock';
 import { formatDuration } from './duration';
 import { gateKindLabel, gateStage, pickedText, questionAnswer } from './gates';
 import { isLive, isStale, rowDuration } from './lanes';
+import { answeredQuestionCount } from './record';
 import { heldSpans } from './run';
 import { stageAttempts } from './stages';
 import { timelineSegments, type SegmentKind } from './timeline';
@@ -355,6 +356,35 @@ export function barLabel(bar: Bar): string {
   ].join(' · ');
 }
 
+export interface BarDetail {
+  /** "plan · waiting on you". */
+  title: string;
+  /** "1:39 PM → 1:45 PM · 6m". */
+  span: string;
+  /** A waiting stretch's first question and who picked what, else null. */
+  gate: string | null;
+}
+
+function gateLine(gate: GateRow): string | null {
+  const question = gate.questions[0];
+  if (!question) return null;
+  const answer = questionAnswer(gate.answer, question);
+  if (!answer || answer.picked.length === 0) return question.label;
+  const who = answeredBy(gate)?.you === false ? 'The shepherd' : 'You';
+  return `${question.label} ${who} picked ${pickedText(question, answer.picked)}.`;
+}
+
+/** What the hover card on a timeline bar says. */
+export function barDetail(bar: Bar): BarDetail {
+  const stages =
+    bar.stages.length > 0 ? bar.stages.join(' → ') : 'between stages';
+  return {
+    title: `${stages} · ${KIND_LABEL[bar.kind]}`,
+    span: `${formatClock(bar.from)} → ${formatClock(bar.to)} · ${formatDuration(bar.to - bar.from)}`,
+    gate: bar.gates[0] ? gateLine(bar.gates[0]) : null,
+  };
+}
+
 /** The options a decision picked, question by question. */
 export function decisionText(gate: GateRow): string {
   const picks = gate.questions
@@ -392,6 +422,10 @@ export function dayDecisions(
     (a, b) => b.gate.answer!.answeredAt - a.gate.answer!.answeredAt
   );
 }
+
+/** The questions answered across the day's decisions. */
+export const decisionCount = (decisions: DayDecision[]) =>
+  answeredQuestionCount(decisions.map(d => d.gate));
 
 function dayTitle(key: string, now: number): string {
   const today = dayKey(now);

@@ -413,14 +413,34 @@ export const BOARDS: Board<Scenario>[] = [
     ['Search', 'Palette', 'Not found', 'Timeline hover'],
     962,
     {
+      // The palette and the hover card are portals, so the app compares the
+      // card alone: Mantine's modal root has no box, and the tile's lane is
+      // the timeline the runs boards already check.
+      appRoots: { Palette: 'palette', 'Timeline hover': 'hover card' },
       panels: [
         { label: 'search', route: '/search?q=filter', root: 'Search' },
-        { label: 'palette', route: '/', root: 'Palette' },
+        {
+          label: 'palette',
+          route: '/',
+          root: 'Palette',
+          action: {
+            kind: 'type',
+            press: 'ControlOrMeta+k',
+            text: '418',
+            waitFor: 'item',
+          },
+        },
         { label: 'not found', route: '/nowhere', root: 'Not found' },
         {
           label: 'timeline hover',
           route: '/?view=timeline',
           root: 'Timeline hover',
+          action: {
+            kind: 'hover',
+            layer: 'seg',
+            where: '[data-kind="you"]',
+            waitFor: 'hover card',
+          },
         },
       ],
     }

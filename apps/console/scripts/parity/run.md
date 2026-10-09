@@ -231,6 +231,12 @@ with its side-by-side. Three boards have an action:
   `boards.test.ts` accepts a clicked layer from another board's export.
 - `runs-p2-story-details` clicks `Stage plan` to open the plan stage, then
   the first decision's chevron `c`, and waits for `decision open`.
+- `runs-p2-search`' `palette` panel presses `ControlOrMeta+k` once the
+  runs page has drawn, types `418` and waits for the run row `item` (a
+  `type` action). Its `timeline hover` panel hovers the first `seg` with
+  `[data-kind="you"]` (a `hover` action's `where`) and waits for
+  `hover card`. The card is a portal, so the app compares the card alone
+  under the tile's `Timeline hover` root (`appRoots`).
 
 It uploads everything to `~/.fast-browser/output/parity/console/`:
 

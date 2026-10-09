@@ -233,11 +233,15 @@ async (page, { slug, scheme, harness, designOnly = false, panel }) => {
       });
       const action = group[0][1].action;
       const first = appRoot(group[0][1].root);
-      const gate = action?.kind === 'clicks' ? action.layers[0] : action?.layer;
-      await page.waitForSelector(gate ? sel(cfg.appAttr, gate) : first, {
-        state: 'visible',
-        timeout: 30_000,
-      });
+      const gate =
+        action?.kind === 'clicks'
+          ? sel(cfg.appAttr, action.layers[0])
+          : action?.kind === 'type'
+            ? `[${cfg.appAttr}]`
+            : action?.layer
+              ? sel(cfg.appAttr, action.layer)
+              : first;
+      await page.waitForSelector(gate, { state: 'visible', timeout: 30_000 });
       const applied = await page.evaluate(() =>
         document.documentElement.getAttribute('data-mantine-color-scheme')
       );
@@ -265,8 +269,26 @@ async (page, { slug, scheme, harness, designOnly = false, panel }) => {
           timeout: 30_000,
         });
       } else if (action?.kind === 'hover') {
-        step = `app: hover ${action.layer}`;
-        await page.locator(sel(cfg.appAttr, action.layer)).hover();
+        step = `app: hover ${action.layer}${action.where ?? ''}`;
+        const target = action.where
+          ? page.locator(`${sel(cfg.appAttr, action.layer)}${action.where}`).first()
+          : page.locator(sel(cfg.appAttr, action.layer));
+        await target.waitFor({ state: 'visible', timeout: 30_000 });
+        await target.hover();
+        await page.waitForSelector(sel(cfg.appAttr, action.waitFor), {
+          state: 'visible',
+          timeout: 30_000,
+        });
+      } else if (action?.kind === 'type') {
+        step = `app: press ${action.press}, type "${action.text}"`;
+        await page.keyboard.press(action.press);
+        // What the shortcut opens takes focus after its open transition.
+        await page.waitForFunction(
+          () => document.activeElement?.tagName === 'INPUT',
+          null,
+          { timeout: 10_000 }
+        );
+        await page.keyboard.type(action.text);
         await page.waitForSelector(sel(cfg.appAttr, action.waitFor), {
           state: 'visible',
           timeout: 30_000,

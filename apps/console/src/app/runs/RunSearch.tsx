@@ -1,40 +1,39 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   GenericError,
   PageShell,
-  Stack,
   Text,
   TextInput,
 } from '@mattstack/app-kit/core';
-import { useSchemeColors } from '@mattstack/app-kit/hooks';
-import { Icons } from '@mattstack/app-kit/icons';
+import { Icon } from '@mattstack/app-kit/icons';
 import type { RunSummary } from '@mattstack/rt-client';
+import { useSearchParams } from 'wouter';
 
 import { PAGE_ROW_HEIGHT } from '../chrome';
 import { CommandProvenance } from './CommandProvenance';
 import { nowOf } from './derive/clock';
-import { runTitle } from './derive/kind';
 import { dayGroups } from './derive/lanes';
 import { EarlierList } from './runs-page/EarlierList';
+import { runHref, ticketOf } from './runs-page/runLinks';
+import classes from './RunSearch.module.css';
 import { matchRun, parseQuery } from './search';
 import { useRunList, useRunsPruneDays } from './useRuns';
+import { useRunTitles } from './useRunTitles';
 
-function RetentionNotice({ days }: { days: number | undefined }) {
-  const { text } = useSchemeColors();
-  return (
-    <Text c={text.muted} size="sm" data-testid="retention-window">
-      {days === undefined
-        ? 'Searching retained runs…'
-        : `Searching the last ${days} day${days === 1 ? '' : 's'}; older runs have been pruned.`}
-    </Text>
-  );
+/** "2 runs · last 30 days", the window coming from rt's prune setting. */
+export function searchCount(n: number, days: number | undefined): string {
+  const runs = `${n} run${n === 1 ? '' : 's'}`;
+  return days === undefined
+    ? runs
+    : `${runs} · last ${days} day${days === 1 ? '' : 's'}`;
 }
 
 export function RunSearch() {
-  const [query, setQuery] = useState('');
+  const [params, setParams] = useSearchParams();
+  const query = params.get('q') ?? '';
+  const setQuery = (q: string) => setParams(q ? { q } : {}, { replace: true });
   const runsQuery = useRunList();
-  const pruneDaysQuery = useRunsPruneDays();
-  const { text } = useSchemeColors();
+  const pruneDays = useRunsPruneDays().data;
   const now = nowOf(runsQuery.data);
 
   const runs = useMemo(
@@ -46,55 +45,87 @@ export function RunSearch() {
     () => runs.filter(run => matchRun(run, terms)),
     [runs, terms]
   );
-
-  if (runsQuery.isError) {
-    return (
-      <PageShell title="Search" headerHeight={PAGE_ROW_HEIGHT} compactHeader>
-        <GenericError
-          title="Couldn't load runs"
-          message={(runsQuery.error as Error).message}
-          onRetry={() => void runsQuery.refetch()}
-        />
-      </PageShell>
-    );
-  }
+  const titleOf = useRunTitles(results);
 
   return (
-    <PageShell
-      title="Search"
-      headerHeight={PAGE_ROW_HEIGHT}
-      compactHeader
-      actions={
-        <CommandProvenance command="rt runs" asOf={runsQuery.dataUpdatedAt} />
-      }
-    >
-      <Stack gap="md" data-testid="run-search">
-        <RetentionNotice days={pruneDaysQuery.data} />
-        <TextInput
-          placeholder="Search by ticket, branch, repo, verb, or status"
-          value={query}
-          onChange={event => setQuery(event.currentTarget.value)}
-          leftSection={<Icons.search size={16} />}
-          data-testid="run-search-input"
+    <PageShell headerHeight={PAGE_ROW_HEIGHT} compactHeader>
+      <PageShell.Main>
+        <PageShell.Header
+          title="Search"
+          actions={
+            <CommandProvenance
+              command="rt runs"
+              asOf={runsQuery.dataUpdatedAt}
+            />
+          }
         />
-        {results.length === 0 ? (
-          <Text c={text.muted} size="sm">
-            {query.trim() ? 'No runs match.' : 'No retained runs yet.'}
-          </Text>
-        ) : (
-          <EarlierList
-            groups={dayGroups(results, now)}
-            now={now}
-            info={run => ({
-              ticket: run.ticket,
-              title: runTitle(run, {}),
-              href: `/runs/${run.repo}/${run.id}`,
-              inBoard: false,
-              aging: null,
-            })}
-          />
-        )}
-      </Stack>
+        <PageShell.Content
+          bg="var(--tk-panel)"
+          contentContainerProps={{ maw: 1680, my: 0, p: 0 }}
+        >
+          <div
+            className={classes.page}
+            data-parity="Search"
+            data-testid="run-search"
+          >
+            <Text fz={20} fw={700} lh="normal" data-parity="h">
+              Search
+            </Text>
+            {runsQuery.isError ? (
+              <GenericError
+                title="Couldn't load runs"
+                message={(runsQuery.error as Error).message}
+                onRetry={() => void runsQuery.refetch()}
+              />
+            ) : (
+              <>
+                <TextInput
+                  size="md"
+                  autoFocus
+                  aria-label="Search runs"
+                  placeholder="Ticket, branch, repo, pipeline or status"
+                  value={query}
+                  onChange={event => setQuery(event.currentTarget.value)}
+                  leftSection={<Icon name="search" size={16} />}
+                  rightSection={
+                    <Text
+                      fz={12}
+                      lh="normal"
+                      c="dimmed"
+                      className={classes.count}
+                      data-parity="n"
+                      data-testid="retention-window"
+                    >
+                      {searchCount(results.length, pruneDays)}
+                    </Text>
+                  }
+                  rightSectionWidth="auto"
+                  classNames={{ section: classes.section }}
+                  wrapperProps={{ 'data-parity': 'input' }}
+                  data-testid="run-search-input"
+                />
+                {results.length === 0 ? (
+                  <Text fz={13} lh="normal" c="dimmed">
+                    {query.trim() ? 'No runs match.' : 'No retained runs yet.'}
+                  </Text>
+                ) : (
+                  <EarlierList
+                    groups={dayGroups(results, now)}
+                    now={now}
+                    info={run => ({
+                      ticket: ticketOf(run),
+                      title: titleOf(run),
+                      href: runHref(run),
+                      inBoard: false,
+                      aging: null,
+                    })}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        </PageShell.Content>
+      </PageShell.Main>
     </PageShell>
   );
 }

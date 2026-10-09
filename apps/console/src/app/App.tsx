@@ -1,6 +1,6 @@
 import { Component, useEffect, type ReactNode } from 'react';
 import { MattstackShell } from '@mattstack/app-kit/app';
-import { GenericError, Group, PageShell, Text } from '@mattstack/app-kit/core';
+import { GenericError, Group, Text } from '@mattstack/app-kit/core';
 import { Icons } from '@mattstack/app-kit/icons';
 import { RailLink } from '@mattstack/app-kit/router';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -88,11 +88,7 @@ function RouteContent({ route }: { route: AppRoute }) {
     case 'config':
       return <Redirect to={explainHref(route.key)} replace />;
     case 'not-found':
-      return (
-        <PageShell>
-          <NotFoundPage />
-        </PageShell>
-      );
+      return <NotFoundPage />;
   }
 }
 

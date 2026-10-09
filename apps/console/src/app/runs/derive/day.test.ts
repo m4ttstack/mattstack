@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activeOn,
+  barDetail,
   barLabel,
   barPlacement,
   CATEGORY_OF,
@@ -17,6 +18,7 @@ import {
   dayKey,
   dayTimeline,
   dayTotals,
+  decisionCount,
   decisionText,
   parseDayKey,
   runDetailKey,
@@ -454,6 +456,96 @@ describe('barLabel', () => {
         gates: [],
       })
     ).toBe('between stages · idle · 9:00 AM to 10:00 AM');
+  });
+});
+
+describe('barDetail', () => {
+  const planGate = (by: string | null): GateRow =>
+    gate({
+      id: 'g-plan',
+      status: by ? 'answered' : 'open',
+      openedAt: TODAY(13, 39),
+      questions: [
+        {
+          id: 'approach',
+          label: 'Which approach should the plan take?',
+          multi: false,
+          options: [
+            {
+              value: 'Server-side filter',
+              label: 'Server-side filter (Recommended)',
+            },
+            { value: 'Client-side filter', label: 'Client-side filter' },
+          ],
+        },
+      ],
+      answer: by
+        ? ({
+            answers: { approach: 'Server-side filter' },
+            by,
+            answeredAt: TODAY(13, 45),
+          } as GateRow['answer'])
+        : null,
+    });
+  const waiting = (g: GateRow) => ({
+    kind: 'you' as const,
+    from: TODAY(13, 39),
+    to: TODAY(13, 45),
+    stages: ['plan'],
+    gates: [g],
+  });
+
+  it('names a waiting stretch’s stage, span, gate question and your pick', () => {
+    expect(barDetail(waiting(planGate('console')))).toEqual({
+      title: 'plan · waiting on you',
+      span: '1:39 PM → 1:45 PM · 6m',
+      gate: 'Which approach should the plan take? You picked Server-side filter.',
+    });
+  });
+
+  it('says who picked when it was not you, and nothing while it is open', () => {
+    expect(barDetail(waiting(planGate('shepherd'))).gate).toBe(
+      'Which approach should the plan take? The shepherd picked Server-side filter.'
+    );
+    expect(barDetail(waiting(planGate(null))).gate).toBe(
+      'Which approach should the plan take?'
+    );
+  });
+
+  it('has no gate line for a bar with no gate', () => {
+    expect(
+      barDetail({
+        kind: 'done',
+        from: TODAY(9),
+        to: TODAY(10, 5),
+        stages: ['implement', 'self-review'],
+        gates: [],
+      })
+    ).toEqual({
+      title: 'implement → self-review · stage done',
+      span: '9:00 AM → 10:05 AM · 1h 05m',
+      gate: null,
+    });
+  });
+});
+
+describe('decisionCount', () => {
+  it('counts the questions you answered, not the gates', () => {
+    const two = answered('g1', 'a', 'console', TODAY(10), {
+      questions: [
+        { id: 'q', label: 'Which approach?', multi: false, options: [] },
+        { id: 'r', label: 'Scope?', multi: false, options: [] },
+      ],
+      answer: {
+        answers: { q: 'a', r: 'b' },
+        by: 'console',
+        answeredAt: TODAY(10),
+      } as GateRow['answer'],
+    });
+    const runs = [run({ id: 'a' })];
+    const decisions = dayDecisions(runs, [two], TODAY(0), TODAY(23));
+    expect(decisions).toHaveLength(1);
+    expect(decisionCount(decisions)).toBe(2);
   });
 });
 

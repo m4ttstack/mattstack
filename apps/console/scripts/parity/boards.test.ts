@@ -24,6 +24,7 @@ const layersOf = (a: Action | undefined): string[] => {
   if (!a) return [];
   if (a.kind === 'clicks') return [...a.layers, a.waitFor];
   if (a.kind === 'waitText') return [a.layer, a.until.layer];
+  if (a.kind === 'type') return [a.waitFor];
   return [a.layer, a.waitFor, ...(a.until ? [a.until.layer] : [])];
 };
 

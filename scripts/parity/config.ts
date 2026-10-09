@@ -39,8 +39,23 @@ export interface TextWait {
 /** What the runner does after the route loads, before collecting. */
 export type BoardAction =
   | { kind: 'click'; layer: string; waitFor: string; until?: TextWait }
-  | { kind: 'hover'; layer: string; waitFor: string; until?: TextWait }
+  | {
+      kind: 'hover';
+      layer: string;
+      waitFor: string;
+      /** CSS attribute selectors narrowing the layer, e.g. `[data-kind="you"]`; the first match is hovered. */
+      where?: string;
+      until?: TextWait;
+    }
   | { kind: 'waitText'; layer: string; until: TextWait }
+  /** Presses a shortcut once the app has drawn, then types, e.g. a palette's `ControlOrMeta+k`. */
+  | {
+      kind: 'type';
+      press: string;
+      text: string;
+      waitFor: string;
+      until?: TextWait;
+    }
   /** Clicks each layer in order, waiting for each to be visible first. */
   | { kind: 'clicks'; layers: string[]; waitFor: string; until?: TextWait };
 

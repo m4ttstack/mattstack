@@ -12,11 +12,7 @@ import {
   Text,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
-import type {
-  BranchEnrichment,
-  GateRow,
-  RunSummary,
-} from '@mattstack/rt-client';
+import type { GateRow, RunSummary } from '@mattstack/rt-client';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { runIdOfGate } from '../../../shared/gate-run';
@@ -24,7 +20,6 @@ import { PAGE_ROW_HEIGHT } from '../../chrome';
 import { agingWarning } from '../aging';
 import { CommandProvenance } from '../CommandProvenance';
 import { nowOf } from '../derive/clock';
-import { runTitle } from '../derive/kind';
 import {
   dayGroups,
   filterView,
@@ -33,16 +28,15 @@ import {
   statCards,
   type RunsFilter,
 } from '../derive/lanes';
-import { mrIidOf } from '../mrRef';
 import { repoPath } from '../repoLabel';
 import type { RunPageData } from '../run-page/useRunParts';
 import {
   useRunChrome,
   useRunEvents,
   useRunList,
-  useRunsEnrich,
   useRunsPruneDays,
 } from '../useRuns';
+import { useRunTitles, type TitleOf } from '../useRunTitles';
 import { EarlierList, type EarlierRowInfo } from './EarlierList';
 import { LiveLane } from './LiveLane';
 import { runHref, ticketOf } from './runLinks';
@@ -153,8 +147,6 @@ function OutageBanner({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-type TitleOf = (run: RunSummary, mrField?: string | null) => string;
-
 function LaneSlot({
   run,
   gates,
@@ -217,20 +209,7 @@ export function RunsPage() {
     [runs, gates, view.allLanes, now]
   );
 
-  const branches = useMemo(
-    () =>
-      runs.map(r => r.branch).filter((b): b is string => typeof b === 'string'),
-    [runs]
-  );
-  const enrich = useRunsEnrich(branches).data as
-    Record<string, BranchEnrichment> | undefined;
-  const titleOf: TitleOf = (run, mrField) => {
-    const e = run.branch ? enrich?.[run.branch] : undefined;
-    return runTitle(run, {
-      ticketTitle: e?.ticket?.title,
-      mrIid: e?.mr?.iid ?? mrIidOf(mrField),
-    });
-  };
+  const titleOf = useRunTitles(runs);
   const gatesOf = (run: RunSummary) => linked.byRun.get(run.id) ?? NO_GATES;
   const info = (run: RunSummary): EarlierRowInfo => ({
     ticket: ticketOf(run),
