@@ -178,8 +178,8 @@ exist for out-of-process callers only.
    default must pass too. The example suite
    (`packages/rt-client/src/settings/__tests__/schema-examples.test.ts`) fails
    for a composite key with no schema or no entry.
-4. Annotate every object property with `.meta({ title, description })`
-   (labels and placeholders ride there too): the console draws its form
+4. Give every object property a title or description (`.meta`; labels
+   and placeholders ride there too): the console draws its form
    fields from them. `registry-console-ready.test.ts` fails a new key with an
    unannotated property.
 5. Give the key a console group in `apps/console/src/app/settings/groups.ts`

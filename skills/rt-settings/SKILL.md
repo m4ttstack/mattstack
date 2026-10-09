@@ -1,6 +1,6 @@
 ---
 name: rt:settings
-description: Use when reading or writing any mattstack app setting (rt, deck, mr-board, gitq, console), adding or registering a settings key, choosing its scope (org/team/user/machine), reading or writing another team's value, porting an app's config file into ~/.mattstack, changing a setting from a script, or writing code that reads configuration from anywhere other than the settings resolver: a hand-edited settings jsonc, an invented config file or store path, an env var for something a human configures. Also use when a setting resolves undefined (or getSetting throws unknown-key) for a key that looks configured, and when the org repo's shape changes in a way an older rt cannot read: bumping ORG_LAYOUT, writing a conversion, trying a new org layout on the dev app, or an org.layout row that reads skipped or needs-you.
+description: Use when reading or writing any mattstack app setting (rt, deck, mr-board, gitq, console), adding or registering a settings key, choosing its scope (org/team/user/machine), reading or writing another team's value, porting an app's config file into ~/.mattstack, changing a setting from a script, writing a setup migration (MigrationDef) that would touch the org or team stores, or writing code that reads configuration from anywhere other than the settings resolver: a hand-edited settings jsonc, an invented config file or store path, an env var for something a human configures. Also use when a setting resolves undefined (or getSetting throws unknown-key) for a key that looks configured, and when the org repo's shape changes in a way an older rt cannot read: bumping ORG_LAYOUT, writing a conversion, trying a new org layout on the dev app, or an org.layout row that reads skipped or needs-you.
 ---
 
 # The settings contract
@@ -28,8 +28,8 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    merge, description — add a `default` only after clearing line 5; a
    ported `board.*` row never has one). Before the console can edit it, a
    new key also needs a zod schema in `registry-schemas.ts` (every key,
-   scalars too), examples in `schema-examples.ts`, `.meta({ title,
-   description })` on every object property, a console group in
+   scalars too), examples in `schema-examples.ts`, a title or
+   description (`.meta`) on every object property, a console group in
    `apps/console/src/app/settings/groups.ts` and a regenerated lock
    (`bun run cli.ts settings schema lock`), enforced by
    `registry-console-ready.test.ts`, `schema-examples.test.ts` and the
@@ -160,7 +160,7 @@ runtime both refuse a migration that writes the org or team stores.
 A layout change is a change to the org repo's shape that an older rt cannot
 read: a moved folder, a renamed store, or a change to the shape of the
 shared settings that an older app would misread or lose, such as a
-migration that moves keys into a new org key and deletes the old ones (the
+conversion that moves keys into a new org key and deletes the old ones (the
 team directory did this). Each gets the same `ORG_LAYOUT` bump and branch
 flow below. The marker
 (`mattstack/mattstack.jsonc`) carries `layout`; `ORG_LAYOUT` in
@@ -188,9 +188,10 @@ In this order:
    (each plans; `--write` moves and commits). A conversion to layout 3 or later
    also writes `layout: <n>` in the marker. Every marker rt writes carries
    an explicit `layout` (`rt team create` writes `ORG_LAYOUT`, the layout 2
-   script writes 2, the layout 3 script 3), and a `role: "org"` marker with no field reads 2, a
-   fixed default (`ORG_LAYOUT_ABSENT_DEFAULT`) that never follows the bump,
-   so an unconverted clone never reads as ready.
+   script writes 2, the layout 3 script writes 3), and a `role: "org"`
+   marker with no field reads 2, a fixed default
+   (`ORG_LAYOUT_ABSENT_DEFAULT`) that never follows the bump, so an
+   unconverted clone never reads as ready.
 2. **Test it on the dev app.** The dev app runs rt from the shared
    checkout (the one `rt dev setup` recorded, else
    `~/Documents/GitHub/mattstack`), which sits on main, so once the change
