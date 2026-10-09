@@ -50,6 +50,11 @@ digraph rt_release {
     "Gate: cut or hold each setup gap" [shape=box];
     "Land the fix each setup gap needs" [shape=box];
     "Record each held setup gap for the notes" [shape=box];
+    "Audit the skills this release ships" [shape=box];
+    "Does a skill ship wrong?" [shape=diamond];
+    "Gate: fix or hold each skill line" [shape=box];
+    "Land the fix each skill line needs" [shape=box];
+    "Record each held skill line for the notes" [shape=box];
     "Which gate does the diff imply?" [shape=diamond];
     "Fast path: rt release apps (fast-path.md)" [shape=box];
     "Fast path outcome?" [shape=diamond];
@@ -110,14 +115,23 @@ digraph rt_release {
     "Pull after the cuts result?" -> "Off-script gate: local main diverged after the cuts" [label="refused"];
     "Record each held row for the notes" -> "Audit the range for what set-up Macs miss";
     "Audit the range for what set-up Macs miss" -> "Does a set-up Mac miss anything?";
-    "Does a set-up Mac miss anything?" -> "Which gate does the diff imply?" [label="no: every change reaches it"];
+    "Does a set-up Mac miss anything?" -> "Audit the skills this release ships" [label="no: every change reaches it"];
     "Does a set-up Mac miss anything?" -> "Gate: cut or hold each setup gap" [label="yes: a gap not yet held"];
     "Gate: cut or hold each setup gap" -> "Land the fix each setup gap needs" [label="cut: land the fix, rerun preflight"];
     "Gate: cut or hold each setup gap" -> "Record each held setup gap for the notes" [label="hold: noted in the release notes"];
     "Gate: cut or hold each setup gap" -> "Held: release paused, resume point named" [label="hold the release"];
     "Gate: cut or hold each setup gap" -> "Handed back to Matt" [label="hand back"];
     "Land the fix each setup gap needs" -> "git_pull {tree: <release checkout>}, after the cut merges";
-    "Record each held setup gap for the notes" -> "Which gate does the diff imply?";
+    "Record each held setup gap for the notes" -> "Audit the skills this release ships";
+    "Audit the skills this release ships" -> "Does a skill ship wrong?";
+    "Does a skill ship wrong?" -> "Which gate does the diff imply?" [label="no: every skill line is right"];
+    "Does a skill ship wrong?" -> "Gate: fix or hold each skill line" [label="yes: a line not yet held"];
+    "Gate: fix or hold each skill line" -> "Land the fix each skill line needs" [label="fix: land it, rerun preflight"];
+    "Gate: fix or hold each skill line" -> "Record each held skill line for the notes" [label="hold: noted in the release notes"];
+    "Gate: fix or hold each skill line" -> "Held: release paused, resume point named" [label="hold the release"];
+    "Gate: fix or hold each skill line" -> "Handed back to Matt" [label="hand back"];
+    "Land the fix each skill line needs" -> "git_pull {tree: <release checkout>}, after the cut merges";
+    "Record each held skill line for the notes" -> "Which gate does the diff imply?";
     "Which gate does the diff imply?" -> "Fast path: rt release apps (fast-path.md)" [label="served-app fast path"];
     "Which gate does the diff imply?" -> "Prepare the release (prepare.md)" [label="anything else"];
     "Fast path: rt release apps (fast-path.md)" -> "Fast path outcome?";
@@ -141,7 +155,7 @@ counting as every app built from it), `RELEASE_NOTES.md` and
 the full path.
 
 Counters say what one count is. `Preflight runs = 3?` counts every preflight run in this release,
-the first one and the reruns after cuts included, a setup gap's cut among them. Every `<origin>: gate rounds = 2?` counts the
+the first one and the reruns after cuts included, a setup gap's cut and a skill line's fix among them. Every `<origin>: gate rounds = 2?` counts the
 iterate answers received at that gate: it is yes once Matt has answered iterate twice.
 
 ### Find where this release stands
@@ -317,6 +331,51 @@ range.
 
 Keep a list: the gap, the manual step, and Matt's words. `Write the release notes` turns each
 into an existing-installs line.
+
+### Audit the skills this release ships
+
+The app links its bundled skills into every user's `~/.claude/skills` at install, by
+frontmatter name. Four trees ship: rt's `skills/` (copied whole by `rt-tray/build.sh`) and
+each `apps/<name>/skills/` whose `rt-tray/deps.lock` row says `"skills": true` (deck, board,
+gitq today). A tree's `.skillsignore` lists the directories that stay maintainer-only; a tree
+without one ships everything. A skill set up wrong ships with no error anywhere: it reaches
+users who cannot run it, or never links at all.
+
+Three reads, in this order:
+
+1. Per tree, `rt skills link --from <tree> --dry-run`: what a user install links and skips.
+2. The range, `git log <newest-tag>..origin/main --stat -- skills apps/*/skills`: skills
+   added, edited or removed, and every `.skillsignore` change.
+3. Each skill read 2 names, plus every shipped skill read 1 lists, against every row:
+
+| The check | Right when | Otherwise the fix |
+| --- | --- | --- |
+| The dry run's row for it | `ok`, `create` or ignored; never `skipped` (a header the linker cannot read) or `conflict` | fix the header or the name |
+| Shipped or maintainer-only | in `.skillsignore` exactly when it is for working on mattstack itself (releasing, docs, estate code, app source, copy); a skill for using rt or an app ships | add or drop the `.skillsignore` entry |
+| What a shipped skill tells an agent to run | every verb, tool and skill it names exists on a user's Mac: no `bun run cli.ts`, no repo or checkout path, no maintainer-only skill | fix the text, or move it to `.skillsignore` |
+| A `.skillsignore` entry | names a directory that exists in its tree | drop the entry |
+
+Every skill read 2 names gets a line, right or wrong: the skill, its tree, shipped or
+maintainer-only, and the proof (the dry-run row, the `.skillsignore` line, the verb checked
+against `rt --help`). A line with no proof is an unfinished audit, never a gate question.
+Shipped skills the range did not touch need only read 1's row. A line Matt already held in
+this release is not a wrong line again. No wrong lines takes the `no` edge.
+
+### Gate: fix or hold each skill line
+
+Quote each wrong line. Recommend the fix. A hold is Matt's recorded decision only, and the
+question names what users then get (a skill they cannot run, or a skill missing).
+
+### Land the fix each skill line needs
+
+Each fix is a PR on main, pushed with `git_push`, and it merges before the notes commit. A
+header fix in rt's tree also passes `lib/__tests__/no-unlinkable-skills.test.ts`. The pull
+and the preflight rerun are the same as for a stale row; the audit then reads the grown range.
+
+### Record each held skill line for the notes
+
+Keep a list: the skill, what users get, and Matt's words. `Write the release notes` turns
+each into a known-issues line.
 
 ### Off-script gate: preflight git state
 
