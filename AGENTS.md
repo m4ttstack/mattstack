@@ -133,10 +133,13 @@ under `claude/` and `codex/`) and the Claude Code mod at
   without integrations; a change that moves anything on the off path is a
   bug. Setup installs `mattstack-mods` only while the switch is on
   (`modsPluginWanted` in `lib/setup/base-plugins.ts`).
-- **The `session:*`, `policy:*` and `agent:policy-receipt` daemon verbs are
-  not authenticated.** rt.sock trusts any local process, so one can register
+- **The `session:*`, `policy:*`, `agent:policy-receipt`, `runs:owned`,
+  `worktree:registered` and `worktree:entered` daemon verbs are not
+  authenticated.** rt.sock trusts any local process, so one can register
   a session link before the session's real mod does, and a continuation
-  carries the old session's readiness. That is the recorded posture, not an
+  carries the old session's readiness. The last three resolve their caller
+  only from the live mod link, and `worktree:registered` is what lets the
+  mod skip a permission prompt. That is the recorded posture, not an
   oversight; anything that grants authority on these verbs needs a design
   review.
 - **Codex's policy hooks run the hidden `rt agent policy-hook`.** Its stdout,
@@ -151,6 +154,37 @@ under `claude/` and `codex/`) and the Claude Code mod at
   stays the source of what is owed; the daemon's `harness-delivery-recovery`
   and `gate-question-recovery` units reconcile, at boot and when a harness
   reconnects, what a previous daemon or a lost connection left unresolved.
+- **A herd job's worker holds it through herds.db's `herd_job_attempts`.**
+  At most one attempt per job is active (a unique index enforces it); a
+  reserved attempt holds nothing; an attempt activates only after its
+  session's verified bind and, with the switch on, a current policy proof.
+  Attempts are recorded whatever the switch; only the switch on makes them
+  authorize. A job whose active attempt carries only a `legacySession`, or
+  that no attempt ever took, keeps the pre-integration rule: the call names
+  the job and comes from the session its row records.
+- **Supervision reads one in-memory observation store**
+  (`lib/agent-integrations/observation-store.ts`). A session's own push
+  outranks a poll of the same generation until it is older than
+  `STALE_OBSERVATION_MS`, except that a polled `blocked` pre-empts it (a
+  prompt the mod cannot see). Pushed deaths are kept apart, keyed by binding
+  key and generation, so a later generation's readings never erase them.
+- **A run names its owner by `session-key`.** Ownership is owned, foreign,
+  unowned or `unproven` (a `claude-session` the session store cannot tie to a
+  binding); an ownership-sensitive write resolves only through an owned run
+  and never picks the newest run in a directory (`lib/runs/resolve-db.ts`).
+- **CI leases and worktree holders share one owner token,
+  `binding:K[:attempt:X]`.** A resume keeps it and a replacement attempt
+  gets a new one. A legacy `session:<id>` token counts as the caller's only
+  through the session store's proof.
+- **Worktree holders live in the `agent-worktrees` kv**, keyed to the
+  tree's claim. A tree with no live holder keeps today's path (announce,
+  `decideRemove`); a holder refuses only a different live owner.
+- **Codex reads a linked worktree's project layers from its main
+  checkout**, so policy and trust checks look there. `THREAD_GONE`
+  (`lib/agent-integrations/codex/sessions.ts`) is pinned to Codex 0.162's
+  `-32600` wording and fails safe: an unmatched error leaves the thread
+  attached.
+- **`rt agent integrations` is agent-safe**, so the `rt_verb` tool runs it.
 - **The mods register blocks only inside `TESTED_CLAUDE_CODE`**
   (`lib/agent-integrations/claude/mod-links.ts`). Outside that range a mod
   registers with no blocks and the shell hooks keep the session. Widen the
