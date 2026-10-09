@@ -1,18 +1,14 @@
-import { useState } from 'react';
 import {
   Avatar,
   Badge,
   Button,
-  Combobox,
   Group,
+  Menu,
   Text,
-  UnstyledButton,
-  useCombobox,
 } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icon, Icons } from '@mattstack/app-kit/icons';
 
-import classes from './SettingsContextBar.module.css';
 import type { Viewer } from './useConsoleSettings';
 
 type Role = Viewer['role'];
@@ -36,7 +32,7 @@ export function RoleBadge({ role }: { role: Role }) {
   if (role === 'none') return null;
   const { label, color, variant } = ROLE_BADGE[role];
   return (
-    <Badge size="sm" radius="xl" color={color} variant={variant}>
+    <Badge size="sm" radius="xl" tt="uppercase" color={color} variant={variant}>
       {label}
     </Badge>
   );
@@ -88,87 +84,52 @@ function TeamMenu({
   other: boolean;
   onPick: (team: string | null) => void;
 }) {
-  const [search, setSearch] = useState('');
-  const combobox = useCombobox({
-    onDropdownClose: () => {
-      combobox.resetSelectedOption();
-      setSearch('');
-    },
-    onDropdownOpen: () => combobox.focusSearchInput(),
-  });
-  const shown = teams.filter(t =>
-    t.toLowerCase().includes(search.trim().toLowerCase())
-  );
   const note = ROLE_NOTE[role];
   return (
-    <Combobox
-      store={combobox}
-      width={280}
-      position="bottom-start"
-      offset={6}
-      onOptionSubmit={value => {
-        onPick(value === ownTeam ? null : value);
-        combobox.closeDropdown();
-      }}
-    >
-      <Combobox.Target withAriaAttributes={false}>
-        <UnstyledButton
-          className={classes.segment}
-          data-other={other || undefined}
+    <Menu position="bottom-start" offset={6} width={260} shadow="md">
+      <Menu.Target>
+        <Button
+          size="sm"
+          variant={other ? 'light' : 'default'}
+          color={other ? 'purple' : undefined}
           aria-label={`team: ${team}, switch team`}
-          onClick={() => combobox.toggleDropdown()}
+          leftSection={<Icons.users size={15} />}
+          rightSection={<Icons.chevronsUpDown size={14} />}
         >
-          <Icons.users size={15} />
-          <span>{team}</span>
-          <Icons.chevronsUpDown size={14} className={classes.chevrons} />
-        </UnstyledButton>
-      </Combobox.Target>
-      <Combobox.Dropdown p={0}>
-        <Combobox.Search
-          value={search}
-          onChange={e => setSearch(e.currentTarget.value)}
-          placeholder="Find team…"
-          leftSection={<Icons.search size={14} />}
-          aria-label="find team"
-        />
-        <Combobox.Options p={4}>
-          {shown.length === 0 ? (
-            <Combobox.Empty>No team matches</Combobox.Empty>
-          ) : (
-            shown.map(t => (
-              <Combobox.Option value={t} key={t} active={t === team}>
-                <Group gap={8} wrap="nowrap">
-                  <Text fz={14}>{t}</Text>
-                  {t === ownTeam && (
-                    <Badge size="xs" radius="xl" color="gray" variant="outline">
-                      your team
-                    </Badge>
-                  )}
-                  {t === team && (
-                    <Icons.check size={15} style={{ marginLeft: 'auto' }} />
-                  )}
-                </Group>
-              </Combobox.Option>
-            ))
-          )}
-        </Combobox.Options>
-        {note && (
-          <Combobox.Footer>
-            <Group gap={6} wrap="nowrap">
-              <Icons.shield size={13} />
-              <Text fz={12} c="dimmed">
-                {note}
-              </Text>
+          {team}
+        </Button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>Teams</Menu.Label>
+        {teams.map(t => (
+          <Menu.Item
+            key={t}
+            onClick={() => onPick(t === ownTeam ? null : t)}
+            rightSection={t === team ? <Icons.check size={15} /> : undefined}
+          >
+            <Group gap={8} wrap="nowrap">
+              <span>{t}</span>
+              {t === ownTeam && (
+                <Badge size="xs" radius="xl" color="gray" variant="outline">
+                  your team
+                </Badge>
+              )}
             </Group>
-          </Combobox.Footer>
+          </Menu.Item>
+        ))}
+        {note && (
+          <>
+            <Menu.Divider />
+            <Menu.Label>{note}</Menu.Label>
+          </>
         )}
-      </Combobox.Dropdown>
-    </Combobox>
+      </Menu.Dropdown>
+    </Menu>
   );
 }
 
 /** Where you are (org, team) and who you are. Viewing another team turns
-    the team segment purple and adds a note with the way back. */
+    the team segment purple and offers the way back to your own. */
 export function SettingsContextBar({
   org,
   team,
@@ -212,7 +173,7 @@ export function SettingsContextBar({
                 onPick={onPickTeam}
               />
             ) : (
-              <Group gap={7} wrap="nowrap" className={classes.fixedTeam}>
+              <Group gap={7} h={32} wrap="nowrap">
                 <Icons.users size={15} />
                 <Text fz={14} fw={500}>
                   {team}
@@ -221,28 +182,17 @@ export function SettingsContextBar({
             )}
           </>
         )}
-        {other && team && ownTeam && (
-          <Group gap={10} wrap="nowrap" miw={0} data-testid="viewing-note">
-            <Group gap={5} wrap="nowrap" miw={0}>
-              <Icons.eye
-                size={14}
-                color="var(--tk-text-purple-small)"
-                style={{ flex: 'none' }}
-              />
-              <Text fz={12} c={text.muted} truncate="end">
-                {`Edits go to ${team} · your user and machine layers are hidden`}
-              </Text>
-            </Group>
-            <Button
-              size="compact-sm"
-              style={{ flex: 'none' }}
-              variant="default"
-              leftSection={<Icons.arrowLeft size={13} />}
-              onClick={() => onPickTeam(null)}
-            >
-              {`Back to ${ownTeam}`}
-            </Button>
-          </Group>
+        {other && ownTeam && (
+          <Button
+            size="xs"
+            variant="subtle"
+            color="gray"
+            leftSection={<Icons.arrowLeft size={13} />}
+            onClick={() => onPickTeam(null)}
+            style={{ flex: 'none' }}
+          >
+            {`Back to your team (${ownTeam})`}
+          </Button>
         )}
       </Group>
       <Who viewer={viewer} />

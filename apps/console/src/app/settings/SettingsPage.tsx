@@ -25,7 +25,6 @@ import {
 import { Icons } from '@mattstack/app-kit/icons';
 import { useSearchParams } from 'wouter';
 
-import { PAGE_ROW_HEIGHT } from '../chrome';
 import { useOpenRow } from './explainParam';
 import { TIER_LABEL, type Tier } from './groups';
 import { SettingsSeedRepoContext } from './RowProject';
@@ -56,9 +55,12 @@ const SCOPES = ['user', 'org', 'team', 'machine'] as const;
 // Viewing another team hides this Mac's own layers, so only the shared
 // scopes are left to filter by.
 const SHARED_SCOPES = ['org', 'team'] as const;
-const TOOLBAR_ROW = 60;
+// The context row centres its 32px controls; the filters sit 12px under
+// them with 14px below, as on the H4 board.
+const CONTEXT_ROW = 56;
+const TOOLBAR_ROW = 50;
 // The context row and the toolbar row, plus the header's own bottom hairline.
-const HEADER_HEIGHT = PAGE_ROW_HEIGHT + TOOLBAR_ROW + 1;
+const HEADER_HEIGHT = CONTEXT_ROW + TOOLBAR_ROW + 1;
 const FIX_CHIP_STYLES = {
   label: { height: 34, paddingInline: 12, fontSize: 13, fontWeight: 600 },
 };
@@ -288,6 +290,7 @@ export function SettingsPage() {
               <SettingsDefsContext.Provider value={store.defs}>
                 <PageShell
                   headerHeight={HEADER_HEIGHT}
+                  sideBarHeaderBg="var(--tk-panel)"
                   sidebarWidth={232}
                   drawerStateKey="console-settings-index"
                 >
@@ -305,7 +308,6 @@ export function SettingsPage() {
                       gap={0}
                       align="stretch"
                       style={{
-                        background: 'var(--tk-panel)',
                         borderBottom: '1px solid var(--tk-border)',
                         boxShadow: scrolled
                           ? '0 2px 12px color-mix(in srgb, var(--tk-text-1) 14%, transparent)'
@@ -315,7 +317,7 @@ export function SettingsPage() {
                     >
                       <VisuallyHidden component="h1">Settings</VisuallyHidden>
                       <Stack gap={0} w="100%">
-                        <Group h={PAGE_ROW_HEIGHT} px={32} wrap="nowrap">
+                        <Group h={CONTEXT_ROW} px={32} wrap="nowrap">
                           <SettingsContextBar
                             org={store.org}
                             team={store.team}
@@ -331,7 +333,7 @@ export function SettingsPage() {
                           gap={10}
                           px={32}
                           h={TOOLBAR_ROW}
-                          pb={4}
+                          align="flex-start"
                           wrap="nowrap"
                         >
                           <TextInput
@@ -384,7 +386,7 @@ export function SettingsPage() {
                             </Chip>
                           )}
                           <SegmentedControl
-                            size="sm"
+                            size="md"
                             withItemsBorders={false}
                             value={scope}
                             onChange={v => setScope(v as ScopeFilter)}

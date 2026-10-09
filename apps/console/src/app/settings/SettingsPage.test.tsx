@@ -1013,7 +1013,7 @@ describe('the context bar', () => {
       await screen.findByRole('button', { name: 'team: widgets, switch team' })
     );
     await userEvent.click(
-      await screen.findByRole('option', { name: 'gadgets' })
+      await screen.findByRole('menuitem', { name: 'gadgets' })
     );
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get('team')).toBe(
@@ -1023,10 +1023,9 @@ describe('the context bar', () => {
     await waitFor(() =>
       expect(urls.some(u => u.includes('team=gadgets'))).toBe(true)
     );
-    const note = await screen.findByTestId('viewing-note');
-    expect(note).toHaveTextContent(
-      'Edits go to gadgets · your user and machine layers are hidden'
-    );
+    const back = await screen.findByRole('button', {
+      name: 'Back to your team (widgets)',
+    });
     expect(screen.queryByRole('radio', { name: 'user' })).toBeNull();
     expect(screen.queryByRole('radio', { name: 'machine' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'open board.u0' })).toBeNull();
@@ -1034,13 +1033,13 @@ describe('the context bar', () => {
       screen.getByRole('button', { name: 'open board.t0' })
     ).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'team' })).toBeInTheDocument();
-    await userEvent.click(
-      within(note).getByRole('button', { name: 'Back to widgets' })
-    );
+    await userEvent.click(back);
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get('team')).toBeNull()
     );
-    expect(screen.queryByTestId('viewing-note')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: /^Back to your team/ })
+    ).toBeNull();
   });
 
   it('a write while viewing another team names it', async () => {
