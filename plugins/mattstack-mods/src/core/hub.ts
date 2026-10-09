@@ -627,7 +627,11 @@ function facade($: EngineInterface): ModApi {
       pane: () => $.env.get('HERDR_PANE_ID'),
       path: () => $.env.get('PATH'),
       boardStatusBin: () => $.env.get('MATTSTACK_BOARD_STATUS_BIN'),
-      boardVar: name => $.env.get(name),
+      boardVar: name =>
+        name === 'BOARD_STATE_DB' ? $.env.get('BOARD_STATE_DB')
+        : name === 'BOARD_APP_ROOT' ? $.env.get('BOARD_APP_ROOT')
+        : name === 'BOARD_FIXTURE' ? $.env.get('BOARD_FIXTURE')
+        : $.env.get('MATTSTACK_PACK'),
     },
     state: {
       linkId: {

@@ -76,6 +76,23 @@ describe('board status tool', () => {
     expect(JSON.stringify(run)).not.toContain('MESSAGING')
   })
 
+  test('each board variable reaches the writer under its own name', async () => {
+    const h = harness({
+      env: {
+        MATTSTACK_BOARD_STATUS_BIN: BIN, PATH: '/usr/bin:/bin',
+        BOARD_STATE_DB: '/u/board.db', BOARD_APP_ROOT: '/u/app', BOARD_FIXTURE: 'fx', MATTSTACK_PACK: 'acme',
+      },
+    })
+    h.script.run = () => ({ exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
+    await h.start()
+
+    await h.fire('tool.call', status({ verb: 'review-status', args: [STATE, 'reviewing'] }), recorder({}).next)
+    const run = h.ran[0]!
+    expect(run.argv.slice(5, run.argv.indexOf(BIN))).toEqual([
+      'BOARD_STATE_DB=/u/board.db', 'BOARD_APP_ROOT=/u/app', 'BOARD_FIXTURE=fx', 'MATTSTACK_PACK=acme',
+    ])
+  })
+
   test("a write the status writer refuses comes back as its own words", async () => {
     const h = harness()
     h.script.run = () => ({ exitCode: 1, stdout: '', stderr: 'usage: review-status <statePath> <queued|reviewing|done|error> [message]\n', isStdoutTruncated: false, isStderrTruncated: false })
