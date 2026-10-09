@@ -158,40 +158,29 @@ describe('planOwnersPost', () => {
     ]);
   });
 
-  test("our own team's sections go to the team row, never their channel", () => {
+  test('a section on any of my channels rides on the team row, matched without # and case', () => {
     const plan = planOwnersPost(
       [
-        { section: 'Ours - #pod-ours', approved: false },
-        { section: 'Ours Jobs - #pod-ours', approved: true },
+        { section: 'Claim - #POD-claim', approved: false },
+        { section: 'Claim Ops - #claim-internal', approved: false },
         { section: 'Acme - #pod-acme', approved: false },
       ],
-      { posted: {}, ownSections: ['Ours - #pod-ours', 'Ours Jobs - #pod-ours'] }
+      { posted: {}, ownChannels: ['pod-claim', 'claim-internal'] }
     );
+    expect(plan.ownSections).toEqual([
+      'Claim - #POD-claim',
+      'Claim Ops - #claim-internal',
+    ]);
     expect(plan.channels).toEqual([
       { channel: 'pod-acme', sections: ['Acme - #pod-acme'] },
     ]);
-    expect(plan.skipped).toEqual([]);
-    expect(plan.ownSections).toEqual(['Ours - #pod-ours']);
   });
 
-  test('a plan with no own sections says so', () => {
+  test('with no channels of mine every section is another team’s', () => {
     expect(
-      planOwnersPost([{ section: 'Acme - #pod-acme', approved: false }], none)
-        .ownSections
+      planOwnersPost([{ section: 'Acme - #pod-acme', approved: false }], {
+        posted: {},
+      }).ownSections
     ).toEqual([]);
-  });
-
-  test('a section naming the team channel rides on the team row, never posts twice there', () => {
-    const plan = planOwnersPost(
-      [
-        { section: 'Payments Web - #payments', approved: false },
-        { section: 'Acme - #pod-acme', approved: false },
-      ],
-      { posted: {}, teamChannel: 'payments' }
-    );
-    expect(plan.channels).toEqual([
-      { channel: 'pod-acme', sections: ['Acme - #pod-acme'] },
-    ]);
-    expect(plan.ownSections).toEqual(['Payments Web - #payments']);
   });
 });

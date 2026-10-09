@@ -9,6 +9,7 @@ import { checkSchema, firstIssueText, hasSchema, type SchemaIssue } from "./sche
 import { validateValue, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { currentMergedValue, listStoreRepoIdentities, mergedValueWith } from "./resolve.ts";
 import { currentOrg, listTeamFolders } from "./stores.ts";
+import { directoryIssues } from "./team-directory.ts";
 
 export type WriteRefusalKind = "repoOnly" | "type" | "pathGuard" | "schema";
 export type WriteVerdict = { ok: true } | { ok: false; kind: WriteRefusalKind; reason: string; issues: SchemaIssue[] };
@@ -27,6 +28,8 @@ export function validateWrite(def: SettingDef, value: unknown, opts: { scope: Se
 
   const layerIssues = checkSchema(def, value, { layer: true });
   if (layerIssues.length > 0) return { ok: false, kind: "schema", reason: firstIssueText(layerIssues), issues: layerIssues };
+  const semantic = SEMANTIC_CHECKS[def.key]?.(value);
+  if (semantic) return { ok: false, kind: "schema", reason: semantic, issues: [] };
 
   for (const team of viewsToCheck(opts.scope)) {
     const contexts: (string | null)[] =
@@ -47,6 +50,14 @@ export function validateWrite(def: SettingDef, value: unknown, opts: { scope: Se
   }
   return { ok: true };
 }
+
+/** Rules a JSON Schema cannot state, such as uniqueness across a record. */
+const SEMANTIC_CHECKS: Record<string, (value: unknown) => string | null> = {
+  "mattstack.directory": (value) => {
+    const dup = directoryIssues(value as never).duplicates[0];
+    return dup ? `two teams claim #${dup.channel} as their code owners channel: ${dup.teams.join(", ")}` : null;
+  },
+};
 
 /**
  * The team views a write is judged in; undefined is the active team. An org

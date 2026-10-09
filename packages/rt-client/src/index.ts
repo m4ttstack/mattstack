@@ -203,6 +203,18 @@ export { NOTIFICATION_EVENT_KEYS, NOTIFICATION_DEFAULTS } from "./settings/notif
 export { readStore, parseStoreText, listOrgs, currentOrg, listTeamFolders, sharedStoreFiles, TEAM_NAME_RE } from "./settings/stores.ts";
 export { activeTeam, activeTeamPack, activeTeamRoster, decideActiveTeam, mergeTeamRoster, readOrgRoles, readOrgRoster, sameUser } from "./settings/active-team.ts";
 export type { ActiveTeam, ActiveTeamReason, OrgRoles, RosterEntry } from "./settings/active-team.ts";
+export {
+  KNOWN_CHANNEL_KINDS,
+  channelsOfKind,
+  directoryEntry,
+  directoryIssues,
+  myDirectoryTeam,
+  normalizeChannel,
+  teamChannels,
+  teamForChannel,
+  type DirectoryTeam,
+  type TeamDirectory,
+} from "./settings/team-directory.ts";
 export { readForgeUsername } from "./settings/team-local-read.ts";
 export { currentRole, mayWritePath, ORG_MANAGED_ROOTS, orgStoreRefusal, ownedRoots, roleOf, writeRefusalFor } from "./settings/org-roles.ts";
 export type { OrgRole } from "./settings/org-roles.ts";

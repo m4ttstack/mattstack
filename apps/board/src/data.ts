@@ -256,9 +256,10 @@ export function boardDemand(config: BoardConfig, port: number): DemandDecl {
 }
 
 /** Which Slack channel an MR's review-request lives in: roster MRs use the
-    board channel; a tag-only row uses its codeowners tab's channel (first
-    match in tab order), falling back to the board channel when none of its
-    tags carry a slackChannel. */
+    team's review channel; a tag-only row uses its codeowners tab's channel
+    (first match in tab order), falling back to the team's review channel
+    when none of its tags carry a slackChannel. `''` when the team has no
+    review channel. */
 export function channelForMR(
   config: BoardConfig,
   mr: Pick<BoardMR, 'author' | 'codeownerSections'>
@@ -279,8 +280,8 @@ export function channelForMR(
 }
 
 /** Every Slack channel this board's config can route a review-request to:
-    the default channel plus every tab-level override, deduped. Used to
-    validate a client-supplied channel override. */
+    the team's review channel, when it has one, plus every tab-level
+    override, deduped. Used to validate a client-supplied channel override. */
 export function configuredSlackChannels(
   config: Pick<BoardConfig, 'slack' | 'tabs'>
 ): string[] {
@@ -288,7 +289,7 @@ export function configuredSlackChannels(
   for (const tab of config.tabs) {
     if (tab.slackChannel) channels.add(tab.slackChannel);
   }
-  return [...channels];
+  return [...channels].filter(Boolean);
 }
 
 /** One project's sync facts, the shape aggregateSyncScope folds across projects. */

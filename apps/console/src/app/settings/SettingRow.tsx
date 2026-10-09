@@ -159,11 +159,12 @@ export function SettingRow({
   const isOpen = open !== null;
   const reduceMotion = useReducedMotion();
   const { shown, opening, settle } = usePanelOpen(open, reduceMotion);
-  // JSON mode belongs to the opening it was chosen in: it holds while that
-  // panel collapses, and the next opening starts in the form.
-  const [jsonIn, setJsonIn] = useState<number | null>(null);
-  const asJson = jsonIn === opening && shown !== null;
-  const setAsJson = (on: boolean) => setJsonIn(on ? opening : null);
+  // Form mode belongs to the opening it was chosen in: it holds while that
+  // panel collapses, and the next opening starts in JSON. A closed row keeps
+  // its inline control.
+  const [formIn, setFormIn] = useState<number | null>(null);
+  const asJson = formIn !== opening && shown !== null;
+  const setAsJson = (on: boolean) => setFormIn(on ? null : opening);
   const parts = useRowParts(def, row, { suggestions, asJson, setAsJson });
   const chevron = useRef<HTMLButtonElement>(null);
   const panelId = useId();
@@ -180,8 +181,7 @@ export function SettingRow({
   const rejected =
     def.issues === undefined && !onWhere ? def.effective.invalid : undefined;
 
-  const toggle = () =>
-    setOpen(isOpen ? null : { tab: parts.body ? 'value' : 'where', fix: null });
+  const toggle = () => setOpen(isOpen ? null : { tab: 'value', fix: null });
   const warmPanel = () => {
     if (!isOpen) void prefetchKeyExplain(def, repo);
   };

@@ -21,7 +21,6 @@ import type { RangePreset } from '../src/shared/types.js';
 
 export type Integrations = Record<string, unknown> & {
   forge?: { host?: string };
-  linear?: { teamKey?: string };
 };
 
 interface LegacyConfig {
@@ -84,20 +83,16 @@ export function teamlessUsernames(
     .filter(u => !before.has(u));
 }
 
-/** Fills only the fields `current` is missing; never overwrites an already-present forge.host / linear.teamKey. */
+/** Fills only the fields `current` is missing; never overwrites an already-present forge.host. */
 export function mergeIntegrations(
   current: Integrations,
-  incoming: { host?: string; teamKey?: string }
+  incoming: { host?: string }
 ): { merged: Integrations; changed: boolean } {
   const merged: Integrations = { ...current };
   let changed = false;
 
   if (incoming.host !== undefined && merged.forge?.host === undefined) {
     merged.forge = { ...merged.forge, host: incoming.host };
-    changed = true;
-  }
-  if (incoming.teamKey !== undefined && merged.linear?.teamKey === undefined) {
-    merged.linear = { ...merged.linear, teamKey: incoming.teamKey };
     changed = true;
   }
 
@@ -209,7 +204,6 @@ async function main(): Promise<void> {
   const { merged: mergedIntegrations, changed: integrationsChanged } =
     mergeIntegrations(currentIntegrations, {
       host: gitlabBaseUrl,
-      teamKey: settingsJson.linearTeam,
     });
   if (integrationsChanged) {
     writes.push({

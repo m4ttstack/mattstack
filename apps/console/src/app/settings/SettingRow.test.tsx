@@ -53,9 +53,13 @@ function renderRow(ui: ReactElement) {
   );
 }
 
-async function openRow(key: string) {
+/** Opens a row, which lands on Value, and turns to Where it's set. */
+async function openWhere(key: string) {
   await userEvent.click(screen.getByRole('button', { name: `open ${key}` }));
-  await screen.findByRole('radiogroup', { name: `${key} panel` });
+  const tabs = await screen.findByRole('radiogroup', { name: `${key} panel` });
+  await userEvent.click(
+    within(tabs).getByRole('radio', { name: "Where it's set" })
+  );
 }
 
 function def(key: string, over: Partial<SettingDefWire> = {}): SettingDefWire {
@@ -93,16 +97,14 @@ describe('SettingRow disclosure', () => {
       effective: { scope: 'user', file: '/u', value: 'm-1' },
     });
 
-  it('a click anywhere on the row opens it; a second click closes it', async () => {
+  it('a click anywhere on the row opens it on Value; a second click closes it', async () => {
     renderWithProviders(
       <SettingRow def={scalar()} store={store()} subhead={null} query="" />
     );
     await userEvent.click(screen.getByText('What it does.'));
-    expect(
-      await screen.findByRole('radio', { name: "Where it's set" })
-    ).toBeChecked();
+    expect(await screen.findByRole('radio', { name: 'Value' })).toBeChecked();
     await userEvent.click(screen.getByText('What it does.'));
-    expect(screen.queryByRole('radio', { name: "Where it's set" })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Value' })).toBeNull();
   });
 
   it('hovering a closed row reads its layers ahead, once', async () => {
@@ -355,7 +357,7 @@ describe('SettingRow disclosure', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'open board.agent.model' })
     );
-    expect(onOpenChange).toHaveBeenCalledWith({ tab: 'where', fix: null });
+    expect(onOpenChange).toHaveBeenCalledWith({ tab: 'value', fix: null });
     expect(
       screen.getByRole('button', { name: 'open board.agent.model' })
     ).toHaveAttribute('aria-expanded', 'false');
@@ -424,6 +426,9 @@ describe('SettingRow disclosure', () => {
       );
       await userEvent.click(
         screen.getByRole('button', { name: 'open board.agent.model' })
+      );
+      await userEvent.click(
+        screen.getByRole('radio', { name: "Where it's set" })
       );
       expect(
         await screen.findByRole('button', {
@@ -927,7 +932,7 @@ describe('SettingRow', () => {
       />
     );
     expect(screen.queryByText('machine')).toBeNull();
-    await openRow('board.agent.model');
+    await openWhere('board.agent.model');
     await userEvent.click(
       within(await screen.findByTestId('layer-machine')).getByRole('button', {
         name: 'move board.agent.model from machine',
@@ -963,7 +968,7 @@ describe('SettingRow', () => {
         query=""
       />
     );
-    await openRow('agent.claude.yolo');
+    await openWhere('agent.claude.yolo');
     await userEvent.click(
       await screen.findByRole('button', {
         name: 'remove agent.claude.yolo from user',
@@ -998,7 +1003,7 @@ describe('SettingRow', () => {
         query=""
       />
     );
-    await openRow('agent.claude.effort');
+    await openWhere('agent.claude.effort');
     expect(await screen.findByTestId('layer-value-default')).toHaveAttribute(
       'data-role',
       'winner'
@@ -1047,8 +1052,8 @@ describe('SettingRow', () => {
         />
       </>
     );
-    await openRow('chat.apiToken');
-    await openRow('rt.roles');
+    await openWhere('chat.apiToken');
+    await openWhere('rt.roles');
     await waitFor(() =>
       expect(screen.getAllByTestId('layer-user')).toHaveLength(2)
     );
@@ -1088,7 +1093,7 @@ describe('SettingRow', () => {
         query=""
       />
     );
-    await openRow('rt.logLevel');
+    await openWhere('rt.logLevel');
     await screen.findByTestId('layer-default');
     expect(screen.queryByRole('button', { name: /^remove / })).toBeNull();
   });
@@ -1227,7 +1232,7 @@ describe('with a repo picked', () => {
           el.textContent === 'team · repo'
       )
     ).toBeInTheDocument();
-    await openRow('rt.worktreeCwd');
+    await openWhere('rt.worktreeCwd');
     const rung = await screen.findByTestId('layer-team.repo');
     expect(within(rung).queryByRole('button', { name: /^move / })).toBeNull();
     await userEvent.click(
@@ -1308,13 +1313,13 @@ describe('issues while Where it’s set is open', () => {
     const token = rowOf('chat.apiToken');
     expect(within(model).getAllByText(/not a model/)).toHaveLength(1);
 
-    await openRow('board.agent.model');
+    await openWhere('board.agent.model');
     const machine = await within(model).findByTestId('layer-machine');
     expect(within(model).getAllByText(/not a model/)).toEqual([
       within(machine).getByText('not a model'),
     ]);
 
-    await openRow('chat.apiToken');
+    await openWhere('chat.apiToken');
     await within(token).findByTestId('layer-user');
     expect(
       within(token).getByText(
@@ -1346,7 +1351,7 @@ describe('issues while Where it’s set is open', () => {
       screen.getByText('stored value rejected: not a model')
     ).toBeInTheDocument();
 
-    await openRow('board.agent.model');
+    await openWhere('board.agent.model');
     const machine = await screen.findByTestId('layer-machine');
     expect(screen.getAllByText(/not a model/)).toEqual([
       within(machine).getByText('not a model'),

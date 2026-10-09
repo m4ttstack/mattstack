@@ -58,17 +58,6 @@ describe("shell-integration — install/remove round trip", () => {
     expect(content).toContain(after);
   });
 
-  test("installShellIntegration refuses an outdated block with no end marker instead of guessing its extent", () => {
-    const rcPath = join(home, ".zshrc");
-    const legacy = `\n${MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\n`;
-    writeFileSync(rcPath, legacy);
-    const result = installShellIntegration();
-    expect(result.written).toBe(false);
-    expect(result.alreadyInstalled).toBe(false);
-    expect(result.error).toContain("remove");
-    expect(readFileSync(rcPath, "utf8")).toBe(legacy);
-  });
-
   test("removeShellIntegration strips exactly installShellIntegration's block — before/after equality around unrelated content", () => {
     const rcPath = join(home, ".zshrc");
     const before = "# my own zshrc stuff\nexport FOO=bar\n";

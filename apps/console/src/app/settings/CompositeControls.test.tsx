@@ -31,6 +31,12 @@ async function openRow(key: string) {
   await screen.findByRole('radiogroup', { name: `${key} panel` });
 }
 
+/** Opens a row, whose structured value opens in JSON, and turns to Form. */
+async function openForm(key: string) {
+  await openRow(key);
+  await userEvent.click(await screen.findByRole('radio', { name: 'Form' }));
+}
+
 function def(key: string, over: Partial<SettingDefWire>): SettingDefWire {
   return {
     key,
@@ -356,7 +362,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.repoRoots');
+    await openForm('rt.repoRoots');
     await userEvent.click(screen.getByRole('button', { name: 'remove ~/a' }));
     await waitFor(() => expect(s.set).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('button', { name: 'remove ~/b' })).toBeDisabled();
@@ -376,7 +382,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.repoRoots');
+    await openForm('rt.repoRoots');
     await userEvent.click(screen.getByRole('button', { name: 'remove ~/b' }));
     await waitFor(() =>
       expect(s.set).toHaveBeenCalledWith('rt.repoRoots', 'machine', [
@@ -417,7 +423,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.repoRoots');
+    await openForm('rt.repoRoots');
     const add = screen.getByLabelText('add to rt.repoRoots');
     await userEvent.type(add, '~/e{enter}');
     expect(
@@ -457,7 +463,7 @@ describe('composite rows', () => {
     renderWithProviders(
       <SettingRow def={rootsDef('machine')} store={s} subhead={null} query="" />
     );
-    await openRow('rt.repoRoots');
+    await openForm('rt.repoRoots');
     await userEvent.click(
       await screen.findByRole('button', { name: 'Reset to default' })
     );
@@ -480,7 +486,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.repoRoots');
+    await openForm('rt.repoRoots');
     await screen.findByRole('radio', { name: 'JSON' });
     await new Promise(r => setTimeout(r, 50));
     expect(
@@ -498,7 +504,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.repoRoots');
+    await openForm('rt.repoRoots');
     await screen.findByRole('radio', { name: 'JSON' });
     await new Promise(r => setTimeout(r, 50));
     expect(
@@ -523,7 +529,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.repoIdentityOverrides');
+    await openForm('rt.repoIdentityOverrides');
     const identity = screen.getByLabelText(
       'identity for https://example.dev/a.git'
     );
@@ -559,7 +565,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.homeSnapshot');
+    await openForm('rt.homeSnapshot');
     expect(await screen.findByText('debounceSec')).toBeInTheDocument();
     const debounce = screen.getByLabelText('rt.homeSnapshot.debounceSec');
     await waitFor(() => expect(debounce).toBeEnabled());
@@ -593,7 +599,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('board.turn');
+    await openForm('board.turn');
     const author = await screen.findByRole('group', {
       name: 'board.turn.author',
     });
@@ -658,7 +664,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.homeSnapshot');
+    await openForm('rt.homeSnapshot');
     const debounce = screen.getByLabelText('rt.homeSnapshot.debounceSec');
     await waitFor(() => expect(debounce).toBeEnabled());
     await userEvent.clear(debounce);
@@ -690,7 +696,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.homeSnapshot');
+    await openForm('rt.homeSnapshot');
     const debounce = screen.getByLabelText('rt.homeSnapshot.debounceSec');
     await waitFor(() => expect(debounce).toBeEnabled());
     await userEvent.clear(debounce);
@@ -744,7 +750,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.homeSnapshot');
+    await openForm('rt.homeSnapshot');
     const debounce = screen.getByLabelText('rt.homeSnapshot.debounceSec');
     await waitFor(() => expect(debounce).toBeEnabled());
     await userEvent.clear(debounce);
@@ -772,7 +778,7 @@ describe('composite rows', () => {
     const { rerender } = renderWithProviders(
       <SettingRow def={at(20)} store={s} subhead={null} query="" />
     );
-    await openRow('rt.homeSnapshot');
+    await openForm('rt.homeSnapshot');
     await waitFor(() =>
       expect(screen.getByLabelText('rt.homeSnapshot.debounceSec')).toBeEnabled()
     );
@@ -824,7 +830,7 @@ describe('composite rows', () => {
     const { rerender } = renderWithProviders(
       <SettingRow def={at('machine')} store={s} subhead={null} query="" />
     );
-    await openRow('rt.homeSnapshot');
+    await openForm('rt.homeSnapshot');
     await waitFor(() =>
       expect(screen.getByLabelText('rt.homeSnapshot.debounceSec')).toBeEnabled()
     );
@@ -866,7 +872,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await openRow('rt.homeSnapshot');
+    await openForm('rt.homeSnapshot');
     const debounce = screen.getByLabelText('rt.homeSnapshot.debounceSec');
     await waitFor(() => expect(debounce).toBeEnabled());
     await userEvent.click(screen.getByLabelText('rt.homeSnapshot.enabled'));
@@ -874,7 +880,7 @@ describe('composite rows', () => {
     expect(debounce).toBeDisabled();
   });
 
-  it('leaf fields stay disabled until the layer rows arrive', async () => {
+  it('a leaves row offers no editor until the layer rows arrive', async () => {
     vi.stubGlobal('fetch', () => new Promise(() => {}));
     renderWithProviders(
       <SettingRow
@@ -894,10 +900,9 @@ describe('composite rows', () => {
       />
     );
     await openRow('rt.homeSnapshot');
-    expect(
-      await screen.findByLabelText('rt.homeSnapshot.debounceSec')
-    ).toBeDisabled();
-    expect(screen.getByLabelText('rt.homeSnapshot.enabled')).toBeDisabled();
+    expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Form' })).toBeNull();
+    expect(screen.queryByLabelText('rt.homeSnapshot.debounceSec')).toBeNull();
   });
 
   it('an empty short list says so instead of showing a blank box', () => {
@@ -1110,7 +1115,7 @@ describe('composite rows', () => {
     expect(screen.queryByRole('radio', { name: 'JSON' })).toBeNull();
   });
 
-  it('a short string list switches to JSON on its Value tab, and Form comes back', async () => {
+  it('a short string list’s Value tab opens in JSON, and Form brings its tags back', async () => {
     vi.stubGlobal('fetch', async () => ({
       ok: true,
       status: 200,
@@ -1120,8 +1125,10 @@ describe('composite rows', () => {
       <SettingRow def={PREFIXES} store={store()} subhead={null} query="" />
     );
     await openRow('board.ticketPrefixes');
-    await userEvent.click(screen.getByRole('radio', { name: 'Value' }));
-    await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
+    expect(screen.getByRole('radio', { name: 'Value' })).toBeChecked();
+    expect(screen.getAllByRole('button', { name: 'remove RT' })).toHaveLength(
+      1
+    );
     expect(
       JSON.parse(
         (screen.getByRole('textbox', { name: 'JSON' }) as HTMLTextAreaElement)
@@ -1371,7 +1378,7 @@ describe('add keys', () => {
         />
       </QueryClientProvider>
     );
-    await openRow('claude.plugins');
+    await openForm('claude.plugins');
     await userEvent.click(screen.getByRole('radio', { name: 'Value' }));
     const add = await screen.findByLabelText('add to claude.plugins');
     await waitFor(() => expect(add).toBeEnabled());

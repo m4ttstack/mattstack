@@ -4,7 +4,7 @@ import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
 // Proves /slack/resolve and /slack/post reject a `channel` body value outside
-// the configured set (config.slack.channel + every tab's slackChannel, see
+// the configured set (the team's review channel + every tab's slackChannel, see
 // configuredSlackChannels in data.ts) with a 400 before ever touching Slack
 // or GitLab. Real (non-fixture) boot -- fixture mode always reports slack as
 // unconfigured (server.ts's getSlackToken short-circuits to null under
@@ -32,7 +32,21 @@ writeFileSync(
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],
     'mattstack.roster': [{ username: 'alice' }],
+    'mattstack.directory': {
+      teams: {
+        web: { slack: { channels: [{ name: 'code-review', kind: 'review' }] } },
+      },
+    },
   })
+);
+const webTeamDir = join(teamDir, '..', 'teams', 'web');
+mkdirSync(webTeamDir, { recursive: true });
+writeFileSync(join(webTeamDir, 'settings.team.jsonc'), '{}');
+const userDir = join(fakeHome, '.mattstack', 'user');
+mkdirSync(userDir, { recursive: true });
+writeFileSync(
+  join(userDir, 'settings.user.jsonc'),
+  JSON.stringify({ 'mattstack.activeTeam': 'web' })
 );
 
 const PORT = 47945;
@@ -84,8 +98,8 @@ test('/slack/resolve rejects a channel outside the configured set', async () => 
     }),
   });
   expect(res.status).toBe(400);
-  // "code-review" is the only configured channel (DEFAULT_SLACK.channel; no
-  // board.tabs override in this fake store) -- named in the error body.
+  // "code-review" is the only configured channel (the team's review channel
+  // in the directory; no board.tabs override) -- named in the error body.
   expect(await res.text()).toContain('code-review');
 }, 15_000);
 

@@ -14,6 +14,8 @@ import { EditorView } from '@codemirror/view';
 import {
   jsonDiagnostics,
   jsonSchemaCompletion,
+  jsonSchemaHint,
+  jsonSchemaHover,
   nodeAtPath,
 } from './jsonSchema';
 
@@ -58,6 +60,70 @@ const SCHEMA = {
     },
     required: ['pattern'],
   },
+};
+
+/** The shape zod's `toJSONSchema` gives a `.meta`-annotated record of
+    loose objects with an array inside. */
+const DIRECTORY = {
+  type: 'object',
+  properties: {
+    teams: {
+      title: 'Teams',
+      description: 'One entry per team, keyed by team name.',
+      type: 'object',
+      propertyNames: { type: 'string' },
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          linear: {
+            type: 'object',
+            properties: {
+              team: {
+                title: 'Linear team key',
+                description: "The team's own Linear key, e.g. CV.",
+                type: 'string',
+              },
+            },
+            additionalProperties: {},
+          },
+          slack: {
+            type: 'object',
+            properties: {
+              codeOwnersChannel: {
+                title: 'Code owners channel',
+                description: 'Where other teams ask for code owner review.',
+                type: 'string',
+              },
+              channels: {
+                title: 'Other channels',
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: {
+                      type: 'string',
+                      title: 'Channel',
+                      description: 'Slack channel name, no #.',
+                    },
+                    kind: {
+                      type: 'string',
+                      title: 'Kind',
+                      description: 'What the channel is for.',
+                    },
+                    note: { type: 'string', description: 'Free text.' },
+                  },
+                  additionalProperties: {},
+                },
+              },
+            },
+            additionalProperties: {},
+          },
+        },
+        additionalProperties: {},
+      },
+    },
+  },
+  additionalProperties: {},
 };
 
 function state(doc: string) {
@@ -243,6 +309,145 @@ describe('jsonSchemaCompletion in a live editor', () => {
     expect(currentCompletions(view.state).map(o => o.label)).toEqual([
       '"human"',
     ]);
+    view.destroy();
+  });
+});
+
+function completeDirectory(docWithCursor: string) {
+  const pos = docWithCursor.indexOf('|');
+  const s = state(docWithCursor.replace('|', ''));
+  const r = jsonSchemaCompletion(DIRECTORY)(
+    new CompletionContext(s, pos, true)
+  );
+  return r
+    ? r.options.map(o => ({ label: o.label, detail: o.detail, info: o.info }))
+    : null;
+}
+
+describe('jsonSchemaCompletion titles and descriptions', () => {
+  it('shows a property title as its detail and its description as its info', () => {
+    expect(completeDirectory('{|}')).toEqual([
+      {
+        label: '"teams"',
+        detail: 'Teams',
+        info: 'One entry per team, keyed by team name.',
+      },
+    ]);
+  });
+
+  it('reaches a record entry under any name', () => {
+    expect(completeDirectory('{"teams": {"acme": {"slack": {|}}}}')).toEqual([
+      {
+        label: '"codeOwnersChannel"',
+        detail: 'Code owners channel',
+        info: 'Where other teams ask for code owner review.',
+      },
+      { label: '"channels"', detail: 'Other channels', info: undefined },
+    ]);
+  });
+
+  it('reaches an array item, keeping only what the schema has', () => {
+    expect(
+      completeDirectory(
+        '{"teams": {"acme": {"slack": {"channels": [{"name": "x"}, {|}]}}}}'
+      )
+    ).toEqual([
+      {
+        label: '"name"',
+        detail: 'Channel',
+        info: 'Slack channel name, no #.',
+      },
+      { label: '"kind"', detail: 'Kind', info: 'What the channel is for.' },
+      { label: '"note"', detail: undefined, info: 'Free text.' },
+    ]);
+  });
+
+  it('a property with neither has no detail and no info', () => {
+    const pos = '[{|}]'.indexOf('|');
+    const r = jsonSchemaCompletion(SCHEMA)(
+      new CompletionContext(state('[{}]'), pos, true)
+    )!;
+    expect(r.options[0]).not.toHaveProperty('detail');
+    expect(r.options[0]).not.toHaveProperty('info');
+  });
+});
+
+/** The hint for the cursor at `|`, which is cut from the document. */
+function hint(docWithCursor: string) {
+  const pos = docWithCursor.indexOf('|');
+  return jsonSchemaHint(state(docWithCursor.replace('|', '')), pos, DIRECTORY);
+}
+
+describe('jsonSchemaHint', () => {
+  it('names a top-level property and spans its quoted name', () => {
+    expect(hint('{"te|ams": {}}')).toEqual({
+      from: 1,
+      to: 8,
+      title: 'Teams',
+      description: 'One entry per team, keyed by team name.',
+    });
+  });
+
+  it('reaches a property inside a record entry', () => {
+    expect(
+      hint('{"teams": {"acme": {"linear": {"t|eam": "CV"}}}}')
+    ).toMatchObject({
+      title: 'Linear team key',
+      description: "The team's own Linear key, e.g. CV.",
+    });
+  });
+
+  it('reaches a property inside an array item', () => {
+    expect(
+      hint(
+        '{"teams": {"acme": {"slack": {"channels": [{"name": "a"}, {"ki|nd": "review"}]}}}}'
+      )
+    ).toMatchObject({ title: 'Kind', description: 'What the channel is for.' });
+  });
+
+  it('keeps only what the schema has', () => {
+    const h = hint('{"teams": {"acme": {"slack": {"chan|nels": []}}}}');
+    expect(h).toMatchObject({ title: 'Other channels' });
+    expect(h).not.toHaveProperty('description');
+  });
+
+  it('has nothing for a name the schema says nothing about', () => {
+    expect(hint('{"teams": {"ac|me": {}}}')).toBeNull();
+    expect(hint('{"extra|": 1}')).toBeNull();
+  });
+
+  it('has nothing over a value', () => {
+    expect(hint('{"teams": {"acme": {"linear": {"team": "C|V"}}}}')).toBeNull();
+  });
+});
+
+function hoverView(doc: string) {
+  const parent = document.createElement('div');
+  document.body.appendChild(parent);
+  const view = new EditorView({
+    parent,
+    state: EditorState.create({ doc, extensions: [json()] }),
+  });
+  ensureSyntaxTree(view.state, doc.length);
+  return view;
+}
+
+describe('jsonSchemaHover', () => {
+  it('builds a tooltip at the property name showing its title and description', () => {
+    const view = hoverView('{"teams": {}}');
+    const tooltip = jsonSchemaHover(DIRECTORY)(view, 4, 1);
+    expect(tooltip).toMatchObject({ pos: 1, end: 8 });
+    const { dom } = tooltip!.create(view);
+    expect(dom.textContent).toContain('Teams');
+    expect(dom.textContent).toContain(
+      'One entry per team, keyed by team name.'
+    );
+    view.destroy();
+  });
+
+  it('has no tooltip where the schema says nothing', () => {
+    const view = hoverView('{"extra": 1}');
+    expect(jsonSchemaHover(DIRECTORY)(view, 4, 1)).toBeNull();
     view.destroy();
   });
 });

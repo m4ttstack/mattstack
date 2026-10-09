@@ -1,3 +1,4 @@
+import { NO_REVIEW_CHANNEL } from '../../codeowner-posts.ts';
 import type { BoardMR } from '../../data.ts';
 import type { ActionResult } from '../api.ts';
 import type { ToastHandle } from './launch-flow.ts';
@@ -42,6 +43,13 @@ export function needsThreadLookup(
   );
 }
 
+/** The server's no-review-channel refusal, when that is why a post failed. */
+export function slackRefusal(result: ActionResult): string | null {
+  return result.status === 400 && result.text === NO_REVIEW_CHANNEL
+    ? NO_REVIEW_CHANNEL
+    : null;
+}
+
 interface PostOutcome {
   posted: Array<{ channel: string; linked?: true }>;
   failed: Array<{ channel: string; error: string }>;
@@ -50,7 +58,8 @@ interface PostOutcome {
 /** "post to slack" on one MR. Where code owners have channels, the board
     first reads which of them still need asking: with only the team channel
     left it posts there at once, and otherwise opens the dialog. When that
-    read fails the team request still goes out, as it always could. */
+    read fails the team request still goes out, as it always could, unless
+    the team has no review channel to send it to. */
 export async function startSlackPost(
   mr: BoardMR,
   deps: SlackPostDeps
@@ -62,13 +71,16 @@ export async function startSlackPost(
   }
   const toast = deps.startToast(`checking where !${mr.iid} goes in slack…`);
   const read = await deps.post('/slack/owners/preview', { mrUrl: mr.webUrl });
-  if (!read.ok)
+  if (!read.ok) {
+    const refusal = slackRefusal(read);
+    if (refusal) return toast.fail(refusal);
     return postTeam(
       mr,
       deps,
       toast,
       `could not check code owners (${read.status})${read.text ? `: ${read.text}` : ''}`
     );
+  }
   const preview = read.body as unknown as SlackPostPreview;
   if (preview.team.posted && preview.channels.length === 0) {
     toast.done(`nothing left to post for !${mr.iid}`);
@@ -109,7 +121,8 @@ async function postTeam(
   const result = await deps.post('/slack/post', { mrUrls: [mr.webUrl] });
   if (!result.ok)
     return toast.fail(
-      `slack post failed for !${mr.iid} (${result.status})${note ? `; ${note}` : ''}`
+      slackRefusal(result) ??
+        `slack post failed for !${mr.iid} (${result.status})${note ? `; ${note}` : ''}`
     );
   const said = result.body?.linked
     ? `!${mr.iid} already in slack... linked`

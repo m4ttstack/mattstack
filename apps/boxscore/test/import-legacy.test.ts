@@ -48,28 +48,27 @@ describe('teamlessUsernames', () => {
 });
 
 describe('mergeIntegrations', () => {
-  it('fills only missing fields and reports no change when both are present', () => {
+  it('reports no change when the forge host is already present', () => {
     const current = {
       forge: { host: 'gitlab.com', provider: 'gitlab' },
-      linear: { teamKey: 'CV' },
       slack: { appId: 'A1' },
     };
     const { merged, changed } = mergeIntegrations(current, {
       host: 'https://ignored.example',
-      teamKey: 'ZZ',
     });
     expect(changed).toBe(false);
     expect(merged).toEqual(current);
   });
 
-  it('fills a missing linear.teamKey and preserves unrelated blocks', () => {
-    const current = { forge: { host: 'gitlab.com' }, slack: { appId: 'A1' } };
-    const { merged, changed } = mergeIntegrations(current, { teamKey: 'CV' });
+  it('fills a missing forge host and preserves unrelated blocks', () => {
+    const current = { slack: { appId: 'A1' } };
+    const { merged, changed } = mergeIntegrations(current, {
+      host: 'gitlab.com',
+    });
     expect(changed).toBe(true);
     expect(merged).toEqual({
-      forge: { host: 'gitlab.com' },
       slack: { appId: 'A1' },
-      linear: { teamKey: 'CV' },
+      forge: { host: 'gitlab.com' },
     });
   });
 });
