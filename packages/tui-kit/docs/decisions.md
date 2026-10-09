@@ -90,9 +90,9 @@ declaration that names it (and any `prefers-reduced-motion` override of that
 declaration), lives in a plain `<Recipe>.keyframes.css` sibling of the
 recipe's `.module.css`, still inside `@layer soribashi.recipes`, selected by
 the recipe's public `data-part`, and side-effect-imported from the recipe
-TSX. Five recipes carry one: Spinner (`sb-spinner-spin`), Chip
+TSX. Six recipes carry one: Spinner (`sb-spinner-spin`), Chip
 (`chip-pulse`), SideDrawer (`sidedrawer-in`, `sidedrawer-out`), ContextMenu (`contextmenu-in`),
-ToastHost (`toasthost-in`).
+ToastHost (`toasthost-in`), Tooltip (`tooltip-in`).
 
 Two bundlers disagree about a keyframe inside a CSS module, in opposite
 directions, and no single-file layout satisfies both:
