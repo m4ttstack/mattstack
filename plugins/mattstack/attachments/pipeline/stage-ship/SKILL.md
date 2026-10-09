@@ -91,6 +91,7 @@ digraph ship {
     "Capture the AFTER when the domain names one" [shape=box];
     "AFTER captured, or none named?" [shape=diamond];
     "AFTER attempts = 3?" [shape=diamond];
+    "run_field_get {key: evidence}; run_field_set {key: evidence, value: <evidence@1 JSON plus after>, stage: ship}" [shape=plaintext];
     "Files to attach?" [shape=diamond];
     "mr_upload {mrUrl, path} per file; keep each markdown" [shape=plaintext];
     "mr_upload result?" [shape=diamond];
@@ -220,7 +221,8 @@ digraph ship {
     "gh pr create result?" -> "run_stage {action: fail, stage: ship, reason}" [label="any other error: quote it as the reason"];
     "run_field_set {key: mr, value: <url>, stage: ship}" -> "Capture the AFTER when the domain names one";
     "Capture the AFTER when the domain names one" -> "AFTER captured, or none named?";
-    "AFTER captured, or none named?" -> "Files to attach?" [label="yes"];
+    "AFTER captured, or none named?" -> "run_field_get {key: evidence}; run_field_set {key: evidence, value: <evidence@1 JSON plus after>, stage: ship}" [label="yes"];
+    "run_field_get {key: evidence}; run_field_set {key: evidence, value: <evidence@1 JSON plus after>, stage: ship}" -> "Files to attach?";
     "AFTER captured, or none named?" -> "AFTER attempts = 3?" [label="no: the capture failed"];
     "AFTER attempts = 3?" -> "Capture the AFTER when the domain names one" [label="no: another attempt"];
     "AFTER attempts = 3?" -> "Files to attach?" [label="yes: go on without it; the description names the gap"];
@@ -305,6 +307,12 @@ The same view as the BEFORE in `evidence`, on the sha you pushed. The
 counter is attempts within this pass through the stage; after the third
 failure, ship without it and say in the description what was tried.
 Unbound, there is no AFTER.
+
+Once captured, read `evidence` with `run_field_get`, add `after` (and
+`afterAnnotated` when annotated) as absolute paths, keep every other key,
+and write the merged object back with `run_field_set` (`stage: "ship"`).
+A legacy value that is not `evidence@1` JSON stays as it is: link the
+AFTER in the description only.
 
 ### Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)
 

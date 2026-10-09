@@ -30,7 +30,7 @@ digraph evidence {
     "Evidence stage entered" [shape=ellipse];
     "run_field_get {key: evidence-plan}; run_field_get {key: worktree}" [shape=plaintext];
     "evidence-plan starts with none?" [shape=diamond];
-    "run_field_set {key: evidence, value: {plan: none}, stage: evidence}" [shape=plaintext];
+    "run_field_set {key: evidence, value: {\"plan\": \"none\"}, stage: evidence}" [shape=plaintext];
     "Run the domain steps before the gate (none when unbound)" [shape=box];
     "Domain needs an rt read (ports, endpoints)?" [shape=diamond];
     "rt_verb {args: [<verb>, ...]}" [shape=plaintext];
@@ -67,7 +67,7 @@ digraph evidence {
     "mr_upload {mrUrl, path: <the timed-out file>}" [shape=plaintext];
     "mr_view {mrUrl}" [shape=plaintext];
     "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" [shape=plaintext];
-    "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [shape=plaintext];
+    "run_field_set {key: evidence, value: <evidence@1 JSON>, stage: evidence}" [shape=plaintext];
     "run_stage {action: fail, stage: evidence, reason, detailPath}" [shape=plaintext];
     "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" [shape=plaintext];
     "run_field_set {key: hold, value: <their words, or held>, stage: evidence}" [shape=plaintext];
@@ -77,9 +77,9 @@ digraph evidence {
 
     "Evidence stage entered" -> "run_field_get {key: evidence-plan}; run_field_get {key: worktree}";
     "run_field_get {key: evidence-plan}; run_field_get {key: worktree}" -> "evidence-plan starts with none?";
-    "evidence-plan starts with none?" -> "run_field_set {key: evidence, value: {plan: none}, stage: evidence}" [label="yes"];
+    "evidence-plan starts with none?" -> "run_field_set {key: evidence, value: {\"plan\": \"none\"}, stage: evidence}" [label="yes"];
     "evidence-plan starts with none?" -> "Run the domain steps before the gate (none when unbound)" [label="no"];
-    "run_field_set {key: evidence, value: {plan: none}, stage: evidence}" -> "Evidence done: return to the orchestrator";
+    "run_field_set {key: evidence, value: {\"plan\": \"none\"}, stage: evidence}" -> "Evidence done: return to the orchestrator";
     "Run the domain steps before the gate (none when unbound)" -> "Domain needs an rt read (ports, endpoints)?";
     "Domain needs an rt read (ports, endpoints)?" -> "rt_verb {args: [<verb>, ...]}" [label="yes"];
     "Domain needs an rt read (ports, endpoints)?" -> "STOP: rt reads go through rt_verb, never rt on Bash" [label="tempted to run it on Bash"];
@@ -114,13 +114,13 @@ digraph evidence {
     "Off-script rounds = 2?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="yes: hand back"];
     "Domain attaches evidence to an MR here?" -> "run_field_get {key: branch}" [label="yes"];
     "run_field_get {key: branch}" -> "mr_for_branch {repoName: <worktree>, branches: [<branch>]}";
-    "Domain attaches evidence to an MR here?" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [label="no: ship attaches"];
+    "Domain attaches evidence to an MR here?" -> "run_field_set {key: evidence, value: <evidence@1 JSON>, stage: evidence}" [label="no: ship attaches"];
     "mr_for_branch {repoName: <worktree>, branches: [<branch>]}" -> "Open MR on the branch?";
     "Open MR on the branch?" -> "Gate evidence-attach (table below)" [label="yes: keep its url"];
-    "Open MR on the branch?" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [label="no: ship attaches later"];
+    "Open MR on the branch?" -> "run_field_set {key: evidence, value: <evidence@1 JSON>, stage: evidence}" [label="no: ship attaches later"];
     "Gate evidence-attach (table below)" -> "attach answer?";
     "attach answer?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="attach now"];
-    "attach answer?" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [label="hand back the markdown"];
+    "attach answer?" -> "run_field_set {key: evidence, value: <evidence@1 JSON>, stage: evidence}" [label="hand back the markdown"];
     "attach answer?" -> "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
     "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" -> "run_field_set {key: hold, value: <their words, or held>, stage: evidence}";
     "run_field_set {key: hold, value: <their words, or held>, stage: evidence}" -> "Held: end the turn naming run and stage";
@@ -140,15 +140,15 @@ digraph evidence {
     "mr_upload {mrUrl, path: <the timed-out file>}" -> "mr_upload result?";
     "STOP: upload only with mr_upload; another route is off-script" -> "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)";
     "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)" -> "upload off-script answer?";
-    "upload off-script answer?" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [label="proceed + take: link the refused files' local paths, ship attaches"];
+    "upload off-script answer?" -> "run_field_set {key: evidence, value: <evidence@1 JSON>, stage: evidence}" [label="proceed + take: link the refused files' local paths, ship attaches"];
     "upload off-script answer?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="proceed + hand back"];
     "upload off-script answer?" -> "Upload off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the upload"];
     "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
     "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
     "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="yes: hand back, the refusal quoted"];
     "mr_view {mrUrl}" -> "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}";
-    "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}";
-    "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" -> "Evidence done: return to the orchestrator";
+    "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" -> "run_field_set {key: evidence, value: <evidence@1 JSON>, stage: evidence}";
+    "run_field_set {key: evidence, value: <evidence@1 JSON>, stage: evidence}" -> "Evidence done: return to the orchestrator";
     "run_stage {action: fail, stage: evidence, reason, detailPath}" -> "Stage failed";
 }
 ```
@@ -260,8 +260,11 @@ wins.
 When nothing is inlined above, the graph and the Capture section are the
 whole flow.
 
-Finish with `evidence` as an object of labelled paths or URLs, at minimum
-the before. Ship attaches the pair and captures any AFTER.
+Finish with `evidence` as `evidence@1` JSON, written with `run_field_set`:
+`{"v": 1, "before": "<absolute path>"}` plus whichever of `beforeAnnotated`,
+`transcript`, `case`, `url` and `attach` the capture produced. `before` is
+required; image paths are absolute. With no plan, write `{"plan": "none"}`.
+Ship merges the AFTER into the same object.
 
 ## Gate protocol
 
