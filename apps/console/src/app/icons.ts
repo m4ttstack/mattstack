@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   Bot,
   Braces,
+  Building2,
   Circle,
   CircleCheck,
   CircleDot,
@@ -72,4 +73,5 @@ registerIcons({
   hand: lucideWrapperFn(Hand),
   bot: lucideWrapperFn(Bot),
   image: lucideWrapperFn(ImageGlyph),
+  building: lucideWrapperFn(Building2),
 });

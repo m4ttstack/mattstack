@@ -217,10 +217,7 @@ describe('Needs fixing on the page', () => {
 
   it('counts, lists and filters the keys that need fixing', async () => {
     renderPage();
-    const chip = await screen.findByRole('checkbox', { name: /^Needs fixing/ });
-    expect(chip.closest('label') ?? chip.parentElement!).toHaveTextContent(
-      'Needs fixing 2'
-    );
+    const chip = await screen.findByRole('checkbox', { name: '2 need fixing' });
     expect(
       screen.getByText('user · [2].url: expected string, got number')
     ).toBeInTheDocument();
@@ -274,7 +271,7 @@ describe('Needs fixing on the page', () => {
       },
     }));
     renderPage();
-    const chip = await screen.findByRole('checkbox', { name: /^Needs fixing/ });
+    const chip = await screen.findByRole('checkbox', { name: /needs? fixing/ });
     await userEvent.click(chip.closest('label') ?? chip);
     await fix(
       await screen.findByText('user · [2].url: expected string, got number')
@@ -291,7 +288,7 @@ describe('Needs fixing on the page', () => {
     await waitFor(() => expect(rereads).toBeGreaterThan(0));
     await waitFor(() =>
       expect(chip.closest('label') ?? chip.parentElement!).toHaveTextContent(
-        'Needs fixing 0'
+        '0 need fixing'
       )
     );
     expect(

@@ -1,0 +1,38 @@
+/* The whole segment is the click target, chevrons included. */
+.segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: var(--mantine-radius-md);
+  background: var(--tk-card);
+  color: var(--tk-text-1);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.segment:hover {
+  background: var(--tk-raised);
+}
+
+.segment[data-other] {
+  border-color: var(--tk-fill-purple);
+  background: color-mix(
+    in srgb,
+    var(--tk-fill-purple) var(--tk-wash),
+    var(--tk-card)
+  );
+  color: var(--tk-text-purple-small);
+}
+
+.chevrons {
+  color: var(--tk-text-3);
+}
+
+.fixedTeam {
+  height: 32px;
+  color: var(--tk-text-1);
+}

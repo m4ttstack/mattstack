@@ -38,7 +38,11 @@ import { RepoReach } from './RepoReach';
 import { SaveStatus, useRowParts, ValueContent, WriteError } from './rowParts';
 import { ScopeBadge } from './ScopeBadge';
 import classes from './SettingRow.module.css';
-import { prefetchKeyExplain, useSettingsRepo } from './useConsoleSettings';
+import {
+  prefetchKeyExplain,
+  useSettingsRepo,
+  useSettingsViewTeam,
+} from './useConsoleSettings';
 import { useRowSave } from './useRowSave';
 import {
   APPROVAL_KEY,
@@ -144,6 +148,7 @@ export function SettingRow({
 }) {
   const { text } = useSchemeColors();
   const repo = useSettingsRepo();
+  const viewTeam = useSettingsViewTeam();
   const [writes, setWrites] = useState(0);
   const header = useMemo(
     () => notifying(store, () => setWrites(n => n + 1)),
@@ -183,7 +188,7 @@ export function SettingRow({
 
   const toggle = () => setOpen(isOpen ? null : { tab: 'value', fix: null });
   const warmPanel = () => {
-    if (!isOpen) void prefetchKeyExplain(def, repo);
+    if (!isOpen) void prefetchKeyExplain(def, repo, viewTeam);
   };
 
   const onHeader = (e: MouseEvent<HTMLDivElement>) => {

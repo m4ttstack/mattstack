@@ -78,28 +78,13 @@ describe('applyFilter', () => {
       applyFilter(defs, { ...NO_FILTER, query: 'prune' }).map(d => d.key)
     ).toEqual(['rt.runsPruneDays']);
   });
-  it('changed keeps only store-set keys', () => {
-    expect(
-      applyFilter(defs, { ...NO_FILTER, changedOnly: true }).map(d => d.key)
-    ).toEqual(['rt.runsPruneDays']);
-  });
-  it('editable drops read-only rows', () => {
-    expect(
-      applyFilter(defs, { ...NO_FILTER, editableOnly: true }).map(d => d.key)
-    ).toEqual(['rt.logLevel', 'rt.runsPruneDays']);
-  });
   it('scope keeps keys whose winning layer is that scope', () => {
     expect(
       applyFilter(defs, { ...NO_FILTER, scope: 'machine' }).map(d => d.key)
     ).toEqual(['rt.runsPruneDays']);
   });
   it('a kept key passes the chips and the scope filter', () => {
-    const chips = [
-      { changedOnly: true },
-      { editableOnly: true },
-      { needsFixing: true },
-      { scope: 'team' as const },
-    ];
+    const chips = [{ needsFixing: true }, { scope: 'team' as const }];
     for (const chip of chips)
       expect(
         applyFilter(defs, { ...NO_FILTER, ...chip }, 'rt.cron').map(d => d.key)
@@ -228,7 +213,7 @@ describe('buildSections', () => {
   it('shows and counts a kept key the filter would hide', () => {
     const [daemon] = buildSections(
       [def('rt.logLevel'), def('rt.daemonPath')],
-      { ...NO_FILTER, changedOnly: true },
+      { ...NO_FILTER, scope: 'machine' },
       'rt.daemonPath'
     );
     expect(daemon!.shown).toBe(1);

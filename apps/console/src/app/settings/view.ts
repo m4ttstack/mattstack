@@ -7,13 +7,11 @@ import {
   ENUMS,
   filterDefs,
   getLeaf,
-  isSet,
   setLeaf,
   targetScope,
   type RowKind,
 } from '@mattstack/settings-kit/shapes';
 
-import { editorKind } from './formShape';
 import { groupOf, GROUPS, type Group } from './groups';
 
 export type StoreScope = 'org' | 'team' | 'user' | 'machine';
@@ -21,16 +19,12 @@ export type ScopeFilter = 'any' | StoreScope;
 
 export interface ViewFilter {
   query: string;
-  changedOnly: boolean;
-  editableOnly: boolean;
   needsFixing: boolean;
   scope: ScopeFilter;
 }
 
 export const NO_FILTER: ViewFilter = {
   query: '',
-  changedOnly: false,
-  editableOnly: false,
   needsFixing: false,
   scope: 'any',
 };
@@ -178,11 +172,6 @@ export const EDITOR_KINDS: ReadonlySet<RowKind> = new Set<RowKind>([
     commands; console never edits it, only revokes it. */
 export const APPROVAL_KEY = 'rt.worktreeReadyApproval';
 
-export function isEditable(def: SettingDefWire): boolean {
-  if (def.key === APPROVAL_KEY) return false;
-  return EDITOR_KINDS.has(editorKind(def));
-}
-
 /** `keep` (the open row) passes the chips and the scope filter, which its
     own writes can stop it matching; the query reads only key and
     description, so it still applies. */
@@ -194,9 +183,7 @@ export function applyFilter(
   return filterDefs(defs, f.query).filter(
     d =>
       d.key === keep ||
-      ((!f.changedOnly || isSet(d)) &&
-        (!f.editableOnly || isEditable(d)) &&
-        (!f.needsFixing || needsFixing(d)) &&
+      ((!f.needsFixing || needsFixing(d)) &&
         (f.scope === 'any' || rungBase(d.effective.scope) === f.scope))
   );
 }
