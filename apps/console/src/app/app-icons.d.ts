@@ -37,6 +37,7 @@ declare module '@mattstack/app-kit/icons' {
     bot: true;
     image: true;
     circleAlert: true;
+    unplug: true;
   }
 }
 export {};

@@ -294,13 +294,29 @@ export const BOARDS: Board<Scenario>[] = [
     ['Run load error', 'Runs outage', 'Gate refused', 'Toasts'],
     962,
     {
+      // The runs page keys its whole content `Content`, outage or not.
+      appRoots: { 'Runs outage': 'Content' },
       panels: [
         {
           label: 'run load error',
           route: `${RUN}/20261001-0000`,
           root: 'Run load error',
         },
-        { label: 'runs outage', route: '/', root: 'Runs outage' },
+        {
+          label: 'runs outage',
+          route: '/',
+          root: 'Runs outage',
+          // The page draws its loading skeleton until the one retry fails.
+          action: {
+            kind: 'waitText',
+            layer: 'banner',
+            until: {
+              layer: 't',
+              pattern: 'unknown, not zero',
+              timeoutMs: 10_000,
+            },
+          },
+        },
         {
           label: 'gate refused',
           route: `${RUN}/20261008-1340`,

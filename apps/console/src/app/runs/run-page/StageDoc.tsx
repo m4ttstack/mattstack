@@ -7,6 +7,7 @@ import { client } from '../../api';
 import { docPreview, packState, stripFrontmatter } from '../derive/inputs';
 import { useEffectiveInputs } from '../EffectiveInputs';
 import { GateContext } from '../GateContext';
+import { ApiError, readApiError, retryOnce } from '../useRuns';
 import { DOC_PARAM, useDrawerParams } from './drawerParams';
 import drawer from './InputsDrawer.module.css';
 import classes from './StageDoc.module.css';
@@ -30,14 +31,14 @@ export function useStageDoc(repo: string, runId: string, stage: string | null) {
         query: { stage: stage ?? '' },
       });
       if (res.status === 404) return null;
+      if (!res.ok) throw await readApiError(res, 'stage doc failed');
       const body = (await res.json()) as StageDocHit | { error?: string };
-      if (!res.ok || !('text' in body))
-        throw new Error(
-          ('error' in body && body.error) || `stage doc failed: ${res.status}`
-        );
+      if (!('text' in body))
+        throw new ApiError(res.status, `stage doc failed: ${res.status}`);
       return body;
     },
     enabled: stage !== null,
+    retry: retryOnce,
   });
 }
 

@@ -325,4 +325,53 @@ describe('RunsPage', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/0 repos/)).toBeNull();
   });
+
+  it('draws a skeleton while the runs load, never zeros', async () => {
+    runsGet.mockReturnValue(new Promise(() => {}));
+    renderPage();
+    expect(await screen.findByTestId('runs-skeleton')).toBeInTheDocument();
+    const stats = screen.getByTestId('stat-cards');
+    expect(stats).not.toHaveTextContent(/\d/);
+    expect(stats).not.toHaveTextContent('nothing');
+    expect(screen.queryByText('Nothing running.')).toBeNull();
+    expect(screen.queryByText(/Live · 0/)).toBeNull();
+  });
+
+  it('says it cannot reach the daemon on an outage, with dashes for the numbers', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      runsGet.mockResolvedValue({
+        ok: false,
+        status: 502,
+        json: async () => ({ error: 'daemon unreachable' }),
+      });
+      gatesGet.mockResolvedValue({
+        ok: false,
+        status: 502,
+        json: async () => ({ error: 'daemon unreachable' }),
+      });
+      renderPage();
+      await vi.advanceTimersByTimeAsync(2_000);
+      const banner = await screen.findByTestId('runs-outage');
+      expect(banner).toHaveTextContent("Can't reach the rt daemon");
+      expect(runsGet).toHaveBeenCalledTimes(2);
+      const stats = screen.getByTestId('stat-cards');
+      expect(stats).not.toHaveTextContent(/\d/);
+      expect(within(stats).getAllByText('—')).toHaveLength(4);
+      expect(screen.getByTestId('runs-skeleton')).toBeInTheDocument();
+      expect(screen.queryByText('Nothing running.')).toBeNull();
+
+      runsGet.mockResolvedValue(ok({ runs: RUNS, asOf: NOW }));
+      gatesGet.mockResolvedValue(ok({ gates: GATES }));
+      await userEvent.click(
+        within(banner).getByRole('button', { name: 'Retry' })
+      );
+      await waitFor(() =>
+        expect(screen.queryByTestId('runs-outage')).toBeNull()
+      );
+      expect(screen.getByTestId('lane-live')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

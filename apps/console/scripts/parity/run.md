@@ -167,6 +167,14 @@ fixture server restarted with `CONSOLE_FIXTURE_SCENARIO=unsynced`, the runs
 boards with `runs` (and `runs-empty` for that one board); the rest use
 `clean`. Vite and the harness keep running across boards.
 
+A board's scenario covers all of its panels; there is no per-panel scenario.
+`runs-p2-states`' two outage panels, `run load error` and `runs outage`,
+draw the daemon down, so run each with the fixture server restarted under
+`CONSOLE_FIXTURE_SCENARIO=runs-outage` and the `panel` arg in step 3
+(`"panel": "runs outage"`), then restart the server on `runs`. The board
+names its unknown run `WEB-409`; the fixture has no run at that route, so the
+app's card names the run by its id.
+
 ### 2. Load the browser tools
 
 Load the Fast Browser tools with ToolSearch:
@@ -212,6 +220,9 @@ with its side-by-side. Three boards have an action:
   its new choice.
 - `unsynced-confirm` clicks `button · Sync changes` in the banner and waits
   for `Modal · sync changes`.
+- `runs-p2-states`' `runs outage` panel waits for its banner to read
+  "unknown, not zero": the page draws its loading skeleton until the one
+  retry fails.
 - `runs-p2-story-details` clicks `Stage plan` to open the plan stage, then
   the first decision's chevron `c`, and waits for `decision open`.
 

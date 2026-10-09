@@ -3,19 +3,21 @@ import type { ReactNode } from 'react';
 import {
   Anchor,
   Breadcrumbs,
-  GenericError,
   LazyLoader,
   PageShell,
-  Stack,
   Text,
 } from '@mattstack/app-kit/core';
+import type { RunSummary } from '@mattstack/rt-client';
+import { QueryErrorResetBoundary, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 
 import { PAGE_ROW_HEIGHT } from '../chrome';
 import { CommandProvenance } from './CommandProvenance';
 import { repoLabel } from './repoLabel';
 import { RecordPage } from './run-page/RecordPage';
+import { RunLoadError } from './run-page/RunLoadError';
 import { RunPage, type RunPageData } from './run-page/RunPage';
+import { RunPageSkeleton } from './run-page/RunPageSkeleton';
 import classes from './RunDetail.module.css';
 import { useRun, useRunChrome, useRunEvents } from './useRuns';
 
@@ -40,7 +42,11 @@ function RunDetailContent({ repo, runId }: { repo: string; runId: string }) {
  * fallback.
  */
 class RunDetailErrorBoundary extends Component<
-  { children: ReactNode },
+  {
+    children: ReactNode;
+    onReset: () => void;
+    fallback: (error: Error, retry: () => void) => ReactNode;
+  },
   { error: Error | null }
 > {
   state: { error: Error | null } = { error: null };
@@ -49,34 +55,65 @@ class RunDetailErrorBoundary extends Component<
     return { error };
   }
 
+  retry = () => {
+    this.props.onReset();
+    this.setState({ error: null });
+  };
+
   render() {
     const { error } = this.state;
-    if (error) {
-      return (
-        <Stack gap="lg" data-testid="run-detail-error">
-          <GenericError
-            title="This run failed to load"
-            message={error.message}
-            onRetry={() => this.setState({ error: null })}
-          />
-        </Stack>
-      );
-    }
-    return this.props.children;
+    return error ? this.props.fallback(error, this.retry) : this.props.children;
   }
 }
 
-/** The run's own name in the breadcrumb: its ticket, the MR it reviewed, or
-    its id. */
-function Crumb({ repo, runId }: { repo: string; runId: string }) {
+/** The run's own name: its ticket, the MR it reviewed, or its id. A run
+    that has not loaded takes its ticket from the runs list when that list
+    is cached. */
+function useRunName(repo: string, runId: string) {
+  const queryClient = useQueryClient();
   const { data } = useRunChrome(repo, runId);
   const run = (data as RunPageData | undefined)?.run;
-  const reviewed = run?.outcome?.reviewed;
-  const name = run?.ticket ?? (reviewed ? `!${reviewed.iid}` : null) ?? runId;
+  if (run) {
+    const reviewed = run.outcome?.reviewed;
+    return run.ticket ?? (reviewed ? `!${reviewed.iid}` : null) ?? runId;
+  }
+  const listed = queryClient
+    .getQueriesData<{ runs: RunSummary[] }>({ queryKey: ['runs'] })
+    .flatMap(([, list]) => list?.runs ?? [])
+    .find(r => r.repo === repo && r.id === runId);
+  return listed?.ticket ?? runId;
+}
+
+function Crumb({ repo, runId }: { repo: string; runId: string }) {
   return (
     <Text span inherit data-testid="run-crumb">
-      {name}
+      {useRunName(repo, runId)}
     </Text>
+  );
+}
+
+function RunDetailBody({ repo, runId }: { repo: string; runId: string }) {
+  const name = useRunName(repo, runId);
+  return (
+    <QueryErrorResetBoundary>
+      {({ reset }) => (
+        <RunDetailErrorBoundary
+          onReset={reset}
+          fallback={(error, retry) => (
+            <RunLoadError
+              error={error}
+              name={name}
+              runId={runId}
+              onRetry={retry}
+            />
+          )}
+        >
+          <LazyLoader loaderType="custom" loader={<RunPageSkeleton />}>
+            <RunDetailContent repo={repo} runId={runId} />
+          </LazyLoader>
+        </RunDetailErrorBoundary>
+      )}
+    </QueryErrorResetBoundary>
   );
 }
 
@@ -110,11 +147,7 @@ export function RunDetail({ repo, runId }: { repo: string; runId: string }) {
           contentContainerProps={{ maw: 1680, my: 0, p: 0 }}
         >
           <div className={classes.page}>
-            <RunDetailErrorBoundary>
-              <LazyLoader>
-                <RunDetailContent repo={repo} runId={runId} />
-              </LazyLoader>
-            </RunDetailErrorBoundary>
+            <RunDetailBody repo={repo} runId={runId} />
           </div>
         </PageShell.Content>
       </PageShell.Main>

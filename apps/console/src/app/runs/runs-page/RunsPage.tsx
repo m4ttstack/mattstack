@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import {
-  GenericError,
+  Alert,
+  Button,
   Group,
   PageShell,
   Paper,
   SegmentedControl,
   Select,
+  Skeleton,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
@@ -15,6 +17,7 @@ import type {
   GateRow,
   RunSummary,
 } from '@mattstack/rt-client';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { PAGE_ROW_HEIGHT } from '../../chrome';
@@ -103,6 +106,49 @@ function EmptyCard({ title, sub }: { title: string; sub: string }) {
   );
 }
 
+/** The runs' rows before rt has answered, so a slow or failed read never
+    draws as an empty day. */
+function ListSkeleton() {
+  return (
+    <Paper
+      variant="ground"
+      withBorder
+      radius={12}
+      className={classes.empty}
+      aria-busy="true"
+      data-testid="runs-skeleton"
+      data-parity="list"
+    >
+      <Stack gap={10}>
+        <Skeleton h={8} w="82%" radius="xl" data-parity="skel" />
+        <Skeleton h={8} w="68%" radius="xl" data-parity="skel" />
+        <Skeleton h={8} w="74%" radius="xl" data-parity="skel" />
+      </Stack>
+    </Paper>
+  );
+}
+
+/** The runs read failed: what that means for the numbers, and Retry. */
+function OutageBanner({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Alert
+      color="warn"
+      variant="light"
+      icon={<Icon name="unplug" size={16} data-parity="i" />}
+      classNames={{ message: classes.outageMessage }}
+      data-testid="runs-outage"
+      data-parity="banner"
+    >
+      <Text fz={13} lh="normal" c="warn" data-parity="t">
+        Can&apos;t reach the rt daemon, so these numbers are unknown, not zero.
+      </Text>
+      <Button variant="default" onClick={onRetry} data-parity="btn Retry">
+        <span data-parity="l">Retry</span>
+      </Button>
+    </Alert>
+  );
+}
+
 function LaneSlot({
   run,
   gates,
@@ -130,6 +176,7 @@ function LaneSlot({
     before, filtered by state and repo; or one day's runs on a timeline. */
 export function RunsPage() {
   useRunEvents();
+  const queryClient = useQueryClient();
   const [url, setUrl] = useRunsUrl();
   const runsQuery = useRunList();
   const linked = useLinkedGates();
@@ -194,17 +241,12 @@ export function RunsPage() {
         ? `${repos.length} repos`
         : null;
 
-  if (runsQuery.isError) {
-    return (
-      <PageShell title="Runs" headerHeight={PAGE_ROW_HEIGHT} compactHeader>
-        <GenericError
-          title="Couldn't load runs"
-          message={(runsQuery.error as Error).message}
-          onRetry={() => void runsQuery.refetch()}
-        />
-      </PageShell>
-    );
-  }
+  const outage = runsQuery.isError;
+  const settled = !runsQuery.isPending && !outage;
+  const retry = () => {
+    void queryClient.refetchQueries({ queryKey: ['runs'] });
+    void queryClient.refetchQueries({ queryKey: ['gates'] });
+  };
 
   const { banner, lanes, earlier } = view;
   const groups = earlier ? dayGroups(earlier, now) : [];
@@ -234,11 +276,12 @@ export function RunsPage() {
         >
           {url.view === 'timeline' ? (
             <div className={classes.page} data-testid="runs-page">
+              {outage ? <OutageBanner onRetry={retry} /> : null}
               <TimelineView
                 runs={runs}
                 gates={gates}
                 gatesByRun={linked.byRun}
-                loading={runsQuery.isPending || !linked.loaded}
+                loading={!settled || !linked.loaded}
                 repoName={url.repo ? repoPath(url.repo) : null}
                 now={now}
                 day={url.day}
@@ -292,9 +335,18 @@ export function RunsPage() {
                 </Group>
               </div>
 
-              <StatCards cards={cards} />
+              {outage ? <OutageBanner onRetry={retry} /> : null}
 
-              {banner ? (
+              <StatCards
+                cards={cards}
+                state={
+                  outage ? 'unknown' : runsQuery.isPending ? 'loading' : 'ready'
+                }
+              />
+
+              {!settled ? <ListSkeleton /> : null}
+
+              {settled && banner ? (
                 <WaitingBanner
                   gate={banner.gate}
                   ticket={ticketOf(banner.run)}
@@ -304,14 +356,16 @@ export function RunsPage() {
                 />
               ) : null}
 
-              {nothingWaiting ? (
+              {settled && nothingWaiting ? (
                 <EmptyCard
                   title="Nothing is waiting on you."
                   sub="Gates that need your answer show up here."
                 />
               ) : null}
 
-              {lanes && !(url.filter === 'waiting' && lanes.length === 0) ? (
+              {settled &&
+              lanes &&
+              !(url.filter === 'waiting' && lanes.length === 0) ? (
                 <>
                   <SectionLabel parity="Live label">
                     {`Live · ${lanes.length}`}
@@ -337,7 +391,8 @@ export function RunsPage() {
                 </>
               ) : null}
 
-              {earlier &&
+              {settled &&
+              earlier &&
               !(url.filter === 'waiting' && earlier.length === 0) ? (
                 <>
                   <div className={classes.label}>

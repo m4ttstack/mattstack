@@ -37,6 +37,7 @@ import {
   Replace,
   Signpost,
   SquareTerminal,
+  Unplug,
   UsersRound,
   Workflow,
   WrapText,
@@ -80,4 +81,5 @@ registerIcons({
   building: lucideWrapperFn(Building2),
   team: lucideWrapperFn(UsersRound),
   circleAlert: lucideWrapperFn(CircleAlert),
+  unplug: lucideWrapperFn(Unplug),
 });

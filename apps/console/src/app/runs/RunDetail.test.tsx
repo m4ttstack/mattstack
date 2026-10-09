@@ -1,4 +1,3 @@
-import { notifications } from '@mattstack/app-kit/notifications';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type {
   GateRow,
@@ -325,16 +324,24 @@ describe('RunDetail: live work run', () => {
   });
 
   it('offers Focus pane while an agent holds the pane, and Resume when none does', async () => {
-    const user = userEvent.setup();
     render(workRun());
     expect(
       await screen.findByRole('button', { name: 'focus pane' })
     ).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'more run actions' }));
-    expect(screen.queryByRole('menuitem', { name: 'Resume' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mark abandoned' })).toBeNull();
+  });
+
+  it('shows a lone View inputs as its own button, with no menu', async () => {
+    const user = userEvent.setup();
+    render(workRun());
+    const button = await screen.findByRole('button', { name: 'View inputs' });
     expect(
-      screen.queryByRole('menuitem', { name: 'Mark abandoned' })
+      screen.queryByRole('button', { name: 'more run actions' })
     ).toBeNull();
+    await user.click(button);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(window.location.search).toBe('?inputs');
   });
 
   it('resumes a run with a session and no pane from the menu', async () => {
@@ -364,35 +371,74 @@ describe('RunDetail: live work run', () => {
     ).toBeInTheDocument();
   });
 
-  it('says so when marking a run abandoned fails', async () => {
-    const user = userEvent.setup();
-    const error = vi.spyOn(notifications, 'error');
-    abandonPost.mockResolvedValue({
-      ok: false,
-      status: 409,
-      json: async () => ({ error: 'run already ended' }),
+  const staleRun = () =>
+    workRun({
+      run: summary({
+        attention: { needs: true, reason: 'stale', evidence: 'no pane' },
+      }),
     });
-    render(
-      workRun({
-        run: summary({
-          attention: { needs: true, reason: 'stale', evidence: 'no pane' },
-        }),
-      })
-    );
+
+  async function openAbandon(user: ReturnType<typeof userEvent.setup>) {
     await screen.findByTestId('run-page');
     await user.click(screen.getByRole('button', { name: 'more run actions' }));
     await user.click(
       await screen.findByRole('menuitem', { name: 'Mark abandoned' })
     );
+    return screen.findByRole('dialog', { name: 'Mark WEB-412 abandoned?' });
+  }
+
+  it('keeps the dialog and your reason open when marking a run abandoned fails', async () => {
+    const user = userEvent.setup();
+    abandonPost.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'the run already ended' }),
+    });
+    render(staleRun());
+    const dialog = await openAbandon(user);
+    const reason = within(dialog).getByLabelText(/Why is this run dead/);
+    await user.type(reason, 'Superseded by WEB-430');
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Mark abandoned' })
+    );
+    expect(
+      await within(dialog).findByText(
+        "Couldn't mark it: the run already ended. Nothing changed."
+      )
+    ).toBeInTheDocument();
+    expect(abandonPost).toHaveBeenCalledWith({
+      param: { repo: 'remote:acme%2Fweb', runId: 'run-412' },
+      json: { reason: 'Superseded by WEB-430' },
+    });
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(reason).toHaveValue('Superseded by WEB-430');
+  });
+
+  it('closes the dialog once the run is marked abandoned', async () => {
+    const user = userEvent.setup();
+    abandonPost.mockResolvedValue(ok({}));
+    render(staleRun());
+    const dialog = await openAbandon(user);
     await user.type(
-      await screen.findByLabelText(/Why is this run dead/),
+      within(dialog).getByLabelText(/Why is this run dead/),
       'wedged'
     );
-    await user.click(screen.getByRole('button', { name: 'Mark abandoned' }));
-    await waitFor(() =>
-      expect(error).toHaveBeenCalledWith('run already ended')
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Mark abandoned' })
     );
-    error.mockRestore();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('asks for a reason before marking a run abandoned', async () => {
+    const user = userEvent.setup();
+    render(staleRun());
+    const dialog = await openAbandon(user);
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Mark abandoned' })
+    );
+    expect(abandonPost).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('opens the inputs drawer from ?inputs', async () => {
@@ -1121,23 +1167,72 @@ describe('RunDetail: chrome', () => {
       screen.getByText('rt runs show run-412 --repo web')
     ).toBeInTheDocument();
   });
+});
 
-  it('keeps the breadcrumb and an error when the run fails to load', async () => {
-    detailGet.mockResolvedValue({
-      ok: false,
-      status: 502,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(ok({ gates: [] }));
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    renderWithProviders(
-      <QueryClientProvider client={queryClient}>
-        <RunDetail repo="remote:acme%2Fweb" runId="run-412" />
-      </QueryClientProvider>
-    );
-    expect(await screen.findByTestId('run-detail-error')).toBeInTheDocument();
+const failed = (status: number, body: unknown) => ({
+  ok: false,
+  status,
+  json: async () => body,
+});
+
+function renderFailing() {
+  gatesGet.mockResolvedValue(ok({ gates: [] }));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return renderWithProviders(
+    <QueryClientProvider client={queryClient}>
+      <RunDetail repo="remote:acme%2Fweb" runId="run-412" />
+    </QueryClientProvider>
+  );
+}
+
+describe('RunDetail: failure and loading', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('says a run id is unknown at once, with no retry', async () => {
+    detailGet.mockResolvedValue(failed(404, { error: 'run not found' }));
+    renderFailing();
+    const card = await screen.findByTestId('run-load-error');
+    expect(card).toHaveTextContent('No run run-412 in this repo');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(detailGet).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('run-crumb')).toHaveTextContent('run-412');
+  });
+
+  it('says why a run failed to load after one retry', async () => {
+    detailGet.mockResolvedValue(failed(502, { error: 'daemon unreachable' }));
+    renderFailing();
+    await vi.advanceTimersByTimeAsync(2_000);
+    const card = await screen.findByTestId('run-load-error');
+    expect(card).toHaveTextContent("Couldn't load run-412");
+    expect(card).toHaveTextContent('daemon unreachable');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(detailGet).toHaveBeenCalledTimes(2);
+    expect(
+      within(card).getByRole('link', { name: 'Back to runs' })
+    ).toHaveAttribute('href', '/');
+  });
+
+  it('loads the run again on Retry', async () => {
+    detailGet.mockResolvedValue(failed(404, { error: 'run not found' }));
+    renderFailing();
+    const card = await screen.findByTestId('run-load-error');
+    detailGet.mockResolvedValue(ok(workRun()));
+    await userEvent.click(within(card).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByTestId('run-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('run-load-error')).toBeNull();
+  });
+
+  it('draws the page’s shape while the run loads, not a spinner', async () => {
+    detailGet.mockReturnValue(new Promise(() => {}));
+    renderFailing();
+    expect(await screen.findByTestId('run-page-skeleton')).toBeInTheDocument();
+    expect(screen.queryByTestId('lazy-loader-fallback')).toBeNull();
   });
 });

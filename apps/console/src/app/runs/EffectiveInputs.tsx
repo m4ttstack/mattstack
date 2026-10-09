@@ -27,6 +27,7 @@ import {
   useStageDoc,
   useStageDocDrawer,
 } from './run-page/StageDoc';
+import { readApiError, retryOnce } from './useRuns';
 
 export const INPUTS_SUB =
   'What this run was told, from the pack versions it recorded';
@@ -38,19 +39,11 @@ export function useEffectiveInputs(repo: string, runId: string) {
       const res = await client.api.runs[':repo'][':runId'][
         'effective-inputs'
       ].$get({ param: { repo, runId } });
+      if (!res.ok) throw await readApiError(res, 'effective inputs failed');
       const body = await res.json();
-      if (!res.ok) {
-        const message =
-          body &&
-          typeof body === 'object' &&
-          'error' in body &&
-          typeof (body as { error?: unknown }).error === 'string'
-            ? (body as { error: string }).error
-            : `effective inputs failed: ${res.status}`;
-        throw new Error(message);
-      }
       return body as EffectiveInputsPayload;
     },
+    retry: retryOnce,
   });
 }
 

@@ -9,3 +9,7 @@
   min-width: 0;
   padding: 14px 16px;
 }
+
+.pending {
+  padding-top: 4px;
+}

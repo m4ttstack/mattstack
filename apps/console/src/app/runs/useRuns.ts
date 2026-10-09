@@ -19,16 +19,54 @@ import { runDetailKey } from './derive/day';
     what catches a socket that dropped without us noticing. */
 const POLL_MS = 30_000;
 
+/** A failed API answer: the body's `error` text, and the HTTP status. */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+export async function readApiError(
+  res: { status: number; json: () => Promise<unknown> },
+  label: string
+): Promise<ApiError> {
+  const body = await res.json().catch(() => null);
+  const error =
+    body && typeof body === 'object' && 'error' in body
+      ? (body as { error: unknown }).error
+      : null;
+  return new ApiError(
+    res.status,
+    typeof error === 'string' && error.trim()
+      ? error.trim()
+      : `${label}: ${res.status}`
+  );
+}
+
+export const isNotFound = (err: unknown) =>
+  err instanceof ApiError && err.status === 404;
+
+/** One retry for a server or network failure, none for a 4xx: an unknown
+    run or a refused read will not change on a second ask, and an outage
+    should say so in about a second, not after three backed-off retries. */
+export const retryOnce = (failures: number, err: unknown) =>
+  !(err instanceof ApiError && err.status >= 400 && err.status < 500) &&
+  failures < 1;
+
 export function useRunList(repo?: string) {
   return useQuery({
     queryKey: ['runs', repo ?? null],
     queryFn: async () => {
       const res = await client.api.runs.$get({ query: repo ? { repo } : {} });
-      if (!res.ok) throw new Error(`runs list failed: ${res.status}`);
+      if (!res.ok) throw await readApiError(res, 'runs list failed');
       // Only the design fixture's answer carries `asOf` (see derive/clock.ts).
       return (await res.json()) as { runs: RunSummary[]; asOf?: number };
     },
     refetchInterval: POLL_MS,
+    retry: retryOnce,
     // The runs page is filtered AND hot. Holding the previous list through a
     // filter change is worth more here than the loading branch suspense
     // would remove -- which is why this one view is not a suspense query.
@@ -71,9 +109,10 @@ function runQuery(repo: string, runId: string) {
       const res = await client.api.runs[':repo'][':runId'].$get({
         param: { repo, runId },
       });
-      if (!res.ok) throw new Error(`run detail failed: ${res.status}`);
+      if (!res.ok) throw await readApiError(res, 'run detail failed');
       return res.json();
     },
+    retry: retryOnce,
     // The websocket is the live path; this is the same slow-poll safety net
     // the board list uses, for a socket that dropped without us noticing.
     refetchInterval: POLL_MS,
