@@ -138,6 +138,9 @@
 .settings-col + .settings-col {
   border-left: 1px solid var(--border);
 }
+.app-settings-reduced .settings-grid {
+  grid-template-columns: 1fr;
+}
 @media (max-width: 760px) {
   .settings-grid {
     grid-template-columns: 1fr;
@@ -361,4 +364,178 @@
   color: var(--text-1);
   font: inherit;
   font-size: var(--font-size-md);
+}
+
+/* A settings list: the right column's bordered card of rows. Each row is a
+   glyph, its label and note, and a control on the right; anything more
+   (inputs, chips, Railway's status) sits under the text column. */
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.settings-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+}
+.settings-item + .settings-item {
+  border-top: 1px solid var(--border);
+}
+.settings-item-icon {
+  display: inline-flex;
+  color: var(--text-2);
+}
+.settings-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xxs);
+  min-width: 0;
+}
+.settings-item-end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.settings-item-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+.settings-item-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+.settings-item-body > [data-part='alert'] {
+  align-self: stretch;
+}
+
+.settings-grow {
+  align-self: stretch;
+}
+.settings-grow [data-part='field'] {
+  flex: 1;
+  width: auto;
+}
+
+/* Railway, once on: its deploy state and the push button on one line. */
+.settings-remote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  align-self: stretch;
+}
+.settings-remote-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-sm);
+}
+.settings-remote-status[data-tone='ok'] {
+  color: var(--text-ok);
+}
+.settings-remote-status[data-tone='ok'] .settings-pill-dot {
+  background: var(--dot-ok);
+}
+.settings-remote-status[data-tone='warn'] {
+  color: var(--text-warn);
+}
+.settings-remote-status[data-tone='warn'] .settings-pill-dot {
+  background: var(--dot-warn);
+}
+.settings-remote-status[data-tone='bad'] {
+  color: var(--text-bad);
+}
+.settings-remote-status[data-tone='bad'] .settings-pill-dot {
+  background: var(--dot-bad);
+}
+
+/* Sign-in mode: the board's neutral selected pill rather than the kit's
+   accent fill, at the list's own text size. */
+.settings-item-body [data-part='segmented-option'] {
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-sm);
+  color: var(--text-2);
+}
+.settings-item-body [data-part='segmented-option'][data-active] {
+  background: var(--surface-wash-fg-8);
+  color: var(--text-1);
+}
+
+.settings-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+.settings-chip {
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xxs) var(--spacing-sm);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--text-1);
+}
+.settings-chip-remove {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  border-radius: var(--radius-round);
+}
+.settings-chip-remove [data-part='icon'] {
+  width: 11px;
+  height: 11px;
+}
+.settings-chip-remove:hover {
+  color: var(--text-1);
+}
+.settings-chip-remove:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 1px;
+}
+
+/* Every gate off: the warn note under the gates. */
+.settings-open-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--surface-wash-amber-7);
+  border: 1px solid color-mix(in srgb, var(--text-warn) 45%, transparent);
+  border-radius: var(--radius-lg);
+  color: var(--text-1);
+  font-size: var(--font-size-sm);
+}
+.settings-open-note [data-part='icon'] {
+  flex: none;
+  color: var(--text-warn-vivid);
+}
+
+/* The footer stays put at the bottom of the frame like the head at the top. */
+.settings-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-xxl);
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.settings-footer-note {
+  margin-left: auto;
 }

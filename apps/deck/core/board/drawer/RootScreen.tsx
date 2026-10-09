@@ -12,6 +12,7 @@ import {
 import { OffBadge } from '../AppsTable.tsx';
 import {
   isMattstack,
+  remoteToggleTip,
   servicePid,
   tunnelDomain,
   type Row,
@@ -200,17 +201,6 @@ function remoteFooter(row: Row): string {
   return row.remote
     ? `serving public traffic from Railway (${remoteStatusText(row.remote.status)})`
     : 'off, this app is only reachable through the local tunnel';
-}
-
-// Only enabling remote requires a sign-in gate (the server's own refuse
-// check applies to `{enabled:true}` only) -- disabling a row that is
-// already remote must stay reachable even if oauth was since turned off, or
-// there would be no way back out of that state from the board.
-function remoteToggleTip(row: Row): string | undefined {
-  if (row.remote == null && row.hasPassword && row.oauth.mode === 'off') {
-    return 'add sign-in access before pushing this app to Railway (a password alone does not gate the public origin)';
-  }
-  return undefined;
 }
 
 export function buildAppRoot(

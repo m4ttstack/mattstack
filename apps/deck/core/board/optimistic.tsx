@@ -26,17 +26,35 @@ export function useOptimisticToggle(
    call hooks — these two wrappers are the hook's only legal home there and
    keep the table cell on the same mechanism. */
 
+/** `disabled` with a `disabledTip` wraps only the Switch in the tooltip, so
+    the reason shows on the control that refuses the click. */
 export function OptimisticSwitch({
   checked,
   mutate,
+  disabled,
+  disabledTip,
   'aria-label': ariaLabel,
 }: {
   checked: boolean;
   mutate: () => Promise<void>;
+  disabled?: boolean;
+  disabledTip?: string;
   'aria-label': string;
 }) {
   const [shown, toggle] = useOptimisticToggle(checked, mutate);
-  return <Switch checked={shown} onChange={toggle} aria-label={ariaLabel} />;
+  const control = (
+    <Switch
+      checked={shown}
+      onChange={disabled ? () => {} : toggle}
+      disabled={disabled}
+      aria-label={ariaLabel}
+    />
+  );
+  return disabled && disabledTip ? (
+    <Tooltip tip={disabledTip}>{control}</Tooltip>
+  ) : (
+    control
+  );
 }
 
 export function OptimisticToggleRow({
@@ -83,25 +101,18 @@ export function OptimisticGatedToggleRow({
   disabledTip?: string;
   'aria-label': string;
 }) {
-  const [shown, toggle] = useOptimisticToggle(checked, mutate);
-  const control = (
-    <Switch
-      checked={shown}
-      onChange={disabled ? () => {} : toggle}
-      disabled={disabled}
-      aria-label={ariaLabel}
-    />
-  );
   return (
     <li className="drawer-toggle-row" data-part="listgroup-toggle">
       <span className="drawer-toggle-label" data-part="listgroup-label">
         {label}
       </span>
-      {disabled && disabledTip ? (
-        <Tooltip tip={disabledTip}>{control}</Tooltip>
-      ) : (
-        control
-      )}
+      <OptimisticSwitch
+        checked={checked}
+        mutate={mutate}
+        disabled={disabled}
+        disabledTip={disabledTip}
+        aria-label={ariaLabel}
+      />
     </li>
   );
 }

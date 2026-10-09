@@ -14,6 +14,7 @@ import {
   Tooltip,
 } from '@mattstack/tui-kit';
 import { CommandButton } from './CommandButton.tsx';
+import { GLOBE } from './icons.ts';
 import {
   commandKey,
   isPlatform,
@@ -27,12 +28,6 @@ import {
 } from './logic.ts';
 import { OptimisticSwitch } from './optimistic.tsx';
 import type { BoardState } from './useBoardState.ts';
-
-/** A lucide globe as one path (subpaths joined with explicit `M`, the same
-    convention the kit's own ICONS follow): circle + equator + two meridians.
-    Marks a row that is served from Railway, in the site cell. */
-const RAILWAY_GLOBE =
-  'M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20';
 
 /** Shared column widths, one entry per column below, so every section table
     (mattstack / your apps / strays) lines up down the page: `.apps-grid`
@@ -192,7 +187,7 @@ function SiteCell({ row }: { row: Row }) {
                 rel="noopener"
                 aria-label={`open ${row.publicUrl.replace('https://', '')}`}
               >
-                <Icon d={RAILWAY_GLOBE} />
+                <Icon d={GLOBE} />
               </a>
             </Tooltip>
           )}
@@ -202,7 +197,7 @@ function SiteCell({ row }: { row: Row }) {
                 className={`railway-globe railway-${row.remote.status}`}
                 aria-label={`served from Railway (${row.remote.status})`}
               >
-                <Icon d={RAILWAY_GLOBE} />
+                <Icon d={GLOBE} />
               </span>
             </Tooltip>
           )}

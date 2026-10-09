@@ -488,6 +488,24 @@ export function settingsBlocks(row: Row, data: StatusData): SettingsBlocks {
   };
 }
 
+/** The hosts a row answers on from this Mac: portless serves mattstack's
+    own apps on both TLDs, everything else on .localhost alone. */
+export function localHosts(row: Row): string[] {
+  const local = `${row.name}.localhost`;
+  return isMattstack(row) ? [`${row.name}.mattstack`, local] : [local];
+}
+
+// Only enabling remote requires a sign-in gate (the server's own refuse
+// check applies to `{enabled:true}` only) -- disabling a row that is
+// already remote must stay reachable even if oauth was since turned off, or
+// there would be no way back out of that state from the board.
+export function remoteToggleTip(row: Row): string | undefined {
+  if (row.remote == null && row.hasPassword && row.oauth.mode === 'off') {
+    return 'add sign-in access before pushing this app to Railway (a password alone does not gate the public origin)';
+  }
+  return undefined;
+}
+
 /** The running pid a service actually answers on: launchd's own `pid` when
     managed, the foreign process's when a route is served unmanaged. */
 export function servicePid(

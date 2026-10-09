@@ -12,12 +12,14 @@ import {
   editPatch,
   HEAL_RECENT_MS,
   isPlatform,
+  localHosts,
   NAME_PATTERN,
   PROXY_WAIT_MS,
   reconcileRestarting,
   redeployAllTargets,
   REFRESH_MS,
   registerOutcome,
+  remoteToggleTip,
   removeFailure,
   RESTART_TIMEOUT_MS,
   sections,
@@ -1035,4 +1037,40 @@ test('statusPill on the fixture rows', () => {
     label: 'No route',
     detail: 'stopped · exit 1',
   });
+});
+
+test('localHosts: a mattstack row answers on .mattstack and .localhost, a user row on .localhost', () => {
+  expect(localHosts(makeRow({ name: 'board', managedBy: 'rt' }))).toEqual([
+    'board.mattstack',
+    'board.localhost',
+  ]);
+  expect(localHosts(makeRow({ name: 'mine', managedBy: 'user' }))).toEqual([
+    'mine.localhost',
+  ]);
+  expect(localHosts(makeRow({ name: 'stray', managedBy: null }))).toEqual([
+    'stray.localhost',
+  ]);
+});
+
+test('remoteToggleTip: only a password-only row that is not yet remote is refused', () => {
+  const tip =
+    'add sign-in access before pushing this app to Railway (a password alone does not gate the public origin)';
+  expect(remoteToggleTip(makeRow({ hasPassword: true }))).toBe(tip);
+  expect(remoteToggleTip(makeRow({ hasPassword: false }))).toBeUndefined();
+  expect(
+    remoteToggleTip(
+      makeRow({
+        hasPassword: true,
+        oauth: { mode: 'domains', domains: ['x.co'] },
+      })
+    )
+  ).toBeUndefined();
+  expect(
+    remoteToggleTip(
+      makeRow({
+        hasPassword: true,
+        remote: { status: 'live' } as Row['remote'],
+      })
+    )
+  ).toBeUndefined();
 });

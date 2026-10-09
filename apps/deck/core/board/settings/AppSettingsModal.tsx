@@ -5,14 +5,18 @@ import {
   settingsBlocks,
   settingsFormFor,
   type Row,
+  type SettingsBlocks,
   type StatusData,
 } from '../logic.ts';
 import type { BoardState } from '../useBoardState.ts';
 import { AppBlock } from './AppBlock.tsx';
 import type { BlockProps } from './block.ts';
 import { CodeBlock } from './CodeBlock.tsx';
+import { DangerFooter } from './DangerFooter.tsx';
+import { GatesBlock } from './GatesBlock.tsx';
 import { IssuesBlock, SettingsHeader } from './Header.tsx';
 import { PortBlock } from './PortBlock.tsx';
+import { ReachBlock } from './ReachBlock.tsx';
 import { RecentErrors } from './RecentErrors.tsx';
 import { ServiceForm } from './ServiceForm.tsx';
 import { TunnelForm } from './TunnelForm.tsx';
@@ -29,16 +33,30 @@ export interface AppSettingsModalProps {
   fallbackFocusRef: RefObject<HTMLElement | null>;
 }
 
+/** Who can reach it and who gets in: both need canManage. */
+function hasRightColumn(blocks: SettingsBlocks): boolean {
+  return blocks.reach || blocks.gates;
+}
+
 function AppForm(props: BlockProps) {
   return (
-    <div className="settings-grid">
-      <div className="settings-col">
-        <CodeBlock {...props} />
-        <AppBlock {...props} />
-        <PortBlock {...props} />
-        <RecentErrors {...props} />
+    <>
+      <div className="settings-grid">
+        <div className="settings-col">
+          <CodeBlock {...props} />
+          <AppBlock {...props} />
+          <PortBlock {...props} />
+          <RecentErrors {...props} />
+        </div>
+        {hasRightColumn(props.blocks) && (
+          <div className="settings-col">
+            <ReachBlock {...props} />
+            <GatesBlock {...props} />
+          </div>
+        )}
       </div>
-    </div>
+      <DangerFooter {...props} />
+    </>
   );
 }
 
@@ -111,7 +129,7 @@ export function AppSettingsModal({
       ariaLabel={`settings for ${row.name}`}
       onClose={close}
       className={
-        form === 'app'
+        form === 'app' && hasRightColumn(props.blocks)
           ? 'app-settings-modal'
           : 'app-settings-modal app-settings-reduced'
       }
