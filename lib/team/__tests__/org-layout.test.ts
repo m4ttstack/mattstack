@@ -23,13 +23,20 @@ describe("orgLayoutState", () => {
     expect(orgLayoutState(fakeProbes({ home: H }))).toEqual({ kind: "none" });
   });
   test("ready for a converted clone", () => {
-    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme"), orgStore: true } }))).toEqual({ kind: "ready", slug: "acme" });
+    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 3), orgStore: true } }))).toEqual({ kind: "ready", slug: "acme" });
   });
   test("waiting for the one-team layout moved under orgs/", () => {
     expect(orgLayoutState(home({ acme: { marker: marker("team", "acme") } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 1 });
   });
   test("waiting for a layout above ORG_LAYOUT", () => {
-    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 3), orgStore: true } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 3 });
+    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 4), orgStore: true } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 4 });
+  });
+  test("a layout 2 marker reads waiting, a layout 3 marker reads ready", () => {
+    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 2), orgStore: true } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 2 });
+    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 3), orgStore: true } }))).toEqual({ kind: "ready", slug: "acme" });
+  });
+  test("a marker with no layout reads waiting", () => {
+    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme"), orgStore: true } })).kind).toBe("waiting");
   });
   test("a one-team marker beside an org store is still waiting", () => {
     expect(orgLayoutState(home({ acme: { marker: marker("team", "acme"), orgStore: true } })).kind).toBe("waiting");
@@ -38,16 +45,16 @@ describe("orgLayoutState", () => {
     expect(orgLayoutState(home({ acme: { marker: marker("org", "acme") } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 2 });
   });
   test("the first clone by name decides", () => {
-    const p = home({ zeta: { marker: marker("team", "zeta") }, acme: { marker: marker("org", "acme"), orgStore: true } });
+    const p = home({ zeta: { marker: marker("team", "zeta") }, acme: { marker: marker("org", "acme", 3), orgStore: true } });
     expect(orgLayoutState(p)).toEqual({ kind: "ready", slug: "acme" });
   });
   test("a store-less waiting clone sorting first does not hide a ready one", () => {
-    const p = home({ aaa: { marker: marker("team", "aaa") }, bbb: { marker: marker("org", "bbb"), orgStore: true } });
+    const p = home({ aaa: { marker: marker("team", "aaa") }, bbb: { marker: marker("org", "bbb", 3), orgStore: true } });
     expect(orgLayoutState(p)).toEqual({ kind: "ready", slug: "bbb" });
   });
   test("a store-holding waiting clone sorting first wins over a later ready one", () => {
-    const p = home({ aaa: { marker: marker("org", "aaa", 3), orgStore: true }, bbb: { marker: marker("org", "bbb"), orgStore: true } });
-    expect(orgLayoutState(p)).toEqual({ kind: "waiting", slug: "aaa", dir: `${orgs}/aaa`, layout: 3 });
+    const p = home({ aaa: { marker: marker("org", "aaa", 4), orgStore: true }, bbb: { marker: marker("org", "bbb", 3), orgStore: true } });
+    expect(orgLayoutState(p)).toEqual({ kind: "waiting", slug: "aaa", dir: `${orgs}/aaa`, layout: 4 });
   });
   test("a folder without .git/config or without a marker is not a clone", () => {
     const p = fakeProbes({ home: H, dirs: { [orgs]: ["stray", "half"] }, files: { [`${orgs}/half/.git/config`]: "" } });
@@ -60,8 +67,8 @@ describe("sentences", () => {
     expect(layoutSentence({ kind: "waiting", slug: "acme", dir: "/x", layout: 1 })).toBe(WAITING_SENTENCE);
   });
   test("above names both numbers", () => {
-    expect(updateSentence(3)).toBe("Your org uses layout 3 and this app reads up to 2. Update the app.");
-    expect(layoutSentence({ kind: "waiting", slug: "acme", dir: "/x", layout: 3 })).toBe(updateSentence(3));
+    expect(updateSentence(4)).toBe("Your org uses layout 4 and this app reads up to 3. Update the app.");
+    expect(layoutSentence({ kind: "waiting", slug: "acme", dir: "/x", layout: 4 })).toBe(updateSentence(4));
   });
   test("the error carries the sentence and no next command", () => {
     const err = orgLayoutWaitingError({ kind: "waiting", slug: "acme", dir: "/x", layout: 1 });

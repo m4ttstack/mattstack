@@ -72,7 +72,13 @@ working under the old name.
 The marker also carries the org's layout version (`layout`, read by
 `orgLayoutState`); an rt reads layouts up to `ORG_LAYOUT` and the daemon holds a
 clone whose fetched tip of the checked-out branch names a higher layout until
-the app updates.
+the app updates. Layout 2 moved each team's pack into its plugin
+(`scripts/move-team-packs-to-plugin.ts`); layout 3 moved each team's Linear key
+and review channels into the org's `mattstack.directory`
+(`bun scripts/move-to-team-directory.ts <clone-dir> --admin <username>
+[--write]`). A change to the org or team stores is a conversion like these,
+or an admin's `rt settings set`, never a setup migration; the rt:settings
+skill's "Changing the org repo's layout" is the runbook.
 
 A string value can name paths through a closed set of variables, which the
 resolver expands on read: `${repoRoot}`, `${worktree}`, `${home}` and
@@ -154,8 +160,11 @@ exist for out-of-process callers only.
    whose value describes one repo's code is `repoScoped` and `repoOnly`; keep
    a per-repo key global-capable only when some field is read with no repo,
    as `rt.gitStatus`'s sweep switch and interval are.
-2. For an `object` or `array` key, write its zod schema in `SCHEMAS`
-   (`packages/rt-client/src/settings/registry-schemas.ts`): the value the code
+2. Write the key's zod schema in `SCHEMAS`
+   (`packages/rt-client/src/settings/registry-schemas.ts`), scalars included:
+   the console edits only a key with a schema, and
+   `packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts`
+   fails a new key without one. Write the value the code
    reading it accepts, not an ideal. `z.looseObject` unless a reader rejects
    unknown properties (`z.strictObject`), `.optional()` on anything a reader
    falls back on, the most important property first (a refusal names the
@@ -166,14 +175,23 @@ exist for out-of-process callers only.
 3. Add the key's `EXAMPLES` entry in `settings/__tests__/schema-examples.ts`:
    at least one `good` value, one `bad` value with the path its first issue
    must name, and for a `merge: "deep"` key one partial `layer`. The registry
-   default must pass too. The example suite fails for a composite key with no
-   schema or no entry.
-4. `bun run cli.ts settings schema lock` regenerates `schema.lock.json`;
+   default must pass too. The example suite
+   (`packages/rt-client/src/settings/__tests__/schema-examples.test.ts`) fails
+   for a composite key with no schema or no entry.
+4. Give every object property a title or description (`.meta`; labels
+   and placeholders ride there too): the console draws its form
+   fields from them. `registry-console-ready.test.ts` fails a new key with an
+   unannotated property.
+5. Give the key a console group in `apps/console/src/app/settings/groups.ts`
+   (a `match` on an existing group, or a new group). The console's
+   `apps/console/src/app/settings/groups.test.ts` fails unless every
+   registered key lands in exactly one group.
+6. `bun run cli.ts settings schema lock` regenerates `schema.lock.json`;
    commit it with the schema. CI regenerates it and fails on any difference.
-5. `cd packages/rt-client && bun run build`: workspace consumers (board,
+7. `cd packages/rt-client && bun run build`: workspace consumers (board,
    console, deck, gitq) link the package and resolve `dist/` directly, so a
    stale `dist/` is what the dist-freshness test catches.
-6. Deliver the new registry to every consumer: a node_modules copy never
+8. Deliver the new registry to every consumer: a node_modules copy never
    updates itself. Board, console, deck and gitq link `@mattstack/rt-client`
    as an in-tree `workspace:*` package, so the registry row lands for them
    on the next `bun install` (the root `postinstall` rebuilds rt-client's
@@ -182,7 +200,7 @@ exist for out-of-process callers only.
    the next release to ship the change. gitq's npm bundle (`dist/gitq.js`)
    also carries rt-client, so an npm-installed `gitq` only sees the key
    after `bun run release` from `apps/gitq`.
-7. Read via `getSetting`, write via `setSetting`. Never construct store paths
+9. Read via `getSetting`, write via `setSetting`. Never construct store paths
    by hand; never cache a path or a value at module load.
    `lib/__tests__/no-settings-bypass.test.ts` fails CI on a per-rung read
    (`explainSetting` and its kin), raw store read or store file path beyond

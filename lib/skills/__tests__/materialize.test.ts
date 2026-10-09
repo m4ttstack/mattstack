@@ -39,7 +39,7 @@ type TeamSpec = { projects?: string[]; pack?: object };
 function org(root: string, name: string, opts: { projects: string[]; teams: Record<string, TeamSpec>; base?: Record<string, object> }): void {
   const dir = join(root, "orgs", name);
   write(join(dir, ".git", "config"), "");
-  write(join(dir, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: name }));
+  write(join(dir, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: name, layout: 3 }));
   write(join(dir, "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": opts.projects }));
   for (const [team, spec] of Object.entries(opts.teams)) {
     const teamDir = teamFolder(root, name, team);

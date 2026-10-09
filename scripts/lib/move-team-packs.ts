@@ -53,6 +53,13 @@ function objOf(files: Record<string, string>, rel: string): Json {
   return value as Json;
 }
 
+const headerOf = (text: string): string => (text.startsWith("//") ? `${text.split("\n")[0]}\n` : "");
+
+/** The marker's text with `layout` set, keeping its one-line header and every other key. Comments below the header are dropped. */
+export function markerWithLayout(text: string, layout: number): string {
+  return `${headerOf(text)}${JSON.stringify({ ...objOf({ [MARKER_REL]: text }, MARKER_REL), layout }, null, 2)}\n`;
+}
+
 function hasComments(text: string): boolean {
   let found = false;
   visit(text, { onComment: () => { found = true; } });
@@ -93,6 +100,7 @@ function rewritePaths(value: unknown, swaps: [string, string][], note: (from: st
 export function planMove(input: MoveInput): MovePlan {
   const marker = objOf(input.files, MARKER_REL);
   if (marker.role !== "org") throw new MoveRefusal("This is not a mattstack org repo", "mattstack/mattstack.jsonc does not say role: org.");
+  if (typeof marker.layout === "number" && marker.layout > MOVED_LAYOUT) throw new MoveRefusal(`This org is already past layout ${MOVED_LAYOUT}`, `The layout ${MOVED_LAYOUT} move would lower it.`);
   const report: string[] = [];
   const moving: string[] = [];
   for (const team of [...input.teams].sort()) {
@@ -131,10 +139,9 @@ export function planMove(input: MoveInput): MovePlan {
 
   if (marker.layout !== MOVED_LAYOUT) {
     const text = input.files[MARKER_REL]!;
-    const header = text.startsWith("//") ? `${text.split("\n")[0]}\n` : "";
-    writes[MARKER_REL] = `${header}${JSON.stringify({ ...marker, layout: MOVED_LAYOUT }, null, 2)}\n`;
+    writes[MARKER_REL] = markerWithLayout(text, MOVED_LAYOUT);
     report.push(`marker: layout ${MOVED_LAYOUT}`);
-    if (hasComments(text.slice(header.length))) report.push(`comments in ${MARKER_REL} are not carried over`);
+    if (hasComments(text.slice(headerOf(text).length))) report.push(`comments in ${MARKER_REL} are not carried over`);
   }
 
   const noteRewrite = (before: string, after: string) => report.push(`rewrote ${before} to ${after}`);
@@ -144,7 +151,7 @@ export function planMove(input: MoveInput): MovePlan {
     const after = rewritePaths(before, swaps, noteRewrite) as Json;
     if (JSON.stringify(after) === JSON.stringify(before)) continue;
     const text = input.files[rel]!;
-    const header = text.startsWith("//") ? `${text.split("\n")[0]}\n` : "";
+    const header = headerOf(text);
     writes[rel] = `${header}${JSON.stringify(after, null, 2)}\n`;
     if (hasComments(text.slice(header.length))) report.push(`comments in ${rel} are not carried over`);
   }

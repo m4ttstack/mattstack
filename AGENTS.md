@@ -46,9 +46,10 @@ an explicit positive integer wins, and absent reads as 2 for `role: "org"` and 1
 for a one-team `role: "team"`, a fixed default (`ORG_LAYOUT_ABSENT_DEFAULT`),
 never `ORG_LAYOUT`, so a bump never reads an unconverted repo as ready). Every
 marker rt writes carries an explicit `layout`: `rt team create` writes
-`ORG_LAYOUT`, and `scripts/move-team-packs-to-plugin.ts` writes 2.
+`ORG_LAYOUT`, `scripts/move-team-packs-to-plugin.ts` writes 2, and
+`scripts/move-to-team-directory.ts` writes 3.
 `ORG_LAYOUT` in `lib/team/org-marker.ts` is the highest layout this rt reads
-and moves only with a breaking change to the repo's shape, never with a
+and moves only with a breaking change to the repo's shape or to the shared settings' shape, never with a
 release; the admin's runbook for such a change is the `rt-settings` skill
 (`skills/rt-settings/SKILL.md`, "Changing the org repo's layout"). `orgLayoutState` (`lib/team/org-layout.ts`) is the one classifier
 every reader uses, and it shares `pickOrgClone` with `readZonesFrom`: a clone
@@ -839,7 +840,10 @@ never overwrites a value the user chose; under `ctx.update` it also leaves
 alone what the member undid since rt put it there (a disabled or removed
 plugin, an editor setup-state has no record of).
 `lib/setup/__tests__/update-safe.test.ts` pins the set. Add a one-time fix as a `MigrationDef` in
-`lib/setup/migrations/index.ts` with a dated id that is never renamed; it
+`lib/setup/migrations/index.ts` with a dated id that is never renamed; a
+migration changes only this Mac and never writes the org or team stores (a
+change there is an admin's `rt settings set` or a layout change, see the
+`rt:settings` skill); it
 runs once per machine and is recorded when `done` or `skipped`. The tray
 only spawns the verb and routes the `setup_update` notification click to the
 Setup status window; put no decision in Swift.

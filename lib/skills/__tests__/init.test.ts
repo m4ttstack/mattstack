@@ -59,7 +59,7 @@ const HOME = "/h";
 const ORG_ROOT = (org: string) => `${HOME}/.mattstack/orgs/${org}`;
 const orgFiles = (org: string, orgSettings: Record<string, unknown>, teams: Record<string, Record<string, unknown>>, extra: Record<string, string> = {}) => ({
   [`${ORG_ROOT(org)}/.git/config`]: "",
-  [`${ORG_ROOT(org)}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "${org}" }`,
+  [`${ORG_ROOT(org)}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "${org}", "layout": 3 }`,
   [`${ORG_ROOT(org)}/mattstack/org/settings.org.jsonc`]: `// org\n${JSON.stringify(orgSettings)}`,
   [`${ORG_ROOT(org)}/.claude-plugin/marketplace.json`]: `{ "name": "${org}-market", "owner": { "name": "x" }, "plugins": [] }`,
   ...Object.fromEntries(Object.entries(teams).map(([team, settings]) => [`${ORG_ROOT(org)}/mattstack/teams/${team}/settings.team.jsonc`, `// team\n${JSON.stringify(settings)}`])),
@@ -74,8 +74,8 @@ describe("readZones", () => {
   });
 
   test("a clone whose marker is on a layout above ORG_LAYOUT throws the update sentence", () => {
-    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/.git/config`]: "", [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "org", "org": "acme", "layout": 3 }' });
-    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org uses layout 3 and this app reads up to 2. Update the app.");
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/.git/config`]: "", [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "org", "org": "acme", "layout": 4 }' });
+    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org uses layout 4 and this app reads up to 3. Update the app.");
   });
 
   test("a one-team marker throws the waiting sentence rather than skipping the clone", () => {
@@ -690,7 +690,7 @@ describe("initPack", () => {
   });
 
   test("an org clone with no team folders refuses plainly with the add-a-team remedy, even on a TTY", async () => {
-    const files = { [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }` };
+    const files = { [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme", "layout": 3 }` };
     const { deps } = world({ noOrg: true, files, isTTY: true });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "The acme org has no team folders yet, so there is no team to hold a pack", why: "Only an org admin can add a team", next: "rt team add <team> --owner <username>" });

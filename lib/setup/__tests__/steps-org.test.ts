@@ -8,6 +8,7 @@ import type { Probes } from "../probes.ts";
 import { readTeamLocal, teamLocalPath } from "../../team/team-local.ts";
 import { cloneSlugs, orgPullStep, orgSeams, teamIdentityStep, recordForgeIdentity } from "../steps/org.ts";
 import { fakeProbes as baseFakeProbes } from "./fakes.ts";
+import { ORG_LAYOUT } from "../../team/org-marker.ts";
 
 function fakeProbes(opts: Parameters<typeof baseFakeProbes>[0] = {}) {
   return baseFakeProbes({ ...opts, exec: (argv, execOpts) => {
@@ -136,7 +137,7 @@ describe("org.pull", () => {
       dirs: TEAMS_DIR,
       files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
       daemon: async () => {
-        marker = JSON.stringify({ role: "org", org: "acme" });
+        marker = JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT });
         return { ok: true, data: { outcome: "fast-forwarded", detail: null } };
       },
     });
@@ -148,18 +149,18 @@ describe("org.pull", () => {
   });
 
   test("a held pull ends skipped with the update sentence and no remedy", async () => {
-    const sentence = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const sentence = "Your org uses layout 4 and this app reads up to 3. Update the app.";
     const outcome = await orgPullStep.run(makeCtx(fakeProbes({
       home: HOME,
       dirs: TEAMS_DIR,
       files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
-      daemon: async () => ({ ok: true, data: { outcome: "skipped", detail: sentence, hold: { layout: 3, reads: 2 } } }),
+      daemon: async () => ({ ok: true, data: { outcome: "skipped", detail: sentence, hold: { layout: 4, reads: 3 } } }),
     })).ctx);
     expect(outcome).toEqual({ state: "skipped", detail: sentence });
   });
 
   test("a hold beside a stuck clone stays partial and keeps the hold sentence", async () => {
-    const sentence = "Your org uses layout 3 and this app reads up to 2. Update the app.";
+    const sentence = "Your org uses layout 4 and this app reads up to 3. Update the app.";
     const p = fakeProbes({
       home: HOME,
       dirs: { [`${HOME}/.mattstack/orgs`]: ["acme", "widgets"] },
@@ -169,7 +170,7 @@ describe("org.pull", () => {
       },
       daemon: async (_cmd, payload) =>
         (payload as { slug: string }).slug === "acme"
-          ? { ok: true, data: { outcome: "skipped", detail: sentence, hold: { layout: 3, reads: 2 } } }
+          ? { ok: true, data: { outcome: "skipped", detail: sentence, hold: { layout: 4, reads: 3 } } }
           : { ok: false, error: "offline" },
     });
     const outcome = await orgPullStep.run(makeCtx(p).ctx);

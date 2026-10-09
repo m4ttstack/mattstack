@@ -15,6 +15,7 @@ import * as skillsMaterialize from "../../lib/setup/skills-materialize.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { applyBind, bindBlocks, regenerateOutcomeFor, regeneratePackFile, shadowWarning, skillsBind, skillsCompile } from "../skills.ts";
+import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 
 /**
  * pickBindArgs opens a separate runPick session per omitted positional
@@ -56,7 +57,7 @@ function makePackDir(): string {
 /** The org's base pack folder in an org clone at `<root>/acme`, with the org marker written. */
 function orgBasePackDir(root: string): string {
   const mattstack = join(root, "acme", "mattstack");
-  writeFile(join(mattstack, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
+  writeFile(join(mattstack, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }));
   return join(mattstack, "org", "packs", "acme-base");
 }
 
@@ -955,7 +956,7 @@ describe("applyBind", () => {
       writeFile(join(root, "engine", "pack", "skills.jsonc"), "{}");
       const orgDir = join(home, ".mattstack", "orgs", "acme", "mattstack");
       writeFile(join(home, ".mattstack", "orgs", "acme", ".git", "config"), "");
-      writeFile(join(orgDir, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
+      writeFile(join(orgDir, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }));
       writeFile(join(orgDir, "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets", "acme/gadgets"] }));
       writeFile(join(orgDir, "teams", "widgets", "settings.team.jsonc"), "{}");
       writeFile(join(orgDir, "teams", "widgets", "plugin", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "widgets:ci" } } }));

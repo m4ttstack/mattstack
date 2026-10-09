@@ -53,23 +53,23 @@ describe("layout", () => {
   test("parseMarker of null is none", () => {
     expect(parseMarker(null)).toEqual({ kind: "none" });
   });
-  test("ORG_LAYOUT is 2", () => {
-    expect(ORG_LAYOUT).toBe(2);
+  test("ORG_LAYOUT is 3", () => {
+    expect(ORG_LAYOUT).toBe(3);
   });
   test("the absent default is the literal 2, apart from ORG_LAYOUT", () => {
     expect(ORG_LAYOUT_ABSENT_DEFAULT).toBe(2);
   });
-  test("after ORG_LAYOUT moves to 3, a marker without the field still reads 2 for an org and 1 for one team", async () => {
+  test("after ORG_LAYOUT moves to 4, a marker without the field still reads 2 for an org and 1 for one team", async () => {
     const source = readFileSync(join(import.meta.dir, "..", "org-marker.ts"), "utf8");
     const bumped = source
-      .replace(/^export const ORG_LAYOUT = 2;$/m, "export const ORG_LAYOUT = 3;")
+      .replace(/^export const ORG_LAYOUT = 3;$/m, "export const ORG_LAYOUT = 4;")
       .replaceAll('from "../', `from "${join(import.meta.dir, "..", "..")}/`);
-    expect(bumped).toContain("export const ORG_LAYOUT = 3;");
+    expect(bumped).toContain("export const ORG_LAYOUT = 4;");
     const scratch = mkdtempSync(join(tmpdir(), "org-marker-bump-"));
     try {
       writeFileSync(join(scratch, "org-marker.ts"), bumped);
       const next = (await import(join(scratch, "org-marker.ts"))) as typeof import("../org-marker.ts");
-      expect(next.ORG_LAYOUT).toBe(3);
+      expect(next.ORG_LAYOUT).toBe(4);
       expect(next.parseMarker('{ "role": "org", "org": "acme" }')).toEqual({ kind: "org", org: "acme", layout: 2 });
       expect(next.parseMarker('{ "role": "team", "org": "acme" }')).toEqual({ kind: "org", org: "acme", layout: 1 });
       expect(next.parseMarker('{ "role": "org", "org": "acme", "layout": 3 }')).toEqual({ kind: "org", org: "acme", layout: 3 });

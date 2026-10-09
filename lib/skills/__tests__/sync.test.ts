@@ -1024,13 +1024,13 @@ describe("syncPack", () => {
   });
 });
 
-/** A team pack at <clone>/mattstack/teams/widgets/plugin, in a clone whose checked-out marker is layout 2. */
+/** A team pack at <clone>/mattstack/teams/widgets/plugin, in a clone whose checked-out marker is layout 3. */
 function orgClonePack(): { clone: string; pack: PackInfo } {
   const clone = tmp("rt-sync-org-");
   mkdirSync(join(clone, ".git"), { recursive: true });
   writeFileSync(join(clone, ".git", "config"), "");
   mkdirSync(join(clone, "mattstack"), { recursive: true });
-  writeFileSync(join(clone, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme", "layout": 2 }\n`);
+  writeFileSync(join(clone, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme", "layout": 3 }\n`);
   const pack = fixturePack("plugin", "local", "1.0.0", join(clone, "mattstack", "teams", "widgets"));
   return { clone, pack };
 }
@@ -1043,14 +1043,14 @@ describe("pull-pack in an org clone", () => {
     const { clone, pack } = orgClonePack();
     const engine = fixturePack("beacon", "local", "2.0.0");
     const calls: Call[] = [];
-    const deps = { ...makeDeps(pack, engine, { calls, originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 3 }` } }), orgsRoot: dirname(clone) };
+    const deps = { ...makeDeps(pack, engine, { calls, originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 4 }` } }), orgsRoot: dirname(clone) };
 
     const report = await syncPack(pack, engine, deps);
 
     const held = report.steps.find((s) => s.name === "pull-pack")!;
-    expect(held).toMatchObject({ name: "pull-pack", status: "refused", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+    expect(held).toMatchObject({ name: "pull-pack", status: "refused", detail: "Your org uses layout 4 and this app reads up to 3. Update the app." });
     expect(held[LAYOUT_HOLD]).toBe(true);
-    expect(JSON.parse(JSON.stringify(held))).toEqual({ name: "pull-pack", status: "refused", detail: "Your org uses layout 3 and this app reads up to 2. Update the app." });
+    expect(JSON.parse(JSON.stringify(held))).toEqual({ name: "pull-pack", status: "refused", detail: "Your org uses layout 4 and this app reads up to 3. Update the app." });
     expect(merges(calls)).toEqual([]);
     expect(calls.some((c) => c.args[0] === "fetch" && c.cwd === clone)).toBe(true);
     expect(calls.some((c) => c.args[0] === "show" && c.args[1] === "refs/remotes/origin/main:mattstack/mattstack.jsonc" && c.cwd === clone)).toBe(true);

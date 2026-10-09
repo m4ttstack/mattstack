@@ -870,6 +870,8 @@
             "type": "object",
             "properties": {
               "linear": {
+                "title": "Linear",
+                "description": "The team's Linear team.",
                 "type": "object",
                 "properties": {
                   "team": {
@@ -883,6 +885,8 @@
                 "additionalProperties": {}
               },
               "slack": {
+                "title": "Slack",
+                "description": "The team's Slack channels: its code owners channel and any others, each with a kind.",
                 "type": "object",
                 "properties": {
                   "codeOwnersChannel": {
