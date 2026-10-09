@@ -4,6 +4,7 @@
  * its functions against this map so a new command only needs an entry here
  * plus one function, never a change to the transport itself.
  */
+import type { EvidenceImageKey } from "./evidence.ts";
 import type { PullRequest, MRDetail, Pipeline, PipelineJob } from "@mattstack/glance";
 
 export type Discussion = MRDetail["discussions"][number];
@@ -185,7 +186,11 @@ export { gateOptionValue, gateOptionLabel } from "./gate-options.ts";
     push facility can tell a self-answer from a remote one and skip the
     doorbell it would otherwise send back to the writer. Optional: a caller
     that supplies none (the board status-bin answers `by: "pane"` with no
-    session) still matches self by `by === GATE_BY_PANE`. */
+    session) still matches self by `by === GATE_BY_PANE`.
+
+    `overridden`: the answer went past the herd-owner guard. The console
+    sets it on every answer it sends; it says nothing about whether the
+    answer matched the recommended option. */
 export interface GateAnswer { answers: Record<string, string | string[] | { value: string | string[]; note?: string; text?: string }>; by: string; answeredAt: number; overridden?: boolean; session?: string }
 export interface GateRow {
   id: string; subject: string; kind: string;
@@ -389,7 +394,10 @@ export interface RunSummary {
       pre-mirror daemons. */
   agent?: RunAgent | null;
   /** Executed stages only, in run order — the pipeline may define more that have not started. */
-  stages?: { name: string; status: string; started_at: number | null }[];
+  stages?: { name: string; status: string; started_at: number | null; ended_at?: number | null; attempt?: number }[];
+  decision_count?: number;
+  /** Images the run's `evidence` field serves; 0 for legacy or absent evidence. */
+  evidence_count?: number;
 }
 export interface RunAgent {
   status: "working" | "idle" | "blocked" | "done" | "unknown";
@@ -752,6 +760,7 @@ export interface Commands {
   "runs:list": { payload: { repo?: string }; data: { runs: RunSummary[] } };
   "runs:get": { payload: { runId: string; repo?: string }; data: RunDetail };
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
+  "runs:evidence": { payload: { runId: string; repo?: string; key: EvidenceImageKey }; data: { mime: string; base64: string } };
   "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
   "chat:leave": { payload: { room: string; handle: string }; data: Record<string, never> };
   /** `others` counts the room's members besides the author, so a caller can tell "woke nobody of 7" from "nobody else is here". */
@@ -1058,7 +1067,7 @@ export interface Commands {
   "gate:wait": { payload: { id: string; waitMs?: number; sessionId?: string }; data: { status: "timeout" } | { status: "answered" | "closed"; row: GateRow } };
   /** Paged like events:list: an omitted `limit` clamps daemon-side rather than
    *  forcing a full-table read; `cursor` is the paging rowid to resume from. */
-  "gate:list": { payload: { open?: boolean; subjectPrefix?: string; kind?: string; limit?: number; cursor?: number }; data: { gates: GateRow[]; cursor: number } };
+  "gate:list": { payload: { open?: boolean; subject?: string; subjectPrefix?: string; status?: GateStatus[]; kind?: string; limit?: number; cursor?: number }; data: { gates: GateRow[]; cursor: number } };
   "gate:park": { payload: { id: string }; data: { ok: true } };
   "gate:close": { payload: { id: string; reason: "abandoned" | "superseded" | "pruned" }; data: { ok: true } };
   "gate:subscribe": { payload: { subjectPrefix: string; session: string; scope?: "owner"; ownerRef?: string }; data: { id: string } };
@@ -1145,6 +1154,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "runs:list",
   "runs:get",
   "runs:abandon",
+  "runs:evidence",
   "chat:ack",
   "chat:claim",
   "chat:release",

@@ -6,6 +6,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, readdirSync, statSync, type Dirent } from "fs";
 import { join } from "path";
 import type { Attention, RunDetail, RunFieldRow, RunStageRow, RunSummary } from "../../packages/rt-client/src/commands.ts";
+import { parseEvidence } from "../../packages/rt-client/src/evidence.ts";
 import { computeAttention, fieldValue, lastEventAt, type RunLiveness } from "./attention.ts";
 import { isPathComponent, runsRoot } from "./paths.ts";
 import { KNOWN_SCHEMA_VERSION } from "./write.ts";
@@ -89,6 +90,15 @@ function stageRows(db: Database): RunStageRow[] {
   }));
 }
 
+function stageSummaries(stages: RunStageRow[]): NonNullable<RunSummary["stages"]> {
+  return stages.map((s) => ({ name: s.name, status: s.status, started_at: s.started_at, ended_at: s.ended_at, attempt: s.attempt }));
+}
+
+function evidenceCount(fields: RunFieldRow[]): number {
+  const parsed = parseEvidence(fieldValue(fields, "evidence"));
+  return parsed.version === 1 ? parsed.images.length : 0;
+}
+
 const NO_ATTENTION: Attention = { needs: false, reason: null, evidence: "" };
 
 // The herdr mirror only means something while the run is live: a finished
@@ -113,7 +123,9 @@ function withAttention(db: Database, row: RunSummary, liveness?: RunLiveness): R
       ticket: fieldValue(fields, "ticket"),
       branch: fieldValue(fields, "branch"),
       agent: agentMirror(row, fields, liveness),
-      stages: stages.map((s) => ({ name: s.name, status: s.status, started_at: s.started_at })),
+      stages: stageSummaries(stages),
+      decision_count: decisions.length,
+      evidence_count: evidenceCount(fields),
     };
   } catch {
     return { ...row, attention: NO_ATTENTION };
@@ -173,7 +185,9 @@ export function readRun(repo: string, runId: string, liveness?: RunLiveness): Ru
         ticket: fieldValue(fields, "ticket"),
         branch: fieldValue(fields, "branch"),
         agent: agentMirror(run, fields, liveness),
-        stages: stages.map((s) => ({ name: s.name, status: s.status, started_at: s.started_at })),
+        stages: stageSummaries(stages),
+        decision_count: decisions.length,
+        evidence_count: evidenceCount(fields),
       },
       stages, fields, decisions,
       schemaAhead,
