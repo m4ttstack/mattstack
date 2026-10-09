@@ -16,7 +16,6 @@ import {
   type RecordTab,
 } from '../derive/record';
 import { EffectiveInputs } from '../EffectiveInputs';
-import { GatesUnreadable } from './GatesUnreadable';
 import { DecisionsTab } from './DecisionsTab';
 import { EvidenceCard, evidenceTitle } from './EvidenceCard';
 import {
@@ -24,6 +23,7 @@ import {
   useCompareLink,
   type CompareOpen,
 } from './EvidenceCompare';
+import { GatesUnreadable } from './GatesUnreadable';
 import { InputsDrawer } from './InputsDrawer';
 import { RecordHeader } from './RecordHeader';
 import { ReviewDecisions } from './ReviewVerdict';

@@ -505,7 +505,7 @@ describe('reviewVerdict', () => {
     ]);
     expect(verdict?.findings.filter(f => f.where).map(f => f.where)).toEqual([
       'contacts/import/dedupe.ts:58',
-      'contacts/merge.ts:12',
+      'apps/contacts/src/import/pipeline/merge/strategies/mergeContactsKeepingNewestRecordAndDeletingTheLosingDuplicate.ts:12',
     ]);
     expect(verdict?.findings[0]).toEqual({
       severity: 'important',
