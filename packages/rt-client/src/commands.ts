@@ -853,15 +853,22 @@ export interface Commands {
   /**
    * A Codex policy hook's receipt: the hook ran for a bound thread's turn and
    * gave this verdict. The daemon resolves the binding from the exact thread
-   * id and profile itself and records evidence only; an `unavailable`
-   * verdict also raises the policy-unavailable attention. Nothing here
-   * answers a gate, moves a run or marks a session ready.
+   * id and profile itself and records evidence only. Nothing here answers
+   * a gate, moves a run or marks a session ready.
+   *
+   * The socket does not authenticate its caller, so a receipt is local,
+   * unauthenticated input: an `unavailable` or `escaped` verdict only logs
+   * and emits an attention event (policy-unavailable, policy-escaped) and
+   * never changes readiness, and a receipt counts as proof only once the
+   * live Codex connection saw the matching native `hook/completed`.
+   * `threadEnv` says whether the hook process's CODEX_THREAD_ID named the
+   * same thread as `sessionId`, another one, or none.
    */
   "agent:policy-receipt": {
     payload: {
       installation: string; revision: string; profile: string;
       event: "PreToolUse" | "Stop"; tool?: string;
-      sessionId: string; turnId: string;
+      sessionId: string; turnId: string; threadEnv?: "same" | "other" | "absent";
       verdict: "allow" | "refused" | "continue" | "unavailable" | "escaped";
       detail?: string;
     };

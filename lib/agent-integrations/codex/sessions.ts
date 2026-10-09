@@ -75,6 +75,7 @@ import { listQueuedFrames } from "../delivery-store.ts";
 import { codexEventHub } from "./events.ts";
 import type { CodexMessagingDeps } from "./messaging.ts";
 import { createCodexQuestions, type CodexQuestionDeps } from "./questions.ts";
+import { observeCodexHookEvent } from "./policy-receipts.ts";
 import { setCodexExperimentalProbe, setCodexLinkProbe, setCodexThreadProbe, setCodexTurnProbe } from "./link.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { CODEX_STATUS_ENUMS, isRecord, type CodexEvent, type CodexThreadStatus } from "./protocol.ts";
@@ -419,6 +420,9 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     }
     if (applied) unsubscribe(threadId);
   }
+
+  // A policy receipt counts as proof only once Codex itself reports the hook run.
+  hub.listen((event) => observeCodexHookEvent(event));
 
   hub.listen((event) => {
     const gone = goneBy(event);

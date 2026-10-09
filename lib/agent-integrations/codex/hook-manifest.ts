@@ -26,7 +26,14 @@ export const CODEX_POLICY_MANIFEST_VERSION = 1;
 export const CODEX_POLICY_HOOK_TIMEOUT_SECONDS = 10;
 
 const INSTALLATION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const CONTROL = /[\u0000-\u001f\u007f]/;
+
+/** Hook payloads and receipts reject control characters in every field, so no value can forge a log line or feedback row. */
+export const CONTROL = /[\u0000-\u001f\u007f]/;
+export const MAX_ID_LENGTH = 200;
+export const MAX_PATH_LENGTH = 4096;
+
+export const plainText = (v: unknown, max: number): v is string =>
+  typeof v === "string" && v.length > 0 && v.length <= max && !CONTROL.test(v);
 
 export type CodexHookHandler = { type: "command"; command: string; timeout: number };
 export type CodexHookGroup = { hooks: CodexHookHandler[] };

@@ -84,14 +84,20 @@ async function recordUnavailable(context: CallerContext, action: WorkflowAction 
   policyAttention(gateQuestionService(), context, action, message);
 }
 
-/** The attention condition native questions already raise, under its own reason; a launch or resume that verifies the session's policy again recovers it. */
+/**
+ * The attention condition native questions already raise, under its own
+ * reason: `policy-unavailable` when the policy could not decide,
+ * `policy-escaped` when a hook let a stop through after its continuation
+ * cap. A launch or resume that verifies the session's policy again recovers it.
+ */
 export function policyAttention(
   service: { native: { attention(detail: Record<string, unknown> & { reason: string }): void } } | null,
   context: CallerContext, action: WorkflowAction | "stop", message: string,
+  reason: "policy-unavailable" | "policy-escaped" = "policy-unavailable",
 ): void {
   const { binding } = context;
   service?.native.attention({
-    reason: "policy-unavailable", harness: binding.native.harness, sessionKey: binding.key,
+    reason, harness: binding.native.harness, sessionKey: binding.key,
     generation: binding.attachment.generation, action, detail: message,
   });
 }

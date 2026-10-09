@@ -113,7 +113,8 @@ export interface NativeGates {
   close(gateId: string): Promise<GateReply<void>>;
   /**
    * A native question rt cannot present or answer, or a session whose policy
-   * could not decide (`reason: "policy-unavailable"`): logged in its own words
+   * could not decide (`reason: "policy-unavailable"`) or let a stop through
+   * after its continuation cap (`"policy-escaped"`): logged in its own words
    * and announced, never counted as an answer; silent while
    * agent.integrations.enabled is off.
    */
@@ -544,6 +545,7 @@ const QUESTION_ATTENTION = "gate: a native question needs a person; it is not a 
 /** Attention that is not about a native question says what it is about instead. */
 const ATTENTION_WORDING: Readonly<Record<string, string>> = {
   "policy-unavailable": "policy: a session's workflow policy could not decide, so it is not ready for managed work until it is checked again",
+  "policy-escaped": "policy: a session's stop was let through after repeated continuations, so its run may still be open and needs a person",
 };
 
 let active: GateQuestions | null = null;

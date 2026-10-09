@@ -21,7 +21,7 @@
  */
 
 import { createHash } from "crypto";
-import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join } from "path";
 import type {
   CallerContext, Capability, NativeSessionRef, Outcome, SessionBinding,
@@ -29,10 +29,10 @@ import type {
 import type { LaunchRequest, PolicyAdapter, PreparedPolicy } from "../contracts.ts";
 import type { PolicyDeps } from "../policy.ts";
 import {
-  CODEX_POLICY_EVENTS, codexPolicyManifest, parseCodexPolicyHookCommand, validInstallationId,
-  type CodexHookHandler, type CodexPolicyEvent,
+  CODEX_POLICY_EVENTS, MAX_ID_LENGTH, MAX_PATH_LENGTH, codexPolicyManifest, parseCodexPolicyHookCommand, plainText,
+  validInstallationId, type CodexHookHandler, type CodexPolicyEvent,
 } from "./hook-manifest.ts";
-import type { CodexHookVerdict, ReceiptPayload } from "./policy-receipts.ts";
+import type { CodexHookVerdict, CodexThreadEnv, ReceiptPayload } from "./policy-receipts.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { isRecord } from "./protocol.ts";
 import { codexConfigPath, codexFolderTrust } from "./trust.ts";
@@ -43,12 +43,6 @@ import { codexConfigPath, codexFolderTrust } from "./trust.ts";
 export const CODEX_QUESTION_TOOL = "request_user_input";
 
 export type CodexHookEvent = { event: CodexPolicyEvent; sessionId: string; turnId: string; cwd: string; tool?: string };
-
-const CONTROL = /[\u0000-\u001f\u007f]/;
-const MAX_ID = 200;
-const MAX_PATH = 4096;
-
-const plain = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max && !CONTROL.test(v);
 
 function fail<T>(code: "invalid" | "not-ready", message: string): Outcome<T> {
   return { ok: false, error: { code, message } };
@@ -64,11 +58,11 @@ export function parseCodexHook(input: unknown, expected?: CodexPolicyEvent): Out
   const event = input.hook_event_name;
   if (!(CODEX_POLICY_EVENTS as readonly unknown[]).includes(event)) return fail("invalid", "the hook payload names no policy event");
   if (expected !== undefined && event !== expected) return fail("invalid", `the hook was installed for ${expected} but ran for ${String(event)}`);
-  if (!plain(input.session_id, MAX_ID) || !plain(input.turn_id, MAX_ID)) return fail("invalid", "the hook payload needs session_id and turn_id");
-  if (!plain(input.cwd, MAX_PATH) || !isAbsolute(input.cwd)) return fail("invalid", "the hook payload needs an absolute cwd");
+  if (!plainText(input.session_id, MAX_ID_LENGTH) || !plainText(input.turn_id, MAX_ID_LENGTH)) return fail("invalid", "the hook payload needs session_id and turn_id");
+  if (!plainText(input.cwd, MAX_PATH_LENGTH) || !isAbsolute(input.cwd)) return fail("invalid", "the hook payload needs an absolute cwd");
   const parsed: CodexHookEvent = { event: event as CodexPolicyEvent, sessionId: input.session_id, turnId: input.turn_id, cwd: input.cwd };
   if (event === "PreToolUse") {
-    if (!plain(input.tool_name, MAX_ID)) return fail("invalid", "a PreToolUse payload needs tool_name");
+    if (!plainText(input.tool_name, MAX_ID_LENGTH)) return fail("invalid", "a PreToolUse payload needs tool_name");
     parsed.tool = input.tool_name;
   }
   return { ok: true, data: parsed };
@@ -87,34 +81,70 @@ export const STOP_CONTINUATION_CAP = 8;
 export interface StopCounter {
   /** This continuation's count within the turn, starting at 1; a counter that cannot count answers Infinity, which escapes. */
   bump(threadId: string, turnId: string): number;
+  /** Drops a count held for any other turn of the thread: a new turn starts from nothing. */
+  enterTurn(threadId: string, turnId: string): void;
   clear(threadId: string): void;
 }
 
+/** A count no hook has touched for a day belongs to a thread that is gone; each bump removes a bounded number of them. */
+export const STOP_COUNT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const STOP_COUNT_PRUNE_BATCH = 64;
+
 /** One small file per thread under rt's own directory, since every hook run is its own process. */
-export function fileStopCounter(dir: string): StopCounter {
+export function fileStopCounter(dir: string, now: () => number = Date.now): StopCounter {
   const fileOf = (threadId: string) => join(dir, `${createHash("sha256").update(threadId).digest("hex").slice(0, 32)}.json`);
+  const read = (file: string): { turnId: string; count: number } | undefined => {
+    try {
+      const held: unknown = JSON.parse(readFileSync(file, "utf8"));
+      if (isRecord(held) && typeof held.turnId === "string" && typeof held.count === "number" && Number.isInteger(held.count)) {
+        return { turnId: held.turnId, count: held.count };
+      }
+    } catch { /* no count yet for this thread */ }
+    return undefined;
+  };
+  const remove = (file: string) => {
+    try {
+      rmSync(file, { force: true });
+    } catch { /* a stale count only shortens the next run of continuations */ }
+  };
+  const prune = (keep: string) => {
+    let names: string[];
+    try {
+      names = readdirSync(dir).slice(0, STOP_COUNT_PRUNE_BATCH);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const file = join(dir, name);
+      if (file === keep) continue;
+      try {
+        if (now() - statSync(file).mtimeMs > STOP_COUNT_MAX_AGE_MS) remove(file);
+      } catch { /* removed by another hook run */ }
+    }
+  };
   return {
     bump(threadId, turnId) {
       const file = fileOf(threadId);
-      let count = 1;
-      try {
-        const held: unknown = JSON.parse(readFileSync(file, "utf8"));
-        if (isRecord(held) && held.turnId === turnId && typeof held.count === "number" && Number.isInteger(held.count)) count = held.count + 1;
-      } catch { /* no count yet for this thread */ }
+      const held = read(file);
+      const count = held?.turnId === turnId ? held.count + 1 : 1;
       try {
         mkdirSync(dir, { recursive: true });
         const tmp = `${file}.${process.pid}.tmp`;
         writeFileSync(tmp, JSON.stringify({ turnId, count }));
         renameSync(tmp, file);
-        return count;
       } catch {
         return Number.POSITIVE_INFINITY;
       }
+      prune(file);
+      return count;
+    },
+    enterTurn(threadId, turnId) {
+      const file = fileOf(threadId);
+      const held = read(file);
+      if (held !== undefined && held.turnId !== turnId) remove(file);
     },
     clear(threadId) {
-      try {
-        rmSync(fileOf(threadId), { force: true });
-      } catch { /* a stale count only shortens the next run of continuations */ }
+      remove(fileOf(threadId));
     },
   };
 }
@@ -124,7 +154,7 @@ export function fileStopCounter(dir: string): StopCounter {
 export type CodexHookResult = { exitCode: 0 | 2; stdout: string; stderr: string };
 
 /** Codex reads an empty JSON object as no decision, so the native call goes ahead. */
-export const CODEX_HOOK_PASS: CodexHookResult = Object.freeze({ exitCode: 0, stdout: "{}", stderr: "" });
+export const CODEX_HOOK_PASS: CodexHookResult = Object.freeze({ exitCode: 0, stdout: "{}\n", stderr: "" });
 
 /** Feedback reaches the model verbatim, so it is kept to a few lines of plain text. */
 export const CODEX_FEEDBACK_LIMIT = 2000;
@@ -147,6 +177,11 @@ export type CodexHookDeps = {
 };
 
 type Decision = { verdict: CodexHookVerdict; feedback?: string; detail?: string };
+
+/** A receipt's detail is one line of plain text, as the daemon requires of every field. */
+function oneLine(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, CODEX_FEEDBACK_LIMIT);
+}
 
 function bounded(text: string): string {
   const clean = text.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, " ");
@@ -187,6 +222,11 @@ async function decideStop(context: CallerContext, hook: CodexHookEvent, deps: Co
   return { verdict: "continue", feedback: outcome.data.reason };
 }
 
+/**
+ * The manifest revision this hook belongs to. Run from source, process.execPath
+ * is bun rather than the rt the manifest names, so M6c compares receipt
+ * revisions against manifest revisions, never against PreparedPolicy.revision.
+ */
 function revisionOf(executable: string | undefined, installation: string): string | undefined {
   if (executable === undefined) return undefined;
   try {
@@ -196,15 +236,17 @@ function revisionOf(executable: string | undefined, installation: string): strin
   }
 }
 
-async function sendReceipt(hook: CodexHookEvent, profile: string, decision: Decision, deps: CodexHookDeps, log: NonNullable<CodexHookDeps["log"]>): Promise<void> {
+async function sendReceipt(
+  hook: CodexHookEvent, profile: string, threadEnv: CodexThreadEnv, decision: Decision, deps: CodexHookDeps, log: NonNullable<CodexHookDeps["log"]>,
+): Promise<void> {
   const installation = deps.installation;
   if (!validInstallationId(installation)) return;
   const revision = revisionOf(deps.executable ?? process.execPath, installation);
   if (revision === undefined) return;
   const payload: ReceiptPayload = {
     installation, revision, profile, event: hook.event, ...(hook.tool !== undefined && { tool: hook.tool }),
-    sessionId: hook.sessionId, turnId: hook.turnId, verdict: decision.verdict,
-    ...(decision.detail !== undefined && { detail: decision.detail.slice(0, CODEX_FEEDBACK_LIMIT) }),
+    sessionId: hook.sessionId, turnId: hook.turnId, threadEnv, verdict: decision.verdict,
+    ...(decision.detail !== undefined && { detail: oneLine(decision.detail) }),
   };
   try {
     const send = deps.receipt ?? (async (p: ReceiptPayload) => (await import("../../../packages/rt-client/src/client.ts")).agentPolicyReceipt(p));
@@ -238,20 +280,21 @@ export async function handleCodexHook(input: unknown, deps: CodexHookDeps = {}):
     const enabled = deps.enabled ?? (await import("../switch.ts")).integrationsEnabled;
     if (!enabled()) return CODEX_HOOK_PASS;
     const env = deps.env ?? process.env;
+    // The decision keys on the payload's thread alone: an app server serving several threads, or a hook started
+    // from inside a Codex shell, can carry another thread's id, and that must never switch enforcement off.
     const thread = env.CODEX_THREAD_ID;
-    if (typeof thread === "string" && thread !== "" && thread !== hook.sessionId) {
-      log("a Codex policy hook's payload names another thread than the process it runs in, so it decided nothing", { thread, session: hook.sessionId });
-      return CODEX_HOOK_PASS;
-    }
+    const threadEnv: CodexThreadEnv = typeof thread !== "string" || thread === "" ? "absent" : thread === hook.sessionId ? "same" : "other";
+    if (threadEnv === "other") log("a Codex policy hook runs in a process naming another thread; it decides for the payload's thread", { thread, session: hook.sessionId });
     const profile = canonicalCodexProfile(undefined, env);
     const native: NativeSessionRef = { harness: "codex", profile, kind: "id", value: hook.sessionId };
     const context = (deps.resolve ?? (await bindingResolver()))(native);
     if (!context.ok) return CODEX_HOOK_PASS;
 
     const stops = deps.stops ?? fileStopCounter(join((await import("../../rt-paths.ts")).rtDir(), "codex-policy", "stop-continuations"));
+    stops.enterTurn(hook.sessionId, hook.turnId);
     const decision = hook.event === "Stop" ? await decideStop(context.data, hook, deps, stops) : await decideAsk(context.data, hook, deps);
     if (decision.verdict === "escaped") log("a Codex session's Stop was let through after repeated continuations", { session: hook.sessionId, turn: hook.turnId, detail: decision.detail });
-    await sendReceipt(hook, profile, decision, deps, log);
+    await sendReceipt(hook, profile, threadEnv, decision, deps, log);
     if (decision.feedback === undefined) return CODEX_HOOK_PASS;
     return { exitCode: 2, stdout: "", stderr: bounded(decision.feedback) };
   } catch (err) {

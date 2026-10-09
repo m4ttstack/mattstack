@@ -14,15 +14,17 @@ import {
   CODEX_POLICY_HOOK_TIMEOUT_SECONDS, codexPolicyHookCommand, codexPolicyManifest, parseCodexPolicyHookCommand,
 } from "../codex/hook-manifest.ts";
 import {
-  CODEX_FEEDBACK_LIMIT, CODEX_HOOK_PASS, CODEX_PROVEN_POLICY, STOP_CONTINUATION_CAP, createCodexPolicy, fileStopCounter,
-  handleCodexHook, parseCodexHook, type CodexHookDeps, type StopCounter,
+  CODEX_FEEDBACK_LIMIT, CODEX_HOOK_PASS, CODEX_PROVEN_POLICY, STOP_CONTINUATION_CAP, STOP_COUNT_MAX_AGE_MS, createCodexPolicy, fileStopCounter,
+  handleCodexHook, parseCodexHook, type CodexHookDeps, type CodexHookResult, type StopCounter,
 } from "../codex/policy.ts";
 import {
-  acceptCodexPolicyReceipt, checkReceiptPayload, createCodexPolicyReceipts, type ReceiptPayload,
+  acceptCodexPolicyReceipt, checkReceiptPayload, createCodexPolicyReceipts, observeCodexHookEvent, type CodexHookRun, type ReceiptPayload,
 } from "../codex/policy-receipts.ts";
 import { codexSupported } from "../codex/sessions.ts";
 import { createGateQuestions } from "../questions.ts";
 import { createSessionStore } from "../session-store.ts";
+import { agentPolicyHook } from "../../../commands/agent-policy-hook.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import { stopReason, type ForkCheckPayload, type ForkCheckResponse } from "../policy.ts";
 import type { LaunchRequest } from "../contracts.ts";
 
@@ -75,6 +77,9 @@ function memoryStops(): StopCounter & { counts: Map<string, { turnId: string; co
       const count = held && held.turnId === turnId ? held.count + 1 : 1;
       counts.set(threadId, { turnId, count });
       return count;
+    },
+    enterTurn(threadId, turnId) {
+      if (counts.get(threadId)?.turnId !== turnId) counts.delete(threadId);
     },
     clear(threadId) {
       counts.delete(threadId);
@@ -185,7 +190,7 @@ describe("handleCodexHook", () => {
     const revision = codexPolicyManifest({ executable: EXE, installationId: INSTALLATION }).revision;
     expect(spies.receipts).toEqual([{
       installation: INSTALLATION, revision, profile: "default", event: "PreToolUse", tool: "request_user_input",
-      sessionId: THREAD, turnId: TURN, verdict: "allow",
+      sessionId: THREAD, turnId: TURN, threadEnv: "absent", verdict: "allow",
     }]);
 
     // Another profile's home names another thread store, so the same id is not this binding.
@@ -195,10 +200,9 @@ describe("handleCodexHook", () => {
     expect(elsewhere.spies.forkChecks).toEqual([]);
     expect(elsewhere.spies.receipts).toEqual([]);
 
-    // The process's own thread variable must agree with the payload's thread.
-    const crossed = harness({ event: "PreToolUse", env: { CODEX_THREAD_ID: OTHER_THREAD } });
-    expect(await handleCodexHook(payload(), crossed.deps)).toEqual(CODEX_HOOK_PASS);
-    expect(crossed.spies.resolved).toEqual([]);
+    const same = harness({ event: "PreToolUse", env: { CODEX_THREAD_ID: THREAD } });
+    expect(await handleCodexHook(payload(), same.deps)).toEqual(CODEX_HOOK_PASS);
+    expect(same.spies.receipts.map((r) => r.threadEnv)).toEqual(["same"]);
 
     // A pane or job in the environment never names a binding.
     const unbound = harness({ event: "PreToolUse", env: { HERDR_PANE_ID: "w2:p3", HERD_ID: "h1", HERD_JOB: "job-a" } });
@@ -213,6 +217,38 @@ describe("handleCodexHook", () => {
     const { deps, spies } = harness({ fork: { ok: true, data: { allow: false } } });
     expect(await handleCodexHook(payload(), deps)).toEqual(CODEX_HOOK_PASS);
     expect(spies.forkChecks).toEqual([]);
+  });
+
+  test("a CODEX_THREAD_ID naming another thread never switches enforcement off", async () => {
+    bindAgent(THREAD, { subject: "run:r1" });
+    const ask = harness({ event: "PreToolUse", env: { CODEX_THREAD_ID: OTHER_THREAD }, fork: { ok: true, data: { allow: false, subject: "run:r1" } } });
+    expect((await handleCodexHook(payload(), ask.deps)).exitCode).toBe(2);
+    expect(ask.spies.resolved).toEqual([codex(THREAD)]);
+    expect(ask.spies.receipts).toEqual([expect.objectContaining({ verdict: "refused", threadEnv: "other", sessionId: THREAD })]);
+
+    const stop = harness({ event: "Stop", env: { CODEX_THREAD_ID: OTHER_THREAD }, snapshots: { "/runs/a/r-open/state.db": ownedRun("r-open") } });
+    expect((await handleCodexHook(stopPayload(), stop.deps)).exitCode).toBe(2);
+    expect(stop.spies.receipts).toEqual([expect.objectContaining({ verdict: "continue", threadEnv: "other" })]);
+  });
+
+  test("a turn the live connection does not run still enforces, and the receipt records other", async () => {
+    const bound = bindAgent(THREAD, { subject: "run:r1" });
+    const store = createCodexPolicyReceipts();
+    const viaDaemon = (deps: CodexHookDeps): CodexHookDeps => ({
+      ...deps,
+      receipt: (p) => acceptCodexPolicyReceipt(p, {
+        enabled: () => true, store, attention: () => {},
+        resolve: (native) => resolveCallerContextNow({ native }, { db }),
+        activeTurn: () => "019a0000-0000-7000-8000-00000000c0de",
+      }),
+    });
+    const ask = harness({ event: "PreToolUse", fork: { ok: true, data: { allow: false, subject: "run:r1" } } });
+    expect((await handleCodexHook(payload(), viaDaemon(ask.deps))).exitCode).toBe(2);
+    const stop = harness({ event: "Stop", snapshots: { "/runs/a/r-open/state.db": ownedRun("r-open") } });
+    expect(await handleCodexHook(stopPayload(), viaDaemon(stop.deps))).toEqual({ exitCode: 2, stdout: "", stderr: stopReason("r-open", "ship") });
+    expect(store.list(bound.key, bound.attachment.generation).map((r) => [r.event, r.verdict, r.turn])).toEqual([
+      ["PreToolUse", "refused", "other"], ["Stop", "continue", "other"],
+    ]);
   });
 
   test("refused question exits two", async () => {
@@ -295,11 +331,20 @@ describe("handleCodexHook", () => {
     expect(stops.counts.has(THREAD)).toBe(false);
   });
 
-  test("the file counter counts per thread and turn and escapes when it cannot write", () => {
-    const counter = fileStopCounter(join(dir, "stops"));
+  test("the file counter counts per thread and turn, forgets other turns and old threads, and escapes when it cannot write", () => {
+    let clock = Date.now();
+    const counter = fileStopCounter(join(dir, "stops"), () => clock);
     expect([counter.bump("t1", "u1"), counter.bump("t1", "u1"), counter.bump("t2", "u1"), counter.bump("t1", "u2")]).toEqual([1, 2, 1, 1]);
     counter.clear("t1");
     expect(counter.bump("t1", "u2")).toBe(1);
+    expect(counter.bump("t1", "u2")).toBe(2);
+    counter.enterTurn("t1", "u2");
+    expect(counter.bump("t1", "u2")).toBe(3);
+    counter.enterTurn("t1", "u3");
+    expect(readdirSync(join(dir, "stops"))).toHaveLength(1);
+    clock += STOP_COUNT_MAX_AGE_MS + 60_000;
+    expect(counter.bump("t3", "u1")).toBe(1);
+    expect(readdirSync(join(dir, "stops"))).toHaveLength(1);
     expect(readdirSync(join(dir, "stops")).every((f) => /^[0-9a-f]{32}\.json$/.test(f))).toBe(true);
     writeFileSync(join(dir, "blocked"), "a file, not a directory");
     expect(fileStopCounter(join(dir, "blocked", "stops")).bump("t1", "u1")).toBe(Number.POSITIVE_INFINITY);
@@ -351,25 +396,84 @@ describe("policy receipts", () => {
   });
   const resolve = (native: NativeSessionRef): Outcome<CallerContext> => resolveCallerContextNow({ native }, { db });
 
-  test("record the daemon's own binding and turn match, and a nonce only for the issued diagnostic turn", async () => {
+  test("record the daemon's own binding, thread agreement and turn match", async () => {
     const bound = bindAgent(THREAD);
     const store = createCodexPolicyReceipts(() => 42);
     const deps = { enabled: () => true, resolve, store, activeTurn: () => TURN, attention: () => { throw new Error("no attention expected"); } };
 
-    expect(await acceptCodexPolicyReceipt(receipt(), deps)).toEqual({ ok: true, data: { turn: "current", diagnostic: false } });
-    const nonce = store.issueDiagnostic(bound.key, bound.attachment.generation, "019a0000-0000-7000-8000-00000000d1a6");
-    expect(await acceptCodexPolicyReceipt(receipt({ turnId: "019a0000-0000-7000-8000-00000000d1a6" }), { ...deps, activeTurn: () => undefined }))
-      .toEqual({ ok: true, data: { turn: "unknown", diagnostic: true } });
-    expect(await acceptCodexPolicyReceipt(receipt(), { ...deps, activeTurn: () => "019a0000-0000-7000-8000-00000000beef" }))
+    expect(await acceptCodexPolicyReceipt(receipt({ threadEnv: "same" }), deps)).toEqual({ ok: true, data: { turn: "current", diagnostic: false } });
+    expect(await acceptCodexPolicyReceipt(receipt(), { ...deps, activeTurn: () => undefined })).toEqual({ ok: true, data: { turn: "unknown", diagnostic: false } });
+    expect(await acceptCodexPolicyReceipt(receipt({ threadEnv: "other" }), { ...deps, activeTurn: () => "019a0000-0000-7000-8000-00000000beef" }))
       .toEqual({ ok: true, data: { turn: "other", diagnostic: false } });
 
     const held = store.list(bound.key, bound.attachment.generation);
-    expect(held.map((r) => [r.turn, r.nonce])).toEqual([["current", undefined], ["unknown", nonce], ["other", undefined]]);
+    expect(held.map((r) => [r.turn, r.threadEnv])).toEqual([["current", "same"], ["unknown", "absent"], ["other", "other"]]);
     expect(held[0]).toEqual({
       sessionKey: bound.key, generation: bound.attachment.generation, threadId: THREAD, turnId: TURN, event: "Stop",
-      verdict: "continue", installation: INSTALLATION, revision, turn: "current", at: 42,
+      verdict: "continue", installation: INSTALLATION, revision, turn: "current", threadEnv: "same", at: 42,
     });
     expect(store.list(bound.key, bound.attachment.generation + 1)).toEqual([]);
+  });
+
+  describe("diagnostic proof", () => {
+    const DIAG = "019a0000-0000-7000-8000-00000000d1a6";
+    const run = (over: Partial<CodexHookRun> = {}): CodexHookRun => ({
+      threadId: THREAD, turnId: DIAG, id: "run-1", eventName: "stop", status: "blocked",
+      sourcePath: "/sandbox/project/.codex/hooks.json", source: "project", handlerType: "command", ...over,
+    });
+    function setup() {
+      const bound = bindAgent(THREAD);
+      const store = createCodexPolicyReceipts();
+      const nonce = store.issueDiagnostic(bound.key, bound.attachment.generation, DIAG);
+      const deps = { enabled: () => true, resolve, store, activeTurn: () => DIAG, attention: () => {} };
+      const nonces = () => store.list(bound.key, bound.attachment.generation).map((r) => r.nonce);
+      return { bound, store, nonce, deps, nonces };
+    }
+
+    test("a receipt from a non-hook caller in the diagnostic turn is not diagnostic", async () => {
+      const { deps, nonces } = setup();
+      expect(await acceptCodexPolicyReceipt(receipt({ turnId: DIAG, threadEnv: "same" }), deps))
+        .toEqual({ ok: true, data: { turn: "current", diagnostic: false } });
+      expect(nonces()).toEqual([undefined]);
+    });
+
+    test("with the matching native hook/completed it is, once per native run", async () => {
+      const { store, nonce, deps, nonces } = setup();
+      await acceptCodexPolicyReceipt(receipt({ turnId: DIAG, threadEnv: "same" }), deps);
+      await acceptCodexPolicyReceipt(receipt({ turnId: DIAG, threadEnv: "same" }), deps);
+      observeCodexHookEvent({ method: "hook/completed", threadId: THREAD, turnId: DIAG, run: { id: "run-1", eventName: "stop", status: "blocked", sourcePath: "/sandbox/project/.codex/hooks.json", source: "project", handlerType: "command" } }, store);
+      expect(nonces()).toEqual([nonce, undefined]);
+      expect(store.list(createSessionStore(db).find(codex(THREAD))!.key, 1)[0]!.hookRun).toBe("run-1");
+
+      // A run seen before its receipt is held for it.
+      store.observe(run({ id: "run-2", eventName: "preToolUse", status: "completed" }));
+      expect(await acceptCodexPolicyReceipt(receipt({ turnId: DIAG, threadEnv: "same", event: "PreToolUse", tool: "request_user_input", verdict: "allow" }), deps))
+        .toEqual({ ok: true, data: { turn: "current", diagnostic: true } });
+    });
+
+    test("a run that does not match fails closed", async () => {
+      const cases: Array<[string, Partial<CodexHookRun>, Partial<ReceiptPayload>]> = [
+        ["another turn", { turnId: TURN }, {}],
+        ["another thread", { threadId: OTHER_THREAD }, {}],
+        ["another event", { eventName: "preToolUse" }, {}],
+        ["a status that disagrees with the verdict", { status: "completed" }, {}],
+        ["a user-level hook", { source: "user" }, {}],
+        ["a source that is not a project hooks file", { sourcePath: "/tmp/hooks.json" }, {}],
+        ["no source path", { sourcePath: undefined }, {}],
+        ["a receipt whose process named another thread", {}, { threadEnv: "other" }],
+        ["a receipt for a turn the connection does not run", {}, {}],
+      ];
+      for (const [name, runOver, receiptOver] of cases) {
+        rmSync(join(dir, "state.db"), { force: true });
+        db.close();
+        db = openStateDb(join(dir, "state.db"));
+        const { store, deps, nonces } = setup();
+        const activeTurn = name.includes("does not run") ? () => TURN : deps.activeTurn;
+        await acceptCodexPolicyReceipt(receipt({ turnId: DIAG, threadEnv: "same", ...receiptOver }), { ...deps, activeTurn });
+        store.observe(run(runOver));
+        expect({ name, nonces: nonces() }).toEqual({ name, nonces: [undefined] });
+      }
+    });
   });
 
   test("a receipt cannot name a binding, carry a nonce, or record for an unbound thread", async () => {
@@ -382,6 +486,8 @@ describe("policy receipts", () => {
     expect(checkReceiptPayload(receipt({ installation: "../x" })).ok).toBe(false);
     expect(checkReceiptPayload(receipt({ verdict: "answered" as ReceiptPayload["verdict"] })).ok).toBe(false);
     expect(checkReceiptPayload(receipt({ turnId: "" })).ok).toBe(false);
+    expect(checkReceiptPayload(receipt({ verdict: "unavailable", detail: "line one\nline two" })).ok).toBe(false);
+    expect(checkReceiptPayload(receipt({ threadEnv: "maybe" as ReceiptPayload["threadEnv"] })).ok).toBe(false);
 
     const stranger = await acceptCodexPolicyReceipt(receipt({ sessionId: OTHER_THREAD }), deps);
     expect(stranger.ok).toBe(false);
@@ -390,18 +496,22 @@ describe("policy receipts", () => {
     expect(store.list(createSessionStore(db).find(codex(THREAD))!.key, 1)).toEqual([]);
   });
 
-  test("an unavailable verdict raises the policy-unavailable attention through the daemon", async () => {
+  test("an unavailable or escaped verdict raises its own attention through the daemon", async () => {
     const bound = bindAgent(THREAD);
-    const raised: Array<{ key: string; action: string; detail: string }> = [];
+    const raised: Array<{ key: string; action: string; detail: string; reason: string }> = [];
     const handlers = createAgentIntegrationHandlers({
       receipts: {
         enabled: () => true, resolve, store: createCodexPolicyReceipts(), activeTurn: () => TURN,
-        attention: (context, action, detail) => { raised.push({ key: context.binding.key, action, detail }); },
+        attention: (context, action, detail, reason) => { raised.push({ key: context.binding.key, action, detail, reason }); },
       },
     });
     expect(await handlers["agent:policy-receipt"](receipt({ verdict: "unavailable", detail: "the gate service gave no verdict", event: "PreToolUse", tool: "request_user_input" })))
       .toEqual({ ok: true, data: { turn: "current", diagnostic: false } });
-    expect(raised).toEqual([{ key: bound.key, action: "ask", detail: "the gate service gave no verdict" }]);
+    await handlers["agent:policy-receipt"](receipt({ verdict: "escaped", detail: "run r-open was still open after 8 continuations in one turn, so the turn may end" }));
+    expect(raised).toEqual([
+      { key: bound.key, action: "ask", detail: "the gate service gave no verdict", reason: "policy-unavailable" },
+      { key: bound.key, action: "stop", detail: "run r-open was still open after 8 continuations in one turn, so the turn may end", reason: "policy-escaped" },
+    ]);
     expect(await handlers["agent:policy-receipt"]({ ...receipt(), extra: 1 })).toEqual({
       ok: false, error: "a receipt has no extra field", failure: { code: "invalid", message: "a receipt has no extra field" },
     });
@@ -414,15 +524,18 @@ describe("policy receipts", () => {
     const log = { warn: (_d: unknown, message: string) => { warned.push(message); }, info: () => {}, debug: () => {} };
     const on = createGateQuestions({ gates: store, enabled: () => true, emit: (topic) => { emitted.push(topic); }, log: log as never });
     on.native.attention({ reason: "policy-unavailable" });
+    on.native.attention({ reason: "policy-escaped" });
     on.native.attention({ reason: "async-question" });
     expect(warned).toEqual([
       "policy: a session's workflow policy could not decide, so it is not ready for managed work until it is checked again",
+      "policy: a session's stop was let through after repeated continuations, so its run may still be open and needs a person",
       "gate: a native question needs a person; it is not a gate rt can answer",
     ]);
-    expect(emitted).toEqual(["gate.native-attention", "gate.native-attention"]);
+    expect(emitted).toEqual(["gate.native-attention", "gate.native-attention", "gate.native-attention"]);
     const off = createGateQuestions({ gates: store, enabled: () => false, emit: (topic) => { emitted.push(topic); }, log: log as never });
     off.native.attention({ reason: "policy-unavailable" });
-    expect(emitted).toHaveLength(2);
+    off.native.attention({ reason: "policy-escaped" });
+    expect(emitted).toHaveLength(3);
   });
 });
 
@@ -508,5 +621,43 @@ describe("createCodexPolicy", () => {
     mkdirSync(bare, { recursive: true });
     const none = await createCodexPolicy({ env: { HOME: dir, CODEX_HOME: join(dir, "codex-home") }, fingerprint: () => "x" }).prepare(request(bare));
     expect(none).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("installs rt's PreToolUse policy hook") } });
+  });
+});
+
+// ─── The command ─────────────────────────────────────────────────────────────
+
+describe("rt agent policy-hook", () => {
+  async function drive(args: string[], stdin: string, result: CodexHookResult) {
+    const seen: Array<{ input: unknown; deps: CodexHookDeps }> = [];
+    const exits: number[] = [];
+    const cap = captureOut();
+    try {
+      await agentPolicyHook(args, {
+        readStdin: async () => stdin,
+        handle: async (input, deps) => { seen.push({ input, deps }); return result; },
+        exit: (code) => { exits.push(code); },
+      });
+      return { seen, exits, stdout: cap.stdout(), stderr: cap.stderr() };
+    } finally {
+      cap.restore();
+    }
+  }
+
+  test("passes the definition's flags and the parsed payload, and a pass is `{}` alone on stdout", async () => {
+    const run = await drive(["--installation", INSTALLATION, "--event", "Stop"], JSON.stringify(stopPayload()), CODEX_HOOK_PASS);
+    expect(run.seen).toEqual([{ input: stopPayload(), deps: { event: "Stop", installation: INSTALLATION } }]);
+    expect(run).toMatchObject({ stdout: "{}\n", stderr: "", exits: [] });
+  });
+
+  test("bad JSON reaches the handler as no payload, which passes", async () => {
+    const run = await drive(["--event"], "{not json", CODEX_HOOK_PASS);
+    expect(run.seen).toEqual([{ input: undefined, deps: {} }]);
+    expect(await handleCodexHook(undefined, { log: () => {} })).toEqual(CODEX_HOOK_PASS);
+    expect(run.stdout).toBe("{}\n");
+  });
+
+  test("a refusal is stderr alone and exit 2", async () => {
+    const run = await drive(["--installation", INSTALLATION, "--event", "PreToolUse"], JSON.stringify(payload()), { exitCode: 2, stdout: "", stderr: "refused" });
+    expect(run).toMatchObject({ stdout: "", stderr: "refused", exits: [2] });
   });
 });

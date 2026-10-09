@@ -183,7 +183,9 @@ export type CodexEvent =
   | Notification<"item/started" | "item/completed", { turnId: string; item: CodexItem }>
   | Notification<"serverRequest/resolved", { requestId: CodexRequestId }>
   | Notification<"hook/started" | "hook/completed", {
-    turnId: string | null; run: { id: string; eventName: Enum<"hookEvent">; status: Enum<"hookRun"> };
+    turnId: string | null;
+    /** `sourcePath`, `source` and `handlerType` identify the definition that ran; absent when Codex sent none. */
+    run: { id: string; eventName: Enum<"hookEvent">; status: Enum<"hookRun">; sourcePath?: string; source?: string; handlerType?: string };
   }>;
 
 export type ParsedEvent =
@@ -328,6 +330,9 @@ function parse(message: Fields, connection: string): CodexEvent | undefined {
           id: text(run, "id"),
           eventName: oneOf(run.eventName, CODEX_STATUS_ENUMS.hookEvent, "run.eventName"),
           status: oneOf(run.status, CODEX_STATUS_ENUMS.hookRun, "run.status"),
+          ...(typeof run.sourcePath === "string" && { sourcePath: run.sourcePath }),
+          ...(typeof run.source === "string" && { source: run.source }),
+          ...(typeof run.handlerType === "string" && { handlerType: run.handlerType }),
         },
       };
     }
