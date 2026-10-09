@@ -6,9 +6,10 @@
  * Codex runs the manifest's hooks (hook-manifest.ts) as `rt agent
  * policy-hook`, handing each the native payload on stdin. A PreToolUse for
  * `request_user_input` is a question, so it asks the shared fork rule; a
- * Stop asks the shared continuation rule. Every other tool, an unbound or
- * detached thread, and a malformed or foreign payload pass with nothing
- * read or written. The only writes a hook can cause are the shared policy's
+ * Stop asks the shared continuation rule. Every other tool passes; for a
+ * bound thread it still sends a receipt, so a check turn can count every run
+ * of rt's hook. An unbound or detached thread and a malformed or foreign
+ * payload pass with nothing written. The only writes a hook can cause are the shared policy's
  * own on an unavailable verdict (readiness withdrawn), the continuation
  * count below, and a receipt the daemon records as evidence; no hook
  * answers a gate or moves a run.
@@ -110,11 +111,14 @@ export function fileStopCounter(dir: string, now: () => number = Date.now): Stop
   const prune = (keep: string) => {
     let names: string[];
     try {
-      names = readdirSync(dir).slice(0, STOP_COUNT_PRUNE_BATCH);
+      names = readdirSync(dir);
     } catch {
       return;
     }
-    for (const name of names) {
+    // A small directory is checked whole; a large one from a random start, so every file is reached over time.
+    const start = names.length <= STOP_COUNT_PRUNE_BATCH ? 0 : Math.floor(Math.random() * names.length);
+    const batch = Array.from({ length: Math.min(names.length, STOP_COUNT_PRUNE_BATCH) }, (_, i) => names[(start + i) % names.length]!);
+    for (const name of batch) {
       const file = join(dir, name);
       if (file === keep) continue;
       try {
@@ -208,6 +212,7 @@ async function decideAsk(context: CallerContext, hook: CodexHookEvent, deps: Cod
 }
 
 async function decideStop(context: CallerContext, hook: CodexHookEvent, deps: CodexHookDeps, stops: StopCounter): Promise<Decision> {
+  stops.enterTurn(hook.sessionId, hook.turnId);
   const { inspectStop } = await import("../policy.ts");
   const outcome = await inspectStop(context, deps.policy);
   if (!outcome.ok) return { verdict: "unavailable", detail: outcome.error.message };
@@ -275,7 +280,6 @@ export async function handleCodexHook(input: unknown, deps: CodexHookDeps = {}):
     return CODEX_HOOK_PASS;
   }
   const hook = parsed.data;
-  if (hook.event === "PreToolUse" && hook.tool !== CODEX_QUESTION_TOOL) return CODEX_HOOK_PASS;
   try {
     const enabled = deps.enabled ?? (await import("../switch.ts")).integrationsEnabled;
     if (!enabled()) return CODEX_HOOK_PASS;
@@ -290,9 +294,14 @@ export async function handleCodexHook(input: unknown, deps: CodexHookDeps = {}):
     const context = (deps.resolve ?? (await bindingResolver()))(native);
     if (!context.ok) return CODEX_HOOK_PASS;
 
-    const stops = deps.stops ?? fileStopCounter(join((await import("../../rt-paths.ts")).rtDir(), "codex-policy", "stop-continuations"));
-    stops.enterTurn(hook.sessionId, hook.turnId);
-    const decision = hook.event === "Stop" ? await decideStop(context.data, hook, deps, stops) : await decideAsk(context.data, hook, deps);
+    // Any other tool is allowed, but still receipted: a check turn is unproven unless every run of rt's hook has its receipt.
+    if (hook.event === "PreToolUse" && hook.tool !== CODEX_QUESTION_TOOL) {
+      await sendReceipt(hook, profile, threadEnv, { verdict: "allow" }, deps, log);
+      return CODEX_HOOK_PASS;
+    }
+    const decision = hook.event === "Stop"
+      ? await decideStop(context.data, hook, deps, deps.stops ?? fileStopCounter(join((await import("../../rt-paths.ts")).rtDir(), "codex-policy", "stop-continuations")))
+      : await decideAsk(context.data, hook, deps);
     if (decision.verdict === "escaped") log("a Codex session's Stop was let through after repeated continuations", { session: hook.sessionId, turn: hook.turnId, detail: decision.detail });
     await sendReceipt(hook, profile, threadEnv, decision, deps, log);
     if (decision.feedback === undefined) return CODEX_HOOK_PASS;

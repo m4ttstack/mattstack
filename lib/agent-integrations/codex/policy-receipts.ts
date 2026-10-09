@@ -6,13 +6,15 @@
  *
  * Anything on the machine can send a receipt (rt.sock does not say who
  * calls), including a model running `rt agent policy-hook` from its own
- * shell. So a receipt alone proves nothing. Proof is a diagnostic nonce,
- * issued in-process by whoever starts a diagnostic turn for the turn id
- * Codex returned to it, and it is attached only once the live connection
- * has also seen Codex's own `hook/completed` for that thread, turn and
- * event, from a project command hook, with a status that agrees with the
- * receipt's verdict. Each native run confirms one receipt. Until then, and
- * forever if no such run arrives, the receipt is not diagnostic.
+ * shell, and that shell call fires rt's real PreToolUse hook too. So a
+ * receipt alone proves nothing, and neither does a receipt next to a native
+ * run. Proof is a diagnostic nonce for one controller-issued turn, named by
+ * the turn id Codex returned and the exact hooks file inspected for it. For
+ * each event, that turn must hold exactly one receipt and exactly one native
+ * `hook/completed` from that file, a project command hook whose status
+ * agrees with the receipt's verdict. Any extra receipt, any extra or
+ * unreceipted run, or an overflow leaves the event unproven. A model that
+ * sabotages its own check turn can only make it unproven, never proven.
  *
  * The turn a receipt names is recorded against the live turn (`current`,
  * `other`, `unknown`), and whether the hook process's own CODEX_THREAD_ID
@@ -37,9 +39,9 @@ export type CodexPolicyReceipt = {
   sessionKey: string; generation: number; threadId: string; turnId: string;
   event: CodexPolicyEvent; tool?: string; verdict: CodexHookVerdict;
   installation: string; revision: string; turn: CodexTurnMatch; threadEnv: CodexThreadEnv;
-  /** Set only once a native hook run confirmed this receipt in an issued diagnostic turn. */
+  /** Set only on the one receipt that proves its event in an issued diagnostic turn. */
   nonce?: string;
-  /** The native hook run that confirmed it. */
+  /** The native hook run that proved it. */
   hookRun?: string;
   at: number;
 };
@@ -52,7 +54,8 @@ export type CodexHookRun = {
 };
 
 export interface CodexPolicyReceipts {
-  issueDiagnostic(sessionKey: string, generation: number, turnId: string): string;
+  /** `sourcePath` is the hooks file the policy adapter inspected for this session; only its runs count. */
+  issueDiagnostic(sessionKey: string, generation: number, turnId: string, sourcePath: string): string;
   record(input: CodexReceiptInput): CodexPolicyReceipt;
   /** A native `hook/completed` the live connection saw. */
   observe(run: CodexHookRun): void;
@@ -62,58 +65,64 @@ export interface CodexPolicyReceipts {
 /** Enough for a launch's diagnostic turn and the turns after it; older receipts prove nothing new. */
 const KEPT_PER_SESSION = 32;
 const SESSIONS_KEPT = 256;
-const RUNS_KEPT = 64;
+/** A clean check turn has one receipt and one run per event; past this many the turn is unproven anyway. */
+const DIAGNOSTIC_EVIDENCE_KEPT = 16;
 
 const NATIVE_EVENT: Record<CodexPolicyEvent, string> = { PreToolUse: "preToolUse", Stop: "stop" };
 /** A hook that blocked shows as `blocked`; one that let the call or the stop through, as `completed`. */
 const BLOCKING: ReadonlySet<CodexHookVerdict> = new Set(["refused", "continue"]);
 
-/**
- * Whether a native run is the installed hook producing this receipt. Codex's
- * run summary names its definition by source file and kind, not by command,
- * so the run must come from a project `.codex/hooks.json` command hook.
- */
-function confirms(run: CodexHookRun, receipt: CodexPolicyReceipt): boolean {
-  if (run.threadId !== receipt.threadId || run.turnId !== receipt.turnId) return false;
-  if (run.eventName !== NATIVE_EVENT[receipt.event]) return false;
-  if (run.status !== (BLOCKING.has(receipt.verdict) ? "blocked" : "completed")) return false;
-  if (run.source !== undefined && run.source !== "project") return false;
-  if (run.handlerType !== undefined && run.handlerType !== "command") return false;
-  return typeof run.sourcePath === "string" && run.sourcePath.endsWith("/.codex/hooks.json");
+type Diagnostic = {
+  generation: number; turnId: string; sourcePath: string; nonce: string;
+  receipts: CodexPolicyReceipt[]; runs: CodexHookRun[]; overflow: boolean;
+};
+
+/** Whether rt's own installed hook, and nothing else, produced this receipt's native run. */
+function confirms(run: CodexHookRun, receipt: CodexPolicyReceipt, sourcePath: string): boolean {
+  return run.threadId === receipt.threadId && run.turnId === receipt.turnId
+    && run.eventName === NATIVE_EVENT[receipt.event]
+    && run.status === (BLOCKING.has(receipt.verdict) ? "blocked" : "completed")
+    && run.sourcePath === sourcePath && run.source === "project" && run.handlerType === "command"
+    && receipt.turn === "current" && receipt.threadEnv !== "other";
+}
+
+/** The receipt each event's proof rests on, with its run; an event whose evidence is not exactly one-to-one is absent. */
+function proofs(d: Diagnostic): Map<CodexPolicyReceipt, string> {
+  const proven = new Map<CodexPolicyReceipt, string>();
+  if (d.overflow) return proven;
+  for (const event of CODEX_POLICY_EVENTS) {
+    const receipts = d.receipts.filter((r) => r.event === event);
+    const runs = d.runs.filter((r) => r.eventName === NATIVE_EVENT[event]);
+    if (receipts.length !== 1 || runs.length !== 1) continue;
+    if (confirms(runs[0]!, receipts[0]!, d.sourcePath)) proven.set(receipts[0]!, runs[0]!.id);
+  }
+  return proven;
 }
 
 export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPolicyReceipts {
   const receipts = new Map<string, CodexPolicyReceipt[]>();
-  const diagnostics = new Map<string, { generation: number; turnId: string; nonce: string }>();
-  /** Runs no receipt has claimed yet, newest last; a run used once is gone. */
-  const runs: CodexHookRun[] = [];
+  const diagnostics = new Map<string, Diagnostic>();
 
-  /** A receipt waits for a run only while it sits in its session's issued diagnostic turn and its thread agreed. */
-  function nonceFor(receipt: CodexPolicyReceipt): string | undefined {
-    const issued = diagnostics.get(receipt.sessionKey);
-    if (!issued || issued.generation !== receipt.generation || issued.turnId !== receipt.turnId) return undefined;
-    if (receipt.turn !== "current" || receipt.threadEnv === "other") return undefined;
-    return issued.nonce;
+  function hold<T>(d: Diagnostic, list: T[], item: T): void {
+    if (list.length >= DIAGNOSTIC_EVIDENCE_KEPT) d.overflow = true;
+    else list.push(item);
   }
 
-  function claim(receipt: CodexPolicyReceipt, run: CodexHookRun): boolean {
-    const nonce = nonceFor(receipt);
-    if (nonce === undefined || receipt.nonce !== undefined || !confirms(run, receipt)) return false;
-    receipt.nonce = nonce;
-    receipt.hookRun = run.id;
-    return true;
+  function shown(receipt: CodexPolicyReceipt, proven: Map<CodexPolicyReceipt, string>, nonce: string | undefined): CodexPolicyReceipt {
+    const run = proven.get(receipt);
+    return run === undefined || nonce === undefined ? { ...receipt } : { ...receipt, nonce, hookRun: run };
   }
 
   return {
-    issueDiagnostic(sessionKey, generation, turnId) {
+    issueDiagnostic(sessionKey, generation, turnId, sourcePath) {
       const nonce = randomUUID();
-      diagnostics.set(sessionKey, { generation, turnId, nonce });
+      diagnostics.set(sessionKey, { generation, turnId, sourcePath, nonce, receipts: [], runs: [], overflow: false });
       return nonce;
     },
     record(input) {
       const receipt: CodexPolicyReceipt = { ...input, at: now() };
-      const waiting = runs.findIndex((run) => claim(receipt, run));
-      if (waiting >= 0) runs.splice(waiting, 1);
+      const d = diagnostics.get(input.sessionKey);
+      if (d && d.generation === input.generation && d.turnId === input.turnId) hold(d, d.receipts, receipt);
       const held = receipts.get(input.sessionKey) ?? [];
       receipts.delete(input.sessionKey);
       receipts.set(input.sessionKey, [...held, receipt].slice(-KEPT_PER_SESSION));
@@ -122,17 +131,17 @@ export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPo
         receipts.delete(key);
         diagnostics.delete(key);
       }
-      return receipt;
+      return d ? shown(receipt, proofs(d), d.nonce) : { ...receipt };
     },
     observe(run) {
-      for (const held of receipts.values()) {
-        if (held.some((receipt) => claim(receipt, run))) return;
+      for (const d of diagnostics.values()) {
+        if (d.turnId === run.turnId && run.sourcePath === d.sourcePath) hold(d, d.runs, run);
       }
-      runs.push(run);
-      if (runs.length > RUNS_KEPT) runs.shift();
     },
     list(sessionKey, generation) {
-      return (receipts.get(sessionKey) ?? []).filter((r) => r.generation === generation).map((r) => ({ ...r }));
+      const d = diagnostics.get(sessionKey);
+      const proven = d && d.generation === generation ? proofs(d) : new Map<CodexPolicyReceipt, string>();
+      return (receipts.get(sessionKey) ?? []).filter((r) => r.generation === generation).map((r) => shown(r, proven, d?.nonce));
     },
   };
 }
@@ -144,7 +153,7 @@ export function codexPolicyReceipts(): CodexPolicyReceipts {
   return (shared ??= createCodexPolicyReceipts());
 }
 
-/** Feeds the shared store from a live connection's events; only `hook/completed` with a turn is kept. */
+/** Feeds the shared store from a live connection's events; only `hook/completed` in an issued check turn is kept. */
 export function observeCodexHookEvent(
   event: { method: string; threadId: string; turnId?: string | null; run?: Omit<CodexHookRun, "threadId" | "turnId"> },
   store: CodexPolicyReceipts = codexPolicyReceipts(),

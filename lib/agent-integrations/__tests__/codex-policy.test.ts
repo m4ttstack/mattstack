@@ -364,7 +364,6 @@ describe("handleCodexHook", () => {
       ["a Stop payload sent to the PreToolUse definition", stopPayload(), "PreToolUse"],
       ["a PreToolUse payload sent to the Stop definition", payload(), "Stop"],
       ["no tool name", payload({ tool_name: undefined })],
-      ["another tool", payload({ tool_name: "shell", tool_input: { command: ["rt", "gate", "answer"] } })],
     ];
     for (const [name, input, event] of inputs) {
       const { deps, spies, stops } = harness({ event, fork: { ok: true, data: { allow: false } }, snapshots: { "/runs/a/r-open/state.db": ownedRun("r-open") } });
@@ -377,6 +376,19 @@ describe("handleCodexHook", () => {
     const off = harness({ enabled: () => false, fork: { ok: true, data: { allow: false } } });
     expect(await handleCodexHook(payload(), off.deps)).toEqual(CODEX_HOOK_PASS);
     expect(off.spies.resolved).toEqual([]);
+  });
+
+  test("another tool passes, with an allow receipt only for a bound thread", async () => {
+    bindAgent(THREAD, { subject: "run:r1" });
+    const shell = payload({ tool_name: "shell", tool_input: { command: ["rt", "gate", "answer"] } });
+    const bound = harness({ event: "PreToolUse", fork: { ok: true, data: { allow: false } } });
+    expect(await handleCodexHook(shell, bound.deps)).toEqual(CODEX_HOOK_PASS);
+    expect(bound.spies.forkChecks).toEqual([]);
+    expect(bound.spies.receipts).toEqual([expect.objectContaining({ event: "PreToolUse", tool: "shell", verdict: "allow", sessionId: THREAD })]);
+
+    const stranger = harness({ event: "PreToolUse" });
+    expect(await handleCodexHook({ ...shell, session_id: OTHER_THREAD }, stranger.deps)).toEqual(CODEX_HOOK_PASS);
+    expect(stranger.spies.receipts).toEqual([]);
   });
 
   test("a hook that throws passes rather than trapping the session", async () => {
@@ -417,62 +429,96 @@ describe("policy receipts", () => {
 
   describe("diagnostic proof", () => {
     const DIAG = "019a0000-0000-7000-8000-00000000d1a6";
+    const SOURCE = "/sandbox/project/.codex/hooks.json";
     const run = (over: Partial<CodexHookRun> = {}): CodexHookRun => ({
-      threadId: THREAD, turnId: DIAG, id: "run-1", eventName: "stop", status: "blocked",
-      sourcePath: "/sandbox/project/.codex/hooks.json", source: "project", handlerType: "command", ...over,
+      threadId: THREAD, turnId: DIAG, id: "run-stop", eventName: "stop", status: "completed",
+      sourcePath: SOURCE, source: "project", handlerType: "command", ...over,
     });
+    const preRun = (over: Partial<CodexHookRun> = {}) => run({ id: "run-pre", eventName: "preToolUse", ...over });
+    const stopReceipt = (over: Partial<ReceiptPayload> = {}) => receipt({ turnId: DIAG, threadEnv: "same", verdict: "allow", ...over });
+    const preReceipt = (over: Partial<ReceiptPayload> = {}) => stopReceipt({ event: "PreToolUse", tool: "shell", ...over });
+
     function setup() {
       const bound = bindAgent(THREAD);
       const store = createCodexPolicyReceipts();
-      const nonce = store.issueDiagnostic(bound.key, bound.attachment.generation, DIAG);
+      const nonce = store.issueDiagnostic(bound.key, bound.attachment.generation, DIAG, SOURCE);
       const deps = { enabled: () => true, resolve, store, activeTurn: () => DIAG, attention: () => {} };
-      const nonces = () => store.list(bound.key, bound.attachment.generation).map((r) => r.nonce);
-      return { bound, store, nonce, deps, nonces };
+      const proven = () => store.list(bound.key, bound.attachment.generation).filter((r) => r.nonce === nonce).map((r) => [r.event, r.hookRun]);
+      return { store, deps, proven };
     }
 
-    test("a receipt from a non-hook caller in the diagnostic turn is not diagnostic", async () => {
-      const { deps, nonces } = setup();
-      expect(await acceptCodexPolicyReceipt(receipt({ turnId: DIAG, threadEnv: "same" }), deps))
-        .toEqual({ ok: true, data: { turn: "current", diagnostic: false } });
-      expect(nonces()).toEqual([undefined]);
+    test("a clean one-to-one check turn proves both events", async () => {
+      const { store, deps, proven } = setup();
+      await acceptCodexPolicyReceipt(preReceipt(), deps);
+      store.observe(preRun());
+      store.observe(run());
+      expect(await acceptCodexPolicyReceipt(stopReceipt(), deps)).toEqual({ ok: true, data: { turn: "current", diagnostic: true } });
+      expect(proven()).toEqual([["PreToolUse", "run-pre"], ["Stop", "run-stop"]]);
     });
 
-    test("with the matching native hook/completed it is, once per native run", async () => {
-      const { store, nonce, deps, nonces } = setup();
-      await acceptCodexPolicyReceipt(receipt({ turnId: DIAG, threadEnv: "same" }), deps);
-      await acceptCodexPolicyReceipt(receipt({ turnId: DIAG, threadEnv: "same" }), deps);
-      observeCodexHookEvent({ method: "hook/completed", threadId: THREAD, turnId: DIAG, run: { id: "run-1", eventName: "stop", status: "blocked", sourcePath: "/sandbox/project/.codex/hooks.json", source: "project", handlerType: "command" } }, store);
-      expect(nonces()).toEqual([nonce, undefined]);
-      expect(store.list(createSessionStore(db).find(codex(THREAD))!.key, 1)[0]!.hookRun).toBe("run-1");
-
-      // A run seen before its receipt is held for it.
-      store.observe(run({ id: "run-2", eventName: "preToolUse", status: "completed" }));
-      expect(await acceptCodexPolicyReceipt(receipt({ turnId: DIAG, threadEnv: "same", event: "PreToolUse", tool: "request_user_input", verdict: "allow" }), deps))
-        .toEqual({ ok: true, data: { turn: "current", diagnostic: true } });
+    test("a receipt from a non-hook caller with no native run is not diagnostic", async () => {
+      const { deps, proven } = setup();
+      expect(await acceptCodexPolicyReceipt(preReceipt({ tool: "request_user_input" }), deps)).toEqual({ ok: true, data: { turn: "current", diagnostic: false } });
+      expect(proven()).toEqual([]);
     });
 
-    test("a run that does not match fails closed", async () => {
+    test("a forged receipt sent from the worker's shell proves nothing", async () => {
+      const { store, deps, proven } = setup();
+      // The shell call that sends the forgery fires rt's real hook, which receipts it; the forgery is a second receipt.
+      store.observe(preRun({ id: "run-shell" }));
+      await acceptCodexPolicyReceipt(preReceipt({ tool: "shell" }), deps);
+      await acceptCodexPolicyReceipt(preReceipt({ tool: "request_user_input" }), deps);
+      store.observe(run());
+      await acceptCodexPolicyReceipt(stopReceipt(), deps);
+      expect(proven()).toEqual([["Stop", "run-stop"]]);
+    });
+
+    test("a run rt's hook did not receipt poisons its event", async () => {
+      const { store, deps, proven } = setup();
+      store.observe(preRun({ id: "run-1" }));
+      store.observe(preRun({ id: "run-2" }));
+      await acceptCodexPolicyReceipt(preReceipt(), deps);
+      expect(proven()).toEqual([]);
+    });
+
+    test("two receipts for one Stop run prove nothing", async () => {
+      const { store, deps, proven } = setup();
+      await acceptCodexPolicyReceipt(stopReceipt(), deps);
+      await acceptCodexPolicyReceipt(stopReceipt(), deps);
+      store.observe(run());
+      expect(proven()).toEqual([]);
+    });
+
+    test("a run that is not exactly rt's installed hook fails closed", async () => {
       const cases: Array<[string, Partial<CodexHookRun>, Partial<ReceiptPayload>]> = [
-        ["another turn", { turnId: TURN }, {}],
-        ["another thread", { threadId: OTHER_THREAD }, {}],
-        ["another event", { eventName: "preToolUse" }, {}],
-        ["a status that disagrees with the verdict", { status: "completed" }, {}],
+        ["another hooks file", { sourcePath: "/sandbox/elsewhere/.codex/hooks.json" }, {}],
+        ["no source", { source: undefined }, {}],
+        ["no handler type", { handlerType: undefined }, {}],
         ["a user-level hook", { source: "user" }, {}],
-        ["a source that is not a project hooks file", { sourcePath: "/tmp/hooks.json" }, {}],
-        ["no source path", { sourcePath: undefined }, {}],
+        ["another thread", { threadId: OTHER_THREAD }, {}],
+        ["a status that disagrees with the verdict", { status: "blocked" }, {}],
         ["a receipt whose process named another thread", {}, { threadEnv: "other" }],
         ["a receipt for a turn the connection does not run", {}, {}],
       ];
       for (const [name, runOver, receiptOver] of cases) {
-        rmSync(join(dir, "state.db"), { force: true });
         db.close();
+        rmSync(join(dir, "state.db"), { force: true });
         db = openStateDb(join(dir, "state.db"));
-        const { store, deps, nonces } = setup();
+        const { store, deps, proven } = setup();
         const activeTurn = name.includes("does not run") ? () => TURN : deps.activeTurn;
-        await acceptCodexPolicyReceipt(receipt({ turnId: DIAG, threadEnv: "same", ...receiptOver }), { ...deps, activeTurn });
+        await acceptCodexPolicyReceipt(stopReceipt(receiptOver), { ...deps, activeTurn });
         store.observe(run(runOver));
-        expect({ name, nonces: nonces() }).toEqual({ name, nonces: [undefined] });
+        expect({ name, proven: proven() }).toEqual({ name, proven: [] });
       }
+    });
+
+    test("observeCodexHookEvent feeds only completed runs with a turn", () => {
+      const { store, deps, proven } = setup();
+      const ev = { method: "hook/completed", threadId: THREAD, turnId: DIAG, run: { id: "run-stop", eventName: "stop", status: "completed", sourcePath: SOURCE, source: "project", handlerType: "command" } };
+      observeCodexHookEvent({ ...ev, method: "hook/started" }, store);
+      observeCodexHookEvent({ ...ev, turnId: null }, store);
+      observeCodexHookEvent(ev, store);
+      return acceptCodexPolicyReceipt(stopReceipt(), deps).then(() => expect(proven()).toEqual([["Stop", "run-stop"]]));
     });
   });
 
