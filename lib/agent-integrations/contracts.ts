@@ -170,6 +170,12 @@ export interface QuestionAdapter {
   complete(binding: SessionBinding, question: QuestionBinding, row: GateRow): Promise<Outcome<"completed" | "pending" | "gone" | "conflict">>;
 }
 export interface PolicyAdapter {
+  /**
+   * The harness proves policy per session, after bind, so its mode-level
+   * capability report never lists the policy capabilities; a launch that
+   * requires them is admitted on `prepare` and `verify` instead.
+   */
+  readonly verifiesPerSession?: boolean;
   prepare(request: LaunchRequest): Promise<Outcome<PreparedPolicy>>;
   verify(binding: SessionBinding, prepared: PreparedPolicy, context?: PolicyVerifyContext): Promise<Outcome<PolicyProof>>;
 }

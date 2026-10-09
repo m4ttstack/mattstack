@@ -33,7 +33,7 @@ import { stackToolDefs } from "./stack-tool.ts";
 import { runToolDefs } from "./run-tools.ts";
 import { worktreeToolDefs } from "./worktree-tools.ts";
 import {
-  checkOptional, checkPositiveInts, checkRequired, checkStringArray,
+  boundCaller, callerRefusal, checkOptional, checkPositiveInts, checkRequired, checkStringArray,
   err, fromResponse, HERD_ENV_ERROR, isTimeoutError, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok,
   REPO_NAME_RULE, REPO_TARGET_PROPS, callerChatHandle, callerSession, callerWorker, requireJobEnv,
   resolveSoleHerd, withLandingHint,
@@ -857,12 +857,21 @@ export function mcpTools(): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt herd report"],
-      async handler(input, env) {
+      async handler(input, env, _signal, context) {
         const j = requireJobEnv(env);
         if ("error" in j) return err(j.error);
         const bad = checkRequired(input, [{ name: "body", type: "string" }]);
         if (bad) return err(bad);
-        return fromResponse(await herdReport({ herd: j.herd, job: j.job, body: input.body as string }));
+        const payload: Commands["herd:report"]["payload"] = { herd: j.herd, job: j.job, body: input.body as string };
+        // On, the daemon authorizes the report by the session this call resolves to; off, it sends what it always sent.
+        const caller = await boundCaller(context);
+        if (caller !== null) {
+          if (!caller.ok) return err(callerRefusal(caller.error));
+          const { native } = caller.data.binding;
+          payload.session = native.value;
+          if (native.harness !== "claude") payload.harness = native.harness;
+        }
+        return fromResponse(await herdReport(payload));
       },
     },
     {

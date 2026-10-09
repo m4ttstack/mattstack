@@ -321,6 +321,31 @@ describe("policy readiness", () => {
     expect(readBindingReadiness(db, ordinary.key)?.generation).toBe(1);
   });
 
+  test("a per-session policy is admitted on prepare and verify, though the mode report omits it", async () => {
+    const policyCaps: Capability[] = ["gate-policy", "continuation-policy"];
+    const { integration, calls } = fake({
+      supported: ["launch", "resume", "observe"],
+      policy: {
+        verifiesPerSession: true,
+        verify: async (b, prepared) => ok({
+          sessionKey: b.key, generation: b.attachment.generation, revision: prepared.revision, verified: policyCaps, observedAt: 5, kind: "installation",
+        }),
+      },
+    });
+    const launched = data(await launcherFor([integration]).launchBoundAgent(request(createSessionStore(db).reserve({ identity: "w1" }), { required: policyCaps })));
+    expect(calls.order).toEqual(["loadSessions", "capabilities", "prepare"]);
+    expect(readBindingReadiness(db, launched.key)).toMatchObject({ generation: 1, required: policyCaps, proof: { verified: policyCaps, observedAt: 5 } });
+  });
+
+  test("without a per-session policy, the mode report alone admits policy, as for Codex", async () => {
+    const { integration, calls } = fake({ supported: ["launch", "resume", "observe"] });
+    const reservationId = createSessionStore(db).reserve({ identity: "w1" });
+    const refused = await launcherFor([integration]).launchBoundAgent(request(reservationId, { required: ["gate-policy"] }));
+    expect(refused).toMatchObject({ ok: false, error: { code: "unsupported", message: "The integration does not support: gate-policy" } });
+    expect(calls.spawn).toBe(0);
+    expect(calls.verify).toBe(0);
+  });
+
   test("an ordinary launch never loads an integration's policy", async () => {
     const { integration, calls } = fake();
     data(await launcherFor([integration]).launchBoundAgent(request(createSessionStore(db).reserve({ identity: "w1" }))));

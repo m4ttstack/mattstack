@@ -156,6 +156,7 @@ export function createClaudePolicy(overrides: ClaudePolicyDeps = {}): PolicyAdap
   };
 
   return {
+    verifiesPerSession: true,
     async prepare(request: LaunchRequest): Promise<Outcome<PreparedPolicy>> {
       const found = inspect(deps);
       if (!found.ok) return found;

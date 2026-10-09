@@ -304,6 +304,15 @@ export async function answer(args: string[]): Promise<void> {
   emit(json, data, renderAnswer(gate, data));
 }
 
+/** With agent.integrations.enabled on, the bound session this command runs in, which the daemon authorizes a report by; off, nothing is sent. */
+async function reportCaller(args: string[]): Promise<{ session?: string; harness?: string }> {
+  const { integrationsEnabled, resolveCliBinding } = await import("../lib/agent-integrations/context.ts");
+  if (!integrationsEnabled()) return {};
+  const native = resolveCliBinding(args, process.env)?.native;
+  if (!native) return {};
+  return { session: native.value, ...(native.harness !== "claude" && { harness: native.harness }) };
+}
+
 export async function report(args: string[]): Promise<void> {
   const json = has(args, "--json");
   let w: ReturnType<typeof jobEnv>;
@@ -324,7 +333,7 @@ export async function report(args: string[]): Promise<void> {
     body = await Bun.stdin.text();
   }
   if (!body.trim()) fail("empty report body (pass --file <path> or pipe the body on stdin)");
-  const data = unwrap(await herdReport({ herd: w.herd, job: w.job, body }), "report");
+  const data = unwrap(await herdReport({ herd: w.herd, job: w.job, body, ...(await reportCaller(args)) }), "report");
   emit(json, data, `reported (message #${data.message})`);
 }
 

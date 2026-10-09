@@ -46,7 +46,7 @@ import {
   type ObservationSweep, type PolicyAdapter, type PolicyProof, type PolicyVerifyContext, type PreparedLaunch, type PreparedPolicy, type SessionAdapter,
   type WorkInput, type WorkReceipt,
 } from "./contracts.ts";
-import { policyCapabilities, recordPolicyProof, requirePolicyProof } from "./policy-readiness.ts";
+import { POLICY_CAPABILITIES, policyCapabilities, recordPolicyProof, requirePolicyProof } from "./policy-readiness.ts";
 import { integrationsEnabled } from "./switch.ts";
 import {
   abandonStaleLaunches, claimReservation, createSessionStore, failReservation, isDetachedAttachment, LEGACY_DEFAULT_PROFILE,
@@ -248,6 +248,16 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     }
   }
 
+  /** Whether a launch requiring policy proves it per session, which only the integration's policy adapter can say. */
+  async function verifiesPerSession(integration: HarnessIntegration, required: readonly Capability[]): Promise<boolean> {
+    if (policyCapabilities(required).length === 0 || !integration.loadPolicy) return false;
+    try {
+      return (await integration.loadPolicy()).verifiesPerSession === true;
+    } catch {
+      return false;
+    }
+  }
+
   /** A verify that throws proved nothing; the session stays bound and unready rather than its launch becoming unknown. */
   async function verifyPolicy(
     adapter: PolicyAdapter, binding: SessionBinding, inspected: PreparedPolicy, context: PolicyVerifyContext,
@@ -330,7 +340,11 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     if (made) return bindMade(integration, reservation.id, made, request, kind);
 
     const report = await integration.capabilities(request.mode);
-    const admitted = admit(report, [kind, ...request.required]);
+    const asked: Capability[] = [kind, ...request.required];
+    let admitted = admit(report, asked);
+    if (!admitted.ok && admitted.error.code === "unsupported" && await verifiesPerSession(integration, request.required)) {
+      admitted = admit(report, asked.filter((c) => !POLICY_CAPABILITIES.includes(c)));
+    }
     if (!admitted.ok) return admitted;
     let policy: Outcome<PolicyReady> | undefined;
     if (policyNeeded(request.required).length > 0) {

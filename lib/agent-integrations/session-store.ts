@@ -360,6 +360,9 @@ WHERE agent_id = ? AND bound_key IS NULL AND state IN ('launching', 'launched', 
 ORDER BY created_at DESC LIMIT 1;`;
 const CLAIMED_FOR_AGENT_SQL = `SELECT 1 FROM agent_session_reservations
 WHERE agent_id = ? AND (bound_key IS NOT NULL OR state NOT IN ('reserved', 'failed')) LIMIT 1;`;
+const CLAIMED_FOR_ATTEMPT_SQL = `SELECT 1 FROM agent_session_bindings WHERE attempt_id = ?
+UNION ALL SELECT 1 FROM agent_session_reservations
+WHERE attempt_id = ? AND (bound_key IS NOT NULL OR state NOT IN ('reserved', 'failed')) LIMIT 1;`;
 const LAUNCHED_SQL =`UPDATE agent_session_reservations SET state = 'launched', launched = ?, error = NULL, updated_at = ?
 WHERE id = ? AND bound_key IS NULL AND state = 'launching';`;
 const FAILED_SQL = `UPDATE agent_session_reservations SET state = 'failed', error = ?, updated_at = ?
@@ -470,6 +473,11 @@ export function unresolvedLaunchOf(
 /** Whether any launch for this agent got past its claim, so a session may exist whatever the caller saw. */
 export function launchClaimedFor(db: Database, agentId: string): boolean {
   return db.query(CLAIMED_FOR_AGENT_SQL).get(agentId) !== null;
+}
+
+/** Whether a session may exist for this herd job attempt: a binding names it, or a launch for it got past its claim. */
+export function launchClaimedForAttempt(db: Database, attemptId: string): boolean {
+  return db.query(CLAIMED_FOR_ATTEMPT_SQL).get(attemptId, attemptId) !== null;
 }
 
 /** Drops bound reservations older than `boundBefore` and unlaunched or failed ones older than `idleBefore`; an unresolved launch is kept. */

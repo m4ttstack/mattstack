@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
 import type { Logger } from "pino";
+import type { FaultCode, Outcome, Selection } from "../../packages/rt-client/src/agent-integrations.ts";
 import { isCorruptionError } from "../state/db.ts";
 
 export type HerdStatus = "active" | "wrapped";
@@ -29,6 +30,23 @@ export interface HerdJobRow {
   createdAt: number; updatedAt: number;
 }
 
+export type JobAttemptState = "reserved" | "active" | "replaced" | "ended";
+
+/**
+ * One launch of a job's worker. At most one attempt per (herd, job) is
+ * active; a reserved one holds no authority until it is activated, and an
+ * attempt launched with the switch off is active with no binding.
+ */
+export interface JobAttempt {
+  id: string; herd: string; job: string; selection: Selection;
+  bindingKey?: string;
+  /** The binding's attachment generation the attempt was activated for; 0 while unbound. */
+  generation: number;
+  state: JobAttemptState;
+  createdAt: number; updatedAt: number; activatedAt?: number; endedAt?: number;
+  replaces?: string;
+}
+
 export interface HerdStore {
   create(input: Omit<HerdRow, "status" | "createdAt" | "wrappedAt" | "shepherdPane">): HerdRow;
   get(id: string): HerdRow | null;
@@ -49,6 +67,21 @@ export interface HerdStore {
   recordPaneStatus(pane: string, status: string, changedAt: number): void;
   paneStatusRows(): Array<{ pane: string; status: string; changedAt: number }>;
   forgetPaneStatus(pane: string): void;
+  reserveAttempt(input: { id: string; herd: string; job: string; selection: Selection; replaces?: string }): JobAttempt;
+  getAttempt(id: string): JobAttempt | null;
+  activeAttempt(herd: string, job: string): JobAttempt | null;
+  /** Every attempt a job has had, oldest first. */
+  attempts(herd: string, job: string): JobAttempt[];
+  attemptsIn(state: JobAttemptState): JobAttempt[];
+  /**
+   * One transaction: a reserved attempt becomes active only while the job's
+   * active attempt is still the one it was reserved to replace (or none),
+   * which it marks replaced. An active attempt is refreshed only for its own
+   * binding at the same or a later generation.
+   */
+  activateAttempt(id: string, bindingKey: string | null, generation: number): Outcome<JobAttempt>;
+  /** Ends the attempt only from one of `from`; false when it was in another state. */
+  endAttempt(id: string, from: readonly JobAttemptState[]): boolean;
   close_(): void;
 }
 
@@ -74,6 +107,22 @@ export function mintHerdId(name: string, now: Date = new Date()): string {
 
 interface HerdColumns { id: string; repo: string; room: string; workspace: string; shepherdSession: string; shepherdHandle: string; shepherdPane: string | null; herdrSocket: string | null; hidden: number; status: HerdStatus; createdAt: number; wrappedAt: number | null }
 interface JobColumns { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; status: HerdJobStatus; disposable: number; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number }
+
+interface AttemptColumns { id: string; herd: string; job: string; selection: string; bindingKey: string | null; generation: number; state: JobAttemptState; replaces: string | null; createdAt: number; updatedAt: number; activatedAt: number | null; endedAt: number | null }
+
+function toAttempt(r: AttemptColumns): JobAttempt {
+  const a: JobAttempt = {
+    id: r.id, herd: r.herd, job: r.job, selection: JSON.parse(r.selection) as Selection,
+    generation: r.generation, state: r.state, createdAt: r.createdAt, updatedAt: r.updatedAt,
+  };
+  if (r.bindingKey !== null) a.bindingKey = r.bindingKey;
+  if (r.activatedAt !== null) a.activatedAt = r.activatedAt;
+  if (r.endedAt !== null) a.endedAt = r.endedAt;
+  if (r.replaces !== null) a.replaces = r.replaces;
+  return a;
+}
+
+const attemptFail = (code: FaultCode, message: string): Outcome<JobAttempt> => ({ ok: false, error: { code, message } });
 
 const toHerd = (r: HerdColumns): HerdRow => ({ ...r, hidden: r.hidden === 1 });
 const toJob = (r: JobColumns): HerdJobRow => ({ ...r, disposable: r.disposable === 1 });
@@ -146,6 +195,22 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
       status    TEXT NOT NULL,
       changedAt INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS herd_job_attempts (
+      id          TEXT PRIMARY KEY,
+      herd        TEXT NOT NULL,
+      job         TEXT NOT NULL,
+      selection   TEXT NOT NULL,
+      bindingKey  TEXT,
+      generation  INTEGER NOT NULL DEFAULT 0,
+      state       TEXT NOT NULL,
+      replaces    TEXT,
+      createdAt   INTEGER NOT NULL,
+      updatedAt   INTEGER NOT NULL,
+      activatedAt INTEGER,
+      endedAt     INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_herd_job_attempts_job ON herd_job_attempts(herd, job);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_herd_job_attempts_active ON herd_job_attempts(herd, job) WHERE state = 'active';
   `);
 
   // Idempotent migration for a herds.db predating shepherdPane:
@@ -160,6 +225,39 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
   const getJobStmt = db.prepare("SELECT * FROM herd_jobs WHERE herd = ? AND name = ?");
   const jobsStmt = db.prepare("SELECT * FROM herd_jobs WHERE herd = ? ORDER BY createdAt");
   const jobsByPaneStmt = db.prepare("SELECT * FROM herd_jobs WHERE pane = ?");
+  const getAttemptStmt = db.prepare("SELECT * FROM herd_job_attempts WHERE id = ?");
+  const activeAttemptStmt = db.prepare("SELECT * FROM herd_job_attempts WHERE herd = ? AND job = ? AND state = 'active'");
+  const attemptById = (id: string): JobAttempt | null => {
+    const r = getAttemptStmt.get(id) as AttemptColumns | null;
+    return r ? toAttempt(r) : null;
+  };
+  const activeFor = (herd: string, job: string): JobAttempt | null => {
+    const r = activeAttemptStmt.get(herd, job) as AttemptColumns | null;
+    return r ? toAttempt(r) : null;
+  };
+  const activate = db.transaction((id: string, bindingKey: string | null, generation: number): Outcome<JobAttempt> => {
+    const attempt = attemptById(id);
+    if (!attempt) return attemptFail("invalid", `no herd job attempt has id ${id}`);
+    const now = Date.now();
+    if (attempt.state === "active") {
+      if ((attempt.bindingKey ?? null) !== bindingKey || generation < attempt.generation) {
+        return attemptFail("stale-binding", `attempt ${id} is active for another session or a later attachment`);
+      }
+      db.run("UPDATE herd_job_attempts SET generation = ?, updatedAt = ? WHERE id = ?", [generation, now, id]);
+      return { ok: true, data: attemptById(id)! };
+    }
+    if (attempt.state !== "reserved") return attemptFail("stale-binding", `attempt ${id} was ${attempt.state}; it can no longer take the job`);
+    const current = activeFor(attempt.herd, attempt.job);
+    if (current && current.id !== attempt.replaces) {
+      return attemptFail("stale-binding", `job ${attempt.job} is held by attempt ${current.id}, which attempt ${id} was not reserved to replace`);
+    }
+    if (current) db.run("UPDATE herd_job_attempts SET state = 'replaced', updatedAt = ?, endedAt = ? WHERE id = ?", [now, now, current.id]);
+    db.run(
+      "UPDATE herd_job_attempts SET state = 'active', bindingKey = ?, generation = ?, activatedAt = ?, updatedAt = ? WHERE id = ?",
+      [bindingKey, generation, now, now, id],
+    );
+    return { ok: true, data: attemptById(id)! };
+  });
 
   return {
     create(input) {
@@ -234,6 +332,32 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
       return db.query("SELECT pane, status, changedAt FROM herd_pane_status").all() as Array<{ pane: string; status: string; changedAt: number }>;
     },
     forgetPaneStatus(pane) { db.run("DELETE FROM herd_pane_status WHERE pane = ?", [pane]); },
+    reserveAttempt(input) {
+      const now = Date.now();
+      db.run(
+        "INSERT INTO herd_job_attempts (id, herd, job, selection, bindingKey, generation, state, replaces, createdAt, updatedAt) VALUES (?, ?, ?, ?, NULL, 0, 'reserved', ?, ?, ?)",
+        [input.id, input.herd, input.job, JSON.stringify(input.selection), input.replaces ?? null, now, now],
+      );
+      return attemptById(input.id)!;
+    },
+    getAttempt: attemptById,
+    activeAttempt: activeFor,
+    attempts(herd, job) {
+      return (db.query("SELECT * FROM herd_job_attempts WHERE herd = ? AND job = ? ORDER BY createdAt, rowid").all(herd, job) as AttemptColumns[]).map(toAttempt);
+    },
+    attemptsIn(state) {
+      return (db.query("SELECT * FROM herd_job_attempts WHERE state = ? ORDER BY createdAt, rowid").all(state) as AttemptColumns[]).map(toAttempt);
+    },
+    activateAttempt(id, bindingKey, generation) { return activate.immediate(id, bindingKey, generation); },
+    endAttempt(id, from) {
+      if (from.length === 0) return false;
+      const now = Date.now();
+      const result = db.run(
+        `UPDATE herd_job_attempts SET state = 'ended', updatedAt = ?, endedAt = ? WHERE id = ? AND state IN (${from.map(() => "?").join(", ")})`,
+        [now, now, id, ...from],
+      );
+      return result.changes > 0;
+    },
     close_() { db.close(); },
   };
 }

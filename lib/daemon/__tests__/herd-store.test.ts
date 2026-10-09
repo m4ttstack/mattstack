@@ -117,6 +117,31 @@ describe("herd-store", () => {
     expect(s.getJob(h.id, "job-a")).toMatchObject({ status: "done", lastReport: 42, lastGate: "gt-1" });
   });
 
+  test("an attempt activates only over the attempt it was reserved to replace", () => {
+    const s = store();
+    const selection = { harness: "claude", options: { model: "opus" } };
+    s.reserveAttempt({ id: "att-1", herd: "h", job: "job-a", selection });
+    expect(s.activateAttempt("att-1", "sk-1", 1)).toMatchObject({ ok: true, data: { state: "active", bindingKey: "sk-1", generation: 1 } });
+    s.reserveAttempt({ id: "att-2", herd: "h", job: "job-a", selection });
+    s.reserveAttempt({ id: "att-3", herd: "h", job: "job-a", selection, replaces: "att-1" });
+    expect(s.activateAttempt("att-2", "sk-2", 1)).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(s.activateAttempt("att-3", "sk-3", 1).ok).toBe(true);
+    expect(s.activateAttempt("att-1", "sk-1", 2)).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(s.attempts("h", "job-a").map((a) => a.state)).toEqual(["replaced", "reserved", "active"]);
+    expect(s.activeAttempt("h", "job-a")?.id).toBe("att-3");
+  });
+
+  test("an active attempt refreshes only for its own binding at the same or a later generation", () => {
+    const s = store();
+    s.reserveAttempt({ id: "att-1", herd: "h", job: "job-a", selection: { harness: "claude", options: {} } });
+    s.activateAttempt("att-1", "sk-1", 2);
+    expect(s.activateAttempt("att-1", "sk-1", 3)).toMatchObject({ ok: true, data: { generation: 3 } });
+    expect(s.activateAttempt("att-1", "sk-1", 2).ok).toBe(false);
+    expect(s.activateAttempt("att-1", "sk-other", 4).ok).toBe(false);
+    expect(s.endAttempt("att-1", ["reserved"])).toBe(false);
+    expect(s.getAttempt("att-1")?.state).toBe("active");
+  });
+
   test("upsertJob clears nullable fields on explicit null", () => {
     const s = store();
     const h = herd(s);

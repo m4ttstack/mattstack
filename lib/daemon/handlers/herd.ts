@@ -18,7 +18,13 @@ import type { RunningRunScan } from "../../runs/store.ts";
 import type { createGateHandlers } from "./gate.ts";
 import { isValidQuestion, openAskedGate } from "./gate.ts";
 import type { createChatHandlers } from "./chat.ts";
-import type { createAgentHandlers } from "./agent.ts";
+import type { AgentStartOutcome, AttemptLaunch, createAgentHandlers } from "./agent.ts";
+import type { CallerContext, Outcome, Selection } from "../../../packages/rt-client/src/agent-integrations.ts";
+import { resolveCallerContextNow, type CallerEvidence } from "../../agent-integrations/context.ts";
+import { POLICY_CAPABILITIES } from "../../agent-integrations/policy-readiness.ts";
+import { integrationsEnabled } from "../../agent-integrations/switch.ts";
+import { getStateDb } from "../../state/db.ts";
+import { createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { slugifyChatName } from "../../chat-room-name.ts";
@@ -44,7 +50,10 @@ export interface HerdDeps {
   gateStore: Pick<GatesStore, "get" | "markConsumed">;
   gate: Pick<ReturnType<typeof createGateHandlers>, "gate:open" | "gate:list" | "gate:close" | "gate:subscribe" | "gate:subscriptions" | "gate:unsubscribe">;
   chat: Pick<ReturnType<typeof createChatHandlers>, "chat:sign-in" | "chat:sign-out" | "chat:join" | "chat:post" | "chat:archive" | "chat:rooms">;
-  agent: Pick<ReturnType<typeof createAgentHandlers>, "agent:start">;
+  /** `startAttempt` is the agent service's in-process start under a job attempt, used while agent.integrations.enabled is on. */
+  agent: Pick<ReturnType<typeof createAgentHandlers>, "agent:start"> & {
+    startAttempt?: (payload: unknown, attempt: AttemptLaunch) => Promise<AgentStartOutcome>;
+  };
   worktree: { "worktree:provision": (payload: any) => Promise<any>; "worktree:dispose": (payload: any) => Promise<any> };
   runWorktree: (runId: string) => string | null;
   /** Live-run lookup by worktree path, for herd:close's advisory warning; wired from `findRunningRunByWorktree` in lib/runs/store.ts. */
@@ -69,6 +78,12 @@ export interface HerdDeps {
       when no watchdog is wired (tests, a daemon booting without one). */
   watchdog?: { annotations(herd: string, job: string): { strikes: number; lastPokeAt: number | null } | null };
   log: Logger;
+  /** agent.integrations.enabled, read per call; tests inject it. */
+  integrationsEnabled?: () => boolean;
+  /** The job attempts over this store; built over the daemon's state.db when omitted. */
+  attempts?: JobAttempts;
+  /** Resolves a report's caller evidence; the daemon's state.db when omitted. */
+  resolveCaller?: (evidence: CallerEvidence) => Outcome<CallerContext>;
 }
 
 export const SHEPHERD_HANDLE = "shepherd";
@@ -145,6 +160,9 @@ export function jobDir(jobsRoot: string, herdId: string, job: string): string { 
 
 export function createHerdHandlers(deps: HerdDeps) {
   const { store, log } = deps;
+  const enabled = deps.integrationsEnabled ?? integrationsEnabled;
+  const attempts = deps.attempts ?? createJobAttempts({ herds: store, db: () => getStateDb("daemon"), enabled });
+  const resolveCaller = deps.resolveCaller ?? ((evidence: CallerEvidence) => resolveCallerContextNow(evidence, { db: getStateDb("daemon") }));
 
   /** Registers both the prefix row (herd:<id>/*, for the shepherd's own job
       gates) and the owner row (routes any gate whose `owner` is this herd,
@@ -415,6 +433,8 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!isValidJobName(name)) return { ok: false, error: `invalid job name "${name}" (must match ^[a-z][a-z0-9_-]{0,31}$)` };
       const herd = store.get(herdId);
       if (!herd) return { ok: false, error: `unknown herd "${herdId}"` };
+      const fenced = enabled();
+      if (fenced && !deps.agent.startAttempt) return { ok: false, error: "herd workers launch through the rt daemon's job attempts, which this caller cannot reach" };
 
       const dir = jobDir(deps.jobsRoot, herdId, name);
       const briefPath = join(dir, "job.md");
@@ -450,10 +470,21 @@ export function createHerdHandlers(deps: HerdDeps) {
       const disposable = p?.disposable ?? prior?.disposable ?? false;
 
       const workerId = deps.mintWorkerId(name);
+      const selection: Selection = {
+        harness: "claude",
+        options: { ...(str(p?.model) && { model: p!.model }), ...(str(p?.effort) && { effort: p!.effort }), ...(str(p?.account) && { account: p!.account }) },
+      };
+      const predecessor = store.activeAttempt(herdId, name);
+      const reserved = attempts.reserveJobAttempt({ herd: herdId, job: name, selection, ...(predecessor && { replaces: predecessor.id }) });
+      if (!reserved.ok) {
+        if (fenced) return { ok: false, error: `the job's attempt could not be recorded: ${reserved.error.message}` };
+        log.warn({ herd: herdId, job: name, error: reserved.error.message }, "herd: job attempt not recorded");
+      }
+      const attemptId = reserved.ok ? reserved.data.id : undefined;
       // The prior pane is closed above, so the row must not go on naming it
       // while agent:start decides whether there is a new one.
       store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", disposable, pane: null, agentSession: null, agentId: null });
-      const started = await deps.agent["agent:start"]({
+      const agentPayload = {
         // Pinned, never inherited from the agent.provider default: a worker
         // depends on claude-only machinery (the reserved chat handle
         // chat:sign-in binds presence to, and the gate-fork --settings hook),
@@ -470,8 +501,25 @@ export function createHerdHandlers(deps: HerdDeps) {
         // pane is mid worktree-provision when the dialog paints, and the old
         // in-spawn retry gave it 15s before parking stuck-at-modal.
         trustWaitMs: TRUST_BUDGET_MS,
-      });
-      if (!started.ok) return started;
+      };
+      let started: AgentStartOutcome;
+      try {
+        started = fenced
+          ? await deps.agent.startAttempt!(agentPayload, { id: attemptId!, workId: `herd-work-${attemptId}`, required: [...POLICY_CAPABILITIES] })
+          : await deps.agent["agent:start"](agentPayload);
+      } finally {
+        if (attemptId !== undefined) attempts.release(attemptId);
+      }
+      if (!started.ok) {
+        // A kept session may have started, so its attempt stays reserved, holding nothing, for recovery to judge.
+        if ("kept" in started) return { ok: false, error: started.error };
+        if (attemptId !== undefined) attempts.endJobAttempt(attemptId);
+        return started;
+      }
+      if (attemptId !== undefined && !fenced) {
+        const activated = attempts.activateUnbound(attemptId);
+        if (!activated.ok) log.warn({ herd: herdId, job: name, error: activated.error.message }, "herd: job attempt not activated");
+      }
       const rec = started.data;
       // The worker can report or open a gate before agent:start returns.
       // Attach its pane without undoing that progress, and only while this
@@ -580,6 +628,14 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!herdId || !name || !body) return { ok: false, error: "herd, job, and a non-empty body are required" };
       const herd = store.get(herdId); const job = herd ? store.getJob(herdId, name) : null;
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
+      if (enabled()) {
+        const session = str(p?.session);
+        if (!session) return { ok: false, error: "this report cannot be attributed to a session, so its job did not accept it" };
+        const caller = resolveCaller({ native: { harness: str(p?.harness) ?? "claude", kind: "id", value: session } });
+        if (!caller.ok) return { ok: false, error: `this report cannot be attributed to a session: ${caller.error.message}` };
+        const held = attempts.authorizeJobReport(caller.data, herdId, name);
+        if (!held.ok) return { ok: false, error: `job "${name}" did not accept this report: ${held.error.message}` };
+      }
       const posted = await deps.chat["chat:post"]({ room: herd.room, handle: job.handle, body, mentions: [herd.shepherdHandle] });
       if (!posted.ok) return posted;
       store.setJobStatus(herdId, name, "done", { lastReport: posted.data.id });

@@ -657,7 +657,9 @@ export function herdReport(
   a: Commands["herd:report"]["payload"],
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["herd:report"]["data"]>> {
-  return rtCommand<Commands["herd:report"]["data"]>("herd:report", { herd: a.herd, job: a.job, body: a.body }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
+  const payload: Record<string, unknown> = { herd: a.herd, job: a.job, body: a.body };
+  for (const k of ["session", "harness"] as const) if (a[k] !== undefined) payload[k] = a[k];
+  return rtCommand<Commands["herd:report"]["data"]>("herd:report", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
 }
 
 export function herdGates(

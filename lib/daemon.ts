@@ -113,6 +113,7 @@ import { createGatesStore, type GatesStore } from "./daemon/gates-store.ts";
 import { createGitBadges, type GitBadgesStore } from "./daemon/git-badges-store.ts";
 import { createGitStatusSweep, type GitStatusSweep, type GitStatusConfig } from "./daemon/git-status-sweep.ts";
 import { createHerdStore, type HerdStore } from "./daemon/herd-store.ts";
+import { createJobAttempts } from "./daemon/herd-attempts.ts";
 import { herdJobTreeHold } from "./daemon/reconciler/job-release.ts";
 import { createHerdLifecycle, type HerdLifecycle } from "./daemon/herd-lifecycle.ts";
 import { HerdWatchdog, runWatchdogSweep } from "./daemon/herd-watchdog.ts";
@@ -1386,6 +1387,8 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           relocation: relocationWatcher,
           modLinks,
         });
+        void createJobAttempts({ herds: herdStore, db: () => getStateDb("daemon") }).reconcileJobAttempts()
+          .catch((err) => log.warn({ err }, "herd job attempts could not be reconciled at boot"));
         herdLifecycle = createHerdLifecycle({
           store: herdStore,
           gate: { "gate:close": routedHandlers["gate:close"]!, "gate:list": routedHandlers["gate:list"]! },

@@ -1218,7 +1218,8 @@ export interface Commands {
   "herd:ask":       { payload: { herd: string; job: string; session: string; pane?: string; questions: GateQuestion[]; context?: string }; data: { gate: string } };
   "herd:milestone": { payload: { herd: string; job: string; session: string; pane?: string; artifact: string; summary?: string }; data: { gate: string; message: number } };
   "herd:answer":    { payload: { gate: string; sessionId?: string }; data: { gate: string; status: GateStatus; answer: GateAnswer | null; closedReason: GateRow["closedReason"] } };
-  "herd:report":    { payload: { herd: string; job: string; body: string }; data: { message: number } };
+  /** `session` (and `harness`, when not Claude Code) is the caller's resolved native session; with agent.integrations.enabled on the daemon authorizes the report by it, and off it is ignored. */
+  "herd:report":    { payload: { herd: string; job: string; body: string; session?: string; harness?: string }; data: { message: number } };
   /** `callerWorkspace` is the attending session's own HERDR_WORKSPACE_ID: the attached tab opens there, not in the herd's workspace. */
   "herd:attend":      { payload: { herd: string; job: string; callerWorkspace: string }; data: { tab: string; pane: string } };
   "herd:stop-hidden": { payload: Record<string, never>; data: { stopped: boolean } };

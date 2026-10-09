@@ -24,6 +24,11 @@
  * authorization, with the same gate env, hook settings and labels. A record
  * the launcher never bound resumes as before. Off, nothing here touches the
  * session store.
+ *
+ * A herd worker (herd:spawn's `startAttempt`, or a resume of a session bound
+ * under a job attempt) takes its attempt between the verified bind and its
+ * work; a session that cannot take it stays bound, is kept, and is sent
+ * nothing.
  */
 
 import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
@@ -57,7 +62,7 @@ import { createBoundLauncher, launchAttention, launchGuard, launchInProgress, ty
 import {
   createSessionStore, launchClaimedFor, listBindingsByAgent, readReservation, unresolvedLaunchOf,
 } from "../../agent-integrations/session-store.ts";
-import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { Capability, Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 
 export interface HeadlessChild {
   /** The child's pid, when the spawner knows it. */
@@ -377,7 +382,17 @@ export type AgentHandlerOpts = {
   launcher?: BoundLauncher;
   /** Set by the in-process CLI fallback: it never resumes a herd worker's bound session, which only the daemon may relaunch. */
   ordinaryOnly?: boolean;
+  /** The herd's job attempts (herd-attempts.ts): a worker's session takes its job, and work, only through these. */
+  attempts?: AttemptAuthority;
 };
+
+export type AttemptAuthority = {
+  activate(attemptId: string, binding: SessionBinding): Outcome<unknown>;
+  authorize(attemptId: string, binding: SessionBinding): Outcome<void>;
+};
+
+/** A herd worker's launch: the attempt it is reserved under, its stable work id, and the capabilities it must prove. */
+export type AttemptLaunch = { id: string; workId: string; required: Capability[] };
 
 // Direct `unknown`-payload members, not `Pick<TypedHandlers, ...>`: a wider
 // `unknown` param still satisfies TypedHandlers' narrower one at the
@@ -395,8 +410,17 @@ export function createAgentHandlers(opts: AgentHandlerOpts): AgentHandlers {
   return createAgentService(opts).handlers;
 }
 
-/** The agent handlers, and the start they run, which pane:spawn shares so both launch through one path. */
-export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHandlers; start: (payload: unknown) => Promise<AgentStartOutcome> } {
+/**
+ * The agent handlers, and the start they run, which pane:spawn shares so both
+ * launch through one path. `startAttempt` is herd:spawn's in-process start
+ * for a worker under a job attempt: always through the shared launcher, the
+ * session takes the attempt between its verified bind and its work.
+ */
+export function createAgentService(opts: AgentHandlerOpts): {
+  handlers: AgentHandlers;
+  start: (payload: unknown) => Promise<AgentStartOutcome>;
+  startAttempt: (payload: unknown, attempt: AttemptLaunch) => Promise<AgentStartOutcome>;
+} {
   const { db, emitEvent } = opts;
   const log = opts.log ?? lazyChildLogger("agent");
   const spawnHeadless = opts.spawnHeadless ?? defaultSpawnHeadless;
@@ -488,9 +512,13 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
     prompt: string | undefined,
     tabLabel: string,
     workspaceLabel: string,
-    extra: { env?: Record<string, string>; herdrSocket?: string; background?: boolean; trustWaitMs?: number } = {},
+    extra: { env?: Record<string, string>; herdrSocket?: string; background?: boolean; trustWaitMs?: number; attempt?: AttemptLaunch } = {},
   ): Promise<BoundResult> {
     const herdr = rec.surface === "herdr";
+    const attemptId = extra.attempt?.id ?? resumed?.attemptId;
+    if (attemptId !== undefined && !opts.attempts) {
+      return { ok: false, error: "this session belongs to a herd job, and its job attempts are not reachable here; nothing was launched" };
+    }
     const gateEnv = gateEnvFor(rec);
     const { prompt: resolvedPrompt, addDirs } = resolveHerdrPrompt(rec, prompt);
     const host: LaunchHost = {
@@ -515,9 +543,10 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
     };
     const reservationId = createSessionStore(db).reserve({
       identity: resumed?.identity ?? rec.handle ?? agentOwner(rec.id), agentId: rec.id,
+      ...(extra.attempt !== undefined && { attemptId: extra.attempt.id }),
     });
     const prepared = await bound().launchBoundAgent({
-      reservationId, cwd: rec.cwd, mode: rec.surface, selection: selectionOf(rec), required: [],
+      reservationId, cwd: rec.cwd, mode: rec.surface, selection: selectionOf(rec), required: extra.attempt?.required ?? [],
       ...(resolvedPrompt !== undefined && { prompt: resolvedPrompt }),
       access: { readRoots: addDirs ?? [] },
       ...(resumed ? { resumeKey: resumed.key } : { nativeHint: rec.sessionId }),
@@ -529,6 +558,11 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
       return failed(rec, prepared.error.message, state !== undefined && state !== "reserved" && state !== "failed");
     }
     applyBinding(rec, prepared.data, prepared.data.surface);
+    if (attemptId !== undefined) {
+      // The session stays bound but unassigned when it cannot take its job: no work goes to it.
+      const activated = opts.attempts!.activate(attemptId, prepared.data);
+      if (!activated.ok) return failed(rec, `the worker's session could not take its job (${activated.error.message}); no work was sent`, true);
+    }
     if (resolvedPrompt === undefined) return { ok: true, data: rec };
 
     let resultPath: string | undefined;
@@ -537,8 +571,13 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
       rec.resultPath = resultPath;
       mkdirSync(dirname(resultPath), { recursive: true });
     }
+    const ownRecord = authorizeRecord(rec.id, prepared.data.key);
+    const authorize = attemptId === undefined ? ownRecord : async (): Promise<Outcome<void>> => {
+      const recorded = await ownRecord();
+      return recorded.ok ? opts.attempts!.authorize(attemptId, prepared.data) : recorded;
+    };
     const work = await bound().startBoundWork(
-      prepared.data, { id: `work-${crypto.randomUUID()}`, text: resolvedPrompt }, authorizeRecord(rec.id, prepared.data.key),
+      prepared.data, { id: extra.attempt?.workId ?? `work-${crypto.randomUUID()}`, text: resolvedPrompt }, authorize,
     );
     if (!work.ok) {
       const a = prepared.data.attachment;
@@ -703,7 +742,7 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
     return { ok: true, data: rec };
   }
 
-  async function start(rawPayload: unknown): Promise<AgentStartOutcome> {
+  async function start(rawPayload: unknown, attempt?: AttemptLaunch): Promise<AgentStartOutcome> {
     if (!rawPayload || typeof rawPayload !== "object") return { ok: false, error: "agent:start requires an object payload" };
     const payload = rawPayload as Commands["agent:start"]["payload"];
     const { repo, cwd } = payload;
@@ -770,7 +809,7 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
     });
     if (!merged.ok) return { ok: false, error: merged.error.message };
     const { model, effort, account, extraArgs, yolo } = merged.data;
-    const boundPath = boundEnabled();
+    const boundPath = attempt !== undefined || boundEnabled();
     // A retry of a start still unresolved here (a client that timed out, say) must not become a second session.
     const busy = boundPath ? launchInProgress(db, launchGuard({ harness: provider, options: { ...(account !== undefined && { account }) } }, cwd)) : null;
     if (busy) return { ok: false, error: busy };
@@ -830,7 +869,7 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
       };
       const res = boundPath
         ? await launchBound(rec, undefined, prompt, tabLabel, workspaceLabel, {
-          ...extra, background: payload.bg === true || effectiveSocket === bgSocketPath(),
+          ...extra, background: payload.bg === true || effectiveSocket === bgSocketPath(), ...(attempt !== undefined && { attempt }),
         })
         : await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, extra);
       if (!res.ok) {
@@ -990,5 +1029,5 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
       return { ok: true, data: { agents: listAgents({ ...(payload.repo !== undefined && { repo: payload.repo }) }, db).map((r) => withAttention(withName(r, db), enabled)) } };
     },
   };
-  return { handlers, start };
+  return { handlers, start: (payload) => start(payload), startAttempt: (payload, attempt) => start(payload, attempt) };
 }

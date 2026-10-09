@@ -29,6 +29,7 @@ import { createHerdHandlers, type HerdDeps } from "./handlers/herd.ts";
 import { createBgHandlers } from "./handlers/bg.ts";
 import { createChatHandlers } from "./handlers/chat.ts";
 import { createAgentService } from "./handlers/agent.ts";
+import { createJobAttempts } from "./herd-attempts.ts";
 import { createPaneHandlers } from "./handlers/pane.ts";
 import { createAgentIntegrationHandlers } from "./handlers/agent-integrations.ts";
 import { createModSessionHandlers } from "./handlers/mod-session.ts";
@@ -178,9 +179,14 @@ export function buildRoutedHandlers(opts: {
     db: opts.stateDb, emitEvent, repoIndex: ctx.repoIndex, log: ctx.log, deliveryChains: opts.chatDeliveryChains,
     delivery: opts.chatDelivery, registryDeps: presenceRegistry, integrations,
   });
+  const jobAttempts = createJobAttempts({ herds: opts.herdStore, db: () => opts.stateDb });
   const agentService = createAgentService({
     db: opts.stateDb, emitEvent, log: ctx.log,
     bg: opts.bgService, bgClaims: opts.bgClaims, lifecycle: opts.herdLifecycle, integrations,
+    attempts: {
+      activate: (attemptId, binding) => jobAttempts.activateJobAttempt(attemptId, binding),
+      authorize: (attemptId, binding) => jobAttempts.authorizeAttemptWork(attemptId, binding),
+    },
   });
   const agentHandlers = agentService.handlers;
   const paneHandlers = createPaneHandlers({
@@ -235,7 +241,8 @@ export function buildRoutedHandlers(opts: {
     gateStore: opts.gatesStore,
     gate: gateHandlers,
     chat: chatHandlers,
-    agent: agentHandlers,
+    agent: { ...agentHandlers, startAttempt: agentService.startAttempt },
+    attempts: jobAttempts,
     worktree: worktreeHandlers,
     runWorktree,
     findRunningRunByWorktree,
