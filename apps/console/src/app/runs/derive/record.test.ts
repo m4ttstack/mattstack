@@ -7,6 +7,7 @@ import type {
 import { describe, expect, it } from 'vitest';
 
 import {
+  answeredQuestionCount,
   decisionStages,
   defaultRecordTab,
   evidenceStat,
@@ -379,5 +380,35 @@ describe('postedLabel', () => {
     expect(postedLabel('Request changes')).toBe('Request changes');
     expect(postedLabel('REQUEST_CHANGES')).toBe('Request changes');
     expect(postedLabel('approve')).toBe('Approve');
+  });
+});
+
+describe('answeredQuestionCount', () => {
+  const g = (id: string, qs: string[], answered: boolean) =>
+    ({
+      id,
+      status: answered ? 'answered' : 'open',
+      questions: qs.map(q => ({ id: q, label: q, multi: false, options: [] })),
+      answer: answered
+        ? { answers: Object.fromEntries(qs.map(q => [q, 'x'])) }
+        : null,
+    }) as unknown as GateRow;
+
+  it('counts answered questions, not gates', () => {
+    expect(
+      answeredQuestionCount([
+        g('a', ['q1', 'q2'], true),
+        g('b', ['q3'], true),
+        g('c', ['q4'], false),
+      ])
+    ).toBe(3);
+  });
+
+  it('counts a multi-select answer once and skips unanswered questions', () => {
+    const gate = {
+      ...g('a', ['findings-1', 'outcome'], true),
+      answer: { answers: { 'findings-1': ['x', 'y'] } },
+    } as unknown as GateRow;
+    expect(answeredQuestionCount([gate])).toBe(1);
   });
 });

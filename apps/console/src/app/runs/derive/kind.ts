@@ -24,13 +24,18 @@ export function runTitle(
     branch: string | null;
     work_type: string;
     id: string;
+    outcome?: { reviewed?: { iid: number } | null } | null;
   },
   enrichment: { ticketTitle?: string | null; mrTitle?: string | null }
 ): string {
+  const kind = runKind(run.work_type);
+  if (kind === 'review' || kind === 'respond') {
+    if (present(enrichment.mrTitle)) return enrichment.mrTitle;
+    if (present(enrichment.ticketTitle)) return enrichment.ticketTitle;
+    const iid = run.outcome?.reviewed?.iid;
+    return iid != null ? `Review of !${iid}` : `${run.work_type} run`;
+  }
   if (present(enrichment.ticketTitle)) return enrichment.ticketTitle;
   if (present(run.branch)) return run.branch;
-  const kind = runKind(run.work_type);
-  if ((kind === 'review' || kind === 'respond') && present(enrichment.mrTitle))
-    return enrichment.mrTitle;
-  return `${run.work_type} · ${run.id}`;
+  return `${run.work_type} run`;
 }

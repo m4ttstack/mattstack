@@ -48,18 +48,33 @@ describe('runTitle', () => {
   });
 
   it('ignores the MR title for other kinds', () => {
-    expect(runTitle(run(), { mrTitle: 'Fix cart' })).toBe('feature · r1');
+    expect(runTitle(run(), { mrTitle: 'Fix cart' })).toBe('feature run');
   });
 
-  it('ends on work type and id', () => {
+  it('ends on the work type, never the run id', () => {
     expect(runTitle(run({ work_type: 'watch-ci', id: 'r9' }), {})).toBe(
-      'watch-ci · r9'
+      'watch-ci run'
     );
   });
 
   it('skips blank values', () => {
     expect(
       runTitle(run({ branch: '  ' }), { ticketTitle: '', mrTitle: null })
-    ).toBe('feature · r1');
+    ).toBe('feature run');
+  });
+
+  it('titles a review by its MR, never its id', () => {
+    const review = run({
+      branch: 'feature/x',
+      work_type: 'review',
+      id: '2026-1',
+      outcome: { reviewed: { iid: 412 } },
+    });
+    expect(runTitle(review, { mrTitle: 'Dedupe contacts' })).toBe(
+      'Dedupe contacts'
+    );
+    expect(runTitle(review, { ticketTitle: 'Dedupe' })).toBe('Dedupe');
+    expect(runTitle(review, {})).toBe('Review of !412');
+    expect(runTitle({ ...review, outcome: null }, {})).toBe('review run');
   });
 });

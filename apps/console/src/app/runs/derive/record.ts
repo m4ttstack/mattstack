@@ -18,6 +18,14 @@ import { stageAttempts } from './stages';
 export const answeredGates = (gates: GateRow[]) =>
   gates.filter(g => g.status === 'answered' && g.answer);
 
+/** The questions the run's answered gates have an answer for. */
+export function answeredQuestionCount(gates: GateRow[]): number {
+  let n = 0;
+  for (const g of answeredGates(gates))
+    for (const q of g.questions) if (g.answer!.answers[q.id] != null) n += 1;
+  return n;
+}
+
 /** Where a finished run's span ends: at the merge of the run's own MR when
     the run finished done and the MR merged, else when the run ended. */
 export function recordEnd(

@@ -140,6 +140,14 @@ export function dayGroups(runs: RunSummary[], now: number): DayGroup[] {
   return groups;
 }
 
+/** The first `days` day groups of the Earlier list, and whether more follow. */
+export function earlierPage(
+  groups: DayGroup[],
+  days: number
+): { shown: DayGroup[]; more: boolean } {
+  return { shown: groups.slice(0, days), more: groups.length > days };
+}
+
 /** What rt still flags on a finished run ("stranded"), when the ending does
     not already say it. */
 function attentionNote(run: RunSummary): string | null {

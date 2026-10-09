@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   dayGroups,
+  earlierPage,
   evidenceText,
   filterView,
   laneFacts,
@@ -16,6 +17,7 @@ import {
   splitRuns,
   statCards,
   waitingBanner,
+  type DayGroup,
 } from './lanes';
 
 const MIN = 60_000;
@@ -547,5 +549,21 @@ describe('laneFacts', () => {
     });
     expect(f.field).toBe('CI running');
     expect(f.rail).toBeNull();
+  });
+});
+
+describe('earlierPage', () => {
+  const groups = Array.from({ length: 9 }, (_, i) => ({
+    key: `k${i}`,
+    label: `d${i}`,
+    runs: [],
+  })) as DayGroup[];
+
+  it('pages the earlier list by day', () => {
+    expect(earlierPage(groups, 7)).toEqual({
+      shown: groups.slice(0, 7),
+      more: true,
+    });
+    expect(earlierPage(groups, 14)).toEqual({ shown: groups, more: false });
   });
 });
