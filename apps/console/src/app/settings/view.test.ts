@@ -350,6 +350,32 @@ describe('layer rungs and write targets', () => {
     });
   });
 
+  it('while viewing another team, an edit lands on a shared layer, never a personal one', () => {
+    const userFirst = (scope: string | null) =>
+      def('skills.writingStyle', {
+        scopes: ['user', 'team', 'org'],
+        effective: { scope, file: null, value: undefined },
+      });
+    // Nothing on the team's ladder sets it: the first shared scope.
+    expect(writeTarget(userFirst('default'), null, true)).toEqual({
+      scope: 'team',
+    });
+    expect(writeTarget(userFirst(null), null, true)).toEqual({
+      scope: 'team',
+    });
+    // A shared layer serving it keeps it there.
+    expect(writeTarget(userFirst('org'), null, true)).toEqual({
+      scope: 'org',
+    });
+    // Your own team keeps the key's own first scope.
+    expect(writeTarget(userFirst('default'), null)).toEqual({ scope: 'user' });
+    // A repo-scoped key writes the repo section of the shared layer.
+    expect(writeTarget(roles(null), REPO, true)).toEqual({
+      scope: roles(null).scopes.find(s => s === 'org' || s === 'team'),
+      repo: REPO,
+    });
+  });
+
   it('labels name the team on a team layer when one is known, and stay bare otherwise', () => {
     expect(targetLabel({ scope: 'team' }, 'widgets')).toBe('team (widgets)');
     expect(targetLabel({ scope: 'team', repo: REPO }, 'widgets')).toBe(

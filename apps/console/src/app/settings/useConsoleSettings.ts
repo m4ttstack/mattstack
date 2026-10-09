@@ -51,6 +51,8 @@ export interface ConsoleStore {
   team: string | null;
   /** This Mac's own team. */
   ownTeam: string | null;
+  /** The team a load named that this viewer may not open, if any. */
+  refused: string | null;
   viewer: Viewer | null;
   org: string | null;
   loading: boolean;
@@ -138,7 +140,10 @@ async function getJson<T>(url: string): Promise<T> {
   const body = (await res.json().catch(() => null)) as
     (T & { error?: string }) | null;
   if (!res.ok)
-    throw new Error(body?.error ?? `settings request failed: ${res.status}`);
+    throw Object.assign(
+      new Error(body?.error ?? `settings request failed: ${res.status}`),
+      { status: res.status }
+    );
   if (body === null) throw new Error('settings response was not JSON');
   return body;
 }
@@ -184,6 +189,7 @@ export function useConsoleSettings(
   const [org, setOrg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const quiet = useRef(false);
   // The repo the defs on screen were read for. A repo switch keeps the old
@@ -219,9 +225,13 @@ export function useConsoleSettings(
         setViewer(body.viewer ?? null);
         setOrg(typeof body.org === 'string' ? body.org : null);
         setError(null);
+        setRefused(null);
       })
-      .catch((err: Error) => {
-        if (alive) setError(err.message);
+      .catch((err: Error & { status?: number }) => {
+        if (!alive) return;
+        setError(err.message);
+        // A team this viewer may not open: the page goes back to their own.
+        setRefused(err.status === 403 && viewTeam ? viewTeam : null);
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -319,6 +329,7 @@ export function useConsoleSettings(
       org,
       loading,
       error,
+      refused,
       refresh,
       set,
       unset,
@@ -334,6 +345,7 @@ export function useConsoleSettings(
       org,
       loading,
       error,
+      refused,
       refresh,
       set,
       unset,

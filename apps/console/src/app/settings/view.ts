@@ -122,19 +122,27 @@ export interface WriteTarget {
 /** Where an edit of `def` lands. With a repo picked, a repo-scoped key
     writes that repo's section of the layer its value comes from, so a value
     inherited from a global layer gets a repo override rather than a global
-    write; with no allowed winning layer, the key's first scope. */
+    write; with no allowed winning layer, the key's first scope. While
+    another team is open (`sharedOnly`) only the org and team stores take
+    writes, so the edit lands on the shared layer serving the value, else the
+    key's first shared scope. */
 export function writeTarget(
   def: SettingDefWire,
-  repo: string | null
+  repo: string | null,
+  sharedOnly = false
 ): WriteTarget {
-  if (def.repoScoped && repo) {
-    const base = rungBase(def.effective.scope);
-    const scope =
-      base && (def.scopes as readonly string[]).includes(base)
-        ? base
-        : (def.scopes[0] as StoreScope);
-    return { scope, repo };
-  }
+  const scopes = def.scopes as readonly string[];
+  const base = rungBase(def.effective.scope);
+  const fallback = (
+    sharedOnly ? scopes.find(s => isShared(s)) : scopes[0]
+  ) as StoreScope;
+  const allowed =
+    base !== null &&
+    scopes.includes(base) &&
+    (!sharedOnly || isShared(base));
+  if (def.repoScoped && repo)
+    return { scope: allowed ? (base as StoreScope) : fallback, repo };
+  if (sharedOnly) return { scope: allowed ? (base as StoreScope) : fallback };
   return { scope: targetScope(def) as StoreScope };
 }
 

@@ -191,6 +191,11 @@ export function SettingsPage() {
       },
       { replace: true }
     );
+  // A team this viewer may not open (a stale link, a lost role) returns to
+  // their own team rather than leaving them on an error with no way back.
+  useEffect(() => {
+    if (store.refused !== null && store.refused === viewTeam) setViewTeam(null);
+  }, [store.refused, viewTeam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openKey = openRow.open?.key ?? null;
   const sections = useMemo(

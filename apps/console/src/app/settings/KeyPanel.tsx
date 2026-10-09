@@ -48,6 +48,7 @@ import {
   useSettingsOrg,
   useSettingsRepo,
   useSettingsTeam,
+  useSettingsViewTeam,
   type ConsoleStore,
 } from './useConsoleSettings';
 import { useRowSave, type RowStore } from './useRowSave';
@@ -248,6 +249,7 @@ function CompositeValue({
       rightSection={
         inEffect ? <Icons.arrowRight size={12} /> : <Icons.eye size={12} />
       }
+      aria-label={`${shape}, ${inEffect ? 'show the value in effect' : "show this layer's value"}`}
       data-testid={testId}
       onClick={onClick}
     >
@@ -455,8 +457,12 @@ function LayerLine({
     !(def.repoOnly && !isRung(scope)) &&
     writable &&
     (composite ? EDITOR_KINDS.has(edit) : kind === 'scalar' || kind === 'enum');
-  const moves =
-    writable && scope === def.effective.scope ? moveTargets(def) : [];
+  // Another team's view writes only to the shared layers, so a move to a
+  // personal one would always be refused.
+  const viewing = useSettingsViewTeam() !== null;
+  const moves = (
+    writable && scope === def.effective.scope ? moveTargets(def) : []
+  ).filter(to => !viewing || to === 'org' || to === 'team');
   // Fix seeds editing open only when the row is editable; a row with no
   // console control keeps Remove as its only remedy.
   const [editing, setEditing] = useState(startEditing && editable);

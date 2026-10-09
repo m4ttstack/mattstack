@@ -1,5 +1,6 @@
 import {
   useContext,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -197,6 +198,12 @@ function RowBody({
   const chevron = useRef<HTMLButtonElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const panelId = useId();
+  // With no transition the collapse never reports its end, so under reduced
+  // motion an opened card scrolls into view as soon as it renders.
+  useEffect(() => {
+    if (isOpen && reduceMotion)
+      card.current?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+  }, [isOpen, reduceMotion]);
   const [ns, name] = splitKey(def.key);
   const badge = badgeScope(def, subhead);
   // A global source label ("unset", "default") says nothing about a key
@@ -339,7 +346,7 @@ function RowBody({
           if (isOpen)
             card.current?.scrollIntoView({
               block: 'nearest',
-              behavior: reduceMotion ? 'auto' : 'smooth',
+              behavior: 'smooth',
             });
         }}
         id={panelId}

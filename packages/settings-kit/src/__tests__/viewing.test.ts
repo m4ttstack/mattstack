@@ -80,6 +80,23 @@ describe("viewing another team", () => {
     expect(body.defs.find((d) => d.key === "board.slack")!.effective).toMatchObject({ scope: "user" });
   });
 
+  test("another team's values reach only a local caller", async () => {
+    const remote = (path: string) => new Request(`https://example.com${path}`);
+    expect((await handle(remote("/api/settings/defs?team=gadgets")))!.status).toBe(403);
+    expect((await handle(remote("/api/settings/explain/board.slack?team=gadgets")))!.status).toBe(403);
+    expect((await handle(remote("/api/settings/defs")))!.status).toBe(200);
+  });
+
+  test("this Mac's unregistered keys never ride along with another team's view", async () => {
+    const unregistered = [{ key: "stray.key", scope: "user", file: "/user" }];
+    const withStray = (req: Request) =>
+      settingsHandler(req, { rt: { ...RT, viewer: () => ADMIN, listUnregisteredSettings: () => unregistered } as unknown as RtSettingsApi });
+    const own = (await (await withStray(get("/api/settings/defs")))!.json()) as { unregistered: unknown[] };
+    const other = (await (await withStray(get("/api/settings/defs?team=gadgets")))!.json()) as { unregistered: unknown[] };
+    expect(own.unregistered).toEqual(unregistered);
+    expect(other.unregistered).toEqual([]);
+  });
+
   test("a team you may not view is refused", async () => {
     const res = (await handle(get("/api/settings/defs?team=gadgets"), MEMBER))!;
     expect(res.status).toBe(403);

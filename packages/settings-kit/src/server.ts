@@ -425,6 +425,12 @@ function resolveView(rt: RtSettingsApi, named: string | undefined): View | Respo
   return { team: named, other: true, viewer };
 }
 
+/** Another team's values reach only a local caller, the same as a write:
+    over an edge an admin's Mac would otherwise serve every team's settings. */
+function otherTeamRemote(): Response {
+  return json({ error: "another team's settings are local-only" }, 403);
+}
+
 function explainOpts(view: View, repo: string | undefined) {
   return view.other ? { repoIdentity: repo ?? null, team: view.team } : { repoIdentity: repo ?? null };
 }
@@ -484,6 +490,7 @@ export async function settingsHandler(
     const repo = normalizeRepo(url.searchParams.get("repo"));
     const view = resolveView(rt, url.searchParams.get("team") ?? undefined);
     if (view instanceof Response) return view;
+    if (view.other && !(opts.allowWrite ?? defaultAllowWrite)(req)) return otherTeamRemote();
     const mode = opts.allowComposite ?? false;
     const defs = rt.allDefs()
       .filter((d) => d.key.startsWith(prefix))
@@ -515,7 +522,9 @@ export async function settingsHandler(
     const active = rt.activeTeam();
     return json({
       defs,
-      unregistered: rt.listUnregisteredSettings(),
+      // Read from this Mac's own team and personal stores, so it never rides
+      // along with another team's view.
+      unregistered: view.other ? [] : rt.listUnregisteredSettings(),
       org: active.org,
       activeTeam: active.team,
       viewing: view.team,
@@ -530,6 +539,7 @@ export async function settingsHandler(
     const repo = normalizeRepo(url.searchParams.get("repo"));
     const view = resolveView(rt, url.searchParams.get("team") ?? undefined);
     if (view instanceof Response) return view;
+    if (view.other && !(opts.allowWrite ?? defaultAllowWrite)(req)) return otherTeamRemote();
     const rows = withoutPersonal(rt.explainSetting(key, explainOpts(view, repo)), view.other);
     return json({
       def: defToWire(def, rt.isMigrated, effectiveFromRows(def, rows), opts.allowComposite ?? false),

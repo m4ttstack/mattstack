@@ -116,7 +116,7 @@ function TeamMenu({
   teams: string[];
   owners: Record<string, string[]>;
   ownTeam: string | null;
-  team: string;
+  team: string | null;
   onPick: (team: string | null) => void;
 }) {
   const items: TeamItem[] = teams.map(t => ({
@@ -134,11 +134,11 @@ function TeamMenu({
           variant="light"
           color="purple"
           className={classes.trigger}
-          aria-label={`team: ${team}, switch team`}
+          aria-label={team ? `team: ${team}, switch team` : 'pick a team'}
           leftSection={<Icon name="team" size={14} />}
           rightSection={<Icons.chevronsUpDown size={14} />}
         >
-          {team}
+          {team ?? 'Pick a team'}
         </Button>
       }
       items={items}
@@ -189,7 +189,10 @@ export function SettingsContextBar({
 }) {
   if (!viewer || viewer.role === 'none' || !org)
     return viewer ? <Who viewer={viewer} /> : null;
-  const canSwitch = viewer.teams.length > 1;
+  // An admin on no team of their own still reaches every team through the
+  // menu, so it shows whenever there is a team to open.
+  const canSwitch =
+    viewer.teams.length > 1 || (!team && viewer.teams.length > 0);
   return (
     <Group justify="space-between" wrap="nowrap" w="100%" gap={16}>
       <Group gap={10} wrap="nowrap" miw={0}>
@@ -206,7 +209,7 @@ export function SettingsContextBar({
         >
           {org}
         </Badge>
-        {team && (
+        {(team || canSwitch) && (
           <>
             <Text fz={16} c="var(--tk-text-4)" aria-hidden>
               /
