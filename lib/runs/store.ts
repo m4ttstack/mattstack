@@ -94,7 +94,7 @@ function stageSummaries(stages: RunStageRow[]): NonNullable<RunSummary["stages"]
   return stages.map((s) => ({ name: s.name, status: s.status, started_at: s.started_at, ended_at: s.ended_at, attempt: s.attempt }));
 }
 
-function evidenceCount(fields: { key: string; value: string }[]): number {
+function evidenceCount(fields: RunFieldRow[]): number {
   const parsed = parseEvidence(fieldValue(fields, "evidence"));
   return parsed.version === 1 ? parsed.images.length : 0;
 }
