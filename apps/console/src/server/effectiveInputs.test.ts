@@ -343,39 +343,134 @@ describe('effective-inputs route', () => {
 });
 
 describe('stage-doc route', () => {
-  it('shows the doc at the first recorded sha via a cwd-relative path, so a pack nested inside a larger repo resolves', async () => {
+  const ORG_ROOT = '/org';
+  const PLAN_PATHS: Record<string, string> = {
+    aaa1111: 'mattstack/packs/acme/attachments/stage-plan/SKILL.md',
+    bbb2222: 'mattstack/teams/acme/plugin/attachments/stage-plan/SKILL.md',
+  };
+  const orgGit = (argv: string[]): RunResult => {
+    const [, , cmd, a] = argv;
+    if (cmd === 'rev-parse') {
+      return { code: 0, stdout: ORG_ROOT + '\n', stderr: '' };
+    }
+    if (cmd === 'cat-file') {
+      return PLAN_PATHS[argv[4]]
+        ? { code: 0, stdout: 'commit\n', stderr: '' }
+        : { code: 128, stdout: '', stderr: 'bad object' };
+    }
+    if (cmd === 'ls-tree') {
+      return {
+        code: 0,
+        stdout: (PLAN_PATHS[argv[5]] ?? '') + '\n',
+        stderr: '',
+      };
+    }
+    if (cmd === 'show' && a.split(':')[1] === PLAN_PATHS[a.split(':')[0]]) {
+      return { code: 0, stdout: `plan doc @ ${a.split(':')[0]}`, stderr: '' };
+    }
+    return { code: 128, stdout: '', stderr: 'no path' };
+  };
+  const noFile = async () => null;
+  const acmePacks = packsStdout([
+    { name: 'acme', dir: '/org/mattstack/teams/acme/plugin' },
+    { name: 'mattstack', dir: '/mono/plugins/mattstack' },
+  ]);
+
+  it('finds the doc at a recorded sha after the pack moved inside its repo', async () => {
     vi.mocked(rt.getRun).mockResolvedValue({
       ok: true,
-      data: baseDetail({
-        run: baseRun({ pack_commits: 'mattstack=59b90cd' }),
-      }),
+      data: baseDetail({ run: baseRun({ pack_commits: 'acme=aaa1111' }) }),
     });
-
-    const rtFake = fakeRt({
-      code: 0,
-      stdout: packsStdout([{ name: 'mattstack', dir: '/packs/mattstack' }]),
-      stderr: '',
-    });
-    const git = fakeRun(() => ({
-      code: 0,
-      stdout: '# provision doc\n',
-      stderr: '',
-    }));
-    const app = mountEffectiveInputs(new Hono(), rtFake.run, git.run);
+    const rtFake = fakeRt({ code: 0, stdout: acmePacks, stderr: '' });
+    const git = fakeRun(orgGit);
+    const app = mountEffectiveInputs(
+      new Hono(),
+      rtFake.run,
+      git.run,
+      null,
+      noFile,
+      '/cache'
+    );
 
     const res = await app.request(
-      '/api/runs/repo-tools/run-1/stage-doc?stage=provision'
+      '/api/runs/repo-tools/run-1/stage-doc?stage=plan'
     );
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ text: '# provision doc\n' });
-    const show = git.calls.find(argv => argv.includes('show'));
-    expect(show).toEqual([
+    await expect(res.json()).resolves.toEqual({
+      text: 'plan doc @ aaa1111',
+      pack: 'acme',
+      sha: 'aaa1111',
+    });
+    expect(git.calls.find(argv => argv.includes('show'))).toEqual([
       '-C',
-      '/packs/mattstack',
+      ORG_ROOT,
       'show',
-      '59b90cd:./attachments/stage-provision/SKILL.md',
+      `aaa1111:${PLAN_PATHS.aaa1111}`,
     ]);
+  });
+
+  it('resolves a legacy plugin= token to the pack whose repo holds the commit', async () => {
+    vi.mocked(rt.getRun).mockResolvedValue({
+      ok: true,
+      data: baseDetail({
+        run: baseRun({ pack_commits: 'plugin=bbb2222,mattstack=0.30.20' }),
+      }),
+    });
+    const rtFake = fakeRt({ code: 0, stdout: acmePacks, stderr: '' });
+    const git = fakeRun(orgGit);
+    const app = mountEffectiveInputs(
+      new Hono(),
+      rtFake.run,
+      git.run,
+      null,
+      noFile,
+      '/cache'
+    );
+
+    const res = await app.request(
+      '/api/runs/repo-tools/run-1/stage-doc?stage=plan'
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      text: 'plan doc @ bbb2222',
+      pack: 'acme',
+      sha: 'bbb2222',
+    });
+  });
+
+  it('reads a version-recorded mattstack doc through the injected reader', async () => {
+    vi.mocked(rt.getRun).mockResolvedValue({
+      ok: true,
+      data: baseDetail({ run: baseRun({ pack_commits: 'mattstack=0.30.20' }) }),
+    });
+    const rtFake = fakeRt({ code: 0, stdout: acmePacks, stderr: '' });
+    const git = fakeRun(() => ({ code: 128, stdout: '', stderr: '' }));
+    const readFile = vi.fn(async (path: string) =>
+      path === '/cache/0.30.20/attachments/pipeline/stage-ship/SKILL.md'
+        ? 'SHIP DOC'
+        : null
+    );
+    const app = mountEffectiveInputs(
+      new Hono(),
+      rtFake.run,
+      git.run,
+      null,
+      readFile,
+      '/cache'
+    );
+
+    const res = await app.request(
+      '/api/runs/repo-tools/run-1/stage-doc?stage=ship'
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      text: 'SHIP DOC',
+      pack: 'mattstack',
+      sha: '0.30.20',
+    });
   });
 
   it('answers a missing doc (git show exit 128) with the exact 404 copy', async () => {

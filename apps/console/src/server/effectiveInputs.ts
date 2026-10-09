@@ -1,3 +1,6 @@
+import { readFile as fsReadFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import {
   getDef,
   getRun,
@@ -10,6 +13,7 @@ import { validator } from 'hono/validator';
 import type { RunsFixture } from './fixtures/design/runsFixture';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { runRt as liveRunRt, type RunRt } from './rt-bin';
+import { resolveStageDoc } from './stageDoc';
 
 export interface PackVersionRow {
   pack: string;
@@ -49,6 +53,19 @@ const CONFIG_DEPS = [
 ] as const;
 
 const STAGE_NAME = /^[A-Za-z0-9_-]+$/;
+
+const PLUGIN_CACHE_DIR = join(
+  homedir(),
+  '.claude/plugins/cache/mattstack/mattstack'
+);
+
+const readFileOrNull = async (path: string): Promise<string | null> => {
+  try {
+    return await fsReadFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+};
 
 const NO_DOC = { error: 'no compiled doc recorded at this version' } as const;
 
@@ -109,7 +126,9 @@ export function mountEffectiveInputs(
   app: Hono,
   runRt: RunRt = liveRunRt,
   runGit: RunGit = liveRunGit,
-  fixture: RunsFixture | null = null
+  fixture: RunsFixture | null = null,
+  readFile: (path: string) => Promise<string | null> = readFileOrNull,
+  pluginCacheDir: string = PLUGIN_CACHE_DIR
 ) {
   /** Never throws: an unresolvable pack (rt down, unknown name, bad JSON) is
       reported as null everywhere a caller of this reads it, not a 500. */
@@ -221,23 +240,26 @@ export function mountEffectiveInputs(
         return c.json({ error: res.error ?? 'no data' }, status);
       }
 
-      const first = parsePackCommits(res.data.run.pack_commits)[0];
-      if (!first) return c.json(NO_DOC, 404);
-
-      const packDir = await resolvePackDir(first.pack);
-      if (!packDir) return c.json(NO_DOC, 404);
-
-      // git resolves `<rev>:<path>` from the repo root, not from `-C`'s cwd;
-      // the `./` anchors the path to the pack dir, which is a subdirectory of
-      // its repo for a team pack (orgs/<org>/mattstack/teams/<team>/plugin).
-      const show = await runGit([
-        '-C',
-        packDir,
-        'show',
-        `${first.sha}:./attachments/stage-${stage}/SKILL.md`,
-      ]);
-      if (show.code !== 0) return c.json(NO_DOC, 404);
-
-      return c.json({ text: show.stdout }, 200);
+      const hit = await resolveStageDoc(
+        {
+          runGit,
+          packDirs: async () => {
+            const { stdout } = await runRt(['skills', 'packs', '--json']);
+            const packs = (
+              parseJsonPayload(stdout) as PacksResponse | undefined
+            )?.packs;
+            return Array.isArray(packs)
+              ? packs.filter(
+                  p => typeof p?.dir === 'string' && p.dir.length > 0
+                )
+              : [];
+          },
+          readFile,
+          pluginCacheDir,
+        },
+        { packCommits: res.data.run.pack_commits, stage }
+      );
+      if (!hit) return c.json(NO_DOC, 404);
+      return c.json({ text: hit.text, pack: hit.pack, sha: hit.sha }, 200);
     });
 }
