@@ -195,6 +195,33 @@ describe('buildSections', () => {
     ]);
   });
 
+  it('puts a per-project key with no global value with the store its repo sections live in', () => {
+    const perProject = (key: string, stores: string[][]) =>
+      def(key, {
+        type: 'object',
+        scopes: ['user', 'team', 'machine'],
+        repoScoped: true,
+        effective: { scope: null, file: null, value: undefined },
+        repos: stores.map((scopes, i) => ({ identity: `h/r${i}`, scopes })),
+      });
+    const boards = [
+      perProject('board.intercepts', [['org'], ['org']]),
+      perProject('board.mixed', [['org'], ['machine']]),
+      perProject('board.none', []),
+      ...Array.from({ length: 10 }, (_, i) => def(`board.u${i}`)),
+    ];
+    const where = (sharedOnly: boolean, key: string) =>
+      buildSections(boards, NO_FILTER, null, {
+        sharedOnly,
+      })[0]!.subsections.find(x => x.defs.some(d => d.key === key))?.scope;
+    expect(where(false, 'board.intercepts')).toBe('org');
+    expect(where(false, 'board.mixed')).toBe('user');
+    expect(where(false, 'board.none')).toBe('user');
+    // Another team's view counts only the shared stores.
+    expect(where(true, 'board.intercepts')).toBe('org');
+    expect(where(true, 'board.mixed')).toBe('org');
+  });
+
   it('puts a key served from a shared repo section under that store, whatever its first scope', () => {
     const roles = (key: string, scope: string) =>
       def(key, {
