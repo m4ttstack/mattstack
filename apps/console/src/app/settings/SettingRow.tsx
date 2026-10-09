@@ -1,4 +1,5 @@
 import {
+  useContext,
   useId,
   useMemo,
   useRef,
@@ -36,6 +37,11 @@ import {
 } from './KeyPanel';
 import { RepoReach } from './RepoReach';
 import { SaveStatus, useRowParts, ValueContent, WriteError } from './rowParts';
+import {
+  RowProjectScope,
+  SettingsSeedRepoContext,
+  useRowProject,
+} from './RowProject';
 import { ScopeBadge } from './ScopeBadge';
 import classes from './SettingRow.module.css';
 import {
@@ -123,18 +129,7 @@ function selectingIn(el: HTMLElement): boolean {
   );
 }
 
-export function SettingRow({
-  def,
-  store,
-  subhead,
-  query,
-  suggestions,
-  onFix,
-  open: openProp,
-  defaultOpen = null,
-  onOpenChange,
-  onPickRepo,
-}: {
+interface SettingRowProps {
   def: SettingDefWire;
   store: PanelStore;
   subhead: StoreScope | null;
@@ -145,10 +140,39 @@ export function SettingRow({
   defaultOpen?: RowOpen | null;
   onOpenChange?: (next: RowOpen | null) => void;
   onPickRepo?: (repo: string) => void;
-}) {
+}
+
+/** A per-project row picks its own project; any other row reads the
+    page's. */
+export function SettingRow(props: SettingRowProps) {
+  const linked = useContext(SettingsSeedRepoContext);
+  // A host that is about one repo (run detail) starts its rows there.
+  const outer = useSettingsRepo();
+  if (!props.def.repoScoped) return <RowBody {...props} />;
+  const opened = props.open ?? props.defaultOpen ?? null;
+  return (
+    <RowProjectScope def={props.def} seed={(opened ? linked : null) ?? outer}>
+      {def => <RowBody {...props} def={def} />}
+    </RowProjectScope>
+  );
+}
+
+function RowBody({
+  def,
+  store,
+  subhead,
+  query,
+  suggestions,
+  onFix,
+  open: openProp,
+  defaultOpen = null,
+  onOpenChange,
+  onPickRepo,
+}: SettingRowProps) {
   const { text } = useSchemeColors();
   const repo = useSettingsRepo();
   const viewTeam = useSettingsViewTeam();
+  const project = useRowProject();
   const [writes, setWrites] = useState(0);
   const header = useMemo(
     () => notifying(store, () => setWrites(n => n + 1)),
@@ -322,7 +346,14 @@ export function SettingRow({
               value={<ValueContent def={def} parts={parts} />}
               fix={shown.fix}
               externalWrites={writes}
-              onPickRepo={onPickRepo}
+              onPickRepo={
+                project
+                  ? r => {
+                      project.pick(r);
+                      setOpen({ tab: 'value', fix: null });
+                    }
+                  : onPickRepo
+              }
             />
           </Box>
         )}

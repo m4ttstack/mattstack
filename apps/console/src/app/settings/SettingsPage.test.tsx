@@ -17,6 +17,7 @@ import {
 } from 'vitest';
 
 import '../icons';
+
 import { schemaFields } from './testSchemas';
 
 vi.mock('../config/useSettings', () => ({
@@ -884,37 +885,53 @@ describe('repo picker', () => {
       issues,
     });
 
-  it('the Needs fixing count follows the picked repo', async () => {
-    defsResponse = serve([...DEFS, ROLES({ scope: null, file: null })]);
-    repoDefs = [
+  it('counts a broken value in any project, with no project picked', async () => {
+    defsResponse = serve([
       ...DEFS,
-      ROLES(
+      ROLES({ scope: null, file: null }, [
         {
           scope: 'team.repo',
           file: '/home/team/settings.team.jsonc',
-          value: { dev: { fixedPort: '3000' } },
+          repo: REPO,
+          kind: 'nonconforming',
+          path: ['dev', 'fixedPort'],
+          message: 'expected number, got string',
         },
-        [
-          {
-            scope: 'team.repo',
-            file: '/home/team/settings.team.jsonc',
-            repo: REPO,
-            kind: 'nonconforming',
-            path: ['dev', 'fixedPort'],
-            message: 'expected number, got string',
-          },
-        ]
-      ),
-    ];
-    window.history.replaceState(
-      null,
-      '',
-      `/settings?repo=${encodeURIComponent(REPO)}`
-    );
+      ]),
+    ]);
     renderPage();
     expect(
       await screen.findByRole('checkbox', { name: '1 needs fixing' })
     ).toBeInTheDocument();
+  });
+
+  it('a per-project row picks its project in its own Value tab', async () => {
+    defsResponse = serve([...DEFS, ROLES({ scope: null, file: null })]);
+    const explained: string[] = [];
+    const read = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.startsWith('/api/settings/explain/')) explained.push(url);
+      return read(url);
+    });
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'open rt.roles' })
+    );
+    const picker = (await screen.findAllByLabelText('project')).find(
+      el => el.tagName === 'INPUT'
+    )!;
+    expect(picker).toHaveValue('');
+    await userEvent.click(picker);
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'acme/app' })
+    );
+    await waitFor(() =>
+      expect(
+        explained.some(u => u.includes(`repo=${encodeURIComponent(REPO)}`))
+      ).toBe(true)
+    );
+    expect(screen.getByText('for acme/app')).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('repo')).toBeNull();
   });
 });
 

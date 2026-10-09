@@ -1,3 +1,5 @@
+import '../icons';
+
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type {
   ExplainRowWire,
@@ -817,7 +819,7 @@ describe('with a repo picked', () => {
     );
   });
 
-  it('with all repos, lists each repo that sets the key and switches to it', async () => {
+  it('with no project picked, lists each project that sets the key and edits it', async () => {
     const REPO = 'gitlab.example.com/acme/app';
     const ROLES: SettingDefWire = {
       ...DEF,
@@ -869,7 +871,7 @@ describe('with a repo picked', () => {
       await within(section).findByTestId('layer-value-team.repo')
     ).toHaveTextContent(/^1 field$/);
     const show = within(section).getByRole('button', {
-      name: 'Show acme/app',
+      name: 'Edit acme/app',
     });
     expect(show.style.getPropertyValue('--button-height')).toBe(
       'var(--button-height-sm)'

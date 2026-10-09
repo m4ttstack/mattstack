@@ -1,3 +1,5 @@
+import '../icons';
+
 import { readFileSync } from 'node:fs';
 import type { ReactNode } from 'react';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';

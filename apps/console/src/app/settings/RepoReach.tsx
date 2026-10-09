@@ -5,8 +5,8 @@ import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import { useSettingsRepo } from './useConsoleSettings';
 import { repoLabel } from './view';
 
-/** What an edit of a repo-scoped row reaches: every repo, or the picked
-    one; with all repos, also how many repos set the key in a section. */
+/** What an edit of a per-project row reaches: the project it has picked,
+    or with none picked, how many projects set the key. */
 export function RepoReach({ def }: { def: SettingDefWire }) {
   const { text } = useSchemeColors();
   const repo = useSettingsRepo();
@@ -17,8 +17,8 @@ export function RepoReach({ def }: { def: SettingDefWire }) {
     const n = def.repos?.length ?? 0;
     label =
       n === 0
-        ? 'all repos'
-        : `all repos · set in ${n} ${n === 1 ? 'repo' : 'repos'}`;
+        ? 'per project'
+        : `per project · set in ${n} ${n === 1 ? 'project' : 'projects'}`;
   }
   return (
     <Text fz={12} c={text.muted} style={{ whiteSpace: 'nowrap' }}>

@@ -1,3 +1,5 @@
+import '../icons';
+
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

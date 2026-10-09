@@ -35,6 +35,7 @@ import { editorKind, formOf } from './formShape';
 import { isDiverged, issueText, type WireIssue } from './issues';
 import classes from './KeyPanel.module.css';
 import { PanelToolbarSlot } from './PanelToolbar';
+import { ProjectPicker } from './RowProject';
 import { ScalarControl } from './ScalarControl';
 import { ScopeBadge, ScopeDot } from './ScopeBadge';
 import {
@@ -546,10 +547,10 @@ function RepoSection({
           <Button
             size="sm"
             variant="default"
-            aria-label={`Show ${repoLabel(identity)}`}
+            aria-label={`Edit ${repoLabel(identity)}`}
             onClick={() => onPick(identity)}
           >
-            Show
+            Edit
           </Button>
         )}
       </Group>
@@ -802,10 +803,10 @@ function WhereTab({
         <>
           <Group gap={8} wrap="nowrap" className={classes.reposHead}>
             <Text fz={12} fw={500} tt="uppercase" lts={0.6} c={text.muted}>
-              Repos
+              Projects
             </Text>
             <Text fz={12} c={text.muted}>
-              · sections that override every repo's value for one repo
+              · each project's value, from every layer that sets it
             </Text>
           </Group>
           {def.repos!.map(r => (
@@ -817,6 +818,22 @@ function WhereTab({
             />
           ))}
         </>
+      )}
+      {def.repoScoped && repo === null && onPickRepo && (
+        <Group gap={8} wrap="nowrap" data-testid="another-project">
+          <ProjectPicker
+            def={def}
+            value={null}
+            onPick={onPickRepo}
+            exclude={(def.repos ?? []).map(r => r.identity)}
+            placeholder={
+              (def.repos?.length ?? 0) > 0
+                ? 'Set it for another project'
+                : 'Set it for a project'
+            }
+            label="set it for another project"
+          />
+        </Group>
       )}
     </Stack>
   );

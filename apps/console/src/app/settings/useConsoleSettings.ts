@@ -419,7 +419,8 @@ export function resetExplainCache() {
 export function useKeyExplain(
   key: string,
   repo: string | null,
-  revision = 0
+  revision = 0,
+  enabled = true
 ): KeyExplain {
   const team = useContext(SettingsViewTeamContext);
   const [seed] = useState(() => explainCache.get(explainId(key, repo, team)));
@@ -430,6 +431,10 @@ export function useKeyExplain(
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     let alive = true;
     setLoading(true);
     readExplain(key, repo, team)
@@ -448,7 +453,7 @@ export function useKeyExplain(
     return () => {
       alive = false;
     };
-  }, [key, repo, team, generation, revision]);
+  }, [key, repo, team, generation, revision, enabled]);
 
   const refresh = useCallback(() => setGeneration(g => g + 1), []);
   return useMemo(
