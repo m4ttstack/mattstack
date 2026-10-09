@@ -109,7 +109,10 @@ function renderPanel(gate: GateRow) {
 }
 
 const panel = () => screen.getByTestId('gate-panel');
-const radio = (name: RegExp) => screen.getByRole('radio', { name });
+const options = () => screen.getByRole('radiogroup', { name: /\?$/ });
+const radio = (name: RegExp) => within(options()).getByRole('radio', { name });
+const step = (name: RegExp) =>
+  within(screen.getByTestId('gate-stepper')).getByRole('radio', { name });
 const press = (key: string, init: Partial<KeyboardEventInit> = {}) =>
   fireEvent.keyDown(panel(), { key, ...init });
 
@@ -126,23 +129,31 @@ describe('GatePanel', () => {
       screen.getByText('The plan stage needs three answers')
     ).toBeInTheDocument();
     expect(
-      screen.getByText('Opened 4m ago. The agent is paused until you submit.')
+      screen.getByText('Opened 4m ago · the agent waits until you submit')
     ).toBeInTheDocument();
     expect(panel()).toHaveAttribute('data-tone', 'mine');
   });
 
-  it('moves between questions through the stepper', async () => {
+  it('moves between questions through the step strip', async () => {
     renderPanel(gateRow());
-    expect(screen.getByText('1 of 3')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Scope/ }));
+    expect(step(/Approach/)).toBeChecked();
+    await userEvent.click(step(/Scope/));
     expect(screen.getByText('Who should the filter list?')).toBeInTheDocument();
-    expect(screen.getByText('2 of 3')).toBeInTheDocument();
+    expect(step(/Scope/)).toBeChecked();
   });
 
-  it('hides the stepper and the count for a one-question gate', () => {
+  it('marks a step answered elsewhere in the strip with a check', async () => {
+    renderPanel(gateRow());
+    press('1');
+    await userEvent.click(step(/Scope/));
+    const steps = within(screen.getByTestId('gate-stepper'));
+    expect(steps.queryByText('1')).not.toBeInTheDocument();
+    expect(steps.getByText('2')).toBeInTheDocument();
+  });
+
+  it('hides the step strip for a one-question gate', () => {
     renderPanel(gateRow({ questions: [gateRow().questions[0]!] }));
     expect(screen.queryByTestId('gate-stepper')).not.toBeInTheDocument();
-    expect(screen.queryByText('1 of 1')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Submit/ })).toBeInTheDocument();
   });
 
@@ -166,7 +177,7 @@ describe('GatePanel', () => {
   it('shows the recommended badge and strips the marker from the label', () => {
     renderPanel(gateRow());
     const server = radio(/Server-side filter/);
-    expect(within(server).getByText('recommended')).toBeInTheDocument();
+    expect(within(server).getByText('Recommended')).toBeInTheDocument();
     expect(within(server).queryByText(/\(Recommended\)/)).toBeNull();
   });
 
@@ -175,7 +186,7 @@ describe('GatePanel', () => {
     renderPanel(gateRow());
     press('1');
     press('Enter', { metaKey: true });
-    expect(screen.getByText('2 of 3')).toBeInTheDocument();
+    expect(step(/Scope/)).toBeChecked();
     press('2');
     press('Enter', { metaKey: true });
     press('1');
@@ -206,7 +217,7 @@ describe('GatePanel', () => {
       screen.getByRole('textbox', { name: /note/i }),
       'flag it'
     );
-    expect(screen.getByText('draft saved')).toBeInTheDocument();
+    expect(screen.getByText('Draft saved')).toBeInTheDocument();
     first.unmount();
 
     renderPanel(gate);
@@ -242,7 +253,7 @@ describe('GatePanel', () => {
     renderPanel(gateRow());
     await userEvent.click(radio(/Client-side filter/));
     expect(radio(/Client-side filter/)).toHaveAttribute('aria-checked', 'true');
-    expect(screen.queryByText('draft saved')).not.toBeInTheDocument();
+    expect(screen.queryByText('Draft saved')).not.toBeInTheDocument();
   });
 
   it('asks before overriding a shepherd and posts only once confirmed', async () => {
@@ -335,14 +346,58 @@ describe('GatePanel', () => {
     expect(screen.getByRole('checkbox', { name: /b/ })).toBeChecked();
   });
 
-  it('gives number hints to the first nine options only', () => {
-    const options = Array.from({ length: 11 }, (_, i) => `option ${i + 1}`);
+  it('gives key caps 1 to 9 to the first nine options only', () => {
+    const many = Array.from({ length: 11 }, (_, i) => `option ${i + 1}`);
     renderPanel(
       gateRow({
-        questions: [{ id: 'many', label: 'Pick one', multi: false, options }],
+        questions: [
+          { id: 'many', label: 'Pick one?', multi: false, options: many },
+        ],
       })
     );
-    expect(screen.getAllByTestId('gate-option-key')).toHaveLength(9);
+    expect(
+      screen.getAllByTestId('gate-option-key').map(k => k.textContent)
+    ).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9']);
+    for (const name of [/^option 10/, /^option 11/]) {
+      expect(
+        within(radio(name)).queryByTestId('gate-option-key')
+      ).not.toBeInTheDocument();
+    }
+  });
+
+  it('splits a command out of a description onto its own line', () => {
+    const gate = gateRow();
+    gate.questions[0] = {
+      ...gate.questions[0]!,
+      options: [
+        {
+          value: 'server',
+          label: 'Server-side filter',
+          description: 'From apps/backend: jest -t orders, red then green.',
+        },
+        'client',
+      ],
+    };
+    renderPanel(gate);
+    const server = radio(/Server-side filter/);
+    expect(within(server).getByText('From apps/backend, red then green.'));
+    expect(
+      within(server).getByText('jest -t orders').closest('code')
+    ).not.toBeNull();
+  });
+
+  it('draws labelled context points as a label column', () => {
+    renderPanel(
+      gateRow({
+        context:
+          'Two ways.\n\n- Server-side: fast on big stores.\n- Risk: big stores.',
+      })
+    );
+    const context = screen.getByTestId('gate-findings');
+    expect(within(context).getByText('Server-side')).toBeInTheDocument();
+    expect(
+      within(context).getByText('fast on big stores.')
+    ).toBeInTheDocument();
   });
 
   it('shows the parked badge and keeps the resume note on the pane button', () => {
@@ -360,13 +415,16 @@ describe('GatePanel', () => {
     expect(
       screen.getByText('The orders list already loads every order.')
     ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Scope/ }));
+    await userEvent.click(step(/Scope/));
     expect(screen.getByText('notes')).toBeInTheDocument();
   });
 
-  it('hides the findings panel when there is no context', () => {
-    renderPanel(gateRow({ context: undefined }));
+  it('drops the context column when there is no context', () => {
+    const { container } = renderPanel(gateRow({ context: undefined }));
     expect(screen.queryByText('What the agent found')).not.toBeInTheDocument();
+    expect(
+      container.querySelector('[data-parity="context"]')
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -415,12 +473,12 @@ describe('GatePanel: answering', () => {
     answerPost.mockResolvedValue(ok());
     renderPanel(mixed());
     press('1');
-    await userEvent.click(screen.getByRole('button', { name: /Delivery/ }));
+    await userEvent.click(step(/Delivery/));
     press('1');
     press('Enter', { metaKey: true });
     expect(answerPost).not.toHaveBeenCalled();
     expect(screen.getByText('Any flags?')).toBeInTheDocument();
-    expect(screen.getByText('2 of 3')).toBeInTheDocument();
+    expect(step(/Flags/)).toBeChecked();
   });
 
   it('posts a multi-select skipped on purpose as none', async () => {
@@ -460,13 +518,43 @@ describe('GatePanel: answering', () => {
     expect(localStorage.getItem(gateDraftKey('g1'))).toBeNull();
   });
 
-  it('keeps the picks when a submit fails', async () => {
+  it('keeps the picks and note on a refused submit, and tries again', async () => {
+    answerPost.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'the design fixture is read-only' }),
+    });
+    renderPanel(gateRow({ questions: [gateRow().questions[0]!] }));
+    press('2');
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /note/i }),
+      'keep me'
+    );
+    press('Enter', { metaKey: true });
+    expect(
+      await screen.findByText(
+        "Couldn't submit: the design fixture is read-only. Your picks and note are kept."
+      )
+    ).toBeInTheDocument();
+    expect(radio(/Client-side filter/)).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('textbox', { name: /note/i })).toHaveValue(
+      'keep me'
+    );
+    expect(screen.queryByText(/Answered elsewhere/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(answerPost).toHaveBeenCalledTimes(2));
+    expect(answerPost.mock.calls[1]).toEqual(answerPost.mock.calls[0]);
+  });
+
+  it('names the daemon when a failed submit carries no reason', async () => {
     answerPost.mockRejectedValue(new Error('offline'));
     renderPanel(gateRow({ questions: [gateRow().questions[0]!] }));
     press('2');
     press('Enter', { metaKey: true });
     expect(
-      await screen.findByText('Submit failed. Nothing was sent; try again.')
+      await screen.findByText(
+        "Couldn't submit: the daemon refused the answer. Your picks and note are kept."
+      )
     ).toBeInTheDocument();
     expect(radio(/Client-side filter/)).toHaveAttribute('aria-checked', 'true');
   });

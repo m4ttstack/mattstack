@@ -35,6 +35,7 @@ declare module '@mattstack/app-kit/icons' {
     hand: true;
     bot: true;
     image: true;
+    circleAlert: true;
   }
 }
 export {};

@@ -6,15 +6,16 @@ import {
   type ReactNode,
 } from 'react';
 import {
-  Anchor,
+  Alert,
   Badge,
   Button,
   Checkbox,
+  Code,
   Group,
   Kbd,
   Radio,
+  SegmentedControl,
   Stack,
-  Stepper,
   Text,
   Textarea,
 } from '@mattstack/app-kit/core';
@@ -30,6 +31,7 @@ import {
   answersFromForm,
   gateItems,
   noteFieldName,
+  type GateItemChoice,
   type GateItemDisplay,
 } from '@mattstack/gate-kit/react';
 import type { GateRow } from '@mattstack/rt-client';
@@ -38,6 +40,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { isMine } from '../../../shared/gate-waiting';
 import { client } from '../../api';
 import { formatDuration } from '../derive/duration';
+import { contextBlocks, splitCommand } from '../derive/gates';
 import { GateContext } from '../GateContext';
 import classes from './GatePanel.module.css';
 import { useGateDraft } from './useGateDraft';
@@ -60,20 +63,11 @@ function answersNeeded(count: number): string {
   return `${n} ${count === 1 ? 'answer' : 'answers'}`;
 }
 
-/** A step's chip name: the question id as words ("code-changes" is "Code
+/** A step's name: the question id as words ("code-changes" is "Code
     changes"), since questions carry no short title. */
 function stepName(id: string): string {
   const words = id.replace(/[-_]/g, ' ');
   return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-const STEPPER_PARITY = {
-  stepIcon: { 'data-parity': 'n' },
-  separator: { 'data-parity': 'dash' },
-};
-
-function stepNumber({ step }: { step: number }) {
-  return <span data-parity="num">{step + 1}</span>;
 }
 
 function isAnswered(item: GateItemDisplay, value: unknown): boolean {
@@ -99,6 +93,20 @@ function formOf(
   return form;
 }
 
+const REFUSED = 'the daemon refused the answer';
+
+/** Why a submit failed, in the words the strip reads: the server's own
+    `error`, else the daemon refused it. */
+function refusalReason(body: unknown): string {
+  const error =
+    body && typeof body === 'object' && 'error' in body
+      ? (body as { error: unknown }).error
+      : null;
+  return typeof error === 'string' && error.trim()
+    ? error.trim().replace(/\.$/, '')
+    : REFUSED;
+}
+
 export function typingTarget(target: EventTarget): boolean {
   return (
     target instanceof HTMLTextAreaElement ||
@@ -107,6 +115,8 @@ export function typingTarget(target: EventTarget): boolean {
       target.type !== 'checkbox')
   );
 }
+
+type Payload = { answers: GateAnswers };
 
 export interface GatePanelProps {
   gate: GateRow;
@@ -140,7 +150,10 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
     () => draft.initial?.skipped ?? []
   );
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<{
+    reason: string;
+    payload: Payload;
+  } | null>(null);
   const [lostChip, setLostChip] = useState<string | null>(null);
   const [focusError, setFocusError] = useState<string | null>(null);
   const [focusBusy, setFocusBusy] = useState(false);
@@ -186,18 +199,17 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
     setSkipped(prev => prev.filter(n => n !== name));
   };
 
-  const post = async (payload: { answers: GateAnswers }) => {
+  const post = async (payload: Payload) => {
     setBusy(true);
-    setFailed(false);
+    setFailure(null);
+    let body: unknown = null;
     try {
       const res = await client.api.gates[':id'].answer.$post({
         param: { id: gate.id },
         json: payload,
       });
-      const outcome = resolveAnswerOutcome(
-        res.status,
-        await res.json().catch(() => null)
-      );
+      body = await res.json().catch(() => null);
+      const outcome = resolveAnswerOutcome(res.status, body);
       if (outcome.kind === 'lost') {
         setLostChip(
           answeredGateSummary({
@@ -216,7 +228,7 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
       if (!res.ok) throw new Error(String(res.status));
     } catch {
       setBusy(false);
-      setFailed(true);
+      setFailure({ reason: refusalReason(body), payload });
       return;
     }
     setBusy(false);
@@ -311,7 +323,7 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
       ? gate.context
       : null);
   const tone = mine ? 'mine' : 'herd';
-  const opened = `Opened ${formatDuration(now - gate.openedAt)} ago.`;
+  const age = formatDuration(now - gate.openedAt);
   const primaryLabel = `${last ? 'Submit' : 'Next'}${skippable ? ' · none' : ''}`;
 
   return (
@@ -324,17 +336,21 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
       tabIndex={-1}
       onKeyDown={onKeyDown}
     >
-      <div className={classes.head} data-parity="Gate head">
+      <div className={classes.head} data-parity="head">
         <Text
           component="span"
           c={mine ? 'bad' : 'dimmed'}
           className={classes.icon}
         >
-          <Icon name={mine ? 'hand' : 'bot'} size={16} data-parity="icon" />
+          <Icon
+            name={mine ? 'hand' : 'bot'}
+            size={18}
+            data-parity={mine ? 'hand' : 'bot'}
+          />
         </Text>
         <Stack gap={2} className={classes.ttl}>
           <Text
-            fz={14}
+            fz={15}
             fw={700}
             lh="normal"
             c={mine ? 'bad' : undefined}
@@ -344,45 +360,40 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
               ? `The ${stage} stage needs ${answersNeeded(display.length)}`
               : `This gate needs ${answersNeeded(display.length)}`}
           </Text>
-          <Text
-            fz={12}
-            lh="normal"
-            c={mine ? 'bad' : 'dimmed'}
-            data-parity="sub"
-          >
+          <Text fz={12.5} lh="normal" c="dimmed" data-parity="sub">
             {mine
-              ? `${opened} The agent is paused until you submit.`
-              : `${opened} A shepherd owns this gate; answering here overrides it.`}
+              ? `Opened ${age} ago · the agent waits until you submit`
+              : `Opened ${age} ago. A shepherd owns this gate; answering here overrides it.`}
           </Text>
         </Stack>
-        <span className={classes.grow} />
         {parked && (
           <Badge color="warn" variant="light" data-testid="gate-parked-badge">
             parked
           </Badge>
         )}
         {stepped && (
-          <Stepper
-            active={index}
-            onStepClick={goTo}
-            color={mine ? 'bad' : 'gray'}
+          <SegmentedControl
+            variant="quiet"
             size="sm"
-            wrap={false}
-            icon={stepNumber}
-            progressIcon={stepNumber}
-            attributes={STEPPER_PARITY}
-            classNames={{ root: classes.stepper, separator: classes.dash }}
+            withItemsBorders={false}
+            value={active?.name ?? ''}
+            onChange={setItem}
+            classNames={{ root: classes.steps }}
             data-testid="gate-stepper"
-          >
-            {display.map((d, i) => (
-              <Stepper.Step
-                key={d.name}
-                allowStepSelect
-                label={<span data-parity="label">{stepName(d.name)}</span>}
-                data-parity={i === index ? 'step' : undefined}
-              />
-            ))}
-          </Stepper>
+            data-parity="steps"
+            data={display.map((d, i) => ({
+              value: d.name,
+              label: (
+                <StepLabel
+                  n={i + 1}
+                  name={stepName(d.name)}
+                  current={i === index}
+                  done={i !== index && isAnswered(d, selections[d.name])}
+                  mine={mine}
+                />
+              ),
+            }))}
+          />
         )}
       </div>
       {lostChip !== null ? (
@@ -394,18 +405,7 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
       ) : (
         <div className={classes.split}>
           {context !== null && <Findings text={context} />}
-          <Stack gap={14} className={classes.form}>
-            {stepped && (
-              <Text
-                fz={11.5}
-                lh="normal"
-                ff="monospace"
-                c="dimmed"
-                data-parity="progress"
-              >
-                {index + 1} of {display.length}
-              </Text>
-            )}
+          <Stack gap={10} className={classes.form}>
             {active && (
               <Question
                 key={active.name}
@@ -418,55 +418,63 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
                 }
               />
             )}
-            <Group gap={8} wrap="nowrap" className={classes.footer}>
+            {failure && (
+              <Alert
+                color="bad"
+                variant="light"
+                icon={<Icon name="circleAlert" size={16} />}
+                classNames={{ message: classes.errorMessage }}
+                data-parity="error"
+              >
+                <Text fz={12.5} lh="normal" c="bad" data-parity="t">
+                  Couldn&apos;t submit: {failure.reason}. Your picks and note
+                  are kept.
+                </Text>
+                <Button
+                  loading={busy}
+                  onClick={() => void post(failure.payload)}
+                  className={classes.retry}
+                  data-parity="btn Try again"
+                >
+                  <span data-parity="l">Try again</span>
+                </Button>
+              </Alert>
+            )}
+            <Group gap={12} wrap="nowrap" className={classes.footer}>
               <Button
-                variant="default"
+                variant="subtle"
+                color="gray"
                 leftSection={
-                  <Icon
-                    name="squareTerminal"
-                    size={14}
-                    data-parity="square-terminal"
-                  />
+                  <Icon name="squareTerminal" size={14} data-parity="i" />
                 }
                 disabled={focusReason !== null}
                 loading={focusBusy}
                 title={focusReason ?? 'Jump to the pane behind this gate'}
                 onClick={() => void openPane()}
-                data-parity="focus"
               >
-                <span data-parity="Open the pane">Open the pane</span>
+                <span data-parity="l">Open the pane</span>
               </Button>
               <span className={classes.grow} />
-              {failed && (
-                <Text fz={12} lh="normal" c="bad">
-                  Submit failed. Nothing was sent; try again.
-                </Text>
-              )}
               {focusError && (
                 <Text fz={12} lh="normal" c="bad">
                   {focusError}
                 </Text>
               )}
               {draft.saved && (
-                <Text
-                  fz={11.5}
-                  lh="normal"
-                  c="dimmed"
-                  data-parity="draft saved"
-                >
-                  draft saved
+                <Text fz={12} lh="normal" c="dimmed" data-parity="draft">
+                  Draft saved
                 </Text>
               )}
               <Button
                 loading={busy}
                 disabled={!skippable && !answered}
                 rightSection={
-                  <Kbd size="sm" data-parity="kbd">
+                  <kbd className={classes.enterKey} data-parity="key ⌘↵">
                     <span data-parity="k">⌘↵</span>
-                  </Kbd>
+                  </kbd>
                 }
                 onClick={advance}
-                data-parity="primary"
+                data-parity="Next"
               >
                 <span data-parity="l">{primaryLabel}</span>
               </Button>
@@ -478,46 +486,158 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
   );
 }
 
+function StepLabel({
+  n,
+  name,
+  current,
+  done,
+  mine,
+}: {
+  n: number;
+  name: string;
+  current: boolean;
+  done: boolean;
+  mine: boolean;
+}) {
+  const body = (
+    <>
+      <Text
+        component="span"
+        fz={11.5}
+        fw={500}
+        lh="normal"
+        c={current && mine ? 'bad' : undefined}
+        className={classes.stepN}
+        data-parity="n"
+      >
+        {done ? <Icon name="check" size={12} aria-label="answered" /> : n}
+      </Text>
+      <Text
+        component="span"
+        fz={12.5}
+        fw={current ? 500 : 400}
+        lh="normal"
+        data-parity="l"
+      >
+        {name}
+      </Text>
+    </>
+  );
+  return current ? (
+    <span className={classes.step} data-parity={`step ${name}`}>
+      {body}
+    </span>
+  ) : (
+    <span className={classes.step}>{body}</span>
+  );
+}
+
 function Findings({ text }: { text: string }) {
+  const blocks = contextBlocks(text);
   return (
-    <Stack gap={12} className={classes.context} data-parity="Context">
-      <Group wrap="nowrap" className={classes.findingsHead}>
-        <Text
-          fz={10.5}
-          fw={500}
-          lh="normal"
-          tt="uppercase"
-          lts={0.8}
-          c="dimmed"
-          data-parity="WHAT THE AGENT FOUND"
-        >
-          What the agent found
-        </Text>
-        <span className={classes.grow} />
-        <Anchor
-          component="button"
-          type="button"
-          fz={12}
-          fw={500}
-          lh="normal"
-          c="accent"
-          onClick={() =>
-            modals.open({
-              title: 'What the agent found',
-              size: 'xl',
-              centered: true,
-              children: <GateContext text={text} />,
-            })
-          }
-          data-parity="expand"
-        >
-          expand
-        </Anchor>
-      </Group>
-      <div className={classes.findings}>
-        <GateContext text={text} />
-      </div>
+    <Stack
+      gap={10}
+      className={classes.context}
+      data-parity="context"
+      data-testid="gate-findings"
+    >
+      <Text
+        fz={10.5}
+        fw={500}
+        lh="normal"
+        tt="uppercase"
+        lts={0.8}
+        c="dimmed"
+        data-parity="label"
+      >
+        What the agent found
+      </Text>
+      {blocks.map((block, i) =>
+        block.kind === 'markdown' ? (
+          <div key={i} className={classes.findings}>
+            <GateContext text={block.text} />
+          </div>
+        ) : (
+          <div key={i} className={classes.points}>
+            {block.points.map((point, j) => (
+              <div key={j} className={classes.point}>
+                <Text fz={12.5} fw={500} lh="normal" data-parity="k">
+                  {point.label}
+                </Text>
+                <div className={classes.pointText} data-parity="v">
+                  <GateContext text={point.text} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
     </Stack>
+  );
+}
+
+function OptionBody({
+  choice,
+  index,
+  multiple,
+  checked,
+}: {
+  choice: GateItemChoice;
+  index: number;
+  multiple: boolean;
+  checked: boolean;
+}) {
+  const description = choice.subtitle ?? choice.description;
+  const { prose, command } = description
+    ? splitCommand(description)
+    : { prose: '', command: null };
+  return (
+    <Group gap={12} wrap="nowrap" className={classes.optionRow}>
+      {multiple ? (
+        <Checkbox.Indicator data-parity="radio" />
+      ) : (
+        <Radio.Indicator data-parity="radio" />
+      )}
+      <Stack gap={3} className={classes.optionText}>
+        <Group gap={8} wrap="nowrap">
+          <Text fz={14} fw={500} lh="normal" data-parity="t">
+            {choice.label}
+          </Text>
+          {choice.recommended && (
+            <Badge
+              size="sm"
+              variant="light"
+              color="ok"
+              tt="none"
+              data-parity="recommended"
+            >
+              <span data-parity="l">Recommended</span>
+            </Badge>
+          )}
+        </Group>
+        {prose && (
+          <Text fz={12.5} lh="normal" c="dimmed" data-parity="d">
+            {prose}
+          </Text>
+        )}
+        {command && (
+          <Code className={classes.command} data-parity="cmd">
+            <span data-parity="c">{command}</span>
+          </Code>
+        )}
+      </Stack>
+      {index < 9 && (
+        <Kbd
+          size="sm"
+          c={checked ? 'accent' : undefined}
+          className={classes.cap}
+          data-testid="gate-option-key"
+          data-parity={`key ${index + 1}`}
+        >
+          <span data-parity="n">{index + 1}</span>
+        </Kbd>
+      )}
+    </Group>
   );
 }
 
@@ -536,52 +656,26 @@ function Question({
 }) {
   const label = <span data-parity="q">{item.prompt}</span>;
   const labelProps = { fz: 17, fw: 700, lh: 'normal' };
+  const picked = (choice: string) =>
+    Array.isArray(value) ? value.includes(choice) : value === choice;
   const options = (
-    <Stack gap={8}>
+    <Stack gap={10}>
       {item.choices.map((choice, i) => {
         const body: ReactNode = (
-          <Group gap={12} wrap="nowrap" className={classes.optionRow}>
-            {item.multiple ? (
-              <Checkbox.Indicator data-parity="radio" />
-            ) : (
-              <Radio.Indicator data-parity="radio" />
-            )}
-            <Stack gap={2} className={classes.optionText}>
-              <Group gap={8} wrap="nowrap">
-                <Text fz={13.5} fw={500} lh="normal" data-parity="label">
-                  {choice.label}
-                </Text>
-                {choice.recommended && (
-                  <Badge
-                    size="sm"
-                    variant="light"
-                    color="ok"
-                    tt="none"
-                    data-parity="rec"
-                  >
-                    <span data-parity="recommended">recommended</span>
-                  </Badge>
-                )}
-              </Group>
-              {(choice.subtitle ?? choice.description) && (
-                <Text fz={12} lh="normal" c="dimmed" data-parity="desc">
-                  {choice.subtitle ?? choice.description}
-                </Text>
-              )}
-            </Stack>
-            {i < 9 && (
-              <Kbd size="sm" data-testid="gate-option-key" data-parity="kbd">
-                <span data-parity="k">{i + 1}</span>
-              </Kbd>
-            )}
-          </Group>
+          <OptionBody
+            choice={choice}
+            index={i}
+            multiple={item.multiple}
+            checked={picked(choice.value)}
+          />
         );
+        const parity = `option ${choice.label}`;
         return item.multiple ? (
           <Checkbox.Card
             key={choice.value}
             value={choice.value}
             className={classes.card}
-            data-parity="opt"
+            data-parity={parity}
           >
             {body}
           </Checkbox.Card>
@@ -590,7 +684,7 @@ function Question({
             key={choice.value}
             value={choice.value}
             className={classes.card}
-            data-parity="opt"
+            data-parity={parity}
           >
             {body}
           </Radio.Card>
@@ -626,12 +720,10 @@ function Question({
         minRows={1}
         aria-label="Note for the agent"
         placeholder="Add a note for the agent (optional)"
-        leftSection={
-          <Icon name="messageSquare" size={14} data-parity="message-square" />
-        }
+        leftSection={<Icon name="messageSquare" size={14} data-parity="i" />}
         value={note}
         onChange={event => onNote(event.currentTarget.value)}
-        wrapperProps={{ 'data-parity': 'Note' }}
+        wrapperProps={{ 'data-parity': 'note' }}
       />
     </>
   );

@@ -162,10 +162,9 @@ export function RunPage({
         canAbandon={run.attention.needs && run.attention.reason === 'stale'}
         onViewInputs={drawer.open}
       />
-      {gatePanels}
       <div className={classes.columns}>
         <Stack gap={14} className={classes.story} data-parity="Story">
-          {slot}
+          {gatePanels ?? slot}
           <RunStory
             repo={repo}
             runId={runId}

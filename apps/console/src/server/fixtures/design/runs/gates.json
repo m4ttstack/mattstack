@@ -8,7 +8,7 @@
       "owner": "human",
       "origin": { "runId": "20261008-1340", "paneId": "fixture-pane-molly" },
       "openedAt": "2026-10-08T16:17:00-05:00",
-      "context": "The orders list already loads every order for the store, then pages it in the browser.\n\n- Server-side: add an assignee param to the orders query. Fast on big stores, needs a resolver change and one migration for the index.\n- Client-side: filter the loaded page. No backend change, but it only filters what is on screen.\n- Risk: two stores have more than 40k open orders. Client-side would be wrong for them.\n\n```\napps/orders/src/list/useOrders.ts:42\nconst orders = useQuery(ORDERS, { variables: { store } })\n```\n",
+      "context": "The orders list loads every order for the store, then pages it in the browser.\n\n- Server-side: fast on big stores; needs a resolver change and one index migration.\n- Client-side: no backend change, but only filters what is on screen.\n- Risk: two stores have more than 40k open orders.\n\n```\napps/orders/src/list/useOrders.ts:42\nconst orders = useQuery(ORDERS, { store })\n```\n",
       "questions": [
         {
           "id": "approach",
@@ -17,17 +17,17 @@
             {
               "value": "Server-side filter",
               "label": "Server-side filter (Recommended)",
-              "description": "Add an assignee param to the query"
+              "description": "Add an assignee param to the orders query. `jest --selectProjects unit -t useOrders`"
             },
             {
               "value": "Client-side filter",
               "label": "Client-side filter",
-              "description": "Filter the loaded page only"
+              "description": "Filter the loaded page only."
             },
             {
               "value": "Both, behind a flag",
               "label": "Both, behind a flag",
-              "description": "Ship client-side now, server-side next"
+              "description": "Ship client-side now, server-side next."
             }
           ]
         },

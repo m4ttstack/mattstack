@@ -1,26 +1,30 @@
 import '../../icons';
 
+import { useEffect, useState, type ReactNode } from 'react';
 import type { GateRow } from '@mattstack/rt-client';
-import type { Meta, StoryObj } from '@storybook/react-vite';
+import type { Decorator, Meta, StoryObj } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { userEvent, within } from 'storybook/test';
 
 import { GatePanel, GatePanels } from './GatePanel';
 
-/** The gate panel in the states the run-gate and run-two-gates boards draw,
-    plus the edges they do not. Answering posts to `/api`, which answers only
-    with the design fixture server behind it. */
+/** The gate panel in the states the runs-p2-gate and runs-p2-states boards
+    draw, plus the edges they do not. Answering posts to `/api`, which answers
+    only with the design fixture server behind it. */
 const MIN = 60_000;
 const NOW = Date.UTC(2026, 9, 8, 21, 21);
 const queryClient = new QueryClient();
 
 const CONTEXT = [
-  'The orders list already loads every order for the store, then pages it in the browser.',
+  'The orders list loads every order for the store, then pages it in the browser.',
   '',
-  '- Server-side: add an assignee param to the orders query.',
-  '- Client-side: filter the loaded page. No backend change.',
+  '- Server-side: fast on big stores; needs a resolver change and one index migration.',
+  '- Client-side: no backend change, but only filters what is on screen.',
+  '- Risk: two stores have more than 40k open orders.',
   '',
   '```',
   'apps/orders/src/list/useOrders.ts:42',
+  'const orders = useQuery(ORDERS, { store })',
   '```',
 ].join('\n');
 
@@ -39,12 +43,13 @@ const gate = (over: Partial<GateRow>): GateRow =>
           {
             value: 'Server-side filter',
             label: 'Server-side filter (Recommended)',
-            description: 'Add an assignee param to the query',
+            description:
+              'Add an assignee param to the orders query. `jest --selectProjects unit -t useOrders`',
           },
           {
             value: 'Client-side filter',
             label: 'Client-side filter',
-            description: 'Filter the loaded page only',
+            description: 'Filter the loaded page only.',
           },
         ],
       },
@@ -130,6 +135,53 @@ export const SkippableMultiSelect: Story = {
         },
       ],
     }),
+  },
+};
+
+export const NoContext: Story = {
+  args: { gate: gate({ context: undefined }) },
+};
+
+/** Every answer post is refused with 403, as the read-only design fixture
+    refuses it, for as long as the story is mounted. */
+function RefusingAnswers({ children }: { children: ReactNode }) {
+  const [real] = useState(() => globalThis.fetch);
+  const refusing = async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1]
+  ) =>
+    String(input instanceof Request ? input.url : input).includes('/answer')
+      ? new Response(
+          JSON.stringify({ error: 'the design fixture is read-only' }),
+          { status: 403, headers: { 'content-type': 'application/json' } }
+        )
+      : real(input, init);
+  globalThis.fetch = Object.assign(refusing, real);
+  useEffect(
+    () => () => {
+      globalThis.fetch = real;
+    },
+    [real]
+  );
+  return children;
+}
+
+const refusingAnswers: Decorator = Story => (
+  <RefusingAnswers>
+    <Story />
+  </RefusingAnswers>
+);
+
+export const SubmitRefused: Story = {
+  decorators: [refusingAnswers],
+  args: {
+    gate: gate({ id: 'g-refused', questions: [gate({}).questions[0]!] }),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole('radio', { name: /Server-side/ }));
+    await userEvent.click(canvas.getByRole('button', { name: /Submit/ }));
+    await canvas.findByRole('button', { name: 'Try again' });
   },
 };
 

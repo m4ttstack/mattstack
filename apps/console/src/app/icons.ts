@@ -8,6 +8,7 @@ import {
   Braces,
   Building2,
   Circle,
+  CircleAlert,
   CircleCheck,
   CircleDot,
   CircleSlash,
@@ -76,4 +77,5 @@ registerIcons({
   image: lucideWrapperFn(ImageGlyph),
   building: lucideWrapperFn(Building2),
   team: lucideWrapperFn(UsersRound),
+  circleAlert: lucideWrapperFn(CircleAlert),
 });

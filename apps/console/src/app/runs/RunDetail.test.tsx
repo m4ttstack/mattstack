@@ -265,7 +265,7 @@ describe('RunDetail: live work run', () => {
     expect(within(page).getByText('EVIDENCE')).toBeInTheDocument();
   });
 
-  it('puts an open gate of the run in the gate panel instead of the Now card', async () => {
+  it('puts an open gate at the top of the main column instead of the Now card', async () => {
     render(workRun(), [
       gate({
         status: 'open',
@@ -276,7 +276,8 @@ describe('RunDetail: live work run', () => {
     ]);
     const panel = await screen.findByTestId('gate-panel');
     expect(panel).toHaveAttribute('data-gate-id', 'g-open');
-    expect(panel.closest('[data-parity="Story"]')).toBeNull();
+    const main = panel.closest('[data-parity="Story"]');
+    expect(main?.firstElementChild).toContainElement(panel);
     expect(
       screen.getByText('None yet. What you answer above lands here.')
     ).toBeInTheDocument();

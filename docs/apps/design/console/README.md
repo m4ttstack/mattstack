@@ -505,3 +505,40 @@ gates; their frames stay in `runs.pen` for history:
 
 Expected differences between a pass-2 board and the app. Each UI task adds
 its entries here as it lands.
+
+Gate panel (runs-p2-gate `Gate mine`):
+
+- The step strip is the kit `SegmentedControl` (`variant="quiet"`, `sm`, no
+  item borders), as it ships: its track is the kit's raised tone, not the
+  board's 60% white, and the raised step is the kit's indicator, a sibling
+  of its label, so `step <name>` keys the label (no fill or stroke, the
+  label's own box) and the strip is 8px narrower.
+- Options are kit `Radio.Card` and `Checkbox.Card` with the kit's
+  `Radio.Indicator` (20px, filled when picked), as in pass 1: no accent ring
+  or wash on the picked card, so each card is 2-3px taller and its text sits
+  5px further right. The recommended `Badge`, the command `Code` chip (kit
+  fill, no stroke) and the number `Kbd`s (22px, the kit's fill, stroke and
+  3px foot; the picked option's number takes the accent text colour through
+  `c="accent"`) keep the kit's colours.
+- The note is the kit `Textarea`: its border sits on the input, not the
+  keyed wrapper, and its placeholder is not a layer (`note/ph`).
+- "Open the pane" is a kit `Button` (`subtle`, gray) and Next/Submit a kit
+  `Button` at `sm`: 36px tall where the board draws 31px, with the kit's
+  label size and colours. The `⌘↵` cap inside it is the label's own colour
+  at 70% over an 18% wash of it, as the spec asks; the board draws 85%.
+- The kit controls above make the panel 10px taller than the board, which
+  moves every layer below the first option down by up to 10px.
+- Quiet text (the WHAT THE AGENT FOUND label, the steps after the current
+  one, Draft saved) is the console's dimmed tone (slate 11); the board's
+  lighter grey misses the text contrast bar.
+- What the agent found renders through the markdown renderer, so its lead
+  paragraph and code block are not keyed (`context/lead`, `context/code`,
+  `path`, `line`). Its "Label: text" points are lifted into the keyed label
+  column (`k`, `v`).
+- The fixture's WEB-418 plan gate now carries the board's context and option
+  text, the first option's command in backticks; pass 1's run-gate board no
+  longer matches its text.
+- The submit-refused strip (runs-p2-states `Gate refused`) is a kit `Alert`
+  (`light`, `bad`) holding the message and a kit `Button`; the tile draws a
+  shortened panel with no context column, so it is compared by eye, not by
+  a root.

@@ -15,6 +15,8 @@ import { describe, expect, it } from 'vitest';
 
 import { countCommits, myGateSpans } from '../../../app/runs/derive/answers';
 import {
+  contextBlocks,
+  splitCommand,
   tookRecommendation,
   waitingOnYou,
 } from '../../../app/runs/derive/gates';
@@ -120,8 +122,8 @@ describe('the runs boards draw the fixture', () => {
     expect(texts).toContain('· work pipeline · started 1:38 PM · 2h 43m');
   });
 
-  it('run-gate: WEB-418 and its open plan gate', async () => {
-    const texts = boardTexts('run-gate');
+  it('runs-p2-gate: WEB-418 and its open plan gate', async () => {
+    const texts = boardTexts('runs-p2-gate');
     const d = await detail('20261008-1340');
     expect(texts).toContain(field(d, 'branch'));
     const [gate, ...rest] = await runs.gates({ run: '20261008-1340' });
@@ -132,12 +134,19 @@ describe('the runs boards draw the fixture', () => {
     expect(texts).toContain(first.label);
     for (const o of first.options) {
       expect(texts).toContain(label(o));
-      expect(texts).toContain(typeof o === 'string' ? o : o.description);
+      const { prose, command } = splitCommand(
+        typeof o === 'string' ? o : o.description!
+      );
+      expect(texts).toContain(prose);
+      if (command) expect(texts).toContain(command);
     }
-    for (const line of gate!
-      .context!.split('\n')
-      .filter(l => l && !l.startsWith('```')))
-      expect(texts).toContain(line.replace(/^- /, ''));
+    for (const block of contextBlocks(gate!.context!)) {
+      const lines =
+        block.kind === 'points'
+          ? block.points.flatMap(p => [p.label, p.text])
+          : block.text.split('\n').filter(l => !l.startsWith('```'));
+      for (const line of lines) expect(texts).toContain(line);
+    }
     expect((await runs.asOf('20261008-1340')) - gate!.openedAt).toBe(4 * MIN);
   });
 
