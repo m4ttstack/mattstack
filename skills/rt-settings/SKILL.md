@@ -1,6 +1,6 @@
 ---
 name: rt:settings
-description: Use when reading or writing any mattstack app setting (rt, deck, mr-board, gitq, console), adding or registering a settings key, choosing its scope (org/team/user/machine), reading or writing another team's value, porting an app's config file into ~/.mattstack, changing a setting from a script, or writing code that reads configuration from anywhere other than the settings resolver: a hand-edited settings jsonc, an invented config file or store path, an env var for something a human configures. Also use when a setting resolves undefined (or getSetting throws unknown-key) for a key that looks configured, and when the org repo's shape changes in a way an older rt cannot read: bumping ORG_LAYOUT, writing a conversion, trying a new org layout on the dev app, or an org.layout row that reads waiting or needs-you.
+description: Use when reading or writing any mattstack app setting (rt, deck, mr-board, gitq, console), adding or registering a settings key, choosing its scope (org/team/user/machine), reading or writing another team's value, porting an app's config file into ~/.mattstack, changing a setting from a script, or writing code that reads configuration from anywhere other than the settings resolver: a hand-edited settings jsonc, an invented config file or store path, an env var for something a human configures. Also use when a setting resolves undefined (or getSetting throws unknown-key) for a key that looks configured, and when the org repo's shape changes in a way an older rt cannot read: bumping ORG_LAYOUT, writing a conversion, trying a new org layout on the dev app, or an org.layout row that reads skipped or needs-you.
 ---
 
 # The settings contract
@@ -13,7 +13,7 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
 
 1. Read with `getSetting`, write with `setSetting` — from
    `@mattstack/rt-client` in apps, from `lib/settings/resolve.ts` /
-   `lib/settings/write.ts` inside repo-tools, and `rt settings
+   `lib/settings/write.ts` inside the mattstack repo, and `rt settings
    get/set/list/explain` from shells and scripts (a `set` takes a JSON
    value, so wrap string values in JSON double-quotes: a literal as
    `'"matt"'`, a shell variable as `"\"$var\""`; and it always names its
@@ -26,7 +26,7 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
 2. Every key is DECLARED: a registry row in
    `packages/rt-client/src/settings/registry-defs.ts` (type, allowed scopes,
    merge, description — add a `default` only after clearing line 5; a
-   `board.*` row never has one). An explicit `getSetting` of an undeclared key
+   ported `board.*` row never has one). An explicit `getSetting` of an undeclared key
    THROWS; an undeclared key found in a store file warns and is skipped.
    A new key is the registry row first, then delivery: rt itself sees the
    row immediately. Board, console, deck and gitq link rt-client as an
@@ -49,8 +49,11 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    allows `org`. Path literals are legal only in the machine store; a
    shared value names a path with a variable the resolver expands on read:
    `${repoRoot}`, `${worktree}`, `${home}`, or `${org}` (the org clone's
-   root, so `"bun ${org}/scripts/hook.sh"`). `${team:<name>}` is a
-   deprecated alias for `${org}` that ignores the name and warns. An older
+   root, so `"bun ${org}/mattstack/scripts/hook.sh"`; a member's clone is
+   sparse and holds only `.claude-plugin/` and `mattstack/`, so a path
+   under `${org}` names something under those two). `${team:<name>}` is a
+   deprecated alias for `${org}` that ignores the name and warns, and both
+   throw on a Mac with no org. An older
    rt passes `${org}` through verbatim, so an org or team store keeps
    `${team:<org>}`, in existing values and new ones, until every member
    runs an rt that knows `${org}`; then one commit rewrites them all. A
@@ -67,8 +70,8 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    the active team, and is refused when there is none. An `org` write takes
    no name.
    The row's `merge` says how layers combine: `replace` (strongest layer
-   wins), `deep` (objects merge field by field, so the org can hold
-   `board.slack`'s app id and a team its channel), `add` (arrays from every
+   wins), `deep` (objects merge field by field, so the org can hold one
+   field of an object and a team another), `add` (arrays from every
    layer, user and machine included, concatenate weakest first with
    duplicates dropped; `claude.plugins` and `claude.marketplaces` use it,
    and `getSetting` also returns `items` with each item's layers).
@@ -83,18 +86,24 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    (`~/.mattstack/orgs/<org>/mattstack/teams/<team>/settings.team.jsonc`)
    live in the one org repo on this Mac, which the team sync engine
    commits and pushes the same way, so an `org` or `team` write reaches
-   every member with no hand commit. `setSetting` prints a tip only when
-   that sync cannot run. Roles in the org's `mattstack.org` setting decide
+   every member with no hand commit. The engine reads, pulls and pushes the
+   branch the clone has checked out (`orgBranch`), and it never pulls a
+   clone onto a tip whose layout is above this rt's `ORG_LAYOUT` (the
+   section below). `setSetting` prints a tip only when that sync cannot
+   run. Which team you work as is `rt team use <team>`, which also swaps
+   the team pack and restarts the apps that read it; the org-only
+   `mattstack.directory` holds each team's review channel and Linear key. Roles in the org's `mattstack.org` setting decide
    who writes: an admin writes the org store and every team's, a team's
    owner writes that team's store, and a member writes neither. A refused
    team write names that team's owners, then the org's admins; a refused
    org write names the admins.
 5. A registry `default` is the sharpest field on a row: it materializes as
-   a present value on every install. The `board.*` block bans defaults
-   OUTRIGHT — a new board.* row never carries `default:`, fresh key or
-   not; the fallback lives in the app-side read
-   (`getSetting(k).value ?? fallback`), never in the row, and writing both
-   is still the bug. Keys ported from an app's legacy config file omit
+   a present value on every install. A `board.*` row ported from the
+   board's legacy config never carries `default:`: the fallback lives in
+   the app-side read (`getSetting(k).value ?? fallback`), never in the
+   row, and writing both is still the bug. A fresh `board.*` key that was
+   never in that file may carry one (`board.reReview`, `board.peerAsks`
+   do), and its row says so. Keys ported from an app's legacy config file omit
    defaults for a second reason: the ownership latch —
    `getSetting(key).value === undefined` means the legacy file still owns
    it, and a default flips the key store-authoritative. Any registry
@@ -107,7 +116,8 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    boundary.
 8. A `repoOnly` key (`rt.roles`, `rt.intercepts`, `rt.worktrees`,
    `rt.worktreeReadyApproval`, `rt.hooks`, `rt.sync`, `rt.branchNaming`,
-   `rt.presets`, `rt.variations`, `rt.dopplerTemplate`, `rt.ignoredMrs`)
+   `rt.presets`, `rt.variations`, `rt.dopplerTemplate`, `rt.ignoredMrs`,
+   `board.codeowners`)
    lives only in repo sections: every write names the repo (`--repo`,
    `repoIdentity`), and a global value is refused on read and write. The
    same value for several repos is one write per repo; a convention for
@@ -143,10 +153,14 @@ In this order:
    for the new shape, and write the conversion script. The layout 2 one is
    `bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username>`
    (plans; `--write` moves and commits). A conversion to layout 3 or later
-   also writes `layout: <n>` in the marker, since a `role: "org"` marker
-   with no field reads as 2.
-2. **Test it on the dev app.** The dev app runs rt from the shared main
-   checkout, so once the change is merged its rt reads the new layout and
+   also writes `layout: <n>` in the marker, and the bump pins the no-field
+   default in `parseMarker` to 2: today a `role: "org"` marker with no
+   field reads as `ORG_LAYOUT`, which after the bump would make an
+   unconverted clone read as ready.
+2. **Test it on the dev app.** The dev app runs rt from the shared
+   checkout (the one `rt dev setup` recorded, else
+   `~/Documents/GitHub/mattstack`), which sits on main, so once the change
+   is merged its rt reads the new layout and
    your own clone, still on the old layout, reads as waiting. Put the clone
    on a branch and convert there: in `~/.mattstack/orgs/<org>`,
    `git switch -c <branch>` and `git push -u origin <branch>` (the script
@@ -186,7 +200,7 @@ minor goes the same way.
 
 | Need | Read |
 |---|---|
-| Full architecture: three-layer rule, store files on disk, resolver semantics, the add-a-key checklist, porting + ownership latch, footguns (call-time HOME, stale copies, sops cwd) | `docs/settings-architecture.md` in the checkout this skill symlinks from (here: `~/Documents/GitHub/mattstack`) |
+| Full architecture: three-layer rule, store files on disk, resolver semantics, the add-a-key checklist, porting + ownership latch, the marker's layout version, footguns (call-time HOME, stale copies, sops cwd) | `docs/settings-architecture.md` in the mattstack checkout (on a dev Mac the one `rt dev setup` recorded, else `~/Documents/GitHub/mattstack`; the app bundle's skills folder carries no docs) |
 | Which identity form keys what — raw vs serialized | `docs/repo-identity.md`, same checkout |
 | Per-app key tables (which key, which scope, what shape) | `docs/superpowers/specs/2026-08-20-suite-settings-migration.md`, same checkout |
-| Resolver API while standing in a consumer repo | `node_modules/@mattstack/rt-client/README.md` (from that repo's root) |
+| Resolver API | `packages/rt-client/README.md`, same checkout (every consumer links the workspace package; nothing is published) |
