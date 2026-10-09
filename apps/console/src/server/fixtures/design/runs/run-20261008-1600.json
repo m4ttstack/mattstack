@@ -1,0 +1,96 @@
+{
+  "run": {
+    "id": "20261008-1600",
+    "work_type": "feature",
+    "pipeline": "work",
+    "status": "running",
+    "started_at": "2026-10-08T13:00:00-05:00",
+    "ended_at": null,
+    "spawned_by": "herd:acme-web-1008",
+    "agent": { "status": "blocked", "pane": "fixture-pane-frodo" },
+    "outcome": { "status": "running" }
+  },
+  "stages": [
+    {
+      "name": "provision",
+      "status": "done",
+      "started_at": "2026-10-08T13:00:00-05:00",
+      "ended_at": "2026-10-08T13:01:00-05:00"
+    },
+    {
+      "name": "plan",
+      "status": "done",
+      "started_at": "2026-10-08T13:01:00-05:00",
+      "ended_at": "2026-10-08T13:20:00-05:00"
+    },
+    {
+      "name": "gates",
+      "status": "done",
+      "started_at": "2026-10-08T13:20:00-05:00",
+      "ended_at": "2026-10-08T13:21:00-05:00"
+    },
+    {
+      "name": "evidence",
+      "status": "done",
+      "started_at": "2026-10-08T13:21:00-05:00",
+      "ended_at": "2026-10-08T14:00:00-05:00"
+    },
+    {
+      "name": "implement",
+      "status": "done",
+      "started_at": "2026-10-08T14:00:00-05:00",
+      "ended_at": "2026-10-08T15:40:00-05:00"
+    },
+    {
+      "name": "self-review",
+      "status": "done",
+      "started_at": "2026-10-08T15:40:00-05:00",
+      "ended_at": "2026-10-08T16:10:00-05:00"
+    },
+    {
+      "name": "ship",
+      "status": "running",
+      "started_at": "2026-10-08T16:10:00-05:00",
+      "ended_at": null
+    }
+  ],
+  "fields": [
+    {
+      "key": "pipeline-stages",
+      "value": "provision plan gates evidence implement self-review ship watch-ci",
+      "produced_by": "provision",
+      "at": "2026-10-08T13:00:05-05:00"
+    },
+    {
+      "key": "ticket",
+      "value": "WEB-418",
+      "produced_by": "provision",
+      "at": "2026-10-08T13:00:10-05:00"
+    },
+    {
+      "key": "branch",
+      "value": "web-418-assignee-filter",
+      "produced_by": "provision",
+      "at": "2026-10-08T13:00:20-05:00"
+    },
+    {
+      "key": "worktree",
+      "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/frodo",
+      "produced_by": "provision",
+      "at": "2026-10-08T13:00:30-05:00"
+    },
+    {
+      "key": "self-review",
+      "value": "passed, two minor notes",
+      "produced_by": "self-review",
+      "at": "2026-10-08T16:09:00-05:00"
+    },
+    {
+      "key": "waiting-gate",
+      "value": "g-1600-ship",
+      "produced_by": "ship",
+      "at": "2026-10-08T16:12:00-05:00"
+    }
+  ],
+  "decisions": []
+}

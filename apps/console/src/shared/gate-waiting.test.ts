@@ -2,11 +2,7 @@
 import type { GateRow } from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
 
-import {
-  ATTENTION_MIN_AGE_MS,
-  countsForConsoleBadge,
-  runGateMarker,
-} from './gate-waiting';
+import { ATTENTION_MIN_AGE_MS, countsForConsoleBadge } from './gate-waiting';
 
 function row(overrides: Partial<GateRow> = {}): GateRow {
   return {
@@ -35,31 +31,6 @@ function row(overrides: Partial<GateRow> = {}): GateRow {
     ...overrides,
   } as GateRow;
 }
-
-describe('runGateMarker', () => {
-  it('is blocked for an open or parked gate Matt owns', () => {
-    expect(runGateMarker([row()], 'r1')).toBe('blocked');
-    expect(
-      runGateMarker([row({ status: 'parked', owner: 'human' })], 'r1')
-    ).toBe('blocked');
-  });
-  it('is shepherd for a herd-owned waiting gate', () => {
-    expect(runGateMarker([row({ owner: 'herd:h1' })], 'r1')).toBe('shepherd');
-  });
-  it('prefers blocked when both kinds wait on one run', () => {
-    expect(
-      runGateMarker(
-        [row({ id: 'a', owner: 'herd:h1' }), row({ id: 'b', kind: 'plan' })],
-        'r1'
-      )
-    ).toBe('blocked');
-  });
-  it('is null for answered gates and other runs', () => {
-    expect(runGateMarker([row({ status: 'answered' })], 'r1')).toBeNull();
-    expect(runGateMarker([row({ subject: 'run:other' })], 'r1')).toBeNull();
-    expect(runGateMarker(undefined, 'r1')).toBeNull();
-  });
-});
 
 describe('countsForConsoleBadge', () => {
   const now = 10_000_000;

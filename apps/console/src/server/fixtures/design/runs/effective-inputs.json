@@ -1,0 +1,35 @@
+{
+  "packVersions": [
+    {
+      "pack": "acme",
+      "recordedSha": "4c1d9e2b7a",
+      "currentSha": "4c1d9e2b7a51f0c3",
+      "drifted": false
+    }
+  ],
+  "packDirty": false,
+  "config": [
+    {
+      "key": "rt.worktrees",
+      "value": { "root": "~/.mattstack/rt/worktrees", "onDeck": 2 },
+      "provenance": [
+        { "scope": "user", "file": "~/.mattstack/user/settings.jsonc" }
+      ]
+    },
+    {
+      "key": "rt.branchNaming",
+      "value": "{ticket}-{slug}",
+      "provenance": [
+        {
+          "scope": "team",
+          "file": "~/.mattstack/orgs/acme/mattstack/teams/web/settings.jsonc"
+        }
+      ]
+    },
+    {
+      "key": "rt.runsPruneDays",
+      "value": 30,
+      "provenance": []
+    }
+  ]
+}

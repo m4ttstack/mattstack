@@ -183,6 +183,14 @@ Keep `id` and `presentation`: every node after it acts on them.
   already human-readable; the registry stores every option in that object
   form. Labels cap at 200 UTF-8 bytes and an oversized label REJECTS the
   open: middle-truncate a long path, never alter the value.
+  A site that names a recommended pick writes that option in the
+  `{value, label}` object form and ends its `label` with ` (Recommended)`,
+  leaving `value` bare, so a bare-string option never carries the marker.
+  `"recommended": true` is equivalent in the registry, but the in-pane form
+  renders your own label, so write the suffix. In a table headed `Options
+  (recommended first)`, mark the option the table writes with
+  ` (Recommended)`; a row with none, such as the stage-end `next`, marks
+  nothing.
 - **At most 4 options per question.** That is the native form's hard
   per-question limit, and the daemon presents the in-pane form only when
   EVERY question fits it, so one 5-option question sends the whole gate to

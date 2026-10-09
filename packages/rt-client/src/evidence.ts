@@ -1,5 +1,7 @@
 export const EVIDENCE_IMAGE_KEYS = ["before", "beforeAnnotated", "after", "afterAnnotated"] as const;
 export type EvidenceImageKey = (typeof EVIDENCE_IMAGE_KEYS)[number];
+export const EVIDENCE_TEXT_KEYS = ["transcript"] as const;
+export type EvidenceTextKey = (typeof EVIDENCE_TEXT_KEYS)[number];
 export interface EvidenceV1 {
   v: 1; before: string; beforeAnnotated?: string; after?: string; afterAnnotated?: string;
   transcript?: string; case?: string; url?: string; attach?: string;

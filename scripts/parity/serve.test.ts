@@ -93,6 +93,51 @@ describe('harnessConfig', () => {
     expect(cfg.collectSource).toContain('async (page');
   });
 
+  it("reads a board's frame from the board's own pen when it names one", () => {
+    const own = join(dir, 'own.pen');
+    writeFileSync(
+      own,
+      JSON.stringify({
+        type: 'frame',
+        name: 'Doc',
+        children: [
+          {
+            type: 'frame',
+            name: 'Demo Board',
+            children: [
+              { type: 'frame', name: 'Header', width: 300 },
+              {
+                type: 'frame',
+                name: 'Body',
+                children: [{ type: 'frame', name: 'Row' }],
+              },
+            ],
+          },
+        ],
+      })
+    );
+    const cfg = harnessConfig(
+      { ...app, boards: [{ ...board, penPath: own }] },
+      '01-demo',
+      'light'
+    );
+    expect(cfg.targets.map(t => [t.root, t.hugWidths])).toEqual([
+      ['Header', []],
+      ['Body', ['Row']],
+    ]);
+  });
+
+  it("passes a board's appRoots through to the runner", () => {
+    const named = { ...board, appRoots: { Header: 'Hero' } };
+    const cfg = harnessConfig(
+      { ...app, boards: [named] },
+      '01-demo',
+      'light'
+    );
+    expect(cfg.appRoots).toEqual({ Header: 'Hero' });
+    expect(harnessConfig(app, '01-demo', 'light').appRoots).toBeUndefined();
+  });
+
   it('takes the design width from the app when it sets one', () => {
     expect(
       harnessConfig({ ...app, viewportWidth: 1280 }, '01-demo', 'light').width

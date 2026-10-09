@@ -1,0 +1,133 @@
+{
+  "run": {
+    "id": "20260930-1323",
+    "work_type": "feature",
+    "pipeline": "work",
+    "status": "running",
+    "started_at": "2026-09-30T13:23:00-05:00",
+    "ended_at": null,
+    "agent": { "status": "working", "pane": "fixture-pane-pippin" },
+    "outcome": {
+      "status": "running",
+      "mr": {
+        "iid": 409,
+        "state": "opened",
+        "url": "https://gitlab.com/acme/web/-/merge_requests/409"
+      },
+      "ci": "running"
+    }
+  },
+  "stages": [
+    {
+      "name": "provision",
+      "status": "done",
+      "started_at": "2026-09-30T13:23:00-05:00",
+      "ended_at": "2026-09-30T13:24:00-05:00"
+    },
+    {
+      "name": "plan",
+      "status": "done",
+      "started_at": "2026-09-30T13:24:00-05:00",
+      "ended_at": "2026-09-30T13:52:00-05:00"
+    },
+    {
+      "name": "gates",
+      "status": "done",
+      "started_at": "2026-09-30T13:52:00-05:00",
+      "ended_at": "2026-09-30T13:53:00-05:00"
+    },
+    {
+      "name": "evidence",
+      "status": "done",
+      "started_at": "2026-09-30T13:53:00-05:00",
+      "ended_at": "2026-09-30T14:40:00-05:00"
+    },
+    {
+      "name": "implement",
+      "status": "done",
+      "started_at": "2026-10-01T09:00:00-05:00",
+      "ended_at": "2026-10-07T18:10:00-05:00"
+    },
+    {
+      "name": "self-review",
+      "status": "done",
+      "started_at": "2026-10-08T15:36:00-05:00",
+      "ended_at": "2026-10-08T15:53:00-05:00"
+    },
+    {
+      "name": "ship",
+      "status": "done",
+      "started_at": "2026-10-08T15:54:00-05:00",
+      "ended_at": "2026-10-08T16:06:00-05:00"
+    },
+    {
+      "name": "watch-ci",
+      "status": "running",
+      "started_at": "2026-10-08T16:06:00-05:00",
+      "ended_at": null
+    }
+  ],
+  "fields": [
+    {
+      "key": "pipeline-stages",
+      "value": "provision plan gates evidence implement self-review ship watch-ci",
+      "produced_by": "provision",
+      "at": "2026-09-30T13:23:05-05:00"
+    },
+    {
+      "key": "ticket",
+      "value": "WEB-397",
+      "produced_by": "provision",
+      "at": "2026-09-30T13:23:10-05:00"
+    },
+    {
+      "key": "branch",
+      "value": "web-397-react-root",
+      "produced_by": "provision",
+      "at": "2026-09-30T13:23:20-05:00"
+    },
+    {
+      "key": "worktree",
+      "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/pippin",
+      "produced_by": "provision",
+      "at": "2026-09-30T13:23:30-05:00"
+    },
+    {
+      "key": "approach",
+      "value": "Move one route at a time behind the new root",
+      "produced_by": "plan",
+      "at": "2026-09-30T13:40:00-05:00"
+    },
+    {
+      "key": "evidence",
+      "value": "{\"v\":1,\"before\":\"/fixture/evidence/web-397/before.png\",\"case\":\"The orders inbox on the new root\",\"attach\":\"ship\"}",
+      "produced_by": "evidence",
+      "at": "2026-09-30T14:30:00-05:00"
+    },
+    {
+      "key": "strategy",
+      "value": "subagent-driven, 9 tasks",
+      "produced_by": "implement",
+      "at": "2026-10-01T09:05:00-05:00"
+    },
+    {
+      "key": "commits",
+      "value": "a1b2c3d..7c0ffee (12): new root, routes moved one by one, tests",
+      "produced_by": "implement",
+      "at": "2026-10-07T18:05:00-05:00"
+    },
+    {
+      "key": "self-review",
+      "value": "clean, one nit fixed",
+      "produced_by": "self-review",
+      "at": "2026-10-08T15:52:00-05:00"
+    },
+    {
+      "key": "mr",
+      "value": "!409",
+      "produced_by": "ship",
+      "at": "2026-10-08T16:05:00-05:00"
+    }
+  ],
+  "decisions": []
+}

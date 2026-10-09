@@ -29,6 +29,15 @@ if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
+// jsdom has no `document.fonts`; Mantine's autosizing Textarea listens on it
+// to re-measure once web fonts load.
+if (typeof document !== 'undefined' && !('fonts' in document)) {
+  Object.defineProperty(document, 'fonts', {
+    value: new EventTarget(),
+    configurable: true,
+  });
+}
+
 // React Flow reads the zoom back from the viewport's CSS transform through
 // `DOMMatrixReadOnly`, which jsdom lacks. `ResizeObserver` is the kit's no-op
 // polyfill above, and jsdom measures every box as 0x0 anyway, so nodes stay

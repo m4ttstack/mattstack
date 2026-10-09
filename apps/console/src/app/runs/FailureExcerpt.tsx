@@ -1,20 +1,17 @@
 import {
+  ActionIcon,
   Anchor,
-  Code,
   Group,
-  ScrollArea,
   Skeleton,
-  Stack,
   Text,
+  Tooltip,
 } from '@mattstack/app-kit/core';
-import { useSchemeColors } from '@mattstack/app-kit/hooks';
-import { Icons } from '@mattstack/app-kit/icons';
+import { Icon } from '@mattstack/app-kit/icons';
 import { useQuery } from '@tanstack/react-query';
 
 import { client } from '../api';
 import { useEditorHref } from '../editorHref';
-
-const MAX_HEIGHT = 240;
+import classes from './FailureExcerpt.module.css';
 
 export interface FailureExcerptProps {
   repo: string;
@@ -37,7 +34,6 @@ export function FailureExcerpt({
   runId,
   detailPath,
 }: FailureExcerptProps) {
-  const { bg, border, text } = useSchemeColors();
   const editorHref = useEditorHref();
 
   const query = useQuery({
@@ -53,28 +49,13 @@ export function FailureExcerpt({
     },
   });
 
-  // No extra slash: `detailPath` is already an absolute path (leading `/`),
-  // and the editor URI form is `<scheme>://file` + that absolute path.
-  const editorLink = (
-    <Anchor
-      href={editorHref(detailPath)}
-      size="xs"
-      c={text.muted}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        flexShrink: 0,
-      }}
-    >
-      <Icons.externalLink size={12} />
-      open full artifact in editor
-    </Anchor>
-  );
-
   if (query.isPending) {
     return (
-      <Skeleton height={MAX_HEIGHT} data-testid="failure-excerpt-loading" />
+      <Skeleton
+        height={40}
+        className={classes.grow}
+        data-testid="failure-excerpt-loading"
+      />
     );
   }
 
@@ -82,16 +63,19 @@ export function FailureExcerpt({
     const outsideRun = query.error instanceof ArtifactOutsideRunError;
     return (
       <Group
-        justify="space-between"
+        gap="xs"
         wrap="nowrap"
+        className={classes.grow}
         data-testid="failure-excerpt-error"
       >
-        <Text c={text.highContrast('bad')} size="sm">
+        <Text fz={12.5} lh="18px" c="bad">
           {outsideRun
             ? 'This artifact lives outside the run directory.'
             : `Could not load ${detailPath}: ${(query.error as Error).message}`}
         </Text>
-        {editorLink}
+        <Anchor href={editorHref(detailPath)} fz={12.5} lh="18px">
+          open full artifact in editor
+        </Anchor>
       </Group>
     );
   }
@@ -99,27 +83,40 @@ export function FailureExcerpt({
   const { lines, truncated } = query.data;
 
   return (
-    <Stack gap={4} data-testid="failure-excerpt">
-      <Group justify="space-between" wrap="nowrap">
-        <Text c={text.muted} size="xs" truncate>
-          {truncated ? `last ${lines.length} lines · ` : ''}
-          {detailPath}
-        </Text>
-        {editorLink}
-      </Group>
-      <ScrollArea
-        h={MAX_HEIGHT}
-        bg={bg.level1}
-        style={{ border: `1px solid ${border.default}`, borderRadius: 4 }}
+    <div
+      className={classes.excerpt}
+      data-testid="failure-excerpt"
+      data-parity="excerpt"
+    >
+      <Text
+        ff="monospace"
+        fz={11.5}
+        lh="17px"
+        c="dimmed"
+        className={classes.lines}
+        data-parity="x"
       >
-        {lines.length === 0 ? (
-          <Text c={text.dimmed} size="sm" p="xs">
-            no artifact recorded
-          </Text>
-        ) : (
-          <Code block>{lines.join('\n')}</Code>
-        )}
-      </ScrollArea>
-    </Stack>
+        {lines.length === 0 ? 'no artifact recorded' : lines.join('\n')}
+      </Text>
+      <Tooltip
+        label={
+          truncated
+            ? `Last ${lines.length} lines. Open the full artifact in your editor`
+            : 'Open the full artifact in your editor'
+        }
+      >
+        <ActionIcon
+          component="a"
+          href={editorHref(detailPath)}
+          variant="subtle"
+          color="gray"
+          size="sm"
+          className={classes.open}
+          aria-label="open full artifact in editor"
+        >
+          <Icon name="externalLink" size={13} />
+        </ActionIcon>
+      </Tooltip>
+    </div>
   );
 }

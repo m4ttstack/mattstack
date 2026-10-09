@@ -1,0 +1,13 @@
+/* Kit controls set inside a line of text: each keeps its own size but does not
+   make the line taller than its text. */
+.kbd {
+  margin-block: -5px;
+}
+
+.tag {
+  margin-block: -1px;
+}
+
+.control {
+  margin-block: -3px;
+}

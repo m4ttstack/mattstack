@@ -1,0 +1,88 @@
+{
+  "run": {
+    "id": "20261007-1310",
+    "work_type": "feature",
+    "pipeline": "work",
+    "status": "abandoned",
+    "started_at": "2026-10-08T11:42:00-05:00",
+    "ended_at": "2026-10-08T14:14:00-05:00",
+    "outcome": { "status": "abandoned" }
+  },
+  "stages": [
+    {
+      "name": "provision",
+      "status": "done",
+      "started_at": "2026-10-08T11:42:00-05:00",
+      "ended_at": "2026-10-08T11:43:00-05:00"
+    },
+    {
+      "name": "plan",
+      "status": "done",
+      "started_at": "2026-10-08T11:43:00-05:00",
+      "ended_at": "2026-10-08T12:10:00-05:00"
+    },
+    {
+      "name": "gates",
+      "status": "done",
+      "started_at": "2026-10-08T12:10:00-05:00",
+      "ended_at": "2026-10-08T12:11:00-05:00"
+    },
+    {
+      "name": "evidence",
+      "status": "done",
+      "started_at": "2026-10-08T12:11:00-05:00",
+      "ended_at": "2026-10-08T12:58:00-05:00"
+    },
+    {
+      "name": "implement",
+      "status": "running",
+      "started_at": "2026-10-08T12:58:00-05:00",
+      "ended_at": null
+    }
+  ],
+  "fields": [
+    {
+      "key": "pipeline-stages",
+      "value": "provision plan gates evidence implement self-review ship watch-ci",
+      "produced_by": "provision",
+      "at": "2026-10-08T11:42:05-05:00"
+    },
+    {
+      "key": "ticket",
+      "value": "WEB-366",
+      "produced_by": "provision",
+      "at": "2026-10-08T11:42:10-05:00"
+    },
+    {
+      "key": "branch",
+      "value": "web-366-note-author",
+      "produced_by": "provision",
+      "at": "2026-10-08T11:42:20-05:00"
+    },
+    {
+      "key": "worktree",
+      "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/fatty",
+      "produced_by": "provision",
+      "at": "2026-10-08T11:42:30-05:00"
+    },
+    {
+      "key": "approach",
+      "value": "Read the author from the import record",
+      "produced_by": "plan",
+      "at": "2026-10-08T12:05:00-05:00"
+    },
+    {
+      "key": "evidence",
+      "value": "/Users/acme/.mattstack/evidence/web-366/before.png http://localhost:4001/notes/118",
+      "produced_by": "evidence",
+      "at": "2026-10-08T12:55:00-05:00"
+    },
+    {
+      "key": "commits",
+      "value": "3e4f5a6 7b8c9d0",
+      "produced_by": "implement",
+      "at": "2026-10-08T13:50:00-05:00"
+    }
+  ],
+  "decisions": []
+}

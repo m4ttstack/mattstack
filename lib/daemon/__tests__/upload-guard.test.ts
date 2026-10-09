@@ -8,7 +8,7 @@ import { execSync } from "child_process";
 import { linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, relative } from "path";
-import { UPLOAD_MAX_BYTES, builtInEvidenceRoot, checkUploadPath, claudeTempRoots, isInsideRoot, runEvidenceRoot, workRoot } from "../upload-guard.ts";
+import { TEXT_MAX_BYTES, UPLOAD_MAX_BYTES, builtInEvidenceRoot, checkTextPath, checkUploadPath, claudeTempRoots, isInsideRoot, runEvidenceRoot, workRoot } from "../upload-guard.ts";
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
 const JPG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1]);
@@ -408,6 +408,77 @@ describe("rt's built-in evidence root", () => {
       if (saved === undefined) delete process.env.HOME;
       else process.env.HOME = saved;
     }
+  });
+});
+
+describe("checkTextPath", () => {
+  let root: string;
+  let outside: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "rt-text-root-"));
+    outside = realpathSync(mkdtempSync(join(tmpdir(), "rt-text-outside-")));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  function put(dir: string, name: string, bytes: Buffer | string): string {
+    const p = join(dir, name);
+    writeFileSync(p, bytes);
+    return p;
+  }
+
+  test("a .md under a root reads as markdown", () => {
+    expect(checkTextPath(put(root, "t.md", "# hi\n"), [root])).toEqual({ ok: true, text: "# hi\n", mime: "text/markdown" });
+  });
+
+  test(".txt and .log read as plain text, case-insensitively", () => {
+    expect(checkTextPath(put(root, "t.txt", "a"), [root])).toEqual({ ok: true, text: "a", mime: "text/plain" });
+    expect(checkTextPath(put(root, "t.LOG", "b"), [root])).toEqual({ ok: true, text: "b", mime: "text/plain" });
+  });
+
+  test("multi-byte UTF-8 round-trips", () => {
+    const res = checkTextPath(put(root, "t.md", "café ✓"), [root]);
+    expect(res.ok && res.text).toBe("café ✓");
+  });
+
+  test("a file over the 256 KB cap is refused", () => {
+    const res = checkTextPath(put(root, "big.log", Buffer.alloc(TEXT_MAX_BYTES + 1, 0x61)), [root]);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("text cap is 256 KB");
+    expect(checkTextPath(put(root, "edge.log", Buffer.alloc(TEXT_MAX_BYTES, 0x61)), [root]).ok).toBe(true);
+  });
+
+  test("bytes that are not valid UTF-8 are refused", () => {
+    expect(checkTextPath(put(root, "bad.txt", Buffer.from([0x68, 0xff, 0xfe, 0x69])), [root])).toEqual({ ok: false, error: "file is not valid UTF-8" });
+  });
+
+  test("any other extension is refused", () => {
+    const res = checkTextPath(put(root, "t.png", "text"), [root]);
+    expect(res).toEqual({ ok: false, error: "extension must be one of md, txt, log" });
+    expect(checkTextPath(put(root, "noext", "text"), [root]).ok).toBe(false);
+  });
+
+  test("a symlink out of the root is refused", () => {
+    const target = put(outside, "secret.md", "secret");
+    symlinkSync(target, join(root, "link.md"));
+    const res = checkTextPath(join(root, "link.md"), [root]);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("outside the allowed upload roots");
+  });
+
+  test("a file outside every root, a relative path and a hard-linked file are refused", () => {
+    expect(checkTextPath(put(outside, "t.md", "x"), [root]).ok).toBe(false);
+    expect(checkTextPath("t.md", [root])).toEqual({ ok: false, error: "path must be absolute" });
+    const p = put(root, "a.md", "x");
+    linkSync(p, join(root, "b.md"));
+    expect(checkTextPath(p, [root])).toEqual({ ok: false, error: "file has other hard links" });
+  });
+
+  test("with no root at all nothing outside the built-in folders passes", () => {
+    expect(checkTextPath(put(root, "t.md", "x"), [], { workRoot: join(root, "w"), runsRoot: join(root, "r"), evidenceRoot: join(root, "e") }).ok).toBe(false);
   });
 });
 

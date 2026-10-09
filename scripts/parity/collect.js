@@ -1,9 +1,9 @@
 // A browser_run_code_unsafe function file: run it with
-// { filename: <this file>, args: { rootSelector, nameAttr } }. run.js evals this
+// { filename: <this file>, args: { rootSelector, nameAttr, rootName? } }. run.js evals this
 // same source, so it must stay one bare function expression with no imports.
-async (page, { rootSelector, nameAttr }) =>
+async (page, { rootSelector, nameAttr, rootName }) =>
   page.evaluate(
-    ({ rootSelector, nameAttr }) => {
+    ({ rootSelector, nameAttr, rootName }) => {
       const root = document.querySelector(rootSelector);
       if (!root) throw new Error(`parity root not found: ${rootSelector}`);
       const rb = root.getBoundingClientRect();
@@ -46,7 +46,7 @@ async (page, { rootSelector, nameAttr }) =>
         return null;
       };
 
-      const record = (el, key, parent) => {
+      const record = (el, key, parent, name = el.getAttribute(nameAttr)) => {
         const b = el.getBoundingClientRect();
         const cs = getComputedStyle(el);
         const tag = el.tagName.toLowerCase();
@@ -70,7 +70,7 @@ async (page, { rootSelector, nameAttr }) =>
           color: isText ? cs.color : null,
           text: isText ? text : null,
           opacity: opacityOf(el),
-          name: el.getAttribute(nameAttr),
+          name,
           parent,
           tag,
         });
@@ -94,12 +94,9 @@ async (page, { rootSelector, nameAttr }) =>
         }
       };
 
-      walk(
-        root,
-        '',
-        record(root, root.getAttribute(nameAttr) ?? rootSelector, -1)
-      );
+      const named = rootName ?? root.getAttribute(nameAttr);
+      walk(root, '', record(root, named ?? rootSelector, -1, named));
       return out;
     },
-    { rootSelector, nameAttr }
+    { rootSelector, nameAttr, rootName: rootName ?? null }
   )

@@ -30,7 +30,7 @@ export function harnessConfig(app: ParityApp, slug: string, scheme: string) {
     throw new Error(`scheme must be dark or light, got "${scheme}"`);
   }
   const board = boardBySlug(app.boards, slug);
-  const pen = readPen(app.penPath);
+  const pen = readPen(board.penPath ?? app.penPath);
   return {
     ...board,
     scheme,

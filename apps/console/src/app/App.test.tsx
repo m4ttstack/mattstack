@@ -8,11 +8,11 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import './icons';
+
 const runsGet = vi.fn();
 const detailGet = vi.fn();
 const artifactGet = vi.fn();
-const seenGet = vi.fn();
-const seenPost = vi.fn();
 const gatesGet = vi.fn();
 
 vi.mock('./api', () => ({
@@ -26,10 +26,6 @@ vi.mock('./api', () => ({
             artifact: { $get: (...args: unknown[]) => artifactGet(...args) },
           },
         },
-      },
-      seen: {
-        $get: (...args: unknown[]) => seenGet(...args),
-        ':runId': { $post: (...args: unknown[]) => seenPost(...args) },
       },
       gates: { $get: (...args: unknown[]) => gatesGet(...args) },
     },
@@ -88,8 +84,6 @@ describe('App keyboard contract', () => {
     runsGet.mockResolvedValue(ok({ runs: [run()] }));
     detailGet.mockResolvedValue(ok(DETAIL));
     artifactGet.mockResolvedValue(ok({ lines: [], truncated: false }));
-    seenGet.mockResolvedValue(ok({}));
-    seenPost.mockResolvedValue(ok({}));
     gatesGet.mockResolvedValue(ok({ gates: [] }));
 
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -101,7 +95,7 @@ describe('App keyboard contract', () => {
     renderWithProviders(<App />);
 
     // Detail view is live and its hotkeys are registered.
-    await screen.findByTestId('summary-card');
+    await screen.findByTestId('record-header');
 
     // The shell renders console's wordmark and its rail scheme control, and
     // no app launcher: the mattstack viewer owns app switching.

@@ -1,0 +1,28 @@
+.card {
+  overflow: hidden;
+  width: 100%;
+}
+
+.head {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--tk-wash),
+    var(--tk-card)
+  );
+}
+
+.headRow {
+  padding: 10px 18px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.body {
+  padding: 14px 18px;
+}
+
+.fields {
+  width: 100%;
+}

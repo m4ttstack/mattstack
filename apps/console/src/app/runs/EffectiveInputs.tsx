@@ -40,7 +40,7 @@ const CODE_STYLE = {
   wordBreak: 'break-word',
 } as const;
 
-function useEffectiveInputs(repo: string, runId: string) {
+export function useEffectiveInputs(repo: string, runId: string) {
   return useQuery({
     queryKey: ['effective-inputs', repo, runId],
     queryFn: async () => {

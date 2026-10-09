@@ -4,7 +4,7 @@
  * its functions against this map so a new command only needs an entry here
  * plus one function, never a change to the transport itself.
  */
-import type { EvidenceImageKey } from "./evidence.ts";
+import type { EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
 import type { PullRequest, MRDetail, Pipeline, PipelineJob } from "@mattstack/glance";
 
 export type Discussion = MRDetail["discussions"][number];
@@ -398,6 +398,17 @@ export interface RunSummary {
   decision_count?: number;
   /** Images the run's `evidence` field serves; 0 for legacy or absent evidence. */
   evidence_count?: number;
+  /** Links a legacy (pre-v1) `evidence` field names; 0 for v1 or absent evidence. */
+  evidence_links?: number;
+  /** How the run ended up: its own status plus the MR it opened or reviewed. Absent on pre-outcome daemons. */
+  outcome?: RunOutcome;
+}
+/** `mr` is the run's own MR (written by ship or watch-ci); `reviewed` is the MR a review or respond run looked at and never counts as merged. */
+export interface RunOutcome {
+  status: "running" | "done" | "abandoned" | "failed";
+  mr?: { iid: number; state: "opened" | "merged" | "closed" | "unknown"; url: string | null; mergedAt?: number };
+  reviewed?: { iid: number; url: string | null; posted: string | null };
+  ci?: string | null;
 }
 export interface RunAgent {
   status: "working" | "idle" | "blocked" | "done" | "unknown";
@@ -760,7 +771,7 @@ export interface Commands {
   "runs:list": { payload: { repo?: string }; data: { runs: RunSummary[] } };
   "runs:get": { payload: { runId: string; repo?: string }; data: RunDetail };
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
-  "runs:evidence": { payload: { runId: string; repo?: string; key: EvidenceImageKey }; data: { mime: string; base64: string } };
+  "runs:evidence": { payload: { runId: string; repo?: string; key: EvidenceImageKey | EvidenceTextKey }; data: { mime: string; base64?: string; text?: string } };
   "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
   "chat:leave": { payload: { room: string; handle: string }; data: Record<string, never> };
   /** `others` counts the room's members besides the author, so a caller can tell "woke nobody of 7" from "nobody else is here". */
@@ -1067,7 +1078,7 @@ export interface Commands {
   "gate:wait": { payload: { id: string; waitMs?: number; sessionId?: string }; data: { status: "timeout" } | { status: "answered" | "closed"; row: GateRow } };
   /** Paged like events:list: an omitted `limit` clamps daemon-side rather than
    *  forcing a full-table read; `cursor` is the paging rowid to resume from. */
-  "gate:list": { payload: { open?: boolean; subject?: string; subjectPrefix?: string; status?: GateStatus[]; kind?: string; limit?: number; cursor?: number }; data: { gates: GateRow[]; cursor: number } };
+  "gate:list": { payload: { open?: boolean; subject?: string; subjectPrefix?: string; status?: GateStatus[]; kind?: string; run?: string; linked?: boolean; limit?: number; cursor?: number }; data: { gates: GateRow[]; cursor: number } };
   "gate:park": { payload: { id: string }; data: { ok: true } };
   "gate:close": { payload: { id: string; reason: "abandoned" | "superseded" | "pruned" }; data: { ok: true } };
   "gate:subscribe": { payload: { subjectPrefix: string; session: string; scope?: "owner"; ownerRef?: string }; data: { id: string } };

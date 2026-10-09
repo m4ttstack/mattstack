@@ -62,8 +62,8 @@ two static nav actions under `mod+K`.
 
 ## Runs domain (`src/app/runs/`, `src/server/runs.ts`)
 
-The run board, run detail, search, and their supporting pieces (aging bands, liveness, stage
-progress, timeline, failure excerpts, command provenance, effective-inputs) all live under
+The runs page (`runs-page/`), run detail, search, and their supporting pieces (the `derive/`
+selectors, aging, liveness, timeline, failure excerpts, command provenance, effective-inputs) all live under
 `src/app/runs/`, backed by `src/server/runs.ts` and `src/server/effectiveInputs.ts` on the server
 side. `src/server/routes.ts` chains these Hono sub-routers plus `enrich`, `settings`, and `skills`
 into one `routes` export; handlers stay inline and routes stay chained because Hono's RPC type
@@ -118,7 +118,10 @@ The parity data source is the design fixture: started with `CONSOLE_FIXTURE=desi
 answers the skills routes from the invented `acme` pack in `src/server/fixtures/design/`, with no
 rt, git or pack on the machine. `CONSOLE_FIXTURE_SCENARIO` picks the data: `clean` (the default),
 `unsynced` for the two unsynced boards, or one of the states no board draws (listed in
-`scenarios.ts`).
+`scenarios.ts`). The runs and run pages have boards too: `runs` and `runs-empty` answer the runs,
+gates and evidence routes from the invented `acme/web` runs (`runsFixture.ts`), with the board's
+clock as `asOf`, which the pages read through `nowOf` (`src/app/runs/derive/clock.ts`). Under a
+fixture scenario the server never calls the daemon and refuses every write.
 
 ## Embedded server / `build:binary`
 

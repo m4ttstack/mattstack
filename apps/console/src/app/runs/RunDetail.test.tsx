@@ -1,9 +1,10 @@
 import { notifications } from '@mattstack/app-kit/notifications';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type {
-  BranchEnrichment,
   GateRow,
   RunDetail as RunDetailData,
+  RunFieldRow,
+  RunStageRow,
   RunSummary,
 } from '@mattstack/rt-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -12,13 +13,14 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const detailGet = vi.fn();
+const inputsGet = vi.fn();
+const stageDocGet = vi.fn();
 const artifactGet = vi.fn();
-const seenPost = vi.fn();
+const resumePost = vi.fn();
 const abandonPost = vi.fn();
 const enrichPost = vi.fn();
-const linearWorkspaceGet = vi.fn();
+const settingsGet = vi.fn();
 const focusPost = vi.fn();
-const resumePost = vi.fn();
 const gatesGet = vi.fn();
 const answerPost = vi.fn();
 
@@ -29,25 +31,23 @@ vi.mock('../api', () => ({
         ':repo': {
           ':runId': {
             $get: (...args: unknown[]) => detailGet(...args),
+            'effective-inputs': {
+              $get: (...args: unknown[]) => inputsGet(...args),
+            },
+            'stage-doc': { $get: (...args: unknown[]) => stageDocGet(...args) },
             artifact: { $get: (...args: unknown[]) => artifactGet(...args) },
-            abandon: { $post: (...args: unknown[]) => abandonPost(...args) },
             resume: { $post: (...args: unknown[]) => resumePost(...args) },
+            abandon: { $post: (...args: unknown[]) => abandonPost(...args) },
           },
         },
         enrich: { $post: (...args: unknown[]) => enrichPost(...args) },
       },
       settings: {
-        'linear-workspace': {
-          $get: (...args: unknown[]) => linearWorkspaceGet(...args),
-        },
-      },
-      seen: {
-        ':runId': { $post: (...args: unknown[]) => seenPost(...args) },
+        'linear-workspace': { $get: () => settingsGet('linear-workspace') },
+        'default-editor': { $get: () => settingsGet('default-editor') },
       },
       panes: {
-        ':id': {
-          focus: { $post: (...args: unknown[]) => focusPost(...args) },
-        },
+        ':id': { focus: { $post: (...args: unknown[]) => focusPost(...args) } },
       },
       gates: {
         $get: (...args: unknown[]) => gatesGet(...args),
@@ -59,1673 +59,789 @@ vi.mock('../api', () => ({
   },
 }));
 
+await import('../icons');
 const { RunDetail } = await import('./RunDetail');
 
-const run = (over: Partial<RunSummary> = {}): RunSummary => ({
-  id: 'run-1',
-  repo: 'repo-tools',
+const MIN = 60_000;
+const T0 = Date.UTC(2026, 9, 8, 18, 38);
+const at = (minutes: number) => T0 + minutes * MIN;
+
+const ok = (body: unknown) => ({
+  ok: true,
+  status: 200,
+  json: async () => body,
+});
+
+const stage = (
+  name: string,
+  status: string,
+  from: number,
+  to: number | null,
+  attempt = 1
+): RunStageRow => ({
+  name,
+  status,
+  attempt,
+  started_at: at(from),
+  ended_at: to == null ? null : at(to),
+  reason: null,
+  detail_path: null,
+});
+
+const field = (key: string, value: string, minute: number): RunFieldRow => ({
+  key,
+  value,
+  produced_by: 'x',
+  at: at(minute),
+});
+
+const summary = (over: Partial<RunSummary> = {}): RunSummary => ({
+  id: 'run-412',
+  repo: 'remote:acme%2Fweb',
   work_type: 'feature',
-  pipeline: 'implement',
-  status: 'failed',
+  pipeline: 'work',
+  status: 'running',
   current_stage: 'implement',
   spawned_by: null,
-  started_at: 0,
+  started_at: at(0),
   ended_at: null,
   pack_commits: null,
   pack_dirty: 0,
   attention: { needs: false, reason: null, evidence: '' },
-  last_event_at: 20,
-  ticket: 'RT-1',
-  branch: 'feat/x',
+  last_event_at: at(60),
+  ticket: 'WEB-412',
+  branch: 'web-412-linked-parcels',
+  agent: { status: 'working', pane: 'pane-7' },
   ...over,
 });
 
-const FIXTURE: RunDetailData = {
-  run: run(),
+const workRun = (
+  over: Partial<RunDetailData & { asOf: number }> = {}
+): RunDetailData & { asOf: number } => ({
+  run: summary(),
   stages: [
-    {
-      name: 'provision',
-      status: 'done',
-      attempt: 1,
-      started_at: 0,
-      ended_at: 5,
-      reason: null,
-      detail_path: null,
-    },
-    {
-      name: 'implement',
-      status: 'failed',
-      attempt: 1,
-      started_at: 5,
-      ended_at: 20,
-      reason: 'tests failed',
-      detail_path: '/fake/runs/repo-tools/run-1/implement.log',
-    },
+    stage('provision', 'done', 0, 1),
+    stage('plan', 'done', 1, 2),
+    stage('implement', 'running', 30, null),
   ],
   fields: [
-    { key: 'ticket', value: 'RT-1', produced_by: 'provision', at: 1 },
-    { key: 'branch', value: 'feat/x', produced_by: 'provision', at: 2 },
-    {
-      key: 'reconciled',
-      value: 'wedged overnight, no owning process',
-      produced_by: 'rt runs abandon',
-      at: 99,
-    },
+    field('pipeline-stages', 'provision plan implement ship', 0),
+    field('ticket', 'WEB-412', 0),
+    field('branch', 'web-412-linked-parcels', 0),
+    field('worktree', '/Users/acme/worktrees/acme-web/molly', 0),
+    field('claude-session', 'session-412', 0),
+    field('approach', 'Backend gap-fill', 1.5),
+    field(
+      'evidence',
+      '{"v":1,"before":"/e/before.png","beforeAnnotated":"/e/before-annotated.png"}',
+      1.6
+    ),
+    field('extra.task', '3 of 5', 31),
+    field('strategy', 'subagent-driven, 5 tasks', 31),
   ],
-  decisions: [
-    {
-      contract: 'execution-strategy@1',
-      scope: 'run',
-      selection: '{"tier":"direct-tdd"}',
-      decided_by: 'implement',
-      decided_at: 15,
-    },
-    {
-      contract: 'human-override@1',
-      scope: 'run',
-      selection: '{"note":"skip ci"}',
-      decided_by: 'rt runs abandon',
-      decided_at: 99,
-    },
-  ],
+  decisions: [],
   schemaAhead: false,
-};
+  asOf: at(63),
+  ...over,
+});
 
-function detailResponse(data: RunDetailData) {
-  return { ok: true, status: 200, json: async () => data };
-}
-
-function renderDetail() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  const result = renderWithProviders(
-    <QueryClientProvider client={queryClient}>
-      <RunDetail repo="repo-tools" runId="run-1" />
-    </QueryClientProvider>
-  );
-  return { ...result, queryClient };
-}
-
-function gateRow(overrides: Partial<GateRow> = {}): GateRow {
-  return {
-    id: 'g1',
-    subject: 'run:run-1',
-    kind: 'self-review',
-    questions: [
-      {
-        id: 'outcome',
-        label: 'What happened?',
-        multi: false,
-        options: ['pass', 'fail'],
-      },
-    ],
-    meta: null,
-    status: 'open',
-    answer: null,
-    openedAt: 0,
+const gate = (over: Partial<GateRow> = {}): GateRow =>
+  ({
+    id: 'g-approach',
+    subject: 'run:run-412',
+    kind: 'plan',
+    meta: { stage: 'plan' },
+    owner: 'human',
+    status: 'answered',
+    openedAt: at(1.7),
     parkedAt: null,
     closedAt: null,
     closedReason: null,
-    agent: null,
-    pane: null,
-    nudge: null,
-    delivery: null,
-    released: false,
-    supersededBy: null,
-    owner: null,
-    escalatedAt: null,
-    consumedAt: null,
-    ...overrides,
-  };
+    questions: [
+      {
+        id: 'approach',
+        label: 'Which approach?',
+        options: [{ value: 'gap-fill', label: 'Backend gap-fill' }],
+      },
+    ],
+    answer: {
+      answers: { approach: 'gap-fill' },
+      by: 'console',
+      answeredAt: at(1.8),
+    },
+    ...over,
+  }) as unknown as GateRow;
+
+function render(data: unknown, gates: GateRow[] = []) {
+  detailGet.mockResolvedValue(ok(data));
+  gatesGet.mockResolvedValue(ok({ gates }));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return renderWithProviders(
+    <QueryClientProvider client={queryClient}>
+      <RunDetail repo="remote:acme%2Fweb" runId="run-412" />
+    </QueryClientProvider>
+  );
 }
 
-function gatesResponse(gates: GateRow[]) {
-  return { ok: true, status: 200, json: async () => ({ gates }) };
-}
-
-const enrichedBranch: BranchEnrichment = {
-  ticket: {
-    identifier: 'RT-1',
-    title: 'Redesign the run detail page',
-    url: 'https://linear.app/acme/issue/RT-1',
-  },
-  mr: {
-    iid: 7,
-    webUrl: 'https://example.com/mr/7',
-    state: 'opened',
-    pipeline: { status: 'success' },
-  },
-  fetchedAt: 0,
-};
+beforeEach(() => {
+  settingsGet.mockImplementation(async (which: string) =>
+    ok(which === 'linear-workspace' ? { workspace: 'acme' } : { editor: null })
+  );
+  enrichPost.mockResolvedValue(ok({}));
+  inputsGet.mockResolvedValue(
+    ok({
+      pipeline: 'work',
+      workType: 'feature',
+      packVersions: [
+        {
+          pack: 'acme',
+          recordedSha: '4c1d9e2b7a',
+          currentSha: '4c1d9e2b7a',
+          drifted: false,
+        },
+      ],
+      packDirty: false,
+      stages: ['provision', 'plan', 'implement'],
+      config: [],
+    })
+  );
+});
 
 afterEach(() => {
   vi.clearAllMocks();
   window.history.pushState(null, '', '/');
-  localStorage.clear();
 });
 
-beforeEach(() => {
-  linearWorkspaceGet.mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: async () => ({ workspace: 'acme' }),
-  });
-  enrichPost.mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: async () => ({}),
-  });
-  gatesGet.mockResolvedValue(gatesResponse([]));
-});
-
-describe('RunDetail', () => {
-  it('renders the summary card before the timeline, fields inside their producing stage, and the failure excerpt', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        lines: ['assertion failed at line 42', 'exit code 1'],
-        truncated: false,
-      }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    const summaryCard = await screen.findByTestId('summary-card');
-    const timeline = await screen.findByTestId('run-timeline');
-
-    // DOCUMENT_POSITION_FOLLOWING (4) means summaryCard comes before timeline
-    // -- this is the "summary card ON TOP" behaviour, not just "both present".
+describe('RunDetail: live work run', () => {
+  it('draws the header with its rail, then Now, then the story in run order', async () => {
+    render(workRun(), [gate()]);
+    const page = await screen.findByTestId('run-page');
+    await waitFor(() =>
+      expect(within(page).getByTestId('story')).toHaveTextContent(
+        'Which approach?'
+      )
+    );
+    const header = within(page).getByTestId('run-header');
+    expect(within(header).getByText('WEB-412')).toBeInTheDocument();
     expect(
-      summaryCard.compareDocumentPosition(timeline) &
-        Node.DOCUMENT_POSITION_FOLLOWING
+      [...header.querySelectorAll('[data-stage]')].map(e =>
+        e.getAttribute('data-stage')
+      )
+    ).toEqual(['provision', 'plan', 'implement', 'ship']);
+    expect(
+      header.querySelector('[data-stage="implement"]')?.textContent
+    ).toContain('33m');
+
+    const now = within(page).getByTestId('now-card');
+    expect(now).toHaveTextContent('Now · implement');
+    expect(now).toHaveTextContent('subagent-driven, 5 tasks');
+    expect(now).toHaveTextContent('started 33m ago');
+
+    const story = within(page).getByTestId('story');
+    expect(
+      [...story.querySelectorAll('[data-stage]')].map(e =>
+        e.getAttribute('data-stage')
+      )
+    ).toEqual(['plan']);
+    expect(story).toHaveTextContent('Backend gap-fill');
+    expect(story).toHaveTextContent('Which approach?');
+    expect(
+      now.compareDocumentPosition(story) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
 
-    // A field renders INSIDE the stage item that produced it, not in a
-    // separate list -- this fails if fields were flattened above the
-    // timeline instead of grouped per stage.
-    const provisionStage = screen.getByTestId('timeline-stage-provision-1');
-    expect(
-      within(provisionStage).getByTestId('field-ticket')
-    ).toHaveTextContent('RT-1');
-    expect(
-      within(provisionStage).getByTestId('field-branch')
-    ).toHaveTextContent('feat/x');
+  it('never draws plumbing keys or the evidence field as fields', async () => {
+    render(workRun(), [gate()]);
+    const page = await screen.findByTestId('run-page');
+    const rows = [...page.querySelectorAll('[data-row]')].map(e =>
+      e.getAttribute('data-row')
+    );
+    expect(rows).toEqual(['Strategy', 'Approach']);
+    expect(page).not.toHaveTextContent('session-412');
+    expect(page).not.toHaveTextContent('3 of 5');
+    expect(page).not.toHaveTextContent('"v":1');
+    expect(within(page).getByText('EVIDENCE')).toBeInTheDocument();
+  });
 
-    const implementStage = screen.getByTestId('timeline-stage-implement-1');
+  it('puts an open gate of the run in the gate panel instead of the Now card', async () => {
+    render(workRun(), [
+      gate({
+        status: 'open',
+        answer: null,
+        id: 'g-open',
+        openedAt: at(62),
+      } as Partial<GateRow>),
+    ]);
+    const panel = await screen.findByTestId('gate-panel');
+    expect(panel).toHaveAttribute('data-gate-id', 'g-open');
+    expect(panel.closest('[data-parity="Story"]')).toBeNull();
     expect(
-      within(implementStage).getByText('tests failed')
+      screen.getByText('None yet. What you answer above lands here.')
     ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(
-        within(implementStage).getByTestId('failure-excerpt')
-      ).toHaveTextContent('assertion failed at line 42')
-    );
-    expect(artifactGet).toHaveBeenCalled();
-  });
-
-  // Proves the defensive grouping rule: a field whose produced_by matches no
-  // stage (here 'rt runs abandon', which never appears in `stages`) must
-  // still render -- dropping it would silently hide the abandon reason.
-  it('renders a field with no matching stage in the outside-the-pipeline entry, labelled by its producer', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    // The reconciled field must NOT appear under a real stage -- it has no
-    // matching stage name, so it belongs in exactly one place. Asserted on
-    // the Pipeline tab, before switching away unmounts it.
-    expect(
-      within(
-        await screen.findByTestId('timeline-stage-provision-1')
-      ).queryByTestId('field-reconciled')
-    ).not.toBeInTheDocument();
-
-    await userEvent.click(
-      await screen.findByRole('tab', { name: 'Run context' })
-    );
-    const outside = await screen.findByTestId('run-context');
-    expect(within(outside).getByText('rt runs abandon')).toBeInTheDocument();
-    expect(within(outside).getByTestId('field-reconciled')).toHaveTextContent(
-      'wedged overnight, no owning process'
+    expect(screen.queryByTestId('now-card')).toBeNull();
+    expect(screen.getByTestId('liveness')).toHaveTextContent(
+      'waiting on you · 1m'
     );
   });
 
-  it('shows a missing summary-card value as dimmed "not recorded", never an empty row', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    await screen.findByTestId('summary-card');
-    // FIXTURE never produces 'worktree' or 'commits' fields, and enrich
-    // (mocked empty by beforeEach) never produces an 'mr' entry.
-    expect(screen.getAllByText('not recorded')).toHaveLength(3);
+  it('lists its answered decisions on the side', async () => {
+    render(workRun(), [gate()]);
+    await screen.findByTestId('run-page');
+    expect(await screen.findByText('Decisions · 1')).toBeInTheDocument();
   });
 
-  // Mirrors the field-grouping tests above, but for decisions -- groupTimeline
-  // applies the same stage / outside-the-pipeline split to `decided_by` as it
-  // does to `produced_by`, and that half of the rule had no fixture data at
-  // all before this.
-  it('renders a decision inside the stage named by its decided_by', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        lines: ['assertion failed at line 42'],
-        truncated: false,
-      }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    const implementStage = await screen.findByTestId(
-      'timeline-stage-implement-1'
-    );
-    expect(
-      within(implementStage).getByText(/execution-strategy@1/)
-    ).toBeInTheDocument();
-  });
-
-  it('renders a decision with no matching stage in the outside-the-pipeline entry', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        lines: ['assertion failed at line 42'],
-        truncated: false,
-      }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    await userEvent.click(
-      await screen.findByRole('tab', { name: 'Run context' })
-    );
-    const outside = await screen.findByTestId('run-context');
-    expect(within(outside).getByText(/human-override@1/)).toBeInTheDocument();
-
-    // Must not also land under a real stage -- 'rt runs abandon' matches no
-    // stage name in FIXTURE.
-    expect(
-      screen.queryByText(/human-override@1/, {
-        selector: `[data-testid="timeline-stage-implement-1"] *`,
-      })
-    ).not.toBeInTheDocument();
-  });
-
-  it('marks the run seen on mount', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    await waitFor(() =>
-      expect(seenPost).toHaveBeenCalledWith({ param: { runId: 'run-1' } })
-    );
-  });
-
-  it('does not show the abandon action for a run that is not stale', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    await screen.findByTestId('summary-card');
-    expect(
-      screen.queryByRole('button', { name: 'Mark abandoned' })
-    ).not.toBeInTheDocument();
-  });
-
-  it('shows the abandon action only when attention.reason is stale', async () => {
-    const staleFixture: RunDetailData = {
-      ...FIXTURE,
-      run: run({
-        attention: { needs: true, reason: 'stale', evidence: 'quiet 3h' },
-      }),
-    };
-    detailGet.mockResolvedValue(detailResponse(staleFixture));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    expect(
-      await screen.findByRole('button', { name: 'Mark abandoned' })
-    ).toBeInTheDocument();
-  });
-
-  it('shows a focus-pane button for a run with a working agent', async () => {
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({
-          status: 'running',
-          agent: { status: 'working', pane: 'w1:p1' },
-        }),
-      })
-    );
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
+  it('offers Focus pane while an agent holds the pane, and Resume when none does', async () => {
+    const user = userEvent.setup();
+    render(workRun());
     expect(
       await screen.findByRole('button', { name: 'focus pane' })
     ).toBeInTheDocument();
-  });
-
-  it('has no focus-pane button when the run has no agent', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    await screen.findByTestId('summary-card');
+    await user.click(screen.getByRole('button', { name: 'more run actions' }));
+    expect(screen.queryByRole('menuitem', { name: 'Resume' })).toBeNull();
     expect(
-      screen.queryByRole('button', { name: 'focus pane' })
-    ).not.toBeInTheDocument();
+      screen.queryByRole('menuitem', { name: 'Mark abandoned' })
+    ).toBeNull();
   });
 
-  it('has no focus-pane button once the run is done', async () => {
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({
-          status: 'done',
-          agent: { status: 'done', pane: 'w1:p1' },
+  it('resumes a run with a session and no pane from the menu', async () => {
+    const user = userEvent.setup();
+    resumePost.mockResolvedValue(ok({}));
+    render(workRun({ run: summary({ agent: null }) }));
+    await screen.findByTestId('run-page');
+    expect(screen.queryByRole('button', { name: 'focus pane' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'more run actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Resume' }));
+    await waitFor(() => expect(resumePost).toHaveBeenCalled());
+  });
+
+  it('offers Mark abandoned only for a stale run', async () => {
+    const user = userEvent.setup();
+    render(
+      workRun({
+        run: summary({
+          attention: { needs: true, reason: 'stale', evidence: 'no pane' },
         }),
       })
     );
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    await screen.findByTestId('summary-card');
+    await screen.findByTestId('run-page');
+    await user.click(screen.getByRole('button', { name: 'more run actions' }));
     expect(
-      screen.queryByRole('button', { name: 'focus pane' })
-    ).not.toBeInTheDocument();
+      await screen.findByRole('menuitem', { name: 'Mark abandoned' })
+    ).toBeInTheDocument();
   });
 
-  it('raises the attributed pane via the typed client, and surfaces a failure', async () => {
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({
-          status: 'running',
-          agent: { status: 'working', pane: 'w1:p1' },
-        }),
-      })
-    );
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    focusPost.mockResolvedValueOnce({
+  it('says so when marking a run abandoned fails', async () => {
+    const user = userEvent.setup();
+    const error = vi.spyOn(notifications, 'error');
+    abandonPost.mockResolvedValue({
       ok: false,
-      status: 502,
-      json: async () => ({ error: 'no such pane' }),
+      status: 409,
+      json: async () => ({ error: 'run already ended' }),
     });
-
-    renderDetail();
-
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'focus pane' })
-    );
-
-    expect(focusPost).toHaveBeenCalledWith({ param: { id: 'w1:p1' } });
-    await screen.findByText("couldn't focus the pane");
-  });
-
-  it('surfaces the same failure when the focus request rejects outright', async () => {
-    // The notifications store is module-global, so the previous test's toast
-    // would make the text query ambiguous without a clean slate.
-    notifications.clean();
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({
-          status: 'running',
-          agent: { status: 'working', pane: 'w1:p1' },
+    render(
+      workRun({
+        run: summary({
+          attention: { needs: true, reason: 'stale', evidence: 'no pane' },
         }),
       })
     );
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    focusPost.mockRejectedValueOnce(new Error('network down'));
-
-    renderDetail();
-
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'focus pane' })
+    await screen.findByTestId('run-page');
+    await user.click(screen.getByRole('button', { name: 'more run actions' }));
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Mark abandoned' })
     );
-
-    await screen.findByText("couldn't focus the pane");
-  });
-
-  it('copies the ticket to the clipboard on its single-key hotkey', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    const originalClipboard = navigator.clipboard;
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText },
-      configurable: true,
-    });
-
-    try {
-      renderDetail();
-
-      await screen.findByTestId('summary-card');
-      await userEvent.keyboard('t');
-
-      await waitFor(() => expect(writeText).toHaveBeenCalledWith('RT-1'));
-    } finally {
-      Object.defineProperty(navigator, 'clipboard', {
-        value: originalClipboard,
-        configurable: true,
-      });
-    }
-  });
-
-  // The `b` hotkey moved from the deleted HandoffField into the SummaryCard
-  // header wiring -- this pins that the move didn't drop the binding.
-  it('copies the branch to the clipboard on hotkey b', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    const originalClipboard = navigator.clipboard;
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText },
-      configurable: true,
-    });
-
-    try {
-      renderDetail();
-
-      await screen.findByTestId('summary-card');
-      await userEvent.keyboard('b');
-
-      await waitFor(() => expect(writeText).toHaveBeenCalledWith('feat/x'));
-    } finally {
-      Object.defineProperty(navigator, 'clipboard', {
-        value: originalClipboard,
-        configurable: true,
-      });
-    }
-  });
-
-  it('shows the same liveness chip the board row shows for a running run whose agent is idle', async () => {
-    const idleFixture: RunDetailData = {
-      ...FIXTURE,
-      run: run({
-        status: 'running',
-        agent: { status: 'idle', pane: 'w1:p1' },
-      }),
-    };
-    detailGet.mockResolvedValue(detailResponse(idleFixture));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    const card = await screen.findByTestId('summary-card');
-    expect(within(card).getByTestId('liveness-chip')).toHaveAttribute(
-      'data-state',
-      'idle'
+    await user.type(
+      await screen.findByLabelText(/Why is this run dead/),
+      'wedged'
     );
-  });
-
-  it('shows the liveness chip once a run needs attention', async () => {
-    const staleFixture: RunDetailData = {
-      ...FIXTURE,
-      run: run({
-        attention: { needs: true, reason: 'stale', evidence: 'quiet 3h' },
-      }),
-    };
-    detailGet.mockResolvedValue(detailResponse(staleFixture));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    const card = await screen.findByTestId('summary-card');
-    expect(within(card).getByTestId('liveness-chip')).toHaveAttribute(
-      'data-state',
-      'stale'
+    await user.click(screen.getByRole('button', { name: 'Mark abandoned' }));
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith('run already ended')
     );
+    error.mockRestore();
   });
 
-  it('links the ticket id to its Linear url, opening in a new tab', async () => {
-    enrichPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ 'feat/x': enrichedBranch }),
-    });
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    const link = await screen.findByTestId('ticket-link');
-    expect(link).toHaveAttribute('href', 'https://linear.app/acme/issue/RT-1');
-    expect(link).toHaveAttribute('target', '_blank');
-    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-    expect(link).toHaveTextContent('RT-1');
-  });
-
-  it('builds a Linear url from the ticket field when enrichment is cold', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    const link = await screen.findByTestId('ticket-link');
-    expect(link).toHaveAttribute('href', 'https://linear.app/acme/issue/RT-1');
-    expect(link).toHaveTextContent('RT-1');
-  });
-
-  it('leaves the ticket id as plain text when neither enrichment nor a workspace slug gives a url', async () => {
-    linearWorkspaceGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ workspace: null }),
-    });
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    const card = await screen.findByTestId('summary-card');
-    expect(within(card).getByText('RT-1')).toBeInTheDocument();
-    expect(screen.queryByTestId('ticket-link')).not.toBeInTheDocument();
-  });
-
-  it('renders the enriched ticket title and links the MR iid+state to its webUrl, with CI status below', async () => {
-    enrichPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ 'feat/x': enrichedBranch }),
-    });
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    const card = await screen.findByTestId('summary-card');
+  it('opens the inputs drawer from ?inputs', async () => {
+    window.history.pushState(null, '', '/runs/x/run-412?inputs');
+    render(workRun());
+    const drawer = await screen.findByRole('dialog');
     expect(
-      await within(card).findByText('Redesign the run detail page')
+      await within(drawer).findByTestId('effective-inputs')
     ).toBeInTheDocument();
-
-    const mrLink = within(card).getByRole('link', { name: '!7 opened' });
-    expect(mrLink).toHaveAttribute('href', 'https://example.com/mr/7');
-    expect(within(card).getByText('success')).toBeInTheDocument();
   });
 
-  it('falls back to the mr field URL when enrichment has nothing for the branch', async () => {
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        fields: [
-          ...FIXTURE.fields,
-          {
-            key: 'mr',
-            value: 'https://gitlab.example.com/g/p/-/merge_requests/43166',
-            produced_by: 'review',
-            at: 5,
-          },
-        ],
-      })
-    );
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    const link = await screen.findByTestId('mr-link');
-    expect(link).toHaveAttribute(
-      'href',
-      'https://gitlab.example.com/g/p/-/merge_requests/43166'
-    );
-    expect(link).toHaveTextContent('!43166');
+  it('opens the drawer from View inputs and puts it in the URL', async () => {
+    const user = userEvent.setup();
+    render(workRun());
+    await user.click(await screen.findByText('View inputs →'));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(window.location.search).toBe('?inputs');
   });
 
-  it('still prefers enrichment when both the field and the cache answer', async () => {
-    enrichPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ 'feat/x': enrichedBranch }),
-    });
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        fields: [
-          ...FIXTURE.fields,
-          {
-            key: 'mr',
-            value: 'https://stale.example.com/mr/1',
-            produced_by: 'ship',
-            at: 5,
-          },
-        ],
-      })
-    );
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    const link = await screen.findByTestId('mr-link');
-    expect(link).toHaveAttribute('href', 'https://example.com/mr/7');
-    expect(link).toHaveTextContent('!7 opened');
+  it('scrolls to a gate named by #gate-<id>', async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    window.history.pushState(null, '', '/runs/x/run-412#gate-g-approach');
+    render(workRun(), [gate()]);
+    await screen.findByTestId('run-page');
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
   });
 
-  it('shows the commits field and repoLabel under branch/worktree, and last-event recency under liveness', async () => {
-    const withMoreFields: RunDetailData = {
-      ...FIXTURE,
-      fields: [
-        ...FIXTURE.fields,
+  const openGate = (id: string, minute: number) =>
+    gate({
+      id,
+      status: 'open',
+      answer: null,
+      openedAt: at(minute),
+      questions: [
         {
-          key: 'worktree',
-          value: '/Users/matt/work/repo-tools-wt',
-          produced_by: 'provision',
-          at: 3,
-        },
-        {
-          key: 'commits',
-          value: '3 commits @ a1b2c3d',
-          produced_by: 'implement',
-          at: 10,
+          id: 'approach',
+          label: 'Which approach?',
+          options: [
+            { value: 'gap-fill', label: 'Backend gap-fill' },
+            { value: 'rewrite', label: 'Rewrite the query' },
+          ],
         },
       ],
-    };
-    detailGet.mockResolvedValue(detailResponse(withMoreFields));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
+    } as Partial<GateRow>);
 
-    renderDetail();
+  const panelOf = (id: string) =>
+    screen
+      .getAllByTestId('gate-panel')
+      .find(el => el.getAttribute('data-gate-id') === id)!;
 
-    const card = await screen.findByTestId('summary-card');
-    expect(within(card).getByText('3 commits @ a1b2c3d')).toBeInTheDocument();
-    expect(within(card).getByText('repo-tools')).toBeInTheDocument();
-    expect(within(card).getByText(/last pipeline event/)).toBeInTheDocument();
-  });
-
-  it('names the rt verb that produced this panel, with the run and repo it was scoped to', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-
-    renderDetail();
-
-    // EffectiveInputs renders its own CommandProvenance-style attribution
-    // lower on the page, so this testid now matches twice -- the page-level
-    // one (asserted here) is the first in DOM order.
-    const [pageLevel] = await screen.findAllByTestId('command-provenance');
-    expect(pageLevel).toHaveTextContent('rt runs show run-1 --repo repo-tools');
-  });
-
-  it('marks the run abandoned with the entered reason', async () => {
-    const staleFixture: RunDetailData = {
-      ...FIXTURE,
-      run: run({
-        attention: { needs: true, reason: 'stale', evidence: 'quiet 3h' },
-      }),
-    };
-    detailGet.mockResolvedValue(detailResponse(staleFixture));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    abandonPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ ok: true }),
-    });
-
-    renderDetail();
-
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Mark abandoned' })
-    );
-    const input = await screen.findByLabelText(/Why is this run dead\?/);
-    await userEvent.type(input, 'wedged overnight{Enter}');
-
+  it('leaves focus in the gate a #gate-<id> link names, so 1 picks', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    window.history.pushState(null, '', '/runs/x/run-412#gate-g-late');
+    render(workRun(), [openGate('g-early', 60), openGate('g-late', 62)]);
+    await screen.findAllByTestId('gate-panel');
     await waitFor(() =>
-      expect(abandonPost).toHaveBeenCalledWith({
-        param: { repo: 'repo-tools', runId: 'run-1' },
-        json: { reason: 'wedged overnight' },
-      })
+      expect(panelOf('g-late')).toContainElement(
+        document.activeElement as HTMLElement
+      )
+    );
+    await userEvent.keyboard('1');
+    expect(
+      within(panelOf('g-late')).getByRole('radio', { name: /Backend gap-fill/ })
+    ).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('focuses the first open gate on arrival when no link names one', async () => {
+    render(workRun(), [openGate('g-late', 62), openGate('g-early', 60)]);
+    await screen.findAllByTestId('gate-panel');
+    await waitFor(() =>
+      expect(panelOf('g-early')).toContainElement(
+        document.activeElement as HTMLElement
+      )
     );
   });
 
-  // The bug this pins: a thrown run-detail query used to take the whole
-  // view with it (the app-wide RouteErrorBoundary in App.tsx caught it
-  // above PageShell), dropping the one piece of context -- which run,
-  // which command -- a person needs to go fetch it by hand instead.
-  it('keeps the run id heading and command provenance visible when the query errors', async () => {
-    detailGet.mockResolvedValue({ ok: false, status: 404 });
-
-    renderDetail();
-
-    expect(
-      await screen.findByRole('heading', { name: 'repo-tools / run-1' })
-    ).toBeInTheDocument();
-    expect(await screen.findByTestId('command-provenance')).toHaveTextContent(
-      'rt runs show run-1 --repo repo-tools'
+  it('skips a shepherd-owned gate when it focuses one on arrival', async () => {
+    render(workRun(), [
+      { ...openGate('g-herd', 58), owner: 'herd:acme' },
+      openGate('g-mine', 61),
+    ]);
+    await screen.findAllByTestId('gate-panel');
+    await waitFor(() =>
+      expect(panelOf('g-mine')).toContainElement(
+        document.activeElement as HTMLElement
+      )
     );
-    expect(screen.getByTestId('generic-error')).toBeInTheDocument();
+  });
+
+  it('leaves focus in a text field the user is typing in', async () => {
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.focus();
+    render(workRun(), [openGate('g-open', 62)]);
+    await screen.findByTestId('gate-panel');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(document.activeElement).toBe(input);
+    input.remove();
   });
 });
 
-describe('RunDetail: gate card', () => {
-  it('renders the gate card between the summary card and the tabs panel, plus the Answer action, for an open gate', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([gateRow({ subject: 'run:run-1', status: 'open' })])
-    );
-
-    renderDetail();
-
-    const summaryCard = await screen.findByTestId('summary-card');
-    const gateCard = await screen.findByTestId('gate-card');
-    const panels = await screen.findByTestId('run-panels');
-    expect(
-      summaryCard.compareDocumentPosition(gateCard) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      gateCard.compareDocumentPosition(panels) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      within(summaryCard).getByRole('button', { name: 'answer gate' })
-    ).toBeInTheDocument();
-  });
-
-  it('renders the gate card for a parked gate, badge included', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([gateRow({ subject: 'run:run-1', status: 'parked' })])
-    );
-
-    renderDetail();
-
-    expect(await screen.findByTestId('gate-parked-badge')).toBeInTheDocument();
-  });
-
-  it('renders an answered gate as a read-only summary while the run is still running', async () => {
-    detailGet.mockResolvedValue(
-      detailResponse({ ...FIXTURE, run: run({ status: 'running' }) })
-    );
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([
-        gateRow({
-          subject: 'run:run-1',
-          status: 'answered',
-          answer: {
-            answers: { outcome: 'pass' },
-            by: 'someone',
-            answeredAt: 1,
+describe('RunDetail: one-stage review run', () => {
+  const review = () =>
+    workRun({
+      run: summary({
+        id: 'run-412',
+        work_type: 'review',
+        pipeline: 'review',
+        ticket: null,
+        branch: 'dedupe-contacts',
+        agent: null,
+        outcome: {
+          status: 'running',
+          reviewed: {
+            iid: 412,
+            url: 'https://gitlab.test/acme/web/-/merge_requests/412',
+            posted: null,
           },
-        }),
-      ])
-    );
-
-    renderDetail();
-
-    expect(
-      await screen.findByTestId('gate-answered-badge')
-    ).toBeInTheDocument();
-    expect(await screen.findByTestId('gate-chip')).toHaveTextContent(
-      'self-review run run-1 · pass · by someone'
-    );
-    // Answered isn't actionable -- no Answer affordance for it.
-    expect(
-      screen.queryByRole('button', { name: 'answer gate' })
-    ).not.toBeInTheDocument();
-  });
-
-  it('drops an answered gate once the run itself is no longer running', async () => {
-    // FIXTURE's own run status is 'failed'.
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([
-        gateRow({
-          subject: 'run:run-1',
-          status: 'answered',
-          answer: {
-            answers: { outcome: 'pass' },
-            by: 'someone',
-            answeredAt: 1,
-          },
-        }),
-      ])
-    );
-
-    renderDetail();
-
-    await screen.findByTestId('summary-card');
-    expect(screen.queryByTestId('gate-card')).not.toBeInTheDocument();
-  });
-
-  it('shows nothing for a gate belonging to a different run', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([
-        gateRow({ subject: 'run:some-other-run', status: 'open' }),
-      ])
-    );
-
-    renderDetail();
-
-    await screen.findByTestId('summary-card');
-    expect(screen.queryByTestId('gate-card')).not.toBeInTheDocument();
-  });
-
-  it('submits an answer with a bare {answers} body -- no mrUrl anywhere -- keyed to the gate id in the URL', async () => {
-    detailGet.mockResolvedValue(
-      detailResponse({ ...FIXTURE, run: run({ status: 'running' }) })
-    );
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([
-        gateRow({ id: 'g7', subject: 'run:run-1', status: 'open' }),
-      ])
-    );
-    answerPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        row: gateRow({ id: 'g7', subject: 'run:run-1', status: 'answered' }),
+        },
       }),
+      stages: [stage('review', 'running', 2, null)],
+      fields: [
+        field('branch', 'dedupe-contacts', 0),
+        field('mr', '!412', 1),
+        field('findings', '4 (2 must fix, 2 suggestions)', 6),
+      ],
+      asOf: at(9),
     });
+  const post = gate({
+    id: 'g-post',
+    subject: 'mr:acme/web!412',
+    kind: 'review-post',
+    meta: null,
+    status: 'open',
+    answer: null,
+    openedAt: at(7),
+    origin: { runId: 'run-412' },
+    questions: [
+      {
+        id: 'outcome',
+        label: 'What should the review post?',
+        options: ['Approve', 'Request changes (Recommended)'],
+      },
+    ],
+  } as Partial<GateRow>);
 
-    renderDetail();
-
-    await userEvent.click(await screen.findByRole('radio', { name: 'pass' }));
-    await userEvent.click(screen.getByRole('button', { name: 'submit' }));
-
-    await waitFor(() =>
-      expect(answerPost).toHaveBeenCalledWith({
-        param: { id: 'g7' },
-        json: { answers: { outcome: 'pass' } },
-      })
+  it('draws no rail, hands the waiting gate off to the board, and shows one block', async () => {
+    render({ ...review(), boardUrl: 'https://board.test/?gate=g-post' }, [
+      post,
+    ]);
+    const page = await screen.findByTestId('run-page');
+    expect(page.querySelector('[data-stage="provision"]')).toBeNull();
+    expect(
+      within(page).getByTestId('run-header').querySelector('[data-part="rail"]')
+    ).toBeNull();
+    expect(
+      within(within(page).getByTestId('run-header')).getByText('!412')
+    ).toBeInTheDocument();
+    expect(
+      await within(page).findByRole('link', { name: /Answer in the board/ })
+    ).toHaveAttribute('href', 'https://board.test/?gate=g-post');
+    expect(screen.getByTestId('liveness')).toHaveTextContent(
+      'waiting in the board · 2m'
     );
+    expect(screen.queryByTestId('now-card')).toBeNull();
+    const story = within(page).getByTestId('story');
+    expect(story.querySelectorAll('[data-stage]')).toHaveLength(1);
+    expect(story).toHaveTextContent('4 (2 must fix, 2 suggestions)');
+    expect(within(page).getByText('Reviewed MR')).toBeInTheDocument();
   });
 
-  // Supersede only fires within the same (subject, kind) -- a `clarify` gate
-  // and a `self-review` gate can both be open on the same run at once (e.g.
-  // a stage gate opened by a wedged retry alongside an existing review
-  // gate), so this must render a card per gate, not pick one.
-  it('renders one card per active gate when different kinds are both open, most-recently-opened first', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([
-        gateRow({
-          id: 'g-review',
-          subject: 'run:run-1',
-          kind: 'self-review',
-          status: 'open',
-          openedAt: 100,
-          questions: [
-            {
-              id: 'outcome',
-              label: 'What happened?',
-              multi: false,
-              options: ['pass', 'fail'],
-            },
-          ],
-        }),
-        gateRow({
-          id: 'g-clarify',
-          subject: 'run:run-1',
-          kind: 'clarify',
-          status: 'open',
-          openedAt: 200,
-          questions: [
-            {
-              id: 'direction',
-              label: 'Which way?',
-              multi: false,
-              options: ['left', 'right'],
-            },
-          ],
-        }),
-      ])
+  it('says where to answer when no board link is known', async () => {
+    render({ ...review(), boardUrl: null }, [post]);
+    await screen.findByTestId('run-page');
+    expect(await screen.findByText('Answer in the board')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Answer in the board/ })).toBe(
+      null
     );
-
-    renderDetail();
-
-    const cards = await screen.findAllByTestId('gate-card');
-    expect(cards).toHaveLength(2);
-
-    // Most recently opened (openedAt 200, 'clarify') comes first.
-    const titles = await screen.findAllByTestId('gate-card-title');
-    expect(titles.map(t => t.textContent)).toEqual(['clarify', 'self-review']);
-
-    // Both question sets are actually reachable, not just one card's.
-    expect(within(cards[0]).getByText('Which way?')).toBeInTheDocument();
-    expect(within(cards[1]).getByText('What happened?')).toBeInTheDocument();
-  });
-
-  it('titles a card by meta.label when the opener set one, else the raw kind', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([
-        gateRow({
-          id: 'g-labeled',
-          subject: 'run:run-1',
-          kind: 'stage-retry',
-          status: 'open',
-          meta: { label: 'Wedged retry' },
-        }),
-      ])
-    );
-
-    renderDetail();
-
-    expect(await screen.findByTestId('gate-card-title')).toHaveTextContent(
-      'Wedged retry'
-    );
-  });
-
-  it('falls back to the bare kind when meta.label is absent -- never the old hardcoded "review gate"', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([
-        gateRow({
-          id: 'g-clarify',
-          subject: 'run:run-1',
-          kind: 'clarify',
-          status: 'open',
-        }),
-      ])
-    );
-
-    renderDetail();
-
-    const title = await screen.findByTestId('gate-card-title');
-    expect(title).toHaveTextContent('clarify');
-    expect(title).not.toHaveTextContent('review gate');
-  });
-
-  // activeGatesForRun orders by openedAt alone, so a more recently opened
-  // but already-answered (read-only) gate can sort ahead of an older
-  // still-open one -- the Answer button has to skip past it to the card
-  // that actually has a submit control.
-  it('scrolls to the first ACTIONABLE gate card, not just the first card in DOM order', async () => {
-    detailGet.mockResolvedValue(
-      detailResponse({ ...FIXTURE, run: run({ status: 'running' }) })
-    );
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([
-        gateRow({
-          id: 'g-answered',
-          subject: 'run:run-1',
-          status: 'answered',
-          openedAt: 300,
-          answer: {
-            answers: { outcome: 'pass' },
-            by: 'someone',
-            answeredAt: 1,
-          },
-        }),
-        gateRow({
-          id: 'g-open',
-          subject: 'run:run-1',
-          status: 'open',
-          openedAt: 100,
-        }),
-      ])
-    );
-
-    const scrollSpy = vi.fn();
-    const original = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = scrollSpy;
-
-    try {
-      renderDetail();
-
-      const cards = await screen.findAllByTestId('gate-card');
-      expect(cards).toHaveLength(2);
-      // Most-recently-opened first: the answered one (300) sorts ahead of
-      // the open one (100) -- this is the setup that reproduces the bug.
-      expect(cards[0]).toHaveAttribute('data-actionable', 'false');
-      expect(cards[1]).toHaveAttribute('data-actionable', 'true');
-
-      await userEvent.click(
-        await screen.findByRole('button', { name: 'answer gate' })
-      );
-
-      expect(scrollSpy).toHaveBeenCalledTimes(1);
-      expect(scrollSpy.mock.instances[0]).toBe(cards[1]);
-    } finally {
-      Element.prototype.scrollIntoView = original;
-    }
   });
 });
 
-describe('RunDetail: gate deep link', () => {
-  it('scrolls to the linked gate card once the gates query resolves, then strips the `gate` param', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([gateRow({ id: 'g-open', status: 'open' })])
+describe('RunDetail: finished run', () => {
+  const statsOf = (header: HTMLElement) =>
+    [...header.querySelectorAll<HTMLElement>('[data-stat]')].map(e => [
+      e.dataset.stat,
+      e.textContent,
+    ]);
+  const outcomesOf = (header: HTMLElement) =>
+    [...header.querySelectorAll<HTMLElement>('[data-outcome]')].map(
+      e => e.textContent
     );
+  const tabsOf = (record: HTMLElement) =>
+    within(record)
+      .getAllByRole('tab')
+      .map(t => [t.textContent, t.getAttribute('aria-selected')]);
 
-    window.history.pushState(null, '', '/runs/repo-tools/run-1?gate=g-open');
+  const picked = (
+    id: string,
+    stageName: string,
+    opened: number,
+    answered: number,
+    { rec = true, pick = 'a', owner = 'human' } = {}
+  ) =>
+    gate({
+      id,
+      meta: { stage: stageName },
+      owner,
+      openedAt: at(opened),
+      questions: [
+        {
+          id: 'q',
+          label: `Question ${id}?`,
+          multi: false,
+          options: [
+            { value: 'a', label: rec ? 'A (Recommended)' : 'A' },
+            { value: 'b', label: 'B' },
+          ],
+        },
+      ],
+      answer: { answers: { q: pick }, by: 'console', answeredAt: at(answered) },
+    });
 
-    const scrollSpy = vi.fn();
-    const original = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = scrollSpy;
+  const merged = () =>
+    workRun({
+      run: summary({
+        status: 'done',
+        ended_at: at(150),
+        agent: null,
+        outcome: {
+          status: 'done',
+          mr: { iid: 405, state: 'merged', url: null, mergedAt: at(152) },
+          ci: 'success',
+        },
+      }),
+      stages: [
+        stage('provision', 'done', 0, 1),
+        stage('plan', 'done', 1, 13),
+        stage('evidence', 'done', 14, 58),
+        stage('implement', 'done', 58, 100),
+        stage('ship', 'done', 100, 150),
+      ],
+      fields: [
+        field('pipeline-stages', 'provision plan evidence implement ship', 0),
+        field('ticket', 'WEB-409', 0),
+        field('branch', 'web-409-tracking', 0),
+        field('approach', 'Backend data', 5),
+        field(
+          'evidence',
+          '{"v":1,"before":"/e/before.png","after":"/e/after.png","afterAnnotated":"/e/after-annotated.png","case":"Rush order","attach":"ship"}',
+          40
+        ),
+        field('strategy', 'subagent-driven', 60),
+        field('commits', '5d6e7f8..b3a9c41 (4): a, b', 90),
+      ],
+      asOf: at(200),
+    });
+  const mergedGates = [
+    picked('g1', 'plan', 7, 7),
+    picked('g2', 'plan', 13, 13, { pick: 'b' }),
+    picked('g3', 'evidence', 26, 51),
+    picked('g4', 'ship', 107, 108, { owner: 'herd:acme' }),
+  ];
 
-    try {
-      renderDetail();
-
-      const card = await screen.findByTestId('gate-card');
-      expect(card).toHaveAttribute('data-gate-id', 'g-open');
-
-      await waitFor(() => expect(scrollSpy).toHaveBeenCalledTimes(1));
-      expect(scrollSpy.mock.instances[0]).toBe(card);
-      await waitFor(() => expect(window.location.search).toBe(''));
-      expect(window.location.pathname).toBe('/runs/repo-tools/run-1');
-    } finally {
-      Element.prototype.scrollIntoView = original;
-    }
+  it('heads a merged work run with its badges, span and all six stats', async () => {
+    render(merged(), mergedGates);
+    const record = await screen.findByTestId('run-record');
+    const header = within(record).getByTestId('record-header');
+    await waitFor(() =>
+      expect(outcomesOf(header)).toEqual(['merged !405', 'CI passed'])
+    );
+    expect(header).toHaveTextContent('· work pipeline · Oct 8,');
+    expect(header.querySelector('[data-stage]')).toBeNull();
+    await waitFor(() =>
+      expect(statsOf(header)).toEqual([
+        ['duration', '2h 32mstart to merge'],
+        ['decisions', '4decisions'],
+        ['took', '3 of 4took the recommendation'],
+        ['evidence', '3evidence'],
+        ['commits', '4commits'],
+        ['waiting', '25mwaiting on you'],
+      ])
+    );
   });
 
-  it('does not scroll again when the gates query refetches after the param is stripped', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([gateRow({ id: 'g-open', status: 'open' })])
+  it('opens on Decisions, by stage, with the evidence beside them', async () => {
+    render(merged(), mergedGates);
+    const record = await screen.findByTestId('run-record');
+    await waitFor(() =>
+      expect(tabsOf(record)).toEqual([
+        ['Story', 'false'],
+        ['Decisions4', 'true'],
+        ['Evidence3', 'false'],
+        ['Inputs', 'false'],
+      ])
     );
-
-    window.history.pushState(null, '', '/runs/repo-tools/run-1?gate=g-open');
-
-    const scrollSpy = vi.fn();
-    const original = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = scrollSpy;
-
-    try {
-      const { queryClient } = renderDetail();
-
-      await screen.findByTestId('gate-card');
-      await waitFor(() => expect(scrollSpy).toHaveBeenCalledTimes(1));
-      await waitFor(() => expect(window.location.search).toBe(''));
-
-      await queryClient.invalidateQueries({ queryKey: ['gates'] });
-      await waitFor(() => expect(gatesGet).toHaveBeenCalledTimes(2));
-
-      expect(scrollSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      Element.prototype.scrollIntoView = original;
-    }
+    const nav = within(record).getByRole('navigation', {
+      name: 'Decisions by stage',
+    });
+    expect(
+      within(nav)
+        .getAllByRole('button')
+        .map(b => b.textContent)
+    ).toEqual(['plan2', 'evidence1', 'ship1']);
+    expect(
+      within(nav).getAllByLabelText('an answer went against the recommendation')
+    ).toHaveLength(1);
+    const log = within(record).getByTestId('decision-log');
+    expect(
+      [...log.querySelectorAll('[data-gate-id]')].map(e =>
+        e.getAttribute('data-gate-id')
+      )
+    ).toEqual(['g1', 'g2', 'g3', 'g4']);
+    expect(log.querySelector('[data-stage-group="plan"]')).toHaveTextContent(
+      'plan2 decisions · 12m'
+    );
+    expect(within(record).getByText('CASE USED')).toBeInTheDocument();
+    expect(within(record).getByText('attached to !405')).toBeInTheDocument();
   });
 
-  it('waits for the target gate to actually appear before scrolling and stripping the param', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    // The notification usually beats the console's own gates fetch: the
-    // first response has no matching gate at all.
-    gatesGet
-      .mockResolvedValueOnce(gatesResponse([]))
-      .mockResolvedValueOnce(
-        gatesResponse([gateRow({ id: 'g-open', status: 'open' })])
-      );
-
-    window.history.pushState(null, '', '/runs/repo-tools/run-1?gate=g-open');
-
-    const scrollSpy = vi.fn();
-    const original = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = scrollSpy;
-
-    try {
-      const { queryClient } = renderDetail();
-
-      await screen.findByTestId('summary-card');
-      await waitFor(() =>
-        expect(screen.queryByTestId('gate-card')).not.toBeInTheDocument()
-      );
-      expect(scrollSpy).not.toHaveBeenCalled();
-      expect(window.location.search).toBe('?gate=g-open');
-
-      await queryClient.invalidateQueries({ queryKey: ['gates'] });
-      const card = await screen.findByTestId('gate-card');
-
-      await waitFor(() => expect(scrollSpy).toHaveBeenCalledTimes(1));
-      expect(scrollSpy.mock.instances[0]).toBe(card);
-      await waitFor(() => expect(window.location.search).toBe(''));
-    } finally {
-      Element.prototype.scrollIntoView = original;
-    }
+  it('draws the story on its tab, and Open log takes you to Decisions', async () => {
+    const user = userEvent.setup();
+    render(merged(), mergedGates);
+    const record = await screen.findByTestId('run-record');
+    await user.click(await within(record).findByRole('tab', { name: 'Story' }));
+    const story = within(record).getByTestId('story');
+    expect(story.querySelector('[data-stage="implement"]')).not.toBeNull();
+    await user.click(within(record).getByText('Open log →'));
+    await waitFor(() =>
+      expect(
+        within(record).getByRole('tab', { name: /Decisions/ })
+      ).toHaveAttribute('aria-selected', 'true')
+    );
   });
 
-  it('does not scroll when there is no `gate` param', async () => {
-    detailGet.mockResolvedValue(detailResponse(FIXTURE));
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    gatesGet.mockResolvedValue(
-      gatesResponse([gateRow({ id: 'g-open', status: 'open' })])
+  it('hides took-the-recommendation when no answer had one', async () => {
+    render(
+      workRun({
+        run: summary({
+          status: 'abandoned',
+          ended_at: at(152),
+          agent: null,
+          outcome: { status: 'abandoned' },
+        }),
+        fields: [
+          field('pipeline-stages', 'provision plan implement', 0),
+          field('evidence', '/a/before.png http://localhost:4001/notes/1', 2),
+          field('commits', '3e4f5a6 7b8c9d0', 40),
+        ],
+      }),
+      [
+        picked('a', 'plan', 1.7, 16.7, { rec: false }),
+        picked('b', 'implement', 31, 51, { rec: false, pick: 'b' }),
+      ]
     );
+    const record = await screen.findByTestId('run-record');
+    const header = within(record).getByTestId('record-header');
+    await waitFor(() => expect(outcomesOf(header)).toEqual(['abandoned']));
+    await waitFor(() =>
+      expect(statsOf(header)).toEqual([
+        ['duration', '2h 32mstart to end'],
+        ['decisions', '2decisions'],
+        ['evidence', '2 linksevidence'],
+        ['commits', '2commits'],
+        ['waiting', '35mwaiting on you'],
+      ])
+    );
+    expect(
+      within(record).queryByLabelText(
+        'an answer went against the recommendation'
+      )
+    ).toBeNull();
+  });
 
-    window.history.pushState(null, '', '/runs/repo-tools/run-1');
+  it('leaves evidence off a review record and says what it posted', async () => {
+    render(
+      workRun({
+        run: summary({
+          work_type: 'review',
+          pipeline: 'review',
+          ticket: null,
+          branch: 'dedupe-contacts',
+          status: 'done',
+          ended_at: at(23),
+          agent: null,
+          outcome: {
+            status: 'done',
+            reviewed: {
+              iid: 412,
+              url: 'https://forge.test/acme/web/-/merge_requests/412',
+              posted: 'request changes',
+            },
+          },
+        }),
+        stages: [stage('review', 'done', 0, 23)],
+        fields: [
+          field('branch', 'dedupe-contacts', 0),
+          field('mr', '!412', 0.5),
+          field('evidence', '{"v":1,"before":"/e/before.png"}', 5),
+          field('commits', 'abc1234', 6),
+        ],
+      }),
+      [picked('p', 'review', 15, 21, { rec: false })]
+    );
+    const record = await screen.findByTestId('run-record');
+    const header = within(record).getByTestId('record-header');
+    expect(within(header).getByText('!412')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(outcomesOf(header)).toEqual(['reviewed !412 · Request changes'])
+    );
+    await waitFor(() =>
+      expect(statsOf(header).map(([id]) => id)).toEqual([
+        'duration',
+        'decisions',
+        'waiting',
+      ])
+    );
+    expect(tabsOf(record).map(([name]) => name)).toEqual([
+      'Story',
+      'Decisions1',
+      'Inputs',
+    ]);
+    expect(
+      within(record).queryByRole('navigation', { name: 'Decisions by stage' })
+    ).toBeNull();
+  });
 
-    const scrollSpy = vi.fn();
-    const original = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = scrollSpy;
-
-    try {
-      renderDetail();
-      await screen.findByTestId('gate-card');
-      expect(scrollSpy).not.toHaveBeenCalled();
-    } finally {
-      Element.prototype.scrollIntoView = original;
-    }
+  it('opens on the Story when nothing was answered', async () => {
+    render(
+      workRun({
+        run: summary({ status: 'done', ended_at: at(90), agent: null }),
+      })
+    );
+    const record = await screen.findByTestId('run-record');
+    await waitFor(() =>
+      expect(
+        within(record).getByRole('tab', { name: 'Story' })
+      ).toHaveAttribute('aria-selected', 'true')
+    );
+    expect(tabsOf(record).map(([name]) => name)).toEqual([
+      'Story',
+      'Evidence2',
+      'Inputs',
+    ]);
+    expect(
+      record.querySelector('[data-parity="Story label"]')
+    ).toHaveTextContent(/^Story$/);
+    expect(within(record).queryByTestId('now-card')).toBeNull();
+    const story = within(record).getByTestId('story');
+    const section = story.querySelector('[data-stage="implement"]')!;
+    expect(section.querySelector('[aria-label="done"]')).not.toBeNull();
+    expect(story.querySelector('[aria-label="running"]')).toBeNull();
   });
 });
 
 describe('RunDetail: chrome', () => {
-  it("draws its title row at console's page header height, not the kit default", async () => {
-    renderDetail();
-
-    await screen.findByRole('heading', { level: 2 });
-    const header = document.querySelector('#page-shell-header') as HTMLElement;
-    expect(header.style.height).toContain('2.5rem');
-    const heading = document.querySelector(
-      '#page-shell-header h2'
-    ) as HTMLElement;
-    expect(heading.style.getPropertyValue('--title-fz')).toContain('h5');
-  });
-});
-
-describe('resume action', () => {
-  const sessionField = {
-    key: 'claude-session',
-    value: 'sess-1',
-    produced_by: 'run',
-    at: 1,
-  };
-  const stubSideQueries = () => {
-    notifications.clean();
-    artifactGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ lines: [], truncated: false }),
-    });
-    seenPost.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-  };
-
-  it('offers Resume for a running run with a session and no live pane', async () => {
-    stubSideQueries();
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({ status: 'running', agent: null }),
-        fields: [...FIXTURE.fields, sessionField],
-      })
-    );
-    resumePost.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({ resumed: true, agentId: 'ag-1' }),
-    });
-
-    renderDetail();
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'resume run' })
-    );
-
-    expect(resumePost).toHaveBeenCalledWith({
-      param: { repo: 'repo-tools', runId: 'run-1' },
-    });
-    await screen.findByText('Resumed the run in a new pane');
+  it('names the run by its ticket in the breadcrumb and shows the command', async () => {
+    render(workRun());
+    const crumb = await screen.findByTestId('run-crumb');
+    await waitFor(() => expect(crumb).toHaveTextContent('WEB-412'));
+    expect(
+      screen.getByText('rt runs show run-412 --repo web')
+    ).toBeInTheDocument();
   });
 
-  it('shows the server message when resume fails', async () => {
-    stubSideQueries();
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({ status: 'running', agent: null }),
-        fields: [...FIXTURE.fields, sessionField],
-      })
-    );
-    resumePost.mockResolvedValueOnce({
+  it('keeps the breadcrumb and an error when the run fails to load', async () => {
+    detailGet.mockResolvedValue({
       ok: false,
       status: 502,
-      json: async () => ({
-        error: 'no transcript for this session on this Mac',
-      }),
+      json: async () => ({}),
     });
-
-    renderDetail();
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'resume run' })
-    );
-
-    await screen.findByText('no transcript for this session on this Mac');
-  });
-
-  it('shows Focus pane, not Resume, while a live agent holds the pane', async () => {
-    stubSideQueries();
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({
-          status: 'running',
-          agent: { status: 'idle', pane: 'w1:p1' },
-        }),
-        fields: [...FIXTURE.fields, sessionField],
-      })
-    );
-
-    renderDetail();
-    await screen.findByRole('button', { name: 'focus pane' });
-    expect(
-      screen.queryByRole('button', { name: 'resume run' })
-    ).not.toBeInTheDocument();
-  });
-
-  it('shows no Resume while a pane exists even if its turn is done', async () => {
-    stubSideQueries();
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({
-          status: 'running',
-          agent: { status: 'done', pane: 'w1:p1' },
-        }),
-        fields: [...FIXTURE.fields, sessionField],
-      })
-    );
-
-    renderDetail();
-    await screen.findByTestId('summary-card');
-    expect(
-      screen.queryByRole('button', { name: 'resume run' })
-    ).not.toBeInTheDocument();
-  });
-
-  it('hides Resume after a successful click', async () => {
-    stubSideQueries();
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({ status: 'running', agent: null }),
-        fields: [...FIXTURE.fields, sessionField],
-      })
-    );
-    resumePost.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({ resumed: true, agentId: 'ag-1' }),
+    gatesGet.mockResolvedValue(ok({ gates: [] }));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
     });
-
-    renderDetail();
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'resume run' })
+    renderWithProviders(
+      <QueryClientProvider client={queryClient}>
+        <RunDetail repo="remote:acme%2Fweb" runId="run-412" />
+      </QueryClientProvider>
     );
-    await screen.findByText('Resumed the run in a new pane');
-    expect(
-      screen.queryByRole('button', { name: 'resume run' })
-    ).not.toBeInTheDocument();
-  });
-
-  it('shows no Resume for a finished run or one with no session', async () => {
-    stubSideQueries();
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({ status: 'done' }),
-        fields: [...FIXTURE.fields, sessionField],
-      })
-    );
-    const { unmount } = renderDetail();
-    await screen.findByTestId('summary-card');
-    expect(
-      screen.queryByRole('button', { name: 'resume run' })
-    ).not.toBeInTheDocument();
-    unmount();
-
-    detailGet.mockResolvedValue(
-      detailResponse({
-        ...FIXTURE,
-        run: run({ status: 'running', agent: null }),
-      })
-    );
-    renderDetail();
-    await screen.findByTestId('summary-card');
-    expect(
-      screen.queryByRole('button', { name: 'resume run' })
-    ).not.toBeInTheDocument();
+    expect(await screen.findByTestId('run-detail-error')).toBeInTheDocument();
+    expect(screen.getByTestId('run-crumb')).toHaveTextContent('run-412');
   });
 });

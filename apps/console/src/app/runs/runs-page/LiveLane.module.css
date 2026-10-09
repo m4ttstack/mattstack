@@ -1,0 +1,49 @@
+.lane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 18px;
+}
+
+.full {
+  width: 100%;
+  min-width: 0;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.now {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding-top: 10px;
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+.link {
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .link:hover {
+    text-decoration: underline;
+  }
+}
+
+/* The kit's 28px ActionIcon keeps its size without making the head row
+   taller than the board's 24px. */
+.focus {
+  margin-block: -2px;
+}

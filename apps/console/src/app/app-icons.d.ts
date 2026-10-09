@@ -15,6 +15,24 @@ declare module '@mattstack/app-kit/icons' {
     panelRight: true;
     panelRightOpen: true;
     wrapText: true;
+    gitMerge: true;
+    circleCheck: true;
+    circleX: true;
+    circleSlash: true;
+    messageSquare: true;
+    signpost: true;
+    circle: true;
+    braces: true;
+    columns2: true;
+    imageOff: true;
+    cornerUpLeft: true;
+    folder: true;
+    gitBranch: true;
+    gitPullRequest: true;
+    loader: true;
+    hand: true;
+    bot: true;
+    image: true;
   }
 }
 export {};

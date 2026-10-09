@@ -1,0 +1,108 @@
+{
+  "run": {
+    "id": "20261008-0900",
+    "work_type": "feature",
+    "pipeline": "work",
+    "status": "running",
+    "started_at": "2026-10-08T14:28:00-05:00",
+    "ended_at": null,
+    "agent": { "status": "working", "pane": "fixture-pane-sam" },
+    "outcome": { "status": "running" }
+  },
+  "stages": [
+    {
+      "name": "evidence",
+      "status": "done",
+      "attempt": 1,
+      "started_at": "2026-10-08T14:30:00-05:00",
+      "ended_at": "2026-10-08T14:42:00-05:00"
+    },
+    {
+      "name": "implement",
+      "status": "failed",
+      "attempt": 1,
+      "started_at": "2026-10-08T14:42:00-05:00",
+      "ended_at": "2026-10-08T15:23:00-05:00",
+      "reason": "Typecheck failed after task 4",
+      "detail_path": "/fixture/runs/20261008-0900/implement-1.txt"
+    },
+    {
+      "name": "implement",
+      "status": "done",
+      "attempt": 2,
+      "started_at": "2026-10-08T15:23:00-05:00",
+      "ended_at": "2026-10-08T15:45:00-05:00"
+    },
+    {
+      "name": "self-review",
+      "status": "redirected",
+      "attempt": 1,
+      "started_at": "2026-10-08T15:45:00-05:00",
+      "ended_at": "2026-10-08T15:51:00-05:00"
+    },
+    {
+      "name": "implement",
+      "status": "running",
+      "attempt": 3,
+      "started_at": "2026-10-08T16:20:00-05:00",
+      "ended_at": null
+    }
+  ],
+  "fields": [
+    {
+      "key": "pipeline-stages",
+      "value": "provision plan gates evidence implement self-review ship watch-ci",
+      "produced_by": "evidence",
+      "at": "2026-10-08T14:28:05-05:00"
+    },
+    {
+      "key": "ticket",
+      "value": "WEB-412",
+      "produced_by": "evidence",
+      "at": "2026-10-08T14:28:10-05:00"
+    },
+    {
+      "key": "branch",
+      "value": "web-412-linked-parcels",
+      "produced_by": "evidence",
+      "at": "2026-10-08T14:28:20-05:00"
+    },
+    {
+      "key": "worktree",
+      "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/sam",
+      "produced_by": "evidence",
+      "at": "2026-10-08T14:28:30-05:00"
+    },
+    {
+      "key": "case",
+      "value": "An order with one linked parcel, tracking unknown",
+      "produced_by": "evidence",
+      "at": "2026-10-08T14:31:00-05:00"
+    },
+    {
+      "key": "evidence",
+      "value": "/Users/acme/.mattstack/evidence/web-412/before.png http://localhost:4001/orders/4821",
+      "produced_by": "evidence",
+      "at": "2026-10-08T14:40:00-05:00"
+    },
+    {
+      "key": "strategy",
+      "value": "subagent-driven, 2 tasks",
+      "produced_by": "implement",
+      "at": "2026-10-08T15:24:00-05:00"
+    }
+  ],
+  "decisions": [
+    {
+      "contract": "gate@1",
+      "scope": "redirect:self-review:1",
+      "selection": {
+        "from": "self-review",
+        "to": "implement",
+        "reason": "the empty state for no parcels is missing"
+      },
+      "decided_by": "agent",
+      "decided_at": "2026-10-08T15:51:00-05:00"
+    }
+  ]
+}

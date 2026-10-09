@@ -56,7 +56,7 @@ export interface GatesStore {
     owner?: string;
   }): OpenResult;
   get(id: string): GateRow | null;
-  list(filter: { open?: boolean; subject?: string; subjectPrefix?: string; status?: GateStatus[]; kind?: string; limit?: number; cursor?: number }): { gates: GateRow[]; cursor: number };
+  list(filter: { open?: boolean; subject?: string; subjectPrefix?: string; status?: GateStatus[]; kind?: string; run?: string; linked?: boolean; limit?: number; cursor?: number }): { gates: GateRow[]; cursor: number };
   /** `opts.session` is the writer's own session id, recorded on the answer
       so gate-push can skip notifying the surface that wrote it. */
   answer(id: string, answers: GateAnswer["answers"], by: string, opts?: { overridden?: boolean; session?: string }): AnswerResult;
@@ -617,6 +617,13 @@ export function createGatesStore(opts: {
       if (filter.open) { clauses.push("status = 'open'"); }
       if (filter.subjectPrefix) { clauses.push("subject LIKE ? ESCAPE '\\'"); params.push(`${filter.subjectPrefix.replace(/[%_\\]/g, "\\$&")}%`); }
       if (filter.subject) { clauses.push("subject = ?"); params.push(filter.subject); }
+      if (filter.run) {
+        clauses.push("(subject = ? OR json_extract(origin, '$.runId') = ?)");
+        params.push(`run:${filter.run}`, filter.run);
+      }
+      if (filter.linked) {
+        clauses.push("(subject LIKE 'run:%' OR json_extract(origin, '$.runId') IS NOT NULL)");
+      }
       if (filter.status?.length) {
         clauses.push(`status IN (${filter.status.map(() => "?").join(", ")})`);
         params.push(...filter.status);

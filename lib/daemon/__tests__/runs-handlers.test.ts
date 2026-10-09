@@ -148,11 +148,86 @@ describe("runs handlers", () => {
     const call = (p: object) => (h["runs:evidence"] as any)(p);
     expect((await call({ key: "before" })).error).toBe("missing runId");
     expect((await call({ runId: "nope", key: "before" })).error).toBe("run not found");
-    expect((await call({ runId: "r-2", key: "transcript" })).error).toBe("unknown key");
+    expect((await call({ runId: "r-2", key: "notes" })).error).toBe("unknown key");
     expect((await call({ runId: "r-2", key: "after" })).error).toBe("no evidence");
     expect((await call({ runId: "r-3", key: "before" })).error).toBe("no evidence");
     const escaped = await call({ runId: "r-2", key: "before" });
     expect(escaped.ok).toBe(false);
     expect(escaped.error).toContain("outside the allowed upload roots");
+  });
+
+  describe("transcript", () => {
+    function seedTranscript(runId: string, file: string, bytes: Buffer | string, extra: object = {}) {
+      const dir = root();
+      const tree = mkdtempSync(join(tmpdir(), "rt-tree-"));
+      writeFileSync(join(tree, file), bytes);
+      seedRun(dir, "remote:alpha", runId, 1000, 1, { fields: [
+        { key: "worktree", value: tree },
+        { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "before.png"), transcript: join(tree, file), ...extra }) },
+      ] });
+      return tree;
+    }
+    const seams = (tree: string) => ({ isRunTree: (p: string, repo: string) => p === tree && repo === "remote:alpha" });
+    const call = (tree: string, runId: string) => (createRunsHandlers({ log } as any, noEmit, seams(tree))["runs:evidence"] as any)({ runId, key: "transcript" });
+
+    test("serves a .md transcript from the registered worktree as markdown text", async () => {
+      const tree = seedTranscript("t-1", "run.md", "# Run\n");
+      expect(await call(tree, "t-1")).toEqual({ ok: true, data: { mime: "text/markdown", text: "# Run\n" } });
+    });
+
+    test("serves a .log transcript as plain text", async () => {
+      const tree = seedTranscript("t-2", "run.log", "line 1\nline 2\n");
+      expect(await call(tree, "t-2")).toEqual({ ok: true, data: { mime: "text/plain", text: "line 1\nline 2\n" } });
+    });
+
+    test("refuses a transcript over 256 KB", async () => {
+      const tree = seedTranscript("t-3", "run.log", Buffer.alloc(300 * 1024, 0x61));
+      const r = await call(tree, "t-3");
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("text cap");
+    });
+
+    test("refuses invalid UTF-8", async () => {
+      const tree = seedTranscript("t-4", "run.txt", Buffer.from([0x61, 0xff, 0xfe]));
+      expect(await call(tree, "t-4")).toEqual({ ok: false, error: "file is not valid UTF-8" });
+    });
+
+    test("refuses a .png transcript", async () => {
+      const tree = seedTranscript("t-5", "run.png", "not text");
+      expect((await call(tree, "t-5")).error).toContain("extension must be one of");
+    });
+
+    test("refuses a transcript that is a symlink out of the worktree", async () => {
+      const outside = mkdtempSync(join(tmpdir(), "rt-out-"));
+      writeFileSync(join(outside, "secret.md"), "secret");
+      const tree = seedTranscript("t-6", "other.md", "x");
+      symlinkSync(join(outside, "secret.md"), join(tree, "link.md"));
+      const dir = root();
+      seedRun(dir, "remote:alpha", "t-7", 1000, 1, { fields: [
+        { key: "worktree", value: tree },
+        { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "before.png"), transcript: join(tree, "link.md") }) },
+      ] });
+      const r = await call(tree, "t-7");
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("outside the allowed upload roots");
+    });
+
+    test("does not admit a worktree rt did not register to the run's repo", async () => {
+      seedTranscript("t-8", "run.md", "x");
+      const h = createRunsHandlers({ log } as any, noEmit, { isRunTree: () => false });
+      const r = await (h["runs:evidence"] as any)({ runId: "t-8", key: "transcript" });
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("outside the allowed upload roots");
+    });
+
+    test("answers no evidence when the run names no transcript", async () => {
+      const dir = root();
+      const tree = mkdtempSync(join(tmpdir(), "rt-tree-"));
+      seedRun(dir, "remote:alpha", "t-9", 1000, 1, { fields: [
+        { key: "worktree", value: tree },
+        { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "before.png") }) },
+      ] });
+      expect((await call(tree, "t-9")).error).toBe("no evidence");
+    });
   });
 });

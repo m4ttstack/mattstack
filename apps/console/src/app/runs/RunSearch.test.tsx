@@ -5,8 +5,9 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import '../icons';
+
 const runsGet = vi.fn();
-const seenGet = vi.fn();
 const pruneDaysGet = vi.fn();
 const gatesGet = vi.fn();
 
@@ -14,7 +15,6 @@ vi.mock('../api', () => ({
   client: {
     api: {
       runs: { $get: (...args: unknown[]) => runsGet(...args) },
-      seen: { $get: (...args: unknown[]) => seenGet(...args) },
       settings: {
         'runs-prune-days': {
           $get: (...args: unknown[]) => pruneDaysGet(...args),
@@ -90,7 +90,6 @@ describe('RunSearch', () => {
   // this fails if the copy were ever changed back to a hardcoded "30".
   it('renders the retention window the server resolved, not a hardcoded number', async () => {
     runsGet.mockResolvedValue(ok({ runs: RUNS }));
-    seenGet.mockResolvedValue(ok({}));
     pruneDaysGet.mockResolvedValue(ok({ days: 45 }));
 
     renderSearch();
@@ -102,7 +101,6 @@ describe('RunSearch', () => {
 
   it('names the rt verb that produced these results', async () => {
     runsGet.mockResolvedValue(ok({ runs: RUNS }));
-    seenGet.mockResolvedValue(ok({}));
     pruneDaysGet.mockResolvedValue(ok({ days: 30 }));
 
     renderSearch();
@@ -117,7 +115,6 @@ describe('RunSearch', () => {
   // guards against.
   it('narrows results as more terms are typed, never widens', async () => {
     runsGet.mockResolvedValue(ok({ runs: RUNS }));
-    seenGet.mockResolvedValue(ok({}));
     pruneDaysGet.mockResolvedValue(ok({ days: 30 }));
 
     renderSearch();

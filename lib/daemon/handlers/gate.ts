@@ -675,6 +675,8 @@ export function createGateHandlers(
         subjectPrefix: payload?.subjectPrefix,
         status: statuses,
         kind: payload?.kind,
+        run: typeof payload?.run === "string" && payload.run.trim() ? payload.run.trim() : undefined,
+        linked: payload?.linked === true,
         cursor: num(payload?.cursor),
         limit: clampListLimit(num(payload?.limit)),
       });

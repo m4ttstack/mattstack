@@ -12,6 +12,10 @@ describe('fieldKind', () => {
     ['evidence', '{"v":1,"before":"/b.png"}', 'json'],
     ['waiting-gate', 'g_01HXYZ', 'gate-ref'],
     ['approach', 'direct-tdd', 'text'],
+    ['plan', 'docs/superpowers/plans/2026-10-08-x.md', 'path'],
+    ['shot', '/Users/acme/evidence/before.png', 'path'],
+    ['branch', 'feat/x', 'text'],
+    ['note', 'see docs/a.md for more', 'text'],
   ])('%s=%s is %s', (k, v, kind) => expect(fieldKind(k, v)).toBe(kind));
 });
 

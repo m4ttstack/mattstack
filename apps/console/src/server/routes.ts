@@ -2,11 +2,12 @@ import { Hono } from 'hono';
 
 import { agentModels } from './agent-models';
 import { mountEffectiveInputs } from './effectiveInputs';
-import { enrich } from './enrich';
+import { enrichRoutes } from './enrich';
 import { fixtureMode, fixtureRt } from './fixtures/design/fixtureRt';
-import { gates } from './gates';
-import { panes } from './panes';
-import { runs } from './runs';
+import { runsFixture } from './fixtures/design/runsFixture';
+import { gatesRoutes } from './gates';
+import { panesRoutes } from './panes';
+import { runsRoutes } from './runs';
 import { settings } from './settings';
 import { mountSkills } from './skills';
 
@@ -16,6 +17,7 @@ export const EMBED_FRAME_ANCESTORS =
 
 const scenario = fixtureMode(process.env);
 const fixture = scenario ? fixtureRt(scenario) : null;
+const runsData = scenario ? runsFixture(scenario) : null;
 
 /**
  * Routes are CHAINED and handlers INLINE, both load-bearing for Hono's RPC
@@ -27,10 +29,10 @@ export const routes = new Hono()
     await next();
     c.header('Content-Security-Policy', EMBED_FRAME_ANCESTORS);
   })
-  .route('/', runs)
-  .route('/', enrich)
-  .route('/', panes)
-  .route('/', gates)
+  .route('/', runsRoutes(runsData))
+  .route('/', enrichRoutes(runsData))
+  .route('/', panesRoutes(runsData))
+  .route('/', gatesRoutes(runsData))
   .route('/', settings)
   .route('/', agentModels)
   .route(
@@ -43,6 +45,6 @@ export const routes = new Hono()
       fixture?.realpath
     )
   )
-  .route('/', mountEffectiveInputs(new Hono()));
+  .route('/', mountEffectiveInputs(new Hono(), undefined, undefined, runsData));
 
 export type AppType = typeof routes;

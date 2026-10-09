@@ -117,6 +117,7 @@ export type {
   ForgeTokenData,
   Attention,
   RunSummary,
+  RunOutcome,
   RunStageRow,
   RunFieldRow,
   RunDecisionRow,

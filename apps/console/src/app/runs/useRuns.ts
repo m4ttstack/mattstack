@@ -1,14 +1,19 @@
 import { useEffect } from 'react';
-import type { BranchEnrichment } from '@mattstack/rt-client';
+import type {
+  BranchEnrichment,
+  RunDetail,
+  RunSummary,
+} from '@mattstack/rt-client';
 import {
   keepPreviousData,
-  useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query';
 
 import { client } from '../api';
+import { runDetailKey } from './derive/day';
 
 /** The spec's slow-poll safety net. The websocket is the live path; this is
     what catches a socket that dropped without us noticing. */
@@ -20,10 +25,11 @@ export function useRunList(repo?: string) {
     queryFn: async () => {
       const res = await client.api.runs.$get({ query: repo ? { repo } : {} });
       if (!res.ok) throw new Error(`runs list failed: ${res.status}`);
-      return res.json();
+      // Only the design fixture's answer carries `asOf` (see derive/clock.ts).
+      return (await res.json()) as { runs: RunSummary[]; asOf?: number };
     },
     refetchInterval: POLL_MS,
-    // The board is filtered AND hot. Holding the previous list through a
+    // The runs page is filtered AND hot. Holding the previous list through a
     // filter change is worth more here than the loading branch suspense
     // would remove -- which is why this one view is not a suspense query.
     placeholderData: keepPreviousData,
@@ -45,8 +51,8 @@ export function useRunEvents() {
     const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
     const socket = new WebSocket(url);
     socket.onmessage = () => {
-      // Three surfaces: ['runs'] is the board list, ['run'] every open
-      // detail, ['gates'] the run-scoped gate rows RunRow/RunDetail render.
+      // Three surfaces: ['runs'] is the runs list, ['run'] every open
+      // detail, ['gates'] every gate read the runs and run pages render.
       // run-updated fires on every pipeline write (emit_update in
       // pipeline-state.sh), gate/* on every gate open/answer/park -- this is
       // what keeps the detail page and the gate surfaces both live.
@@ -58,21 +64,8 @@ export function useRunEvents() {
   }, [queryClient]);
 }
 
-export function useSeen() {
-  return useQuery({
-    queryKey: ['seen'],
-    queryFn: async () => {
-      const res = await client.api.seen.$get();
-      if (!res.ok) throw new Error(`seen read failed: ${res.status}`);
-      return res.json();
-    },
-  });
-}
-
-// The detail view cannot render without its run, so this one -- unlike
-// useRunList above -- is a suspense query: no loading branch to forget.
-export function useRun(repo: string, runId: string) {
-  return useSuspenseQuery({
+function runQuery(repo: string, runId: string) {
+  return {
     queryKey: ['run', repo, runId],
     queryFn: async () => {
       const res = await client.api.runs[':repo'][':runId'].$get({
@@ -84,6 +77,40 @@ export function useRun(repo: string, runId: string) {
     // The websocket is the live path; this is the same slow-poll safety net
     // the board list uses, for a socket that dropped without us noticing.
     refetchInterval: POLL_MS,
+  };
+}
+
+// The detail view cannot render without its run, so this one -- unlike
+// useRunList above -- is a suspense query: no loading branch to forget.
+export function useRun(repo: string, runId: string) {
+  return useSuspenseQuery(runQuery(repo, runId));
+}
+
+/** The same run read without suspending, for page chrome that draws a
+    placeholder until it lands. */
+export function useRunChrome(repo: string, runId: string) {
+  return useQuery(runQuery(repo, runId));
+}
+
+/** Several runs read at once, keyed by `runDetailKey`, sharing each run page's
+    cache; a run whose read has not landed is absent, and `pending` says
+    some have not. A finished run no longer changes, so it is not polled. */
+export function useRunDetails(
+  runs: Pick<RunSummary, 'repo' | 'id' | 'ended_at'>[]
+) {
+  return useQueries({
+    queries: runs.map(r => ({
+      ...runQuery(r.repo, r.id),
+      ...(r.ended_at != null ? { refetchInterval: false as const } : {}),
+    })),
+    combine: results => {
+      const details = new Map<string, RunDetail>();
+      results.forEach((res, i) => {
+        if (res.data)
+          details.set(runDetailKey(runs[i]!), res.data as unknown as RunDetail);
+      });
+      return { details, pending: results.some(r => r.isPending) };
+    },
   });
 }
 
@@ -120,37 +147,34 @@ export function useLinearWorkspace() {
   });
 }
 
-/** One batched POST for every visible row's branch, keyed on the
-    de-duplicated, sorted branch list -- an unsorted key would treat the same
-    visible set in a different order as a different query and refetch
-    instead of hitting cache. Skips the request entirely for an empty board
-    rather than POSTing `{branches: []}`. */
+/** The server's cap on branches per enrich request. */
+const ENRICH_BATCH = 100;
+
+/** POSTs of at most ENRICH_BATCH branches each, merged into one answer,
+    keyed on the de-duplicated, sorted branch list -- an unsorted key would
+    treat the same visible set in a different order as a different query
+    and refetch instead of hitting cache. Skips the request entirely for an
+    empty board rather than POSTing `{branches: []}`. */
 export function useRunsEnrich(branches: string[]) {
   const key = [...new Set(branches)].sort();
   return useQuery({
     queryKey: ['runs-enrich', key],
     queryFn: async (): Promise<Record<string, BranchEnrichment>> => {
-      const res = await client.api.runs.enrich.$post({
-        json: { branches: key },
-      });
-      if (!res.ok) throw new Error(`runs enrich failed: ${res.status}`);
-      return res.json();
+      const batches: string[][] = [];
+      for (let i = 0; i < key.length; i += ENRICH_BATCH)
+        batches.push(key.slice(i, i + ENRICH_BATCH));
+      const answers = await Promise.all(
+        batches.map(async branches => {
+          const res = await client.api.runs.enrich.$post({
+            json: { branches },
+          });
+          if (!res.ok) throw new Error(`runs enrich failed: ${res.status}`);
+          return res.json();
+        })
+      );
+      return Object.assign({}, ...answers);
     },
     enabled: key.length > 0,
     staleTime: 60_000,
-  });
-}
-
-export function useMarkSeen() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (runId: string) => {
-      const res = await client.api.seen[':runId'].$post({ param: { runId } });
-      if (!res.ok) throw new Error(`mark seen failed: ${res.status}`);
-      return res.json();
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['seen'] });
-    },
   });
 }

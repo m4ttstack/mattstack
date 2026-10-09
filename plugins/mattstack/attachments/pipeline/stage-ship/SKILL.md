@@ -410,8 +410,8 @@ or Go back then aborts that rebase.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `dirty` | **Commit the changes** / **Stash them** / **Abort** | the tree is dirty |
-| `open_as` | **Push and open as draft** / **Push and open ready** | always |
+| `dirty` | **Commit the changes (Recommended)** / **Stash them** / **Abort** | the tree is dirty |
+| `open_as` | **Push and open as draft (Recommended)** / **Push and open ready** | always |
 | the domain's own | as the domain rules word them (a ticket mismatch, an MR already open) | the domain declares them |
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |

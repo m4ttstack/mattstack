@@ -11,7 +11,7 @@ metadata:
   slots: "doctor,doctor-api"
   slot-doctor: "required mr-doctor@2 -- owns the checkout-tier repair playbook: locating or provisioning the worktree, rebasing, triaging and fixing CI, watching for green. When a fix would otherwise dead-end in error but the decision is enumerable, it reports the decision back to this wrapper instead of guessing or terminating -- it never opens or waits on the escalation gate itself."
   slot-doctor-api: "required mr-doctor-api@2 -- owns the api-tier repair playbook: no checkout, pipeline retries, server-side rebase, held drafts only. Same escalation-reporting contract as the checkout-tier slot -- it never opens or waits on the escalation gate itself."
-  compiled: "mattstack:gate-protocol@0.30.21"
+  compiled: "mattstack:gate-protocol@0.30.24"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
@@ -568,7 +568,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Escalation step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.21 path=attachments/gate-protocol/SKILL.md lines=7-456 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.24 path=attachments/gate-protocol/SKILL.md lines=7-464 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -748,6 +748,14 @@ Keep `id` and `presentation`: every node after it acts on them.
   already human-readable; the registry stores every option in that object
   form. Labels cap at 200 UTF-8 bytes and an oversized label REJECTS the
   open: middle-truncate a long path, never alter the value.
+  A site that names a recommended pick writes that option in the
+  `{value, label}` object form and ends its `label` with ` (Recommended)`,
+  leaving `value` bare, so a bare-string option never carries the marker.
+  `"recommended": true` is equivalent in the registry, but the in-pane form
+  renders your own label, so write the suffix. In a table headed `Options
+  (recommended first)`, mark the option the table writes with
+  ` (Recommended)`; a row with none, such as the stage-end `next`, marks
+  nothing.
 - **At most 4 options per question.** That is the native form's hard
   per-question limit, and the daemon presents the in-pane form only when
   EVERY question fits it, so one 5-option question sends the whole gate to

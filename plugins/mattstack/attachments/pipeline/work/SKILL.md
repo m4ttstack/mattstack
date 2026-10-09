@@ -53,6 +53,7 @@ digraph work {
     "run_snapshot" [shape=plaintext];
     "run_start {flags, skillDir, ticket?, spawnedBy?}" [shape=plaintext];
     "ok: true with a runDb?" [shape=diamond];
+    "run_field_set {key: pipeline-stages, value: <stage names>, stage: provision}" [shape=plaintext];
     "STOP: report the tool's message; no run_start tool means rt needs an update" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Ticket named?" [shape=diamond];
     "Tracker: In Progress, assigned to the operator" [shape=box];
@@ -110,7 +111,8 @@ digraph work {
     "runDb = absolute runs root/<repo>/<id>/state.db" -> "run_snapshot";
     "run_snapshot" -> "run_stage {action: start, stage}" [label="at run.current_stage"];
     "run_start {flags, skillDir, ticket?, spawnedBy?}" -> "ok: true with a runDb?";
-    "ok: true with a runDb?" -> "Ticket named?" [label="yes: keep runDb"];
+    "ok: true with a runDb?" -> "run_field_set {key: pipeline-stages, value: <stage names>, stage: provision}" [label="yes: keep runDb"];
+    "run_field_set {key: pipeline-stages, value: <stage names>, stage: provision}" -> "Ticket named?";
     "ok: true with a runDb?" -> "STOP: report the tool's message; no run_start tool means rt needs an update" [label="no"];
     "Ticket named?" -> "Tracker: In Progress, assigned to the operator" [label="yes"];
     "Ticket named?" -> "Spawn-time account pick made?" [label="no"];
@@ -169,6 +171,11 @@ digraph work {
   second one leaves a row running forever.
 - **Tracker.** For Linear: `save_issue` with state In Progress and
   assignee `me`. Never fabricate a ticket.
+- **pipeline-stages** is the Stage column of the table above, in order,
+  joined by single spaces (`provision plan gates evidence implement
+  self-review ship watch-ci`). It is
+  written once per new run, right after `run_start`, so the console shows
+  stages that have not started. A resumed run already holds it.
 - **skillDir** is this skill's own directory, `${CLAUDE_SKILL_DIR}`, as an
   absolute path, passed to `run_start`.
 - **Resume path.** `runDb` is `<absolute home>/.mattstack/runs/<repo>/<id>/state.db`,
@@ -220,8 +227,8 @@ Each question is its own; never fold one list into another.
 
 | Gate | Question | Options (recommended first) | Shown when |
 |---|---|---|---|
-| `clarify` | `resume` | **Resume it** / **Start fresh** / **Hold** | a running run was found |
-| `<stage>-failed:<attempt>` | `action` | **Retry the stage** (when the reason names something fixable) / **Abandon the run** | always |
+| `clarify` | `resume` | **Resume it (Recommended)** / **Start fresh** / **Hold** | a running run was found |
+| `<stage>-failed:<attempt>` | `action` | **Retry the stage (Recommended)** (when the reason names something fixable) / **Abandon the run** | always |
 | | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | | `to` | one option per earlier stage, split `to-1`, `to-2`, ... over 4 | Go back answered and more than one earlier stage row |
 | `close` | `next` | **Done** (when `ci` is green and the MR ready) / **Iterate here** / **Go back** / **Hold** | always |

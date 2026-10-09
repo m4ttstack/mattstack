@@ -1,0 +1,106 @@
+{
+  "fetchedAt": "2026-10-08T16:20:00-05:00",
+  "branches": {
+    "web-418-assignee-filter": {
+      "ticket": {
+        "identifier": "WEB-418",
+        "title": "Let admins filter the tickets list by assignee",
+        "url": "https://linear.app/acme/issue/WEB-418"
+      },
+      "mr": null
+    },
+    "web-412-linked-parcels": {
+      "ticket": {
+        "identifier": "WEB-412",
+        "title": "Show linked parcels and recipients on the order overview",
+        "url": "https://linear.app/acme/issue/WEB-412"
+      },
+      "mr": null
+    },
+    "web-397-react-root": {
+      "ticket": {
+        "identifier": "WEB-397",
+        "title": "Move the admin app to the new React root",
+        "url": "https://linear.app/acme/issue/WEB-397"
+      },
+      "mr": {
+        "iid": 409,
+        "webUrl": "https://gitlab.com/acme/web/-/merge_requests/409",
+        "state": "opened",
+        "pipeline": { "status": "running" }
+      }
+    },
+    "web-409-tracking-summary": {
+      "ticket": {
+        "identifier": "WEB-409",
+        "title": "Add a tracking summary to the shipping panel",
+        "url": "https://linear.app/acme/issue/WEB-409"
+      },
+      "mr": {
+        "iid": 405,
+        "webUrl": "https://gitlab.com/acme/web/-/merge_requests/405",
+        "state": "merged",
+        "pipeline": { "status": "success" }
+      }
+    },
+    "web-401-readonly-admin-menu": {
+      "ticket": {
+        "identifier": "WEB-401",
+        "title": "Read-only role hides the admin menu",
+        "url": "https://linear.app/acme/issue/WEB-401"
+      },
+      "mr": {
+        "iid": 398,
+        "webUrl": "https://gitlab.com/acme/web/-/merge_requests/398",
+        "state": "merged",
+        "pipeline": { "status": "success" }
+      }
+    },
+    "web-388-dedupe-contacts": {
+      "ticket": {
+        "identifier": "WEB-388",
+        "title": "Review: dedupe contacts on import",
+        "url": "https://linear.app/acme/issue/WEB-388"
+      },
+      "mr": null
+    },
+    "web-376-dark-mode-toggle": {
+      "ticket": {
+        "identifier": "WEB-376",
+        "title": "Persist the dark mode toggle across sessions",
+        "url": "https://linear.app/acme/issue/WEB-376"
+      },
+      "mr": {
+        "iid": 380,
+        "webUrl": "https://gitlab.com/acme/web/-/merge_requests/380",
+        "state": "merged",
+        "pipeline": { "status": "success" }
+      }
+    },
+    "web-366-note-author": {
+      "ticket": {
+        "identifier": "WEB-366",
+        "title": "Show the author on imported notes",
+        "url": "https://linear.app/acme/issue/WEB-366"
+      },
+      "mr": null
+    },
+    "web-352-picker-keys": {
+      "ticket": {
+        "identifier": "WEB-352",
+        "title": "Review: picker keyboard support",
+        "url": "https://linear.app/acme/issue/WEB-352"
+      },
+      "mr": null
+    },
+    "dedupe-contacts": {
+      "ticket": null,
+      "mr": {
+        "iid": 412,
+        "webUrl": "https://gitlab.com/acme/web/-/merge_requests/412",
+        "state": "opened",
+        "pipeline": { "status": "success" }
+      }
+    }
+  }
+}

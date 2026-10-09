@@ -32,6 +32,13 @@ vi.mock('@mattstack/rt-client', () => ({
     `${id.kind}:${encodeURIComponent(id.id)}`,
 }));
 
+vi.mock('@mattstack/app-server/event-bridge', async importOriginal => ({
+  ...(await importOriginal<
+    typeof import('@mattstack/app-server/event-bridge')
+  >()),
+  deckAppUrl: vi.fn(async () => 'https://board.mattstack'),
+}));
+
 const { routes } = await import('./routes');
 const rt = await import('@mattstack/rt-client');
 
@@ -63,6 +70,40 @@ describe('runs api', () => {
       'before',
       wire,
     ]);
+  });
+
+  it('relays a transcript as utf-8 text with its content type', async () => {
+    vi.mocked(rt.runEvidence).mockResolvedValueOnce({
+      ok: true,
+      data: { mime: 'text/markdown', text: '# Run\n' },
+    });
+    const res = await routes.fetch(
+      new Request(
+        'http://localhost/api/runs/remote:a/run-1/evidence/transcript'
+      )
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe(
+      'text/markdown; charset=utf-8'
+    );
+    expect(await res.text()).toBe('# Run\n');
+    expect(vi.mocked(rt.runEvidence).mock.lastCall!.slice(0, 2)).toEqual([
+      'run-1',
+      'transcript',
+    ]);
+  });
+
+  it('answers 404 when the daemon returns no body', async () => {
+    vi.mocked(rt.runEvidence).mockResolvedValueOnce({
+      ok: true,
+      data: { mime: 'text/plain' },
+    });
+    const res = await routes.fetch(
+      new Request(
+        'http://localhost/api/runs/remote:a/run-1/evidence/transcript'
+      )
+    );
+    expect(res.status).toBe(404);
   });
 
   it('answers 404 when the daemon refuses', async () => {
@@ -169,6 +210,55 @@ describe('runs api', () => {
       'repo-tools',
       undefined
     );
+  });
+});
+
+describe('run detail boardUrl', () => {
+  const detail = (work_type: string) => ({
+    ok: true as const,
+    data: {
+      run: { id: 'run-1', work_type, status: 'running' },
+      stages: [],
+      fields: [],
+      decisions: [],
+      schemaAhead: false,
+    },
+  });
+
+  it('is null for a work run, without asking for its gates', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail('feature') as never);
+    vi.mocked(rt.gateList).mockClear();
+    const res = await routes.fetch(
+      new Request('http://localhost/api/runs/remote:a/run-1')
+    );
+    expect(await res.json()).toMatchObject({ boardUrl: null });
+    expect(rt.gateList).not.toHaveBeenCalled();
+  });
+
+  it('links a live review run to the board page of its waiting post gate', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail('review') as never);
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        gates: [
+          {
+            id: 'g-post',
+            subject: 'mr:acme/web!412',
+            kind: 'review-post',
+            status: 'open',
+            openedAt: 0,
+            origin: { runId: 'run-1' },
+          },
+        ],
+        cursor: 0,
+      },
+    } as never);
+    const res = await routes.fetch(
+      new Request('http://localhost/api/runs/remote:a/run-1')
+    );
+    expect(await res.json()).toMatchObject({
+      boardUrl: 'https://board.mattstack/?gate=g-post',
+    });
   });
 });
 

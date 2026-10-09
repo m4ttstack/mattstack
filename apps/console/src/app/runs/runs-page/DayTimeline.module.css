@@ -1,0 +1,194 @@
+.legend {
+  display: flex;
+  align-self: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  width: 14px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.card {
+  width: 100%;
+  overflow: hidden;
+}
+
+/* The board's track is 920px against a 1268px row: its rows end 6px in
+   from the right edge, not 18px. */
+.axis,
+.lane {
+  display: flex;
+  box-sizing: border-box;
+  padding-right: 6px;
+  padding-left: 18px;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.axis {
+  align-items: flex-start;
+  height: 34px;
+  padding-top: 10px;
+  background-color: var(--tk-panel);
+}
+
+.lane {
+  align-items: center;
+  height: 56px;
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 3px;
+  width: 360px;
+  padding-right: 16px;
+}
+
+.line {
+  min-width: 0;
+}
+
+.keep {
+  flex-shrink: 0;
+}
+
+.ticket {
+  text-decoration: none;
+}
+
+.ticks,
+.track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.ticks {
+  height: 14px;
+}
+
+.tick {
+  position: absolute;
+  top: 0;
+  left: calc(var(--x) * 100%);
+  white-space: nowrap;
+}
+
+/* The board sets its last tick in a 34px box that ends at the track's end. */
+.tick[data-end] {
+  left: calc(100% - 34px);
+}
+
+/* The board sets "now" 14px left of its line. */
+.nowLabel {
+  position: absolute;
+  top: 0;
+  left: calc(var(--x) * 100% - 14px);
+  white-space: nowrap;
+}
+
+.track {
+  height: 18px;
+}
+
+.base {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background-color: var(--tk-panel);
+}
+
+.seg {
+  position: absolute;
+  top: 3px;
+  left: calc(var(--x) * 100%);
+  width: max(calc(var(--w) * 100% - 2px), 2px);
+  height: 12px;
+  border-radius: 3px;
+}
+
+.seg:focus-visible {
+  outline: 2px solid var(--tk-fill-accent);
+  outline-offset: 1px;
+}
+
+.seg[data-kind='done'] {
+  background-color: var(--tk-fill-ok);
+}
+
+.seg[data-kind='running'] {
+  background-color: var(--tk-fill-accent);
+}
+
+.seg[data-kind='you'] {
+  background-color: var(--tk-fill-bad);
+}
+
+.seg[data-kind='ci'] {
+  background-color: var(--tk-fill-warn);
+}
+
+.seg[data-kind='held'],
+.seg[data-kind='idle'] {
+  background-color: var(--tk-line-2);
+}
+
+.swatch[data-kind='done'] {
+  background-color: var(--tk-fill-ok);
+}
+
+.swatch[data-kind='running'] {
+  background-color: var(--tk-fill-accent);
+}
+
+.swatch[data-kind='you'] {
+  background-color: var(--tk-fill-bad);
+}
+
+.swatch[data-kind='ci'] {
+  background-color: var(--tk-fill-warn);
+}
+
+.swatch[data-kind='idle'] {
+  background-color: var(--tk-line-2);
+}
+
+/* A single wash is too faint to read as a 2px line. */
+.nowLine {
+  position: absolute;
+  top: 0;
+  left: calc(var(--x) * 100%);
+  width: 2px;
+  height: 18px;
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) calc(var(--tk-wash) * 3),
+    var(--tk-card)
+  );
+}
+
+.empty {
+  padding: 18px;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  background-color: var(--tk-panel);
+}

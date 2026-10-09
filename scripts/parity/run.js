@@ -14,6 +14,7 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
   if (!cfgRes.ok()) return { error: cfg.error };
   const collect = eval(cfg.collectSource);
   const sel = (attr, name) => `[${attr}="${name.replace(/["\\]/g, '\\$&')}"]`;
+  const appRoot = name => sel(cfg.appAttr, cfg.appRoots?.[name] ?? name);
   const put = async (name, body) => {
     const r = await page.request.put(
       `${harness}/out/${encodeURIComponent(name)}`,
@@ -227,7 +228,7 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
           '*,*::before,*::after{transition:none!important;animation-play-state:paused!important;caret-color:transparent!important}',
       });
       const action = cfg.action;
-      const first = sel(cfg.appAttr, group[0][1].root);
+      const first = appRoot(group[0][1].root);
       const gate = action?.kind === 'clicks' ? action.layers[0] : action?.layer;
       await page.waitForSelector(gate ? sel(cfg.appAttr, gate) : first, {
         state: 'visible',
@@ -281,7 +282,7 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
       }
       for (const [, t] of group) {
         step = `app: root ${t.root}`;
-        const root = sel(cfg.appAttr, t.root);
+        const root = appRoot(t.root);
         await page.waitForSelector(root, { state: 'visible', timeout: 30_000 });
         if (!cfg.settleText) continue;
         step = `app: no "${cfg.settleText}" left in ${t.root}`;
@@ -302,7 +303,7 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
         designWidths[b[1].stem] > designWidths[a[1].stem] ? b : a
       );
       const appWidth = async () =>
-        (await page.locator(sel(cfg.appAttr, widest.root)).boundingBox()).width;
+        (await page.locator(appRoot(widest.root)).boundingBox()).width;
       const delta = designWidths[widest.stem] - (await appWidth());
       if (Math.abs(delta) > 0.25) {
         await page.setViewportSize({
@@ -319,11 +320,12 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
       await page.waitForTimeout(300);
 
       for (const [i, t] of group) {
-        const root = sel(cfg.appAttr, t.root);
+        const root = appRoot(t.root);
         step = `app: collect ${t.root}`;
         const nodes = await collect(page, {
           rootSelector: root,
           nameAttr: cfg.appAttr,
+          rootName: t.root,
         });
         result.targets[i].app = nodes.length;
         await put(`${t.stem}.${scheme}.app.json`, JSON.stringify(nodes));

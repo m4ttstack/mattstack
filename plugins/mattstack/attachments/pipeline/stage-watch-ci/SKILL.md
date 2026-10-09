@@ -450,7 +450,7 @@ error also reaches it, quoted in the sentence above the form.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `action` | **Fix and re-push** (a REAL failure in your change; from the third one in a run, **Hand back** is recommended instead) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
+| `action` | **Fix and re-push (Recommended)** (a REAL failure in your change; from the third one in a run the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
 | `next` | **Proceed** / **Iterate here** / **Go back to `<stage>`** / **Hold** | always |
 
 Selection: `{"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
@@ -465,7 +465,7 @@ One sentence above the form: CI is green for the MR's head, and whether
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `ready` | **Mark ready now** (when `evidence` is set and not `-`) / **Keep it draft** | always |
+| `ready` | **Mark ready now (Recommended)** (when `evidence` is set and not `-`) / **Keep it draft** | always |
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |
 

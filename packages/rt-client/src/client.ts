@@ -8,7 +8,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { rtCommand } from "./transport.ts";
 import type { RtResponse, RtClientOptions } from "./transport.ts";
-import type { EvidenceImageKey } from "./evidence.ts";
+import type { EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
 import type {
   DemandDecl,
   ProjectMRsData,
@@ -154,13 +154,13 @@ export function getRun(
 
 export function runEvidence(
   runId: string,
-  key: EvidenceImageKey,
+  key: EvidenceImageKey | EvidenceTextKey,
   repo?: string,
   opts: RtClientOptions = {},
-): Promise<RtResponse<{ mime: string; base64: string }>> {
+): Promise<RtResponse<{ mime: string; base64?: string; text?: string }>> {
   const payload: Record<string, unknown> = { runId, key };
   if (repo !== undefined) payload.repo = repo;
-  return rtCommand<{ mime: string; base64: string }>("runs:evidence", payload, { sockPath: opts.sockPath, timeoutMs: 15_000 });
+  return rtCommand<{ mime: string; base64?: string; text?: string }>("runs:evidence", payload, { sockPath: opts.sockPath, timeoutMs: 15_000 });
 }
 
 /**
@@ -566,7 +566,7 @@ export function gateList(
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["gate:list"]["data"]>> {
   const payload: Record<string, unknown> = {};
-  for (const k of ["open", "subject", "subjectPrefix", "status", "kind", "limit", "cursor"] as const) if (a[k] !== undefined) payload[k] = a[k];
+  for (const k of ["open", "subject", "subjectPrefix", "status", "kind", "run", "linked", "limit", "cursor"] as const) if (a[k] !== undefined) payload[k] = a[k];
   return rtCommand<Commands["gate:list"]["data"]>("gate:list", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 

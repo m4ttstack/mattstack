@@ -152,7 +152,7 @@ export function builtInEvidenceRoot(root: string, uid: number | null): string | 
  * checked, not whatever a later, separate open would follow or a file that
  * grew past its checked size. Never throws.
  */
-function readVerified(real: string, expect: Stats, maxBytes: number): { bytes: Uint8Array } | { error: string } {
+function readVerified(real: string, expect: Stats, maxBytes: number, tooBig: (size: number) => string): { bytes: Uint8Array } | { error: string } {
   let fd: number;
   try {
     fd = openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -172,7 +172,7 @@ function readVerified(real: string, expect: Stats, maxBytes: number): { bytes: U
     }
     if (fstat.nlink > 1) return { error: "file has other hard links" };
     if (fstat.size > maxBytes) {
-      return { error: `file is ${(fstat.size / (1024 * 1024)).toFixed(1)} MB; the upload cap is ${Math.round(UPLOAD_MAX_BYTES / (1024 * 1024))} MB` };
+      return { error: tooBig(fstat.size) };
     }
 
     const buf = Buffer.alloc(fstat.size);
@@ -201,35 +201,82 @@ function readVerified(real: string, expect: Stats, maxBytes: number): { bytes: U
   }
 }
 
-export function checkUploadPath(
-  path: unknown,
-  roots: readonly string[],
-  opts: { maxBytes?: number; workRoot?: string; runsRoot?: string; evidenceRoot?: string; uid?: number | null } = {},
-): UploadCheck {
-  if (typeof path !== "string" || !isAbsolute(path)) return { ok: false, error: "path must be absolute" };
+type AdmitOpts = { workRoot?: string; runsRoot?: string; evidenceRoot?: string; uid?: number | null };
+
+/** The checks every guarded read shares: absolute, resolved, a regular single-link file, and under an admitted root. */
+function admitFile(path: unknown, roots: readonly string[], opts: AdmitOpts): { real: string; stat: Stats } | { error: string } {
+  if (typeof path !== "string" || !isAbsolute(path)) return { error: "path must be absolute" };
   const real = safeRealpath(path);
-  if (real === null) return { ok: false, error: "file not found" };
+  if (real === null) return { error: "file not found" };
   const stat = safeStat(real);
-  if (stat === null) return { ok: false, error: "file not found" };
-  if (!stat.isFile()) return { ok: false, error: "path is not a regular file" };
-  if (stat.nlink > 1) return { ok: false, error: "file has other hard links" };
+  if (stat === null) return { error: "file not found" };
+  if (!stat.isFile()) return { error: "path is not a regular file" };
+  if (stat.nlink > 1) return { error: "file has other hard links" };
 
   const evidence = { workRoot: opts.workRoot ?? workRoot(), runsRoot: opts.runsRoot ?? runsRoot() };
   const uid = opts.uid !== undefined ? opts.uid : typeof process.getuid === "function" ? process.getuid() : null;
   const builtIn = builtInEvidenceRoot(opts.evidenceRoot ?? evidenceDir(), uid);
   const inBuiltIn = builtIn !== null && isInsideRoot(real, builtIn);
   if (!contained(real, roots) && !inBuiltIn && runEvidenceRoot(real, evidence) === null) {
-    return { ok: false, error: "path is outside the allowed upload roots (a worktree of the target repo, the Claude Code temp root, rt's evidence folder ~/.mattstack/evidence, a run's evidence folder, or an rt.mcp.uploadRoots entry)" };
+    return { error: "path is outside the allowed upload roots (a worktree of the target repo, the Claude Code temp root, rt's evidence folder ~/.mattstack/evidence, a run's evidence folder, or an rt.mcp.uploadRoots entry)" };
   }
+  return { real, stat };
+}
+
+export function checkUploadPath(
+  path: unknown,
+  roots: readonly string[],
+  opts: AdmitOpts & { maxBytes?: number } = {},
+): UploadCheck {
+  const admitted = admitFile(path, roots, opts);
+  if ("error" in admitted) return { ok: false, error: admitted.error };
+  const { real, stat } = admitted;
 
   const ext = extname(real).slice(1).toLowerCase() as (typeof UPLOAD_EXTENSIONS)[number];
   const type = (UPLOAD_EXTENSIONS as readonly string[]).includes(ext) ? TYPES[ext] : undefined;
   if (!type) return { ok: false, error: `extension must be one of ${UPLOAD_EXTENSIONS.join(", ")}` };
 
   const maxBytes = opts.maxBytes ?? UPLOAD_MAX_BYTES;
-  const read = readVerified(real, stat, maxBytes);
+  const read = readVerified(real, stat, maxBytes, (size) => `file is ${(size / (1024 * 1024)).toFixed(1)} MB; the upload cap is ${Math.round(UPLOAD_MAX_BYTES / (1024 * 1024))} MB`);
   if ("error" in read) return { ok: false, error: read.error };
 
   if (!type.matches(read.bytes.subarray(0, HEAD_BYTES))) return { ok: false, error: `file bytes do not match a .${ext} signature` };
   return { ok: true, realpath: real, filename: basename(real), mime: type.mime, size: read.bytes.length, bytes: read.bytes };
+}
+
+export const TEXT_MAX_BYTES = 256 * 1024;
+
+export const TEXT_EXTENSIONS = ["md", "txt", "log"] as const;
+
+export type TextCheck =
+  | { ok: true; text: string; mime: "text/plain" | "text/markdown" }
+  | { ok: false; error: string };
+
+/**
+ * The text twin of checkUploadPath, for a run's evidence transcript: the same
+ * root admission and no-symlink read, then a .md/.txt/.log extension and a
+ * strict UTF-8 decode in place of the magic-number check.
+ */
+export function checkTextPath(
+  path: unknown,
+  roots: readonly string[],
+  opts: AdmitOpts & { maxBytes?: number } = {},
+): TextCheck {
+  const admitted = admitFile(path, roots, opts);
+  if ("error" in admitted) return { ok: false, error: admitted.error };
+  const { real, stat } = admitted;
+
+  const ext = extname(real).slice(1).toLowerCase();
+  if (!(TEXT_EXTENSIONS as readonly string[]).includes(ext)) return { ok: false, error: `extension must be one of ${TEXT_EXTENSIONS.join(", ")}` };
+
+  const maxBytes = opts.maxBytes ?? TEXT_MAX_BYTES;
+  const read = readVerified(real, stat, maxBytes, (size) => `file is ${Math.ceil(size / 1024)} KB; the text cap is ${Math.round(maxBytes / 1024)} KB`);
+  if ("error" in read) return { ok: false, error: read.error };
+
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(read.bytes);
+    return { ok: true, text, mime: ext === "md" ? "text/markdown" : "text/plain" };
+  } catch {
+    return { ok: false, error: "file is not valid UTF-8" };
+  }
 }

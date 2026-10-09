@@ -1,0 +1,53 @@
+.storyCard {
+  width: 100%;
+  padding: 16px;
+}
+
+.frame {
+  padding: 14px;
+  border-radius: 8px;
+  background-color: var(--tk-panel);
+  outline: 1px solid var(--tk-line-3);
+  outline-offset: -0.5px;
+  overflow: hidden;
+}
+
+.recordCard {
+  width: 100%;
+  padding: 16px;
+}
+
+.thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.thumb {
+  min-width: 0;
+}
+
+.thumbFrame {
+  display: flex;
+  align-items: center;
+  height: 132px;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: var(--tk-panel);
+  outline: 1px solid var(--tk-line-3);
+  outline-offset: -0.5px;
+}
+
+.compareLabel {
+  flex: 1;
+}
+
+.thumbButton {
+  display: block;
+  width: 100%;
+  cursor: zoom-in;
+}
+
+.link {
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,47 @@
+.card {
+  min-width: 0;
+  padding: 16px 18px;
+  scroll-margin-top: var(--mantine-spacing-xl);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+}
+
+.option[data-picked='true'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-ok) var(--tk-wash),
+    var(--tk-card)
+  );
+}
+
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background-color: var(--tk-panel);
+}
+
+.noteText {
+  flex: 1;
+  min-width: 0;
+}
+
+.ctxToggle {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+}

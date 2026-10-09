@@ -41,6 +41,25 @@ afterEach(() => {
 });
 
 describe('FailureExcerpt', () => {
+  it('draws the log lines as the board excerpt', async () => {
+    artifactGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        lines: ['error TS2322', 'not assignable'],
+        truncated: false,
+      }),
+    });
+
+    render();
+
+    const excerpt = await screen.findByTestId('failure-excerpt');
+    expect(excerpt).toHaveAttribute('data-parity', 'excerpt');
+    expect(excerpt.querySelector('[data-parity="x"]')?.textContent).toBe(
+      'error TS2322\nnot assignable'
+    );
+  });
+
   it('names the still-outside case honestly instead of surfacing a raw 403', async () => {
     artifactGet.mockResolvedValue({
       ok: false,
@@ -71,8 +90,10 @@ describe('FailureExcerpt', () => {
 
     render();
 
-    const link = await screen.findByText('open full artifact in editor');
-    expect(link.closest('a')).toHaveAttribute(
+    const link = await screen.findByRole('link', {
+      name: 'open full artifact in editor',
+    });
+    expect(link).toHaveAttribute(
       'href',
       'vscode://file/fake/runs/repo-tools/run-1/implement.log'
     );

@@ -50,6 +50,8 @@ export interface Board<Scenario extends string = string> {
   frame: string;
   /** Pencil node id of that frame, for re-exporting. */
   frameId: string;
+  /** Absolute path of the `.pen` holding `frame`, when not the app's `penPath`. */
+  penPath?: string;
   route: string;
   /** localStorage entries (raw stored strings) set before the route loads. */
   storage: Record<string, string>;
@@ -60,6 +62,12 @@ export interface Board<Scenario extends string = string> {
    * only content is compared, with boxes relative to each content root.
    */
   roots: string[];
+  /**
+   * The app's `data-parity` for a root the board names apart from a sibling
+   * drawn in the same frame (two record headers on one board, both the app's
+   * `Hero`). The app root is collected under the design root's name.
+   */
+  appRoots?: Record<string, string>;
   /** Viewport height in CSS px. The design side is `viewportWidth` wide; the app side is sized so each root matches its design width. */
   height: number;
   dynamicText: string[];

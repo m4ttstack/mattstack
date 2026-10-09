@@ -1,0 +1,35 @@
+.columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  width: 100%;
+}
+
+.index {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+  width: 180px;
+  position: sticky;
+  top: var(--mantine-spacing-md);
+}
+
+.legend {
+  padding: 12px 10px;
+}
+
+.log {
+  flex: 1;
+  min-width: 0;
+}
+
+.stageHead {
+  padding-top: 6px;
+  scroll-margin-top: var(--mantine-spacing-xl);
+}
+
+.rail {
+  flex-shrink: 0;
+  width: 400px;
+}
