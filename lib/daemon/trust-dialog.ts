@@ -78,6 +78,9 @@ const WS_HEADER_RE = /^ Accessing workspace:\s*$/;
 const WS_QUESTION_RE = /^ Quick safety check:/;
 const WS_OPTION_RE = /^ (?<cursor>❯| ) (?<label>\S.*?)\s*$/;
 const WS_ACCEPT_RE = /^Yes, I trust this folder/;
+// Any other row in the option block may be a warning painted where the
+// options sit, so the dialog is driven only when it shows exactly these.
+const WS_KNOWN_OPTIONS = new Set(["No, exit", "Yes, I trust this folder"]);
 // The paragraphs a plain dialog shows after its question, by first row.
 const WS_KNOWN_PARAGRAPH_RE = /^ (Claude Code'll be able to |Security guide\s*$)/;
 const WS_WINDOW_CAP = 24;
@@ -116,7 +119,7 @@ function readWorkspacePrompt(lines: string[]): TrustPrompt | null {
   // With the top scrolled off, the window above the options is still read
   // for the warning, so such a dialog reads as one to leave to the person.
   const above = lines.slice(top < 0 ? Math.max(0, first - WS_WINDOW_CAP) : top + 1, first);
-  const warned = above.some((l) => PRE_APPROVAL_RE.test(l));
+  const warned = above.some((l) => PRE_APPROVAL_RE.test(l)) || options.some((o) => PRE_APPROVAL_RE.test(o.label));
   if (top < 0) return warned ? { kind: "pre-approved" } : { kind: "undrivable" };
   const ruleWidth = width((lines[top] as string).trimEnd());
   // The real rule spans the pane; a command can paint one, but never wider
@@ -130,6 +133,7 @@ function readWorkspacePrompt(lines: string[]): TrustPrompt | null {
   const path = pathWhole ? pathRow.slice(1).trimEnd() : undefined;
   if (warned) return path !== undefined ? { kind: "pre-approved", path } : { kind: "pre-approved" };
   if (path === undefined || !onlyKnownParagraphs(above)) return { kind: "undrivable" };
+  if (!options.every((o) => WS_KNOWN_OPTIONS.has(o.label))) return { kind: "undrivable" };
   return walkToAccept(options, (keys) => ({ kind: "accept", variant: "workspace", path, keys }), WS_ACCEPT_RE);
 }
 

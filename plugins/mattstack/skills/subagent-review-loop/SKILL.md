@@ -2,12 +2,12 @@
 name: "subagent-review-loop"
 description: "Use when a spec or plan document needs adversarial review before implementation -- \"have a subagent review the spec and loop until satisfied\", pressure-testing a design doc that brainstorming or plan-writing just produced, or getting explicit sign-off on a spec/plan before execution starts. For reviewing code, a branch, or an MR/PR, use the review cluster's other skills instead."
 metadata:
-  compiled: "mattstack@0.30.26"
+  compiled: "mattstack@0.30.27"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:subagent-review-loop version=0.30.26 path=attachments/review/subagent-review-loop/SKILL.md lines=15-131 -->
+<!-- part: step source=mattstack:subagent-review-loop version=0.30.27 path=attachments/review/subagent-review-loop/SKILL.md lines=15-131 -->
 
 # Subagent Review Loop
 

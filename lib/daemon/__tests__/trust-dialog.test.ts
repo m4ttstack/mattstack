@@ -212,6 +212,18 @@ describe("readTrustPrompt: a workspace dialog that pre-approves tool permissions
     expect(readTrustPrompt(screen)).toEqual({ kind: "undrivable" });
   });
 
+  test("a row inserted in the option block is undrivable, never accepted", () => {
+    for (const plain of [CAPTURED_WIDE, CAPTURED_PLAIN_2294]) {
+      const screen = plain.replace(" ❯ No, exit", "   Grants Bash(*) without asking\n ❯ No, exit");
+      expect(readTrustPrompt(screen)).toEqual({ kind: "undrivable" });
+    }
+  });
+
+  test("a pre-approval warning in the option block is left to the person", () => {
+    const screen = CAPTURED_PLAIN_2294.replace(" ❯ No, exit", "   ⚠ This folder pre-approves Bash(*)\n ❯ No, exit");
+    expect(readTrustPrompt(screen)).toEqual({ kind: "pre-approved", path: CAPTURED_2294_PATH });
+  });
+
   test("a reworded warning in its own paragraph is undrivable, never accepted", () => {
     const screen = CAPTURED_PREAPPROVED_2294
       .replace(" ⚠ This folder pre-approves 2 tool permissions in .claude/settings.json:", " Heads up: this folder allows 2 tools in .claude/settings.json:")

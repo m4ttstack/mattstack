@@ -13,7 +13,7 @@ import { createWatchdogActuators, createWatchdogSensors, readWatchdogConfig } fr
 import { backgroundTask } from "../../agent-integrations/claude/pane-reading.ts";
 import { HerdWatchdog, type WatchdogConfig } from "../herd-watchdog.ts";
 import { deleteRegistry, saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
-import { workspaceScreen } from "./trust-workspace-fixtures.ts";
+import { CAPTURED_2294_PATH, CAPTURED_PLAIN_2294, CAPTURED_PREAPPROVED_2294, workspaceScreen } from "./trust-workspace-fixtures.ts";
 import type { DeliveryInput, DeliveryService } from "../../agent-integrations/delivery.ts";
 import type { Observation } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { ONE_SHOT_ROOM } from "../../agent-integrations/delivery-store.ts";
@@ -431,7 +431,7 @@ describe("watchdog actuators", () => {
 
   test("notifyStuckAtModal enqueues a click-to-focus notification carrying the pane id", () => {
     const { a, notified } = act();
-    a.notifyStuckAtModal("demo-1", "job-a", "bg:w1:p1");
+    a.notifyStuckAtModal("demo-1", "job-a", "bg:w1:p1", "/w");
     expect(notified).toHaveLength(1);
     expect(notified[0]).toMatchObject({
       title: "herd demo-1: job-a stuck at trust modal",
@@ -443,6 +443,66 @@ describe("watchdog actuators", () => {
     expect(typeof notified[0].timestamp).toBe("number");
   });
 
+  function readsScreen(text: string) {
+    const notified: any[] = [];
+    const seen: Array<{ method: string; pane: string; sock: string | undefined }> = [];
+    const herdr = (async (method: string, params: any, o: any) => {
+      seen.push({ method, pane: params.pane_id, sock: o?.sockPath });
+      if (method === "pane.read") return { ok: true, result: { read: { text } } };
+      return { ok: false, code: "invalid_request", message: method };
+    }) as any;
+    const a = createWatchdogActuators({
+      herdStore: { setJobStatus: () => {} },
+      db: freshDb(),
+      socketFor: (pane) => (pane.startsWith("bg:") ? BG : DEFAULT),
+      herdr,
+      enqueue: (event) => { notified.push(event); return true; },
+      log,
+    });
+    return { a, notified, seen };
+  }
+
+  test("a park on a dialog that pre-approves tool permissions says so and names the folder, never asking for an accept", async () => {
+    const { a, notified, seen } = readsScreen(CAPTURED_PREAPPROVED_2294);
+    await a.notifyStuckAtModal("demo-1", "job-a", "bg:w1:p1", "/w");
+    expect(seen).toEqual([{ method: "pane.read", pane: "w1:p1", sock: BG }]);
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toMatchObject({
+      title: "herd demo-1: job-a stuck at trust modal",
+      message: `click to focus pane bg:w1:p1: ${CAPTURED_2294_PATH} pre-approves tool permissions in its Claude settings, so rt left the trust prompt to you`,
+      category: "herd-watchdog",
+      paneId: "bg:w1:p1",
+    });
+    expect(notified[0].message).not.toContain("accept");
+  });
+
+  test("a pre-approval dialog that names no folder is named by the job's worktree", async () => {
+    const old = ["Do you trust the files in this folder?", "⚠ This folder pre-approves Bash(*)", "❯ 1. Yes, proceed", "  2. No, exit"].join("\n");
+    const { a, notified } = readsScreen(old);
+    await a.notifyStuckAtModal("demo-1", "job-a", "w1:p1", "/w");
+    expect(notified[0].message).toBe("click to focus pane w1:p1: /w pre-approves tool permissions in its Claude settings, so rt left the trust prompt to you");
+  });
+
+  test("a park on a plain dialog keeps the accept wording", async () => {
+    const { a, notified } = readsScreen(CAPTURED_PLAIN_2294);
+    await a.notifyStuckAtModal("demo-1", "job-a", "w1:p1", "/w");
+    expect(notified[0].message).toBe("click to focus pane w1:p1, accept the dialog");
+  });
+
+  test("a park whose screen cannot be read keeps the accept wording", async () => {
+    const a = createWatchdogActuators({
+      herdStore: { setJobStatus: () => {} },
+      db: freshDb(),
+      socketFor: () => DEFAULT,
+      herdr: (async () => { throw new Error("socket exploded"); }) as any,
+      enqueue: (event) => { notified.push(event); return true; },
+      log,
+    });
+    const notified: any[] = [];
+    await a.notifyStuckAtModal("demo-1", "job-a", "w1:p1", "/w");
+    expect(notified[0].message).toBe("click to focus pane w1:p1, accept the dialog");
+  });
+
   test("a failed park notification never escapes the actuator", () => {
     const a = createWatchdogActuators({
       herdStore: { setJobStatus: () => {} },
@@ -451,7 +511,7 @@ describe("watchdog actuators", () => {
       enqueue: () => { throw new Error("queue full"); },
       log,
     });
-    expect(() => a.notifyStuckAtModal("demo-1", "job-a", "w1:p1")).not.toThrow();
+    expect(() => a.notifyStuckAtModal("demo-1", "job-a", "w1:p1", "/w")).not.toThrow();
   });
 
   test("notifyHuman enqueues a herd-watchdog notification carrying the summary and the party's pane", () => {

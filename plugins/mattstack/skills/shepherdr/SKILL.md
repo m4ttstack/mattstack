@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.30.26 + mattstack:model-tiering@0.30.26 + mattstack:execution-strategy@0.30.26 + mattstack:cswap-accounts@0.30.26"
+  compiled: "mattstack@0.30.27 + mattstack:model-tiering@0.30.27 + mattstack:execution-strategy@0.30.27 + mattstack:cswap-accounts@0.30.27"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.30.26 path=attachments/orchestration/shepherdr/SKILL.md lines=15-903 -->
+<!-- part: step source=mattstack:shepherdr version=0.30.27 path=attachments/orchestration/shepherdr/SKILL.md lines=15-909 -->
 
 # shepherdr
 
@@ -27,7 +27,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.30.26 path=attachments/model-tiering/SKILL.md lines=8-100 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.30.27 path=attachments/model-tiering/SKILL.md lines=8-100 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -158,7 +158,7 @@ domain-specific; this skill is the generic framework they override.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.30.26 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.30.27 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -273,7 +273,7 @@ When nothing is inlined above, every default in this engine stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.30.26 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.30.27 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -687,7 +687,7 @@ rt herd spawn --herd <id> --job <job> --brief <path-to-brief.md> --model <model>
 
 - `herd_start {name: <short-name>, repo, hidden?}` runs once per herd; `repo` is the repo's checkout path, identity or label. It returns the herd id, the room, the workspace label, and the subscription id. Every pane the herd creates is a tab in that one workspace; the user's own workspace is never touched.
 - `job` is the job's name (lowercase, `[a-z][a-z0-9_-]{0,31}`); it is also the worker's tab label and chat display name. The spawn mints the worker a fresh chat identity under that name, so a job named like an earlier herd's never inherits that herd's DMs. `herd_status` shows the job's `handle` (the identity id, which chat tools take: `chat_dm`'s `to`) beside `handleName` (the display name people read; `<job>-2` while another live session holds the job name). A herd tool's `job` field (`herd_close`, `herd_attend`) always takes the job name, never either of these. `brief` is the absolute `out` path `herd_brief` wrote.
-- `herd_spawn` provisions the tree, launches claude with the brief, signs the worker into the room, accepts the fresh-worktree trust dialog, and records the job.
+- `herd_spawn` provisions the tree, launches claude with the brief, signs the worker into the room, accepts the fresh-worktree trust dialog, and records the job. A trust prompt saying the repo pre-approves tool permissions is the exception: rt never answers it, so the spawn returns `trust: "needs-person"` with a note naming the folder and parks the job `stuck-at-modal` for the user to Attend.
 - A cold provision, when no on-deck tree is ready, can take minutes; tell the user it is provisioning.
 - **Stagger 4+ spawns**: spawn one, confirm it returned, spawn the next.
 - Agents never work in the user's checkout. Skip isolation only for read-only jobs or when the user explicitly says to work in place. The worker's directory must be a **linked worktree**; `herd_spawn` and a Bash spawn on an rt tree both satisfy this by construction.
@@ -904,6 +904,12 @@ that stays stuck (`stuck-at-modal` in `herd_status`). **Attend** opens the
 pane so the user answers the dialog by hand. **Close and respawn** reuses
 the stored brief. A respawn keeps neither `--effort` nor `--account` from
 the prior spawn; pass them again.
+
+When the dialog, the spawn's note or the park notification says the repo
+pre-approves tool permissions, rt never answers it, and a respawn in the
+same folder reaches the same prompt. Offer Attend only, and name the
+folder and the permissions the dialog lists so the user decides with them
+in view.
 
 ### Report the crash with its job and pane
 
@@ -1161,7 +1167,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.30.26 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.30.27 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait

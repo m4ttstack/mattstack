@@ -30,6 +30,7 @@ import {
 import { injectIntoPane } from "./inject.ts";
 import { observeThroughIntegration } from "./pane-input.ts";
 import { cwdPath, driveRelocationAccept, driveTrustAccept } from "./trust-accept.ts";
+import { readTrustPrompt } from "./trust-dialog.ts";
 import { paneStatuses } from "./pane-statuses.ts";
 import { findTreeByPath } from "../worktree/registry.ts";
 
@@ -328,6 +329,19 @@ const WATCHDOG_SENDER = "rt herd watchdog";
 
 /** None of these throw into the ladder: one party's failed side effect must
     not end the sweep for every other herd. */
+/** The folder a pre-approval trust prompt on `pane` asks about, or null when the screen shows no such prompt or cannot be read. */
+async function preApprovedFolder(herdr: typeof herdrRequest, sockPath: string, pane: string, worktreePath: string): Promise<string | null> {
+  try {
+    const screen = await herdr<{ read: { text: string } }>("pane.read", { pane_id: parsePaneRef(pane).paneId, source: "visible" }, { sockPath });
+    if (!screen.ok) return null;
+    const prompt = readTrustPrompt(screen.result.read.text);
+    if (prompt?.kind !== "pre-approved") return null;
+    return prompt.path ?? (worktreePath || "this folder");
+  } catch {
+    return null;
+  }
+}
+
 export function createWatchdogActuators(deps: WatchdogActuatorDeps): WatchdogActuators {
   const inject = deps.inject ?? injectIntoPane;
   const enqueue = deps.enqueue ?? enqueueNotification;
@@ -402,12 +416,15 @@ export function createWatchdogActuators(deps: WatchdogActuatorDeps): WatchdogAct
         log.warn({ err, herd, job }, "watchdog could not park the job");
       }
     },
-    notifyStuckAtModal(herd, job, pane) {
+    async notifyStuckAtModal(herd, job, pane, worktreePath) {
+      const folder = deps.herdr ? await preApprovedFolder(deps.herdr, deps.socketFor(pane), pane, worktreePath) : null;
       try {
         enqueue({
           id: crypto.randomUUID(),
           title: `herd ${herd}: ${job} stuck at trust modal`,
-          message: `click to focus pane ${pane}, accept the dialog`,
+          message: folder === null
+            ? `click to focus pane ${pane}, accept the dialog`
+            : `click to focus pane ${pane}: ${folder} pre-approves tool permissions in its Claude settings, so rt left the trust prompt to you`,
           category: "herd-watchdog",
           timestamp: Date.now(),
           paneId: pane,
