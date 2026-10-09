@@ -66,6 +66,7 @@ import type {
 import { getStateDb } from "../../state/db.ts";
 import { integrationsEnabled } from "../switch.ts";
 import { openHostPane, type HostPaneLaunch, type HostPaneOpened } from "../herdr-pane.ts";
+import { attemptRetired } from "../attempt-retired.ts";
 import { isDetachedAttachment, listAttachedBindings, readReservation } from "../session-store.ts";
 import { CODEX_ATTACH_READ_MS, CODEX_ATTACH_READS, CODEX_INIT_TURN_TIMEOUT_MS } from "../timeouts.ts";
 import { workDigest } from "../work-submissions.ts";
@@ -186,6 +187,8 @@ export type CodexSessionDeps = {
   lifecycle(native: NativeSessionRef, event: CodexThreadGone, generation?: number): Promise<boolean>;
   /** Whether herdr shows codex running in a Herdr attachment's pane now; false when herdr cannot say. */
   paneRuns(binding: SessionBinding): Promise<boolean>;
+  /** Whether the binding's herd job attempt was ended or replaced, so its thread is never loaded again. */
+  retired(binding: SessionBinding): boolean;
 };
 
 /** How long one delivery keeps its thread subscribed: the interval the queued recheck saturates at. */
@@ -202,6 +205,8 @@ const text = (v: unknown): v is string => typeof v === "string" && v.trim().leng
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const codeOf = (err: unknown): FaultCode => (err instanceof CodexControlError ? err.code : "transient");
 const failFrom = <T>(err: unknown, prefix = ""): Outcome<T> => fail(codeOf(err), `${prefix}${messageOf(err)}`);
+/** Codex's answer for a thread it does not have; every other refusal (an internal error, a server still starting) says nothing about the thread. */
+const THREAD_NOT_FOUND = /\bnot found\b|\bno such thread\b/i;
 const home = (): string => process.env.HOME ?? homedir();
 const flat = (s: string): string => s.replace(/\s+/g, " ").trim();
 const realOr = (path: string): string => {
@@ -280,6 +285,7 @@ function defaultDeps(): CodexSessionDeps {
       ]);
       return bindingPaneRuns(herdrRequest, binding);
     },
+    retired: attemptRetired,
     openPane: openHostPane,
     confirmAttached: async (opened, expected, host) => {
       const [{ herdrRequest }, { parsePaneRef }] = await Promise.all([
@@ -462,13 +468,13 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     if (deps.enabled()) void reportGone(event.threadId, gone);
   });
 
-  /** The thread's status, read off the thread and kept in the hub; "missing" when Codex refused the read, as it does for a thread it no longer has. */
+  /** The thread's status, read off the thread and kept in the hub; "missing" when Codex answered that it has no such thread. */
   async function readStatus(threadId: string): Promise<CodexThreadStatus | "missing" | undefined> {
     let status: CodexThreadStatus | undefined;
     try {
       status = threadStatus(threadOf(await control.request("thread/read", { threadId, includeTurns: false }))?.status);
     } catch (err) {
-      return err instanceof CodexControlError && err.code === "refused" ? "missing" : undefined;
+      return err instanceof CodexControlError && err.code === "refused" && THREAD_NOT_FOUND.test(err.message) ? "missing" : undefined;
     }
     if (status) hub.refresh(threadId, status);
     return status;
@@ -579,6 +585,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
 
   /** Subscribes a thread rt runs headless, which only rt's subscription keeps loaded; no release lets it go. */
   async function keep(binding: SessionBinding): Promise<Outcome<void>> {
+    if (deps.retired(binding)) return fail("stale-binding", `thread ${binding.native.value} belongs to a herd job attempt that ended, so rt does not load it again`);
     const owned = adopt(binding);
     if (!owned.ok) return owned;
     if (!deps.enabled()) return ok(undefined);
@@ -1041,13 +1048,18 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
           return failFrom(err, `Codex could not interrupt the running turn on thread ${threadId}: `);
         }
       }
-      try {
-        await deps.lifecycle(ref(threadId), "ended", binding.attachment.generation);
-      } catch {
-        // The thread is still let go; its binding and presence follow on the next observation of the unloaded thread.
+      let ended = isDetachedAttachment(binding);
+      let why = "its binding was not ended";
+      if (!ended) {
+        try {
+          ended = await deps.lifecycle(ref(threadId), "ended", binding.attachment.generation);
+        } catch (err) {
+          why = messageOf(err);
+        }
       }
       unsubscribe(threadId);
-      return ok(undefined);
+      // A binding left attached would be loaded again at the next reconnect, so the caller keeps what it holds.
+      return ended ? ok(undefined) : fail("not-ready", `thread ${threadId} was let go, but ${why}`);
     },
 
     /** The thread's own history is the evidence: a turn whose user message is the submitted text. */

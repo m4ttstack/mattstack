@@ -851,6 +851,21 @@ describe("work on a bound thread", () => {
     expect(h.requests("thread/unsubscribe").map((m) => m.params)).toEqual([{ threadId: "T1" }]);
   });
 
+  test("an end whose binding could not be ended is not ok, so its job keeps the attempt; an already detached binding ends at once", async () => {
+    const h = await harness();
+    const headless = binding("T1", { attachment: { generation: 1, mode: "headless" } });
+    let outcome: () => Promise<boolean> = async () => false;
+    const sessions = h.sessions({ enabled: () => true, lifecycle: () => outcome() });
+    expect(await sessions.end!(headless)).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    outcome = async () => { throw new Error("state.db is busy"); };
+    expect(await sessions.end!(headless)).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    let called = false;
+    outcome = async () => { called = true; return false; };
+    const detached = { ...headless, attachment: { ...headless.attachment, detached: true } } as SessionBinding;
+    data(await sessions.end!(detached));
+    expect(called).toBe(false);
+  });
+
   test("an interrupted submission is found in the thread's own history, or not at all", async () => {
     const withTurn = await harness({
       "thread/read": (s, m) => s.push({
@@ -1538,6 +1553,44 @@ describe("an app server restart (live-16 D6)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("a thread/read that fails for any reason but a missing thread leaves the binding attached, and the next observe loads it", async () => {
+    const server = subscribingServer({});
+    const read = server.handlers["thread/read"]!;
+    let failing = true;
+    server.handlers["thread/read"] = (s, m) => {
+      if (failing) s.push({ id: m.id, error: { code: -32603, message: "the app server is still starting" } });
+      else read(s, m);
+    };
+    const h = await harness(server.handlers);
+    const gone: Gone[] = [];
+    const headless = binding("S1", { attachment: { generation: 4, mode: "headless" } });
+    const loader = loaderOn(h, { headless: () => [headless] }, {
+      lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return true; },
+    });
+    const sessions = (await loader.load()) as CodexSessionAdapter;
+    expect(gone).toEqual([]);
+    expect(h.requests("thread/unsubscribe")).toEqual([]);
+    expect(h.requests("thread/resume")).toEqual([]);
+
+    failing = false;
+    expect(data(await sessions.observe(headless))).toMatchObject({ connectivity: "connected", generation: 4 });
+    expect(h.requests("thread/resume").map((m) => m.params.threadId)).toEqual(["S1"]);
+    expect(gone).toEqual([]);
+  });
+
+  test("a headless binding whose job attempt was ended or replaced is never loaded again", async () => {
+    const server = restartedServer([]);
+    const h = await harness(server.handlers);
+    const retiredWorker = binding("T1", { attemptId: "att-old", attachment: { generation: 2, mode: "headless" } });
+    const liveWorker = binding("T2", { key: "k2", attemptId: "att-new", attachment: { generation: 2, mode: "headless" } });
+    const loader = loaderOn(h, { headless: () => [retiredWorker, liveWorker] }, { retired: (b) => b.attemptId === "att-old" });
+    const sessions = (await loader.load()) as CodexSessionAdapter;
+    expect(h.requests("thread/resume").map((m) => m.params.threadId)).toEqual(["T2"]);
+    await sessions.observe(retiredWorker);
+    expect(h.requests("thread/resume").map((m) => m.params.threadId)).toEqual(["T2"]);
+    expect(loader.bindingLive(retiredWorker)).toBe(false);
   });
 
   test("observe subscribes a headless thread the restarted server has not loaded, and never a Herdr one", async () => {

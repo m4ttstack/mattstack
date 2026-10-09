@@ -6,7 +6,7 @@
  */
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
-import type { HarnessId, Observation, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
+import type { HarnessId, Observation, Outcome, SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
 import { formatPaneRef, parsePaneRef, type PaneServer } from "../../packages/rt-client/src/index.ts";
 import { builtinRegistry, UNRECORDED_PANE_HARNESS } from "../agent-integrations/builtins.ts";
 import { installedModLinks, pushModCommand, type ModLinks } from "../agent-integrations/claude/mod-links.ts";
@@ -28,6 +28,7 @@ import {
   type ObservedJob, type WatchdogActuators, type WatchdogConfig, type WatchdogSensors,
 } from "./herd-watchdog.ts";
 import { injectIntoPane } from "./inject.ts";
+import { observeThroughIntegration } from "./pane-input.ts";
 import { cwdPath, driveRelocationAccept, driveTrustAccept } from "./trust-accept.ts";
 import { paneStatuses } from "./pane-statuses.ts";
 import { findTreeByPath } from "../worktree/registry.ts";
@@ -318,6 +319,8 @@ export interface WatchdogActuatorDeps {
   delivery?: () => DeliveryService | undefined;
   /** agent.integrations.enabled; integrationsEnabled when omitted. */
   enabled?: () => boolean;
+  /** The session's own integration's observation, null when it has none; observeThroughIntegration over the built-in harnesses when omitted. */
+  observe?: (binding: SessionBinding) => Promise<Observation | null>;
 }
 
 /** The from-name a watchdog poke carries into a session's peer input; no chat identity has it. */
@@ -434,6 +437,15 @@ export function createWatchdogActuators(deps: WatchdogActuatorDeps): WatchdogAct
       if (delivery.connection(harness) === null || delivery.live(binding) === false) {
         log.info({ session, harness }, "watchdog session poke skipped: the session cannot take input now");
         return false;
+      }
+      try {
+        // Input queued behind a prompt would land in it, so a blocked session is a person's to see, as pane input treats it.
+        if ((await (deps.observe ?? observeThroughIntegration(builtinRegistry()))(binding))?.execution === "blocked") {
+          log.info({ session, harness }, "watchdog session poke skipped: the session is blocked at a prompt");
+          return null;
+        }
+      } catch (err) {
+        log.warn({ err, session, harness }, "watchdog session observe threw; sending anyway");
       }
       try {
         const sent = await delivery.deliverPeerInput(binding, oneShotInput({

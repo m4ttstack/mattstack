@@ -15,6 +15,7 @@ import { HerdWatchdog, type WatchdogConfig } from "../herd-watchdog.ts";
 import { deleteRegistry, saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { workspaceScreen } from "./trust-workspace-fixtures.ts";
 import type { DeliveryInput, DeliveryService } from "../../agent-integrations/delivery.ts";
+import type { Observation } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { ONE_SHOT_ROOM } from "../../agent-integrations/delivery-store.ts";
 import { createSessionStore } from "../../agent-integrations/session-store.ts";
 
@@ -467,7 +468,7 @@ describe("watchdog actuators", () => {
 });
 
 describe("watchdog actuators: a session with no pane", () => {
-  function rig(over: { enabled?: boolean; bound?: boolean; connection?: string | null; live?: boolean; refuse?: boolean } = {}) {
+  function rig(over: { enabled?: boolean; bound?: boolean; connection?: string | null; live?: boolean; refuse?: boolean; execution?: Observation["execution"] } = {}) {
     const db = freshDb();
     const store = createSessionStore(db);
     const binding = over.bound === false ? null
@@ -486,6 +487,7 @@ describe("watchdog actuators: a session with no pane", () => {
     const a = createWatchdogActuators({
       herdStore: { setJobStatus: () => {} }, db, socketFor: () => DEFAULT, log,
       delivery: () => delivery, enabled: () => over.enabled ?? true,
+      observe: async (b) => ({ connectivity: "connected", execution: over.execution ?? "idle", background: "unknown", observedAt: NOW, source: "test", generation: b.attachment.generation }),
     });
     return { a, sent, binding };
   }
@@ -507,6 +509,12 @@ describe("watchdog actuators: a session with no pane", () => {
     const unbound = rig({ bound: false });
     expect(await unbound.a.pokeSession!("sess-s", "x")).toBeNull();
     expect(unbound.sent).toHaveLength(0);
+  });
+
+  test("a session blocked at a prompt is not typed into: only a person can help it", async () => {
+    const r = rig({ execution: "blocked" });
+    expect(await r.a.pokeSession!("sess-s", "x")).toBeNull();
+    expect(r.sent).toHaveLength(0);
   });
 
   test("a session whose harness is not connected, is not live, or refuses the input is not delivered to", async () => {

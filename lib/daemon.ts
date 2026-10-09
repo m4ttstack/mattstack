@@ -154,6 +154,7 @@ import type { PortEntry } from "./port-scanner.ts";
 import { backgroundUnit, runUnits, stopUnits, type DaemonUnit } from "./daemon/lifecycle.ts";
 import { integrationsEnabled } from "./agent-integrations/context.ts";
 import { createDeliveryService, type DeliveryService } from "./agent-integrations/delivery.ts";
+import { setRetiredAttemptProbe } from "./agent-integrations/attempt-retired.ts";
 import { createModLinks, installModLinks, type ModLinks } from "./agent-integrations/claude/mod-links.ts";
 import { modLinkHooks } from "./daemon/mod-link-hooks.ts";
 import { createSessionStore } from "./agent-integrations/session-store.ts";
@@ -715,6 +716,11 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         eventsBus = createEventsBus({ dbPath: join(RT_DIR, "events.db"), log });
         gatesStore = createGatesStore({ dbPath: join(RT_DIR, "gates.db"), log });
         herdStore = createHerdStore({ dbPath: join(RT_DIR, "herds.db"), log });
+        const herdsForProbe = herdStore;
+        setRetiredAttemptProbe((id) => {
+          const state = herdsForProbe.getAttempt(id)?.state;
+          return state === "ended" || state === "replaced";
+        });
         bgClaims = createBgClaimsStore({ dbPath: join(RT_DIR, "bg-claims.db"), log });
         // Reads state.db only when called, and only while agent integrations
         // are on, so it is safe to build before the state-db unit opens it.

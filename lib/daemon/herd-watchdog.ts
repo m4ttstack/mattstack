@@ -297,7 +297,8 @@ export interface WatchdogActuators {
   /** Sends `text` to a session with no pane as one-shot peer input, through
       the shared harness delivery its chat already arrives on. False means it
       was not delivered; null means the session has no harness binding to
-      deliver to (or agent.integrations is off), so only a person can be told. */
+      deliver to (or agent.integrations is off) or is blocked at a prompt, so
+      only a person can be told. */
   pokeSession?(session: string, text: string): Promise<boolean | null>;
 }
 
