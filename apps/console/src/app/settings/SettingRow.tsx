@@ -1,4 +1,6 @@
 import {
+  useContext,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -14,7 +16,6 @@ import {
   Highlight,
   Stack,
   Text,
-  Tooltip,
   type TextProps,
 } from '@mattstack/app-kit/core';
 import {
@@ -36,9 +37,18 @@ import {
 } from './KeyPanel';
 import { RepoReach } from './RepoReach';
 import { SaveStatus, useRowParts, ValueContent, WriteError } from './rowParts';
+import {
+  RowProjectScope,
+  SettingsSeedRepoContext,
+  useRowProject,
+} from './RowProject';
 import { ScopeBadge } from './ScopeBadge';
 import classes from './SettingRow.module.css';
-import { prefetchKeyExplain, useSettingsRepo } from './useConsoleSettings';
+import {
+  prefetchKeyExplain,
+  useSettingsRepo,
+  useSettingsViewTeam,
+} from './useConsoleSettings';
 import { useRowSave } from './useRowSave';
 import {
   APPROVAL_KEY,
@@ -119,18 +129,7 @@ function selectingIn(el: HTMLElement): boolean {
   );
 }
 
-export function SettingRow({
-  def,
-  store,
-  subhead,
-  query,
-  suggestions,
-  onFix,
-  open: openProp,
-  defaultOpen = null,
-  onOpenChange,
-  onPickRepo,
-}: {
+interface SettingRowProps {
   def: SettingDefWire;
   store: PanelStore;
   subhead: StoreScope | null;
@@ -141,9 +140,39 @@ export function SettingRow({
   defaultOpen?: RowOpen | null;
   onOpenChange?: (next: RowOpen | null) => void;
   onPickRepo?: (repo: string) => void;
-}) {
+}
+
+/** A per-project row picks its own project; any other row reads the
+    page's. */
+export function SettingRow(props: SettingRowProps) {
+  const linked = useContext(SettingsSeedRepoContext);
+  // A host that is about one repo (run detail) starts its rows there.
+  const outer = useSettingsRepo();
+  if (!props.def.repoScoped) return <RowBody {...props} />;
+  const opened = props.open ?? props.defaultOpen ?? null;
+  return (
+    <RowProjectScope def={props.def} seed={(opened ? linked : null) ?? outer}>
+      {def => <RowBody {...props} def={def} />}
+    </RowProjectScope>
+  );
+}
+
+function RowBody({
+  def,
+  store,
+  subhead,
+  query,
+  suggestions,
+  onFix,
+  open: openProp,
+  defaultOpen = null,
+  onOpenChange,
+  onPickRepo,
+}: SettingRowProps) {
   const { text } = useSchemeColors();
   const repo = useSettingsRepo();
+  const viewTeam = useSettingsViewTeam();
+  const project = useRowProject();
   const [writes, setWrites] = useState(0);
   const header = useMemo(
     () => notifying(store, () => setWrites(n => n + 1)),
@@ -167,7 +196,14 @@ export function SettingRow({
   const setAsJson = (on: boolean) => setFormIn(on ? null : opening);
   const parts = useRowParts(def, row, { suggestions, asJson, setAsJson });
   const chevron = useRef<HTMLButtonElement>(null);
+  const card = useRef<HTMLDivElement>(null);
   const panelId = useId();
+  // With no transition the collapse never reports its end, so under reduced
+  // motion an opened card scrolls into view as soon as it renders.
+  useEffect(() => {
+    if (isOpen && reduceMotion)
+      card.current?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+  }, [isOpen, reduceMotion]);
   const [ns, name] = splitKey(def.key);
   const badge = badgeScope(def, subhead);
   // A global source label ("unset", "default") says nothing about a key
@@ -181,9 +217,13 @@ export function SettingRow({
   const rejected =
     def.issues === undefined && !onWhere ? def.effective.invalid : undefined;
 
-  const toggle = () => setOpen(isOpen ? null : { tab: 'value', fix: null });
+  // An unset key has no value to show, so it opens on where it could be set.
+  // A per-project key's Value tab is its project picker, so it keeps that.
+  const firstTab =
+    def.effective.scope === null && !def.repoOnly ? 'where' : 'value';
+  const toggle = () => setOpen(isOpen ? null : { tab: firstTab, fix: null });
   const warmPanel = () => {
-    if (!isOpen) void prefetchKeyExplain(def, repo);
+    if (!isOpen) void prefetchKeyExplain(def, repo, viewTeam);
   };
 
   const onHeader = (e: MouseEvent<HTMLDivElement>) => {
@@ -205,6 +245,7 @@ export function SettingRow({
 
   return (
     <Box
+      ref={card}
       data-key={def.key}
       style={{ '--row-motion': `${ROW_MOTION_MS}ms` }}
       className={classes.item}
@@ -219,6 +260,21 @@ export function SettingRow({
         onPointerEnter={warmPanel}
         onFocus={warmPanel}
       >
+        {/* A leading disclosure chevron: › closed, turning to ⌄ open. */}
+        <ActionIcon
+          ref={chevron}
+          size="sm"
+          variant="subtle"
+          color="gray"
+          className={classes.disclosure}
+          aria-expanded={isOpen}
+          // Under reduced motion a closed collapse renders nothing.
+          aria-controls={isOpen || !reduceMotion ? panelId : undefined}
+          aria-label={`${isOpen ? 'close' : 'open'} ${def.key}`}
+          onClick={toggle}
+        >
+          <Icons.chevronRight size={16} />
+        </ActionIcon>
         <Stack gap={4} className={classes.text}>
           <Group gap={8} wrap="nowrap">
             <Text fz={14} lh="18px" ff="monospace" span>
@@ -262,24 +318,6 @@ export function SettingRow({
           {parts.control}
           <SaveStatus row={row} />
         </Group>
-        <Tooltip label={isOpen ? 'Close' : 'Open'}>
-          <ActionIcon
-            ref={chevron}
-            variant="subtle"
-            color="gray"
-            aria-expanded={isOpen}
-            // Under reduced motion a closed collapse renders nothing.
-            aria-controls={isOpen || !reduceMotion ? panelId : undefined}
-            aria-label={`${isOpen ? 'close' : 'open'} ${def.key}`}
-            onClick={toggle}
-          >
-            {isOpen ? (
-              <Icons.chevronUp size={16} />
-            ) : (
-              <Icons.chevronDown size={16} />
-            )}
-          </ActionIcon>
-        </Tooltip>
       </Group>
       {(row.error || rejected) && (
         <Stack gap={4} pb={12} className={classes.inset}>
@@ -302,7 +340,15 @@ export function SettingRow({
         expanded={isOpen}
         keepMounted={false}
         transitionDuration={reduceMotion ? 0 : ROW_MOTION_MS}
-        onTransitionEnd={settle}
+        onTransitionEnd={() => {
+          settle();
+          // A card taller than the frame lines its top up with the frame's.
+          if (isOpen)
+            card.current?.scrollIntoView({
+              block: 'nearest',
+              behavior: 'smooth',
+            });
+        }}
         id={panelId}
         role="region"
         aria-label={`${def.key} settings`}
@@ -317,7 +363,14 @@ export function SettingRow({
               value={<ValueContent def={def} parts={parts} />}
               fix={shown.fix}
               externalWrites={writes}
-              onPickRepo={onPickRepo}
+              onPickRepo={
+                project
+                  ? r => {
+                      project.pick(r);
+                      setOpen({ tab: 'value', fix: null });
+                    }
+                  : onPickRepo
+              }
             />
           </Box>
         )}

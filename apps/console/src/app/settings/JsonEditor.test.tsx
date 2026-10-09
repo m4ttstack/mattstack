@@ -8,6 +8,8 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { clickLayerAction } from './layerActions.testutil';
+
 vi.mock('@mattstack/app-kit/lazy', () => ({
   CodeMirror: ({
     value,
@@ -413,11 +415,7 @@ describe('JSON editor', () => {
       await screen.findByRole('radio', { name: "Where it's set" })
     );
     const layer = await screen.findByTestId('layer-user');
-    await userEvent.click(
-      within(layer).getByRole('button', {
-        name: 'set rt.notify.eventBridges at user',
-      })
-    );
+    await clickLayerAction(layer, 'set rt.notify.eventBridges at user');
     await userEvent.click(within(layer).getByRole('radio', { name: 'JSON' }));
     setText('[]');
     await userEvent.type(

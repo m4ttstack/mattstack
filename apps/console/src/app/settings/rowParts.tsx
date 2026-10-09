@@ -11,6 +11,8 @@ import {
 } from '@mattstack/settings-kit/shapes';
 
 import { compositeParts } from './CompositeControls';
+import { PanelToolbar } from './PanelToolbar';
+import { ProjectPicker, useRowProject } from './RowProject';
 import { ScalarControl } from './ScalarControl';
 import { useSettingsRepo } from './useConsoleSettings';
 import type { useRowSave } from './useRowSave';
@@ -47,7 +49,7 @@ export function useRowParts(
   if (perRepo) {
     control = (
       <Text fz={12} c={text.muted}>
-        set per repo
+        set per project
       </Text>
     );
   } else if (def.key === APPROVAL_KEY) {
@@ -140,9 +142,34 @@ export function ValueContent({
   describe?: boolean;
 }) {
   const { text } = useSchemeColors();
-  if (parts.body) return <>{parts.body}</>;
+  const project = useRowProject();
+  const picker = project && (
+    <PanelToolbar>
+      <ProjectPicker def={def} value={project.repo} onPick={project.pick} />
+    </PanelToolbar>
+  );
+  const pickFirst = project && project.repo === null && def.repoOnly && (
+    <Text fz={12} c={text.muted} px={8}>
+      Pick a project to see and change its value.
+    </Text>
+  );
+  if (pickFirst)
+    return (
+      <>
+        {picker}
+        {pickFirst}
+      </>
+    );
+  if (parts.body)
+    return (
+      <>
+        {picker}
+        {parts.body}
+      </>
+    );
   return (
     <Stack gap={10} px={8}>
+      {picker}
       {parts.toolbar}
       {describe && (
         <Text fz={12} c={text.muted}>

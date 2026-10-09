@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import '../icons';
+
 import type { ReactNode } from 'react';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type {
@@ -12,11 +13,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   KeyPanel,
+  sameJson,
+  shapeOf,
   whereDraws,
   type PanelStore,
   type PanelTab,
 } from './KeyPanel';
 import classes from './KeyPanel.module.css';
+import {
+  actionsTrigger,
+  clickLayerAction,
+  closeLayerActions,
+  layerAction,
+  openLayerActions,
+} from './layerActions.testutil';
 import { PanelToolbar } from './PanelToolbar';
 import { schemaFields } from './testSchemas';
 import {
@@ -352,50 +362,21 @@ describe('KeyPanel', () => {
     ]);
     const team = await screen.findByTestId('layer-team');
     expect(within(team).getByText('not allowed here')).toBeInTheDocument();
-    expect(within(team).queryByRole('button', { name: /^remove / })).toBeNull();
-    expect(within(team).queryByRole('button', { name: /^set / })).toBeNull();
-    expect(within(team).queryByRole('button', { name: /^move / })).toBeNull();
+    await openLayerActions(team);
+    expect(screen.queryByRole('menuitem', { name: /^remove / })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /^set / })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /^Move to / })).toBeNull();
   });
 
   it('offers moves from the value in effect to the other layers the key allows', async () => {
     const { s } = renderPanel(def('board.agent.model'), LAYERS);
     const user = await screen.findByTestId('layer-user');
-    await userEvent.click(
-      within(user).getByRole('button', {
-        name: 'move board.agent.model from user',
-      })
-    );
-    expect(
-      await screen.findByRole('menuitem', { name: 'Move to team' })
-    ).toBeInTheDocument();
+    expect(await layerAction(user, 'Move to team')).toBeInTheDocument();
     await userEvent.click(
       await screen.findByRole('menuitem', { name: 'Move to machine' })
     );
     expect(s.move).toHaveBeenCalledWith('board.agent.model', 'user', 'machine');
-    expect(
-      within(screen.getByTestId('layer-default')).queryByRole('button', {
-        name: /^move /,
-      })
-    ).toBeNull();
-  });
-
-  it('closes the move tooltip while the move menu is open', async () => {
-    renderPanel(def('board.agent.model'), LAYERS);
-    const user = await screen.findByTestId('layer-user');
-    const move = within(user).getByRole('button', {
-      name: 'move board.agent.model from user',
-    });
-    await userEvent.hover(move);
-    expect(
-      await screen.findByText('Move to another layer')
-    ).toBeInTheDocument();
-    await userEvent.click(move);
-    expect(
-      await screen.findByRole('menuitem', { name: 'Move to machine' })
-    ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.queryByText('Move to another layer')).toBeNull()
-    );
+    expect(actionsTrigger(screen.getByTestId('layer-default'))).toBeNull();
   });
 
   it('a rejected stored value can be removed but not moved', async () => {
@@ -410,12 +391,10 @@ describe('KeyPanel', () => {
       [LAYERS[0]!, LAYERS[1]!, { ...LAYERS[2]!, invalid: 'bad' }, LAYERS[3]!]
     );
     const user = await screen.findByTestId('layer-user');
-    expect(within(user).queryByRole('button', { name: /^move / })).toBeNull();
     expect(
-      within(user).getByRole('button', {
-        name: 'remove board.agent.model from user',
-      })
+      await layerAction(user, 'remove board.agent.model from user')
     ).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /^Move to / })).toBeNull();
   });
 
   it('names the team in Remove and Move when the page knows it', async () => {
@@ -435,21 +414,15 @@ describe('KeyPanel', () => {
       { team: 'widgets', org: 'acme' }
     );
     const team = await screen.findByTestId('layer-team');
-    await userEvent.hover(
-      within(team).getByRole('button', {
-        name: 'remove board.agent.model from team',
-      })
-    );
     expect(
-      await screen.findByText('Remove from team (widgets)')
-    ).toBeInTheDocument();
-    await userEvent.click(
-      within(screen.getByTestId('layer-user')).getByRole('button', {
-        name: 'move board.agent.model from user',
-      })
-    );
+      await layerAction(team, 'remove board.agent.model from team')
+    ).toHaveTextContent('Remove from team (widgets)');
+    await closeLayerActions(team);
     expect(
-      await screen.findByRole('menuitem', { name: 'Move to team (widgets)' })
+      await layerAction(
+        screen.getByTestId('layer-user'),
+        'Move to team (widgets)'
+      )
     ).toBeInTheDocument();
   });
 
@@ -477,26 +450,17 @@ describe('KeyPanel', () => {
     expect(
       within(screen.getByTestId('layer-team')).getByText('team (widgets)')
     ).toBeInTheDocument();
-    await userEvent.hover(
-      within(org).getByRole('button', { name: 'set board.agent.model at org' })
-    );
-    expect(await screen.findByText('Set at org (acme)')).toBeInTheDocument();
+    expect(
+      await layerAction(org, 'set board.agent.model at org')
+    ).toHaveTextContent('Set at org (acme)');
+    await closeLayerActions(org);
     const team = screen.getByTestId('layer-team');
-    await userEvent.hover(
-      within(team).getByRole('button', {
-        name: 'remove board.agent.model from team',
-      })
-    );
     expect(
-      await screen.findByText('Remove from team (widgets)')
-    ).toBeInTheDocument();
-    await userEvent.click(
-      within(screen.getByTestId('layer-user')).getByRole('button', {
-        name: 'move board.agent.model from user',
-      })
-    );
+      await layerAction(team, 'remove board.agent.model from team')
+    ).toHaveTextContent('Remove from team (widgets)');
+    await closeLayerActions(team);
     expect(
-      await screen.findByRole('menuitem', { name: 'Move to org (acme)' })
+      await layerAction(screen.getByTestId('layer-user'), 'Move to org (acme)')
     ).toBeInTheDocument();
   });
 
@@ -521,14 +485,12 @@ describe('KeyPanel', () => {
       ],
       { repo: 'gitlab.example.com/acme/app' }
     );
-    await userEvent.hover(
-      await screen.findByRole('button', {
-        name: 'remove rt.worktreeCwd from machine',
-      })
-    );
     expect(
-      await screen.findByText('Remove from machine (all repos)')
-    ).toBeInTheDocument();
+      await layerAction(
+        await screen.findByTestId('layer-machine'),
+        'remove rt.worktreeCwd from machine'
+      )
+    ).toHaveTextContent('Remove from machine (all repos)');
   });
 
   it('a value from a repo rung can be removed but not moved', async () => {
@@ -553,51 +515,10 @@ describe('KeyPanel', () => {
       { repo: 'gitlab.example.com/acme/app' }
     );
     const rung = await screen.findByTestId('layer-machine.repo');
-    expect(within(rung).queryByRole('button', { name: /^move / })).toBeNull();
     expect(
-      within(rung).getByRole('button', {
-        name: 'remove rt.worktreeCwd from machine · repo',
-      })
+      await layerAction(rung, 'remove rt.worktreeCwd from machine · repo')
     ).toBeInTheDocument();
-  });
-
-  it('keeps the Move button shown while its menu is open', async () => {
-    const sheet = document.createElement('style');
-    sheet.textContent = readFileSync(
-      'src/app/settings/KeyPanel.module.css',
-      'utf8'
-    ).replace(
-      /\.([a-zA-Z][\w-]*)/g,
-      (_, name: string) => `.${(classes as Record<string, string>)[name]}`
-    );
-    document.head.appendChild(sheet);
-    // jsdom's :focus-within misreports after a focus change, so a computed
-    // style cannot isolate the open-menu reveal; this asks the module's
-    // top-level rules for one that holds without hover or focus.
-    const revealedBy = (el: Element) =>
-      Array.from(sheet.sheet!.cssRules)
-        .filter(
-          (r): r is CSSStyleRule =>
-            r instanceof CSSStyleRule && r.style.opacity === '1'
-        )
-        .flatMap(r => r.selectorText.split(','))
-        .filter(s => !/:hover|:focus-within/.test(s))
-        .some(s => el.matches(s));
-    try {
-      renderPanel(def('board.agent.model'), LAYERS);
-      const user = await screen.findByTestId('layer-user');
-      const move = within(user).getByRole('button', {
-        name: 'move board.agent.model from user',
-      });
-      const actions = move.closest<HTMLElement>(`.${classes.actions}`)!;
-      expect(revealedBy(actions)).toBe(false);
-
-      await userEvent.click(move);
-      await screen.findByRole('menuitem', { name: 'Move to machine' });
-      expect(revealedBy(actions)).toBe(true);
-    } finally {
-      sheet.remove();
-    }
+    expect(screen.queryByRole('menuitem', { name: /^Move to / })).toBeNull();
   });
 
   it("shows rt's refusal of a move under the layers", async () => {
@@ -605,34 +526,24 @@ describe('KeyPanel', () => {
       s: store({ move: vi.fn(async () => 'store is read-only') }),
     });
     const user = await screen.findByTestId('layer-user');
-    await userEvent.click(
-      within(user).getByRole('button', {
-        name: 'move board.agent.model from user',
-      })
-    );
-    await userEvent.click(
-      await screen.findByRole('menuitem', { name: 'Move to machine' })
-    );
+    await clickLayerAction(user, 'Move to machine');
     expect(await screen.findByText('store is read-only')).toBeInTheDocument();
   });
 
   it('links each set layer to its file; the registry default has no link', async () => {
     renderPanel(def('board.agent.model'), LAYERS);
     const user = await screen.findByTestId('layer-user');
-    expect(
-      within(user).getByRole('link', { name: 'open /stores/user.jsonc' })
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId('layer-default')).queryByRole('link')
-    ).toBeNull();
+    expect(await layerAction(user, 'open /stores/user.jsonc')).toHaveAttribute(
+      'href'
+    );
+    expect(actionsTrigger(screen.getByTestId('layer-default'))).toBeNull();
   });
 
   it('re-reads the stack after a remove', async () => {
     const { s } = renderPanel(def('board.agent.model'), LAYERS);
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: 'remove board.agent.model from user',
-      })
+    await clickLayerAction(
+      await screen.findByTestId('layer-user'),
+      'remove board.agent.model from user'
     );
     expect(s.unset).toHaveBeenCalledWith('board.agent.model', 'user');
     await waitFor(() => expect(explainGet).toHaveBeenCalledTimes(2));
@@ -640,14 +551,17 @@ describe('KeyPanel', () => {
 
   it('a second Fix on an open panel opens that layer’s editor', async () => {
     const { refix } = renderPanel(def('board.agent.model'), LAYERS);
-    await screen.findByRole('button', {
-      name: 'set board.agent.model at user',
-    });
+    const user = await screen.findByTestId('layer-user');
+    expect(
+      await layerAction(user, 'set board.agent.model at user')
+    ).toBeInTheDocument();
+    await closeLayerActions(user);
     refix('user');
     expect(
-      await screen.findByRole('button', {
-        name: 'cancel editing board.agent.model at user',
-      })
+      await layerAction(
+        await screen.findByTestId('layer-user'),
+        'cancel editing board.agent.model at user'
+      )
     ).toBeInTheDocument();
   });
 
@@ -722,7 +636,7 @@ describe('KeyPanel', () => {
       expect(within(storefront).queryByText('· repo')).toBeNull();
       expect(within(storefront).queryByTestId('json-block')).toBeNull();
       expect(within(storefront).queryByRole('link')).toBeNull();
-      expect(within(storefront).queryAllByRole('button')).toHaveLength(0);
+      expect(actionsTrigger(storefront)).toBeNull();
       const billing = screen.getByTestId(`repo-${BILLING}`);
       expect(
         await within(billing).findByTestId('layer-value-team.repo')
@@ -807,12 +721,12 @@ describe('KeyPanel', () => {
         ]
       );
       expect(await screen.findByTestId('layer-value-user')).toHaveTextContent(
-        /^1 of 3 set$/
+        /^1 field$/
       );
       const storefront = await screen.findByTestId(`repo-${STOREFRONT}`);
       expect(
         await within(storefront).findByTestId('layer-value-user.repo')
-      ).toHaveTextContent(/^1 of 3 set$/);
+      ).toHaveTextContent(/^1 field$/);
     });
 
     it('a repo section shows a string value bare', async () => {
@@ -852,10 +766,9 @@ describe('KeyPanel', () => {
     const { s, repick } = renderPanel(d, rows(['A']), {
       repo: 'gitlab.example.com/acme/a',
     });
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: 'set board.ticketPrefixes at user · repo',
-      })
+    await clickLayerAction(
+      await screen.findByTestId('layer-user.repo'),
+      'set board.ticketPrefixes at user · repo'
     );
     expect(
       screen.getByText('Editing the user · repo layer')
@@ -874,11 +787,162 @@ describe('KeyPanel', () => {
     loaded(ok({ def: d, rows: rows(['B']) }));
     expect(
       await screen.findByRole('button', {
-        name: 'set board.ticketPrefixes at user · repo',
+        name: 'actions for board.ticketPrefixes at user · repo',
       })
-    ).toBeInTheDocument();
+    ).toBeEnabled();
     expect(screen.queryByText('Editing the user · repo layer')).toBeNull();
     expect(s.set).not.toHaveBeenCalled();
+  });
+});
+
+describe('a composite layer value', () => {
+  const pool = (merge: SettingDefWire['merge'], value: unknown) =>
+    def('rt.homeSnapshot', {
+      type: 'object',
+      merge,
+      effective: { scope: 'user', file: '/stores/user.jsonc', value },
+    });
+
+  it('opens the Value tab from the layer in effect', async () => {
+    const { onTab } = renderPanel(pool('replace', { enabled: true }), [
+      { scope: 'default', file: null, present: false },
+      {
+        scope: 'team',
+        file: '/stores/team.jsonc',
+        present: true,
+        value: { enabled: false, debounceSec: 5 },
+      },
+      {
+        scope: 'user',
+        file: '/stores/user.jsonc',
+        present: true,
+        value: { enabled: true },
+      },
+    ]);
+    const value = await screen.findByTestId('layer-value-user');
+    expect(value).toHaveTextContent(/^1 field$/);
+    await userEvent.click(value);
+    expect(onTab).toHaveBeenCalledWith('value');
+  });
+
+  it('shows an overridden layer’s own JSON in a popover', async () => {
+    const { onTab } = renderPanel(pool('replace', { enabled: true }), [
+      { scope: 'default', file: null, present: false },
+      {
+        scope: 'team',
+        file: '/stores/team.jsonc',
+        present: true,
+        value: { enabled: false, debounceSec: 5 },
+      },
+      {
+        scope: 'user',
+        file: '/stores/user.jsonc',
+        present: true,
+        value: { enabled: true },
+      },
+    ]);
+    const value = await screen.findByTestId('layer-value-team');
+    expect(value).toHaveTextContent(/^2 fields$/);
+    await userEvent.click(value);
+    const editor = await screen.findByTestId('codemirror-editor');
+    await waitFor(() =>
+      expect(editor.textContent).toContain('"debounceSec": 5')
+    );
+    expect(onTab).not.toHaveBeenCalled();
+  });
+
+  it('opens the Value tab from the only part of a merge', async () => {
+    const { onTab } = renderPanel(
+      pool('deep', { debounceSec: 5, enabled: true }),
+      [
+        { scope: 'default', file: null, present: false },
+        { scope: 'team', file: '/stores/team.jsonc', present: false },
+        {
+          scope: 'user',
+          file: '/stores/user.jsonc',
+          present: true,
+          value: { enabled: true, debounceSec: 5 },
+        },
+      ]
+    );
+    await userEvent.click(await screen.findByTestId('layer-value-user'));
+    expect(onTab).toHaveBeenCalledWith('value');
+  });
+
+  it('shows one part of a wider merge in a popover', async () => {
+    const { onTab } = renderPanel(
+      pool('deep', { enabled: true, debounceSec: 5 }),
+      [
+        { scope: 'default', file: null, present: false },
+        {
+          scope: 'team',
+          file: '/stores/team.jsonc',
+          present: true,
+          value: { debounceSec: 5 },
+        },
+        {
+          scope: 'user',
+          file: '/stores/user.jsonc',
+          present: true,
+          value: { enabled: true },
+        },
+      ]
+    );
+    await userEvent.click(await screen.findByTestId('layer-value-user'));
+    const editor = await screen.findByTestId('codemirror-editor');
+    await waitFor(() =>
+      expect(editor.textContent).toContain('"enabled": true')
+    );
+    expect(onTab).not.toHaveBeenCalled();
+  });
+});
+
+describe('shapeOf', () => {
+  it('counts an array’s items', () => {
+    expect(shapeOf([])).toBe('0 items');
+    expect(shapeOf(['a'])).toBe('1 item');
+    expect(shapeOf(['a', { b: 1 }, 3])).toBe('3 items');
+  });
+
+  it('counts an object’s top-level fields', () => {
+    expect(shapeOf({})).toBe('0 fields');
+    expect(shapeOf({ a: 1 })).toBe('1 field');
+    expect(shapeOf({ a: 1, b: { c: 2, d: 3 } })).toBe('2 fields');
+  });
+
+  it('shows anything else as its scalar text', () => {
+    expect(shapeOf(30)).toBe('30');
+    expect(shapeOf(true)).toBe('true');
+  });
+});
+
+describe('sameJson', () => {
+  it('ignores object key order', () => {
+    expect(sameJson({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true);
+  });
+
+  it('keeps array order', () => {
+    expect(sameJson([1, 2], [1, 2])).toBe(true);
+    expect(sameJson([1, 2], [2, 1])).toBe(false);
+    expect(sameJson([1], [1, 1])).toBe(false);
+  });
+
+  it('compares nested values', () => {
+    expect(sameJson({ a: [{ x: 1, y: [2] }] }, { a: [{ y: [2], x: 1 }] })).toBe(
+      true
+    );
+    expect(sameJson({ a: { b: 1 } }, { a: { b: 2 } })).toBe(false);
+    expect(sameJson({ a: 1 }, { a: 1, b: undefined })).toBe(false);
+  });
+
+  it('tells null, primitives, arrays and objects apart', () => {
+    expect(sameJson(null, null)).toBe(true);
+    expect(sameJson(null, {})).toBe(false);
+    expect(sameJson({}, null)).toBe(false);
+    expect(sameJson(1, '1')).toBe(false);
+    expect(sameJson([], {})).toBe(false);
+    expect(sameJson({}, [])).toBe(false);
+    expect(sameJson(undefined, null)).toBe(false);
   });
 });
 

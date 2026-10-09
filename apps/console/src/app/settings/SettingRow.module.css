@@ -2,9 +2,9 @@
    collapse's own duration, set on the row. */
 .item {
   --inset: 12px;
-  border: 0 solid var(--tk-border);
+  border: 0 solid var(--tk-border-soft);
   border-bottom: 1px solid var(--tk-border-soft);
-  transition-property: margin-block, border-width, border-color, border-radius;
+  transition-property: margin, border-width, border-color, border-radius;
   transition-duration: var(--row-motion);
   transition-timing-function: ease;
 }
@@ -12,9 +12,14 @@
 /* The open card's 1px border takes 1px of inset, so opening moves nothing. */
 .item[data-open] {
   --inset: 11px;
-  margin-block: 8px;
-  border: 1px solid var(--tk-border);
+  margin-block: 16px;
+  background: var(--tk-panel);
+  border: 1px solid transparent;
+  box-shadow:
+    0 0 2px color-mix(in srgb, var(--tk-text-1) 26%, transparent),
+    0 0 5px color-mix(in srgb, var(--tk-text-1) 14%, transparent);
   border-radius: var(--mantine-radius-lg);
+  scroll-margin-block: 112px 16px;
 }
 
 .header {
@@ -42,12 +47,21 @@
   }
 }
 
+/* A row's hover deepens its block's wash; a row outside a block takes grey. */
 :where([data-mantine-color-scheme='light']) .header {
-  --row-hover: var(--mantine-color-gray-1);
+  --row-hover: color-mix(
+    in srgb,
+    var(--block-hue, var(--mantine-color-gray-6)) calc(var(--tk-wash) * 0.75),
+    transparent
+  );
 }
 
 :where([data-mantine-color-scheme='dark']) .header {
-  --row-hover: var(--mantine-color-dark-5);
+  --row-hover: color-mix(
+    in srgb,
+    var(--block-hue, var(--mantine-color-dark-2)) calc(var(--tk-wash) * 0.75),
+    transparent
+  );
 }
 
 /* A tag's resting fill matches the dark row hover, so tags in a hovered
@@ -79,4 +93,34 @@
 
 .panel {
   padding: 0 var(--inset) var(--inset);
+}
+
+/* The chevron sits on the key's line, a little in from the header's edge,
+   and turns with the panel. */
+.disclosure {
+  flex: none;
+  align-self: flex-start;
+  margin-inline: -4px -16px;
+}
+
+.disclosure svg {
+  transition: transform var(--row-motion) ease;
+}
+
+/* The whole header is the chevron's button, so pointing anywhere on it
+   lights the chevron as if it were hovered. */
+@media (hover: hover) {
+  .header:hover .disclosure {
+    background-color: var(--ai-hover);
+  }
+}
+
+.item[data-open] .disclosure svg {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disclosure svg {
+    transition: none;
+  }
 }

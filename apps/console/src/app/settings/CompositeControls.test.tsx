@@ -1,3 +1,5 @@
+import '../icons';
+
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -31,9 +33,11 @@ async function openRow(key: string) {
   await screen.findByRole('radiogroup', { name: `${key} panel` });
 }
 
-/** Opens a row, whose structured value opens in JSON, and turns to Form. */
+/** Opens a row on its Value tab (an unset key opens on Where it's set),
+    whose structured value opens in JSON, and turns to Form. */
 async function openForm(key: string) {
   await openRow(key);
+  await userEvent.click(screen.getByRole('radio', { name: 'Value' }));
   await userEvent.click(await screen.findByRole('radio', { name: 'Form' }));
 }
 
@@ -294,7 +298,10 @@ describe('composite rows', () => {
   it('tabbing out after a Backspace removal leaves focus where Tab put it', async () => {
     const s = store();
     renderWithProviders(
-      <SettingRow def={PREFIXES} store={s} subhead={null} query="" />
+      <>
+        <SettingRow def={PREFIXES} store={s} subhead={null} query="" />
+        <button type="button">next on the page</button>
+      </>
     );
     await userEvent.click(
       screen.getByRole('button', { name: 'add to board.ticketPrefixes' })
@@ -302,9 +309,10 @@ describe('composite rows', () => {
     await userEvent.keyboard('{Backspace}');
     await waitFor(() => expect(s.set).toHaveBeenCalledTimes(1));
     await userEvent.tab();
-    expect(
-      screen.getByRole('button', { name: 'open board.ticketPrefixes' })
-    ).toHaveFocus();
+    const next = screen.getByRole('button', { name: 'next on the page' });
+    expect(next).toHaveFocus();
+    await new Promise(r => setTimeout(r, 0));
+    expect(next).toHaveFocus();
   });
 
   it('a repeated item removes one copy at a time', async () => {
@@ -581,23 +589,19 @@ describe('composite rows', () => {
   });
 
   it('a list of options draws one checkbox each, every box on while unset, and a click writes the explicit list', async () => {
+    const turn = def('board.turn', {
+      type: 'object',
+      scopes: ['team', 'user'],
+      effective: { scope: null, file: null },
+    });
     vi.stubGlobal('fetch', async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ def: {}, rows: [] }),
+      json: async () => ({ def: turn, rows: [] }),
     }));
     const s = store();
     renderWithProviders(
-      <SettingRow
-        def={def('board.turn', {
-          type: 'object',
-          scopes: ['team', 'user'],
-          effective: { scope: null, file: null },
-        })}
-        store={s}
-        subhead={null}
-        query=""
-      />
+      <SettingRow def={turn} store={s} subhead={null} query="" />
     );
     await openForm('board.turn');
     const author = await screen.findByRole('group', {

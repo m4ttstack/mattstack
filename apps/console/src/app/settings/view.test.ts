@@ -78,28 +78,13 @@ describe('applyFilter', () => {
       applyFilter(defs, { ...NO_FILTER, query: 'prune' }).map(d => d.key)
     ).toEqual(['rt.runsPruneDays']);
   });
-  it('changed keeps only store-set keys', () => {
-    expect(
-      applyFilter(defs, { ...NO_FILTER, changedOnly: true }).map(d => d.key)
-    ).toEqual(['rt.runsPruneDays']);
-  });
-  it('editable drops read-only rows', () => {
-    expect(
-      applyFilter(defs, { ...NO_FILTER, editableOnly: true }).map(d => d.key)
-    ).toEqual(['rt.logLevel', 'rt.runsPruneDays']);
-  });
   it('scope keeps keys whose winning layer is that scope', () => {
     expect(
       applyFilter(defs, { ...NO_FILTER, scope: 'machine' }).map(d => d.key)
     ).toEqual(['rt.runsPruneDays']);
   });
   it('a kept key passes the chips and the scope filter', () => {
-    const chips = [
-      { changedOnly: true },
-      { editableOnly: true },
-      { needsFixing: true },
-      { scope: 'team' as const },
-    ];
+    const chips = [{ needsFixing: true }, { scope: 'team' as const }];
     for (const chip of chips)
       expect(
         applyFilter(defs, { ...NO_FILTER, ...chip }, 'rt.cron').map(d => d.key)
@@ -115,6 +100,23 @@ describe('applyFilter', () => {
 });
 
 describe('buildSections', () => {
+  it('viewing another team keeps only keys a shared store can hold, under their first shared scope', () => {
+    const [board] = buildSections(
+      [
+        def('board.mine', { scopes: ['user', 'machine'] }),
+        def('board.model', { scopes: ['user', 'team', 'machine'] }),
+        def('board.title', { scopes: ['team', 'org'] }),
+      ],
+      NO_FILTER,
+      null,
+      { sharedOnly: true }
+    );
+    expect(
+      board!.subsections.map(x => [x.scope, x.defs.map(d => d.key).sort()])
+    ).toEqual([['team', ['board.model', 'board.title']]]);
+    expect(board!.total).toBe(2);
+  });
+
   it('orders sections by GROUPS and counts total and shown', () => {
     const s = buildSections(
       [def('board.title'), def('agent.provider'), def('rt.logLevel')],
@@ -128,7 +130,7 @@ describe('buildSections', () => {
     ]);
   });
 
-  it('splits a section over the threshold into team, user, machine subsections', () => {
+  it('splits a section into team, user, machine subsections', () => {
     const boards = [
       ...Array.from({ length: 6 }, (_, i) =>
         def(`board.t${i}`, { scopes: ['team'] })
@@ -228,7 +230,7 @@ describe('buildSections', () => {
   it('shows and counts a kept key the filter would hide', () => {
     const [daemon] = buildSections(
       [def('rt.logLevel'), def('rt.daemonPath')],
-      { ...NO_FILTER, changedOnly: true },
+      { ...NO_FILTER, scope: 'machine' },
       'rt.daemonPath'
     );
     expect(daemon!.shown).toBe(1);
@@ -237,11 +239,11 @@ describe('buildSections', () => {
     ]);
   });
 
-  it('keeps a small section as one unlabelled subsection', () => {
+  it('splits even a one-key section by scope', () => {
     const [agents] = buildSections([def('agent.provider')], NO_FILTER);
     expect(agents!.subsections).toEqual([
       {
-        scope: null,
+        scope: 'user',
         defs: [expect.objectContaining({ key: 'agent.provider' })],
       },
     ]);
@@ -344,6 +346,32 @@ describe('layer rungs and write targets', () => {
     });
     expect(writeTarget(roles(null), REPO)).toEqual({
       scope: 'user',
+      repo: REPO,
+    });
+  });
+
+  it('while viewing another team, an edit lands on a shared layer, never a personal one', () => {
+    const userFirst = (scope: string | null) =>
+      def('skills.writingStyle', {
+        scopes: ['user', 'team', 'org'],
+        effective: { scope, file: null, value: undefined },
+      });
+    // Nothing on the team's ladder sets it: the first shared scope.
+    expect(writeTarget(userFirst('default'), null, true)).toEqual({
+      scope: 'team',
+    });
+    expect(writeTarget(userFirst(null), null, true)).toEqual({
+      scope: 'team',
+    });
+    // A shared layer serving it keeps it there.
+    expect(writeTarget(userFirst('org'), null, true)).toEqual({
+      scope: 'org',
+    });
+    // Your own team keeps the key's own first scope.
+    expect(writeTarget(userFirst('default'), null)).toEqual({ scope: 'user' });
+    // A repo-scoped key writes the repo section of the shared layer.
+    expect(writeTarget(roles(null), REPO, true)).toEqual({
+      scope: roles(null).scopes.find(s => s === 'org' || s === 'team'),
       repo: REPO,
     });
   });

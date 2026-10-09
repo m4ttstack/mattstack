@@ -129,3 +129,18 @@ describe('App routes', () => {
     );
   });
 });
+
+describe('App bar', () => {
+  it('names the page beside the app, as plain text, and in the tab title', async () => {
+    window.history.pushState(null, '', '/search');
+    gatesGet.mockResolvedValue(ok({ gates: [] }));
+    runsGet.mockResolvedValue(ok({ runs: [] }));
+
+    renderWithProviders(<App />);
+
+    const bar = await screen.findByTestId('app-bar-page');
+    expect(bar).toHaveTextContent('consoleSearch');
+    expect(bar.querySelector('a, button')).toBeNull();
+    await waitFor(() => expect(document.title).toBe('Search · console'));
+  });
+});

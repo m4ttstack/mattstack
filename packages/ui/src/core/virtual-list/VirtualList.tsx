@@ -120,6 +120,9 @@ export function VirtualList<T>({
           height: virtualizer.getTotalSize(),
           width: '100%',
           position: 'relative',
+          // Measured rows round to whole pixels; rows that sum a fraction
+          // taller must not leave a one-pixel scroll behind.
+          overflow: 'hidden',
         }}
       >
         <div
@@ -136,6 +139,10 @@ export function VirtualList<T>({
               key={virtualRow.key}
               data-index={virtualRow.index}
               ref={virtualizer.measureElement}
+              // Holds a row's own margins inside the box measureElement
+              // reads; collapsed outside it, the list measures short and
+              // scrolls by that margin.
+              style={{ display: 'flow-root' }}
             >
               {renderRow(items[virtualRow.index], virtualRow.index, visible)}
             </div>
