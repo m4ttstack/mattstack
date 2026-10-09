@@ -1,7 +1,7 @@
 import type { EngineEventOf, EngineResultOf } from 'claude-code'
 import type { Hub, ModApi } from '../core/hub.ts'
 import type { GateOption } from './gate-form.ts'
-import { joinChunks, splitAnswers } from './gate-chunks.ts'
+import { joinChunks, perThread, splitAnswers } from './gate-chunks.ts'
 import { parseGateCtx } from './gate-ctx.ts'
 import {
   choiceSubtext,
@@ -268,8 +268,8 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
 
     const actions: Node[] = []
     if (multi && asks) {
-      // Posting no findings is a real outcome for a joined chunk group, as on the board; a plain multi needs a pick.
-      const emptyOk = open.joined.has(q.id)
+      // Posting no findings, or a thread picked neither post nor resolve, is a real outcome as on the board; a plain multi needs a pick.
+      const emptyOk = acceptsEmpty(open, q)
       const n = draft.picked.length
       const picked = n === 0 && emptyOk ? 'none picked' : `${n} picked`
       actions.push(
@@ -291,12 +291,17 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
     return el.Box({ flexDirection: 'column', rowGap: 1, children })
   }
 
+  /** Whether the page may be sent with no picks: a joined chunk group or a per-thread question. */
+  function acceptsEmpty(open: Form, q: FormQuestion): boolean {
+    return open.joined.has(q.id) || (!!q.multi && perThread(q))
+  }
+
   /** Whether a press on `element` waits out the quiet window. */
   function held(open: Form, element: string): boolean {
     if (element.startsWith('option-')) return true
     if (element !== 'next') return false
     const q = open.gate.questions[open.index]!
-    return open.joined.has(q.id) && open.drafts[open.index]!.picked.length === 0
+    return acceptsEmpty(open, q) && open.drafts[open.index]!.picked.length === 0
   }
 
   hub.onRender('Pane', async (api, e, next) => (form && e.requestId === pane.id ? draw(api, e, form) : next(e)))

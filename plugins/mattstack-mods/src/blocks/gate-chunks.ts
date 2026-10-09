@@ -65,7 +65,7 @@ const THREAD_SHAPES = new Set(['thread@1', 'reply@1', 'carryover@1'])
  * when its id reads `thread-<n>`. Its `post:<id>` / `resolve:<id>` pair
  * marks it when its context fell back to prose, as the board's postPicks reads it.
  */
-function perThread(question: ChunkQuestion): boolean {
+export function perThread(question: ChunkQuestion): boolean {
   const shape = parseGateCtx(question.context)?.shape
   if (shape && THREAD_SHAPES.has(shape)) return true
   if (question.options.length !== 2) return false

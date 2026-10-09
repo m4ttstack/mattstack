@@ -851,6 +851,33 @@ describe('display kit', () => {
     expect(byKey(await last.draw(), 'next').props.label).toBe('Done: none picked')
   })
 
+  test('a per-thread page accepts no picks and sends [], is held in the quiet window, while a plain multi still refuses', async () => {
+    const thread = (n: number) => ({ id: `thread-${n}`, label: `Thread ${n}`, multi: true, options: [`post:t${n}`, `resolve:t${n}`] })
+    const k = kit()
+    const answered = k.ask({ id: 'g-t', questions: [thread(1), thread(2), { id: 'tiers', label: 'Which tiers?', multi: true, options: ['minor', 'major'] }] })
+    await flush()
+    expect(byKey(await k.draw(), 'next').props.label).toBe('Next: none picked →')
+    await k.h.clock.advance(300)
+    expect(await k.enginePress('next')).toBe(false)
+    await k.h.clock.advance(701)
+    await k.press('next')
+    expect(k.display.progress()).toEqual({ index: 1, count: 3 })
+    await k.press('option-1')
+    await k.press('next')
+    expect(k.display.progress()).toEqual({ index: 2, count: 3 })
+    expect(byKey(await k.draw(), 'next').props.label).toBe('Done: 0 picked')
+    await k.press('next')
+    expect(k.display.progress()).toEqual({ index: 2, count: 3 })
+    await k.press('option-0')
+    await k.press('next')
+    expect(await answered).toEqual({ 'thread-1': [], 'thread-2': ['resolve:t2'], tiers: ['minor'] })
+
+    const last = kit()
+    void last.ask({ id: 'g-tl', questions: [thread(1)] })
+    await flush()
+    expect(byKey(await last.draw(), 'next').props.label).toBe('Done: none picked')
+  })
+
   test('every Text names its color, and secondary text is inactive: subtle is for borders only', async () => {
     const k = kit()
     void k.ask({ ...REVIEW, context: j({ 'gate-ctx': 'review@1', readiness: 'yes', summary: 'ok', findings: { minor: 2 }, re_review: true, round: 3 }) })
