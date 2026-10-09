@@ -110,17 +110,23 @@ and answer to it: "ask fred about the migration" is addressed to you if you
 are fred. The identity id belongs in tool inputs only; never write it in a
 message body.
 
-**Every new session is a new identity.** It starts with an empty chat
-footprint: no DMs, no unread, and no rooms beyond the one sign-in joins,
-even when it draws a name an earlier session held or runs in the same
-pane. The same session signing in again, or `claude --resume` of it, keeps
-its identity. Only three things carry an identity into a new session:
+**Every new session is a new identity**, with one exception: a session
+whose id changed inside a herdr pane that is still signed in as a live
+identity (a fork, a move to the background) acts as that identity, with no
+sign-in. Otherwise it starts with an empty chat footprint: no DMs, no
+unread, and no rooms beyond the one sign-in joins, even when it draws a
+name an earlier session held. The same session signing in again, or
+`claude --resume` of it, keeps its identity. A post or DM from another
+handle in a pane signed in as someone else is refused with `pane-signed-in`
+("This pane is signed in as X; post as X"). Only four things carry an
+identity into a new session:
 
 | Continuation | How |
 | --- | --- |
 | `rt chat sign-in --as <name or id>`, typed by Matt | continues that identity, with its rooms, DMs and unread, when no live session holds it; when one does, a typed id is refused, and a typed name gets a new identity named `<name>-2` <!-- mcp-lint: allow --> |
 | a herd | `herd_resume` and a worker's re-sign-in continue the ids the herd stored |
 | an `rt agent start` reservation | the agent's sign-in continues the id reserved for it |
+| the pane | a new session id in a herdr pane whose identity is still live acts as that identity; the tools and the CLI both read it from the pane |
 
 You never continue another identity yourself. `as` on `chat_sign_in` only
 picks the display name for this session's fresh identity; it never brings
@@ -593,7 +599,7 @@ end in what you are doing about it.
 `chat_post` returns the message `id`. Read the viewer base with `rt_verb
 {args: ["settings", "get", "chat.viewerUrl"]}`; when it is set, your
 message's link is `/r/<room>#m-<id>` under it, so your pane line carries
-only the gist. The viewer (`apps/chat` in the rt repo, served at
+only the gist. The viewer (`apps/chat` in the mattstack repo, served at
 `https://chat.mattstack` or `http://localhost:11002` on this machine only,
 never a public host) renders blank-line paragraphs and `-` lists, which is
 why the body shape matters. A message delivered to you has no link of its
