@@ -54,8 +54,6 @@ export const HeaderMerged: S = {
         { id: 'duration', value: '2h 32m', label: 'start to merge' },
         { id: 'decisions', value: '8', label: 'decisions' },
         { id: 'took', value: '6 of 8', label: 'took the recommendation' },
-        { id: 'evidence', value: '3', label: 'evidence' },
-        { id: 'commits', value: '4', label: 'commits' },
         { id: 'waiting', value: '25m', label: 'waiting on you' },
       ]}
     />
@@ -73,10 +71,9 @@ export const HeaderAbandoned: S = {
       stats={[
         { id: 'duration', value: '2h 32m', label: 'start to end' },
         { id: 'decisions', value: '3', label: 'decisions' },
-        { id: 'evidence', value: '2 links', label: 'evidence' },
-        { id: 'commits', value: '2', label: 'commits' },
         { id: 'waiting', value: '40m', label: 'waiting on you' },
       ]}
+      abandoned="Abandoned · Oct 8, 2:14 PM · “Superseded by WEB-430”"
     />
   ),
 };
@@ -94,7 +91,7 @@ export const HeaderReview: S = {
       }}
       stats={[
         { id: 'duration', value: '23m', label: 'start to end' },
-        { id: 'decisions', value: '1', label: 'decisions' },
+        { id: 'decisions', value: '1', label: 'decision' },
         { id: 'waiting', value: '6m', label: 'waiting on you' },
       ]}
     />
@@ -114,7 +111,8 @@ const plan: DecisionStage = {
   ],
   answered: 2,
   durationMs: 12 * MIN,
-  overrode: true,
+  overrides: 1,
+  status: 'done',
 };
 
 const ship: DecisionStage = {
@@ -130,7 +128,8 @@ const ship: DecisionStage = {
   ],
   answered: 0,
   durationMs: 8 * MIN,
-  overrode: false,
+  overrides: 0,
+  status: 'done',
 };
 
 export const DecisionsWorkRun: S = {
@@ -162,7 +161,8 @@ export const DecisionsReviewRun: S = {
           ],
           answered: 1,
           durationMs: 23 * MIN,
-          overrode: false,
+          overrides: 0,
+          status: 'done',
         },
       ]}
       byStage={false}

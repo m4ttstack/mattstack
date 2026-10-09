@@ -7,10 +7,10 @@ import type {
 import { describe, expect, it } from 'vitest';
 
 import {
+  abandonedLine,
   answeredQuestionCount,
   decisionStages,
   defaultRecordTab,
-  evidenceStat,
   hasSettledGates,
   postedLabel,
   recommendationTally,
@@ -138,13 +138,6 @@ const workGates = [
   answered('g6', 'ship', 107, 108, { pick: 1, owner: 'herd:acme' }),
 ];
 
-const evidence = JSON.stringify({
-  v: 1,
-  before: '/e/before.png',
-  after: '/e/after.png',
-  afterAnnotated: '/e/after-annotated.png',
-});
-
 describe('recordEnd', () => {
   it('ends at the merge when the run’s own MR merged', () => {
     expect(recordEnd(merged, 0)).toEqual({ at: at(152), merged: true });
@@ -193,92 +186,61 @@ describe('recommendationTally', () => {
   });
 });
 
-describe('evidenceStat', () => {
-  it('counts images', () => {
-    expect(evidenceStat(evidence)).toBe('3');
-  });
-
-  it('counts legacy links', () => {
-    expect(evidenceStat('/a/before.png http://localhost:4001/notes/1')).toBe(
-      '2 links'
-    );
-    expect(evidenceStat('/a/before.png')).toBe('1 link');
-  });
-
-  it('is null with nothing recorded', () => {
-    expect(evidenceStat(undefined)).toBeNull();
-  });
-});
-
 describe('recordStats', () => {
-  it('shows all six on a merged work run', () => {
-    const stats = recordStats({
-      run: merged,
-      kind: 'work',
-      gates: workGates,
-      fields: [
-        field('evidence', evidence),
-        field('commits', '5d6e7f8..b3a9c41 (4): a, b'),
-      ],
-      now: at(200),
-    });
+  it('shows duration, decisions, took and waiting on a merged work run', () => {
+    const stats = recordStats({ run: merged, gates: workGates, now: at(200) });
     expect(stats.map(s => [s.id, s.value, s.label])).toEqual([
       ['duration', '2h 32m', 'start to merge'],
       ['decisions', '6', 'decisions'],
       ['took', '4 of 6', 'took the recommendation'],
-      ['evidence', '3', 'evidence'],
-      ['commits', '4', 'commits'],
       ['waiting', '25m', 'waiting on you'],
     ]);
+  });
+
+  it('counts answered questions, not gates, and says one decision', () => {
+    const two = answered('t', 'plan', 1, 2);
+    const twoQuestions = {
+      ...two,
+      questions: [
+        two.questions[0]!,
+        { ...two.questions[0]!, id: 'scope', label: 'Scope?' },
+      ],
+      answer: { ...two.answer!, answers: { q: 'a', scope: 'b' } },
+    };
+    expect(
+      recordStats({ run: run(), gates: [twoQuestions], now: at(200) }).find(
+        s => s.id === 'decisions'
+      )
+    ).toMatchObject({ value: '2', label: 'decisions' });
+    expect(
+      recordStats({
+        run: run(),
+        gates: [answered('o', 'plan', 1, 2)],
+        now: at(200),
+      }).find(s => s.id === 'decisions')
+    ).toMatchObject({ value: '1', label: 'decision' });
   });
 
   it('hides took-the-recommendation when no answered question had one', () => {
     const stats = recordStats({
       run: run({ outcome: { status: 'abandoned' }, ended_at: at(152) }),
-      kind: 'work',
       gates: [
         answered('a', 'plan', 8, 23, { rec: false }),
         answered('b', 'evidence', 38, 58, { rec: false }),
-      ],
-      fields: [
-        field('evidence', '/a/before.png http://localhost:4001/notes/1'),
-        field('commits', '3e4f5a6 7b8c9d0'),
       ],
       now: at(200),
     });
     expect(stats.map(s => [s.id, s.value, s.label])).toEqual([
       ['duration', '2h 32m', 'start to end'],
       ['decisions', '2', 'decisions'],
-      ['evidence', '2 links', 'evidence'],
-      ['commits', '2', 'commits'],
       ['waiting', '35m', 'waiting on you'],
     ]);
-  });
-
-  it('leaves evidence and commits off a review run', () => {
-    const stats = recordStats({
-      run: run({
-        work_type: 'review',
-        ended_at: at(23),
-        outcome: {
-          status: 'done',
-          reviewed: { iid: 412, url: null, posted: 'request changes' },
-        },
-      }),
-      kind: 'review',
-      gates: [answered('p', 'review', 15, 21, { rec: false })],
-      fields: [field('evidence', evidence), field('commits', 'abc1234')],
-      now: at(200),
-    });
-    expect(stats.map(s => s.id)).toEqual(['duration', 'decisions', 'waiting']);
   });
 
   it('omits decisions and waiting when nobody answered anything', () => {
     const stats = recordStats({
       run: run({ work_type: 'watch-ci' }),
-      kind: 'utility',
       gates: [],
-      fields: [],
       now: at(200),
     });
     expect(stats.map(s => s.id)).toEqual(['duration']);
@@ -287,12 +249,38 @@ describe('recordStats', () => {
   it('counts only the gates that are mine toward waiting on you', () => {
     const stats = recordStats({
       run: run(),
-      kind: 'work',
       gates: [answered('h', 'plan', 0, 30, { owner: 'herd:acme' })],
-      fields: [],
       now: at(200),
     });
     expect(stats.map(s => s.id)).toEqual(['duration', 'decisions', 'took']);
+  });
+});
+
+describe('abandonedLine', () => {
+  const abandoned = run({
+    status: 'abandoned',
+    outcome: { status: 'abandoned' },
+  });
+
+  it('reads when and why a run was abandoned, naming nobody', () => {
+    expect(
+      abandonedLine(abandoned, [
+        { ...field('reconciled', 'Superseded by WEB-430'), at: at(152) },
+      ])
+    ).toBe('Abandoned · Oct 8, 2:14 PM · “Superseded by WEB-430”');
+  });
+
+  it('leaves the reason off when none was given', () => {
+    expect(
+      abandonedLine(abandoned, [{ ...field('reconciled', ' '), at: at(152) }])
+    ).toBe('Abandoned · Oct 8, 2:14 PM');
+  });
+
+  it('is null for a run that was not abandoned or recorded nothing', () => {
+    expect(abandonedLine(abandoned, [])).toBeNull();
+    expect(
+      abandonedLine(run(), [field('reconciled', 'Superseded by WEB-430')])
+    ).toBeNull();
   });
 });
 
@@ -334,13 +322,36 @@ describe('decisionStages', () => {
         g.gates.map(x => x.id),
         g.answered,
         g.durationMs,
-        g.overrode,
+        g.overrides,
+        g.status,
       ])
     ).toEqual([
-      ['plan', ['g1', 'g2', 'g3'], 3, 12 * MIN, true],
-      ['evidence', ['g4', 'g5'], 2, 44 * MIN, false],
-      ['ship', ['g6'], 1, 8 * MIN, true],
+      ['plan', ['g1', 'g2', 'g3'], 3, 12 * MIN, 1, 'done'],
+      ['evidence', ['g4', 'g5'], 2, 44 * MIN, 0, 'done'],
+      ['ship', ['g6'], 1, 8 * MIN, 1, 'done'],
     ]);
+  });
+
+  it('counts a stage’s answered questions and overrides, not its gates', () => {
+    const g = answered('m', 'plan', 2, 3, { pick: 1 });
+    const two = {
+      ...g,
+      questions: [g.questions[0]!, { ...g.questions[0]!, id: 'scope' }],
+      answer: { ...g.answer!, answers: { q: 'b', scope: 'b' } },
+    };
+    const [plan] = decisionStages([two], stages, run(), 0, pipeline);
+    expect([plan!.answered, plan!.overrides]).toEqual([2, 2]);
+  });
+
+  it('gives a stage with no attempt no status', () => {
+    const [other] = decisionStages(
+      [answered('x', 'triage', 0, 1)],
+      stages,
+      run(),
+      0,
+      pipeline
+    );
+    expect(other!.status).toBeNull();
   });
 
   it('keeps closed gates in their stage without counting them', () => {

@@ -30,26 +30,63 @@ function optionsOf(container: HTMLElement) {
 }
 
 describe('DecisionCard', () => {
-  it('lists every option with the pick highlighted and the recommended one badged', () => {
-    const { container, getAllByText } = card();
+  it('shows only the pick, marked recommended, with the rest folded', () => {
+    const { container, getAllByText, getByRole } = card();
     expect(optionsOf(container)).toEqual([
       [
         'backend',
         true,
         expect.stringContaining('Backend gap-fill + component work'),
       ],
-      ['panel', false, 'Panel component only, mock the data'],
-      ['spike', false, 'Spike first, then decide'],
     ]);
     expect(getAllByText('recommended')).toHaveLength(1);
     expect(container.textContent).not.toContain('(Recommended)');
+    expect(container.textContent).not.toContain('Spike first');
+    const others = getByRole('button', { name: '2 other options' });
+    expect(others).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('marks the pick as selected for assistive tech', () => {
-    const { container } = card();
+  it('lists the options passed on when the line opens', async () => {
+    const { getByRole, getByText } = card();
+    const others = getByRole('button', { name: '2 other options' });
+    await userEvent.click(others);
+    expect(others).toHaveAttribute('aria-expanded', 'true');
+    expect(getByText('Panel component only, mock the data')).toBeVisible();
+    expect(getByText('Spike first, then decide')).toBeVisible();
+  });
+
+  it('names the recommendation on the folded line when the pick overrode it', () => {
+    const { container, getByRole } = card(
+      gateOf({ answer: answeredWith({ approach: 'panel' }) })
+    );
+    expect(optionsOf(container).map(([value]) => value)).toEqual(['panel']);
+    expect(
+      getByRole('button', {
+        name: '2 other options · recommended was “Backend gap-fill + component work”',
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('says one other option in the singular', () => {
+    const { getByRole } = card(
+      gateOf({
+        questions: [
+          {
+            ...approachQuestion,
+            options: approachQuestion.options.slice(0, 2),
+          },
+        ],
+      })
+    );
+    expect(getByRole('button', { name: '1 other option' })).toBeInTheDocument();
+  });
+
+  it('marks the pick as selected for assistive tech', async () => {
+    const { container, getByRole } = card();
     const picked = container.querySelector('[data-option="backend"]');
     expect(picked).toHaveAttribute('aria-current', 'true');
     expect(picked).toHaveTextContent('selected');
+    await userEvent.click(getByRole('button', { name: '2 other options' }));
     const other = container.querySelector('[data-option="panel"]');
     expect(other).not.toHaveAttribute('aria-current');
     expect(other).not.toHaveTextContent('selected');
@@ -135,7 +172,9 @@ describe('DecisionCard', () => {
   });
 
   it('has no context toggle when the gate has none', () => {
-    expect(card().queryByRole('button')).toBeNull();
+    expect(
+      card().queryByRole('button', { name: /What the agent found/ })
+    ).toBeNull();
   });
 
   it('draws one block per question, with the stamp once', () => {
@@ -163,6 +202,7 @@ describe('DecisionCard', () => {
     expect(getByText('closed: abandoned')).toBeInTheDocument();
     expect(container.querySelector('[data-muted="true"]')).not.toBeNull();
     expect(container.querySelector('[data-picked="true"]')).toBeNull();
+    expect(getByText('3 options')).toBeInTheDocument();
   });
 
   it('draws a superseded gate as superseded', () => {

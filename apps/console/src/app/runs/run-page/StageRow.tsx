@@ -23,7 +23,7 @@ import { FieldValue } from './FieldValue';
 import { StageDocLink } from './StageDoc';
 import classes from './StageRow.module.css';
 
-const BULLET: Record<
+export const STAGE_BULLET: Record<
   StageAttempt['status'],
   { color: MantineColor; icon: IconName; layer: string }
 > = {
@@ -91,7 +91,7 @@ export function StageRow({
   linkedGateId = null,
 }: StageRowProps) {
   const bodyId = useId();
-  const bullet = BULLET[entry.attempt.status];
+  const bullet = STAGE_BULLET[entry.attempt.status];
   const evidence = entry.evidence ? parseEvidence(evidenceField?.value) : null;
   const summary = stageSummary(entry, evidence);
 

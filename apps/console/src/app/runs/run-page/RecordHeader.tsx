@@ -11,8 +11,6 @@ const STAT_LAYER: Record<RecordStatId, string> = {
   duration: 'Stat duration',
   decisions: 'Stat decisions',
   took: 'Stat took',
-  evidence: 'Stat evidence',
-  commits: 'Stat commits',
   waiting: 'Stat waiting',
 };
 
@@ -24,10 +22,12 @@ export interface RecordHeaderProps {
   title: string;
   outcome: RunOutcome | undefined;
   stats: RecordStat[];
+  /** "Abandoned · <when> · “<reason>”", under the card, when recorded. */
+  abandoned?: string | null;
 }
 
 /** A finished run's hero: ticket, span and title, how it ended, and the
-    numbers that apply to it. */
+    numbers that apply to it; an abandoned run's when and why under it. */
 export function RecordHeader({
   ticket,
   ticketUrl,
@@ -35,8 +35,9 @@ export function RecordHeader({
   title,
   outcome,
   stats,
+  abandoned = null,
 }: RecordHeaderProps) {
-  return (
+  const hero = (
     <Paper
       variant="ground"
       withBorder
@@ -76,5 +77,20 @@ export function RecordHeader({
         </div>
       </Stack>
     </Paper>
+  );
+  if (!abandoned) return hero;
+  return (
+    <Stack gap={10}>
+      {hero}
+      <Text
+        fz={13}
+        lh="normal"
+        c="dimmed"
+        className={classes.abandoned}
+        data-testid="abandoned-line"
+      >
+        {abandoned}
+      </Text>
+    </Stack>
   );
 }

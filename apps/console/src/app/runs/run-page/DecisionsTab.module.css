@@ -5,28 +5,31 @@
   width: 100%;
 }
 
-.index {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex-shrink: 0;
-  width: 180px;
-  position: sticky;
-  top: var(--mantine-spacing-md);
-}
-
-.legend {
-  padding: 12px 10px;
-}
-
 .log {
   flex: 1;
   min-width: 0;
 }
 
+.log[data-timeline='true'] {
+  padding-left: 28px;
+  border-left: 2px solid var(--tk-line-3);
+}
+
 .stageHead {
-  padding-top: 6px;
-  scroll-margin-top: var(--mantine-spacing-xl);
+  position: relative;
+  padding: 10px 0 2px;
+}
+
+/* Sits on the log's rule, ringed in the page surface so the rule breaks
+   around it. */
+.bullet {
+  position: absolute;
+  top: 6px;
+  left: -41px;
+  display: flex;
+  padding: 3px;
+  border-radius: 50%;
+  background-color: var(--tk-panel);
 }
 
 .rail {

@@ -753,7 +753,7 @@ describe('RunDetail: finished run', () => {
     picked('g4', 'ship', 107, 108, { owner: 'herd:acme' }),
   ];
 
-  it('heads a merged work run with its badges, span and all six stats', async () => {
+  it('heads a merged work run with its badges, span and four stats', async () => {
     render(merged(), mergedGates);
     const record = await screen.findByTestId('run-record');
     const header = within(record).getByTestId('record-header');
@@ -767,14 +767,12 @@ describe('RunDetail: finished run', () => {
         ['duration', '2h 32mstart to merge'],
         ['decisions', '4decisions'],
         ['took', '3 of 4took the recommendation'],
-        ['evidence', '3evidence'],
-        ['commits', '4commits'],
         ['waiting', '25mwaiting on you'],
       ])
     );
   });
 
-  it('opens on Decisions, by stage, with the evidence beside them', async () => {
+  it('opens on Decisions, the stages heading the log, with the evidence beside them', async () => {
     render(merged(), mergedGates);
     const record = await screen.findByTestId('run-record');
     await waitFor(() =>
@@ -785,26 +783,20 @@ describe('RunDetail: finished run', () => {
         ['Inputs', 'false'],
       ])
     );
-    const nav = within(record).getByRole('navigation', {
-      name: 'Decisions by stage',
-    });
-    expect(
-      within(nav)
-        .getAllByRole('button')
-        .map(b => b.textContent)
-    ).toEqual(['plan2', 'evidence1', 'ship1']);
-    expect(
-      within(nav).getAllByLabelText('an answer went against the recommendation')
-    ).toHaveLength(1);
+    expect(within(record).queryByRole('navigation')).toBeNull();
     const log = within(record).getByTestId('decision-log');
+    expect(
+      [...log.querySelectorAll('[data-stage-group]')].map(e => e.textContent)
+    ).toEqual([
+      'plan2 decisions · 12m · 1 override',
+      'evidence1 decision · 44m',
+      'ship1 decision · 50m',
+    ]);
     expect(
       [...log.querySelectorAll('[data-gate-id]')].map(e =>
         e.getAttribute('data-gate-id')
       )
     ).toEqual(['g1', 'g2', 'g3', 'g4']);
-    expect(log.querySelector('[data-stage-group="plan"]')).toHaveTextContent(
-      'plan2 decisions · 12m'
-    );
     expect(within(record).getByText('CASE USED')).toBeInTheDocument();
     expect(within(record).getByText('attached to !405')).toBeInTheDocument();
   });
@@ -847,16 +839,56 @@ describe('RunDetail: finished run', () => {
       expect(statsOf(header)).toEqual([
         ['duration', '2h 32mstart to end'],
         ['decisions', '2decisions'],
-        ['evidence', '2 linksevidence'],
-        ['commits', '2commits'],
         ['waiting', '35mwaiting on you'],
       ])
     );
-    expect(
-      within(record).queryByLabelText(
-        'an answer went against the recommendation'
-      )
-    ).toBeNull();
+    expect(within(record).queryByTestId('abandoned-line')).toBeNull();
+  });
+
+  it('says when and why a run was abandoned, under the hero', async () => {
+    render(
+      workRun({
+        run: summary({
+          status: 'abandoned',
+          ended_at: at(152),
+          agent: null,
+          outcome: { status: 'abandoned' },
+        }),
+        fields: [
+          field('pipeline-stages', 'provision plan implement', 0),
+          {
+            key: 'reconciled',
+            value: 'Superseded by WEB-430',
+            produced_by: 'rt runs abandon',
+            at: at(152),
+          },
+        ],
+      })
+    );
+    const record = await screen.findByTestId('run-record');
+    const line = await within(record).findByTestId('abandoned-line');
+    expect(line).toHaveTextContent(
+      /^Abandoned · Oct 8, \d+:\d\d [AP]M · “Superseded by WEB-430”$/
+    );
+    expect(line.textContent).not.toMatch(/by you/);
+  });
+
+  it('labels a raw field key in sentence case on the story', async () => {
+    const user = userEvent.setup();
+    render(
+      workRun({
+        run: summary({ status: 'done', ended_at: at(90), agent: null }),
+        fields: [
+          field('pipeline-stages', 'provision plan implement', 0),
+          field('ShipTarget', 'Friday', 31),
+        ],
+      })
+    );
+    const record = await screen.findByTestId('run-record');
+    await user.click(await within(record).findByRole('tab', { name: 'Story' }));
+    const story = within(record).getByTestId('story');
+    expect(within(story).getAllByText('Ship target').length).toBeGreaterThan(0);
+    expect(within(story).queryByText('ShipTarget')).toBeNull();
   });
 
   it('leaves evidence off a review record and says what it posted', async () => {

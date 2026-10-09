@@ -593,3 +593,39 @@ Live run page (runs-p2-live, runs-p2-story-details `Hero`, `Story`, `Side`):
   the side facts, and the story leaves out an attempt with nothing to tell,
   as runs-p2-live draws it, so this run has no story yet: runs-p2-gate
   compares Hero, Gate mine and Side only.
+
+Finished run record (runs-p2-record `Hero`, `Tabs`, `Decision log`,
+`Evidence rail`; run-record-abandoned `Hero abandoned`):
+
+- The first pass's record entries still apply: the Hero, Decision, Evidence
+  and Case cards are kit `Paper` ruled in `--tk-border`; answer stamps and
+  card titles are `--tk-text-3`; the ticket and the "What the agent found"
+  links are `--tk-text-accent`; the outcome pills are kit `Badge lg`, the
+  tabs kit `Tabs` with kit `Badge sm` counts, the overrode tag a kit
+  `Badge sm` in warn and the recommended mark a kit `Badge xs` `outline` in
+  gray (16px tall, its ring and label bright in dark), all as they ship.
+- No data source for two context labels: "The spec · 1 page" and
+  "Candidates the agent pulled · 4 orders" read "What the agent found · 3
+  lines" and "· structured context".
+- The board's frame ends after the first evidence card; the log lists every
+  stage's gates, so `Decision log` is taller and the later stage heads
+  (`name`, `meta`, `bullet`, `c`) and `Decision[4]` onward are extra keys.
+- Stage names in the log are 700, a heading: the board sets 600, which the
+  type rules leave out, so a meta after a longer name ("evidence") sits up
+  to 2px right.
+- A stage's bullet is the kit `ThemeIcon` in its status's tone, as the
+  story's stage rows draw it. The board rings it in the page surface to
+  break the log's rule; the app paints that ring on a wrapper behind the
+  icon, so `bullet` has no stroke.
+- The record header shows four stats (duration, decisions, took the
+  recommendation, waiting on you). run-record-abandoned, a first-pass
+  board, still draws the evidence and commits stats, so on that board
+  `Stat evidence` and `Stat commits` are missing and the other cells are
+  wider.
+- An abandoned run's line ("Abandoned · Oct 8, 2:14 PM · “Superseded by
+  WEB-430”") sits under the hero card and no board draws it. The abandon
+  record keeps no actor, so the line names nobody.
+- The options a decision passed on open from the folded line to a dashed
+  list, as the story's "Passed on" list draws them; no board draws it open.
+- The evidence card, its thumbnails, Compare and transcript belong to the
+  evidence pass (section E); their mismatches are not this section's.

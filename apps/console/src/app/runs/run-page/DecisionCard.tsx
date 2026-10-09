@@ -7,6 +7,7 @@ import {
   Paper,
   Stack,
   Text,
+  UnstyledButton,
   VisuallyHidden,
 } from '@mattstack/app-kit/core';
 import { useDisclosure } from '@mattstack/app-kit/hooks';
@@ -24,6 +25,7 @@ import {
   optionViews,
   questionAnswer,
   tookRecommendation,
+  type OptionView,
 } from '../derive/gates';
 import { GateContext } from '../GateContext';
 import classes from './DecisionCard.module.css';
@@ -77,55 +79,96 @@ function ContextDisclosure({
   );
 }
 
-function Option({
-  value,
-  text,
-  recommended,
-  picked,
-  muted,
-}: {
-  value: string;
-  text: string;
-  recommended: boolean;
-  picked: boolean;
-  muted: boolean;
-}) {
+function RecommendedMark() {
+  return (
+    <Badge size="xs" variant="outline" color="gray" tt="none" data-parity="rec">
+      <span data-parity="label">recommended</span>
+    </Badge>
+  );
+}
+
+function Pick({ option }: { option: OptionView }) {
   return (
     <div
       className={classes.option}
-      data-option={value}
-      data-picked={picked ? 'true' : 'false'}
-      aria-current={picked ? 'true' : undefined}
-      data-parity={picked ? 'opt' : undefined}
+      data-option={option.value}
+      data-picked="true"
+      aria-current="true"
+      data-parity="opt"
     >
       <Icon
-        name={picked ? 'circleCheck' : 'circle'}
+        name="circleCheck"
         size={15}
-        color={picked ? 'var(--tk-text-ok-vivid)' : 'var(--tk-text-3)'}
-        data-parity={picked ? 'circle-check' : 'circle'}
+        color="var(--tk-text-ok-vivid)"
+        data-parity="circle-check"
       />
-      <Text
-        fz={13}
-        lh="normal"
-        fw={picked ? 500 : 400}
-        c={picked && !muted ? undefined : 'dimmed'}
-        data-parity="label"
-      >
-        {text}
+      <Text fz={13} lh="normal" fw={500} data-parity="label">
+        {option.text}
       </Text>
-      {picked ? <VisuallyHidden>selected</VisuallyHidden> : null}
-      {recommended ? (
-        <Badge
-          size="xs"
-          variant="outline"
-          color="gray"
-          tt="none"
-          data-parity="rec"
-        >
-          <span data-parity="label">recommended</span>
-        </Badge>
-      ) : null}
+      <VisuallyHidden>selected</VisuallyHidden>
+      {option.recommended ? <RecommendedMark /> : null}
     </div>
+  );
+}
+
+const quoted = (options: OptionView[]) =>
+  options.map(o => `“${o.text}”`).join(', ');
+
+/** The options the answer passed on, folded to one line that opens to list
+    them. The line names the recommendation when the pick went against it. */
+function OtherOptions({
+  id,
+  others,
+  picked,
+  overrode,
+}: {
+  id: string;
+  others: OptionView[];
+  picked: boolean;
+  overrode: boolean;
+}) {
+  const [open, { toggle }] = useDisclosure(false);
+  const n = others.length;
+  const count = picked
+    ? `${n} other ${n === 1 ? 'option' : 'options'}`
+    : `${n} ${n === 1 ? 'option' : 'options'}`;
+  const passedRecommended = others.filter(o => o.recommended);
+  const line =
+    overrode && passedRecommended.length > 0
+      ? `${count} · recommended was ${quoted(passedRecommended)}`
+      : count;
+  return (
+    <>
+      <UnstyledButton
+        className={classes.others}
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={toggle}
+      >
+        <Icon
+          name={open ? 'chevronDown' : 'chevronRight'}
+          size={13}
+          color="var(--tk-text-3)"
+          data-parity="i"
+        />
+        <Text fz={12.5} lh="normal" c="dimmed" data-parity="t">
+          {line}
+        </Text>
+      </UnstyledButton>
+      {open ? (
+        <Stack gap={4} id={id} className={classes.passed}>
+          {others.map(o => (
+            <Group key={o.value} gap={8} wrap="nowrap" data-option={o.value}>
+              <span className={classes.dash} />
+              <Text fz={12.5} lh="normal" c="dimmed">
+                {o.text}
+              </Text>
+              {o.recommended ? <RecommendedMark /> : null}
+            </Group>
+          ))}
+        </Stack>
+      ) : null}
+    </>
   );
 }
 
@@ -142,7 +185,12 @@ function QuestionBlock({
   const answer = questionAnswer(gate.answer, question);
   const stamp = first && !ended ? answerStamp(gate) : null;
   const overrode = tookRecommendation(question, gate.answer) === false;
-  const ctxId = `decision-${gate.id}-${question.id}-ctx`;
+  const options = optionViews(question);
+  const picks = answer
+    ? options.filter(o => answer.picked.includes(o.value))
+    : [];
+  const others = options.filter(o => !picks.includes(o));
+  const idOf = (part: string) => `decision-${gate.id}-${question.id}-${part}`;
   return (
     <Stack gap={12} data-question={question.id}>
       <Group wrap="nowrap" gap={10}>
@@ -179,16 +227,21 @@ function QuestionBlock({
           </Text>
         ) : null}
       </Group>
-      <Stack gap={6}>
-        {optionViews(question).map(o => (
-          <Option
-            key={o.value}
-            {...o}
-            picked={answer?.picked.includes(o.value) ?? false}
-            muted={ended !== null}
-          />
-        ))}
-      </Stack>
+      {picks.length > 0 || others.length > 0 ? (
+        <Stack gap={6} align="flex-start">
+          {picks.map(o => (
+            <Pick key={o.value} option={o} />
+          ))}
+          {others.length > 0 ? (
+            <OtherOptions
+              id={idOf('others')}
+              others={others}
+              picked={picks.length > 0}
+              overrode={overrode}
+            />
+          ) : null}
+        </Stack>
+      ) : null}
       {answer?.note ? (
         <div className={classes.note} data-parity="note">
           <Icon name="messageSquare" size={13} data-parity="message-square" />
@@ -218,7 +271,7 @@ function QuestionBlock({
       ) : null}
       {question.context ? (
         <ContextDisclosure
-          id={ctxId}
+          id={idOf('ctx')}
           label="What this turns on"
           context={question.context}
         />
@@ -227,11 +280,12 @@ function QuestionBlock({
   );
 }
 
-/** One gate in the record view: each question with every option, the pick
-    highlighted, the recommended badge and a mark when the pick went against
-    it, the note or edited reply, and who answered when. The gate's own
-    context sits once under the questions, collapsed. A closed or superseded
-    gate draws muted with why it ended. */
+/** One gate in the record view: each question with its pick highlighted
+    (marked when it was the recommendation), the options passed on folded to
+    one line, a mark when the pick went against the recommendation, the note
+    or edited reply, and who answered when. The gate's own context sits once
+    under the questions, collapsed. A closed or superseded gate draws muted
+    with why it ended. */
 export function DecisionCard({ gate }: { gate: GateRow }) {
   const ended = gateEndNote(gate);
   const muted = ended !== null;

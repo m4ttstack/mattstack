@@ -3,7 +3,8 @@ import { Badge, Stack, Tabs, Text } from '@mattstack/app-kit/core';
 import { parseEvidence } from '@mattstack/rt-client/evidence';
 
 import {
-  answeredGates,
+  abandonedLine,
+  answeredQuestionCount,
   decisionStages,
   defaultRecordTab,
   hasSettledGates,
@@ -61,7 +62,7 @@ export function RecordPage({
 
   const end = recordEnd(run, now);
   const meta = `${run.pipeline} pipeline · ${recordSpan(run.started_at, end.at)}`;
-  const stats = recordStats({ run, kind, gates, fields, now });
+  const stats = recordStats({ run, gates, now });
   const groups = decisionStages(
     gates,
     stages,
@@ -69,7 +70,7 @@ export function RecordPage({
     now,
     fields.find(f => f.key === 'pipeline-stages')?.value ?? null
   );
-  const answered = answeredGates(gates).length;
+  const answered = answeredQuestionCount(gates);
   const withDecisions = hasSettledGates(gates);
   const evidenceValue = parts.evidenceField?.value;
   const evidence =
@@ -116,6 +117,7 @@ export function RecordPage({
         title={parts.title}
         outcome={run.outcome}
         stats={stats}
+        abandoned={abandonedLine(run, fields)}
       />
       <Tabs
         value={shown}

@@ -4,17 +4,14 @@ import type {
   RunStageRow,
   RunSummary,
 } from '@mattstack/rt-client';
-import { parseEvidence } from '@mattstack/rt-client/evidence';
 
 import { isMine } from '../../../shared/gate-waiting';
-import { countCommits } from './answers';
 import { formatClock } from './clock';
 import { formatDuration } from './duration';
 import { gateStage, tookRecommendation, waitingOnYou } from './gates';
-import type { RunKind } from './kind';
-import { stageAttempts } from './stages';
+import { stageAttempts, type StageAttempt } from './stages';
 
-/** The run's answered gates: every decision count in the record. */
+/** The run's answered gates. */
 export const answeredGates = (gates: GateRow[]) =>
   gates.filter(g => g.status === 'answered' && g.answer);
 
@@ -67,19 +64,7 @@ export function recommendationTally(gates: GateRow[]): {
   return { took, of };
 }
 
-/** The evidence stat: the image count, "<n> links" for legacy evidence, or
-    null when the run recorded none. */
-export function evidenceStat(value: string | undefined): string | null {
-  const parsed = parseEvidence(value);
-  if (parsed.version === 1)
-    return parsed.images.length > 0 ? String(parsed.images.length) : null;
-  if (parsed.version === 0 && parsed.links.length > 0)
-    return `${parsed.links.length} ${parsed.links.length === 1 ? 'link' : 'links'}`;
-  return null;
-}
-
-export type RecordStatId =
-  'duration' | 'decisions' | 'took' | 'evidence' | 'commits' | 'waiting';
+export type RecordStatId = 'duration' | 'decisions' | 'took' | 'waiting';
 
 export interface RecordStat {
   id: RecordStatId;
@@ -89,21 +74,16 @@ export interface RecordStat {
 
 export interface RecordStatsInput {
   run: RunSummary;
-  kind: RunKind;
   gates: GateRow[];
-  fields: RunFieldRow[];
   now: number;
 }
 
 /** The record header's numbers, each only where it applies to the run. */
 export function recordStats({
   run,
-  kind,
   gates,
-  fields,
   now,
 }: RecordStatsInput): RecordStat[] {
-  const field = (key: string) => fields.find(f => f.key === key)?.value;
   const end = recordEnd(run, now);
   const stats: RecordStat[] = [
     {
@@ -112,9 +92,13 @@ export function recordStats({
       label: end.merged ? 'start to merge' : 'start to end',
     },
   ];
-  const decided = answeredGates(gates).length;
+  const decided = answeredQuestionCount(gates);
   if (decided > 0)
-    stats.push({ id: 'decisions', value: String(decided), label: 'decisions' });
+    stats.push({
+      id: 'decisions',
+      value: String(decided),
+      label: decided === 1 ? 'decision' : 'decisions',
+    });
   const tally = recommendationTally(gates);
   if (tally.of > 0)
     stats.push({
@@ -122,14 +106,6 @@ export function recordStats({
       value: `${tally.took} of ${tally.of}`,
       label: 'took the recommendation',
     });
-  if (kind === 'work') {
-    const evidence = evidenceStat(field('evidence'));
-    if (evidence)
-      stats.push({ id: 'evidence', value: evidence, label: 'evidence' });
-    const commits = countCommits(field('commits') ?? null);
-    if (commits > 0)
-      stats.push({ id: 'commits', value: String(commits), label: 'commits' });
-  }
   const waited = waitingOnYou(gates.filter(isMine), end.at);
   if (waited > 0)
     stats.push({
@@ -138,6 +114,21 @@ export function recordStats({
       label: 'waiting on you',
     });
   return stats;
+}
+
+/** "Abandoned · Oct 8, 2:14 PM · “Superseded by WEB-430”", from the note
+    `rt runs abandon` records. The note keeps no actor, so the line names
+    nobody. Null unless the run was abandoned and the note is there. */
+export function abandonedLine(
+  run: Pick<RunSummary, 'status'>,
+  fields: RunFieldRow[]
+): string | null {
+  if (run.status !== 'abandoned') return null;
+  const note = fields.find(f => f.key === 'reconciled');
+  if (!note) return null;
+  const when = `${dayOf(note.at)}, ${formatClock(note.at)}`;
+  const reason = note.value.trim();
+  return reason ? `Abandoned · ${when} · “${reason}”` : `Abandoned · ${when}`;
 }
 
 export type RecordTab = 'story' | 'decisions' | 'evidence' | 'inputs';
@@ -151,11 +142,14 @@ export interface DecisionStage {
   stage: string | null;
   /** Answered, closed and superseded gates, oldest first. */
   gates: GateRow[];
+  /** Answered questions, as every decision count on the record counts. */
   answered: number;
   /** The stage's attempts added up; null when it never ran. */
   durationMs: number | null;
-  /** Some answer here went against its recommendation. */
-  overrode: boolean;
+  /** Answered questions here that went against their recommendation. */
+  overrides: number;
+  /** The stage's last attempt's status; null when it never ran. */
+  status: StageAttempt['status'] | null;
 }
 
 /** Whether the record has any decision log to show. */
@@ -199,14 +193,14 @@ export function decisionStages(
       const spans = own
         .filter(a => a.startedAt != null && a.endedAt != null)
         .map(a => a.endedAt! - a.startedAt!);
+      const tally = recommendationTally(list);
       return {
         stage,
         gates: list,
-        answered: answeredGates(list).length,
+        answered: answeredQuestionCount(list),
         durationMs: spans.length > 0 ? spans.reduce((x, y) => x + y, 0) : null,
-        overrode: answeredGates(list).some(g =>
-          g.questions.some(q => tookRecommendation(q, g.answer) === false)
-        ),
+        overrides: tally.of - tally.took,
+        status: own.at(-1)?.status ?? null,
       };
     });
 }
