@@ -181,6 +181,9 @@ function CardTones() {
         <Paper variant="panel-outline" p="xs">
           Paper panel-outline: a note on the panel
         </Paper>
+        <Paper variant="panel-outline" p="xs" data-selected>
+          Paper panel-outline, selected
+        </Paper>
         <Group>
           <Button variant="default">Cancel (Mantine default)</Button>
           <Button variant="card-outline">Cancel (card-outline)</Button>

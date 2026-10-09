@@ -144,6 +144,18 @@
   background-color: var(--tk-panel);
 }
 
+/* Either outline card marked `data-selected` rings in the accent, as a
+   ground card does. */
+.paperRoot[data-variant='soft-outline'][data-selected] {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: -0.75px;
+}
+
+.paperRoot[data-variant='panel-outline'][data-selected] {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: -0.75px;
+}
+
 /* Table's `variant="soft"`: a table inside a card. Its rules take the soft
    line step and its header row the panel surface. Each body row draws its
    rule above it, so the header carries none and the last row ends on the

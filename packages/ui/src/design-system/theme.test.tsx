@@ -276,6 +276,16 @@ describe('outline papers', () => {
     }
   });
 
+  it('ring in the accent when selected, as a ground card does', () => {
+    for (const variant of ['soft-outline', 'panel-outline']) {
+      const block = rule(
+        `\\.paperRoot\\[data-variant='${variant}'\\]\\[data-selected\\]`
+      );
+      expect(block).toContain('outline: 1.5px solid var(--tk-fill-accent)');
+      expect(block).toContain('outline-offset: -0.75px');
+    }
+  });
+
   it('leave a soft-outline card on the surface it sits on, and fill a panel-outline one with the panel', () => {
     expect(rule("\\.paperRoot\\[data-variant='soft-outline'\\]")).toContain(
       'background-color: transparent'
