@@ -31,10 +31,19 @@ function settingsFor(page: Page, name: string) {
   });
 }
 
+function anySettings(page: Page) {
+  return page.getByRole('dialog', { name: /^settings for / });
+}
+
+/** The tunnel has no table row, so no gear: its modal opens from the header
+    tunnel badge. */
+const TUNNEL = 'cloudflared';
+
 /** Fails within 2s on a missing dialog, so a red run names the dialog rather
     than a later control or the test's own timeout. */
 async function openSettings(page: Page, name: string): Promise<Locator> {
-  await gearFor(page, name).click();
+  if (name === TUNNEL) await page.locator('button.tunnel-badge').click();
+  else await gearFor(page, name).click();
   const dlg = settingsFor(page, name);
   await dlg.waitFor({ state: 'visible', timeout: 2000 });
   return dlg;
@@ -150,13 +159,13 @@ test('switch, restart, and site-link clicks do not open the modal', async () => 
     await rowFor(page, 'forecast')
       .locator('[data-part="switch-control"]')
       .click();
-    expect(await page.locator('.app-settings-overlay').count()).toBe(0);
+    expect(await anySettings(page).count()).toBe(0);
 
     await rowFor(page, 'atlas').locator('[aria-label="restart atlas"]').click();
-    expect(await page.locator('.app-settings-overlay').count()).toBe(0);
+    expect(await anySettings(page).count()).toBe(0);
 
     await rowFor(page, 'atlas').locator('a[target="_blank"]').first().click();
-    expect(await page.locator('.app-settings-overlay').count()).toBe(0);
+    expect(await anySettings(page).count()).toBe(0);
 
     // The negatives above only mean something if the gear does open it.
     await openSettings(page, 'atlas');
@@ -295,7 +304,9 @@ test('header: name, ownership badge, and a new-tab URL only while healthy', asyn
       await dlg.getByText('mattstack', { exact: true }).count()
     ).toBeGreaterThan(0);
     expect(await dlg.getByText('your app', { exact: true }).count()).toBe(0);
-    expect(await dlg.locator('a[target="_blank"]').count()).toBeGreaterThan(0);
+    expect(
+      await block(dlg, 'status').locator('a[target="_blank"]').count()
+    ).toBeGreaterThan(0);
     await closeSettings(page, 'atlas');
 
     dlg = await openSettings(page, 'orbit');
@@ -304,7 +315,9 @@ test('header: name, ownership badge, and a new-tab URL only while healthy', asyn
     await closeSettings(page, 'orbit');
 
     dlg = await openSettings(page, 'ledger');
-    expect(await dlg.locator('a[target="_blank"]').count()).toBe(0);
+    expect(
+      await block(dlg, 'status').locator('a[target="_blank"]').count()
+    ).toBe(0);
   });
 }, 15000);
 
@@ -339,6 +352,7 @@ test("the service-without-route header keeps 'no route' (no health to gate it on
   await withBoard(async page => {
     const dlg = await openSettings(page, 'stray-agent');
     expect(await statusPill(dlg).textContent()).toMatch(/no route/i);
+    expect(await statusPill(dlg).textContent()).toContain('exit 1');
   });
 });
 
@@ -476,6 +490,31 @@ test('public host shows no write control in the modal', async () => {
   );
 }, 30000);
 
+test('public host: restart follows canRestart, not canManage', async () => {
+  await withBoard(async page => {
+    await page.route('**/api/v1/status', async route => {
+      const next = structuredClone(fixture) as typeof fixture;
+      next.canManage = false;
+      next.canRestart = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(next),
+      });
+    });
+    // The first status landed before the route; wait for a poll to apply it.
+    await waitUntil(
+      async () => (await page.getByRole('switch').count()) === 0,
+      8000
+    );
+
+    const dlg = await openSettings(page, 'atlas');
+    expect(await button(dlg, 'restart atlas').count()).toBe(1);
+    expect(await dlg.getByRole('switch').count()).toBe(0);
+    expect(await dlg.locator('input, textarea, select').count()).toBe(0);
+  });
+}, 15000);
+
 // ---------------------------------------------------------------------------
 // Port block. orbit carries a live override (3007, base 11007) in the
 // fixture; atlas has none; forecast is self.
@@ -574,6 +613,10 @@ test("port: deck's own row (self) shows its port and offers no override", async 
     expect(await port.textContent()).toContain(
       "overrides don't apply to deck itself"
     );
+    // forecast defensively carries an override (devPort 3000) the server
+    // would reject on self; the block must not surface it.
+    expect(await port.locator('.t-warn').count()).toBe(0);
+    expect(await port.textContent()).not.toContain('3000');
     expect(
       await port.getByRole('textbox', { name: 'dev port override' }).count()
     ).toBe(0);

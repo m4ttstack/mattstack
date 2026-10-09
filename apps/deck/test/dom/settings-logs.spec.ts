@@ -67,6 +67,9 @@ test('Recent errors shows a richer stderr tail landed by the next poll, newest l
     expect(await errors.innerText()).toContain(
       'bun: error: connect ECONNREFUSED\nexited with code 1\nlaunchd: respawning in 10s'
     );
+    expect(await errors.innerText()).not.toContain(
+      'Error: connect ECONNREFUSED'
+    );
   });
 }, 15000);
 
