@@ -150,8 +150,14 @@ export function SettingRow(props: SettingRowProps) {
   const outer = useSettingsRepo();
   if (!props.def.repoScoped) return <RowBody {...props} />;
   const opened = props.open ?? props.defaultOpen ?? null;
+  // An opened row with no project named starts on the first project that
+  // sets it, rather than an empty picker.
+  const firstSet = props.def.repos?.[0]?.identity ?? null;
   return (
-    <RowProjectScope def={props.def} seed={(opened ? linked : null) ?? outer}>
+    <RowProjectScope
+      def={props.def}
+      seed={(opened ? (linked ?? outer ?? firstSet) : null) ?? outer}
+    >
       {def => <RowBody {...props} def={def} />}
     </RowProjectScope>
   );
