@@ -10,14 +10,28 @@
 import { lstatSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, sep } from "path";
-import { claudeTempRoots, isInsideRoot } from "../daemon/upload-guard.ts";
+import { admitResourceRoots, claudeTempRoots, isInsideRoot } from "../daemon/upload-guard.ts";
 import { discoverPacks } from "../skills/packs.ts";
 import { buildPluginRoots, listInstalledPlugins } from "../skills/sources.ts";
 
 type PathCheck = { ok: true } | { ok: false; error: string };
 
-export function tempRootsForThisProcess(): string[] {
-  return claudeTempRoots(typeof process.getuid === "function" ? process.getuid() : null);
+/** Whose roots an integration root must belong to, and the home it must stay narrower than. */
+export type RootAdmission = { uid?: number | null; home?: string };
+
+const processUid = (): number | null => (typeof process.getuid === "function" ? process.getuid() : null);
+
+/**
+ * The Claude Code temp roots, plus each temporary root an integration owns
+ * for its sessions that admitResourceRoots accepts; none is widened past the
+ * folder it names.
+ */
+export function tempRootsForThisProcess(owned: readonly unknown[] = [], admission: RootAdmission = {}): string[] {
+  const uid = admission.uid !== undefined ? admission.uid : processUid();
+  const base = claudeTempRoots(processUid());
+  if (owned.length === 0) return base;
+  const extra = admitResourceRoots(owned, { uid, ...(admission.home !== undefined && { home: admission.home }) });
+  return [...base, ...extra.filter((r) => !base.includes(r))];
 }
 
 /** The plugin listing is a synchronous subprocess inside `rt mcp serve`: unbounded, one hang would stall every tool on the server. */
@@ -32,6 +46,8 @@ export interface ReadRootSources {
   /** Throws when the installed plugins cannot be listed. */
   pluginRoots: () => string[];
   packRoots: () => string[];
+  /** Installed resource roots an integration reports; each must pass admitResourceRoots. */
+  resourceRoots?: () => readonly unknown[];
   now: () => number;
 }
 
@@ -48,7 +64,7 @@ function pluginListCause(e: unknown): string {
  * guard. A failed listing is cached too, so a hung `claude` costs one
  * timeout per TTL rather than one per call.
  */
-export function cachedReadRoots(src: ReadRootSources, ttlMs = READ_ROOTS_TTL_MS): () => ReadRoots {
+export function cachedReadRoots(src: ReadRootSources, ttlMs = READ_ROOTS_TTL_MS, admission: RootAdmission = {}): () => ReadRoots {
   let cache: { at: number; value: ReadRoots } | null = null;
   return () => {
     const now = src.now();
@@ -68,7 +84,15 @@ export function cachedReadRoots(src: ReadRootSources, ttlMs = READ_ROOTS_TTL_MS)
     } catch {
       packs = [];
     }
-    const value: ReadRoots = { roots: [...src.tempRoots(), ...plugins.filter(narrow), ...packs.filter(narrow)] };
+    let resources: string[] = [];
+    try {
+      resources = admitResourceRoots(src.resourceRoots?.() ?? [], {
+        uid: admission.uid !== undefined ? admission.uid : processUid(), ...(admission.home !== undefined && { home: admission.home }),
+      });
+    } catch {
+      resources = [];
+    }
+    const value: ReadRoots = { roots: [...src.tempRoots(), ...plugins.filter(narrow), ...packs.filter(narrow), ...resources] };
     if (pluginListError) value.pluginListError = pluginListError;
     cache = { at: now, value };
     return value;

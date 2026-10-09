@@ -56,13 +56,28 @@ export type CodexHookRun = {
   sourcePath?: string; source?: string; handlerType?: string;
 };
 
+/** What one issued check turn proved: each event's one receipt and the native run that confirmed it. */
+export type CodexDiagnosticProof = {
+  turnId: string; nonce: string; sourcePath: string;
+  events: Partial<Record<CodexPolicyEvent, { receipt: CodexPolicyReceipt; run: string }>>;
+};
+
 export interface CodexPolicyReceipts {
-  /** `sourcePath` is the hooks file the policy adapter inspected for this session; only its runs count. */
+  /**
+   * `sourcePath` is the hooks file the policy adapter inspected for this
+   * session; only its runs count. That turn's evidence which arrived before
+   * its id was known (its receipts, and runs still in the recent buffer) is
+   * counted too, since a hook can fire before turn/start answers.
+   */
   issueDiagnostic(sessionKey: string, generation: number, turnId: string, sourcePath: string): string;
   record(input: CodexReceiptInput): CodexPolicyReceipt;
   /** A native `hook/completed` the live connection saw. */
   observe(run: CodexHookRun): void;
   list(sessionKey: string, generation: number): CodexPolicyReceipt[];
+  /** The issued check turn's proof, from that turn's own evidence, which receipt eviction never drops; null when none was issued for the generation. */
+  proof(sessionKey: string, generation: number): CodexDiagnosticProof | null;
+  /** Whether the live connection recently saw a project command hook from `sourcePath` run for this receipt's thread, turn and event. */
+  ran(receipt: CodexPolicyReceipt, sourcePath: string): boolean;
 }
 
 /** Enough for a launch's diagnostic turn and the turns after it; older receipts prove nothing new. */
@@ -70,6 +85,8 @@ const KEPT_PER_SESSION = 32;
 const SESSIONS_KEPT = 256;
 /** A clean check turn has one receipt and one run per event; past this many the turn is unproven anyway. */
 const DIAGNOSTIC_EVIDENCE_KEPT = 16;
+/** Native runs kept for a check turn whose id is not known yet. */
+const RECENT_RUNS_KEPT = 128;
 
 const NATIVE_EVENT: Record<CodexPolicyEvent, string> = { PreToolUse: "preToolUse", Stop: "stop" };
 /** A hook that blocked shows as `blocked`; one that let the call or the stop through, as `completed`. */
@@ -105,6 +122,7 @@ function proofs(d: Diagnostic): Map<CodexPolicyReceipt, string> {
 export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPolicyReceipts {
   const receipts = new Map<string, CodexPolicyReceipt[]>();
   const diagnostics = new Map<string, Diagnostic>();
+  const recentRuns: CodexHookRun[] = [];
 
   function hold<T>(d: Diagnostic, list: T[], item: T): void {
     if (list.length >= DIAGNOSTIC_EVIDENCE_KEPT) d.overflow = true;
@@ -119,7 +137,14 @@ export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPo
   return {
     issueDiagnostic(sessionKey, generation, turnId, sourcePath) {
       const nonce = randomUUID();
-      diagnostics.set(sessionKey, { generation, turnId, sourcePath, nonce, receipts: [], runs: [], overflow: false });
+      const d: Diagnostic = { generation, turnId, sourcePath, nonce, receipts: [], runs: [], overflow: false };
+      for (const r of receipts.get(sessionKey) ?? []) {
+        if (r.generation === generation && r.turnId === turnId) hold(d, d.receipts, r);
+      }
+      for (const run of recentRuns) {
+        if (run.turnId === turnId && run.sourcePath === sourcePath) hold(d, d.runs, run);
+      }
+      diagnostics.set(sessionKey, d);
       return nonce;
     },
     record(input) {
@@ -137,6 +162,8 @@ export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPo
       return d ? shown(receipt, proofs(d), d.nonce) : { ...receipt };
     },
     observe(run) {
+      recentRuns.push(run);
+      if (recentRuns.length > RECENT_RUNS_KEPT) recentRuns.shift();
       for (const d of diagnostics.values()) {
         if (d.turnId === run.turnId && run.sourcePath === d.sourcePath) hold(d, d.runs, run);
       }
@@ -145,6 +172,18 @@ export function createCodexPolicyReceipts(now: () => number = Date.now): CodexPo
       const d = diagnostics.get(sessionKey);
       const proven = d && d.generation === generation ? proofs(d) : new Map<CodexPolicyReceipt, string>();
       return (receipts.get(sessionKey) ?? []).filter((r) => r.generation === generation).map((r) => shown(r, proven, d?.nonce));
+    },
+    proof(sessionKey, generation) {
+      const d = diagnostics.get(sessionKey);
+      if (!d || d.generation !== generation) return null;
+      const events: CodexDiagnosticProof["events"] = {};
+      for (const [receipt, run] of proofs(d)) events[receipt.event] = { receipt: { ...receipt, nonce: d.nonce, hookRun: run }, run };
+      return { turnId: d.turnId, nonce: d.nonce, sourcePath: d.sourcePath, events };
+    },
+    ran(receipt, sourcePath) {
+      return recentRuns.some((run) => run.threadId === receipt.threadId && run.turnId === receipt.turnId
+        && run.eventName === NATIVE_EVENT[receipt.event] && run.sourcePath === sourcePath
+        && run.source === "project" && run.handlerType === "command");
     },
   };
 }

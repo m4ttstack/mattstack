@@ -3,6 +3,11 @@
  *
  * A launch never sends work. It runs reserve → (policy preflight) →
  * create/resume → bind → verify, and returns a binding ready to take work.
+ * When the launch requires policy, verify is the bound session's own proof
+ * (a Codex check turn runs here, after bind and before any work), recorded
+ * through policy-readiness.ts; a resumed session that required policy
+ * requires it again. Each work submission rechecks that proof against the
+ * policy as installed now, and a changed policy withdraws readiness.
  * The reservation records each step before the side effect it guards, so a
  * launch that times out after making a native session is bound by the next
  * attempt, from any process, without making another; a launch interrupted
@@ -32,14 +37,15 @@ import { builtinRegistry } from "./builtins.ts";
 import {
   createObservationSweep,
   type HarnessIntegration, type IntegrationRegistry, type LaunchHost, type LaunchRequest, type LaunchSurface, type NativeLaunch,
-  type ObservationSweep, type PolicyAdapter, type PolicyProof, type PreparedLaunch, type PreparedPolicy, type SessionAdapter,
+  type ObservationSweep, type PolicyAdapter, type PreparedLaunch, type PreparedPolicy, type SessionAdapter,
   type WorkInput, type WorkReceipt,
 } from "./contracts.ts";
+import { policyCapabilities, recordPolicyProof, requirePolicyProof } from "./policy-readiness.ts";
 import {
   abandonStaleLaunches, claimReservation, createSessionStore, failReservation, isDetachedAttachment, LEGACY_DEFAULT_PROFILE,
   launchHolding, markBindingReady, noteReservationError, pruneReservations, readBindingReadiness, readBindingSelection,
-  readReservation, recordLaunched, unresolvedLaunchOf,
-  type LaunchedNative, type PersistedLaunch, type ReservationRecord, type SessionStore,
+  readReservation, recordLaunched, unresolvedLaunchOf, withdrawBindingReady,
+  type LaunchedNative, type PersistedLaunch, type PolicyProofRecord, type ReservationRecord, type SessionStore,
 } from "./session-store.ts";
 import {
   abandonSubmission, DELIVERED_STATES, findSubmission, listDueSubmissions, listStalePending, listSubmissions, markSubmitting,
@@ -50,6 +56,8 @@ import {
 export type BoundLaunchRequest = LaunchRequest & {
   /** Resume this binding's native session instead of creating one; it keeps its identity and selection. */
   resumeKey?: string;
+  /** The caller agreed to a harmless policy check turn on this resumed session, instead of relying on a retained proof. */
+  policyCheck?: boolean;
 };
 export type PreparedBinding = SessionBinding & { surface?: LaunchSurface };
 export type SubmittedWork = WorkReceipt & { binding: SessionBinding };
@@ -77,7 +85,6 @@ export type LauncherDeps = {
 
 type PolicyReady = { adapter: PolicyAdapter; prepared: PreparedPolicy };
 
-const POLICY_CAPABILITIES: ReadonlySet<Capability> = new Set(["gate-policy", "continuation-policy"]);
 /** Launch failures an adapter reports only when it made nothing, so the reservation may be claimed again. */
 const MADE_NOTHING: ReadonlySet<FaultCode> = new Set(["invalid", "unsupported", "refused"]);
 /** Submission failures an adapter reports only when nothing reached the session. */
@@ -166,13 +173,8 @@ function mergeSelection(stored: Selection | null, asked: Selection): Outcome<Sel
   return ok({ harness: stored.harness, options: options as Selection["options"] });
 }
 
-function proofMismatch(proof: PolicyProof, binding: SessionBinding, prepared: PreparedPolicy, needed: readonly Capability[]): string | undefined {
-  if (proof.sessionKey !== binding.key) return "the policy proof names another session";
-  if (proof.generation !== binding.attachment.generation) return "the policy proof is for another attachment";
-  if (proof.revision !== prepared.revision) return "the policy proof is for another policy revision";
-  const missing = needed.filter((c) => !proof.verified.includes(c));
-  return missing.length > 0 ? `the session never proved: ${missing.join(", ")}` : undefined;
-}
+/** A proof that cannot make this binding ready is a not-ready launch, unless the binding itself moved on. */
+const notReadyUnlessStale = (code: FaultCode): FaultCode => (code === "stale-binding" || code === "transient" ? code : "not-ready");
 
 async function warnOnce(message: string, context: Record<string, unknown>): Promise<void> {
   const { warn } = await import("../ui/warn.ts");
@@ -195,6 +197,8 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
   const prepared = new Map<string, PreparedLaunch>();
   /** Native sessions made here whose `launched` record could not be written. */
   const madeHere = new Map<string, NativeLaunch>();
+  /** Bindings whose resume running now was agreed to take a policy check turn. */
+  const checksAgreed = new Set<string>();
 
   const flight = (...parts: string[]) => [claimToken, ...parts].join("\0");
 
@@ -213,7 +217,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
 
   /** The policy capabilities a binding must prove, from the launch or from what its readiness recorded. */
   function policyNeeded(required: readonly Capability[]): Capability[] {
-    return [...new Set(required.filter((c) => POLICY_CAPABILITIES.has(c)))];
+    return policyCapabilities(required);
   }
 
   /** Read-only preflight; only a request that requires policy ever loads an integration's policy factory. */
@@ -228,16 +232,26 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     integration: HarnessIntegration, binding: SessionBinding, request: LaunchRequest, kind: PreparedLaunch["kind"],
     surface: LaunchSurface | undefined, policy?: Outcome<PolicyReady>,
   ): Promise<Outcome<PreparedBinding>> {
+    const check = checksAgreed.has(binding.key);
     const needed = policyNeeded(request.required);
-    let proof: PolicyProof | undefined;
+    let proof: PolicyProofRecord | undefined;
     if (needed.length > 0) {
+      const session = binding.native.value;
       const ready = policy ?? await preparePolicy(integration, request);
-      if (!ready.ok) return fail("not-ready", `session ${binding.native.value} is bound but its policy could not be prepared: ${ready.error.message}`);
-      const verified = await ready.data.adapter.verify(binding, ready.data.prepared);
-      if (!verified.ok) return fail("not-ready", `session ${binding.native.value} is bound but has not proved its policy: ${verified.error.message}`);
-      const mismatch = proofMismatch(verified.data, binding, ready.data.prepared, needed);
-      if (mismatch) return fail("not-ready", `session ${binding.native.value} is bound but not ready: ${mismatch}`);
-      proof = verified.data;
+      if (!ready.ok) return fail("not-ready", `session ${session} is bound but its policy could not be prepared: ${ready.error.message}`);
+      const { adapter, prepared: inspected } = ready.data;
+      const retained = kind === "resume" ? readBindingReadiness(db, binding.key)?.proof : undefined;
+      const verified = await adapter.verify(binding, inspected, { kind, ...(retained !== undefined && { retained }), ...(check && { check }) });
+      if (!verified.ok) {
+        return fail(notReadyUnlessStale(verified.error.code), `session ${session} is bound but has not proved its policy: ${verified.error.message}`);
+      }
+      if (verified.data.revision !== inspected.revision) return fail("not-ready", `session ${session} is bound but proved another policy revision than the one prepared`);
+      const earned: PolicyProofRecord = { ...verified.data, cwd: inspected.cwd };
+      const recorded = recordPolicyProof(binding, earned, db);
+      if (!recorded.ok) return fail(notReadyUnlessStale(recorded.error.code), `session ${session} is bound but not ready: ${recorded.error.message}`);
+      const current = requirePolicyProof(binding, needed, inspected.revision, db);
+      if (!current.ok) return fail(notReadyUnlessStale(current.error.code), `session ${session} is bound but not ready: ${current.error.message}`);
+      proof = earned;
     }
     const marked = markBindingReady(db, binding.key, binding.attachment.generation, request.required, proof);
     if (!marked.ok) return marked;
@@ -330,10 +344,38 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
       return fail("not-ready", `session ${current.native.value} has not been verified ready for this attachment; nothing was sent`);
     }
     const needed = policyNeeded(readiness.required);
-    if (needed.length > 0 && (readiness.proof?.generation !== current.attachment.generation || readiness.proof.sessionKey !== current.key)) {
-      return fail("not-ready", `session ${current.native.value} has no current policy proof; nothing was sent`);
+    if (needed.length > 0) {
+      const proven = requirePolicyProof(current, needed, readiness.proof?.revision ?? "", db);
+      if (!proven.ok) return fail(proven.error.code, `${proven.error.message}; nothing was sent`);
     }
     return ok(current);
+  }
+
+  /**
+   * A session that required policy takes work only while the policy it
+   * proved is still the one installed: it is inspected again (read only)
+   * right before the native call, and a change withdraws its readiness.
+   */
+  async function policyStillCurrent(current: SessionBinding, integration: HarnessIntegration): Promise<Outcome<void>> {
+    const readiness = readBindingReadiness(db, current.key);
+    const needed = policyNeeded(readiness?.required ?? []);
+    if (needed.length === 0) return ok(undefined);
+    const session = current.native.value;
+    if (!integration.loadPolicy) return fail("not-ready", `${integration.label} can no longer check session ${session}'s policy; nothing was sent`);
+    const launch = prepared.get(current.key)?.request;
+    const cwd = launch?.cwd ?? readiness?.proof?.cwd;
+    const selection = launch?.selection ?? readBindingSelection(db, current.key);
+    if (cwd === undefined || selection === null) return fail("not-ready", `rt cannot tell where session ${session}'s policy was checked; nothing was sent`);
+    const inspected = await preparePolicy(integration, {
+      reservationId: `policy-recheck-${current.key}`, cwd, mode: current.attachment.mode, selection,
+      required: readiness?.required ?? [], access: { readRoots: [] },
+    });
+    const proven = inspected.ok
+      ? requirePolicyProof(current, needed, inspected.data.prepared.revision, db)
+      : fail<void>("not-ready", `session ${session}'s policy could not be checked again: ${inspected.error.message}`);
+    if (proven.ok) return proven;
+    if (proven.error.code === "not-ready") withdrawBindingReady(db, current.key, current.attachment.generation);
+    return fail(proven.error.code, `${proven.error.message}; nothing was sent`);
   }
 
   /**
@@ -388,6 +430,8 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     if (!authorized.ok) return refuse(authorized.error);
     const now = currentFor(current);
     if (!now.ok) return refuse(now.error);
+    const policyNow = await policyStillCurrent(now.data, integration);
+    if (!policyNow.ok) return refuse(policyNow.error);
     const claimed = markSubmitting(db, key, claimToken);
     if (!claimed.ok) return claimed;
     if (!claimed.data) return fail("ambiguous", `work ${input.id} was already being submitted elsewhere; rt will not send it again`);
@@ -432,10 +476,6 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
       const asked = registry.get(request.selection.harness);
       if (!asked) return fail("invalid", `no harness is registered as "${request.selection.harness}"`);
       if (!asked.loadSessions) return fail("unsupported", `${asked.label} has no session integration`);
-      const needed = policyNeeded(request.required);
-      if (needed.length > 0 && !asked.loadPolicy) {
-        return fail("unsupported", `${asked.label} cannot enforce ${needed.join(", ")}, which this launch requires`);
-      }
       const reservation = readReservation(db, request.reservationId);
       if (!reservation) return fail("invalid", "no launch reservation has that id");
 
@@ -452,46 +492,58 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
         }
         selection = merged.data;
       }
+      // A resumed session that had to prove its policy must prove it again; a resume never drops the requirement.
+      const inherited = resumed ? policyNeeded(readBindingReadiness(db, resumed.key)?.required ?? []) : [];
+      const required = [...new Set([...request.required, ...inherited])];
+      const needed = policyNeeded(required);
+      if (needed.length > 0 && !asked.loadPolicy) {
+        return fail("unsupported", `${asked.label} cannot enforce ${needed.join(", ")}, which this launch requires`);
+      }
       const validated = asked.validateOptions(selection.options);
       if (!validated.ok) return validated;
       selection = { harness: selection.harness, options: validated.data };
 
       const unsetEnv = [...new Set([...(request.host?.unsetEnv ?? []), ...foreignSessionEnv(asked.id)])];
-      const { resumeKey: _resumeKey, ...base } = request;
+      const { resumeKey: _resumeKey, policyCheck: _policyCheck, ...base } = request;
       // Every launch is handed one id up front, kept across retries, so a harness that takes rt-minted ids is found by it later.
       const nativeHint = reservation.request?.nativeHint ?? request.nativeHint ?? crypto.randomUUID();
       const adapterRequest: LaunchRequest = {
-        ...base, selection, nativeHint,
+        ...base, selection, nativeHint, required,
         ...((request.host !== undefined || unsetEnv.length > 0) && { host: { ...request.host, unsetEnv } }),
       };
       const kind: PreparedLaunch["kind"] = resumed ? "resume" : "launch";
-
-      if (reservation.boundKey !== undefined) {
-        const bound = store.get(reservation.boundKey);
-        if (!bound) return fail("invalid", `launch reservation ${reservation.id} names a binding that no longer exists`);
-        const readiness = readBindingReadiness(db, bound.key);
-        if (readiness?.generation === bound.attachment.generation) return ok(bound);
-        return finish(asked, bound, adapterRequest, kind, undefined);
-      }
-
-      const inFlight = flight("launch", reservation.id);
-      if (LAUNCHING.has(inFlight)) {
-        return fail("ambiguous", `a launch for reservation ${reservation.id} is still in progress; rt will not start another session for it`);
-      }
-      LAUNCHING.add(inFlight);
+      const agreed = resumed !== undefined && request.policyCheck === true ? resumed.key : undefined;
+      if (agreed !== undefined) checksAgreed.add(agreed);
       try {
-        const persisted: PersistedLaunch = {
-          cwd: request.cwd, mode: request.mode, selection, required: [...request.required],
-          ...(request.resumeKey !== undefined && { resumeKey: request.resumeKey }),
-          nativeHint,
-        };
-        return await launchReserved(asked, reservation, adapterRequest, kind, resumed?.native, persisted);
-      } catch (err) {
-        // A throw says nothing about what the adapter made, so the reservation keeps whatever claim it reached.
-        noteReservationError(db, reservation.id, messageOf(err));
-        return fail("ambiguous", messageOf(err));
+        if (reservation.boundKey !== undefined) {
+          const bound = store.get(reservation.boundKey);
+          if (!bound) return fail("invalid", `launch reservation ${reservation.id} names a binding that no longer exists`);
+          const readiness = readBindingReadiness(db, bound.key);
+          if (readiness?.generation === bound.attachment.generation) return ok(bound);
+          return await finish(asked, bound, adapterRequest, kind, undefined);
+        }
+
+        const inFlight = flight("launch", reservation.id);
+        if (LAUNCHING.has(inFlight)) {
+          return fail("ambiguous", `a launch for reservation ${reservation.id} is still in progress; rt will not start another session for it`);
+        }
+        LAUNCHING.add(inFlight);
+        try {
+          const persisted: PersistedLaunch = {
+            cwd: request.cwd, mode: request.mode, selection, required,
+            ...(request.resumeKey !== undefined && { resumeKey: request.resumeKey }),
+            nativeHint,
+          };
+          return await launchReserved(asked, reservation, adapterRequest, kind, resumed?.native, persisted);
+        } catch (err) {
+          // A throw says nothing about what the adapter made, so the reservation keeps whatever claim it reached.
+          noteReservationError(db, reservation.id, messageOf(err));
+          return fail("ambiguous", messageOf(err));
+        } finally {
+          LAUNCHING.delete(inFlight);
+        }
       } finally {
-        LAUNCHING.delete(inFlight);
+        if (agreed !== undefined) checksAgreed.delete(agreed);
       }
     },
 

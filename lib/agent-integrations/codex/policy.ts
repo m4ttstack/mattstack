@@ -27,13 +27,17 @@ import { dirname, isAbsolute, join } from "path";
 import type {
   CallerContext, Capability, NativeSessionRef, Outcome, SessionBinding,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
-import type { LaunchRequest, PolicyAdapter, PreparedPolicy } from "../contracts.ts";
+import type { LaunchRequest, PolicyAdapter, PolicyProof, PolicyVerifyContext, PreparedPolicy } from "../contracts.ts";
 import type { PolicyDeps } from "../policy.ts";
+import { CODEX_POLICY_CHECK_TURN_TIMEOUT_MS } from "../timeouts.ts";
 import {
   CODEX_POLICY_EVENTS, MAX_ID_LENGTH, MAX_PATH_LENGTH, codexPolicyManifest, parseCodexPolicyHookCommand, plainText,
   validInstallationId, type CodexHookHandler, type CodexPolicyEvent,
 } from "./hook-manifest.ts";
-import type { CodexHookVerdict, CodexThreadEnv, ReceiptPayload } from "./policy-receipts.ts";
+import {
+  codexPolicyReceipts, type CodexHookVerdict, type CodexPolicyReceipt, type CodexPolicyReceipts, type CodexThreadEnv, type ReceiptPayload,
+} from "./policy-receipts.ts";
+import type { CodexSessionAdapter } from "./sessions.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { isRecord } from "./protocol.ts";
 import { codexConfigPath, codexFolderTrust } from "./trust.ts";
@@ -45,7 +49,7 @@ export const CODEX_QUESTION_TOOL = "request_user_input";
 
 export type CodexHookEvent = { event: CodexPolicyEvent; sessionId: string; turnId: string; cwd: string; tool?: string };
 
-function fail<T>(code: "invalid" | "not-ready", message: string): Outcome<T> {
+function fail<T>(code: "invalid" | "not-ready" | "stale-binding", message: string): Outcome<T> {
   return { ok: false, error: { code, message } };
 }
 
@@ -312,7 +316,7 @@ export async function handleCodexHook(input: unknown, deps: CodexHookDeps = {}):
   }
 }
 
-// ─── Adapter (read-only inspection) ──────────────────────────────────────────
+// ─── Adapter (inspection and the session check) ──────────────────────────────
 
 export type CodexPolicyInspectDeps = {
   env?: NodeJS.ProcessEnv;
@@ -323,8 +327,33 @@ export type CodexPolicyInspectDeps = {
   now?: () => number;
 };
 
+export type CodexPolicyChecker = Pick<CodexSessionAdapter, "policyCheck">;
+
+export type CodexPolicyDeps = CodexPolicyInspectDeps & {
+  /** The live connection's session check, or undefined while rt has no connection to the app server. */
+  checker?: () => Promise<CodexPolicyChecker | undefined>;
+  receipts?: CodexPolicyReceipts;
+  sleep?: (ms: number) => Promise<void>;
+  checkTimeoutMs?: number;
+};
+
 type Located = { event: CodexPolicyEvent; sourcePath: string; group: number; handler: number; executable: string; installationId: string; entry: unknown; groupKeys: string[] };
-type Inspection = { revision: string; installation: string };
+/** `manifest` is the revision a receipt from these hooks names; `sourcePath` is set when both entries live in one hooks file. */
+type Inspection = { revision: string; installation: string; manifest: string; sourcePath?: string };
+
+/**
+ * The whole input of a check turn: one harmless shell command, which runs
+ * the manifest's unfiltered PreToolUse entry, and an end, which runs its
+ * Stop entry. It asks no question and touches nothing.
+ */
+export const CODEX_POLICY_CHECK_PROMPT = "This is rt's policy check. Run the shell command `true` exactly once, then reply DONE and nothing else.";
+
+/** Hook evidence trails the turn's end (a receipt crosses the socket, hook/completed follows the hook's exit), so it is polled for briefly. */
+const EVIDENCE_POLL_MS = 100;
+const EVIDENCE_POLLS = 30;
+
+/** The capability each native event's hook enforces. */
+const EVENT_CAPABILITY: Record<CodexPolicyEvent, Capability> = { PreToolUse: "gate-policy", Stop: "continuation-policy" };
 
 const SNAKE: Record<CodexPolicyEvent, string> = { PreToolUse: "pre_tool_use", Stop: "stop" };
 
@@ -458,25 +487,130 @@ function inspect(cwd: string, profile: string, deps: Required<CodexPolicyInspect
   const revision = createHash("sha256")
     .update(JSON.stringify({ manifest: manifest.revision, trusted: trusted.sort(), executable, profile }))
     .digest("hex");
-  return { ok: true, data: { revision, installation: first!.installationId } };
+  const sources = new Set(located.map((l) => l.sourcePath));
+  return {
+    ok: true,
+    data: {
+      revision, installation: first!.installationId, manifest: manifest.revision,
+      ...(sources.size === 1 && { sourcePath: first!.sourcePath }),
+    },
+  };
+}
+
+function healthProblem(receipt: CodexPolicyReceipt, found: Inspection): string | undefined {
+  if (receipt.installation !== found.installation) return "its hook belongs to another installation than the one installed here";
+  if (receipt.revision !== found.manifest) return "its hook ran another hook revision than the one installed (an old loaded worker, or a changed executable)";
+  if (receipt.verdict === "unavailable") return "the session's workflow policy could not decide";
+  if (receipt.verdict === "escaped") return "a stop was let through after repeated continuations";
+  return undefined;
+}
+
+async function liveChecker(): Promise<CodexPolicyChecker | undefined> {
+  const sessions = await (await import("./sessions.ts")).loadCodexSessions();
+  return "policyCheck" in sessions ? sessions as CodexSessionAdapter : undefined;
 }
 
 /**
- * Prepare and verify only read: the project's hook definitions, Codex's
- * folder and hook trust for them, and the executable's bytes. The native
- * hash Codex trusted cannot be recomputed here, so a trusted entry whose
- * definition changed passes inspection; only a receipt from the hook
- * actually running proves it loads.
+ * Prepare only reads: the project's hook definitions, Codex's folder and
+ * hook trust for them, and the executable's bytes. The native hash Codex
+ * trusted cannot be recomputed here, so inspection alone never proves a
+ * session; verify needs the session's own hooks to have run.
+ *
+ * A new session proves it in one check turn: rt issues a nonce for that
+ * turn, and each event (PreToolUse, then Stop) must show exactly one
+ * receipt from rt's hook and one native run from the inspected hooks file,
+ * naming the manifest revision of the inspected executable and a verdict
+ * the policy service reached. A resumed session keeps the proof an earlier
+ * attachment earned only while the hooks are unchanged and its hooks have
+ * been seen running since it resumed; no check turn is started for it unless
+ * its caller agreed to one. The verified capabilities are what the session
+ * proved; whether Codex may be required to enforce them is prepare's
+ * CODEX_PROVEN_POLICY.
  */
-export function createCodexPolicy(overrides: CodexPolicyInspectDeps = {}): PolicyAdapter {
-  const deps: Required<CodexPolicyInspectDeps> = {
+export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapter {
+  const deps: Required<CodexPolicyDeps> = {
     env: overrides.env ?? process.env,
     readFile: overrides.readFile ?? ((path) => readFileSync(path, "utf8")),
     fingerprint: overrides.fingerprint ?? ((path) => createHash("sha256").update(readFileSync(path)).digest("hex")),
     folderTrust: overrides.folderTrust ?? codexFolderTrust,
     now: overrides.now ?? Date.now,
+    checker: overrides.checker ?? liveChecker,
+    receipts: overrides.receipts ?? codexPolicyReceipts(),
+    sleep: overrides.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    checkTimeoutMs: overrides.checkTimeoutMs ?? CODEX_POLICY_CHECK_TURN_TIMEOUT_MS,
   };
   const profileOf = () => canonicalCodexProfile(undefined, deps.env);
+
+  async function checkTurn(binding: SessionBinding, found: Inspection): Promise<Outcome<PolicyProof>> {
+    const sourcePath = found.sourcePath;
+    if (sourcePath === undefined) return fail("not-ready", "rt's policy hooks are split across project layers, so one check turn cannot prove them");
+    const checker = await deps.checker();
+    if (!checker) return fail("not-ready", "rt has no live connection to the Codex app server, so the session's hooks cannot be checked");
+    const { key, attachment: { generation } } = binding;
+    let nonce: string | undefined;
+    const complete = () => {
+      const p = deps.receipts.proof(key, generation);
+      return p !== null && p.nonce === nonce && CODEX_POLICY_EVENTS.every((e) => p.events[e] !== undefined);
+    };
+    const ran = await checker.policyCheck(binding, {
+      prompt: CODEX_POLICY_CHECK_PROMPT,
+      timeoutMs: deps.checkTimeoutMs,
+      issue: (turnId) => { nonce = deps.receipts.issueDiagnostic(key, generation, turnId, sourcePath); },
+      settle: async () => {
+        for (let i = 0; i < EVIDENCE_POLLS && !complete(); i++) await deps.sleep(EVIDENCE_POLL_MS);
+      },
+    });
+    if (!ran.ok) return fail(ran.error.code === "stale-binding" ? "stale-binding" : "not-ready", `the policy check turn did not run: ${ran.error.message}`);
+    if (ran.data.status !== "completed") return fail("not-ready", `the policy check turn ended ${ran.data.status}`);
+    const proof = deps.receipts.proof(key, generation);
+    if (!proof || nonce === undefined || proof.nonce !== nonce || proof.turnId !== ran.data.turnId) {
+      return fail("not-ready", "the policy check turn's evidence was replaced before rt read it");
+    }
+    const runs: Partial<Record<CodexPolicyEvent, string>> = {};
+    for (const event of CODEX_POLICY_EVENTS) {
+      const seen = proof.events[event];
+      if (!seen) {
+        return fail("not-ready", `the session's ${event} policy hook did not run from ${sourcePath} in its check turn with exactly one receipt and one native run`);
+      }
+      const problem = healthProblem(seen.receipt, found);
+      if (problem) return fail("not-ready", `the session's ${event} check failed: ${problem}`);
+      runs[event] = seen.run;
+    }
+    return {
+      ok: true,
+      data: {
+        sessionKey: key, generation, revision: found.revision, observedAt: deps.now(), kind: "receipts",
+        verified: CODEX_POLICY_EVENTS.map((e) => EVENT_CAPABILITY[e]),
+        evidence: { turnId: proof.turnId, nonce, sourcePath, manifest: found.manifest, runs: { PreToolUse: runs.PreToolUse!, Stop: runs.Stop! } },
+      },
+    };
+  }
+
+  function retainedProof(binding: SessionBinding, found: Inspection, retained: PolicyProof | undefined): Outcome<PolicyProof> {
+    const session = binding.native.value;
+    if (!retained || retained.kind !== "receipts" || retained.sessionKey !== binding.key || !retained.evidence) {
+      return fail("not-ready", `session ${session} resumed with no policy proof of its own to keep, so it stays unavailable for managed work until a check is agreed for it`);
+    }
+    if (retained.revision !== found.revision || retained.evidence.manifest !== found.manifest) {
+      return fail("not-ready", `the Codex policy hooks changed since session ${session} proved them, so its proof cannot be kept`);
+    }
+    const sourcePath = found.sourcePath;
+    const seen = deps.receipts.list(binding.key, binding.attachment.generation);
+    const problem = seen.map((r) => healthProblem(r, found)).find((p) => p !== undefined);
+    if (problem) return fail("not-ready", `since session ${session} resumed, ${problem}`);
+    for (const event of CODEX_POLICY_EVENTS) {
+      const healthy = sourcePath !== undefined && seen.some((r) => r.event === event && r.turn === "current" && r.threadEnv === "absent"
+        && deps.receipts.ran(r, sourcePath));
+      if (!healthy) return fail("not-ready", `session ${session} has not shown its ${event} policy hook running since it resumed`);
+    }
+    return {
+      ok: true,
+      data: {
+        sessionKey: binding.key, generation: binding.attachment.generation, revision: found.revision, observedAt: deps.now(),
+        kind: "receipts", verified: [...retained.verified], evidence: { ...retained.evidence, retainedFrom: retained.generation },
+      },
+    };
+  }
 
   return {
     async prepare(request: LaunchRequest): Promise<Outcome<PreparedPolicy>> {
@@ -493,7 +627,7 @@ export function createCodexPolicy(overrides: CodexPolicyInspectDeps = {}): Polic
       };
     },
 
-    async verify(binding: SessionBinding, prepared: PreparedPolicy) {
+    async verify(binding: SessionBinding, prepared: PreparedPolicy, context: PolicyVerifyContext = { kind: "launch" }) {
       if (binding.native.harness !== "codex" || prepared.harness !== "codex") {
         return fail("invalid", "the Codex policy verifies only a Codex session prepared by it");
       }
@@ -501,13 +635,8 @@ export function createCodexPolicy(overrides: CodexPolicyInspectDeps = {}): Polic
       const found = inspect(prepared.cwd, prepared.profile, deps);
       if (!found.ok) return found;
       if (found.data.revision !== prepared.revision) return fail("not-ready", "the Codex policy hooks changed after they were prepared");
-      return {
-        ok: true,
-        data: {
-          sessionKey: binding.key, generation: binding.attachment.generation, revision: found.data.revision,
-          verified: [...CODEX_PROVEN_POLICY], observedAt: deps.now(),
-        },
-      };
+      if (context.kind === "resume" && context.check !== true) return retainedProof(binding, found.data, context.retained);
+      return checkTurn(binding, found.data);
     },
   };
 }

@@ -476,17 +476,34 @@ export function pruneReservations(db: Database, boundBefore: number, idleBefore:
 
 export type PolicyProofRecord = {
   sessionKey: string; generation: number; revision: string; verified: Capability[]; observedAt: number;
+  kind?: "installation" | "receipts";
+  evidence?: {
+    turnId: string; nonce: string; sourcePath: string; manifest: string;
+    runs: { PreToolUse: string; Stop: string }; retainedFrom?: number;
+  };
+  /** The working directory the policy was inspected for, so it can be inspected again before work. */
+  cwd?: string;
 };
 export type BindingReadiness = {
   /** The generation a launch verified ready, or null while unready. */
   generation: number | null;
   required: Capability[];
+  /** The latest policy proof recorded for this binding; it may belong to an earlier generation. */
   proof?: PolicyProofRecord;
 };
 
 const SELECT_READINESS_SQL = "SELECT ready_generation, required, proof, selection FROM agent_session_bindings WHERE key = ?;";
-const MARK_READY_SQL = `UPDATE agent_session_bindings SET ready_generation = ?, required = ?, proof = ?
+const MARK_READY_SQL = `UPDATE agent_session_bindings SET ready_generation = ?, required = ?, proof = COALESCE(?, proof)
 WHERE key = ? AND generation = ?;`;
+const RECORD_PROOF_SQL = "UPDATE agent_session_bindings SET proof = ? WHERE key = ? AND generation = ? AND attachment_state = 'attached';";
+
+/** Records the policy proof one attachment generation earned; a binding that moved on or detached records nothing. */
+export function recordBindingProof(db: Database, key: string, generation: number, proof: PolicyProofRecord): Outcome<void> {
+  return guarded(() => db.query(RECORD_PROOF_SQL).run(JSON.stringify(proof), key, generation).changes > 0
+    ? { ok: true, data: undefined }
+    : fail("stale-binding", `session binding ${key} is no longer attached at generation ${generation}`),
+  "the state database is busy; the policy proof was not recorded");
+}
 
 interface ReadinessRow { ready_generation: number | null; required: string | null; proof: string | null; selection: string | null }
 
@@ -514,7 +531,7 @@ export function withdrawBindingReady(db: Database, key: string, generation: numb
     "the state database is busy; readiness was not withdrawn");
 }
 
-/** Records readiness for exactly `generation`; a binding that has moved on stays unready. */
+/** Records readiness for exactly `generation`; a binding that has moved on stays unready. Without `proof`, the recorded proof is kept. */
 export function markBindingReady(
   db: Database, key: string, generation: number, required: readonly Capability[], proof?: PolicyProofRecord,
 ): Outcome<void> {

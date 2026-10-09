@@ -6,6 +6,8 @@
 
 /** Codex's initialization turn on a fresh thread. */
 export const CODEX_INIT_TURN_TIMEOUT_MS = 180_000;
+/** A Codex policy check turn on a session that must prove its hooks before managed work. */
+export const CODEX_POLICY_CHECK_TURN_TIMEOUT_MS = 180_000;
 /** Reads of a freshly attached Codex terminal before it counts as unattached. */
 export const CODEX_ATTACH_READS = 30;
 export const CODEX_ATTACH_READ_MS = 500;

@@ -83,10 +83,33 @@ export type WorkProbe = { id: string; digest: string; submittedAt?: number };
 export type PreparedPolicy = {
   id: string; harness: HarnessId; profile: string; cwd: string; revision: string;
 };
+/**
+ * installation: the harness loads the inspected hooks at every session start
+ * (Claude Code), so inspecting them is the evidence. receipts: the bound
+ * session ran them in a controller-issued check turn (Codex).
+ */
+export type PolicyProofKind = "installation" | "receipts";
+/** One check turn's correlated evidence: each event's native hook run, under the nonce issued for that turn. */
+export type PolicyReceiptEvidence = {
+  turnId: string; nonce: string; sourcePath: string;
+  /** The manifest revision every receipt named, built from the inspected executable. */
+  manifest: string;
+  runs: { PreToolUse: string; Stop: string };
+  /** Set when a resumed session kept the proof an earlier attachment earned. */
+  retainedFrom?: number;
+};
 export type PolicyProof = {
   sessionKey: string; generation: number; revision: string;
   verified: Capability[]; observedAt: number;
+  kind?: PolicyProofKind;
+  evidence?: PolicyReceiptEvidence;
 };
+/**
+ * What a verification is for. A new session may run a harmless check turn; a
+ * resumed one keeps a still-current retained proof only with observed health,
+ * unless its caller agreed to a check for that session.
+ */
+export type PolicyVerifyContext = { kind: "launch" | "resume"; retained?: PolicyProof; check?: boolean };
 /** In memory only; reconnect must match a durable QuestionBinding first. */
 export type ActiveQuestionHandle = {
   connection: string; requestId: string | number;
@@ -148,7 +171,7 @@ export interface QuestionAdapter {
 }
 export interface PolicyAdapter {
   prepare(request: LaunchRequest): Promise<Outcome<PreparedPolicy>>;
-  verify(binding: SessionBinding, prepared: PreparedPolicy): Promise<Outcome<PolicyProof>>;
+  verify(binding: SessionBinding, prepared: PreparedPolicy, context?: PolicyVerifyContext): Promise<Outcome<PolicyProof>>;
 }
 export interface SkillAdapter {
   inventory(): Promise<Outcome<PluginListEntry[]>>;

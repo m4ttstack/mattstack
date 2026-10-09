@@ -1438,3 +1438,48 @@ describe("round 4: headless bindings as the store records them, keep retries, cl
     expect(h.clock.active).toBe(0);
   });
 });
+
+describe("policy check turn (M6c)", () => {
+  function checkRun(log: string[]) {
+    return {
+      prompt: "check", timeoutMs: 5000,
+      issue: (turnId: string) => { log.push(`issue ${turnId}`); },
+      settle: async () => { log.push("settle"); },
+    };
+  }
+
+  test("subscribes, runs one turn, issues its id, settles, then lets the subscription go", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    const h = await harness({ ...server.handlers, "turn/start": DEFAULTS["turn/start"]! });
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => false });
+    const log: string[] = [];
+    expect(data(await sessions.policyCheck(binding("T1"), checkRun(log)))).toEqual({ turnId: "U0", status: "completed" });
+    expect(log).toEqual(["issue U0", "settle"]);
+    expect(h.ops.filter((op) => op !== "thread/read")).toEqual(["thread/resume", "turn/start", "thread/unsubscribe"]);
+    expect(h.requests("turn/start").map((m) => m.params)).toEqual([{ threadId: "T1", input: [{ type: "text", text: "check" }] }]);
+    expect(h.clock.active).toBe(0);
+  });
+
+  test("a check rt cannot observe, one beside a running turn, or one with the switch off starts nothing", async () => {
+    const log: string[] = [];
+    const unreadable = await harness({ "thread/read": (s, m) => s.push({ id: m.id, error: { code: -32600, message: "boom" } }) });
+    expect(await unreadable.sessions({ enabled: () => true, lifecycle: async () => false }).policyCheck(binding("T1"), checkRun(log)))
+      .toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("cannot be observed") } });
+    expect(unreadable.requests("turn/start")).toEqual([]);
+
+    const server = subscribingServer({ T2: "idle" });
+    const busy = await harness(server.handlers);
+    const sessions = busy.sessions({ enabled: () => true, lifecycle: async () => false });
+    data(await sessions.hold(binding("T2"), "d-work"));
+    busy.socket().push(turn("turn/started", "T2", "W1"));
+    expect(await sessions.policyCheck(binding("T2"), checkRun(log))).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("W1") } });
+    expect(busy.requests("turn/start")).toEqual([]);
+    sessions.release("T2", "d-work");
+
+    const off = await harness();
+    expect(await off.sessions({ enabled: () => false }).policyCheck(binding("T1"), checkRun(log))).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(off.requests("turn/start")).toEqual([]);
+    expect(log).toEqual([]);
+    for (const h of [unreadable, busy, off]) expect(h.clock.active).toBe(0);
+  });
+});

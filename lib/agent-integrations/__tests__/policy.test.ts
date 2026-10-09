@@ -529,7 +529,10 @@ describe("createClaudePolicy", () => {
     const proof = await policy.verify(binding(), prepared.data);
     expect(proof).toEqual({
       ok: true,
-      data: { sessionKey: `key-${SID}`, generation: 3, revision: prepared.data.revision, verified: ["continuation-policy", "gate-policy"], observedAt: 42 },
+      data: {
+        sessionKey: `key-${SID}`, generation: 3, revision: prepared.data.revision, verified: ["continuation-policy", "gate-policy"], observedAt: 42,
+        kind: "installation",
+      },
     });
   });
 

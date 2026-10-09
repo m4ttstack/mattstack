@@ -647,16 +647,16 @@ describe("createCodexPolicy", () => {
     reservationId: "res-1", cwd, mode: "herdr", selection: { harness: "codex", options: {} }, required, access: { readRoots: [] },
   });
 
-  test("prepare and verify inspect the installed hooks, their trust and the executable", async () => {
+  test("prepare and verify inspect the installed hooks, their trust and the executable; inspection alone proves no session", async () => {
     const p = project();
     let bytes = "rt 2.30.0";
-    const policy = createCodexPolicy({ env: p.env, fingerprint: () => bytes, now: () => 7 });
+    const policy = createCodexPolicy({ env: p.env, fingerprint: () => bytes, now: () => 7, checker: async () => undefined });
     const prepared = await policy.prepare(request(p.cwd));
     if (!prepared.ok) throw new Error(prepared.error.message);
     expect(prepared.data).toEqual(expect.objectContaining({ harness: "codex", profile: p.home, cwd: p.cwd }));
     const bound = bindAgent(THREAD, { profile: p.home });
     expect(await policy.verify(bound, prepared.data)).toEqual({
-      ok: true, data: { sessionKey: bound.key, generation: bound.attachment.generation, revision: prepared.data.revision, verified: [], observedAt: 7 },
+      ok: false, error: { code: "not-ready", message: "rt has no live connection to the Codex app server, so the session's hooks cannot be checked" },
     });
 
     bytes = "rt 2.30.0 patched";

@@ -20,7 +20,7 @@
  * allowed root, which can defeat the byte check by other means too.
  */
 import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readSync, realpathSync, statSync, type Stats } from "fs";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "path";
 import { evidenceDir } from "../rt-paths.ts";
 import { isPathComponent, runsRoot } from "../runs/paths.ts";
@@ -144,6 +144,47 @@ export function builtInEvidenceRoot(root: string, uid: number | null): string | 
     return null;
   }
   return st.isDirectory() && st.uid === uid ? resolved : null;
+}
+
+/** Folders anything on the machine may write into, so an integration root equal to or above one confines nothing. */
+function sharedTempRoots(): string[] {
+  return [...new Set(["/tmp", "/private/tmp", tmpdir()].map((p) => safeRealpath(p) ?? p))];
+}
+
+const covers = (root: string, path: string): boolean => root === path || isInsideRoot(path, root);
+
+/**
+ * The integration resource and temporary roots (an installed harness's
+ * plugin or cache folder, a temp folder rt owns for a session) that may
+ * widen a guard, each only as a real directory owned by `uid`, named in
+ * canonical form and narrower than the home directory and every shared
+ * temp folder. A symlinked root, one reached through `..`, a foreign-owned
+ * one, the filesystem root, the home directory or anything above it, and a
+ * shared temp folder itself are dropped, so a root an integration reports
+ * can never become wider than the folder it names.
+ */
+export function admitResourceRoots(candidates: readonly unknown[], opts: { uid: number | null; home?: string }): string[] {
+  if (opts.uid === null) return [];
+  const home = opts.home ?? process.env.HOME ?? homedir();
+  const homeReal = safeRealpath(home) ?? home;
+  const shared = sharedTempRoots();
+  const admitted: string[] = [];
+  for (const root of candidates) {
+    if (!isValidRoot(root) || root === "/" || root.endsWith("/") || root.split("/").some((s) => s === "." || s === "..")) continue;
+    const parentReal = safeRealpath(dirname(root));
+    if (parentReal === null) continue;
+    const resolved = join(parentReal, basename(root));
+    let st: Stats;
+    try {
+      st = lstatSync(resolved);
+    } catch {
+      continue;
+    }
+    if (!st.isDirectory() || st.uid !== opts.uid) continue;
+    if (covers(resolved, homeReal) || shared.some((s) => covers(resolved, s))) continue;
+    if (!admitted.includes(resolved)) admitted.push(resolved);
+  }
+  return admitted;
 }
 
 /**

@@ -116,7 +116,17 @@ export interface CodexSessionAdapter extends SessionAdapter {
   paneLive(binding: SessionBinding): Promise<boolean>;
   /** The turn this connection saw start and not yet end on the bound thread; undefined when it saw none. */
   activeTurn(binding: SessionBinding): string | undefined;
+  /**
+   * Runs one policy check turn on a bound thread that is running nothing:
+   * subscribes so its hook runs are heard, starts the turn, hands its id to
+   * `run.issue`, waits for the turn to end and then for `run.settle`, and
+   * only then lets the subscription go. Not ready when the subscription
+   * cannot be made, since a check rt cannot observe proves nothing.
+   */
+  policyCheck(binding: SessionBinding, run: CodexPolicyCheckRun): Promise<Outcome<{ turnId: string; status: string }>>;
 }
+
+export type CodexPolicyCheckRun = { prompt: string; timeoutMs: number; issue(turnId: string): void; settle(): Promise<void> };
 
 /** unloaded: the app server no longer runs the thread, or closed it (a close follows every unload, live-04). ended: its sessionEnd hook ran. */
 export type CodexThreadGone = "unloaded" | "ended";
@@ -744,6 +754,39 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     live,
     paneLive,
     activeTurn: (binding) => hub.turns(binding.native.value).active,
+    async policyCheck(binding, run) {
+      const valid = checkRef(binding.native);
+      if (!valid.ok) return valid;
+      if (control.closed) return fail("not-ready", "the Codex control connection is closed, so no policy check can run");
+      if (!deps.enabled()) return fail("not-ready", "agent integrations are switched off, so rt does not watch this thread's hooks");
+      const threadId = binding.native.value;
+      if (binding.attachment.mode === "herdr" && !(await paneLive(binding))) {
+        return fail("not-ready", `codex is not running in pane ${binding.attachment.pane ?? "(none)"} for thread ${threadId}`);
+      }
+      const id = `policy-check-${binding.attachment.generation}`;
+      const held = await hold(binding, id);
+      if (!held.ok) return fail(held.error.code === "stale-binding" ? "stale-binding" : "not-ready", held.error.message);
+      try {
+        if (!subscribed.has(threadId)) return fail("not-ready", `rt could not subscribe to thread ${threadId}, so its hook runs cannot be observed`);
+        const busy = hub.turns(threadId).active;
+        if (busy !== undefined) return fail("not-ready", `thread ${threadId} is running turn ${busy}; rt will not start its policy check alongside other work`);
+        let started: unknown;
+        try {
+          started = await control.request("turn/start", { threadId, input: [{ type: "text", text: run.prompt }] });
+        } catch (err) {
+          return fail("not-ready", `the policy check turn on thread ${threadId} did not start: ${messageOf(err)}`);
+        }
+        const turnId = isRecord(started) && isRecord(started.turn) && text(started.turn.id) ? started.turn.id : undefined;
+        if (turnId === undefined) return fail("not-ready", `Codex started the policy check on thread ${threadId} without a turn id`);
+        run.issue(turnId);
+        const status = await hub.waitTurn(threadId, turnId, deps.clock, run.timeoutMs);
+        if (status === undefined) return fail("not-ready", `the policy check turn on thread ${threadId} has not finished`);
+        await run.settle();
+        return ok({ turnId, status });
+      } finally {
+        release(threadId, id);
+      }
+    },
     disown(binding) {
       if (!checkRef(binding.native).ok) return;
       const threadId = binding.native.value;

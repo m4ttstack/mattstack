@@ -179,7 +179,7 @@ export function createClaudePolicy(overrides: ClaudePolicyDeps = {}): PolicyAdap
         ok: true,
         data: {
           sessionKey: binding.key, generation: binding.attachment.generation, revision: found.data.revision,
-          verified: found.data.verified, observedAt: deps.now(),
+          verified: found.data.verified, observedAt: deps.now(), kind: "installation",
         },
       };
     },
