@@ -7,6 +7,7 @@ import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/ag
 import { createClaudeInstall } from "../../agent-integrations/claude/install.ts";
 import { codexMcpStep, codexPolicyStep, createCodexInstall } from "../../agent-integrations/codex/install.ts";
 import { applyCodexPolicyInstall, planCodexPolicyInstall, type ListedPolicyHook, type PolicyInstallDeps } from "../../agent-integrations/codex/policy-install.ts";
+import { homeInUse, runningCodexHomes } from "../../agent-integrations/codex/running.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import { closeStateDb } from "../../state/index.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
@@ -85,6 +86,8 @@ type World = {
   hooksPath: string;
   rtSource: string;
   bindings: SessionBinding[];
+  /** The Codex homes running `codex` processes use; null when `ps` cannot be read. */
+  running: string[] | null;
   spawns: string[][];
   deps: Partial<PolicyInstallDeps>;
   p: Probes;
@@ -132,7 +135,7 @@ function makeWorld(): World {
     return ok();
   };
   const w = {
-    home, codexHome, config: join(codexHome, "config.toml"), hooksPath: join(codexHome, "hooks.json"), rtSource, bindings: [] as SessionBinding[], spawns,
+    home, codexHome, config: join(codexHome, "config.toml"), hooksPath: join(codexHome, "hooks.json"), rtSource, bindings: [] as SessionBinding[], running: [] as string[] | null, spawns,
   } as World;
   w.deps = {
     env: { HOME: home, CODEX_HOME: codexHome },
@@ -141,6 +144,7 @@ function makeWorld(): World {
     listHooks: () => fakeListHooks(),
     attachedSessions: () => w.bindings,
     codexBindings: () => w.bindings,
+    runningCodexHomes: async () => w.running,
     now: () => new Date("2026-10-09T12:00:00Z"),
     randomId: () => "mac-1",
   };
@@ -271,10 +275,27 @@ describe("Codex ownership across update, restore and uninstall", () => {
     expect(existsSync(oldProgram!)).toBe(true);
 
     world.bindings = [];
+    world.running = [world.codexHome];
+    await adapter().reconcile("update", ctxFor());
+    expect(existsSync(oldProgram!)).toBe(true);
+
+    world.running = null;
+    await adapter().reconcile("update", ctxFor());
+    expect(existsSync(oldProgram!)).toBe(true);
+
+    world.running = ["/elsewhere/.codex"];
     await adapter().reconcile("update", ctxFor());
     expect(existsSync(oldProgram!)).toBe(false);
     expect(artifactPaths()).toHaveLength(1);
     expect(Object.keys(stateOf().codexPolicy!.artifacts)).toEqual(artifactPaths());
+  });
+
+  test("a review that is still pending stays visible on every update, which writes nothing", async () => {
+    expect((await adapter().reconcile("restore", ctxFor()))[1]!.state).toBe("needs-you");
+    const before = snapshotFiles();
+    const outcomes = await adapter().reconcile("update", ctxFor());
+    expect(outcomes[1]).toEqual({ state: "needs-you", detail: "Codex's policy hooks still wait on your review. Review them in a terminal: rt setup codex-policy" });
+    expect(snapshotFiles()).toEqual(before);
   });
 
   test("an interrupted update retries to the same end, with one copy of each hook", async () => {
@@ -294,7 +315,7 @@ describe("Codex ownership across update, restore and uninstall", () => {
     expect((await interrupted.reconcile("update", ctxFor()))[1]).toMatchObject({ state: "failed", detail: "rt was stopped" });
 
     const retried = await adapter().reconcile("update", ctxFor());
-    expect(retried[1]!.state).toBe("skipped");
+    expect(retried[1]!.state).toBe("needs-you");
     expect(retried[1]).toMatchObject({ detail: expect.stringContaining("rt setup codex-policy") });
     const hooks = JSON.parse(readFileSync(world.hooksPath, "utf8")) as { hooks: Record<string, unknown[]> };
     expect(Object.values(hooks.hooks).map((groups) => groups.length)).toEqual([1, 1]);
@@ -405,22 +426,90 @@ describe("Codex ownership across update, restore and uninstall", () => {
     expect(after.hooks.state["member-hook"]).toEqual(before.hooks.state["member-hook"]);
   });
 
-  test("uninstall keeps the hook program while a Codex session is attached, and never ends the session", async () => {
+  const programsDir = () => join(world.home, ".mattstack", "rt", "codex-policy", "bin");
+  const keptNotes = (outcomes: StepOutcome[]) => outcomes.filter((o) => o.state === "needs-you").map((o) => ("detail" in o ? o.detail : ""));
+
+  test("uninstall keeps the hook program while Codex runs on that home, never ends it, and says what to do by hand", async () => {
     await installAndReview();
     world.bindings = [binding("t1")];
+    world.running = [world.codexHome];
     const program = artifactPaths();
 
     const outcomes = await adapter().reconcile("uninstall", ctxFor());
-    expect(outcomes.some((o) => o.state === "needs-you" && o.detail.includes("1 Codex session still runs"))).toBe(true);
+    expect(keptNotes(outcomes)).toEqual([
+      `rt's Codex hook program in ${programsDir()}, because Codex is still running on ${world.codexHome}. Quit Codex there, then delete that folder`,
+    ]);
     expect(artifactPaths()).toEqual(program);
     expect(Object.keys(stateOf().codexPolicy!.artifacts)).toEqual(program);
+    expect(stateOf().codexPolicy!.retainedFor).toEqual([world.codexHome]);
     expect(world.bindings).toHaveLength(1);
     expect(world.spawns).toEqual([]);
 
-    world.bindings = [];
+    world.running = [];
     await adapter().reconcile("uninstall", ctxFor());
     expect(artifactPaths()).toEqual([]);
     expect(stateOf().codexPolicy).toBeUndefined();
+  });
+
+  test("a session still recorded as attached after the daemon stopped, with no Codex running, has ended: its program goes", async () => {
+    await installAndReview();
+    world.bindings = [binding("t1")];
+    world.running = [];
+    expect(keptNotes(await adapter().reconcile("uninstall", ctxFor()))).toEqual([]);
+    expect(artifactPaths()).toEqual([]);
+    expect(stateOf().codexPolicy).toBeUndefined();
+  });
+
+  test("when the process table cannot be read the program stays, with a note that needs no rt", async () => {
+    await installAndReview();
+    world.running = null;
+    expect(keptNotes(await adapter().reconcile("uninstall", ctxFor()))).toEqual([
+      `rt's Codex hook program in ${programsDir()}, because rt could not tell whether Codex is still running. Once Codex is closed, delete that folder`,
+    ]);
+    expect(artifactPaths()).toHaveLength(1);
+  });
+
+  test("an interrupted uninstall keeps the record of what it still owns, and forgets what it already took out", async () => {
+    await installAndReview();
+    world.deps.runningCodexHomes = async () => {
+      throw new Error("rt was stopped");
+    };
+    await expect(adapter().reconcile("uninstall", ctxFor())).rejects.toThrow("rt was stopped");
+    const left = stateOf().codexPolicy!;
+    expect(left.hooks).toEqual({});
+    expect(left.trust).toEqual({});
+    expect(Object.keys(left.artifacts)).toEqual(artifactPaths());
+    expect(left.retainedFor).toEqual([world.codexHome]);
+  });
+
+  test("delete-data keeps a hook program a running Codex holds and removes everything else", async () => {
+    await installAndReview();
+    world.running = [world.codexHome];
+    const [program] = artifactPaths();
+    mkdirSync(join(world.home, ".mattstack", "user"), { recursive: true });
+    writeFileSync(join(world.home, ".mattstack", "user", "settings.jsonc"), "{}");
+    const actions = [
+      { id: "integrations.remove" as const, title: "Remove what rt added to Codex", kind: "rt" as const },
+      { id: "data" as const, title: "Delete ~/.mattstack (settings, teams, secrets)", kind: "rt" as const },
+    ];
+    const { ctx } = makeCtx(world.p, { integrations: CODEX_ONLY });
+    const result = await runUninstall(ctx, actions, { detectEditors: () => [], harnessInstalls: [{ id: "codex", loadInstall: async () => adapter() }] });
+    expect(result.ok).toBe(true);
+    expect(existsSync(program!)).toBe(true);
+    expect(readdirSync(join(world.home, ".mattstack"))).toEqual(["rt"]);
+    expect(readdirSync(join(world.home, ".mattstack", "rt"))).toEqual(["codex-policy"]);
+    expect(result.stayed).toContain(`${dirname(program!)} (rt's Codex hook program, which Codex was still running; delete it once Codex is closed)`);
+  });
+
+  test("delete-data with no Codex running removes all of ~/.mattstack", async () => {
+    await installAndReview();
+    const actions = [
+      { id: "integrations.remove" as const, title: "Remove what rt added to Codex", kind: "rt" as const },
+      { id: "data" as const, title: "Delete ~/.mattstack (settings, teams, secrets)", kind: "rt" as const },
+    ];
+    const { ctx } = makeCtx(world.p, { integrations: CODEX_ONLY });
+    expect((await runUninstall(ctx, actions, { detectEditors: () => [], harnessInstalls: [{ id: "codex", loadInstall: async () => adapter() }] })).ok).toBe(true);
+    expect(existsSync(join(world.home, ".mattstack"))).toBe(false);
   });
 
   test("`rt uninstall` plans the Codex removal only where rt recorded writing for Codex, and keeps what the member changed", async () => {
@@ -532,6 +621,32 @@ describe("restore without Claude", () => {
     expect(materialize.state).toBe("done");
     await createCodexInstall({ p, policy: { plan: async () => ({ ok: false, error: { code: "not-ready", message: "Codex is not running" } }) } }).reconcile("restore", ctx);
     expect(spawns.filter(namesClaude)).toEqual([]);
+  });
+});
+
+describe("which Codex homes a running Codex uses", () => {
+  test("reads codex processes and their CODEX_HOME, else HOME's .codex, from the process table", async () => {
+    const calls: string[][] = [];
+    const ps = async (argv: string[]) => {
+      calls.push(argv);
+      if (argv[1] === "-A") {
+        return { exitCode: 0, stdout: ["  11 /opt/homebrew/bin/codex app-server", "  12 /usr/bin/vim notes", "  13 node /usr/local/lib/node_modules/@openai/codex/bin/codex.js", "  14 /bin/zsh -c codex-like"].join("\n") };
+      }
+      return { exitCode: 0, stdout: ["11 /opt/homebrew/bin/codex app-server HOME=/Users/a CODEX_HOME=/Users/a/work codex", "13 node codex.js HOME=/Users/b"].join("\n") };
+    };
+    expect(await runningCodexHomes({ home: "/Users/x", ps })).toEqual(["/Users/a/work", "/Users/b/.codex"]);
+    expect(calls[1]).toEqual(["ps", "eww", "-o", "pid=,command=", "-p", "11,13"]);
+  });
+
+  test("an unreadable process table is unknown, and no codex process is none", async () => {
+    expect(await runningCodexHomes({ home: "/h", ps: async () => ({ exitCode: 1, stdout: "" }) })).toBeNull();
+    expect(await runningCodexHomes({ home: "/h", ps: async () => ({ exitCode: 0, stdout: "  1 /sbin/launchd" }) })).toEqual([]);
+  });
+
+  test("a home ps cut at a space still matches", () => {
+    expect(homeInUse(["/Users/a/My"], "/Users/a/My Codex")).toBe(true);
+    expect(homeInUse(["/Users/a/My"], "/Users/a/Mine")).toBe(false);
+    expect(homeInUse(["/Users/a/.codex"], "/Users/a/.codex")).toBe(true);
   });
 });
 

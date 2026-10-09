@@ -11,7 +11,8 @@
  */
 
 import { existsSync, readFileSync } from "fs";
-import { basename, isAbsolute, join } from "path";
+import { basename, dirname, isAbsolute, join } from "path";
+import { isRecordedCodexProgram } from "../agent-integrations/codex/policy-install.ts";
 import { markDaemonUninstalled } from "../daemon-config.ts";
 import { otherFlavor, processFlavor } from "../flavor.ts";
 import { DEFAULT_EXPOSED, isOurLink, unlink } from "../deps/links.ts";
@@ -362,8 +363,29 @@ async function dataRun(ctx: ApplyContext): Promise<ActionResult> {
   }
   if (!ctx.p.exists(dir)) return { outcome: { state: "skipped", detail: `${dir} does not exist` } };
 
-  ctx.p.removeDir(dir);
-  return { outcome: { state: "done", detail: `Removed ${dir}` } };
+  const keep = keptHookPrograms(ctx.p);
+  removeAllBut(ctx.p, dir, keep);
+  if (keep.length === 0) return { outcome: { state: "done", detail: `Removed ${dir}` } };
+  return {
+    outcome: { state: "done", detail: `Removed ${dir}, except rt's Codex hook program, which Codex is still running` },
+    stayed: keep.map((k) => `${k} (rt's Codex hook program, which Codex was still running; delete it once Codex is closed)`),
+  };
+}
+
+/** The folders of hook programs `integrations.remove` kept for a running Codex: still recorded, so still rt's own bytes at their own path. */
+function keptHookPrograms(p: Probes): string[] {
+  const artifacts = readSetupState(p).codexPolicy?.artifacts ?? {};
+  return Object.entries(artifacts).filter(([path, digest]) => isRecordedCodexProgram(p.home, path, digest)).map(([path]) => dirname(path));
+}
+
+/** Removes `dir` whole, or, when a kept path is inside it, everything in it but that path. */
+function removeAllBut(p: Probes, dir: string, keep: readonly string[]): void {
+  if (keep.includes(dir)) return;
+  if (!keep.some((k) => k.startsWith(`${dir}/`))) {
+    p.removeDir(dir);
+    return;
+  }
+  for (const name of p.readDir(dir)) removeAllBut(p, join(dir, name), keep);
 }
 
 /** Refuses BEFORE trashing anything: `appBundlePath` only ever resolves to a real ".app" bundle root, but this still validates the shape rather than trusting a computed path blindly. */

@@ -55,14 +55,22 @@ export class SwitchedOffRefusal extends Error {
  * The harness an existing agent record runs; undefined while the switch is
  * off, when a resume is always Claude's. A record the board can read that
  * names another harness is refused then, rather than sent Claude's prompt;
- * one it cannot read resumes as it always did.
+ * one it cannot read in `offReadTimeoutMs` resumes as it always did.
  */
 export async function agentHarness(
   agentId: string,
-  io: HarnessIo = defaultHarnessIo
+  io: HarnessIo = defaultHarnessIo,
+  offReadTimeoutMs = 1000
 ): Promise<HarnessId | undefined> {
   if (!io.switchOn()) {
-    const res = await io.agentGet({ id: agentId }).catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<undefined>(resolve => {
+      timer = setTimeout(() => resolve(undefined), offReadTimeoutMs);
+    });
+    const res = await Promise.race([
+      io.agentGet({ id: agentId }).catch(() => undefined),
+      late,
+    ]).finally(() => clearTimeout(timer));
     const provider = res?.ok ? res.data?.provider : undefined;
     if (provider !== undefined && provider !== 'claude')
       throw new SwitchedOffRefusal(provider);

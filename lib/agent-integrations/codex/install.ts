@@ -231,7 +231,7 @@ async function codexPolicyUpdate(ctx: ApplyContext, deps: CodexPolicyStepDeps): 
     if (copied) return { state: "done", detail: "Put back the hook program Codex's policy runs" };
     return rewrote ? { state: "done", detail: "Codex's policy is set up for every repo" } : { state: "skipped", detail: "Already set up" };
   }
-  return { state: "skipped", detail: `Codex's policy hooks still wait on your review. ${review}` };
+  return { state: "needs-you", detail: `Codex's policy hooks still wait on your review. ${review}` };
 }
 
 /** Never approves a review: trust is written only by `rt setup codex-policy` at a terminal. */

@@ -30,6 +30,7 @@ import {
 } from "./hook-manifest.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { isRecord } from "./protocol.ts";
+import { homeInUse, runningCodexHomes } from "./running.ts";
 import { codexConfigPath } from "./trust.ts";
 
 /** One hooks/list entry with the native key, hash and trust Codex reports for it. */
@@ -47,6 +48,8 @@ export type PolicyInstallDeps = {
   attachedSessions: (profile: string) => SessionBinding[] | Promise<SessionBinding[]>;
   /** Every attached Codex session on any profile. */
   codexBindings: () => SessionBinding[] | Promise<SessionBinding[]>;
+  /** The Codex homes running `codex` processes use; null when that cannot be read. */
+  runningCodexHomes: () => Promise<string[] | null>;
   now: () => Date;
   randomId: () => string;
 };
@@ -145,9 +148,12 @@ function defaultDeps(): PolicyInstallDeps {
       return listAttachedBindings(getStateDb(), "codex").filter((b) => b.native.profile === profile);
     },
     codexBindings: async () => {
+      const { stateDbPath } = await import("../../state/db.ts");
+      if (!existsSync(stateDbPath())) return [];
       const [{ listAttachedBindings }, { getStateDb }] = await Promise.all([import("../session-store.ts"), import("../../state/index.ts")]);
       return listAttachedBindings(getStateDb(), "codex");
     },
+    runningCodexHomes: () => runningCodexHomes({ home }),
     now: () => new Date(),
     randomId: () => `mac-${sha256(`${Date.now()}-${Math.random()}`).slice(0, 12)}`,
   };
@@ -936,12 +942,33 @@ function dropArtifact(home: string, path: string, digest: string): ArtifactFate 
   return "removed";
 }
 
-const sessionsWord = (n: number): string => (n === 1 ? "1 Codex session still runs" : `${n} Codex sessions still run`);
+
+/** The Codex homes rt put hooks into, now or before a removal, whose running Codex may hold its hook programs. */
+function hookHomes(cp: CodexPolicyState): string[] {
+  return [...new Set([...Object.keys(cp.hooks), ...Object.keys(cp.trust)].map((p) => dirname(p)).concat(cp.retainedFor ?? []))];
+}
+
+type ProgramUse = { inUse: false } | { inUse: true; homes: string[] } | { inUse: "unknown" };
 
 /**
- * Old hook programs no recorded hook names any more. None goes while any
- * Codex session is attached: a session keeps the hooks it loaded when it
- * started, and rt cannot tell which program those name.
+ * Whether a running Codex may still run rt's hook programs: a `codex`
+ * process on a home rt put hooks into, managed by rt or not. A recorded
+ * session with no such process has ended. An unreadable process table
+ * counts as in use.
+ */
+async function programUse(deps: PolicyInstallDeps, homes: string[]): Promise<ProgramUse> {
+  if (homes.length === 0) return { inUse: false };
+  const running = await deps.runningCodexHomes();
+  if (running === null) return { inUse: "unknown" };
+  const using = homes.filter((h) => homeInUse(running, h));
+  return using.length > 0 ? { inUse: true, homes: using } : { inUse: false };
+}
+
+/**
+ * Old hook programs no recorded hook names any more. None goes while a
+ * Codex session is attached or a `codex` process runs on a home rt put
+ * hooks into: a session keeps the hooks it loaded when it started, and rt
+ * cannot tell which program those name.
  */
 export async function collectCodexPolicyArtifacts(overrides: Partial<PolicyInstallDeps> = {}): Promise<string[]> {
   const deps = withDefaults(overrides);
@@ -949,6 +976,7 @@ export async function collectCodexPolicyArtifacts(overrides: Partial<PolicyInsta
   const owned = policyState(readSetupState(probes));
   if (Object.keys(owned.artifacts).length === 0) return [];
   if ((await deps.codexBindings()).length > 0) return [];
+  if ((await programUse(deps, hookHomes(owned))).inUse !== false) return [];
   const named = new Set(Object.values(owned.hooks).flat().map((c) => parseCodexPolicyHookCommand(c)?.executable));
   const done: string[] = [];
   for (const [path, digest] of Object.entries(owned.artifacts)) {
@@ -967,13 +995,24 @@ export async function collectCodexPolicyArtifacts(overrides: Partial<PolicyInsta
 
 export type PolicyRemoval = { removed: string[]; kept: string[] };
 
+/** Whether `path` is the hook program its recorded digest names and still holds those bytes. */
+export function isRecordedCodexProgram(home: string, path: string, digest: string): boolean {
+  return path === codexPolicyArtifactPath(home, digest) && presentDigest(path) === digest;
+}
+
+/** The folder every hook program rt copied lives under. */
+export function codexPolicyProgramsDir(home: string): string {
+  return join(home, ".mattstack", "rt", "codex-policy", "bin");
+}
+
 /**
  * Takes back what rt recorded writing for Codex's policy: its hook groups
  * in each user hooks file, its trust entries in each config, and its hook
  * programs. Each is removed only while it is still exactly what rt wrote;
  * anything the member changed stays, and so does every other entry. The
- * hook programs stay while a Codex session is attached, since a session
- * runs the hooks it loaded when it started.
+ * hook programs stay while Codex runs on a home rt put hooks into, since a
+ * session runs the hooks it loaded when it started. The record is saved
+ * after each file, so an interrupted run never forgets what it still owns.
  */
 export async function removeCodexPolicyInstall(overrides: Partial<PolicyInstallDeps> = {}): Promise<PolicyRemoval> {
   const deps = withDefaults(overrides);
@@ -981,81 +1020,88 @@ export async function removeCodexPolicyInstall(overrides: Partial<PolicyInstallD
   const owned = policyState(readSetupState(probes));
   const removed: string[] = [];
   const kept: string[] = [];
-  const hooksLeft: Record<string, string[]> = {};
-  const trustLeft: Record<string, { hooks: Record<string, string> }> = {};
+  const save = (patch: (cp: CodexPolicyState) => CodexPolicyState) =>
+    updateSetupState(probes, (s) => {
+      const cp = patch(policyState(s));
+      const next = { ...s };
+      if (Object.keys(cp.hooks).length === 0 && Object.keys(cp.trust).length === 0 && Object.keys(cp.artifacts).length === 0) {
+        delete next.codexPolicy;
+        return next;
+      }
+      const { retainedFor, ...rest } = cp;
+      const reviewed = Object.fromEntries(Object.entries(cp.reviewed).filter(([p]) => p in cp.hooks));
+      next.codexPolicy = { ...rest, reviewed, ...(Object.keys(cp.artifacts).length > 0 && retainedFor?.length ? { retainedFor } : {}) };
+      return next;
+    });
+  const homes = hookHomes(owned);
+  if (Object.keys(owned.artifacts).length > 0) save((cp) => ({ ...cp, retainedFor: homes }));
 
   for (const [path, commands] of Object.entries(owned.hooks)) {
     const text = readText(path);
     const present = policyHookCommandsIn(text);
     const edit = text === null ? { text: null, removed: [], kept: [] } : removeOwnedHooks(text, commands);
+    let left: string[] = [];
     if (edit === null || present === null) {
       kept.push(`rt's policy hooks in ${path}, which rt could not take out without changing the rest of that file`);
-      hooksLeft[path] = commands;
-      continue;
-    }
-    const wrote = edit.text === null ? { ok: true as const } : replaceFile(path, fingerprint(text), edit.text);
-    if (!wrote.ok) {
+      left = commands;
+    } else if (!(edit.text === null ? { ok: true as const } : replaceFile(path, fingerprint(text), edit.text)).ok) {
       kept.push(`rt's policy hooks in ${path}, which changed while rt was removing them`);
-      hooksLeft[path] = commands;
-      continue;
+      left = commands;
+    } else {
+      if (edit.removed.length > 0) removed.push(`rt's policy hooks from ${path}`);
+      if (edit.kept.length > 0) kept.push(`rt's policy hooks in ${path}, which were changed after rt added them`);
+      left = edit.kept;
     }
-    if (edit.removed.length > 0) removed.push(`rt's policy hooks from ${path}`);
-    if (edit.kept.length > 0) {
-      kept.push(`rt's policy hooks in ${path}, which were changed after rt added them`);
-      hooksLeft[path] = edit.kept;
-    }
+    save((cp) => {
+      const hooks = { ...cp.hooks };
+      if (left.length > 0) hooks[path] = left;
+      else delete hooks[path];
+      return { ...cp, hooks };
+    });
   }
 
   for (const [path, { hooks }] of Object.entries(owned.trust)) {
     const text = readText(path);
     const edit = text === null ? { text: null, removed: [], kept: [] } : removeOwnedTrust(text, hooks);
+    let left: Record<string, string> = {};
     if (edit === null) {
       kept.push(`rt's hook trust in ${path}, which rt could not take out without changing your other Codex settings`);
-      trustLeft[path] = { hooks };
-      continue;
-    }
-    const wrote = edit.text === null ? { ok: true as const } : replaceFile(path, fingerprint(text), edit.text);
-    if (!wrote.ok) {
+      left = hooks;
+    } else if (!(edit.text === null ? { ok: true as const } : replaceFile(path, fingerprint(text), edit.text)).ok) {
       kept.push(`rt's hook trust in ${path}, which changed while rt was removing it`);
-      trustLeft[path] = { hooks };
-      continue;
+      left = hooks;
+    } else {
+      if (edit.removed.length > 0) removed.push(`rt's hook trust from ${path}`);
+      if (edit.kept.length > 0) kept.push(`rt's hook trust in ${path}, which was changed after rt wrote it`);
+      left = Object.fromEntries(edit.kept.map((k) => [k, hooks[k]!]));
     }
-    if (edit.removed.length > 0) removed.push(`rt's hook trust from ${path}`);
-    if (edit.kept.length > 0) {
-      kept.push(`rt's hook trust in ${path}, which was changed after rt wrote it`);
-      trustLeft[path] = { hooks: Object.fromEntries(edit.kept.map((k) => [k, hooks[k]!])) };
-    }
+    save((cp) => {
+      const trust = { ...cp.trust };
+      if (Object.keys(left).length > 0) trust[path] = { hooks: left };
+      else delete trust[path];
+      return { ...cp, trust };
+    });
   }
 
-  const artifactsLeft: Record<string, string> = {};
   const artifacts = Object.entries(owned.artifacts);
-  const bindings = artifacts.length > 0 ? (await deps.codexBindings()).length : 0;
-  if (bindings > 0) {
-    Object.assign(artifactsLeft, owned.artifacts);
-    kept.push(`rt's Codex hook program, because ${sessionsWord(bindings)} on it. Run rt uninstall again once ${bindings === 1 ? "it ends" : "they end"} to remove it`);
+  const use = artifacts.length > 0 ? await programUse(deps, homes) : ({ inUse: false } as const);
+  const folder = codexPolicyProgramsDir(deps.home);
+  if (use.inUse === true) {
+    kept.push(`rt's Codex hook program in ${folder}, because Codex is still running on ${use.homes.join(", ")}. Quit Codex there, then delete that folder`);
+  } else if (use.inUse === "unknown") {
+    kept.push(`rt's Codex hook program in ${folder}, because rt could not tell whether Codex is still running. Once Codex is closed, delete that folder`);
   } else {
     for (const [path, digest] of artifacts) {
       const fate = dropArtifact(deps.home, path, digest);
       if (fate === "removed") removed.push(`the hook program ${path}`);
-      if (fate === "changed") {
-        artifactsLeft[path] = digest;
-        kept.push(`${path}, which no longer holds the hook program rt put there`);
+      if (fate === "changed") kept.push(`${path}, which no longer holds the hook program rt put there`);
+      if (fate !== "changed") {
+        save((cp) => {
+          const { [path]: _gone, ...rest } = cp.artifacts;
+          return { ...cp, artifacts: rest };
+        });
       }
     }
   }
-
-  updateSetupState(probes, (s) => {
-    const next = { ...s };
-    const empty = Object.keys(hooksLeft).length === 0 && Object.keys(trustLeft).length === 0 && Object.keys(artifactsLeft).length === 0;
-    if (empty) delete next.codexPolicy;
-    else {
-      const cp = policyState(s);
-      next.codexPolicy = {
-        ...cp, hooks: hooksLeft, trust: trustLeft, artifacts: artifactsLeft,
-        reviewed: Object.fromEntries(Object.entries(cp.reviewed).filter(([p]) => p in hooksLeft)),
-      };
-    }
-    return next;
-  });
   return { removed, kept };
 }

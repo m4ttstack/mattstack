@@ -43,6 +43,8 @@ export interface CodexPolicyState {
   trust: Record<string, { hooks: Record<string, string> }>;
   /** Per hooks file, the review its trust was last written under. */
   reviewed: Record<string, { hooks: string; at: string }>;
+  /** Codex homes whose hooks once named the kept hook programs, so a later run still knows whose running Codex holds them. */
+  retainedFor?: string[];
 }
 
 /**
@@ -80,7 +82,7 @@ export function ownedResources(state: SetupState): OwnedResource[] {
   return out;
 }
 
-const EMPTY_STATE: SetupState ={ v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };
+const EMPTY_STATE: SetupState = { v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };
 
 export function setupStatePath(home: string): string {
   return join(home, ".mattstack", "rt", "setup-state.json");

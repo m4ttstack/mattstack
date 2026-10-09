@@ -845,4 +845,15 @@ describe('the switch turned off after a Codex launch', () => {
       (await resumeWith(unreadable)).prompts[0]!.startsWith('/board:review ')
     ).toBe(true);
   });
+
+  test('a read that does not answer in time resumes as it always did', async () => {
+    const hung: HarnessIo = {
+      ...codexOnly(),
+      switchOn: () => false,
+      agentGet: () => new Promise(() => {}),
+    };
+    const started = Date.now();
+    expect(await agentHarness('agent-1', hung, 20)).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
 });
