@@ -39,8 +39,9 @@ step names in the shell and stay with it until it exits:
   again, or run the same command again: a wait only reads state.
 - Its final output is the result: carry on from the step's wait-finished
   trigger in this same turn.
-- A message the human sends while you wait is the step's words trigger:
-  stop waiting and handle it there.
+- A message the human sends while you wait is the step's words trigger,
+  if it has one: stop waiting and handle it there. A step with none: answer
+  the message in one line and keep waiting.
 
 Never end the turn with the wait unfinished: nothing would bring you back.
 
@@ -101,6 +102,6 @@ Codex loaded for this skill (the path Codex lists for it, or the SKILL.md
 path the launch prompt names). Every `<skill-dir>/...` path is that folder
 joined with the rest. Write it out as an absolute path before you run or
 read it; the shell's working directory is the repository, never the skill.
-When this skill runs a `resolve-args.sh`, run it with
-`--skills-dir "${CODEX_HOME:-$HOME/.codex}/skills" --plugin-list-cmd true`:
-Codex's own skills folder, and no Claude plugin list.
+When this skill runs a `resolve-args.sh`, run it with no options: a Codex
+build of it reads `${CODEX_HOME:-$HOME/.codex}/skills` and lists no Claude
+plugins on its own.

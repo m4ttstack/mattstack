@@ -145,7 +145,8 @@ describe("compiled workflow uses executable native sequence", () => {
       expectNoForeign(codex, "codex");
       expectNoForeign(claude, "claude");
       expect(codex).toContain("`<skill-dir>` is this skill's own folder");
-      expect(codex).toContain("--plugin-list-cmd true");
+      expect(codex).toContain("a Codex\nbuild of it reads");
+      expect(codex).not.toContain("allowed-tools");
     }
     for (const companion of ["respond/gate-step.md", "doctor/diagnose.md", "doctor/entry.md", "gate-cli-recipes/SKILL.md"]) {
       const codex = readFileSync(join(BOARD_CODEX, companion), "utf8");

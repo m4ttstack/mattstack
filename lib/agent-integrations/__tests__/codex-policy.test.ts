@@ -17,7 +17,7 @@ import {
   CODEX_POLICY_HOOK_TIMEOUT_SECONDS, codexPolicyHookCommand, codexPolicyManifest, parseCodexPolicyHookCommand,
 } from "../codex/hook-manifest.ts";
 import {
-  CODEX_FEEDBACK_LIMIT, CODEX_HOOK_PASS, CODEX_PROVEN_POLICY, STOP_CONTINUATION_CAP, STOP_COUNT_MAX_AGE_MS, createCodexPolicy, fileStopCounter,
+  CODEX_FEEDBACK_LIMIT, CODEX_HOOK_PASS, CODEX_STOP_WAIT_CLAUSE, CODEX_WAIT_CLAUSE, codexWording, CODEX_PROVEN_POLICY, STOP_CONTINUATION_CAP, STOP_COUNT_MAX_AGE_MS, createCodexPolicy, fileStopCounter,
   handleCodexHook, parseCodexHook, type CodexHookDeps, type CodexHookResult, type StopCounter,
 } from "../codex/policy.ts";
 import {
@@ -28,6 +28,7 @@ import { createGateQuestions } from "../questions.ts";
 import { createSessionStore } from "../session-store.ts";
 import { runPolicyHook } from "../../../commands/agent-policy-hook.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
+import * as sharedPolicy from "../policy.ts";
 import { stopReason, type ForkCheckPayload, type ForkCheckResponse } from "../policy.ts";
 import type { LaunchRequest } from "../contracts.ts";
 
@@ -278,10 +279,21 @@ describe("handleCodexHook", () => {
     const ask = harness({ event: "PreToolUse", fork: { ok: true, data: { allow: false, subject: "run:r1" } } });
     expect((await handleCodexHook(payload(), viaDaemon(ask.deps))).exitCode).toBe(2);
     const stop = harness({ event: "Stop", snapshots: { "/runs/a/r-open/state.db": ownedRun("r-open") } });
-    expect(await handleCodexHook(stopPayload(), viaDaemon(stop.deps))).toEqual({ exitCode: 2, stdout: "", stderr: stopReason("r-open", "ship") });
+    expect(await handleCodexHook(stopPayload(), viaDaemon(stop.deps))).toEqual({ exitCode: 2, stdout: "", stderr: codexWording(stopReason("r-open", "ship"), sharedPolicy) });
     expect(store.list(bound.key, bound.attachment.generation).map((r) => [r.event, r.verdict, r.turn])).toEqual([
       ["PreToolUse", "refused", "other"], ["Stop", "continue", "other"],
     ]);
+  });
+
+  test("Codex Stop feedback holds the gate wait in the foreground; the shared reason keeps Claude's background wait", async () => {
+    bindAgent(THREAD, { subject: "run:r1" });
+    const { deps } = harness({ event: "Stop", snapshots: { "/runs/a/r-open/state.db": ownedRun("r-open") } });
+    const result = await handleCodexHook(stopPayload(), deps);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain(CODEX_STOP_WAIT_CLAUSE);
+    expect(result.stderr).not.toContain("background");
+    expect(stopReason("r-open", "ship")).toContain(sharedPolicy.STOP_WAIT_CLAUSE);
+    expect(sharedPolicy.forkDenyReason(undefined)).toContain("AskUserQuestion");
   });
 
   test("refused question exits two", async () => {
@@ -294,6 +306,9 @@ describe("handleCodexHook", () => {
       expect(result.stderr).toContain("rt gate ask");
       expect(result.stderr).toContain("request_user_input");
       expect(result.stderr).not.toContain("AskUserQuestion");
+      expect(result.stderr).toContain("outside plan mode ask the questions in words");
+      expect(result.stderr).toContain(`wait: ${CODEX_WAIT_CLAUSE}.`);
+      expect(result.stderr).not.toContain("background");
       expect(result.stderr).toContain(JSON.stringify("run:r1"));
       expect(result.stderr.length).toBeLessThanOrEqual(CODEX_FEEDBACK_LIMIT);
     }
@@ -330,7 +345,7 @@ describe("handleCodexHook", () => {
       const { deps, spies } = harness({ event: "Stop", snapshots: c.snapshots });
       const result = await handleCodexHook(stopPayload(), deps);
       if (c.want === "continue") {
-        expect(result).toEqual({ exitCode: 2, stdout: "", stderr: stopReason("r-open", "ship") });
+        expect(result).toEqual({ exitCode: 2, stdout: "", stderr: codexWording(stopReason("r-open", "ship"), sharedPolicy) });
       } else {
         expect(result).toEqual(CODEX_HOOK_PASS);
       }

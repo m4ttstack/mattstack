@@ -198,14 +198,32 @@ const CLAUDE_VAR_RE = /\$\{CLAUDE_[A-Z_]+\}/;
 
 /**
  * Spells every `${CLAUDE_SKILL_DIR}` path the way the target reads a path to
- * the skill's own files, frontmatter rules included. Throws on a path the
- * target refuses, and on any other `${CLAUDE_*}` variable left behind, since
- * only Claude expands those.
+ * the skill's own files. Throws on a path the target refuses, and on any
+ * other `${CLAUDE_*}` variable left behind, since only Claude expands those.
+ * `allowed-tools` is Claude Code's permission grant; no other target reads
+ * it, so its rules (whose paths no agent fills in) are dropped.
  */
 export function renderForTarget(text: string, target: SkillTarget, where: string): string {
   if (keepsLegacyTokens(target)) return text;
   const lines = text.split("\n");
-  return lines.map((line, i) => {
+  return renderLines(lines, target, where, allowedToolsLines(lines));
+}
+
+/** The frontmatter lines of an `allowed-tools` key: the key's own line and any indented list items under it. */
+function allowedToolsLines(lines: string[]): Set<number> {
+  const out = new Set<number>();
+  if (lines[0] !== "---") return out;
+  for (let i = 1; i < lines.length && lines[i] !== "---"; i++) {
+    if (!/^allowed-tools:/.test(lines[i]!)) continue;
+    out.add(i);
+    for (let j = i + 1; j < lines.length && /^\s+\S/.test(lines[j]!); j++) out.add(j);
+  }
+  return out;
+}
+
+function renderLines(lines: string[], target: SkillTarget, where: string, dropped: Set<number>): string {
+  return lines.flatMap((line, i) => {
+    if (dropped.has(i)) return [];
     const rendered = line.replace(SKILL_DIR_REF_RE, (_raw, tail?: string) => {
       const rel = tail ? tail.slice(1) : "";
       const path = target.resourcePath(rel);
@@ -214,7 +232,7 @@ export function renderForTarget(text: string, target: SkillTarget, where: string
     });
     const left = rendered.match(CLAUDE_VAR_RE);
     if (left) throw new Error(`${where}: ${left[0]} at line ${i + 1} has no ${target.harness} spelling`);
-    return rendered;
+    return [rendered];
   }).join("\n");
 }
 

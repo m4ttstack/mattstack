@@ -11,8 +11,10 @@
 #                               when MATTSTACK_PACK is set, then
 #                               $HOME/.mattstack/skills.jsonc
 #     --skills-dir <path>       installed-skills dir; default ~/.claude/skills
+#                               (a Codex build: $CODEX_HOME/skills)
 #     --plugin-list-cmd <cmd>   space-splittable command printing
 #                               `claude plugin list --json` output
+#                               (a Codex build lists none)
 #   Exit 0: {"ok":true,"skill":<name>,"resolved":{<slot>:{binding,contract,source,path}}}
 #           (unbound optional slot: {<slot>:{"binding":null}})
 #   Exit 1: {"ok":false,"skill":<name>,"errors":[{slot,code,message}...]}
@@ -26,6 +28,14 @@ SKILL_MD="$SKILL_DIR/SKILL.md"
 
 SKILLS_DIR="${HOME}/.claude/skills"
 PLUGIN_LIST_CMD="claude plugin list --json"
+# A Codex build records its harness in skills-target.json beside its skill
+# dirs. The skill dir is reached through a link in Codex's skills folder, so
+# the marker is found from the physical path.
+TARGET_MARKER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)/../skills-target.json"
+if [ -f "$TARGET_MARKER" ] && grep -q '"harness": *"codex"' "$TARGET_MARKER"; then
+  SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"
+  PLUGIN_LIST_CMD="true"
+fi
 MANIFEST=""
 PACK_MANIFEST_MISSING=""
 PACK_WITHOUT_REMOTE=0

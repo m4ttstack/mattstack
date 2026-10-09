@@ -10,7 +10,6 @@ description: >-
   (repos/<slug>/packs/<pack>/skills.jsonc, chosen by MATTSTACK_PACK). Not for
   manual use.
 disable-model-invocation: true
-allowed-tools: Bash(<skill-dir>/scripts/resolve-args.sh:*), Bash(<skill-dir>/scripts/open-gate.sh:*)
 metadata:
   slots: "respond"
   slot-respond: "required mr-respond@2 -- owns processing review feedback on one MR: fetching threads, adjudicating, drafting, implementing decided fixes, and executing posting once handed the decisions. Never presents decision gates or decides what posts. When gate 2 offers nothing, posts the reply-only threads on {plan}."
@@ -49,15 +48,15 @@ Write status **only** by running the injected `--status-bin`:
 <!-- part: harness:status-writes target=codex path=attachments/harness/codex.md lines=9-9 -->
 Run every `<status-bin>` write in this skill in the shell, as written.
 
-<!-- part: harness:resources target=codex path=attachments/harness/codex.md lines=99-106 -->
+<!-- part: harness:resources target=codex path=attachments/harness/codex.md lines=100-107 -->
 `<skill-dir>` is this skill's own folder: the folder holding the SKILL.md
 Codex loaded for this skill (the path Codex lists for it, or the SKILL.md
 path the launch prompt names). Every `<skill-dir>/...` path is that folder
 joined with the rest. Write it out as an absolute path before you run or
 read it; the shell's working directory is the repository, never the skill.
-When this skill runs a `resolve-args.sh`, run it with
-`--skills-dir "${CODEX_HOME:-$HOME/.codex}/skills" --plugin-list-cmd true`:
-Codex's own skills folder, and no Claude plugin list.
+When this skill runs a `resolve-args.sh`, run it with no options: a Codex
+build of it reads `${CODEX_HOME:-$HOME/.codex}/skills` and lists no Claude
+plugins on its own.
 
 The board tracks five in-flight statuses; emit each as you cross the milestone:
 
@@ -561,7 +560,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.26 path=attachments/gate-protocol/SKILL.md lines=7-484 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.26 path=attachments/gate-protocol/SKILL.md lines=7-490 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -783,7 +782,28 @@ and act on its answer, with no `gate_ask`, `rt gate wait` or `gate_answer`
 calls at all. With no registry there is no CAS: the form's answer is the
 decision, and its record, when a run exists, carries `decidedBy` `pane`.
 An unattended pane never presents this form; it fails the stage under a
-run, or ends the verb.
+run, or ends the verb. Put the questions to the human this way:
+
+<!-- part: harness:questions target=codex path=attachments/harness/codex.md lines=13-28 -->
+Codex gives a skill no form tool it can rely on: `request_user_input`
+exists only in plan mode, and a question item Codex shows outside plan mode
+is not an answer anyone gave. So:
+
+- In plan mode, with `request_user_input` in your tools and no gate open
+  for these questions, ask with it; its result is the answer.
+- Otherwise ask in words: each question, then its options as a numbered
+  list (the label, then the description after a dash), saying whether one
+  or several may be picked. Words have no per-call limit, so every chunk
+  goes in the one message. Record whatever the step says to record first,
+  then make the questions this turn's last message and end the turn. The
+  human's reply is the answer: map their words onto the options' values,
+  and carry anything more they said as a note.
+
+Never treat a question you showed as answered until a person's reply, or a
+gate's recorded answer, says so.
+
+Asked in words, the human's reply is this form's answer: act on it here,
+still with no `gate_answer`, rather than through the words trigger.
 
 ### Present the in-pane gate form
 
@@ -868,7 +888,7 @@ turn's last message. On the no-`wake` path the wait command is
 no tool blocks on a gate), one at a time for this gate, and the one line is
 `holding at gate <id>`:
 
-<!-- part: harness:wait target=codex path=attachments/harness/codex.md lines=32-45 -->
+<!-- part: harness:wait target=codex path=attachments/harness/codex.md lines=32-46 -->
 Codex re-invokes nothing when a command finishes after the turn has ended,
 so a wait never runs in the background here and the turn stays open while
 it runs. Print the one line the step gives, then run the wait command this
@@ -879,8 +899,9 @@ step names in the shell and stay with it until it exits:
   again, or run the same command again: a wait only reads state.
 - Its final output is the result: carry on from the step's wait-finished
   trigger in this same turn.
-- A message the human sends while you wait is the step's words trigger:
-  stop waiting and handle it there.
+- A message the human sends while you wait is the step's words trigger,
+  if it has one: stop waiting and handle it there. A step with none: answer
+  the message in one line and keep waiting.
 
 Never end the turn with the wait unfinished: nothing would bring you back.
 
@@ -922,8 +943,9 @@ presentation. A human who opens an unattended pane can interrupt the wait
 and answer in words: the graph's words trigger, which first checks that
 no surface already reconciled the gate.
 
-Under a run, a cancelled form holds on the wait even outside herdr: no form
-is open, so nothing needs the remote-answer Escape. With no run, a cancelled
+Under a run, a cancelled form holds on the wait even outside herdr, unless
+the questions went out in words (then the turn ends with them): no form is
+open, so nothing needs the remote-answer Escape. With no run, a cancelled
 form launches no wait: the human who cancelled is at the pane, the turn ends
 held at the open gate, and the answer arrives later in words.
 

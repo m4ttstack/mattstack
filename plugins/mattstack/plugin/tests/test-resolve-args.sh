@@ -159,6 +159,31 @@ check home_fallback 0 '
   .ok == true
   and .resolved.tiering.binding == "fake:tiering-good"'
 
+# --- case: codex-build -- a wrapper in a Codex build, reached through a link in
+# Codex's skills folder, reads that folder and never runs claude ---
+mkdir -p "$WORK/codex-build/wrapper/scripts" "$WORK/codexhome/skills" "$WORK/fakebin"
+printf '{\n  "harness": "codex"\n}\n' > "$WORK/codex-build/skills-target.json"
+cp "$FIX/wrapper/SKILL.md" "$WORK/codex-build/wrapper/SKILL.md"
+cp "$CANONICAL" "$WORK/codex-build/wrapper/scripts/resolve-args.sh"
+chmod +x "$WORK/codex-build/wrapper/scripts/resolve-args.sh"
+ln -s "$WORK/codex-build/wrapper" "$WORK/codexhome/skills/fixture-wrapper"
+cp -R "$FIX/skills-dir/fake:tiering-good" "$WORK/codexhome/skills/"
+printf '#!/bin/sh\ntouch "%s/claude-ran"\necho "[]"\n' "$WORK" > "$WORK/fakebin/claude"
+chmod +x "$WORK/fakebin/claude"
+OUT=$(PATH="$WORK/fakebin:$PATH" CODEX_HOME="$WORK/codexhome" "$WORK/codexhome/skills/fixture-wrapper/scripts/resolve-args.sh" --manifest "$FIX/manifests/bound.jsonc")
+STATUS=$?
+check codex_build 0 '
+  .ok == true
+  and .resolved.tiering.source == "skills-dir"
+  and (.resolved.tiering.path | contains("codexhome/skills/fake:tiering-good"))'
+if [ -e "$WORK/claude-ran" ]; then
+  echo "FAIL codex_build_no_claude: the Codex build ran claude plugin list"
+  FAIL=$((FAIL + 1))
+else
+  echo "ok   codex_build_no_claude"
+  PASS=$((PASS + 1))
+fi
+
 # --- case: slot-decl-invalid -- bad requirement keyword in the declaration ---
 mkdir -p "$WORK/wrapper-baddecl/scripts"
 cp "$FIX/wrapper-baddecl/SKILL.md" "$WORK/wrapper-baddecl/SKILL.md"

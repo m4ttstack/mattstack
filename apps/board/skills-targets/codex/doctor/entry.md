@@ -246,7 +246,7 @@ milliseconds, `now` in epoch seconds), never less than 5. One runs at a
 time, and the one line names the wait:
 `waiting out the old doctor lease on !<iid> (<n>s)`.
 
-<!-- part: harness:wait target=codex path=attachments/harness/codex.md lines=32-45 -->
+<!-- part: harness:wait target=codex path=attachments/harness/codex.md lines=32-46 -->
 Codex re-invokes nothing when a command finishes after the turn has ended,
 so a wait never runs in the background here and the turn stays open while
 it runs. Print the one line the step gives, then run the wait command this
@@ -257,8 +257,9 @@ step names in the shell and stay with it until it exits:
   again, or run the same command again: a wait only reads state.
 - Its final output is the result: carry on from the step's wait-finished
   trigger in this same turn.
-- A message the human sends while you wait is the step's words trigger:
-  stop waiting and handle it there.
+- A message the human sends while you wait is the step's words trigger,
+  if it has one: stop waiting and handle it there. A step with none: answer
+  the message in one line and keep waiting.
 
 Never end the turn with the wait unfinished: nothing would bring you back.
 

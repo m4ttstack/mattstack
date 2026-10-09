@@ -108,11 +108,15 @@ export function policyAttention(
 
 // ─── Questions ───────────────────────────────────────────────────────────────
 
+/** Claude's native sequence in the refusal; another harness swaps these clauses for its own. */
+export const FORK_FORM_CLAUSE = "form: ask it here with AskUserQuestion, which this hook then allows, and submit the pick with `rt gate answer <id> --answers <json> --by pane`. ";
+export const FORK_WAIT_CLAUSE = "wait: background `rt gate wait <id>` and end the turn.";
+
 export function forkDenyReason(subject: string | undefined): string {
   return "Blocking forks go through the gate protocol first: run `rt gate ask --questions <json>` "
     + "(with --context quoting the decision material), then act on the presentation it returns. "
-    + "form: ask it here with AskUserQuestion, which this hook then allows, and submit the pick with `rt gate answer <id> --answers <json> --by pane`. "
-    + "wait: background `rt gate wait <id>` and end the turn."
+    + FORK_FORM_CLAUSE
+    + FORK_WAIT_CLAUSE
     + (subject ? ` This pane's gates file under ${JSON.stringify(subject)}.` : "");
 }
 
@@ -301,12 +305,15 @@ export function stopStateOf(raw: unknown, sessionId: string, ownerField: "claude
   }
 }
 
+/** Claude's wait in the Stop reason; another harness swaps it for its own. */
+export const STOP_WAIT_CLAUSE = ", fire the background wait per gate-protocol, end the turn). ";
+
 export function stopReason(runId: string, stage: string): string {
   return `Run \`${runId}\` is \`running\` in stage \`${stage}\`. A turn cannot end here in prose. Five exits: continue the stage; `
     + `open the decision (\`rt runs field set gate <scope> --stage ${stage}\`, one sentence, then run gate-protocol's Runs integration with kind \`<scope>\`, stop); `
     + `park it (\`rt runs field set hold "<why>" --stage ${stage}\`); `
     + `close it (the close gate, then \`rt runs run-status --status done|failed|abandoned\`); `
-    + `or arm a gate wait (\`rt runs field set waiting-gate <gateId> --stage ${stage}\`, fire the background wait per gate-protocol, end the turn). `
+    + `or arm a gate wait (\`rt runs field set waiting-gate <gateId> --stage ${stage}\`${STOP_WAIT_CLAUSE}`
     + "If the user asked you something mid-run, the answer is the sentence before the gate.";
 }
 

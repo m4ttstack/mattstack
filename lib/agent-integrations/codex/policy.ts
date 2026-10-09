@@ -198,9 +198,24 @@ function bounded(text: string): string {
   return clean.length <= CODEX_FEEDBACK_LIMIT ? clean : `${clean.slice(0, CODEX_FEEDBACK_LIMIT - 3)}...`;
 }
 
-/** The shared refusal names Claude's question tool; a Codex worker asks with its own. */
-function codexWording(text: string): string {
-  return text.replaceAll("AskUserQuestion", CODEX_QUESTION_TOOL);
+export const CODEX_FORK_FORM_CLAUSE = "form: outside plan mode ask the questions in words, as your skill's gate protocol says; in plan mode ask them with "
+  + `${CODEX_QUESTION_TOOL}, which this hook then allows. Submit the pick with \`rt gate answer <id> --answers <json> --by pane\`. `;
+export const CODEX_WAIT_CLAUSE = "hold on `rt gate wait <id>` in the foreground as your skill's gate protocol says; don't end the turn with the wait unfinished";
+export const CODEX_STOP_WAIT_CLAUSE = `, then ${CODEX_WAIT_CLAUSE.replace("<id>", "<gateId>")}, or end the turn if the gate's questions went out in words). `;
+
+type SharedClauses = { FORK_FORM_CLAUSE: string; FORK_WAIT_CLAUSE: string; STOP_WAIT_CLAUSE: string };
+
+/**
+ * The shared refusal and Stop reason carry Claude's native sequence (the
+ * shell Stop backstop must match them byte for byte), so a Codex worker gets
+ * its own sequence in their place.
+ */
+export function codexWording(text: string, shared: SharedClauses): string {
+  return text
+    .replace(shared.FORK_FORM_CLAUSE, CODEX_FORK_FORM_CLAUSE)
+    .replace(shared.FORK_WAIT_CLAUSE, `wait: ${CODEX_WAIT_CLAUSE}.`)
+    .replace(shared.STOP_WAIT_CLAUSE, CODEX_STOP_WAIT_CLAUSE)
+    .replaceAll("AskUserQuestion", CODEX_QUESTION_TOOL);
 }
 
 function logToWarnings(message: string, context: Record<string, unknown>): void {
@@ -210,17 +225,17 @@ function logToWarnings(message: string, context: Record<string, unknown>): void 
 async function decideAsk(context: CallerContext, hook: CodexHookEvent, deps: CodexHookDeps): Promise<Decision> {
   const subject = (deps.subjectOf ?? (await import("../context.ts")).bindingGateSubject)(context.binding);
   if (subject === undefined) return { verdict: "allow" };
-  const { authorizeWorkflowAction } = await import("../policy.ts");
-  const outcome = await authorizeWorkflowAction(context, "ask", subject, { ...deps.policy, caller: { ...deps.policy?.caller, cwd: hook.cwd } });
+  const shared = await import("../policy.ts");
+  const outcome = await shared.authorizeWorkflowAction(context, "ask", subject, { ...deps.policy, caller: { ...deps.policy?.caller, cwd: hook.cwd } });
   if (outcome.ok) return { verdict: "allow" };
-  if (outcome.error.code === "refused") return { verdict: "refused", feedback: codexWording(outcome.error.message) };
+  if (outcome.error.code === "refused") return { verdict: "refused", feedback: codexWording(outcome.error.message, shared) };
   return { verdict: "unavailable", detail: outcome.error.message };
 }
 
 async function decideStop(context: CallerContext, hook: CodexHookEvent, deps: CodexHookDeps, stops: StopCounter): Promise<Decision> {
   stops.enterTurn(hook.sessionId, hook.turnId);
-  const { inspectStop } = await import("../policy.ts");
-  const outcome = await inspectStop(context, deps.policy);
+  const shared = await import("../policy.ts");
+  const outcome = await shared.inspectStop(context, deps.policy);
   if (!outcome.ok) return { verdict: "unavailable", detail: outcome.error.message };
   if (outcome.data.decision === "allow") {
     stops.clear(hook.sessionId);
@@ -230,7 +245,7 @@ async function decideStop(context: CallerContext, hook: CodexHookEvent, deps: Co
   if (count > STOP_CONTINUATION_CAP) {
     return { verdict: "escaped", detail: `run ${outcome.data.runId} was still open after ${STOP_CONTINUATION_CAP} continuations in one turn, so the turn may end` };
   }
-  return { verdict: "continue", feedback: outcome.data.reason };
+  return { verdict: "continue", feedback: codexWording(outcome.data.reason, shared) };
 }
 
 /**

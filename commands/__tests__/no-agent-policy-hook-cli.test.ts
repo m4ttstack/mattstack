@@ -15,6 +15,8 @@ import { join } from "path";
 
 import { codexPolicyManifest } from "../../lib/agent-integrations/codex/hook-manifest.ts";
 import { createSessionStore } from "../../lib/agent-integrations/session-store.ts";
+import { codexWording } from "../../lib/agent-integrations/codex/policy.ts";
+import * as sharedPolicy from "../../lib/agent-integrations/policy.ts";
 import { forkDenyReason, stopReason } from "../../lib/agent-integrations/policy.ts";
 import { runStart } from "../../lib/runs/start.ts";
 import { openRunDb, stageStart } from "../../lib/runs/write.ts";
@@ -78,7 +80,7 @@ afterAll(() => {
 describe("rt agent policy-hook through the dispatcher (spawned)", () => {
   test("an open run's Stop exits 2 with only the continuation on stderr", async () => {
     const result = await hook("Stop", stopPayload(home));
-    expect(result).toEqual({ code: 2, stdout: "", stderr: stopReason(runId, "ship") });
+    expect(result).toEqual({ code: 2, stdout: "", stderr: codexWording(stopReason(runId, "ship"), sharedPolicy) });
   }, 30_000);
 
   test("an unreadable payload passes with `{}` alone on stdout", async () => {
@@ -105,7 +107,7 @@ describe("rt agent policy-hook through the dispatcher (spawned)", () => {
       }));
       expect(result.code).toBe(2);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toBe(forkDenyReason("run:r1").replaceAll("AskUserQuestion", "request_user_input"));
+      expect(result.stderr).toBe(codexWording(forkDenyReason("run:r1"), sharedPolicy));
       expect(seen).toEqual(["gate:fork-check", "agent:policy-receipt"]);
     } finally {
       server.stop(true);

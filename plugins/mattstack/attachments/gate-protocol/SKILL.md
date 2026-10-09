@@ -225,7 +225,12 @@ and act on its answer, with no `gate_ask`, `rt gate wait` or `gate_answer`
 calls at all. With no registry there is no CAS: the form's answer is the
 decision, and its record, when a run exists, carries `decidedBy` `pane`.
 An unattended pane never presents this form; it fails the stage under a
-run, or ends the verb.
+run, or ends the verb. Put the questions to the human this way:
+
+{{harness:questions}}
+
+Asked in words, the human's reply is this form's answer: act on it here,
+still with no `gate_answer`, rather than through the words trigger.
 
 ### Present the in-pane gate form
 
@@ -334,8 +339,9 @@ presentation. A human who opens an unattended pane can interrupt the wait
 and answer in words: the graph's words trigger, which first checks that
 no surface already reconciled the gate.
 
-Under a run, a cancelled form holds on the wait even outside herdr: no form
-is open, so nothing needs the remote-answer Escape. With no run, a cancelled
+Under a run, a cancelled form holds on the wait even outside herdr, unless
+the questions went out in words (then the turn ends with them): no form is
+open, so nothing needs the remote-answer Escape. With no run, a cancelled
 form launches no wait: the human who cancelled is at the pane, the turn ends
 held at the open gate, and the answer arrives later in words.
 

@@ -171,6 +171,9 @@ The existing mattstack skills already follow this shape.
   `claude plugin list --json` output; default
   `claude plugin list --json`. Overridable so tests run model-free and
   offline. No quoting support inside the command string.
+- A Codex build (its target root's `skills-target.json` names `codex`,
+  found from the skill dir's physical path) defaults `--skills-dir` to
+  `${CODEX_HOME:-$HOME/.codex}/skills` and lists no Claude plugins.
 
 Bound-skill lookup order for a binding `B`:
 1. `<skills-dir>/B/SKILL.md` (the literal directory name, which is how
