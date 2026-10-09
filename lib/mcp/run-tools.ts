@@ -72,7 +72,7 @@ function parseOut(out: string): unknown {
     was never asked to write. The root is realpathed too (tolerating one
     that does not exist yet): a root behind a symlink (macOS /var and /tmp)
     would otherwise fail confinement against the runDb run_start returned. */
-function checkRunDb(runDb: string, env: NodeJS.ProcessEnv, realpath: (p: string) => string): { ok: true; real: string } | { ok: false; error: string } {
+export function checkRunDb(runDb: string, env: NodeJS.ProcessEnv, realpath: (p: string) => string): { ok: true; real: string } | { ok: false; error: string } {
   if (!isAbsolute(runDb)) return { ok: false, error: '"runDb" must be an absolute path' };
   let real: string;
   try { real = realpath(runDb); } catch { return { ok: false, error: `runDb ${runDb} does not resolve` }; }

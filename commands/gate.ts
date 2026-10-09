@@ -34,6 +34,7 @@ import type { Commands, GateRow, RtResponse } from "../packages/rt-client/src/in
 import { parseDuration, nextWaitMs } from "./events.ts";
 import { GATE_FORK_HOOK_TIMEOUT_SECONDS } from "../lib/agent-hooks.ts";
 import { boundCodexGateIdentity, type BoundGateIdentity } from "../lib/agent-integrations/context.ts";
+import { forkDenyReason, forkVerdict } from "../lib/agent-integrations/policy.ts";
 import type { Outcome } from "../packages/rt-client/src/agent-integrations.ts";
 import * as out from "../lib/ui/out.ts";
 
@@ -301,23 +302,19 @@ export function buildForkCheckPayload(
   return payload;
 }
 
-export function forkDenyReason(subject: string | undefined): string {
-  return "Blocking forks go through the gate protocol first: run `rt gate ask --questions <json>` "
-    + "(with --context quoting the decision material), then act on the presentation it returns. "
-    + "form: ask it here with AskUserQuestion, which this hook then allows, and submit the pick with `rt gate answer <id> --answers <json> --by pane`. "
-    + "wait: background `rt gate wait <id>` and end the turn."
-    + (subject ? ` This pane's gates file under ${JSON.stringify(subject)}.` : "");
-}
+export { forkDenyReason };
 
-/** Any failure to get a verdict (daemon down, a daemon that predates the
-    verb) allows: degraded mode stays legal. */
+/** The shared policy's verdict in Claude's hook protocol. An unavailable
+    policy (daemon down, a daemon that predates the verb) allows: degraded
+    mode stays legal. */
 export function forkCheckHookOutput(res: RtResponse<Commands["gate:fork-check"]["data"]> | null): Record<string, unknown> {
-  if (!res || !res.ok || !res.data || res.data.allow) return FORK_CHECK_ALLOW;
+  const verdict = forkVerdict(res);
+  if (verdict.kind !== "deny") return FORK_CHECK_ALLOW;
   return {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: forkDenyReason(res.data.subject),
+      permissionDecisionReason: forkDenyReason(verdict.subject),
     },
   };
 }

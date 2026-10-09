@@ -25,4 +25,5 @@ export const claudeIntegration: HarnessIntegration = {
   loadSessions: async () => (await import("./sessions.ts")).createClaudeSessions(),
   loadMessaging: async () => (await import("./messaging.ts")).createClaudeMessaging(),
   loadQuestions: async () => (await import("./questions.ts")).createClaudeQuestions(),
+  loadPolicy: async () => (await import("./policy.ts")).createClaudePolicy(),
 };

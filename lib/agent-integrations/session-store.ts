@@ -506,6 +506,14 @@ export function readBindingSelection(db: Database, key: string): Selection | nul
   return parseJson<Selection>(row?.selection ?? null) ?? null;
 }
 
+const WITHDRAW_READY_SQL = "UPDATE agent_session_bindings SET ready_generation = NULL WHERE key = ? AND ready_generation = ?;";
+
+/** Withdraws readiness recorded for exactly `generation`; a later generation's readiness is not this caller's to withdraw. */
+export function withdrawBindingReady(db: Database, key: string, generation: number): Outcome<boolean> {
+  return guarded(() => ({ ok: true, data: db.query(WITHDRAW_READY_SQL).run(key, generation).changes > 0 }),
+    "the state database is busy; readiness was not withdrawn");
+}
+
 /** Records readiness for exactly `generation`; a binding that has moved on stays unready. */
 export function markBindingReady(
   db: Database, key: string, generation: number, required: readonly Capability[], proof?: PolicyProofRecord,

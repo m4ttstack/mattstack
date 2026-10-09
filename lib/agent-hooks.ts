@@ -79,7 +79,8 @@ export interface GateForkHookSettings {
   hooks: { PreToolUse: [GateForkHookEntry] };
 }
 
-function gateForkHookEntry(hookPath: string): GateForkHookEntry {
+/** The one AskUserQuestion entry every injection writes; the Claude policy fingerprints this same definition. */
+export function gateForkHookEntry(hookPath: string): GateForkHookEntry {
   return { matcher: "AskUserQuestion", hooks: [{ type: "command", command: hookPath, timeout: GATE_FORK_HOOK_TIMEOUT_SECONDS }] };
 }
 
