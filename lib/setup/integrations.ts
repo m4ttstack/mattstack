@@ -44,7 +44,7 @@ export interface ValidateCtx {
    */
   declaredHost?: string | null;
   team: { slug: string; remote: string | null };
-  /** mattstack.integrations.linear.teamKey, when the pack declares one — undeclared means "any team the token can see" is fine. */
+  /** the active team's `linear.team` in mattstack.directory, when it declares one — undeclared means "any team the token can see" is fine. */
   linearTeamKey?: string | null;
 }
 

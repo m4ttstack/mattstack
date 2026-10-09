@@ -1,8 +1,13 @@
 import { expect, test } from 'bun:test';
 
+import { NO_REVIEW_CHANNEL } from '../../../codeowner-posts.ts';
 import type { BoardMR } from '../../../data.ts';
 import type { ActionResult } from '../../api.ts';
-import { needsThreadLookup, startSlackPost } from '../slack-post-flow.ts';
+import {
+  needsThreadLookup,
+  slackRefusal,
+  startSlackPost,
+} from '../slack-post-flow.ts';
 
 const REPO = 'gitlab.example.com/acme/webapp';
 const URL = 'https://gitlab.example.com/acme/webapp/-/merge_requests/7';
@@ -145,6 +150,62 @@ test('a failed code owner check still posts the team request', async () => {
   );
   expect(events).toContain('reload');
   expect(opened).toEqual([]);
+});
+
+test('no review channel shows the refusal and posts nothing', async () => {
+  const { done, events } = run({
+    '/slack/owners/preview': fail(
+      400,
+      'Add a review channel for your team to the team directory'
+    ),
+  });
+  await done;
+  expect(events).toContain(
+    'fail Add a review channel for your team to the team directory'
+  );
+  expect(events.filter(e => e.startsWith('post /slack/post'))).toEqual([]);
+});
+
+test('a direct team post refused for no review channel shows the refusal', async () => {
+  const { done, events } = run(
+    { '/slack/post': fail(400, NO_REVIEW_CHANNEL) },
+    mr(),
+    []
+  );
+  await done;
+  expect(events).toEqual([
+    'toast posting !7 to slack…',
+    `post /slack/post {"mrUrls":["${URL}"]}`,
+    `fail ${NO_REVIEW_CHANNEL}`,
+  ]);
+});
+
+test('a team post after a failed check shows the refusal, not the status', async () => {
+  const { done, events } = run({
+    '/slack/owners/preview': fail(502, 'could not read approvals'),
+    '/slack/post': fail(400, NO_REVIEW_CHANNEL),
+  });
+  await done;
+  expect(events).toContain(`fail ${NO_REVIEW_CHANNEL}`);
+});
+
+test('only the no review channel refusal reads as one', () => {
+  expect(slackRefusal(fail(400, NO_REVIEW_CHANNEL))).toBe(NO_REVIEW_CHANNEL);
+  expect(slackRefusal(fail(400, 'bad request'))).toBeNull();
+  expect(slackRefusal(fail(502, NO_REVIEW_CHANNEL))).toBeNull();
+  expect(slackRefusal(ok({ ok: true }))).toBeNull();
+});
+
+test('any other refused preview still falls back to the team post', async () => {
+  const { done, events } = run({
+    '/slack/owners/preview': fail(
+      400,
+      'g/p: no rtRepos mapping in config.json'
+    ),
+    '/slack/post': ok({ ok: true, posted: 1 }),
+  });
+  await done;
+  expect(events).toContain(`post /slack/post {"mrUrls":["${URL}"]}`);
 });
 
 test('nothing left to post says so instead of opening an empty dialog', async () => {

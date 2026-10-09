@@ -21,7 +21,7 @@ import { appBundlePath, linkPath } from "../../deps/resolve.ts";
 import { interceptsOutOfDate, localBinDir, shimReport } from "../../endpoint/shim.ts";
 import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, orgDirUnder, orgsDirUnder, RT_DIR_LABEL, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { detectShellFrom, END_MARKER, MARKER, shellRcPathFor } from "../../shell-integration.ts";
+import { detectShellFrom, END_MARKER, MARKER, repairLegacyBlock, shellRcPathFor } from "../../shell-integration.ts";
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
 import { layoutSentence, orgLayoutState, updateSentence } from "../../team/org-layout.ts";
 import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
@@ -284,6 +284,7 @@ function extensionRow(p: Probes): Row {
 
 /** `path.link` is the step that writes the rc block; `--only` runs just it (lib/setup/apply.ts). */
 const ADD_TO_SHELL_ACTION: Action = { type: "run", label: "Add to shell", verb: ["setup", "apply", "--only", "path.link"] };
+const UPDATE_SHELL_BLOCK_ACTION: Action = { ...ADD_TO_SHELL_ACTION, label: "Update shell block" };
 
 function shellRow(p: Probes): Row {
   const base = {
@@ -299,9 +300,12 @@ function shellRow(p: Probes): Row {
   if (rc) {
     const content = p.readFile(rc) ?? "";
     if (content.includes("rtcd")) return row({ ...base, status: "ready", detail: `The rtcd alias is in ${rc}` });
-    // path.link cannot bound an old block with no end marker, so its button would succeed and change nothing.
+    // An old block with no end marker: path.link updates it when rt can tell its own lines apart, else its button would change nothing.
     const markerAt = content.indexOf(MARKER);
     if (markerAt !== -1 && content.indexOf(END_MARKER, markerAt) === -1) {
+      if (shell !== "fish" && repairLegacyBlock(content) !== null) {
+        return row({ ...base, status: "needs-you", detail: `An old rt block in ${rc} needs updating`, action: UPDATE_SHELL_BLOCK_ACTION });
+      }
       return row({ ...base, status: "needs-you", detail: `Remove the old rt block from ${rc} by hand, then Re-check`, action: RECHECK_ACTION });
     }
     return row({ ...base, status: "needs-you", detail: "Shell integration not added yet", action: ADD_TO_SHELL_ACTION });

@@ -1,5 +1,9 @@
 import { channelFromCodeownerSection } from '@mattstack/glance';
 
+/** The refusal when the active team has no review channel in the directory; the client matches it exactly. */
+export const NO_REVIEW_CHANNEL =
+  'Add a review channel for your team to the team directory';
+
 export interface OwnerRule {
   section: string;
   approved: boolean;
@@ -54,12 +58,13 @@ export function planOwnersPost(
   opts: {
     posted: Record<string, string>;
     slack?: Map<string, { member: boolean }>;
-    ownSections?: readonly string[];
-    /** The team request's channel: a section naming it is the team's own. */
-    teamChannel?: string;
+    /** My team's channels from the directory; a section naming one is mine. */
+    ownChannels?: readonly string[];
   }
 ): OwnersPostPlan {
-  const own = new Set(opts.ownSections ?? []);
+  const own = new Set(
+    (opts.ownChannels ?? []).map(c => c.replace(/^#/, '').toLowerCase())
+  );
   const approvedBySection = new Map<string, boolean>();
   for (const rule of rules) {
     approvedBySection.set(
@@ -71,15 +76,11 @@ export function planOwnersPost(
   const skipped: OwnerSkip[] = [];
   const ownSections: string[] = [];
   for (const [section, approved] of approvedBySection) {
-    if (
-      own.has(section) ||
-      (!!opts.teamChannel &&
-        channelFromCodeownerSection(section) === opts.teamChannel)
-    ) {
+    const channel = channelFromCodeownerSection(section);
+    if (channel && own.has(channel.toLowerCase())) {
       if (!approved) ownSections.push(section);
       continue;
     }
-    const channel = channelFromCodeownerSection(section);
     if (!channel) {
       skipped.push({ section, reason: 'no-channel' });
     } else if (approved) {

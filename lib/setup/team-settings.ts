@@ -23,6 +23,8 @@ import { logCliEvent } from "../cli-logger.ts";
 import { parseStoreText } from "../settings/stores.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { parseRemoteUrl } from "../enrich.ts";
+import { activeTeam } from "../../packages/rt-client/src/settings/active-team.ts";
+import { directoryEntry, type TeamDirectory } from "../../packages/rt-client/src/settings/team-directory.ts";
 import { orgDirUnder, orgsDirUnder } from "../rt-paths.ts";
 import type { Probes } from "./probes.ts";
 
@@ -107,11 +109,14 @@ export function legacyDeclaredForge(p: Pick<Probes, "home" | "readFile">, slug: 
   return { host, provider };
 }
 
-export function readTeamSnapshot(p: Probes, slug: string, opts: { read?: SettingsReader; warn?: (message: string) => void } = {}): TeamSnapshot {
+export function readTeamSnapshot(p: Probes, slug: string, opts: { read?: SettingsReader; warn?: (message: string) => void; team?: string | null } = {}): TeamSnapshot {
   const warn = opts.warn ?? defaultWarn;
   const read = opts.read ?? defaultReader(warn);
 
-  const integrations = read<TeamIntegrations>("mattstack.integrations") ?? {};
+  const { linear: _retired, ...declared } = read<TeamIntegrations>("mattstack.integrations") ?? {};
+  const team = opts.team !== undefined ? opts.team : activeTeam().team;
+  const linearTeam = directoryEntry(read<TeamDirectory>("mattstack.directory"), team)?.linear?.team;
+  const integrations: TeamIntegrations = linearTeam ? { ...declared, linear: { teamKey: linearTeam } } : declared;
   const tracking = read<{ repos?: Record<string, unknown> }>("mattstack.tracking");
   const marketplaces = read<unknown>("claude.marketplaces");
   const plugins = read<unknown>("claude.plugins");

@@ -47,6 +47,9 @@ export function evidenceDir(): string {
   return join(mattstackHome(), "evidence");
 }
 
+/** rt's state dir before RT-33, as rc files spell it; shell-integration.ts recognises the history hook rt wrote there. */
+export const LEGACY_RT_DIR_IN_RC = "~/.rt";
+
 /** ~/.mattstack/rt — the root of all rt state. App-level files live directly here. */
 export function rtDir(): string {
   return join(home(), ".mattstack", "rt");

@@ -63,7 +63,6 @@ a workspace with a custom `:comment:` emoji needs only:
 
 ```json
 "slack": {
-  "channel": "code-review",
   "emoji": { "commented": "comment" }
 }
 ```
@@ -75,9 +74,12 @@ launched review starts (👀) or lands (💬 or ✅).
 
 ## Post templates
 
+The channel the board posts to is your team's `review` channel in the org's
+`mattstack.directory` (`rt settings set mattstack.directory ... --scope org`).
+The board has no default channel.
+
 | field | meaning |
 |---|---|
-| `channel` | channel name, no `#`, where review requests live and where "post to slack" posts |
 | `singleTemplate` | template for one MR, used for both clipboard copy and posting. Default `{title}: {url}` |
 | `multiHeader` | header line for a multi-MR summary. Default `{count} MR's ready for review :pray:` |
 | `multiItem` | per-MR line under the header. Default `- {title}: {url}` |

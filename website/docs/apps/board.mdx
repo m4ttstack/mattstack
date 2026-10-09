@@ -73,7 +73,7 @@ The emoji come from the `emoji` key of the `board.slack` setting; the defaults a
 
 ### Finding the Slack thread
 
-The board finds each MR's Slack post on its own: the first post in the MR's channel that contains the MR's link. It looks every 15 minutes, before every post, and when you open the menu of an MR with no post on record. The MR's channel is the board's Slack channel, or a code owners tab's own channel for an MR that tab collects. The board searches top-level posts from the last 90 days.
+The board finds each MR's Slack post on its own: the first post in the MR's channel that contains the MR's link. It looks every 15 minutes, before every post, and when you open the menu of an MR with no post on record. The MR's channel is your team's review channel, or a code owners tab's own channel for an MR that tab collects. The board searches top-level posts from the last 90 days.
 
 ### agent actions
 
@@ -200,7 +200,7 @@ Everything here but **copy for slack** needs a local board with Slack connected.
 
 #### Post to slack
 
-On your own MR, **post to slack** posts the MR to your team's Slack channel under your name. If a post with the MR's link is already there, it posts nothing and links the row to that post instead. Once posted, the item is greyed "posted".
+On your own MR, **post to slack** posts the MR to your team's review channel under your name. That channel is your team's first channel of kind `review` in the [team directory](/start/teams#team-directory); a team can pick another kind with the `reviewKind` key of the `board.slack` setting. When your team has none, the board refuses: "Add a review channel for your team to the team directory". If a post with the MR's link is already there, it posts nothing and links the row to that post instead. Once posted, the item is greyed "posted".
 
 In a repo whose `board.codeowners` setting turns on `slack.fromSectionName`, code owners sections can ask for review in Slack too. Each section names its channel as the last `#channel` in the section's name. A click first checks the MR's approvals:
 
@@ -213,7 +213,7 @@ In these repos the item is never greyed, since a push can reset approvals.
 
 The dialog lists one switch per channel, each on by default:
 
-- The team channel comes first, labelled "team review". Your team's own code owners sections ride on this row: the section each codeowners tab in `board.tabs` shows, plus any section that names the team channel. Your own sections' channel is where other teams ask you, so it is never offered for your own MR.
+- The team channel comes first, labelled "team review". Your team's own code owners sections ride on this row: any section whose channel is one of your team's channels in the team directory. Your own sections' channel is where other teams ask you, so it is never offered for your own MR.
 - One switch for each other team's code owners channel still to ask.
 
 Below them, the dialog lists what it will not post, each with its reason:
@@ -427,7 +427,8 @@ These are registry keys, so you can read them with `rt settings get <key>`. The 
 | `board.gitlabHost` | GitLab host the board polls for MRs, shared by the whole team. |
 | `board.projects` | GitLab projects the board tracks, shared by the whole team. |
 | `board.title` | Display title shown in the board's UI. |
-| `board.tabs` | The board's tabs; one tab can show the approval queue for a named codeowners section. |
+| `board.tabs` | The board's tabs; one tab can show the approval queue for a named codeowners section. That tab watches your team's code owners channel from the team directory, unless it names another. |
+| `board.ticketPrefixes` | Ticket prefixes that keep the authors tab to your team's tickets and link MR titles to Linear. Unset, it uses your team's Linear key from the team directory. |
 | `board.defaultMember` | Which member this developer's local board opens as. |
 | `board.hiddenMembers` | Usernames you hide from the authors tab's roster. |
 | `board.staleAfterDays` | Days of MR inactivity before the board flags it stale, for you. |

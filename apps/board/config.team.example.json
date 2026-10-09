@@ -22,7 +22,6 @@
   "doctorSkill": "myteam:doctor",
   "claudeCommand": "",
   "slack": {
-    "channel": "code-review",
     "singleTemplate": "{title}: {url}",
     "multiHeader": "{count} MR's ready for review :pray:",
     "multiItem": "- {title}: {url}",

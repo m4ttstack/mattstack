@@ -182,15 +182,27 @@ function boot(
       'board.gitlabHost': host,
       'board.projects': ['g/p'],
       'mattstack.roster': [{ username: 'alice' }, { username: 'bob' }],
+      'mattstack.directory': {
+        teams: {
+          web: {
+            slack: { channels: [{ name: 'code-review', kind: 'review' }] },
+          },
+        },
+      },
     })
   );
+  const webTeamDir = join(teamDir, '..', 'teams', 'web');
+  mkdirSync(webTeamDir, { recursive: true });
+  writeFileSync(join(webTeamDir, 'settings.team.jsonc'), '{}');
   const userDir = join(home, '.mattstack', 'user');
   mkdirSync(userDir, { recursive: true });
-  if (seat)
-    writeFileSync(
-      join(userDir, 'settings.user.jsonc'),
-      JSON.stringify({ 'board.defaultMember': seat })
-    );
+  writeFileSync(
+    join(userDir, 'settings.user.jsonc'),
+    JSON.stringify({
+      'mattstack.activeTeam': 'web',
+      ...(seat ? { 'board.defaultMember': seat } : {}),
+    })
+  );
   writeFileSync(join(home, '.mattstack', 'machine-key'), 'testmachine');
   const machineDir = join(home, '.mattstack', 'user', 'local', 'testmachine');
   mkdirSync(machineDir, { recursive: true });

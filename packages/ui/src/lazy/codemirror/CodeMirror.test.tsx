@@ -409,6 +409,66 @@ test('the active line and selection washes are a subtle token tint, not a heavy 
   );
 });
 
+const DESCRIBED = {
+  type: 'object',
+  properties: {
+    teams: { title: 'Teams', description: 'One entry per team.' },
+  },
+};
+
+async function openCompletion() {
+  const { startCompletion } = await import('@codemirror/autocomplete');
+  const ref = createRef<CodeMirrorRef>();
+  renderWithProviders(
+    <CodeMirror ref={ref} value="{}" language="json" jsonSchema={DESCRIBED} />
+  );
+  await waitFor(() => expect(ref.current?.view).toBeTruthy());
+  const view = ref.current!.view!;
+  view.dispatch({ selection: { anchor: 1 } });
+  view.focus();
+  startCompletion(view);
+  const list = await waitFor(() => {
+    const el = document.querySelector<HTMLElement>('.cm-tooltip-autocomplete');
+    if (!el) throw new Error('completion not open yet');
+    return el;
+  });
+  return { view, list };
+}
+
+test('tooltips mount outside the editor, so its overflow cannot clip them', async () => {
+  const { view, list } = await openCompletion();
+  expect(view.dom.contains(list)).toBe(false);
+  expect(document.body.contains(list)).toBe(true);
+});
+
+test("the editor's own box styles stay off the outside tooltip container", async () => {
+  const { list } = await openCompletion();
+  const container = list.parentElement!;
+  const style = getComputedStyle(container);
+  expect(style.overflow).not.toBe('hidden');
+  expect(style.height).not.toBe('300px');
+  expect(style.backgroundColor).not.toBe('var(--ui-bg-4)');
+});
+
+test('tooltips, the selected completion and the info panel take the kit surface tokens', async () => {
+  await openCompletion();
+  const styleText = Array.from(document.querySelectorAll('style'))
+    .map(tag => tag.textContent ?? '')
+    .join('\n');
+  expect(styleText).toMatch(
+    /\.cm-tooltip \{[^}]*background-color: var\(--mantine-color-body\)[^}]*border: 1px solid var\(--mantine-color-default-border\)/
+  );
+  expect(styleText).toMatch(
+    /\.cm-tooltip-autocomplete ul li\[aria-selected\] \{[^}]*var\(--mantine-primary-color-light\)/
+  );
+  expect(styleText).toMatch(
+    /\.cm-completionInfo \{[^}]*color: var\(--mantine-color-dimmed\)[^}]*max-width/
+  );
+  expect(styleText).toMatch(
+    /\.cm-json-hint-description \{[^}]*color: var\(--mantine-color-dimmed\)/
+  );
+});
+
 test('the kit highlight style also colors javascript, the other language the kit offers', async () => {
   const ref = createRef<CodeMirrorRef>();
   renderWithProviders(

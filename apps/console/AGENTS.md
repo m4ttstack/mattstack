@@ -35,8 +35,9 @@ Routing is `wouter`, via `useAppRoute()` (`src/app/routes.ts`), which maps the c
 a structured `AppRoute` union: `board`, `run`, `search`, `wiring`, `settings`, `settings-embed`,
 `config`, `not-found`.
 `/settings` is the grouped, filterable page over every registered key (`src/app/settings/`);
-one row at a time opens in place on its Value | Where it's set panel, kept in `?explain=<key>`
-(with `?tab=value` and `?fix=<layer>` when they apply) through replaced history entries, so a
+one row at a time opens in place on its Value | Where it's set panel (Value first, and a
+structured value in its JSON editor first), kept in `?explain=<key>`
+(with `?tab=where` and `?fix=<layer>` when they apply) through replaced history entries, so a
 reload or a link reopens that row and scrolls to it; old `/config/:key` links redirect there. `/embed/settings/<group>` renders one group with no
 shell for another app to frame in a modal (`SettingsEmbed.tsx`): it takes the host's `?scheme=`,
 paints no background, and talks to the host only through `@mattstack/settings-kit/embed`'s

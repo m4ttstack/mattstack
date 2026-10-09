@@ -37,7 +37,6 @@
     "notify": "rt"
   },
   "slack": {
-    "channel": "your-review-channel",
     "singleTemplate": "{title}: {url}",
     "multiHeader": "{count} MR's ready for review :pray:",
     "multiItem": "- {title}: {url}",
