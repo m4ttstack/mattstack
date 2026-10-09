@@ -1433,7 +1433,7 @@ describe("round 4: headless bindings as the store records them, keep retries, cl
     };
     const read = server.handlers["thread/read"]!;
     server.handlers["thread/read"] = (s, m) => {
-      if (m.params.threadId === "T3") s.push({ id: m.id, error: { code: -32600, message: "thread not found: T3" } });
+      if (m.params.threadId === "T3") s.push({ id: m.id, error: { code: -32600, message: "thread not loaded: T3" } });
       else read(s, m);
     };
     const h = await harness(server.handlers);
@@ -1499,7 +1499,7 @@ describe("an app server restart (live-16 D6)", () => {
     const server = subscribingServer({});
     const read = server.handlers["thread/read"]!;
     server.handlers["thread/read"] = (s, m) => {
-      if (missing.includes(m.params.threadId)) s.push({ id: m.id, error: { code: -32600, message: `thread not found: ${m.params.threadId}` } });
+      if (missing.includes(m.params.threadId)) s.push({ id: m.id, error: { code: -32600, message: `thread not loaded: ${m.params.threadId}` } });
       else read(s, m);
     };
     return server;
@@ -1578,6 +1578,29 @@ describe("an app server restart (live-16 D6)", () => {
     expect(data(await sessions.observe(headless))).toMatchObject({ connectivity: "connected", generation: 4 });
     expect(h.requests("thread/resume").map((m) => m.params.threadId)).toEqual(["S1"]);
     expect(gone).toEqual([]);
+  });
+
+  test("Codex 0.162's own answers decide gone (live-17): a missing thread or rollout is gone; a bad id or another error stays attached", async () => {
+    const cases: Array<{ read?: Message; resume?: Message; gone: boolean }> = [
+      { resume: { code: -32600, message: "no rollout found for thread id T1" }, gone: true },
+      { read: { code: -32600, message: "invalid thread id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `n` at 1" }, gone: false },
+      { read: { code: -32603, message: "thread not loaded: T1" }, gone: false },
+      { resume: { code: -32603, message: "no rollout found for thread id T1" }, gone: false },
+    ];
+    for (const c of cases) {
+      const server = restartedServer([]);
+      const read = server.handlers["thread/read"]!;
+      if (c.read) server.handlers["thread/read"] = (s, m) => s.push({ id: m.id, error: c.read });
+      else server.handlers["thread/read"] = read;
+      if (c.resume) server.handlers["thread/resume"] = (s, m) => s.push({ id: m.id, error: c.resume });
+      const h = await harness(server.handlers);
+      const gone: Gone[] = [];
+      const sessions = h.sessions({ enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return true; } });
+      const headless = binding("T1", { attachment: { generation: 5, mode: "headless" } });
+      const kept = await sessions.keep(headless);
+      expect(kept.ok).toBe(false);
+      expect(gone).toEqual(c.gone ? [{ value: "T1", event: "unloaded", generation: 5 }] : []);
+    }
   });
 
   test("a headless binding whose job attempt was ended or replaced is never loaded again", async () => {

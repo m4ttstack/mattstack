@@ -205,8 +205,23 @@ const text = (v: unknown): v is string => typeof v === "string" && v.trim().leng
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const codeOf = (err: unknown): FaultCode => (err instanceof CodexControlError ? err.code : "transient");
 const failFrom = <T>(err: unknown, prefix = ""): Outcome<T> => fail(codeOf(err), `${prefix}${messageOf(err)}`);
-/** Codex's answer for a thread it does not have; every other refusal (an internal error, a server still starting) says nothing about the thread. */
-const THREAD_NOT_FOUND = /\bnot found\b|\bno such thread\b/i;
+/** JSON-RPC "invalid request", the code Codex 0.162 answers a thread it does not have with (live-17 thread-not-found.json). */
+const INVALID_REQUEST = -32600;
+/**
+ * The reasons Codex 0.162 gives, per method, for a thread rt can never use
+ * again: thread/read of an id it has no thread for, and thread/resume of one
+ * with no rollout. Every other refusal (a malformed id, an internal error, a
+ * server still starting) says nothing about the thread.
+ */
+const THREAD_GONE: Record<"thread/read" | "thread/resume", readonly string[]> = {
+  "thread/read": ["thread not loaded"],
+  "thread/resume": ["no rollout found for thread id"],
+};
+
+function threadGone(err: unknown, method: keyof typeof THREAD_GONE): boolean {
+  return err instanceof CodexControlError && err.code === "refused" && err.nativeCode === INVALID_REQUEST
+    && THREAD_GONE[method].some((reason) => err.message.includes(`Codex refused ${method}: ${reason}`));
+}
 const home = (): string => process.env.HOME ?? homedir();
 const flat = (s: string): string => s.replace(/\s+/g, " ").trim();
 const realOr = (path: string): string => {
@@ -474,7 +489,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     try {
       status = threadStatus(threadOf(await control.request("thread/read", { threadId, includeTurns: false }))?.status);
     } catch (err) {
-      return err instanceof CodexControlError && err.code === "refused" && THREAD_NOT_FOUND.test(err.message) ? "missing" : undefined;
+      return threadGone(err, "thread/read") ? "missing" : undefined;
     }
     if (status) hub.refresh(threadId, status);
     return status;
@@ -502,8 +517,10 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     let resumed: unknown;
     try {
       resumed = await control.request("thread/resume", { threadId, excludeTurns: true });
-    } catch {
-      return "unknown";
+    } catch (err) {
+      if (!threadGone(err, "thread/resume")) return "unknown";
+      await reportGone(threadId, "unloaded", generation);
+      return "unloaded";
     }
     const thread = threadOf(resumed);
     if (thread?.id !== threadId) return "unknown";
