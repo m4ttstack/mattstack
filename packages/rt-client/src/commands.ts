@@ -973,7 +973,7 @@ export interface Commands {
   "mr:pipeline-failed-jobs": { payload: { repoName: string; iid: number; pipelineId: number }; data: PipelineJob[] };
   /** GitLab providers only. Every MR whose target branch is targetBranch, fetched live and unscoped; state defaults to opened. */
   "mr:by-target": { payload: { repoName: string; targetBranch: string; state?: MrListState }; data: MrByTargetData };
-  "mr:get": { payload: { repoName: string; iid: number }; data: MrGetData };
+  "mr:get": { payload: { repoName: string; iid: number; refresh?: boolean }; data: MrGetData };
   "mr:list-live": { payload: { repoName: string } & MrListLiveFilters; data: MrListLiveData };
   "mr:live-by-branch": { payload: { repoName: string; branches: string[] }; data: MrLiveByBranchData };
   "project:labels": { payload: { repoName: string; search?: string }; data: { labels: ProjectLabel[] } };
