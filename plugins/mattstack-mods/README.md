@@ -186,8 +186,13 @@ than its screen, and nudges it without typing into the pane:
   outranks rt's own reading of the pane until it is two minutes old.
 - **End.** The session's end reaches rt through the link's own
   `session:end`, which runs before any block hears of it; rt records the
-  session `dead` there for a link that carried this block. The block never
-  reports a death or a finished job itself, and rt refuses one.
+  session `dead` there for a link that carried this block, against the
+  generation that ended, so the herd job it worked on reads its worker gone
+  even after the sign-out detaches the binding. The block never reports a
+  death or a finished job itself, and rt refuses one.
+- **Prompts it cannot see.** A pane reading of a blocked prompt (trust,
+  relocation, a permission prompt) overrides the block's last report at
+  once, so rt answers those prompts without waiting it out.
 - **Nudge.** rt sends a wedged worker a `nudge { text }` command instead of
   typing into its pane. The block acks it and starts a turn with the text
   through `$.prompt.submit`, framed as this plugin's message; the engine

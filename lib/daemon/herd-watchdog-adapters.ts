@@ -12,7 +12,7 @@ import { builtinRegistry, UNRECORDED_PANE_HARNESS } from "../agent-integrations/
 import { installedModLinks, pushModCommand, type ModLinks } from "../agent-integrations/claude/mod-links.ts";
 import { modPath } from "../agent-integrations/claude/mod-path.ts";
 import { createObservationSweep, type IntegrationRegistry, type ObservationSweep } from "../agent-integrations/contracts.ts";
-import { latestObservation, recordObservation } from "../agent-integrations/observation-store.ts";
+import { latestObservation, pushedDeath, recordObservation } from "../agent-integrations/observation-store.ts";
 import { createSessionStore } from "../agent-integrations/session-store.ts";
 import { integrationsEnabled } from "../agent-integrations/switch.ts";
 import type { herdrRequest } from "../herdr/client.ts";
@@ -54,6 +54,9 @@ export function createJobObserver(deps: {
       if (attempt.bindingKey === undefined) return fail("unsupported", `attempt ${attempt.id} has no session binding to observe`);
       const binding = createSessionStore(deps.db()).get(attempt.bindingKey);
       if (!binding) return fail("invalid", `no session binding has key ${attempt.bindingKey}`);
+      // Only session:end pushes a death, and its sign-out moves the binding past the attempt's generation.
+      const death = pushedDeath(binding.key, attempt.generation);
+      if (death && now() - death.observedAt <= STALE_OBSERVATION_MS) return { ok: true, data: death };
       const held = latestObservation(binding.key);
       if (held && held.generation === binding.attachment.generation && now() - held.observedAt <= STALE_OBSERVATION_MS) return { ok: true, data: held };
       const sessions = await registry.get(binding.native.harness)?.loadSessions?.();

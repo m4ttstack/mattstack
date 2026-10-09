@@ -613,7 +613,7 @@ describe("the Claude mod's observations and nudges", () => {
     return { clock, db, links, handlers, binding: bound.data, linkId: registered.data.linkId };
   }
 
-  function modSensors(w: ReturnType<typeof modWorld>, over: { job?: HerdJobRow; statusChangedAt?: number; observation: () => Observation }) {
+  function modSensors(w: ReturnType<typeof modWorld>, over: { job?: HerdJobRow; statusChangedAt?: number; observation: () => Observation; observeJob?: (a: JobAttempt) => Promise<Outcome<Observation>> }) {
     const worker = over.job ?? job({ pane: "w1:p1", agentSession: WORKER });
     const herdr = (async () => ({ ok: true, result: { snapshot: { panes: [{ pane_id: "w1:p1", agent: "claude", agent_status: "idle" }] } } })) as any;
     const answered = { id: "g-1", nudge: { session: WORKER }, answer: { answeredAt: NOW } };
@@ -623,7 +623,7 @@ describe("the Claude mod's observations and nudges", () => {
       gatesStore: { list: () => ({ gates: [], cursor: 0 }), unconsumedAnsweredPushes: () => [answered] as never },
       lifecycle: { lastStatusChangeMs: () => over.statusChangedAt ?? null },
       herdr, defaultSocket: "/default.sock", db: w.db, now: () => w.clock.now, log, enabled: () => true,
-      observeJob: async () => ({ ok: true, data: over.observation() }),
+      observeJob: over.observeJob ?? (async () => ({ ok: true, data: over.observation() })),
       modLinks: () => w.links,
     });
     return { sensors, worker };
@@ -668,10 +668,46 @@ describe("the Claude mod's observations and nudges", () => {
     expect(latestObservation(w.binding.key)).toBeNull();
   });
 
-  test("a session end over a link carrying the observe block reads as the worker gone", async () => {
-    const w = modWorld({ blocks: ["observe"] });
+  test("a session end over a link carrying the observe block reads as the worker gone, past the sign-out's detach", async () => {
+    const w = modWorld({ blocks: ["presence", "observe"] });
+    const ended = w.binding.attachment.generation;
     expect(await w.handlers["session:end"]({ linkId: w.linkId } as never)).toEqual({ ok: true, data: {} });
-    expect(latestObservation(w.binding.key)).toMatchObject({ execution: "dead", source: "claude-mod", generation: w.binding.attachment.generation });
+    const detached = createSessionStore(w.db).get(w.binding.key)!;
+    expect(detached.attachment.generation).toBeGreaterThan(ended);
+
+    let polled = 0;
+    const claude = {
+      id: "claude", label: "Claude Code",
+      capabilities: async (mode) => ({ mode, supported: [], readiness: { ready: true } }),
+      validateOptions: (options) => ({ ok: true, data: options }),
+      options: async () => [],
+      loadSessions: async () => ({
+        observe: async (b: SessionBinding) => {
+          polled += 1;
+          return { ok: true, data: seen({ connectivity: "unknown", execution: "unknown", observedAt: w.clock.now, source: "store", generation: b.attachment.generation }) };
+        },
+      } as unknown as SessionAdapter),
+    } as HarnessIntegration;
+    const observer = createJobObserver({ db: () => w.db, integrations: createRegistry([claude]), now: () => w.clock.now });
+    recordObservation(w.binding.key, seen({ connectivity: "unknown", execution: "unknown", observedAt: NOW + 1, source: "store", generation: detached.attachment.generation }));
+
+    const current = attempt({ selection: CLAUDE, mode: "herdr", bindingKey: w.binding.key, generation: ended });
+    const read = await observer.observeJob(current);
+    expect(read).toMatchObject({ ok: true, data: { execution: "dead", source: "claude-mod", generation: ended } });
+    expect(polled).toBe(0);
+    if (!read.ok) throw new Error(read.error.message);
+    expect(classifyJobObservation(current, read.data, NOW)).toBe("dead");
+
+    const { sensors, worker } = modSensors(w, { observeJob: observer.observeJob, observation: () => { throw new Error("unused"); } });
+    await sensors.refresh();
+    expect(evaluateJob(worker, sensors, cfg)).toEqual({ kind: "dead" });
+  });
+
+  test("a poll that reads a prompt the mod cannot see overrides a fresh mod reading", async () => {
+    const w = modWorld();
+    await report(w, { execution: "working", background: "unknown" });
+    recordObservation(w.binding.key, seen({ execution: "blocked", observedAt: NOW + 10_000, source: "herdr-pane", generation: w.binding.attachment.generation }));
+    expect(latestObservation(w.binding.key)).toMatchObject({ execution: "blocked", source: "herdr-pane" });
   });
 
   test("a worker waiting on background work is never nudged", async () => {
