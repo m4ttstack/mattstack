@@ -180,27 +180,34 @@ type PublishPrompt struct {
 	Name string `json:"name"`
 }
 
+// PushNeedsPullPrompt is one-shot like SwitchPrompt: Desktop's Newer Commits on
+// Remote dialog opens for a Seq the view has not seen.
+type PushNeedsPullPrompt struct {
+	Seq int `json:"seq"`
+}
+
 type Model struct {
-	Current       Current        `json:"current"`
-	Action        ActionModel    `json:"action"`
-	Repos         []RepoRow      `json:"repos"`
-	Worktrees     []WorktreeRow  `json:"worktrees"`
-	Branches      []BranchRow    `json:"branches"`
-	Changes       []ChangeRow    `json:"changes"`
-	ChangedTotal  int            `json:"changedTotal"`
-	StagedTotal   int            `json:"stagedTotal"`
-	Filter        string         `json:"filter"`
-	Diff          DiffModel      `json:"diff"`
-	Commit        CommitModel    `json:"commit"`
-	Notice        string         `json:"notice"`     // one-line transient notice (guard refusals, git and gh errors)
-	NoticeTone    string         `json:"noticeTone"` // "error" or "info"
-	Tab           string         `json:"tab"`        // "changes"|"history"
-	History       HistoryModel   `json:"history"`
-	EditorLabel   string         `json:"editorLabel"` // rt code's resolved editor ("Zed"), "" when none resolves
-	Stash         *StashModel    `json:"stash"`
-	SwitchPrompt  *SwitchPrompt  `json:"switchPrompt"`
-	PublishPrompt *PublishPrompt `json:"publishPrompt"`
-	CanStash      bool           `json:"canStash"` // GHD's Stash All Changes enablement
+	Current             Current              `json:"current"`
+	Action              ActionModel          `json:"action"`
+	Repos               []RepoRow            `json:"repos"`
+	Worktrees           []WorktreeRow        `json:"worktrees"`
+	Branches            []BranchRow          `json:"branches"`
+	Changes             []ChangeRow          `json:"changes"`
+	ChangedTotal        int                  `json:"changedTotal"`
+	StagedTotal         int                  `json:"stagedTotal"`
+	Filter              string               `json:"filter"`
+	Diff                DiffModel            `json:"diff"`
+	Commit              CommitModel          `json:"commit"`
+	Notice              string               `json:"notice"`     // one-line transient notice (guard refusals, git and gh errors)
+	NoticeTone          string               `json:"noticeTone"` // "error" or "info"
+	Tab                 string               `json:"tab"`        // "changes"|"history"
+	History             HistoryModel         `json:"history"`
+	EditorLabel         string               `json:"editorLabel"` // rt code's resolved editor ("Zed"), "" when none resolves
+	Stash               *StashModel          `json:"stash"`
+	SwitchPrompt        *SwitchPrompt        `json:"switchPrompt"`
+	PublishPrompt       *PublishPrompt       `json:"publishPrompt"`
+	PushNeedsPullPrompt *PushNeedsPullPrompt `json:"pushNeedsPullPrompt"`
+	CanStash            bool                 `json:"canStash"` // GHD's Stash All Changes enablement
 }
 
 // decode tolerates unknown fields: the wire model is a shared contract with

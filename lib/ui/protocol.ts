@@ -323,6 +323,11 @@ export interface MissionPublishPrompt {
   name: string;
 }
 
+/** One-shot, like MissionSwitchPrompt: the view opens GitHub Desktop's Newer Commits on Remote dialog after a push the remote rejected. */
+export interface MissionPushNeedsPullPrompt {
+  seq: number;
+}
+
 export interface MissionActionModel {
   kind: "fetch" | "pull" | "pull-rebase" | "push" | "force-push" | "publish-branch" | "publish-repo" | "busy" | "detached";
   title: string;
@@ -389,6 +394,7 @@ export interface MissionModel {
   stash: MissionStashModel | null;
   switchPrompt: MissionSwitchPrompt | null;
   publishPrompt: MissionPublishPrompt | null;
+  pushNeedsPullPrompt: MissionPushNeedsPullPrompt | null;
   /** GHD's Stash All Changes enablement. */
   canStash: boolean;
 }
@@ -431,6 +437,7 @@ const SESSION_INTENT_NAMES = [
   "mission:stash-select",
   "mission:stash-hide",
   "mission:publish",
+  "mission:fetch",
 ] as const;
 
 export interface SessionIntent {

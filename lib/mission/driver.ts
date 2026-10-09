@@ -323,6 +323,7 @@ export class MissionDriver {
   private readonly stash = new StashStore();
   private switchSeq = 0;
   private publishSeq = 0;
+  private pushNeedsPullSeq = 0;
   /** Count, not a boolean: two syncHistory() calls can overlap (a tab-open racing a concurrent badge sync), and one completing/discarding itself must not clear the indicator while the other is still genuinely in flight. */
   private historySyncs = 0;
   /** See MissionDeps.resolveEditor for when this is re-read. */
@@ -357,6 +358,7 @@ export class MissionDriver {
       settling: false,
       switchPrompt: null,
       publishPrompt: null,
+      pushNeedsPullPrompt: null,
       tab: "changes",
     };
     this.updater = new IndicatorUpdater({
@@ -777,6 +779,9 @@ export class MissionDriver {
       case "mission:action":
         await this.handleAction();
         break;
+      case "mission:fetch":
+        await this.runBusy(() => this.deps.runAction(this.state.currentWorktree, "fetch", { remote: this.remoteName ?? undefined, branch: this.snapshot.branch }));
+        break;
       case "mission:publish":
         await this.handlePublish(intent.payload as PublishPayload | undefined);
         break;
@@ -901,21 +906,23 @@ export class MissionDriver {
    * either way it refreshes, since a failure can still change the repo (gh
    * adds origin before the push that fails, so remoteName moves).
    */
-  private async runBusy(run: () => Promise<{ ok: boolean; detail: string }>, onOk?: () => void): Promise<void> {
+  private async runBusy(run: () => Promise<{ ok: boolean; detail: string; pushNeedsPull?: boolean }>, onOk?: () => void): Promise<void> {
     this.state.busyAction = true;
     this.recomputeAction();
     this.push();
     try {
       const result = await run();
-      this.notify(result.ok ? "" : result.detail);
+      this.notify(result.ok || result.pushNeedsPull ? "" : result.detail);
       if (result.ok) onOk?.();
       await this.refresh();
+      if (result.pushNeedsPull) this.state.pushNeedsPullPrompt = { seq: ++this.pushNeedsPullSeq };
     } finally {
       // Reached on a rejection too, so a stalled/failed action never leaves
       // the model stuck busy for the caller's error boundary to clean up.
       this.state.busyAction = false;
       this.recomputeAction();
       this.push();
+      this.state.pushNeedsPullPrompt = null;
     }
   }
 

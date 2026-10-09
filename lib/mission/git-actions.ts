@@ -23,7 +23,13 @@ export interface ActionState {
 export interface ActionResult {
   ok: boolean;
   detail: string;
+  /** GHD's PushNotFastForward: the remote has commits this branch lacks, so the view offers to fetch them. */
+  pushNeedsPull?: boolean;
 }
+
+// dugite's PushNotFastForward pattern, the error GHD's pushNeedsPullHandler
+// turns into its Newer Commits on Remote dialog.
+const PUSH_NOT_FAST_FORWARD = /\((non-fast-forward|fetch first)\)\nerror: failed to push some refs to '.*'/;
 
 function formatFetchMeta(lastFetchedAt: string | null): string {
   if (lastFetchedAt === null) return "Never fetched";
@@ -78,7 +84,7 @@ function lastStderrLine(stderr: string): string {
   return lines.length > 0 ? lines[lines.length - 1]! : "";
 }
 
-async function spawnGit(cwd: string, args: string[]): Promise<ActionResult> {
+async function spawnGitStderr(cwd: string, args: string[]): Promise<{ ok: boolean; stderr: string }> {
   // Scrubbed so an inherited GIT_DIR/GIT_WORK_TREE (e.g. from a git hook)
   // cannot redirect this action at a repo other than the one named by cwd.
   const proc = Bun.spawn(["git", ...args], { cwd, env: scrubGitEnv(), stdout: "pipe", stderr: "pipe" });
@@ -87,8 +93,18 @@ async function spawnGit(cwd: string, args: string[]): Promise<ActionResult> {
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-  if (code !== 0) return { ok: false, detail: lastStderrLine(err) };
-  return { ok: true, detail: "" };
+  return { ok: code === 0, stderr: err };
+}
+
+async function spawnGit(cwd: string, args: string[]): Promise<ActionResult> {
+  const { ok, stderr } = await spawnGitStderr(cwd, args);
+  return ok ? { ok: true, detail: "" } : { ok: false, detail: lastStderrLine(stderr) };
+}
+
+async function push(cwd: string, remote: string): Promise<ActionResult> {
+  const { ok, stderr } = await spawnGitStderr(cwd, ["push", remote]);
+  if (ok) return { ok: true, detail: "" };
+  return { ok: false, detail: lastStderrLine(stderr), pushNeedsPull: PUSH_NOT_FAST_FORWARD.test(stderr) };
 }
 
 // getRemoteDefaultBranch's local-first path (mission's own interactive
@@ -138,7 +154,7 @@ export async function runAction(
       return result;
     }
     case "push":
-      return spawnGit(cwd, ["push", remote]);
+      return push(cwd, remote);
     case "force-push":
       return spawnGit(cwd, ["push", "--force-with-lease", remote]);
     case "publish-branch":
