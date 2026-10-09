@@ -1,14 +1,17 @@
 /**
  * The run DB's read side. Every open here is readonly and per-call, no held
- * connections, so a run dir can be pruned under us. Writes live in write.ts.
+ * connections, so a run dir can be pruned under us. Writes live in write.ts,
+ * except bindRunSession, which records a run's owner.
  */
 import { Database } from "bun:sqlite";
 import { existsSync, readdirSync, statSync, type Dirent } from "fs";
 import { join } from "path";
+import type { SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
 import type { Attention, RunDetail, RunFieldRow, RunStageRow, RunSummary } from "../../packages/rt-client/src/commands.ts";
-import { computeAttention, fieldValue, lastEventAt, type RunLiveness } from "./attention.ts";
+import { computeAttention, fieldValue, lastEventAt, runOwnerSession, type RunLiveness } from "./attention.ts";
+import { recordIdentity, SESSION_KEY_FIELD } from "./identity.ts";
 import { isPathComponent, runsRoot } from "./paths.ts";
-import { KNOWN_SCHEMA_VERSION } from "./write.ts";
+import { KNOWN_SCHEMA_VERSION, openRunDb } from "./write.ts";
 
 export { isPathComponent, KNOWN_SCHEMA_VERSION, runsRoot };
 
@@ -119,7 +122,8 @@ const NO_ATTENTION: Attention = { needs: false, reason: null, evidence: "" };
 // run's worktree often hosts whatever agent moved in next.
 function agentMirror(run: RunSummary, fields: RunFieldRow[], liveness?: RunLiveness): RunSummary["agent"] {
   if (run.status !== "running" || !liveness) return null;
-  return liveness.agentFor(fieldValue(fields, "claude-session"), fieldValue(fields, "worktree"));
+  const owner = runOwnerSession(fields, liveness);
+  return liveness.agentFor(owner.session, fieldValue(fields, "worktree"), owner.pane);
 }
 
 // A run whose tables are missing (interrupted run-start) is still worth
@@ -274,6 +278,15 @@ export function findRunningRunByWorktree(worktree: string): RunningRunScan {
  * it skipped could be the one that should keep a session working.
  */
 export function findRunsBySession(sessionId: string, liveness?: RunLiveness, opts: { strict?: boolean } = {}): RunSessionMatch[] {
+  return findRunsByField("claude-session", sessionId, liveness, opts);
+}
+
+/** findRunsBySession for the binding that owns a run, which only a run started or written by a bound caller records. */
+export function findRunsBySessionKey(key: string, liveness?: RunLiveness, opts: { strict?: boolean } = {}): RunSessionMatch[] {
+  return findRunsByField(SESSION_KEY_FIELD, key, liveness, opts);
+}
+
+function findRunsByField(field: string, value: string, liveness: RunLiveness | undefined, opts: { strict?: boolean }): RunSessionMatch[] {
   const strict = opts.strict === true;
   const out: RunSessionMatch[] = [];
   for (const repo of dirs(runsRoot(), strict)) {
@@ -284,8 +297,8 @@ export function findRunsBySession(sessionId: string, liveness?: RunLiveness, opt
         // A Stop hook walks every run DB with no mtime cache on this path,
         // so a non-matching run must skip runRow's SELECT * and every
         // enrichment query beyond this one, not just the ones after it.
-        const hit = opened.db.query("SELECT value FROM fields WHERE key = 'claude-session'").get() as { value: string } | undefined;
-        if (!hit || hit.value !== sessionId) continue;
+        const hit = opened.db.query("SELECT value FROM fields WHERE key = ?").get(field) as { value: string } | undefined;
+        if (!hit || hit.value !== value) continue;
         const row = runRow(opened.db);
         if (!row) continue;
         out.push({ summary: withAttention(opened.db, row, liveness), runDb: join(runsRoot(), repo, id, "state.db") });
@@ -298,4 +311,14 @@ export function findRunsBySession(sessionId: string, liveness?: RunLiveness, opt
     }
   }
   return out.sort((a, b) => b.summary.started_at - a.summary.started_at);
+}
+
+/** Records `binding` as the owner of the run whose store is `db`, as a bound caller's run-start does. */
+export function bindRunSession(db: string, binding: SessionBinding): void {
+  const handle = openRunDb(db);
+  try {
+    recordIdentity(handle, {}, Date.now(), binding);
+  } finally {
+    handle.close();
+  }
 }

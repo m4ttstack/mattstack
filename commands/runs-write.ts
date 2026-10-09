@@ -20,14 +20,19 @@
  * Every verb but run-start reads RT_RUN_DB; when it is unset, the running run
  * this session recorded, else the newest running run whose worktree holds the
  * cwd, stands in (lib/runs/resolve-db.ts) and JSON envelopes gain
- * "runDbResolved". Output is JSON on stdout for every outcome except
- * `field get`. Exit 1 sqlite, 2 usage or environment, 3 not found.
+ * "runDbResolved". With agent.integrations.enabled on, a caller its session
+ * binding names writes only to a run it owns and records that binding as the
+ * run's identity; a caller with no session evidence, or a Claude session no
+ * binding names, keeps the environment path. Output is JSON on stdout for
+ * every outcome except `field get`. Exit 1 sqlite, 2 usage or environment,
+ * 3 not found.
  */
 import type { Database } from "bun:sqlite";
 import { existsSync } from "fs";
+import type { CallerContext, Outcome, SessionBinding } from "../packages/rt-client/src/agent-integrations.ts";
 import { flagValue, required, Usage } from "../lib/cli-args.ts";
 import { emitRunUpdated } from "../lib/runs/emit.ts";
-import { resolveRunDb, type RunDbSource } from "../lib/runs/resolve-db.ts";
+import { resolveOwnedRun, resolveRunDb, type RunDbResolution, type RunDbSource } from "../lib/runs/resolve-db.ts";
 import { runStart } from "../lib/runs/start.ts";
 import { runsRoot } from "../lib/runs/store.ts";
 import {
@@ -38,6 +43,12 @@ import * as out from "../lib/ui/out.ts";
 
 export type WriteVerb = "run-start" | "run-status" | "stage-start" | "stage-done" | "stage-fail" | "stage-redirect" | "field" | "decision" | "snapshot";
 export type CliResult = { out: string; code: number };
+
+/** The verified caller, or null for the environment path. Omitted, the CLI resolves it from its own environment. */
+export type RunCaller = Outcome<CallerContext> | null;
+export type RunWriteOpts = { caller?: RunCaller };
+
+type Access = "write" | "read";
 
 function json(value: unknown): string {
   return JSON.stringify(value);
@@ -68,16 +79,43 @@ async function emitted(env: NodeJS.ProcessEnv, ident: { repo: string; runId: str
   await emitRunUpdated({ repo: ident.repo, runId: ident.runId, stage, kind }, env);
 }
 
-export async function runWriteVerb(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv = process.env, cwd: string = process.cwd()): Promise<CliResult> {
+/** Loaded only with the switch on, so the environment path never opens state.db. */
+async function cliCaller(env: NodeJS.ProcessEnv): Promise<RunCaller> {
+  const { integrationsEnabled } = await import("../lib/agent-integrations/switch.ts");
+  if (!integrationsEnabled()) return null;
+  const { extractCliEvidence, resolveCallerOrEnvironmentNow } = await import("../lib/agent-integrations/context.ts");
+  const evidence = extractCliEvidence([], env);
+  if (!evidence.ok) return evidence;
+  if (!evidence.data.native && evidence.data.raw === undefined) return null;
+  return resolveCallerOrEnvironmentNow(evidence.data);
+}
+
+function refusal(error: { message: string }): CliResult {
+  return { out: json({ ok: false, error: `this call cannot be attributed to a session: ${error.message}` }), code: 2 };
+}
+
+/** Resolves the caller once, and only for a verb that reaches a run. */
+class Caller {
+  private pending: Promise<RunCaller> | undefined;
+  constructor(private readonly env: NodeJS.ProcessEnv, private readonly given: RunWriteOpts) {}
+  get(): Promise<RunCaller> {
+    if ("caller" in this.given) return Promise.resolve(this.given.caller ?? null);
+    return (this.pending ??= cliCaller(this.env));
+  }
+}
+
+export async function runWriteVerb(
+  verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv = process.env, cwd: string = process.cwd(), opts: RunWriteOpts = {},
+): Promise<CliResult> {
   try {
-    return await dispatch(verb, args, env, cwd);
+    return await dispatch(verb, args, env, cwd, new Caller(env, opts));
   } catch (err) {
     if (err instanceof Usage) return { out: json({ ok: false, error: err.message }), code: 2 };
     return { out: json({ ok: false, error: `sqlite write failed: ${String(err)}` }), code: 1 };
   }
 }
 
-async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv, cwd: string): Promise<CliResult> {
+async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv, cwd: string, caller: Caller): Promise<CliResult> {
   switch (verb) {
     case "run-start": {
       const repo = required(args, "--repo");
@@ -86,6 +124,8 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
       const dirty = flagValue(args, "--mattstack-dirty");
       if (dirty !== undefined && dirty !== "0" && dirty !== "1") throw new Usage("--mattstack-dirty must be 0 or 1");
       const packDirs = (flagValue(args, "--pack-dirs") ?? "").split(":").filter((d) => d !== "");
+      const who = await caller.get();
+      if (who && !who.ok) return refusal(who.error);
       const r = runStart(env.RT_RUNS_ROOT ?? runsRoot(), {
         repo, workType, pipeline,
         runId: flagValue(args, "--run-id"),
@@ -96,6 +136,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
         mattstackDirty: dirty === "1",
         packSha: flagValue(args, "--pack-sha"),
         env,
+        ...(who && { binding: who.data.binding }),
       });
       if (!r.ok) return fail(r);
       await emitted(env, { repo, runId: r.runId }, null, "run-start");
@@ -103,7 +144,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
     }
     case "run-status": {
       const status = required(args, "--status");
-      return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
+      return withRunDbAsync(env, cwd, caller, "write", async ({ db, resolved }) => {
         const r = runStatus(db, status);
         if (!r.ok) return fail(r);
         await emitted(env, runIdentity(db), null, "run-status");
@@ -112,8 +153,8 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
     }
     case "stage-start": {
       const stage = required(args, "--stage");
-      return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
-        const r = stageStart(db, stage, env);
+      return withRunDbAsync(env, cwd, caller, "write", async ({ db, resolved, binding }) => {
+        const r = stageStart(db, stage, env, Date.now(), binding);
         if (!r.ok) return fail(r);
         await emitted(env, runIdentity(db), stage, "stage-start");
         return ok(resolved);
@@ -124,7 +165,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
       const stage = required(args, "--stage");
       const reason = flagValue(args, "--reason");
       const detailPath = flagValue(args, "--detail-path");
-      return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
+      return withRunDbAsync(env, cwd, caller, "write", async ({ db, resolved }) => {
         const r = stageEnd(db, stage, verb === "stage-done" ? "done" : "failed", { reason, detailPath });
         if (!r.ok) return fail(r);
         await emitted(env, runIdentity(db), stage, verb);
@@ -135,7 +176,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
       const stage = required(args, "--stage");
       const to = required(args, "--to");
       const reason = flagValue(args, "--reason") ?? `redirected to ${to}`;
-      return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
+      return withRunDbAsync(env, cwd, caller, "write", async ({ db, resolved }) => {
         const r = stageEnd(db, stage, "redirected", { reason, requireRunning: true });
         if (!r.ok) return fail(r);
         await emitted(env, runIdentity(db), stage, "stage-redirect");
@@ -147,7 +188,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
       if (sub === "set") {
         if (!key || value === undefined) throw new Usage("field set needs KEY VALUE");
         const stage = required(args, "--stage");
-        return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
+        return withRunDbAsync(env, cwd, caller, "write", async ({ db, resolved }) => {
           const r = fieldSet(db, key, value, stage);
           if (!r.ok) return fail(r);
           await emitted(env, runIdentity(db), stage, "field-set");
@@ -156,7 +197,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
       }
       if (sub === "get") {
         if (!key) throw new Usage("field get needs KEY");
-        return withRunDbAsync(env, cwd, async ({ db }) => {
+        return withRunDbAsync(env, cwd, caller, "read", async ({ db }) => {
           const r = fieldGet(db, key);
           return r.ok ? { out: r.value, code: 0 } : { out: "", code: 3 };
         });
@@ -172,7 +213,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
         selection: required(args, "--selection"),
         decidedBy: required(args, "--decided-by"),
       };
-      return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
+      return withRunDbAsync(env, cwd, caller, "write", async ({ db, resolved }) => {
         const r = decisionRecord(db, o);
         if (!r.ok) return fail(r);
         await emitted(env, runIdentity(db), o.scope, "decision");
@@ -180,23 +221,41 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
       });
     }
     case "snapshot":
-      return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
+      return withRunDbAsync(env, cwd, caller, "read", async ({ db, resolved }) => {
         const r = snapshot(db);
         return r.ok ? ok(resolved, { run: r.run, stages: r.stages, fields: r.fields, decisions: r.decisions }) : fail(r);
       });
   }
 }
 
-type RunDbHandle = { db: Database; resolved: RunDbSource };
+type RunDbHandle = { db: Database; resolved: RunDbSource; binding?: SessionBinding };
 
-async function withRunDbAsync(env: NodeJS.ProcessEnv, cwd: string, body: (run: RunDbHandle) => Promise<CliResult>): Promise<CliResult> {
-  const found = resolveRunDb(env, cwd);
+/**
+ * A write by a verified caller goes only to a run it owns. A read with an
+ * explicit RT_RUN_DB never resolves a caller, so the Stop hook's snapshot
+ * stays on its fast path; without one, a verified caller's owned run is the
+ * session rung and the directory rung stays.
+ */
+async function locate(env: NodeJS.ProcessEnv, cwd: string, caller: Caller, access: Access): Promise<(RunDbResolution & { binding?: SessionBinding }) | CliResult> {
+  if (access === "read" && env.RT_RUN_DB) return resolveRunDb(env, cwd);
+  const who = await caller.get();
+  if (who === null) return resolveRunDb(env, cwd);
+  if (!who.ok) return access === "write" ? refusal(who.error) : resolveRunDb(env, cwd);
+  if (access === "read") return resolveRunDb(env, cwd, who.data);
+  const owned = resolveOwnedRun(who.data, env.RT_RUN_DB || undefined, { root: env.RT_RUNS_ROOT ?? runsRoot(), cwd });
+  if (!owned.ok) return { out: json({ ok: false, error: owned.error.message }), code: 2 };
+  return { ok: true, db: owned.data.db, resolved: env.RT_RUN_DB ? "env" : "session", binding: who.data.binding };
+}
+
+async function withRunDbAsync(env: NodeJS.ProcessEnv, cwd: string, caller: Caller, access: Access, body: (run: RunDbHandle) => Promise<CliResult>): Promise<CliResult> {
+  const found = await locate(env, cwd, caller, access);
+  if ("code" in found) return found;
   if (!found.ok) return { out: json({ ok: false, error: found.error }), code: 2 };
   if (!existsSync(found.db)) return { out: json({ ok: false, error: `run DB not found: ${found.db}` }), code: 2 };
   let db: Database | undefined;
   try {
     db = openRunDb(found.db);
-    return await body({ db, resolved: found.resolved });
+    return await body({ db, resolved: found.resolved, ...(found.binding && { binding: found.binding }) });
   } catch (err) {
     return { out: json({ ok: false, error: `sqlite write failed: ${String(err)}` }), code: 1 };
   } finally {

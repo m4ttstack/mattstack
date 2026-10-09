@@ -47,6 +47,8 @@ export type PolicyDeps = {
   caller?: { sessionIds?: string[]; cwd?: string; alsoCwds?: string[] };
   /** Run stores `rt runs find --session <id> --running` would list, newest first. */
   findRunning?: (sessionId: string) => string[];
+  /** Running run stores whose `session-key` names this binding key, newest first. */
+  findRunningByKey?: (key: string) => string[];
   /** The `rt runs snapshot` JSON of one run store. */
   snapshot?: (runDb: string) => unknown;
   /** Where the runs root comes from (RT_RUNS_ROOT), for the run tools' validator. */
@@ -201,16 +203,20 @@ function rowOf(raw: unknown): Row | null {
   return raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw as Row : null;
 }
 
-type RunReaders = Required<Pick<PolicyDeps, "findRunning" | "snapshot">>;
+type RunReaders = Required<Pick<PolicyDeps, "findRunning" | "findRunningByKey" | "snapshot">>;
 
 /** Loaded on first use, so `rt gate fork-check`, which a hook timeout bounds, never pays for the run store. */
 async function runReaders(deps: PolicyDeps): Promise<RunReaders> {
-  if (deps.findRunning && deps.snapshot) return { findRunning: deps.findRunning, snapshot: deps.snapshot };
-  const [{ findRunsBySession, RunsUnreadableError }, { snapshot }] = await Promise.all([import("../runs/store.ts"), import("../runs/write.ts")]);
+  if (deps.findRunning && deps.findRunningByKey && deps.snapshot) {
+    return { findRunning: deps.findRunning, findRunningByKey: deps.findRunningByKey, snapshot: deps.snapshot };
+  }
+  const [{ findRunsBySession, findRunsBySessionKey, RunsUnreadableError }, { snapshot }] = await Promise.all([import("../runs/store.ts"), import("../runs/write.ts")]);
   return {
     // Strict: a runs root or run DB that exists but cannot be read makes the decision unavailable, never "no runs".
     findRunning: deps.findRunning
       ?? ((sessionId) => findRunsBySession(sessionId, undefined, { strict: true }).filter((m) => m.summary.status === "running").map((m) => m.runDb)),
+    findRunningByKey: deps.findRunningByKey
+      ?? ((key) => findRunsBySessionKey(key, undefined, { strict: true }).filter((m) => m.summary.status === "running").map((m) => m.runDb)),
     // `rt runs snapshot`'s rows, read without the migration a write verb's open runs.
     snapshot: deps.snapshot ?? ((runDb) => {
       if (!existsSync(runDb)) throw new Error(`run DB not found: ${runDb}`);
@@ -260,16 +266,18 @@ export type StopState = { startedAt: number; runId: string; stage: string; state
  * pipeline-gate-stop.sh's per-run rule: a running run this session owns is
  * held when a hold or an armed gate wait, other than the cleared `-`, was set
  * after its latest stage started; otherwise it is open. Null when the run is
- * not this session's running run or its snapshot does not read.
+ * not this session's running run or its snapshot does not read. The script
+ * owns by `claude-session`; a session of another harness owns by its
+ * binding's `session-key`, with the same rule.
  */
-export function stopStateOf(raw: unknown, sessionId: string): StopState | null {
+export function stopStateOf(raw: unknown, sessionId: string, ownerField: "claude-session" | "session-key" = "claude-session"): StopState | null {
   const snap = rowOf(raw);
   if (!snap) return null;
   try {
     const r = rowOf(orElse(snap.run, {})) ?? {};
     if (r.status !== "running") return null;
     const fields = fieldMap(snap);
-    if (fields.get("claude-session")?.value !== sessionId) return null;
+    if (fields.get(ownerField)?.value !== sessionId) return null;
     const starts = (Array.isArray(snap.stages) ? snap.stages : []).map((s) => {
       const stage = rowOf(s);
       if (!stage) throw new Error("a stage is not an object");
@@ -306,12 +314,15 @@ export type StopVerdict = { decision: "allow" } | { decision: "continue"; runId:
 
 /** evaluateStop with the run and stage it named and the reason a hook shows. */
 export async function inspectStop(context: CallerContext, deps: PolicyDeps = {}): Promise<Outcome<StopVerdict>> {
-  const sessionId = context.binding.native.value;
+  // A Claude session keeps the script's rule exactly, so after /clear it sees only runs written under its new id.
+  const byClaude = context.binding.native.harness === "claude";
+  const sessionId = byClaude ? context.binding.native.value : context.binding.key;
+  const ownerField = byClaude ? "claude-session" : "session-key";
   let candidates: string[];
   let readers: RunReaders;
   try {
     readers = await runReaders(deps);
-    candidates = readers.findRunning(sessionId);
+    candidates = byClaude ? readers.findRunning(sessionId) : readers.findRunningByKey(sessionId);
   } catch (err) {
     return unavailable(context, "stop", `the session's runs could not be read: ${err instanceof Error ? err.message : String(err)}`, deps);
   }
@@ -327,7 +338,7 @@ export async function inspectStop(context: CallerContext, deps: PolicyDeps = {})
       }
       continue;
     }
-    const state = stopStateOf(snap, sessionId);
+    const state = stopStateOf(snap, sessionId, ownerField);
     if (state && (best === null || state.startedAt > best.startedAt)) best = state;
   }
   if (best === null || best.state !== "open") return { ok: true, data: { decision: "allow" } };
@@ -356,11 +367,17 @@ async function authorizeRun(context: CallerContext, action: "continue" | "comple
   }
   const run = rowOf(snap?.run ?? null);
   if (!snap || !run) return fail("invalid", `run ${runDb} has no run record`);
-  const owner = fieldMap(snap).get("claude-session")?.value;
-  if (typeof owner !== "string" || owner === "") {
+  const fields = fieldMap(snap);
+  const text = (key: string): string | null => {
+    const value = fields.get(key)?.value;
+    return typeof value === "string" && value !== "" ? value : null;
+  };
+  const { runOwnership } = await import("../runs/resolve-db.ts");
+  const ownership = runOwnership({ sessionKey: text("session-key"), claudeSession: text("claude-session") }, context.binding);
+  if (ownership === "unowned") {
     return fail("ambiguous", `run ${String(run.id ?? runDb)} records no owning session, so no session may ${action} it`);
   }
-  if (owner !== context.binding.native.value) return fail("refused", `run ${String(run.id ?? runDb)} belongs to another session`);
+  if (ownership !== "owned") return fail("refused", `run ${String(run.id ?? runDb)} belongs to another session`);
   if (run.status !== "running") return fail("refused", `run ${String(run.id ?? runDb)} has ended (${String(run.status)}), so it cannot ${action}`);
   // complete's result preconditions (stage outcomes, the close gate) stay with the run verbs; this is ownership only.
   return { ok: true, data: undefined };

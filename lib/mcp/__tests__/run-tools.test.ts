@@ -281,3 +281,30 @@ describe("runDb and cwd validation", () => {
     expect(res.ok).toBe(true);
   });
 });
+
+describe("run tools act as the transport's caller, never the server's environment", () => {
+  const binding = { key: "k1", identity: "w", native: { harness: "codex", profile: "default", kind: "id" as const, value: "thread-1" }, attachment: { generation: 1, mode: "headless" as const } };
+  const context = { caller: async () => ({ ok: true as const, data: { binding } }) };
+
+  test("every run tool hands the resolved caller to the write", async () => {
+    const seen: unknown[] = [];
+    const { deps } = fakeDeps();
+    deps.write = async (_verb, _args, _env, _cwd, opts) => { seen.push(opts?.caller); return { out: '{"ok":true,"runId":"x","runDb":"/db"}', code: 0 }; };
+    deps.caller = async (ctx) => (ctx ? ctx.caller() : null);
+    await tool(deps, "run_start").handler({ flags: "--repo r --work-type w --pipeline p", skillDir: "/link/pack/skills/work" }, RUNS_ROOT_ENV, undefined, context);
+    await tool(deps, "run_stage").handler({ runDb: DB, action: "start", stage: "plan" }, RUNS_ROOT_ENV, undefined, context);
+    await tool(deps, "run_field_set").handler({ runDb: DB, key: "k", value: "v", stage: "plan" }, RUNS_ROOT_ENV, undefined, context);
+    await tool(deps, "run_status").handler({ runDb: DB, status: "done" }, RUNS_ROOT_ENV, undefined, context);
+    const resolved = { ok: true, data: { binding } };
+    expect(seen).toEqual([resolved, resolved, resolved, resolved]);
+  });
+
+  test("the environment path hands an explicit null, so the write never re-resolves from the server's environment", async () => {
+    const seen: unknown[] = [];
+    const { deps } = fakeDeps();
+    deps.write = async (_verb, _args, _env, _cwd, opts) => { seen.push(opts && "caller" in opts ? opts.caller : "absent"); return { out: '{"ok":true}', code: 0 }; };
+    deps.caller = async () => null;
+    await tool(deps, "run_stage").handler({ runDb: DB, action: "done", stage: "plan" }, RUNS_ROOT_ENV, undefined, context);
+    expect(seen).toEqual([null]);
+  });
+});

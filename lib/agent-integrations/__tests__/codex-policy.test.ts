@@ -127,6 +127,11 @@ function harness(over: Partial<CodexHookDeps> & { fork?: ForkCheckResponse | (()
         if (over.findThrows) throw new Error("runs root unreadable");
         return Object.keys(snapshots);
       },
+      findRunningByKey: (key) => {
+        spies.finds.push(key);
+        if (over.findThrows) throw new Error("runs root unreadable");
+        return Object.keys(snapshots);
+      },
       snapshot: (runDb) => snapshots[runDb],
       onUnavailable: (_context, action, message) => { spies.unavailable.push(`${action}: ${message}`); },
     },
@@ -135,13 +140,18 @@ function harness(over: Partial<CodexHookDeps> & { fork?: ForkCheckResponse | (()
   return { deps, spies, stops };
 }
 
-/** A running run this thread owns; ownership is still the claude-session field until runs record a harness-neutral owner. */
+/** The binding key a thread's runs record as their owner; an unbound thread's raw id matches no binding. */
+function keyOf(thread: string): string {
+  return createSessionStore(db).find(codex(thread))?.key ?? thread;
+}
+
+/** A running run this thread owns through its binding's `session-key`. */
 function ownedRun(id: string, fields: Array<{ key: string; value: string; at: number }> = [], owner = THREAD) {
   return {
     ok: true,
     run: { id, repo: "repo-a", status: "running", current_stage: "ship", started_at: 1000 },
     stages: [{ name: "plan", started_at: 1000, status: "done", attempt: 1 }, { name: "ship", started_at: 2000, status: "running", attempt: 1 }],
-    fields: [{ key: "claude-session", value: owner, at: 1000, produced_by: "work" }, ...fields.map((f) => ({ ...f, produced_by: "work" }))],
+    fields: [{ key: "session-key", value: keyOf(owner), at: 1000, produced_by: "work" }, ...fields.map((f) => ({ ...f, produced_by: "work" }))],
     decisions: [],
   };
 }
@@ -324,7 +334,7 @@ describe("handleCodexHook", () => {
       } else {
         expect(result).toEqual(CODEX_HOOK_PASS);
       }
-      expect(spies.finds).toEqual([THREAD]);
+      expect(spies.finds).toEqual([keyOf(THREAD)]);
       expect(spies.forkChecks).toEqual([]);
       expect(spies.receipts).toEqual([expect.objectContaining({ event: "Stop", verdict: c.want, sessionId: THREAD, turnId: TURN })]);
       expect(spies.receipts[0]).not.toHaveProperty("tool");

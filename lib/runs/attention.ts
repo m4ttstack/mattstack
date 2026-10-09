@@ -45,16 +45,31 @@ function has(fields: RunFieldRow[], key: string): boolean {
  * by lib/runs/liveness.ts; attention stays pure by taking it as an argument.
  */
 export interface RunLiveness {
-  /** The herdr agent attributed to a run: recorded session first, else the
-      highest-priority agent whose cwd sits in the worktree. Null when no
-      agent matches or herdr is unavailable. */
-  agentFor(session: string | null, worktree: string | null): RunAgent | null;
+  /** The herdr agent attributed to a run: recorded session first, then the
+      bound session's pane, else the highest-priority agent whose cwd sits in
+      the worktree. Null when no agent matches or herdr is unavailable. */
+  agentFor(session: string | null, worktree: string | null, pane?: string | null): RunAgent | null;
   /** Pane id of a `working` herdr agent running this claude session. */
   workingSessionPane(sessionId: string): string | null;
   /** Pane id of a `working` herdr agent whose cwd sits in this worktree. */
   workingAgentPane(worktree: string): string | null;
   /** Latest git-activity mtime in the worktree, or null when unstatable. */
   worktreeActiveAt(worktree: string): number | null;
+  /** The native session and pane of the live binding a run's session key names; null when none does. */
+  boundSession?(sessionKey: string): BoundRunSession | null;
+}
+
+export type BoundRunSession = { session: string; pane?: string };
+
+/**
+ * Who drives a run: its owning binding's live session and pane when the run
+ * records one, else its recorded Claude session. A binding outlives a
+ * Claude /clear, so its native id is newer than the field's.
+ */
+export function runOwnerSession(fields: RunFieldRow[], liveness?: RunLiveness): { session: string | null; pane: string | null } {
+  const key = fieldValue(fields, "session-key");
+  const bound = key && liveness?.boundSession ? liveness.boundSession(key) : null;
+  return { session: bound?.session ?? fieldValue(fields, "claude-session"), pane: bound?.pane ?? null };
 }
 
 /** The one "this run is not being driven" verdict every consumer reads, so a
@@ -81,11 +96,11 @@ export function computeAttention(
 
   if (run.status === "running") {
     const worktree = fieldValue(fields, "worktree");
-    const session = fieldValue(fields, "claude-session");
+    const { session, pane } = runOwnerSession(fields, liveness);
     // Blocked mirrors herdr verbatim, no threshold: an agent parked on a
     // question IS "needs attention", however recently the db moved. The
     // mirror clears the moment herdr reports any other status.
-    const agent = liveness?.agentFor(session, worktree) ?? null;
+    const agent = liveness?.agentFor(session, worktree, pane) ?? null;
     if (agent?.status === "blocked") {
       return { needs: true, reason: "blocked", evidence: `agent waiting for input in pane ${agent.pane}` };
     }

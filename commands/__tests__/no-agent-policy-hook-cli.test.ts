@@ -60,11 +60,11 @@ beforeAll(() => {
     const bound = store.bind(store.reserve({ identity: "agent:ag-cli1", agentId: "ag-cli1" }), { harness: "codex", profile: "default", kind: "id", value: THREAD }, { mode: "herdr", pane: "w1:p1" });
     if (!bound.ok) throw new Error(bound.error.message);
     db.close();
-    const started = runStart(runsRoot, { repo: "repo-a", workType: "feature", pipeline: "feature", env: { CLAUDE_CODE_SESSION_ID: THREAD }, now: 1000 });
+    const started = runStart(runsRoot, { repo: "repo-a", workType: "feature", pipeline: "feature", env: {}, now: 1000, binding: bound.data });
     if (!started.ok) throw new Error(started.error);
     runId = started.runId;
     const run = openRunDb(started.runDb);
-    stageStart(run, "ship", { CLAUDE_CODE_SESSION_ID: THREAD }, 2000);
+    stageStart(run, "ship", {}, 2000, bound.data);
     run.close();
   } finally {
     process.env.HOME = priorHome;

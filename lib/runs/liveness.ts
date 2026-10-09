@@ -6,7 +6,8 @@
  * out-of-band signals, each one the reader can check:
  *
  *  - the herdr agent attributed to the run (`herdr agent list`, matched by
- *    recorded claude session, else by cwd inside the run's worktree), whose
+ *    its owning session, then its bound pane, else by cwd inside the run's
+ *    worktree), whose
  *    status is mirrored verbatim: working suppresses stale, blocked IS
  *    attention ("agent waiting for input");
  *  - recent filesystem activity in the worktree's git dir (commits, index
@@ -23,8 +24,12 @@ import { readFileSync, statSync } from "fs";
 import { isAbsolute, join, resolve } from "path";
 import type { RunAgent } from "../../packages/rt-client/src/commands.ts";
 import { resolveHerdrBin } from "../agent-herdr.ts";
+import { createSessionStore, isDetachedAttachment } from "../agent-integrations/session-store.ts";
+import { integrationsEnabled } from "../agent-integrations/switch.ts";
+import { getStateDb } from "../state/db.ts";
 import { runCapture } from "../subprocess.ts";
-import type { RunLiveness } from "./attention.ts";
+import type { BoundRunSession, RunLiveness } from "./attention.ts";
+import { normalizePaneRef } from "./identity.ts";
 
 const HERDR_TIMEOUT_MS = 1500;
 const AGENT_CACHE_TTL_MS = 10_000;
@@ -83,14 +88,38 @@ function cwdInside(cwd: string, worktree: string): boolean {
 // When several agents sit in one worktree, the most actionable status wins.
 const STATUS_PRIORITY: RunAgent["status"][] = ["blocked", "working", "idle", "done", "unknown"];
 
+export type BoundSessionLookup = (sessionKey: string) => BoundRunSession | null;
+
+/** A run's owning binding, read only with the switch on; a detached or unreadable binding names no live session. */
+export function boundSessionFromStore(sessionKey: string): BoundRunSession | null {
+  if (!integrationsEnabled()) return null;
+  try {
+    const binding = createSessionStore(getStateDb()).get(sessionKey);
+    if (!binding || isDetachedAttachment(binding)) return null;
+    const pane = binding.attachment.pane;
+    return { session: binding.native.value, ...(pane && { pane: normalizePaneRef(pane) }) };
+  } catch {
+    return null;
+  }
+}
+
 /** The pure matcher behind getRunLiveness — also used by the status poller,
     which brings its own probe result. */
-export function livenessFrom(entries: AgentEntry[]): RunLiveness {
+export function livenessFrom(entries: AgentEntry[], lookup: BoundSessionLookup = boundSessionFromStore): RunLiveness {
   const agentOf = (e: AgentEntry): RunAgent => ({ status: e.status, pane: e.pane });
+  const bound = new Map<string, BoundRunSession | null>();
+  const boundSession = (key: string): BoundRunSession | null => {
+    if (!bound.has(key)) bound.set(key, lookup(key));
+    return bound.get(key)!;
+  };
   return {
-    agentFor(session: string | null, worktree: string | null): RunAgent | null {
+    agentFor(session: string | null, worktree: string | null, pane?: string | null): RunAgent | null {
       if (session) {
         const hit = entries.find((e) => e.session === session);
+        if (hit) return agentOf(hit);
+      }
+      if (pane) {
+        const hit = entries.find((e) => e.pane === pane);
         if (hit) return agentOf(hit);
       }
       if (worktree) {
@@ -111,6 +140,7 @@ export function livenessFrom(entries: AgentEntry[]): RunLiveness {
       );
     },
     worktreeActiveAt: worktreeActivityAt,
+    boundSession,
   };
 }
 

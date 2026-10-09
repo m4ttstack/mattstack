@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import type { SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
 import { join } from "path";
 import { isPathComponent } from "./paths.ts";
 import { composePackCommits, packProvenance } from "./provenance.ts";
@@ -10,6 +11,8 @@ export type RunStartOpts = {
   runId?: string; spawnedBy?: string; packDirs?: string[]; ticket?: string;
   mattstackSha?: string; mattstackDirty?: boolean; packSha?: string;
   env?: NodeJS.ProcessEnv; now?: number;
+  /** The verified caller's binding; given, it is the run's owner and the environment is not read. */
+  binding?: SessionBinding;
 };
 
 function pad(n: number, w = 2): string {
@@ -53,7 +56,7 @@ export function runStart(root: string, o: RunStartOpts): Ok<{ runId: string; run
     if (o.ticket) {
       db.run("INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at) VALUES (?, 'ticket', ?, 'work', ?)", [runId, o.ticket, now]);
     }
-    recordIdentity(db, o.env ?? process.env, now);
+    recordIdentity(db, o.env ?? process.env, now, o.binding);
     return { ok: true, runId, runDb };
   } catch (err) {
     return { ok: false, error: `sqlite write failed: ${String(err)}`, code: 1 };

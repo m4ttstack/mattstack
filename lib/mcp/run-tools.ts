@@ -1,16 +1,18 @@
 import { realpathSync } from "fs";
 import { isAbsolute, resolve } from "path";
-import { runWriteVerb, type WriteVerb } from "../../commands/runs-write.ts";
+import { runWriteVerb, type RunCaller, type WriteVerb } from "../../commands/runs-write.ts";
 import { listRuns } from "../../packages/rt-client/src/index.ts";
 import { packPluginIdentity } from "../skills/provenance.ts";
 import { checkRunDb } from "../runs/run-db-check.ts";
-import { checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolResult } from "./shared.ts";
+import { boundCaller, checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolContext, type ToolResult } from "./shared.ts";
 
 export interface RunToolDeps {
   write: typeof runWriteVerb;
   list: typeof listRuns;
   realpath: (p: string) => string;
   isPackRoot: (packRoot: string) => boolean;
+  /** The verified caller with agent.integrations.enabled on; null for the environment path. */
+  caller?: (context?: ToolContext) => Promise<RunCaller>;
 }
 
 export const realRunToolDeps: RunToolDeps = {
@@ -18,6 +20,7 @@ export const realRunToolDeps: RunToolDeps = {
   list: listRuns,
   realpath: (p) => realpathSync(p),
   isPackRoot: (p) => packPluginIdentity(p) !== null,
+  caller: boundCaller,
 };
 
 // A quote or substitution in the compiled flag string would need a shell to
@@ -85,10 +88,13 @@ function runTarget(input: Record<string, unknown>, env: NodeJS.ProcessEnv, realp
 }
 
 export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
-  async function write(verb: WriteVerb, args: string[], input: Record<string, unknown>, env: NodeJS.ProcessEnv): Promise<ToolResult> {
+  // The server's environment can belong to a host process (a Codex app server), so the caller comes from the transport, never from it.
+  const caller = (context?: ToolContext): Promise<RunCaller> => (deps.caller ?? boundCaller)(context);
+
+  async function write(verb: WriteVerb, args: string[], input: Record<string, unknown>, env: NodeJS.ProcessEnv, context?: ToolContext): Promise<ToolResult> {
     const target = runTarget(input, env, deps.realpath);
     if ("error" in target) return err(target.error);
-    const r = await deps.write(verb, args, target.env, target.cwd);
+    const r = await deps.write(verb, args, target.env, target.cwd, { caller: await caller(context) });
     const body = parseOut(r.out);
     if (r.code === 0) return ok(body ?? { ok: true });
     const message = body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : `rt runs ${verb} failed (exit ${r.code})`;
@@ -111,7 +117,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt runs run-start", { id: "run-db-env", pattern: /(?<![\w-])(export|unset)\s+RT_RUN_DB\b/, example: "export RT_RUN_DB=/x", note: "keep the runDb run_start returns and pass it on every run_* call" }],
-      async handler(input, env) {
+      async handler(input, env, _signal, context) {
         const bad = checkRequired(input, [{ name: "flags", type: "string" }, { name: "skillDir", type: "string" }]) ?? checkOptional(input, [{ name: "ticket", type: "string" }, { name: "spawnedBy", type: "string" }]);
         if (bad) return err(bad);
         const skillDir = input.skillDir as string;
@@ -127,7 +133,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         if (typeof input.ticket === "string") args.push("--ticket", input.ticket);
         if (typeof input.spawnedBy === "string") args.push("--spawned-by", input.spawnedBy);
         // run-start never resolves a DB, so the pack root stands in for cwd.
-        const r = await deps.write("run-start", args, env, packRoot);
+        const r = await deps.write("run-start", args, env, packRoot, { caller: await caller(context) });
         const body = parseOut(r.out) as { ok?: boolean; error?: string } | null;
         if (r.code !== 0 || !body?.ok) return err(body?.error ?? `rt runs run-start failed (exit ${r.code})`);
         return ok(body);
@@ -150,24 +156,24 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt runs stage-start", "rt runs stage-done", "rt runs stage-fail", "rt runs stage-redirect"],
-      async handler(input, env) {
+      async handler(input, env, _signal, context) {
         const bad = checkRequired(input, [{ name: "action", type: "string" }, { name: "stage", type: "string" }]) ?? checkOptional(input, [{ name: "reason", type: "string" }, { name: "detailPath", type: "string" }, { name: "to", type: "string" }]);
         if (bad) return err(bad);
         const stage = input.stage as string;
         switch (input.action) {
-          case "start": return write("stage-start", ["--stage", stage], input, env);
-          case "done": return write("stage-done", ["--stage", stage], input, env);
+          case "start": return write("stage-start", ["--stage", stage], input, env, context);
+          case "done": return write("stage-done", ["--stage", stage], input, env, context);
           case "fail": {
             const args = ["--stage", stage];
             if (typeof input.reason === "string") args.push("--reason", input.reason);
             if (typeof input.detailPath === "string") args.push("--detail-path", input.detailPath);
-            return write("stage-fail", args, input, env);
+            return write("stage-fail", args, input, env, context);
           }
           case "redirect": {
             if (typeof input.to !== "string") return err('"to" is required for a redirect');
             const args = ["--stage", stage, "--to", input.to];
             if (typeof input.reason === "string") args.push("--reason", input.reason);
-            return write("stage-redirect", args, input, env);
+            return write("stage-redirect", args, input, env, context);
           }
           default: return err('"action" must be start, done, fail or redirect');
         }
@@ -178,10 +184,10 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       description: "Write one run field (key, value) as produced by a stage.",
       inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, key: { type: "string" }, value: { type: "string" }, stage: { type: "string" } }, required: ["key", "value", "stage"], additionalProperties: false },
       shellForms: ["rt runs field set"],
-      async handler(input, env) {
+      async handler(input, env, _signal, context) {
         const bad = checkRequired(input, [{ name: "key", type: "string" }, { name: "value", type: "string" }, { name: "stage", type: "string" }]);
         if (bad) return err(bad);
-        return write("field", ["set", input.key as string, input.value as string, "--stage", input.stage as string], input, env);
+        return write("field", ["set", input.key as string, input.value as string, "--stage", input.stage as string], input, env, context);
       },
     },
     {
@@ -189,12 +195,12 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       description: "Read one run field; errors when the key is not set.",
       inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, key: { type: "string" } }, required: ["key"], additionalProperties: false },
       shellForms: ["rt runs field get"],
-      async handler(input, env) {
+      async handler(input, env, _signal, context) {
         const bad = checkRequired(input, [{ name: "key", type: "string" }]);
         if (bad) return err(bad);
         const target = runTarget(input, env, deps.realpath);
         if ("error" in target) return err(target.error);
-        const r = await deps.write("field", ["get", input.key as string], target.env, target.cwd);
+        const r = await deps.write("field", ["get", input.key as string], target.env, target.cwd, { caller: await caller(context) });
         if (r.code === 3) return err(`field "${String(input.key)}" is not set on this run`);
         if (r.code !== 0) return err((parseOut(r.out) as { error?: string } | null)?.error ?? `rt runs field get failed (exit ${r.code})`);
         return ok({ value: r.out });
@@ -205,10 +211,10 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       description: "Record a decision on the run; selection is a JSON object and is serialized by the tool.",
       inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, contract: { type: "string" }, scope: { type: "string" }, selection: { type: "object" }, decidedBy: { type: "string" } }, required: ["contract", "scope", "selection", "decidedBy"], additionalProperties: false },
       shellForms: ["rt runs decision"],
-      async handler(input, env) {
+      async handler(input, env, _signal, context) {
         const bad = checkRequired(input, [{ name: "contract", type: "string" }, { name: "scope", type: "string" }, { name: "selection", type: "object" }, { name: "decidedBy", type: "string" }]);
         if (bad) return err(bad);
-        return write("decision", ["record", "--contract", input.contract as string, "--scope", input.scope as string, "--selection", JSON.stringify(input.selection), "--decided-by", input.decidedBy as string], input, env);
+        return write("decision", ["record", "--contract", input.contract as string, "--scope", input.scope as string, "--selection", JSON.stringify(input.selection), "--decided-by", input.decidedBy as string], input, env, context);
       },
     },
     {
@@ -216,10 +222,10 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       description: "Set the run's terminal status: done, failed or abandoned.",
       inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, status: { type: "string", enum: ["done", "failed", "abandoned"] } }, required: ["status"], additionalProperties: false },
       shellForms: ["rt runs run-status"],
-      async handler(input, env) {
+      async handler(input, env, _signal, context) {
         const bad = checkRequired(input, [{ name: "status", type: "string" }]);
         if (bad) return err(bad);
-        return write("run-status", ["--status", input.status as string], input, env);
+        return write("run-status", ["--status", input.status as string], input, env, context);
       },
     },
     {
@@ -227,7 +233,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       description: "The run's stages, fields and decisions.",
       inputSchema: { type: "object", properties: { ...RUN_DB_PROPS }, additionalProperties: false },
       shellForms: ["rt runs snapshot"],
-      async handler(input, env) { return write("snapshot", [], input, env); },
+      async handler(input, env, _signal, context) { return write("snapshot", [], input, env, context); },
     },
     {
       name: "run_list",

@@ -7,6 +7,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
+import type { SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
 import { recordIdentity } from "./identity.ts";
 
 export const KNOWN_SCHEMA_VERSION = 2;
@@ -88,7 +89,7 @@ export function runStatus(db: Database, status: string, now: number = Date.now()
   }
 }
 
-export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, now: number = Date.now()): Ok | Fail {
+export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, now: number = Date.now(), binding?: SessionBinding): Ok | Fail {
   try {
     db.run(
       `INSERT INTO stages (run_id, name, status, attempt, started_at)
@@ -96,7 +97,7 @@ export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, n
       [name, name, now],
     );
     db.run("UPDATE runs SET current_stage=?", [name]);
-    recordIdentity(db, env, now);
+    recordIdentity(db, env, now, binding);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: `sqlite write failed: ${String(err)}`, code: 1 };
