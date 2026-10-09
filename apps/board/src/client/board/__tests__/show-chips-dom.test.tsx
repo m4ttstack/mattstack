@@ -46,7 +46,7 @@ afterEach(async () => {
   container.remove();
 });
 
-const COUNTS = { posted: 4, notPosted: 3, authorTurn: 2, myDrafts: 0 };
+const COUNTS = { posted: 4, notPosted: 3, authorTurn: 2, myDrafts: 0, mine: 0 };
 
 test('a chip per offered item, checked when its rows are on the board', async () => {
   await React.act(async () => {
@@ -108,7 +108,13 @@ test('the drawer offers the display settings link under its show row', async () 
         show={{
           offered: ['authorTurn'],
           off: [],
-          counts: { posted: 0, notPosted: 0, authorTurn: 2, myDrafts: 0 },
+          counts: {
+            posted: 0,
+            notPosted: 0,
+            authorTurn: 2,
+            myDrafts: 0,
+            mine: 0,
+          },
           channel: null,
           toggle: () => {},
         }}
@@ -124,4 +130,10 @@ test('the drawer offers the display settings link under its show row', async () 
   ].find(b => b.textContent === 'Settings')!;
   await React.act(async () => link.click());
   expect(opened).toBe(1);
+});
+
+test('the My MRs chip says My PRs when your own rows are on GitHub', async () => {
+  const { showLabel } = await import('../Controls.tsx');
+  expect(showLabel('mine', null)).toBe('My MRs');
+  expect(showLabel('mine', null, true)).toBe('My PRs');
 });

@@ -124,6 +124,7 @@ describe('filterByShow', () => {
       notPosted: 2,
       authorTurn: 1,
       myDrafts: 1,
+      mine: 0,
     });
   });
   test('Not Posted off keeps only posted rows (old slack=posted)', () => {
@@ -173,6 +174,22 @@ describe('filterByShow', () => {
     expect(r.rows).toHaveLength(1);
     expect(r.counts.authorTurn).toBe(0);
   });
+  test("My MRs off hides the seat's own rows and counts them", () => {
+    const own = mr({
+      iid: 8,
+      author: { id: 'p', username: 'Pat', name: 'Pat', avatarUrl: null },
+      slack: { status: 'found', reactions: [], posted: true },
+    } as any);
+    const r = filterByShow(
+      [posted, own],
+      ['mine'],
+      ['posted', 'notPosted', 'mine'],
+      ALL_TURN,
+      'pat'
+    );
+    expect(r.rows.map(m => m.iid)).toEqual([1]);
+    expect(r.counts.mine).toBe(1);
+  });
   test('an off item counts the rows switching it on would bring back', () => {
     const r = filterByShow(list, ['notPosted', 'authorTurn'], ALL, ALL_TURN);
     expect(r.counts).toEqual({
@@ -180,6 +197,7 @@ describe('filterByShow', () => {
       notPosted: 2,
       authorTurn: 1,
       myDrafts: 1,
+      mine: 0,
     });
   });
 });
@@ -191,11 +209,12 @@ describe('offeredShowItems', () => {
     seat: 'alice',
     member: 'all',
   };
-  test('the All view offers everything but your drafts', () => {
+  test('the All view offers everything but your drafts, plus My MRs', () => {
     expect(offeredShowItems(base)).toEqual([
       'posted',
       'notPosted',
       'authorTurn',
+      'mine',
     ]);
   });
   test('picking yourself drops waiting on author', () => {
@@ -209,11 +228,13 @@ describe('offeredShowItems', () => {
     const items = offeredShowItems({ ...base, member: 'bob' });
     expect(items).toContain('authorTurn');
     expect(items).not.toContain('myDrafts');
+    expect(items).not.toContain('mine');
   });
   test('the seat tab, a seatless board and no slack drop their items', () => {
     expect(offeredShowItems({ ...base, seatTab: true })).not.toContain(
       'authorTurn'
     );
+    expect(offeredShowItems({ ...base, seatTab: true })).not.toContain('mine');
     expect(
       offeredShowItems({ ...base, seat: null, slackEnabled: false })
     ).toEqual(['authorTurn']);

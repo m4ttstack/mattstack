@@ -51,6 +51,7 @@ const COUNTS: Record<ShowItem, number> = {
   notPosted: 6,
   authorTurn: 7,
   myDrafts: 1,
+  mine: 3,
 };
 const SYNCED = { text: 'data as of 9:41', clock: '9:41', stale: false };
 

@@ -119,7 +119,7 @@ import {
 } from './hooks.ts';
 import { assignMemberLooks } from './invadr-colors.ts';
 import { MemberInvadr, MemberLooksProvider } from './MemberInvadr.tsx';
-import { mrRef } from './MrLinks.tsx';
+import { mrRef, onGitHub } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
 import { OwnersPostModal, type SlackPostPreview } from './OwnersPostModal.tsx';
@@ -1560,6 +1560,7 @@ export function Board() {
               null,
             toggle: toggleShow,
             turn: data.turn ?? ALL_TURN,
+            prs: memberFiltered.some(mr => isOwnMr(mr, seat) && onGitHub(mr)),
           }
         : null,
     onOpenTurnSettings: openConfig,
