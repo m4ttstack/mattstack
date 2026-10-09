@@ -17,7 +17,9 @@ Use the `deck` command, or open the dashboard at `https://deck.localhost`. deck 
 
 **Give an app a name.** Run `deck add myapp --cmd "bun src/server.ts" --dir ~/code/myapp`. The app is live at `https://myapp.localhost`, starts at login and restarts if it crashes. If you already run your own dev server, run `deck add otherapp --port 4200` to track the name without deck touching the process.
 
-**Check on everything.** `deck status` lists every app. The dashboard shows health and logs, and lets you restart an app. `deck logs <name>` tails an app's stderr.
+**Check on everything.** `deck status` lists every app. The dashboard shows each app's health and lets you restart it. The gear on an app's row opens its settings: its code, name and port, its recent errors, who can reach it and who gets in. `deck logs <name>` tails an app's stderr.
+
+**Pick up new code in dev mode.** In the mattstack dev app, the dashboard adds a version column. For each of mattstack's own apps it shows the deployed commit and the newest one, or `current`. When any of them has new code since its last deploy, a strip at the top of the mattstack section counts them, and **Redeploy all** deploys every one.
 
 **Debug against a dev server.** `deck override myapp 5173` makes `myapp.localhost` serve port 5173. `deck override myapp off` clears it.
 

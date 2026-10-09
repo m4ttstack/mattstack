@@ -48,6 +48,7 @@ When the branch is ahead of its upstream, a strip shows "Committed *when* · *su
 The button on the right of the top bar always offers the next sensible remote step, the way Desktop's does: Fetch, Pull, Push, Publish branch, or Publish repository. After you amend or undo a commit in glitter, it recommends Force push. `f` runs whatever it currently shows.
 
 - When the branch has diverged, one Pull button shows both counts. There is no combined pull-and-push step.
+- When the remote rejects a push because it has commits your branch lacks, glitter opens Newer Commits on Remote. Its Fetch fetches those commits, and the button then offers Pull.
 - When `pull.rebase` is set, it reads "Pull origin with rebase".
 - On a detached HEAD it reads "Detached HEAD", and `f` refuses with a notice.
 - Publish repository asks for a name, then private or public. Type `owner/name` to publish to an organization. It runs `gh repo create`, so the GitHub CLI must be signed in.

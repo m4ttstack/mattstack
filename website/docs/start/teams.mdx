@@ -88,14 +88,22 @@ rt settings set mattstack.directory '<json>' --scope org
 
 ### Moving to the team directory
 
-The first `rt setup update` on an org admin's Mac fills in each team's entry from that team's older settings, and never overwrites an entry that is already there. Then it deletes the old values:
+The team directory changes the shape of the org's shared settings, so an org moves onto it as layout 3 of the org repo. An org admin converts the org once, from a mattstack checkout:
+
+```bash
+bun scripts/move-to-team-directory.ts ~/.mattstack/orgs/<org> --admin <username>
+```
+
+On its own it prints the plan and writes nothing. Run it again with `--write` to make the move. It fills in each team's entry from that team's older settings, never overwrites an entry that is already there, and deletes the old values:
 
 - `board.slack.channel`.
 - `mattstack.integrations.linear.teamKey`.
 - a codeowners tab's `slackChannel`, when it equals the team's code owners channel.
 - `board.ticketPrefixes`, when it holds only the team's Linear key.
 
-On any other Mac it changes nothing, and the admin's changes arrive with the next pull. Update every member's Mac before the admin's: after the move, a board from before the team directory still posts, but to its built-in `#code-review` channel instead of your team's. A board older than v2.21.0 also loses its tabs.
+It also marks the org as layout 3 and puts the whole move in one commit on the branch your clone has checked out. Review it with `git show`, then publish it with `rt team publish`. The script refuses while team sync is on for your Mac, because sync could publish the move before you review it; the refusal names the commands that turn sync off.
+
+A member's app that reads only an older layout never pulls the converted org. Its daemon holds the clone at the last commit it can read, and the **Org layout** row in setup status says to update the app. After the update, the next pull brings the move in, and the member runs nothing. An app older than v2.21.1 does not hold: it pulls the move, and its board posts to its built-in `#code-review` channel instead of your team's. A board older than v2.21.0 also loses its tabs. Update every member's Mac to at least v2.21.1 before you publish the move.
 
 ## Inviting a member
 

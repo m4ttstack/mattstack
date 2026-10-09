@@ -15,15 +15,19 @@ Open console from the mattstack window. Turn it on or off with [`rt apps`](/rt/r
 
 ## What you do in it
 
-**Watch your runs.** The run board is a live view of every pipeline run, with aging, liveness and stage progress. It updates as runs change, with no refreshing.
+**Watch your runs.** The Runs page shows every pipeline run on this Mac: what waits on you, what is live and what ran earlier, grouped by day. Filter it by state or by repo, or switch to Timeline to see one day's runs. It updates as runs change, with no refreshing.
 
-**See what a run did.** Open a run for its timeline, failure excerpts, command provenance and effective inputs. Search finds a run across the whole board.
+**Follow a live run.** Open a live run for its stages, what it is doing now and its story so far. When the run asks you a decision, answer it right on the page, one question at a time. A review or respond run points you to the board for its decisions instead.
+
+**Resume a run whose pane is gone.** When a live run has no pane left, its header's menu offers **Resume**, which picks up the run's Claude session in a new pane.
+
+**See what a run did.** A finished run opens as a record: how it ended, its story, every decision with the evidence beside it, and the inputs it ran on. Search finds a run across every run.
 
 **Read the wiring.** The wiring map shows the skill and pipeline graph, its surfaces, its health and its version history.
 
 **Browse and change settings.** The settings explorer lists every registered key across the default, org, team, user and machine scopes, and shows where each value is set. A single value saves as soon as you commit it: flip a toggle, pick an option, or press Enter or leave the field. A structured value opens as a draft in a JSON editor, with a form one click away, and saves when you press Save. The JSON editor completes and explains each field from its setting's schema. console has no config file of its own, so this is the place to edit settings in the app.
 
-**Jump anywhere.** The command palette (`mod+K`) jumps straight to a run, a config key or a navigation action.
+**Jump anywhere.** The command palette (`mod+K`) jumps straight to a run, the Runs page or search. Results show once you type, up to ten at a time.
 
 ## Settings that matter
 

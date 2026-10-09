@@ -1,0 +1,18 @@
+Brings back a worktree rt cleaned up, while rt still keeps its copy.
+
+```bash
+# Pick from the worktrees you can bring back
+rt worktree restore
+
+# Print them as a table instead
+rt worktree restore --list
+
+# Bring back one by name
+rt worktree restore widgets-12
+```
+
+The picker shows the same rows as `rt cd`, grouped by the day rt cleaned each worktree up (Today, Yesterday, Earlier this week and so on). Each row shows the days left before rt deletes its copy. `--list` prints the same rows as a table.
+
+A restore checks the branch out again at the commit it was on, then copies back the files git does not track, such as `.env`. Symlinks come back as they were, so a relative link still points where it did. Submodules are set up again from git. When git cannot fetch a submodule, its files still come back and the restore names it with the command to set it up yourself.
+
+rt refuses a restore when the branch exists again, because something new now uses that name.
