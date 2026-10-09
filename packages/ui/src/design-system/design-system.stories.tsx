@@ -6,9 +6,11 @@ import {
   Button,
   Combobox,
   Group,
+  Kbd,
   NavLink,
   Paper,
   Progress,
+  Radio,
   SegmentedControl,
   Stack,
   Switch,
@@ -185,6 +187,31 @@ function CardTones() {
         </Group>
         <Text size="sm">Combobox.Option wash, the picked one active</Text>
         <WashOptions />
+        <Text size="sm">
+          Radio.Card wash with number keys, the first checked
+        </Text>
+        <Radio.Group defaultValue="server">
+          <Stack gap="xs">
+            {['server', 'client'].map((value, i) => (
+              <Radio.Card key={value} value={value} variant="wash" p="sm">
+                <Group justify="space-between">
+                  <Group gap="sm">
+                    <Radio.Indicator />
+                    <Text size="sm">{value}</Text>
+                  </Group>
+                  <Kbd>{i + 1}</Kbd>
+                </Group>
+              </Radio.Card>
+            ))}
+          </Stack>
+        </Radio.Group>
+        <Text size="sm">Kbd on-fill inside a filled button</Text>
+        <Group>
+          <Button rightSection={<Kbd variant="on-fill">⌘↵</Kbd>}>Next</Button>
+          <Button disabled rightSection={<Kbd variant="on-fill">⌘↵</Kbd>}>
+            Next
+          </Button>
+        </Group>
       </Stack>
     </Box>
   );
@@ -261,7 +288,7 @@ export const PanelTonesStory: Story = {
 };
 
 export const CardTonesStory: Story = {
-  name: 'Card tones: outline papers, card-outline button, wash options',
+  name: 'Card tones: outline papers, card-outline button, wash options and choice cards, on-fill key',
   render: () => <CardTones />,
 };
 

@@ -121,6 +121,13 @@ export const baseTheme = /* @__PURE__ */ createTheme({
       classNames: { root: classes.buttonRoot },
     },
     ActionIcon: { classNames: { root: classes.actionIconRoot } },
+    // `variant="wash"`: a choice card that rings and washes in the accent
+    // when checked (see the CSS module).
+    RadioCard: { classNames: { card: classes.choiceCard } },
+    CheckboxCard: { classNames: { card: classes.choiceCard } },
+    // `variant="on-fill"`: a key hint inside a filled button (see the CSS
+    // module).
+    Kbd: { classNames: { root: classes.kbdRoot } },
     Code: { defaultProps: { fz: 'sm' } },
     Modal: { defaultProps: { centered: true, padding: 'lg' } },
     // Tight, single-line-by-default groups: the common case is a row of

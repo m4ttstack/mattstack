@@ -234,3 +234,68 @@
     color: var(--tk-text-1);
   }
 }
+
+/* Radio.Card's and Checkbox.Card's `variant="wash"`: a choice card on the
+   card surface, ruled in the soft line step. A checked card rings in the
+   accent over the accent wash, and a Kbd inside it (the option's number
+   key) takes the accent on a rule tinted from it. The rule is an outline
+   inside the edge, as on a ground Paper, so the focus ring is restated. */
+.choiceCard[data-variant='wash'] {
+  --choice-key-line: 30%;
+  border-width: 0;
+  outline: 1px solid var(--tk-line-3);
+  outline-offset: -1px;
+  background-color: var(--tk-card);
+}
+
+:where([data-mantine-color-scheme='dark']) .choiceCard[data-variant='wash'] {
+  --choice-key-line: 40%;
+}
+
+.choiceCard[data-variant='wash'][data-checked] {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: -0.75px;
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--tk-wash),
+    var(--tk-card)
+  );
+}
+
+.choiceCard[data-variant='wash']:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+
+.choiceCard[data-variant='wash'][data-checked] .kbdRoot {
+  border-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--choice-key-line),
+    var(--tk-card)
+  );
+  background-color: var(--tk-card);
+  color: var(--tk-text-accent);
+}
+
+/* Kbd's `variant="on-fill"`: a key hint inside a filled button, in the
+   on-fill label colour over a wash of it, with no rule. On a disabled
+   button it takes the button's greyed label instead. */
+.kbdRoot[data-variant='on-fill'] {
+  border: 0;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-family: inherit;
+  font-weight: 500;
+  line-height: normal;
+  color: color-mix(in srgb, var(--tk-on-fill-accent) 85%, transparent);
+  background-color: color-mix(
+    in srgb,
+    var(--tk-on-fill-accent) 18%,
+    transparent
+  );
+}
+
+:where(:disabled, [data-disabled]) .kbdRoot[data-variant='on-fill'] {
+  color: inherit;
+  background-color: transparent;
+}
