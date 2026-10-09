@@ -162,7 +162,9 @@ const covers = (root: string, path: string): boolean => root === path || isInsid
  * through `..`, a foreign-owned or shared-writable one (anyone else who can
  * write it could plant a link the guard would admit), the filesystem root, the home directory or anything above it, and a
  * shared temp folder itself are dropped, so a root an integration reports
- * can never become wider than the folder it names.
+ * can never become wider than the folder it names. It still admits any
+ * owned private folder under home (~/.ssh included), so its producer must
+ * choose roots narrowly; this only stops a root from being wider than named.
  */
 export function admitResourceRoots(candidates: readonly unknown[], opts: { uid: number | null; home?: string }): string[] {
   if (opts.uid === null) return [];

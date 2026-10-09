@@ -425,7 +425,7 @@ describe("old loaded worker cannot reuse new revision", () => {
 });
 
 describe("switch off is exactly today", () => {
-  test("with agent.integrations off a resume inherits no policy requirement, and no proof is consulted for it or its work", async () => {
+  test("with agent.integrations off nothing is enforced but the requirement is kept, so work after turning it back on is refused", async () => {
     let on = true;
     const calls = { prepare: 0, verify: 0 };
     const order: string[] = [];
@@ -451,7 +451,13 @@ describe("switch off is exactly today", () => {
     data(await launcher.startBoundWork(resumed, { id: "w1", text: "go" }, async () => ok(undefined)));
     expect(calls).toEqual({ prepare: 1, verify: 1 });
     expect(order).toEqual(["launch", "resume", "work"]);
-    expect(readBindingReadiness(db, first.key)).toMatchObject({ generation: 2, required: [] });
+    expect(readBindingReadiness(db, first.key)).toMatchObject({ generation: 2, required: ["gate-policy"], proof: { generation: 1 } });
+
+    on = true;
+    expect(await launcher.startBoundWork(resumed, { id: "w2", text: "go" }, async () => ok(undefined)))
+      .toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("attachment 1") } });
+    expect(order).toEqual(["launch", "resume", "work"]);
+    expect(calls).toEqual({ prepare: 1, verify: 1 });
   });
 });
 

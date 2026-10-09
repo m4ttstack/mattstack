@@ -1478,7 +1478,7 @@ describe("policy check turn (M6c)", () => {
     const pending = sessions.policyCheck(binding("T1"), checkRun(log));
     await Bun.sleep(1);
     h.clock.advance(5000);
-    expect(await pending).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("interrupted") } });
+    expect(await pending).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("rt asked Codex to interrupt it") } });
     expect(h.requests("turn/interrupt").map((m) => m.params)).toEqual([{ threadId: "T1", turnId: "U7" }]);
     expect(log).toEqual(["issue U7"]);
     expect(sessions.activeTurn(binding("T1"))).toBeUndefined();

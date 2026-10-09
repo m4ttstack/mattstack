@@ -782,8 +782,13 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
         const status = await hub.waitTurn(threadId, turnId, deps.clock, run.timeoutMs);
         if (status === undefined) {
           // A check left running would make every later check on this thread refuse it as busy.
-          await control.request("turn/interrupt", { threadId, turnId }).catch(() => undefined);
-          return fail("not-ready", `the policy check turn on thread ${threadId} did not finish in time, so rt interrupted it`);
+          let interrupt = "rt asked Codex to interrupt it";
+          try {
+            await control.request("turn/interrupt", { threadId, turnId });
+          } catch (err) {
+            interrupt = `rt could not interrupt it (${messageOf(err)}), so later checks may find it still running`;
+          }
+          return fail("not-ready", `the policy check turn on thread ${threadId} did not finish in time; ${interrupt}`);
         }
         await run.settle();
         return ok({ turnId, status });

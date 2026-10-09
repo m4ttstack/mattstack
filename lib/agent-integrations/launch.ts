@@ -12,7 +12,8 @@
  * retried once its hooks have run under that generation (a new reservation
  * is a new resume and starts unready again). Each work submission rechecks
  * the proof against the policy as installed now, and a changed policy
- * withdraws readiness. With agent.integrations off, none of this applies.
+ * withdraws readiness. With agent.integrations off nothing is enforced, but
+ * a binding's recorded requirement is kept, never erased.
  * The reservation records each step before the side effect it guards, so a
  * launch that times out after making a native session is bound by the next
  * attempt, from any process, without making another; a launch interrupted
@@ -89,8 +90,9 @@ export type LauncherDeps = {
   presence(binding: SessionBinding, event: PresenceEvent): Promise<void>;
   /**
    * agent.integrations.enabled, read on every decision. Off, no policy proof
-   * is required or consulted, whatever a stored binding recorded, which is
-   * how the launcher behaved before session policy existed.
+   * is required or consulted, as before session policy existed; a binding's
+   * recorded requirement is still carried through a resume, so it is
+   * enforced again, with no current proof, once the switch is back on.
    */
   enabled(): boolean;
 };
@@ -523,8 +525,9 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
         }
         selection = merged.data;
       }
-      // A resumed session that had to prove its policy must prove it again; a resume never drops the requirement.
-      const inherited = resumed ? policyNeeded(readBindingReadiness(db, resumed.key)?.required ?? []) : [];
+      // A resumed session that had to prove its policy must prove it again. The requirement is carried even while the
+      // switch is off, which only stops enforcing it, so turning the switch back on finds it with no current proof.
+      const inherited = resumed ? policyCapabilities(readBindingReadiness(db, resumed.key)?.required ?? []) : [];
       const required = [...new Set([...request.required, ...inherited])];
       const needed = policyNeeded(required);
       if (needed.length > 0 && !asked.loadPolicy) {
