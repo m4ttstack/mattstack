@@ -1,6 +1,17 @@
-import { basename } from "path";
+import { readFileSync } from "fs";
+import { basename, join } from "path";
 
 export type PackProvenance = { dirty: 0 | 1; commits: string[] };
+
+function packName(dir: string): string {
+  try {
+    const name = JSON.parse(readFileSync(join(dir, ".claude-plugin", "plugin.json"), "utf8"))?.name;
+    if (typeof name === "string" && name.trim()) return name.trim();
+  } catch {
+    return basename(dir);
+  }
+  return basename(dir);
+}
 
 function gitOut(dir: string, args: string[]): string | null {
   try {
@@ -22,7 +33,7 @@ export function packProvenance(dirs: string[]): PackProvenance {
     if (!dir) continue;
     const sha = gitOut(dir, ["rev-parse", "--short", "HEAD"]);
     if (sha === null) continue;
-    commits.push(`${basename(dir)}=${sha}`);
+    commits.push(`${packName(dir)}=${sha}`);
     const status = gitOut(dir, ["status", "--porcelain"]);
     if (status !== null && status !== "") dirty = 1;
   }
