@@ -82,34 +82,31 @@ export function CodeBlock({ row, data, board, blocks }: BlockProps) {
     <section data-block="code" aria-label="Code" className="settings-block">
       <div className="settings-block-head">
         <h3 className="settings-heading">Code</h3>
-        {linked && (
+        {linked ? (
           <p className="settings-note">
             Serves from its linked checkout while deck is in dev mode.
           </p>
+        ) : (
+          canLink && <p className="settings-note">{linkFooter(row)}</p>
         )}
       </div>
-      {linked || !canLink ? (
-        <dl className="settings-facts">
-          <dt>Source</dt>
-          <dd>
-            {linked ? (
-              <span className="settings-mono" title={row.devDir ?? undefined}>
-                {row.devDir ? homeRelative(row.devDir) : 'linked'}
-              </span>
-            ) : row.devLink === 'broken' ? (
-              <span className="t-bad">broken</span>
-            ) : (
-              'not linked'
-            )}
-          </dd>
-          <Deployed row={row} />
-        </dl>
-      ) : (
-        <div className="settings-link">
-          <SourceLinkInput row={row} board={board} done={() => {}} />
-          <p className="settings-note">{linkFooter(row)}</p>
-        </div>
-      )}
+      <dl className="settings-facts">
+        <dt>Source</dt>
+        <dd>
+          {linked ? (
+            <span className="settings-mono" title={row.devDir ?? undefined}>
+              {row.devDir ? homeRelative(row.devDir) : 'linked'}
+            </span>
+          ) : canLink ? (
+            <SourceLinkInput row={row} board={board} done={() => {}} />
+          ) : row.devLink === 'broken' ? (
+            <span className="t-bad">broken</span>
+          ) : (
+            'not linked'
+          )}
+        </dd>
+        <Deployed row={row} />
+      </dl>
       {(commands.length > 0 || (canLink && linked)) && (
         <div className="settings-actions">
           {commands.map(name => (

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { TextField } from '@mattstack/tui-kit';
+import { Button, TextField } from '@mattstack/tui-kit';
 import type { Row } from '../logic.ts';
 import type { BoardState } from '../useBoardState.ts';
 import { escapeClearsDraft } from './escape.ts';
@@ -50,28 +50,33 @@ export function SourceLinkInput({
   };
 
   return (
-    <TextField
-      className="settings-link-input"
-      value={value}
-      onChange={ev => {
-        setValue(ev.target.value);
-        setError(null);
-      }}
-      placeholder="/path/to/source"
-      aria-label={`source path for ${row.name}`}
-      error={error}
-      disabled={busy}
-      inputRef={inputRef}
-      onKeyDown={ev => {
-        if (ev.key === 'Enter') submit();
-        if (ev.key === 'Escape') {
-          escapeClearsDraft(ev, value, () => {
-            setValue('');
-            setError(null);
-          });
-          done();
-        }
-      }}
-    />
+    <span className="settings-inline-form settings-grow">
+      <TextField
+        className="settings-link-input"
+        value={value}
+        onChange={ev => {
+          setValue(ev.target.value);
+          setError(null);
+        }}
+        placeholder="/path/to/source"
+        aria-label={`source path for ${row.name}`}
+        error={error}
+        disabled={busy}
+        inputRef={inputRef}
+        onKeyDown={ev => {
+          if (ev.key === 'Enter') submit();
+          if (ev.key === 'Escape') {
+            escapeClearsDraft(ev, value, () => {
+              setValue('');
+              setError(null);
+            });
+            done();
+          }
+        }}
+      />
+      <Button disabled={value.trim() === '' || busy} onClick={submit}>
+        Link
+      </Button>
+    </span>
   );
 }

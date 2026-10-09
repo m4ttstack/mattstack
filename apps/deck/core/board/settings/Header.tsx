@@ -2,11 +2,13 @@ import {
   Alert,
   Badge,
   Button,
+  Icon,
   ICONS,
   Spinner,
   Tooltip,
 } from '@mattstack/tui-kit';
 import { OFF_TIP, SiteMark } from '../AppsTable.tsx';
+import { CIRCLE_ALERT } from '../icons.ts';
 import { isMattstack, statusPill, type Row } from '../logic.ts';
 import type { BlockProps } from './block.ts';
 
@@ -23,13 +25,11 @@ function SiteUrl({ row }: { row: Row }) {
   return (
     <a className="settings-url" href={row.url} target="_blank" rel="noopener">
       {host}
-      {ICONS['external-link']}
+      <span aria-hidden="true">↗</span>
     </a>
   );
 }
 
-/** The modal's head row, passed as the kit Modal's title: identity on the
-    left, the status pill and Restart on the right. */
 export function SettingsHeader({ row, board, blocks }: BlockProps) {
   const restarting = board.isRestarting(row);
   const pill = statusPill(row, restarting);
@@ -98,7 +98,7 @@ export function IssuesBlock({ row }: BlockProps) {
       {issues.map(issue => (
         <Alert key={issue.source} intent="bad">
           <span className="settings-issue">
-            {ICONS['triangle-alert']}
+            <Icon d={CIRCLE_ALERT} width="16" height="16" />
             {issue.source} sync failed · {issue.message}
           </span>
         </Alert>

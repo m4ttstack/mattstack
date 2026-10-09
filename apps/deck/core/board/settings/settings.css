@@ -12,13 +12,27 @@
   max-width: min(640px, 100%);
 }
 
+/* The board's frame sits lower than the kit's 8vh, and the page behind it
+   stays legible: a wash, no blur. */
+.app-settings-overlay {
+  padding-top: 14.5vh;
+  backdrop-filter: none;
+}
+
+/* Kit controls draw at 11px; this page's controls read at body size. */
+.app-settings-modal [data-part='button']:not([data-icon-only]) {
+  padding-block: var(--spacing-px2);
+  font-size: var(--font-size-px13);
+}
+
 /* The head stays put while the body scrolls inside the frame's max-height. */
 .app-settings-modal [data-part='modal-head'] {
   position: sticky;
   top: 0;
   z-index: 1;
   gap: var(--spacing-md);
-  padding: var(--spacing-xl) var(--spacing-xxl);
+  padding: calc(var(--spacing-rem100) + var(--spacing-px4))
+    var(--spacing-rem150);
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
@@ -36,13 +50,13 @@
   gap: var(--spacing-lg);
 }
 .settings-head .site-mark {
-  width: 40px;
-  height: 40px;
+  width: calc(var(--spacing-rem100) * 2.5);
+  height: calc(var(--spacing-rem100) * 2.5);
   margin-right: 0;
   border-radius: var(--radius-lg);
 }
 .settings-head .site-mark-letter {
-  font-size: var(--font-size-xl);
+  font-size: calc(var(--font-size-xs) * 2);
 }
 .settings-identity {
   display: flex;
@@ -61,19 +75,18 @@
 }
 .settings-url {
   display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xxs);
+  align-items: baseline;
+  gap: var(--spacing-xs);
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  color: var(--text-accent-small);
+  font-size: var(--font-size-px13);
+  color: var(--text-accent);
   text-decoration: none;
+}
+.settings-url:hover {
+  text-decoration: underline;
 }
 .settings-url.muted {
   color: var(--text-2);
-}
-.settings-url [data-part='icon'] {
-  width: 11px;
-  height: 11px;
 }
 .settings-head-actions {
   display: flex;
@@ -85,10 +98,10 @@
 
 /* The pill is the kit Badge, rounded to a pill, with the detail in mono. */
 .settings-pill [data-part='badge'] {
-  gap: var(--spacing-xs);
+  gap: var(--spacing-md);
   padding: var(--spacing-xxs) var(--spacing-md);
   border-radius: var(--radius-pill);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-px13);
 }
 .settings-pill-dot {
   width: var(--spacing-sm);
@@ -113,30 +126,42 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
-  padding: var(--spacing-xl) var(--spacing-xxl) 0;
+  padding: var(--spacing-rem150) var(--spacing-rem150) 0;
+}
+.settings-issues [data-part='alert'] {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: 1px solid color-mix(in srgb, var(--text-bad) 45%, transparent);
+  border-radius: var(--radius-lg);
 }
 .settings-issue {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
 }
+.settings-issue [data-part='icon'] {
+  flex: none;
+  color: var(--text-bad-vivid);
+}
 
 /* Left column: what runs; right column: who reaches it. One column on a
    narrow window. */
+/* Columns keep their own height, so the divider (the first column's edge)
+   stops where its content does. */
 .settings-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  align-items: start;
 }
 .settings-col,
 .settings-stack {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-rem150);
-  padding: var(--spacing-xxl);
+  padding: var(--spacing-rem150);
   min-width: 0;
 }
-.settings-col + .settings-col {
-  border-left: 1px solid var(--border);
+.settings-col:not(:last-child) {
+  border-right: 1px solid var(--border);
 }
 .app-settings-reduced .settings-grid {
   grid-template-columns: 1fr;
@@ -145,9 +170,9 @@
   .settings-grid {
     grid-template-columns: 1fr;
   }
-  .settings-col + .settings-col {
-    border-left: none;
-    border-top: 1px solid var(--border);
+  .settings-col:not(:last-child) {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
   }
 }
 
@@ -165,7 +190,7 @@
 }
 .settings-note {
   color: var(--text-2);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-px12);
 }
 .settings-mono {
   font-family: var(--font-mono);
@@ -234,14 +259,6 @@
   gap: var(--spacing-xs);
   margin-left: auto;
 }
-.settings-link {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-.settings-link .settings-note {
-  margin: 0;
-}
 
 .settings-inline-form {
   display: flex;
@@ -306,7 +323,11 @@
   font-size: inherit;
 }
 .settings-block [data-part='field-input'] {
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-px4) var(--spacing-sm);
+}
+
+.settings-link-input [data-part='field-input'] {
+  font-family: var(--font-mono);
 }
 
 .settings-help {
@@ -320,8 +341,8 @@
   border-radius: var(--radius-round);
 }
 .settings-help-icon:focus-visible {
-  outline: 2px solid var(--fill-accent);
-  outline-offset: 2px;
+  outline: var(--spacing-px2) solid var(--fill-accent);
+  outline-offset: var(--spacing-px2);
 }
 
 /* Recent errors: an inset well, scheme-aware, with the tail in the bad role. */
@@ -346,7 +367,7 @@
   padding: var(--spacing-md) var(--spacing-lg);
   color: var(--text-bad);
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-px12);
   line-height: var(--line-height-base);
   white-space: pre-wrap;
   word-break: break-word;
@@ -363,7 +384,7 @@
   gap: var(--spacing-xs);
   color: var(--text-1);
   font: inherit;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-px13);
 }
 
 /* A settings list: the right column's bordered card of rows. Each row is a
@@ -375,6 +396,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
@@ -383,10 +405,10 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--spacing-sm) var(--spacing-md);
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-px10) var(--spacing-lg);
 }
 .settings-item + .settings-item {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-on-card);
 }
 .settings-item-icon {
   display: inline-flex;
@@ -440,7 +462,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-px13);
 }
 .settings-remote-status[data-tone='ok'] {
   color: var(--text-ok);
@@ -465,7 +487,7 @@
    accent fill, at the list's own text size. */
 .settings-item-body [data-part='segmented-option'] {
   padding: var(--spacing-xs) var(--spacing-md);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-px13);
   color: var(--text-2);
 }
 .settings-item-body [data-part='segmented-option'][data-active] {
@@ -483,7 +505,7 @@
   padding: var(--spacing-xxs) var(--spacing-sm);
   border-radius: var(--radius-md);
   font-family: inherit;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-px12);
   color: var(--text-1);
 }
 .settings-chip-remove {
@@ -496,14 +518,14 @@
   border-radius: var(--radius-round);
 }
 .settings-chip-remove [data-part='icon'] {
-  width: 11px;
-  height: 11px;
+  width: var(--spacing-px12);
+  height: var(--spacing-px12);
 }
 .settings-chip-remove:hover {
   color: var(--text-1);
 }
 .settings-chip-remove:focus-visible {
-  outline: 2px solid var(--fill-accent);
+  outline: var(--spacing-px2) solid var(--fill-accent);
   outline-offset: 1px;
 }
 
@@ -518,7 +540,7 @@
   border: 1px solid color-mix(in srgb, var(--text-warn) 45%, transparent);
   border-radius: var(--radius-lg);
   color: var(--text-1);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-px12);
 }
 .settings-open-note [data-part='icon'] {
   flex: none;
@@ -532,8 +554,8 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
-  padding: var(--spacing-md) var(--spacing-xxl);
-  background: var(--panel);
+  padding: var(--spacing-lg) var(--spacing-rem150);
+  background: var(--card);
   border-top: 1px solid var(--border);
 }
 .settings-footer-note {
