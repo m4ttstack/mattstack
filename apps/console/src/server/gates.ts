@@ -36,7 +36,11 @@ async function listAllRunGates(
 ): Promise<{ ok: true; gates: GateRow[] } | { ok: false; error: string }> {
   const gates: GateRow[] = [];
   let cursor: number | undefined;
-  const filter = subject ? { subject } : { subjectPrefix: 'run:' };
+  // A daemon older than the subject filter ignores the unknown key, so the
+  // prefix rides along to keep it from returning every gate in the estate.
+  const filter = subject
+    ? { subject, subjectPrefix: 'run:' }
+    : { subjectPrefix: 'run:' };
   for (;;) {
     const res = await gateList(
       {

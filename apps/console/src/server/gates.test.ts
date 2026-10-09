@@ -96,10 +96,8 @@ describe('GET /api/gates', () => {
     expect(res.status).toBe(200);
     expect(vi.mocked(rt.gateList).mock.calls[0]![0]).toMatchObject({
       subject: 'run:r1',
+      subjectPrefix: 'run:',
     });
-    expect(vi.mocked(rt.gateList).mock.calls[0]![0]).not.toHaveProperty(
-      'subjectPrefix'
-    );
   });
 
   it('ignores a subject that is not a run subject', async () => {
