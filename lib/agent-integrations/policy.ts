@@ -199,14 +199,20 @@ type RunReaders = Required<Pick<PolicyDeps, "findRunning" | "snapshot">>;
 /** Loaded on first use, so `rt gate fork-check`, which a hook timeout bounds, never pays for the run store. */
 async function runReaders(deps: PolicyDeps): Promise<RunReaders> {
   if (deps.findRunning && deps.snapshot) return { findRunning: deps.findRunning, snapshot: deps.snapshot };
-  const [{ findRunsBySession }, { snapshot }] = await Promise.all([import("../runs/store.ts"), import("../runs/write.ts")]);
+  const [{ findRunsBySession, RunsUnreadableError }, { snapshot }] = await Promise.all([import("../runs/store.ts"), import("../runs/write.ts")]);
   return {
+    // Strict: a runs root or run DB that exists but cannot be read makes the decision unavailable, never "no runs".
     findRunning: deps.findRunning
-      ?? ((sessionId) => findRunsBySession(sessionId).filter((m) => m.summary.status === "running").map((m) => m.runDb)),
+      ?? ((sessionId) => findRunsBySession(sessionId, undefined, { strict: true }).filter((m) => m.summary.status === "running").map((m) => m.runDb)),
     // `rt runs snapshot`'s rows, read without the migration a write verb's open runs.
     snapshot: deps.snapshot ?? ((runDb) => {
       if (!existsSync(runDb)) throw new Error(`run DB not found: ${runDb}`);
-      const db = new Database(runDb, { readonly: true });
+      let db: Database;
+      try {
+        db = new Database(runDb, { readonly: true });
+      } catch (err) {
+        throw new RunsUnreadableError(runDb, err);
+      }
       try {
         const snap = snapshot(db);
         if (!snap.ok) throw new Error(snap.error);
@@ -307,7 +313,11 @@ export async function inspectStop(context: CallerContext, deps: PolicyDeps = {})
     let snap: unknown;
     try {
       snap = readers.snapshot(runDb);
-    } catch {
+    } catch (err) {
+      // A run that vanished or whose snapshot fails is skipped, as the shell's `|| continue` does; one that exists and cannot be opened is not.
+      if (err instanceof Error && err.name === "RunsUnreadableError") {
+        return unavailable(context, "stop", `the session's runs could not be read: ${err.message}`, deps);
+      }
       continue;
     }
     const state = stopStateOf(snap, sessionId);

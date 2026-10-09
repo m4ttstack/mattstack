@@ -75,6 +75,7 @@ import { listQueuedFrames } from "../delivery-store.ts";
 import { codexEventHub } from "./events.ts";
 import type { CodexMessagingDeps } from "./messaging.ts";
 import { createCodexQuestions, type CodexQuestionDeps } from "./questions.ts";
+import { CODEX_PROVEN_POLICY } from "./hook-manifest.ts";
 import { observeCodexHookEvent } from "./policy-receipts.ts";
 import { setCodexExperimentalProbe, setCodexLinkProbe, setCodexThreadProbe, setCodexTurnProbe } from "./link.ts";
 import { canonicalCodexProfile } from "./profile.ts";
@@ -306,11 +307,14 @@ export function codexReadiness(
  * Both modes run on an owned app-server thread, so both launch, resume and
  * observe, and both take peer input through the native queue, which starts an
  * idle thread and holds input for a working one's next boundary (spike 2026-10-04).
+ * Policy capabilities are claimed only in the modes live checks proved them
+ * (CODEX_PROVEN_POLICY).
  */
-export function codexSupported(_mode: Mode): Array<
+export function codexSupported(mode: Mode): Array<
   "launch" | "resume" | "observe" | "peer-idle" | "peer-working" | "questions-form" | "question-recovery"
+  | "gate-policy" | "continuation-policy"
 > {
-  return ["launch", "resume", "observe", "peer-idle", "peer-working", "questions-form", "question-recovery"];
+  return ["launch", "resume", "observe", "peer-idle", "peer-working", "questions-form", "question-recovery", ...CODEX_PROVEN_POLICY[mode]];
 }
 
 function threadOf(result: unknown): Record<string, unknown> | undefined {

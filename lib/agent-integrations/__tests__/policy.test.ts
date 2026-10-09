@@ -9,6 +9,7 @@ import { createGatesStore } from "../../daemon/gates-store.ts";
 import { createGateHandlers } from "../../daemon/handlers/gate.ts";
 import type { EventsBus } from "../../daemon/events-bus.ts";
 import { runStart } from "../../runs/start.ts";
+import { findRunsBySession } from "../../runs/store.ts";
 import { fieldSet, openRunDb, runStatus, stageStart } from "../../runs/write.ts";
 import { gateForkHookEntry } from "../../agent-hooks.ts";
 import { buildForkCheckPayload, forkCheckHookOutput, FORK_CHECK_ALLOW } from "../../../commands/gate.ts";
@@ -230,6 +231,43 @@ describe("evaluateStop characterizes pipeline-gate-stop.sh", () => {
     expect(withdrawBindingReady(db, key, generation)).toEqual({ ok: true, data: true });
     expect(readBindingReadiness(db, key)?.generation).toBeNull();
     db.close();
+  });
+
+  test("the default readers: an unreadable runs root or run DB is unavailable, a missing one is no runs (live-14 D6)", async () => {
+    const root = join(dir, "strict-runs");
+    const prior = process.env.RT_RUNS_ROOT;
+    process.env.RT_RUNS_ROOT = root;
+    const quiet: PolicyDeps = { onUnavailable: () => {} };
+    try {
+      expect(await evaluateStop(caller(), quiet)).toEqual({ ok: true, data: "allow" });
+
+      const started = runStart(root, { repo: "repo-a", workType: "feature", pipeline: "feature", env: { CLAUDE_CODE_SESSION_ID: SID }, now: 1000 });
+      if (!started.ok) throw new Error(started.error);
+      mkdirSync(join(root, "repo-a", "run-without-db"), { recursive: true });
+      expect(await evaluateStop(caller(), quiet)).toEqual({ ok: true, data: "continue" });
+
+      chmodSync(root, 0o000);
+      try {
+        const verdict = await evaluateStop(caller(), quiet);
+        expect(isPolicyUnavailable(verdict)).toBe(true);
+        expect(findRunsBySession(SID)).toEqual([]);
+      } finally {
+        chmodSync(root, 0o755);
+      }
+
+      chmodSync(started.runDb, 0o000);
+      try {
+        const verdict = await evaluateStop(caller(), quiet);
+        expect(isPolicyUnavailable(verdict)).toBe(true);
+        if (!verdict.ok) expect(verdict.error.message).toContain(started.runDb);
+        expect(findRunsBySession(SID)).toEqual([]);
+      } finally {
+        chmodSync(started.runDb, 0o644);
+      }
+    } finally {
+      if (prior === undefined) delete process.env.RT_RUNS_ROOT;
+      else process.env.RT_RUNS_ROOT = prior;
+    }
   });
 
   test("the default readers find the caller's real run and honor a hold set after the stage started", async () => {

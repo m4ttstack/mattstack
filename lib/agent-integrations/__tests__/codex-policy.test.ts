@@ -153,9 +153,12 @@ describe("codexPolicyManifest", () => {
     const manifest = codexPolicyManifest({ executable: EXE, installationId: INSTALLATION });
     expect(Object.keys(manifest.hooks)).toEqual(["PreToolUse", "Stop"]);
     expect(manifest.hooks.PreToolUse).toEqual([{
-      hooks: [{ type: "command", command: `'${EXE}' agent policy-hook --installation '${INSTALLATION}' --event 'PreToolUse'`, timeout: CODEX_POLICY_HOOK_TIMEOUT_SECONDS }],
+      hooks: [{
+        type: "command", command: `'${EXE}' agent policy-hook --installation '${INSTALLATION}' --event 'PreToolUse' --executable '${EXE}'`,
+        timeout: CODEX_POLICY_HOOK_TIMEOUT_SECONDS,
+      }],
     }]);
-    expect(manifest.hooks.Stop[0]!.hooks[0]!.command).toBe(`'${EXE}' agent policy-hook --installation '${INSTALLATION}' --event 'Stop'`);
+    expect(manifest.hooks.Stop[0]!.hooks[0]!.command).toBe(`'${EXE}' agent policy-hook --installation '${INSTALLATION}' --event 'Stop' --executable '${EXE}'`);
     expect(manifest.revision).toMatch(/^[0-9a-f]{64}$/);
     expect(codexPolicyManifest({ executable: EXE, installationId: INSTALLATION }).revision).toBe(manifest.revision);
     expect(codexPolicyManifest({ executable: "/opt/mattstack/2.31.0/Contents/Helpers/rt", installationId: INSTALLATION }).revision).not.toBe(manifest.revision);
@@ -174,14 +177,31 @@ describe("codexPolicyManifest", () => {
     const command = codexPolicyHookCommand(quoted, INSTALLATION, "Stop");
     expect(parseCodexPolicyHookCommand(command)).toEqual({ executable: quoted, installationId: INSTALLATION, event: "Stop" });
     expect(parseCodexPolicyHookCommand(`${command} --extra`)).toBeNull();
-    expect(parseCodexPolicyHookCommand(`'${EXE}' agent policy-hook --installation '${INSTALLATION}' --event 'Notify'`)).toBeNull();
-    expect(parseCodexPolicyHookCommand(`${EXE} agent policy-hook --installation ${INSTALLATION} --event Stop`)).toBeNull();
+    expect(parseCodexPolicyHookCommand(`'${EXE}' agent policy-hook --installation '${INSTALLATION}' --event 'Notify' --executable '${EXE}'`)).toBeNull();
+    expect(parseCodexPolicyHookCommand(`${EXE} agent policy-hook --installation ${INSTALLATION} --event Stop --executable ${EXE}`)).toBeNull();
+    // The version 1 shape, and a command whose --executable names another path than it runs.
+    expect(parseCodexPolicyHookCommand(`'${EXE}' agent policy-hook --installation '${INSTALLATION}' --event 'Stop'`)).toBeNull();
+    expect(parseCodexPolicyHookCommand(`'${EXE}' agent policy-hook --installation '${INSTALLATION}' --event 'Stop' --executable '/opt/other/rt'`)).toBeNull();
   });
 });
 
 // ─── Translation ─────────────────────────────────────────────────────────────
 
 describe("handleCodexHook", () => {
+  test("a receipt names the manifest of the path the definition names, never the process that runs it", async () => {
+    bindAgent(THREAD, { subject: "herd:h1/job-a" });
+    const wrapper = "/Users/someone/.local/bin/rt";
+    const named = harness({ event: "PreToolUse", executable: wrapper });
+    await handleCodexHook(payload({ tool_name: "Bash" }), named.deps);
+    expect(named.spies.receipts.map((r) => r.revision)).toEqual([codexPolicyManifest({ executable: wrapper, installationId: INSTALLATION }).revision]);
+    expect(named.spies.receipts[0]!.revision).not.toBe(codexPolicyManifest({ executable: process.execPath, installationId: INSTALLATION }).revision);
+
+    const unnamed = harness({ event: "PreToolUse" });
+    delete unnamed.deps.executable;
+    await handleCodexHook(payload({ tool_name: "Bash" }), unnamed.deps);
+    expect(unnamed.spies.receipts).toEqual([]);
+  });
+
   test("native IDs resolve exact binding", async () => {
     bindAgent(THREAD, { subject: "herd:h1/job-a", pane: "w2:p3" });
     bindAgent(OTHER_THREAD, { agentId: "ag-other", subject: "herd:h1/job-b", pane: "w9:p9" });
@@ -665,18 +685,18 @@ describe("createCodexPolicy", () => {
     expect(await policy.verify({ ...bound, native: { ...bound.native, profile: "default" } }, prepared.data)).toMatchObject({ ok: false, error: { code: "invalid" } });
   });
 
-  test("an unverified async native path cannot advertise policy", async () => {
-    expect(CODEX_PROVEN_POLICY).toEqual([]);
-    for (const mode of ["herdr", "headless"] as const) {
-      expect(codexSupported(mode)).not.toContain("gate-policy");
-      expect(codexSupported(mode)).not.toContain("continuation-policy");
-    }
+  test("policy is advertised and preparable only in the mode live checks proved it: headless, never herdr", async () => {
+    expect(CODEX_PROVEN_POLICY).toEqual({ headless: ["gate-policy", "continuation-policy"], herdr: [] });
+    expect(codexSupported("headless")).toEqual(expect.arrayContaining(["gate-policy", "continuation-policy"]));
+    expect(codexSupported("herdr")).not.toContain("gate-policy");
+    expect(codexSupported("herdr")).not.toContain("continuation-policy");
     const p = project();
     const policy = createCodexPolicy({ env: p.env, fingerprint: () => "x" });
     for (const cap of ["gate-policy", "continuation-policy"] as const) {
-      const prepared = await policy.prepare(request(p.cwd, [cap]));
-      expect(prepared).toMatchObject({ ok: false, error: { code: "not-ready" } });
-      if (!prepared.ok) expect(prepared.error.message).toContain(cap);
+      expect((await policy.prepare({ ...request(p.cwd, [cap]), mode: "headless" })).ok).toBe(true);
+      const herdr = await policy.prepare(request(p.cwd, [cap]));
+      expect(herdr).toMatchObject({ ok: false, error: { code: "not-ready" } });
+      if (!herdr.ok) expect(herdr.error.message).toContain(`${cap} in herdr sessions`);
     }
   });
 
@@ -684,7 +704,7 @@ describe("createCodexPolicy", () => {
     const cases: Array<[string, Parameters<typeof project>[0], string]> = [
       ["untrusted folder", { trust: false }, "does not trust"],
       ["untrusted hook", { hookTrust: false }, "has not trusted rt's PreToolUse policy hook"],
-      ["edited command", { command: `'${EXE}' agent policy-hook --installation 'inst-test-2' --event 'Stop'` }, "different executables or installations"],
+      ["edited command", { command: `'${EXE}' agent policy-hook --installation 'inst-test-2' --event 'Stop' --executable '${EXE}'` }, "different executables or installations"],
       ["matcher added", { matcher: "request_user_input" }, "differs from the reviewed manifest"],
     ];
     for (const [name, opts, want] of cases) {
@@ -721,8 +741,8 @@ describe("rt agent policy-hook", () => {
   }
 
   test("passes the definition's flags and the parsed payload, and a pass is `{}` alone on stdout", async () => {
-    const run = await drive(["--installation", INSTALLATION, "--event", "Stop"], JSON.stringify(stopPayload()), CODEX_HOOK_PASS);
-    expect(run.seen).toEqual([{ input: stopPayload(), deps: { event: "Stop", installation: INSTALLATION } }]);
+    const run = await drive(["--installation", INSTALLATION, "--event", "Stop", "--executable", EXE], JSON.stringify(stopPayload()), CODEX_HOOK_PASS);
+    expect(run.seen).toEqual([{ input: stopPayload(), deps: { event: "Stop", installation: INSTALLATION, executable: EXE } }]);
     expect(run).toMatchObject({ stdout: "{}\n", stderr: "", exits: [] });
   });
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type {
@@ -183,6 +183,32 @@ describe("trusted inventory without executed receipts is not ready", () => {
     expect(requirePolicyProof(binding, ["gate-policy", "continuation-policy"], prepared.revision, db)).toEqual({ ok: true, data: undefined });
   });
 
+  test("a manifest naming a wrapper script or a symlink proves, and a changed executable behind it is still caught", async () => {
+    const bin = join(dir, "bin");
+    mkdirSync(bin, { recursive: true });
+    const wrapper = join(bin, "rt");
+    writeFileSync(wrapper, "#!/bin/sh\nexec /opt/mattstack/2.30.0/Contents/Helpers/rt \"$@\"\n");
+    const link = join(bin, "rt-link");
+    symlinkSync(wrapper, link);
+    for (const executable of [wrapper, link]) {
+      rmSync(join(dir, "project"), { recursive: true, force: true });
+      const p = project(executable);
+      const binding = bind("codex", `${THREAD}-${executable.length}`, p.home);
+      const store = createCodexPolicyReceipts();
+      // The hook names this revision from its --executable, whatever binary runs it.
+      const named = codexPolicyManifest({ executable, installationId: INSTALLATION }).revision;
+      const policy = createCodexPolicy({
+        env: p.env, now: () => 7, receipts: store, sleep: async () => {},
+        checker: async () => checker((turnId) => simulate(store, binding, p.source, named, BOTH, turnId)),
+      });
+      const prepared = data(await policy.prepare(launchRequest(p.root)));
+      expect({ executable, ok: (await policy.verify(binding, prepared, { kind: "launch" })).ok }).toEqual({ executable, ok: true });
+      writeFileSync(wrapper, "#!/bin/sh\nexec /opt/mattstack/2.31.0/Contents/Helpers/rt \"$@\"\n");
+      expect(await policy.verify(binding, prepared, { kind: "launch" })).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("changed") } });
+      writeFileSync(wrapper, "#!/bin/sh\nexec /opt/mattstack/2.30.0/Contents/Helpers/rt \"$@\"\n");
+    }
+  });
+
   test("hooks that fired before the turn id was known still count", async () => {
     const p = project();
     const binding = bind("codex", THREAD, p.home);
@@ -360,10 +386,8 @@ describe("old loaded worker cannot reuse new revision", () => {
         simulate(receipts, b, p.source, p.manifest.revision, BOTH, turnId);
       }),
     });
-    // Codex does not yet advertise policy (CODEX_PROVEN_POLICY), so prepare is asked without the capabilities, as the live runbook does.
-    const policy: PolicyAdapter = { prepare: (r) => real.prepare({ ...r, required: [] }), verify: real.verify };
     const native: NativeSessionRef = { harness: "codex", profile: p.home, kind: "id", value: THREAD };
-    const launcher = launcherOf(fakeIntegration(fakeSessions(native), policy, { id: "codex", kind: "receipts" }));
+    const launcher = launcherOf(fakeIntegration(fakeSessions(native), real, { id: "codex", kind: "receipts" }));
     const store = createSessionStore(db);
     const base = { cwd: p.root, mode: "headless" as Mode, selection: { harness: "codex", options: {} }, access: { readRoots: [] } };
     const first = data(await launcher.launchBoundAgent({ ...base, reservationId: store.reserve({ identity: "wc" }), required: ["gate-policy", "continuation-policy"] }));

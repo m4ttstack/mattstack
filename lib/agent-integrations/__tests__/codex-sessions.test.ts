@@ -867,9 +867,11 @@ describe("registration", () => {
   test("codex loads its session adapter and advertises only what it provides", async () => {
     expect(typeof codexIntegration.loadSessions).toBe("function");
     expect(typeof codexIntegration.loadQuestions).toBe("function");
-    for (const mode of ["herdr", "headless"] as const) {
+    const base = ["launch", "resume", "observe", "peer-idle", "peer-working", "questions-form", "question-recovery"] as const;
+    // Policy is claimed only where live checks proved it: headless threads, not terminal-attached ones.
+    for (const [mode, policy] of [["herdr", []], ["headless", ["gate-policy", "continuation-policy"]]] as const) {
       const report = await codexIntegration.capabilities(mode);
-      expect(report.supported).toEqual(["launch", "resume", "observe", "peer-idle", "peer-working", "questions-form", "question-recovery"]);
+      expect(report.supported).toEqual([...base, ...policy]);
       expect(typeof report.readiness.ready).toBe("boolean");
     }
   });
@@ -1483,6 +1485,26 @@ describe("policy check turn (M6c)", () => {
     expect(log).toEqual(["issue U7"]);
     expect(sessions.activeTurn(binding("T1"))).toBeUndefined();
     expect(h.ops.at(-1)).toBe("thread/unsubscribe");
+    expect(h.clock.active).toBe(0);
+  });
+
+  test("a timed-out check whose interrupt Codex refuses says so and is not ready", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    const h = await harness({
+      ...server.handlers,
+      "turn/start": (s, m) => {
+        s.push({ id: m.id, result: { turn: { id: "U8", items: [], status: "inProgress" } } });
+        s.push(turn("turn/started", m.params.threadId, "U8"));
+      },
+      "turn/interrupt": (s, m) => s.push({ id: m.id, error: { code: -32603, message: "interrupt refused" } }),
+    });
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => false });
+    const pending = sessions.policyCheck(binding("T1"), checkRun([]));
+    await Bun.sleep(1);
+    h.clock.advance(5000);
+    const result = await pending;
+    expect(result).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringMatching(/rt could not interrupt it \(.*interrupt refused/) } });
+    expect(h.requests("turn/interrupt").map((m) => m.params)).toEqual([{ threadId: "T1", turnId: "U8" }]);
     expect(h.clock.active).toBe(0);
   });
 

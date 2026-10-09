@@ -1645,6 +1645,7 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Installation", flag: "--installation", type: "text", placeholder: "inst-1", hint: "The installation the hook definition names" },
           { name: "Event", flag: "--event", type: "text", placeholder: "PreToolUse | Stop", hint: "The native event the hook definition is installed for" },
+          { name: "Executable", flag: "--executable", type: "text", placeholder: "/path/to/rt", hint: "The executable path the hook definition names" },
         ],
       },
     },

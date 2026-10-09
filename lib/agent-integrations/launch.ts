@@ -372,6 +372,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     }
     if (isDetachedAttachment(current)) return fail("stale-binding", `session ${current.native.value} left its attachment; nothing was sent`);
     const readiness = readBindingReadiness(db, current.key);
+    // ready_generation alone is not "ready to work": a session that required policy also needs its proof below and policyStillCurrent.
     if (readiness?.generation !== current.attachment.generation) {
       return fail("not-ready", `session ${current.native.value} has not been verified ready for this attachment; nothing was sent`);
     }

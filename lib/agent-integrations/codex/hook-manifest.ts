@@ -14,10 +14,21 @@ import { createHash } from "crypto";
 import { isAbsolute } from "path";
 
 export const CODEX_POLICY_EVENTS = ["PreToolUse", "Stop"] as const;
+
+/**
+ * The policy capabilities Codex's hooks are proven to enforce, per mode.
+ * Headless: live-12/13/14 proved question refusal, Stop continuation with its
+ * cap, cancellation and session readiness on headless threads. Herdr: no live
+ * run has exercised a terminal-attached thread, so nothing is claimed there.
+ */
+export const CODEX_PROVEN_POLICY: Readonly<Record<"herdr" | "headless", readonly ("gate-policy" | "continuation-policy")[]>> = {
+  headless: ["gate-policy", "continuation-policy"],
+  herdr: [],
+};
 export type CodexPolicyEvent = (typeof CODEX_POLICY_EVENTS)[number];
 
 /** Bumped whenever the command's shape changes, so an installed older shape reads as another revision. */
-export const CODEX_POLICY_MANIFEST_VERSION = 1;
+export const CODEX_POLICY_MANIFEST_VERSION = 2;
 
 /**
  * Codex's own budget for each hook run. The policy's daemon round trip is
@@ -42,13 +53,20 @@ export type CodexPolicyManifest = { revision: string; hooks: CodexPolicyHooks };
 
 const quote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;
 
+/**
+ * The executable is named twice: once to run, and once as `--executable`,
+ * so the hook names the manifest it belongs to by the path the manifest
+ * wrote. A wrapper script, a symlink or rt run from source runs as another
+ * process (process.execPath names bun or the wrapped binary), which would
+ * otherwise name a revision the installed manifest never had.
+ */
 export function codexPolicyHookCommand(executable: string, installationId: string, event: CodexPolicyEvent): string {
-  return `${quote(executable)} agent policy-hook --installation ${quote(installationId)} --event ${quote(event)}`;
+  return `${quote(executable)} agent policy-hook --installation ${quote(installationId)} --event ${quote(event)} --executable ${quote(executable)}`;
 }
 
 /** The parts of a command this manifest wrote, or null for any other command. */
 export function parseCodexPolicyHookCommand(command: string): { executable: string; installationId: string; event: CodexPolicyEvent } | null {
-  const match = /^'((?:[^']|'\\'')+)' agent policy-hook --installation '([^']+)' --event '([A-Za-z]+)'$/.exec(command);
+  const match = /^'((?:[^']|'\\'')+)' agent policy-hook --installation '([^']+)' --event '([A-Za-z]+)' --executable '(?:[^']|'\\'')+'$/.exec(command);
   if (!match) return null;
   const executable = match[1]!.replaceAll(`'\\''`, "'");
   const [installationId, event] = [match[2]!, match[3]!];

@@ -12,10 +12,25 @@ import { KNOWN_SCHEMA_VERSION } from "./write.ts";
 
 export { isPathComponent, KNOWN_SCHEMA_VERSION, runsRoot };
 
-function dirs(path: string): string[] {
+/**
+ * A runs root, repo dir or run DB that exists but cannot be read. Only a
+ * strict read throws it: a caller that must not mistake "unreadable" for
+ * "no runs" (the session policy's Stop rule) asks for one.
+ */
+export class RunsUnreadableError extends Error {
+  constructor(path: string, cause: unknown) {
+    super(`${path} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "RunsUnreadableError";
+  }
+}
+
+const missing = (err: unknown): boolean => (err as NodeJS.ErrnoException | null)?.code === "ENOENT";
+
+function dirs(path: string, strict = false): string[] {
   try {
     return readdirSync(path, { withFileTypes: true }).filter((d: Dirent) => d.isDirectory()).map((d: Dirent) => d.name);
-  } catch {
+  } catch (err) {
+    if (strict && !missing(err)) throw new RunsUnreadableError(path, err);
     return [];
   }
 }
@@ -29,24 +44,33 @@ export function listRunRepoDirs(): string[] {
   return dirs(runsRoot());
 }
 
-function openRun(repo: string, runId: string): { db: Database; schemaAhead: boolean } | null {
+function openRun(repo: string, runId: string, strict = false): { db: Database; schemaAhead: boolean } | null {
   if (!isPathComponent(repo) || !isPathComponent(runId)) return null;
   const path = join(runsRoot(), repo, runId, "state.db");
-  if (!existsSync(path)) return null;
+  if (strict) {
+    try {
+      statSync(path);
+    } catch (err) {
+      if (missing(err)) return null;
+      throw new RunsUnreadableError(path, err);
+    }
+  } else if (!existsSync(path)) return null;
   // Bun's sqlite constructor itself throws for a state.db that isn't a
   // readable database file (a directory, a permission-denied path) --
   // one bad run dir must not abort every caller's scan of the rest.
   let db: Database;
   try {
     db = new Database(path, { readonly: true });
-  } catch {
+  } catch (err) {
+    if (strict) throw new RunsUnreadableError(path, err);
     return null;
   }
   try {
     const ver = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
     return { db, schemaAhead: ver > KNOWN_SCHEMA_VERSION };
-  } catch {
+  } catch (err) {
     db.close();
+    if (strict) throw new RunsUnreadableError(path, err);
     return null;
   }
 }
@@ -243,11 +267,18 @@ export function findRunningRunByWorktree(worktree: string): RunningRunScan {
   return incomplete ? { kind: "incomplete" } : { kind: "none" };
 }
 
-export function findRunsBySession(sessionId: string, liveness?: RunLiveness): RunSessionMatch[] {
+/**
+ * `strict` throws RunsUnreadableError for a runs root, repo dir or run DB
+ * that exists but cannot be read, instead of skipping it; a missing one is
+ * still no runs. The session policy reads strictly, since an unreadable run
+ * it skipped could be the one that should keep a session working.
+ */
+export function findRunsBySession(sessionId: string, liveness?: RunLiveness, opts: { strict?: boolean } = {}): RunSessionMatch[] {
+  const strict = opts.strict === true;
   const out: RunSessionMatch[] = [];
-  for (const repo of dirs(runsRoot())) {
-    for (const id of dirs(join(runsRoot(), repo))) {
-      const opened = openRun(repo, id);
+  for (const repo of dirs(runsRoot(), strict)) {
+    for (const id of dirs(join(runsRoot(), repo), strict)) {
+      const opened = openRun(repo, id, strict);
       if (!opened) continue;
       try {
         // A Stop hook walks every run DB with no mtime cache on this path,
@@ -258,7 +289,8 @@ export function findRunsBySession(sessionId: string, liveness?: RunLiveness): Ru
         const row = runRow(opened.db);
         if (!row) continue;
         out.push({ summary: withAttention(opened.db, row, liveness), runDb: join(runsRoot(), repo, id, "state.db") });
-      } catch {
+      } catch (err) {
+        if (strict) throw new RunsUnreadableError(join(runsRoot(), repo, id, "state.db"), err);
         continue;
       } finally {
         opened.db.close();

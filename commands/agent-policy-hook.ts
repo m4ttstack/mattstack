@@ -38,6 +38,7 @@ export async function runPolicyHook(args: string[], io: PolicyHookIo): Promise<v
   // An --event that names no policy event matches no payload, so the hook passes.
   const event = flag(args, "--event") as CodexPolicyEvent | undefined;
   const installation = flag(args, "--installation");
+  const executable = flag(args, "--executable");
   const stdin = await io.readStdin();
   let input: unknown;
   try {
@@ -48,6 +49,7 @@ export async function runPolicyHook(args: string[], io: PolicyHookIo): Promise<v
   const result = await io.handle(input, {
     ...(event !== undefined && { event }),
     ...(installation !== undefined && { installation }),
+    ...(executable !== undefined && { executable }),
   });
   if (result.stdout) out.payload(result.stdout);
   if (result.stderr) out.diagnostic(result.stderr);

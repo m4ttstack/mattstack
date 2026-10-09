@@ -832,6 +832,7 @@ describe("messaging wiring", () => {
     for (const mode of ["herdr", "headless"] as const) {
       expect((await codexIntegration.capabilities(mode)).supported).toEqual([
         "launch", "resume", "observe", "peer-idle", "peer-working", "questions-form", "question-recovery",
+        ...(mode === "headless" ? ["gate-policy", "continuation-policy"] as const : []),
       ]);
     }
   });

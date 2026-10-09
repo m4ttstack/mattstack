@@ -31,7 +31,7 @@ import type { LaunchRequest, PolicyAdapter, PolicyProof, PolicyVerifyContext, Pr
 import type { PolicyDeps } from "../policy.ts";
 import { CODEX_POLICY_CHECK_TURN_TIMEOUT_MS } from "../timeouts.ts";
 import {
-  CODEX_POLICY_EVENTS, MAX_ID_LENGTH, MAX_PATH_LENGTH, codexPolicyManifest, parseCodexPolicyHookCommand, plainText,
+  CODEX_POLICY_EVENTS, CODEX_PROVEN_POLICY, MAX_ID_LENGTH, MAX_PATH_LENGTH, codexPolicyManifest, parseCodexPolicyHookCommand, plainText,
   validInstallationId, type CodexHookHandler, type CodexPolicyEvent,
 } from "./hook-manifest.ts";
 import {
@@ -172,7 +172,7 @@ export type CodexHookDeps = {
   event?: CodexPolicyEvent;
   /** The installation the definition names (`--installation`); without it no receipt is sent. */
   installation?: string;
-  /** The executable the definition runs, for the manifest revision a receipt carries. */
+  /** The executable the definition names (`--executable`), for the manifest revision a receipt carries; without it no receipt is sent. */
   executable?: string;
   env?: NodeJS.ProcessEnv;
   enabled?: () => boolean;
@@ -232,9 +232,11 @@ async function decideStop(context: CallerContext, hook: CodexHookEvent, deps: Co
 }
 
 /**
- * The manifest revision this hook belongs to. Run from source, process.execPath
- * is bun rather than the rt the manifest names, so M6c compares receipt
- * revisions against manifest revisions, never against PreparedPolicy.revision.
+ * The manifest revision this hook belongs to, from the executable path the
+ * installed definition names, never the running process: a wrapper, a
+ * symlink or rt run from source runs as another binary (live-14 D5). A
+ * receipt naming another path still proves nothing, because proof also
+ * needs the one native run from the inspected hooks file.
  */
 function revisionOf(executable: string | undefined, installation: string): string | undefined {
   if (executable === undefined) return undefined;
@@ -250,7 +252,7 @@ async function sendReceipt(
 ): Promise<void> {
   const installation = deps.installation;
   if (!validInstallationId(installation)) return;
-  const revision = revisionOf(deps.executable ?? process.execPath, installation);
+  const revision = revisionOf(deps.executable, installation);
   if (revision === undefined) return;
   const payload: ReceiptPayload = {
     installation, revision, profile, event: hook.event, ...(hook.tool !== undefined && { tool: hook.tool }),
@@ -357,13 +359,7 @@ const EVENT_CAPABILITY: Record<CodexPolicyEvent, Capability> = { PreToolUse: "ga
 
 const SNAKE: Record<CodexPolicyEvent, string> = { PreToolUse: "pre_tool_use", Stop: "stop" };
 
-/**
- * Policy capabilities the Codex hooks are proven to enforce. Empty: the
- * asynchronous question path is not intercepted by the tested hook, and
- * Codex's answer to repeated Stop refusals is not characterized, so neither
- * capability is advertised until live checks prove both.
- */
-export const CODEX_PROVEN_POLICY: readonly Capability[] = [];
+export { CODEX_PROVEN_POLICY };
 const POLICY_CAPABILITIES: readonly Capability[] = ["gate-policy", "continuation-policy"];
 
 function realOr(path: string): string {
@@ -635,9 +631,10 @@ export function createCodexPolicy(overrides: CodexPolicyDeps = {}): PolicyAdapte
       const profile = profileOf();
       const found = inspect(request.cwd, profile, deps);
       if (!found.ok) return found;
-      const missing = request.required.filter((c) => POLICY_CAPABILITIES.includes(c) && !CODEX_PROVEN_POLICY.includes(c));
+      const proven: readonly Capability[] = CODEX_PROVEN_POLICY[request.mode];
+      const missing = request.required.filter((c) => POLICY_CAPABILITIES.includes(c) && !proven.includes(c));
       if (missing.length > 0) {
-        return fail("not-ready", `Codex's policy hooks are installed, but rt has not proved they enforce ${missing.join(", ")} for every native path`);
+        return fail("not-ready", `Codex's policy hooks are installed, but rt has not proved they enforce ${missing.join(", ")} in ${request.mode} sessions`);
       }
       return {
         ok: true,
