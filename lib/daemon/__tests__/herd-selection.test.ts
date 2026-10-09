@@ -143,7 +143,7 @@ afterEach(() => {
 
 type Spawned = { provider: string; surface: string; model?: string; effort?: string; account?: string; env?: unknown };
 
-type TreeRow = { path: string; branch: string | null; owner?: string };
+type TreeRow = { path: string; branch: string | null; owner?: string; state?: "creating" | "on-deck" | "claimed" | "disposable"; releasedAt?: string };
 
 function spawner(opts: {
   switchOn?: boolean; enabled?: string[]; registry?: ReturnType<typeof createRegistry>;
@@ -181,7 +181,7 @@ function spawner(opts: {
       "worktree:provision": async (p: { branch: string; owner: string }) => {
         provisions.push(p);
         if (opts.provisionError) return { ok: false, error: opts.provisionError };
-        if (opts.trees) opts.trees[p.branch] = { path: `/w/${p.branch}`, branch: p.branch, owner: p.owner };
+        if (opts.trees) opts.trees[p.branch] = { path: `/w/${p.branch}`, branch: p.branch, owner: p.owner, state: "claimed" };
         return reply({ path: `/w/${p.branch}`, branch: p.branch, tree: p.branch, wasOnDeck: true });
       },
       "worktree:dispose": async () => reply({ disposed: [], refused: [] }),
@@ -342,11 +342,18 @@ describe("herd:spawn respawns: the job's tree, then the attempt, then the close"
     const { h, provisions } = spawner({ trees });
     const first = await h["herd:spawn"]({ herd: HERD, job: "job-a", brief: "b", harness: "codex" });
     if (!first.ok) throw new Error(first.error);
-    for (const moved of [{ path: "/w/job-a", branch: "other", owner: OWNER }, { path: "/w/job-a", branch: "job-a", owner: "herd:another" }, { path: "/w/t9", branch: "job-a", owner: OWNER }]) {
-      trees["job-a"] = moved;
+    const moved: TreeRow[] = [
+      { path: "/w/job-a", branch: "other", owner: OWNER, state: "claimed" },
+      { path: "/w/job-a", branch: "job-a", owner: "herd:another", state: "claimed" },
+      { path: "/w/t9", branch: "job-a", owner: OWNER, state: "claimed" },
+      { path: "/w/job-a", branch: "job-a", owner: OWNER, state: "claimed", releasedAt: "2026-10-09T09:00:00.000Z" },
+      { path: "/w/job-a", branch: "job-a", owner: OWNER, state: "disposable" },
+    ];
+    for (const row of moved) {
+      trees["job-a"] = row;
       const before = provisions.length;
       expect((await h["herd:spawn"]({ herd: HERD, job: "job-a" })).ok).toBe(true);
-      expect(provisions.length, JSON.stringify(moved)).toBe(before + 1);
+      expect(provisions.length, JSON.stringify(row)).toBe(before + 1);
     }
   });
 

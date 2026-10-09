@@ -278,8 +278,8 @@ export async function spawn(args: string[]): Promise<void> {
 export async function ask(args: string[]): Promise<void> {
   const json = has(args, "--json");
   let payload: Commands["herd:ask"]["payload"];
-  const { native } = await workerSession(args);
   try {
+    const { native } = await workerSession(args);
     payload = buildAskPayload(args, process.env, () => workerCallPayload(process.env, native));
   } catch (e) {
     fail((e as Error).message);
@@ -293,8 +293,8 @@ export async function milestone(args: string[]): Promise<void> {
   const artifact = flagValue(args, "--artifact");
   if (!artifact) fail("usage: rt herd milestone --artifact <path> [--summary <text>]");
   let w: ReturnType<typeof workerCallPayload>;
-  const { native } = await workerSession(args);
   try {
+    const { native } = await workerSession(args);
     w = workerCallPayload(process.env, native);
   } catch (e) {
     fail((e as Error).message);
@@ -372,11 +372,6 @@ export function workerCallPayload(
     ...job, session: native.value,
     ...(native.harness === "claude" ? env.HERDR_PANE_ID && { pane: env.HERDR_PANE_ID } : { harness: native.harness }),
   };
-}
-
-async function workerCaller(args: string[]): Promise<ReturnType<typeof workerCallPayload>> {
-  const { native } = await workerSession(args);
-  return workerCallPayload(process.env, native);
 }
 
 /**

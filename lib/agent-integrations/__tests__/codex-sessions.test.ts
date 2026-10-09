@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
@@ -1487,8 +1487,24 @@ describe("hooks Codex loads for a folder", () => {
     }]);
   });
 
+  test("an answer naming the folder by its real path is that folder's", async () => {
+    const real = realpathSync(mkdtempSync(join(tmpdir(), "rt-hooks-list-")));
+    const link = `${real}-link`;
+    symlinkSync(real, link);
+    try {
+      const h = await harness({
+        "hooks/list": (s, m) => s.push({ id: m.id, result: { data: [{ cwd: "/elsewhere", hooks: [] }, { cwd: real, hooks: [hook("stop", "/m/.codex/hooks.json")] }] } }),
+      });
+      expect(data(await h.sessions().listHooks(link)).map((x) => x.eventName)).toEqual(["stop"]);
+    } finally {
+      rmSync(link, { force: true });
+      rmSync(real, { recursive: true, force: true });
+    }
+  });
+
   test("an answer for another folder or of another shape is not ready", async () => {
     const answers: unknown[] = [
+      { data: [{ cwd: "/elsewhere", hooks: [] }] },
       { data: [{ cwd: "/elsewhere", hooks: [] }, { cwd: "/also-elsewhere", hooks: [] }] },
       { data: "nope" },
       { data: [{ cwd: "/pool/t1", hooks: "nope" }] },

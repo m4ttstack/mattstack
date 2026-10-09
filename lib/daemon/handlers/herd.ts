@@ -95,7 +95,7 @@ export interface HerdDeps {
   /** The state.db holding session bindings; the daemon's when omitted. */
   sessionDb?: () => Database;
   /** A tree's worktree registry record by name; the repo's registry when omitted. */
-  jobTree?: (repo: string, tree: string) => Pick<TreeRecord, "path" | "branch" | "owner"> | null;
+  jobTree?: (repo: string, tree: string) => Pick<TreeRecord, "path" | "branch" | "owner" | "state" | "releasedAt"> | null;
   /** The harnesses a worker selection is checked against; the built-ins when omitted. */
   integrations?: IntegrationRegistry;
   /** The harnesses the user enabled; Claude Code plus agent.provider when omitted. */
@@ -377,12 +377,17 @@ export function createHerdHandlers(deps: HerdDeps) {
     if (closed) attempts.endJobAttempt(attemptId);
   }
 
-  /** Whether the job's recorded tree is still its own: registered at the same path, on the job's branch, owned by this herd. */
+  /**
+   * Whether the job's recorded tree is still its own: registered at the same
+   * path, on the job's branch, owned by this herd, claimed, and not released
+   * by a person through triage.
+   */
   function isOwnTree(herd: HerdRow, job: HerdJobRow): boolean {
     if (!job.tree || !job.branch) return false;
     try {
       const rec = jobTree(herd.repo, job.tree);
-      return rec !== null && rec.path === job.worktree && rec.branch === job.branch && rec.owner === herdOwner(herd.id);
+      return rec !== null && rec.path === job.worktree && rec.branch === job.branch && rec.owner === herdOwner(herd.id)
+        && !rec.releasedAt && (rec.state === undefined || rec.state === "claimed");
     } catch (err) {
       log.warn({ err, herd: herd.id, job: job.name, tree: job.tree }, "herd: could not read the job's tree from the worktree registry");
       return false;

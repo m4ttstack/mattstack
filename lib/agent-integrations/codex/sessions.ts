@@ -50,7 +50,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { existsSync } from "fs";
+import { existsSync, realpathSync } from "fs";
 import { homedir } from "os";
 import { isAbsolute, join, resolve } from "path";
 import type {
@@ -201,6 +201,13 @@ const codeOf = (err: unknown): FaultCode => (err instanceof CodexControlError ? 
 const failFrom = <T>(err: unknown, prefix = ""): Outcome<T> => fail(codeOf(err), `${prefix}${messageOf(err)}`);
 const home = (): string => process.env.HOME ?? homedir();
 const flat = (s: string): string => s.replace(/\s+/g, " ").trim();
+const realOr = (path: string): string => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+};
 
 /** Reads the pane until any of the thread's evidence shows, collapsing the terminal's wrapping. */
 export async function awaitCodexHistory(
@@ -818,7 +825,8 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
         return fail("not-ready", `Codex did not list the hooks it loads for ${cwd}: ${messageOf(err)}`);
       }
       const entries = isRecord(result) && Array.isArray(result.data) ? result.data.filter(isRecord) : undefined;
-      const entry = entries?.length === 1 ? entries[0] : entries?.find((e) => e.cwd === cwd);
+      const wanted = new Set([cwd, realOr(cwd)]);
+      const entry = entries?.find((e) => typeof e.cwd === "string" && (wanted.has(e.cwd) || wanted.has(realOr(e.cwd))));
       if (!entry || !Array.isArray(entry.hooks)) return fail("not-ready", `Codex's hooks/list answer for ${cwd} has no hook list for that folder`);
       return ok(entry.hooks.filter(isRecord).map((h): CodexListedHook => ({
         eventName: typeof h.eventName === "string" ? h.eventName : "",
