@@ -22,8 +22,8 @@ const COMMAND_ORDER = ['deploy', 'build'];
 
 function linkFooter(row: Row): string {
   if (row.devLink === 'broken')
-    return 'the linked directory is missing or its manifest is invalid, relink to fix';
-  return 'link a source checkout to get build/deploy here and source serving in dev mode';
+    return 'The linked directory is missing or its manifest is invalid. Relink to fix.';
+  return 'Link a source checkout to get build and deploy here, and source serving in dev mode.';
 }
 
 function homeRelative(path: string): string {

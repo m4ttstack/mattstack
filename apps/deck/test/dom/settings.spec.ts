@@ -1146,7 +1146,7 @@ test('code: Escape in the empty always-visible link input closes the modal', asy
   });
 });
 
-test("code: an unlinked row shows the link input and today's footer instead of a path", async () => {
+test('code: an unlinked row shows the link input and the link note instead of a path', async () => {
   await withBoard(async page => {
     const dlg = await openSettings(page, 'ledger');
     const code = block(dlg, 'code');
@@ -1156,11 +1156,41 @@ test("code: an unlinked row shows the link input and today's footer instead of a
         .count()
     ).toBe(1);
     expect(await code.textContent()).toContain(
-      'link a source checkout to get build/deploy here and source serving in dev mode'
+      'Link a source checkout to get build and deploy here, and source serving in dev mode.'
     );
     expect(await button(code, 'unlink').count()).toBe(0);
   });
 });
+
+test('code: a broken link reads the relink note in sentence case', async () => {
+  await withBoard(async page => {
+    let broken = false;
+    await page.route('**/api/v1/status', async route => {
+      if (!broken) {
+        await route.continue();
+        return;
+      }
+      const next = structuredClone(fixture) as typeof fixture;
+      const ledger = next.apps.find(a => a.name === 'ledger')!;
+      (ledger as { devLink?: string }).devLink = 'broken';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(next),
+      });
+    });
+    broken = true;
+    const dlg = await openSettings(page, 'ledger');
+    const code = block(dlg, 'code');
+    await waitUntil(
+      async () =>
+        ((await code.textContent()) ?? '').includes(
+          'The linked directory is missing or its manifest is invalid. Relink to fix.'
+        ),
+      8000
+    );
+  });
+}, 15000);
 
 test('code: Deployed reads deployed → head with new code in source, or current when linked without new code', async () => {
   await withBoard(
