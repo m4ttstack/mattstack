@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import { Button, ListGroup, Modal, Spinner } from '@mattstack/tui-kit';
 import type { OwnerSkip, OwnersPostPlan } from '../../codeowner-posts.ts';
 import type { BoardMR } from '../../data.ts';
@@ -74,6 +75,9 @@ function OwnersPostModal({
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<PostOutcome | null>(null);
   const [posting, setPosting] = useState(false);
+  const [edited, setEdited] = useState<string | null>(null);
+  const message = edited ?? preview?.text ?? '';
+  const messageRef = useAutoGrowTextarea([message]);
 
   const load = async () => {
     const res = await post('/slack/owners/preview', { mrUrl: mr.webUrl });
@@ -106,6 +110,7 @@ function OwnersPostModal({
     setOutcome(null);
     const res = await post('/slack/owners/post', {
       mrUrl: mr.webUrl,
+      ...(edited !== null && edited !== preview?.text ? { text: edited } : {}),
       team: !!team && chosen.includes(team),
       channels: (preview?.channels ?? [])
         .map(c => c.channel)
@@ -208,7 +213,15 @@ function OwnersPostModal({
         </ListGroup>
       )}
       {preview && rows.length > 0 && (
-        <pre className="tui-draft-body">{preview.text}</pre>
+        <textarea
+          ref={messageRef}
+          className="tui-draft-body tui-draft-edit"
+          rows={3}
+          value={message}
+          aria-label="message to post"
+          disabled={posting}
+          onChange={e => setEdited(e.currentTarget.value)}
+        />
       )}
       <div className="tui-draft-actions">
         {error && <span className="tui-draft-error">{error}</span>}
@@ -229,7 +242,7 @@ function OwnersPostModal({
             intent="accent"
             variant="filled"
             busy={posting}
-            disabled={chosen.length === 0}
+            disabled={chosen.length === 0 || !message.trim()}
             onClick={() => void confirm()}
           >
             {posting
