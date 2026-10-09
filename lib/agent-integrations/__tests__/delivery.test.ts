@@ -329,6 +329,25 @@ describe("a settled row is never written back (live-05 D6)", () => {
   });
 });
 
+describe("settled evidence never weakens", () => {
+  test("a submitted report for a queued row leaves it queued", async () => {
+    const db = openStateDb(dbPath());
+    const binding = bindSession(db, "T1");
+    const messaging = fakeMessaging({ submit: () => fault("ambiguous"), reconcile: () => ok(null) });
+    const { service, clock } = harness(db, messaging);
+    const id = chatDeliveryId(5, "remy");
+    await service.deliverPeerInput(binding, peer(id, { constituents: [{ id, room: "general", messageId: 5 }] }));
+    const attempt = { frameId: id, sessionKey: binding.key, generation: binding.attachment.generation };
+
+    settleEvidence(db, attempt, { id, evidence: "queued", nativeId: "T1" }, clock.now + 1, clock.now + 60_000);
+    expect(row(db, id).state).toBe("queued");
+    settleEvidence(db, attempt, { id, evidence: "submitted", nativeId: "T1", turnId: "U9" }, clock.now + 2);
+    expect(row(db, id)).toMatchObject({ state: "queued", updatedAt: clock.now + 1 });
+    settleEvidence(db, attempt, { id, evidence: "consumed", nativeId: "T1" }, clock.now + 3);
+    expect(row(db, id).state).toBe("consumed");
+  });
+});
+
 describe("one-shot deliveries", () => {
   test("a welcome, receipt or invite that fails gets its one retry and is never scheduled again, since no room log owes it", async () => {
     const db = openStateDb(dbPath());

@@ -71,7 +71,8 @@ const INTERRUPTED_SQL = `UPDATE agent_deliveries SET state = 'ambiguous', error 
 WHERE frame_id = ? AND session_key = ? AND generation = ? AND state = 'pending' AND error IS NULL;`;
 const SETTLE_EVIDENCE_SQL = `UPDATE agent_deliveries SET state = ?, native_id = COALESCE(?, native_id),
   turn_id = COALESCE(?, turn_id), item_id = COALESCE(?, item_id), error = NULL, next_attempt_at = ?, updated_at = ?
-WHERE frame_id = ? AND session_key = ? AND generation = ? AND state IN ('pending', 'ambiguous', 'submitted', 'queued');`;
+WHERE frame_id = ? AND session_key = ? AND generation = ? AND state IN ('pending', 'ambiguous', 'submitted', 'queued')
+  AND NOT (state = 'queued' AND ? = 'submitted');`;
 const SCHEDULE_SQL = `UPDATE agent_deliveries SET next_attempt_at = ?, updated_at = ?
 WHERE input_id = ? AND state IN ('pending', 'ambiguous', 'queued') AND updated_at = ?;`;
 const SUPERSEDE_SQL = `UPDATE agent_deliveries SET state = 'superseded', error = ?, next_attempt_at = NULL, updated_at = ?
@@ -195,14 +196,14 @@ export function markInterrupted(db: Database, row: Pick<DeliveryRow, "frameId" |
   ), undefined);
 }
 
-/** Native evidence for a frame sent under this binding and generation; a consumed row stays consumed. `nextAttemptAt` keeps a queued row checked. */
+/** Native evidence for a frame sent under this binding and generation; a consumed row stays consumed and a queued row never falls back to submitted. `nextAttemptAt` keeps a queued row checked. */
 export function settleEvidence(
   db: Database, attempt: Pick<DeliveryAttempt, "frameId" | "sessionKey" | "generation">, receipt: DeliveryReceipt, now: number,
   nextAttemptAt: number | null = null,
 ): void {
   quietly(() => db.query(SETTLE_EVIDENCE_SQL).run(
     receipt.evidence, receipt.nativeId ?? null, receipt.turnId ?? null, receipt.itemId ?? null, nextAttemptAt, now,
-    attempt.frameId, attempt.sessionKey, attempt.generation,
+    attempt.frameId, attempt.sessionKey, attempt.generation, receipt.evidence,
   ), undefined);
 }
 
