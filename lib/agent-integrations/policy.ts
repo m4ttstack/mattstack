@@ -37,8 +37,12 @@ export type ForkCheckResponse = RtResponse<Commands["gate:fork-check"]["data"]> 
 export type PolicyDeps = {
   /** The daemon's fork-check; the daemon passes its own handler, a CLI caller the socket. */
   forkCheck?: (payload: ForkCheckPayload) => Promise<ForkCheckResponse>;
-  /** The caller's working directories, both spellings, for the fork-check's worktree rule. */
-  worktrees?: string[];
+  /**
+   * What the caller's native event carried beyond its binding: other ids its
+   * session goes by and its working directory. The process cwd stands in for
+   * a missing cwd, as it does for the hook; a daemon caller passes the session's.
+   */
+  caller?: { sessionIds?: string[]; cwd?: string };
   /** Run stores `rt runs find --session <id> --running` would list, newest first. */
   findRunning?: (sessionId: string) => string[];
   /** The `rt runs snapshot` JSON of one run store. */
@@ -61,15 +65,34 @@ async function unavailable<T>(context: CallerContext, action: WorkflowAction | "
   return fail(POLICY_UNAVAILABLE, message);
 }
 
-/** The binding loses managed readiness for its current generation only; pending run and gate state is untouched. */
+/**
+ * The binding loses managed readiness for its current generation only and
+ * raises a recoverable attention reason; pending run and gate state is
+ * untouched. The attention announcement exists only where the daemon's gate
+ * question service runs.
+ */
 async function recordUnavailable(context: CallerContext, action: WorkflowAction | "stop", message: string): Promise<void> {
-  const [{ withdrawBindingReady }, { getStateDb }, { warn }] = await Promise.all([
-    import("./session-store.ts"), import("../state/db.ts"), import("../ui/warn.ts"),
+  const [{ withdrawBindingReady }, { getStateDb }, { warn }, { gateQuestionService }] = await Promise.all([
+    import("./session-store.ts"), import("../state/db.ts"), import("../ui/warn.ts"), import("./questions.ts"),
   ]);
   const { binding } = context;
-  withdrawBindingReady(getStateDb(), binding.key, binding.attachment.generation);
+  const withdrawn = withdrawBindingReady(getStateDb(), binding.key, binding.attachment.generation);
+  const detail = { key: binding.key, generation: binding.attachment.generation, action, message };
   warn("policy", "a session's workflow policy could not decide, so it is not ready for managed work", {
-    context: { key: binding.key, generation: binding.attachment.generation, action, message },
+    context: { ...detail, withdrawn: withdrawn.ok ? withdrawn.data : withdrawn.error },
+  });
+  policyAttention(gateQuestionService(), context, action, message);
+}
+
+/** The attention condition native questions already raise, under its own reason; a launch or resume that verifies the session's policy again recovers it. */
+export function policyAttention(
+  service: { native: { attention(detail: Record<string, unknown> & { reason: string }): void } } | null,
+  context: CallerContext, action: WorkflowAction | "stop", message: string,
+): void {
+  const { binding } = context;
+  service?.native.attention({
+    reason: "policy-unavailable", harness: binding.native.harness, sessionKey: binding.key,
+    generation: binding.attachment.generation, action, detail: message,
   });
 }
 
@@ -92,15 +115,47 @@ export function forkVerdict(res: ForkCheckResponse): ForkVerdict {
   return { kind: "deny", ...(res.data.subject !== undefined && { subject: res.data.subject }) };
 }
 
-/** The fork-check payload for a bound caller: its own session and pane, never the asking tool's name. */
-export function forkCheckPayloadFor(context: CallerContext, subject: string, worktrees?: string[]): ForkCheckPayload {
+export type ForkCheckInputs = {
+  /** The launch's gate subject; absent, the caller is not an `rt agent` launch and is not gated. */
+  subject?: string;
+  /** Every id the caller's session goes by: a hook's own id can differ from the one `rt gate ask` stamps. */
+  sessionIds: readonly unknown[];
+  pane?: string;
+  /** The caller's working directory. */
+  cwd: string;
+};
+
+/**
+ * The one fork-check payload builder, for the Claude hook and for
+ * authorizeWorkflowAction alike. Null means allow without asking the daemon.
+ * Both spellings of the directory ride along: a run records whichever path
+ * its pipeline saw, and a symlinked tree differs between the logical and the
+ * physical one.
+ */
+export function buildForkCheck(inputs: ForkCheckInputs): ForkCheckPayload | null {
+  if (!inputs.subject) return null;
+  const payload: ForkCheckPayload = { subject: inputs.subject };
+  const sessionIds = [...new Set(inputs.sessionIds)].filter((s): s is string => typeof s === "string" && s.length > 0);
+  if (sessionIds.length > 0) payload.sessionIds = sessionIds;
+  if (inputs.pane !== undefined) payload.paneId = inputs.pane;
+  const worktrees = [inputs.cwd];
+  try {
+    const physical = realpathSync(inputs.cwd);
+    if (physical !== inputs.cwd) worktrees.push(physical);
+  } catch { /* a vanished cwd still matches by its given spelling */ }
+  payload.worktrees = worktrees;
+  return payload;
+}
+
+/** The fork-check payload for a bound caller: its own session ids, pane and directory, never the asking tool's name. */
+export function forkCheckPayloadFor(context: CallerContext, subject: string, caller: PolicyDeps["caller"] = {}): ForkCheckPayload | null {
   const { binding } = context;
-  return {
-    ...(subject.trim() !== "" && { subject }),
-    sessionIds: [binding.native.value],
-    ...(binding.attachment.pane !== undefined && { paneId: binding.attachment.pane }),
-    ...(worktrees !== undefined && worktrees.length > 0 && { worktrees }),
-  };
+  return buildForkCheck({
+    subject,
+    sessionIds: [binding.native.value, ...(caller.sessionIds ?? [])],
+    ...(binding.attachment.pane !== undefined && { pane: binding.attachment.pane }),
+    cwd: caller.cwd ?? process.cwd(),
+  });
 }
 
 async function defaultForkCheck(payload: ForkCheckPayload): Promise<ForkCheckResponse> {
@@ -111,9 +166,11 @@ async function defaultForkCheck(payload: ForkCheckPayload): Promise<ForkCheckRes
 }
 
 async function authorizeAsk(context: CallerContext, subject: string, deps: PolicyDeps): Promise<Outcome<void>> {
+  const payload = forkCheckPayloadFor(context, subject, deps.caller);
+  if (payload === null) return { ok: true, data: undefined };
   let res: ForkCheckResponse;
   try {
-    res = await (deps.forkCheck ?? defaultForkCheck)(forkCheckPayloadFor(context, subject, deps.worktrees));
+    res = await (deps.forkCheck ?? defaultForkCheck)(payload);
   } catch (err) {
     res = { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -204,11 +261,13 @@ export function stopStateOf(raw: unknown, sessionId: string): StopState | null {
       const f = fields.get(key) ?? {};
       return f.value !== null && f.value !== undefined && f.value !== "" && f.value !== "-" && pyInt(f.at) > lastStart;
     };
+    const held = current("hold");
+    const waiting = current("waiting-gate");
     return {
       startedAt: pyInt(r.started_at),
       runId: String(orElse(r.id, "?")),
       stage: String(orElse(r.current_stage, "unknown")),
-      state: current("hold") || current("waiting-gate") ? "held" : "open",
+      state: held || waiting ? "held" : "open",
     };
   } catch {
     return null;
@@ -280,6 +339,7 @@ async function authorizeRun(context: CallerContext, action: "continue" | "comple
   }
   if (owner !== context.binding.native.value) return fail("refused", `run ${String(run.id ?? runDb)} belongs to another session`);
   if (run.status !== "running") return fail("refused", `run ${String(run.id ?? runDb)} has ended (${String(run.status)}), so it cannot ${action}`);
+  // complete's result preconditions (stage outcomes, the close gate) stay with the run verbs; this is ownership only.
   return { ok: true, data: undefined };
 }
 

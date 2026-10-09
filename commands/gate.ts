@@ -16,7 +16,6 @@
  *   rt gate subscriptions [--session <addr>] [--live]
  */
 
-import { realpathSync } from "fs";
 import {
   gateOpen as clientOpen,
   gateAnswer as clientAnswer,
@@ -34,7 +33,7 @@ import type { Commands, GateRow, RtResponse } from "../packages/rt-client/src/in
 import { parseDuration, nextWaitMs } from "./events.ts";
 import { GATE_FORK_HOOK_TIMEOUT_SECONDS } from "../lib/agent-hooks.ts";
 import { boundCodexGateIdentity, type BoundGateIdentity } from "../lib/agent-integrations/context.ts";
-import { forkDenyReason, forkVerdict } from "../lib/agent-integrations/policy.ts";
+import { buildForkCheck, forkDenyReason, forkVerdict } from "../lib/agent-integrations/policy.ts";
 import type { Outcome } from "../packages/rt-client/src/agent-integrations.ts";
 import * as out from "../lib/ui/out.ts";
 
@@ -284,22 +283,13 @@ export function buildForkCheckPayload(
     if (parsed && typeof parsed === "object") hook = parsed as typeof hook;
   } catch { /* no payload: fall back to env and process cwd */ }
 
-  const payload: Commands["gate:fork-check"]["payload"] = { subject };
-  const sessionIds = [...new Set([hook.session_id, env.CLAUDE_CODE_SESSION_ID, identity?.sessionId])]
-    .filter((s): s is string => typeof s === "string" && s.length > 0);
-  if (sessionIds.length > 0) payload.sessionIds = sessionIds;
   const pane = identity ? identity.pane : env.HERDR_PANE_ID || undefined;
-  if (pane !== undefined) payload.paneId = pane;
-  // Both spellings: a run records whichever path its pipeline saw, and a
-  // symlinked tree differs between the logical and the physical one.
-  const dir = typeof hook.cwd === "string" && hook.cwd ? hook.cwd : cwd;
-  const worktrees = [dir];
-  try {
-    const physical = realpathSync(dir);
-    if (physical !== dir) worktrees.push(physical);
-  } catch { /* a vanished cwd still matches by its given spelling */ }
-  payload.worktrees = worktrees;
-  return payload;
+  return buildForkCheck({
+    subject,
+    sessionIds: [hook.session_id, env.CLAUDE_CODE_SESSION_ID, identity?.sessionId],
+    ...(pane !== undefined && { pane }),
+    cwd: typeof hook.cwd === "string" && hook.cwd ? hook.cwd : cwd,
+  });
 }
 
 export { forkDenyReason };

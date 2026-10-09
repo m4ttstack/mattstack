@@ -16,6 +16,7 @@ import type { Capability, Outcome, SessionBinding } from "../../../packages/rt-c
 import { gateForkHookEntry, resolveGateForkHookPath } from "../../agent-hooks.ts";
 import { resolveClaudeBin } from "../../claude-bin.ts";
 import { listInstalledPlugins, type PluginListEntry } from "../../skills/sources.ts";
+import { warn } from "../../ui/warn.ts";
 import type { LaunchRequest, PolicyAdapter, PreparedPolicy } from "../contracts.ts";
 import { LEGACY_DEFAULT_PROFILE } from "../session-store.ts";
 
@@ -42,8 +43,12 @@ function fail<T>(code: "not-ready" | "invalid", message: string): Outcome<T> {
 function defaultClaudeVersion(): string | null {
   try {
     const raw = execFileSync(resolveClaudeBin() ?? "claude", ["--version"], { encoding: "utf8", timeout: PROBE_TIMEOUT_MS });
-    return raw.trim().split(/\s+/)[0] ?? null;
-  } catch {
+    const version = raw.trim().split(/\s+/)[0];
+    return version ? version : null;
+  } catch (err) {
+    warn("claude-policy", "`claude --version` failed, so Claude Code's policy hooks cannot be fingerprinted", {
+      context: { err: err instanceof Error ? err.message : String(err) },
+    });
     return null;
   }
 }
@@ -122,10 +127,13 @@ function inspect(deps: Required<ClaudePolicyDeps>): Outcome<Inspection> {
   }
   if (gateFork !== null) verified.push("gate-policy");
 
+  // A failed probe must not pass for a version change, so it gives no revision at all.
+  const claudeCode = deps.claudeVersion();
+  if (claudeCode === null) return fail("not-ready", "the Claude Code version probe (`claude --version`) failed, so its policy hooks cannot be fingerprinted");
   const revision = sha256(JSON.stringify({
     stop, ask, gateFork,
     fingerprints: Object.keys(fingerprints).sort().map((p) => [p, fingerprints[p]]),
-    claudeCode: deps.claudeVersion() ?? "unknown",
+    claudeCode,
   }));
   return { ok: true, data: { revision, verified } };
 }

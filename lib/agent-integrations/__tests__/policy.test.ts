@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import pino from "pino";
@@ -11,13 +11,13 @@ import type { EventsBus } from "../../daemon/events-bus.ts";
 import { runStart } from "../../runs/start.ts";
 import { fieldSet, openRunDb, runStatus, stageStart } from "../../runs/write.ts";
 import { gateForkHookEntry } from "../../agent-hooks.ts";
-import { forkCheckHookOutput, FORK_CHECK_ALLOW } from "../../../commands/gate.ts";
+import { buildForkCheckPayload, forkCheckHookOutput, FORK_CHECK_ALLOW } from "../../../commands/gate.ts";
 import { createClaudePolicy } from "../claude/policy.ts";
 import { openStateDb } from "../../state/db.ts";
 import { createSessionStore, markBindingReady, readBindingReadiness, withdrawBindingReady } from "../session-store.ts";
 import {
   authorizeWorkflowAction, evaluateStop, forkCheckPayloadFor, forkDenyReason, forkVerdict, inspectStop,
-  isPolicyUnavailable, stopReason, type PolicyDeps,
+  isPolicyUnavailable, policyAttention, stopReason, type PolicyDeps,
 } from "../policy.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
@@ -39,7 +39,7 @@ const caller = (value = SID, pane?: string): CallerContext => ({ binding: bindin
 
 // ─── Stop characterization ───────────────────────────────────────────────────
 
-type Field = { key: string; value: string; at: number };
+type Field = { key: string; value: string; at: number | string };
 type StopRun = {
   repo?: string; id: string; status?: string; session?: string | null; startedAt?: number;
   stage?: string; stages?: { name: string; started_at: number }[]; fields?: Field[];
@@ -105,6 +105,15 @@ const CASES: StopCase[] = [
   {
     name: "an unknown stage is named unknown", want: "continue", names: { run: "r-nostage", stage: "unknown" },
     runs: [{ id: "r-nostage", stage: "" }],
+  },
+  {
+    name: "a current hold beside a waiting gate whose time is not an integer skips the run, as Python evaluates both",
+    want: "continue", names: { run: "r-older", stage: "ship" },
+    runs: [
+      { id: "r-older", startedAt: 5000 },
+      { id: "r-badwait", startedAt: 9000, fields: [{ key: "hold", value: "parked", at: 3000 }, { key: "waiting-gate", value: "g-2", at: "soon" }] },
+    ],
+    find: ["r-badwait", "r-older"],
   },
 ];
 
@@ -188,6 +197,13 @@ describe("evaluateStop characterizes pipeline-gate-stop.sh", () => {
       onUnavailable: () => {},
     };
     expect(await evaluateStop(caller(), deps)).toEqual({ ok: true, data: "continue" });
+  });
+
+  test("an unavailable verdict raises the native attention condition under its own reason", () => {
+    const raised: unknown[] = [];
+    policyAttention({ native: { attention: (detail) => { raised.push(detail); } } }, caller(), "stop", "EACCES");
+    expect(raised).toEqual([{ reason: "policy-unavailable", harness: "claude", sessionKey: `key-${SID}`, generation: 3, action: "stop", detail: "EACCES" }]);
+    expect(() => policyAttention(null, caller(), "stop", "EACCES")).not.toThrow();
   });
 
   test("an unreadable runs root is unavailable, not allow, and records the caller as unready", async () => {
@@ -299,11 +315,53 @@ function gateHarness() {
 }
 
 describe("authorizeWorkflowAction: ask runs the daemon's fork-check rules", () => {
-  test("the caller's session, pane and launch subject reach the fork-check, never a native tool name", () => {
-    expect(forkCheckPayloadFor(caller(SID, "w9:p4"), LAUNCH, ["/wt/a"])).toEqual({
-      subject: LAUNCH, sessionIds: [SID], paneId: "w9:p4", worktrees: ["/wt/a"],
+  test("the caller's session ids, pane, directory and launch subject reach the fork-check, never a native tool name", () => {
+    expect(forkCheckPayloadFor(caller(SID, "w9:p4"), LAUNCH, { sessionIds: ["sess-env", SID], cwd: "/does/not/exist" })).toEqual({
+      subject: LAUNCH, sessionIds: [SID, "sess-env"], paneId: "w9:p4", worktrees: ["/does/not/exist"],
     });
-    expect(forkCheckPayloadFor({ binding: { ...binding(), attachment: { generation: 1, mode: "headless" } } }, "")).toEqual({ sessionIds: [SID] });
+    expect(forkCheckPayloadFor(caller(), "", { cwd: "/x" })).toBeNull();
+  });
+
+  describe("side by side with the Claude hook's own path", () => {
+    const noIdentity = () => ({ ok: true as const, data: null });
+    async function hookAllows(stdin: unknown, env: NodeJS.ProcessEnv, cwd: string, forkCheck: NonNullable<PolicyDeps["forkCheck"]>) {
+      const payload = buildForkCheckPayload(JSON.stringify(stdin), env, cwd, noIdentity);
+      const out = forkCheckHookOutput(payload ? await forkCheck(payload) : null);
+      return { asked: payload !== null, allow: JSON.stringify(out) === JSON.stringify(FORK_CHECK_ALLOW) };
+    }
+
+    test("no launch subject: both allow without asking the daemon", async () => {
+      const { forkCheck, seen } = gateHarness();
+      expect(await hookAllows({ session_id: SID, cwd: dir }, { CLAUDE_CODE_SESSION_ID: SID }, dir, forkCheck)).toEqual({ asked: false, allow: true });
+      expect(await authorizeWorkflowAction(caller(), "ask", "", { forkCheck, caller: { cwd: dir } })).toEqual({ ok: true, data: undefined });
+      expect(seen).toHaveLength(0);
+    });
+
+    test("an env session id other than the hook's: the gate rt gate ask stamped with the env id allows on both", async () => {
+      const { store, forkCheck } = gateHarness();
+      store.open({ subject: "mr:x", kind: "plan", questions: QUESTIONS, origin: { presentation: "form", paneId: "w1:p1" }, nudge: { session: "sess-env" } });
+      const env = { RT_GATE_SUBJECT: LAUNCH, CLAUDE_CODE_SESSION_ID: "sess-env", HERDR_PANE_ID: "w1:p1" };
+      expect(await hookAllows({ session_id: SID, cwd: dir }, env, dir, forkCheck)).toEqual({ asked: true, allow: true });
+      expect(await authorizeWorkflowAction(caller(SID, "w1:p1"), "ask", LAUNCH, { forkCheck, caller: { sessionIds: ["sess-env"], cwd: dir } }))
+        .toEqual({ ok: true, data: undefined });
+      const bare = await authorizeWorkflowAction(caller(SID, "w1:p1"), "ask", LAUNCH, { forkCheck, caller: { cwd: dir } });
+      expect(bare.ok ? "ok" : bare.error.code).toBe("refused");
+    });
+
+    test("a run gate filed from this worktree allows on both, through either spelling of the directory", async () => {
+      const { store, forkCheck } = gateHarness();
+      const real = join(dir, "tree");
+      const link = join(dir, "tree-link");
+      mkdirSync(real);
+      symlinkSync(real, link);
+      store.open({ subject: "run:r9", kind: "plan", questions: QUESTIONS, origin: { worktree: real } });
+      const env = { RT_GATE_SUBJECT: LAUNCH, CLAUDE_CODE_SESSION_ID: "nobody" };
+      expect(await hookAllows({ session_id: "nobody", cwd: link }, env, "/x", forkCheck)).toEqual({ asked: true, allow: true });
+      expect(await authorizeWorkflowAction(caller("nobody", "w5:p5"), "ask", LAUNCH, { forkCheck, caller: { cwd: link } }))
+        .toEqual({ ok: true, data: undefined });
+      const elsewhere = await authorizeWorkflowAction(caller("nobody", "w5:p5"), "ask", LAUNCH, { forkCheck, caller: { cwd: "/x" } });
+      expect(elsewhere.ok ? "ok" : elsewhere.error.code).toBe("refused");
+    });
   });
 
   test("an open gate under the launch subject allows the question", async () => {
@@ -533,6 +591,19 @@ describe("createClaudePolicy", () => {
     const res = await adapter(p).prepare(request(["continuation-policy"]));
     expect(res.ok ? "ok" : res.error.code).toBe("not-ready");
     expect(existsSync(join(p.root, "hooks", "hooks.json"))).toBe(true);
+  });
+
+  test("a failed version probe is not ready and says so, never a revision that looks like changed hooks", async () => {
+    const p = plugin();
+    const res = await createClaudePolicy({
+      plugins: () => [{ id: "mattstack@mattstack", installPath: p.root, enabled: true }],
+      gateForkHookPath: () => p.fork, claudeVersion: () => null,
+    }).prepare(request());
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("not-ready");
+      expect(res.error.message).toContain("claude --version");
+    }
   });
 
   test("verify refuses a binding of another harness", async () => {
