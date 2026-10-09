@@ -16,17 +16,16 @@ import { ramp } from './ramps';
  * entries have to be registered as colors in their own right -- `virtualColor`
  * takes color NAMES, not tuples, and resolves them out of this same map.
  *
- * The generated ramps put Radix step 9 at index 6 in Day and index 3 in
- * Night; `primaryShade` sits one step deeper (Radix step 10), so filled and
- * white-variant colors read with more weight. Moving either number without
- * regenerating `ramps.ts` re-points every primary surface.
+ * `primaryShade` is where the generated picks put Radix step 9 (index 6 in
+ * Day, index 3 in Night); moving either number without regenerating
+ * `ramps.ts` re-points every primary surface.
  */
 const virtual = (name: string, hue: string) =>
   virtualColor({ name, light: `${hue}Day`, dark: `${hue}Night` });
 
 export const tokyoTheme = /* @__PURE__ */ createTheme({
   primaryColor: 'accent',
-  primaryShade: { light: 7, dark: 2 },
+  primaryShade: { light: 6, dark: 3 },
   colors: {
     accentDay: ramp('accentDay'),
     accentNight: ramp('accentNight'),
