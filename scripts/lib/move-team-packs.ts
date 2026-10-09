@@ -100,6 +100,7 @@ function rewritePaths(value: unknown, swaps: [string, string][], note: (from: st
 export function planMove(input: MoveInput): MovePlan {
   const marker = objOf(input.files, MARKER_REL);
   if (marker.role !== "org") throw new MoveRefusal("This is not a mattstack org repo", "mattstack/mattstack.jsonc does not say role: org.");
+  if (typeof marker.layout === "number" && marker.layout > MOVED_LAYOUT) throw new MoveRefusal(`This org is already past layout ${MOVED_LAYOUT}`, `The layout ${MOVED_LAYOUT} move would lower it.`);
   const report: string[] = [];
   const moving: string[] = [];
   for (const team of [...input.teams].sort()) {
