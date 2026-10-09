@@ -150,9 +150,9 @@ function holds(holder: WorktreeHolder | null, tree: ManagedTree): holder is Work
     && (tree.state === "claimed" || tree.state === "disposable") && holder.claimedAt === (tree.claimedAt ?? null);
 }
 
-function claimable(tree: ManagedTree | null, path: string, leaving = false): Outcome<ManagedTree> {
+function claimable(tree: ManagedTree | null, path: string, held = false): Outcome<ManagedTree> {
   if (!tree) return fail("refused", `${path} is not a worktree rt manages`);
-  const state = tree.state === "claimed" || (leaving && tree.state === "disposable");
+  const state = tree.state === "claimed" || (held && tree.state === "disposable");
   if (tree.kind !== "ephemeral" || !state) return fail("refused", `${tree.name} is not a claimed worktree`);
   return { ok: true, data: tree };
 }
@@ -232,7 +232,7 @@ export async function applyWorktreeEvent(context: CallerContext, event: Worktree
     if (holder?.owner === owner) writeHolder(d.db, { ...holder, current: false, disposedAt: d.now() });
     return { ok: true, data: undefined };
   }
-  const claimed = claimable(tree, event.path, event.kind === "leave");
+  const claimed = claimable(tree, event.path, true);
   if (!claimed.ok) return claimed;
   if (!holds(holder, claimed.data) || holder.owner !== owner) {
     return fail("refused", `${claimed.data.name} is not held by this session`);

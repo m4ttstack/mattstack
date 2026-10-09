@@ -9,6 +9,7 @@ import { setSetting } from "../../lib/settings/write.ts";
 import { closeStateDb, getStateDb } from "../../lib/state/db.ts";
 import { getKvValue, setKvValue } from "../../lib/state/kv-blob.ts";
 import * as out from "../../lib/ui/out.ts";
+import { __test__ as warnTest, setWarningLog } from "../../lib/ui/warn.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import type { TreeRecord } from "../../lib/worktree/registry.ts";
 import { holdForBoundCaller } from "../worktree.ts";
@@ -66,7 +67,7 @@ const query = (async (cmd: string, payload?: Record<string, unknown>) => {
 
 const disposedTrees = () => disposed.map((p) => ({ repoName: p.repoName, tree: p.tree, force: p.force }));
 
-async function runRemove(stdin: Record<string, unknown>): Promise<{ stdout: string; stderr: string; code: number | undefined }> {
+async function runRemove(stdin: Record<string, unknown>, extra: { liveHolder?: (path: string) => unknown } = {}): Promise<{ stdout: string; stderr: string; code: number | undefined }> {
   const input = spyOn(Bun.stdin, "text").mockResolvedValue(JSON.stringify({ hook_event_name: "WorktreeRemove", ...stdin }));
   const io = captureOut();
   out.__test__.setHuman(() => false);
@@ -76,7 +77,7 @@ async function runRemove(stdin: Record<string, unknown>): Promise<{ stdout: stri
     throw new Error("exit");
   }) as unknown as typeof process.exit);
   try {
-    await claudeHookCommand(["--remove"], undefined, { query }).catch((e: Error) => { if (e.message !== "exit") throw e; });
+    await claudeHookCommand(["--remove"], undefined, { query, ...extra }).catch((e: Error) => { if (e.message !== "exit") throw e; });
     return { stdout: io.stdout(), stderr: io.stderr(), code };
   } finally {
     exit.mockRestore();
@@ -107,6 +108,23 @@ describe("WorktreeRemove under agent.integrations.enabled", () => {
     claimWorktree({ binding: bind("remy.ab12", "s-bound", "att-1") }, "/pool/r/fred");
     expect(await runRemove({ session_id: "s-bound", worktree_path: "/pool/r/fred" })).toEqual({ stdout: "", stderr: "", code: 0 });
     expect(await runRemove({ session_id: "s-bound", worktree_path: "/pool/r/fred" })).toEqual({ stdout: "", stderr: "", code: 0 });
+    expect(disposedTrees()).toEqual([{ repoName: REPO, tree: "fred", force: false }]);
+  });
+
+  test("unreadable holder records fall back to the hook's own path and still exit 0", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    bind("remy.ab12", "s-bound", "att-1");
+    const logged: string[] = [];
+    warnTest.reset();
+    setWarningLog((_module, message) => { logged.push(message); });
+    try {
+      const r = await runRemove({ session_id: "s-bound", worktree_path: "/pool/r/fred" }, { liveHolder: () => { throw new Error("database is locked"); } });
+      expect(r).toEqual({ stdout: "", stderr: "", code: 0 });
+    } finally {
+      setWarningLog(null);
+      warnTest.reset();
+    }
+    expect(logged.some((m) => m.includes("database is locked"))).toBe(true);
     expect(disposedTrees()).toEqual([{ repoName: REPO, tree: "fred", force: false }]);
   });
 
@@ -145,6 +163,15 @@ describe("relocation announcements", () => {
     claimWorktree({ binding: bind("ola.cd34", "s-other", "att-2") }, "/pool/r/wilma");
     bind("remy.ab12", "s-bound", "att-1");
     expect(await relocationIsCallers(announce("/pool/r/wilma"), {})).toBe(false);
+  });
+
+  test("the holder is still announced into its own tree after its MR merged and it went disposable", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    claimWorktree({ binding: bind("remy.ab12", "s-bound", "att-1") }, "/pool/r/fred");
+    const db = getStateDb();
+    const records = getKvValue<TreeRecord[]>("worktree-registry", REPO, [], db).map((t) => (t.name === "fred" ? { ...t, state: "disposable" as const } : t));
+    setKvValue("worktree-registry", REPO, records, db);
+    expect(await relocationIsCallers(announce("/pool/r/fred"), {})).toBe(true);
   });
 
   test("a tree nobody holds (claimed before the switch, or by a herd spawn) still announces", async () => {
