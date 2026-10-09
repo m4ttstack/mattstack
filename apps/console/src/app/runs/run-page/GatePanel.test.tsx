@@ -142,7 +142,7 @@ describe('GatePanel', () => {
     expect(step(/Scope/)).toBeChecked();
   });
 
-  it('marks a step answered elsewhere in the strip with a check', async () => {
+  it('marks an answered step that is not current with a check', async () => {
     renderPanel(gateRow());
     press('1');
     await userEvent.click(step(/Scope/));
@@ -386,6 +386,28 @@ describe('GatePanel', () => {
     ).not.toBeNull();
   });
 
+  it('keys the lead paragraph and draws a fenced block line by line', () => {
+    renderPanel(
+      gateRow({
+        context: 'Two ways.\n\n```\na.ts:42\nconst x = 1\n```',
+      })
+    );
+    const context = screen.getByTestId('gate-findings');
+    expect(context.querySelector('[data-parity="lead"]')).toHaveTextContent(
+      'Two ways.'
+    );
+    const code = context.querySelector('[data-parity="code"]')!;
+    expect(
+      [...code.children].map(l => [
+        l.getAttribute('data-parity'),
+        l.textContent,
+      ])
+    ).toEqual([
+      ['path', 'a.ts:42'],
+      ['line', 'const x = 1'],
+    ]);
+  });
+
   it('draws labelled context points as a label column', () => {
     renderPanel(
       gateRow({
@@ -544,6 +566,47 @@ describe('GatePanel: answering', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(answerPost).toHaveBeenCalledTimes(2));
     expect(answerPost.mock.calls[1]).toEqual(answerPost.mock.calls[0]);
+  });
+
+  it('drops Try again once a pick changes, and Submit posts the new pick', async () => {
+    answerPost.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'the design fixture is read-only' }),
+    });
+    answerPost.mockResolvedValueOnce(ok());
+    renderPanel(gateRow({ questions: [gateRow().questions[0]!] }));
+    press('2');
+    press('Enter', { metaKey: true });
+    expect(
+      await screen.findByRole('button', { name: 'Try again' })
+    ).toBeInTheDocument();
+    press('3');
+    expect(
+      screen.queryByRole('button', { name: 'Try again' })
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Submit/ }));
+    await waitFor(() => expect(answerPost).toHaveBeenCalledTimes(2));
+    expect(answerPost.mock.calls[1]![0]).toEqual({
+      param: { id: 'g1' },
+      json: { answers: { approach: 'both' } },
+    });
+  });
+
+  it('drops Try again once the note changes', async () => {
+    answerPost.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'the design fixture is read-only' }),
+    });
+    renderPanel(gateRow({ questions: [gateRow().questions[0]!] }));
+    press('2');
+    press('Enter', { metaKey: true });
+    await screen.findByRole('button', { name: 'Try again' });
+    await userEvent.type(screen.getByRole('textbox', { name: /note/i }), 'x');
+    expect(
+      screen.queryByRole('button', { name: 'Try again' })
+    ).not.toBeInTheDocument();
   });
 
   it('names the daemon when a failed submit carries no reason', async () => {

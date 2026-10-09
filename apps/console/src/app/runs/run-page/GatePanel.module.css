@@ -86,6 +86,28 @@
   --gate-context-lh: 20px;
 }
 
+.code {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background-color: var(--tk-chrome);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11.5px;
+  line-height: normal;
+  color: var(--tk-text-1);
+  overflow-x: auto;
+}
+
+.codeLine {
+  white-space: pre;
+}
+
+.codeLine[data-parity='path'] {
+  color: var(--tk-text-3);
+}
+
 .points {
   display: flex;
   flex-direction: column;
@@ -102,7 +124,7 @@
 .pointText {
   --gate-context-fz: 12.5px;
   --gate-context-lh: 18px;
-  --gate-context-color: var(--tk-text-3);
+  --gate-context-color: currentColor;
   color: var(--tk-text-3);
 }
 
@@ -142,25 +164,6 @@
   justify-content: center;
   height: 22px;
   padding: 0;
-}
-
-/* The shortcut cap sits on the filled button, so it takes the label's own
-   colour (whatever the button's state) rather than a token of its own. */
-.enterKey {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 6px;
-  border-radius: 5px;
-  font-family: inherit;
-  font-size: 11.5px;
-  font-weight: 500;
-  line-height: normal;
-  color: inherit;
-  background-color: color-mix(in srgb, currentColor 18%, transparent);
-}
-
-.enterKey > span {
-  opacity: 0.7;
 }
 
 .errorMessage {

@@ -144,7 +144,9 @@ describe('the runs boards draw the fixture', () => {
       const lines =
         block.kind === 'points'
           ? block.points.flatMap(p => [p.label, p.text])
-          : block.text.split('\n').filter(l => !l.startsWith('```'));
+          : block.kind === 'code'
+            ? block.lines
+            : block.text.split('\n');
       for (const line of lines) expect(texts).toContain(line);
     }
     expect((await runs.asOf('20261008-1340')) - gate!.openedAt).toBe(4 * MIN);

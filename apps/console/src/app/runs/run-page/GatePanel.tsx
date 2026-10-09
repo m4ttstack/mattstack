@@ -178,6 +178,7 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
   };
 
   const choose = (name: string, value: string | string[]) => {
+    setFailure(null);
     setSelections(prev => ({ ...prev, [name]: value }));
     setSkipped(prev => prev.filter(n => n !== name));
   };
@@ -189,6 +190,7 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
       return;
     }
     const name = active.name;
+    setFailure(null);
     setSelections(prev => {
       const current = prev[name];
       const set = new Set(Array.isArray(current) ? current : []);
@@ -413,9 +415,10 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
                 value={activeValue}
                 note={notes[active.name] ?? ''}
                 onPick={value => choose(active.name, value)}
-                onNote={value =>
-                  setNotes(prev => ({ ...prev, [active.name]: value }))
-                }
+                onNote={value => {
+                  setFailure(null);
+                  setNotes(prev => ({ ...prev, [active.name]: value }));
+                }}
               />
             )}
             {failure && (
@@ -469,9 +472,9 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
                 loading={busy}
                 disabled={!skippable && !answered}
                 rightSection={
-                  <kbd className={classes.enterKey} data-parity="key ⌘↵">
+                  <Kbd variant="on-fill" data-parity="key ⌘↵">
                     <span data-parity="k">⌘↵</span>
-                  </kbd>
+                  </Kbd>
                 }
                 onClick={advance}
                 data-parity="Next"
@@ -532,6 +535,9 @@ function StepLabel({
   );
 }
 
+/** A fenced block's first line read as a `file:line` location. */
+const LOCATION = /^\S+:\d+$/;
+
 function Findings({ text }: { text: string }) {
   const blocks = contextBlocks(text);
   return (
@@ -554,8 +560,24 @@ function Findings({ text }: { text: string }) {
       </Text>
       {blocks.map((block, i) =>
         block.kind === 'markdown' ? (
-          <div key={i} className={classes.findings}>
+          <div
+            key={i}
+            className={classes.findings}
+            data-parity={i === 0 ? 'lead' : undefined}
+          >
             <GateContext text={block.text} />
+          </div>
+        ) : block.kind === 'code' ? (
+          <div key={i} className={classes.code} data-parity="code">
+            {block.lines.map((line, j) => (
+              <div
+                key={j}
+                className={classes.codeLine}
+                data-parity={j === 0 && LOCATION.test(line) ? 'path' : 'line'}
+              >
+                {line}
+              </div>
+            ))}
           </div>
         ) : (
           <div key={i} className={classes.points}>
@@ -580,12 +602,10 @@ function OptionBody({
   choice,
   index,
   multiple,
-  checked,
 }: {
   choice: GateItemChoice;
   index: number;
   multiple: boolean;
-  checked: boolean;
 }) {
   const description = choice.subtitle ?? choice.description;
   const { prose, command } = description
@@ -629,7 +649,6 @@ function OptionBody({
       {index < 9 && (
         <Kbd
           size="sm"
-          c={checked ? 'accent' : undefined}
           className={classes.cap}
           data-testid="gate-option-key"
           data-parity={`key ${index + 1}`}
@@ -656,24 +675,18 @@ function Question({
 }) {
   const label = <span data-parity="q">{item.prompt}</span>;
   const labelProps = { fz: 17, fw: 700, lh: 'normal' };
-  const picked = (choice: string) =>
-    Array.isArray(value) ? value.includes(choice) : value === choice;
   const options = (
     <Stack gap={10}>
       {item.choices.map((choice, i) => {
         const body: ReactNode = (
-          <OptionBody
-            choice={choice}
-            index={i}
-            multiple={item.multiple}
-            checked={picked(choice.value)}
-          />
+          <OptionBody choice={choice} index={i} multiple={item.multiple} />
         );
         const parity = `option ${choice.label}`;
         return item.multiple ? (
           <Checkbox.Card
             key={choice.value}
             value={choice.value}
+            variant="wash"
             className={classes.card}
             data-parity={parity}
           >
@@ -683,6 +696,7 @@ function Question({
           <Radio.Card
             key={choice.value}
             value={choice.value}
+            variant="wash"
             className={classes.card}
             data-parity={parity}
           >

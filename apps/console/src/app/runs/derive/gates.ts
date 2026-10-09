@@ -126,23 +126,28 @@ function tidy(text: string): string {
     .trim();
 }
 
+const isCli = (text: string) => CLI_LINE.test(text.trim());
+
 /** An option description split into its prose and the one command it names:
-    the text after `From <dir>:`, a backticked span, or a line that starts
-    with a CLI word. */
+    a CLI command after `From <dir>:`, a backticked span that is a CLI command
+    or ends the description, or a line that starts with a CLI word. An inline
+    backticked identifier stays in its sentence. */
 export function splitCommand(description: string): {
   prose: string;
   command: string | null;
 } {
   const text = description.trim();
   const from = /^(From \S+):\s+(.+?)(?:,\s+(.+)|\.)?$/s.exec(text);
-  if (from) {
+  if (from && isCli(from[2]!)) {
     const [, dir, command, rest] = from;
     return {
       prose: rest ? `${dir}, ${rest}` : `${dir}.`,
       command: command!.trim(),
     };
   }
-  const ticked = /`([^`]+)`/.exec(text);
+  const ticked = [...text.matchAll(/`([^`]+)`/g)].find(
+    m => isCli(m[1]!) || /^\.?$/.test(text.slice(m.index + m[0].length))
+  );
   if (ticked) {
     return {
       prose: tidy(text.replace(ticked[0], ' ')),
@@ -150,7 +155,7 @@ export function splitCommand(description: string): {
     };
   }
   const lines = text.split('\n');
-  const at = lines.findIndex(l => CLI_LINE.test(l.trim()));
+  const at = lines.findIndex(isCli);
   if (at >= 0) {
     return {
       prose: tidy(lines.filter((_, i) => i !== at).join(' ')),
@@ -167,14 +172,16 @@ export interface ContextPoint {
 
 export type ContextBlock =
   | { kind: 'markdown'; text: string }
-  | { kind: 'points'; points: ContextPoint[] };
+  | { kind: 'points'; points: ContextPoint[] }
+  | { kind: 'code'; lines: string[] };
 
 const POINT =
   /^[-*]\s+(?:\*\*([^*:`]{1,24}?):?\*\*:?|([^*:`\s][^:`]{0,23}?):)\s+(.+)$/;
 
-/** Gate context as Markdown with its "Label: text" bullet lists lifted out,
-    so labelled points can draw as a label column. A list becomes points only
-    when every item has a label; a fenced line never does. */
+/** Gate context as Markdown with its "Label: text" bullet lists and fenced
+    blocks lifted out, so labelled points draw as a label column and a fence
+    line by line. A list becomes points only when every item has a label; a
+    fenced line never does. */
 export function contextBlocks(text: string): ContextBlock[] {
   const blocks: ContextBlock[] = [];
   let markdown: string[] = [];
@@ -202,9 +209,21 @@ export function contextBlocks(text: string): ContextBlock[] {
     }
     list = [];
   };
+  let code: string[] = [];
   for (const line of text.split('\n')) {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    if (!fenced && /^[-*]\s+\S/.test(line)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      flushList();
+      if (fenced) blocks.push({ kind: 'code', lines: code });
+      else flushMarkdown();
+      fenced = !fenced;
+      code = [];
+      continue;
+    }
+    if (fenced) {
+      code.push(line);
+      continue;
+    }
+    if (/^[-*]\s+\S/.test(line)) {
       list.push(line);
       continue;
     }
@@ -212,6 +231,7 @@ export function contextBlocks(text: string): ContextBlock[] {
     markdown.push(line);
   }
   flushList();
+  if (fenced) markdown.push('```', ...code);
   flushMarkdown();
   return blocks;
 }

@@ -513,28 +513,26 @@ Gate panel (runs-p2-gate `Gate mine`):
   board's 60% white, and the raised step is the kit's indicator, a sibling
   of its label, so `step <name>` keys the label (no fill or stroke, the
   label's own box) and the strip is 8px narrower.
-- Options are kit `Radio.Card` and `Checkbox.Card` with the kit's
-  `Radio.Indicator` (20px, filled when picked), as in pass 1: no accent ring
-  or wash on the picked card, so each card is 2-3px taller and its text sits
-  5px further right. The recommended `Badge`, the command `Code` chip (kit
-  fill, no stroke) and the number `Kbd`s (22px, the kit's fill, stroke and
-  3px foot; the picked option's number takes the accent text colour through
-  `c="accent"`) keep the kit's colours.
+- Options are kit `Radio.Card` and `Checkbox.Card` in the kit's `wash`
+  variant, which draws the board's rule, accent ring and wash, and the
+  picked option's number in the accent. The kit's `Radio.Indicator` is 20px
+  and filled when picked (the board's ring is 16px), so each option's text
+  sits 4px further right and the card is 1px taller.
+- The recommended `Badge` and the command `Code` chip (fill, no stroke) keep
+  the kit's colours. The number `Kbd`s keep the kit's fill, stroke and 3px
+  foot (22px; the dark scheme's differ from the board's), so their digit's
+  box is taller.
 - The note is the kit `Textarea`: its border sits on the input, not the
   keyed wrapper, and its placeholder is not a layer (`note/ph`).
 - "Open the pane" is a kit `Button` (`subtle`, gray) and Next/Submit a kit
   `Button` at `sm`: 36px tall where the board draws 31px, with the kit's
-  label size and colours. The `⌘↵` cap inside it is the label's own colour
-  at 70% over an 18% wash of it, as the spec asks; the board draws 85%.
-- The kit controls above make the panel 10px taller than the board, which
-  moves every layer below the first option down by up to 10px.
+  label size and colours. The `⌘↵` hint is the kit `Kbd` in its `on-fill`
+  variant, at the kit's `sm` size.
+- Those kit sizes make the panel 4px taller than the board, so the layers
+  below the first option sit 1-6px lower.
 - Quiet text (the WHAT THE AGENT FOUND label, the steps after the current
   one, Draft saved) is the console's dimmed tone (slate 11); the board's
   lighter grey misses the text contrast bar.
-- What the agent found renders through the markdown renderer, so its lead
-  paragraph and code block are not keyed (`context/lead`, `context/code`,
-  `path`, `line`). Its "Label: text" points are lifted into the keyed label
-  column (`k`, `v`).
 - The fixture's WEB-418 plan gate now carries the board's context and option
   text, the first option's command in backticks; pass 1's run-gate board no
   longer matches its text.

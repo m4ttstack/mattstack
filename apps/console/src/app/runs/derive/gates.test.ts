@@ -234,6 +234,25 @@ describe('splitCommand', () => {
       prose: '',
       command: 'bun run test',
     }));
+  it('keeps an inline backticked identifier in its sentence', () => {
+    const text = 'Add an `assignee` param to `useOrders` first.';
+    expect(splitCommand(text)).toEqual({ prose: text, command: null });
+  });
+  it('lifts an inline backticked span that starts with a CLI word', () =>
+    expect(splitCommand('Run `bun test` before shipping.')).toEqual({
+      prose: 'Run before shipping.',
+      command: 'bun test',
+    }));
+  it('lifts a backticked span that ends the description', () =>
+    expect(splitCommand('Rename the hook to `useAssignee`.')).toEqual({
+      prose: 'Rename the hook to.',
+      command: 'useAssignee',
+    }));
+  it('reads "From <word>:" prose as prose when no CLI word follows', () =>
+    expect(splitCommand('From scratch: rewrite it.')).toEqual({
+      prose: 'From scratch: rewrite it.',
+      command: null,
+    }));
   it('leaves plain prose alone', () =>
     expect(splitCommand('Filter the loaded page only.')).toEqual({
       prose: 'Filter the loaded page only.',
@@ -261,7 +280,12 @@ describe('contextBlocks', () => {
           { label: 'Risk', text: 'two stores.' },
         ],
       },
-      { kind: 'markdown', text: '```\na.ts:1\n```' },
+      { kind: 'code', lines: ['a.ts:1'] },
+    ]));
+  it('splits a paragraph from the fenced block under it', () =>
+    expect(contextBlocks('Lead.\n\n```\na\nb\n```')).toEqual([
+      { kind: 'markdown', text: 'Lead.' },
+      { kind: 'code', lines: ['a', 'b'] },
     ]));
   it('reads a bold label', () =>
     expect(contextBlocks('- **Risk**: two stores.')).toEqual([
@@ -271,8 +295,8 @@ describe('contextBlocks', () => {
     const text = '- Server-side: fast.\n- then a plain item';
     expect(contextBlocks(text)).toEqual([{ kind: 'markdown', text }]);
   });
-  it('never reads a fenced line as a point', () => {
-    const text = '```\n- Key: value\n```';
-    expect(contextBlocks(text)).toEqual([{ kind: 'markdown', text }]);
-  });
+  it('never reads a fenced line as a point', () =>
+    expect(contextBlocks('```\n- Key: value\n```')).toEqual([
+      { kind: 'code', lines: ['- Key: value'] },
+    ]));
 });

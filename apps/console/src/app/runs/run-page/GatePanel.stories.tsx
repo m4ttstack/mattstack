@@ -1,6 +1,6 @@
 import '../../icons';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { GateRow } from '@mattstack/rt-client';
 import type { Decorator, Meta, StoryObj } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -145,24 +145,23 @@ export const NoContext: Story = {
 /** Every answer post is refused with 403, as the read-only design fixture
     refuses it, for as long as the story is mounted. */
 function RefusingAnswers({ children }: { children: ReactNode }) {
-  const [real] = useState(() => globalThis.fetch);
-  const refusing = async (
-    input: Parameters<typeof fetch>[0],
-    init?: Parameters<typeof fetch>[1]
-  ) =>
-    String(input instanceof Request ? input.url : input).includes('/answer')
-      ? new Response(
-          JSON.stringify({ error: 'the design fixture is read-only' }),
-          { status: 403, headers: { 'content-type': 'application/json' } }
-        )
-      : real(input, init);
-  globalThis.fetch = Object.assign(refusing, real);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const real = globalThis.fetch;
+    const refusing = async (
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1]
+    ) =>
+      String(input instanceof Request ? input.url : input).includes('/answer')
+        ? new Response(
+            JSON.stringify({ error: 'the design fixture is read-only' }),
+            { status: 403, headers: { 'content-type': 'application/json' } }
+          )
+        : real(input, init);
+    globalThis.fetch = Object.assign(refusing, real);
+    return () => {
       globalThis.fetch = real;
-    },
-    [real]
-  );
+    };
+  }, []);
   return children;
 }
 
