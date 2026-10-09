@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import pino from "pino";
@@ -143,7 +143,14 @@ afterEach(() => {
 
 type Spawned = { provider: string; surface: string; model?: string; effort?: string; account?: string; env?: unknown };
 
-function spawner(opts: { switchOn?: boolean; enabled?: string[]; registry?: ReturnType<typeof createRegistry> } = {}) {
+type TreeRow = { path: string; branch: string | null; owner?: string };
+
+function spawner(opts: {
+  switchOn?: boolean; enabled?: string[]; registry?: ReturnType<typeof createRegistry>;
+  /** The worktree registry by tree name; a tree provisioned here is recorded as the job's own. */
+  trees?: Record<string, TreeRow>;
+  provisionError?: string;
+} = {}) {
   store.create({ id: HERD, repo: "remote:example.com%2Fa%2Fb", room: "herd-demo", workspace: `herd: ${HERD}`, shepherdSession: "sess-shep", shepherdHandle: "shepherd", herdrSocket: null, hidden: false });
   const launches: Spawned[] = [];
   const provisions: unknown[] = [];
@@ -171,7 +178,12 @@ function spawner(opts: { switchOn?: boolean; enabled?: string[]; registry?: Retu
     },
     agent: { "agent:start": (p: Spawned & { cwd: string }) => startAttempt(p), startAttempt },
     worktree: {
-      "worktree:provision": async (p: { branch: string }) => { provisions.push(p); return reply({ path: `/w/${p.branch}`, branch: p.branch, tree: p.branch, wasOnDeck: true }); },
+      "worktree:provision": async (p: { branch: string; owner: string }) => {
+        provisions.push(p);
+        if (opts.provisionError) return { ok: false, error: opts.provisionError };
+        if (opts.trees) opts.trees[p.branch] = { path: `/w/${p.branch}`, branch: p.branch, owner: p.owner };
+        return reply({ path: `/w/${p.branch}`, branch: p.branch, tree: p.branch, wasOnDeck: true });
+      },
       "worktree:dispose": async () => reply({ disposed: [], refused: [] }),
     },
     runWorktree: () => null,
@@ -193,6 +205,7 @@ function spawner(opts: { switchOn?: boolean; enabled?: string[]; registry?: Retu
     defaultSelection: () => defaults.selection,
     endSession: async (key: string) => { ended.push(key); return ok(undefined); },
     launchDefault: (harness: string, option: string) => defaults.launch[`${harness}.${option}`],
+    jobTree: (_repo: string, tree: string) => opts.trees?.[tree] ?? null,
   } as unknown as HerdDeps;
   return { h: createHerdHandlers(deps), launches, provisions, ended, paneCloses, defaults };
 }
@@ -293,6 +306,97 @@ describe("herd:spawn selection", () => {
     if (!status.ok) throw new Error(status.error);
     expect(Object.keys(status.data.jobs[0]!)).not.toContain("harness");
     expect(Object.keys(status.data.jobs[0]!)).not.toContain("mode");
+  });
+});
+
+describe("herd:spawn respawns: the job's tree, then the attempt, then the close", () => {
+  const OWNER = `herd:${HERD}`;
+  /** The brief an earlier spawn stored, so a respawn naming none reuses it. */
+  const writeBrief = (job: string) => {
+    mkdirSync(join(dir, "herds", HERD, job), { recursive: true });
+    writeFileSync(join(dir, "herds", HERD, job, "job.md"), "b");
+  };
+
+  test("an MCP retry, which names no dir, keeps its selection after the default changes and reuses the job's own tree", async () => {
+    const trees: Record<string, TreeRow> = {};
+    const { h, launches, provisions, defaults, ended } = spawner({ trees });
+    defaults.selection = CODEX;
+    const first = await h["herd:spawn"]({ herd: HERD, job: "job-a", brief: "b" });
+    if (!first.ok) throw new Error(first.error);
+    store.activateAttempt(store.attempts(HERD, "job-a")[0]!.id, "sk-first", 1);
+    defaults.selection = CLAUDE;
+
+    const retried = await h["herd:spawn"]({ herd: HERD, job: "job-a" });
+    if (!retried.ok) throw new Error(retried.error);
+    expect(provisions).toHaveLength(1);
+    expect(retried.data).toMatchObject({ worktree: "/w/job-a", branch: "job-a", tree: "job-a", wasOnDeck: null });
+    expect(launches.map((l) => [l.provider, l.surface, (l as Spawned & { cwd: string }).cwd])).toEqual([["codex", "headless", "/w/job-a"], ["codex", "headless", "/w/job-a"]]);
+    const [original, retry] = store.attempts(HERD, "job-a");
+    expect(retry!.selection).toEqual(original!.selection);
+    expect(retry!.replaces).toBe(original!.id);
+    expect(ended).toEqual(["sk-first"]);
+  });
+
+  test("a tree that is no longer the job's is not reused: the respawn provisions as before", async () => {
+    const trees: Record<string, TreeRow> = {};
+    const { h, provisions } = spawner({ trees });
+    const first = await h["herd:spawn"]({ herd: HERD, job: "job-a", brief: "b", harness: "codex" });
+    if (!first.ok) throw new Error(first.error);
+    for (const moved of [{ path: "/w/job-a", branch: "other", owner: OWNER }, { path: "/w/job-a", branch: "job-a", owner: "herd:another" }, { path: "/w/t9", branch: "job-a", owner: OWNER }]) {
+      trees["job-a"] = moved;
+      const before = provisions.length;
+      expect((await h["herd:spawn"]({ herd: HERD, job: "job-a" })).ok).toBe(true);
+      expect(provisions.length, JSON.stringify(moved)).toBe(before + 1);
+    }
+  });
+
+  test("an explicit replacement of a headless worker records the attempt it replaces", async () => {
+    const { h } = spawner();
+    const first = await h["herd:spawn"]({ herd: HERD, job: "job-b", brief: "b", harness: "codex" });
+    if (!first.ok) throw new Error(first.error);
+    store.activateAttempt(store.attempts(HERD, "job-b")[0]!.id, "sk-codex", 1);
+    const replaced = await h["herd:spawn"]({ herd: HERD, job: "job-b", assignment: { harness: "codex", model: "gpt-5.2" } });
+    if (!replaced.ok) throw new Error(replaced.error);
+    const [old, next] = store.attempts(HERD, "job-b");
+    expect(old!.state).toBe("ended");
+    expect(next!.replaces).toBe(old!.id);
+  });
+
+  test("a refused respawn closes nothing: the live worker keeps running and holding its job", async () => {
+    const cases: Array<[string, Parameters<typeof spawner>[0], Record<string, unknown>]> = [
+      ["selection", {}, { harness: "codex", account: "acct-2" }],
+      ["tree", { provisionError: "branch-attached:t4" }, {}],
+    ];
+    for (const [why, opts, asked] of cases) {
+      store.close_();
+      rmSync(dir, { recursive: true, force: true });
+      dir = mkdtempSync(join(tmpdir(), "rt-herd-selection-"));
+      store = createHerdStore({ dbPath: join(dir, "herds.db"), log });
+      const { h, ended, paneCloses, launches } = spawner(opts);
+      store.upsertJob({ herd: HERD, name: "job-b", worktree: "/w/job-b", branch: "job-b", tree: "job-b", handle: "job-b.w1", status: "active" });
+      writeBrief("job-b");
+      store.reserveAttempt({ id: "att-live", herd: HERD, job: "job-b", selection: CODEX, mode: "headless" });
+      store.activateAttempt("att-live", "sk-live", 1);
+
+      const refused = await h["herd:spawn"]({ herd: HERD, job: "job-b", ...asked });
+      expect(refused.ok, why).toBe(false);
+      expect(ended, why).toEqual([]);
+      expect(paneCloses, why).toEqual([]);
+      expect(launches, why).toEqual([]);
+      expect(store.activeAttempt(HERD, "job-b")?.id, why).toBe("att-live");
+      expect(store.attempts(HERD, "job-b").map((a) => a.state), why).toEqual(["active"]);
+      expect(store.getJob(HERD, "job-b"), why).toMatchObject({ handle: "job-b.w1", status: "active" });
+    }
+  });
+
+  test("switch off: a respawn still closes the old pane before it provisions, as before", async () => {
+    const { h, paneCloses, provisions } = spawner({ switchOn: false, provisionError: "branch-attached:job-a" });
+    store.upsertJob({ herd: HERD, name: "job-a", worktree: "/w/job-a", branch: "job-a", tree: "job-a", handle: "job-a.w1", status: "active", pane: "w9:p7" });
+    writeBrief("job-a");
+    const refused = await h["herd:spawn"]({ herd: HERD, job: "job-a" });
+    expect(refused).toEqual({ ok: false, error: "provision failed: branch-attached:job-a" });
+    expect(paneCloses).toEqual([["pane", "close", "w9:p7"]]);
+    expect(provisions).toHaveLength(1);
   });
 });
 

@@ -28,6 +28,7 @@ import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts"
 import { createSessionStore, isDetachedAttachment, listBindingsByAgent } from "../../agent-integrations/session-store.ts";
 import { harnessEnabled, integrationsEnabled } from "../../agent-integrations/switch.ts";
 import { getStateDb } from "../../state/db.ts";
+import { loadRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
 import { classifyJobObservation } from "../herd-watchdog.ts";
 import { createJobObserver, type ObserveJob } from "../herd-watchdog-adapters.ts";
@@ -93,6 +94,8 @@ export interface HerdDeps {
   resolveCaller?: (evidence: CallerEvidence) => Outcome<CallerContext>;
   /** The state.db holding session bindings; the daemon's when omitted. */
   sessionDb?: () => Database;
+  /** A tree's worktree registry record by name; the repo's registry when omitted. */
+  jobTree?: (repo: string, tree: string) => Pick<TreeRecord, "path" | "branch" | "owner"> | null;
   /** The harnesses a worker selection is checked against; the built-ins when omitted. */
   integrations?: IntegrationRegistry;
   /** The harnesses the user enabled; Claude Code plus agent.provider when omitted. */
@@ -186,6 +189,7 @@ export function createHerdHandlers(deps: HerdDeps) {
   const { store, log } = deps;
   const enabled = deps.integrationsEnabled ?? integrationsEnabled;
   const sessionDb = deps.sessionDb ?? (() => getStateDb("daemon"));
+  const jobTree = deps.jobTree ?? ((repo: string, tree: string) => loadRegistry(repo).find((t) => t.name === tree) ?? null);
   const attempts = deps.attempts ?? createJobAttempts({ herds: store, db: sessionDb, enabled });
   const resolveCaller = deps.resolveCaller ?? ((evidence: CallerEvidence) => resolveCallerContextNow(evidence, { db: sessionDb() }));
   const registry = deps.integrations ?? builtinRegistry();
@@ -351,6 +355,18 @@ export function createHerdHandlers(deps: HerdDeps) {
       closed = await closePane(herd.herdrSocket, pane, context);
     }
     if (closed) attempts.endJobAttempt(attemptId);
+  }
+
+  /** Whether the job's recorded tree is still its own: registered at the same path, on the job's branch, owned by this herd. */
+  function isOwnTree(herd: HerdRow, job: HerdJobRow): boolean {
+    if (!job.tree || !job.branch) return false;
+    try {
+      const rec = jobTree(herd.repo, job.tree);
+      return rec !== null && rec.path === job.worktree && rec.branch === job.branch && rec.owner === herdOwner(herd.id);
+    } catch (err) {
+      log.warn({ err, herd: herd.id, job: job.name, tree: job.tree }, "herd: could not read the job's tree from the worktree registry");
+      return false;
+    }
   }
 
   /** Whether a job still has a worker for closeWorker to close. */
@@ -671,13 +687,16 @@ export function createHerdHandlers(deps: HerdDeps) {
       const headless = mode === "headless";
 
       const prior = store.getJob(herdId, name);
-      // agent:start dedups on the tab label and would focus the dead tab
-      // instead of launching; the old worker goes first.
-      if (prior) await closeWorker(herd, prior);
+      // Off, the old worker goes first, as it always has: agent:start dedups
+      // on the tab label and would focus the dead tab instead of launching.
+      if (prior && !fenced) await closeWorker(herd, prior);
 
       let worktree = str(p?.dir); let branch: string | null = prior?.branch ?? null; let tree: string | null = prior?.tree ?? null;
-      // null = no provisioning happened (--dir); false is the cold-create
-      // case the caller should announce, since it can take minutes.
+      // On, a respawn keeps the tree that is still its job's own: provisioning
+      // the job's branch again is refused while that tree holds it.
+      if (!worktree && fenced && prior && isOwnTree(herd, prior)) worktree = prior.worktree;
+      // null = no provisioning happened (--dir, or the job's own tree); false
+      // is the cold-create case the caller should announce, since it can take minutes.
       let wasOnDeck: boolean | null = null;
       if (!worktree) {
         const prov = await deps.worktree["worktree:provision"]({ repoName: herd.repo, branch: name, disposal: "job", owner: `herd:${herdId}` });
@@ -697,6 +716,9 @@ export function createHerdHandlers(deps: HerdDeps) {
         log.warn({ herd: herdId, job: name, error: reserved.error.message }, "herd: job attempt not recorded");
       }
       const attemptId = reserved.ok ? reserved.data.id : undefined;
+      // On, the old worker is closed only once its replacement is chosen, placed
+      // and reserved, so any refusal above leaves it running and holding the job.
+      if (prior && fenced) await closeWorker(herd, prior);
       // The prior pane is closed above, so the row must not go on naming it
       // while agent:start decides whether there is a new one.
       store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", disposable, pane: null, agentSession: null, agentId: null });
