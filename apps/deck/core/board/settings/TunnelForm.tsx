@@ -16,8 +16,6 @@ function TunnelBlock({ data }: BlockProps) {
   );
 }
 
-/** The tunnel's reduced form: the domain it carries and its recent errors.
-    Status and restart live in the header. */
 export function TunnelForm(props: BlockProps) {
   return (
     <div className="settings-stack">

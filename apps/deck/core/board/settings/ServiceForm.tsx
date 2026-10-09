@@ -20,8 +20,6 @@ function RouteBlock({ row, board, blocks }: BlockProps) {
   );
 }
 
-/** A service without a route: recent errors and the way to give it one.
-    Status ("no route") and restart live in the header. */
 export function ServiceForm(props: BlockProps) {
   return (
     <div className="settings-stack">

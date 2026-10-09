@@ -23,8 +23,9 @@ export function useOptimisticToggle(
 }
 
 /** The Switch for the table cell and the settings modal, on the same
-    optimistic mechanism. `disabled` with a `disabledTip` wraps only the Switch in the tooltip, so
-    the reason shows on the control that refuses the click. */
+    optimistic mechanism. `disabled` with a `disabledTip` wraps only the
+    Switch in the tooltip, so the reason shows on the control that refuses
+    the click. */
 export function OptimisticSwitch({
   checked,
   mutate,

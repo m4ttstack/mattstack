@@ -6,8 +6,9 @@
 }
 /* The page ground is --page with the kit's graph-paper grid (board's own
    canvas, replicated by hand rather than importing canvas.css -- that file
-   also resets `* { box-sizing: border-box }`, which this app's rows are
-   deliberately written without).
+   also resets `* { box-sizing: border-box }` on every element, and deck's
+   rules keep the browser default; kit recipes set box-sizing where they
+   need it).
    Each apps table sits on a raised --card panel below -- see .apps-panel --
    which is where the on-card ink roles apply. */
 body {

@@ -15,7 +15,7 @@ import type { AccessModalState, BoardState } from '../useBoardState.ts';
 import type { BlockProps } from './block.ts';
 import { escapeClearsDraft } from './escape.ts';
 import { Help } from './Help.tsx';
-import { SettingsItem } from './ReachBlock.tsx';
+import { SettingsItem } from './SettingsItem.tsx';
 
 const PASSWORD_TIP =
   'Tunnel visitors enter this before the gateway lets them through.';
@@ -229,8 +229,6 @@ function SignInItem({ m, board }: { m: AccessModalState; board: BoardState }) {
   );
 }
 
-/** Who gets in: the password and Google sign-in gates. The access draft is
-    board state, opened when the modal opens and released when it closes. */
 export function GatesBlock({ row, board, blocks }: BlockProps) {
   if (!blocks.gates) return null;
   const m = board.accessModal?.app === row.name ? board.accessModal : null;

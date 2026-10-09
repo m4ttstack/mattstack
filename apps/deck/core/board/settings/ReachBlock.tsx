@@ -1,5 +1,3 @@
-import { Children, type ReactNode } from 'react';
-
 import { Button, Icon } from '@mattstack/tui-kit';
 import { CLOUD, GLOBE, LAPTOP, UPLOAD } from '../icons.ts';
 import {
@@ -12,6 +10,7 @@ import { OptimisticSwitch } from '../optimistic.tsx';
 import type { BoardState } from '../useBoardState.ts';
 import type { BlockProps } from './block.ts';
 import { Help } from './Help.tsx';
+import { SettingsItem } from './SettingsItem.tsx';
 
 const PUBLIC_TIP =
   "Publishes this app on your public domain through deck's Cloudflare tunnel. Off: visitors get the tunnel's 404 page.";
@@ -26,37 +25,6 @@ const REMOTE_STATUS: Record<RemoteStatus, { text: string; tone: string }> = {
   live: { text: 'live', tone: 'ok' },
   error: { text: 'error', tone: 'bad' },
 };
-
-/** One line of a settings list: glyph, label with its note, and whatever
-    sits on the right. `children` spans the text column under the note. */
-export function SettingsItem({
-  icon,
-  label,
-  note,
-  end,
-  children,
-}: {
-  icon: string;
-  label: ReactNode;
-  note?: ReactNode;
-  end?: ReactNode;
-  children?: ReactNode;
-}) {
-  const body = Children.toArray(children);
-  return (
-    <li className="settings-item">
-      <span className="settings-item-icon" aria-hidden="true">
-        <Icon d={icon} width="16" height="16" />
-      </span>
-      <span className="settings-item-text">
-        <span className="settings-toggle-label">{label}</span>
-        {note && <span className="settings-note">{note}</span>}
-      </span>
-      {end && <span className="settings-item-end">{end}</span>}
-      {body.length > 0 && <div className="settings-item-body">{body}</div>}
-    </li>
-  );
-}
 
 function PublicItem({
   row,
@@ -145,8 +113,6 @@ function RailwayItem({ row, board }: { row: Row; board: BoardState }) {
   );
 }
 
-/** Who can reach the app: this Mac always, the public tunnel and Railway
-    by their switches. */
 export function ReachBlock({ row, data, board, blocks }: BlockProps) {
   if (!blocks.reach) return null;
   return (
