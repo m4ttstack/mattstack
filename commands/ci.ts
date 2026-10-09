@@ -11,17 +11,48 @@
  * the CLI and the agent-facing tool share one watchPipeline code path. It
  * passes cliOwner as the tool's owner function, so a human's watch
  * heartbeats the same user:<login> lease `rt ci lease claim` claimed.
+ *
+ * With agent.integrations.enabled on, a command run inside a bound agent
+ * session acts as that binding, with the owner the MCP tools use
+ * (ciLeaseOwner); anything no binding names keeps cliOwner.
  */
 import { userInfo } from "node:os";
 import {
-  CiLeaseError, claimCiLease, heartbeatCiLease, leaseOwner, readCiLease, releaseCiLease,
-  type CiLeaseHolder,
+  CiLeaseError, claimCiLease, heartbeatCiLease, leaseOwner, ownsCiLease, readCiLease, releaseCiLease,
+  type CiLeaseCaller, type CiLeaseHolder,
 } from "../packages/rt-client/src/index.ts";
-import { ciToolDefs, isHttpsMrUrl, ownerFromEnv, type CiWatchToolDeps } from "../lib/mcp/ci-tools.ts";
+import type { CallerContext, SessionBinding } from "../packages/rt-client/src/agent-integrations.ts";
+import { bindingLeaseCaller, ciToolDefs, isHttpsMrUrl, ownerFromEnv, type CiWatchToolDeps } from "../lib/mcp/ci-tools.ts";
 import * as out from "../lib/ui/out.ts";
 
 export function cliOwner(env: NodeJS.ProcessEnv): string {
   return ownerFromEnv(env) ?? `user:${env.USER || userInfo().username}`;
+}
+
+export type CiCliDeps = {
+  /** The binding this command's own session evidence names; undefined for a person, a script or an unbound session. */
+  binding?: (env: NodeJS.ProcessEnv) => SessionBinding | undefined;
+};
+
+/**
+ * The bound caller with the switch on, else null. No `--session` is read:
+ * rt ci takes no such flag, so only the session the command runs in counts.
+ */
+async function cliCaller(env: NodeJS.ProcessEnv, deps: CiCliDeps): Promise<CallerContext | null> {
+  const { integrationsEnabled } = await import("../lib/agent-integrations/switch.ts");
+  if (!integrationsEnabled()) return null;
+  const resolve = deps.binding ?? (await import("../lib/agent-integrations/context.ts")).resolveCliBinding.bind(null, []);
+  const binding = resolve(env);
+  return binding ? { binding } : null;
+}
+
+async function leaseCaller(env: NodeJS.ProcessEnv, deps: CiCliDeps): Promise<CiLeaseCaller> {
+  const caller = await cliCaller(env, deps);
+  return caller ? bindingLeaseCaller(caller) : cliOwner(env);
+}
+
+function claimOwner(caller: CiLeaseCaller): { owner: string; alsoOwns?: (token: string) => boolean } {
+  return typeof caller === "string" ? { owner: caller } : caller;
 }
 
 /** A value that starts with `--` is the next flag, never this flag's value. */
@@ -72,7 +103,7 @@ function guard<T>(json: boolean, run: () => T): T {
   }
 }
 
-export async function ciLeaseClaim(args: string[]): Promise<void> {
+export async function ciLeaseClaim(args: string[], deps: CiCliDeps = {}): Promise<void> {
   const json = args.includes("--json");
   const mrUrl = mrArg(args, json, "claim");
   if (danglingFlag(args, "--holder")) emit(json, { error: "--holder requires a value: watch-ci or doctor" }, "--holder requires a value: watch-ci or doctor", 2);
@@ -80,23 +111,26 @@ export async function ciLeaseClaim(args: string[]): Promise<void> {
   const holder = (flag(args, "--holder") ?? "watch-ci") as CiLeaseHolder;
   if (holder !== "watch-ci" && holder !== "doctor") emit(json, { error: "--holder must be watch-ci or doctor" }, "--holder must be watch-ci or doctor", 2);
   const branch = flag(args, "--branch");
-  const r = guard(json, () => claimCiLease({ mrUrl, owner: cliOwner(process.env), holder, ...(branch && { branch }) }));
+  const caller = await leaseCaller(process.env, deps);
+  const r = guard(json, () => claimCiLease({ mrUrl, ...claimOwner(caller), holder, ...(branch && { branch }) }));
   if (r.claimed) emit(json, r, `claimed ${mrUrl}${r.previousOwner ? ` (took over from ${r.previousOwner})` : ""}`);
   emit(json, r, `held by ${leaseOwner(r.holder)} (${r.holder.holder})`, 3);
 }
 
-export async function ciLeaseHeartbeat(args: string[]): Promise<void> {
+export async function ciLeaseHeartbeat(args: string[], deps: CiCliDeps = {}): Promise<void> {
   const json = args.includes("--json");
   const mrUrl = mrArg(args, json, "heartbeat");
-  const r = guard(json, () => heartbeatCiLease(mrUrl, cliOwner(process.env)));
+  const caller = await leaseCaller(process.env, deps);
+  const r = guard(json, () => heartbeatCiLease(mrUrl, caller));
   if (r.ok) emit(json, r, "heartbeat recorded");
   emit(json, r, r.reason === "lost" ? `lost: held by ${leaseOwner(r.holder)}` : "no lease", 3);
 }
 
-export async function ciLeaseRelease(args: string[]): Promise<void> {
+export async function ciLeaseRelease(args: string[], deps: CiCliDeps = {}): Promise<void> {
   const json = args.includes("--json");
   const mrUrl = mrArg(args, json, "release");
-  const r = guard(json, () => releaseCiLease(mrUrl, cliOwner(process.env)));
+  const caller = await leaseCaller(process.env, deps);
+  const r = guard(json, () => releaseCiLease(mrUrl, caller));
   if (r.released) emit(json, r, "released");
   // not-owner is a refusal, exit 3, matching claim and heartbeat; none is
   // idempotent (nothing to release) and stays exit 0.
@@ -104,11 +138,11 @@ export async function ciLeaseRelease(args: string[]): Promise<void> {
   emit(json, r, "no lease");
 }
 
-export async function ciLeaseShow(args: string[]): Promise<void> {
+export async function ciLeaseShow(args: string[], deps: CiCliDeps = {}): Promise<void> {
   const json = args.includes("--json");
   const mrUrl = mrArg(args, json, "show");
   const r = guard(json, () => readCiLease(mrUrl));
-  const mine = r.lease !== null && leaseOwner(r.lease) === cliOwner(process.env);
+  const mine = r.lease !== null && ownsCiLease(r.lease, await leaseCaller(process.env, deps));
   emit(json, { ...r, mine }, r.lease ? `${leaseOwner(r.lease)} (${r.lease.holder}), heartbeat ${new Date(r.lease.heartbeatAt).toISOString()}` : "none", r.lease ? 0 : 1);
 }
 
@@ -116,7 +150,7 @@ export async function ciWatch(args: string[]): Promise<void> {
   await runCiWatch(args);
 }
 
-export async function runCiWatch(args: string[], watch: Partial<CiWatchToolDeps> = {}): Promise<void> {
+export async function runCiWatch(args: string[], watch: Partial<CiWatchToolDeps> = {}, deps: CiCliDeps = {}): Promise<void> {
   const json = args.includes("--json");
   const mrUrl = positional(args);
   requireValues(args, json, ["--sha", "--max-wait", "--interval", "--prior-pipeline"]);
@@ -124,7 +158,12 @@ export async function runCiWatch(args: string[], watch: Partial<CiWatchToolDeps>
   if (!mrUrl || !isHttpsMrUrl(mrUrl) || !sha) {
     emit(json, { error: "usage: rt ci watch <mr-url> --sha <sha>" }, "usage: rt ci watch <mr-url> --sha <sha>", 2);
   }
-  const tool = ciToolDefs({ owner: cliOwner, watch }).find((t) => t.name === "ci_watch")!;
+  const caller = await cliCaller(process.env, deps);
+  const tool = ciToolDefs({
+    owner: cliOwner,
+    caller: async () => (caller ? { ok: true, data: caller } : null),
+    watch,
+  }).find((t) => t.name === "ci_watch")!;
   const input: Record<string, unknown> = { mrUrl, sha };
   for (const [f, k] of [["--max-wait", "maxWaitSeconds"], ["--interval", "intervalSeconds"], ["--prior-pipeline", "priorPipelineId"]] as const) {
     const v = flag(args, f);

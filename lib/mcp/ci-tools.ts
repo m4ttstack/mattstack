@@ -51,12 +51,23 @@ export function ownerFromEnv(env: NodeJS.ProcessEnv): string | null {
 
 /**
  * The binding's key, which survives a resume or continuation of the same
- * session; a managed caller's attempt qualifies it, so a replacement attempt
- * on the same session is never its predecessor.
+ * session. A herd attempt (the caller's assignment, else the one its binding
+ * was launched for) qualifies it, so a replacement attempt on the same
+ * session is never its predecessor. `binding:K` and `binding:K:attempt:X` are
+ * different owners by design: a session's work outside an attempt and its
+ * work inside one never share a lease.
  */
 export function ciLeaseOwner(context: CallerContext): string {
   const owner = `binding:${context.binding.key}`;
-  return context.assignment ? `${owner}:attempt:${context.assignment.attemptId}` : owner;
+  const attempt = context.assignment?.attemptId ?? context.binding.attemptId;
+  return attempt !== undefined ? `${owner}:attempt:${attempt}` : owner;
+}
+
+const realLegacy: CiLeaseToolDeps["legacy"] = (claudeSession) => resolveLegacySession(claudeSession, "claude");
+
+/** The lease caller a resolved session acts as: its canonical owner, plus the legacy tokens the session store proves are its own. */
+export function bindingLeaseCaller(context: CallerContext, legacy: CiLeaseToolDeps["legacy"] = realLegacy): { owner: string; alsoOwns: (token: string) => boolean } {
+  return { owner: ciLeaseOwner(context), alsoOwns: legacyOwnership(context.binding, legacy) };
 }
 
 /**
@@ -100,8 +111,8 @@ async function leaseActor(env: NodeJS.ProcessEnv, context: ToolContext | undefin
     return owner ? { caller: owner, token: owner } : { error: NO_SESSION };
   }
   if (!caller.ok) return { error: refusal(caller.error) };
-  const token = ciLeaseOwner(caller.data);
-  return { caller: { owner: token, alsoOwns: legacyOwnership(caller.data.binding, deps.legacy) }, token, binding: caller.data.binding };
+  const leaseCaller = bindingLeaseCaller(caller.data, deps.legacy);
+  return { caller: leaseCaller, token: leaseCaller.owner, binding: caller.data.binding };
 }
 
 /** An https MR or PR URL. A scheme-less URL fails `new URL` and would slug from
@@ -120,7 +131,7 @@ const realLeaseDeps: CiLeaseToolDeps = {
   label: (env, binding) => readChatSession(binding ? binding.native.value : env.CLAUDE_CODE_SESSION_ID)?.handle,
   owner: ownerFromEnv,
   caller: boundCaller,
-  legacy: (claudeSession) => resolveLegacySession(claudeSession, "claude"),
+  legacy: (claudeSession) => realLegacy(claudeSession),
 };
 
 const MR_URL_PROP = { mrUrl: { type: "string", description: "The MR or PR https URL (.../-/merge_requests/<iid> or .../pull/<n>)." } };

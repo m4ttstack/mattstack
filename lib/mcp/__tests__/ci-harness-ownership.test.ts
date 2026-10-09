@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { CallerContext, NativeSessionRef, Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { ciLeaseFileName, claimCiLease, readCiLease, type CiLease, type ReleaseResult } from "../../../packages/rt-client/src/index.ts";
 import { resolveLegacySession } from "../../agent-integrations/legacy.ts";
+import { writeChatSession } from "../../chat-session.ts";
 import { createSessionStore } from "../../agent-integrations/session-store.ts";
 import { openStateDb } from "../../state/db.ts";
 import { ciLeaseOwner, ciToolDefs } from "../ci-tools.ts";
@@ -76,9 +77,15 @@ function onDisk(): CiLease | null {
 
 describe("ciLeaseOwner", () => {
   test("names the binding, qualified by the attempt when managed", () => {
-    const b = bind("remy.ab12", claude("sess-1"), "att-1");
+    const b = bind("remy.ab12", claude("sess-1"));
     expect(ciLeaseOwner({ binding: b })).toBe(`binding:${b.key}`);
     expect(ciLeaseOwner(managed(b, "att-1"))).toBe(`binding:${b.key}:attempt:att-1`);
+  });
+
+  test("a binding launched for an attempt is qualified by it without an assignment", () => {
+    const b = bind("remy.ab12", claude("sess-1"), "att-1");
+    expect(ciLeaseOwner({ binding: b })).toBe(`binding:${b.key}:attempt:att-1`);
+    expect(ciLeaseOwner({ binding: b })).toBe(ciLeaseOwner(managed(b, "att-1")));
   });
 
   test("the same attempt resumed keeps its owner", () => {
@@ -115,6 +122,19 @@ describe("CI leases follow the caller's binding", () => {
     expect(await call("ci_lease_read", b)).toMatchObject({ ok: true, body: { mine: false } });
     expect(await call("ci_lease_read", a)).toMatchObject({ ok: true, body: { mine: true } });
     expect((await release(a)).ok).toBe(true);
+  });
+
+  test("the session label is the bound Codex thread's chat handle, not the server environment's", async () => {
+    writeChatSession({ sessionId: "thread-b", handle: "kai.cd34", baseHandle: "kai", signedInAt: 1 });
+    writeChatSession({ sessionId: "env-session", handle: "host.zz99", baseHandle: "host", signedInAt: 1 });
+    const defs = ciToolDefs({
+      leaseOpts: () => ({ dir, now: () => now }),
+      caller: async (c) => (c ? c.caller() : null),
+      legacy: (raw) => resolveLegacySession(raw, "claude", db),
+    });
+    const b = as(managed(bind("kai.cd34", codex("thread-b"), "att-b"), "att-b"));
+    const r = await tool("ci_lease_claim", defs).handler({ mrUrl: MR }, { CLAUDE_CODE_SESSION_ID: "env-session" }, undefined, b);
+    expect(r).toMatchObject({ ok: true, body: { claimed: true, lease: { sessionLabel: "kai.cd34" } } });
   });
 
   test("the Codex worker acquires, refreshes and releases its own lease", async () => {

@@ -9,8 +9,15 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { ciLeaseClaim, ciLeaseHeartbeat, ciLeaseRelease, ciLeaseShow, cliOwner, runCiWatch } from "../ci.ts";
-import type { CiWatchToolDeps } from "../../lib/mcp/ci-tools.ts";
+import type { Database } from "bun:sqlite";
+import { ciLeaseClaim, ciLeaseHeartbeat, ciLeaseRelease, ciLeaseShow, cliOwner, runCiWatch, type CiCliDeps } from "../ci.ts";
+import { ciLeaseOwner, ciToolDefs, type CiWatchToolDeps } from "../../lib/mcp/ci-tools.ts";
+import type { NativeSessionRef, SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
+import { codexProfile, resolveCliBinding } from "../../lib/agent-integrations/context.ts";
+import { resolveLegacySession } from "../../lib/agent-integrations/legacy.ts";
+import { createSessionStore } from "../../lib/agent-integrations/session-store.ts";
+import { setSetting } from "../../lib/settings/write.ts";
+import { openStateDb } from "../../lib/state/db.ts";
 
 const MR_URL = "https://gitlab.example.com/acme/proj/-/merge_requests/7";
 
@@ -308,5 +315,132 @@ describe("rt ci watch exit codes (in-process)", () => {
     const { code, stdout } = await run((a) => runCiWatch(a, fakes("success")), [MR_URL, "--json"]);
     expect(code).toBe(2);
     expect(JSON.parse(stdout).error).toContain("usage: rt ci watch");
+  });
+});
+
+describe("rt ci with agent integrations on", () => {
+  const SHA = "c".repeat(40);
+  const KEYS = ["HOME", "MATTSTACK_ATTENDANTS_DIR", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "USER"] as const;
+  let home = "";
+  let db: Database;
+  let saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+    home = mkdtempSync(join(tmpdir(), "rt-ci-bound-"));
+    process.env.HOME = home;
+    process.env.MATTSTACK_ATTENDANTS_DIR = join(home, "attendants");
+    process.env.USER = "pat";
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    delete process.env.CODEX_THREAD_ID;
+    setSetting("agent.integrations.enabled", true, "machine");
+    db = openStateDb(join(home, "state.db"));
+  });
+
+  afterEach(() => {
+    db.close();
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  const deps = (): CiCliDeps => ({ binding: (env) => resolveCliBinding([], env, { db }) });
+
+  function bind(identity: string, native: NativeSessionRef, attemptId?: string): SessionBinding {
+    const store = createSessionStore(db);
+    const r = store.bind(store.reserve({ identity, ...(attemptId && { attemptId }) }), native, { mode: "herdr", pane: `w1:${identity}` });
+    if (!r.ok) throw new Error(r.error.message);
+    return r.data;
+  }
+
+  function asCodex(thread: string): void {
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    process.env.CODEX_THREAD_ID = thread;
+  }
+
+  const codexThread = (value: string): NativeSessionRef => ({ harness: "codex", profile: codexProfile({ ...process.env, CODEX_THREAD_ID: value }), kind: "id", value });
+
+  function fakes(): Partial<CiWatchToolDeps> {
+    const pipeline = { id: "gitlab:pipeline:11", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] };
+    return {
+      resolve: (async () => ({ ok: true, identity: "remote:x", iid: 7 })) as unknown as CiWatchToolDeps["resolve"],
+      command: (async (name: string) => (name === "mr:get"
+        ? { ok: true, data: { mr: { iid: 7, sha: SHA, webUrl: MR_URL, pipeline }, fetchedAt: 0 } }
+        : { ok: true, data: [] })) as unknown as CiWatchToolDeps["command"],
+      now: () => 0,
+      sleep: async () => {},
+    };
+  }
+
+  test("a bound worker's CLI claim uses the owner its MCP tools use", async () => {
+    const binding = bind("kai.cd34", codexThread("thread-a"), "att-a");
+    asCodex("thread-a");
+    const { code, stdout } = await run((a) => ciLeaseClaim(a, deps()), [MR_URL, "--json"]);
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout).lease.owner).toBe(ciLeaseOwner({ binding }));
+    expect(ciLeaseOwner({ binding })).toBe(`binding:${binding.key}:attempt:att-a`);
+  });
+
+  test("two bound Codex workers cannot release each other's lease through the CLI", async () => {
+    bind("kai.cd34", codexThread("thread-a"), "att-a");
+    bind("remy.ab12", codexThread("thread-b"), "att-b");
+    asCodex("thread-a");
+    expect((await run((a) => ciLeaseClaim(a, deps()), [MR_URL, "--json"])).code).toBe(0);
+    asCodex("thread-b");
+    const releaseByForeign = await run((a) => ciLeaseRelease(a, deps()), [MR_URL, "--json"]);
+    expect(releaseByForeign.code).toBe(3);
+    expect(JSON.parse(releaseByForeign.stdout)).toMatchObject({ released: false, reason: "not-owner" });
+    expect((await run((a) => ciLeaseHeartbeat(a, deps()), [MR_URL, "--json"])).code).toBe(3);
+    expect(JSON.parse((await run((a) => ciLeaseShow(a, deps()), [MR_URL, "--json"])).stdout).mine).toBe(false);
+    asCodex("thread-a");
+    expect((await run((a) => ciLeaseRelease(a, deps()), [MR_URL, "--json"])).code).toBe(0);
+  });
+
+  test("an MCP heartbeat that moves a legacy lease to the binding leaves the same session's CLI its owner", async () => {
+    const binding = bind("remy.ab12", { harness: "claude", profile: "default", kind: "id", value: "s1" });
+    process.env.CLAUDE_CODE_SESSION_ID = "s1";
+    const tools = ciToolDefs({
+      leaseOpts: () => ({ dir: process.env.MATTSTACK_ATTENDANTS_DIR! }),
+      caller: async () => ({ ok: true, data: { binding } }),
+      legacy: (raw) => resolveLegacySession(raw, "claude", db),
+      label: () => undefined,
+    });
+    const legacy = await run((a) => ciLeaseClaim(a, { binding: () => undefined }), [MR_URL, "--json"]);
+    expect(JSON.parse(legacy.stdout).lease.owner).toBe("session:s1");
+    const hb = await tools.find((t) => t.name === "ci_lease_heartbeat")!.handler({ mrUrl: MR_URL }, {});
+    expect(hb).toMatchObject({ ok: true, body: { ok: true, lease: { owner: `binding:${binding.key}` } } });
+    const cliBeat = await run((a) => ciLeaseHeartbeat(a, deps()), [MR_URL, "--json"]);
+    expect(cliBeat.code).toBe(0);
+    const show = await run((a) => ciLeaseShow(a, deps()), [MR_URL, "--json"]);
+    expect(JSON.parse(show.stdout).mine).toBe(true);
+    expect((await run((a) => ciLeaseRelease(a, deps()), [MR_URL, "--json"])).code).toBe(0);
+  });
+
+  test("a caller no binding names keeps today's owner", async () => {
+    process.env.CLAUDE_CODE_SESSION_ID = "s9";
+    const unbound = await run((a) => ciLeaseClaim(a, deps()), [MR_URL, "--json"]);
+    expect(JSON.parse(unbound.stdout).lease.owner).toBe("session:s9");
+    expect((await run((a) => ciLeaseRelease(a, deps()), [MR_URL, "--json"])).code).toBe(0);
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    const person = await run((a) => ciLeaseClaim(a, deps()), [MR_URL, "--json"]);
+    expect(JSON.parse(person.stdout).lease.owner).toBe("user:pat");
+  });
+
+  test("rt ci watch runs for a bound worker and for a person", async () => {
+    bind("kai.cd34", codexThread("thread-a"), "att-a");
+    asCodex("thread-a");
+    await run((a) => ciLeaseClaim(a, deps()), [MR_URL, "--json"]);
+    const bound = await run((a) => runCiWatch(a, fakes(), deps()), [MR_URL, "--sha", SHA, "--json"]);
+    expect(bound.code).toBe(0);
+    expect(JSON.parse(bound.stdout).state).toBe("success");
+    await run((a) => ciLeaseRelease(a, deps()), [MR_URL, "--json"]);
+
+    delete process.env.CODEX_THREAD_ID;
+    await run((a) => ciLeaseClaim(a, deps()), [MR_URL, "--json"]);
+    const person = await run((a) => runCiWatch(a, fakes(), deps()), [MR_URL, "--sha", SHA, "--json"]);
+    expect(person.code).toBe(0);
+    expect(JSON.parse(person.stdout)).toMatchObject({ state: "success", lease: { owner: "user:pat" } });
   });
 });
