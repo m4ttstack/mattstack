@@ -67,12 +67,29 @@ export function stripFrontmatter(md: string): string {
   return md.replace(FRONTMATTER, '');
 }
 
+// A fenced block is matched first so a comment inside one is kept as text.
+const FENCE_OR_COMMENT =
+  /^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1[^\n]*$|^[ \t]*<!--[\s\S]*?-->[ \t]*(?:\r?\n|$)|<!--[\s\S]*?-->/gm;
+
+/** Markdown without its HTML comments (a compile banner, part markers); a
+    line holding only a comment goes whole. */
+export function stripComments(md: string): string {
+  return md.replace(FENCE_OR_COMMENT, (match, fence?: string) =>
+    fence ? match : ''
+  );
+}
+
+/** What a stage doc shows: no comments and no frontmatter. */
+export function stageDocBody(md: string): string {
+  return stripFrontmatter(stripComments(md).replace(/^\s+/, ''));
+}
+
 const isList = (block: string) => /^\s*(?:[-*+]|\d+[.)])\s/.test(block);
 
 /** What a stage doc's row shows before "Open the full doc": its first
     paragraph and its first list, headings left out. */
 export function docPreview(md: string): string {
-  const blocks = stripFrontmatter(md)
+  const blocks = stageDocBody(md)
     .split(/\r?\n\s*\r?\n/)
     .map(b => b.trim())
     .filter(b => b && !b.startsWith('#'));

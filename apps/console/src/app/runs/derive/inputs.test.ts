@@ -12,6 +12,7 @@ import {
   inputsSummary,
   packState,
   settingValue,
+  stripComments,
   stripFrontmatter,
 } from './inputs';
 
@@ -84,6 +85,29 @@ describe('inputsSummary', () => {
       pack: 'pack version not recorded',
       counts: '0 settings · 1 stage doc',
     });
+  });
+});
+
+describe('stripComments', () => {
+  it('drops a comment-only line whole', () => {
+    expect(stripComments('<!-- compiled by rt -->\n# Plan\n')).toBe('# Plan\n');
+  });
+
+  it('drops an inline and a multi-line comment', () => {
+    expect(stripComments('a <!-- x --> b\n<!--\nmany\n-->\nc')).toBe('a  b\nc');
+  });
+
+  it('leaves comments inside a fenced block alone', () => {
+    const fenced = '```\n<!-- literal -->\n```\n<!-- gone -->\nend';
+    expect(stripComments(fenced)).toBe('```\n<!-- literal -->\n```\nend');
+  });
+
+  it('lets frontmatter after a compile banner still drop', () => {
+    expect(
+      stripFrontmatter(
+        stripComments('<!-- compiled -->\n---\nname: x\n---\n# Plan')
+      )
+    ).toBe('# Plan');
   });
 });
 

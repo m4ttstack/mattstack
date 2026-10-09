@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { Components } from 'react-markdown';
 
 import { client } from '../../api';
-import { docPreview, packState, stripFrontmatter } from '../derive/inputs';
+import { docPreview, packState, stageDocBody } from '../derive/inputs';
 import { useEffectiveInputs } from '../EffectiveInputs';
 import { GateContext } from '../GateContext';
 import { ApiError, readApiError, retryOnce } from '../useRuns';
@@ -81,8 +81,8 @@ const PREVIEW: Components = {
   li: bulleted,
 };
 
-/** A stage doc rendered as Markdown, its frontmatter dropped. `preview`
-    keeps only its opening paragraph and first list. */
+/** A stage doc rendered as Markdown, its frontmatter and comments dropped.
+    `preview` keeps only its opening paragraph and first list. */
 export function StageDocText({
   text,
   preview = false,
@@ -92,7 +92,7 @@ export function StageDocText({
 }) {
   return (
     <GateContext
-      text={preview ? docPreview(text) : stripFrontmatter(text)}
+      text={preview ? docPreview(text) : stageDocBody(text)}
       className={preview ? `${classes.doc} ${classes.preview}` : classes.doc}
       components={preview ? PREVIEW : FULL}
     />
