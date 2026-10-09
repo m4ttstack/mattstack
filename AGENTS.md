@@ -179,8 +179,11 @@ under `claude/` and `codex/`) and the Claude Code mod at
 - **Worktree holders live in the `agent-worktrees` kv**, keyed to the
   tree's claim. A tree with no live holder keeps today's path (announce,
   `decideRemove`); a holder refuses only a different live owner.
-- **Codex reads a linked worktree's project layers from its main
-  checkout**, so policy and trust checks look there. `THREAD_GONE`
+- **rt's Codex policy hooks live in Codex's user layer**
+  (`$CODEX_HOME/hooks.json` for the profile), never in a repo's `.codex`:
+  rt leaves no footprint in any repo. A trusted repo's own `.codex` config
+  can still turn every hook off, which is why each session's hook check
+  stays mandatory. `THREAD_GONE`
   (`lib/agent-integrations/codex/sessions.ts`) is pinned to Codex 0.162's
   `-32600` wording and fails safe: an unmatched error leaves the thread
   attached.

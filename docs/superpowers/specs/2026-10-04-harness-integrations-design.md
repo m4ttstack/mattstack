@@ -375,13 +375,16 @@ is unavailable and the full-support acceptance profile has not passed.
 
 ### Policy loading, enforcement and readiness
 
-Native installation belongs to the integration. The proven Codex arrangement
-uses hooks in an active trusted project `.codex` layer and separately trusted
-exact hook hashes. Production uses the real project's native trust boundary;
-it never creates a nested Git repository to make trust work. If that boundary
-would require broader trust than the operator approved, setup reports not-ready.
-User/plugin hook loading may be adopted only with equivalent acceptance evidence;
-it is not inferred from the project-hook result.
+Native installation belongs to the integration. rt leaves no footprint in any
+repository (amended 2026-10-09): nothing is written into a project, not even an
+ignored or excluded file. Codex policy hooks therefore live in Codex's user
+layer, the profile's `$CODEX_HOME/hooks.json`, with separately trusted exact
+hook hashes recorded in that profile's own configuration. The userhooks spike
+(`.harness-spike/userhooks/report.md`) is the acceptance evidence: user-layer
+hooks load for every working directory, need no project folder trust, and
+enforce question and Stop policy as the project layer did. A trusted project
+can still switch every hook off in its own configuration, so each session's
+hook listing and check turn stay mandatory and report not-ready, never a pass.
 
 Setup presents the exact project boundary, definitions and native hashes for
 review. Runtime launch never grants trust, changes global sandbox policy or
