@@ -86,11 +86,37 @@ describe("runs handlers", () => {
       { key: "worktree", value: tree },
       { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "before.png") }) },
     ] });
-    const h = createRunsHandlers({ log } as any, noEmit);
+    const h = createRunsHandlers({ log } as any, noEmit, { isRegisteredTree: (p) => p === tree });
     const r = await (h["runs:evidence"] as any)({ runId: "r-1", key: "before" });
     expect(r.ok).toBe(true);
     expect(r.data.mime).toBe("image/png");
     expect(Buffer.from(r.data.base64, "base64").equals(PNG)).toBe(true);
+  });
+
+  test("runs:evidence does not admit a self-reported worktree that is not registered", async () => {
+    const dir = root();
+    const tree = mkdtempSync(join(tmpdir(), "rt-tree-"));
+    writeFileSync(join(tree, "before.png"), PNG);
+    seedRun(dir, "remote:alpha", "r-4", 1000, 1, { fields: [
+      { key: "worktree", value: tree },
+      { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "before.png") }) },
+    ] });
+    const h = createRunsHandlers({ log } as any, noEmit, { isRegisteredTree: () => false });
+    const r = await (h["runs:evidence"] as any)({ runId: "r-4", key: "before" });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("outside the allowed upload roots");
+  });
+
+  test("runs:evidence admits no worktree root when no registry seam is given", async () => {
+    const dir = root();
+    const tree = mkdtempSync(join(tmpdir(), "rt-tree-"));
+    writeFileSync(join(tree, "before.png"), PNG);
+    seedRun(dir, "remote:alpha", "r-5", 1000, 1, { fields: [
+      { key: "worktree", value: tree },
+      { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "before.png") }) },
+    ] });
+    const h = createRunsHandlers({ log } as any, noEmit);
+    expect((await (h["runs:evidence"] as any)({ runId: "r-5", key: "before" })).ok).toBe(false);
   });
 
   test("runs:evidence refuses unknown keys, absent keys, legacy values and symlinks out", async () => {
@@ -104,13 +130,15 @@ describe("runs handlers", () => {
       { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "link.png") }) },
     ] });
     seedRun(dir, "remote:alpha", "r-3", 1000, 1, { fields: [{ key: "evidence", value: "see /tmp/x.png" }] });
-    const h = createRunsHandlers({ log } as any, noEmit);
+    const h = createRunsHandlers({ log } as any, noEmit, { isRegisteredTree: (p) => p === tree });
     const call = (p: object) => (h["runs:evidence"] as any)(p);
     expect((await call({ key: "before" })).error).toBe("missing runId");
     expect((await call({ runId: "nope", key: "before" })).error).toBe("run not found");
     expect((await call({ runId: "r-2", key: "transcript" })).error).toBe("unknown key");
     expect((await call({ runId: "r-2", key: "after" })).error).toBe("no evidence");
     expect((await call({ runId: "r-3", key: "before" })).error).toBe("no evidence");
-    expect((await call({ runId: "r-2", key: "before" })).ok).toBe(false);
+    const escaped = await call({ runId: "r-2", key: "before" });
+    expect(escaped.ok).toBe(false);
+    expect(escaped.error).toContain("outside the allowed upload roots");
   });
 });

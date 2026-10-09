@@ -19,6 +19,7 @@ import { createMrUploadHandlers } from "./handlers/mr-upload.ts";
 import { createSystemProcessHandlers } from "./handlers/system-processes.ts";
 import { createSdmHandlers } from "./handlers/sdm.ts";
 import { createRunsHandlers } from "./handlers/runs.ts";
+import { findTreeByPath } from "../worktree/registry.ts";
 import { createSecretsHandlers } from "./handlers/secrets.ts";
 import { createLoginsHandlers } from "./handlers/logins.ts";
 import { createProjectMRsHandlers } from "./handlers/project-mrs.ts";
@@ -260,7 +261,10 @@ export function buildRoutedHandlers(opts: {
     ...createMrUploadHandlers({ repoIndex: ctx.repoIndex, log: ctx.log }),
     ...createSystemProcessHandlers(systemProcessScanner, { portCacheRef: ctx.portCacheRef, cache: ctx.cache }),
     ...createSdmHandlers({ log: ctx.log }),
-    ...createRunsHandlers({ log: ctx.log }, emitEvent),
+    ...createRunsHandlers({ log: ctx.log }, emitEvent, {
+      isRegisteredTree: (path) =>
+        findTreeByPath(path) !== null || Object.values(ctx.repoIndex()).includes(path),
+    }),
     ...createSecretsHandlers({ log: ctx.log }),
     ...createLoginsHandlers({ log: ctx.log }),
     ...createProjectMRsHandlers({ repoIndex: ctx.repoIndex, log: ctx.log }, broadcast),

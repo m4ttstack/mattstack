@@ -4,6 +4,7 @@
  * which writes through reconcile.ts because only a person can decide a run
  * is dead.
  */
+import { isAbsolute } from "path";
 import { findRun, listRuns, readRun } from "../../runs/store.ts";
 import { getRunLiveness } from "../../runs/liveness.ts";
 import { abandonRun } from "../../runs/reconcile.ts";
@@ -19,10 +20,17 @@ type RunsHandlers = { "runs:list": (payload: unknown) => Promise<CommandResult<"
   & { "runs:abandon": (payload: unknown) => Promise<CommandResult<"runs:abandon">> }
   & { "runs:evidence": (payload: unknown) => Promise<CommandResult<"runs:evidence">> };
 
+export interface RunsSeams {
+  /** Whether an absolute path is a registered checkout or worktree: the rule mr:upload admits roots by. */
+  isRegisteredTree?: (path: string) => boolean;
+}
+
 export function createRunsHandlers(
   ctx: Pick<HandlerContext, "log">,
   emitEvent: (topic: string, payload: unknown) => void,
+  seams: RunsSeams = {},
 ): RunsHandlers {
+  const isRegisteredTree = seams.isRegisteredTree ?? (() => false);
   const handlers: RunsHandlers = {
     "runs:list": async (rawPayload: unknown): Promise<CommandResult<"runs:list">> => {
       // `repo` here is the run DIRECTORY's name — whatever key the pipeline
@@ -82,8 +90,10 @@ export function createRunsHandlers(
         const parsed = parseEvidence(detail.fields.find((f) => f.key === "evidence")?.value);
         const path = parsed.version === 1 ? parsed.images.find((i) => i.key === key)?.path : undefined;
         if (!path) return { ok: false as const, error: "no evidence" };
+        // `worktree` is a field any agent can set, so it is a root only when rt registered that tree.
         const worktree = detail.fields.find((f) => f.key === "worktree")?.value;
-        const checked = checkUploadPath(path, worktree ? [worktree] : [], { maxBytes: EVIDENCE_MAX_BYTES });
+        const roots = worktree && isAbsolute(worktree) && isRegisteredTree(worktree) ? [worktree] : [];
+        const checked = checkUploadPath(path, roots, { maxBytes: EVIDENCE_MAX_BYTES });
         if (!checked.ok) return { ok: false as const, error: checked.error };
         return { ok: true as const, data: { mime: checked.mime, base64: Buffer.from(checked.bytes).toString("base64") } };
       } catch (err) {
