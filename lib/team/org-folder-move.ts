@@ -29,7 +29,7 @@ export interface OrgMoveResult {
   stage?: MoveStage;
   error?: string;
 }
-export type MoveProbes = Pick<Probes, "home" | "exists" | "readFile" | "writeFile" | "mkdirp" | "mkdirExclusive" | "removeDir" | "removeFile" | "chmod" | "rename" | "readDir">;
+export type MoveProbes = Pick<Probes, "home" | "exists" | "readFile" | "writeFile" | "mkdirp" | "mkdirExclusive" | "removeDir" | "removeFile" | "chmod" | "rename" | "readDir" | "sleepSync">;
 
 const RECORD_MODE = 0o600;
 
