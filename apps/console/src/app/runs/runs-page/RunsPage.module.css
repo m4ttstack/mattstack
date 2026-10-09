@@ -50,3 +50,11 @@
   flex: 1;
   min-width: 0;
 }
+
+.outageWrapper {
+  align-items: center;
+}
+
+.outageIcon {
+  margin-top: 0;
+}

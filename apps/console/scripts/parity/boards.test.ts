@@ -32,6 +32,16 @@ const actionLayers = (board: (typeof app.boards)[number]) => [
   ...(board.panels ?? []).flatMap(p => layersOf(p.action)),
 ];
 
+/** A clicked control the board's tile leaves out (the hero's "..." menu
+    over the abandon dialog) is drawn on another board's export. */
+const drawnElsewhere = (layer: string, scheme: 'light' | 'dark') =>
+  app.boards.some(b => layerCount(exportOf(b.slug, scheme), layer) > 0);
+
+const clickedLayers = (board: (typeof app.boards)[number]) =>
+  [board.action, ...(board.panels ?? []).map(p => p.action)].flatMap(a =>
+    a?.kind === 'clicks' ? a.layers : []
+  );
+
 describe('console parity boards', () => {
   it('lists the thirty boards of the design README', () => {
     expect(app.boards.map(b => b.slug)).toEqual([
@@ -87,8 +97,13 @@ describe('console parity boards', () => {
         const html = exportOf(board.slug, scheme);
         for (const t of targetsOf(board))
           expect([t.root, layerCount(html, t.root)]).toEqual([t.root, 1]);
+        const clicked = new Set(clickedLayers(board));
         for (const layer of actionLayers(board))
-          expect(layerCount(html, layer)).toBeGreaterThan(0);
+          expect([
+            layer,
+            layerCount(html, layer) > 0 ||
+              (clicked.has(layer) && drawnElsewhere(layer, scheme)),
+          ]).toEqual([layer, true]);
       }
     );
 

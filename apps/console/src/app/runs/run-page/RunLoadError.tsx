@@ -18,17 +18,17 @@ function copyFor(error: Error, name: string, runId: string) {
   if (isNotFound(error))
     return {
       title: `No run ${runId} in this repo`,
-      body: 'rt has no run with this id. Old runs are pruned, so a link can outlive its run.',
+      body: 'Old runs are pruned, so a link can outlive its run.',
     };
-  if (error instanceof ApiError && error.status >= 500)
+  const title = `Couldn't load ${name}`;
+  if (!(error instanceof ApiError))
+    return { title, body: "The console server didn't answer." };
+  if (error.status >= 500)
     return {
-      title: `Couldn't load ${name}`,
+      title,
       body: `The rt daemon didn't answer (${sentence(error.message)}). The run itself is fine; this page just can't read it right now.`,
     };
-  return {
-    title: `Couldn't load ${name}`,
-    body: `${sentence(error.message)}.`,
-  };
+  return { title, body: `${sentence(error.message)}.` };
 }
 
 export interface RunLoadErrorProps {

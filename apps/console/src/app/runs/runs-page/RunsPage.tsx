@@ -135,7 +135,11 @@ function OutageBanner({ onRetry }: { onRetry: () => void }) {
       color="warn"
       variant="light"
       icon={<Icon name="unplug" size={16} data-parity="i" />}
-      classNames={{ message: classes.outageMessage }}
+      classNames={{
+        wrapper: classes.outageWrapper,
+        icon: classes.outageIcon,
+        message: classes.outageMessage,
+      }}
       data-testid="runs-outage"
       data-parity="banner"
     >
@@ -241,7 +245,12 @@ export function RunsPage() {
         ? `${repos.length} repos`
         : null;
 
-  const outage = runsQuery.isError;
+  // A refetch with no data resets the query to pending, so a poll after a
+  // failed read would otherwise flash the skeleton.
+  const outage =
+    runsQuery.isError ||
+    (runsQuery.isFetching &&
+      runsQuery.errorUpdatedAt > runsQuery.dataUpdatedAt);
   const settled = !runsQuery.isPending && !outage;
   const retry = () => {
     void queryClient.refetchQueries({ queryKey: ['runs'] });

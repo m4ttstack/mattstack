@@ -326,6 +326,32 @@ describe('RunsPage', () => {
     expect(screen.queryByText(/0 repos/)).toBeNull();
   });
 
+  it('keeps the outage on screen while the next poll is in flight', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const outage = {
+        ok: false,
+        status: 502,
+        json: async () => ({ error: 'daemon unreachable' }),
+      };
+      runsGet.mockResolvedValue(outage);
+      gatesGet.mockResolvedValue(outage);
+      renderPage();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await screen.findByTestId('runs-outage')).toBeInTheDocument();
+      runsGet.mockReturnValue(new Promise(() => {}));
+      const calls = runsGet.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(runsGet.mock.calls.length).toBeGreaterThan(calls);
+      expect(screen.getByTestId('runs-outage')).toBeInTheDocument();
+      expect(
+        within(screen.getByTestId('stat-cards')).getAllByText('—')
+      ).toHaveLength(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('draws a skeleton while the runs load, never zeros', async () => {
     runsGet.mockReturnValue(new Promise(() => {}));
     renderPage();

@@ -223,6 +223,12 @@ with its side-by-side. Three boards have an action:
 - `runs-p2-states`' `runs outage` panel waits for its banner to read
   "unknown, not zero": the page draws its loading skeleton until the one
   retry fails.
+- `runs-p2-overlays`' `abandon dialog` panel, on the stale run
+  `20261007-1046`, clicks the hero's `Btn more`, then `btn Mark abandoned`, and
+  waits for `Abandon dialog`. The runner types nothing, so it compares the
+  empty dialog; the board draws the failure state, which the run page tests
+  cover. `Btn more` is drawn on the run boards, not on this tile, and
+  `boards.test.ts` accepts a clicked layer from another board's export.
 - `runs-p2-story-details` clicks `Stage plan` to open the plan stage, then
   the first decision's chevron `c`, and waits for `decision open`.
 

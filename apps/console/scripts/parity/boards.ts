@@ -383,8 +383,14 @@ export const BOARDS: Board<Scenario>[] = [
         },
         {
           label: 'abandon dialog',
-          route: `${RUN}/20261007-1310`,
+          // A stale run: 1310 is already abandoned, so its record has no menu.
+          route: `${RUN}/20261007-1046`,
           root: 'Abandon dialog',
+          action: {
+            kind: 'clicks',
+            layers: ['Btn more', 'btn Mark abandoned'],
+            waitFor: 'Abandon dialog',
+          },
         },
         {
           label: 'setting inline',

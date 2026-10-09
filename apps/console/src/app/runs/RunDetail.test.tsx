@@ -1219,6 +1219,16 @@ describe('RunDetail: failure and loading', () => {
     ).toHaveAttribute('href', '/');
   });
 
+  it('says the console server did not answer when the request never lands', async () => {
+    detailGet.mockRejectedValue(new TypeError('Failed to fetch'));
+    renderFailing();
+    await vi.advanceTimersByTimeAsync(2_000);
+    const card = await screen.findByTestId('run-load-error');
+    expect(card).toHaveTextContent("Couldn't load run-412");
+    expect(card).toHaveTextContent("The console server didn't answer.");
+    expect(card).not.toHaveTextContent('Failed to fetch');
+  });
+
   it('loads the run again on Retry', async () => {
     detailGet.mockResolvedValue(failed(404, { error: 'run not found' }));
     renderFailing();

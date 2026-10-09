@@ -19,6 +19,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { client } from '../../api';
 import type { HeroLiveness } from '../derive/liveness';
 import type { RailStage } from '../derive/stages';
+import { readApiError } from '../useRuns';
 import { Dot } from './Dot';
 import classes from './RunHeader.module.css';
 import { StageRail } from './StageRail';
@@ -195,16 +196,6 @@ function AbandonForm({
   );
 }
 
-const reasonOf = (body: unknown, fallback: string) => {
-  const error =
-    body && typeof body === 'object' && 'error' in body
-      ? (body as { error: unknown }).error
-      : null;
-  return typeof error === 'string' && error.trim()
-    ? error.trim().replace(/\.$/, '')
-    : fallback;
-};
-
 interface RunAction {
   label: string;
   icon: IconName;
@@ -224,6 +215,7 @@ function RunActions({ actions }: { actions: RunAction[] }) {
         color={only.danger ? 'bad' : undefined}
         leftSection={<Icon name={only.icon} size={14} />}
         onClick={only.onClick}
+        data-parity={`btn ${only.label}`}
       >
         {only.label}
       </Button>
@@ -249,6 +241,7 @@ function RunActions({ actions }: { actions: RunAction[] }) {
               color={action.danger ? 'bad' : undefined}
               leftSection={<Icon name={action.icon} size={14} />}
               onClick={action.onClick}
+              data-parity={`btn ${action.label}`}
             >
               {action.label}
             </Menu.Item>
@@ -306,10 +299,9 @@ export function RunHeader({
         json: { reason },
       });
       if (!res.ok)
-        return reasonOf(
-          await res.json().catch(() => null),
-          'rt refused the change'
-        );
+        return (
+          await readApiError(res, 'rt refused the change')
+        ).message.replace(/\.$/, '');
     } catch {
       return "the console server didn't answer";
     }
@@ -323,11 +315,14 @@ export function RunHeader({
     modals.open({
       modalId: ABANDON_MODAL,
       title: (
-        <Text fz={16} fw={700} lh="normal" data-parity="t">
+        <Text span fz={16} fw={700} lh="normal" data-parity="t">
           {`Mark ${ticket ?? runId} abandoned?`}
         </Text>
       ),
-      attributes: { content: { 'data-parity': 'Abandon dialog' } },
+      attributes: {
+        inner: { 'data-parity': 'Abandon dialog' },
+        content: { 'data-parity': 'dialog' },
+      },
       children: (
         <AbandonForm
           submit={markAbandoned}
