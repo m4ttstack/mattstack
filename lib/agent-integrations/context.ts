@@ -308,6 +308,21 @@ export function resolveCliBinding(args: string[], env: NodeJS.ProcessEnv, deps: 
   return caller.ok ? caller.data.binding : undefined;
 }
 
+/**
+ * The session a herd worker verb sends for the daemon to judge: the bound one,
+ * or the one its evidence names when that binding moved on (detached or
+ * superseded), so the daemon refuses it as a replaced worker. Undefined for a
+ * plain shell, an unbound Claude session and every other refusal.
+ */
+export function resolveCliWorkerSession(args: string[], env: NodeJS.ProcessEnv, deps: ResolveDeps = {}): { harness: string; value: string } | undefined {
+  const evidence = extractCliEvidence(args, env);
+  if (!evidence.ok || (!evidence.data.native && evidence.data.raw === undefined)) return undefined;
+  const caller = resolveCallerContextNow(evidence.data, deps);
+  if (caller.ok) return { harness: caller.data.binding.native.harness, value: caller.data.binding.native.value };
+  const claim = evidence.data.native;
+  return caller.error.code === "stale-binding" && claim ? { harness: claim.harness, value: claim.value } : undefined;
+}
+
 /** The gate subject a launched agent's binding asks under: its launch's subject, else `agent:<id>`; undefined for a binding no launch made. */
 export function bindingGateSubject(binding: SessionBinding, db: Database = getStateDb()): string | undefined {
   const agentId = binding.agentId;

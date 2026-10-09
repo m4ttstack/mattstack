@@ -25,7 +25,7 @@ import { resolveCallerContextNow, type CallerEvidence } from "../../agent-integr
 import { POLICY_CAPABILITIES } from "../../agent-integrations/policy-readiness.ts";
 import { builtinRegistry, UNRECORDED_PANE_HARNESS } from "../../agent-integrations/builtins.ts";
 import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts";
-import { createSessionStore, isDetachedAttachment, listBindingsByAgent } from "../../agent-integrations/session-store.ts";
+import { createSessionStore, isDetachedAttachment, listBindingsByAgent, listBindingsByNativeValue } from "../../agent-integrations/session-store.ts";
 import { harnessEnabled, integrationsEnabled } from "../../agent-integrations/switch.ts";
 import { getStateDb } from "../../state/db.ts";
 import { loadRegistry, type TreeRecord } from "../../worktree/registry.ts";
@@ -110,7 +110,8 @@ export interface HerdDeps {
   observeJob?: ObserveJob;
 }
 
-type WorkerCall = { herdId?: string; name?: string; named?: boolean; session?: string; harness?: string; caller?: Outcome<CallerContext> };
+/** `own` is the attempt the session was launched for, found even when its binding has since moved on. */
+type WorkerCall = { herdId?: string; name?: string; named?: boolean; session?: string; harness?: string; caller?: Outcome<CallerContext>; own?: JobAttempt };
 type WorkerRefusal = { ok: false; error: string; failure: { code: string; message: string } };
 
 export const SHEPHERD_HANDLE = "shepherd";
@@ -273,9 +274,25 @@ export function createHerdHandlers(deps: HerdDeps) {
     const harness = str(p?.harness);
     if (!session) return { herdId, name, named };
     const caller = resolveCaller({ native: { harness: harness ?? "claude", kind: "id", value: session } });
-    const own = caller.ok && caller.data.binding.attemptId !== undefined ? store.getAttempt(caller.data.binding.attemptId) : null;
+    const ownId = caller.ok ? caller.data.binding.attemptId
+      : caller.error.code === "stale-binding" ? movedOnAttempt(harness ?? "claude", session) : undefined;
+    const own = ownId !== undefined ? store.getAttempt(ownId) : null;
     if (own) { herdId ??= own.herd; name ??= own.job; }
-    return { herdId, name, named, session, ...(harness !== undefined && { harness }), caller };
+    return { herdId, name, named, session, ...(harness !== undefined && { harness }), caller, ...(own && { own }) };
+  }
+
+  /** The attempt a session's binding was launched for, when that binding has moved on (a replaced worker's ended session); only one binding may name it. */
+  function movedOnAttempt(harness: string, session: string): string | undefined {
+    const launched = listBindingsByNativeValue(sessionDb(), session)
+      .filter((b) => b.native.harness === harness && b.native.kind === "id" && b.attemptId !== undefined);
+    return launched.length === 1 ? launched[0]!.attemptId : undefined;
+  }
+
+  /** A call that names no job is refused for its unresolved session when it has one, rather than for the missing job. */
+  function unattributed(w: WorkerCall, what: string): WorkerRefusal | null {
+    if (!w.caller || w.caller.ok) return null;
+    const error = `this ${what} cannot be attributed to a session: ${w.caller.error.message}`;
+    return { ok: false, error, failure: { code: w.caller.error.code, message: error } };
   }
 
   /**
@@ -299,7 +316,10 @@ export function createHerdHandlers(deps: HerdDeps) {
     }
     if (replaced) return stale(replaced.id);
     if (!w.caller) return refuse("ambiguous", `this ${what} cannot be attributed to a session, so its job did not accept it`);
-    if (!w.caller.ok) return refuse(w.caller.error.code, `this ${what} cannot be attributed to a session: ${w.caller.error.message}`);
+    if (!w.caller.ok) {
+      const gone = w.own && w.own.herd === herdId && w.own.job === name && (w.own.state === "replaced" || w.own.state === "ended");
+      return gone ? stale(w.own!.id) : refuse(w.caller.error.code, `this ${what} cannot be attributed to a session: ${w.caller.error.message}`);
+    }
     const held = attempts.authorizeJobReport(w.caller.data, herdId, name);
     return held.ok ? null : refuse(held.error.code, `job "${name}" did not accept this ${what}: ${held.error.message}`);
   }
@@ -827,6 +847,8 @@ export function createHerdHandlers(deps: HerdDeps) {
       const fenced = enabled();
       const w = fenced ? workerCall(p) : { herdId: str(p?.herd), name: str(p?.job) };
       const { herdId, name } = w; const session = str(p?.session);
+      const unnamed = fenced && (!herdId || !name) ? unattributed(w as WorkerCall, "question") : null;
+      if (unnamed) return unnamed;
       if (!herdId || !name || !session) return { ok: false, error: "herd, job, and session are required (HERD_ID, HERD_JOB, CLAUDE_CODE_SESSION_ID)" };
       const herd = store.get(herdId);
       const job = herd ? store.getJob(herdId, name) : null;
@@ -855,6 +877,8 @@ export function createHerdHandlers(deps: HerdDeps) {
       const fenced = enabled();
       const w = fenced ? workerCall(p) : { herdId: str(p?.herd), name: str(p?.job) };
       const { herdId, name } = w; const session = str(p?.session); const artifact = str(p?.artifact);
+      const unnamed = fenced && (!herdId || !name) ? unattributed(w as WorkerCall, "milestone") : null;
+      if (unnamed) return unnamed;
       if (!herdId || !name || !session || !artifact) return { ok: false, error: "herd, job, session, and artifact are required" };
       const herd = store.get(herdId); const job = herd ? store.getJob(herdId, name) : null;
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
@@ -895,6 +919,8 @@ export function createHerdHandlers(deps: HerdDeps) {
       const fenced = enabled();
       const w = fenced ? workerCall(p) : { herdId: str(p?.herd), name: str(p?.job) };
       const { herdId, name } = w;
+      const unnamed = fenced && (!herdId || !name) ? unattributed(w as WorkerCall, "report") : null;
+      if (unnamed) return unnamed;
       if (!herdId || !name || !body) return { ok: false, error: "herd, job, and a non-empty body are required" };
       const herd = store.get(herdId); const job = herd ? store.getJob(herdId, name) : null;
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };

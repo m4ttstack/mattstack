@@ -36,7 +36,7 @@ import {
   boundCaller, callerRefusal, checkOptional, checkPositiveInts, checkRequired, checkStringArray,
   err, fromResponse, HERD_ENV_ERROR, isTimeoutError, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok,
   REPO_NAME_RULE, REPO_TARGET_PROPS, callerChatHandle, callerSession, callerWorker, requireJobEnv,
-  resolveSoleHerd, withLandingHint,
+  movedOnClaim, resolveSoleHerd, withLandingHint,
   type McpToolDef, type ToolResult,
 } from "./shared.ts";
 import { integrationsEnabled } from "../agent-integrations/switch.ts";
@@ -861,15 +861,18 @@ export function mcpTools(): McpToolDef[] {
       async handler(input, env, _signal, context) {
         // On, the daemon authorizes the report by the session this call resolves to; off, it sends what it always sent.
         const caller = await boundCaller(context);
+        const claimed = caller === null ? undefined : movedOnClaim(caller, context);
+        if (caller !== null && !caller.ok && !claimed) return err(callerRefusal(caller.error));
         const j = requireJobEnv(env);
         // A headless worker's environment carries no HERD_ID; its session's own attempt names its job instead.
-        const byAttempt = "error" in j && caller?.ok === true && caller.data.binding.attemptId !== undefined;
+        const byAttempt = "error" in j && (claimed !== undefined || (caller?.ok === true && caller.data.binding.attemptId !== undefined));
         if ("error" in j && !byAttempt) return err(j.error);
         const bad = checkRequired(input, [{ name: "body", type: "string" }]);
         if (bad) return err(bad);
         const payload: Commands["herd:report"]["payload"] = { ...("error" in j ? {} : { herd: j.herd, job: j.job }), body: input.body as string };
-        if (caller !== null) {
-          if (!caller.ok) return err(callerRefusal(caller.error));
+        if (claimed) {
+          Object.assign(payload, claimed);
+        } else if (caller?.ok) {
           const { native } = caller.data.binding;
           payload.session = native.value;
           if (native.harness !== "claude") payload.harness = native.harness;

@@ -388,6 +388,30 @@ describe("herd_milestone: resolved caller sessions", () => {
     expect(notWorker.calls).toEqual([]);
   });
 
+  test("a replaced worker whose binding moved on sends its claimed session, job or not, for the daemon to refuse", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const stale: ToolContext = {
+      caller: async () => ({ ok: false, error: { code: "stale-binding", message: "codex session thread-old left its attachment" } }),
+      evidence: () => ({ ok: true, data: { native: { harness: "codex", profile: "default", kind: "id", value: "thread-old" } } }),
+    };
+    const { tool, calls } = fake();
+    expect((await tool("herd_milestone").handler({ artifact: "/a.md" }, {} as NodeJS.ProcessEnv, undefined, stale)).ok).toBe(true);
+    expect((await tool("herd_milestone").handler({ artifact: "/a.md" }, CODEX_WORKER, undefined, stale)).ok).toBe(true);
+    expect(calls.map((c) => c.a)).toEqual([
+      { session: "thread-old", harness: "codex", artifact: "/a.md" },
+      { herd: "hd-1", job: "j", session: "thread-old", harness: "codex", artifact: "/a.md" },
+    ]);
+  });
+
+  test("an unresolved caller with no worker environment is refused for its session, not for the missing HERD_ID", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const { tool, calls } = fake();
+    const r = await tool("herd_milestone").handler({ artifact: "/a.md" }, {} as NodeJS.ProcessEnv, undefined, UNRESOLVED);
+    expect(r.error).toContain("cannot be attributed");
+    expect(r.error).not.toContain("HERD_ID");
+    expect(calls).toEqual([]);
+  });
+
   test("refuses an unresolved caller when integrations are on", async () => {
     setSetting("agent.integrations.enabled", true, "machine");
     const { tool, calls } = fake();

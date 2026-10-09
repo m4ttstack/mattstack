@@ -8,7 +8,7 @@ import type {
   CallerContext, Capability, CapabilityReport, Mode, Outcome, Selection, SessionBinding,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { openStateDb } from "../../state/db.ts";
-import { resolveCallerContextNow } from "../../agent-integrations/context.ts";
+import { resolveCallerContextNow, resolveCliWorkerSession } from "../../agent-integrations/context.ts";
 import type { HarnessIntegration, PolicyAdapter, SessionAdapter, WorkInput } from "../../agent-integrations/contracts.ts";
 import { createBoundLauncher } from "../../agent-integrations/launch.ts";
 import { createRegistry } from "../../agent-integrations/registry.ts";
@@ -19,7 +19,7 @@ import { createAgentService } from "../handlers/agent.ts";
 import { createHerdHandlers, type HerdDeps } from "../handlers/herd.ts";
 import { createHerdStore, type HerdStore } from "../herd-store.ts";
 import { __test__ as attemptsInProcess, createJobAttempts, type JobAttempts } from "../herd-attempts.ts";
-import { reportJob, reportSession } from "../../../commands/herd.ts";
+import { reportJob, reportSession, workerCallPayload } from "../../../commands/herd.ts";
 
 const log = pino({ level: "silent" });
 const HERD = "demo-20261008-120000";
@@ -552,6 +552,54 @@ describe("herd:spawn and herd:report with the switch on", () => {
     expect(milestone).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
     expect(posted).toEqual([]);
     expect((await h["herd:ask"]({ session: second.data.sessionId, questions: QUESTIONS })).ok).toBe(true);
+  });
+
+  test("a replaced worker whose ended session no longer resolves is refused stale-binding through the CLI's payloads, job named or not", async () => {
+    const svc = attempts();
+    const sessions = createSessionStore(state);
+    const posted: unknown[] = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike({ work: [], reports: [] })), posted, {
+      endSession: async (key: string) => {
+        data(sessions.detach(key, sessions.get(key)!.attachment.generation));
+        return { ok: true, data: undefined };
+      },
+    });
+    const first = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a", mode: "headless" });
+    if (!first.ok) throw new Error(first.error);
+    const second = await h["herd:spawn"]({ herd: HERD, job: JOB, dir: "/w/job-a", mode: "headless" });
+    if (!second.ok) throw new Error(second.error);
+    expect(resolveCallerContextNow({ native: { harness: "claude", kind: "id", value: first.data.sessionId } }, { db: state }))
+      .toMatchObject({ ok: false, error: { code: "stale-binding" } });
+
+    for (const named of [{}, { HERD_ID: HERD, HERD_JOB: JOB }]) {
+      const env = { CLAUDE_CODE_SESSION_ID: first.data.sessionId, ...named };
+      const native = resolveCliWorkerSession([], env, { db: state });
+      expect(native).toEqual({ harness: "claude", value: first.data.sessionId });
+      const caller = reportSession(true, native, env);
+      const job = reportJob(env, caller);
+      if ("error" in job) throw new Error(job.error);
+      const verbs = [
+        ["herd:report", { ...job, body: "done", session: caller.session }],
+        ["herd:ask", { ...workerCallPayload(env, native), questions: QUESTIONS }],
+        ["herd:milestone", { ...workerCallPayload(env, native), artifact: "/a.md" }],
+      ] as const;
+      for (const [verb, payload] of verbs) {
+        const res = await (h[verb] as (p: unknown) => Promise<{ ok: boolean; error?: string; failure?: { code: string; message: string } }>)(payload);
+        expect(res, `${verb} ${JSON.stringify(named)}`).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
+        expect(res.failure?.message).toBe(res.error);
+        expect(res.error).toContain("no longer holds job");
+      }
+    }
+    expect(posted).toEqual([]);
+    expect((await h["herd:report"]({ body: "done", session: second.data.sessionId })).ok).toBe(true);
+  });
+
+  test("a call naming no job from a session that never resolved is refused for its session, not for the missing job", async () => {
+    const svc = attempts();
+    const h = herdHandlers(svc, agentService(svc, claudeLike({ work: [], reports: [] })), []);
+    const res = await h["herd:report"]({ body: "done", session: "sess-nobody", harness: "codex" });
+    expect(res).toMatchObject({ ok: false, failure: { code: "ambiguous" } });
+    if (!res.ok) expect(res.error).toContain("cannot be attributed to a session");
   });
 
   test("a job named in the environment that the session's attempt does not hold is refused", async () => {

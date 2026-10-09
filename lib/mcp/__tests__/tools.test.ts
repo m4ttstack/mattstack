@@ -1580,6 +1580,29 @@ describe("resolved caller sessions", () => {
     expect(calls).toEqual([]);
   });
 
+  test("herd_report and herd_ask from a replaced worker whose binding moved on send its claimed session for the daemon to refuse, never the environment error", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const stale: ToolContext = {
+      caller: async () => ({ ok: false, error: { code: "stale-binding", message: "codex session thread-old left its attachment" } }),
+      evidence: () => ({ ok: true, data: { native: { harness: "codex", profile: "default", kind: "id", value: "thread-old" } } }),
+    };
+    expect((await tool("herd_report").handler({ body: "done" }, {} as NodeJS.ProcessEnv, undefined, stale)).ok).toBe(true);
+    expect((await tool("herd_ask").handler({ questions: GATE }, {} as NodeJS.ProcessEnv, undefined, stale)).ok).toBe(true);
+    expect(calls).toEqual([
+      { cmd: "herd:report", payload: { body: "done", session: "thread-old", harness: "codex" } },
+      { cmd: "herd:ask", payload: { session: "thread-old", harness: "codex", questions: GATE } },
+    ]);
+
+    calls = [];
+    const ambiguous: ToolContext = { caller: async () => ({ ok: false, error: { code: "ambiguous", message: "no trusted session evidence came with this call" } }) };
+    for (const [name, input] of [["herd_report", { body: "done" }], ["herd_ask", { questions: GATE }]] as const) {
+      const refused = await tool(name).handler(input, {} as NodeJS.ProcessEnv, undefined, ambiguous);
+      expect(refused.error, name).toContain("cannot be attributed to a session");
+      expect(refused.error, name).not.toContain("HERD_ID");
+    }
+    expect(calls).toEqual([]);
+  });
+
   test("herd_report from an unbound Claude worker sends its own session only while integrations are on", async () => {
     const unbound: ToolContext = { caller: async () => null };
     const env = { HERD_ID: "hd-1", HERD_JOB: "j", CLAUDE_CODE_SESSION_ID: "sess-legacy" } as NodeJS.ProcessEnv;

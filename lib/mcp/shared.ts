@@ -182,6 +182,19 @@ export function requireWorkerEnv(env: NodeJS.ProcessEnv): { herd: string; job: s
   return { ...j, session, ...(env.HERDR_PANE_ID && { pane: env.HERDR_PANE_ID }) };
 }
 
+/**
+ * The session a refused caller claimed, when the refusal is that its binding
+ * moved on (a replaced worker's ended session): a herd worker tool sends it
+ * so the daemon judges it against the job's attempts and refuses it
+ * stale-binding. Undefined for every other refusal.
+ */
+export function movedOnClaim(caller: Outcome<CallerContext>, context?: ToolContext): { session: string; harness?: string } | undefined {
+  if (caller.ok || caller.error.code !== "stale-binding") return undefined;
+  const evidence = context?.evidence?.();
+  const native = evidence?.ok ? evidence.data.native : undefined;
+  return native ? { session: native.value, ...(native.harness !== "claude" && { harness: native.harness }) } : undefined;
+}
+
 /** requireWorkerEnv through the resolved session when on. HERD_ID and HERD_JOB stay a request: the daemon checks the session owns that job. */
 export async function callerWorker(
   env: NodeJS.ProcessEnv,
@@ -190,10 +203,13 @@ export async function callerWorker(
   const caller = await boundCaller(context);
   if (caller === null) return requireWorkerEnv(env);
   const j = requireJobEnv(env);
+  if (!caller.ok) {
+    const claimed = movedOnClaim(caller, context);
+    return claimed ? { ...("error" in j ? {} : j), ...claimed } : { error: callerRefusal(caller.error) };
+  }
   // A headless worker's environment carries no HERD_ID; its session's own attempt names its job instead.
-  const byAttempt = "error" in j && caller.ok && caller.data.binding.attemptId !== undefined;
+  const byAttempt = "error" in j && caller.data.binding.attemptId !== undefined;
   if ("error" in j && !byAttempt) return j;
-  if (!caller.ok) return { error: callerRefusal(caller.error) };
   const { native, attachment } = caller.data.binding;
   return {
     ...("error" in j ? {} : j), session: native.value, ...(attachment.pane && { pane: attachment.pane }),

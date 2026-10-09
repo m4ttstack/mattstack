@@ -157,7 +157,9 @@ export function workerEnv(env: Record<string, string | undefined>): { herd: stri
   return { herd, job, session, ...(env.HERDR_PANE_ID && { pane: env.HERDR_PANE_ID }) };
 }
 
-export function buildAskPayload(args: string[], env: Record<string, string | undefined>): Commands["herd:ask"]["payload"] {
+export function buildAskPayload(
+  args: string[], env: Record<string, string | undefined>, worker: () => ReturnType<typeof workerCallPayload> = () => workerEnv(env),
+): Commands["herd:ask"]["payload"] {
   const raw = flagValue(args, "--questions");
   if (!raw) throw new Error("usage: rt herd ask --questions <json> [--context <text>]");
   let questions: unknown;
@@ -167,7 +169,7 @@ export function buildAskPayload(args: string[], env: Record<string, string | und
     throw new Error(`--questions is not valid JSON: ${raw}`);
   }
   if (!Array.isArray(questions)) throw new Error("--questions must be a JSON array");
-  const w = workerEnv(env);
+  const w = worker();
   const context = flagValue(args, "--context");
   return { ...w, questions: questions as Commands["herd:ask"]["payload"]["questions"], ...(context && { context }) };
 }
@@ -276,8 +278,9 @@ export async function spawn(args: string[]): Promise<void> {
 export async function ask(args: string[]): Promise<void> {
   const json = has(args, "--json");
   let payload: Commands["herd:ask"]["payload"];
+  const { native } = await workerSession(args);
   try {
-    payload = buildAskPayload(args, process.env);
+    payload = buildAskPayload(args, process.env, () => workerCallPayload(process.env, native));
   } catch (e) {
     fail((e as Error).message);
   }
@@ -289,9 +292,10 @@ export async function milestone(args: string[]): Promise<void> {
   const json = has(args, "--json");
   const artifact = flagValue(args, "--artifact");
   if (!artifact) fail("usage: rt herd milestone --artifact <path> [--summary <text>]");
-  let w: ReturnType<typeof workerEnv>;
+  let w: ReturnType<typeof workerCallPayload>;
+  const { native } = await workerSession(args);
   try {
-    w = workerEnv(process.env);
+    w = workerCallPayload(process.env, native);
   } catch (e) {
     fail((e as Error).message);
   }
@@ -338,10 +342,41 @@ export function reportSession(switchOn: boolean, native: { harness: string; valu
   return env.CLAUDE_CODE_SESSION_ID ? { session: env.CLAUDE_CODE_SESSION_ID, bound: false } : { bound: false };
 }
 
+/** The session this command's own evidence names, bound or replaced; undefined with the switch off. */
+async function workerSession(args: string[]): Promise<{ on: boolean; native?: { harness: string; value: string } }> {
+  const { integrationsEnabled, resolveCliWorkerSession } = await import("../lib/agent-integrations/context.ts");
+  if (!integrationsEnabled()) return { on: false };
+  const native = resolveCliWorkerSession(args, process.env);
+  return { on: true, ...(native && { native }) };
+}
+
 async function reportCaller(args: string[]): Promise<ReportCaller> {
-  const { integrationsEnabled, resolveCliBinding } = await import("../lib/agent-integrations/context.ts");
-  if (!integrationsEnabled()) return { bound: false };
-  return reportSession(true, resolveCliBinding(args, process.env)?.native, process.env);
+  const { on, native } = await workerSession(args);
+  return reportSession(on, native, process.env);
+}
+
+/**
+ * The worker identity an ask or a milestone sends. With no session the
+ * command's evidence names (the switch off, an unbound Claude worker), the
+ * environment's, as before. Otherwise that session, with HERD_ID and
+ * HERD_JOB only as a request: the daemon checks them against the session's
+ * own attempt, and a replaced worker is refused there. A Codex worker's
+ * environment belongs to its app server, so its pane is left to the job row.
+ */
+export function workerCallPayload(
+  env: Record<string, string | undefined>, native: { harness: string; value: string } | undefined,
+): { herd?: string; job?: string; session: string; pane?: string; harness?: string } {
+  if (!native) return workerEnv(env);
+  const job = env.HERD_ID && env.HERD_JOB ? { herd: env.HERD_ID, job: env.HERD_JOB } : {};
+  return {
+    ...job, session: native.value,
+    ...(native.harness === "claude" ? env.HERDR_PANE_ID && { pane: env.HERDR_PANE_ID } : { harness: native.harness }),
+  };
+}
+
+async function workerCaller(args: string[]): Promise<ReturnType<typeof workerCallPayload>> {
+  const { native } = await workerSession(args);
+  return workerCallPayload(process.env, native);
 }
 
 /**

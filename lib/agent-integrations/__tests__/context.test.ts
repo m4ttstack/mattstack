@@ -14,7 +14,7 @@ import { createClaudeSessions } from "../claude/sessions.ts";
 import { canonicalCodexProfile } from "../codex/profile.ts";
 import {
   BOTH_SESSIONS_MESSAGE, boundCodexGateIdentity, extractCliEvidence, extractMcpEvidence, integrationsEnabled, mcpTransportFromArgs, resolveCallerContext,
-  resolveCliSession, resolveToolCaller, type CallerEvidence,
+  resolveCliSession, resolveCliWorkerSession, resolveToolCaller, type CallerEvidence,
 } from "../context.ts";
 import { createCallHandler } from "../../../commands/mcp.ts";
 import { ok, type McpToolDef } from "../../mcp/shared.ts";
@@ -264,6 +264,22 @@ describe("CLI extraction", () => {
     expect(await resolveCallerContext(evidence(extractCliEvidence(["--session", "shared"], {})), { db }))
       .toMatchObject({ ok: false, error: { code: "ambiguous" } });
     expect(work.native.profile).toBe("work");
+  });
+});
+
+describe("a herd worker verb's session from the CLI", () => {
+  test("names the bound session, a replaced worker's moved-on session, and nothing for a plain shell or an unknown thread", () => {
+    const db = freshDb();
+    const live = bound(db, "remy.ab12", codex("thread-live"), "w1:p1", "att-live");
+    const gone = bound(db, "kai.cd34", codex("thread-gone"), "w1:p2", "att-gone");
+    const store = createSessionStore(db);
+    if (!store.detach(gone.key, gone.attachment.generation).ok) throw new Error("detach failed");
+    const env = (thread: string) => ({ CODEX_THREAD_ID: thread }) as NodeJS.ProcessEnv;
+
+    expect(resolveCliWorkerSession([], env("thread-live"), { db })).toEqual({ harness: "codex", value: live.native.value });
+    expect(resolveCliWorkerSession([], env("thread-gone"), { db })).toEqual({ harness: "codex", value: "thread-gone" });
+    expect(resolveCliWorkerSession([], env("thread-never"), { db })).toBeUndefined();
+    expect(resolveCliWorkerSession([], {} as NodeJS.ProcessEnv, { db })).toBeUndefined();
   });
 });
 
