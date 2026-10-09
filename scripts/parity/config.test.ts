@@ -6,6 +6,7 @@ import {
   outputDirOf,
   targetsOf,
   type Board,
+  type BoardAction,
 } from './config';
 
 const board = (o: Partial<Board> = {}): Board => ({
@@ -54,8 +55,8 @@ describe('targetsOf', () => {
 });
 
 describe('targetsOf actions and panel filter', () => {
-  const click = { kind: 'click', layer: 'go', waitFor: 'where' } as const;
-  const own = { kind: 'clicks', layers: ['a'], waitFor: 'b' } as const;
+  const click: BoardAction = { kind: 'click', layer: 'go', waitFor: 'where' };
+  const own: BoardAction = { kind: 'clicks', layers: ['a'], waitFor: 'b' };
   const panels = board({
     roots: [],
     action: click,
