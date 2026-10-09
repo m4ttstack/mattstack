@@ -2,7 +2,7 @@ import '../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { parseEvidence } from '@mattstack/rt-client/evidence';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -25,18 +25,14 @@ const BOTH = v1({
   afterAnnotated: '/x/after-annotated.png',
 });
 
-function compare(
-  evidence = BOTH,
-  initialMode?: CompareMode,
-  onClose = vi.fn()
-) {
+function compare(evidence = BOTH, mode?: CompareMode, onClose = vi.fn()) {
   renderWithProviders(
     <EvidenceCompare
       repo={REPO}
       runId="r1"
       title="WEB-409"
       evidence={evidence}
-      initialMode={initialMode}
+      mode={mode}
       onClose={onClose}
     />
   );
@@ -94,8 +90,8 @@ describe('EvidenceCompare', () => {
         runId="r1"
         title="WEB-409"
         evidence={BOTH}
-        initialMode="after"
-        initialVariant="plain"
+        mode="after"
+        variant="plain"
         onClose={vi.fn()}
       />
     );
@@ -107,6 +103,12 @@ describe('EvidenceCompare', () => {
     const dialog = await compare(v1({ before: '/x/before.png' }));
     expect(within(dialog).queryAllByRole('radio')).toHaveLength(0);
     expect(srcs(dialog)).toEqual([`${BASE}/before`]);
+  });
+
+  it('starts with focus on its close button, not the control', async () => {
+    const dialog = await compare(BOTH, 'side');
+    const close = within(dialog).getByRole('button', { name: /close/i });
+    await waitFor(() => expect(close).toHaveFocus());
   });
 
   it('closes from its close button', async () => {

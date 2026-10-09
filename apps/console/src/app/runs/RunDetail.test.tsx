@@ -1019,6 +1019,55 @@ describe('RunDetail: finished run', () => {
     expect(within(record).getByTestId('review-side')).toBeInTheDocument();
   });
 
+  it('opens the Evidence tab and the compare modal from a ?compare= link, once', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/run?compare=before');
+    try {
+      render(
+        workRun({
+          run: summary({ status: 'done', ended_at: at(90), agent: null }),
+        })
+      );
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByRole('img')).toHaveAttribute(
+        'src',
+        expect.stringContaining('/evidence/beforeAnnotated')
+      );
+      const record = screen.getByTestId('run-record');
+      expect(
+        within(record).getByRole('tab', { name: /Evidence/ })
+      ).toHaveAttribute('aria-selected', 'true');
+      await user.click(within(dialog).getByRole('button', { name: /close/i }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(window.location.search).toBe('');
+      await user.click(within(record).getByRole('tab', { name: 'Story' }));
+      await user.click(within(record).getByRole('tab', { name: /Evidence/ }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it('drops a ?compare= link on a run with no images to compare', async () => {
+    window.history.replaceState(null, '', '/run?compare=side');
+    try {
+      render(
+        workRun({
+          run: summary({ status: 'done', ended_at: at(90), agent: null }),
+          fields: [
+            field('pipeline-stages', 'provision plan implement', 0),
+            field('evidence', '/a/before.png http://localhost:4001/notes/1', 2),
+          ],
+        })
+      );
+      await screen.findByTestId('run-record');
+      await waitFor(() => expect(window.location.search).toBe(''));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
   it('drops the Evidence tab when the run recorded none', async () => {
     render(
       workRun({

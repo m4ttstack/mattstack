@@ -37,6 +37,9 @@ export interface StoryEntry {
   /** "back to implement: <reason>" for a redirected attempt. */
   redirect: string | null;
   evidence: StoryEvidence | null;
+  /** The row that shows the evidence's url: the first phase the story
+      places, so the link appears once. */
+  evidenceUrl?: boolean;
 }
 
 export interface StoryInput {
@@ -199,6 +202,7 @@ export function liveStory(input: StoryInput): LiveStory {
     if (target && !evidenceAt.has(keyOf(target)))
       evidenceAt.set(keyOf(target), phase);
   }
+  const urlAt = [...evidenceAt].find(([, phase]) => phase !== 'legacy')?.[0];
 
   const entries: StoryEntry[] = story.map(a => {
     const key = keyOf(a);
@@ -220,6 +224,7 @@ export function liveStory(input: StoryInput): LiveStory {
           : null,
       redirect: a.status === 'redirected' ? (redirects.get(key) ?? null) : null,
       evidence: evidenceAt.get(key) ?? null,
+      evidenceUrl: key === urlAt,
     };
   });
 
@@ -279,7 +284,7 @@ export function stageSummary(
   const count = answeredQuestionCount(entry.gates);
   const captured =
     entry.evidence && evidence
-      ? evidenceSummary(evidence, entry.evidence)
+      ? evidenceSummary(evidence, entry.evidence, entry.evidenceUrl ?? false)
       : null;
   if (count > 0) {
     const detail = captured ?? firstPick(entry.gates);
@@ -297,7 +302,8 @@ const counted = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 /** "2 screenshots, 1 link": what one phase of a run's evidence captured. */
 function evidenceSummary(
   evidence: ParsedEvidence,
-  phase: StoryEvidence
+  phase: StoryEvidence,
+  entryUrl: boolean
 ): string | null {
   let shots = 0;
   let links = 0;
@@ -307,7 +313,7 @@ function evidenceSummary(
       else links += 1;
   } else if (evidence.version === 1) {
     shots = evidence.images.filter(i => i.key.startsWith(phase)).length;
-    if (phase === 'before' && evidence.evidence.url) links = 1;
+    if (entryUrl && evidence.evidence.url) links = 1;
   }
   const parts = [
     shots > 0 ? counted(shots, 'screenshot') : null,

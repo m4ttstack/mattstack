@@ -37,8 +37,8 @@ type Story = StoryObj<typeof meta>;
 
 export const SideBySide: Story = {};
 
-export const OnAfter: Story = { args: { initialMode: 'after' } };
+export const OnAfter: Story = { args: { mode: 'after' } };
 
 export const OnBeforePlain: Story = {
-  args: { initialMode: 'before', initialVariant: 'plain' },
+  args: { mode: 'before', variant: 'plain' },
 };

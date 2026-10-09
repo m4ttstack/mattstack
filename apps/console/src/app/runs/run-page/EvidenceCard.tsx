@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   Anchor,
   Button,
@@ -9,18 +9,20 @@ import {
   UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
-import { modals } from '@mattstack/app-kit/modals';
 import type { ParsedEvidence } from '@mattstack/rt-client';
 import { legacyItems, type LegacyItem } from '@mattstack/rt-client/evidence';
-import { useLocation, useSearch } from 'wouter';
 
 import classes from './EvidenceCard.module.css';
-import { EvidenceCompare } from './EvidenceCompare';
+import {
+  EvidenceCompare,
+  EvidenceFrame,
+  EvidenceModal,
+  type CompareOpen,
+} from './EvidenceCompare';
 import { EvidenceImage } from './EvidenceImage';
 import {
   evidenceUrl,
   fileNameOf,
-  isCompareMode,
   legacyImageUrl,
   PHASE_LABEL,
   phasesIn,
@@ -28,7 +30,6 @@ import {
   shotsOf,
   urlLabel,
   variantsIn,
-  type CompareMode,
   type EvidencePhase,
   type EvidenceV1Parsed,
   type EvidenceVariant,
@@ -50,15 +51,11 @@ export interface EvidenceCardProps {
   phase?: EvidencePhase;
   /** Where a legacy file path opens, or null to show it as text. */
   pathHref?: (path: string) => string | null;
-}
-
-/** Where the compare modal opens, kept in the URL as `?compare=<mode>` so a
-    link opens the record on it. */
-const COMPARE_PARAM = 'compare';
-
-interface CompareOpen {
-  mode?: CompareMode;
-  variant?: EvidenceVariant;
+  /** Story only: this row shows the evidence's url. */
+  withUrl?: boolean;
+  /** Record only: the page owns the compare modal (it follows `?compare=`),
+      so the card hands it each request. */
+  onCompare?: (open: CompareOpen) => void;
 }
 
 function Label({ children, ...rest }: { children: ReactNode }) {
@@ -77,8 +74,13 @@ function Label({ children, ...rest }: { children: ReactNode }) {
   );
 }
 
-function compareTitle(ticket: string | null | undefined, caseUsed?: string) {
-  return [ticket, caseUsed].filter(Boolean).join(' · ') || 'Evidence';
+/** "WEB-409 · Rush order, Sep 14 delay, Denver": the run, then what the
+    full-size view shows. */
+export function evidenceTitle(
+  ticket: string | null | undefined,
+  what?: string
+): string {
+  return [ticket, what].filter(Boolean).join(' · ') || 'Evidence';
 }
 
 /** One screenshot, the size of the column it sits in, its file name under it. */
@@ -169,18 +171,6 @@ function FileLink({
   );
 }
 
-function openFullSize(src: string, name: string) {
-  modals.open({
-    title: name,
-    size: 'calc(100vw - 48px)',
-    children: (
-      <div className={classes.fullFrame}>
-        <EvidenceImage src={src} name={name} maxHeight="100%" />
-      </div>
-    ),
-  });
-}
-
 /** Version 0 evidence is whatever text the agent wrote: its screenshots show
     as images, a web link is something to follow, any other file something to
     open in the editor. */
@@ -189,14 +179,17 @@ function LegacyEvidence({
   runId,
   links,
   size,
+  ticket,
   pathHref,
 }: {
   repo: string;
   runId: string;
   links: string[];
   size: 'story' | 'record';
+  ticket?: string | null;
   pathHref?: (path: string) => string | null;
 }) {
+  const [full, setFull] = useState<{ src: string; name: string } | null>(null);
   const items = legacyItems(links);
   const images = items.filter(i => i.kind === 'image');
   const rest = items.filter(i => i.kind !== 'image');
@@ -219,13 +212,21 @@ function LegacyEvidence({
                 src={src}
                 name={name}
                 size={size}
-                onOpen={() => openFullSize(src, name)}
+                onOpen={() => setFull({ src, name })}
               />
             );
           })}
         </div>
       )}
       {rest.length > 0 && <Stack gap={4}>{rest.map(linkOf)}</Stack>}
+      {full && (
+        <EvidenceModal
+          title={evidenceTitle(ticket, full.name)}
+          onClose={() => setFull(null)}
+        >
+          <EvidenceFrame src={full.src} name={full.name} />
+        </EvidenceModal>
+      )}
     </Stack>
   );
 }
@@ -237,19 +238,21 @@ function StoryEvidence({
   runId,
   evidence,
   phase: only,
+  withUrl,
   onCompare,
 }: {
   repo: string;
   runId: string;
   evidence: EvidenceV1Parsed;
   phase?: EvidencePhase;
+  withUrl: boolean;
   onCompare: (open: CompareOpen) => void;
 }) {
   const shots = shotsOf(evidence);
   const phases = phasesIn(shots);
   const phase = only ? phases.find(p => p === only) : phases[0];
   if (!phase) return null;
-  const url = phase === 'before' ? evidence.evidence.url : undefined;
+  const url = withUrl ? evidence.evidence.url : undefined;
 
   return (
     <Stack gap={12}>
@@ -428,11 +431,13 @@ function RecordLegacy({
   repo,
   runId,
   links,
+  ticket,
   pathHref,
 }: {
   repo: string;
   runId: string;
   links: string[];
+  ticket?: string | null;
   pathHref?: (path: string) => string | null;
 }) {
   return (
@@ -450,33 +455,12 @@ function RecordLegacy({
           runId={runId}
           links={links}
           size="record"
+          ticket={ticket}
           pathHref={pathHref}
         />
       </Stack>
     </Paper>
   );
-}
-
-/** The record's compare modal follows `?compare=`, so a link opens it; the
-    story's is the card's own. */
-function useCompare(fromUrl: boolean) {
-  const search = useSearch();
-  const [location, navigate] = useLocation();
-  const linked = fromUrl
-    ? new URLSearchParams(search).get(COMPARE_PARAM)
-    : null;
-  const [open, setOpen] = useState<CompareOpen | null>(() =>
-    isCompareMode(linked) ? { mode: linked } : null
-  );
-  const close = useCallback(() => {
-    setOpen(null);
-    const params = new URLSearchParams(search);
-    if (!params.has(COMPARE_PARAM)) return;
-    params.delete(COMPARE_PARAM);
-    const qs = params.toString();
-    navigate(qs ? `${location}?${qs}` : location, { replace: true });
-  }, [search, location, navigate]);
-  return { open, setOpen, close };
 }
 
 function V1Evidence({
@@ -487,10 +471,13 @@ function V1Evidence({
   ticket,
   mrIid,
   phase,
+  withUrl = false,
+  onCompare,
 }: Omit<EvidenceCardProps, 'evidence' | 'pathHref'> & {
   evidence: EvidenceV1Parsed;
 }) {
-  const compare = useCompare(variant === 'record');
+  const [own, setOwn] = useState<CompareOpen | null>(null);
+  const request = onCompare ?? setOwn;
   return (
     <>
       {variant === 'story' ? (
@@ -499,7 +486,8 @@ function V1Evidence({
           runId={runId}
           evidence={evidence}
           phase={phase}
-          onCompare={compare.setOpen}
+          withUrl={withUrl}
+          onCompare={request}
         />
       ) : (
         <RecordColumn
@@ -507,18 +495,17 @@ function V1Evidence({
           runId={runId}
           evidence={evidence}
           mrIid={mrIid}
-          onCompare={compare.setOpen}
+          onCompare={request}
         />
       )}
-      {compare.open && (
+      {own && (
         <EvidenceCompare
           repo={repo}
           runId={runId}
           evidence={evidence}
-          title={compareTitle(ticket, evidence.evidence.case)}
-          initialMode={compare.open.mode}
-          initialVariant={compare.open.variant}
-          onClose={compare.close}
+          title={evidenceTitle(ticket, evidence.evidence.case)}
+          {...own}
+          onClose={() => setOwn(null)}
         />
       )}
     </>
@@ -536,6 +523,8 @@ export function EvidenceCard({
   mrIid,
   phase,
   pathHref,
+  withUrl,
+  onCompare,
 }: EvidenceCardProps) {
   if (evidence.version === null) return null;
   if (evidence.version === 0)
@@ -545,6 +534,7 @@ export function EvidenceCard({
         runId={runId}
         links={evidence.links}
         size="story"
+        ticket={ticket}
         pathHref={pathHref}
       />
     ) : (
@@ -552,6 +542,7 @@ export function EvidenceCard({
         repo={repo}
         runId={runId}
         links={evidence.links}
+        ticket={ticket}
         pathHref={pathHref}
       />
     );
@@ -564,6 +555,8 @@ export function EvidenceCard({
       ticket={ticket}
       mrIid={mrIid}
       phase={phase}
+      withUrl={withUrl}
+      onCompare={onCompare}
     />
   );
 }

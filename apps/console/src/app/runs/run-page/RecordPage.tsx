@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Badge, Stack, Tabs, Text } from '@mattstack/app-kit/core';
 import { parseEvidence } from '@mattstack/rt-client/evidence';
 
@@ -17,7 +17,12 @@ import {
 } from '../derive/record';
 import { EffectiveInputs } from '../EffectiveInputs';
 import { DecisionsTab } from './DecisionsTab';
-import { EvidenceCard } from './EvidenceCard';
+import { EvidenceCard, evidenceTitle } from './EvidenceCard';
+import {
+  EvidenceCompare,
+  useCompareLink,
+  type CompareOpen,
+} from './EvidenceCompare';
 import { InputsDrawer } from './InputsDrawer';
 import { RecordHeader } from './RecordHeader';
 import { ReviewDecisions } from './ReviewVerdict';
@@ -63,8 +68,6 @@ export function RecordPage({
   const handedOff = kind === 'review' || kind === 'respond';
   const verdict = handedOff ? reviewVerdict(gates) : null;
   const logGates = handedOff ? reviewDecisionGates(gates) : gates;
-  const [tab, setTab] = useState<RecordTab | null>(null);
-  const shown = tab ?? (verdict ? 'decisions' : defaultRecordTab(logGates));
 
   const end = recordEnd(run, now);
   const meta = `${run.pipeline} pipeline · ${recordSpan(run.started_at, end.at)}`;
@@ -83,6 +86,21 @@ export function RecordPage({
   const evidence =
     kind === 'work' ? parseEvidence(evidenceValue ?? undefined) : null;
   const hasEvidence = evidence != null && evidence.version !== null;
+  const comparable =
+    evidence?.version === 1 && evidence.images.length > 0 ? evidence : null;
+  const link = useCompareLink();
+  const [compare, setCompare] = useState<CompareOpen | null>(() =>
+    comparable && link.mode ? { mode: link.mode } : null
+  );
+  const [tab, setTab] = useState<RecordTab | null>(() =>
+    comparable && link.mode ? 'evidence' : null
+  );
+  const shown = tab ?? (verdict ? 'decisions' : defaultRecordTab(logGates));
+  const staleLink = link.asked !== null && compare === null;
+  const { clear: clearLink } = link;
+  useEffect(() => {
+    if (staleLink) clearLink();
+  }, [staleLink, clearLink]);
   const mrIid =
     run.outcome?.mr && run.outcome.mr.state !== 'unknown'
       ? String(run.outcome.mr.iid)
@@ -97,6 +115,7 @@ export function RecordPage({
         ticket={facts.hero.ticket}
         mrIid={mrIid}
         pathHref={parts.pathHref}
+        onCompare={setCompare}
       />
     ) : null;
 
@@ -209,6 +228,19 @@ export function RecordPage({
           </Tabs.Panel>
         </Stack>
       </Tabs>
+      {comparable && compare ? (
+        <EvidenceCompare
+          repo={repo}
+          runId={runId}
+          evidence={comparable}
+          title={evidenceTitle(facts.hero.ticket, comparable.evidence.case)}
+          {...compare}
+          onClose={() => {
+            setCompare(null);
+            link.clear();
+          }}
+        />
+      ) : null}
       <InputsDrawer
         repo={repo}
         runId={runId}

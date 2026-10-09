@@ -105,20 +105,27 @@ describe('EvidenceCard story variant', () => {
     expect(drawn(container)).toHaveLength(0);
   });
 
-  it('links the url the evidence names on the before phase, without its scheme', () => {
-    const withUrl = evidenceOf({
-      before: '/x/before.png',
-      url: 'http://localhost:4001/orders/4821#parcels',
-    });
-    const { container } = story({ evidence: withUrl, phase: 'before' });
-    const links = [...container.querySelectorAll('a')];
-    expect(links.map(a => [a.textContent, a.getAttribute('href')])).toEqual([
-      [
-        'localhost:4001/orders/4821#parcels',
-        'http://localhost:4001/orders/4821#parcels',
-      ],
-    ]);
-  });
+  it.each(['before', 'after'] as const)(
+    'links the url on the row that carries it (%s), without its scheme',
+    phase => {
+      const withUrl = evidenceOf({
+        before: '/x/before.png',
+        after: '/x/after.png',
+        url: 'http://localhost:4001/orders/4821#parcels',
+      });
+      const carrying = story({ evidence: withUrl, phase, withUrl: true });
+      const links = [...carrying.container.querySelectorAll('a')];
+      expect(links.map(a => [a.textContent, a.getAttribute('href')])).toEqual([
+        [
+          'localhost:4001/orders/4821#parcels',
+          'http://localhost:4001/orders/4821#parcels',
+        ],
+      ]);
+      carrying.unmount();
+      const other = story({ evidence: withUrl, phase });
+      expect(other.container.querySelectorAll('a')).toHaveLength(0);
+    }
+  );
 
   it('opens the compare modal full size from "Open full size"', async () => {
     const user = userEvent.setup();
@@ -215,15 +222,23 @@ describe('EvidenceCard legacy and empty evidence', () => {
     }
   );
 
-  it('opens a legacy screenshot full size', async () => {
+  it('opens a legacy screenshot full size under the ticket and its name', async () => {
     const user = userEvent.setup();
-    const { getByRole } = story({ evidence: LEGACY });
+    const { getByRole } = story({ evidence: LEGACY, ticket: 'WEB-377' });
     await user.click(getByRole('button', { name: /open after\.png/i }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByRole('img')).toHaveAttribute(
       'src',
       fileSrc(`${DIR}/after.png`)
     );
+    expect(within(dialog).getByText('WEB-377 · after.png')).toBeInTheDocument();
+  });
+
+  it('shows a placeholder for a legacy screenshot the route will not serve', () => {
+    const { container, getByText } = story({ evidence: LEGACY });
+    fireEvent.error(container.querySelectorAll('img')[1]!);
+    expect(getByText('image unavailable')).toBeInTheDocument();
+    expect(shownSrcs(container)).toEqual([fileSrc(`${DIR}/before.png`)]);
   });
 
   it('opens a file path in the editor when it can, else shows it as text', () => {
@@ -319,21 +334,17 @@ describe('EvidenceCard record variant', () => {
     );
   });
 
-  it('opens the compare modal from a ?compare= link and drops the param on close', async () => {
+  it('hands the compare request to the page when the page owns the modal', async () => {
     const user = userEvent.setup();
-    window.history.replaceState(null, '', '/run?compare=after');
-    try {
-      record();
-      const dialog = await screen.findByRole('dialog');
-      expect(within(dialog).getByRole('img')).toHaveAttribute(
-        'src',
-        `${BASE}/afterAnnotated`
-      );
-      await user.click(within(dialog).getByRole('button', { name: /close/i }));
-      await waitFor(() => expect(window.location.search).toBe(''));
-    } finally {
-      window.history.replaceState(null, '', '/');
-    }
+    const onCompare = vi.fn();
+    const { getByRole } = record({ onCompare });
+    await user.click(getByRole('button', { name: /compare full size/i }));
+    await user.click(getByRole('button', { name: /open after\.png/i }));
+    expect(onCompare.mock.calls).toEqual([
+      [{}],
+      [{ mode: 'after', variant: 'plain' }],
+    ]);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('opens the compare modal on the phase and variant of the thumbnail clicked', async () => {

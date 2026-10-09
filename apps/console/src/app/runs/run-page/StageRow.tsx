@@ -244,6 +244,7 @@ export function StageRow({
               variant="story"
               ticket={ticket}
               phase={entry.evidence === 'legacy' ? undefined : entry.evidence}
+              withUrl={entry.evidenceUrl ?? false}
               pathHref={pathHref}
             />
           ) : null}

@@ -197,6 +197,38 @@ describe('liveStory', () => {
     expect(story.entries.flatMap(e => e.fields)).toEqual([]);
   });
 
+  it('gives the url to the first phase the story places', () => {
+    const evidence = JSON.stringify({
+      v: 1,
+      before: '/e/before.png',
+      after: '/e/after.png',
+      url: 'http://localhost:4001/orders/1',
+    });
+    const placed = (stages: ReturnType<typeof st>[], at: number) =>
+      liveStory(input({ stages, fields: [fld('evidence', at, evidence)] }))
+        .entries.filter(e => e.evidence)
+        .map(e => [e.attempt.stage, e.evidence, e.evidenceUrl]);
+    expect(
+      placed(
+        [
+          st('evidence', 1, 'done', 0, 10),
+          st('ship', 1, 'done', 20, 30),
+          st('watch-ci', 1, 'running', 30, null),
+        ],
+        25
+      )
+    ).toEqual([
+      ['evidence', 'before', true],
+      ['ship', 'after', false],
+    ]);
+    expect(
+      placed(
+        [st('ship', 1, 'done', 20, 30), st('watch-ci', 1, 'running', 30, null)],
+        5
+      )
+    ).toEqual([['ship', 'after', true]]);
+  });
+
   it('marks legacy evidence for the evidence section', () => {
     const story = liveStory(
       input({
@@ -371,6 +403,20 @@ describe('stageSummary', () => {
       '2 decisions · 2 screenshots'
     );
     expect(stageSummary(entryOf({ evidence: 'after' }), v1)).toBe(
+      '1 screenshot'
+    );
+    const withUrl = parseEvidence(
+      JSON.stringify({
+        v: 1,
+        before: '/e/before.png',
+        after: '/e/after.png',
+        url: 'http://localhost:4001/orders/1',
+      })
+    );
+    expect(
+      stageSummary(entryOf({ evidence: 'after', evidenceUrl: true }), withUrl)
+    ).toBe('1 screenshot, 1 link');
+    expect(stageSummary(entryOf({ evidence: 'before' }), withUrl)).toBe(
       '1 screenshot'
     );
   });

@@ -648,15 +648,17 @@ Evidence (runs-p2-story-details' evidence row, runs-p2-record
   board's last row, which is unnamed: they compare under `Stage evidence`
   (see the live run page entries), and sit 49.5px lower by the two evidence
   decisions the board leaves out.
-- A v1 story row adds "Open full size →" after the link, which opens the
-  compare modal; the board draws no such control, so it is not keyed. The
+- The url shows once, on the first phase the story places (before, else
+  after), and the summary counts it there. A v1 story row adds "Open full
+  size →" after the link, which opens the compare modal; the board draws no such control, so it is not keyed. The
   link row already holds the url, so the row is no taller.
 - The fixture's WEB-412 screenshots are named as the board names them
   (`web-412-before.png`, `web-412-before-annotated.png`) and its evidence
   records the board's `url`.
 - Legacy evidence shows its screenshots the same way in the story and the
-  record, served by the evidence-file route; other files stay editor links
-  and urls stay links. A legacy record card reads "EVIDENCE · N", N its
+  record, served by the evidence-file route (a file the route refuses shows
+  the "image unavailable" placeholder); other files stay editor links and
+  urls stay links. A legacy record card reads "EVIDENCE · N", N its
   items, as the tab count does.
 - The compare tile draws a 664px modal in a 696px frame; the console's is
   the kit `Modal` at `calc(100vw - 48px)` with frames as tall as the
@@ -667,10 +669,12 @@ Evidence (runs-p2-story-details' evidence row, runs-p2-record
   default size (options not keyed). The title names the ticket and the
   case used ("WEB-409 · Rush order, Sep 14 delay, Denver"); the board's
   "shipping panel" has no data source.
-- `?compare=side` (or `before`, `after`) on a record opens the compare
-  modal, which is how runs-p2-overlays reaches the tile. The modal's
-  focus trap lands on the control's first option, so a modal opened from
-  a link shows a focus ring there; one opened by a click does not.
+- `?compare=side` (or `before`, `after`) on a record selects the Evidence
+  tab and opens the compare modal, which is how runs-p2-overlays reaches
+  the tile. Closing it drops the param; a record with no images to compare
+  drops it at once.
+- A legacy screenshot opens full size in the same modal, titled with the
+  ticket and the file name, and no board draws it.
 
 Review run record (runs-p2-review `Hero`, `Tabs`, `Review column`, `Side`):
 

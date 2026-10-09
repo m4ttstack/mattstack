@@ -68,11 +68,3 @@
 .path {
   overflow-wrap: anywhere;
 }
-
-.fullFrame {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: calc(90dvh - 120px);
-  min-height: 200px;
-}
