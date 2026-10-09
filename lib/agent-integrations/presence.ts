@@ -25,7 +25,7 @@ import {
   movePresencePane, moveSessionPresence, presenceForSession, signOut, touchLastSeen, type RegistryDeps,
 } from "../state/presence-store.ts";
 import { integrationsEnabled } from "./context.ts";
-import { createSessionStore, isDetachedAttachment, listBindingsByNativeValue, listEveryAttachedBinding } from "./session-store.ts";
+import { createSessionStore, isDetachedAttachment, lacksInputPane, listBindingsByNativeValue, listEveryAttachedBinding } from "./session-store.ts";
 
 export type PresenceEvent = "start" | "resume" | "compact" | "end";
 
@@ -141,8 +141,8 @@ function connected(): InboxBinding {
  * Presence liveness (buddy status, reclaim and prune) for sessions outside
  * Claude Code's registry: with agent.integrations.enabled on, an attached
  * session whose harness keeps a messaging connection is alive while that
- * connection is up and the harness does not report the session itself gone
- * (`sessionLive`). A harness with no connection to read, Claude Code
+ * connection is up, the harness does not report the session itself gone
+ * (`sessionLive`), and a Herdr attachment names its pane. A harness with no connection to read, Claude Code
  * included, keeps the registry's answer, which wins wherever it has one.
  */
 export function withHarnessLiveness(
@@ -153,7 +153,7 @@ export function withHarnessLiveness(
   },
 ): RegistryDeps {
   const on = opts.enabled ?? integrationsEnabled;
-  const live = (b: SessionBinding) => !isDetachedAttachment(b) && typeof opts.connection(b.native.harness) === "string"
+  const live = (b: SessionBinding) => !isDetachedAttachment(b) && !lacksInputPane(b) && typeof opts.connection(b.native.harness) === "string"
     && opts.sessionLive?.(b) !== false;
   return {
     resolve: (sessionId) => {

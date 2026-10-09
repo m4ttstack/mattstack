@@ -81,7 +81,7 @@ import {
   chatDeliveryId, deliveryBackoffTicks, MAX_CONSECUTIVE_DELIVERY_FAILURES, oneShotInput, type DeliveryInput, type DeliveryService,
 } from "../../agent-integrations/delivery.ts";
 import { readDelivery } from "../../agent-integrations/delivery-store.ts";
-import { isDetachedAttachment, listBindingsAtPane, listBindingsByNativeValue } from "../../agent-integrations/session-store.ts";
+import { isDetachedAttachment, lacksInputPane, listBindingsAtPane, listBindingsByNativeValue } from "../../agent-integrations/session-store.ts";
 import { claudeModSignIn, type ChatSignInCommand, type ClaudeModSignIn } from "../../agent-integrations/claude/sessions.ts";
 import type { CommandResult } from "./types.ts";
 
@@ -223,6 +223,9 @@ async function reportUnreadBadge(herdr: typeof herdrRequest, pane: string | unde
 // the real delay.
 const DEFAULT_RETRY_DELAY_MS = 300;
 
+/** A delivery's outcome; `refused` when the session can never take input as attached, so waiting for it is pointless. */
+type PostOutcome = { delivered: boolean; count: number; refused?: true };
+
 /**
  * A resolver miss, a signed-out recipient, a dead binding, and a
  * still-failing-after-retry send are all the same outcome here: no cursor
@@ -248,11 +251,12 @@ async function deliverPost(
   recipient: string,
   msg: { room: string; dm: boolean; id: number },
   delivery?: DeliveryService,
-): Promise<{ delivered: boolean; count: number }> {
+): Promise<PostOutcome> {
   const presence = presenceForHandle(recipient, db);
   if (!presence || presence.signedOutAt !== undefined) return { delivered: false, count: 0 };
   const bound = harnessRoute(delivery, presence.sessionId, db);
   if (bound) {
+    if (lacksInputPane(bound.binding)) return { delivered: false, count: 0, refused: true };
     // A session whose transport is down is skipped the way a dead inbox is
     // below: no attempt, no warning, no badge, and the room log keeps it owed.
     if (!(await harnessTakesInput(bound.delivery, bound.binding, presence.sessionId, deps, herdr))) return { delivered: false, count: 0 };
@@ -365,7 +369,7 @@ async function deliverBound(
   recipient: string,
   pane: string | undefined,
   msg: { room: string; dm: boolean; id: number },
-): Promise<{ delivered: boolean; count: number }> {
+): Promise<PostOutcome> {
   let others = pendingMessages(msg.room, recipient, msg.id, db).filter((m) => m.handle !== recipient);
   if (others.length === 0) return { delivered: false, count: 0 };
   const held = await delivery.settled(binding, others.map((m) => chatDeliveryId(m.id, recipient)));
@@ -419,11 +423,13 @@ const POST_EVIDENCE_WAIT_MS = 2000;
  * What a post's delivery to each recipient showed by the time the post
  * answers: sent (submitted, or consumed), queued (a native queue holds it),
  * sending (still on its way, or its outcome is unknown and rt keeps
- * checking) or later (nothing reached the session; the room log keeps it
- * owed until the session is back).
+ * checking), later (nothing reached the session; the room log keeps it
+ * owed until the session is back) or refused (the session cannot take
+ * messages as it is attached; the room log keeps them owed until it signs
+ * in where rt can reach it).
  */
 async function postEvidence(
-  db: Database, id: number, outcomes: Map<string, Promise<{ delivered: boolean; count: number } | null>>, waitMs: number,
+  db: Database, id: number, outcomes: Map<string, Promise<PostOutcome | null>>, waitMs: number,
 ): Promise<Record<string, ChatPostDelivery>> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const waited = new Promise<"waiting">((resolve) => { timer = setTimeout(() => resolve("waiting"), waitMs); });
@@ -433,6 +439,7 @@ async function postEvidence(
       const result = await Promise.race([outcome, waited]);
       const state = readDelivery(db, chatDeliveryId(id, recipient))?.state;
       if (result === "waiting" || state === "ambiguous") evidence[recipient] = "sending";
+      else if (result?.refused) evidence[recipient] = "refused";
       else if (!result?.delivered) evidence[recipient] = "later";
       else evidence[recipient] = state === "queued" ? "queued" : "sent";
     }));
@@ -565,7 +572,7 @@ function deliverSerialized(
   recipient: string,
   msg: { room: string; dm: boolean; id: number },
   delivery?: DeliveryService,
-): Promise<{ delivered: boolean; count: number }> {
+): Promise<PostOutcome> {
   return serializeDelivery(chains, chainKey(msg.room, recipient), () =>
     deliverPost(db, deps, herdr, log, retryDelayMs, recipient, msg, delivery),
   );
@@ -1106,7 +1113,7 @@ function postAndNotify(
   log: Logger,
   retryDelayMs: number,
   delivery?: DeliveryService,
-  outcomes?: Map<string, Promise<{ delivered: boolean; count: number } | null>>,
+  outcomes?: Map<string, Promise<PostOutcome | null>>,
 ): { id: number; recipients: string[] } | undefined {
   const { room, handle, body, mentions, quiet } = args;
   const posted = postMessage({ room, handle, body, mentions, quiet }, db);
@@ -1132,7 +1139,7 @@ function postAndNotify(
   // neither an agent's inbox below nor the human's desk further down.
   if (quiet) return { id: posted.id, recipients: [] };
   for (const recipient of posted.recipients) {
-    const outcome = new Promise<{ delivered: boolean; count: number } | null>((settle) => {
+    const outcome = new Promise<PostOutcome | null>((settle) => {
       queueMicrotask(() => {
         deliverSerialized(deliveryChains, db, inboxDeps, herdr, log, retryDelayMs, recipient, { room, dm: dm !== null, id: posted.id }, delivery).then(settle, (err) => {
           log.warn({ err, room, recipient, id: posted.id }, "chat: inbox delivery failed");
@@ -1504,7 +1511,7 @@ export function createChatHandlers(opts: {
       // to wake-on mention, so an agent's un-addressed post wakes nobody.
       const effectiveMentions = handle === getSetting<string>("chat.humanHandle").value ? [...(mentions ?? []), "here"] : mentions;
       // Only with the switch on does the post wait on its deliveries; switch-off timing and payload stay as they were.
-      const outcomes = opts.delivery && integrationsEnabled() ? new Map<string, Promise<{ delivered: boolean; count: number } | null>>() : undefined;
+      const outcomes = opts.delivery && integrationsEnabled() ? new Map<string, Promise<PostOutcome | null>>() : undefined;
       const posted = postAndNotify(db, emitEvent, { room, handle, body, mentions: effectiveMentions, quiet }, inboxDeps, herdr, deliveryChains, log, retryDelayMs, opts.delivery, outcomes);
       if (!posted) return { ok: false, error: "chat: post failed (retry budget exhausted)" };
       const others = listMembers(room, db).filter((m) => m.handle !== handle).length;

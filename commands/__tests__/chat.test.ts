@@ -2211,6 +2211,42 @@ describe("integrations on: chat follows the harness session", () => {
       expect(seen.find((s) => s.cmd === "chat:post")!.payload).toMatchObject({ handle });
     });
 
+    test("with no pane herdr names for the thread, sign-in says plainly that it cannot take chat messages", async () => {
+      setSetting("agent.integrations.enabled", true, "machine");
+      const json = await runChatRaw(["sign-in", "--no-room", "--json"]);
+      expect(JSON.parse(json.stdout)).toMatchObject({ takesMessages: false, why: expect.stringContaining("herdr does not show which pane runs this Codex thread") });
+      expect(listBindingsByNativeValue(getStateDb(), "thread-manual")[0]!.attachment.pane).toBeUndefined();
+
+      const human = await runChatRaw(["sign-in", "--no-room"]);
+      expect(human.code).toBe(0);
+      expect(human.stderr).toContain("This session cannot take chat messages");
+    });
+
+    test("herdr's Codex pane for the thread becomes its pane, at first sign-in or a later one", async () => {
+      setSetting("agent.integrations.enabled", true, "machine");
+      process.env.HERDR_PANE_ID = "wAPP:p1";
+      const first = await runChatRaw(["sign-in", "--no-room", "--json"]);
+      const { handle } = JSON.parse(first.stdout);
+      expect(listBindingsByNativeValue(getStateDb(), "thread-manual")[0]!.attachment.pane).toBeUndefined();
+
+      const panes = [
+        { paneId: "wAPP:p1", workspace: "w", agentStatus: "idle", provider: "claude", sessionId: "thread-manual" },
+        { paneId: "w2:p3", workspace: "w", agentStatus: "idle", provider: "codex", sessionId: "thread-manual" },
+        { paneId: "w2:p4", workspace: "w", agentStatus: "idle", provider: "codex", sessionId: "thread-other" },
+      ];
+      canned["pane:list"] = { ok: true, data: { panes } };
+      seen = [];
+      const again = await runChatRaw(["sign-in", "--no-room", "--json"]);
+      expect(JSON.parse(again.stdout)).toMatchObject({ handle });
+      expect(JSON.parse(again.stdout)).not.toHaveProperty("takesMessages");
+      expect(seen.find((s) => s.cmd === "chat:sign-in")!.payload).toMatchObject({ pane: "w2:p3" });
+      expect(listBindingsByNativeValue(getStateDb(), "thread-manual")).toMatchObject([{ identity: handle, attachment: { mode: "herdr", pane: "w2:p3" } }]);
+
+      canned["pane:list"] = { ok: true, data: { panes: [...panes, { ...panes[1], paneId: "w2:p9" }] } };
+      expect(JSON.parse((await runChatRaw(["sign-in", "--no-room", "--json"])).stdout)).toMatchObject({ handle });
+      expect(listBindingsByNativeValue(getStateDb(), "thread-manual")[0]!.attachment.pane).toBe("w2:p3");
+    });
+
     test("a --session naming another thread is refused, and binds nothing", async () => {
       setSetting("agent.integrations.enabled", true, "machine");
       await expect(runChatRaw(["sign-in", "--no-room", "--session", "thread-other"])).rejects.toBeInstanceOf(UserActionableError);

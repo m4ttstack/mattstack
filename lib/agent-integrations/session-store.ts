@@ -198,6 +198,16 @@ export function isDetachedAttachment(binding: SessionBinding): boolean {
   return (binding.attachment as StoredAttachment).detached === true;
 }
 
+/**
+ * An attached Herdr session, outside Claude Code, whose pane rt does not know
+ * (a manually started Codex thread herdr named no pane for). Input reaches
+ * such a session only with live pane evidence, so nothing can be sent to it.
+ */
+export function lacksInputPane(binding: SessionBinding): boolean {
+  return binding.native.harness !== "claude" && binding.attachment.mode === "herdr"
+    && binding.attachment.pane === undefined && !isDetachedAttachment(binding);
+}
+
 export function createSessionStore(db: Database): SessionStore {
   const byKey = (key: string) => db.query(SELECT_BY_KEY_SQL).get(key) as BindingRow | null;
   const byNative = (n: NativeSessionRef) =>

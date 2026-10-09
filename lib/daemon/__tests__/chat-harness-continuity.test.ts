@@ -506,6 +506,39 @@ describe("delivery goes through the session's harness", () => {
   });
 });
 
+describe("a manually started Codex thread", () => {
+  const status = (x: ReturnType<typeof fixture>, session: string) => listBuddies(Date.now(), x.db, x.registryDeps).find((b) => b.sessionId === session)?.status;
+
+  async function postTo(x: ReturnType<typeof fixture>, recipient: string) {
+    const kai = await x.signIn({ sessionId: "sess-kai", continue: "kai" });
+    await x.h["chat:join"]({ room: "r", handle: kai.handle, wakeOn: "all" });
+    await x.h["chat:join"]({ room: "r", handle: recipient, wakeOn: "all" });
+    const posted = await x.h["chat:post"]({ room: "r", handle: kai.handle, body: "the deploy is red" });
+    if (!posted.ok) throw new Error(posted.error);
+    return posted.data;
+  }
+
+  test("with no pane herdr names for it, a post says it was refused, sends nothing, and who reads it offline", async () => {
+    const x = fixture({ paneAgents: { "w1:p1": "codex" } });
+    const t1 = await x.signIn({ sessionId: "thread-m" });
+    bind(x.db, codexRef("thread-m"), undefined, t1.handle);
+    const posted = await postTo(x, t1.handle);
+    expect(posted.delivery?.[t1.handle]).toBe("refused");
+    expect(x.to(t1.handle).filter((s) => s.input.body.includes("deploy"))).toEqual([]);
+    expect(status(x, "thread-m")).toBe("offline");
+  });
+
+  test("with the pane herdr names for it, a post reaches it and who reads it online", async () => {
+    const x = fixture({ paneAgents: { "w1:p1": "codex" } });
+    const t1 = await x.signIn({ sessionId: "thread-m", pane: "w1:p1" });
+    bind(x.db, codexRef("thread-m"), "w1:p1", t1.handle);
+    const posted = await postTo(x, t1.handle);
+    expect(posted.delivery?.[t1.handle]).toBe("queued");
+    expect(x.to(t1.handle).some((s) => s.input.body.includes("deploy"))).toBe(true);
+    expect(status(x, "thread-m")).toBe("idle");
+  });
+});
+
 describe("rt pane send goes through the pane's harness", () => {
   test("text and its continuation reach a Codex session as peer input, in order; a question refuses", async () => {
     let observed: Observation | null = IDLE;

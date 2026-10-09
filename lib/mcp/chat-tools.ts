@@ -383,8 +383,13 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         if (body === null || typeof body !== "object" || typeof (body as { handle?: unknown }).handle !== "string") {
           return err("rt chat sign-in returned no handle");
         }
-        const { handle, name, room, continued } = body as { handle: string; name?: unknown; room?: unknown; continued?: unknown };
-        return ok({ handle, name: typeof name === "string" && name ? name : handle, room: room ?? null, continued: continued === true });
+        const { handle, name, room, continued, takesMessages, why } = body as {
+          handle: string; name?: unknown; room?: unknown; continued?: unknown; takesMessages?: unknown; why?: unknown;
+        };
+        return ok({
+          handle, name: typeof name === "string" && name ? name : handle, room: room ?? null, continued: continued === true,
+          ...(takesMessages === false && typeof why === "string" && { takesMessages: false, why }),
+        });
       },
     },
     {

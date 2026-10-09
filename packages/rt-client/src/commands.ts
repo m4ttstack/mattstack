@@ -295,10 +295,11 @@ export interface ChatMessage {
  * What a post's delivery to one recipient showed by the time the post
  * answered: sent (the session's transport took it), queued (a native queue
  * holds it for the session's next turn), sending (still on its way, or its
- * outcome is unknown and rt keeps checking) or later (it did not reach the
- * session, which gets it once it is back).
+ * outcome is unknown and rt keeps checking), later (it did not reach the
+ * session, which gets it once it is back) or refused (the session cannot
+ * take messages as it is attached, so nothing was sent).
  */
-export type ChatPostDelivery = "sent" | "queued" | "sending" | "later";
+export type ChatPostDelivery = "sent" | "queued" | "sending" | "later" | "refused";
 
 /** `claimed` is the only outcome that woke anyone; `previousHolder` marks a takeover of an expired claim. */
 export type ChatClaimOutcome =

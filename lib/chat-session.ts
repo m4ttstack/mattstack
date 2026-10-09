@@ -15,7 +15,7 @@ import {
   BOTH_SESSIONS_MESSAGE, codexProfile, extractCliEvidence, integrationsEnabled, resolveCliBinding, resolveCliSession,
 } from "./agent-integrations/context.ts";
 import { lendsPaneIdentity } from "./agent-integrations/pane-identity.ts";
-import { isDetachedAttachment, listBindingsByNativeValue } from "./agent-integrations/session-store.ts";
+import { isDetachedAttachment, lacksInputPane, listBindingsByNativeValue } from "./agent-integrations/session-store.ts";
 import { getStateDb } from "./state/db.ts";
 import { UserActionableError } from "./errors.ts";
 import { readJson, writeJson } from "./json-store.ts";
@@ -191,10 +191,13 @@ function unattributed(why: string): UserActionableError {
  * The session `rt chat sign-in` acts as; `binding` when one already names it,
  * and, for a session not bound yet, how to bind it once the daemon names its
  * identity. `paneTrusted: false` when this process's pane is not the
- * session's (a Codex thread's commands run in its app server).
+ * session's (a Codex thread's commands run in its app server); `pane` is then
+ * the one herdr names for the session, if any. `noInput` says, in plain
+ * words, why the session cannot take chat messages once signed in.
  */
 export type SignInSession = {
   sessionId: string | undefined; binding?: SessionBinding; bind?: (identity: string) => void; paneTrusted?: false;
+  pane?: string; noInput?: string;
 };
 
 /**
@@ -211,6 +214,7 @@ export async function signInSession(args: string[]): Promise<SignInSession> {
   const resolved = resolveCliSession(args, process.env, {}, { bindingsOnly: true });
   if (resolved.ok) {
     const binding = resolveCliBinding(args, process.env);
+    if (binding?.native.harness === "codex" && lacksInputPane(binding)) return codexSignIn(args, binding.native);
     return { sessionId: resolved.data, ...(binding && { binding }) };
   }
   const evidence = extractCliEvidence(args, process.env);
@@ -242,15 +246,24 @@ export async function signInSession(args: string[]): Promise<SignInSession> {
   };
 }
 
-/** A Codex thread no binding names yet, bound under the identity the daemon signs it in as. */
+/** How long sign-in waits for herdr's pane list through the daemon. */
+const PANE_LOOKUP_MS = 3000;
+
+/**
+ * A Codex thread no binding names yet, or one bound with no pane, bound under
+ * the identity the daemon signs it in as, at the pane herdr names for it.
+ */
 async function codexSignIn(args: string[], native: NativeSessionRef): Promise<SignInSession> {
-  const [{ prepareCodexSignIn }, { getStateDb }] = await Promise.all([
-    import("./agent-integrations/codex/sign-in.ts"), import("./state/db.ts"),
+  const [{ prepareCodexSignIn, codexThreadPane, CODEX_NO_PANE_WHY }, { getStateDb }, { paneList }] = await Promise.all([
+    import("./agent-integrations/codex/sign-in.ts"), import("./state/db.ts"), import("../packages/rt-client/src/index.ts"),
   ]);
-  const commit = prepareCodexSignIn(native, getStateDb());
+  const listed = await paneList({ timeoutMs: PANE_LOOKUP_MS });
+  const pane = listed.ok && listed.data ? codexThreadPane(native.value, listed.data.panes) : undefined;
+  const commit = prepareCodexSignIn(native, getStateDb(), pane);
   return {
     sessionId: native.value,
     paneTrusted: false,
+    ...(pane !== undefined ? { pane } : { noInput: CODEX_NO_PANE_WHY }),
     bind: (identity) => {
       const bound = commit(identity);
       if (!bound.ok) throw unattributed(bound.error.message);

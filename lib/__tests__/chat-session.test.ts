@@ -268,15 +268,16 @@ describe("currentSessionId through session bindings", () => {
     process.env.CODEX_THREAD_ID = "thread-manual";
     process.env.CODEX_HOME = join(home, ".codex");
     const target = await signInSession(["sign-in"]);
-    expect(target).toMatchObject({ sessionId: "thread-manual", paneTrusted: false });
+    expect(target).toMatchObject({ sessionId: "thread-manual", paneTrusted: false, noInput: expect.any(String) });
     target.bind!("ivy.ab12");
     const bound = createSessionStore(getStateDb()).find({ harness: "codex", profile: "default", kind: "id", value: "thread-manual" });
     expect(bound).toMatchObject({ identity: "ivy.ab12", attachment: { mode: "herdr" } });
     expect(currentSessionId(["post", "r", "hi"])).toBe("thread-manual");
-    // A repeat sign-in resolves the binding it now has; the MCP server's spawn names the same thread both ways.
+    // A repeat sign-in of a thread still bound with no pane looks for its pane again and keeps its binding; the MCP server's spawn names the same thread both ways.
     const again = await signInSession(["sign-in", "--session", "thread-manual"]);
-    expect(again).toMatchObject({ sessionId: "thread-manual", binding: { identity: "ivy.ab12" } });
-    expect(again.bind).toBeUndefined();
+    expect(again).toMatchObject({ sessionId: "thread-manual", paneTrusted: false, noInput: expect.any(String) });
+    again.bind!("ivy.ab12");
+    expect(listBindings("thread-manual")).toEqual([bound!]);
   });
 
   test("integrations on: a Codex thread's sign-in refuses conflicting evidence and a thread another identity holds", async () => {

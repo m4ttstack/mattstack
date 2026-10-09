@@ -904,11 +904,14 @@ function deliveryLine(recipients: string[], names: string[], delivery: Record<st
   const queued = who("queued");
   const sending = who("sending");
   const later = who("later");
+  const refused = who("refused");
   if (sent.length > 0) parts.push(`sent to ${list(sent)}`);
   if (queued.length > 0) parts.push(`queued for ${list(queued)}`);
   if (sending.length > 0) parts.push(`still sending to ${list(sending)}`);
   if (later.length === 1) parts.push(`${later[0]} is not reachable now, so it reaches them when their session is back`);
   if (later.length > 1) parts.push(`${list(later)} are not reachable now, so it reaches them when their sessions are back`);
+  if (refused.length === 1) parts.push(`${refused[0]} cannot take chat messages where their session runs, so nothing was sent to them`);
+  if (refused.length > 1) parts.push(`${list(refused)} cannot take chat messages where their sessions run, so nothing was sent to them`);
   return parts.join("; ");
 }
 
@@ -1268,7 +1271,7 @@ async function runSignIn(args: string[]): Promise<void> {
   const repo = identity ? repoLabel(identity.identity) : undefined;
   const branch = root ? getCurrentBranch() ?? undefined : undefined;
   // A bound session's pane is its attachment's: this process can be a host's (an app server, an MCP server) rather than the session's own.
-  const pane = target.binding ? target.binding.attachment.pane : target.paneTrusted === false ? undefined : selfPaneRef();
+  const pane = target.binding ? target.binding.attachment.pane : target.paneTrusted === false ? target.pane : selfPaneRef();
   const statusText = flagValue(args, "--status");
 
   const noRoomFlag = args.includes("--no-room");
@@ -1307,11 +1310,15 @@ async function runSignIn(args: string[]): Promise<void> {
   }
 
   if (args.includes("--json")) {
-    out.json({ ok: true, handle, name: displayName, room: roomName, continued: continued === true });
+    out.json({
+      ok: true, handle, name: displayName, room: roomName, continued: continued === true,
+      ...(target.noInput !== undefined && { takesMessages: false, why: target.noInput }),
+    });
     return;
   }
   const signedIn = renderSignIn(displayName, { repo, branch, pane }, root !== null, noRoomFlag, joinedRoom);
   show(() => signInBlocks(signedIn), () => signedIn);
+  if (target.noInput !== undefined) out.note(out.line("warn", "This session cannot take chat messages", target.noInput));
 }
 
 /**
