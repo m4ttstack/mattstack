@@ -25,13 +25,11 @@ export const CREATE_WINDOW_MS = 8_000;
 /** How long a recorded `worktree:registered` answer keeps the screen-reading seams down. */
 export const ANSWER_WINDOW_MS = 20_000;
 
-export type RelocationAnswer = { path: string; at: number };
-
 export type RelocationInSession = {
   /** A create hook announced a name-mode tree for this native session id. */
   noteCreate(sessionId: string): void;
-  /** `worktree:registered` answered this native session id about `path` (canonical). */
-  noteAnswer(sessionId: string, path: string): void;
+  /** `worktree:registered` answered this native session id. */
+  noteAnswer(sessionId: string): void;
   /** True when a bound session at `sessionId` or `paneRef` has the block live and no create announcement is in its window. */
   answers(target: { sessionId?: string; paneRef?: string }): boolean;
   /** `answers`, and the mod recorded a `worktree:registered` answer for that session within the answer window. */
@@ -52,7 +50,7 @@ export function createRelocationInSession(deps: RelocationInSessionDeps): Reloca
   const windowMs = deps.windowMs ?? CREATE_WINDOW_MS;
   const answerWindowMs = deps.answerWindowMs ?? ANSWER_WINDOW_MS;
   const creates = new Map<string, number>();
-  const answersBySession = new Map<string, RelocationAnswer>();
+  const answersBySession = new Map<string, number>();
 
   function within<T>(map: Map<string, T>, sessionId: string, at: (v: T) => number, ms: number): boolean {
     const value = map.get(sessionId);
@@ -86,14 +84,14 @@ export function createRelocationInSession(deps: RelocationInSessionDeps): Reloca
     noteCreate(sessionId) {
       creates.set(sessionId, now());
     },
-    noteAnswer(sessionId, path) {
-      answersBySession.set(sessionId, { path, at: now() });
+    noteAnswer(sessionId) {
+      answersBySession.set(sessionId, now());
     },
     answers(target) {
       return liveOutsideCreate(target).length > 0;
     },
     answered(target) {
-      return liveOutsideCreate(target).some((b) => within(answersBySession, b.native.value, (a) => a.at, answerWindowMs));
+      return liveOutsideCreate(target).some((b) => within(answersBySession, b.native.value, (at) => at, answerWindowMs));
     },
   };
 }

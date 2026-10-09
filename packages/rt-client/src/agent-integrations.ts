@@ -21,7 +21,7 @@ export type SessionBinding = {
   attachment: Attachment; agentId?: string; attemptId?: string;
 };
 export type CallerContext = {
-  binding: SessionBinding; assignment?: { herd: string; job: string; attemptId: string };
+  binding: SessionBinding;
 };
 export type Observation = {
   connectivity: "connected" | "disconnected" | "unknown";

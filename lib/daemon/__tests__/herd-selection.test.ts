@@ -391,7 +391,7 @@ describe("herd:spawn respawns: the job's tree, then the attempt, then the close"
       expect(paneCloses, why).toEqual([]);
       expect(launches, why).toEqual([]);
       expect(store.activeAttempt(HERD, "job-b")?.id, why).toBe("att-live");
-      expect(store.attempts(HERD, "job-b").map((a) => a.state), why).toEqual(["active"]);
+      expect(store.attempts(HERD, "job-b").map((a) => a.state), why).toEqual(why === "tree" ? ["active", "ended"] : ["active"]);
       expect(store.getJob(HERD, "job-b"), why).toMatchObject({ handle: "job-b.w1", status: "active" });
     }
   });

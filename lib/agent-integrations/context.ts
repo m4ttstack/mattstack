@@ -255,7 +255,7 @@ export function resolveCallerContextNow(input: CallerEvidence, deps: ResolveDeps
 
 /**
  * A Claude Code session named by its own environment keeps the environment
- * path, with no binding and so no assignment, when it was never bound (until
+ * path, with no binding, when it was never bound (until
  * it signs in there is no identity to bind it under) or when every binding of
  * it was detached (after a /clear the MCP process still carries the old id).
  * A bound Claude session, an explicit id and every Codex caller go through

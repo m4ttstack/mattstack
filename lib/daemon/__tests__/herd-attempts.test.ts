@@ -261,6 +261,8 @@ type Seen = {
   refuseProof?: boolean;
   /** The next work submission's outcome is unknown. */
   ambiguousWork?: boolean;
+  /** The next work submission is definitely refused. */
+  refusedWork?: boolean;
   /** A resumed session proves its policy only in a check turn its caller agreed to, as Codex's does. */
   checkOnResume?: boolean;
   /** Every verify's context, in order. */
@@ -282,6 +284,7 @@ function claudeLike(seen: Seen, onWork?: (binding: SessionBinding) => void): Har
       seen.work.push(input);
       onWork?.(b);
       if (seen.ambiguousWork) return { ok: false, error: { code: "ambiguous", message: "the session never acknowledged the work" } };
+      if (seen.refusedWork) return { ok: false, error: { code: "refused", message: "the session refused the work" } };
       return ok({ id: input.id, evidence: "submitted", nativeId: b.native.value });
     },
   };
@@ -486,6 +489,25 @@ describe("herd:spawn and herd:report with the switch on", () => {
     expect(herds.getJob(HERD, JOB)?.handle).toBe("job-a.w1");
   });
 
+  test("a work submission definitely refused after the worker took its job closes the worker, ends its attempt and leaves the job crashed", async () => {
+    const svc = attempts();
+    const seen: Seen = { work: [], reports: [], refusedWork: true };
+    const closes: string[][] = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike(seen)), [], recordingHerdr(closes));
+
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing", dir: "/w/job-a" });
+    expect(refused.ok).toBe(false);
+    expect(seen.work).toHaveLength(1);
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended"]);
+    expect(herds.activeAttempt(HERD, JOB)).toBeNull();
+    expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
+    expect(closes).toContainEqual(["pane", "close", "w3:p1"]);
+    if (!refused.ok) {
+      expect(refused.error).toContain("was never sent its work");
+      expect(refused.error).toContain("rt closed its pane and ended its job attempt");
+    }
+  });
+
   test("a respawn that never takes the job after rt closed its predecessor leaves the job crashed, held by no one", async () => {
     const svc = attempts();
     const seen: Seen = { work: [], reports: [] };
@@ -588,6 +610,36 @@ describe("herd:spawn and herd:report with the switch on", () => {
     if (!refused.ok) expect(refused.error).toContain("may have started");
     expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["reserved"]);
     expect(herds.getJob(HERD, JOB)?.status).toBe("crashed");
+  });
+
+  test("a reservation that fails for a busy store provisions no tree and leaves the job as it was", async () => {
+    const svc = attempts();
+    const busy: JobAttempts = { ...svc, reserveJobAttempt: () => ({ ok: false, error: { code: "transient", message: "herds.db is busy" } }) };
+    const provisioned: unknown[] = [];
+    const h = herdHandlers(busy, agentService(svc, claudeLike({ work: [], reports: [] })), [], {
+      worktree: {
+        "worktree:provision": async (p: unknown) => { provisioned.push(p); return { ok: true, data: { path: "/w/fresh", branch: JOB, tree: "fresh", wasOnDeck: false } }; },
+        "worktree:dispose": async () => ({ ok: false, error: "unused" }),
+      },
+    });
+
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing" });
+    expect(refused).toMatchObject({ ok: false });
+    if (!refused.ok) expect(refused.error).toContain("could not be recorded");
+    expect(provisioned).toEqual([]);
+    expect(herds.getJob(HERD, JOB)).toBeNull();
+    expect(herds.attempts(HERD, JOB)).toEqual([]);
+  });
+
+  test("a provision that fails ends the attempt reserved for it", async () => {
+    const svc = attempts();
+    const h = herdHandlers(svc, agentService(svc, claudeLike({ work: [], reports: [] })), []);
+
+    const refused = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing" });
+    expect(refused).toMatchObject({ ok: false });
+    if (!refused.ok) expect(refused.error).toContain("provision failed");
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended"]);
+    expect(herds.getJob(HERD, JOB)).toBeNull();
   });
 
   test("a respawn mints a fresh worker identity and fences the predecessor's report", async () => {
@@ -764,6 +816,28 @@ describe("herd:spawn and herd:report with the switch on", () => {
       expect(stale, verb).toMatchObject({ ok: false, failure: { code: "stale-binding" } });
     }
     expect((await h["herd:report"]({ ...named, session: respawned.data.sessionId, body: "done" })).ok).toBe(true);
+  });
+
+  test("switch on, a job spawned before attempts were recorded keeps the pre-integration session rule", async () => {
+    const svc = attempts();
+    const posted: unknown[] = [];
+    const h = herdHandlers(svc, agentService(svc, claudeLike({ work: [], reports: [] })), posted);
+    herds.upsertJob({ herd: HERD, name: JOB, worktree: "/w/job-a", handle: "job-a.w0", status: "active", agentSession: "sess-old", agentId: "ag-old", pane: "w9:p1" });
+    expect(herds.attempts(HERD, JOB)).toEqual([]);
+
+    const named = { herd: HERD, job: JOB };
+    expect((await h["herd:ask"]({ ...named, session: "sess-old", questions: QUESTIONS })).ok).toBe(true);
+    expect((await h["herd:milestone"]({ ...named, session: "sess-old", artifact: "/a.md" })).ok).toBe(true);
+    expect((await h["herd:report"]({ ...named, session: "sess-old", body: "done" })).ok).toBe(true);
+    for (const [verb, extra] of [["herd:ask", { questions: QUESTIONS }], ["herd:milestone", { artifact: "/a.md" }], ["herd:report", { body: "done" }]] as const) {
+      const other = await (h[verb] as (p: unknown) => Promise<unknown>)({ ...named, session: "sess-other", ...extra });
+      expect(other, verb).toMatchObject({ ok: false, failure: { code: "refused" } });
+    }
+
+    const unprovisioned = await h["herd:spawn"]({ herd: HERD, job: JOB, brief: "do the thing" });
+    expect(unprovisioned.ok).toBe(false);
+    expect(herds.attempts(HERD, JOB).map((a) => a.state)).toEqual(["ended"]);
+    expect((await h["herd:report"]({ ...named, session: "sess-old", body: "still mine" })).ok).toBe(true);
   });
 
   test("the CLI's report from a switch-off worker reaches the daemon with its session: allowed for the job's session, refused for another, stale after a switch-off respawn", async () => {

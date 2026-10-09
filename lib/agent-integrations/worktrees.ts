@@ -64,7 +64,7 @@ export function worktreeLifecycle(harness: HarnessId): WorktreeLifecycle {
 
 /** One owner per binding and attempt: a resumed attempt keeps it, a replacement attempt on the same binding does not. */
 export function worktreeOwner(context: CallerContext): string {
-  return ownerOf(context.binding.key, context.assignment?.attemptId ?? context.binding.attemptId);
+  return ownerOf(context.binding.key, context.binding.attemptId);
 }
 
 function ownerOf(bindingKey: string, attemptId: string | undefined): string {
@@ -189,7 +189,7 @@ export function claimWorktree(
   if (holds(existing, tree.data) && existing.owner !== owner) {
     return fail("refused", `${tree.data.name} belongs to another session`);
   }
-  const attemptId = context.assignment?.attemptId ?? context.binding.attemptId;
+  const attemptId = context.binding.attemptId;
   const holder: WorktreeHolder = {
     owner, bindingKey: context.binding.key, ...(attemptId !== undefined && { attemptId }),
     harness: context.binding.native.harness, repoName: tree.data.repoName, tree: tree.data.name, path: tree.data.path,

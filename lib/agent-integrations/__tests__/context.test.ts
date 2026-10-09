@@ -150,7 +150,7 @@ describe("caller attribution", () => {
     expect(seen).toMatchObject({ ok: true, data: { generation: 2 } });
     const after = bound(db, "otto.0001", claude("sess-after"), "w1:p1");
 
-    // Not the old binding and not a refusal: the environment path, with no binding and so no assignment.
+    // Not the old binding and not a refusal: the environment path, with no binding.
     expect(await resolveToolCaller(staleEnv, { db })).toBeNull();
     expect(await resolveCallerContext(staleEnv, { db })).toMatchObject({ ok: false, error: { code: "stale-binding" } });
     expect(resolveCliSession([], { CLAUDE_CODE_SESSION_ID: "sess-before" }, { db })).toEqual({ ok: true, data: "sess-before" });

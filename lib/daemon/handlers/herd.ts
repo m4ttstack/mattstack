@@ -296,7 +296,8 @@ export function createHerdHandlers(deps: HerdDeps) {
   }
 
   /**
-   * A job whose active attempt is unbound (spawned with the switch off) keeps
+   * A job whose active attempt is unbound (spawned with the switch off), or
+   * that no attempt ever took (spawned before attempts were recorded), keeps
    * the pre-integration rule: the call names the job and comes from the
    * session its row records. Otherwise the session's own attempt must hold
    * the job, and a session an unbound attempt ran under, since replaced, is
@@ -305,11 +306,12 @@ export function createHerdHandlers(deps: HerdDeps) {
   function authorizeWorker(w: WorkerCall, herdId: string, name: string, job: HerdJobRow, what: string): WorkerRefusal | null {
     const refuse = (code: string, error: string): WorkerRefusal => ({ ok: false, error, failure: { code, message: error } });
     const active = store.activeAttempt(herdId, name);
+    const all = store.attempts(herdId, name);
     const replaced = w.session !== undefined && !w.caller?.ok
-      ? store.attempts(herdId, name).find((a) => a.id !== active?.id && a.bindingKey === undefined && a.legacySession === w.session)
+      ? all.find((a) => a.id !== active?.id && a.bindingKey === undefined && a.legacySession === w.session)
       : undefined;
     const stale = (id: string) => refuse("stale-binding", `job "${name}" did not accept this ${what}: attempt ${id} no longer holds job ${name}; a newer worker replaced it`);
-    if (active && active.bindingKey === undefined) {
+    if ((active && active.bindingKey === undefined) || all.every((a) => a.activatedAt === undefined)) {
       if (w.named && w.harness === undefined && w.session !== undefined && w.session === job.agentSession) return null;
       if (replaced) return stale(replaced.id);
       return refuse("refused", `job "${name}" did not accept this ${what}: it is not from the session that works the job`);
@@ -356,32 +358,46 @@ export function createHerdHandlers(deps: HerdDeps) {
    * A worker launched for an attempt that never took its job (its policy
    * unproven, its activation refused) holds nothing, so it is closed and its
    * attempt ended. A worker rt cannot find or close keeps the attempt
-   * reserved, which recovery judges and only a new spawn replaces.
+   * reserved, which recovery judges and only a new spawn replaces. A worker
+   * that took its job but was definitely never sent its work (`unsent`) has
+   * its active attempt ended whether or not rt could close it, since it holds
+   * a job it is not working. Returns what rt did to the worker: its session
+   * ended, its pane closed, or null when it could not close it.
    */
-  /** What rt did to the worker: its session ended, its pane closed, or null when it could not close it. */
-  async function closeUntakenWorker(herd: HerdRow, attemptId: string, mode: Mode, kept: { agentId: string; paneId?: string }): Promise<"session" | "pane" | null> {
-    if (store.getAttempt(attemptId)?.state !== "reserved") return null;
+  async function closeUntakenWorker(herd: HerdRow, attemptId: string, mode: Mode, kept: { agentId: string; paneId?: string; unsent?: true }): Promise<"session" | "pane" | null> {
+    const state = store.getAttempt(attemptId)?.state;
+    if (kept.unsent && state === "active") {
+      const closed = await closeKeptWorker(herd, attemptId, mode, kept);
+      store.endAttempt(attemptId, ["active"]);
+      return closed;
+    }
+    if (state !== "reserved") return null;
+    const closed = await closeKeptWorker(herd, attemptId, mode, kept);
+    if (closed) attempts.endJobAttempt(attemptId);
+    return closed;
+  }
+
+  async function closeKeptWorker(herd: HerdRow, attemptId: string, mode: Mode, kept: { agentId: string; paneId?: string }): Promise<"session" | "pane" | null> {
     const context = { herd: herd.id, attempt: attemptId, agent: kept.agentId };
     let closed = false;
     const binding = listBindingsByAgent(sessionDb(), kept.agentId).find((b) => b.attemptId === attemptId && !isDetachedAttachment(b));
     const pane = binding?.attachment.pane ?? kept.paneId;
     if (mode === "headless") {
       if (!binding) {
-        log.warn(context, "herd: a worker that never took its job has no live session to end");
+        log.warn(context, "herd: a worker that never took its job or its work has no live session to end");
         return null;
       }
       try {
         const ended = await endSession(binding.key);
         closed = ended.ok;
-        if (!ended.ok) log.warn({ ...context, error: ended.error.message }, "herd: could not end a worker that never took its job");
+        if (!ended.ok) log.warn({ ...context, error: ended.error.message }, "herd: could not end a worker that never took its job or its work");
       } catch (err) {
-        log.warn({ ...context, err }, "herd: ending a worker that never took its job threw");
+        log.warn({ ...context, err }, "herd: ending a worker that never took its job or its work threw");
       }
     } else if (pane) {
       closed = await closePane(herd.herdrSocket, pane, context);
     }
     if (!closed) return null;
-    attempts.endJobAttempt(attemptId);
     return mode === "headless" ? "session" : "pane";
   }
 
@@ -512,8 +528,8 @@ export function createHerdHandlers(deps: HerdDeps) {
         // Only statuses the worker itself reached count: `spawning` and
         // `stuck-at-modal` legitimately have no agent yet, and a finished job
         // is expected to have none. A bound worker's own integration says
-        // instead, and only a confirmed death counts.
-        sessionDead: liveness !== undefined ? LIVE_WORKER_STATUSES.has(j.status) && liveness === "dead"
+        // instead: only a confirmed death counts, and no evidence proves nothing.
+        sessionDead: liveness !== undefined ? liveness === "unknown" ? null : LIVE_WORKER_STATUSES.has(j.status) && liveness === "dead"
           : paneRow === null ? null : LIVE_WORKER_STATUSES.has(j.status) && paneRow.agent !== harness,
         ...(liveness !== undefined && { liveness }),
         lastGateStatus: last?.status ?? null,
@@ -724,6 +740,15 @@ export function createHerdHandlers(deps: HerdDeps) {
       // on the tab label and would focus the dead tab instead of launching.
       if (prior && !fenced) await closeWorker(herd, prior);
 
+      // Reserved before any tree is provisioned, so a reservation that fails leaves no tree claimed for nothing.
+      const predecessor = store.activeAttempt(herdId, name);
+      const reserved = attempts.reserveJobAttempt({ herd: herdId, job: name, selection, mode, ...(predecessor && { replaces: predecessor.id }) });
+      if (!reserved.ok) {
+        if (fenced) return { ok: false, error: `the job's attempt could not be recorded: ${reserved.error.message}` };
+        log.warn({ herd: herdId, job: name, error: reserved.error.message }, "herd: job attempt not recorded");
+      }
+      const attemptId = reserved.ok ? reserved.data.id : undefined;
+
       let worktree = str(p?.dir); let branch: string | null = prior?.branch ?? null; let tree: string | null = prior?.tree ?? null;
       // On, a respawn keeps the tree that is still its job's own: provisioning
       // the job's branch again is refused while that tree holds it.
@@ -733,7 +758,10 @@ export function createHerdHandlers(deps: HerdDeps) {
       let wasOnDeck: boolean | null = null;
       if (!worktree) {
         const prov = await deps.worktree["worktree:provision"]({ repoName: herd.repo, branch: name, disposal: "job", owner: `herd:${herdId}` });
-        if (!prov.ok) return { ok: false, error: `provision failed: ${prov.error}` };
+        if (!prov.ok) {
+          if (attemptId !== undefined) attempts.endJobAttempt(attemptId);
+          return { ok: false, error: `provision failed: ${prov.error}` };
+        }
         worktree = prov.data.path as string; branch = prov.data.branch as string; tree = prov.data.tree as string;
         wasOnDeck = prov.data.wasOnDeck === true;
       }
@@ -742,13 +770,6 @@ export function createHerdHandlers(deps: HerdDeps) {
       const disposable = p?.disposable ?? prior?.disposable ?? false;
 
       const workerId = deps.mintWorkerId(name);
-      const predecessor = store.activeAttempt(herdId, name);
-      const reserved = attempts.reserveJobAttempt({ herd: herdId, job: name, selection, mode, ...(predecessor && { replaces: predecessor.id }) });
-      if (!reserved.ok) {
-        if (fenced) return { ok: false, error: `the job's attempt could not be recorded: ${reserved.error.message}` };
-        log.warn({ herd: herdId, job: name, error: reserved.error.message }, "herd: job attempt not recorded");
-      }
-      const attemptId = reserved.ok ? reserved.data.id : undefined;
       // On, the old worker is closed only once its replacement is chosen, placed
       // and reserved, so any refusal above leaves it running and holding the job.
       if (prior && fenced) await closeWorker(herd, prior);
@@ -784,7 +805,11 @@ export function createHerdHandlers(deps: HerdDeps) {
         if (fenced && attemptId !== undefined) {
           // A kept session that never took its job is closed and its attempt ended; one rt cannot close stays reserved for recovery.
           const closed = "kept" in started ? await closeUntakenWorker(herd, attemptId, mode, started.kept) : null;
-          if (!("kept" in started)) attempts.endJobAttempt(attemptId);
+          if (!("kept" in started)) {
+            // No session is left, so the attempt is ended whether or not it took the job.
+            attempts.endJobAttempt(attemptId);
+            store.endAttempt(attemptId, ["active"]);
+          }
           // The row names the worker of whichever attempt holds the job: a replacement that never took it gives the row back,
           // and a job no worker holds is crashed, never left spawning.
           const holder = store.activeAttempt(herdId, name);
@@ -797,7 +822,8 @@ export function createHerdHandlers(deps: HerdDeps) {
           if (!("kept" in started)) return started;
           if (closed === null) return { ok: false, error: started.error };
           const did = closed === "session" ? "rt ended its session and its job attempt" : "rt closed its pane and ended its job attempt";
-          return { ok: false, error: `${started.kept.cause}. Agent ${started.kept.agentId} never took job ${name}, so ${did}; nothing of it is left running` };
+          const never = started.kept.unsent ? `was never sent its work for job ${name}` : `never took job ${name}`;
+          return { ok: false, error: `${started.kept.cause}. Agent ${started.kept.agentId} ${never}, so ${did}; nothing of it is left running` };
         }
         // A kept session may have started, so its attempt stays reserved, holding nothing, for recovery to judge.
         if ("kept" in started) return { ok: false, error: started.error };

@@ -51,15 +51,15 @@ export function ownerFromEnv(env: NodeJS.ProcessEnv): string | null {
 
 /**
  * The binding's key, which survives a resume or continuation of the same
- * session. A herd attempt (the caller's assignment, else the one its binding
- * was launched for) qualifies it, so a replacement attempt on the same
- * session is never its predecessor. `binding:K` and `binding:K:attempt:X` are
- * different owners by design: a session's work outside an attempt and its
- * work inside one never share a lease.
+ * session. The herd attempt its binding was launched for qualifies it, so a
+ * replacement attempt on the same session is never its predecessor.
+ * `binding:K` and `binding:K:attempt:X` are different owners by design: a
+ * session's work outside an attempt and its work inside one never share a
+ * lease.
  */
 export function ciLeaseOwner(context: CallerContext): string {
   const owner = `binding:${context.binding.key}`;
-  const attempt = context.assignment?.attemptId ?? context.binding.attemptId;
+  const attempt = context.binding.attemptId;
   return attempt !== undefined ? `${owner}:attempt:${attempt}` : owner;
 }
 

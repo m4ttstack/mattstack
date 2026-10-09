@@ -59,7 +59,7 @@ function bind(identity: string, native: NativeSessionRef, attemptId?: string): S
 
 const claude = (value: string): NativeSessionRef => ({ harness: "claude", profile: "default", kind: "id", value });
 const codex = (value: string): NativeSessionRef => ({ harness: "codex", profile: "default", kind: "id", value });
-const managed = (binding: SessionBinding, attemptId: string, job = "j1"): CallerContext => ({ binding, assignment: { herd: "h1", job, attemptId } });
+const managed = (binding: SessionBinding, attemptId: string): CallerContext => ({ binding: { ...binding, attemptId } });
 
 async function call(name: string, ctx: ToolContext, input: Record<string, unknown> = {}, defs = tools()) {
   return tool(name, defs).handler({ mrUrl: MR, ...input }, {}, undefined, ctx);
@@ -82,7 +82,7 @@ describe("ciLeaseOwner", () => {
     expect(ciLeaseOwner(managed(b, "att-1"))).toBe(`binding:${b.key}:attempt:att-1`);
   });
 
-  test("a binding launched for an attempt is qualified by it without an assignment", () => {
+  test("a binding launched for an attempt is qualified by it", () => {
     const b = bind("remy.ab12", claude("sess-1"), "att-1");
     expect(ciLeaseOwner({ binding: b })).toBe(`binding:${b.key}:attempt:att-1`);
     expect(ciLeaseOwner({ binding: b })).toBe(ciLeaseOwner(managed(b, "att-1")));
@@ -111,8 +111,8 @@ describe("ciLeaseOwner", () => {
 
 describe("CI leases follow the caller's binding", () => {
   test("two harnesses cannot release each other's lease", async () => {
-    const a = as(managed(bind("remy.ab12", claude("sess-a"), "att-a"), "att-a", "ja"));
-    const b = as(managed(bind("kai.cd34", codex("thread-b"), "att-b"), "att-b", "jb"));
+    const a = as(managed(bind("remy.ab12", claude("sess-a"), "att-a"), "att-a"));
+    const b = as(managed(bind("kai.cd34", codex("thread-b"), "att-b"), "att-b"));
     expect(await call("ci_lease_claim", a)).toMatchObject({ ok: true, body: { claimed: true } });
     const releaseByForeign = await release(b);
     expect(releaseByForeign.ok).toBe(false);

@@ -579,7 +579,7 @@ describe("herd:status over observations", () => {
     const h = handlers({ switchOn: true, observe: async () => ({ ok: false, error: { code: "transient", message: "closed" } }) });
     const res = await h["herd:status"]({ herd: "demo-1" });
     if (!res.ok) throw new Error(res.error);
-    expect(res.data.jobs[0]).toMatchObject({ sessionDead: false, liveness: "unknown" });
+    expect(res.data.jobs[0]).toMatchObject({ sessionDead: null, liveness: "unknown" });
   });
 
   test("with the switch off nothing is observed and the row is unchanged", async () => {

@@ -21,7 +21,6 @@ import type { RelocationInSession } from "../../agent-integrations/claude/reloca
 import {
   applyWorktreeEvent, findManagedTreeByPath, liveHolder, worktreeOwner, type WorktreeDeps,
 } from "../../agent-integrations/worktrees.ts";
-import { canon } from "../../fs-canon.ts";
 
 type Verb = "worktree:registered" | "worktree:entered";
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
@@ -80,7 +79,7 @@ export function createRelocationHandlers(deps: RelocationHandlerDeps): { [K in V
       if (!deps.autoAccept()) return refused("relocation auto-accept is off; the person answers the prompt");
       const target = resolve(cwd, path);
       const tree = findManagedTreeByPath(target, worktrees);
-      deps.inSession?.noteAnswer(caller.link.sessionId, tree?.path ?? canon(target));
+      deps.inSession?.noteAnswer(caller.link.sessionId);
       const holder = liveHolder(target, worktrees);
       if (holder !== null && holder.owner !== worktreeOwner(caller.context)) return refused(`${holder.tree} belongs to another session`);
       return { ok: true, data: { registered: tree !== null } };

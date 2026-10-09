@@ -295,8 +295,12 @@ function withoutPackClear(env: Record<string, string> | undefined): Record<strin
 
 const agentOwner = (id: string): string => `agent:${id}`;
 
-/** A bound launch's result; `kept` marks a failure after which a session may exist, so nothing is rolled back. */
-type BoundResult = CommandResult<"agent:start"> | { ok: false; error: string; kept: true; cause: string };
+/**
+ * A bound launch's result; `kept` marks a failure after which a session may
+ * exist, so nothing is rolled back, and `unsent` that its work was definitely
+ * never delivered.
+ */
+type BoundResult = CommandResult<"agent:start"> | { ok: false; error: string; kept: true; cause: string; unsent?: true };
 
 /** Every launch (start and resume, herdr and headless) stamps the gate-protocol env. */
 function gateEnvFor(rec: AgentRecord): Record<string, string> {
@@ -408,8 +412,10 @@ type AgentHandlers =
  * A start's outcome; `kept` names the agent rt kept because its session may
  * have started, the pane when one is known, and `cause`, the failure alone,
  * for a caller that ends the session itself and so must not say it was kept.
+ * `unsent` says the session took its job but its work was definitely never
+ * delivered.
  */
-export type AgentStartOutcome = CommandResult<"agent:start"> | { ok: false; error: string; kept: { agentId: string; paneId?: string; cause: string } };
+export type AgentStartOutcome = CommandResult<"agent:start"> | { ok: false; error: string; kept: { agentId: string; paneId?: string; cause: string; unsent?: true } };
 
 export function createAgentHandlers(opts: AgentHandlerOpts): AgentHandlers {
   return createAgentService(opts).handlers;
@@ -595,7 +601,8 @@ export function createAgentService(opts: AgentHandlerOpts): {
     if (!work.ok) {
       const a = prepared.data.attachment;
       const running = a.pane !== undefined || a.pid !== undefined || a.socket !== undefined;
-      return failed(rec, work.error.message, work.error.code === "ambiguous" || running);
+      const ambiguous = work.error.code === "ambiguous";
+      return failed(rec, work.error.message, ambiguous || running, !ambiguous);
     }
     applyBinding(rec, work.data.binding, work.data.surface);
     if (resultPath !== undefined) finishWhenDone(rec, resultPath, work.data.completion);
@@ -603,8 +610,8 @@ export function createAgentService(opts: AgentHandlerOpts): {
   }
 
   /** `kept` when a session may exist: the record and its prompt stay, and say so, instead of being rolled back. */
-  function failed(rec: AgentRecord, message: string, kept: boolean): BoundResult {
-    return kept ? { ok: false, kept: true, cause: message, error: keptError(rec, message) } : { ok: false, error: message };
+  function failed(rec: AgentRecord, message: string, kept: boolean, unsent = false): BoundResult {
+    return kept ? { ok: false, kept: true, cause: message, error: keptError(rec, message), ...(unsent && { unsent: true as const }) } : { ok: false, error: message };
   }
 
   function keptError(rec: AgentRecord, message: string): string {
@@ -886,7 +893,7 @@ export function createAgentService(opts: AgentHandlerOpts): {
         })
         : await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, extra);
       if (!res.ok) {
-        if ("kept" in res) return { ok: false, error: res.error, kept: { agentId: rec.id, ...(rec.paneId !== undefined && { paneId: rec.paneId }), cause: res.cause } };
+        if ("kept" in res) return { ok: false, error: res.error, kept: { agentId: rec.id, ...(rec.paneId !== undefined && { paneId: rec.paneId }), cause: res.cause, ...(res.unsent && { unsent: true as const }) } };
         deleteAgent(rec.id, db);
         removeAgentPromptDir(rec.id, log);
         return { ok: false, error: res.error };
