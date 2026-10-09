@@ -83,8 +83,10 @@ the rt:settings skill, 'Changing the org repo's layout'."
 same sentence. The throw makes the migration `failed`, which is not
 recorded, so it runs again next update; tests that exercise a migration hit
 it directly. The mark lives in rt-client's write module (a module-level flag
-with a setter, cleared in a `finally`), so a write through any helper is
-caught.
+with a setter, cleared in a `finally`), so a write through any helper that
+calls one of the module's four store-writing functions (`setSetting`,
+`unsetSetting`, `pruneStoreName`, `renameRepoSection`) is caught. The refusal
+is its own error class, so the run reports the sentence itself, not a bug.
 
 ## Team directory as layout 3
 

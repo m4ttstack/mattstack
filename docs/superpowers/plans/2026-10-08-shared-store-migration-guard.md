@@ -91,9 +91,12 @@ Steps:
 - Produces, in `write.ts`, exported from rt-client's index next to `setSetting`:
 
 ```ts
+/** An org- or team-scope write made while shared writes are refused. Its message is the refusal sentence. */
+export class SharedStoreWriteRefused extends Error {}
+
 let sharedWriteRefusal: string | null = null;
 
-/** While set, org- and team-scope writes throw this sentence. Returns the previous value so a caller can restore it. */
+/** While set, org- and team-scope writes throw SharedStoreWriteRefused with this sentence. Returns the previous value so a caller can restore it. */
 export function refuseSharedWrites(sentence: string | null): string | null {
   const was = sharedWriteRefusal;
   sharedWriteRefusal = sentence;
@@ -101,11 +104,11 @@ export function refuseSharedWrites(sentence: string | null): string | null {
 }
 
 function assertSharedWriteAllowed(scope: SettingScope): void {
-  if (sharedWriteRefusal !== null && (scope === "org" || scope === "team")) refuse(sharedWriteRefusal);
+  if (sharedWriteRefusal !== null && (scope === "org" || scope === "team")) throw new SharedStoreWriteRefused(sharedWriteRefusal);
 }
 ```
 
-  Call `assertSharedWriteAllowed(scope)` as the first statement of `setSetting`, `unsetSetting` (before the retired-key branch) and `pruneStoreName`.
+  Call `assertSharedWriteAllowed(scope)` as the first statement of `setSetting`, `unsetSetting` (before the retired-key branch), `pruneStoreName` and `renameRepoSection`. Those are the four exported functions in `write.ts` that write a store.
 - Produces, in `lib/setup/migrations/index.ts`:
 
 ```ts
@@ -126,15 +129,17 @@ run: async (ctx) => {
 },
 ```
 
-  Import `refuseSharedWrites` through `lib/settings/write.ts`, the barrel the migrations use, so both sides share one module instance.
+  Import `refuseSharedWrites` and `SharedStoreWriteRefused` through `lib/settings/write.ts`, the barrel the migrations use, so both sides share one module instance.
+- In `runUpdateWith`'s catch (`apply.ts` L397-414), before the `item.migrationId` branch, add `err instanceof SharedStoreWriteRefused` → `outcome = { state: "failed", detail: err.message }`, so the refusal reads as itself rather than as `bug: ...`. It is not recorded, so it runs again.
 
 Steps:
-- [ ] **Step 1: Write the failing tests.** Use `seedOrg` under the test HOME, admin `me`, team `claim`, and `runUpdateWith(steps, [migration], ctx)` with an empty steps list (follow `lib/setup/__tests__/migration-sdm-resources-key.test.ts` for the `ctx` setup). Cases:
-  1. A migration calling `setSetting("board.slack", { singleTemplate: "x" }, "team", { team: "claim" })` ends `failed`, its detail contains `SHARED_STORE_REFUSAL`, and the team store is unchanged.
+- [ ] **Step 1: Write the failing tests.** Use `seedOrg` under the test HOME, with admin `me` and team `claim`. Call `runUpdateWith([], [migration], ctx)` with `ctx = { p: fakeProbes({ home }), emit: () => {}, log: () => {} }`, following `lib/setup/__tests__/migrations.test.ts` L71-78. `log` is required because the run logs a thrown migration. Cases:
+  1. A migration calling `setSetting("board.slack", { singleTemplate: "x" }, "team", { team: "claim" })` ends `failed`, its detail is exactly `SHARED_STORE_REFUSAL`, and the team store is unchanged.
   2. One calling `setSetting("rt.logLevel", "debug", "user")` ends `done`.
-  3. A migration whose id is temporarily added to `SHARED_STORE_MIGRATIONS` (mutate a copy through an injected list if the constant is frozen; otherwise add a test-only id and remove it in `afterEach`) may write `team`.
+  3. A test migration given the real allowlisted id `2026-10-07-sdm-resources-key` may write `team`.
   4. A migration that throws after a refused write leaves the flag cleared: a later `setSetting(..., "team")` outside any migration succeeds.
   5. A helper defined outside `lib/setup/migrations/` that writes `org` is refused when a migration calls it.
+  6. `unsetSetting`, `pruneStoreName` and `renameRepoSection` at `team` scope are each refused inside a migration.
 
   Run it and expect FAIL.
 - [ ] **Step 2: Implement.** Make the changes above, then rebuild rt-client. Run the new test, `lib/setup/__tests__/migration-sdm-resources-key.test.ts`, `lib/setup/__tests__/migrations.test.ts`, `packages/rt-client/src/settings/__tests__/write.test.ts` and `packages/rt-client/test/dist-freshness.test.ts`. Expect PASS.
@@ -192,7 +197,11 @@ describe("setup migrations never write the org or team stores", () => {
 });
 ```
 
-  The check reads scope literals anywhere in the call's arguments, so an object literal with commas cannot shift it. A write whose scope is a variable counts as a hit. The runtime refusal (Task 2) is the backstop for anything this regex misses. Add unit cases for `sharedStoreHits` covering `"team"`, `"org"`, a variable scope, `"user"`, and a `teamSettingsPath` mention.
+  The check reads scope literals anywhere in the call's arguments, so an object literal with commas cannot shift it. A write whose scope is a variable counts as a hit. The runtime refusal (Task 2) is the backstop for anything this regex misses. Add unit cases for `sharedStoreHits`:
+  - `"team"`, `"org"` and a variable scope are hits;
+  - `"user"` is not;
+  - a `teamSettingsPath` mention is a hit;
+  - a known miss, `setSetting("k", f("user"), "team")`, is caught by the `"team"` literal; note in the test that `setSetting("k", f("team"), scopeVar)` with a nested literal is left to the runtime refusal.
 
 Steps:
 - [ ] **Step 1: Write the test and confirm it catches a bad migration.** Temporarily add `lib/setup/migrations/zz-probe.ts` containing `export const x = { id: "zz", run: () => setSetting("a", 1, "team") };`. Run `bun test lib/__tests__/no-shared-store-migrations.test.ts` and expect `zz-probe.ts` to FAIL with the sentence. Delete the probe and expect PASS.
@@ -205,16 +214,18 @@ Steps:
 **Files:**
 - Modify: `lib/team/org-marker.ts`, setting `ORG_LAYOUT = 3`. `ORG_LAYOUT_ABSENT_DEFAULT` stays 2.
 - Modify: `packages/rt-client/test/org-fixture.ts`. `SeedOrg` gains `layout?: number`, written into the marker when given. Tests that need a ready org pass `layout: 3`. The fixture cannot import `lib/team`, so tests pass `ORG_LAYOUT` themselves.
-- Modify: every test the bump breaks. Find them with `grep -rln "ORG_LAYOUT\|orgLayoutState\|seedOrg\|role: \"org\"" lib commands scripts packages/rt-client/test packages/rt-client/src`, then run those files.
+- Modify: every test the bump breaks. Find them with `grep -rlnE 'ORG_LAYOUT|orgLayoutState|seedOrg|role: "org"|"role": "org"|\\"role\\": \\"org\\"|layout": 3|layout: 3|reads up to 2' lib commands scripts packages/rt-client/test packages/rt-client/src`. That catches markers written as JSON strings in memFs fixtures, such as `commands/__tests__/skills-init.test.ts` L327 and L361. Run those files, then run all of `commands/__tests__`, `lib/skills/__tests__`, `lib/team/__tests__` and `lib/daemon/__tests__/home-snapshot.test.ts`.
   - A fixture that wants a ready org writes `layout: ORG_LAYOUT`.
   - A test that pins "layout 2 is current" now pins 3.
   - A test that means "an old layout waits" uses 2.
+  - A test that uses 3 to mean "a layout this rt cannot read" now uses 4, or `ORG_LAYOUT + 1`. Known: `lib/skills/__tests__/sync.test.ts` L1046 and L1051, `commands/__tests__/skills-sync.test.ts` L279 and L287, `commands/__tests__/team.test.ts` L741-742, and the layout 3 cases in `lib/team/__tests__/org-marker.test.ts`.
 - Modify: root `AGENTS.md` L51. "moves only with a breaking change to the repo's shape" becomes "moves only with a breaking change to the repo's shape or to the shared settings' shape".
 - Test: `lib/team/__tests__/org-layout.test.ts`. Add: a layout 2 marker reads `waiting`, a layout 3 marker reads `ready`, and a marker with no layout reads `waiting`.
 
 Steps:
 - [ ] **Step 1: Write the new `org-layout` cases.** Run them and expect FAIL.
-- [ ] **Step 2: Bump and fix fixtures.** Run every file the grep found, plus `lib/daemon/__tests__/home-snapshot.test.ts`, `lib/skills/__tests__/`, `lib/team/__tests__/`, `commands/__tests__/member-upgrade.test.ts`, `scripts/__tests__/move-team-packs.test.ts` and `lib/setup/__tests__/`. Expect PASS. `scripts/lib/move-team-packs.ts` keeps `MOVED_LAYOUT = 2`, which is correct: that script produces layout 2.
+- [ ] **Step 2: Bump and fix fixtures.** Run every file the grep found, plus `commands/__tests__`, `lib/daemon/__tests__/home-snapshot.test.ts`, `lib/skills/__tests__/`, `lib/team/__tests__/`, `scripts/__tests__/move-team-packs.test.ts` and `lib/setup/__tests__/`. Expect PASS.
+  - Side effect to note in the PR: after the bump, a layout 2 clone reads waiting. So `sdm-resources-key` records `skipped` on an admin Mac that has not run it yet, and it will not run again. `scripts/lib/move-team-packs.ts` keeps `MOVED_LAYOUT = 2`, which is correct: that script produces layout 2.
 - [ ] **Step 3: Commit.** Message: `team: ORG_LAYOUT 3, the team directory's layout`.
 
 ---
@@ -222,40 +233,53 @@ Steps:
 ### Task 5: Shared preflight for org conversion scripts
 
 **Files:**
-- Create: `scripts/lib/org-conversion.ts`. Move into it, unchanged in behaviour, the checks in `scripts/move-team-packs-to-plugin.ts` L46-60 and L94-151, generalised:
+- Create: `scripts/lib/org-conversion.ts`, holding the checks from `scripts/move-team-packs-to-plugin.ts`. They throw a typed refusal, never exit, so they are testable in-process:
 
 ```ts
-export interface Conversion {
-  clone: string;
-  git: (...argv: string[]) => string;
-  branch: string;
-  start: string;
+/** A conversion that declines by policy; the script shell prints it with `refuse` and exits 2. */
+export class ConversionRefusal extends Error {
+  constructor(message: string, readonly why?: string, readonly next?: string | string[]) { super(message); }
 }
 
-/** Every check a conversion makes before it writes. Throws UserActionableError or exits through `refuse`. */
-export function preflight(cloneArg: string, admin: string, opts: { managedFolders: readonly string[] }): Conversion
+export interface Clone { path: string; git: (...argv: string[]) => string }
+
+/** The clone root check (today L46-48). Runs before planning, in plan mode too. */
+export function cloneRoot(cloneArg: string): Clone
+
+/** Refuses when any segment of `rel` under the clone is a symbolic link (today's assertNoLink closure, L49-60). */
+export function assertNoLink(clone: string, rel: string): void
+
+/** The write-time checks, in today's order (L94-109, then L136-150). Returns the branch and the commit to roll back to. */
+export function preflight(clone: Clone, admin: string, opts: { managedFolders: readonly string[] }): { branch: string; start: string }
 ```
 
-  The checks, in this order:
-  1. the path is the root of a git clone;
-  2. team sync is off;
-  3. the recorded forge username equals `--admin`;
-  4. the tree is clean, and the managed folders hold no ignored files;
-  5. a branch is checked out;
-  6. after a fetch from origin, the branch is neither ahead nor behind origin.
+  `preflight`'s checks, in this order:
+  1. team sync is off;
+  2. the recorded forge username, read by `basename(clone.path)`, equals `--admin`;
+  3. the tree is clean, and the managed folders hold no ignored files;
+  4. a branch is checked out;
+  5. after a fetch from origin, the branch is neither ahead nor behind origin.
+- Modify: `scripts/move-team-packs-to-plugin.ts`.
+  - Its `refuse` stays in the script. It catches `ConversionRefusal` around `cloneRoot`, `assertNoLink` and `preflight`, and prints it the same way.
+  - Order:
+    1. `cloneRoot`.
+    2. Reading and planning, with `assertNoLink(clone.path, rel)` replacing the closure.
+    3. The plan printout.
+    4. `preflight`, only under `--write`.
+    5. The destination checks (L110-135) and the move.
 
-  Move `refuse` and `assertNoLink` here too, exported.
-- Modify: `scripts/move-team-packs-to-plugin.ts` to call `preflight`. Its move, rollback and output stay as they are.
-- Test: `scripts/__tests__/org-conversion.test.ts`. Use a temp git repo with a bare origin, under the test HOME. Cases:
+    The fetch now runs before the destination checks. That is accepted: both run before any write.
+- Test: `scripts/__tests__/org-conversion.test.ts`. Set `process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-conv-")))` in `beforeEach`, as `move-team-packs.test.ts` does. The preload HOME is not realpath'd, and `git rev-parse --show-toplevel` is, so the root check refuses otherwise. The clone is a git repo at `<HOME>/.mattstack/orgs/acme`, named after the org because `preflight` reads the forge username by the folder name, with a bare origin beside it. Cases:
   - not a clone root refuses;
   - sync on refuses;
   - a dirty tree refuses;
   - no branch refuses;
   - behind origin refuses;
   - ahead of origin refuses;
-  - a clean, current clone returns `{ branch, start }`.
+  - a clean, current clone returns `{ branch, start }`;
+  - `assertNoLink` refuses a symlinked segment.
 
-  Set `rt.teamSnapshot` with `setSetting(..., "machine")` under the test HOME. Write the forge username with `seedOrg({ username })`, or with the same `teamLocalPath` file `seedOrg` writes.
+  Each refusal is asserted as a thrown `ConversionRefusal` with its title. Set `rt.teamSnapshot` with `setSetting(..., "machine")` under the test HOME. Write the forge username with `seedOrg({ username })`, or with the same `teamLocalPath` file `seedOrg` writes.
 
 Steps:
 - [ ] **Step 1: Write the preflight tests.** Run them and expect FAIL.
@@ -268,11 +292,18 @@ Steps:
 
 **Files:**
 - Create: `scripts/move-to-team-directory.ts`. Parse arguments like the layout 2 script (usage `bun scripts/move-to-team-directory.ts <clone-dir> --admin <username> [--write]`), then:
-  1. Read the marker. Refuse `This is not a mattstack org repo` unless it has `role: "org"`. Refuse `This org is already on the team directory layout` when the layout is 3 or more. Refuse `This org is on layout <n>` with why `Convert it to layout 2 first.` when it is below 2.
-  2. Resolve the org slug from the marker's `org`. Refuse `Run this on the org clone rt reads` unless `resolve(clone) === orgDirUnder(home, slug)` (from `lib/team/`), with next `bun scripts/move-to-team-directory.ts ~/.mattstack/orgs/<slug> --admin <username>`.
+  1. `cloneRoot(cloneArg)` (Task 5). Then read the marker with `parseMarker` (`lib/team/org-marker.ts`), so a marker with no `layout` reads 2.
+     - Refuse `This is not a mattstack org repo` unless it is an org marker.
+     - Refuse `This org is already on the team directory layout` when the layout is 3 or more.
+     - Refuse `This org is on layout <n>` with why `Convert it to layout 2 first.` when it is below 2.
+  2. Take the org slug from the marker. Refuse `Run this on the org clone rt reads` unless both hold:
+     - `clone.path === orgDir(slug)` (from `lib/rt-paths.ts`);
+     - `currentOrg() === slug` (from rt-client `settings/stores.ts`), because `setSetting` writes to `currentOrg()`.
+
+     Its next is `bun scripts/move-to-team-directory.ts ~/.mattstack/orgs/<slug> --admin <username>`.
   3. Refuse `<admin> is not an admin of this org` unless the `mattstack.org` admins in the org store list `--admin` (compare with `sameUser`).
-  4. Read the org store and each team folder's store with `readStore`, then call `planDirectoryMove`. A `DirectoryRefusal` becomes `refuse(message, why)`.
-  5. Print the plan as an `out.section` with `plan.report`. Without `--write`, print `Nothing was written` with the usage line as next, and stop.
+  4. Call `assertNoLink(clone.path, rel)` for the marker, the org store and each team store. Read the org store and each team folder's store with `readStore`, then call `planDirectoryMove`. A `DirectoryRefusal` becomes `refuse(message, why)`.
+  5. Print the plan as an `out.section` with `plan.report`. The report names every key it deletes, per store (for example `team claim: remove board.slack.channel, mattstack.integrations.linear.teamKey`), and each entry it adds. Without `--write`, print `Nothing was written` with the usage line as next, and stop.
   6. With `--write`, call `preflight(clone, admin, { managedFolders: ORG_CLONE_FOLDERS })`, then inside a try block:
      - `setSetting("mattstack.directory", plan.directory, "org")` when `plan.directory` is non-null;
      - `apply(slug, writes, "team", { team })` for each team's writes;
@@ -283,13 +314,18 @@ Steps:
      On any throw, `git reset -q --hard <start>` and throw `UserActionableError("move-stopped", "The move stopped partway, and the clone is back as it was")`.
   7. Print `Moved this org onto the team directory in one commit`, with next `git show` and `rt team publish`.
 - Modify: `lib/__tests__/no-settings-bypass.test.ts`. Add entries for the new script if the guard flags it, with reason "converts the org clone rt reads; reads each store's own values".
-- Test: `scripts/__tests__/move-to-team-directory.test.ts`. Run the script with `Bun.spawnSync` and `env: childEnv()` (from `lib/subprocess.ts`) on a `seedOrg` org under the test HOME made into a git repo with a bare origin, with `layout: 2`, admin `me` and sync off. Cases:
+- Test: `scripts/__tests__/move-to-team-directory.test.ts`.
+  - **HOME:** set `process.env.HOME = realpathSync(mkdtempSync(...))` in `beforeEach`, and pass `env: { ...childEnv(), HOME }` to `Bun.spawnSync`.
+  - **Fixture:** a `seedOrg` org named `acme`, made into a git repo with a bare origin, with `layout: 2`, admin `me`, username `me`, and `rt.teamSnapshot` off at machine scope.
+
+  Cases:
   1. Plan mode prints each entry and changes no file.
   2. `--write` writes the directory, deletes the moved keys, writes `layout: 3`, and makes one commit.
   3. A run on a layout 3 clone refuses with "already" and changes nothing.
   4. A path that is a copy of the clone refuses.
   5. `--admin` naming a non-admin refuses.
   6. An existing duplicate in the directory refuses.
+  7. A team store that is a symbolic link refuses.
 
 Steps:
 - [ ] **Step 1: Write the script tests.** Run them and expect FAIL.
@@ -348,9 +384,9 @@ Steps:
 - [ ] **Step 2: Prove both directions.**
   - In a scratch edit, add a registry row with no schema. The test should FAIL naming it.
   - Remove a key from `NO_SCHEMA_YET` that has no schema. It should FAIL.
-  - Give a listed key a schema while leaving it on the list. It should FAIL.
+  - Give a listed key a schema while leaving it on the list. A key's schema reaches `def.schema` through `schema.lock.json`, not straight from `registry-schemas.ts`. So add the zod schema, then run `bun run cli.ts settings schema lock`. The test should FAIL.
 
-  Revert the scratch edits. Run the test, `registry.test.ts` and `schema-examples.test.ts`. Expect PASS.
+  Revert the scratch edits, including `schema.lock.json`, and check `git status` is clean apart from the test file. Run the test, `registry.test.ts` and `schema-examples.test.ts`. Expect PASS.
 - [ ] **Step 3: Commit.** Message: `settings: every new setting has a schema and annotated fields`.
 
 ---
@@ -385,7 +421,7 @@ Steps:
 
 ### Task 9: Whole-branch verification and PR
 
-- [ ] **Step 1:** Run `bun run typecheck`, `bun run console:test`, `bun test lib/setup lib/team lib/__tests__ scripts/__tests__ packages/rt-client/src/settings commands/__tests__/onboarding-org.test.ts commands/__tests__/member-upgrade.test.ts`, `packages/rt-client/test/dist-freshness.test.ts` and `bun run format:check`. Expect PASS.
+- [ ] **Step 1:** Run `bun run typecheck`, `bun run console:test`, `bun test lib/setup lib/team lib/skills lib/__tests__ lib/daemon/__tests__/home-snapshot.test.ts scripts/__tests__ packages/rt-client/src/settings commands/__tests__`, `packages/rt-client/test/dist-freshness.test.ts` and `bun run format:check`. Expect PASS.
 - [ ] **Step 2:** Run `bun run purity`. Expect PASS.
 - [ ] **Step 3:** Open the PR. The body says this replaces the merged, never-released team directory migration with a layout 3 script, and gives the rollout from the `rt:settings` runbook:
   1. Merge this.
@@ -395,3 +431,8 @@ Steps:
   5. Use it on the branch.
   6. Merge the org branch.
   7. Release.
+
+  The body also names:
+  - **The `sdm-resources-key` side effect** from Task 4.
+  - **A docs handoff to Robin.** `website/docs/start/teams.mdx`'s "Moving to the team directory" section describes the removed migration and needs rewriting for the script and branch flow.
+  - **Refusal coverage.** The runtime refusal covers the four store-writing functions in `write.ts`. Anything that writes a store file directly is left to review and the static guard.
