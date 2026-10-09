@@ -1,14 +1,13 @@
 // One manifest command button, shared by the apps table (icon only) and the
 // settings modal's Code block (icon and label), so both keep the same
 // aria-label, tooltip, busy phase and handler.
-import { Button, Icon, Tooltip } from '@mattstack/tui-kit';
+import { Button, Icon } from '@mattstack/tui-kit';
 import { CIRCLE_ARROW_UP, HAMMER, ROCKET } from './icons.ts';
 import { commandButtonLabel, type CommandPhase, type Row } from './logic.ts';
+import { Tooltip } from './Tooltip.tsx';
 
-const BUILD_TIP =
-  'Runs the build command only. The running app does not change until you redeploy.';
-const REDEPLOY_TIP =
-  "Runs this app's deploy command from its linked checkout, so the running app picks up the new code.";
+const BUILD_TIP = 'Build without redeploying';
+const REDEPLOY_TIP = 'Deploy the latest code';
 
 const COMMAND_ICONS: Record<string, string> = { build: HAMMER, deploy: ROCKET };
 const LABELED_ICONS: Record<string, string> = {
@@ -27,9 +26,7 @@ function commandTip(
 ): string {
   if (phase != null) return commandButtonLabel(name, phase);
   if (name === 'build') return BUILD_TIP;
-  return row.newCode
-    ? `New code since last deploy: ${row.newCode.deployed} to ${row.newCode.head}. ${REDEPLOY_TIP}`
-    : REDEPLOY_TIP;
+  return row.newCode ? 'Deploy the new code' : REDEPLOY_TIP;
 }
 
 /** `build` and `deploy` carry an icon; any other manifest command keeps its

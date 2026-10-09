@@ -11,7 +11,6 @@ import {
   Spinner,
   Table,
   TextField,
-  Tooltip,
 } from '@mattstack/tui-kit';
 import { CommandButton } from './CommandButton.tsx';
 import { GLOBE } from './icons.ts';
@@ -28,6 +27,7 @@ import {
   type StatusData,
 } from './logic.ts';
 import { OptimisticSwitch } from './optimistic.tsx';
+import { Tooltip } from './Tooltip.tsx';
 import type { BoardState } from './useBoardState.ts';
 
 /** Shared column widths, one entry per column below, so every section table
@@ -209,14 +209,8 @@ function SiteCell({ row }: { row: Row }) {
       {/* Who owns this row's structure belongs with the row's identity, not
           in the column of things you can click. */}
       {isPlatform(row.managedBy ?? undefined) && (
-        <Tooltip
-          className="cell-tag"
-          tip="this is Deck itself, `deck uninstall` to remove it"
-        >
-          <Chip
-            uppercase
-            aria-label="this is Deck itself, `deck uninstall` to remove it"
-          >
+        <Tooltip className="cell-tag" tip="This is deck itself">
+          <Chip uppercase aria-label="This is deck itself">
             this board
           </Chip>
         </Tooltip>
@@ -260,8 +254,7 @@ function PortCell({ row, data }: { row: Row; data: StatusData }) {
   );
 }
 
-export const OFF_TIP =
-  'Turned off. Turn it on in mattstack.app, Settings > Apps.';
+export const OFF_TIP = 'Off. Turn it on in Settings > Apps';
 
 export function OffBadge() {
   return (
@@ -330,7 +323,7 @@ function VersionColumnCell({ row }: { row: Row }) {
     read-only fact about how the row is served, not a control). */
 function PublicOriginTag({ row }: { row: Row }) {
   if (row.publicOrigin !== 'railway') return null;
-  const tip = 'serving public traffic directly from Railway, not the tunnel';
+  const tip = 'Served from Railway';
   return (
     <Tooltip className="cell-tag" tip={tip}>
       <Chip uppercase aria-label={tip}>
@@ -355,9 +348,7 @@ function PublishCell({
   const label = row.published
     ? `make ${row.name} private`
     : `publish ${row.name}`;
-  const tip = row.published
-    ? 'public — click to make private'
-    : 'private — click to publish';
+  const tip = row.published ? 'Make private' : 'Publish';
   return (
     <>
       {tag}
@@ -385,7 +376,7 @@ function RestartButton({
 }) {
   if (row.enabled === false || !(data.canRestart && row.service)) return null;
   return (
-    <Tooltip tip="Restart service">
+    <Tooltip tip="Restart the app">
       <Button
         variant="subtle"
         size="sm"

@@ -6,13 +6,11 @@ import type { BlockProps } from './block.ts';
 import { escapeClearsDraft } from './escape.ts';
 import { Help } from './Help.tsx';
 
-const ASSIGNED_TIP =
-  'The port deck gave this app. The route points here unless an override is set.';
-const FOLLOWS_TIP =
-  'On: tunnel visitors also see your dev server. Off: they keep getting the assigned port.';
+const ASSIGNED_TIP = 'The port deck gave this app';
+const FOLLOWS_TIP = 'Send public visitors to your dev server too';
 
 function devOverrideTip(host: string, assigned: number | null): string {
-  return `Send ${host} to a dev server you are running on another port. Revert to go back to ${assigned}.`;
+  return `Send ${host} to a dev server on another port`;
 }
 
 /** The draft lives in board state, where it pauses polling, so it starts on

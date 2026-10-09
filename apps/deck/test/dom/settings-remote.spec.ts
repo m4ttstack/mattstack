@@ -11,8 +11,7 @@ import type { Locator, Page } from 'playwright';
 
 import { withBoard } from './rig.ts';
 
-const RAILWAY_DISABLED_TIP =
-  'add sign-in access before pushing this app to Railway (a password alone does not gate the public origin)';
+const RAILWAY_DISABLED_TIP = 'Add Google sign-in first';
 
 function rowFor(page: Page, name: string) {
   return page.locator('[data-part="table-row"]').filter({

@@ -12,10 +12,8 @@ import type { BlockProps } from './block.ts';
 import { Help } from './Help.tsx';
 import { SettingsItem } from './SettingsItem.tsx';
 
-const PUBLIC_TIP =
-  "Publishes this app on your public domain through deck's Cloudflare tunnel. Off: visitors get the tunnel's 404 page.";
-const RAILWAY_TIP =
-  'Pushes this app to Railway so it keeps serving when this Mac is off. Needs Google sign-in; a password alone does not protect it there.';
+const PUBLIC_TIP = 'Serve this app on your public domain';
+const RAILWAY_TIP = 'Keep serving when this Mac is off';
 
 type RemoteStatus = NonNullable<Row['remote']>['status'];
 

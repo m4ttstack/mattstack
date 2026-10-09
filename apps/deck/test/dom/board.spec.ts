@@ -327,7 +327,7 @@ test('an off app: muted off badge with the settings hint, no restart, no command
       });
       expect(await badge.count()).toBe(1);
       const tooltip = healthCell.locator(
-        '[data-part="tooltip"][data-tip="Turned off. Turn it on in mattstack.app, Settings > Apps."]'
+        '[data-part="tooltip"][data-tip="Off. Turn it on in Settings > Apps"]'
       );
       expect(await tooltip.count()).toBe(1);
       expect(
@@ -366,7 +366,7 @@ test('an off app: muted off badge with the settings hint, no restart, no command
       expect(
         await header
           .locator(
-            '[data-part="tooltip"][data-tip="Turned off. Turn it on in mattstack.app, Settings > Apps."]'
+            '[data-part="tooltip"][data-tip="Off. Turn it on in Settings > Apps"]'
           )
           .count()
       ).toBe(1);
@@ -422,10 +422,8 @@ test('public switch flips optimistically before the PUT resolves, and reverts wh
   });
 });
 
-const REDEPLOY_TIP =
-  "Runs this app's deploy command from its linked checkout, so the running app picks up the new code.";
-const BUILD_TIP =
-  'Runs the build command only. The running app does not change until you redeploy.';
+const REDEPLOY_TIP = 'Deploy the latest code';
+const BUILD_TIP = 'Build without redeploying';
 
 function commandButton(page: Page, label: string) {
   return page.getByRole('button', { name: label, exact: true });
@@ -480,9 +478,7 @@ test('deploy icon carries the warn role when the row has new code', async () => 
       const zenithDeploy = commandButton(page, 'deploy zenith');
       expect(await atlasDeploy.getAttribute('class')).toContain('t-warn');
       expect(await zenithDeploy.getAttribute('class')).not.toContain('t-warn');
-      expect(await tipOf(atlasDeploy)).toBe(
-        `New code since last deploy: a3f19c2 to e81d4b0. ${REDEPLOY_TIP}`
-      );
+      expect(await tipOf(atlasDeploy)).toBe('Deploy the new code');
       expect(await tipOf(zenithDeploy)).toBe(REDEPLOY_TIP);
       expect(await tipOf(commandButton(page, 'build zenith'))).toBe(BUILD_TIP);
     },
@@ -550,6 +546,22 @@ test('header settings button is icon-only with its tooltip', async () => {
     await page
       .locator('[data-part="tooltip-card"]', { hasText: 'Deck settings' })
       .waitFor({ state: 'visible', timeout: 2000 });
+  });
+});
+
+test('a tooltip waits 750ms of hover before it appears', async () => {
+  await withBoard(async page => {
+    const card = page.locator('[data-part="tooltip-card"]', {
+      hasText: 'Deck settings',
+    });
+    await page
+      .getByRole('button', { name: 'Deck settings', exact: true })
+      .hover();
+    const hoveredAt = Date.now();
+    await new Promise(r => setTimeout(r, 600));
+    expect(await card.isVisible()).toBe(false);
+    await card.waitFor({ state: 'visible', timeout: 2000 });
+    expect(Date.now() - hoveredAt).toBeGreaterThanOrEqual(700);
   });
 });
 

@@ -1059,8 +1059,7 @@ test('localHosts: a mattstack row answers on .mattstack and .localhost, a user r
 });
 
 test('remoteToggleTip: only a password-only row that is not yet remote is refused', () => {
-  const tip =
-    'add sign-in access before pushing this app to Railway (a password alone does not gate the public origin)';
+  const tip = 'Add Google sign-in first';
   expect(remoteToggleTip(makeRow({ hasPassword: true }))).toBe(tip);
   expect(remoteToggleTip(makeRow({ hasPassword: false }))).toBeUndefined();
   expect(
