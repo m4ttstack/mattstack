@@ -70,8 +70,6 @@ test("teammate's MR after my commented review, slack thread found", async () => 
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1419",
-      "[mark as looking | mark as commented | unmark approved]",
-      "---",
       "# agent actions",
       "follow-up review",
       "ask kim's agent to respond",
@@ -84,15 +82,15 @@ test("teammate's MR after my commented review, slack thread found", async () => 
   `);
   expect(await clickEach(teammateReviewed, ownEnv)).toMatchInlineSnapshot(`
     [
-      "mark as looking → react:eyes:false (stays open)",
-      "mark as commented → react:speech_balloon:false (stays open)",
-      "unmark approved → react:white_check_mark:true (stays open)",
       "follow-up review → launch:re-review",
       "ask kim's agent to respond → ask:respond:kim",
       "redo review → launch:review",
       "resume review → launch:resume-review",
       "view agent review → view-report:review",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1419",
+      "mark as looking → react:eyes:false (stays open)",
+      "mark as commented → react:speech_balloon:false (stays open)",
+      "unmark approved → react:white_check_mark:true (stays open)",
       "open MR post in slack → open:https://slack.example.com/archives/C1/p1",
       "copy for slack → copy",
       "add a note → note",

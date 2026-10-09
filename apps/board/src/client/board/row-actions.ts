@@ -555,9 +555,9 @@ export function rowActions(
       for (const m of getSlackMarks()) {
         const marked = reactions.includes(m.emoji);
         const label = marked ? `unmark ${m.word}` : `mark as ${m.word}`;
-        top.push(
+        slack.push(
           item(
-            'top',
+            'slack',
             `${marked ? 'unreact' : 'react'}-${m.emoji}`,
             label,
             { kind: 'emoji', glyph: m.glyph },

@@ -59,9 +59,10 @@ test('the reaction row toggles a mark and keeps the menu open', async () => {
   await openMenu(teammateReviewed, ownEnv, {
     reactionsReply: ['white_check_mark', 'eyes'],
   });
-  expect(menuLines()[1]).toBe(
+  expect(menuLines()).not.toContain(
     '[mark as looking | mark as commented | unmark approved]'
   );
+  await openSub('slack');
   const toggles = [
     ...document.querySelectorAll(
       '[data-part="contextmenu-row"] [role="menuitem"]'
@@ -89,6 +90,7 @@ test('Enter on a reaction keeps focus on it through the write, and the arrows st
     reactionsReply: ['white_check_mark', 'eyes'],
     reactionsHeld,
   });
+  await openSub('slack');
   const toggle = (title: string) =>
     document.querySelector<HTMLButtonElement>(
       `[data-part="contextmenu-row"] [title="${title}"]`
@@ -127,7 +129,7 @@ test('a blocked reaction is aria-disabled, names its reason, and does not run', 
     blocked?: string
   ): MenuEntry => ({
     key,
-    section: 'top',
+    section: 'slack',
     label,
     glyph: null,
     blocked,
@@ -137,6 +139,7 @@ test('a blocked reaction is aria-disabled, names its reason, and does not run', 
     reaction('react-speech_balloon', 'mark as commented', ' '),
     reaction('react-white_check_mark', 'mark as approved'),
   ]);
+  await openSub('slack');
   const toggles = [
     ...document.querySelectorAll<HTMLButtonElement>(
       '[data-part="contextmenu-row"] [role="menuitem"]'

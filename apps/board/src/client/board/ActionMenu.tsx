@@ -95,7 +95,7 @@ function entryLabel(e: MenuEntry, text: string) {
 
 /** Context menu anchored at the cursor. The kit's ContextMenu recipe owns
     the shell (box, viewport clamp, dismissals); this draws a list of entries
-    as a short top level (reactions, agent actions) with the rest in flyouts,
+    as a short top level (agent actions) with the rest in flyouts,
     or every section inline when `flat`, plus the stages any entry can ask
     for: a second-click confirm, a picker (bulk menu only; a row menu nests its
     picks in a submenu), and the alt-click note box. */
@@ -340,7 +340,6 @@ function ActionMenu({
     );
 
   const top = entries.filter(e => e.section === 'top');
-  const reactions = top.filter(isReaction);
   const agentItems = entries.filter(e => e.section === 'agent');
   // A remote board's lone hint row already reads "agent actions".
   const agentHeading = !(
@@ -355,32 +354,34 @@ function ActionMenu({
     }))
     .filter(f => f.items.length);
 
+  const reactionRow = (reactions: MenuEntry[]) =>
+    reactions.length > 0 && (
+      <ContextMenu.Row aria-label="slack reactions">
+        {reactions.map(e => {
+          const name = e.blocked
+            ? `${e.label} (${e.blocked.trim() || 'blocked'})`
+            : e.label;
+          // Keyed past the react/unreact flip, so the toggle that has focus
+          // is the same element once the mark lands.
+          return (
+            <ContextMenu.Item
+              key={e.key.replace(/^un/, '')}
+              label={e.glyph ? glyphNode(e.glyph) : e.label}
+              aria-label={name}
+              title={name}
+              trailing={trailingOf(e)}
+              disabled={!!e.blocked}
+              aria-busy={pending.includes(e.key) || undefined}
+              onClick={click(e)}
+            />
+          );
+        })}
+      </ContextMenu.Row>
+    );
+
   return shell(
     <>
-      {reactions.length > 0 && (
-        <ContextMenu.Row aria-label="slack reactions">
-          {reactions.map(e => {
-            const name = e.blocked
-              ? `${e.label} (${e.blocked.trim() || 'blocked'})`
-              : e.label;
-            // Keyed past the react/unreact flip, so the toggle that has focus
-            // is the same element once the mark lands.
-            return (
-              <ContextMenu.Item
-                key={e.key.replace(/^un/, '')}
-                label={e.glyph ? glyphNode(e.glyph) : e.label}
-                aria-label={name}
-                title={name}
-                trailing={trailingOf(e)}
-                disabled={!!e.blocked}
-                aria-busy={pending.includes(e.key) || undefined}
-                onClick={click(e)}
-              />
-            );
-          })}
-        </ContextMenu.Row>
-      )}
-      {top.filter(e => !isReaction(e)).map(renderItem)}
+      {top.map(renderItem)}
       {agentItems.length > 0 && (
         <>
           {top.length > 0 && <ContextMenu.Separator />}
@@ -400,7 +401,11 @@ function ActionMenu({
             label={iconLabel(glyphNode(f.glyph), f.title)}
             ariaLabel={`${f.title} for ${subject}`}
           >
-            {f.items.map(renderItem)}
+            {reactionRow(f.items.filter(isReaction))}
+            {f.items.some(isReaction) && f.items.some(e => !isReaction(e)) && (
+              <ContextMenu.Separator />
+            )}
+            {f.items.filter(e => !isReaction(e)).map(renderItem)}
           </ContextMenu.Sub>
         )
       )}

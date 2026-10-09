@@ -50,15 +50,15 @@ test('an idle own MR blocks what its state cannot run, and hides session rows wi
 
 test("a teammate's reviewed MR with a found thread", () => {
   expect(sections(teammateReviewed, ownEnv)).toEqual([
-    'top:react-eyes',
-    'top:react-speech_balloon',
-    'top:unreact-white_check_mark',
     'agent:re-review',
     'agent:ask-respond',
     'sessions:review',
     'sessions:resume-review',
     'sessions:view-review',
     'gitlab:open-gitlab',
+    'slack:react-eyes',
+    'slack:react-speech_balloon',
+    'slack:unreact-white_check_mark',
     'slack:open-slack-post',
     'slack:copy',
     'more:note',
@@ -754,7 +754,7 @@ const topKeys = (mr: typeof ownIdle) =>
     .filter(a => a.section === 'top')
     .map(a => a.key);
 
-test('an own MR with a found thread leads with the reactions', () => {
+test('an own MR with a found thread keeps its reactions in the slack flyout', () => {
   const mr = mrx(261, {
     slack: {
       status: 'found',
@@ -763,8 +763,12 @@ test('an own MR with a found thread leads with the reactions', () => {
       posted: true,
     },
   });
-  expect(topKeys(mr).every(k => k.startsWith('react-'))).toBe(true);
-  expect(topKeys(mr).length).toBeGreaterThan(0);
+  expect(topKeys(mr)).toEqual([]);
+  expect(
+    rowActions(mr, actionEnvOf(ownEnv, mr))
+      .filter(a => a.key.startsWith('react-'))
+      .every(a => a.section === 'slack')
+  ).toBe(true);
   expect(postItem(mr, ownEnv)!.section).toBe('slack');
 });
 
