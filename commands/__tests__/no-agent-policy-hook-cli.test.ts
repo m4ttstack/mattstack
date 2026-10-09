@@ -14,7 +14,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { createSessionStore } from "../../lib/agent-integrations/session-store.ts";
-import { stopReason } from "../../lib/agent-integrations/policy.ts";
+import { forkDenyReason, stopReason } from "../../lib/agent-integrations/policy.ts";
 import { runStart } from "../../lib/runs/start.ts";
 import { openRunDb, stageStart } from "../../lib/runs/write.ts";
 import { setSetting } from "../../lib/settings/write.ts";
@@ -32,8 +32,8 @@ let runsRoot = "";
 let runId = "";
 
 async function hook(event: "PreToolUse" | "Stop", stdin: string): Promise<{ code: number; stdout: string; stderr: string }> {
-  const env: Record<string, string | undefined> = { ...childEnv(), HOME: home, RT_RUNS_ROOT: runsRoot, RT_SKIP_SETUP: "1", CI: "true" };
-  for (const key of ["CODEX_THREAD_ID", "CODEX_HOME", "CLAUDE_CODE_SESSION_ID", "RT_GATE_SUBJECT", "HERDR_PANE_ID"]) delete env[key];
+  const env: Record<string, string | undefined> = { ...childEnv(), HOME: home, RT_RUNS_ROOT: runsRoot };
+  for (const key of ["CODEX_THREAD_ID", "CODEX_HOME", "CLAUDE_CODE_SESSION_ID", "RT_GATE_SUBJECT", "HERDR_PANE_ID", "CI", "RT_SKIP_SETUP", "RT_APP_SOCKET"]) delete env[key];
   const proc = Bun.spawn(["bun", "run", CLI_PATH, "agent", "policy-hook", "--installation", INSTALLATION, "--event", event], {
     env, stdin: new Blob([stdin]), stdout: "pipe", stderr: "pipe",
   });
@@ -82,6 +82,33 @@ describe("rt agent policy-hook through the dispatcher (spawned)", () => {
 
   test("an unreadable payload passes with `{}` alone on stdout", async () => {
     expect(await hook("Stop", "{not json")).toEqual({ code: 0, stdout: "{}\n", stderr: "" });
+  }, 30_000);
+
+  test("a question the gate service refuses exits 2 with only the refusal on stderr", async () => {
+    const sock = join(home, ".mattstack", "rt", "rt.sock");
+    const seen: string[] = [];
+    const server = Bun.serve({
+      unix: sock,
+      async fetch(req) {
+        const cmd = new URL(req.url).pathname.slice(1);
+        seen.push(cmd);
+        if (cmd === "gate:fork-check") return Response.json({ ok: true, data: { allow: false, subject: "run:r1" } });
+        if (cmd === "agent:policy-receipt") return Response.json({ ok: true, data: { turn: "unknown", diagnostic: false } });
+        return Response.json({ ok: false, error: "unknown command" });
+      },
+    });
+    try {
+      const result = await hook("PreToolUse", JSON.stringify({
+        session_id: THREAD, turn_id: TURN, cwd: home, hook_event_name: "PreToolUse", model: "test-model",
+        permission_mode: "bypassPermissions", tool_name: "request_user_input", tool_input: { questions: [] },
+      }));
+      expect(result.code).toBe(2);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(forkDenyReason("run:r1").replaceAll("AskUserQuestion", "request_user_input"));
+      expect(seen).toEqual(["gate:fork-check", "agent:policy-receipt"]);
+    } finally {
+      server.stop(true);
+    }
   }, 30_000);
 
   test("another thread's Stop passes", async () => {
