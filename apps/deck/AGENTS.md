@@ -159,15 +159,17 @@ tunnel.
   minifier churn in `board.js` is expected; commit source + regenerated bundle
   together.
 - `bun run test` (`bun test core src`) is the scoped suite. `bun run test:dom`
-  is separate and has 11 pre-existing failures on main (structural/text
-  assertions, unrelated to most changes... verify before/after, do not chase).
+  is separate and has 6 pre-existing failures (five in `board.spec`, one in
+  `commands.spec`; structural/text assertions, unrelated to most changes...
+  verify before/after, do not chase).
 
 ## Board surface: canvas ground, tables as card panels
 
 The page ground is `--bg` with the kit's graph-paper grid, replicated by
 hand in `core/board/board.css`'s own `body` rule rather than importing
-`canvas.css` (that file also resets `* { box-sizing: border-box }`, which
-`.drawer-toggle-row` is deliberately written without). Each section's `.apps-grid`
+`canvas.css` (that file also resets `* { box-sizing: border-box }` on every
+element, and deck's rules keep the browser default; kit recipes set
+box-sizing where they need it). Each section's `.apps-grid`
 table sits in a raised `--card` panel, `.apps-panel` (border + radius,
 shared with the mattstack update strip), the same
 bg-then-panel relationship `apps/board` gives its `Panel`-wrapped row groups

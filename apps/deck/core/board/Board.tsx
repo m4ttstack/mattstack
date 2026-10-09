@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import {
   Alert,
@@ -9,15 +9,15 @@ import {
   Tooltip,
 } from '@mattstack/tui-kit';
 import { AppsTable } from './AppsTable.tsx';
-import { AppDrawer } from './drawer/AppDrawer.tsx';
 import { sublineHealthy, type Row } from './logic.ts';
 import { AddAppModal, RemoveConfirm, UnlinkConfirm } from './modals.tsx';
+import { AppSettingsModal } from './settings/AppSettingsModal.tsx';
 import { SettingsModal } from './SettingsModal.tsx';
 import { UpdateStrip } from './UpdateStrip.tsx';
 import { useBoardState } from './useBoardState.ts';
 
 /** Aggregate cloudflare-tunnel health, collapsed to a single header badge that
-    opens the tunnel's drawer on click (the tunnel no longer gets its own row). */
+    opens the tunnel's settings on click (the tunnel has no row of its own). */
 function TunnelBadge({
   tunnels,
   isRestarting,
@@ -25,7 +25,7 @@ function TunnelBadge({
 }: {
   tunnels: Row[];
   isRestarting: (row: Row) => boolean;
-  onOpen: (name: string) => void;
+  onOpen: (name: string, opener: HTMLElement) => void;
 }) {
   if (!tunnels.length) return null;
   const restarting = tunnels.some(isRestarting);
@@ -41,7 +41,7 @@ function TunnelBadge({
   const btn = (
     <button
       className="tunnel-badge"
-      onClick={() => onOpen(tunnels[0]!.name)}
+      onClick={e => onOpen(tunnels[0]!.name, e.currentTarget)}
       aria-label={`cloudflare tunnel ${label}`}
     >
       <svg
@@ -84,13 +84,24 @@ export function Board() {
     if (el) gearRefs.set(name, el);
     else gearRefs.delete(name);
   };
-  const [openRowName, setOpenRowName] = useState<string | null>(null);
+  const [open, setOpen] = useState<{
+    name: string;
+    opener: HTMLElement | null;
+  } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  // Table display order: apps, then strays, then tunnels -- what ↑/↓ walks.
   const allRows = useMemo(
     () => [...sections.flatMap(s => s.rows), ...tunnels],
     [sections, tunnels]
   );
+  const openSettings = useCallback(
+    (name: string, opener?: HTMLElement) =>
+      setOpen({ name, opener: opener ?? gearRefs.get(name) ?? null }),
+    [gearRefs]
+  );
+  const closeSettings = useCallback(() => setOpen(null), []);
+  const openRow = open
+    ? (allRows.find(r => r.name === open.name) ?? null)
+    : null;
   const healthy = data ? sublineHealthy(data) : null;
 
   return (
@@ -114,7 +125,7 @@ export function Board() {
           <TunnelBadge
             tunnels={tunnels}
             isRestarting={isRestarting}
-            onOpen={setOpenRowName}
+            onOpen={openSettings}
           />
           {data && data.canManage && (
             <>
@@ -179,28 +190,39 @@ export function Board() {
                   renders its children inside <table>. */}
               <div className="apps-panel">
                 {section.key === 'mattstack' && (
-                  <UpdateStrip rows={section.rows} />
+                  <UpdateStrip
+                    rows={section.rows}
+                    canManage={data.canManage}
+                    run={board.redeployAllRun}
+                    onRedeployAll={board.redeployAll}
+                  />
                 )}
                 <AppsTable
                   section={section}
                   showHead={i === 0}
                   data={data}
                   board={board}
-                  onOpenRow={setOpenRowName}
+                  onOpenRow={openSettings}
                   registerGear={registerGear}
                 />
               </div>
             </section>
           ))}
-          <AppDrawer
-            rows={allRows}
-            data={data}
-            board={board}
-            openRowName={openRowName}
-            onOpenRowNameChange={setOpenRowName}
-            chevronRefs={gearRefs}
-            fallbackFocusRef={mainRef}
-          />
+          {open && (
+            <AppSettingsModal
+              key={open.name}
+              row={openRow}
+              data={data}
+              board={board}
+              onClose={closeSettings}
+              returnFocusTo={() =>
+                open.opener?.isConnected
+                  ? open.opener
+                  : (gearRefs.get(open.name) ?? null)
+              }
+              fallbackFocusRef={mainRef}
+            />
+          )}
         </>
       )}
       <AddAppModal board={board} />

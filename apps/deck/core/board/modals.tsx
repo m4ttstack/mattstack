@@ -1,10 +1,9 @@
 // Add-app modal: the app's directory first, registered from its
 // mattstack.deck.json the way `deck register --dir` does; only a directory
 // without one gets the hand-filled service form (name, command, directory).
-// Edit now lives in the drawer (EditScreen.tsx); remove is triggered from the
-// drawer's danger row (RootScreen.tsx) but the confirmation itself stays a
-// board-level ConfirmDialog here, per drawer-states-atlas.html's blast-radius
-// copy.
+// Edit lives in the settings modal's App block; remove is triggered from its
+// footer, but the confirmation itself stays a board-level ConfirmDialog here
+// so it stacks over the modal.
 import {
   Alert,
   Button,

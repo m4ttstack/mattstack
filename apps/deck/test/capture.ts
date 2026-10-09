@@ -185,11 +185,13 @@ async function openModal(
   await page.waitForSelector('[data-part="modal"]');
 }
 
-async function openDrawerFor(page: Page, name: string): Promise<void> {
+async function openSettingsFor(page: Page, name: string): Promise<void> {
   await page
     .getByRole('button', { name: `settings for ${name}`, exact: true })
     .click();
-  await page.waitForSelector('[data-part="sidedrawer"]');
+  await page
+    .getByRole('dialog', { name: `settings for ${name}`, exact: true })
+    .waitFor({ state: 'visible' });
 }
 
 // ---- day ----
@@ -251,131 +253,67 @@ await scenario('light', staleFixture, 'notice-error', page =>
   page.waitForSelector('[data-part="alert"][data-intent="bad"]')
 );
 
-// One root screen per row kind (drawer-states-atlas.html "1 · Roots"): a
-// healthy managed app, a broken app (error banner + bad-tone logs hint), a
-// service without a route (reduced root), and a tunnel (facts + restart).
-await scenario('light', baseFixture, 'drawer-root', page =>
-  openDrawerFor(page, 'atlas')
+// The settings modal per row kind: a managed app with a password and a
+// sign-in gate (atlas), the same app with a dev port override, a user app
+// (orbit: App block, override), a service without a route, the tunnel, the
+// public-host read-only view, and the gates block scrolled into view.
+const overrideFixture = structuredClone(baseFixture);
+overrideFixture.apps.find(
+  (a: { name: string }) => a.name === 'atlas'
+).override = { devPort: 5173, basePort: 11001 };
+const readonlyFixture = JSON.parse(
+  readFileSync(join(ROOT, 'test/fixture/status-readonly.json'), 'utf8')
 );
-await scenario('light', baseFixture, 'drawer-root-broken', page =>
-  openDrawerFor(page, 'ledger')
+
+await scenario('light', baseFixture, 'modal-app', page =>
+  openSettingsFor(page, 'atlas')
 );
-await scenario('light', baseFixture, 'drawer-root-service', page =>
-  openDrawerFor(page, 'stray-agent')
+await scenario('light', overrideFixture, 'modal-app-override', page =>
+  openSettingsFor(page, 'atlas')
 );
-// The tunnel has no table row; its header badge opens the drawer.
-await scenario('light', baseFixture, 'drawer-root-tunnel', async page => {
+await scenario('light', baseFixture, 'modal-user-app', page =>
+  openSettingsFor(page, 'orbit')
+);
+await scenario('light', baseFixture, 'modal-service', page =>
+  openSettingsFor(page, 'stray-agent')
+);
+// The tunnel has no table row; its header badge opens the modal.
+await scenario('light', baseFixture, 'modal-tunnel', async page => {
   await page.locator('.tunnel-badge').click();
-  await page.waitForSelector('[data-part="sidedrawer"]');
+  await page
+    .getByRole('dialog', { name: 'settings for cloudflared', exact: true })
+    .waitFor({ state: 'visible' });
 });
-await scenario('light', baseFixture, 'drawer-root-restarting', async page => {
-  await openDrawerFor(page, 'atlas');
-  await page
-    .locator('[data-part="listgroup-action"] button', {
-      hasText: 'restart service',
-    })
+await scenario('light', readonlyFixture, 'modal-readonly', page =>
+  openSettingsFor(page, 'atlas')
+);
+// forecast has no gate; sign-in flipped on with an entry, before Apply.
+await scenario('light', baseFixture, 'modal-access-on', async page => {
+  await openSettingsFor(page, 'forecast');
+  const gates = page.locator('[data-block="gates"]');
+  await gates
+    .getByRole('switch', { name: 'require google sign-in', exact: true })
     .click();
-  await page.waitForSelector(
-    '[data-part="listgroup-action"] button[aria-busy="true"]'
-  );
-});
-
-// Dev port screens (drawer-states-atlas.html "2 · Dev port"): override
-// active (orbit, which carries one in the fixture) and the setting screen
-// mid-edit (atlas, which has none to start).
-await scenario('light', baseFixture, 'drawer-devport', async page => {
-  await openDrawerFor(page, 'orbit');
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: 'dev port' })
-    .click();
-});
-await scenario('light', baseFixture, 'drawer-devport-set', async page => {
-  await openDrawerFor(page, 'atlas');
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: 'dev port' })
-    .click();
-  await page
-    .locator('[data-part="listgroup-action"] button', {
-      hasText: 'set override…',
-    })
-    .click();
-  await page.getByRole('textbox', { name: 'dev port override' }).fill('5173');
-});
-
-// Access screens (drawer-states-atlas.html "3 · Access"): atlas carries a
-// password + oauth emails mode (2 entries) in the fixture, so its root shows
-// both gates on; the who screen and the password screen are entered from it.
-await scenario('light', baseFixture, 'drawer-access', async page => {
-  await openDrawerFor(page, 'atlas');
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: 'access' })
-    .click();
-});
-await scenario('light', baseFixture, 'drawer-access-password', async page => {
-  await openDrawerFor(page, 'atlas');
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: 'access' })
-    .click();
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: 'password' })
-    .click();
-});
-await scenario('light', baseFixture, 'drawer-access-who', async page => {
-  await openDrawerFor(page, 'atlas');
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: 'access' })
-    .click();
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: 'who' })
-    .click();
-});
-
-// Logs screen (drawer-states-atlas.html "4 · Logs, edit, remove"): ledger
-// carries the fixture's one stderr row -- the stderr modal it used to open
-// dies with this baseline.
-await scenario('light', baseFixture, 'drawer-logs', async page => {
-  await openDrawerFor(page, 'ledger');
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: 'logs' })
-    .click();
-});
-
-// Edit and remove (drawer-states-atlas.html "4 · Logs, edit, remove"): a
-// user app's edit screen (name/base port/command/directory, save in nav),
-// and the remove danger row's ConfirmDialog sheet over the root.
-await scenario('light', baseFixture, 'drawer-edit', async page => {
-  await openDrawerFor(page, 'orbit');
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: 'edit app' })
-    .click();
-});
-await scenario('light', baseFixture, 'drawer-remove-confirm', async page => {
-  await openDrawerFor(page, 'atlas');
-  await page
-    .locator('[data-part="listgroup-action"] button', { hasText: 'remove app' })
-    .click();
-  await page.waitForSelector('[data-part="modal"]');
+  const draft = gates.getByRole('textbox', { name: 'add email' });
+  await draft.fill('a@example.com');
+  await draft.press('Enter');
+  await gates.scrollIntoViewIfNeeded();
 });
 
 // ---- night ----
 await scenario('dark', baseFixture, 'board-default-dark');
 await scenario('dark', newcodeFixture, 'board-newcode-dark');
-await scenario('dark', baseFixture, 'drawer-root-dark', page =>
-  openDrawerFor(page, 'atlas')
+await scenario('dark', baseFixture, 'modal-app-dark', page =>
+  openSettingsFor(page, 'atlas')
 );
 await scenario('dark', staleFixture, 'notice-error-dark', page =>
   page.waitForSelector('[data-part="alert"][data-intent="bad"]')
 );
-// The logs box uses the kit's scheme-invariant --terminal-* tokens
-// specifically so it reads the same dark surface in both schemes -- this is
-// the capture that would catch a regression back to a scheme-dependent token
-// (e.g. one that collapses to the page's own light background here).
-await scenario('dark', baseFixture, 'drawer-logs-dark', async page => {
-  await openDrawerFor(page, 'ledger');
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: 'logs' })
-    .click();
-});
+// The Recent errors box uses the kit's scheme-invariant --terminal-* tokens,
+// so this capture catches a regression to a scheme-dependent token.
+await scenario('dark', baseFixture, 'modal-errors-dark', page =>
+  openSettingsFor(page, 'ledger')
+);
 
 await browser.close();
 server.kill();

@@ -15,8 +15,11 @@ const ROOT = join(import.meta.dir, '../..');
 const FIXTURE_DIR = join(ROOT, 'test/fixture');
 
 let sharedBrowser: Browser | null = null;
+// bun kills a timed-out test's child processes, the shared browser included
+// when that test launched it, so every later test would fail on a dead one.
 async function getBrowser(): Promise<Browser> {
-  sharedBrowser ??= await chromium.launch({ headless: true });
+  if (!sharedBrowser?.isConnected())
+    sharedBrowser = await chromium.launch({ headless: true });
   return sharedBrowser;
 }
 

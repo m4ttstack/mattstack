@@ -352,11 +352,16 @@ test('an off app: muted off badge with the settings hint, no restart, no command
       expect(await ledger.locator('[role="switch"]').count()).toBe(0);
 
       await gearFor(page, 'ledger').click();
-      await page.waitForSelector('[data-part="sidedrawer"]');
-      const header = page.locator('.drawer-status');
-      const headerBadge = header.locator('[data-part="badge"]', {
-        hasText: 'off',
+      const dlg = page.getByRole('dialog', {
+        name: 'settings for ledger',
+        exact: true,
       });
+      await dlg.waitFor({ state: 'visible' });
+      const header = dlg.locator('[data-block="status"]');
+      const headerBadge = header.locator(
+        '[data-part="status-pill"] [data-part="badge"]',
+        { hasText: 'Off' }
+      );
       expect(await headerBadge.count()).toBe(1);
       expect(
         await header
@@ -368,18 +373,17 @@ test('an off app: muted off badge with the settings hint, no restart, no command
       expect(await header.locator('[data-part="statusdot"]').count()).toBe(0);
       expect(await header.locator('.t-bad').count()).toBe(0);
       expect(await header.textContent()).not.toContain('unreachable');
-      const drawer = page.locator('[data-part="sidedrawer"]');
+      expect(await dlg.locator('[aria-label="publish ledger"]').count()).toBe(
+        0
+      );
       expect(
-        await drawer.locator('[aria-label="publish ledger"]').count()
+        await dlg.getByRole('button', { name: 'restart ledger' }).count()
       ).toBe(0);
       expect(
-        await drawer.locator('button', { hasText: 'restart service' }).count()
+        await dlg.locator('[aria-label="push ledger to Railway"]').count()
       ).toBe(0);
-      expect(
-        await drawer.locator('[aria-label="push ledger to Railway"]').count()
-      ).toBe(0);
-      for (const group of await drawer.locator('[data-part="listgroup"]').all())
-        expect((await group.textContent())?.trim()).not.toBe('');
+      for (const section of await dlg.locator('[data-block]').all())
+        expect((await section.textContent())?.trim()).not.toBe('');
       expect(consoleErrors(page)).toEqual([]);
     },
     { fixture: 'status-off.json' }
@@ -491,9 +495,9 @@ test('update strip shows the behind count and hides when none', async () => {
     async page => {
       const strip = page.locator('[data-block="update-strip"]');
       expect(await strip.count()).toBe(1);
-      expect((await strip.textContent())?.trim()).toBe(
-        'New code for 3 apps since their last deploy'
-      );
+      expect(
+        (await strip.locator('.update-strip-text').textContent())?.trim()
+      ).toBe('New code for 3 apps since their last deploy');
     },
     { fixture: 'status-newcode.json' }
   );
@@ -644,6 +648,25 @@ test('site mark: a row with an icon shows its brand image, a row without shows i
   );
 });
 
+test('the table has no access glyph cell and no access column', async () => {
+  await withBoard(async page => {
+    expect(await page.locator('[aria-label$=", change access"]').count()).toBe(
+      0
+    );
+    expect(await page.locator('th', { hasText: 'access' }).count()).toBe(0);
+  });
+});
+
+test('no Access modal and no stderr trigger exist on the board at rest', async () => {
+  await withBoard(async page => {
+    expect(await page.locator('[aria-label^="Access ·"]').count()).toBe(0);
+    expect(
+      await page.locator('[aria-label^="show recent stderr for"]').count()
+    ).toBe(0);
+    expect(await page.locator('[data-part="modal"]').count()).toBe(0);
+  });
+});
+
 test('public host: no write controls in the table', async () => {
   await withBoard(
     async page => {
@@ -656,7 +679,20 @@ test('public host: no write controls in the table', async () => {
       ).toBe(0);
 
       await gearFor(page, 'atlas').click();
-      await page.waitForSelector('[data-part="sidedrawer"]');
+      const dlg = page.getByRole('dialog', {
+        name: 'settings for atlas',
+        exact: true,
+      });
+      await dlg.waitFor({ state: 'visible' });
+      expect(await dlg.getByRole('switch').count()).toBe(0);
+      expect(await dlg.locator('input, textarea, select').count()).toBe(0);
+      expect(await dlg.locator('button[aria-label^="restart"]').count()).toBe(
+        0
+      );
+      for (const label of ['relink', 'unlink', 'Route to it', 'Remove app…'])
+        expect(
+          await dlg.getByRole('button', { name: label, exact: true }).count()
+        ).toBe(0);
     },
     { fixture: 'status-readonly.json' }
   );

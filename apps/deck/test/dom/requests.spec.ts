@@ -2,7 +2,7 @@
 // methods. Redesigns move controls around and may only retarget the flow
 // helpers below, never EXPECTED_REQUESTS.
 import { expect, test } from 'bun:test';
-import type { Page, Route } from 'playwright';
+import type { Locator, Page, Route } from 'playwright';
 
 import { withBoard } from './rig.ts';
 
@@ -98,32 +98,42 @@ function sawRequest(key: string): () => boolean {
   return () => requestLog.slice(flowStart).includes(key);
 }
 
-async function openSettings(page: Page, name: string): Promise<void> {
-  if ((await page.locator('[data-part="sidedrawer"]').count()) > 0) {
-    await page.locator('[data-part="drawer-close"]').click();
-    await page.waitForSelector('[data-part="sidedrawer"]', {
-      state: 'detached',
-    });
+function settingsFor(page: Page, name: string): Locator {
+  return page.getByRole('dialog', {
+    name: `settings for ${name}`,
+    exact: true,
+  });
+}
+
+async function openSettings(page: Page, name: string): Promise<Locator> {
+  const open = page.getByRole('dialog', { name: /^settings for / });
+  if ((await open.count()) > 0) {
+    await open.getByRole('button', { name: 'close', exact: true }).click();
+    await open.waitFor({ state: 'detached' });
   }
   await page
     .getByRole('button', { name: `settings for ${name}`, exact: true })
     .click();
-  await page.waitForSelector('[data-part="sidedrawer"]');
+  const dlg = settingsFor(page, name);
+  await dlg.waitFor({ state: 'visible' });
+  return dlg;
 }
 
-async function openScreen(page: Page, label: string): Promise<void> {
-  await page
-    .locator('[data-part="listgroup-nav"] button', { hasText: label })
-    .click();
-}
-
-function navAction(page: Page) {
-  return page.locator('[data-part="drawer-navaction"]');
+function modalBlock(dlg: Locator, id: string): Locator {
+  return dlg.locator(`[data-block="${id}"]`);
 }
 
 async function drivePublish(page: Page): Promise<void> {
   await rowFor(page, 'forecast')
     .locator('[data-part="switch-control"]')
+    .click();
+  await waitFor(sawRequest('PUT /api/v1/apps/:app/publish'));
+}
+
+async function drivePublishInModal(page: Page): Promise<void> {
+  const dlg = await openSettings(page, 'ledger');
+  await modalBlock(dlg, 'reach')
+    .getByRole('switch', { name: 'publish ledger', exact: true })
     .click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/publish'));
 }
@@ -173,116 +183,86 @@ async function driveManualAdd(page: Page): Promise<void> {
 }
 
 async function driveDevPortPublicFollows(page: Page): Promise<void> {
-  await openSettings(page, 'orbit');
-  await openScreen(page, 'dev port');
-  await page
-    .locator('[data-part="listgroup-toggle"] [data-part="switch-control"]')
+  const dlg = await openSettings(page, 'orbit');
+  await modalBlock(dlg, 'port')
+    .getByRole('switch', { name: "serve orbit's dev port publicly" })
     .click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/public-follows-override'));
 }
 
 async function driveDevPortRevert(page: Page): Promise<void> {
-  await openSettings(page, 'orbit');
-  await openScreen(page, 'dev port');
-  await page
-    .locator('[data-part="listgroup-action"] button', {
-      hasText: 'revert to 11007',
-    })
+  const dlg = await openSettings(page, 'orbit');
+  await modalBlock(dlg, 'port')
+    .getByRole('button', { name: 'revert to 11007', exact: true })
     .click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/override'));
 }
 
 async function driveDevPortSave(page: Page): Promise<void> {
-  await openSettings(page, 'atlas');
-  await openScreen(page, 'dev port');
-  await page
-    .locator('[data-part="listgroup-action"] button', {
-      hasText: 'set override…',
-    })
-    .click();
-  await page.getByRole('textbox', { name: 'dev port override' }).fill('5173');
-  await navAction(page).click();
+  const port = modalBlock(await openSettings(page, 'atlas'), 'port');
+  await port
+    .getByRole('textbox', { name: 'dev port override' })
+    .pressSequentially('5173');
+  await port.getByRole('button', { name: 'Route to it', exact: true }).click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/override'));
 }
 
-async function openAccessScreen(page: Page, name: string): Promise<void> {
-  await openSettings(page, name);
-  await page
-    .locator('[data-part="listgroup-nav"]')
-    .filter({
-      has: page.locator('[data-part="listgroup-label"]', { hasText: 'access' }),
-    })
-    .locator('button')
-    .click();
-}
-
-function accessNav(page: Page, label: string) {
-  return page.locator('[data-part="listgroup-nav"]').filter({
-    has: page.locator('[data-part="listgroup-label"]', { hasText: label }),
-  });
-}
-
 async function drivePasswordSet(page: Page): Promise<void> {
-  await openAccessScreen(page, 'forecast');
-  await accessNav(page, 'password').locator('button').click();
-  await page.locator('[aria-label="new password"]').fill('s3cret');
-  await navAction(page).click();
+  const gates = modalBlock(await openSettings(page, 'forecast'), 'gates');
+  await gates.getByLabel('new password', { exact: true }).fill('s3cret');
+  await gates.getByRole('button', { name: 'Save', exact: true }).click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/password'));
 }
 
 async function drivePasswordRemove(page: Page): Promise<void> {
-  await openAccessScreen(page, 'atlas');
-  await accessNav(page, 'password').locator('button').click();
-  await page
-    .locator('button[data-intent="bad"]', { hasText: 'remove password' })
+  const gates = modalBlock(await openSettings(page, 'atlas'), 'gates');
+  await gates
+    .getByRole('button', { name: 'remove password', exact: true })
     .click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/password'));
 }
 
 async function driveGoogleSignInWho(page: Page): Promise<void> {
-  await openAccessScreen(page, 'forecast');
-  await page
-    .locator('[data-part="listgroup-toggle"] [data-part="switch-control"]')
+  const gates = modalBlock(await openSettings(page, 'forecast'), 'gates');
+  await gates
+    .getByRole('switch', { name: 'require google sign-in', exact: true })
     .click();
-  await accessNav(page, 'who').locator('button').click();
-  const draft = page.getByRole('textbox', { name: 'add email' });
+  const draft = gates.getByRole('textbox', { name: 'add email' });
   await draft.fill('a@x.dev');
   await draft.press('Enter');
-  await navAction(page).click();
+  await gates.getByRole('button', { name: 'Apply', exact: true }).click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/access'));
 }
 
 async function driveEditSave(page: Page): Promise<void> {
-  await openSettings(page, 'orbit');
-  await openScreen(page, 'edit app');
-  await page.getByRole('textbox', { name: 'base port' }).fill('12345');
-  await navAction(page).click();
+  const app = modalBlock(await openSettings(page, 'orbit'), 'app');
+  await app
+    .getByRole('textbox', { name: 'base port', exact: true })
+    .fill('12345');
+  await app.getByRole('button', { name: 'Save changes', exact: true }).click();
   await waitFor(sawRequest('PATCH /api/v1/apps/:app'));
 }
 
 async function driveSourceUnlink(page: Page): Promise<void> {
-  await openSettings(page, 'atlas');
-  await openScreen(page, 'source');
-  await page
-    .locator('[data-part="sidedrawer"] [data-part="listgroup-action"] button', {
-      hasText: 'Unlink',
-    })
+  const dlg = await openSettings(page, 'atlas');
+  await modalBlock(dlg, 'code')
+    .getByRole('button', { name: 'unlink', exact: true })
     .click();
   await page
-    .locator('[data-part="modal"] button', { hasText: 'unlink' })
+    .getByRole('dialog', { name: 'unlink atlas?', exact: true })
+    .getByRole('button', { name: 'unlink', exact: true })
     .click();
   await waitFor(sawRequest('PATCH /api/v1/apps/:app'));
 }
 
 async function driveRemove(page: Page): Promise<void> {
-  await openSettings(page, 'atlas');
-  await page
-    .locator('[data-part="listgroup-action"] button', {
-      hasText: 'remove app',
-    })
+  const dlg = await openSettings(page, 'atlas');
+  await modalBlock(dlg, 'danger')
+    .getByRole('button', { name: 'Remove app…', exact: true })
     .click();
   await page
-    .locator('[data-part="modal"] button', { hasText: 'remove app' })
+    .getByRole('dialog', { name: 'remove atlas?', exact: true })
+    .getByRole('button', { name: 'remove app', exact: true })
     .click();
   await waitFor(sawRequest('DELETE /api/v1/apps/:app'));
 }
@@ -294,23 +274,17 @@ async function driveCommand(page: Page): Promise<void> {
 }
 
 async function driveRemoteToggle(page: Page): Promise<void> {
-  await openSettings(page, 'atlas');
-  await page
-    .locator('[data-part="listgroup-toggle"]')
-    .filter({
-      has: page.locator('[data-part="listgroup-label"]', { hasText: 'remote' }),
-    })
-    .locator('[data-part="switch-control"]')
+  const dlg = await openSettings(page, 'atlas');
+  await modalBlock(dlg, 'reach')
+    .getByRole('switch', { name: 'push atlas to Railway', exact: true })
     .click();
   await waitFor(sawRequest('POST /api/v1/apps/:app/remote'));
 }
 
 async function drivePush(page: Page): Promise<void> {
-  await openSettings(page, 'railwayapp');
-  await page
-    .locator('[data-part="listgroup-action"] button', {
-      hasText: 'Push to Railway',
-    })
+  const dlg = await openSettings(page, 'railwayapp');
+  await modalBlock(dlg, 'reach')
+    .getByRole('button', { name: 'Push to Railway', exact: true })
     .click();
   await waitFor(sawRequest('POST /api/v1/apps/:app/push'));
 }
@@ -322,6 +296,7 @@ test('the board page calls exactly the pinned set of /api/ requests', async () =
     await flow(driveRestart, page);
     await flow(driveReloadProxy, page);
     await flow(driveRegisterApp, page);
+    await flow(drivePublishInModal, page);
     await flow(driveDevPortPublicFollows, page);
     await flow(driveDevPortRevert, page);
     await flow(driveDevPortSave, page);
