@@ -144,7 +144,15 @@ export const baseTheme = /* @__PURE__ */ createTheme({
     },
     // Nav labels sit a step below body text (token, not a hardcoded px size).
     NavLink: { defaultProps: { fz: 'sm' } },
-    Notification: { classNames: { root: classes.notificationRoot } },
+    Notification: {
+      classNames: {
+        root: classes.notificationRoot,
+        icon: classes.notificationIcon,
+        title: classes.notificationTitle,
+        description: classes.notificationDescription,
+        closeButton: classes.notificationClose,
+      },
+    },
     // Two extra input variants beyond Mantine's own (see the CSS module):
     // `variant="underline"` and `variant="borderless"`.
     TextInput: { classNames: { input: classes.input } },
