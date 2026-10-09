@@ -191,8 +191,12 @@ export function SearchableMenu<T extends Record<string, unknown>>({
             ? 'var(--mantine-primary-color-light)'
             : undefined
         }
-        rightSection={<Icons.chevronRight size={16} />}
-        p="xs"
+        rightSection={
+          <Text c="gray" lh={0}>
+            <Icons.chevronRight size={16} />
+          </Text>
+        }
+        p={12}
         mb={4}
       >
         <Group gap="xs">
@@ -205,6 +209,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
                   maw="16rem"
                   title={itemTitleText}
                   fw={500}
+                  fz={14}
                   highlight={filterKeyword}
                   color="blue"
                 >
@@ -212,13 +217,16 @@ export function SearchableMenu<T extends Record<string, unknown>>({
                 </Highlight>
               )}
               {itemSubtitle?.(item, filterKeyword) && (
-                <Text size="sm" c="dimmed">
+                <Text
+                  fz={12}
+                  c="light-dark(var(--mantine-color-gray-8), var(--mantine-color-gray-5))"
+                >
                   {itemSubtitle(item, filterKeyword)}
                 </Text>
               )}
             </Flex>
             {showItemBadge?.(item) && (
-              <Badge color={itemBadgeColor?.(item)}>
+              <Badge variant="light" color={itemBadgeColor?.(item)}>
                 {typeof itemBadgeText === 'string'
                   ? itemBadgeText
                   : itemBadgeText?.(item)}
@@ -235,6 +243,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
       opened={opened}
       onChange={handleOpenChange}
       shadow="lg"
+      radius="lg"
       width="28rem"
       position={position}
       portalProps={{ style: { zIndex: 9999 } }}
@@ -263,9 +272,11 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         {toolbar}
         {!hideTitleBar && (
           <Flex px={4} py={4} align="center" justify="space-between">
-            <Center fz="sm" style={{ gap: 8 }}>
+            <Center style={{ gap: 8 }}>
               {titleIcon}
-              <Text>{title}</Text>
+              <Text fz={13} fw={500}>
+                {title}
+              </Text>
             </Center>
             {onViewAllClick && (
               <Button
@@ -284,6 +295,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         )}
         <TextInput
           my={8}
+          styles={{ input: { fontSize: 14 } }}
           value={filterKeyword}
           disabled={loading}
           onChange={event => setFilterKeyword(event.currentTarget.value)}

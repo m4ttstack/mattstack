@@ -85,8 +85,9 @@ function TeamMenu({
       menuTrigger={
         <Button
           size="sm"
-          variant={other ? 'light' : 'default'}
-          color={other ? 'purple' : undefined}
+          variant={other ? 'light' : 'subtle'}
+          color={other ? 'purple' : 'gray'}
+          fz={14}
           aria-label={`team: ${team}, switch team`}
           leftSection={<Icons.users size={15} />}
           rightSection={<Icons.chevronsUpDown size={14} />}

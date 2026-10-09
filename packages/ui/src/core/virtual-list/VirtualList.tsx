@@ -120,6 +120,9 @@ export function VirtualList<T>({
           height: virtualizer.getTotalSize(),
           width: '100%',
           position: 'relative',
+          // Measured rows round to whole pixels; rows that sum a fraction
+          // taller must not leave a one-pixel scroll behind.
+          overflow: 'hidden',
         }}
       >
         <div
