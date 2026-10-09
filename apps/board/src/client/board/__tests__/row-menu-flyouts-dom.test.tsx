@@ -51,6 +51,7 @@ test('a flyout opens with its rows in it', async () => {
     'set auto-merge',
     'mark as draft',
     'open in gitlab',
+    'refresh from gitlab',
   ]);
   expect(harness.closed).toBe(false);
 });
@@ -228,8 +229,6 @@ test('a one-row section renders inline, not as a flyout', async () => {
     ownEnv
   );
   const lines = menuLines();
-  expect(lines).toContain('open in gitlab');
-  expect(lines).not.toContain('> gitlab');
   expect(lines).toContain('add a note');
   expect(lines).not.toContain('> more');
 });

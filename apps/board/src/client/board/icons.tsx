@@ -188,6 +188,8 @@ const MENU_PATHS = {
   note: 'M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2ZM14 21v-5a2 2 0 0 1 2-2h5M7 8h8M7 12h5',
   checks: 'M3 17l2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8',
   chevron: 'M6 9l6 6 6-6',
+  refresh:
+    'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5',
 } as const;
 
 /** The row menu's non-agent icons: what a click lands on, in place of the

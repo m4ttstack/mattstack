@@ -2942,6 +2942,51 @@ const httpServer = Bun.serve({
           });
         }
       }
+      case '/mr/refresh': {
+        // Re-read one MR from GitLab into the daemon's store. The store's
+        // routine sync only re-reads MRs whose updatedAt moved, and some
+        // changes (an approval) never move it.
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { mrUrl, iid } = (body ?? {}) as {
+          mrUrl?: unknown;
+          iid?: unknown;
+        };
+        if (typeof mrUrl !== 'string' || typeof iid !== 'number')
+          return new Response('expected { mrUrl: string, iid: number }', {
+            status: 400,
+          });
+        const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
+        if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        {
+          const mismatch = iidMismatch({ mrUrl, iid }, mr);
+          if (mismatch) return mismatch;
+        }
+        const repoId = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
+        if (!repoId)
+          return new Response('this MR has no rt repo', { status: 400 });
+        const res = await rtCommand(
+          'mr:get',
+          { repoName: repoId, iid, refresh: true },
+          { timeoutMs: 30_000 }
+        );
+        if (!res.ok)
+          return new Response(res.error ?? 'refresh failed', { status: 502 });
+        cache.invalidate();
+        return Response.json({ ok: true });
+      }
       case '/mr/action': {
         // Fire one GitLab-side MR action (merge / rebase / auto-merge arm or
         // cancel) from the row menu, on the seat's own MR only. Which of them

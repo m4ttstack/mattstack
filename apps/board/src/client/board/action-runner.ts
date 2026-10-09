@@ -40,7 +40,7 @@ export interface RunnerDeps {
 
 export type RunnableRequest = Extract<
   ActionRequest,
-  { kind: 'launch' | 'mr' | 'draft' | 'react' | 'ask' }
+  { kind: 'launch' | 'mr' | 'draft' | 'react' | 'ask' | 'refresh' }
 >;
 type PostRequest = Exclude<RunnableRequest, { kind: 'launch' }>;
 
@@ -50,6 +50,7 @@ const RUNNABLE = new Set<ActionRequest['kind']>([
   'draft',
   'react',
   'ask',
+  'refresh',
 ]);
 
 export function isRunnable(req: ActionRequest): req is RunnableRequest {
@@ -197,6 +198,18 @@ function postSpec(req: PostRequest): PostSpec {
         manyFail: list => `couldn't ${verb} ${req.glyph} for ${list}`,
       };
     }
+    case 'refresh':
+      return {
+        path: '/mr/refresh',
+        payload: (mr, url) => ({ mrUrl: url, iid: mr.iid }),
+        pending: mr => `refreshing ${mrRef(mr)} from gitlab…`,
+        done: mr => `refreshed ${mrRef(mr)}`,
+        fail: (mr, r) =>
+          `couldn't refresh ${mrRef(mr)} (${r.status})${r.text ? `: ${r.text}` : ''}`,
+        fresh: true,
+        manyDone: done => `refreshed ${on(done)}`,
+        manyFail: list => `couldn't refresh ${list}`,
+      };
     case 'ask': {
       const reviewer = req.reviewer ?? '';
       return {
