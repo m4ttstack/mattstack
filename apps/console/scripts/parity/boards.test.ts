@@ -7,7 +7,12 @@ import { targetsOf } from '../../../../scripts/parity/config';
 import { hugWidthPaths, readPen } from '../../../../scripts/parity/pen';
 import { app } from './harness';
 
-const pen = readPen(app.penPath);
+const pens = new Map<string, ReturnType<typeof readPen>>();
+const penOf = (board: (typeof app.boards)[number]) => {
+  const path = board.penPath ?? app.penPath;
+  if (!pens.has(path)) pens.set(path, readPen(path));
+  return pens.get(path)!;
+};
 const exportOf = (slug: string, scheme: 'light' | 'dark') =>
   readFileSync(join(app.designDir, `${slug}.${scheme}.html`), 'utf8');
 const layerCount = (html: string, name: string) =>
@@ -22,7 +27,7 @@ const actionLayers = (board: (typeof app.boards)[number]) => {
 };
 
 describe('console parity boards', () => {
-  it('lists the nine boards of the design README', () => {
+  it('lists the twenty boards of the design README', () => {
     expect(app.boards.map(b => b.slug)).toEqual([
       'template-work',
       'template-plan',
@@ -33,7 +38,30 @@ describe('console parity boards', () => {
       'drawer-rebind',
       'unsynced-banner',
       'unsynced-confirm',
+      'runs-lanes',
+      'runs-timeline',
+      'runs-empty',
+      'run-live',
+      'run-gate',
+      'run-record',
+      'run-review-live',
+      'run-two-gates',
+      'run-story-edges',
+      'run-record-abandoned',
+      'run-record-review',
     ]);
+  });
+
+  it('names a dynamic text layer only where its board draws one', () => {
+    for (const board of app.boards) {
+      const html = exportOf(board.slug, 'light');
+      for (const name of board.dynamicText)
+        expect([board.slug, name, layerCount(html, name)]).not.toEqual([
+          board.slug,
+          name,
+          0,
+        ]);
+    }
   });
 
   describe.each(app.boards)('$slug', board => {
@@ -50,7 +78,9 @@ describe('console parity boards', () => {
 
     it('finds each root inside its frame in the pen', () => {
       for (const t of targetsOf(board)) {
-        expect(() => hugWidthPaths(pen, t.root, board.frame)).not.toThrow();
+        expect(() =>
+          hugWidthPaths(penOf(board), t.root, board.frame)
+        ).not.toThrow();
       }
     });
   });

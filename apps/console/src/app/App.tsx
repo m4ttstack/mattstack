@@ -11,8 +11,8 @@ import { NotFoundPage } from './NotFoundPage';
 import { ConsolePalette } from './palette/ConsolePalette';
 import { createQueryClient } from './queryClient';
 import { useAppRoute, type AppRoute } from './routes';
-import { RunBoard } from './runs/RunBoard';
 import { RunDetail } from './runs/RunDetail';
+import { RunsPage } from './runs/runs-page/RunsPage';
 import { RunSearch } from './runs/RunSearch';
 import { explainHref } from './settings/explainParam';
 import { SettingsEmbed } from './settings/SettingsEmbed';
@@ -64,7 +64,7 @@ class RouteErrorBoundary extends Component<
 function RouteContent({ route }: { route: AppRoute }) {
   switch (route.name) {
     case 'board':
-      return <RunBoard />;
+      return <RunsPage />;
     case 'run':
       return <RunDetail repo={route.repo} runId={route.runId} />;
     case 'gate':

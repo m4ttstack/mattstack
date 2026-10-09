@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   decisionLogForRun,
+  gateEndNote,
+  gateKindLabel,
   gateStage,
+  optionViews,
+  pickedText,
+  questionAnswer,
   tookRecommendation,
   waitingOnYou,
 } from './gates';
@@ -120,4 +125,80 @@ describe('waitingOnYou', () => {
       waitingOnYou([gate({ openedAt: 0, status: 'closed', closedAt: 30 })], 999)
     ).toBe(30);
   });
+});
+
+describe('questionAnswer', () => {
+  const q: GateQuestion = {
+    id: 'scope',
+    label: 'Scope',
+    multi: false,
+    options: ['a', 'b'],
+  };
+  const withAnswer = (v: unknown) =>
+    gate({
+      answer: { answers: { scope: v } as never, by: 'console', answeredAt: 1 },
+    });
+
+  it('reads a bare pick', () =>
+    expect(questionAnswer(withAnswer('a').answer, q)).toEqual({
+      picked: ['a'],
+    }));
+  it('reads a multi pick', () =>
+    expect(questionAnswer(withAnswer(['a', 'b']).answer, q)).toEqual({
+      picked: ['a', 'b'],
+    }));
+  it('carries the note and the edited text', () =>
+    expect(
+      questionAnswer(withAnswer({ value: 'a', note: 'n', text: 't' }).answer, q)
+    ).toEqual({ picked: ['a'], note: 'n', text: 't' }));
+  it('is null with no answer or no entry for the question', () => {
+    expect(questionAnswer(null, q)).toBeNull();
+    expect(
+      questionAnswer({ answers: {}, by: 'x', answeredAt: 1 }, q)
+    ).toBeNull();
+  });
+});
+
+describe('gateEndNote', () => {
+  it('reads closed with its reason', () =>
+    expect(
+      gateEndNote(gate({ status: 'closed', closedReason: 'abandoned' }))
+    ).toBe('closed: abandoned'));
+  it('reads superseded alone', () =>
+    expect(
+      gateEndNote(gate({ status: 'closed', closedReason: 'superseded' }))
+    ).toBe('superseded'));
+  it('reads a closed gate with no reason as closed', () =>
+    expect(gateEndNote(gate({ status: 'closed' }))).toBe('closed'));
+  it('is null for a gate that is not closed', () =>
+    expect(gateEndNote(gate({ status: 'answered' }))).toBeNull());
+});
+
+describe('gateKindLabel', () => {
+  it('spells a kind as words', () => {
+    expect(gateKindLabel('review-post')).toBe('Review post');
+    expect(gateKindLabel('respond-plan')).toBe('Respond plan');
+    expect(gateKindLabel('self-review')).toBe('Self review');
+  });
+});
+
+describe('optionViews and pickedText', () => {
+  const q: GateQuestion = {
+    id: 'a',
+    label: 'A?',
+    multi: true,
+    options: [
+      { value: 'x', label: 'Ex (Recommended)' },
+      { value: 'y', label: 'Why' },
+      'bare',
+    ],
+  };
+  it('lifts the recommended marker off the label', () =>
+    expect(optionViews(q)).toEqual([
+      { value: 'x', text: 'Ex', recommended: true },
+      { value: 'y', text: 'Why', recommended: false },
+      { value: 'bare', text: 'bare', recommended: false },
+    ]));
+  it('joins the picked labels and keeps an unknown value as it is', () =>
+    expect(pickedText(q, ['x', 'gone'])).toBe('Ex, gone'));
 });

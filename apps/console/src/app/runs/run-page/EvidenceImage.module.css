@@ -1,0 +1,10 @@
+.open {
+  display: block;
+  width: 100%;
+  cursor: zoom-in;
+}
+
+.missing {
+  min-height: 120px;
+  width: 100%;
+}

@@ -1,0 +1,19 @@
+.row {
+  width: 100%;
+}
+
+.label {
+  flex: 0 0 110px;
+  width: 110px;
+}
+
+.value {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.value > * {
+  flex: 1;
+  min-width: 0;
+}

@@ -1,0 +1,49 @@
+/* The banner's ring and head wash carry the "waiting on you" tone, so they
+   sit on plain elements rather than on a kit card. */
+.banner {
+  width: 100%;
+  overflow: hidden;
+  outline: 1.5px solid var(--tk-fill-bad);
+  outline-offset: -0.75px;
+  border-radius: 12px;
+  background-color: var(--tk-card);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-bad) var(--tk-wash),
+    var(--tk-card)
+  );
+}
+
+.spacer {
+  flex: 1;
+}
+
+.body {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 16px 18px;
+}
+
+.left {
+  flex: 1;
+  min-width: 0;
+}
+
+.right {
+  flex-shrink: 0;
+}
+
+/* An option chip grows to hold its hotkey rather than letting the Kbd
+   cross its outline. */
+.chip {
+  height: auto;
+  padding-block: 0;
+}

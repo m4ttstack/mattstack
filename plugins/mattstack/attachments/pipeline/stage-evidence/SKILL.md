@@ -226,7 +226,7 @@ One sentence above the form: what the plan asks for and what is unknown.
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
 | the domain's intake | as the domain words them; an open-ended one is free text in the form | the domain declares them |
-| `source` | **Proceed with `<source>`** / **Switch to local** | the data source is not local |
+| `source` | **Proceed with `<source>` (Recommended)** / **Switch to local** | the data source is not local |
 | `next` | **Proceed** / **Iterate here** / **Hold**, plus **Hand back** once three captures have failed | always |
 
 Selection: `{"intake":{<answers>},"source":"<as confirmed>","next":"proceed|iterate|hold|handback","note":"<their words or null>"}`.
@@ -239,7 +239,7 @@ One sentence above the form: what was captured and where it sits.
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
 | `annotations` | the proposed annotations, multi-select, all pre-selected; split `annotations-1`, ... over 4 | always |
-| `attach` | **Hand back the markdown** (ship attaches) / **Attach to the MR now** | always |
+| `attach` | **Hand back the markdown (Recommended)** (ship attaches) / **Attach to the MR now** | always |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
 Selection: `{"annotations":[...],"attach":"now|handback"}`.

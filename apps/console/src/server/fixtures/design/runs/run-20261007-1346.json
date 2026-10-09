@@ -1,0 +1,121 @@
+{
+  "run": {
+    "id": "20261007-1346",
+    "work_type": "feature",
+    "pipeline": "work",
+    "status": "done",
+    "started_at": "2026-10-07T13:46:00-05:00",
+    "ended_at": "2026-10-07T16:51:00-05:00",
+    "outcome": {
+      "status": "done",
+      "mr": {
+        "iid": 380,
+        "state": "merged",
+        "url": "https://gitlab.com/acme/web/-/merge_requests/380",
+        "mergedAt": "2026-10-07T16:51:00-05:00"
+      },
+      "ci": "success"
+    }
+  },
+  "stages": [
+    {
+      "name": "provision",
+      "status": "done",
+      "started_at": "2026-10-07T13:46:00-05:00",
+      "ended_at": "2026-10-07T13:47:00-05:00"
+    },
+    {
+      "name": "plan",
+      "status": "done",
+      "started_at": "2026-10-07T13:47:00-05:00",
+      "ended_at": "2026-10-07T14:10:00-05:00"
+    },
+    {
+      "name": "gates",
+      "status": "done",
+      "started_at": "2026-10-07T14:10:00-05:00",
+      "ended_at": "2026-10-07T14:11:00-05:00"
+    },
+    {
+      "name": "evidence",
+      "status": "done",
+      "started_at": "2026-10-07T14:11:00-05:00",
+      "ended_at": "2026-10-07T14:50:00-05:00"
+    },
+    {
+      "name": "implement",
+      "status": "done",
+      "started_at": "2026-10-07T14:50:00-05:00",
+      "ended_at": "2026-10-07T15:58:00-05:00"
+    },
+    {
+      "name": "self-review",
+      "status": "done",
+      "started_at": "2026-10-07T15:58:00-05:00",
+      "ended_at": "2026-10-07T16:08:00-05:00"
+    },
+    {
+      "name": "ship",
+      "status": "done",
+      "started_at": "2026-10-07T16:08:00-05:00",
+      "ended_at": "2026-10-07T16:20:00-05:00"
+    },
+    {
+      "name": "watch-ci",
+      "status": "done",
+      "started_at": "2026-10-07T16:20:00-05:00",
+      "ended_at": "2026-10-07T16:51:00-05:00"
+    }
+  ],
+  "fields": [
+    {
+      "key": "pipeline-stages",
+      "value": "provision plan gates evidence implement self-review ship watch-ci",
+      "produced_by": "provision",
+      "at": "2026-10-07T13:46:05-05:00"
+    },
+    {
+      "key": "ticket",
+      "value": "WEB-376",
+      "produced_by": "provision",
+      "at": "2026-10-07T13:46:10-05:00"
+    },
+    {
+      "key": "branch",
+      "value": "web-376-dark-mode-toggle",
+      "produced_by": "provision",
+      "at": "2026-10-07T13:46:20-05:00"
+    },
+    {
+      "key": "worktree",
+      "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/rosie",
+      "produced_by": "provision",
+      "at": "2026-10-07T13:46:30-05:00"
+    },
+    {
+      "key": "approach",
+      "value": "Store the toggle in the user's settings",
+      "produced_by": "plan",
+      "at": "2026-10-07T14:05:00-05:00"
+    },
+    {
+      "key": "evidence",
+      "value": "{\"v\":1,\"before\":\"/fixture/evidence/web-376/before.png\",\"case\":\"Toggle dark mode, sign out, sign back in\",\"attach\":\"ship\"}",
+      "produced_by": "evidence",
+      "at": "2026-10-07T14:48:00-05:00"
+    },
+    {
+      "key": "commits",
+      "value": "1f2e3d4 5c6b7a8 9d0e1f2",
+      "produced_by": "implement",
+      "at": "2026-10-07T15:57:00-05:00"
+    },
+    {
+      "key": "mr",
+      "value": "!380",
+      "produced_by": "ship",
+      "at": "2026-10-07T16:15:00-05:00"
+    }
+  ],
+  "decisions": []
+}

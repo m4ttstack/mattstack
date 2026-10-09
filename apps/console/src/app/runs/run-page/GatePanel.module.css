@@ -1,0 +1,135 @@
+.stack {
+  width: 100%;
+}
+
+.slot {
+  width: 100%;
+  scroll-margin-top: var(--mantine-spacing-xl);
+}
+
+/* The ring sits inside the box so the panel's content lines up with the
+   cards around it. */
+.panel {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 14px;
+  background-color: var(--tk-card);
+  outline: 1.5px solid var(--tk-border);
+  outline-offset: -1.5px;
+  container-type: inline-size;
+}
+
+.panel[data-tone='mine'] {
+  outline-color: var(--tk-fill-bad);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 22px;
+  background-color: var(--tk-panel);
+}
+
+.panel[data-tone='mine'] .head {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-bad) var(--tk-wash),
+    var(--tk-card)
+  );
+}
+
+.ttl {
+  min-width: 0;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.icon {
+  display: inline-flex;
+}
+
+.question {
+  margin-bottom: 14px;
+}
+
+.stepper {
+  flex: 0 0 auto;
+}
+
+/* The steps hug their labels, so a separator would otherwise shrink to
+   nothing. */
+.dash {
+  flex: 0 0 18px;
+  margin-inline: 8px;
+}
+
+.split {
+  display: flex;
+  align-items: stretch;
+}
+
+.context {
+  flex: 1;
+  min-width: 0;
+  padding: 20px 24px;
+  background-color: var(--tk-panel);
+  border-right: 1px solid var(--tk-border-soft);
+}
+
+.findingsHead {
+  width: 100%;
+}
+
+.findings {
+  --gate-context-fz: 13.5px;
+}
+
+.form {
+  flex: 0 0 540px;
+  width: 540px;
+  min-width: 0;
+  margin-left: auto;
+  padding: 20px 24px;
+}
+
+.footer {
+  width: 100%;
+  padding-top: 6px;
+}
+
+.card {
+  padding: 12px 14px;
+}
+
+.optionRow {
+  width: 100%;
+}
+
+.optionText {
+  flex: 1;
+  min-width: 0;
+}
+
+.lost {
+  padding: 20px 24px;
+}
+
+@container (max-width: 56rem) {
+  .split {
+    flex-direction: column;
+  }
+
+  .context {
+    border-right: 0;
+    border-bottom: 1px solid var(--tk-border-soft);
+  }
+
+  .form {
+    flex-basis: auto;
+    width: 100%;
+  }
+}

@@ -2,6 +2,8 @@ import { readBranchCache } from '@mattstack/rt-client';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
+import type { RunsFixture } from './fixtures/design/runsFixture';
+
 /** Console's own bound, not an upstream one -- the daemon accepts any list
     size, so this is what keeps a runaway caller from shipping the whole
     branch cache through one request. */
@@ -14,25 +16,33 @@ function isStringArray(value: unknown): value is string[] {
 /**
  * 502, not 500: an `ok: false` from rt-client means the daemon answered and
  * refused, the same convention `runs.ts` documents. A thrown error falls
- * through to `app.onError` as a 500.
+ * through to `app.onError` as a 500. A design `fixture` answers in place of
+ * the daemon's branch cache.
  */
-export const enrich = new Hono().post(
-  '/api/runs/enrich',
-  validator('json', (value): { branches?: string[] } => {
-    const v = value as { branches?: unknown };
-    return { branches: isStringArray(v?.branches) ? v.branches : undefined };
-  }),
-  async c => {
-    const { branches } = c.req.valid('json');
-    if (branches === undefined) {
-      return c.json({ error: 'branches must be an array of strings' }, 400);
+export const enrichRoutes = (fixture: RunsFixture | null = null) =>
+  new Hono().post(
+    '/api/runs/enrich',
+    validator('json', (value): { branches?: string[] } => {
+      const v = value as { branches?: unknown };
+      return { branches: isStringArray(v?.branches) ? v.branches : undefined };
+    }),
+    async c => {
+      const { branches } = c.req.valid('json');
+      if (branches === undefined) {
+        return c.json({ error: 'branches must be an array of strings' }, 400);
+      }
+      if (branches.length === 0) return c.json({}, 200);
+      if (branches.length > MAX_BRANCHES) {
+        return c.json(
+          { error: `too many branches (max ${MAX_BRANCHES})` },
+          400
+        );
+      }
+      if (fixture) return c.json(await fixture.enrich(branches), 200);
+      const res = await readBranchCache(branches);
+      if (!res.ok) return c.json({ error: res.error }, 502);
+      return c.json(res.data, 200);
     }
-    if (branches.length === 0) return c.json({}, 200);
-    if (branches.length > MAX_BRANCHES) {
-      return c.json({ error: `too many branches (max ${MAX_BRANCHES})` }, 400);
-    }
-    const res = await readBranchCache(branches);
-    if (!res.ok) return c.json({ error: res.error }, 502);
-    return c.json(res.data, 200);
-  }
-);
+  );
+
+export const enrich = enrichRoutes();

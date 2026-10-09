@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import pino from "pino";
-import { createGatesStore, GATE_BY_PANE, type GateQuestion, type GatesStore } from "../gates-store.ts";
+import { createGatesStore, GATE_BY_PANE, type GateOrigin, type GateQuestion, type GatesStore } from "../gates-store.ts";
 
 const log = pino({ level: "silent" });
 
@@ -27,8 +27,8 @@ function store(): GatesStore {
 }
 
 /** Opens a gate on `subject` with the standard question set, returns its id. */
-function openGate(s: GatesStore, subject: string): string {
-  return s.open({ subject, kind: "clarify", questions: qs() }).row.id;
+function openGate(s: GatesStore, subject: string, extra: { origin?: GateOrigin } = {}): string {
+  return s.open({ subject, kind: "clarify", questions: qs(), ...extra }).row.id;
 }
 
 beforeEach(() => {
@@ -110,6 +110,37 @@ describe("gates store — list filters", () => {
     expect(s.list({ subject: "run:20261008-1" }).gates.map((g) => g.id)).toEqual([a]);
     expect(s.list({ subjectPrefix: "run:", status: ["open"] }).gates.map((g) => g.id)).toEqual([b]);
     expect(s.list({ subject: "run:20261008-1", status: ["open"] }).gates).toEqual([]);
+    s.close_();
+  });
+});
+
+describe("gates store — run linkage filters", () => {
+  test("run matches the run: subject and gates whose origin names the run", () => {
+    const s = store();
+    const a = openGate(s, "run:r1");
+    const b = openGate(s, "mr:acme/web!412", { origin: { runId: "r1" } });
+    openGate(s, "run:r12");
+    openGate(s, "mr:acme/web!9", { origin: { runId: "r2" } });
+    expect(s.list({ run: "r1" }).gates.map((g) => g.id).sort()).toEqual([a, b].sort());
+    s.close_();
+  });
+
+  test("linked returns run: subjects and any gate with an origin run", () => {
+    const s = store();
+    const a = openGate(s, "run:r1");
+    const b = openGate(s, "mr:acme/web!412", { origin: { runId: "r9" } });
+    openGate(s, "mr:acme/web!9");
+    openGate(s, "herd:alpha");
+    expect(s.list({ linked: true }).gates.map((g) => g.id).sort()).toEqual([a, b].sort());
+    s.close_();
+  });
+
+  test("run composes with status", () => {
+    const s = store();
+    const a = openGate(s, "run:r1");
+    const b = openGate(s, "mr:acme/web!412", { origin: { runId: "r1" } });
+    s.close(a, "abandoned");
+    expect(s.list({ run: "r1", status: ["open"] }).gates.map((g) => g.id)).toEqual([b]);
     s.close_();
   });
 });

@@ -58,7 +58,7 @@ function harness(opts: {
     named for what those tests are building (a handler map to answer against). */
 const makeHandlers = harness;
 
-function openPayload(overrides: Partial<{ subject: string; kind: string; questions: GateQuestion[] }> = {}) {
+function openPayload(overrides: Partial<{ subject: string; kind: string; questions: GateQuestion[]; origin: { runId?: string } }> = {}) {
   return { subject: "run:r1", kind: "clarify", questions: qs(), ...overrides };
 }
 
@@ -484,6 +484,21 @@ describe("gate:list / gate:park / gate:close", () => {
     if (closedOnly.ok) expect(closedOnly.data.gates).toHaveLength(0);
     const junk = await handlers["gate:list"]({ status: ["nonsense" as any] });
     if (junk.ok) expect(junk.data.gates).toHaveLength(2);
+  });
+
+  test("list run and linked return the run: subject and origin-linked gates", async () => {
+    const { handlers } = harness();
+    await handlers["gate:open"](openPayload({ subject: "run:r1" }));
+    await handlers["gate:open"](openPayload({ subject: "mr:acme/web!412", origin: { runId: "r1" } }));
+    await handlers["gate:open"](openPayload({ subject: "run:r12" }));
+    await handlers["gate:open"](openPayload({ subject: "herd:alpha" }));
+    const byRun = await handlers["gate:list"]({ run: " r1 " });
+    expect(byRun.ok).toBe(true);
+    if (byRun.ok) expect(byRun.data.gates.map((g) => g.subject).sort()).toEqual(["mr:acme/web!412", "run:r1"]);
+    const linked = await handlers["gate:list"]({ linked: true });
+    if (linked.ok) expect(linked.data.gates.map((g) => g.subject).sort()).toEqual(["mr:acme/web!412", "run:r1", "run:r12"]);
+    const notLinked = await handlers["gate:list"]({ linked: "yes" as never });
+    if (notLinked.ok) expect(notLinked.data.gates).toHaveLength(4);
   });
 
   test("park succeeds on an open gate, fails with a reason otherwise", async () => {

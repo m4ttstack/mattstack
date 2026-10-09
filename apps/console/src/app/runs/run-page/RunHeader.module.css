@@ -1,0 +1,12 @@
+.hero {
+  padding: 22px 24px;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+}
+
+.keep {
+  flex-shrink: 0;
+}

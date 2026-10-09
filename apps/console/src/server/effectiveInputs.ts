@@ -7,6 +7,7 @@ import {
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
+import type { RunsFixture } from './fixtures/design/runsFixture';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { runRt as liveRunRt, type RunRt } from './rt-bin';
 
@@ -101,12 +102,14 @@ const stageDocQuery = validator('query', (value): { stage?: string } => {
 /**
  * `runRt`/`runGit` default to the real, Bun-backed spawners; tests inject
  * fakes with no `Bun` global involved. Follows `mountSkills`' factory shape
- * (`src/server/skills.ts`).
+ * (`src/server/skills.ts`). A design `fixture` answers both routes in place
+ * of the daemon, rt and git.
  */
 export function mountEffectiveInputs(
   app: Hono,
   runRt: RunRt = liveRunRt,
-  runGit: RunGit = liveRunGit
+  runGit: RunGit = liveRunGit,
+  fixture: RunsFixture | null = null
 ) {
   /** Never throws: an unresolvable pack (rt down, unknown name, bad JSON) is
       reported as null everywhere a caller of this reads it, not a 500. */
@@ -157,6 +160,11 @@ export function mountEffectiveInputs(
   return app
     .get('/api/runs/:repo/:runId/effective-inputs', async c => {
       const { repo, runId } = c.req.param();
+      if (fixture) {
+        const payload = await fixture.effectiveInputs(repo, runId);
+        if (!payload) return c.json({ error: 'run not found' }, 404);
+        return c.json(payload, 200);
+      }
       const res = await getRun(runId, repo);
       if (!res.ok || !res.data) {
         // Mirrors src/server/runs.ts: this literal is the daemon's exact
@@ -201,6 +209,10 @@ export function mountEffectiveInputs(
       const { stage } = c.req.valid('query');
       if (!stage || !STAGE_NAME.test(stage)) {
         return c.json({ error: `invalid stage name: ${stage ?? ''}` }, 400);
+      }
+      if (fixture) {
+        const text = await fixture.stageDoc(repo, runId, stage);
+        return text === null ? c.json(NO_DOC, 404) : c.json({ text }, 200);
       }
 
       const res = await getRun(runId, repo);

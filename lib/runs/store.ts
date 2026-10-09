@@ -5,9 +5,10 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readdirSync, statSync, type Dirent } from "fs";
 import { join } from "path";
-import type { Attention, RunDetail, RunFieldRow, RunStageRow, RunSummary } from "../../packages/rt-client/src/commands.ts";
+import type { Attention, RunDecisionRow, RunDetail, RunFieldRow, RunStageRow, RunSummary } from "../../packages/rt-client/src/commands.ts";
 import { parseEvidence } from "../../packages/rt-client/src/evidence.ts";
 import { computeAttention, fieldValue, lastEventAt, type RunLiveness } from "./attention.ts";
+import { buildOutcome, readAllCachedOutcomes, readCachedOutcome, type CachedOutcome } from "./outcome.ts";
 import { isPathComponent, runsRoot } from "./paths.ts";
 import { KNOWN_SCHEMA_VERSION } from "./write.ts";
 
@@ -94,9 +95,43 @@ function stageSummaries(stages: RunStageRow[]): NonNullable<RunSummary["stages"]
   return stages.map((s) => ({ name: s.name, status: s.status, started_at: s.started_at, ended_at: s.ended_at, attempt: s.attempt }));
 }
 
-function evidenceCount(fields: RunFieldRow[]): number {
+/** The summary's evidence counts: images a v1 field serves, links a legacy one names. */
+function evidenceCounts(fields: RunFieldRow[]): { evidence_count: number; evidence_links: number } {
   const parsed = parseEvidence(fieldValue(fields, "evidence"));
-  return parsed.version === 1 ? parsed.images.length : 0;
+  return {
+    evidence_count: parsed.version === 1 ? parsed.images.length : 0,
+    evidence_links: parsed.version === 0 ? parsed.links.length : 0,
+  };
+}
+
+// What buildOutcome reads from the run db; kept beside a cached summary so the
+// kv-backed MR state can be merged in fresh on every list.
+type OutcomeSource = { mrField: { value: string; produced_by: string } | null; decisions: RunDecisionRow[] };
+
+function outcomeSource(fields: RunFieldRow[], decisions: RunDecisionRow[]): OutcomeSource {
+  const mr = fields.find((f) => f.key === "mr");
+  return { mrField: mr ? { value: mr.value, produced_by: mr.produced_by } : null, decisions };
+}
+
+function withOutcome(summary: RunSummary, src: OutcomeSource, cached: CachedOutcome | null): RunSummary {
+  return { ...summary, outcome: buildOutcome(summary, src.mrField, src.decisions, cached) };
+}
+
+// A cache that cannot be read is a cold start: summaries list with an unknown MR state.
+function cachedOutcomeFor(runId: string): CachedOutcome | null {
+  try { return readCachedOutcome(runId); } catch { return null; }
+}
+
+// Loaded at most once per list, and only when some run has an mr field, so a
+// list over runs with no MRs never opens the state db.
+function lazyCachedOutcomes(): (runId: string) => CachedOutcome | null {
+  let all: Record<string, CachedOutcome> | null = null;
+  return (runId) => {
+    if (!all) {
+      try { all = readAllCachedOutcomes(); } catch { all = {}; }
+    }
+    return all[runId] ?? null;
+  };
 }
 
 const NO_ATTENTION: Attention = { needs: false, reason: null, evidence: "" };
@@ -111,36 +146,42 @@ function agentMirror(run: RunSummary, fields: RunFieldRow[], liveness?: RunLiven
 // A run whose tables are missing (interrupted run-start) is still worth
 // listing — the store's contract is skip-the-broken-row, not throw, and
 // listRuns has no catch around this call.
-function withAttention(db: Database, row: RunSummary, liveness?: RunLiveness): RunSummary {
+function withAttention(db: Database, row: RunSummary, liveness?: RunLiveness): { summary: RunSummary; src: OutcomeSource } {
   try {
     const stages = stageRows(db);
     const fields = db.query("SELECT key, value, produced_by, at FROM fields").all() as RunFieldRow[];
     const decisions = db.query("SELECT contract, scope, selection, decided_by, decided_at FROM decisions").all() as RunDetail["decisions"];
     return {
-      ...row,
-      attention: computeAttention(row, stages, fields, decisions, Date.now(), liveness),
-      last_event_at: lastEventAt(row, stages, fields, decisions),
-      ticket: fieldValue(fields, "ticket"),
-      branch: fieldValue(fields, "branch"),
-      agent: agentMirror(row, fields, liveness),
-      stages: stageSummaries(stages),
-      decision_count: decisions.length,
-      evidence_count: evidenceCount(fields),
+      summary: {
+        ...row,
+        attention: computeAttention(row, stages, fields, decisions, Date.now(), liveness),
+        last_event_at: lastEventAt(row, stages, fields, decisions),
+        ticket: fieldValue(fields, "ticket"),
+        branch: fieldValue(fields, "branch"),
+        agent: agentMirror(row, fields, liveness),
+        stages: stageSummaries(stages),
+        decision_count: decisions.length,
+        ...evidenceCounts(fields),
+      },
+      src: outcomeSource(fields, decisions),
     };
   } catch {
-    return { ...row, attention: NO_ATTENTION };
+    return { summary: { ...row, attention: NO_ATTENTION }, src: { mrField: null, decisions: [] } };
   }
 }
 
 // Finished runs never change; skip the open+PRAGMA+4-reads when the db mtime
 // is unchanged. Running runs are never cached: their db still mutates and
 // their liveness overlay is recomputed per call.
-const summaryCache = new Map<string, { mtimeMs: number; summary: RunSummary }>();
+const summaryCache = new Map<string, { mtimeMs: number; summary: RunSummary; src: OutcomeSource }>();
 
 export function listRuns(repo?: string, liveness?: RunLiveness): RunSummary[] {
   if (repo != null && !isPathComponent(repo)) return [];
   const repos = repo ? [repo] : dirs(runsRoot());
   const out: RunSummary[] = [];
+  const cachedFor = lazyCachedOutcomes();
+  const merged = (summary: RunSummary, src: OutcomeSource): RunSummary =>
+    withOutcome(summary, src, src.mrField ? cachedFor(summary.id) : null);
   for (const r of repos) {
     for (const id of dirs(join(runsRoot(), r))) {
       const dbPath = join(runsRoot(), r, id, "state.db");
@@ -148,16 +189,16 @@ export function listRuns(repo?: string, liveness?: RunLiveness): RunSummary[] {
       try { mtimeMs = statSync(dbPath).mtimeMs; } catch { continue; }
       const key = `${runsRoot()}/${r}/${id}`;
       const hit = summaryCache.get(key);
-      if (hit && hit.mtimeMs === mtimeMs) { out.push(hit.summary); continue; }
+      if (hit && hit.mtimeMs === mtimeMs) { out.push(merged(hit.summary, hit.src)); continue; }
 
       const opened = openRun(r, id);
       if (!opened) continue;
       try {
         const row = runRow(opened.db);
         if (row) {
-          const summary = withAttention(opened.db, row, liveness);
-          out.push(summary);
-          if (summary.status !== "running") summaryCache.set(key, { mtimeMs, summary });
+          const { summary, src } = withAttention(opened.db, row, liveness);
+          out.push(merged(summary, src));
+          if (summary.status !== "running") summaryCache.set(key, { mtimeMs, summary, src });
         }
       } finally {
         opened.db.close();
@@ -177,8 +218,9 @@ export function readRun(repo: string, runId: string, liveness?: RunLiveness): Ru
     const stages = stageRows(db);
     const fields = db.query("SELECT key, value, produced_by, at FROM fields ORDER BY at").all() as RunDetail["fields"];
     const decisions = db.query("SELECT contract, scope, selection, decided_by, decided_at FROM decisions ORDER BY decided_at").all() as RunDetail["decisions"];
+    const src = outcomeSource(fields, decisions);
     return {
-      run: {
+      run: withOutcome({
         ...run,
         attention: computeAttention(run, stages, fields, decisions, Date.now(), liveness),
         last_event_at: lastEventAt(run, stages, fields, decisions),
@@ -187,8 +229,8 @@ export function readRun(repo: string, runId: string, liveness?: RunLiveness): Ru
         agent: agentMirror(run, fields, liveness),
         stages: stageSummaries(stages),
         decision_count: decisions.length,
-        evidence_count: evidenceCount(fields),
-      },
+        ...evidenceCounts(fields),
+      }, src, src.mrField ? cachedOutcomeFor(run.id) : null),
       stages, fields, decisions,
       schemaAhead,
     };
@@ -271,7 +313,8 @@ export function findRunsBySession(sessionId: string, liveness?: RunLiveness): Ru
         if (!hit || hit.value !== sessionId) continue;
         const row = runRow(opened.db);
         if (!row) continue;
-        out.push({ summary: withAttention(opened.db, row, liveness), runDb: join(runsRoot(), repo, id, "state.db") });
+        const { summary, src } = withAttention(opened.db, row, liveness);
+        out.push({ summary: withOutcome(summary, src, src.mrField ? cachedOutcomeFor(summary.id) : null), runDb: join(runsRoot(), repo, id, "state.db") });
       } catch {
         continue;
       } finally {

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { findRun, findRunningRunByWorktree, findRunsBySession, listRuns, readRun } from "../store.ts";
+import { writeCachedOutcome } from "../outcome.ts";
 import { root, seedRun } from "./fixtures.ts";
 
 afterEach(() => { delete process.env.RT_RUNS_ROOT; });
@@ -152,10 +153,27 @@ describe("run summary stage and count fields", () => {
     expect(detail.run.evidence_count).toBe(2);
   });
 
-  test("legacy evidence counts zero", () => {
+  test("legacy evidence counts zero images", () => {
     const dir = root();
     seedRun(dir, "remote:alpha", "r-2", 1000, 1, { fields: [{ key: "evidence", value: "see /tmp/x.png" }] });
     expect(listRuns("remote:alpha")[0]!.evidence_count).toBe(0);
+  });
+
+  test("evidence_links counts a legacy field's links and is zero for images or no evidence", () => {
+    const dir = root();
+    seedRun(dir, "remote:alpha", "r-3", 1000, 1, {
+      fields: [{ key: "evidence", value: "/e/a.png\n/e/b.png\nhttp://localhost:4001/c/1" }],
+    });
+    seedRun(dir, "remote:alpha", "r-4", 2000, 1, {
+      fields: [{ key: "evidence", value: JSON.stringify({ v: 1, before: "/e/b.png" }), producedBy: "evidence" }],
+    });
+    seedRun(dir, "remote:alpha", "r-5", 3000, 1);
+    const byId = new Map(listRuns("remote:alpha").map((r) => [r.id, r]));
+    expect(byId.get("r-3")!.evidence_links).toBe(3);
+    expect(byId.get("r-3")!.evidence_count).toBe(0);
+    expect(byId.get("r-4")!.evidence_links).toBe(0);
+    expect(byId.get("r-5")!.evidence_links).toBe(0);
+    expect(readRun("remote:alpha", "r-3")!.run.evidence_links).toBe(3);
   });
 });
 
@@ -242,5 +260,30 @@ describe("findRunningRunByWorktree", () => {
     seedRun(dir, "alpha", "20260821-040404-dddd", 1000);
     setWorktreeField(dir, "alpha", "20260821-040404-dddd", "/w/nope");
     expect(findRunningRunByWorktree("/w/job-a")).toEqual({ kind: "incomplete" });
+  });
+});
+
+describe("runs store outcome", () => {
+  const withMr = (dir: string, id: string) =>
+    seedRun(dir, "alpha", id, 1000, 1, { status: "done", fields: [{ key: "mr", value: "!405", producedBy: "ship" }] });
+
+  test("a run with an own mr lists unknown until the cache fills, then follows the cache", () => {
+    const dir = root();
+    const id = "20260821-010101-outa";
+    withMr(dir, id);
+    expect(listRuns("alpha")[0]!.outcome).toEqual({ status: "done", mr: { iid: 405, state: "unknown", url: null } });
+
+    writeCachedOutcome(id, { iid: 405, state: "merged", mergedAt: 9000, ci: "success", posted: null, checkedAt: 9500 });
+    expect(listRuns("alpha")[0]!.outcome).toEqual({
+      status: "done", mr: { iid: 405, state: "merged", url: null, mergedAt: 9000 }, ci: "success",
+    });
+    expect(findRun(id)!.run.outcome?.mr?.state).toBe("merged");
+    expect(readRun("alpha", id)!.run.outcome?.mr?.state).toBe("merged");
+  });
+
+  test("a running run's outcome is its status alone", () => {
+    const dir = root();
+    seedRun(dir, "alpha", "20260821-020202-outb", 1000);
+    expect(listRuns("alpha")[0]!.outcome).toEqual({ status: "running" });
   });
 });

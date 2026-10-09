@@ -1,0 +1,41 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 28px 40px;
+  color: var(--tk-text-1);
+  /* PageShell's scroll frame grows to its content's min-content, and a
+     truncated title's min-content is its whole text. */
+  contain: inline-size;
+}
+
+.titleRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  width: 100%;
+}
+
+.titleBlock {
+  flex: 1;
+  min-width: 0;
+}
+
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+  align-items: start;
+  gap: 16px;
+  width: 100%;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.empty {
+  width: 100%;
+  padding: 18px 20px;
+}

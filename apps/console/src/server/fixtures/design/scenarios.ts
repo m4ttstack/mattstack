@@ -18,6 +18,9 @@
  * | `changes-failed`   | the pending-changes poll fails                        |
  * | `org-base`         | the pack extends `acme-base`, which fills plan's domain |
  * | `org-base-drift`   | `org-base`, with a stale base copy and a base error   |
+ *
+ * `runs` and `runs-empty` are the runs boards' data (`runsFixture.ts`), with
+ * the skills routes answering as `clean`. Every other scenario serves no runs.
  */
 
 export const SCENARIOS = [
@@ -35,6 +38,8 @@ export const SCENARIOS = [
   'changes-failed',
   'org-base',
   'org-base-drift',
+  'runs',
+  'runs-empty',
 ] as const;
 
 export type FixtureScenario = (typeof SCENARIOS)[number];
@@ -385,6 +390,8 @@ const orgBase = {
 
 const DEFS: Record<FixtureScenario, ScenarioDef> = {
   clean: { subject: 'stage-plan' },
+  runs: { subject: 'stage-plan' },
+  'runs-empty': { subject: 'stage-plan' },
   unsynced: { subject: 'stage-plan' },
   referenced: {
     subject: 'stage-plan',
