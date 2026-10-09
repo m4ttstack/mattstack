@@ -4,7 +4,11 @@ import type {
   RunFieldRow,
   RunStageRow,
 } from '@mattstack/rt-client';
-import { parseEvidence } from '@mattstack/rt-client/evidence';
+import {
+  legacyItems,
+  parseEvidence,
+  type ParsedEvidence,
+} from '@mattstack/rt-client/evidence';
 
 import { fieldLabel, placeFields, storyFields } from './fields';
 import { gateStage, pickedText, questionAnswer } from './gates';
@@ -263,19 +267,53 @@ export function runBlock(input: StoryInput): StoryEntry | null {
   };
 }
 
-/** A folded stage row's one line: "3 decisions · <first pick>" when the
-    attempt has answered questions, else its first field as "<Label>:
-    <value>", else why it failed, else nothing. */
-export function stageSummary(entry: StoryEntry): string {
+/** A stage row's one line: "3 decisions · <first pick>" when the attempt
+    has answered questions, else its first field as "<Label>: <value>", else
+    why it failed, else nothing. A stage that holds evidence says what it
+    captured ("2 screenshots, 1 link") in place of the pick, which its
+    opened body already shows. */
+export function stageSummary(
+  entry: StoryEntry,
+  evidence: ParsedEvidence | null = null
+): string {
   const count = answeredQuestionCount(entry.gates);
+  const captured =
+    entry.evidence && evidence
+      ? evidenceSummary(evidence, entry.evidence)
+      : null;
   if (count > 0) {
-    const first = firstPick(entry.gates);
+    const detail = captured ?? firstPick(entry.gates);
     const head = `${count} ${count === 1 ? 'decision' : 'decisions'}`;
-    return first ? `${head} · ${first}` : head;
+    return detail ? `${head} · ${detail}` : head;
   }
+  if (captured) return captured;
   const field = entry.fields[0];
   if (field) return `${fieldLabel(field.key)}: ${oneLine(field.value)}`;
   return entry.failure?.reason ?? '';
+}
+
+const counted = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+
+/** "2 screenshots, 1 link": what one phase of a run's evidence captured. */
+function evidenceSummary(
+  evidence: ParsedEvidence,
+  phase: StoryEvidence
+): string | null {
+  let shots = 0;
+  let links = 0;
+  if (evidence.version === 0) {
+    for (const item of legacyItems(evidence.links))
+      if (item.kind === 'image') shots += 1;
+      else links += 1;
+  } else if (evidence.version === 1) {
+    shots = evidence.images.filter(i => i.key.startsWith(phase)).length;
+    if (phase === 'before' && evidence.evidence.url) links = 1;
+  }
+  const parts = [
+    shots > 0 ? counted(shots, 'screenshot') : null,
+    links > 0 ? counted(links, 'link') : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : null;
 }
 
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();

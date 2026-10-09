@@ -11,6 +11,7 @@ import type { StoryEntry } from '../derive/story';
 import { answeredWith, AT, gateOf } from './decisionFixtures';
 
 const { StageRow } = await import('./StageRow');
+const { Story } = await import('./Story');
 
 const question = (id: string, label: string, picked: string): GateQuestion => ({
   id,
@@ -134,5 +135,41 @@ describe('StageRow', () => {
     expect(
       within(open).getByText('“Recipients need it too”')
     ).toBeInTheDocument();
+  });
+
+  it('starts the newest finished stage opened and the earlier ones folded', () => {
+    const gates: StoryEntry = {
+      ...planEntry({ gates: [] }),
+      key: 'gates#1',
+      label: 'gates',
+      attempt: { ...planEntry().attempt, stage: 'gates' },
+      fields: [
+        {
+          key: 'extra-gate',
+          value: 'read the area docs',
+          produced_by: 'gates',
+          at: AT,
+        },
+      ],
+    };
+    renderWithProviders(
+      <Story
+        repo="remote:acme%2Fweb"
+        runId="20261008-1338"
+        label="Story so far"
+        entries={[planEntry(), gates]}
+        evidenceField={null}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Show plan' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    const newest = screen.getByRole('button', { name: 'Hide gates' });
+    expect(newest).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      document.getElementById(newest.getAttribute('aria-controls')!)
+    ).toHaveTextContent('read the area docs');
+    expect(screen.queryByText('Which approach?')).toBeNull();
   });
 });

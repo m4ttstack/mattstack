@@ -4,6 +4,7 @@ import {
   Code,
   Collapse,
   Group,
+  Paper,
   Stack,
   Text,
   Tooltip,
@@ -32,8 +33,9 @@ import classes from './DecisionRow.module.css';
 export interface DecisionRowProps {
   gate: GateRow;
   question: GateQuestion;
-  /** A deep link names this gate: the row starts opened. */
-  focused?: boolean;
+  /** A deep link names this gate: the row opens and rings until the next
+      click or key. */
+  linked?: boolean;
 }
 
 /** "What the agent found · N lines", opening to the gate's context. */
@@ -80,13 +82,13 @@ function Found({ id, context }: { id: string; context: string }) {
 export function DecisionRow({
   gate,
   question,
-  focused = false,
+  linked = false,
 }: DecisionRowProps) {
-  const [expanded, setExpanded] = useState(focused);
-  const [seenFocus, setSeenFocus] = useState(focused);
-  if (focused !== seenFocus) {
-    setSeenFocus(focused);
-    if (focused) setExpanded(true);
+  const [expanded, setExpanded] = useState(linked);
+  const [seenLink, setSeenLink] = useState(linked);
+  if (linked !== seenLink) {
+    setSeenLink(linked);
+    if (linked) setExpanded(true);
   }
 
   const ended = gateEndNote(gate);
@@ -111,119 +113,138 @@ export function DecisionRow({
   else pick = 'Not answered yet';
   const muted = ended !== null || answer === null;
 
-  return (
-    <div
-      id={`decision-${gate.id}-${question.id}`}
-      className={open ? classes.open : classes.row}
-      data-muted={muted ? 'true' : undefined}
-      data-gate-id={gate.id}
-      data-parity={open ? 'decision open' : undefined}
-    >
-      <Group wrap="nowrap" gap={12} align="center" className={classes.head}>
-        <Text
-          fz={12.5}
-          lh="normal"
-          c="dimmed"
-          className={classes.q}
-          data-parity="q"
+  const head = (
+    <Group wrap="nowrap" gap={12} align="center" className={classes.head}>
+      <Text
+        fz={12.5}
+        lh="normal"
+        c="dimmed"
+        className={classes.q}
+        data-parity="q"
+      >
+        {question.label}
+      </Text>
+      <Text
+        fz={13}
+        fw={open ? 700 : 500}
+        lh="normal"
+        c={muted ? 'dimmed' : undefined}
+        className={classes.a}
+        data-parity="a"
+      >
+        {pick}
+      </Text>
+      {stamp ? (
+        <Tooltip
+          label={surface}
+          disabled={!surface}
+          events={{ hover: true, focus: true, touch: false }}
         >
-          {question.label}
-        </Text>
-        <Text
-          fz={13}
-          fw={open ? 700 : 500}
-          lh="normal"
-          c={muted ? 'dimmed' : undefined}
-          className={classes.a}
-          data-parity="a"
-        >
-          {pick}
-        </Text>
-        {stamp ? (
-          <Tooltip
-            label={surface}
-            disabled={!surface}
-            events={{ hover: true, focus: true, touch: false }}
+          <Text
+            fz={11.5}
+            lh="normal"
+            c="dimmed"
+            tabIndex={0}
+            className={classes.stamp}
+            data-parity="s"
           >
-            <Text
-              fz={11.5}
-              lh="normal"
-              c="dimmed"
-              tabIndex={0}
-              className={classes.stamp}
-              data-parity="s"
-            >
-              {stamp}
+            {stamp}
+          </Text>
+        </Tooltip>
+      ) : null}
+      {expandable ? (
+        <UnstyledButton
+          className={classes.chevron}
+          aria-label={open ? 'Hide details' : 'Show details'}
+          aria-expanded={open}
+          aria-controls={open ? detailId : undefined}
+          onClick={() => setExpanded(e => !e)}
+        >
+          <Icon
+            name={open ? 'chevronUp' : 'chevronDown'}
+            size={14}
+            data-parity="c"
+          />
+        </UnstyledButton>
+      ) : null}
+    </Group>
+  );
+  const detail =
+    open && answer ? (
+      <Stack gap={8} id={detailId}>
+        {others.length > 0 ? (
+          <Stack gap={4} className={classes.inset}>
+            <Text fz={11.5} fw={500} lh="normal" c="dimmed" data-parity="h">
+              Passed on
             </Text>
-          </Tooltip>
+            {others.map(o => (
+              <Group key={o.value} gap={8} wrap="nowrap">
+                <span className={classes.dash} data-parity="dash" />
+                <Text fz={12.5} lh="normal" c="dimmed" data-parity="t">
+                  {o.text}
+                </Text>
+              </Group>
+            ))}
+          </Stack>
         ) : null}
-        {expandable ? (
-          <UnstyledButton
-            className={classes.chevron}
-            aria-label={open ? 'Hide details' : 'Show details'}
-            aria-expanded={open}
-            aria-controls={detailId}
-            onClick={() => setExpanded(e => !e)}
+        {answer.note ? (
+          <Group
+            gap={8}
+            wrap="nowrap"
+            align="flex-start"
+            className={classes.inset}
           >
             <Icon
-              name={open ? 'chevronUp' : 'chevronDown'}
-              size={14}
-              data-parity="c"
+              name="messageSquare"
+              size={13}
+              className={classes.noteIcon}
+              data-parity="i"
             />
-          </UnstyledButton>
-        ) : null}
-      </Group>
-      {open && answer ? (
-        <Stack gap={8} id={detailId}>
-          {others.length > 0 ? (
-            <Stack gap={4} className={classes.inset}>
-              <Text fz={11.5} fw={500} lh="normal" c="dimmed" data-parity="h">
-                Passed on
-              </Text>
-              {others.map(o => (
-                <Group key={o.value} gap={8} wrap="nowrap">
-                  <span className={classes.dash} data-parity="dash" />
-                  <Text fz={12.5} lh="normal" c="dimmed" data-parity="t">
-                    {o.text}
-                  </Text>
-                </Group>
-              ))}
-            </Stack>
-          ) : null}
-          {answer.note ? (
-            <Group
-              gap={8}
-              wrap="nowrap"
-              align="flex-start"
-              className={classes.inset}
-            >
-              <Icon
-                name="messageSquare"
-                size={13}
-                className={classes.noteIcon}
-                data-parity="i"
-              />
-              <Text fz={12.5} lh="normal" data-parity="t">
-                “{answer.note}”
-              </Text>
-            </Group>
-          ) : null}
-          {answer.text ? (
-            <Text
-              fz={12.5}
-              lh="normal"
-              fs="italic"
-              className={classes.inset}
-              data-parity="text"
-            >
-              {answer.text}
+            <Text fz={12.5} lh="normal" data-parity="t">
+              “{answer.note}”
             </Text>
-          ) : null}
-          {context ? (
-            <Found id={`${detailId}-context`} context={context} />
-          ) : null}
-        </Stack>
-      ) : null}
-    </div>
+          </Group>
+        ) : null}
+        {answer.text ? (
+          <Text
+            fz={12.5}
+            lh="normal"
+            fs="italic"
+            className={classes.inset}
+            data-parity="text"
+          >
+            {answer.text}
+          </Text>
+        ) : null}
+        {context ? (
+          <Found id={`${detailId}-context`} context={context} />
+        ) : null}
+      </Stack>
+    ) : null;
+
+  const root = {
+    id: `decision-${gate.id}-${question.id}`,
+    'data-gate-id': gate.id,
+    'data-muted': muted ? 'true' : undefined,
+  };
+  if (!open && !linked)
+    return (
+      <div {...root} className={classes.row}>
+        {head}
+      </div>
+    );
+  return (
+    <Paper
+      {...root}
+      variant="panel-outline"
+      radius={10}
+      className={classes.open}
+      data-linked={linked ? 'true' : undefined}
+      data-selected={linked ? true : undefined}
+      data-parity={open ? 'decision open' : undefined}
+    >
+      {head}
+      {detail}
+    </Paper>
   );
 }

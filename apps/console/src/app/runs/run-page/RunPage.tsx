@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Stack } from '@mattstack/app-kit/core';
 import type { GateRow } from '@mattstack/rt-client';
 import { useSearch } from 'wouter';
@@ -34,12 +34,29 @@ function linkedGate(search: string): string | null {
     first panel the user owns takes focus the first time one shows, unless
     they are typing somewhere; a shepherd's gate never takes the keys
     unasked. A gate the queries have not caught up with yet waits
-    for the next gates update. */
+    for the next gates update. Returns the linked gate until the next click
+    or key, once per link. */
 function useGateDeepLink(gates: GateRow[]): string | null {
   const search = useSearch();
   const consumed = useRef<string | null>(null);
   const focusedFirst = useRef(false);
-  const linked = linkedGate(search);
+  const fromUrl = linkedGate(search);
+  const [linked, setLinked] = useState(fromUrl);
+  const [seenUrl, setSeenUrl] = useState(fromUrl);
+  if (fromUrl !== seenUrl) {
+    setSeenUrl(fromUrl);
+    if (fromUrl) setLinked(fromUrl);
+  }
+  useEffect(() => {
+    if (!linked) return;
+    const clear = () => setLinked(null);
+    window.addEventListener('pointerdown', clear, true);
+    window.addEventListener('keydown', clear, true);
+    return () => {
+      window.removeEventListener('pointerdown', clear, true);
+      window.removeEventListener('keydown', clear, true);
+    };
+  }, [linked]);
   useEffect(() => {
     const fromQuery = new URLSearchParams(search).get('gate');
     const id = linkedGate(search);
@@ -170,7 +187,7 @@ export function RunPage({
             block={parts.block}
             evidenceField={parts.evidenceField}
             pathHref={pathHref}
-            focusGateId={linkedGateId}
+            linkedGateId={linkedGateId}
           />
         </Stack>
         <SideCards

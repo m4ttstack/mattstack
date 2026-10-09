@@ -4,6 +4,7 @@ import type {
   RunFieldRow,
   RunStageRow,
 } from '@mattstack/rt-client';
+import { parseEvidence } from '@mattstack/rt-client/evidence';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -345,6 +346,33 @@ describe('stageSummary', () => {
         })
       )
     ).toBe('Extra gate: read the area docs before implement');
+  });
+
+  it('describes the evidence a stage holds in place of a pick the row repeats', () => {
+    const gates = [
+      asked('a', 1, 'spot', 'Spotlight the parcel card'),
+      asked('b', 2, 'ok', 'Screenshot as planned, proceed'),
+    ];
+    const legacy = parseEvidence(
+      'Shots: /e/web-412-before.png /e/web-412-before-annotated.png, page http://localhost:4001/orders/4821#parcels'
+    );
+    expect(stageSummary(entryOf({ gates, evidence: 'legacy' }), legacy)).toBe(
+      '2 decisions · 2 screenshots, 1 link'
+    );
+    const v1 = parseEvidence(
+      JSON.stringify({
+        v: 1,
+        before: '/e/before.png',
+        beforeAnnotated: '/e/before-annotated.png',
+        after: '/e/after.png',
+      })
+    );
+    expect(stageSummary(entryOf({ gates, evidence: 'before' }), v1)).toBe(
+      '2 decisions · 2 screenshots'
+    );
+    expect(stageSummary(entryOf({ evidence: 'after' }), v1)).toBe(
+      '1 screenshot'
+    );
   });
 
   it('falls back to the failure reason, then to nothing', () => {

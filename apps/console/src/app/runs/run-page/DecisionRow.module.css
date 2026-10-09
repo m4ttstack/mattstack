@@ -11,10 +11,6 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  border-radius: 10px;
-  background-color: var(--tk-panel);
-  outline: 1px solid var(--tk-border-soft);
-  outline-offset: -1px;
 }
 
 .head {

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import {
   Group,
   Stack,
@@ -74,10 +74,8 @@ export interface StageRowProps {
   runId: string;
   evidenceField: RunFieldRow | null;
   pathHref?: (path: string) => string | null;
-  /** The gate a deep link names: its decision starts opened. */
-  focusGateId?: string | null;
-  /** The list's own border closes the last row, which draws no rule. */
-  last?: boolean;
+  /** The gate a deep link names: its decision opens and rings. */
+  linkedGateId?: string | null;
 }
 
 /** One stage attempt of the story as a row: what it was and a one-line
@@ -90,12 +88,12 @@ export function StageRow({
   runId,
   evidenceField,
   pathHref,
-  focusGateId = null,
-  last = false,
+  linkedGateId = null,
 }: StageRowProps) {
+  const bodyId = useId();
   const bullet = BULLET[entry.attempt.status];
-  const summary = stageSummary(entry);
   const evidence = entry.evidence ? parseEvidence(evidenceField?.value) : null;
+  const summary = stageSummary(entry, evidence);
 
   return (
     <div
@@ -103,7 +101,7 @@ export function StageRow({
       data-stage={entry.attempt.stage}
       data-attempt={entry.attempt.attempt}
       data-open={open ? 'true' : 'false'}
-      data-parity={last ? undefined : `Stage ${entry.attempt.stage}`}
+      data-parity={`Stage ${entry.attempt.stage}`}
     >
       <div
         className={classes.head}
@@ -163,6 +161,7 @@ export function StageRow({
         <UnstyledButton
           className={classes.chevron}
           aria-expanded={open}
+          aria-controls={open ? bodyId : undefined}
           aria-label={`${open ? 'Hide' : 'Show'} ${entry.label}`}
           onClick={e => {
             e.stopPropagation();
@@ -177,7 +176,7 @@ export function StageRow({
         </UnstyledButton>
       </div>
       {open ? (
-        <Stack gap={10} className={classes.body}>
+        <Stack gap={10} id={bodyId} className={classes.body}>
           {entry.fields.map(f => (
             <StageField key={f.key} label={fieldLabel(f.key)}>
               <FieldValue
@@ -230,7 +229,7 @@ export function StageRow({
                 key={`${g.id}-${q.id}`}
                 gate={g}
                 question={q}
-                focused={g.id === focusGateId}
+                linked={g.id === linkedGateId}
               />
             ))
           )}

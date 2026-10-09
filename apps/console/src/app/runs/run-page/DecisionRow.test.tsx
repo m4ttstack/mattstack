@@ -94,11 +94,14 @@ describe('DecisionRow', () => {
     expect(getByText('Backend gap-fill + component work')).toBeVisible();
   });
 
-  it('starts opened when a deep link names its gate', () => {
+  it('starts opened and ringed when a deep link names its gate', () => {
     const { getByText } = renderWithProviders(
-      <DecisionRow gate={gateOf()} question={approachQuestion} focused />
+      <DecisionRow gate={gateOf()} question={approachQuestion} linked />
     );
     expect(getByText('Passed on')).toBeVisible();
+    const block = getByText('Passed on').closest('[data-gate-id]');
+    expect(block).toHaveAttribute('data-linked', 'true');
+    expect(block).toHaveAttribute('data-selected');
   });
 
   it('offers what the agent found when the gate has context', async () => {

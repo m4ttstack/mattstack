@@ -463,6 +463,58 @@ describe('RunDetail: live work run', () => {
     await waitFor(() =>
       expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
     );
+    const linked = () =>
+      plan.querySelector<HTMLElement>('[data-gate-id="g-approach"]')!;
+    expect(linked()).toHaveAttribute('data-linked', 'true');
+    expect(linked()).toHaveAttribute('data-selected');
+
+    await userEvent.click(document.body);
+    expect(linked()).not.toHaveAttribute('data-linked');
+    expect(linked()).not.toHaveAttribute('data-selected');
+    expect(within(plan).getByText('Passed on')).toBeInTheDocument();
+
+    const toggle = () =>
+      within(plan).getByRole('button', { name: /^(Show|Hide) plan$/ });
+    await userEvent.click(toggle());
+    await userEvent.click(toggle());
+    expect(within(plan).queryByText('Passed on')).toBeNull();
+  });
+
+  it('keeps a #gate- link to one opening of its decision', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    window.history.pushState(null, '', '/runs/x/run-412#gate-g-approach');
+    render(workRun(), [
+      gate({
+        questions: [
+          {
+            id: 'approach',
+            label: 'Which approach?',
+            options: [
+              { value: 'gap-fill', label: 'Backend gap-fill' },
+              { value: 'stub', label: 'Stub the data' },
+            ],
+          },
+        ],
+      } as Partial<GateRow>),
+    ]);
+    const page = await screen.findByTestId('run-page');
+    const plan = await waitFor(() => {
+      const el = page.querySelector<HTMLElement>(
+        '[data-testid="story"] [data-stage="plan"]'
+      );
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(await within(plan).findByText('Passed on')).toBeInTheDocument();
+    await userEvent.keyboard('{Shift}');
+    const toggle = () =>
+      within(plan).getByRole('button', { name: /^(Show|Hide) plan$/ });
+    await userEvent.click(toggle());
+    await userEvent.click(toggle());
+    expect(within(plan).queryByText('Passed on')).toBeNull();
+    expect(
+      plan.querySelector('[data-gate-id="g-approach"]')
+    ).not.toHaveAttribute('data-linked');
   });
 
   const openGate = (id: string, minute: number) =>

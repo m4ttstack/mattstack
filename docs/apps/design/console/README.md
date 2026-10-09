@@ -555,21 +555,34 @@ Live run page (runs-p2-live, runs-p2-story-details `Hero`, `Story`, `Side`):
   "1.4.2" or 8.
 - The two boards draw the same run differently, and the app follows
   runs-p2-story-details where they disagree. runs-p2-live paints each stage
-  row white and rules the last row, which the list's own border already
-  closes; the app paints no row fill and no last rule, so the last row is
-  not a keyed layer and its layers key straight under `Story list`.
+  row white; the app paints no row fill.
+- The last stage row draws no rule under it, because the list's own border
+  closes it. runs-p2-live rules it anyway. runs-p2-story-details leaves it
+  unruled and unnamed, so its layers key straight under `Story list` there,
+  while the app keys every row `Stage <stage>`: on story-details the last
+  row's layers compare as missing under `Story list` and extra under
+  `Stage evidence`.
 - runs-p2-live draws the opened evidence row with no "Stage doc" link, and
   its two decisions as bare rows (a 160px question column, `stamp`, no
   chevron). The app draws every decision as runs-p2-story-details does: the
   14px inset, the 146px column, `s`, and `c` when the decision can open.
   The evidence decisions have options passed on, so they can open.
-  runs-p2-story-details draws the evidence row with no decisions at all.
+  runs-p2-live also spaces that opened body 14px apart where
+  runs-p2-story-details spaces an opened body 10px apart, so its decisions
+  sit 3.5px higher. runs-p2-story-details draws the evidence row with no
+  decisions at all.
 - A stage's summary is its decision count and first pick, or its first
-  field, on every stage. The boards word the evidence row by its evidence
-  ("screenshot captured", "2 screenshots, 1 link"); the app reads "2
-  decisions · Spotlight the parcel card, arrow at “Tracking unknown”".
+  field. A stage that holds evidence counts what it captured instead of the
+  pick, in runs-p2-story-details' words. WEB-412's evidence is two
+  screenshots and no link, so the app reads "2 decisions · 2 screenshots",
+  where runs-p2-live says "screenshot captured" and runs-p2-story-details
+  (drawn on legacy evidence) "2 screenshots, 1 link".
 - Stage names are 500 and an opened decision's answer is 700: the boards
   set 600, which the type rules leave out.
+- An opened decision is the kit `Paper variant="panel-outline"` (the
+  board's panel fill and soft rule). A decision a `?gate=` or `#gate-` link
+  names also carries the kit's `data-selected` accent ring until the next
+  click or key; no board draws that state.
 - The fixture's WEB-412 run carries these boards' text: the gates stage
   records `extra-gate` ("read the area docs before implement") in place of
   `extra-gates`, the plan stage no longer records `evidence-plan`, and the

@@ -15,8 +15,9 @@ export interface StoryProps {
   entries: StoryEntry[];
   evidenceField: RunFieldRow | null;
   pathHref?: (path: string) => string | null;
-  /** The gate a deep link names: its stage and its decision open. */
-  focusGateId?: string | null;
+  /** The gate a deep link names: its stage and its decision open, and the
+      decision rings until the next click or key. */
+  linkedGateId?: string | null;
 }
 
 const keyOfGate = (entries: StoryEntry[], gateId: string | null) =>
@@ -33,15 +34,15 @@ export function Story({
   entries,
   evidenceField,
   pathHref,
-  focusGateId = null,
+  linkedGateId = null,
 }: StoryProps) {
   const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(
     () => new Map()
   );
-  const [seenFocus, setSeenFocus] = useState<string | null>(null);
-  const linked = keyOfGate(entries, focusGateId);
-  if (linked && focusGateId !== seenFocus) {
-    setSeenFocus(focusGateId);
+  const [seenLink, setSeenLink] = useState<string | null>(null);
+  const linked = keyOfGate(entries, linkedGateId);
+  if (linked && linkedGateId !== seenLink) {
+    setSeenLink(linkedGateId);
     setOverrides(new Map(overrides).set(linked, true));
   }
 
@@ -74,10 +75,9 @@ export function Story({
         data-testid="story"
         data-parity="Story list"
       >
-        {entries.map((entry, i) => (
+        {entries.map(entry => (
           <StageRow
             key={entry.key}
-            last={i === entries.length - 1}
             entry={entry}
             open={isOpen(entry.key)}
             onToggle={() => toggle(entry.key)}
@@ -85,7 +85,7 @@ export function Story({
             runId={runId}
             evidenceField={evidenceField}
             pathHref={pathHref}
-            focusGateId={focusGateId}
+            linkedGateId={linkedGateId}
           />
         ))}
       </Paper>
@@ -103,7 +103,7 @@ export function RunStory({
   block,
   evidenceField,
   pathHref,
-  focusGateId,
+  linkedGateId,
 }: {
   repo: string;
   runId: string;
@@ -115,7 +115,7 @@ export function RunStory({
   block: StoryEntry | null;
   evidenceField: RunFieldRow | null;
   pathHref?: (path: string) => string | null;
-  focusGateId?: string | null;
+  linkedGateId?: string | null;
 }) {
   const entries = story ? story.entries : block ? [block] : [];
   return (
@@ -126,7 +126,7 @@ export function RunStory({
       entries={entries}
       evidenceField={evidenceField}
       pathHref={pathHref}
-      focusGateId={focusGateId}
+      linkedGateId={linkedGateId}
     />
   );
 }
