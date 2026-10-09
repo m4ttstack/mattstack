@@ -238,7 +238,7 @@ export function SettingsContextBar({
             radius="xl"
             variant="default"
             leftSection={<Icons.arrowLeft size={13} />}
-            aria-label={`back to your team, ${ownTeam}`}
+            aria-label={`Back to ${ownTeam}, your team`}
             onClick={() => onPickTeam(null)}
             style={{ flex: 'none' }}
           >

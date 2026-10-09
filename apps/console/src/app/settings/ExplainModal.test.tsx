@@ -690,14 +690,18 @@ describe('with a repo picked', () => {
       await layerAction(global, `remove ${REPO_KEY} from team`)
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('menuitem', { name: `set ${REPO_KEY} at team` })
+      document.querySelector(
+        `[role="menuitem"][data-action="set ${REPO_KEY} at team"]`
+      )
     ).toBeInTheDocument();
     await closeLayerActions(global);
     expect(
       await layerAction(rung, `remove ${REPO_KEY} from team · repo`)
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('menuitem', { name: `set ${REPO_KEY} at team · repo` })
+      document.querySelector(
+        `[role="menuitem"][data-action="set ${REPO_KEY} at team · repo"]`
+      )
     ).toBeInTheDocument();
   });
 

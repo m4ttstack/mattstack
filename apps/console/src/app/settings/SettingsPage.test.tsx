@@ -1007,7 +1007,7 @@ describe('the context bar', () => {
       expect(urls.some(u => u.includes('team=gadgets'))).toBe(true)
     );
     const back = await screen.findByRole('button', {
-      name: 'back to your team, widgets',
+      name: 'Back to widgets, your team',
     });
     expect(screen.queryByRole('radio', { name: 'user' })).toBeNull();
     expect(screen.queryByRole('radio', { name: 'machine' })).toBeNull();
@@ -1021,7 +1021,7 @@ describe('the context bar', () => {
       expect(new URLSearchParams(window.location.search).get('team')).toBeNull()
     );
     expect(
-      screen.queryByRole('button', { name: /^back to your team/ })
+      screen.queryByRole('button', { name: /^Back to .*, your team$/ })
     ).toBeNull();
   });
 

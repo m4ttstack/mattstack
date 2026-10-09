@@ -39,9 +39,7 @@ export async function allLayerActionNames(
   })) {
     await userEvent.click(trigger);
     const items = await screen.findAllByRole('menuitem');
-    names.push(
-      ...items.map(i => i.getAttribute('aria-label') ?? i.textContent ?? '')
-    );
+    names.push(...items.map(itemName));
     await userEvent.click(trigger);
     await waitFor(() =>
       expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
@@ -50,13 +48,33 @@ export async function allLayerActionNames(
   return names;
 }
 
+/** An item's action wording (`set <key> at <label>`), else its text. */
+function itemName(item: HTMLElement): string {
+  return item.getAttribute('data-action') ?? item.textContent ?? '';
+}
+
+/** The open menu's item whose action wording or text is `name`. */
+async function findItem(name: string | RegExp): Promise<HTMLElement> {
+  return waitFor(() => {
+    const hit = screen
+      .getAllByRole('menuitem')
+      .find(i =>
+        [itemName(i), i.textContent ?? ''].some(t =>
+          typeof name === 'string' ? t === name : name.test(t)
+        )
+      );
+    if (!hit) throw new Error(`no menu item named ${String(name)}`);
+    return hit;
+  });
+}
+
 /** Opens a layer's actions menu and finds one of its items. */
 export async function layerAction(
   layer: HTMLElement,
   name: string | RegExp
 ): Promise<HTMLElement> {
   await openLayerActions(layer);
-  return screen.findByRole('menuitem', { name });
+  return findItem(name);
 }
 
 /** Opens a layer's actions menu and clicks one of its items. */
@@ -86,7 +104,7 @@ export async function namedLayerAction(item: string): Promise<HTMLElement> {
   });
   if (trigger.getAttribute('aria-expanded') !== 'true')
     await userEvent.click(trigger);
-  return screen.findByRole('menuitem', { name: item });
+  return findItem(item);
 }
 
 /** Clicks the layer action named `item`, wherever it is on the page. */

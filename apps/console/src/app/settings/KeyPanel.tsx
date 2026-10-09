@@ -515,7 +515,8 @@ function LayerLine({
   const status = <Status role={role} row={row} />;
   const canEdit = editable && store !== null;
   const canRemove = writable && store !== null && row.present;
-  // Each item keeps the accessible name its own button had.
+  // Each item's name is its visible text; `data-action` keeps the wording
+  // its own button had, for tests to find it by.
   const actions = (row.file !== null ||
     canEdit ||
     moves.length > 0 ||
@@ -537,7 +538,7 @@ function LayerLine({
             leftSection={
               editing ? <Icons.close size={14} /> : <Icons.edit size={14} />
             }
-            aria-label={
+            data-action={
               editing
                 ? `cancel editing ${def.key} at ${label}`
                 : `set ${def.key} at ${label}`
@@ -552,7 +553,7 @@ function LayerLine({
             component="a"
             href={editorHref(row.file)}
             leftSection={<Icons.externalLink size={14} />}
-            aria-label={`open ${row.file}`}
+            data-action={`open ${row.file}`}
           >
             Open the file
           </Menu.Item>
@@ -577,7 +578,7 @@ function LayerLine({
             <Menu.Item
               color="bad"
               leftSection={<Icons.trash size={14} />}
-              aria-label={`remove ${def.key} from ${label}`}
+              data-action={`remove ${def.key} from ${label}`}
               onClick={() => void onRemove(scope)}
             >
               {`Remove from ${named}${allRepos}`}
