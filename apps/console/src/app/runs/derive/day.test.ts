@@ -507,6 +507,9 @@ describe('barDetail', () => {
     expect(barDetail(waiting(planGate('shepherd'))).gate).toBe(
       'Which approach should the plan take? The shepherd picked Server-side filter.'
     );
+    expect(barDetail(waiting(planGate('cron'))).gate).toBe(
+      'Which approach should the plan take? Picked Server-side filter.'
+    );
     expect(barDetail(waiting(planGate(null))).gate).toBe(
       'Which approach should the plan take?'
     );

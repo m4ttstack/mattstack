@@ -9,7 +9,7 @@ const NO_GATES: GateRow[] = [];
 
 /** Every gate linked to any run, grouped by the run it belongs to. One fetch
     serves every decision count on the runs page. */
-export function useLinkedGates() {
+export function useLinkedGates({ enabled = true }: { enabled?: boolean } = {}) {
   const query = useQuery({
     queryKey: ['gates', 'linked'],
     queryFn: async () => {
@@ -21,6 +21,7 @@ export function useLinkedGates() {
       if (!res.ok) throw new Error(`gates list failed: ${res.status}`);
       return res.json();
     },
+    enabled,
   });
   const rows = query.data?.gates;
   // A failed request reads as loaded with no gates, so nothing waits on it forever.

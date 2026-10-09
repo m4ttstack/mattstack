@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import '../icons';
 
+import { runDetailKey } from '../runs/derive/day';
 import { paletteStatus } from './paletteStatus';
 
 const runsGet = vi.fn();
@@ -96,10 +97,15 @@ afterEach(() => {
 describe('paletteStatus', () => {
   it('puts a gate waiting on you first, then where the run stands', () => {
     const live = run({ id: 'l', ended_at: null, status: 'running' });
-    expect(paletteStatus(live, new Set(['l']))).toEqual({
+    expect(paletteStatus(live, new Set([runDetailKey(live)]))).toEqual({
       label: 'waiting on you',
       color: 'bad',
     });
+    // The same run id in another repo is a different run.
+    expect(
+      paletteStatus(live, new Set([runDetailKey({ repo: 'console', id: 'l' })]))
+        .label
+    ).toBe('running');
     expect(paletteStatus(live, new Set()).label).toBe('running');
     expect(
       paletteStatus(
@@ -164,6 +170,47 @@ describe('ConsolePalette', () => {
       expect(screen.getByText(key)).toBeInTheDocument();
     await waitFor(() => expect(row).toHaveAttribute('data-selected'));
     expect(within(row).getByText('↵')).toBeInTheDocument();
+  });
+
+  it('keeps a known title while you type, reading gates only once you do', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: [
+          run({ id: 'w', ticket: 'WEB-418', branch: 'web-418-filter' }),
+          run({ id: 'x', ticket: 'WEB-9', branch: 'web-9-other' }),
+        ],
+      })
+    );
+    enrichPost.mockResolvedValue(
+      ok({
+        'web-418-filter': {
+          ticket: { identifier: 'WEB-418', title: 'Filter by assignee' },
+          mr: null,
+          fetchedAt: 0,
+        },
+      })
+    );
+
+    renderPalette();
+    await vi.waitFor(() => expect(runsGet).toHaveBeenCalled());
+    expect(gatesGet).not.toHaveBeenCalled();
+    expect(enrichPost).not.toHaveBeenCalled();
+
+    await typeQuery('w');
+    const row = await screen.findByTestId('palette-run-w');
+    await waitFor(() => expect(row).toHaveTextContent('Filter by assignee'));
+    expect(gatesGet).toHaveBeenCalled();
+
+    const input = screen.getByPlaceholderText(
+      'Search runs, or jump to a page…'
+    );
+    for (const key of 'eb-418') {
+      await userEvent.type(input, key);
+      const now = screen.getByTestId('palette-run-w');
+      expect(now).toHaveTextContent('Filter by assignee');
+      expect(now).not.toHaveTextContent('web-418-filter');
+    }
+    expect(enrichPost).toHaveBeenCalledTimes(1);
   });
 
   it('searches the runs page for what you typed', async () => {

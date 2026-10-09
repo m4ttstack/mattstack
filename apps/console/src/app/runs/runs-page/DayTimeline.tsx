@@ -1,5 +1,6 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Group, Loader, Paper, Popover, Text } from '@mattstack/app-kit/core';
+import { useWindowEvent } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import { Link } from 'wouter';
 
@@ -77,6 +78,9 @@ function Axis({ axis }: { axis: DayAxis }) {
   );
 }
 
+/** Long enough that sweeping the pointer across a lane opens no card. */
+const HOVER_OPEN_DELAY_MS = 200;
+
 const TITLE_COLOR: Record<SegmentKind, string> = {
   done: 'ok',
   running: 'accent',
@@ -90,12 +94,33 @@ const TITLE_COLOR: Record<SegmentKind, string> = {
     for a waiting stretch, the gate and its pick. */
 function BarSegment({ bar, axis }: { bar: Bar; axis: DayAxis }) {
   const [opened, setOpened] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
   const { x, w } = barPlacement(bar, axis);
   const detail = barDetail(bar);
-  const open = () => setOpened(true);
-  const close = () => setOpened(false);
+  const open = () => {
+    window.clearTimeout(timer.current);
+    setOpened(true);
+  };
+  const openSoon = () => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(open, HOVER_OPEN_DELAY_MS);
+  };
+  const close = () => {
+    window.clearTimeout(timer.current);
+    setOpened(false);
+  };
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useWindowEvent('keydown', event => {
+    if (opened && event.key === 'Escape') close();
+  });
   return (
-    <Popover opened={opened} position="bottom" offset={8} width={300}>
+    <Popover
+      opened={opened}
+      onDismiss={close}
+      position="bottom"
+      offset={8}
+      width={300}
+    >
       <Popover.Target>
         <div
           tabIndex={0}
@@ -106,7 +131,7 @@ function BarSegment({ bar, axis }: { bar: Bar; axis: DayAxis }) {
           style={{ '--x': x, '--w': w } as CSSProperties}
           data-parity="seg"
           data-testid="timeline-bar"
-          onMouseEnter={open}
+          onMouseEnter={openSoon}
           onMouseLeave={close}
           onFocus={open}
           onBlur={close}

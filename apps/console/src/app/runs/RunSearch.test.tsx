@@ -203,6 +203,39 @@ describe('RunSearch', () => {
     expect(review).not.toHaveTextContent('dedupe-contacts');
   });
 
+  it('keeps a known title while you type, with one enrich read', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: [
+          run({ id: 'w', ticket: 'WEB-418', branch: 'web-418-filter' }),
+          run({ id: 'x', ticket: 'WEB-9', branch: 'web-9-other' }),
+        ],
+      })
+    );
+    enrichPost.mockResolvedValue(
+      ok({
+        'web-418-filter': {
+          ticket: { identifier: 'WEB-418', title: 'Filter by assignee' },
+          mr: null,
+          fetchedAt: 0,
+        },
+      })
+    );
+
+    renderSearch();
+    const work = await screen.findByTestId('run-row-w');
+    await waitFor(() => expect(work).toHaveTextContent('Filter by assignee'));
+
+    const input = screen.getByTestId('run-search-input');
+    for (const key of 'web-418') {
+      await userEvent.type(input, key);
+      const row = screen.getByTestId('run-row-w');
+      expect(row).toHaveTextContent('Filter by assignee');
+      expect(row).not.toHaveTextContent('web-418-filter');
+    }
+    expect(enrichPost).toHaveBeenCalledTimes(1);
+  });
+
   it('sits on the page surface, not graph paper', async () => {
     runsGet.mockResolvedValue(ok({ runs: RUNS }));
 

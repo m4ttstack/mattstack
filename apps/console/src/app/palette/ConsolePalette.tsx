@@ -6,7 +6,8 @@ import type { RunSummary } from '@mattstack/rt-client';
 import { navigate } from 'wouter/use-browser-location';
 
 import { nowOf } from '../runs/derive/clock';
-import { waitingRuns } from '../runs/derive/lanes';
+import { runDetailKey } from '../runs/derive/day';
+import { waitingOnMe } from '../runs/derive/lanes';
 import { runHref, ticketOf } from '../runs/runs-page/runLinks';
 import { useLinkedGates } from '../runs/runs-page/useLinkedGates';
 import { matchRun, parseQuery } from '../runs/search';
@@ -26,6 +27,7 @@ function go(to: string) {
 }
 
 const RESULT_LIMIT = 10;
+const NO_RUNS: RunSummary[] = [];
 
 function Section({ children }: { children: string }) {
   return (
@@ -77,21 +79,31 @@ function GoTo({
  */
 export function ConsolePalette() {
   const runsQuery = useRunList();
-  const gates = useLinkedGates().all;
   const [query, setQuery] = useState('');
   const q = query.trim();
+  const typing = q !== '';
+  const gates = useLinkedGates({ enabled: typing }).all;
   const now = nowOf(runsQuery.data);
 
+  const allRuns = useMemo(
+    () => (runsQuery.data?.runs ?? []) as RunSummary[],
+    [runsQuery.data]
+  );
   const runs = useMemo(() => {
     const terms = parseQuery(q);
     if (terms.length === 0) return [];
-    return ((runsQuery.data?.runs ?? []) as RunSummary[])
+    return allRuns
       .filter(run => matchRun(run, terms))
       .sort((a, b) => b.started_at - a.started_at)
       .slice(0, RESULT_LIMIT);
-  }, [runsQuery.data, q]);
-  const titleOf = useRunTitles(runs);
-  const onYou = useMemo(() => waitingRuns(gates, now).onYou, [gates, now]);
+  }, [allRuns, q]);
+  // Every run, so typing keeps one cached enrich read (the runs page's).
+  const titleOf = useRunTitles(typing ? allRuns : NO_RUNS);
+  const onYou = useMemo(
+    () =>
+      new Set(waitingOnMe(allRuns, gates, now).map(b => runDetailKey(b.run))),
+    [allRuns, gates, now]
+  );
 
   return (
     <Spotlight.Root

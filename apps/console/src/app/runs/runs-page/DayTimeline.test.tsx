@@ -79,14 +79,25 @@ describe('DayTimeline', () => {
     expect(card).toHaveTextContent(
       'Gate: Which approach? You picked Backend first.'
     );
-    await userEvent.unhover(waiting!);
+    await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByTestId('bar-card')).toBeNull());
+    await userEvent.unhover(waiting!);
 
     act(() => done!.focus());
     expect(await screen.findByTestId('bar-card')).toHaveTextContent(
       'plan · stage done'
     );
     expect(screen.getByTestId('bar-card')).not.toHaveTextContent('Gate:');
+  });
+
+  it('opens no card for a pointer that only sweeps across a bar', async () => {
+    renderTimeline([row]);
+    const [done] = screen.getAllByTestId('timeline-bar');
+    await userEvent.hover(done!);
+    expect(screen.queryByTestId('bar-card')).toBeNull();
+    await userEvent.unhover(done!);
+    await new Promise(r => setTimeout(r, 300));
+    expect(screen.queryByTestId('bar-card')).toBeNull();
   });
 
   it('counts the questions you answered today, not the gates', () => {

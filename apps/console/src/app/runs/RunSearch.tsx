@@ -45,7 +45,8 @@ export function RunSearch() {
     () => runs.filter(run => matchRun(run, terms)),
     [runs, terms]
   );
-  const titleOf = useRunTitles(results);
+  // Every run, so typing keeps one cached enrich read (the runs page's).
+  const titleOf = useRunTitles(runs);
 
   return (
     <PageShell headerHeight={PAGE_ROW_HEIGHT} compactHeader>

@@ -370,8 +370,14 @@ function gateLine(gate: GateRow): string | null {
   if (!question) return null;
   const answer = questionAnswer(gate.answer, question);
   if (!answer || answer.picked.length === 0) return question.label;
-  const who = answeredBy(gate)?.you === false ? 'The shepherd' : 'You';
-  return `${question.label} ${who} picked ${pickedText(question, answer.picked)}.`;
+  const you = answeredBy(gate)?.you;
+  const who =
+    you === true
+      ? 'You picked'
+      : you === false
+        ? 'The shepherd picked'
+        : 'Picked';
+  return `${question.label} ${who} ${pickedText(question, answer.picked)}.`;
 }
 
 /** What the hover card on a timeline bar says. */
