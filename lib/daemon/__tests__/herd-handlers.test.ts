@@ -15,6 +15,7 @@ import { createEscapeInjector } from "../gate-escape.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import { acceptTrustOnPane } from "../trust-accept.ts";
+import { CAPTURED_PREAPPROVED_2294 } from "./trust-workspace-fixtures.ts";
 import { deleteChatSession, readChatSession, writeChatSession } from "../../chat-session.ts";
 
 const log = pino({ level: "silent" });
@@ -112,8 +113,8 @@ export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { regist
       // Only the first key of a batch registers, which is the live herdr
       // behavior the driver exists to work around (RT-156).
       const key = (params?.keys ?? [])[0];
-      if ((key === "up" || key === "down") && screen.text === ELEVATED_TRUST) screen.text = ELEVATED_TRUST_ON_YES;
-      else if (key === "enter" && trust.clearOnAccept && screen.text !== ELEVATED_TRUST) screen.text = "$ claude\n> \n";
+      if ((key === "up" || key === "down") && screen.text === NO_FIRST_TRUST) screen.text = NO_FIRST_TRUST_ON_YES;
+      else if (key === "enter" && trust.clearOnAccept && screen.text !== NO_FIRST_TRUST) screen.text = "$ claude\n> \n";
       return { ok: true, result: {} };
     }
     return { ok: false, code: "invalid_request", message: method };
@@ -193,20 +194,16 @@ const PLAIN_TRUST = [
   "│   2. No, exit                           │",
 ].join("\n");
 
-/** The elevated variant after one step up: the cursor sits on "Yes". */
-const ELEVATED_TRUST_ON_YES = [
+/** A dialog whose cursor starts on "No, exit", after one step up. */
+const NO_FIRST_TRUST_ON_YES = [
   "│ Do you trust the files in this folder?                     │",
-  "│ This folder pre-approves 12 tool permissions in            │",
-  "│ .claude/settings.local.json. Only proceed if you trust it.  │",
   "│ ❯ 1. Yes, proceed                                          │",
   "│   2. No, exit                                              │",
 ].join("\n");
 
-/** The elevated variant: the cursor defaults to "No, exit". */
-const ELEVATED_TRUST = [
+/** A dialog whose cursor starts on "No, exit", with no pre-approval warning. */
+const NO_FIRST_TRUST = [
   "│ Do you trust the files in this folder?                     │",
-  "│ This folder pre-approves 12 tool permissions in            │",
-  "│ .claude/settings.local.json. Only proceed if you trust it.  │",
   "│   1. Yes, proceed                                          │",
   "│ ❯ 2. No, exit                                              │",
 ].join("\n");
@@ -1476,13 +1473,25 @@ describe("herd:spawn", () => {
     expect((res as any).data.trust).toBe("unchecked");
   });
 
-  test("the elevated modal is walked up to Yes instead of entered on No", async () => {
+  test("a modal that starts on No is walked up to Yes instead of entered on No", async () => {
     const { h, socketCalls, screen, herd } = await started();
-    screen.text = ELEVATED_TRUST;
+    screen.text = NO_FIRST_TRUST;
     const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: "/t" });
     expect(res.ok).toBe(true);
     expect(socketCalls.filter((c) => c.method === "pane.send_keys").map((c) => c.params.keys)).toEqual([["up"], ["enter"]]);
     expect((res as any).data.trust).toBe("accepted");
+  });
+
+  test("a modal that says the folder pre-approves tool permissions gets no key: needs-person, parked at the modal, with a note naming the folder", async () => {
+    const { h, socketCalls, screen, store, herd } = await started();
+    screen.text = CAPTURED_PREAPPROVED_2294;
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: "/t" });
+    expect(res.ok).toBe(true);
+    expect(socketCalls.some((c) => c.method === "pane.send_keys")).toBe(false);
+    expect((res as any).data.trust).toBe("needs-person");
+    expect((res as any).data.note).toContain("/t");
+    expect((res as any).data.note).toContain("pre-approves tool permissions");
+    expect(store.getJob(herd, "job-a")!.status).toBe("stuck-at-modal");
   });
 
   test("a modal whose cursor cannot be read is left alone and the job reads stuck-at-modal", async () => {
@@ -1497,7 +1506,7 @@ describe("herd:spawn", () => {
 
   test("a modal that survives the accept keys is retried once, then reported stuck", async () => {
     const { h, socketCalls, screen, trust, store, herd } = await started();
-    screen.text = ELEVATED_TRUST;
+    screen.text = NO_FIRST_TRUST;
     trust.clearOnAccept = false;
     const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: "/t" });
     expect(res.ok).toBe(true);

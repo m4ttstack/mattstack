@@ -16,7 +16,7 @@ import { messagingTarget, observeThroughIntegration, sendAsPeerInput, type PaneI
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import { attendPane } from "../attend.ts";
 import { withIntegrationSession, withProcessSession } from "../pane-process-session.ts";
-import { cwdPath, driveTrustAccept } from "../trust-accept.ts";
+import { cwdPath, driveTrustAccept, trustHoldsPane } from "../trust-accept.ts";
 import type { RelocationWatcher } from "../relocation-announce.ts";
 import type { RelocationInSession } from "../../agent-integrations/claude/relocation.ts";
 import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
@@ -312,7 +312,7 @@ export function createPaneHandlers(opts: {
     const ctx: PaneRowContext = { db, repoIndex, exec, now, workspaces, ...presenceMaps(db, now(), registryDeps) };
     const settled = raw.agent_status === "idle" || raw.agent_status === "done";
     // A start with a prompt returned only after the prompt was submitted.
-    const ready = rec.trust !== "stuck" && (prompt !== undefined || settled);
+    const ready = !trustHoldsPane(rec.trust) && (prompt !== undefined || settled);
     return { ok: true, data: { pane: withProvider(await paneRow(raw, ctx), rec.provider, true), ready, agentId: rec.id } };
   }
 
@@ -478,7 +478,7 @@ export function createPaneHandlers(opts: {
           const again = await herdr<{ agent: HerdrAgent }>("agent.wait", { target: paneId, until: SETTLED, timeout_ms: TRUST_BUDGET_MS }, { timeoutMs: waitTimeout(TRUST_BUDGET_MS) });
           if (again.ok) status = again.result.agent.agent_status;
         }
-        ready = trust !== "stuck" && (status === "idle" || status === "done");
+        ready = !trustHoldsPane(trust) && (status === "idle" || status === "done");
       }
       if (signal?.aborted) return earlyReturn(status);
 

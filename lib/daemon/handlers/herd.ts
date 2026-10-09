@@ -39,7 +39,7 @@ import { slugifyChatName } from "../../chat-room-name.ts";
 import { baseOfHandle } from "../../chat-names.ts";
 import { readChatSession, writeChatSession } from "../../chat-session.ts";
 import { attendPane } from "../attend.ts";
-import type { TrustOutcome } from "../trust-accept.ts";
+import { trustHoldsPane, type TrustOutcome } from "../trust-accept.ts";
 import { BG_SESSION } from "../bg-service.ts";
 import { paneStatuses } from "../pane-statuses.ts";
 import type { BgService } from "../bg-service.ts";
@@ -49,8 +49,10 @@ const herdOwner = (herdId: string): string => `herd:${herdId}`;
 
 /** What a spawn's trust check actually established, reported rather than
     swallowed: no modal was in the way, one was accepted and verified gone,
-    one is still up (the job is parked at `stuck-at-modal`), or herdr could
-    not be read and the pane's state is genuinely unknown. */
+    one is still up (the job is parked at `stuck-at-modal`), one says the repo
+    pre-approves tool permissions and is left to the person (parked the same
+    way), or herdr could not be read and the pane's state is genuinely
+    unknown. */
 export type { TrustOutcome } from "../trust-accept.ts";
 
 export interface HerdDeps {
@@ -159,6 +161,8 @@ const HERD_NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/;
 const TRUST_BUDGET_MS = 15_000;
 const SESSION_UP_WAIT = { budgetMs: 15_000, pollMs: 500 };
 const SESSION_NOT_UP = "the worker's session has not come up yet: rt saw no session start in its pane. Check its pane or the herd's status before counting on it";
+const preApprovedNote = (folder: string, pane: string): string =>
+  `Claude's trust prompt for ${folder} says this repo pre-approves tool permissions, so rt left it for the person to answer in pane ${pane}`;
 // The job statuses that only a running worker reaches, and therefore the only
 // ones whose missing agent proves the worker session died rather than never
 // having started.
@@ -907,16 +911,21 @@ export function createHerdHandlers(deps: HerdDeps) {
       // brief, and `spawning` would read as a launch merely in progress.
       // herd-lifecycle clears it back to active the moment herdr detects the
       // agent, so a hand-accepted modal needs no second command.
-      if (ownsJob && current.status === "spawning" && trust === "stuck") store.setJobStatus(herdId, name, "stuck-at-modal");
+      if (ownsJob && current.status === "spawning" && trustHoldsPane(trust)) store.setJobStatus(herdId, name, "stuck-at-modal");
       // No pane means no herdr agent detection to move the job on; its work was submitted, so it is working.
       if (ownsJob && current.status === "spawning" && headless) store.setJobStatus(herdId, name, "active");
 
       const paneRef = rec.paneId ? formatPaneRef(rec.paneId, herd.hidden ? "bg" : "visible") : "";
+      const notes = [
+        ...(trust === "needs-person" ? [preApprovedNote(worktree, paneRef)] : []),
+        ...(!sessionUp ? [SESSION_NOT_UP] : []),
+      ];
       return {
         ok: true,
         data: {
           herd: herdId, job: name, pane: paneRef, worktree, branch, tree, wasOnDeck, agentId: rec.id, sessionId: rec.sessionId, handle, trust,
-          ...(!sessionUp && { sessionUp: false as const, note: SESSION_NOT_UP }),
+          ...(!sessionUp && { sessionUp: false as const }),
+          ...(notes.length > 0 && { note: notes.join(". ") }),
         },
       };
     },

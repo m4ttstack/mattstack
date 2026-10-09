@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import pino from "pino";
 import { acceptTrustOnPane, driveRelocationAccept, driveTrustAccept, cwdPath, type TrustDriveOutcome } from "../trust-accept.ts";
-import { FIXTURE_PATH, workspaceScreen } from "./trust-workspace-fixtures.ts";
+import { CAPTURED_2294_PATH, CAPTURED_PLAIN_2294, CAPTURED_PLAIN_2294_B, CAPTURED_PREAPPROVED_2294, FIXTURE_PATH, workspaceScreen } from "./trust-workspace-fixtures.ts";
 import { mkdtempSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -378,6 +378,94 @@ describe("driveTrustAccept: a path pinned from a workspace dialog", () => {
     expect(outcome).toBe("stuck");
     expect(calls.some((c) => c.method === "pane.send_keys" && c.keys?.includes("enter"))).toBe(false);
     expect(warns).toHaveLength(1);
+  });
+});
+
+/** A pane painting one real capture: arrows move its cursor, Enter on Yes clears it. */
+function capturePane(screen: string, opts: { becomesAfterFirstKey?: string } = {}) {
+  const state = { screen, cleared: false };
+  const keys: string[] = [];
+  const herdr = (async (method: string, params: any) => {
+    if (method === "agent.get" || method === "agent.wait") return { ok: true, result: { agent: { agent_status: "blocked" } } };
+    if (method === "pane.read") return { ok: true, result: { read: { text: state.cleared ? CLEARED : state.screen } } };
+    if (method === "pane.send_keys") {
+      for (const k of params.keys as string[]) {
+        keys.push(k);
+        if (opts.becomesAfterFirstKey !== undefined && keys.length === 1) { state.screen = opts.becomesAfterFirstKey; continue; }
+        if (k === "down") state.screen = state.screen.replace(" ❯ No, exit", "   No, exit").replace("   Yes, I trust this folder", " ❯ Yes, I trust this folder");
+        if (k === "up") state.screen = state.screen.replace("   No, exit", " ❯ No, exit").replace(" ❯ Yes, I trust this folder", "   Yes, I trust this folder");
+        if (k === "enter" && state.screen.includes(" ❯ Yes, I trust this folder")) state.cleared = true;
+      }
+      return { ok: true, result: {} };
+    }
+    return { ok: false, code: "invalid_request", message: method };
+  }) as never;
+  return { herdr, keys };
+}
+
+describe("driveTrustAccept: a dialog that says the folder pre-approves tool permissions", () => {
+  const admitAll = () => true;
+  const warnings = () => {
+    const seen: Array<{ ctx: Record<string, unknown>; msg: string }> = [];
+    const captureLog = { ...log, warn: (ctx: Record<string, unknown>, msg: string) => { seen.push({ ctx, msg }); } } as unknown as typeof log;
+    return { seen, captureLog };
+  };
+
+  test("the captured 2.1.294 pre-approval dialog gets no key and reads needs-person, even for an admitted folder", async () => {
+    const p = capturePane(CAPTURED_PREAPPROVED_2294);
+    const { seen, captureLog } = warnings();
+    const outcome = await driveTrustAccept({ herdr: p.herdr, sock: {}, pane: "w1:p1", log: captureLog, context: {}, settleMs: 1, stepMs: 1, trustsPath: admitAll });
+    expect(outcome).toBe("needs-person");
+    expect(p.keys).toEqual([]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.msg).toContain(CAPTURED_2294_PATH);
+    expect(seen[0]!.msg).toContain("pre-approves tool permissions");
+  });
+
+  test("the old layout's pre-approval dialog gets no key either, and names the folder from the caller's cwd", async () => {
+    const screen = [
+      "│ Do you trust the files in this folder?                     │",
+      "│ This folder pre-approves 12 tool permissions in            │",
+      "│ .claude/settings.local.json. Only proceed if you trust it.  │",
+      "│   1. Yes, proceed                                          │",
+      "│ ❯ 2. No, exit                                              │",
+    ].join("\n");
+    const p = capturePane(screen);
+    const { seen, captureLog } = warnings();
+    const outcome = await driveTrustAccept({ herdr: p.herdr, sock: {}, pane: "w1:p1", log: captureLog, context: { cwd: "/repos/apps" }, settleMs: 1, stepMs: 1, trustsPath: admitAll });
+    expect(outcome).toBe("needs-person");
+    expect(p.keys).toEqual([]);
+    expect(seen[0]!.msg).toContain("/repos/apps");
+  });
+
+  test("a warning that appears mid-walk stops the walk before enter", async () => {
+    const p = capturePane(CAPTURED_PLAIN_2294, { becomesAfterFirstKey: CAPTURED_PREAPPROVED_2294 });
+    const outcome = await driveTrustAccept({ herdr: p.herdr, sock: {}, pane: "w1:p1", log, context: {}, settleMs: 1, stepMs: 1, trustsPath: admitAll });
+    expect(outcome).toBe("needs-person");
+    expect(p.keys).toEqual(["down"]);
+  });
+
+  test("the captured plain dialogs keep today's walk: down, then enter", async () => {
+    for (const screen of [CAPTURED_PLAIN_2294, CAPTURED_PLAIN_2294_B]) {
+      const p = capturePane(screen);
+      const outcome = await driveTrustAccept({ herdr: p.herdr, sock: {}, pane: "w1:p1", log, context: {}, settleMs: 1, stepMs: 1, trustsPath: (path) => path === CAPTURED_2294_PATH });
+      expect(outcome).toBe("accepted");
+      expect(p.keys).toEqual(["down", "enter"]);
+    }
+  });
+
+  test("a workspace dialog with a paragraph the parser does not know gets no key", async () => {
+    const p = capturePane(CAPTURED_PLAIN_2294.replace(" Security guide", " This folder runs 3 hooks on startup.\n\n Security guide"));
+    const outcome = await driveTrustAccept({ herdr: p.herdr, sock: {}, pane: "w1:p1", log, context: {}, settleMs: 1, stepMs: 1, trustsPath: admitAll });
+    expect(outcome).toBe("stuck");
+    expect(p.keys).toEqual([]);
+  });
+
+  test("acceptTrustOnPane reports needs-person", async () => {
+    const p = capturePane(CAPTURED_PREAPPROVED_2294);
+    const outcome = await acceptTrustOnPane({ herdr: p.herdr, sock: {}, pane: "w1:p1", log, context: {}, settleMs: 1, stepMs: 1, trustsPath: admitAll });
+    expect(outcome).toBe("needs-person");
+    expect(p.keys).toEqual([]);
   });
 });
 

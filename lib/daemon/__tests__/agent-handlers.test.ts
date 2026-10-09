@@ -15,7 +15,7 @@ import { DAEMON_SOCK_PATH } from "../../daemon-config.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { repoLabel } from "../../repo-arg.ts";
 import { herdSubject } from "../herd-store.ts";
-import { workspaceScreen } from "./trust-workspace-fixtures.ts";
+import { CAPTURED_2294_PATH, CAPTURED_PREAPPROVED_2294, workspaceScreen } from "./trust-workspace-fixtures.ts";
 import type { AgentOptions, CapabilityReport, Mode, NativeSessionRef, Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { claudeIntegration } from "../../agent-integrations/claude/integration.ts";
 import { codexIntegration } from "../../agent-integrations/codex/integration.ts";
@@ -233,6 +233,16 @@ test("agent:start leaves a workspace dialog naming another folder for the human"
   if (!res.ok) throw new Error("unreachable");
   expect(seen.some((c) => c.method === "pane.send_keys")).toBe(false);
   expect(res.data.trust).toBe("stuck");
+});
+
+test("agent:start leaves a dialog that pre-approves tool permissions to the person, even for the folder it launched", async () => {
+  const seen: Array<{ method: string; sock?: string }> = [];
+  const h = fresh({ runner: okRunner([]), herdr: trustHerdr({ "w1:p1": CAPTURED_PREAPPROVED_2294 }, seen) });
+  const res = await h["agent:start"]({ repo: REPO, cwd: CAPTURED_2294_PATH, prompt: "hi", surface: "herdr" });
+  expect(res.ok).toBe(true);
+  if (!res.ok) throw new Error("unreachable");
+  expect(seen.some((c) => c.method === "pane.send_keys")).toBe(false);
+  expect(res.data.trust).toBe("needs-person");
 });
 
 // Pins the rollback: a launch failure must not leave a phantom record that

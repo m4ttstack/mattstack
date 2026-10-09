@@ -273,7 +273,9 @@ export async function spawn(args: string[]): Promise<void> {
     fail((e as Error).message);
   }
   const data = unwrap(await herdSpawn(await withCallerAccount(payload), { timeoutMs: SPAWN_TIMEOUT_MS }), "spawn");
-  const trustNote = data.trust === "stuck" ? " (STUCK AT TRUST MODAL)" : data.trust === "accepted" ? " (trust dialog accepted)" : "";
+  const trustNote = data.trust === "stuck" ? " (STUCK AT TRUST MODAL)"
+    : data.trust === "needs-person" ? " (TRUST PROMPT LEFT TO YOU: this repo pre-approves tool permissions)"
+    : data.trust === "accepted" ? " (trust dialog accepted)" : "";
   const upNote = data.sessionUp === false ? " (SESSION NOT UP YET)" : "";
   emit(json, data, `${data.job} pane ${data.pane} worktree ${data.worktree} session ${data.sessionId}${data.wasOnDeck === false ? " (cold provision)" : ""}${trustNote}${upNote}`);
 }

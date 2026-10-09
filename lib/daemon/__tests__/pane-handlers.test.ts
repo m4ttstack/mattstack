@@ -11,7 +11,7 @@ import { createPaneHandlers } from "../handlers/pane.ts";
 import type { TrayClient, TrayReply } from "../../daemon-client.ts";
 import { bgSocketPath, type BgService } from "../bg-service.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
-import { workspaceScreen } from "./trust-workspace-fixtures.ts";
+import { CAPTURED_PREAPPROVED_2294, workspaceScreen } from "./trust-workspace-fixtures.ts";
 
 /** A resolvable, alive binding for each named session id -- buddyStatus now reads offline for anything not covered here, so a test whose point is a live/idle join must supply one. */
 function fakeRegistryDeps(bindings: Record<string, InboxBinding["status"]>): RegistryDeps {
@@ -282,10 +282,10 @@ function spawnFake(script: { statuses: string[]; screen?: string; agentGetFailur
         return { type: "ok" };
       case "pane.send_keys": {
         const key = ((params as { keys?: string[] }).keys ?? [])[0];
-        if ((key === "up" || key === "down") && screen === ELEVATED_TRUST) screen = ELEVATED_TRUST_ON_YES;
+        if ((key === "up" || key === "down") && screen === NO_FIRST_TRUST) screen = NO_FIRST_TRUST_ON_YES;
         else if ((key === "up" || key === "down") && screen.includes(" ❯ No, exit")) {
           screen = screen.replace(" ❯ No, exit", "   No, exit").replace("   Yes, I trust this folder", " ❯ Yes, I trust this folder");
-        } else if (key === "enter" && screen !== ELEVATED_TRUST) screen = "";
+        } else if (key === "enter" && screen !== NO_FIRST_TRUST) screen = "";
         return { type: "ok" };
       }
       case "agent.get":
@@ -348,10 +348,10 @@ test("pane:spawn quotes a cwd with a space", async () => {
 
 /** The plain first-run dialog: the cursor starts on "Yes, proceed". */
 const PLAIN_TRUST = "Do you trust the files in this folder?\n❯ 1. Yes, proceed\n  2. No, exit\n";
-/** The elevated variant: the cursor defaults to "No, exit". */
-const ELEVATED_TRUST = "Do you trust the files in this folder?\nThis folder pre-approves 12 tool permissions in .claude/settings.local.json.\n  1. Yes, proceed\n❯ 2. No, exit\n";
-/** The elevated variant after one step up. */
-const ELEVATED_TRUST_ON_YES = "Do you trust the files in this folder?\nThis folder pre-approves 12 tool permissions in .claude/settings.local.json.\n❯ 1. Yes, proceed\n  2. No, exit\n";
+/** A dialog whose cursor starts on "No, exit", with no pre-approval warning. */
+const NO_FIRST_TRUST = "Do you trust the files in this folder?\n  1. Yes, proceed\n❯ 2. No, exit\n";
+/** The same dialog after one step up. */
+const NO_FIRST_TRUST_ON_YES = "Do you trust the files in this folder?\n❯ 1. Yes, proceed\n  2. No, exit\n";
 
 test("pane:spawn answers the trust dialog once, then sends the opening prompt", async () => {
   const { handler, calls } = spawnFake({ statuses: ["blocked", "idle"], screen: PLAIN_TRUST });
@@ -373,8 +373,8 @@ test("pane:spawn accepts the 2.1.283 workspace dialog for the folder it spawned"
   expect(seen.filter((s) => s.method === "pane.send_keys").map((s) => s.params.keys)).toEqual([["down"], ["enter"]]);
 });
 
-test("pane:spawn walks the elevated trust dialog up to Yes one key per call, never a batch", async () => {
-  const { handler } = spawnFake({ statuses: ["blocked", "idle"], screen: ELEVATED_TRUST });
+test("pane:spawn walks a dialog that starts on No up to Yes one key per call, never a batch", async () => {
+  const { handler } = spawnFake({ statuses: ["blocked", "idle"], screen: NO_FIRST_TRUST });
   const { pane, seen } = harness(handler);
   const res = await pane["pane:spawn"]({ cwd: "/repos/chat" });
   if (!res.ok) throw new Error(res.error);
@@ -391,6 +391,16 @@ test("pane:spawn answers a trust dialog that is up while herdr calls the agent i
   expect(calls).toContain("pane.send_keys");
   expect(seen.find((s) => s.method === "pane.send_keys")!.params.keys).toEqual(["enter"]);
   expect(res.data.ready).toBe(true);
+});
+
+test("pane:spawn leaves a dialog that pre-approves tool permissions to the person: no key, not ready, no prompt", async () => {
+  const { handler, calls } = spawnFake({ statuses: ["blocked", "idle"], screen: CAPTURED_PREAPPROVED_2294 });
+  const { pane } = harness(handler);
+  const res = await pane["pane:spawn"]({ cwd: "/private/tmp/claude-501/live19/work", prompt: "hi" });
+  if (!res.ok) throw new Error(res.error);
+  expect(calls).not.toContain("pane.send_keys");
+  expect(res.data.ready).toBe(false);
+  expect(calls).not.toContain("agent.prompt");
 });
 
 test("pane:spawn sends no key to a trust dialog whose selection it cannot read, and reports not ready", async () => {

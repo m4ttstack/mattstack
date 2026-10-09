@@ -6,8 +6,8 @@
  * dialog until a human cleared them:
  *
  * - A batch of keys in one `pane.send_keys` call does not register: the arrow
- *   is swallowed and the Enter lands on whatever was selected, which on the
- *   elevated variant is "No, exit". Every key therefore goes in its own call.
+ *   is swallowed and the Enter lands on whatever was selected, "No, exit" on a
+ *   dialog whose cursor starts there. Every key therefore goes in its own call.
  * - The cursor is re-read between presses rather than assumed, so the walk to
  *   the accept option is driven by what the screen actually shows and a cursor
  *   that will not move is reported instead of entered on.
@@ -20,8 +20,15 @@ import { resolve } from "node:path";
 /** `no-dialog` is "the screen showed no modal", which each caller reads in its
     own context: for a registered pane it means nothing to do, for one that
     never came up it means the spawn failed for a reason the screen cannot
-    name. */
-export type TrustDriveOutcome = "accepted" | "stuck" | "unchecked" | "no-dialog";
+    name. `needs-person` is a dialog saying the repo pre-approves tool
+    permissions: rt sent it no key, whatever the switches, and only the
+    person may answer it. */
+export type TrustDriveOutcome = "accepted" | "stuck" | "needs-person" | "unchecked" | "no-dialog";
+
+/** True for an outcome that leaves the pane sitting on the dialog. */
+export function trustHoldsPane(outcome: string | undefined): boolean {
+  return outcome === "stuck" || outcome === "needs-person";
+}
 
 type HerdrCall = <T = unknown>(method: string, params?: Record<string, unknown>, opts?: { sockPath?: string; timeoutMs?: number }) => Promise<{ ok: true; result: T } | { ok: false; code?: string; message?: string }>;
 
@@ -83,6 +90,11 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
       return false;
     }
     const prompt = (deps.read ?? readTrustPrompt)(screen.result.read.text);
+    if (prompt?.kind === "pre-approved") {
+      const folder = prompt.path ?? (typeof context.cwd === "string" ? context.cwd : "this folder");
+      log?.warn({ ...context, pane, path: prompt.path }, `trust: ${folder} pre-approves tool permissions in its Claude settings; leaving the trust prompt to the person`);
+      return prompt;
+    }
     if (prompt?.kind === "accept" && prompt.path === undefined && pinned !== undefined) {
       log?.warn({ ...context, pane, pinned }, "trust: a path was pinned earlier; a dialog with no path to compare will not be driven");
       refused = true;
@@ -110,6 +122,7 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
     let prompt = await look();
     if (prompt === false) return "unchecked";
     if (prompt === null) return attempt > 0 ? "accepted" : "no-dialog";
+    if (prompt.kind === "pre-approved") return "needs-person";
     if (prompt.kind === "undrivable") {
       if (!refused) log?.warn({ ...context, pane }, "trust: dialog present but its selection could not be read; not guessing a key");
       return "stuck";
@@ -126,6 +139,7 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
       // The dialog answering a single arrow by closing is not something the
       // real one does, but a spawn racing a human hand is.
       if (next === null) return "accepted";
+      if (next.kind === "pre-approved") return "needs-person";
       if (next.kind === "undrivable") return "stuck";
       if (next.keys.length >= prompt.keys.length) {
         log?.warn({ ...context, pane, key }, "trust: the cursor did not move; refusing to press enter on an unknown selection");
@@ -143,6 +157,7 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
   const after = await look();
   if (after === false) return "unchecked";
   if (after === null) return "accepted";
+  if (after.kind === "pre-approved") return "needs-person";
   log?.warn({ ...context, pane }, "trust: dialog still up after the accept keys; the pane is stuck at the modal");
   return "stuck";
 }
@@ -209,7 +224,7 @@ export async function driveRelocationAccept(deps: RelocationDriveDeps): Promise<
 
 /** What a spawn path reports about the dialog: `none` is "no dialog, and the
     pane is otherwise fine", `unchecked` is "nothing could be established". */
-export type TrustOutcome = "none" | "accepted" | "stuck" | "unchecked";
+export type TrustOutcome = "none" | "accepted" | "stuck" | "needs-person" | "unchecked";
 
 // herdr registers the agent a few hundred ms after the shell starts claude,
 // and `agent.wait` errors immediately on an unregistered target rather than

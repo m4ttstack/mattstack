@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readRelocationPrompt, readTrustPrompt } from "../trust-dialog.ts";
-import { CAPTURED_ACCOUNT_2, CAPTURED_NARROW, CAPTURED_WIDE, FIXTURE_PATH, workspaceScreen } from "./trust-workspace-fixtures.ts";
+import {
+  CAPTURED_2294_PATH, CAPTURED_ACCOUNT_2, CAPTURED_NARROW, CAPTURED_PLAIN_2294, CAPTURED_PLAIN_2294_B, CAPTURED_PREAPPROVED_2294, CAPTURED_WIDE,
+  FIXTURE_PATH, workspaceScreen,
+} from "./trust-workspace-fixtures.ts";
 
 /** The plain first-run dialog: the cursor starts on "Yes, proceed". */
 const PLAIN = [
@@ -45,18 +48,18 @@ describe("readTrustPrompt", () => {
     expect(readTrustPrompt(PLAIN)).toEqual({ kind: "accept", variant: "plain", keys: ["enter"] });
   });
 
-  test("the elevated dialog walks up to Yes before entering", () => {
-    expect(readTrustPrompt(ELEVATED)).toEqual({ kind: "accept", variant: "elevated", keys: ["up", "enter"] });
+  test("the dialog that says the folder pre-approves tool permissions is left to the person, never walked to Yes", () => {
+    expect(readTrustPrompt(ELEVATED)).toEqual({ kind: "pre-approved" });
   });
 
-  test("the variant names the dialog's own text, not the cursor's distance", () => {
+  test("the pre-approval is read from the dialog's own text, not the cursor's position", () => {
     const preApprovedButCursorOnYes = [
       "Do you trust the files in this folder?",
       "This folder pre-approves 12 tool permissions in .claude/settings.local.json.",
       "❯ 1. Yes, proceed",
       "  2. No, exit",
     ].join("\n");
-    expect(readTrustPrompt(preApprovedButCursorOnYes)).toEqual({ kind: "accept", variant: "elevated", keys: ["enter"] });
+    expect(readTrustPrompt(preApprovedButCursorOnYes)).toEqual({ kind: "pre-approved" });
   });
 
   test("a cursor below the accept option walks up once per option", () => {
@@ -168,6 +171,52 @@ describe("readTrustPrompt: the 2.1.283 workspace dialog", () => {
   // (apps/board/src/client/board/gate-gallery.fixtures.ts, Account-2).
   test("a second real capture, from an Account-2 pane, parses to its own path", () => {
     expect(readTrustPrompt(CAPTURED_ACCOUNT_2)).toEqual({ kind: "accept", variant: "workspace", path: "/Users/pat/.mattstack/teams/acme", keys: ["down", "enter"] });
+  });
+});
+
+describe("readTrustPrompt: a workspace dialog that pre-approves tool permissions", () => {
+  test("the captured pre-approval dialog is left to the person, with the folder it names", () => {
+    expect(readTrustPrompt(CAPTURED_PREAPPROVED_2294)).toEqual({ kind: "pre-approved", path: CAPTURED_2294_PATH });
+  });
+
+  test("the captured plain dialogs from the same run still walk down to Yes", () => {
+    for (const screen of [CAPTURED_PLAIN_2294, CAPTURED_PLAIN_2294_B]) {
+      expect(readTrustPrompt(screen)).toEqual({ kind: "accept", variant: "workspace", path: CAPTURED_2294_PATH, keys: ["down", "enter"] });
+    }
+  });
+
+  test("the pre-approval holds with the cursor already on Yes", () => {
+    const screen = CAPTURED_PREAPPROVED_2294.replace(" ❯ No, exit", "   No, exit").replace("   Yes, I trust this folder", " ❯ Yes, I trust this folder");
+    expect(readTrustPrompt(screen)).toEqual({ kind: "pre-approved", path: CAPTURED_2294_PATH });
+  });
+
+  test("the pre-approval is still read when the dialog's top has scrolled off", () => {
+    const lines = CAPTURED_PREAPPROVED_2294.split("\n");
+    const rule = lines.findIndex((l) => l.startsWith("────"));
+    expect(readTrustPrompt(lines.slice(rule + 4).join("\n"))).toEqual({ kind: "pre-approved" });
+  });
+
+  test("a pre-approval whose permission list wraps to more rows is still read", () => {
+    const screen = CAPTURED_PREAPPROVED_2294.replace(
+      "   mcp__plugin_mattstack_mattstack and Bash(/private/tmp/claude-501/live19/bin/rt *)",
+      "   mcp__plugin_mattstack_mattstack, Bash(/private/tmp/claude-501/live19/bin/rt *),\n   Bash(make deploy *) and Edit",
+    );
+    expect(readTrustPrompt(screen)).toEqual({ kind: "pre-approved", path: CAPTURED_2294_PATH });
+  });
+
+  test("a body paragraph this parser does not know is undrivable: it cannot rule a warning out", () => {
+    const screen = CAPTURED_PLAIN_2294.replace(
+      " Security guide",
+      " This folder runs 3 hooks from .claude/settings.json on startup.\n\n Security guide",
+    );
+    expect(readTrustPrompt(screen)).toEqual({ kind: "undrivable" });
+  });
+
+  test("a reworded warning in its own paragraph is undrivable, never accepted", () => {
+    const screen = CAPTURED_PREAPPROVED_2294
+      .replace(" ⚠ This folder pre-approves 2 tool permissions in .claude/settings.json:", " Heads up: this folder allows 2 tools in .claude/settings.json:")
+      .replace(" These will apply without asking. Only proceed if you trust this configuration.", " Only proceed if you trust this configuration.");
+    expect(readTrustPrompt(screen)).toEqual({ kind: "undrivable" });
   });
 });
 

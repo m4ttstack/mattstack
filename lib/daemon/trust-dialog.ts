@@ -1,23 +1,27 @@
 /**
  * Claude Code's pre-claude folder-trust modal, read off a pane screen.
  *
- * The old layout ships two variants sharing one header and opposite
- * defaults: the plain first-run dialog starts on "Yes, proceed", and the
- * elevated one a repo's pre-approved tool permissions raise starts on
- * "No, exit". Claude Code 2.1.283's workspace layout has no such header; it
- * is anchored on its own full-width rule and footer instead, and it names
- * the folder it asks about directly in its body. A bare Enter can accept
- * the wrong option on any of these, so the key sequence is always computed
- * from the cursor's position rather than assumed.
+ * Either layout can carry a warning that the repo's own settings pre-approve
+ * tool permissions. A dialog showing it is never answered by rt: accepting
+ * it would grant those permissions on the person's behalf, so it comes back
+ * `pre-approved` and the caller leaves it to them. Claude Code 2.1.283's
+ * workspace layout is accepted only when every paragraph of its body is one
+ * this parser knows, so a warning reworded in a later release cannot read
+ * as its absence.
+ *
+ * The old layout is anchored on its header; the workspace layout on its own
+ * full-width rule and footer, and it names the folder it asks about directly
+ * in its body. A bare Enter can accept the wrong option on either, so the key
+ * sequence is always computed from the cursor's position rather than assumed.
  *
  * A dialog whose cursor or accept option cannot be located comes back
- * `undrivable` instead of falling back to Enter: pressing Enter blind is
- * exactly the move that exits the session on the elevated variant, and a
- * surfaced stuck pane costs a keypress where a wrong guess costs the worker.
+ * `undrivable` instead of falling back to Enter: a surfaced stuck pane costs
+ * a keypress where a wrong guess costs the worker.
  */
 
 export type TrustPrompt =
-  | { kind: "accept"; variant: "plain" | "elevated" | "relocation" | "workspace"; keys: Array<"up" | "down" | "enter">; path?: string }
+  | { kind: "accept"; variant: "plain" | "relocation" | "workspace"; keys: Array<"up" | "down" | "enter">; path?: string }
+  | { kind: "pre-approved"; path?: string }
   | { kind: "undrivable" };
 
 const HEADER_RE = /do you trust the files in this folder/i;
@@ -25,9 +29,10 @@ const HEADER_RE = /do you trust the files in this folder/i;
 // option line parses the same as a bare one.
 const OPTION_RE = /^[\s│|┃╎┆]*(?<cursor>[❯>])?\s*(?<index>\d+)\.\s+(?<label>.*?)\s*[│|┃╎┆]?\s*$/;
 const ACCEPT_RE = /^yes\b/i;
-// The elevated variant's own body text, and the only honest way to name it:
-// the cursor's distance says which keys to press, never which dialog this is.
-const ELEVATED_RE = /pre-approve\w*\s+\d*\s*tool permissions/i;
+// Deliberately loose: matching quoted text near the dialog only costs a
+// keypress the person makes themselves, while missing a reworded warning
+// would grant its permissions.
+const PRE_APPROVAL_RE = /pre-?approve|apply without asking|⚠/i;
 
 interface Option { cursor: boolean; label: string }
 
@@ -52,8 +57,8 @@ export function readTrustPrompt(screen: string): TrustPrompt | null {
   const workspace = readWorkspacePrompt(screen.split("\n"));
   if (workspace !== null) return workspace;
   if (!HEADER_RE.test(screen)) return null;
-  const options = readOptions(screen);
-  return walkToAccept(options, (keys) => ({ kind: "accept", variant: ELEVATED_RE.test(screen) ? "elevated" : "plain", keys }));
+  if (PRE_APPROVAL_RE.test(screen)) return { kind: "pre-approved" };
+  return walkToAccept(readOptions(screen), (keys) => ({ kind: "accept", variant: "plain", keys }));
 }
 
 function walkToAccept<T>(options: Option[], make: (keys: Array<"up" | "down" | "enter">) => T, acceptRe: RegExp = ACCEPT_RE): T | { kind: "undrivable" } {
@@ -73,6 +78,8 @@ const WS_HEADER_RE = /^ Accessing workspace:\s*$/;
 const WS_QUESTION_RE = /^ Quick safety check:/;
 const WS_OPTION_RE = /^ (?<cursor>❯| ) (?<label>\S.*?)\s*$/;
 const WS_ACCEPT_RE = /^Yes, I trust this folder/;
+// The paragraphs a plain dialog shows after its question, by first row.
+const WS_KNOWN_PARAGRAPH_RE = /^ (Claude Code'll be able to |Security guide\s*$)/;
 const WS_WINDOW_CAP = 24;
 
 // Terminal cells, not code points or UTF-16 units: an emoji in the echoed
@@ -100,27 +107,42 @@ function readWorkspacePrompt(lines: string[]): TrustPrompt | null {
   // every later failure below is the top scrolling off or the rule failing
   // to parse, never "no dialog here": a footer shared with some other
   // layout (a model picker) that never shows this label stays null instead.
-  const live = options.some((o) => WS_ACCEPT_RE.test(o.label));
-  const fail = (): TrustPrompt | null => (live ? { kind: "undrivable" } : null);
+  if (!options.some((o) => WS_ACCEPT_RE.test(o.label))) return null;
 
   let top = -1;
   for (let i = first - 1; i >= Math.max(0, first - WS_WINDOW_CAP); i--) {
     if (RULE_RE.test(lines[i] as string)) { top = i; break; }
   }
-  if (top < 0) return fail();
-  const rule = (lines[top] as string).trimEnd();
-  const ruleWidth = width(rule);
+  // With the top scrolled off, the window above the options is still read
+  // for the warning, so such a dialog reads as one to leave to the person.
+  const above = lines.slice(top < 0 ? Math.max(0, first - WS_WINDOW_CAP) : top + 1, first);
+  const warned = above.some((l) => PRE_APPROVAL_RE.test(l));
+  if (top < 0) return warned ? { kind: "pre-approved" } : { kind: "undrivable" };
+  const ruleWidth = width((lines[top] as string).trimEnd());
   // The real rule spans the pane; a command can paint one, but never wider
   // than the text around it.
-  if (lines.some((l) => width(l.trimEnd()) > ruleWidth)) return fail();
-  const body = lines.slice(top + 1, first).filter((l) => l.trim() !== "");
-  if (!WS_HEADER_RE.test(body[0] ?? "")) return fail();
+  const ruleHolds = !lines.some((l) => width(l.trimEnd()) > ruleWidth);
+  const body = above.filter((l) => l.trim() !== "");
   const pathRow = body[1] ?? "";
   // A path wider than the pane wraps onto the next row; the question must
   // follow the path row directly, or the path is not whole on it.
-  if (!pathRow.startsWith(" /") || !WS_QUESTION_RE.test(body[2] ?? "")) return { kind: "undrivable" };
-  const path = pathRow.slice(1).trimEnd();
+  const pathWhole = ruleHolds && WS_HEADER_RE.test(body[0] ?? "") && pathRow.startsWith(" /") && WS_QUESTION_RE.test(body[2] ?? "");
+  const path = pathWhole ? pathRow.slice(1).trimEnd() : undefined;
+  if (warned) return path !== undefined ? { kind: "pre-approved", path } : { kind: "pre-approved" };
+  if (path === undefined || !onlyKnownParagraphs(above)) return { kind: "undrivable" };
   return walkToAccept(options, (keys) => ({ kind: "accept", variant: "workspace", path, keys }), WS_ACCEPT_RE);
+}
+
+/** True when every paragraph after the header, path and question is one a plain dialog shows. */
+function onlyKnownParagraphs(body: string[]): boolean {
+  const firstRows: string[] = [];
+  let inParagraph = false;
+  for (const line of body) {
+    const blank = line.trim() === "";
+    if (!blank && !inParagraph) firstRows.push(line);
+    inParagraph = !blank;
+  }
+  return firstRows.length > 3 && firstRows.slice(3).every((row) => WS_KNOWN_PARAGRAPH_RE.test(row));
 }
 
 export type RelocationPrompt =

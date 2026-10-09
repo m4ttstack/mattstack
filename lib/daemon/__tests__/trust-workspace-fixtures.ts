@@ -114,3 +114,111 @@ Account-2 (agent@example.com) is already the active default login... launching t
 
  Enter to confirm · Esc to cancel
 `;
+
+/**
+ * Claude Code 2.1.294's folder-trust dialog, three panes read verbatim with
+ * herdr's pane.read during a live check (run live-19), each under the
+ * pane's own shell echo of the claude command line. Nothing is replaced.
+ */
+
+/** The pre-approval variant: a repo whose .claude/settings.json pre-approves two tool permissions. */
+export const CAPTURED_PREAPPROVED_2294 = [
+  "t-1.md. Read that whole file now and follow it as your task.'",
+  "",
+  "repo-tools/apps/deck at  on   main  stash:3 mod:4 staged:1  ● v1.1.2",
+  "🚀  . /private/tmp/claude-501/live19/pe; cd '/private/tmp/claude-501/live19/work' && env -u CODEX_THREAD_ID RT_AGENT_ID=",
+  "'ag-41bff63c' RT_GATE_SUBJECT='agent:ag-41bff63c' RT_DAEMON_SOCK='/private/tmp/claude-501/live19/home/.mattstack/rt/rt.s",
+  "ock' claude '--model' 'sonnet' '--effort' 'low' '--settings' '{\"crossSessionInbound\":\"accept\"}' '--add-dir' '/private/tm",
+  "p/claude-501/live19/home/.mattstack/rt/agent-prompts/ag-41bff63c' '--session-id' '67dd00c5-fb29-44e9-a444-e8575c339773'",
+  "'Your instructions for this session are in /private/tmp/claude-501/live19/home/.mattstack/rt/agent-prompts/ag-41bff63c/p",
+  "rompt-1.md. Read that whole file now and follow it as your task.'",
+  "",
+  "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  " Accessing workspace:",
+  "",
+  " /private/tmp/claude-501/live19/work",
+  "",
+  " Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source",
+  " project, or work from your team). If not, take a moment to review what's in this folder first.",
+  "",
+  " Claude Code'll be able to read, edit, and execute files here.",
+  "",
+  " ⚠ This folder pre-approves 2 tool permissions in .claude/settings.json:",
+  "   mcp__plugin_mattstack_mattstack and Bash(/private/tmp/claude-501/live19/bin/rt *)",
+  " These will apply without asking. Only proceed if you trust this configuration.",
+  "",
+  " Security guide",
+  "",
+  " ❯ No, exit",
+  "   Yes, I trust this folder",
+  "",
+  " Enter to confirm · Esc to cancel",
+  "",
+].join("\n");
+
+/** The plain variant, from a second pane of the same run. */
+export const CAPTURED_PLAIN_2294 = [
+  "e6c42096' RT_GATE_SUBJECT='agent:ag-e6c42096' RT_DAEMON_SOCK='/private/tmp/claude-501/live19/home/.mattstack/rt/rt.sock'",
+  " claude '--model' 'sonnet' '--effort' 'low' '--settings' '{\"crossSessionInbound\":\"accept\"}' '--add-dir' '/private/tmp/cl",
+  "aude-501/live19/home/.mattstack/rt/agent-prompts/ag-e6c42096' '--session-id' '66df9b78-4338-4d72-af5f-11d5be38df2b' 'You",
+  "r instructions for this session are in /private/tmp/claude-501/live19/home/.mattstack/rt/agent-prompts/ag-e6c42096/promp",
+  "t-1.md. Read that whole file now and follow it as your task.'",
+  "",
+  "repo-tools/apps/deck at  on   main  stash:3 mod:4 staged:1 ↑1  ● v1.1.2",
+  "🚀  . /private/tmp/claude-501/live19/pe; cd '/private/tmp/claude-501/live19/work' && env -u CODEX_THREAD_ID RT_AGENT_ID=",
+  "'ag-e6c42096' RT_GATE_SUBJECT='agent:ag-e6c42096' RT_DAEMON_SOCK='/private/tmp/claude-501/live19/home/.mattstack/rt/rt.s",
+  "ock' claude '--model' 'sonnet' '--effort' 'low' '--settings' '{\"crossSessionInbound\":\"accept\"}' '--add-dir' '/private/tm",
+  "p/claude-501/live19/home/.mattstack/rt/agent-prompts/ag-e6c42096' '--session-id' '66df9b78-4338-4d72-af5f-11d5be38df2b'",
+  "'Your instructions for this session are in /private/tmp/claude-501/live19/home/.mattstack/rt/agent-prompts/ag-e6c42096/p",
+  "rompt-1.md. Read that whole file now and follow it as your task.'",
+  "",
+  "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  " Accessing workspace:",
+  "",
+  " /private/tmp/claude-501/live19/work",
+  "",
+  " Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source",
+  " project, or work from your team). If not, take a moment to review what's in this folder first.",
+  "",
+  " Claude Code'll be able to read, edit, and execute files here.",
+  "",
+  " Security guide",
+  "",
+  " ❯ No, exit",
+  "   Yes, I trust this folder",
+  "",
+  " Enter to confirm · Esc to cancel",
+  "",
+].join("\n");
+
+/** The plain variant again, from a third pane, with less of the shell echo above it. */
+export const CAPTURED_PLAIN_2294_B = [
+  "",
+  "repo-tools/apps/deck at  on   main  stash:3 staged:1  ● v1.1.2",
+  "🚀  . /private/tmp/claude-501/live19/pe; cd '/private/tmp/claude-501/live19/work' && env -u CODEX_THREAD_ID RT_AGENT_ID=",
+  "'ag-96a9272c' RT_GATE_SUBJECT='agent:ag-96a9272c' RT_DAEMON_SOCK='/private/tmp/claude-501/live19/home/.mattstack/rt/rt.s",
+  "ock' claude '--model' 'sonnet' '--effort' 'low' '--settings' '{\"crossSessionInbound\":\"accept\"}' '--add-dir' '/private/tm",
+  "p/claude-501/live19/home/.mattstack/rt/agent-prompts/ag-96a9272c' '--session-id' '231272ed-63b3-4766-833e-9918817ed35e'",
+  "'Your instructions for this session are in /private/tmp/claude-501/live19/home/.mattstack/rt/agent-prompts/ag-96a9272c/p",
+  "rompt-1.md. Read that whole file now and follow it as your task.'",
+  "",
+  "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  " Accessing workspace:",
+  "",
+  " /private/tmp/claude-501/live19/work",
+  "",
+  " Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source",
+  " project, or work from your team). If not, take a moment to review what's in this folder first.",
+  "",
+  " Claude Code'll be able to read, edit, and execute files here.",
+  "",
+  " Security guide",
+  "",
+  " ❯ No, exit",
+  "   Yes, I trust this folder",
+  "",
+  " Enter to confirm · Esc to cancel",
+  "",
+].join("\n");
+
+export const CAPTURED_2294_PATH = "/private/tmp/claude-501/live19/work";

@@ -450,8 +450,10 @@ export interface ReconcilerStatus {
 
 /** What a claude spawn's folder-trust check established, when one ran:
     `none` = no dialog was up, `accepted` = one was answered, `stuck` = one is
-    still up and needs a human, `unchecked` = nothing could be established. */
-export type TrustOutcome = "none" | "accepted" | "stuck" | "unchecked";
+    still up and needs a human, `needs-person` = one says the repo pre-approves
+    tool permissions, so rt sent it no key and left it to the person,
+    `unchecked` = nothing could be established. */
+export type TrustOutcome = "none" | "accepted" | "stuck" | "needs-person" | "unchecked";
 
 export interface AgentRecord {
   id: string; repo: string; cwd: string; provider: string;
@@ -1288,7 +1290,7 @@ export interface Commands {
    * of these keeps the selection its latest attempt recorded. A harness other than Claude Code needs agent.integrations.enabled on.
    * `callerAccount` is the spawning session's own cswap account: used only when the worker is Claude Code and names no account.
    */
-  "herd:spawn":  { payload: { herd: string; job: string; brief?: string; dir?: string; harness?: HarnessId; model?: string; effort?: string; account?: string; mode?: Mode; assignment?: HerdWorkerAssignment; callerAccount?: string; disposable?: boolean }; data: { herd: string; job: string; pane: string; worktree: string; branch: string | null; tree: string | null; /** null = no provisioning ran (--dir); false = cold create, worth announcing. */ wasOnDeck: boolean | null; agentId: string; sessionId: string; handle: string; /** What the folder-trust check established: no modal was up, one was accepted and verified gone, one is still up (the job reads `stuck-at-modal`), or herdr could not be read. */ trust: "none" | "accepted" | "stuck" | "unchecked"; /** Present, with `note`, only when agent integrations are on and a pane worker's session did not come up within the spawn's wait; the job then reads `spawning`. */ sessionUp?: false; note?: string } };
+  "herd:spawn":  { payload: { herd: string; job: string; brief?: string; dir?: string; harness?: HarnessId; model?: string; effort?: string; account?: string; mode?: Mode; assignment?: HerdWorkerAssignment; callerAccount?: string; disposable?: boolean }; data: { herd: string; job: string; pane: string; worktree: string; branch: string | null; tree: string | null; /** null = no provisioning ran (--dir); false = cold create, worth announcing. */ wasOnDeck: boolean | null; agentId: string; sessionId: string; handle: string; /** What the folder-trust check established: no modal was up, one was accepted and verified gone, one is still up (the job reads `stuck-at-modal`), one says the repo pre-approves tool permissions and rt sent it no key (`needs-person`, parked the same way), or herdr could not be read. */ trust: "none" | "accepted" | "stuck" | "needs-person" | "unchecked"; /** Present only when agent integrations are on and a pane worker's session did not come up within the spawn's wait; the job then reads `spawning`. */ sessionUp?: false; /** Plain words for the shepherd: why the session is not up, or that the trust prompt was left to the person. */ note?: string } };
   "herd:gates":  { payload: { herd: string }; data: { gates: GateRow[] } };
   /** `harness` names a session that is not Claude Code's. With agent.integrations.enabled on, the daemon authorizes the call by the session's job attempt, and a caller naming no `herd`/`job` acts for the job that attempt holds. */
   "herd:ask":       { payload: { herd?: string; job?: string; session: string; harness?: string; pane?: string; questions: GateQuestion[]; context?: string }; data: { gate: string } };
