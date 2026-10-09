@@ -345,7 +345,7 @@ export async function evaluateStop(context: CallerContext, deps: PolicyDeps = {}
 }
 
 async function authorizeRun(context: CallerContext, action: "continue" | "complete", runDb: string, deps: PolicyDeps): Promise<Outcome<void>> {
-  const { checkRunDb } = await import("../mcp/run-tools.ts");
+  const { checkRunDb } = await import("../runs/run-db-check.ts");
   const checked = checkRunDb(runDb, deps.env ?? process.env, (p) => realpathSync(p));
   if (!checked.ok) return fail("invalid", checked.error);
   let snap: Row | null;
