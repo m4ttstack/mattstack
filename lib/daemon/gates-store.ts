@@ -258,6 +258,8 @@ export function createGatesStore(opts: {
   log: Logger;
   retentionFloor?: number;
   retentionMs?: number;
+  /** When set, a terminal `run:<id>` gate is kept for as long as this says the run exists. */
+  runExists?: (runId: string) => boolean;
 }): GatesStore {
   const log = opts.log.child({ module: "gates" });
   // Same defaults as events-bus.ts's retention family: a week, with a row
@@ -417,6 +419,23 @@ export function createGatesStore(opts: {
   const sweepStmt = db.prepare(`
     DELETE FROM gates
     WHERE status IN ('closed', 'answered')
+      AND (? = 0 OR subject NOT LIKE 'run:%')
+      AND COALESCE(closedAt, json_extract(answer, '$.answeredAt'), openedAt) < ?
+      AND id NOT IN (
+        SELECT id FROM gates
+        WHERE status IN ('closed', 'answered')
+        ORDER BY COALESCE(closedAt, json_extract(answer, '$.answeredAt'), openedAt) DESC
+        LIMIT ?
+      )
+  `);
+  const oldRunSubjectsStmt = db.prepare(`
+    SELECT DISTINCT subject FROM gates
+    WHERE status IN ('closed', 'answered') AND subject LIKE 'run:%'
+      AND COALESCE(closedAt, json_extract(answer, '$.answeredAt'), openedAt) < ?
+  `);
+  const deleteTerminalBySubjectStmt = db.prepare(`
+    DELETE FROM gates
+    WHERE subject = ? AND status IN ('closed', 'answered')
       AND COALESCE(closedAt, json_extract(answer, '$.answeredAt'), openedAt) < ?
       AND id NOT IN (
         SELECT id FROM gates
@@ -783,7 +802,15 @@ export function createGatesStore(opts: {
 
     sweep() {
       const cutoff = Date.now() - retentionMs;
-      const { changes } = sweepStmt.run(cutoff, retentionFloor);
+      const exempt = opts.runExists ? 1 : 0;
+      let changes = sweepStmt.run(exempt, cutoff, retentionFloor).changes;
+      if (opts.runExists) {
+        for (const { subject } of oldRunSubjectsStmt.all(cutoff) as { subject: string }[]) {
+          if (!opts.runExists(subject.slice("run:".length))) {
+            changes += deleteTerminalBySubjectStmt.run(subject, cutoff, retentionFloor).changes;
+          }
+        }
+      }
       if (changes > 0) log.debug({ deleted: changes }, "gates retention sweep");
       const deadSubDeleted = performPruneDeadSubscriptions(DEAD_SUBSCRIPTION_RETENTION_MS);
       if (deadSubDeleted > 0) log.info({ deleted: deadSubDeleted }, "pruned dead subscriptions");

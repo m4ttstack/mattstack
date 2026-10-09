@@ -1,3 +1,4 @@
+import { existsSync, readdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -10,4 +11,12 @@ export function runsRoot(): string {
 // outside <runsRoot>/<repo>/<runId> before it ever hits the filesystem.
 export function isPathComponent(s: string): boolean {
   return s.length > 0 && s !== "." && s !== ".." && !s.includes("/") && !s.includes("\\");
+}
+
+export function runDirExists(runId: string): boolean {
+  if (!isPathComponent(runId)) return false;
+  const root = runsRoot();
+  let repos: string[];
+  try { repos = readdirSync(root); } catch { return false; }
+  return repos.some((repo) => existsSync(join(root, repo, runId)));
 }

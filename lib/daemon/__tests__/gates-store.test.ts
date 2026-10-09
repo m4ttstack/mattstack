@@ -367,6 +367,31 @@ describe("gates store — sweep", () => {
     expect(s.get(id)).not.toBeNull();
   });
 
+  test("an old answered run gate survives while its run exists, then sweeps", () => {
+    let exists = true;
+    const s: GatesStore = createGatesStore({ dbPath: tmp("gates.db"), log, retentionMs: 1000, retentionFloor: 0, runExists: () => exists });
+    const runGate = openGate(s, "run:r1");
+    const other = openGate(s, "mr:9");
+    s.close(runGate, "abandoned");
+    s.close(other, "abandoned");
+    s.__db!.run("UPDATE gates SET closedAt = ?", [Date.now() - 10_000]);
+    expect(s.sweep()).toBe(1);
+    expect(s.get(runGate)).not.toBeNull();
+    expect(s.get(other)).toBeNull();
+    exists = false;
+    expect(s.sweep()).toBe(1);
+    expect(s.get(runGate)).toBeNull();
+  });
+
+  test("a gone run's old gate still honors the row floor", () => {
+    const s: GatesStore = createGatesStore({ dbPath: tmp("gates.db"), log, retentionMs: 1000, retentionFloor: 1, runExists: () => false });
+    const id = openGate(s, "run:gone");
+    s.close(id, "abandoned");
+    s.__db!.run("UPDATE gates SET closedAt = ? WHERE id = ?", [Date.now() - 10_000, id]);
+    expect(s.sweep()).toBe(0);
+    expect(s.get(id)).not.toBeNull();
+  });
+
   test("sweep prunes dead subscription rows older than 24h, leaves newer ones", () => {
     const s: GatesStore = createGatesStore({ dbPath: tmp("gates.db"), log });
     const oldSub = s.subscribe({ subjectPrefix: "run:", session: "sess-1" });

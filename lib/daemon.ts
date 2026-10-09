@@ -110,6 +110,7 @@ import { createDiscussionsPoller } from "./daemon/discussions-poller.ts";
 import { installSignalHandlers, removeRuntimeFiles } from "./daemon/shutdown.ts";
 import { createEventsBus, type EventsBus } from "./daemon/events-bus.ts";
 import { createGatesStore, type GatesStore } from "./daemon/gates-store.ts";
+import { runDirExists } from "./runs/paths.ts";
 import { createGitBadges, type GitBadgesStore } from "./daemon/git-badges-store.ts";
 import { createGitStatusSweep, type GitStatusSweep, type GitStatusConfig } from "./daemon/git-status-sweep.ts";
 import { createHerdStore, type HerdStore } from "./daemon/herd-store.ts";
@@ -683,7 +684,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         // state.db open below never race a missing parent.
         mkdirSync(RT_DIR, { recursive: true });
         eventsBus = createEventsBus({ dbPath: join(RT_DIR, "events.db"), log });
-        gatesStore = createGatesStore({ dbPath: join(RT_DIR, "gates.db"), log });
+        gatesStore = createGatesStore({ dbPath: join(RT_DIR, "gates.db"), log, runExists: runDirExists });
         herdStore = createHerdStore({ dbPath: join(RT_DIR, "herds.db"), log });
         bgClaims = createBgClaimsStore({ dbPath: join(RT_DIR, "bg-claims.db"), log });
         // Session id -> socket resolution goes through the claude-registry
