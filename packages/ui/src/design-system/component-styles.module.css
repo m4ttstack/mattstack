@@ -311,3 +311,26 @@
   color: inherit;
   background-color: transparent;
 }
+
+/* Spotlight.Action's `variant="wash"`: the selected action washed in the
+   accent with body text, in place of Mantine's solid primary fill. A Kbd
+   inside shows only on the selected action, ringed like a checked choice
+   card's key. */
+.spotlightAction[data-variant='wash'][data-selected] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-1);
+}
+
+.spotlightAction[data-variant='wash']:not([data-selected]) .kbdRoot {
+  visibility: hidden;
+}
+
+.spotlightAction[data-variant='wash'][data-selected] .kbdRoot {
+  border-color: color-mix(in srgb, var(--tk-fill-accent) 30%, var(--tk-card));
+  background-color: var(--tk-card);
+  color: var(--tk-text-accent);
+}

@@ -16,6 +16,7 @@ import {
   Text,
   useCombobox,
 } from '@mantine/core';
+import { Spotlight } from '@mantine/spotlight';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
@@ -381,6 +382,50 @@ describe('wash combobox options', () => {
       'background-color:color-mix(insrgb,var(--tk-fill-accent)var(--ui-wash),transparent)'
     );
     expect(active).toContain('color:var(--tk-text-accent)');
+  });
+});
+
+describe('wash spotlight actions', () => {
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, 'component-styles.module.css'),
+    'utf-8'
+  );
+  const flat = css.replace(/\s+/g, '');
+  const rule = (selector: string) =>
+    flat.match(new RegExp(`${selector}\\{([^}]*)\\}`))?.[1] ?? '';
+  const wash = "\\.spotlightAction\\[data-variant='wash'\\]";
+
+  it('carry the kit class the wash rules key on, and only a wash action its variant', () => {
+    render(
+      <MantineProvider theme={theme}>
+        <Spotlight.Root forceOpened transitionProps={{ duration: 0 }}>
+          <Spotlight.ActionsList>
+            <Spotlight.Action variant="wash" label="a" />
+            <Spotlight.Action label="b" />
+          </Spotlight.ActionsList>
+        </Spotlight.Root>
+      </MantineProvider>
+    );
+    const a = screen.getByText('a').closest('[data-action]');
+    const b = screen.getByText('b').closest('[data-action]');
+    expect(a).toHaveClass(classes.spotlightAction!);
+    expect(a).toHaveAttribute('data-variant', 'wash');
+    expect(b).toHaveClass(classes.spotlightAction!);
+    expect(b).not.toHaveAttribute('data-variant');
+  });
+
+  it('wash the selected action in the accent under body text, its key shown only there', () => {
+    const selected = rule(`${wash}\\[data-selected\\]`);
+    expect(selected).toContain(
+      'background-color:color-mix(insrgb,var(--tk-fill-accent)var(--ui-wash),transparent)'
+    );
+    expect(selected).toContain('color:var(--tk-text-1)');
+    expect(rule(`${wash}:not\\(\\[data-selected\\]\\)\\.kbdRoot`)).toContain(
+      'visibility:hidden'
+    );
+    expect(rule(`${wash}\\[data-selected\\]\\.kbdRoot`)).toContain(
+      'color:var(--tk-text-accent)'
+    );
   });
 });
 

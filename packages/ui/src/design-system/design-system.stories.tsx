@@ -17,6 +17,7 @@ import {
   Text,
   useCombobox,
 } from '@mantine/core';
+import { Spotlight } from '@mantine/spotlight';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
@@ -293,6 +294,30 @@ export const PanelTonesStory: Story = {
 export const CardTonesStory: Story = {
   name: 'Card tones: outline papers, card-outline button, wash options and choice cards, on-fill key',
   render: () => <CardTones />,
+};
+
+function SpotlightWash() {
+  return (
+    <Spotlight.Root forceOpened query="418" size={520}>
+      <Spotlight.Search leftSection={<Icon name="search" size={16} />} />
+      <Spotlight.ActionsList>
+        {['WEB-418 filter by assignee', 'WEB-412 linked parcels'].map(label => (
+          <Spotlight.Action
+            key={label}
+            variant="wash"
+            label={label}
+            rightSection={<Kbd>↵</Kbd>}
+            dimmedSections={false}
+          />
+        ))}
+      </Spotlight.ActionsList>
+    </Spotlight.Root>
+  );
+}
+
+export const SpotlightWashStory: Story = {
+  name: 'Spotlight wash: the selected action in the accent wash, its key shown only there',
+  render: () => <SpotlightWash />,
 };
 
 export const AttentionTonesStory: Story = {
