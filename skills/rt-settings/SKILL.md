@@ -149,7 +149,7 @@ the conversion is a script the admin runs once.
 
 In this order:
 
-1. **Build the rt change on main**: bump `ORG_LAYOUT`, write the readers
+1. **Land the rt change on main** (a PR, as any rt change): bump `ORG_LAYOUT`, write the readers
    for the new shape, and write the conversion script. The layout 2 one is
    `bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username>`
    (plans; `--write` moves and commits). A conversion to layout 3 or later
@@ -160,16 +160,21 @@ In this order:
 2. **Test it on the dev app.** The dev app runs rt from the shared
    checkout (the one `rt dev setup` recorded, else
    `~/Documents/GitHub/mattstack`), which sits on main, so once the change
-   is merged its rt reads the new layout and
+   is merged, pulled there and the daemon restarted (rt:build-dev-app's
+   pull and restart, with its #rt notice) its rt reads the new layout and
    your own clone, still on the old layout, reads as waiting. Put the clone
    on a branch and convert there: in `~/.mattstack/orgs/<org>`,
    `git switch -c <branch>` and `git push -u origin <branch>` (the script
    needs origin to have the branch); turn team sync off on this Mac
    (`rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine`,
-   then `rt daemon restart`); run the script with `--write`; review with
-   `git show`; `rt team publish`; turn sync back on. rt now reads `ready`
-   from that branch on your Mac and members' clones stay on main. Use it
-   until you are happy.
+   then `rt daemon restart`; the script refuses while sync is on, since
+   sync could publish the move before you review it); run the script with
+   `--write`; review with `git show`; `rt team publish`; turn sync back on
+   (`rt settings unset rt.teamSnapshot --scope machine`, then
+   `rt daemon restart`). `rt setup status` now shows `org.layout` as
+   `ready` on your Mac, read from that branch, and members' clones stay on
+   main. Use it until you are happy; to try again, reset the branch and
+   rerun the script.
 3. **Merge the converted branch into the org repo's main**, before or after
    the release. Merge first: every member's daemon holds at the last
    old-layout commit and their row names the app update, so nothing on
@@ -181,8 +186,10 @@ In this order:
 4. **Release the rt that reads the new layout** with rt:release. If any
    member could be on an app older than the gate (below v2.21.1), declare
    the intermediate update in `rt-tray/sparkle-minimum-update`
-   (`release=<this version>`, `minimum=<the gate's version>`); the prepare
-   leg of rt:release checks it before the tag.
+   (`release=<this version>`, `minimum=<the latest published release>`,
+   which must be v2.21.1 or later; Sparkle requires the minimum to be the
+   latest release in the feed, and the prepare leg of rt:release checks
+   that before the tag).
 5. **Members convert on their own.** On the new app, the daemon's next pull
    fast-forwards the clone onto the converted commit, and its pull hooks
    update the pack plugin and rewrite the bindings; a launch's `rt setup
