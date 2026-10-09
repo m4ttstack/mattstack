@@ -86,7 +86,7 @@ describe("runs handlers", () => {
       { key: "worktree", value: tree },
       { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "before.png") }) },
     ] });
-    const h = createRunsHandlers({ log } as any, noEmit, { isRegisteredTree: (p) => p === tree });
+    const h = createRunsHandlers({ log } as any, noEmit, { isRunTree: (p, repo) => p === tree && repo === "remote:alpha" });
     const r = await (h["runs:evidence"] as any)({ runId: "r-1", key: "before" });
     expect(r.ok).toBe(true);
     expect(r.data.mime).toBe("image/png");
@@ -101,8 +101,22 @@ describe("runs handlers", () => {
       { key: "worktree", value: tree },
       { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "before.png") }) },
     ] });
-    const h = createRunsHandlers({ log } as any, noEmit, { isRegisteredTree: () => false });
+    const h = createRunsHandlers({ log } as any, noEmit, { isRunTree: () => false });
     const r = await (h["runs:evidence"] as any)({ runId: "r-4", key: "before" });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("outside the allowed upload roots");
+  });
+
+  test("runs:evidence does not admit a tree registered to another repo", async () => {
+    const dir = root();
+    const tree = mkdtempSync(join(tmpdir(), "rt-tree-"));
+    writeFileSync(join(tree, "before.png"), PNG);
+    seedRun(dir, "remote:alpha", "r-6", 1000, 1, { fields: [
+      { key: "worktree", value: tree },
+      { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "before.png") }) },
+    ] });
+    const h = createRunsHandlers({ log } as any, noEmit, { isRunTree: (p, repo) => p === tree && repo === "remote:beta" });
+    const r = await (h["runs:evidence"] as any)({ runId: "r-6", key: "before" });
     expect(r.ok).toBe(false);
     expect(r.error).toContain("outside the allowed upload roots");
   });
@@ -130,7 +144,7 @@ describe("runs handlers", () => {
       { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "link.png") }) },
     ] });
     seedRun(dir, "remote:alpha", "r-3", 1000, 1, { fields: [{ key: "evidence", value: "see /tmp/x.png" }] });
-    const h = createRunsHandlers({ log } as any, noEmit, { isRegisteredTree: (p) => p === tree });
+    const h = createRunsHandlers({ log } as any, noEmit, { isRunTree: (p, repo) => p === tree && repo === "remote:alpha" });
     const call = (p: object) => (h["runs:evidence"] as any)(p);
     expect((await call({ key: "before" })).error).toBe("missing runId");
     expect((await call({ runId: "nope", key: "before" })).error).toBe("run not found");

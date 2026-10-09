@@ -262,8 +262,8 @@ export function buildRoutedHandlers(opts: {
     ...createSystemProcessHandlers(systemProcessScanner, { portCacheRef: ctx.portCacheRef, cache: ctx.cache }),
     ...createSdmHandlers({ log: ctx.log }),
     ...createRunsHandlers({ log: ctx.log }, emitEvent, {
-      isRegisteredTree: (path) =>
-        findTreeByPath(path) !== null || Object.values(ctx.repoIndex()).includes(path),
+      isRunTree: (path, runRepo) =>
+        findTreeByPath(path)?.repoName === runRepo || ctx.repoIndex()[runRepo] === path,
     }),
     ...createSecretsHandlers({ log: ctx.log }),
     ...createLoginsHandlers({ log: ctx.log }),
