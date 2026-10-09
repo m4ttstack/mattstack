@@ -283,8 +283,10 @@ exits only on answered or closed, printing
 `{"ok":true,"status":"answered","row":{...}}` as its last stdout. The pane
 is idle but armed: the wait's completion re-invokes this pane with the
 answer as the tool result. Under a run a turn ends only with
-`waiting-gate` or `hold` set; the pipeline gate stop hook blocks any other
-ending, which is why every hold under a run arms the marker and the wait.
+`waiting-gate` or `hold` set, or with a backgrounded tool call or async
+agent still pending (its notification re-invokes the pane); the pipeline
+gate stop hook blocks any other ending, which is why every hold under a
+run arms the marker and the wait.
 
 ### Take the winning gate answer and its by
 
