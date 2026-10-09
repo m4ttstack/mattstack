@@ -1,6 +1,6 @@
 ---
 name: rt:settings
-description: Use when reading or writing any mattstack app setting (rt, deck, mr-board, gitq, console), adding or registering a settings key, choosing its scope (org/team/user/machine), reading or writing another team's value, porting an app's config file into ~/.mattstack, changing a setting from a script, or writing code that reads configuration from anywhere other than the settings resolver: a hand-edited settings jsonc, an invented config file or store path, an env var for something a human configures. Also use when a setting resolves undefined (or getSetting throws unknown-key) for a key that looks configured.
+description: Use when reading or writing any mattstack app setting (rt, deck, mr-board, gitq, console), adding or registering a settings key, choosing its scope (org/team/user/machine), reading or writing another team's value, porting an app's config file into ~/.mattstack, changing a setting from a script, or writing code that reads configuration from anywhere other than the settings resolver: a hand-edited settings jsonc, an invented config file or store path, an env var for something a human configures. Also use when a setting resolves undefined (or getSetting throws unknown-key) for a key that looks configured, and when the org repo's shape changes in a way an older rt cannot read: bumping ORG_LAYOUT, writing a conversion, trying a new org layout on the dev app, or an org.layout row that reads waiting or needs-you.
 ---
 
 # The settings contract
@@ -117,6 +117,70 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
 
 `rt settings explain <key>` shows per-scope provenance and is the first
 move on any "why is this value what it is" question.
+
+## Changing the org repo's layout
+
+A layout change is a change to the org repo's shape that an older rt cannot
+read (a moved folder, a renamed store). The marker
+(`mattstack/mattstack.jsonc`) carries `layout`; `ORG_LAYOUT` in
+`lib/team/org-marker.ts` is the highest layout this rt reads, and it moves
+only with such a change, never with a release. A clone on any other layout
+is `waiting`, not a failure: materialize writes nothing, the `rt skills`
+verbs refuse with the waiting sentence, the apps run as on a Mac with no
+org, and the `org.layout` row of `rt setup status` says why. The daemon
+never pulls a clone onto a tip above its `ORG_LAYOUT`: it holds at the last
+commit it reads and the row says to update the app (every app from v2.21.1
+on holds this way; `rt team pull` and `rt skills sync` hold too). rt reads,
+syncs and publishes the branch the clone has checked out, so an admin can
+try the new shape on a branch while every member stays on main;
+`rt team invite` refuses off main. Automatic org migrations, where rt
+converts the admin's clone itself, are a planned follow-up and not built:
+the conversion is a script the admin runs once.
+
+In this order:
+
+1. **Build the rt change on main**: bump `ORG_LAYOUT`, write the readers
+   for the new shape, and write the conversion script. The layout 2 one is
+   `bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username>`
+   (plans; `--write` moves and commits). A conversion to layout 3 or later
+   also writes `layout: <n>` in the marker, since a `role: "org"` marker
+   with no field reads as 2.
+2. **Test it on the dev app.** The dev app runs rt from the shared main
+   checkout, so once the change is merged its rt reads the new layout and
+   your own clone, still on the old layout, reads as waiting. Put the clone
+   on a branch and convert there: in `~/.mattstack/orgs/<org>`,
+   `git switch -c <branch>` and `git push -u origin <branch>` (the script
+   needs origin to have the branch); turn team sync off on this Mac
+   (`rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine`,
+   then `rt daemon restart`); run the script with `--write`; review with
+   `git show`; `rt team publish`; turn sync back on. rt now reads `ready`
+   from that branch on your Mac and members' clones stay on main. Use it
+   until you are happy.
+3. **Merge the converted branch into the org repo's main**, before or after
+   the release. Merge first: every member's daemon holds at the last
+   old-layout commit and their row names the app update, so nothing on
+   their Macs changes until they update. Release first: a member on the new
+   app sees the waiting row and runs without their org settings until the
+   merge lands. Before merging, check the branch keeps the marketplace name
+   and plugin name in `.claude-plugin/marketplace.json`: a renamed
+   marketplace is a new registration no member's Mac can make.
+4. **Release the rt that reads the new layout** with rt:release. If any
+   member could be on an app older than the gate (below v2.21.1), declare
+   the intermediate update in `rt-tray/sparkle-minimum-update`
+   (`release=<this version>`, `minimum=<the gate's version>`); the prepare
+   leg of rt:release checks it before the tag.
+5. **Members convert on their own.** On the new app, the daemon's next pull
+   fast-forwards the clone onto the converted commit, and its pull hooks
+   update the pack plugin and rewrite the bindings; a launch's `rt setup
+   update` (`org.folder`, `org.pull`, migrations, then the update-safe
+   steps) sees a ready org. Nobody but the admin runs the conversion.
+6. **Delete the branch** once main holds the conversion and every member is
+   on the layout release, and switch your clone back: `git switch main`.
+
+The gate itself reached the old line as v2.21.1, a patch release tagged from
+`release/v2.21.x`, a branch cut from the v2.21.0 tag because main already
+carried the breaking change; a fix that must reach Macs before the next
+minor goes the same way.
 
 ## Where the details live
 

@@ -210,6 +210,7 @@ gate: it is yes once Matt has answered iterate twice.
 | board, console, chat, boxscore (served apps) | in the shared checkout, `git branch --show-current`, confirm main, pull, then `deck cmd <app> deploy` |
 | deck source | the same pull, then `deck cmd deck deploy` |
 | rt CLI or daemon source (`lib/`, `commands/`) | the same pull, then the source restart announce and `rt daemon restart` |
+| the org repo's layout (a bump of `ORG_LAYOUT`) | the same pull and restart; then convert your own org clone on a branch, per rt:settings "Changing the org repo's layout" |
 | gitq source | nothing to do: deck neither registers nor serves gitq, so a merge and pull change nothing running; the CLI only picks up the change at the next release |
 
 The shared checkout is `~/Documents/GitHub/mattstack` (served apps live under

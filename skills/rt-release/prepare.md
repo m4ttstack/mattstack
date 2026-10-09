@@ -182,6 +182,10 @@ appcast step runs the same check, after the build and notarization:
   commit's push.
 - any other refusal: quote it at `Gate: which version bump?`.
 
+A release that bumps `ORG_LAYOUT` (the org repo's shape changed) follows the runbook in
+rt:settings, "Changing the org repo's layout": it says when the Sparkle minimum is needed and in
+what order the converted org branch merges.
+
 ### Gate: which version bump?
 
 Quote the subjects that make the bump unclear and recommend one.
