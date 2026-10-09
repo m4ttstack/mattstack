@@ -34,18 +34,17 @@ Most actions depend on three facts about the board you are looking at and the MR
 
 - **A local board.** Anything that starts an agent or writes to GitLab or Slack works only on a board opened from this Mac, at its `localhost` or `.mattstack` address. A board opened through a public address shows the same rows, but its menu starts no agents and writes nothing to GitLab or Slack; in their place it shows one greyed row: **agent actions**, "need a local board".
 - **Your seat.** The seat is the member the board belongs to, set by `board.defaultMember`. A board set to everyone has no seat, owns no MR, and shows a greyed **author actions** row: "set your seat in board settings to act on your own MRs".
-- **Your MR or someone else's.** Respond, doctor, merge, rebase, draft, auto-merge, posting to Slack and asking for reviews are offered only on MRs your seat authored. Reviewing, and asking the author's agent to respond, are offered on everyone else's.
+- **Your MR or someone else's.** Respond, doctor, merge, rebase, draft, auto-merge, posting to Slack and asking for reviews are offered only on MRs your seat authored. Asking the author's agent to respond is offered on everyone else's. Reviewing is offered on any MR, but on your own it waits in **all agent actions**.
 
 ## The row menu
 
 Right-click a row to open its menu. It is titled with the MR's number, and reads top to bottom:
 
-1. **Slack reactions**, a row of three emoji buttons, when the MR's Slack thread is found.
-2. **post to slack**, on your own MR while it still has somewhere to post.
-3. **agent actions**: the agent launches that fit this MR right now.
-4. Four flyouts: **all agent actions**, **gitlab**, **slack** and **more**. A flyout with only one item shows that item in place instead.
+1. **post to slack**, on your own MR while it still has somewhere to post.
+2. **agent actions**: the agent launches that fit this MR right now.
+3. Four flyouts: **all agent actions**, **gitlab**, **slack** and **more**. A flyout with only one item shows that item in place instead, except **all agent actions**, which stays a flyout.
 
-<Screenshot name="board/row-menu" alt="The right-click menu of an MR, with Slack reactions, agent actions and the all agent actions, gitlab, slack and more flyouts" />
+<Screenshot name="board/row-menu" alt="The right-click menu of an MR, with agent actions and the all agent actions, gitlab, slack and more flyouts" />
 
 A few behaviors hold across the menu:
 
@@ -59,7 +58,7 @@ A few behaviors hold across the menu:
 
 ### Slack reactions
 
-These show on a local board with Slack connected, once the MR's thread is found. Each is a toggle: the label reads "mark as" when the reaction is off and "unmark" when it is on.
+These sit at the top of the **slack** flyout, as a row of three emoji buttons, on a local board with Slack connected, once the MR's thread is found. Each is a toggle: the label reads "mark as" when the reaction is off and "unmark" when it is on.
 
 | Icon | Label | What it does |
 | --- | --- | --- |
@@ -74,6 +73,8 @@ The emoji come from the `emoji` key of the `board.slack` setting; the defaults a
 ### Finding the Slack thread
 
 The board finds each MR's Slack post on its own: the first post in the MR's channel that contains the MR's link. It looks every 15 minutes, before every post, and when you open the menu of an MR with no post on record. The MR's channel is your team's review channel, or a code owners tab's own channel for an MR that tab collects. The board searches top-level posts from the last 90 days.
+
+On the same 15 minute schedule, the board checks that each post it found is still in Slack. When someone deleted the post, the MR counts as not posted again, and **post to slack** is offered again.
 
 ### agent actions
 
@@ -95,7 +96,7 @@ Every item here needs a local board. Each row links to what that agent does. The
 | <BoardIcon name="agentCloud" /> | request review from… | Asks a teammate's agent to review your MR. See [Asks between boards](#asks-between-boards). | Your own MR, when there is a teammate left to ask. Otherwise it sits greyed in **all agent actions**. |
 | <BoardIcon name="people" /> | ask dev1's agent to respond | Asks the author's agent to answer your review. See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
 
-When a follow-up review is offered, **review** and **redo review** move into **all agent actions**.
+When a follow-up review is offered, **review** and **redo review** move into **all agent actions**. On your own MR, **review**, **redo review** and **follow-up review** always sit there.
 
 **ask dev1's agent to respond** is greyed with "ask already sent", "author's board isn't taking asks" or "no finished review with comments". A review left by hand on the MR does not count as a finished review here.
 
@@ -105,7 +106,8 @@ The rest of the agent work. Items with nothing to act on (no saved session, no r
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="agent" lane="review" /> | review / redo review | Shown here instead of in **agent actions** when a follow-up review is offered. |
+| <BoardIcon name="agent" lane="review" /> | review / redo review | Shown here instead of in **agent actions** when a follow-up review is offered, or on your own MR. |
+| <BoardIcon name="agent" lane="review" /> | follow-up review (round N) | Shown here instead of in **agent actions** on your own MR. |
 | <BoardIcon name="agent" lane="review" /> | resume review | Reopens the last review's conversation in its pane and shows it, so you can talk to it. It starts no new work; a note becomes your first message. |
 | <BoardIcon name="agent" lane="respond" /> | resume response | The same for the last response, on your own MR. |
 | <BoardIcon name="file" /> | view agent review | Opens the review's full report on the board. |
@@ -114,7 +116,7 @@ The rest of the agent work. Items with nothing to act on (no saved session, no r
 | <BoardIcon name="dismiss" /> | dismiss respond line | The same for a failed response. |
 | <BoardIcon name="dismiss" /> | dismiss doctor line | The same for a failed doctor. |
 | <BoardIcon name="people" /> | ask dev2's agent to re-review | Asks a teammate whose review left comments to review again. See [Asks between boards](#asks-between-boards). One item per such teammate, on your own MR. |
-| <BoardIcon name="agentCloud" /> | request review from… | Shown here, greyed, when there is nobody left to ask: "ask already sent" or "everyone engaged". |
+| <BoardIcon name="agentCloud" /> | request review from… | Shown here, greyed, when there is nobody left to ask: "ask already sent", "no teammate boards connected" or "everyone engaged". |
 
 ### What each agent does
 
@@ -175,7 +177,7 @@ To let it do more, change those settings. `cleanApiRebase` lets it start a rebas
 
 ### gitlab
 
-Everything but **open in gitlab** needs a local board and your own MR. On anyone else's MR this flyout is just **open in gitlab**, shown in place.
+Everything but **open in gitlab** needs a local board, and everything but **open in gitlab** and **refresh from gitlab** needs your own MR. On anyone else's MR this flyout holds just those two; on a board that is not local, just **open in gitlab**, shown in place.
 
 | Icon | Label | What it does |
 | --- | --- | --- |
@@ -185,6 +187,7 @@ Everything but **open in gitlab** needs a local board and your own MR. On anyone
 | <BoardIcon name="autoMerge" /> | cancel auto-merge | Turns it off again. Takes the place of set auto-merge while auto-merge is on. |
 | <BoardIcon name="draft" /> | mark as draft / mark ready | Adds `Draft: ` to the MR's title, or removes it. |
 | <BoardIcon name="out" /> | open in gitlab | Opens the MR in GitLab in a new tab. |
+| <BoardIcon name="refresh" /> | refresh from gitlab | Reads this one MR from GitLab again, for a change the board's regular sync missed, such as a new approval. |
 
 For rebasing your branch in a local checkout instead, see **rebase locally** under [agent actions](#agent-actions).
 
@@ -196,7 +199,7 @@ For rebasing your branch in a local checkout instead, see **rebase locally** und
 | <BoardIcon name="slack" /> | post to slack | Posts your MR for review in Slack. See [Post to slack](#post-to-slack). It sits at the top of the menu until the MR is posted. Reads "post to other codeowners…", still at the top, while other teams' code owners are left to ask. |
 | <BoardIcon name="copy" /> | copy for slack | Copies one line, the MR's title and link, to the clipboard. The copy drops a `Draft: ` prefix and a leading ticket id from the title; a post keeps them. Nothing is sent. Always offered. |
 
-Everything here but **copy for slack** needs a local board with Slack connected. A post's text comes from the `singleTemplate` key of the `board.slack` setting, `{title}: {url}` by default.
+The [Slack reactions](#slack-reactions) sit above these items. Everything here but **copy for slack** needs a local board with Slack connected. A post's text comes from the `singleTemplate` key of the `board.slack` setting, `{title}: {url}` by default.
 
 #### Post to slack
 
@@ -224,7 +227,7 @@ Below them, the dialog lists what it will not post, each with its reason:
 - Slack has no such channel.
 - you are not in the channel.
 
-**post to N channels** posts the message once in each channel you leave on, under your name. After posting to only some of them, the item reads **post to other codeowners…** at the top of the menu.
+The dialog shows the message it will post, and you can edit it first. **post to N channels** posts the message once in each channel you leave on, under your name. After posting to only some of them, the item reads **post to other codeowners…** at the top of the menu.
 
 ### more
 
@@ -262,6 +265,7 @@ Each chip turns a set of MRs on or off and shows how many it holds, whether it i
 | Not Posted | MRs not posted to the channel yet. Off by default. | When Slack is connected. |
 | Waiting on author | Teammates' MRs where it is the author's move. Off by default. See [Waiting on author](#waiting-on-author). | Except on the Needs me tab and when the selected member is you. |
 | My drafts | Your own draft MRs. Off by default. Other people's drafts never show. | When the selected member is you. |
+| My MRs | Your own MRs. On by default; turn it off to see only your teammates' work. Reads My PRs when your MRs are GitHub pull requests. | On a board with a seat, when everyone is selected, except on the Needs me tab. |
 
 ### Group
 

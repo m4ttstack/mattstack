@@ -22,16 +22,25 @@ When your org's admin moves the org onto layout 3, a Mac still on v2.22 holds it
 - the palette shows results once you type, at most ten
 - a run row keeps the full ticket id and truncates the title instead
 - structured settings open in the JSON editor (#769)
+- settings can show another team's values, for the roles that reach it, with your own user and machine scopes hidden while you look (#782)
+- settings sections split into blocks by scope, a key groups under the layer that sets it, and per-project keys group by where their repo sections live (#782)
+- the runs pages are quieter: finished stages fold, the gate form is polished, and a failed answer keeps your picks (#783)
 
 ### Deck
 
 - a settings modal, a version column, Redeploy all and shared tooltips (#773)
 - tooltips wait 750ms on hover and read as short plain sentences
+- the redeploy button names the one app it ships, and an app restarting after a restart or deploy reads as restarting
+- toasts animate in and out and keep a straight colored edge
 
 ### Board
 
 - one post to Slack item across the team channel and the code owners channel (#758)
 - the agent menu offers focus, resume, redo and follow-up review (#755)
+- edit a Slack message before posting it, and a deleted Slack post is noticed and can be posted again
+- a My MRs chip on All hides your own rows, and one MR refreshes from GitLab from its row menu
+- code owner approvals count once per section
+- the board says when no teammate board is connected, instead of everyone engaged
 
 ### Worktrees
 
@@ -50,12 +59,13 @@ When your org's admin moves the org onto layout 3, a Mac still on v2.22 holds it
 
 - the pipeline gate Stop hook lets a turn end while a background task is pending, and CI watches run in the background (#779)
 - rt:settings, rt:ui-copy and other maintainer skills stay out of user installs, and an installer guard fails on a skill header it cannot read (#780)
+- a guard fails any PR with a dotted folder in a skills tree the app bundles, which the app build refuses (#781)
 
 ### Docs
 
 - one page per app for board and flock, grounded in the code, with docs conventions and a lint gate (#750, #753)
 - the team directory, the board's Slack item and agent menu are documented (#757, #759, #765)
-- the console runs view, deck's dev mode, `rt worktree restore`, glitter's rejected push, the PATH row and moving an org onto layout 3 are documented
+- the console runs view and viewing another team's settings, deck's dev mode, the board's new row menu items and Show chip, `rt worktree restore`, glitter's rejected push, the PATH row and moving an org onto layout 3 are documented
 
 ### Release
 
