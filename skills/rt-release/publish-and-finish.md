@@ -267,7 +267,8 @@ legs, in order:
   `xcrun notarytool store-credentials` command. It is skipped the same way when the dev bundle leg
   did not build. A failed publish never halts the legs after it: it shows as an error in the
   summary while checkout sync, the daemon and the served suite still run.
-- **Shared checkout sync**: the shared `~/Documents/GitHub/mattstack` checkout (or the older
+- **Shared checkout sync**: the shared checkout (the one dev mode recorded through `rt dev setup`
+  or `rt settings source-path`, else `~/Documents/GitHub/mattstack`, or the older
   `~/Documents/GitHub/repo-tools` folder on a machine that has not moved it); refuses unless it is
   on main, then fast-forwards it and runs a frozen install.
 - **Daemon**: announces in #rt first, retrying for up to 30 seconds while the daemon comes back from
@@ -361,8 +362,8 @@ the smoke check.
 
 ### Off-script gate: shared checkout off main
 
-The shared checkout (`~/Documents/GitHub/mattstack`, or the older `~/Documents/GitHub/repo-tools`
-folder on a machine that has not moved it) is shared with other sessions, and the branch it sits
+The shared checkout (the one dev mode recorded, else `~/Documents/GitHub/mattstack`, or the older
+`~/Documents/GitHub/repo-tools` folder on a machine that has not moved it) is shared with other sessions, and the branch it sits
 on is the dev daemon's deployed code, so it is not always on main. Quote the leg's refusal and the
 branch it names. Take: Matt finished the halted legs himself. Iterate: Matt put it on main, and
 update-machine runs again.
@@ -386,16 +387,18 @@ turn's final message says it is still held and why.
 ### Gate: have the team's members updated to <tag>?
 
 A held sync closes the release only once the team's real members run the new app: a teammate's
-daemon pulls the team repo and installs the pack on its own, so a sync that lands before they
-update hands them skills that call a tool they lack. Name the pack, the tool or verb it waited
+daemon pulls the org clone (`~/.mattstack/orgs/<org>`), installs the pack from
+`mattstack/teams/<team>/plugin/` and re-materializes on its own, so a sync that lands before
+they update hands them skills that call a tool they lack. Name the pack, the tool or verb it waited
 for, and the members still to confirm. Confirmed recommends the sync; not yet holds, naming
 `Gate: have the team's members updated to <tag>?` as the resume point.
 
 ### rt_verb {args: ["skills", "sync", "--pack", "<pack>", "--json"]}
 
 The sync itself is mattstack:editing-skills' to explain; this is its agent-safe call. A refusal
-(content drift, a failed recompile) goes to its gate; never edit the pack or the team repo by hand
-to get past it.
+(content drift, a failed recompile, an org layout hold because this Mac's app reads below the
+org's layout, a pack from another org, or a path this Mac's role does not own) goes to its gate;
+never edit the pack or the org clone by hand to get past it.
 
 ### Off-script gate: held pack sync refused
 
