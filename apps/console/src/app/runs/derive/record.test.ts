@@ -531,6 +531,7 @@ describe('reviewVerdict', () => {
     expect(verdict).toEqual({
       verdict: 'Approve',
       mrIid: '406',
+      notPosted: [{ severity: 'minor', text: 'Typo', where: null }],
       findings: [
         {
           severity: 'important',
@@ -540,6 +541,40 @@ describe('reviewVerdict', () => {
         { severity: 'minor', text: 'Log is noisy', where: null },
       ],
     });
+  });
+
+  it('lists no unposted findings when every one was picked', () => {
+    expect(reviewVerdict(fixtureGates('20261008-0940'))?.notPosted).toEqual([]);
+  });
+
+  it('lists the offered findings that were not picked, from the context else the option label', () => {
+    const [post] = fixtureGates('20261008-0940').filter(
+      g => g.id === 'g-0940-post'
+    );
+    const gate: GateRow = {
+      ...post!,
+      answer: {
+        ...post!.answer!,
+        answers: { ...post!.answer!.answers, 'findings-1': ['f1', 'f3'] },
+      },
+    };
+    const verdict = reviewVerdict([gate]);
+    expect(verdict?.findings.map(f => f.text)).toEqual([
+      'Dedupe matches on email only, so contacts without an email import twice.',
+      "mergeContacts deletes the losing record; the name doesn't say so.",
+    ]);
+    expect(verdict?.notPosted).toEqual([
+      {
+        severity: 'important',
+        text: 'No test covers merging two contacts that share a phone number.',
+        where: null,
+      },
+      {
+        severity: 'minor',
+        text: 'The skip log prints the whole contact record, email included.',
+        where: null,
+      },
+    ]);
   });
 
   it('is null for a run that posted nothing', () => {

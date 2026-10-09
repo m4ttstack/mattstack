@@ -59,3 +59,21 @@
   width: 76px;
   padding: 2px 0;
 }
+
+.notPosted {
+  border-top: 1px solid var(--tk-border);
+  padding: 8px 20px;
+}
+
+.fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+/* Unposted rows sit flush inside the fold, so drop the posted rows' inset. */
+.notPosted .finding {
+  padding-left: 0;
+  padding-right: 0;
+}

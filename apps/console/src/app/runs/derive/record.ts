@@ -276,17 +276,21 @@ export interface ReviewVerdict {
   verdict: string;
   /** The findings picked to post, across every findings question. */
   findings: ParsedFinding[];
+  /** The findings offered and not picked, in the order they were offered. */
+  notPosted: ParsedFinding[];
   mrIid: string | null;
 }
 
 /** What a review posted: its verdict and the findings it picked, each read
     from its question's structured findings context, else from its option
-    label. Null when the run answered no posting gate. */
+    label, and the ones it left out. Null when the run answered no posting
+    gate. */
 export function reviewVerdict(gates: GateRow[]): ReviewVerdict | null {
   const posting = answeredGates(gates).filter(isPostingGate);
   if (posting.length === 0) return null;
   let verdict = '';
   const findings: ParsedFinding[] = [];
+  const notPosted: ParsedFinding[] = [];
   let mrIid: string | null = null;
   for (const g of posting) {
     mrIid ??= iidOf(g.subject);
@@ -299,12 +303,16 @@ export function reviewVerdict(gates: GateRow[]): ReviewVerdict | null {
         const labels = new Map(optionViews(q).map(o => [o.value, o.text]));
         for (const v of answer.picked)
           findings.push(findingOf(entries.get(v), labels.get(v) ?? v));
+        const offered = new Set([...labels.keys(), ...entries.keys()]);
+        for (const v of offered)
+          if (!answer.picked.includes(v))
+            notPosted.push(findingOf(entries.get(v), labels.get(v) ?? v));
       } else if (q.id === 'outcome') {
         verdict = pickedText(q, answer.picked);
       }
     }
   }
-  return { verdict, findings, mrIid };
+  return { verdict, findings, notPosted, mrIid };
 }
 
 /** A review's gates as its decision log lists them: the findings questions

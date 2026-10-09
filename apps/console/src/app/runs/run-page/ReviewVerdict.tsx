@@ -1,3 +1,4 @@
+import { useId, useState } from 'react';
 import {
   Anchor,
   Badge,
@@ -5,6 +6,7 @@ import {
   Paper,
   Stack,
   Text,
+  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import type { MantineColor } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
@@ -43,10 +45,91 @@ function SeverityBadge({ severity }: { severity: FindingSeverity }) {
 const counted = (n: number) =>
   n === 0 ? 'no findings' : `${n} ${n === 1 ? 'finding' : 'findings'}`;
 
+function FindingRow({
+  finding: f,
+  parity,
+  dim = false,
+}: {
+  finding: ParsedFinding;
+  parity?: string;
+  dim?: boolean;
+}) {
+  return (
+    <div
+      className={classes.finding}
+      data-finding
+      data-dim={dim || undefined}
+      data-parity={parity}
+    >
+      <div className={classes.severity}>
+        {f.severity ? <SeverityBadge severity={f.severity} /> : null}
+      </div>
+      <Stack gap={3} className={classes.grow}>
+        <Text
+          fz={13.5}
+          lh="normal"
+          c={dim ? 'dimmed' : undefined}
+          data-finding-text
+          data-parity="t"
+        >
+          {f.text}
+        </Text>
+        {f.where ? (
+          <Text
+            ff="monospace"
+            fz={11.5}
+            lh="normal"
+            c="dimmed"
+            data-finding-where
+            data-parity="w"
+          >
+            {f.where}
+          </Text>
+        ) : null}
+      </Stack>
+    </div>
+  );
+}
+
+/** The findings the review left out, folded to one line that opens to list
+    them as the posted ones are, dimmed. */
+function NotPosted({ findings }: { findings: ParsedFinding[] }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <div className={classes.notPosted} data-testid="not-posted">
+      <UnstyledButton
+        className={classes.fold}
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen(o => !o)}
+      >
+        <Icon
+          name={open ? 'chevronDown' : 'chevronRight'}
+          size={13}
+          color="var(--tk-text-3)"
+        />
+        <Text fz={12.5} lh="normal" c="dimmed">
+          {findings.length} not posted
+        </Text>
+      </UnstyledButton>
+      {open ? (
+        <div id={id}>
+          {findings.map((f, i) => (
+            <FindingRow key={`${i}-${f.text}`} finding={f} dim />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export interface ReviewVerdictProps {
   /** The verdict picked, "Request changes"; empty when none was answered. */
   verdict: string;
   findings: ParsedFinding[];
+  /** The findings offered and left out; the fold is hidden when empty. */
+  notPosted?: ParsedFinding[];
   mrIid: string | null;
   mrUrl: string | null;
 }
@@ -56,6 +139,7 @@ export interface ReviewVerdictProps {
 export function ReviewVerdict({
   verdict,
   findings,
+  notPosted = [],
   mrIid,
   mrUrl,
 }: ReviewVerdictProps) {
@@ -97,34 +181,13 @@ export function ReviewVerdict({
         ) : null}
       </Group>
       {findings.map((f, i) => (
-        <div
+        <FindingRow
           key={`${i}-${f.text}`}
-          className={classes.finding}
-          data-finding
-          data-parity={i < findings.length - 1 ? 'finding' : undefined}
-        >
-          <div className={classes.severity}>
-            {f.severity ? <SeverityBadge severity={f.severity} /> : null}
-          </div>
-          <Stack gap={3} className={classes.grow}>
-            <Text fz={13.5} lh="normal" data-finding-text data-parity="t">
-              {f.text}
-            </Text>
-            {f.where ? (
-              <Text
-                ff="monospace"
-                fz={11.5}
-                lh="normal"
-                c="dimmed"
-                data-finding-where
-                data-parity="w"
-              >
-                {f.where}
-              </Text>
-            ) : null}
-          </Stack>
-        </div>
+          finding={f}
+          parity={i < findings.length - 1 ? 'finding' : undefined}
+        />
       ))}
+      {notPosted.length > 0 ? <NotPosted findings={notPosted} /> : null}
     </Paper>
   );
 }

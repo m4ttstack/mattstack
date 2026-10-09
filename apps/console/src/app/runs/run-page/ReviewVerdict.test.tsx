@@ -2,6 +2,7 @@ import '../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import type { ParsedFinding } from '../derive/findings';
@@ -89,5 +90,32 @@ describe('ReviewVerdict', () => {
     expect(
       within(container).queryByRole('link', { name: /Open the MR/ })
     ).toBeNull();
+  });
+
+  it('draws no fold when every finding was posted', () => {
+    verdict();
+    expect(screen.queryByText(/not posted/)).toBeNull();
+  });
+
+  it('folds the unposted findings to a count that opens to list them dimmed', async () => {
+    const { container } = verdict({
+      findings: FINDINGS.slice(0, 2),
+      notPosted: FINDINGS.slice(2),
+    });
+    expect(
+      screen.getByText('Request changes · 2 findings')
+    ).toBeInTheDocument();
+    const fold = screen.getByRole('button', { name: /2 not posted/ });
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    expect(rowsOf(container)).toHaveLength(2);
+    await userEvent.click(fold);
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+    expect(rowsOf(container).slice(2)).toEqual([
+      ['Minor', FINDINGS[2]!.text, 'contacts/merge.ts:12'],
+      ['Minor', FINDINGS[3]!.text, null],
+    ]);
+    expect(container.querySelectorAll('[data-finding][data-dim]')).toHaveLength(
+      2
+    );
   });
 });
