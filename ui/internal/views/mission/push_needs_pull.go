@@ -1,5 +1,6 @@
 // Newer Commits on Remote: GitHub Desktop's PushNeedsPullWarning
-// (app/src/ui/push-needs-pull), opened when the remote rejects a push as not
+// (app/src/ui/push-needs-pull/push-needs-pull-warning.tsx, opened by
+// pushNeedsPullHandler in app/src/ui/dispatcher/error-handlers.ts), opened when the remote rejects a push as not
 // a fast-forward. Its Fetch runs a fetch, which turns the action segment into
 // Pull.
 package mission
