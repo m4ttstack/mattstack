@@ -10,6 +10,7 @@ import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
+import { ADMIT_UNFLOORED, installArgs } from "../setup/plugin-calls.ts";
 import { parseMarker } from "../team/org-marker.ts";
 import { orgLayoutWaitingError, pickedCloneReady, pickOrgClone } from "../team/org-layout.ts";
 import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, teamPackSource, unconvertedTeamPackError } from "../team/team-pack-path.ts";
@@ -561,7 +562,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
       return failed("install-failed", `Adding the team's marketplace to Claude Code failed (exit ${added.value.code}): ${added.value.stderr.trim() || added.value.stdout.trim()}`);
     }
   }
-  const installed = await attempt("install-failed", () => claude(["plugin", "install", pluginId]));
+  const installed = await attempt("install-failed", () => claude(installArgs(ADMIT_UNFLOORED, pluginId)));
   if ("outcome" in installed) return installed.outcome;
   if (installed.value.code !== 0 && !isAlreadyDone(installed.value)) {
     return failed("install-failed", `Installing ${pluginId} in Claude Code failed (exit ${installed.value.code}): ${installed.value.stderr.trim() || installed.value.stdout.trim()}`);

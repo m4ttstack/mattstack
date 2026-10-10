@@ -9,6 +9,7 @@ import { join } from "path";
 import { resolveTool } from "../deps/resolve.ts";
 import { stripJsonc } from "../jsonc.ts";
 import { activeTeamFor } from "../team/active-team.ts";
+import { ADMIT_UNFLOORED, installArgs, updateArgs } from "./plugin-calls.ts";
 import type { ExecResult, Probes } from "./probes.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Logger } from "pino";
@@ -165,7 +166,7 @@ export async function settlePack(runner: ClaudeRunner, id: string, opts: { teamA
   // SETTLE_EXEC_TIMEOUT_MS is the converge budget's arithmetic, not a property
   // of the sequence: a caller with no budget of its own passes its own timeout.
   const timeoutMs = opts.timeoutMs ?? SETTLE_EXEC_TIMEOUT_MS;
-  const install = await runner.run(["plugin", "install", id], timeoutMs);
+  const install = await runner.run(installArgs(ADMIT_UNFLOORED, id), timeoutMs);
 
   if (install.code !== 0) {
     // A pack that already exists appeared underneath this run, so rt did not
@@ -293,7 +294,7 @@ export async function convergePackCache(
         continue;
       }
 
-      const updated = await runner.run(["plugin", "update", pack.id, "-y"], Math.min(PACK_EXEC_TIMEOUT_MS, updateBudget));
+      const updated = await runner.run(updateArgs(ADMIT_UNFLOORED, pack.id, ["-y"]), Math.min(PACK_EXEC_TIMEOUT_MS, updateBudget));
       if (updated.code === 0) {
         result.updated.push({ id: pack.id, to: pack.servedVersion });
         continue;

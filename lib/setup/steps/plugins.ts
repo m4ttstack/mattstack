@@ -26,6 +26,7 @@ import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { childOutput, isAlready, isNotFound, parsePluginList, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
+import { ADMIT_UNFLOORED, updateArgs } from "../plugin-calls.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import { activeTeamFor } from "../../team/active-team.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
@@ -359,7 +360,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
       // flip a deliberately disabled pack back on.
       if (byId.has(plugin)) {
         const disabled = !byId.get(plugin)!.enabled;
-        const updated = await runner.run(["plugin", "update", plugin, "-y"], PACK_EXEC_TIMEOUT_MS);
+        const updated = await runner.run(updateArgs(ADMIT_UNFLOORED, plugin, ["-y"]), PACK_EXEC_TIMEOUT_MS);
         if (updated.code === 0) {
           // Trusted plugins keep the best-effort re-enable they get today. The
           // `tool.plugins` needs-you row's action is `rt setup pack`, which

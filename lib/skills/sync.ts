@@ -4,6 +4,7 @@ import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
 import { layoutAbove, markerAtRef, updateSentence } from "../team/org-layout.ts";
 import { ORG_MARKER_REL, parseMarker } from "../team/org-marker.ts";
+import { ADMIT_UNFLOORED, updateArgs } from "../setup/plugin-calls.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -633,7 +634,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       return refused(`Updating the ${engine.marketplace} marketplace failed: ${market.stderr.trim()}. ${stopped}`);
     }
     const scopeArgs = engine.scope ? ["--scope", engine.scope] : [];
-    const update = await deps.run(deps.claudeBin!, ["plugin", "update", id, ...scopeArgs, "-y"]);
+    const update = await deps.run(deps.claudeBin!, updateArgs(ADMIT_UNFLOORED, id, [...scopeArgs, "-y"]));
     if (update.code !== 0) return refused(`Updating ${id} failed: ${update.stderr.trim()}. ${stopped}`);
     installedEngineAfter = chosenEntryVersion(await listInstalled(deps), id, engine.scope);
     if (installedEngineAfter === null) return refused(`${id} is not installed after its update. ${stopped}`);
@@ -647,7 +648,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (engineCached) return refreshCachedEngine();
     if (installedEngineBefore === engineSourceVersion) return skipped(`engine already at ${engineSourceVersion}`);
     const id = pluginId(engine);
-    const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
+    const res = await deps.run(deps.claudeBin!, updateArgs(ADMIT_UNFLOORED, id));
     if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);
     installedEngineAfter = engineSourceVersion;
     return ran(`updated ${id}`);
@@ -937,7 +938,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (installedPackBefore === null) return skipped(notInstalled);
     if (!mine && installedPackBefore === packSourceVersion) return skipped("the installed copy already matches the source");
     const id = pluginId(pack);
-    const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
+    const res = await deps.run(deps.claudeBin!, updateArgs(ADMIT_UNFLOORED, id));
     if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);
     return ran(`updated ${id}`);
   });

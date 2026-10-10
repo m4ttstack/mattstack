@@ -16,6 +16,7 @@ import { stripJsonc } from "../../jsonc.ts";
 import { resolveTool } from "../../deps/resolve.ts";
 import type { ApplyContext } from "../apply.ts";
 import { PACK_EXEC_TIMEOUT_MS } from "../pack-cache.ts";
+import { ADMIT_UNFLOORED, installArgs } from "../plugin-calls.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { readSetupState, updateSetupState, type PendingMarketplaceMove } from "../state.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
@@ -95,7 +96,7 @@ interface Planned {
 }
 
 const step = (prefix: string, argv: string[]): Planned => ({ argv, command: `${prefix}claude ${argv.join(" ")}` });
-const install = (prefix: string, pl: InstalledPlugin): Planned => step(prefix, ["plugin", "install", pl.id, "--scope", pl.scope]);
+const install = (prefix: string, pl: InstalledPlugin): Planned => step(prefix, installArgs(ADMIT_UNFLOORED, pl.id, ["--scope", pl.scope]));
 const disable = (prefix: string, pl: InstalledPlugin): Planned => step(prefix, ["plugin", "disable", pl.id]);
 
 /** A project or local install is bound to the project claude runs in, and rt runs from no particular project, so only user installs are rt's to redo. */
