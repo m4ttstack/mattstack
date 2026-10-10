@@ -350,7 +350,7 @@ function sharePathsFor(zone: ZoneInfo, packDir: string, wrote: string[]): string
 export type InitRefusalCode =
   | "not-yours" | "other-org"
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host"
-  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict";
+  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app";
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
 
@@ -371,7 +371,7 @@ export type InitOutcome =
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
-export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict"]);
+export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict", "needs-newer-app"]);
 
 /** A missing setting only the user can supply: drawn as needs-you, never as a failure. */
 export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host"]);
@@ -559,7 +559,9 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   if (checkedAttempt.value.drift) return failed("check-drift", "The pack was out of date right after it compiled");
 
   const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
-  if (!admission.ok) return failed("install-failed", refusalCopy(admission.engine, `the ${pack} pack`, admission.floor));
+  if (!admission.ok) {
+    return refuse("needs-newer-app", refusalCopy(admission.engine, `the ${pack} pack`, admission.floor), undefined, "The pack is written, but rt will not install or share it until the app updates.");
+  }
 
   const known = await attempt("install-failed", () => marketplaceNames(claude));
   if ("outcome" in known) return known.outcome;

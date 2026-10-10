@@ -5,7 +5,7 @@ import { cleanupOrgWorlds, orgWorld } from "../../team/__tests__/org-world.ts";
 import { rememberPackShare, sharePack } from "../../team/share-pack.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import { teamPublish } from "../../../commands/team.ts";
-import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, readOrgSlugs, type InitDeps, type RunResult } from "../init.ts";
+import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, POLICY_REFUSALS, readOrgSlugs, type InitDeps, type RunResult } from "../init.ts";
 import { UserActionableError } from "../../errors.ts";
 import { refusalCopy } from "../../engine-floor.ts";
 import { stripJsonc } from "../sources.ts";
@@ -606,11 +606,14 @@ describe("initPack", () => {
       return { ok: true, errors: [] };
     };
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
-    expect(out).toMatchObject({ ok: false, refused: false, code: "install-failed" });
-    if (out.ok || out.refused) return;
+    expect(out).toMatchObject({ ok: false, refused: true, code: "needs-newer-app" });
+    if (out.ok || !out.refused) return;
+    expect(POLICY_REFUSALS.has(out.code)).toBe(true);
     expect(out.detail).toBe(refusalCopy("0.30.28", "the acme pack", "0.31.0"));
-    expect(out.remedy?.commands.some((c) => c.includes("plugin install"))).toBe(false);
+    expect(out.why).toBe("The pack is written, but rt will not install or share it until the app updates.");
+    expect(out.next).toBeUndefined();
     expect(calls.claude.some((a) => a[1] === "install")).toBe(false);
+    expect(calls.claude.some((a) => a[1] === "marketplace" && a[2] === "add")).toBe(false);
   });
 
   test("a pack whose floor fits is installed", async () => {
