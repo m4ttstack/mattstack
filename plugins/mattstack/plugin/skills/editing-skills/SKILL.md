@@ -305,6 +305,17 @@ after certify and before the commit: sync consumes whatever `main` says and
 never bumps the engine, so a skipped bump leaves the engine cache, and
 therefore every pack that compiles against it, silently on the old version.
 
+An engine change whose skill text uses a tool, argument or daemon verb an
+older app lacks (a new `runId` on `mr_upload` that stage-ship now passes)
+also raises `minEngine` in `plugins/mattstack/pack/requires.json` to the
+version this change bumps to, in the same commit: a Mac whose app runs an
+older engine then holds the plugin and every pack compiled against it
+instead of installing text it cannot run. When the change needs nothing new
+from the app, leave the floor and, if the `Engine floor` check in the
+`plugin-mattstack` job asks (it does whenever the MCP tools reference
+changes), add a line `engine-floor: unchanged <reason>` to the PR body.
+Edit the PR body, then push a commit: re-running the job reads the old body.
+
 ### Push the default branch from the checkout
 
 From the checkout directory, a bare push (`git_push` refuses a default
@@ -314,6 +325,15 @@ branch):
 
 For the team pack, push IS the team publish: teammates' installs read the
 same repo. Never force.
+
+A published team pack or mattstack plugin whose floor
+(`pack/requires.json` `minEngine`) is above a member's app is held on that
+Mac until they update the app: setup never installs it, and the
+`pack.<name>` row (for mattstack, the `tool.plugins` row) reads needs-you
+with the update-the-app copy. When the org folder moves while a pack is
+held, `org.folder` runs only a bare `claude plugin marketplace add <clone>`,
+so the registration follows the folder and the installed copy stays until
+the app updates.
 
 A mattstack change never takes this box: it is made on a branch in a
 monorepo worktree, pushed with `git_push`, and lands through a pull request
@@ -364,6 +384,12 @@ an unmerged branch it refuses by design, so land the work on `main` first.
 An in-tree plugin (`plugins/mattstack` in the shared monorepo checkout)
 skips these git checks: sync reads its version from that checkout's `main`
 and only warns when the checkout sits on another branch.
+
+Sync also refuses when this app cannot run the engine on `main` (`This app
+runs engine <x>; the engine on main needs engine <y>. Update the app
+first.`): update the app, never lower the floor. A pack whose own floor is
+above this app is not a refusal: sync reports it held (`skipped`, with the
+update-the-app copy) and leaves its installed copy alone.
 
 ### Push the drifted pack's default branch
 
@@ -541,6 +567,7 @@ What `compile` and `check` read:
 | the pack's own fills                         | the pack checkout (`--pack-dir`)                                                                                                     |
 | everything, for `--pack mattstack` itself    | the monorepo CHECKOUT's plugins/mattstack (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted                      |
 | mattstack version in every seam marker       | mattstack's `plugin.json` at compile time; `check` masks it, so a bump that changed no inlined engine, include, or fill is not drift |
+| the team pack's `pack/requires.json`         | written by compile from the installed mattstack's `pack/requires.json` (never hand-edited; `check` reports a stale one as drift). mattstack's own floor is hand-maintained |
 
 ## When a hand-written skill needs shared plugin text
 

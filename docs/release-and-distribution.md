@@ -26,7 +26,17 @@ One tag (`v*`) produces, via `.github/workflows/release.yml` on macos-15:
 - `appcast.xml` — the Sparkle feed (`scripts/release/appcast.sh`)
 - the published plugin marketplace (`scripts/release/marketplace.sh`,
   generated from `marketplace/marketplace.json`; url-pinned sources resolve
-  at generation time, `--refresh` re-resolves)
+  at generation time, `--refresh` re-resolves). The catalog is validated
+  first (`Validate the marketplace catalog`, a `--dry-run`) and published
+  last (`Publish the marketplace catalog`, just before `Create Release`),
+  so a run that fails before that step publishes nothing. The publish
+  refuses a mattstack version older than the published one. If `Create
+  Release` fails after the publish, the catalog is live without its app
+  (an older app holds any plugin whose engine floor it cannot run).
+  Re-run the release for the same tag: the publish finds the tree already
+  published and pushes nothing, then `Create Release` runs. An abandoned
+  tag is fixed forward by the next release, since the publish will not
+  put the previous catalog back over a newer mattstack version.
 
 `workflow_dispatch` runs everything **except publish** — the standing dry
 run. A dispatch's DMG lands as the `release-dry-run` artifact and is fully
@@ -40,8 +50,13 @@ signed with a warning when they are not; a **tag** hard-fails without them).
   for the app AND the dmg; the workflow then asserts Gatekeeper accepts the
   stapled app — that assertion is what a user's machine enforces offline,
   so it runs after notarize, never before.
-- `MARKETPLACE_TOKEN` — pushes the generated marketplace. Must exist before
-  the next tag (MAT-386 §10).
+- `MARKETPLACE_TOKEN` — pushes the generated marketplace. Only the late
+  `Publish the marketplace catalog` step uses it. Must exist before the
+  next tag (MAT-386 §10).
+- The compiled rt bakes the mattstack engine version (`--define
+  MATTSTACK_ENGINE` from `plugins/mattstack/.claude-plugin/plugin.json`),
+  and `Assert the baked engine matches the plugin` fails the run when
+  `rt --version --json`'s `engine` differs from it.
 - `scripts/bench-startup.ts` gates startup regressions in the workflow
   (see CLAUDE.md "Module registry" for what usually causes them).
 
@@ -359,8 +374,8 @@ Workflow lint: the checks workflow runs actionlint over `checks.yml`,
 
 ## Still unproven (as of 2026-08-24)
 
-- A real tag cut end to end (publish + Sparkle update leg + marketplace
-  push with MARKETPLACE_TOKEN).
+- A real tag cut end to end (publish + Sparkle update leg + the late
+  catalog publish with MARKETPLACE_TOKEN).
 - The walkthrough's full-green 10/10 report (gitless persona asserting the
   graceful refusal, then rt driving the headless CLT install and
   continuing) — parked follow-up; each layer is proven individually.

@@ -48,6 +48,7 @@ import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
+import { FLOOR_REL, readFloor } from "../lib/engine-floor.ts";
 import { validateChain } from "../lib/skills/chain.ts";
 import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan } from "../lib/skills/base-attachments.ts";
 import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
@@ -965,6 +966,38 @@ function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): B
   return plan;
 }
 
+function readIfPresent(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** The team pack's generated floor mirrors the engine it compiled against; the mattstack pack's own floor is hand-maintained and never written here. */
+export function floorWrite(
+  resolved: { packDir: string; pluginRoots: PluginRoots },
+  readFile: (path: string) => string | null,
+  write: boolean,
+): { written: string[]; removed: string[]; stale: boolean } {
+  const engineDir = resolved.pluginRoots.byName.mattstack?.dir ?? null;
+  if (engineDir === null || resolvePath(engineDir) === resolvePath(resolved.packDir)) return { written: [], removed: [], stale: false };
+  const floor = readFloor(readFile, engineDir);
+  const target = join(resolved.packDir, FLOOR_REL);
+  const current = readFile(target);
+  const want = floor === null ? null : JSON.stringify({ minEngine: floor }) + "\n";
+  const same = want === null ? current === null : current !== null && readFloor(readFile, resolved.packDir) === floor;
+  if (same) return { written: [], removed: [], stale: false };
+  if (!write) return { written: [], removed: [], stale: true };
+  if (want === null) {
+    rmSync(target, { force: true });
+    return { written: [], removed: [FLOOR_REL], stale: false };
+  }
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, want);
+  return { written: [FLOOR_REL], removed: [], stale: false };
+}
+
 /**
  * The real-write path shared by skillsCompile and compilePackAll: compiles
  * every target, writes on success (sweeping a stale other-side dir first),
@@ -1013,6 +1046,9 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       if (existsSync(stale) && !isHandWrittenDir(stale)) removeCompiledDir(resolved.packDir, stale, writes);
       writeCompiledVerb(resolved.packDir, outDirFor(resolved.packDir, verb.name, isPublic), outcome.result, writes);
     }
+    const floor = floorWrite(resolved, readIfPresent, true);
+    writes.written.push(...floor.written);
+    writes.removed.push(...floor.removed);
   }
 
   const misplaced: string[] = [];
@@ -1433,6 +1469,11 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const mcpLint = lintPackDir(resolved.packDir, rules);
   const scriptLint = lintPackScripts(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
+
+  if (flags.verbs === null && floorWrite(resolved, readIfPresent, false).stale) {
+    compileErrors.push("pack/requires.json is out of date with the engine's floor");
+    anyStale = true;
+  }
 
   const baseErrors = plan.errors;
   const attachments = flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, plan) : [];

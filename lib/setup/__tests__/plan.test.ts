@@ -341,6 +341,23 @@ test("on a machine with no claude, the skipped plugin rows do not block Install 
   expect(plan.canInstall).toBe(true);
 });
 
+test("a pack held for an app update stays required:false in both modes and never blocks Install", () => {
+  const held = row({ id: "pack.acme-skills", kind: "tool", title: "acme-skills", why: "x", required: false, status: "needs-you", detail: "held", action: null });
+  for (const mode of ["plan", "status"] as const) {
+    const groups: Group[] = [{ id: "tools", title: "Tools", rows: [held] }];
+    const flipped = applyInstallSatisfiedFlip(groups, mode);
+    expect(flipped[0]!.rows[0]!.required).toBe(false);
+    expect(finalizePlan({ slug: "acme", name: "Acme", mode: "none" }, flipped).canInstall).toBe(true);
+  }
+});
+
+test("a daemon row that needs you with no action, as in CI, still flips like any other Install-satisfied row", () => {
+  const daemon = row({ id: "tool.daemon", kind: "tool", title: "rt daemon", why: "x", required: false, status: "needs-you", detail: "Not running (expected in CI)", action: null });
+  const flip = (mode: "plan" | "status") => applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [daemon] }], mode)[0]!.rows[0]!;
+  expect(flip("plan").required).toBe(false);
+  expect(flip("status").required).toBe(true);
+});
+
 function gatedRow(status: Row["status"]): Row {
   return row({
     id: "tool.fast-browser-extension",

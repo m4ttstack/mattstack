@@ -9,6 +9,8 @@ import { join } from "path";
 import { resolveTool } from "../deps/resolve.ts";
 import { stripJsonc } from "../jsonc.ts";
 import { activeTeamFor } from "../team/active-team.ts";
+import { readFloor, runnableEngine } from "../engine-floor.ts";
+import { admit, installArgs, updateArgs, type Admitted } from "./plugin-calls.ts";
 import type { ExecResult, Probes } from "./probes.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Logger } from "pino";
@@ -18,6 +20,7 @@ export interface ServedPack {
   id: string;
   name: string;
   servedVersion: string | null;
+  floor: string | null;
 }
 
 /** `error` is non-null only for a marketplace.json that exists and did not parse. */
@@ -110,8 +113,10 @@ export function readServedPacks(p: Pick<Probes, "readFile" | "home">, slug: stri
   for (const entry of entries) {
     if (!isPlainObject(entry) || typeof entry.name !== "string" || entry.name.length === 0) continue;
     if (opts.only !== undefined && entry.name !== opts.only) continue;
-    const servedVersion = typeof entry.source === "string" ? readVersion(p, join(clone, entry.source)) : null;
-    packs.push({ id: `${entry.name}@${marketplace}`, name: entry.name, servedVersion });
+    const dir = typeof entry.source === "string" ? join(clone, entry.source) : null;
+    const servedVersion = dir ? readVersion(p, dir) : null;
+    const floor = dir ? readFloor(p.readFile, dir) : null;
+    packs.push({ id: `${entry.name}@${marketplace}`, name: entry.name, servedVersion, floor });
   }
   return { packs, error: null };
 }
@@ -161,11 +166,11 @@ function isAlreadyGone(res: ExecResult): boolean {
  * invariant every branch preserves: on return the pack is installed-and-settled
  * or not installed, never installed-and-enabled for a team-authored pack.
  */
-export async function settlePack(runner: ClaudeRunner, id: string, opts: { teamAuthored: boolean; timeoutMs?: number }): Promise<SettleOutcome> {
+export async function settlePack(runner: ClaudeRunner, id: string, admitted: Admitted, opts: { teamAuthored: boolean; timeoutMs?: number }): Promise<SettleOutcome> {
   // SETTLE_EXEC_TIMEOUT_MS is the converge budget's arithmetic, not a property
   // of the sequence: a caller with no budget of its own passes its own timeout.
   const timeoutMs = opts.timeoutMs ?? SETTLE_EXEC_TIMEOUT_MS;
-  const install = await runner.run(["plugin", "install", id], timeoutMs);
+  const install = await runner.run(installArgs(admitted, id), timeoutMs);
 
   if (install.code !== 0) {
     // A pack that already exists appeared underneath this run, so rt did not
@@ -205,10 +210,12 @@ export interface ConvergeResult {
   current: string[];
   skipped: { id: string; reason: string }[];
   failed: { id: string; detail: string }[];
+  /** Served above this Mac's engine: an installed pack keeps its version, an absent one stays absent. */
+  held: { id: string; to: string | null; floor: string; engine: string | null }[];
 }
 
 function emptyResult(): ConvergeResult {
-  return { updated: [], installed: [], rolledBack: [], current: [], skipped: [], failed: [] };
+  return { updated: [], installed: [], rolledBack: [], current: [], skipped: [], failed: [], held: [] };
 }
 
 export function isNotFound(res: ExecResult): boolean {
@@ -226,10 +233,11 @@ export async function convergePackCache(
   p: Probes,
   slug: string,
   log: Logger,
-  opts: { now?: () => number; activeTeam?: () => string | null } = {},
+  opts: { now?: () => number; activeTeam?: () => string | null; engine?: () => string | null } = {},
 ): Promise<ConvergeResult> {
   const now = opts.now ?? Date.now;
   const result = emptyResult();
+  const engine = (opts.engine ?? runnableEngine)();
 
   const claude = resolveTool(p, "claude");
   if (!claude.exec) {
@@ -287,13 +295,18 @@ export async function convergePackCache(
         result.current.push(pack.id);
         continue;
       }
+      const admission = admit(pack.floor, engine);
+      if (!admission.ok) {
+        if (!result.held.some((h) => h.id === pack.id)) result.held.push({ id: pack.id, to: pack.servedVersion, floor: admission.floor, engine });
+        continue;
+      }
       const updateBudget = budgetLeft();
       if (updateBudget === 0) {
         result.skipped.push({ id: pack.id, reason: "converge budget exhausted" });
         continue;
       }
 
-      const updated = await runner.run(["plugin", "update", pack.id, "-y"], Math.min(PACK_EXEC_TIMEOUT_MS, updateBudget));
+      const updated = await runner.run(updateArgs(admission, pack.id, ["-y"]), Math.min(PACK_EXEC_TIMEOUT_MS, updateBudget));
       if (updated.code === 0) {
         result.updated.push({ id: pack.id, to: pack.servedVersion });
         continue;
@@ -314,7 +327,7 @@ export async function convergePackCache(
         continue;
       }
 
-      const outcome = await settlePack(runner, pack.id, { teamAuthored: true });
+      const outcome = await settlePack(runner, pack.id, admission, { teamAuthored: true });
       if (outcome.kind === "installed") result.installed.push(outcome.id);
       else if (outcome.kind === "current") result.current.push(outcome.id);
       else if (outcome.kind === "rolledBack") result.rolledBack.push({ id: outcome.id, detail: outcome.detail });

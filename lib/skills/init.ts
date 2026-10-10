@@ -10,6 +10,8 @@ import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
+import { readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
+import { admit, installArgs } from "../setup/plugin-calls.ts";
 import { parseMarker } from "../team/org-marker.ts";
 import { orgLayoutWaitingError, pickedCloneReady, pickOrgClone } from "../team/org-layout.ts";
 import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, teamPackSource, unconvertedTeamPackError } from "../team/team-pack-path.ts";
@@ -336,6 +338,10 @@ export type InitDeps = {
   sharePack(zone: ZoneInfo, paths: string[]): Promise<PackShare>;
   /** Remembers a share for `rt team publish` to finish if init stops before its own share. */
   rememberShare(zone: ZoneInfo, paths: string[]): void;
+  /** The engine version this rt runs; null when it cannot tell. */
+  engine?: () => string | null;
+  /** The installed mattstack engine's own floor, which compile copies into the pack. */
+  engineFloor?: () => Floor;
 };
 
 /** The pack folder plus every other file init wrote, relative to the org clone. */
@@ -346,7 +352,7 @@ function sharePathsFor(zone: ZoneInfo, packDir: string, wrote: string[]): string
 export type InitRefusalCode =
   | "not-yours" | "other-org"
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host"
-  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict";
+  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app";
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
 
@@ -367,7 +373,7 @@ export type InitOutcome =
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
-export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict"]);
+export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict", "needs-newer-app"]);
 
 /** A missing setting only the user can supply: drawn as needs-you, never as a failure. */
 export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host"]);
@@ -410,6 +416,11 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   if (opts.team !== null && !TEAM_NAME_RE.test(opts.team)) {
     return refuse("zone-missing", `${opts.team || "An empty name"} is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter`, "rt skills init --team <name>");
   }
+  // Checked before anything is written: a refusal after createZone or compile would leave an org or a pack on disk.
+  const floorRefusal = (label: string): InitOutcome | null => {
+    const fits = admit((deps.engineFloor ?? (() => null))(), (deps.engine ?? runnableEngine)());
+    return fits.ok ? null : refuse("needs-newer-app", refusalCopy(fits.engine, label, fits.floor), undefined, "rt wrote nothing, so run this again once the app updates.");
+  };
   let orgs = readOrgSlugs(deps.fs, deps.home);
   if (opts.zone !== null && !orgs.includes(opts.zone)) {
     return refuse("zone-missing", `There is no org called ${opts.zone} on this Mac${orgs.length > 0 ? `. Orgs here: ${orgs.join(", ")}` : ""}`);
@@ -429,6 +440,8 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     if (!deps.isTTY || opts.team !== null) {
       return refuse("zone-missing", "This Mac has no org yet, so there is no team to hold a pack", `rt team create <name> --remote <url> --first-team ${opts.team ?? "<team>"}`);
     }
+    const early = floorRefusal(`the ${opts.team ?? "new team"} pack`);
+    if (early) return early;
     const answer = await deps.promptZone();
     const created = await deps.createZone(answer.name, answer.remote);
     wantedTeam = created.team;
@@ -478,6 +491,9 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   const marketplace = zone.marketplace ?? zone.org;
   const pluginId = `${pack}@${marketplace}`;
 
+  const lateFloor = floorRefusal(`the ${pack} pack`);
+  if (lateFloor) return lateFloor;
+
   const wrote: string[] = [];
 
   const share = `rt team publish --team ${zone.org}`;
@@ -487,7 +503,9 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     if (code === "compile-failed" || code === "check-drift") {
       return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`, share] };
     }
-    return { commands: [`claude plugin marketplace add ${zone.orgDir}`, `claude plugin install ${pluginId}`, share] };
+    const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
+    const install = admission.ok ? [`claude ${installArgs(admission, pluginId).join(" ")}`] : [];
+    return { commands: [`claude plugin marketplace add ${zone.orgDir}`, ...install, share] };
   };
 
   const failed = (code: FailureCode, detail: string, from?: { why?: string; next?: string }): InitOutcome => ({
@@ -552,6 +570,11 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   if ("outcome" in checkedAttempt) return checkedAttempt.outcome;
   if (checkedAttempt.value.drift) return failed("check-drift", "The pack was out of date right after it compiled");
 
+  const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
+  if (!admission.ok) {
+    return refuse("needs-newer-app", refusalCopy(admission.engine, `the ${pack} pack`, admission.floor), undefined, "The pack is written, but rt will not install or share it until the app updates.");
+  }
+
   const known = await attempt("install-failed", () => marketplaceNames(claude));
   if ("outcome" in known) return known.outcome;
   if (!known.value || !known.value.has(marketplace)) {
@@ -561,7 +584,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
       return failed("install-failed", `Adding the team's marketplace to Claude Code failed (exit ${added.value.code}): ${added.value.stderr.trim() || added.value.stdout.trim()}`);
     }
   }
-  const installed = await attempt("install-failed", () => claude(["plugin", "install", pluginId]));
+  const installed = await attempt("install-failed", () => claude(installArgs(admission, pluginId)));
   if ("outcome" in installed) return installed.outcome;
   if (installed.value.code !== 0 && !isAlreadyDone(installed.value)) {
     return failed("install-failed", `Installing ${pluginId} in Claude Code failed (exit ${installed.value.code}): ${installed.value.stderr.trim() || installed.value.stdout.trim()}`);

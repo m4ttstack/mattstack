@@ -35,11 +35,59 @@ function probesWith(files: Record<string, string>, reply: (argv: string[]) => Ex
   return { p, execs, timeouts };
 }
 
+function floorJson(pack: string, minEngine: string): Record<string, string> {
+  return { [join(clone, "packs", pack, "pack", "requires.json")]: JSON.stringify({ minEngine }) };
+}
+
 const listing = (entries: unknown[]): ExecResult => ({ code: 0, stdout: JSON.stringify(entries), stderr: "" });
 
 const ACTIVE = { activeTeam: () => "acme-skills" };
 
 describe("convergePackCache", () => {
+  const ok = { code: 0, stdout: "", stderr: "" };
+  const changes = (execs: string[][]) => execs.filter((a) => a.includes("update") || a.includes("install"));
+
+  test("a pack whose floor is above this Mac's engine is held, not updated", async () => {
+    const { p, execs } = probesWith(
+      { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.6.0"), ...floorJson("acme-skills", "0.31.0") },
+      (argv) => (argv.includes("list") ? listing([{ id: "acme-skills@acme-market", version: "0.5.28", enabled: false }]) : ok),
+    );
+    const result = await convergePackCache(p, "acme", quietLog, { ...ACTIVE, engine: () => "0.30.28" });
+    expect(result.held).toEqual([{ id: "acme-skills@acme-market", to: "0.6.0", floor: "0.31.0", engine: "0.30.28" }]);
+    expect(result.updated).toEqual([]);
+    expect(changes(execs)).toEqual([]);
+  });
+
+  test("a routine update whose floor this Mac meets installs at once", async () => {
+    const { p } = probesWith(
+      { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.6.1"), ...floorJson("acme-skills", "0.30.0") },
+      (argv) => (argv.includes("list") ? listing([{ id: "acme-skills@acme-market", version: "0.6.0", enabled: false }]) : ok),
+    );
+    const result = await convergePackCache(p, "acme", quietLog, { ...ACTIVE, engine: () => "0.30.28" });
+    expect(result.updated).toEqual([{ id: "acme-skills@acme-market", to: "0.6.1" }]);
+    expect(result.held).toEqual([]);
+  });
+
+  test("a never-installed pack above the floor installs nothing", async () => {
+    const { p, execs } = probesWith(
+      { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.6.0"), ...floorJson("acme-skills", "0.31.0") },
+      (argv) => (argv.includes("list") ? listing([]) : ok),
+    );
+    const result = await convergePackCache(p, "acme", quietLog, { ...ACTIVE, engine: () => "0.30.28" });
+    expect(result.held.map((h) => h.id)).toEqual(["acme-skills@acme-market"]);
+    expect(result.installed).toEqual([]);
+    expect(changes(execs)).toEqual([]);
+  });
+
+  test("a pack with no floor file converges as before", async () => {
+    const { p } = probesWith(
+      { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.6.0") },
+      (argv) => (argv.includes("list") ? listing([{ id: "acme-skills@acme-market", version: "0.5.0", enabled: false }]) : ok),
+    );
+    const result = await convergePackCache(p, "acme", quietLog, { ...ACTIVE, engine: () => "0.1.0" });
+    expect(result.updated.map((u) => u.id)).toEqual(["acme-skills@acme-market"]);
+  });
+
   test("a pack already at the served version issues no update", async () => {
     const { p, execs } = probesWith(
       { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.5.28") },
@@ -282,7 +330,7 @@ describe("convergePackCache", () => {
     test("a Mac on no team converges nothing", async () => {
       const { p, execs } = probesWith(twoTeams, absentThenOk);
       const result = await convergePackCache(p, "acme", quietLog, { activeTeam: () => null });
-      expect(result).toEqual({ updated: [], installed: [], rolledBack: [], current: [], skipped: [], failed: [] });
+      expect(result).toEqual({ updated: [], installed: [], rolledBack: [], current: [], skipped: [], failed: [], held: [] });
       expect(execs).toEqual([]);
     });
 

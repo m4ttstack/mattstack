@@ -365,6 +365,12 @@ it into the team pack. When a team pack `extends` a base, each compile:
 - removes a copied folder whose base attachment is gone, or every copied
   folder once the pack stops extending a base.
 
+Every compile also writes `pack/requires.json`, the engine floor
+(`minEngine`) copied from the mattstack it compiled against. It is compile
+output like the copies: never hand-edit it, and
+`rt_verb {args: ["skills", "check", "--pack", "widgets"]}` reports a stale
+one as drift.
+
 A compile with any failing verb writes and removes nothing, copies
 included. Edit the base's attachment, never the copy, then bump the base
 and compile each team pack.
@@ -376,6 +382,11 @@ pack (`rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`), then
 `/reload-plugins`. The round already passed RED and GREEN, so it enters
 editing-skills at `What changed?`. The daemon's team snapshot leaves pack
 edits to this publish; it is how the edit reaches the team.
+
+A published change does not reach a member whose app is below the pack's
+floor (`pack/requires.json`): their Mac holds the pack, and its
+`pack.<name>` setup row tells them to update the app. It installs once
+they do.
 
 ## Red flags
 

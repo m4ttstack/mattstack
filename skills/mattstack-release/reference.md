@@ -26,7 +26,8 @@ footguns first.
   (`APPLE_CERT_P12_BASE64`, `APPLE_CERT_P12_PASSWORD`, `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`,
   `APPLE_API_ISSUER_ID`, `APPLE_ID`, `APPLE_ID_PASSWORD`, `APPLE_TEAM_ID`, `SPARKLE_ED_KEY`,
   `MARKETPLACE_TOKEN`); `release.yml` passes the API key set and the Apple ID set, and
-  `notarize.sh` prefers the API key.
+  `notarize.sh` prefers the API key. `MARKETPLACE_TOKEN` reaches only the late
+  `Publish the marketplace catalog` step.
 - Sparkle EdDSA: public key committed at `rt-tray/SUPublicEDKey`; private key in the login
   keychain (`security find-generic-password -s "Sparkle EdDSA Private Key"`) and the gh secret.
   `generate_keys` never regenerates an existing key; `-x <file>` re-exports it. If every copy is
