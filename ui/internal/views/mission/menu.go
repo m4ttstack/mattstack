@@ -363,6 +363,9 @@ func (m *Mission) runMenuItem(it picker.MenuItem) (tea.Model, tea.Cmd) {
 	case pushNeedsPullFetchID:
 		m.closeMenu()
 		return m, m.emitFetch()
+	case localChangesStashID:
+		m.closeMenu()
+		return m, m.emitStashAndRetry()
 	case "discard-file":
 		m.menu.Push("Discard all changes to "+path.Base(t.path)+"?", []picker.MenuItem{
 			questionChoice("discard-confirm", "Discard Changes"),

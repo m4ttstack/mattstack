@@ -99,11 +99,13 @@ type Mission struct {
 	menuTarget    menuTarget
 	menuOnHistory bool
 	menuPrevFocus focusKind
-	// switchSeq, publishSeq and pushNeedsPullSeq are the newest Seq of each
-	// prompt opened, so a push repeating a prompt never reopens it.
+	// switchSeq, publishSeq, pushNeedsPullSeq and localChangesSeq are the
+	// newest Seq of each prompt opened, so a push repeating a prompt never
+	// reopens it.
 	switchSeq        int
 	publishSeq       int
 	pushNeedsPullSeq int
+	localChangesSeq  int
 	// localNotice is a client-only refusal cue (the detached-HEAD branch
 	// guard), kept separate from the wire model's own Notice field: that one
 	// carries the driver's own guard refusals, this one covers a refusal the
@@ -375,6 +377,10 @@ func (m *Mission) SetModel(raw json.RawMessage) error {
 	if p := m.model.PushNeedsPullPrompt; p != nil && p.Seq > m.pushNeedsPullSeq {
 		m.pushNeedsPullSeq = p.Seq
 		m.openPushNeedsPull()
+	}
+	if p := m.model.LocalChangesPrompt; p != nil && p.Seq > m.localChangesSeq {
+		m.localChangesSeq = p.Seq
+		m.openLocalChanges(*p)
 	}
 	return nil
 }

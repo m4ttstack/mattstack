@@ -90,6 +90,7 @@ function baseState(overrides: Partial<MissionState> = {}): MissionState {
     switchPrompt: null,
     publishPrompt: null,
     pushNeedsPullPrompt: null,
+    localChangesPrompt: null,
     ...overrides,
   };
 }

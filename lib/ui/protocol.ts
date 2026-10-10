@@ -328,6 +328,15 @@ export interface MissionPushNeedsPullPrompt {
   seq: number;
 }
 
+/** One-shot, like MissionSwitchPrompt: the view opens GitHub Desktop's local changes overwritten dialog after a pull that uncommitted changes blocked. */
+export interface MissionLocalChangesPrompt {
+  seq: number;
+  /** The action the dialog names and Stash Changes and Continue retries. */
+  action: "pull";
+  /** git's list of files the pull would overwrite; empty when git names none (a rebase pull). */
+  files: string[];
+}
+
 export interface MissionActionModel {
   kind: "fetch" | "pull" | "pull-rebase" | "push" | "force-push" | "publish-branch" | "publish-repo" | "busy" | "detached";
   title: string;
@@ -395,6 +404,7 @@ export interface MissionModel {
   switchPrompt: MissionSwitchPrompt | null;
   publishPrompt: MissionPublishPrompt | null;
   pushNeedsPullPrompt: MissionPushNeedsPullPrompt | null;
+  localChangesPrompt: MissionLocalChangesPrompt | null;
   /** GHD's Stash All Changes enablement. */
   canStash: boolean;
 }
@@ -438,6 +448,7 @@ const SESSION_INTENT_NAMES = [
   "mission:stash-hide",
   "mission:publish",
   "mission:fetch",
+  "mission:stash-and-retry",
 ] as const;
 
 export interface SessionIntent {

@@ -186,6 +186,15 @@ type PushNeedsPullPrompt struct {
 	Seq int `json:"seq"`
 }
 
+// LocalChangesPrompt is one-shot like SwitchPrompt: Desktop's local changes
+// overwritten dialog opens for a Seq the view has not seen. Files is git's
+// list of files in the way, empty when git names none.
+type LocalChangesPrompt struct {
+	Seq    int      `json:"seq"`
+	Action string   `json:"action"`
+	Files  []string `json:"files"`
+}
+
 type Model struct {
 	Current             Current              `json:"current"`
 	Action              ActionModel          `json:"action"`
@@ -207,6 +216,7 @@ type Model struct {
 	SwitchPrompt        *SwitchPrompt        `json:"switchPrompt"`
 	PublishPrompt       *PublishPrompt       `json:"publishPrompt"`
 	PushNeedsPullPrompt *PushNeedsPullPrompt `json:"pushNeedsPullPrompt"`
+	LocalChangesPrompt  *LocalChangesPrompt  `json:"localChangesPrompt"`
 	CanStash            bool                 `json:"canStash"` // GHD's Stash All Changes enablement
 }
 
