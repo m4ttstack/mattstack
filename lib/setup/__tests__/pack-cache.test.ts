@@ -50,9 +50,21 @@ describe("readServedPacks", () => {
       },
     });
     expect(readServedPacks(p, "acme")).toEqual({
-      packs: [{ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: "0.5.28" }],
+      packs: [{ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: "0.5.28", floor: null }],
       error: null,
     });
+  });
+
+  test("a served pack carries the floor in its pack/requires.json", () => {
+    const p = fakeProbes({
+      home,
+      files: {
+        [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./packs/acme-skills" }] }),
+        [join(clone, "packs", "acme-skills", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "0.6.0" }),
+        [join(clone, "packs", "acme-skills", "pack", "requires.json")]: JSON.stringify({ minEngine: "0.31.0" }),
+      },
+    });
+    expect(readServedPacks(p, "acme").packs[0]).toEqual({ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: "0.6.0", floor: "0.31.0" });
   });
 
   test("an object-form source is listed with a null served version", () => {
@@ -61,7 +73,7 @@ describe("readServedPacks", () => {
       files: { [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "remote", source: { source: "github", repo: "o/r" } }] }) },
     });
     expect(readServedPacks(p, "acme")).toEqual({
-      packs: [{ id: "remote@acme-market", name: "remote", servedVersion: null }],
+      packs: [{ id: "remote@acme-market", name: "remote", servedVersion: null, floor: null }],
       error: null,
     });
   });
@@ -71,7 +83,7 @@ describe("readServedPacks", () => {
       home,
       files: { [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./packs/acme-skills" }] }) },
     });
-    expect(readServedPacks(p, "acme").packs).toEqual([{ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: null }]);
+    expect(readServedPacks(p, "acme").packs).toEqual([{ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: null, floor: null }]);
   });
 
   test("the marketplace name falls back to the slug when the file omits it", () => {

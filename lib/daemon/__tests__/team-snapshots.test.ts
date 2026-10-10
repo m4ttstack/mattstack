@@ -359,6 +359,24 @@ describe("startTeamSnapshots", () => {
     expect(order).toEqual(["converge", "after:acme"]);
   });
 
+  test("createOnPulled logs a held pack once per served version", async () => {
+    const seen = new Set<string>();
+    const lines: string[] = [];
+    const log = { ...fakeLog(), info: (_o: unknown, m: string) => { lines.push(m); } } as never;
+    const held = { id: "acme-skills@acme-market", to: "0.6.0", floor: "0.31.0", engine: "0.30.28" };
+    const onPulled = createOnPulled({
+      probes: fakeProbes({ home: "/h" }),
+      slug: "acme",
+      log,
+      converge: (async () => ({ held: [held] })) as never,
+      holds: { has: (k) => seen.has(k), mark: (k) => { seen.add(k); } },
+    });
+    await onPulled();
+    await onPulled();
+    expect(lines).toEqual(["pack held: this app's engine is below its floor"]);
+    expect([...seen]).toEqual(["acme-skills@acme-market@0.6.0"]);
+  });
+
   describe("the role decides the mode", () => {
     const ROLES = { "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } };
     function orgWith(h: ReturnType<typeof harness>, username: string | null): void {

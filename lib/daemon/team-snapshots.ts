@@ -14,6 +14,7 @@ import type { Value } from "../settings/registry-schemas.ts";
 import { orgsDir } from "../rt-paths.ts";
 import { createRealProbes, type Probes } from "../setup/probes.ts";
 import { convergePackCache } from "../setup/pack-cache.ts";
+import { hasKvValue, setKvValue } from "../state/kv-blob.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { UserActionableError } from "../errors.ts";
 import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
@@ -68,6 +69,8 @@ const RESCAN_DEBOUNCE_MS = 2000;
 export const PAUSE_SETTLE_MS = 30_000;
 
 
+const PACK_HOLDS_NS = "pack-holds";
+
 function originOf(dir: string): string | null {
   try {
     return parseOriginUrl(readFileSync(join(dir, ".git", "config"), "utf8"));
@@ -83,10 +86,22 @@ export function createOnPulled(opts: {
   log: Logger;
   converge: typeof convergePackCache;
   afterPull?: (slug: string) => Promise<void>;
+  /** Remembers which held pack versions were already logged; defaults to the state db's kv table. */
+  holds?: { has(key: string): boolean; mark(key: string): void };
 }): () => Promise<void> {
+  const holds = opts.holds ?? {
+    has: (key: string) => hasKvValue(PACK_HOLDS_NS, key),
+    mark: (key: string) => setKvValue(PACK_HOLDS_NS, key, { at: Date.now() }),
+  };
   return async () => {
     try {
-      await opts.converge(opts.probes, opts.slug, opts.log);
+      const result = await opts.converge(opts.probes, opts.slug, opts.log);
+      for (const h of result?.held ?? []) {
+        const key = `${h.id}@${h.to}`;
+        if (holds.has(key)) continue;
+        opts.log.info({ ...h }, "pack held: this app's engine is below its floor");
+        holds.mark(key);
+      }
     } finally {
       await opts.afterPull?.(opts.slug);
     }

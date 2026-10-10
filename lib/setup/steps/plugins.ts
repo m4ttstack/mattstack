@@ -390,7 +390,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
 
       // `settled` accumulates across config dirs, so an id can repeat; the
       // dedupe below is what makes that harmless.
-      const outcome = await settlePack(runner, plugin, { teamAuthored, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+      const outcome = await settlePack(runner, plugin, ADMIT_UNFLOORED, { teamAuthored, timeoutMs: PACK_EXEC_TIMEOUT_MS });
 
       // Every trusted enable goes through here, both the fresh install
       // (`installed`) and the pack that turned out to be already present
