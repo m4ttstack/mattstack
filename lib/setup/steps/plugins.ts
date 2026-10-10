@@ -342,10 +342,10 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
         }
       }
 
-      const floor: Floor = plugin === "mattstack@mattstack" ? msFloor : teamAuthored ? (servedById.get(plugin)?.floor ?? null) : null;
+      const floor: Floor = plugin === "mattstack@mattstack" ? msFloor : (servedById.get(plugin)?.floor ?? null);
       const admission = admit(floor, engine);
       if (!admission.ok) {
-        const copy = heldCopy(plugin.slice(0, plugin.lastIndexOf("@")), teamAuthored ? (servedById.get(plugin)?.servedVersion ?? null) : null, admission.floor);
+        const copy = heldCopy(plugin.slice(0, plugin.lastIndexOf("@")), servedById.get(plugin)?.servedVersion ?? null, admission.floor);
         ctx.log("plugins.install", copy);
         held.add(copy);
         continue;

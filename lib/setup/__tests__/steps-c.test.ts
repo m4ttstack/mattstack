@@ -307,6 +307,18 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(detailOf(outcome)).toContain("acme-skills 0.6.0 needs a newer mattstack app (engine 0.31.0 or later)");
       });
 
+      test("a served pack you list in your own plugins is held by its floor too", async () => {
+        setSetting("claude.plugins", ["acme-skills@acme-market"], "user");
+        const { p, execCalls } = harness(packFiles("0.31.0"), [{ id: "acme-skills@acme-market", version: "0.5.0", enabled: true }]);
+        const { ctx } = makeCtx(p, { team, activeTeam: () => "acme-skills", engine: () => "0.30.28" });
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(execCalls.filter((a) => a.includes("acme-skills@acme-market"))).toEqual([]);
+        expect(detailOf(outcome)).toContain("acme-skills 0.6.0 needs a newer mattstack app (engine 0.31.0 or later)");
+      });
+
       test("a held team pack that was never installed installs nothing", async () => {
         const { p, execCalls } = harness(packFiles("0.31.0"), []);
         const { ctx } = makeCtx(p, { team, activeTeam: () => "acme-skills", engine: () => "0.30.28" });
