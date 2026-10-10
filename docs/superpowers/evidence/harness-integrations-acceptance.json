@@ -1,0 +1,3193 @@
+{
+  "schema": 1,
+  "kind": "harness-integrations-acceptance",
+  "matrix": "scripts/acceptance/tested-versions.json",
+  "profiles": {
+    "claude-only": {
+      "profile": "claude-only",
+      "runId": "claude-only-2026-10-10T02:24:04.321Z",
+      "startedAt": "2026-10-10T02:24:04.321Z",
+      "finishedAt": "2026-10-10T02:24:04.321Z",
+      "environment": null,
+      "artifact": {
+        "commit": null,
+        "version": null
+      },
+      "natives": {},
+      "permissionMode": null,
+      "claudeExecutions": null,
+      "scenarios": [
+        {
+          "scenario": "hook-trust-fresh",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "hook-trust-changed",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "hook-script-tampered",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "hook-timeout",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "hook-repeated-stop",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "question-controller-reconnect",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "question-answer-race",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "all-clients-disconnect",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "rt-restart-after-answer",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "native-restart-pending-question",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "native-restart-queued-input",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "consumption-client-id",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "default-cli-adoption",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A26"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "install",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A20",
+            "A21",
+            "A26"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "release-artifact",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A17",
+            "A28"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "skills-mcp",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A16",
+            "A17",
+            "A19",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "skills-maintenance",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A18"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "launch-headless",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A02",
+            "A07"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "launch-herdr",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A02",
+            "A07",
+            "A10"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "chat",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A08",
+            "A09",
+            "A24"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "gates-external-answer",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11",
+            "A12"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "pipeline",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A13",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "ci-lease",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A15"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "shepherd-workers",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A03",
+            "A04",
+            "A05"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "board-actions",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A23"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "gitq-actions",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A25"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "chat-app",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A10",
+            "A24"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "worktrees",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A27"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "state-idle",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "state-working",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "state-question-blocked",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "state-background",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "state-disconnected",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A07"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "state-resumed",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A07",
+            "A08"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "state-confirmed-dead",
+          "harness": "claude",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "update",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A22"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "restore",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A22"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        },
+        {
+          "scenario": "uninstall",
+          "profile": "claude-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A22"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.321Z"
+        }
+      ],
+      "nativeForms": [
+        {
+          "harness": "claude",
+          "feature": "questions-async",
+          "status": "untested"
+        }
+      ]
+    },
+    "codex-only": {
+      "profile": "codex-only",
+      "runId": "codex-only-2026-10-10T02:24:04.322Z",
+      "startedAt": "2026-10-10T02:24:04.322Z",
+      "finishedAt": "2026-10-10T02:24:04.322Z",
+      "environment": null,
+      "artifact": {
+        "commit": null,
+        "version": null
+      },
+      "natives": {},
+      "permissionMode": null,
+      "claudeExecutions": null,
+      "scenarios": [
+        {
+          "scenario": "hook-trust-fresh",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-trust-changed",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-script-tampered",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-timeout",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-repeated-stop",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "question-controller-reconnect",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "question-answer-race",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "all-clients-disconnect",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "rt-restart-after-answer",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "native-restart-pending-question",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "native-restart-queued-input",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "consumption-client-id",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "default-cli-adoption",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A26"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "install",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A20",
+            "A21",
+            "A26"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "release-artifact",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A17",
+            "A28"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "skills-mcp",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A16",
+            "A17",
+            "A19",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "skills-maintenance",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A18"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "launch-headless",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A02",
+            "A07"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "launch-herdr",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A02",
+            "A07",
+            "A10"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "chat",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A08",
+            "A09",
+            "A24"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "gates-external-answer",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11",
+            "A12"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "pipeline",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A13",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "ci-lease",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A15"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "shepherd-workers",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A03",
+            "A04",
+            "A05"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "board-actions",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A23"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "gitq-actions",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A25"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "chat-app",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A10",
+            "A24"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "worktrees",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A27"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-idle",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-working",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-question-blocked",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-background",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-disconnected",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A07"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-resumed",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A07",
+            "A08"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-confirmed-dead",
+          "harness": "codex",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "update",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A22"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "restore",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A22"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "uninstall",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A22"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "codex-only-no-claude",
+          "profile": "codex-only",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A20",
+            "A28"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        }
+      ],
+      "nativeForms": [
+        {
+          "harness": "codex",
+          "feature": "questions-async",
+          "status": "untested"
+        }
+      ]
+    },
+    "mixed": {
+      "profile": "mixed",
+      "runId": "mixed-2026-10-10T02:24:04.322Z",
+      "startedAt": "2026-10-10T02:24:04.322Z",
+      "finishedAt": "2026-10-10T02:24:04.322Z",
+      "environment": null,
+      "artifact": {
+        "commit": null,
+        "version": null
+      },
+      "natives": {},
+      "permissionMode": null,
+      "claudeExecutions": null,
+      "scenarios": [
+        {
+          "scenario": "hook-trust-fresh",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-trust-fresh",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-trust-changed",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-trust-changed",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-script-tampered",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-script-tampered",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-timeout",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-timeout",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A12",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-repeated-stop",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "hook-repeated-stop",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "question-controller-reconnect",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "question-controller-reconnect",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "question-answer-race",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "question-answer-race",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "all-clients-disconnect",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "all-clients-disconnect",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "rt-restart-after-answer",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "rt-restart-after-answer",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "native-restart-pending-question",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "native-restart-pending-question",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "native-restart-queued-input",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "native-restart-queued-input",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "consumption-client-id",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "consumption-client-id",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A09"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "default-cli-adoption",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A26"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "default-cli-adoption",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A26"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "install",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A20",
+            "A21",
+            "A26"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "release-artifact",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A17",
+            "A28"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "skills-mcp",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A16",
+            "A17",
+            "A19",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "skills-mcp",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A16",
+            "A17",
+            "A19",
+            "A21"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "skills-maintenance",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A18"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "skills-maintenance",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A18"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "launch-headless",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A02",
+            "A07"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "launch-headless",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A02",
+            "A07"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "launch-herdr",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A02",
+            "A07",
+            "A10"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "launch-herdr",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A01",
+            "A02",
+            "A07",
+            "A10"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "chat",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A08",
+            "A09",
+            "A24"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "chat",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A08",
+            "A09",
+            "A24"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "gates-external-answer",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11",
+            "A12"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "gates-external-answer",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A11",
+            "A12"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "pipeline",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A13",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "pipeline",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A13",
+            "A14"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "ci-lease",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A15"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "ci-lease",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A15"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "shepherd-workers",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A03",
+            "A04",
+            "A05"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "shepherd-workers",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A03",
+            "A04",
+            "A05"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "board-actions",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A23"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "board-actions",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A23"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "gitq-actions",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A25"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "gitq-actions",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A25"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "chat-app",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A10",
+            "A24"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "chat-app",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A10",
+            "A24"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "worktrees",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A27"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "worktrees",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A27"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-idle",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-idle",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-working",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-working",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-question-blocked",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-question-blocked",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06",
+            "A11"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-background",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-background",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A06"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-disconnected",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A07"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-disconnected",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05",
+            "A07"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-resumed",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A07",
+            "A08"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-resumed",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A07",
+            "A08"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-confirmed-dead",
+          "harness": "claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "state-confirmed-dead",
+          "harness": "codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A05"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "update",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A22"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "restore",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A22"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "uninstall",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A22"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "mixed-shepherd-claude",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A03",
+            "A04",
+            "A09"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        },
+        {
+          "scenario": "mixed-shepherd-codex",
+          "profile": "mixed",
+          "outcome": "blocked",
+          "reason": "not run yet: S9b",
+          "auditIds": [
+            "A03",
+            "A04",
+            "A09"
+          ],
+          "artifact": {
+            "commit": null,
+            "version": null
+          },
+          "natives": {},
+          "permissionMode": null,
+          "hook": null,
+          "launch": null,
+          "evidence": [],
+          "observedAt": "2026-10-10T02:24:04.322Z"
+        }
+      ],
+      "nativeForms": [
+        {
+          "harness": "claude",
+          "feature": "questions-async",
+          "status": "untested"
+        },
+        {
+          "harness": "codex",
+          "feature": "questions-async",
+          "status": "untested"
+        }
+      ]
+    }
+  }
+}

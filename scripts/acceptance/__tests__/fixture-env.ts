@@ -4,7 +4,7 @@
  * the probes from a table instead of running anything.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { EnvironmentDescriptor, Exec } from "../environment.ts";
@@ -93,6 +93,37 @@ export function fixtureEnv(opts: Partial<EnvironmentDescriptor> & { versions?: P
   };
 
   return { root, descriptorPath, descriptor, calls, exec, capture, captureAllPassing };
+}
+
+/**
+ * Makes the environment answer real probes: an Info.plist, an `rt` that
+ * prints its version, and `claude`/`codex` stubs on the descriptor's PATH.
+ * In a Codex-only environment `claude` is the tripwire: it logs and fails.
+ */
+export function installStubs(e: FixtureEnv, profile: Profile): void {
+  const bin = join(e.root, "bin");
+  mkdirSync(bin, { recursive: true });
+  const contents = join(e.descriptor.app, "Contents");
+  writeFileSync(join(contents, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleShortVersionString</key><string>${VERSION}</string>
+<key>MSSourceCommit</key><string>${COMMIT}</string>
+</dict></plist>
+`);
+  const script = (path: string, body: string) => {
+    writeFileSync(path, `#!/bin/sh\n${body}\n`);
+    chmodSync(path, 0o755);
+  };
+  script(e.descriptor.rt, `echo "rt ${VERSION}"`);
+  script(join(bin, "codex"), `echo "codex-cli ${NATIVE_VERSIONS.codex}"`);
+  const tripwire = e.descriptor.claudeTripwireLog!;
+  mkdirSync(join(tripwire, ".."), { recursive: true });
+  script(join(bin, "claude"), profile === "codex-only"
+    ? `echo "$(date -u +%FT%TZ) claude $*" >> '${tripwire}'\nexit 127`
+    : `echo "${NATIVE_VERSIONS.claude} (Claude Code)"`);
+  e.descriptor.path = `${bin}:/usr/bin:/bin`;
+  writeFileSync(e.descriptorPath, JSON.stringify(e.descriptor));
 }
 
 function bundle(app: string): void {
