@@ -10,6 +10,7 @@ public enum DispatchedAction: Equatable, Sendable {
     case collectFields([ActionField], integration: String, alternatives: [ActionAlternative], create: ActionLink?)
     case chooseOption(options: [ChooseOption], other: ChooseOther?)
     case chooseHarnesses
+    case reviewCodexHooks
     case none
 }
 
@@ -65,6 +66,8 @@ public enum RowActionDispatcher {
             return .chooseOption(options: action.options ?? [], other: action.other)
         case .chooseHarnesses:
             return HarnessChoiceDraft(action: action) == nil ? .none : .chooseHarnesses
+        case .reviewCodexHooks:
+            return CodexHookApproval(action: action) == nil ? .none : .reviewCodexHooks
         case .unknown: return .none
         }
     }

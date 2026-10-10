@@ -184,7 +184,7 @@ async function codexPolicyRun(ctx: ApplyContext, deps: CodexPolicyStepDeps): Pro
     return { state: "needs-you", detail: `Codex's policy is not set up: ${planned.error.message}` };
   }
   if (planned.data.stage === "installed") return { state: "done", detail: "Codex's policy is set up for every repo" };
-  return { state: "needs-you", detail: `Codex's policy hooks wait on your review. Review them in a terminal: ${REVIEW_COMMAND}` };
+  return { state: "needs-you", detail: `Codex's policy hooks wait on your review. Review them in the app's setup checklist, or in a terminal: ${REVIEW_COMMAND}` };
 }
 
 /**
@@ -219,7 +219,7 @@ async function codexPolicyUpdate(ctx: ApplyContext, deps: CodexPolicyStepDeps): 
   }
   for (const path of await (deps.collect ?? collectCodexPolicyArtifacts)(deps.overrides)) ctx.log("codex.policy", `removed the old hook program ${path}`);
 
-  const review = `Review them in a terminal: ${REVIEW_COMMAND}`;
+  const review = `Review them in the app's setup checklist, or in a terminal: ${REVIEW_COMMAND}`;
   if (rewrote && !(planned.ok && planned.data.stage === "installed")) {
     return { state: "needs-you", detail: `This update changed rt's Codex policy hooks, so they wait on your review again. ${review}` };
   }
@@ -234,7 +234,7 @@ async function codexPolicyUpdate(ctx: ApplyContext, deps: CodexPolicyStepDeps): 
   return { state: "needs-you", detail: `Codex's policy hooks still wait on your review. ${review}` };
 }
 
-/** Never approves a review: trust is written only by `rt setup codex-policy` at a terminal. */
+/** Never approves a review: trust is written only by `rt setup codex-policy`, after macOS confirms the owner. */
 export function createCodexPolicyStep(deps: CodexPolicyStepDeps = {}): StepDef {
   return {
     id: "codex.policy",

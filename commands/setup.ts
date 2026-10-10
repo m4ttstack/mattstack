@@ -34,7 +34,7 @@ import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } fr
 import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
-import { envelope, knownStepIds, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
+import { envelope, knownStepIds, WAIVABLE_ROW_IDS, type CodexHookReview, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
 import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/setup/emit.ts";
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
 import type { RenderStatus } from "../lib/ui/protocol.ts";
@@ -1618,13 +1618,14 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
 // ─── rt setup codex-policy ───────────────────────────────────────────────────
 
 type PolicyInstall = typeof import("../lib/agent-integrations/codex/policy-install.ts");
-type PolicyPlan = import("../lib/agent-integrations/codex/policy-install.ts").PolicyInstallPlan;
 
 export interface CodexPolicyDeps {
   isTTY: () => boolean;
   confirm: (message: string) => Promise<boolean>;
   show: (...blocks: Block[]) => void;
   fail: (f: out.FailureInput) => void;
+  json: (value: unknown) => void;
+  now: () => Date;
   exit: (code: number) => never;
   /** The integrations switch is on and Codex is one of the enabled harnesses. */
   codexEnabled: () => boolean;
@@ -1641,6 +1642,8 @@ export function realCodexPolicyDeps(): CodexPolicyDeps {
     confirm: async (message) => (await import("../lib/rt-render.ts")).confirm({ message }),
     show: (...blocks) => out.print(...blocks),
     fail: (f) => out.fail(f),
+    json: (v) => out.json(v),
+    now: () => new Date(),
     exit: process.exit,
     codexEnabled: () => harnessSelected(readIntegrationSelection(), "codex"),
     profile: () => canonicalCodexProfile(undefined, process.env),
@@ -1650,8 +1653,8 @@ export function realCodexPolicyDeps(): CodexPolicyDeps {
   };
 }
 
-function reviewBlocks(plan: PolicyPlan): Block[] {
-  const review = plan.reviews[0]!;
+/** The terminal's review; the menu-bar app's sheet shows the same payload (`review-codex-hooks`). */
+export function codexPolicyReviewBlocks(review: CodexHookReview): Block[] {
   return [
     out.section(
       "Codex policy hooks",
@@ -1666,13 +1669,50 @@ function reviewBlocks(plan: PolicyPlan): Block[] {
   ];
 }
 
+const STALE_REVIEW = "These hooks changed after you looked at them, so rt trusted nothing. Look at them again before you approve.";
+
 /**
- * The only way rt trusts its Codex policy hooks: a person at a terminal sees
- * the exact hooks file, program, commands and hashes and approves them. It
- * has no --json and no flag that approves, so no agent tool can reach it.
+ * `--approve <id>`: the menu-bar app's review sheet. It approves only the
+ * review rt plans right now, never writes the untrusted definitions, and the
+ * trust write itself waits on macOS's owner check (applyCodexPolicyInstall),
+ * so an id alone approves nothing.
+ */
+async function approveCodexPolicy(args: string[], deps: CodexPolicyDeps): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  const sink: UserErrorSink = { json: deps.json, exit: deps.exit, now: deps.now };
+  const refuse = (code: string, message: string, human: Partial<out.FailureInput> = {}): never =>
+    exitWithUserError(new UserActionableError(code, message), json, sink, human);
+  const at = args.indexOf("--approve");
+  const id = args[at + 1];
+  if (id === undefined || id.startsWith("--")) {
+    return refuse("usage", "Name the review to approve.", { title: "Which review should rt approve?", next: out.cmd("rt setup codex-policy") });
+  }
+  if (!deps.codexEnabled()) return refuse("codex-off", "Codex is not turned on for rt, so there are no hooks to approve.");
+  const planned = await deps.plan({ profile: deps.profile() });
+  if (!planned.ok) return refuse(planned.error.code, planned.error.message);
+  const plan = planned.data;
+  if (plan.stage === "installed") {
+    if (json) deps.json(envelope({ ok: true, approved: null, hooksPath: plan.hooksPath }, deps.now()));
+    else deps.show(out.line("done", "Codex's policy is set up", plan.hooksPath));
+    return;
+  }
+  if (plan.stage !== "hooks" || plan.reviews[0]?.id !== id) return refuse("stale", STALE_REVIEW);
+  const applied = await deps.apply(plan, [id]);
+  if (!applied.ok) return refuse(applied.error.code, applied.error.message);
+  if (json) deps.json(envelope({ ok: true, approved: id, hooksPath: plan.hooksPath }, deps.now()));
+  else deps.show(out.line("done", "Codex's policy is set up", plan.hooksPath));
+}
+
+/**
+ * The only ways rt trusts its Codex policy hooks: a person at a terminal
+ * sees the exact hooks file, program, commands and hashes and approves
+ * them, or `--approve` from the menu-bar app's sheet. Both end in macOS's
+ * Touch ID or password check, which no caller can answer for the person.
  * Nothing it writes is inside a repository.
  */
-export async function setupCodexPolicy(_args: string[], _ctx: CommandContext = {}, deps: CodexPolicyDeps = realCodexPolicyDeps()): Promise<void> {
+export async function setupCodexPolicy(args: string[], _ctx: CommandContext = {}, deps: CodexPolicyDeps = realCodexPolicyDeps()): Promise<void> {
+  if (args.includes("--approve")) return approveCodexPolicy(args, deps);
   if (!deps.isTTY() || process.env.RT_BATCH) {
     deps.fail({ title: "Reviewing Codex's policy needs you at a terminal", why: "The review asks you to approve exact hooks and hashes.", next: out.cmd("rt setup codex-policy") });
     return deps.exit(2);
@@ -1704,11 +1744,12 @@ export async function setupCodexPolicy(_args: string[], _ctx: CommandContext = {
       deps.show(out.line("done", "Added rt's hooks, which Codex will not run until you trust them", plan.hooksPath));
       continue;
     }
-    deps.show(...reviewBlocks(plan));
+    deps.show(...codexPolicyReviewBlocks(plan.reviews[0]!));
     if (!(await deps.confirm("Trust these hooks in Codex?"))) {
       deps.show(out.line("skipped", "Left untrusted", "Managed Codex work stays blocked until you approve these hooks"));
       return deps.exit(1);
     }
+    deps.show(out.line("needs-you", "Confirm it is you", "macOS asks for Touch ID or your password before rt trusts anything"));
     const applied = await deps.apply(plan, [plan.reviews[0]!.id]);
     if (!applied.ok) {
       deps.show(out.line(applied.error.code === "refused" ? "refused" : "failed", "rt trusted nothing", applied.error.message));

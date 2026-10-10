@@ -147,6 +147,8 @@ function makeWorld(): World {
     runningCodexHomes: async () => w.running,
     now: () => new Date("2026-10-09T12:00:00Z"),
     randomId: () => "mac-1",
+    // The person at macOS's owner check says yes; owner-auth.test.ts covers every other answer.
+    confirmOwner: async () => ({ ok: true }),
   };
   w.p = { ...createRealProbes(), home, env: { HOME: home, CODEX_HOME: codexHome, PATH: "/usr/bin:/bin" }, exec: async (argv) => exec(argv) };
   return w;
@@ -294,7 +296,7 @@ describe("Codex ownership across update, restore and uninstall", () => {
     expect((await adapter().reconcile("restore", ctxFor()))[1]!.state).toBe("needs-you");
     const before = snapshotFiles();
     const outcomes = await adapter().reconcile("update", ctxFor());
-    expect(outcomes[1]).toEqual({ state: "needs-you", detail: "Codex's policy hooks still wait on your review. Review them in a terminal: rt setup codex-policy" });
+    expect(outcomes[1]).toEqual({ state: "needs-you", detail: "Codex's policy hooks still wait on your review. Review them in the app's setup checklist, or in a terminal: rt setup codex-policy" });
     expect(snapshotFiles()).toEqual(before);
   });
 

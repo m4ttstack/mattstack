@@ -132,6 +132,11 @@ targets:
     platform: macOS
     sources: [Sources-deck-shim-logic]
 
+  OwnerAuthLogic:
+    type: library.static
+    platform: macOS
+    sources: [Sources-owner-auth-logic]
+
   MattstackCoreChecks:
     type: framework
     platform: macOS
@@ -139,6 +144,8 @@ targets:
     dependencies:
       - target: MattstackCore
       - target: DeckShimLogic
+        link: true
+      - target: OwnerAuthLogic
         link: true
     settings:
       base:

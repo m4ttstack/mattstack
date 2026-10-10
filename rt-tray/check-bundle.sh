@@ -395,7 +395,7 @@ check_helpers() { # app
     # mattstack-proxy-install).
     # The row loop above only proves declared things exist; a helper the
     # lock doesn't pin would otherwise ship unverified and unversioned.
-    local allowed=" rt-ui skills mattstack-proxy-install gate-fork.sh deck-pinned " seg entry stowaways=0
+    local allowed=" rt-ui rt-owner-auth skills mattstack-proxy-install gate-fork.sh deck-pinned " seg entry stowaways=0
     while IFS= read -r row; do
         [ -n "$row" ] || continue
         split_tsv "$row"
@@ -469,6 +469,17 @@ check_helpers() { # app
         pass "$exe ships Helpers/gate-fork.sh (executable)"
     else
         fail "$exe missing Helpers/gate-fork.sh or it is not executable"
+    fi
+    # First-party helper, both flavors: rt refuses a Codex hook approval without it.
+    # Only its usage path runs here; a real reason would raise the Touch ID sheet.
+    local oah="$app/Contents/Helpers/rt-owner-auth" oah_code=0
+    if [ -x "$oah" ]; then
+        pass "$exe ships Helpers/rt-owner-auth"
+        assert_eq "$exe rt-owner-auth codesign identifier" "Identifier=com.mattstack.helper.rt-owner-auth" "$(codesign -dv "$oah" 2>&1 | grep '^Identifier=' || true)"
+        "$oah" >/dev/null 2>&1 || oah_code=$?
+        assert_eq "$exe rt-owner-auth refuses no reason with its usage exit" "64" "$oah_code"
+    else
+        fail "$exe missing Helpers/rt-owner-auth or it is not executable"
     fi
     # First-party helper (built from ui/, not a deps.lock row). The dev bundle
     # runs from source and resolves ui/dist/rt-ui directly, so it ships none.

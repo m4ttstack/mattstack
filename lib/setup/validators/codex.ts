@@ -8,7 +8,9 @@ import { join } from "path";
 import { codexHomeFor, parseCodexPluginList } from "../../agent-integrations/codex/skills.ts";
 import { codexConfigFile, codexMcpEntry, readCodexMcpState, type CodexMcpEntry } from "../../agent-integrations/codex/mcp-config.ts";
 import { resolveTool } from "../../deps/resolve.ts";
-import { applyStepAction, row, type Action, type Row } from "../contract.ts";
+import type { Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { PolicyInstallPlan, PolicyReview } from "../../agent-integrations/codex/policy-install.ts";
+import { applyStepAction, row, type Action, type CodexHookReview, type Row } from "../contract.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import type { PluginEntry } from "../../skills/writing-style-sources.ts";
 import { readSetupState } from "../state.ts";
@@ -99,6 +101,74 @@ export function codexMcpRow(p: Probes): Row {
     return row({ ...base, status: "needs-you", detail: "Codex has its own mattstack server, so rt left it alone", action: removeOwnEntry(path) });
   }
   return row({ ...base, status: "missing", detail: "Not added to Codex yet", action: add });
+}
+
+export type CodexPolicyPlanner = () => Promise<Outcome<PolicyInstallPlan>>;
+
+/** The review as a person sees it, at a terminal or in the menu-bar app's sheet. */
+export function codexHookReviewPayload(review: PolicyReview): CodexHookReview {
+  return {
+    id: review.id, codexHome: review.codexHome, hooksPath: review.hooksPath, configPath: review.configPath,
+    executable: review.executable, digest: review.digest,
+    hooks: review.hooks.map((h) => ({ event: h.event, key: h.key, hash: h.hash, command: h.command })),
+  };
+}
+
+/** The plan for this Mac's Codex profile; it only reads, and never starts Codex to ask it. */
+export function codexPolicyPlanner(p: Probes): CodexPolicyPlanner {
+  return async () => {
+    const [{ planCodexPolicyInstall }, { canonicalCodexProfile }, { bundledToolPath }] = await Promise.all([
+      import("../../agent-integrations/codex/policy-install.ts"),
+      import("../../agent-integrations/codex/profile.ts"),
+      import("../../deps/resolve.ts"),
+    ]);
+    const env = { ...p.env, HOME: p.home };
+    return planCodexPolicyInstall({ profile: canonicalCodexProfile(undefined, env) }, { env, home: p.home, rtSource: () => bundledToolPath(p, "rt") });
+  };
+}
+
+/** rt's Codex policy hooks: added by Install, trusted only after a person approves them. */
+export async function codexPolicyRow(plan: CodexPolicyPlanner): Promise<Row> {
+  const base = {
+    id: "tool.codex-policy",
+    kind: "tool" as const,
+    title: "rt's hooks in Codex",
+    why: "Codex runs these hooks so rt can keep managed Codex work inside rt's rules.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  let planned: Outcome<PolicyInstallPlan>;
+  try {
+    planned = await plan();
+  } catch (err) {
+    return row({ ...base, status: "error", detail: `rt could not check its hooks in Codex: ${err instanceof Error ? err.message : String(err)}` });
+  }
+  if (!planned.ok) return row({ ...base, status: planned.error.code === "refused" ? "error" : "needs-you", detail: planned.error.message });
+  const { stage } = planned.data;
+  if (stage === "installed") return row({ ...base, status: "ready", detail: "Codex runs rt's hooks" });
+  if (stage === "definitions") {
+    return row({
+      ...base,
+      status: "missing",
+      optionalNote: "Installed by Install (codex.policy).",
+      detail: "Not added to Codex yet. Codex runs none of them until you approve them",
+      action: applyStepAction("Add to Codex", "codex.policy"),
+    });
+  }
+  const review = planned.data.reviews[0]!;
+  return row({
+    ...base,
+    status: "needs-you",
+    detail: "rt's hooks are in Codex and wait on your approval",
+    action: {
+      type: "review-codex-hooks",
+      label: "Review…",
+      verb: ["setup", "codex-policy"],
+      subtitle: "Codex runs these hooks in every repo you open with it. Approve them only if this is what you expect.",
+      footnote: "macOS asks for Touch ID or your password. You can also run rt setup codex-policy in a terminal.",
+      review: codexHookReviewPayload(review),
+    },
+  });
 }
 
 /** Codex's installed plugins in the writing-style inventory's shape, or null when they cannot be listed. */

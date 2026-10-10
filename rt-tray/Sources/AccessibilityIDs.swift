@@ -70,6 +70,10 @@ enum AXID {
     static let harnessesError = "setup.harnesses.error"
     static let harnessesCancel = "setup.harnesses.cancel"
     static let harnessesSubmit = "setup.harnesses.submit"
+    static let codexHooksSheet = "setup.codex-hooks"
+    static let codexHooksError = "setup.codex-hooks.error"
+    static let codexHooksCancel = "setup.codex-hooks.cancel"
+    static let codexHooksApprove = "setup.codex-hooks.approve"
 
     // Install
     static func installStep(_ id: String) -> String { "setup.install.step.\(id)" }

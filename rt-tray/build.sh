@@ -120,6 +120,12 @@ if [ "$BUILD_CONFIG" = "debug" ]; then
     exit 0
 fi
 
+# rt-owner-auth: the Touch ID / password check rt runs before it trusts Codex
+# hooks. rt refuses an approval when the bundle lacks it, so both flavors ship it.
+swift build -c release --product rt-owner-auth 2>&1 | sed 's/^/  /'
+OWNER_AUTH_BINARY="$SCRIPT_DIR/.build/release/rt-owner-auth"
+[ -f "$OWNER_AUTH_BINARY" ] || { echo "  ✗ rt-owner-auth not built"; exit 1; }
+
 # ─── Version ─────────────────────────────────────────────────────────────────
 # Resolved here rather than beside the Info.plist writes below because the proxy
 # helper bakes this value into its pins at compile time, and that compile runs
@@ -330,6 +336,14 @@ if [ "$IS_DEV" != true ]; then
         echo "  ✗ rt-ui not built at $RT_UI_SRC ... bun run ui:build (or set RT_UI_BIN)"; exit 1
     fi
 fi
+
+# ─── Embed rt-owner-auth (Contents/Helpers/rt-owner-auth) ─────────────────────
+# rt looks for it only inside the bundle (lib/agent-integrations/codex/owner-auth.ts),
+# never in a source checkout, so the dev flavor carries it too.
+cp "$OWNER_AUTH_BINARY" "$CONTENTS/Helpers/rt-owner-auth"; chmod +x "$CONTENTS/Helpers/rt-owner-auth"
+xattr -cr "$CONTENTS/Helpers/rt-owner-auth" 2>/dev/null || true
+HELPER_ENTITLEMENTS+=("$CONTENTS/Helpers/rt-owner-auth	none")
+echo "  ✓ Embedded rt-owner-auth"
 
 # ─── Embed the gate-fork hook script (Contents/Helpers/gate-fork.sh) ─────────
 # A static checked-in script, not a build product like rt-ui, so it embeds in

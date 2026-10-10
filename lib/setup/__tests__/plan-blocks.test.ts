@@ -132,6 +132,23 @@ describe("planBlocks", () => {
     expect(renderPlain(planBlocks(plan([{ id: "tools", title: "Tools", rows: [harnesses("ready")] }]), "plan"))).not.toContain("next:");
   });
 
+  test("Codex hooks waiting on review name the terminal review", () => {
+    const hooks = row({
+      id: "tool.codex-policy",
+      title: "rt's hooks in Codex",
+      required: false,
+      status: "needs-you",
+      detail: "rt's hooks are in Codex and wait on your approval",
+      action: {
+        type: "review-codex-hooks", label: "Review…", verb: ["setup", "codex-policy"],
+        review: { id: "cp-1", codexHome: "/h/.codex", hooksPath: "/h/.codex/hooks.json", configPath: "/h/.codex/config.toml", executable: "/h/rt", digest: "d", hooks: [] },
+      },
+    });
+    expect(renderPlain(planBlocks(plan([{ id: "tools", title: "Tools", rows: [hooks] }]), "plan"))).toContain(
+      "[needs you] rt's hooks in Codex  rt's hooks are in Codex and wait on your approval\n  next: rt setup codex-policy\n",
+    );
+  });
+
   test("a row that could not be checked draws as a warning, never a failure", () => {
     const p = plan([{ id: "access", title: "Access", rows: [row({ id: "access.forge", kind: "access", title: "Forge", status: "error", detail: "Could not reach the forge" })] }]);
     expect(renderPlain(planBlocks(p, "plan"))).toBe("Access (0 of 1 ready)\n[warning] Forge  Could not reach the forge\n\n[ok] Install can run\n");

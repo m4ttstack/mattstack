@@ -10,9 +10,11 @@ import { createCodexPolicy, type CodexPolicyChecker } from "../../agent-integrat
 import {
   applyCodexPolicyInstall, codexPolicyRecovery, planCodexPolicyInstall, type ListedPolicyHook, type PolicyInstallDeps, type PolicyInstallPlan,
 } from "../../agent-integrations/codex/policy-install.ts";
+import type { OwnerAuthResult } from "../../agent-integrations/codex/owner-auth.ts";
 import { codexPolicyStep, createCodexPolicyStep } from "../../agent-integrations/codex/install.ts";
 import { setupCodexPolicy, type CodexPolicyDeps } from "../../../commands/setup.ts";
 import { TREE } from "../../command-tree-def.ts";
+import { listAgentSafe } from "../../command-tree-resolve.ts";
 import { renderPlain } from "../../ui/out-plain.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { IntegrationSelection } from "../integration-selection.ts";
@@ -42,6 +44,8 @@ type World = {
   /** A symlink to the Codex home, used as the profile when set. */
   profileLink?: string;
   listCalls: string[];
+  /** Every reason rt asked macOS's owner check with, and what the check answers. */
+  owner: { reasons: string[]; answer: OwnerAuthResult };
   deps: Partial<PolicyInstallDeps>;
 };
 
@@ -119,7 +123,7 @@ function makeWorld(): World {
   writeFileSync(rtSource, "Ïúíþ compiled rt build 1", { mode: 0o755 });
   const w: World = {
     root, home, codexHome, config: join(codexHome, "config.toml"), hooksPath: join(codexHome, "hooks.json"), main, tree, untrusted, rtSource,
-    hashSalt: "", hooksOff: new Set(), listCalls: [], deps: {},
+    hashSalt: "", hooksOff: new Set(), listCalls: [], owner: { reasons: [], answer: { ok: true } }, deps: {},
   };
   w.deps = {
     env: { HOME: home, CODEX_HOME: codexHome },
@@ -129,6 +133,10 @@ function makeWorld(): World {
     attachedSessions: () => [],
     now: () => new Date("2026-10-09T12:00:00Z"),
     randomId: () => "mac-1",
+    confirmOwner: async (reason) => {
+      w.owner.reasons.push(reason);
+      return w.owner.answer;
+    },
   };
   return w;
 }
@@ -433,6 +441,40 @@ describe("Codex policy install in the user layer", () => {
     expect(await policy().prepare(launch(world.main))).toMatchObject({ ok: false, error: { code: "not-ready", message: expect.stringContaining("has not trusted") } });
   });
 
+  test("approving asks macOS's owner check first, naming the Codex home and how many hooks", async () => {
+    const definitions = await plan();
+    expect(await applyCodexPolicyInstall(definitions, [], world.deps)).toEqual({ ok: true, data: undefined });
+    expect(world.owner.reasons).toEqual([]);
+    const hooks = await plan();
+    expect(await approve(hooks)).toEqual({ ok: true, data: undefined });
+    expect(world.owner.reasons).toEqual([`trust 2 rt hooks in Codex (${world.codexHome})`]);
+  });
+
+  for (const answer of [
+    { ok: false, outcome: "cancelled", message: "You cancelled the Touch ID check, so rt trusted nothing." },
+    { ok: false, outcome: "unavailable", message: "rt cannot ask macOS to confirm it is you. Nothing was trusted." },
+    { ok: false, outcome: "failed", message: "macOS did not confirm it was you, so rt trusted nothing." },
+  ] as const) {
+    test(`an owner check that ends ${answer.outcome} trusts nothing`, async () => {
+      expect(await applyCodexPolicyInstall(await plan(), [], world.deps)).toEqual({ ok: true, data: undefined });
+      const hooks = await plan();
+      const configBefore = existsSync(world.config) ? readFileSync(world.config, "utf8") : null;
+      world.owner.answer = answer;
+      expect(await approve(hooks)).toEqual({ ok: false, error: { code: "refused", message: answer.message } });
+      expect(existsSync(world.config) ? readFileSync(world.config, "utf8") : null).toBe(configBefore);
+      expect(stateOf().codexPolicy?.trust).toEqual({});
+      expect((await plan()).stage).toBe("hooks");
+    });
+  }
+
+  test("a stale or missing review id refuses before macOS is asked", async () => {
+    expect(await applyCodexPolicyInstall(await plan(), [], world.deps)).toEqual({ ok: true, data: undefined });
+    const hooks = await plan();
+    expect(await applyCodexPolicyInstall(hooks, ["cp-0000"], world.deps)).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect(await applyCodexPolicyInstall(hooks, [], world.deps)).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect(world.owner.reasons).toEqual([]);
+  });
+
   test("trust does not hot-reload an old worker", async () => {
     await install();
     const first = await policy().prepare(launch(world.tree));
@@ -544,11 +586,12 @@ describe("codex.policy step", () => {
 });
 
 describe("rt setup codex-policy", () => {
-  type Run = { shown: string; failed: string[]; exitCode: number | undefined; confirms: string[] };
+  type Run = { shown: string; failed: string[]; json: unknown[]; exitCode: number | undefined; confirms: string[] };
 
-  async function run(opts: { tty?: boolean; enabled?: boolean; answers?: boolean[] } = {}): Promise<Run> {
+  async function run(opts: { args?: string[]; tty?: boolean; enabled?: boolean; answers?: boolean[] } = {}): Promise<Run> {
     const shown: string[] = [];
     const failed: string[] = [];
+    const json: unknown[] = [];
     const confirms: string[] = [];
     const answers = [...(opts.answers ?? [])];
     let exitCode: number | undefined;
@@ -560,6 +603,8 @@ describe("rt setup codex-policy", () => {
       },
       show: (...blocks) => shown.push(renderPlain(blocks)),
       fail: (f) => failed.push(f.title),
+      json: (v) => json.push(JSON.parse(JSON.stringify(v))),
+      now: () => new Date("2026-10-09T12:00:00Z"),
       exit: ((code: number) => {
         exitCode = code;
         throw new Error(`exit ${code}`);
@@ -571,11 +616,19 @@ describe("rt setup codex-policy", () => {
       recovery: (profile) => codexPolicyRecovery(profile, world.deps),
     };
     try {
-      await setupCodexPolicy([], {}, deps);
+      await setupCodexPolicy(opts.args ?? [], {}, deps);
     } catch (err) {
       if (!(err instanceof Error) || !err.message.startsWith("exit ")) throw err;
     }
-    return { shown: shown.join("\n"), failed, exitCode, confirms };
+    return { shown: shown.join("\n"), failed, json, exitCode, confirms };
+  }
+
+  /** rt's untrusted definitions, as Install writes them, and the review they wait on. */
+  async function awaitingReview(): Promise<PolicyInstallPlan> {
+    expect(await applyCodexPolicyInstall(await plan(), [], world.deps)).toEqual({ ok: true, data: undefined });
+    const hooks = await plan();
+    expect(hooks.stage).toBe("hooks");
+    return hooks;
   }
 
   test("needs a person at a terminal and writes nothing without one", async () => {
@@ -593,11 +646,12 @@ describe("rt setup codex-policy", () => {
     expect(existsSync(world.hooksPath)).toBe(false);
   });
 
-  test("one confirm, showing the exact Codex home, program, commands and hashes", async () => {
+  test("one confirm, then macOS's owner check, showing the exact Codex home, program, commands and hashes", async () => {
     const before = repoFootprint();
     const result = await run({ answers: [true] });
     expect(result.exitCode).toBeUndefined();
     expect(result.confirms).toEqual(["Trust these hooks in Codex?"]);
+    expect(world.owner.reasons).toEqual([`trust 2 rt hooks in Codex (${world.codexHome})`]);
     expect(result.shown).toContain(world.codexHome);
     expect(result.shown).toContain(world.hooksPath);
     expect(result.shown).toContain("agent policy-hook --installation");
@@ -608,19 +662,108 @@ describe("rt setup codex-policy", () => {
     expect(repoFootprint()).toBe(before);
   });
 
-  test("a declined review trusts nothing", async () => {
+  test("a declined review trusts nothing and never asks macOS", async () => {
     const result = await run({ answers: [false] });
     expect(result.exitCode).toBe(1);
     expect(result.shown).toContain("Managed Codex work stays blocked");
+    expect(world.owner.reasons).toEqual([]);
     expect(readConfig(world).hooks).toBeUndefined();
     expect(await policy().prepare(launch(world.main))).toMatchObject({ ok: false, error: { code: "not-ready" } });
   });
 
-  test("is hidden from agents: no --json, not agent-safe, terminal only", () => {
+  test("at a terminal, a yes without the owner check trusts nothing", async () => {
+    world.owner.answer = { ok: false, outcome: "cancelled", message: "You cancelled the Touch ID check, so rt trusted nothing." };
+    const result = await run({ answers: [true] });
+    expect(result.exitCode).toBe(1);
+    expect(result.shown).toContain("You cancelled the Touch ID check, so rt trusted nothing.");
+    expect(readConfig(world).hooks).toBeUndefined();
+    expect((await plan()).stage).toBe("hooks");
+  });
+
+  describe("--approve, the menu-bar app's path", () => {
+    test("trusts exactly rt's reviewed hooks after the owner check, with no terminal", async () => {
+      const hooks = await awaitingReview();
+      const id = hooks.reviews[0]!.id;
+      const result = await run({ args: ["--approve", id, "--json"], tty: false });
+      expect(result.exitCode).toBeUndefined();
+      expect(result.confirms).toEqual([]);
+      expect(world.owner.reasons).toEqual([`trust 2 rt hooks in Codex (${world.codexHome})`]);
+      expect(result.json).toEqual([{ contract: 1, at: "2026-10-09T12:00:00.000Z", ok: true, approved: id, hooksPath: world.hooksPath }]);
+      const trusted = readConfig(world).hooks.state as Record<string, { trusted_hash: string }>;
+      expect(Object.fromEntries(Object.entries(trusted).map(([k, v]) => [k, v.trusted_hash]))).toEqual(
+        Object.fromEntries(hooks.reviews[0]!.hooks.map((h) => [h.key, h.hash])),
+      );
+      expect((await plan()).stage).toBe("installed");
+    });
+
+    test("a review id that is no longer rt's plan refuses, asks nothing and writes nothing", async () => {
+      const hooks = await awaitingReview();
+      const old = hooks.reviews[0]!.id;
+      world.hashSalt = "codex changed how it hashes";
+      const configBefore = existsSync(world.config) ? readFileSync(world.config, "utf8") : null;
+      const result = await run({ args: ["--approve", old, "--json"], tty: false });
+      expect(result.exitCode).toBe(2);
+      expect(result.json).toEqual([{
+        contract: 1, at: "2026-10-09T12:00:00.000Z",
+        error: { code: "stale", message: "These hooks changed after you looked at them, so rt trusted nothing. Look at them again before you approve." },
+      }]);
+      expect(world.owner.reasons).toEqual([]);
+      expect(existsSync(world.config) ? readFileSync(world.config, "utf8") : null).toBe(configBefore);
+    });
+
+    test("a made-up id is the same refusal", async () => {
+      await awaitingReview();
+      const result = await run({ args: ["--approve", "cp-made-up", "--json"], tty: false });
+      expect(result.exitCode).toBe(2);
+      expect(result.json[0]).toMatchObject({ error: { code: "stale" } });
+      expect(world.owner.reasons).toEqual([]);
+    });
+
+    test("before rt's hooks are added there is nothing to approve", async () => {
+      const result = await run({ args: ["--approve", "cp-anything", "--json"], tty: false });
+      expect(result.exitCode).toBe(2);
+      expect(result.json[0]).toMatchObject({ error: { code: "stale" } });
+      expect(existsSync(world.hooksPath)).toBe(false);
+      expect(world.owner.reasons).toEqual([]);
+    });
+
+    test("an owner check that does not succeed trusts nothing and says why", async () => {
+      const hooks = await awaitingReview();
+      world.owner.answer = { ok: false, outcome: "unavailable", message: "rt cannot ask macOS to confirm it is you. Nothing was trusted." };
+      const result = await run({ args: ["--approve", hooks.reviews[0]!.id, "--json"], tty: false });
+      expect(result.exitCode).toBe(2);
+      expect(result.json[0]).toMatchObject({ error: { code: "refused", message: "rt cannot ask macOS to confirm it is you. Nothing was trusted." } });
+      expect(readConfig(world).hooks).toBeUndefined();
+    });
+
+    test("needs an id, and Codex turned on", async () => {
+      const missing = await run({ args: ["--approve", "--json"], tty: false });
+      expect(missing.exitCode).toBe(2);
+      expect(missing.json[0]).toMatchObject({ error: { code: "usage" } });
+      const off = await run({ args: ["--approve", "cp-x", "--json"], tty: false, enabled: false });
+      expect(off.exitCode).toBe(2);
+      expect(off.json[0]).toMatchObject({ error: { code: "codex-off" } });
+      expect(world.owner.reasons).toEqual([]);
+    });
+
+    test("an already trusted install reads as approved without asking again", async () => {
+      await install();
+      world.owner.reasons = [];
+      const result = await run({ args: ["--approve", "cp-anything", "--json"], tty: false });
+      expect(result.exitCode).toBeUndefined();
+      expect(result.json[0]).toMatchObject({ ok: true, approved: null });
+      expect(world.owner.reasons).toEqual([]);
+    });
+  });
+
+  test("is hidden and never reachable from an agent tool: not agent-safe, terminal only unless --approve", () => {
     const node = TREE.setup!.subcommands!["codex-policy"]!;
     expect(node.agentSafe).toBeUndefined();
     expect(node.hidden).toBe(true);
-    expect(node.requiresTTY).toBe(true);
-    expect(node.args?.some((a) => a.flag === "--json")).toBe(false);
+    expect(typeof node.requiresTTY).toBe("function");
+    const needsTTY = node.requiresTTY as (args: string[]) => boolean;
+    expect(needsTTY([])).toBe(true);
+    expect(needsTTY(["--approve", "cp-x", "--json"])).toBe(false);
+    expect(listAgentSafe(TREE).some((e) => e.path.join(" ") === "setup codex-policy")).toBe(false);
   });
 });

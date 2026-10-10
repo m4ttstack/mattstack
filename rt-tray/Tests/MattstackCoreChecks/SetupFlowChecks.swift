@@ -72,7 +72,7 @@ let setupFlowChecks: [Check] = [
 
 /// The plans rt composes for each harness profile, read from the file
 /// `lib/setup/__tests__/integration-plan-fixtures.test.ts` holds to rt's output.
-private func harnessProfilePlans() throws -> [String: Plan] {
+func harnessProfilePlans() throws -> [String: Plan] {
     let repo = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent()
@@ -80,14 +80,14 @@ private func harnessProfilePlans() throws -> [String: Plan] {
     return try JSONDecoder().decode([String: Plan].self, from: Data(contentsOf: url))
 }
 
-@MainActor private func loadedReadiness(_ plan: Plan) async -> ReadinessModel {
+@MainActor func loadedReadiness(_ plan: Plan) async -> ReadinessModel {
     let m = ReadinessModel(plans: FakePlans([plan]), permissions: FakePermissions(), ticker: FakeTicker())
     await m.load()
     return m
 }
 
 private let claudeRowIds: Set<String> = ["tool.claude", "tool.plugins", "tool.linear-mcp"]
-private let codexRowIds: Set<String> = ["tool.codex", "tool.codex-mcp"]
+private let codexRowIds: Set<String> = ["tool.codex", "tool.codex-mcp", "tool.codex-policy"]
 
 let harnessProfileChecks: [Check] = [
     Check("harness profiles: every supported profile decodes, and the app gates exactly what rt's plan gates") { c in
@@ -106,7 +106,7 @@ let harnessProfileChecks: [Check] = [
         let plans = try harnessProfilePlans()
         let expected: [String: (shown: Set<String>, required: Set<String>)] = [
             "claude-only": (["tool.claude", "tool.plugins", "tool.linear-mcp"], ["tool.claude"]),
-            "codex-only": (["tool.codex", "tool.codex-mcp"], ["tool.codex"]),
+            "codex-only": (["tool.codex", "tool.codex-mcp", "tool.codex-policy"], ["tool.codex"]),
             "both": (claudeRowIds.union(codexRowIds), ["tool.claude", "tool.codex"]),
             "none": ([], []),
             "absent": (["tool.claude", "tool.plugins", "tool.linear-mcp"], ["tool.claude"]),

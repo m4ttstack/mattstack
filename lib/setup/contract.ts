@@ -63,7 +63,21 @@ export type Action =
       options: ChooseOption[];
       enabled: string[];
       defaultHarness: string | null;
-    };
+    }
+  // The app shows `review` as it is, then runs verb + ["--approve", review.id, "--json"]. rt re-plans
+  // and refuses an id that is no longer current, and macOS's own owner check gates the trust write.
+  | { type: "review-codex-hooks"; label: string; verb: string[]; subtitle?: string; footnote?: string; review: CodexHookReview };
+
+/** Everything `rt setup codex-policy` shows at a terminal before its approval, as the app's sheet shows it. */
+export type CodexHookReview = {
+  id: string;
+  codexHome: string;
+  hooksPath: string;
+  configPath: string;
+  executable: string;
+  digest: string;
+  hooks: { event: string; key: string; hash: string; command: string }[];
+};
 
 export interface Row {
   id: string;

@@ -111,7 +111,8 @@ public enum DoneActions {
         case .run: return .recheck
         case .choose: return .choose
         case .chooseHarnesses: return .chooseHarnesses
-        case .openSettings, .requestPermission, .connect, .form, .oauth, .install, .ownerOnce, .linkBundled, .chooseFolder, .unknown:
+        // A Codex hook approval is reviewed on the checklist, where its sheet lives.
+        case .openSettings, .requestPermission, .connect, .form, .oauth, .install, .ownerOnce, .linkBundled, .chooseFolder, .reviewCodexHooks, .unknown:
             return nil
         }
     }

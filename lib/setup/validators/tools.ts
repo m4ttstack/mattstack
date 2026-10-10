@@ -38,7 +38,7 @@ import { codexUserSkillsDir } from "../../agent-integrations/codex/skills.ts";
 import { CHOOSE_AGAIN, configuredHarness, integrationPreferenceProblems } from "../../agent-integrations/preferences.ts";
 import { parsePluginEntries, type PluginEntry } from "../../skills/writing-style-sources.ts";
 import { harnessSelected, herdrHosts, readIntegrationSelection, type IntegrationSelection } from "../integration-selection.ts";
-import { codexHomeOf, codexMcpRow, codexPluginEntries, codexPluginListing, codexToolRow } from "./codex.ts";
+import { codexHomeOf, codexMcpRow, codexPluginEntries, codexPluginListing, codexPolicyPlanner, codexPolicyRow, codexToolRow, type CodexPolicyPlanner } from "./codex.ts";
 
 const HERDR_FLOOR = "0.7.5";
 /** Every exec in this module is bounded: a hung team-declared `--version`, or a wedged herdr/claude subprocess, must surface as "error" (124), never hang `rt setup plan` forever. This is the bound for a quick `--version`/status probe; `fast-browser doctor` is slow by design and uses DOCTOR_TIMEOUT_MS instead. */
@@ -785,7 +785,7 @@ export async function toolRows(
   // Optional, not required: the existing test call sites pass only
   // { hasBrew, secrets }, and tests are inside the root tsconfig, so a required
   // field turns `bunx tsc --noEmit` red while `bun test` stays green.
-  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null; integrations?: IntegrationSelection },
+  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null; integrations?: IntegrationSelection; codexPolicy?: CodexPolicyPlanner },
   seams: ToolsSeams = REAL_SEAMS,
 ): Promise<Row[]> {
   const selection = opts.integrations ?? readIntegrationSelection();
@@ -836,7 +836,7 @@ export async function toolRows(
   }
 
   if (claudeOn) rows.push(await linearMcpRow(p, opts.secrets));
-  if (codexOn) rows.push(codexMcpRow(p));
+  if (codexOn) rows.push(codexMcpRow(p), await codexPolicyRow(opts.codexPolicy ?? codexPolicyPlanner(p)));
   if (selection.switchOn) rows.push(integrationsRow(selection));
 
   return rows;

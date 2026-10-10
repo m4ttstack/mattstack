@@ -2719,8 +2719,12 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/setup.ts",
         fn: "setupCodexPolicy",
         hidden: true,
-        requiresTTY: true,
-        args: [],
+        // --approve is the menu-bar app's path; macOS's owner check, not a terminal, is what it waits on.
+        requiresTTY: (args) => !args.includes("--approve"),
+        args: [
+          { name: "Approve", flag: "--approve", type: "text", optional: true, placeholder: "cp-…", hint: "The review to approve, as the app shows it; macOS still asks for Touch ID or your password" },
+          SETUP_JSON_ARG,
+        ],
       },
       harnesses: {
         description: "Choose which agent apps rt turns on, and which one it starts by default",

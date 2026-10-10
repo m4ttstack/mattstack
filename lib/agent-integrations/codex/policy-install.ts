@@ -28,6 +28,7 @@ import {
   CODEX_POLICY_EVENTS, CODEX_POLICY_SOURCE, codexPolicyManifest, codexUserHooksPath, parseCodexPolicyHookCommand, validInstallationId,
   type CodexHookHandler, type CodexPolicyEvent,
 } from "./hook-manifest.ts";
+import { confirmOwner, type OwnerAuthResult } from "./owner-auth.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { isRecord } from "./protocol.ts";
 import { homeInUse, runningCodexHomes } from "./running.ts";
@@ -52,6 +53,8 @@ export type PolicyInstallDeps = {
   runningCodexHomes: () => Promise<string[] | null>;
   now: () => Date;
   randomId: () => string;
+  /** macOS's owner check (owner-auth.ts); the only thing that lets a review's approval write trust. */
+  confirmOwner: (reason: string) => Promise<OwnerAuthResult>;
 };
 
 export type PolicyStage = "definitions" | "hooks" | "installed";
@@ -156,6 +159,7 @@ function defaultDeps(): PolicyInstallDeps {
     runningCodexHomes: () => runningCodexHomes({ home }),
     now: () => new Date(),
     randomId: () => `mac-${sha256(`${Date.now()}-${Math.random()}`).slice(0, 12)}`,
+    confirmOwner: (reason) => confirmOwner(reason),
   };
 }
 
@@ -626,6 +630,12 @@ export async function planCodexPolicyInstall(input: { cwd?: string; profile: str
 
 // ─── Apply ───────────────────────────────────────────────────────────────────
 
+/** What macOS's owner sheet says is being approved; it reads after "<helper> is trying to". */
+export function ownerAuthReason(review: PolicyReview): string {
+  const count = review.hooks.length === 1 ? "1 rt hook" : `${review.hooks.length} rt hooks`;
+  return `trust ${count} in Codex (${review.codexHome})`;
+}
+
 const changed = (path: string): Outcome<void> =>
   fail("refused", `${path} changed after rt planned this, so rt wrote nothing more. Run it again.`);
 
@@ -721,6 +731,8 @@ export async function applyCodexPolicyInstall(plan: PolicyInstallPlan, reviewed:
   }
 
   const review = plan.reviews[0]!;
+  const owner = await deps.confirmOwner(ownerAuthReason(review));
+  if (!owner.ok) return fail("refused", owner.message);
   const text = editConfig(readText(plan.configPath), plan.config.hooks, plan.config.replace);
   if (text === null) return fail("refused", `rt could not trust its hooks in ${plan.configPath} without changing your other Codex settings.`);
   const wrote = replaceFile(plan.configPath, plan.config.before, text);

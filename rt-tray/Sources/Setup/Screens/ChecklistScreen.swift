@@ -11,6 +11,7 @@ struct ChecklistScreen: View {
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
     @State private var harnesses: PlanRow?
+    @State private var codexHooks: PlanRow?
     @State private var actionError: (rowId: String, message: String)?
     @State private var waitingOnYou: [String: String] = [:]
 
@@ -84,6 +85,14 @@ struct ChecklistScreen: View {
             if let sheet = HarnessesSheet(row: row, onSave: { args in
                 let failure = await ChoiceClient(rt: rt).run(args)
                 if failure == nil { await model.afterAction(rowId: row.id) }
+                return failure
+            }) { sheet }
+        }
+        .sheet(item: $codexHooks) { row in
+            if let sheet = CodexHooksSheet(row: row, onApprove: { args in
+                let failure = await ChoiceClient(rt: rt).run(args)
+                // A refusal (a changed review, a declined Touch ID) re-reads the plan too, so the row shows rt's current review.
+                await model.afterAction(rowId: row.id)
                 return failure
             }) { sheet }
         }
@@ -180,6 +189,8 @@ struct ChecklistScreen: View {
             choose = row
         case .chooseHarnesses:
             harnesses = row
+        case .reviewCodexHooks:
+            codexHooks = row
         case .none:
             break
         }

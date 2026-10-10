@@ -822,6 +822,49 @@
           {
             "optionalNote": null,
             "action": {
+              "type": "review-codex-hooks",
+              "label": "Review…",
+              "verb": [
+                "setup",
+                "codex-policy"
+              ],
+              "subtitle": "Codex runs these hooks in every repo you open with it. Approve them only if this is what you expect.",
+              "footnote": "macOS asks for Touch ID or your password. You can also run rt setup codex-policy in a terminal.",
+              "review": {
+                "id": "cp-5f0c2a9e4b7d1c3e8a6f0b2d4c6e8a1f",
+                "codexHome": "/Users/member/.codex",
+                "hooksPath": "/Users/member/.codex/hooks.json",
+                "configPath": "/Users/member/.codex/config.toml",
+                "executable": "/Users/member/.mattstack/rt/codex-policy/bin/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/rt",
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "hooks": [
+                  {
+                    "event": "PreToolUse",
+                    "key": "/Users/member/.codex/hooks.json:pre_tool_use:0:0",
+                    "hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                    "command": "'/Users/member/.mattstack/rt/codex-policy/bin/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/rt' agent policy-hook --installation mac-1 --event PreToolUse"
+                  },
+                  {
+                    "event": "Stop",
+                    "key": "/Users/member/.codex/hooks.json:stop:0:0",
+                    "hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                    "command": "'/Users/member/.mattstack/rt/codex-policy/bin/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/rt' agent policy-hook --installation mac-1 --event Stop"
+                  }
+                ]
+              }
+            },
+            "recheck": "on-activate",
+            "id": "tool.codex-policy",
+            "kind": "tool",
+            "title": "rt's hooks in Codex",
+            "why": "Codex runs these hooks so rt can keep managed Codex work inside rt's rules.",
+            "required": false,
+            "status": "needs-you",
+            "detail": "rt's hooks are in Codex and wait on your approval"
+          },
+          {
+            "optionalNote": null,
+            "action": {
               "type": "choose-harnesses",
               "label": "Change…",
               "verb": [
@@ -1372,6 +1415,49 @@
             "required": false,
             "status": "missing",
             "detail": "rt is not on this Mac's PATH yet"
+          },
+          {
+            "optionalNote": null,
+            "action": {
+              "type": "review-codex-hooks",
+              "label": "Review…",
+              "verb": [
+                "setup",
+                "codex-policy"
+              ],
+              "subtitle": "Codex runs these hooks in every repo you open with it. Approve them only if this is what you expect.",
+              "footnote": "macOS asks for Touch ID or your password. You can also run rt setup codex-policy in a terminal.",
+              "review": {
+                "id": "cp-5f0c2a9e4b7d1c3e8a6f0b2d4c6e8a1f",
+                "codexHome": "/Users/member/.codex",
+                "hooksPath": "/Users/member/.codex/hooks.json",
+                "configPath": "/Users/member/.codex/config.toml",
+                "executable": "/Users/member/.mattstack/rt/codex-policy/bin/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/rt",
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "hooks": [
+                  {
+                    "event": "PreToolUse",
+                    "key": "/Users/member/.codex/hooks.json:pre_tool_use:0:0",
+                    "hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                    "command": "'/Users/member/.mattstack/rt/codex-policy/bin/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/rt' agent policy-hook --installation mac-1 --event PreToolUse"
+                  },
+                  {
+                    "event": "Stop",
+                    "key": "/Users/member/.codex/hooks.json:stop:0:0",
+                    "hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                    "command": "'/Users/member/.mattstack/rt/codex-policy/bin/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/rt' agent policy-hook --installation mac-1 --event Stop"
+                  }
+                ]
+              }
+            },
+            "recheck": "on-activate",
+            "id": "tool.codex-policy",
+            "kind": "tool",
+            "title": "rt's hooks in Codex",
+            "why": "Codex runs these hooks so rt can keep managed Codex work inside rt's rules.",
+            "required": false,
+            "status": "needs-you",
+            "detail": "rt's hooks are in Codex and wait on your approval"
           },
           {
             "optionalNote": null,

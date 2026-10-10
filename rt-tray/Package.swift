@@ -53,8 +53,19 @@ let package = Package(
             path: "Sources-deck-shim"
         ),
         .target(
+            name: "OwnerAuthLogic",
+            path: "Sources-owner-auth-logic"
+        ),
+        // Contents/Helpers/rt-owner-auth: macOS's Touch ID / password check rt runs before trusting Codex hooks.
+        .executableTarget(
+            name: "rt-owner-auth",
+            dependencies: ["OwnerAuthLogic"],
+            path: "Sources-owner-auth",
+            linkerSettings: [.linkedFramework("LocalAuthentication")]
+        ),
+        .target(
             name: "MattstackCoreChecks",
-            dependencies: ["MattstackCore", "DeckShimLogic"],
+            dependencies: ["MattstackCore", "DeckShimLogic", "OwnerAuthLogic"],
             path: "Tests/MattstackCoreChecks"
         ),
         .executableTarget(

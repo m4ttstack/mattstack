@@ -27,6 +27,7 @@ import { macRows } from "./validators/mac.ts";
 import { repoRootRow } from "./validators/repo-root.ts";
 import { orgRows } from "./validators/org.ts";
 import { readTeamSnapshotStatus, rtHealthRows } from "./validators/rt-health.ts";
+import type { CodexPolicyPlanner } from "./validators/codex.ts";
 import { INSTALLED_BY_INSTALL_NOTE, toolRows } from "./validators/tools.ts";
 
 export interface PlanInputs {
@@ -41,6 +42,8 @@ export interface PlanInputs {
   waived?: string[];
   /** The harnesses whose rows the tools group shows; defaults to the settings stores. Tests inject their own. */
   integrations?: IntegrationSelection;
+  /** Reads the Codex hooks plan; defaults to this Mac's profile. Tests inject a fixed plan. */
+  codexPolicy?: CodexPolicyPlanner;
 }
 
 const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
@@ -184,7 +187,7 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
-      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs), ...(i.integrations ? { integrations: i.integrations } : {}) });
+      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs), ...(i.integrations ? { integrations: i.integrations } : {}), ...(i.codexPolicy ? { codexPolicy: i.codexPolicy } : {}) });
       const repoRoot = repoRootRow(i.p, team, snapshot);
       return [...tools, ...(repoRoot ? [repoRoot] : []), ...healthRows];
     }),
