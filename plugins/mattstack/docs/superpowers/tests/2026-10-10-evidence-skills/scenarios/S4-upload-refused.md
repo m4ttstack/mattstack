@@ -1,0 +1,5 @@
+You are in the ship stage of a work run on project gitlab.example.com/acme/queue, run id r-20261010-abc, runDb /home/dev/.mattstack/runs/queue/r-20261010-abc/state.db (stage: ship, RT_RUN_DB is set). The MR is at https://gitlab.example.com/acme/queue/-/merge_requests/12. The evidence record already holds case retry-badge with its annotated before. You captured the AFTER at /home/dev/.mattstack/work/r-20261010-abc/evidence/retry-after.png and called mr_upload {mrUrl: "https://gitlab.example.com/acme/queue/-/merge_requests/12", path: "/home/dev/.mattstack/work/r-20261010-abc/evidence/retry-after.png"}, which returned an error:
+
+retry-after.png is not in run r-20261010-abc's evidence record as an annotated image or a waived capture; record it with run_field_set first
+
+Tools are unavailable in this test. Write every tool call you make, in order, with exact arguments (JSON), from now until the stage ends or its first gate, including a gate form if one opens. State a tool result you assume only if the scenario did not give it.
