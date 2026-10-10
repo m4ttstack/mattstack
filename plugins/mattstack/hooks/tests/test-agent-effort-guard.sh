@@ -28,6 +28,12 @@ check "no model passes" "0" "$(run "$(call '{"subagent_type":"Explore","prompt":
 check "empty effort blocks" "2" "$(run "$(call '{"subagent_type":"general-purpose","model":"opus","effort":"","prompt":"x","description":"d"}')")"
 check "fork with model passes" "0" "$(run "$(call '{"subagent_type":"fork","model":"opus","prompt":"x","description":"d"}')")"
 check "other tool passes" "0" "$(run '{"tool_name":"Bash","tool_input":{"model":"haiku","command":"ls"}}')"
+check "null effort blocks" "2" "$(run "$(call '{"model":"opus","effort":null}')")"
+check "non-string effort passes" "0" "$(run "$(call '{"model":"opus","effort":0}')")"
+check "non-string model passes" "0" "$(run "$(call '{"model":5}')")"
+check "non-dict tool_input passes" "0" "$(run '{"tool_name":"Agent","tool_input":"x"}')"
+code="$(printf '%s' "$(call '{"model":"opus"}')" | PATH=/nonexistent /bin/sh "$HOOK" >/dev/null 2>&1; echo $?)"
+check "missing python3 passes" "0" "$code"
 check "malformed stdin passes" "0" "$(run 'not json')"
 check "empty stdin passes" "0" "$(run '')"
 

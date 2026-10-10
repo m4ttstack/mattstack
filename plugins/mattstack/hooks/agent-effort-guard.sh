@@ -19,7 +19,10 @@ if not isinstance(d, dict) or d.get("tool_name") not in ("Agent", "Task"):
 t = d.get("tool_input") or {}
 if not isinstance(t, dict) or t.get("subagent_type") == "fork":
     sys.exit(0)
-if (t.get("model") or "").strip() and not (t.get("effort") or "").strip():
+m, e = t.get("model"), t.get("effort")
+if not isinstance(m, str) or not m.strip():
+    sys.exit(0)
+if e is None or (isinstance(e, str) and not e.strip()):
     print("block")
 ' 2>/dev/null)" || exit 0
 [ "$VERDICT" = "block" ] || exit 0
