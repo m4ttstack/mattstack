@@ -45,9 +45,14 @@ captures, records or uploads evidence follows this page.
   `~/.mattstack/work/<run id>/evidence/`.
 - `<run id>` is the path segment before `/state.db` in the `runDb` this
   verb carries.
-- `transcript`, `url` and `attach` are run-level. A transcript is text,
-  is never uploaded, and needs no caption or waiver.
-  `{"plan": "none"}` stays the no-evidence value.
+- `transcript`, `url` and `attach` are run-level. `transcript` is the
+  absolute path of a text file (test output, a CLI transcript) under the
+  run's evidence folder; it is never uploaded and needs no caption or
+  waiver. `{"plan": "none"}` stays the no-evidence value.
+- A run with a text capture and no image at all is not `evidence@2`: its
+  value is `{"plan": "text", "transcript": "<absolute path>"}`, plus
+  `"url"` when a ticket location also exists. A run with images and a
+  transcript carries `transcript` as a run-level key of the v2 record.
 
 ## Annotate or waive each image the record does not yet cover
 
@@ -118,7 +123,9 @@ One short line naming what each mark points at: "Red box: the badge reads
 
 ### Gate evidence-waiver (below)
 
-Scope `evidence-waiver:<stage>:<n>`. One sentence above the form: which
+Scope `evidence-waiver:<stage>:<n>`, where `<n>` is the count of
+`evidence-waiver` gates this stage pass has opened, starting at 1. One
+sentence above the form: which
 images need a waiver and why (nothing selected, two failed draws, nothing
 worth marking, a video).
 
@@ -142,16 +149,17 @@ Read `evidence` with `run_field_get`, then:
 
 | What it holds | Do |
 |---|---|
-| `evidence@2` | Add each new case; an AFTER for an existing case's `id` sets that case's `after`. If that case carries a case `waiver`, first move it onto each of the case's existing images that has no `annotated` copy as an image `waiver`, delete the case's `waiver` key, then set `after`; the new image goes through "Annotate or waive" like any other. Keep every other case and key. |
+| `evidence@2` | Add each new case; an AFTER for an existing case's `id` sets that case's `after`. If that case carries a case `waiver`, first move it onto each of the case's existing images with neither an `annotated` copy nor its own `waiver`, as an image `waiver`, delete the case's `waiver` key, then set `after`; the new image goes through "Annotate or waive" like any other. Keep every other case and key. |
 | `evidence@1` (`"v": 1`) | Convert it to one case: `id` `case`, `label` = its `case` text or `Evidence`, `before` = `{path: before}` plus `annotated: beforeAnnotated` only when that is set, and `after` likewise when present (never `"annotated": null`); keep `transcript`, `url` and `attach`. Each annotated image gets a caption (write it; no gate). Each raw image is not yet covered. |
 | unset (the read errors), `-`, `{"plan": "none"}` | Start a new record. |
-| other JSON with a `url` (such as `{"plan": "ticket", "url": ...}`) | Start a new record and keep its `url`. |
+| other JSON with a `url` or a `transcript` (such as `{"plan": "ticket", "url": ...}` or `{"plan": "text", "transcript": ...}`) | Start a new record and keep its `url` and `transcript` as run-level keys. |
 | any other text (legacy links) | Start a new record and carry the old text in `attach`, so the description still shows it. |
 
 ## Write before upload
 
 Write the merged record with `run_field_set {key: evidence, value: <the
-evidence@2 JSON>, stage}` before any of its images upload. The write is
+evidence@2 JSON>, stage}` before any of its images upload. `value` is a
+string: the JSON serialized as one string, never an object. The write is
 refused when an image is neither annotated nor waived, and the refusal names
 it: send that image through "Annotate or waive" and write again. A second
 refusal in one pass fails the verb with the message quoted.
@@ -169,7 +177,9 @@ somewhere else, or dropping `runId`, is never the fix.
 
 ## The evidence section of the description
 
-Build it from the record, one block per case:
+The section replaces any evidence block an earlier stage wrote into the
+description; it never keeps that block and appends a second one. Build it
+from the record, one block per case, one markdown entry per file:
 
 ```markdown
 **Retry badge on the job row**
@@ -184,13 +194,17 @@ Build it from the record, one block per case:
 
 A case waiver prints once, as `Waived: <reason>` under the label. Where
 nothing uploaded (GitHub, a file the human chose to link at the off-script
-gate), the line carries the local path instead. `attach` text, when set,
-follows the cases. The domain's template and heading rules decide where
+gate), the line carries the local path instead. After the case blocks,
+print `Transcript: <its local path>` when `transcript` is set (it is never
+uploaded), `Ticket: <url>` when `url` is set, and the part of `attach`
+that no case image covers (legacy links); `attach` markdown for a file a
+case already shows never prints twice. The domain's template and heading rules decide where
 the section sits and what it is called, never whether a caption or a
 waiver reason appears.
 
 ## Domain precedence
 
-A domain rule that keeps a base capture with no waiver, or uploads a
-capture the record does not list, is overridden by this page, the way a
+A domain rule that keeps a base capture with no waiver, uploads a
+capture the record does not list, or uploads without `runId`, is
+overridden by this page, the way a
 STOP node overrides a domain step.

@@ -41,6 +41,12 @@ attachment that `stage-evidence`, `stage-ship` and `ship` pull in with
    reader sees. A slot is one image, or a `{light, dark}` pair only when the
    plan or the domain says the run's theme matters. Image paths are
    absolute. Unbound, files live under `~/.mattstack/work/<run id>/evidence/`.
+   `transcript`, `url` and `attach` are run-level keys. `transcript` is the
+   absolute path of a text file under the run's evidence folder; it is
+   never uploaded and needs no caption or waiver. A run whose only capture
+   is text records the non-v2 value `{"plan": "text", "transcript":
+   "<absolute path>"}` (plus `url` when a ticket location also exists);
+   with images, the v2 record carries `transcript` run-level.
 2. **The run id.** `<run id>` is the path segment before `/state.db` in
    the `runDb` this verb carries.
 3. **Annotate or waive, per image** (a small digraph):
@@ -51,10 +57,10 @@ attachment that `stage-evidence`, `stage-ship` and `ship` pull in with
      question. So do an annotations question answered with nothing
      selected for that image, and an image the agent finds nothing worth
      marking on (for example, the before and after are pixel-identical).
-     A video or a transcript is not drawn on, so it goes to the waiver
-     question too.
+     A video is not drawn on, so it goes to the waiver question too.
    - **Gate `evidence-waiver`** (gate-protocol, scope
-     `evidence-waiver:<stage>:<n>`): one sentence naming the images and
+     `evidence-waiver:<stage>:<n>`, `<n>` counting the waiver gates this
+     stage pass has opened, from 1): one sentence naming the images and
      why each needs a waiver. One question per image,
      `waiver-<case>-<slot>[-<theme>]`, options: the agent's proposed reason
      (Recommended) / **Annotate it after all**, with free text for a reason in
@@ -67,7 +73,8 @@ attachment that `stage-evidence`, `stage-ship` and `ship` pull in with
      openings of this gate per stage pass: the second opening without a
      reason for every image fails the stage, naming the images.
 4. **Write before upload.** The record is written with `run_field_set
-   {key: evidence, stage}` before any upload of its images. A refusal
+   {key: evidence, stage}` before any upload of its images; `value` is the
+   JSON serialized as one string. A refusal
    from the validator names the image: send that image back through step 3
    and write again. A second refusal fails the stage with the message
    quoted.
@@ -87,17 +94,23 @@ attachment that `stage-evidence`, `stage-ship` and `ship` pull in with
      through step 3.
    - unset (the read errors), `-`, or `{"plan": "none"}` with a ship-time
      capture: start a new v2 record.
+   - other JSON with a `url` or `transcript` (a ticket-only or text-only
+     record): start a new v2 record keeping both as run-level keys.
    - legacy text (v0 links): start a new v2 record and carry the old text
      in `attach`, so the description still links it.
-7. **The description from the record.** One evidence section, a block
+7. **The description from the record.** One evidence section, replacing
+   any evidence block an earlier stage wrote, one markdown entry per file, a block
    per case: the label in bold, then a line per image with its upload
    markdown (or its local path where nothing uploaded, which covers
    GitHub), then `Caption: <caption>` or `Waived: <reason>`. A case
    waiver prints once, under the label. The domain's template and heading
    rules win over this layout, never over its content: every caption and
-   waiver reason appears.
+   waiver reason appears. After the cases: the run-level `transcript` (its
+   local path), the `url`, and only the part of `attach` no case image
+   covers (legacy links).
 8. **Domain precedence.** A domain rule that keeps a base capture with no
-   waiver, or uploads a capture outside the record, is overridden by this
+   waiver, uploads a capture outside the record, or uploads without
+   `runId`, is overridden by this
    attachment, the way a STOP node overrides a domain step today.
 
 ### `stage-evidence`
@@ -116,6 +129,10 @@ attachment that `stage-evidence`, `stage-ship` and `ship` pull in with
   recorded at ship with its AFTER, and the ticket's location goes in the
   run-level `url`. When every BEFORE is the ticket's, the stage writes
   `{"plan": "ticket", "url": "<location>"}`, which the merge keeps as `url`.
+- A stage with no image but a text capture writes the text to a file under
+  the run's evidence folder and records `{"plan": "text", "transcript":
+  "<absolute path>"}` (plus `url` when a ticket location exists), drawn as
+  its own `Any image to record?` edge.
 
 ### `stage-ship`
 

@@ -61,6 +61,7 @@ digraph evidence {
     "Annotate or waive outcome?" [shape=diamond];
     "Any image to record?" [shape=diamond];
     "run_field_set {key: evidence, value: {\"plan\": \"ticket\", \"url\": <the ticket location>}, stage: evidence}" [shape=plaintext];
+    "run_field_set {key: evidence, value: {\"plan\": \"text\", \"transcript\": <absolute path>}, stage: evidence}" [shape=plaintext];
     "evidence write result?" [shape=diamond];
     "Validator refusals = 2?" [shape=diamond];
     "Attach now answered?" [shape=diamond];
@@ -75,7 +76,7 @@ digraph evidence {
     "Timed-out upload retried once?" [shape=diamond];
     "mr_upload {mrUrl, path: <the timed-out file>, runId}" [shape=plaintext];
     "mr_view {mrUrl}" [shape=plaintext];
-    "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" [shape=plaintext];
+    "mr_update {mrUrl, description: <the body read back, its evidence section replaced by the record's>}" [shape=plaintext];
     "run_field_set {key: evidence, value: <evidence@2 JSON>, stage: evidence}" [shape=plaintext];
     "run_field_set {key: evidence, value: <the record plus attach>, stage: evidence}" [shape=plaintext];
     "run_stage {action: fail, stage: evidence, reason, detailPath}" [shape=plaintext];
@@ -158,8 +159,8 @@ digraph evidence {
     "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
     "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="no: retry the refused files"];
     "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="yes: hand back, the refusal quoted"];
-    "mr_view {mrUrl}" -> "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}";
-    "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" -> "run_field_set {key: evidence, value: <the record plus attach>, stage: evidence}";
+    "mr_view {mrUrl}" -> "mr_update {mrUrl, description: <the body read back, its evidence section replaced by the record's>}";
+    "mr_update {mrUrl, description: <the body read back, its evidence section replaced by the record's>}" -> "run_field_set {key: evidence, value: <the record plus attach>, stage: evidence}";
     "run_field_set {key: evidence, value: <the record plus attach>, stage: evidence}" -> "Evidence done: return to the orchestrator";
     "run_field_set {key: evidence, value: <evidence@2 JSON>, stage: evidence}" -> "evidence write result?";
     "run_stage {action: fail, stage: evidence, reason, detailPath}" -> "Stage failed";
@@ -170,8 +171,11 @@ digraph evidence {
     "Any image to record?" -> "run_field_set {key: evidence, value: <evidence@2 JSON>, stage: evidence}" [label="yes"];
     "Any image to record?" -> "run_field_set {key: evidence, value: {\"plan\": \"ticket\", \"url\": <the ticket location>}, stage: evidence}" [label="no: every BEFORE is the ticket's"];
     "run_field_set {key: evidence, value: {\"plan\": \"ticket\", \"url\": <the ticket location>}, stage: evidence}" -> "Evidence done: return to the orchestrator";
+    "Any image to record?" -> "run_field_set {key: evidence, value: {\"plan\": \"text\", \"transcript\": <absolute path>}, stage: evidence}" [label="no: a text capture only"];
+    "run_field_set {key: evidence, value: {\"plan\": \"text\", \"transcript\": <absolute path>}, stage: evidence}" -> "Evidence done: return to the orchestrator";
     "evidence write result?" -> "Attach now answered?" [label="ok"];
     "evidence write result?" -> "Validator refusals = 2?" [label="refused: the validator names an image"];
+    "evidence write result?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="any other error: quote it as the reason"];
     "Validator refusals = 2?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no"];
     "Validator refusals = 2?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="yes"];
     "Attach now answered?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="yes"];
@@ -219,7 +223,9 @@ produces stale, false befores. Unbound, capture what a generic toolchain
 can (the failing test output, a CLI transcript, or a screenshot the user
 provides) and store it under `~/.mattstack/work/<run id>/evidence/`,
 where `<run id>` is the `runId` `run_start` returned; `mr_upload` accepts
-that folder only for a run that exists.
+that folder only for a run that exists. A text capture (test output, a
+CLI transcript) is written to a file there; its absolute path is the
+record's run-level `transcript`, never uploaded and never waived.
 
 ### Pick the next source or view
 
@@ -230,8 +236,9 @@ same source. The counter is attempts for the current case within this pass throu
 ### Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)
 
 The upload guard refused a file past its one fix; a second timeout on
-the same file reaches this gate too, and Iterate retries it once the
-human has checked the daemon. Scope
+the same file reaches this gate too (Iterate retries it once the human
+has checked the daemon), as does a second refusal that the file is not
+in the record or is a raw capture. Scope
 `off-script:evidence:<n>`, sharing `n` with the stage's other off-script
 gate, `context` quoting the refusal and the path. Take links the refused
 files' local paths in the handed-back markdown, while files already
@@ -295,9 +302,13 @@ When nothing is inlined above, the graph and the Capture section are the
 whole flow.
 
 Finish with `evidence` as `evidence@2` JSON, as the evidence record below
-says, written before any upload. With no plan, write `{"plan": "none"}`; when
+says, written before any upload; a text capture beside the images rides
+as its run-level `transcript`. With no plan, write `{"plan": "none"}`; when
 every BEFORE is the ticket's, write `{"plan": "ticket", "url": "<where the
-ticket shows it>"}`. Ship adds the AFTERs to the same record.
+ticket shows it>"}`; when the only capture is text, write `{"plan": "text",
+"transcript": "<absolute path>"}`, adding `"url"` when a ticket location
+also exists. `value` is always the JSON serialized as one string. Ship
+adds the AFTERs to the same record.
 
 ## Evidence record
 
