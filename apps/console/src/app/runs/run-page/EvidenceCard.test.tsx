@@ -330,10 +330,37 @@ const THREE = readEvidence(
   })
 );
 
+describe('EvidenceCard story variant, one waived case', () => {
+  it('names the case waiver under the image, as no head carries it', () => {
+    story({
+      evidence: readEvidence(
+        JSON.stringify({
+          v: 2,
+          cases: [
+            {
+              id: 'empty-state',
+              label: 'No delivery window yet',
+              after: { path: '/x/empty-after.png' },
+              waiver: 'Before and after are pixel-identical',
+            },
+          ],
+        })
+      ),
+      phase: 'after',
+    });
+    expect(
+      screen.getByText('Waived: Before and after are pixel-identical')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Waived')).toBeNull();
+  });
+});
+
 describe('EvidenceCard story variant, several cases', () => {
   it('draws one annotated shot per case for several cases, with label and line', () => {
     const { container } = story({ evidence: THREE, phase: 'after' });
-    expect(container.querySelectorAll('[data-testid="case-thumb"]')).toHaveLength(3);
+    expect(
+      container.querySelectorAll('[data-testid="case-thumb"]')
+    ).toHaveLength(3);
     expect(shownSrcs(container)).toEqual([
       '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/rush-window/after?annotated=1',
       '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/order-card-themes/after?theme=light&annotated=1',
@@ -433,9 +460,9 @@ describe('EvidenceCard record variant, evidence@2', () => {
   it('draws one group per case under a case count', () => {
     const { container } = record({ evidence: THREE, mrIid: '421' });
     expect(screen.getByText('EVIDENCE · 3')).toBeInTheDocument();
-    expect(container.querySelectorAll('[data-testid="case-group"]')).toHaveLength(
-      3
-    );
+    expect(
+      container.querySelectorAll('[data-testid="case-group"]')
+    ).toHaveLength(3);
     expect(screen.getByText('Rush order, same-day window')).toBeInTheDocument();
     expect(screen.queryByText('CASE USED')).not.toBeInTheDocument();
   });

@@ -116,6 +116,10 @@ describe('case helpers', () => {
     });
     expect(shotLine(empty!, shotIn(empty!, 'after')!)).toEqual({
       kind: 'waiver',
+      text: 'Waived: Before and after are pixel-identical',
+    });
+    expect(shotLine(empty!, shotIn(empty!, 'after')!, true)).toEqual({
+      kind: 'waiver',
       text: 'Waived',
     });
   });

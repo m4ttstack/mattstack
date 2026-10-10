@@ -283,11 +283,7 @@ export function EvidenceCompare({
                     c={line.kind === 'waiver' ? 'dimmed' : undefined}
                     data-parity={line.kind}
                   >
-                    {line.kind === 'waiver' &&
-                    line.text === 'Waived' &&
-                    c.waiver
-                      ? `Waived: ${c.waiver}`
-                      : line.text}
+                    {line.text}
                   </Text>
                 ) : null}
               </Stack>

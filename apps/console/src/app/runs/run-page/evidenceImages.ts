@@ -89,18 +89,23 @@ export function badgesOf(c: EvidenceCase, slot?: EvidencePhase): string[] {
   ];
 }
 
-/** The line under an image: its caption, its own waiver, or "Waived" when
-    the case's waiver (shown once under the case) covers it. */
+/** The line under an image: its caption, its waiver, or only "Waived" when
+    the case's waiver covers it and `caseWaiverShown` (the record prints it
+    once under the case's head). */
 export function shotLine(
   c: EvidenceCase,
-  shot: EvidenceShot
+  shot: EvidenceShot,
+  caseWaiverShown = false
 ): { kind: 'caption' | 'waiver'; text: string } | null {
   if (shot.annotated)
     return shot.caption ? { kind: 'caption', text: shot.caption } : null;
   if (!shot.waiver) return null;
   return {
     kind: 'waiver',
-    text: shot.waiver === c.waiver ? 'Waived' : `Waived: ${shot.waiver}`,
+    text:
+      caseWaiverShown && shot.waiver === c.waiver
+        ? 'Waived'
+        : `Waived: ${shot.waiver}`,
   };
 }
 

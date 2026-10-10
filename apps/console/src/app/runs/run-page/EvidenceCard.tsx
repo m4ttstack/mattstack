@@ -281,9 +281,7 @@ function CaseThumb({
           c={line.kind === 'waiver' ? 'dimmed' : undefined}
           data-parity={line.kind}
         >
-          {line.kind === 'waiver' && line.text === 'Waived' && c.waiver
-            ? `Waived: ${c.waiver}`
-            : line.text}
+          {line.text}
         </Text>
       ) : null}
     </Stack>
@@ -404,7 +402,7 @@ function CaseShot({
       </div>
     );
   const name = shownName(shot);
-  const line = shotLine(c, shot);
+  const line = shotLine(c, shot, true);
   return (
     <Stack gap={6} className={classes.thumb}>
       <ThumbFrame>
