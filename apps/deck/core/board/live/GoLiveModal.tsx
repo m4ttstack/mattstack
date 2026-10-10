@@ -4,30 +4,48 @@ import {
   Alert,
   Button,
   Icon,
+  ICONS,
   Modal,
   SearchSelect,
   Spinner,
 } from '@mattstack/tui-kit';
-import { GIT_BRANCH, HOUSE, RADIO } from '../icons.ts';
+import { GIT_BRANCH, HOUSE, RADIO, SQUARE } from '../icons.ts';
 import type { SourceRow } from './live-api.ts';
+import { lastUsed } from './live-logic.ts';
 import { rowSource, type LiveState } from './useLive.ts';
 
-function items(sources: SourceRow[]) {
+function exception(s: SourceRow) {
+  if (s.liveApps.length)
+    return (
+      <span className="t-accent live-detail">
+        <Icon d={RADIO} />
+        {s.liveApps.join(', ')} {s.liveApps.length > 1 ? 'are' : 'is'} live here
+      </span>
+    );
+  if (s.needsSetup) return <span className="t-warn">needs setup</span>;
+  return null;
+}
+
+function worktreeDetail(s: SourceRow, now: number) {
+  const note = exception(s);
+  const used = lastUsed(s.lastActiveAt, now);
+  if (!note && !used) return null;
+  return (
+    <span className="live-detail">
+      {note}
+      {used}
+    </span>
+  );
+}
+
+function items(sources: SourceRow[], now: number) {
   const worktrees = sources.filter(s => !s.main).length;
   return sources.map(s => ({
     value: s.path,
     label: s.main ? 'main' : (s.branch ?? s.path),
     icon: <Icon d={s.main ? HOUSE : GIT_BRANCH} />,
     ...(s.main ? {} : { group: `worktrees · ${worktrees}` }),
-    detail: s.main ? (
-      'shared checkout'
-    ) : s.liveApps.length ? (
-      <span className="t-accent">
-        {s.liveApps.join(', ')} {s.liveApps.length > 1 ? 'are' : 'is'} live here
-      </span>
-    ) : s.needsSetup ? (
-      <span className="t-warn">needs setup</span>
-    ) : null,
+    detail: s.main ? 'shared checkout' : worktreeDetail(s, now),
   }));
 }
 
@@ -54,6 +72,7 @@ export function GoLiveModal({ live }: { live: LiveState }) {
   const picked = m.sources?.find(s => s.path === m.picked) ?? null;
   const unchanged =
     isLive && m.sources != null && m.picked === rowSource(m.row, m.sources);
+  const blocked = !m.picked || unchanged;
   const title = isLive ? `${m.row.name} is live` : `Run ${m.row.name} live`;
   return (
     <Modal
@@ -80,13 +99,13 @@ export function GoLiveModal({ live }: { live: LiveState }) {
           void live.submit();
         }}
       >
-        <div className="modal-form">
+        <div className="live-body">
           {m.sources == null ? (
             <Spinner />
           ) : (
             <SearchSelect
               label="Code to run"
-              items={items(m.sources)}
+              items={items(m.sources, Date.now())}
               value={m.picked}
               onValueChange={live.pick}
               searchPlaceholder="Search worktrees"
@@ -109,7 +128,7 @@ export function GoLiveModal({ live }: { live: LiveState }) {
           <div className="live-help">
             {isLive && (
               <p className="muted">
-                Running since {formatTime(m.row.live!.startedAt)}.
+                Running since {formatTime(m.row.live!.startedAt)}
               </p>
             )}
             {picked?.needsSetup && <p className="t-warn">Needs setup first.</p>}
@@ -119,7 +138,7 @@ export function GoLiveModal({ live }: { live: LiveState }) {
           </div>
           {m.error && <Alert intent="bad">{m.error}</Alert>}
         </div>
-        <footer className="modal-footer">
+        <footer className="settings-footer live-footer">
           {isLive && (
             <Button
               type="button"
@@ -129,6 +148,7 @@ export function GoLiveModal({ live }: { live: LiveState }) {
               disabled={m.busy}
               onClick={() => void live.stop()}
             >
+              <Icon d={SQUARE} />
               Stop Live
             </Button>
           )}
@@ -137,12 +157,12 @@ export function GoLiveModal({ live }: { live: LiveState }) {
           </Button>
           <Button
             type="submit"
-            variant="filled"
+            variant={blocked ? 'default' : 'filled'}
             intent="accent"
             busy={m.busy}
-            disabled={!m.picked || unchanged}
+            disabled={blocked}
           >
-            <Icon d={RADIO} />
+            {isLive ? ICONS['refresh-cw'] : <Icon d={RADIO} />}
             {isLive ? 'Switch' : 'Go Live'}
           </Button>
         </footer>

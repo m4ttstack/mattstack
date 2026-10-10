@@ -23,14 +23,13 @@ export function LiveCell({
     case 'blocked': {
       const button = (
         <Button
-          variant="subtle"
           size="sm"
           className="live-go"
           disabled={cell.kind === 'blocked'}
           aria-label={`run ${row.name} live`}
           onClick={e => onOpen(row, e.currentTarget)}
         >
-          <Icon d={RADIO} /> go live
+          <Icon d={RADIO} className="live-mark" /> go live
         </Button>
       );
       return cell.kind === 'blocked' ? (
@@ -73,13 +72,12 @@ export function LiveCell({
     case 'live': {
       const button = (
         <Button
-          variant="subtle"
           size="sm"
           className="live-source"
           aria-label={`${row.name} is live from ${cell.label}`}
           onClick={e => onOpen(row, e.currentTarget)}
         >
-          <Icon d={RADIO} className="live-source-mark" />
+          <Icon d={RADIO} className="live-mark" />
           {cell.worktree && <Icon d={GIT_BRANCH} />}
           <span className="live-source-name">{cell.label}</span>
           {cell.movedFrom && (

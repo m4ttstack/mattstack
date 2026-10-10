@@ -50,6 +50,23 @@ export function liveCell(
   return { kind: 'none' };
 }
 
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+
+export function lastUsed(iso: string | null, now: number): string | null {
+  if (!iso) return null;
+  const age = now - Date.parse(iso);
+  if (Number.isNaN(age)) return null;
+  if (age < HOUR) return 'just now';
+  if (age < DAY) return `${Math.floor(age / HOUR)}h ago`;
+  if (age < 2 * DAY) return 'yesterday';
+  if (age < 7 * DAY) return `${Math.floor(age / DAY)} days ago`;
+  if (age < 14 * DAY) return 'last week';
+  if (age < 30 * DAY) return `${Math.floor(age / (7 * DAY))} weeks ago`;
+  if (age < 60 * DAY) return 'last month';
+  return `${Math.floor(age / (30 * DAY))} months ago`;
+}
+
 export function liveHealth(
   row: Row,
   now: number

@@ -4,6 +4,9 @@
 .app-settings-modal {
   width: min(1000px, 100%);
   max-width: min(1000px, 100%);
+}
+.app-settings-modal,
+.live-modal {
   padding: 0;
   font-size: var(--font-size-base);
 }
@@ -20,7 +23,8 @@
 }
 
 /* Kit controls draw at 11px; this page's controls read at body size. */
-.app-settings-modal [data-part='button']:not([data-icon-only]) {
+.app-settings-modal [data-part='button']:not([data-icon-only]),
+.live-modal [data-part='button']:not([data-icon-only]) {
   padding-block: var(--spacing-px2);
   font-size: var(--font-size-px13);
 }
@@ -29,11 +33,13 @@
    ground; the board lifts it onto the card surface. Its hover is the card
    already, so hover steps one wash further. */
 .app-settings-modal [data-part='button'][data-variant='default'],
-.app-settings-modal [data-part='copybutton'] {
+.app-settings-modal [data-part='copybutton'],
+.live-modal [data-part='button'][data-variant='default'] {
   background: var(--surface-card);
 }
 .app-settings-modal
-  [data-part='button'][data-variant='default']:hover:not(:disabled) {
+  [data-part='button'][data-variant='default']:hover:not(:disabled),
+.live-modal [data-part='button'][data-variant='default']:hover:not(:disabled) {
   background: var(--surface-wash-fg-4-card);
 }
 
@@ -42,7 +48,8 @@
 }
 
 /* The head stays put while the body scrolls inside the frame's max-height. */
-.app-settings-modal [data-part='modal-head'] {
+.app-settings-modal [data-part='modal-head'],
+.live-modal [data-part='modal-head'] {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -52,7 +59,8 @@
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
-.app-settings-modal [data-part='modal-title'] {
+.app-settings-modal [data-part='modal-title'],
+.live-modal [data-part='modal-title'] {
   flex: 1;
   min-width: 0;
   font-weight: 400;
@@ -303,6 +311,7 @@
 }
 .live-proc-cmd {
   flex: 1;
+  font-size: var(--font-size-px11);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

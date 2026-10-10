@@ -1,4 +1,4 @@
-import { Alert, Button, Modal } from '@mattstack/tui-kit';
+import { Alert, Button, ICONS, Modal } from '@mattstack/tui-kit';
 import type { LiveState } from './useLive.ts';
 
 export function SetupFailedModal({
@@ -26,11 +26,21 @@ export function SetupFailedModal({
       onClose={live.close}
       className="live-modal"
     >
-      <div className="modal-form">
-        <pre className="live-log">{setup.log.slice(-6).join('\n')}</pre>
+      <div className="live-body">
+        <pre className="live-log">
+          {setup.log.slice(-6).map((line, i) => (
+            <span
+              key={i}
+              className={/^error\b/i.test(line) ? 't-bad' : undefined}
+            >
+              {i > 0 && '\n'}
+              {line}
+            </span>
+          ))}
+        </pre>
         {m.error && <Alert intent="bad">{m.error}</Alert>}
       </div>
-      <footer className="modal-footer">
+      <footer className="settings-footer live-footer">
         <Button
           type="button"
           variant="subtle"
@@ -54,6 +64,7 @@ export function SetupFailedModal({
           disabled={!m.picked}
           onClick={() => void live.submit()}
         >
+          {ICONS['refresh-cw']}
           Try Again
         </Button>
       </footer>

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { Row, StatusData } from '../logic.ts';
-import { liveCell, liveCount, liveHealth } from './live-logic.ts';
+import { lastUsed, liveCell, liveCount, liveHealth } from './live-logic.ts';
 
 const data = {
   devMode: true,
@@ -96,4 +96,21 @@ test('liveCount counts live rows', () => {
       apps: [row({ live: live([]) }), row({})],
     } as StatusData)
   ).toBe(1);
+});
+
+test('lastUsed: when a worktree was last used, in words', () => {
+  const now = Date.parse('2026-10-10T12:00:00Z');
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+  const H = 3_600_000;
+  const D = 24 * H;
+  expect(lastUsed(null, now)).toBeNull();
+  expect(lastUsed(ago(10 * 60_000), now)).toBe('just now');
+  expect(lastUsed(ago(2 * H), now)).toBe('2h ago');
+  expect(lastUsed(ago(30 * H), now)).toBe('yesterday');
+  expect(lastUsed(ago(3 * D), now)).toBe('3 days ago');
+  expect(lastUsed(ago(8 * D), now)).toBe('last week');
+  expect(lastUsed(ago(15 * D), now)).toBe('2 weeks ago');
+  expect(lastUsed(ago(22 * D), now)).toBe('3 weeks ago');
+  expect(lastUsed(ago(40 * D), now)).toBe('last month');
+  expect(lastUsed(ago(100 * D), now)).toBe('3 months ago');
 });

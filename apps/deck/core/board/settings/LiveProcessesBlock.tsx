@@ -1,8 +1,10 @@
 import { useState } from 'react';
 
-import { Badge, Button } from '@mattstack/tui-kit';
+import { Badge, Button, Icon } from '@mattstack/tui-kit';
+import { SCROLL_TEXT } from '../icons.ts';
 import { getProcessLog } from '../live/live-api.ts';
 import type { Row } from '../logic.ts';
+import { Tooltip } from '../Tooltip.tsx';
 import type { BlockProps } from './block.ts';
 
 type Process = NonNullable<Row['live']>['processes'][number];
@@ -35,15 +37,18 @@ function ProcessRow({ app, proc }: { app: string; proc: Process }) {
         <Badge intent={proc.running ? 'ok' : 'bad'}>
           {proc.running ? 'running' : 'down'}
         </Badge>
-        <Button
-          variant="subtle"
-          size="sm"
-          aria-expanded={log !== null}
-          aria-label={`${proc.id} logs`}
-          onClick={toggle}
-        >
-          Logs
-        </Button>
+        <Tooltip tip="Logs">
+          <Button
+            variant="subtle"
+            size="sm"
+            iconOnly
+            aria-expanded={log !== null}
+            aria-label={`${proc.id} logs`}
+            onClick={toggle}
+          >
+            <Icon d={SCROLL_TEXT} />
+          </Button>
+        </Tooltip>
       </div>
       {log !== null && log !== 'loading' && (
         <pre
