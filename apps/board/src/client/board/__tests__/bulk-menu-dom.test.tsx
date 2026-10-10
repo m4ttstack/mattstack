@@ -511,8 +511,8 @@ test('request review from… asks the picked person on each MR', async () => {
   await check(102);
   await rightClick(101);
   await click('request review from…');
-  expect(items().map(i => i.textContent)).toContain("Kimberly Ash");
-  await click("Kimberly Ash");
+  expect(items().map(i => i.textContent)).toContain('Kimberly Ash');
+  await click('Kimberly Ash');
   expect(posts.filter(p => p.url === '/nudge')).toEqual([]);
   expect(document.body.textContent).toContain(
     "Ask Kimberly's agent to review 2 MRs?"
