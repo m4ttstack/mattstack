@@ -1,4 +1,5 @@
 // src/cli/commands.ts
+import { realpathSync } from 'fs';
 import { resolve } from 'path';
 
 import pkg from '../../package.json';
@@ -30,6 +31,9 @@ usage:
   deck restart --managed                   kickstart every app deck manages (installer's version-change step)
   deck logs <name> [--lines N]             tail stderr
   deck override <name> <port|off>          dev-port override for <name>.localhost
+  deck live                                list apps running live
+  deck live <app> on [--worktree B|PATH]   run <app> live, reloading as you edit
+  deck live <app> off                      stop running <app> live
   deck publish <name> on|off               public visibility
   deck password <name> [--clear]           password gate (prompts)
   deck access <name> off | emails a,b | domains c,d    google sign-in gate
@@ -47,6 +51,14 @@ usage:
 interface Io {
   out(s: string): void;
   err(s: string): void;
+}
+
+function realPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
 }
 
 function flag(argv: string[], name: string): string | undefined {
@@ -632,6 +644,79 @@ export async function runCommand(
         }
         io.out(`skipped: ${body.skipped?.join(', ') || '(none)'}`);
         return 0;
+      }
+      case 'live': {
+        const json = rest.includes('--json');
+        const args = rest.filter(a => a !== '--json');
+        const [name, action] = args;
+        if (!name) {
+          const { body } = await apiJson('/api/v1/live');
+          if (json) io.out(JSON.stringify(body));
+          else
+            for (const a of body.apps ?? [])
+              io.out(`${String(a.name).padEnd(24)} ${a.branch ?? 'main'}`);
+          return 0;
+        }
+        if (action === 'on') {
+          const want = flag(args, '--worktree');
+          const { status: ss, body: s } = await apiJson(
+            `/api/v1/apps/${name}/live/sources`
+          );
+          if (ss >= 400) {
+            io.err(s.error ?? `failed (${ss})`);
+            return 1;
+          }
+          const sources: Array<{
+            path: string;
+            branch: string | null;
+            main: boolean;
+          }> = s.sources ?? [];
+          const wantPath = want === undefined ? undefined : realPath(want);
+          const pick =
+            want === undefined
+              ? sources.find(x => x.main)
+              : sources.find(
+                  x =>
+                    x.branch === want ||
+                    x.path === wantPath ||
+                    realPath(x.path) === wantPath
+                );
+          if (!pick) {
+            io.err(`no worktree named ${want}`);
+            return 1;
+          }
+          const { status, body } = await apiJson(`/api/v1/apps/${name}/live`, {
+            method: 'PUT',
+            body: JSON.stringify({ source: pick.path }),
+          });
+          if (status >= 400) {
+            io.err(body.error ?? `failed (${status})`);
+            return 1;
+          }
+          const from = pick.main ? 'main' : (pick.branch ?? pick.path);
+          if (json) io.out(JSON.stringify(body));
+          else
+            io.out(
+              status === 202
+                ? `setting up ${from} first, then ${name} goes live`
+                : `${name} is live from ${from}`
+            );
+          return 0;
+        }
+        if (action === 'off') {
+          const { status, body } = await apiJson(`/api/v1/apps/${name}/live`, {
+            method: 'DELETE',
+          });
+          if (status >= 400) {
+            io.err(body.error ?? `failed (${status})`);
+            return 1;
+          }
+          if (json) io.out(JSON.stringify(body));
+          else io.out(`${name} is back to normal`);
+          return 0;
+        }
+        io.err(USAGE);
+        return 2;
       }
       case 'version': {
         io.out(`deck ${VERSION}`);
