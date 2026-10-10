@@ -1,21 +1,14 @@
 import { existsSync, realpathSync } from 'fs';
 import { join, relative } from 'path';
 
-import { rtCommand } from '@mattstack/rt-client';
+import {
+  listPickableWorktrees,
+  listWorktreeRows,
+  type WorktreeTreeRow,
+} from '@mattstack/rt-client';
 import { git } from '../edge/source.ts';
 import type { AppRecord } from '../registry/records.ts';
 import { readyMarker } from './setup.ts';
-
-/** Mirrors rt-client's WorktreeTreeRow, which the package does not export. */
-export interface TreeRow {
-  path: string;
-  branch: string | null;
-  kind: string;
-  state: string | null;
-  repoName: string;
-  readyAt?: string | null;
-  lastActiveAt?: string | null;
-}
 
 export interface LiveSource {
   path: string;
@@ -26,7 +19,7 @@ export interface LiveSource {
 }
 
 export interface SourcesDeps {
-  listTrees?: () => Promise<TreeRow[]>;
+  list?: () => Promise<WorktreeTreeRow[]>;
   exists?: (path: string) => boolean;
 }
 
@@ -70,21 +63,6 @@ export function branchOf(root: string): string | null {
   return branch === 'HEAD' ? null : branch;
 }
 
-async function defaultListTrees(): Promise<TreeRow[]> {
-  const res = await rtCommand<{ trees: TreeRow[] }>('worktree:list', {});
-  if (!res.ok || !res.data)
-    throw new Error(res.error ?? 'rt worktree list failed');
-  return res.data.trees;
-}
-
-/** Claimed and hand-made trees only: rt hands its spare trees out, so one
-    picked here could change hands mid-session. */
-function pickable(t: TreeRow): boolean {
-  return (
-    (t.kind === 'ephemeral' && t.state === 'claimed') || t.kind === 'unmanaged'
-  );
-}
-
 export async function listLiveSources(
   sharedRoot: string,
   deps: SourcesDeps = {}
@@ -97,31 +75,29 @@ export async function listLiveSources(
     needsSetup: false,
     lastActiveAt: null,
   };
-  let trees: TreeRow[];
+  let rows: WorktreeTreeRow[];
   try {
-    trees = await (deps.listTrees ?? defaultListTrees)();
+    rows = await (deps.list ?? listWorktreeRows)();
   } catch (err) {
     return {
       sources: [main],
       error: err instanceof Error ? err.message : String(err),
     };
   }
-  const repo = trees.find(t => real(t.path) === sharedRoot)?.repoName;
+  const repo = rows.find(t => real(t.path) === sharedRoot)?.repoName;
+  if (repo === undefined) return { sources: [main], error: null };
+  const { trees } = await listPickableWorktrees(repo, {
+    list: async () => rows,
+    exists,
+  });
   const worktrees = trees
-    .filter(
-      t =>
-        repo !== undefined &&
-        t.repoName === repo &&
-        real(t.path) !== sharedRoot &&
-        pickable(t)
-    )
+    .filter(t => t.kind !== 'main' && real(t.path) !== sharedRoot)
     .map(t => ({
       path: real(t.path),
       branch: t.branch,
       main: false,
       needsSetup: !t.readyAt && !exists(readyMarker(t.path)),
       lastActiveAt: t.lastActiveAt ?? null,
-    }))
-    .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''));
+    }));
   return { sources: [main, ...worktrees], error: null };
 }

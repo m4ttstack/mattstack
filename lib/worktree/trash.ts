@@ -25,31 +25,12 @@ import { access, mkdir, readdir, readFile, rename, stat, writeFile } from "fs/pr
 import { basename, dirname, isAbsolute, join, relative } from "path";
 import { ensureInfoExclude } from "./git-async.ts";
 import { childEnv } from "../subprocess.ts";
+import { RETAIN_DIR, TRASH_PREFIX } from "../../packages/rt-client/src/worktrees.ts";
 
-/** Marks a directory as rt's to delete. Nothing without this prefix is ever reaped. */
-export const TRASH_PREFIX = ".trash-";
-
-/**
- * The retention store: disposed trees live here (RT-51), stripped of
- * reinstallables, until the reconciler ages them out. A sibling of the pool
- * root the tree itself lived in (see retainedTrashRoot), so it always shares
- * the tree's volume; the name deliberately lacks the trailing dash so the
- * crash-leftover sweep's `.trash-` prefix match never descends into it.
- */
-const RETAIN_DIR = ".trash";
+export { isTrashPath, TRASH_PREFIX } from "../../packages/rt-client/src/worktrees.ts";
 
 /** How long a retained tree survives before the reconciler reaps it. */
 export const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
-
-/**
- * Whether `path` sits inside the trash: under a `.trash/` retention store or a
- * `.trash-*` crash leftover. Dispose's rename and its `git worktree prune` are
- * two steps, so git (and any snapshot built from it) can briefly still carry a
- * trashed tree; every worktree enumeration a picker reads must drop these.
- */
-export function isTrashPath(path: string): boolean {
-  return path.split("/").some((seg) => seg === RETAIN_DIR || seg.startsWith(TRASH_PREFIX));
-}
 
 /**
  * A ms-epoch rt actually wrote (`${name}-${Date.now()}`) is always after

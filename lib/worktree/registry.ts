@@ -1,4 +1,5 @@
 import { canon } from "../fs-canon.ts";
+import { GOLDEN_BRANCH } from "../../packages/rt-client/src/worktrees.ts";
 import { legacyRepoFile } from "../legacy-repo-data.ts";
 import { deleteKvValue, getKvValue, hasKvValue, importLegacyJsonFile, listKvValues, setKvValue, setKvValueCritical } from "../state/index.ts";
 
@@ -11,7 +12,7 @@ export const GOLDEN_NAME = "golden";
  * the user already has, and every path that gets rid of a half-built tree
  * deletes the branch it believes it owns.
  */
-export const GOLDEN_BRANCH = "rt/golden";
+export { GOLDEN_BRANCH } from "../../packages/rt-client/src/worktrees.ts";
 
 /**
  * Whether `branch` sits in a namespace rt creates and therefore may delete.
