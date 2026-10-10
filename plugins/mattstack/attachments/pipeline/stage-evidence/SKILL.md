@@ -204,7 +204,8 @@ a credential path is final.
 ### Record the ticket's location as the BEFORE
 
 When the ticket already embeds the broken state (a screenshot, a failing
-output), that is the before: record where it sits instead of recapturing. That case has no BEFORE image. Keep the location for the
+output), that is the before: record where it sits instead of
+recapturing. That case has no BEFORE image. Keep the location for the
 record's `url`; ship records the case with its AFTER.
 
 ### Capture the BEFORE for the next case

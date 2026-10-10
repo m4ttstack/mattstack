@@ -647,9 +647,10 @@ the second, the verb fails with the comparison quoted.
 ### ship off-script gate: mr_upload refused
 
 The upload guard refused a file past its one fix; a second timeout on
-the same file reaches this gate too, as does a second refusal that the
-file is not in the record or is a raw capture, and Iterate retries it
-once the human has checked the daemon. Scope `off-script:<stage>:<n>`, sharing `n` with the push's off-script gate,
+the same file reaches this gate too (Iterate retries it once the human
+has checked the daemon), as does a second refusal that the file is not
+in the record or is a raw capture. Scope `off-script:<stage>:<n>`,
+sharing `n` with the push's off-script gate,
 `context` quoting the refusal and the path; the `action`/`next` questions
 and selection are the push gate's. Take writes the description with the
 refused files' local paths linked instead of uploads, while files already
@@ -676,7 +677,8 @@ never uploaded on its own.
 
 Title from the ticket or the first commit subject; the body links the
 ticket and carries the evidence section the evidence record below
-describes, built from the record just written. The update replaces the whole body, so start from the one just read back: keep
+describes, built from the record just written. The update replaces the
+whole body, so start from the one just read back: keep
 what is already there (a teammate's edits) and change only what this verb
 owns. The domain's title, template and voice rules win over this paragraph.
 
@@ -737,8 +739,9 @@ draft and the note quoted in the final report.
 
 ## Domain rules
 
-If a rule below asks for a move this graph marks STOP, take the off-script edge instead. A rule that keeps a capture out of the
-record, or keeps a base with no waiver, yields to the evidence record.
+If a rule below asks for a move this graph marks STOP, take the off-script
+edge instead. A rule that keeps a capture out of the record, or keeps a
+base with no waiver, yields to the evidence record.
 
 {{slot:domain}}
 

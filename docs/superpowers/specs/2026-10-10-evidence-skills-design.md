@@ -105,9 +105,10 @@ attachment that `stage-evidence`, `stage-ship` and `ship` pull in with
 - Capture the BEFORE once per case the plan names, each with its id and
   label; the attempt counter stays per case.
 - After capture: **Annotate or waive (evidence-record)**.
-- The record is written (step 4) before the `evidence-attach` gate, so
-  any upload there passes `runId`. The gate's `annotations` question
-  stays; an image left with nothing selected goes to the waiver question.
+- The record is written (step 4) after the `evidence-attach` gate's
+  answer and before any upload at its Attach now, so any upload there
+  passes `runId`. The gate's `annotations` answer decides the marks; an
+  image left with nothing selected goes to the waiver question.
   `attach` keeps its meaning, and after the upload the record is
   rewritten with `attach` set to the handed-back markdown.
 - The finish paragraph describes `evidence@2`; `{"plan": "none"}` stays.

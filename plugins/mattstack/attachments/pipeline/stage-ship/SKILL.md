@@ -332,8 +332,9 @@ the stage with the error quoted.
 ### Capture the AFTER for the next case the domain names
 
 For each case in the record, the same view as its BEFORE, on the sha
-you pushed; any other capture the domain names is a new case with its
-own `id` and `label`. The counter is attempts per case within this pass;
+you pushed; a v1 record's BEFORE counts as the case `case`, so an AFTER
+of that view belongs to it. Any other capture the domain names is a new
+case with its own `id` and `label`. The counter is attempts per case within this pass;
 after the third failure that case goes on without its AFTER and the
 description says what was tried. Unbound, there is no AFTER. Every
 capture goes into the record through the evidence record's merge and
@@ -343,10 +344,11 @@ never uploaded on its own.
 ### Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)
 
 The upload guard refused a file past its one fix; a second timeout on
-the same file reaches this gate too, and Iterate retries it once the
-human has checked the daemon. Scope
-`off-script:ship:<n>`, sharing `n` with the push's off-script gate,
-`context` quoting the refusal and the path. Take writes the description
+the same file reaches this gate too (Iterate retries it once the human
+has checked the daemon), as does a second refusal that the file is not
+in the record or is a raw capture. Scope `off-script:ship:<n>`, sharing
+`n` with the push's off-script gate, `context` quoting the refusal and
+the path. Take writes the description
 with the refused files' local paths linked instead of uploads, while files
 already uploaded keep their upload markdown; Iterate means the human moved
 the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file under
@@ -357,8 +359,8 @@ on what leaves the machine.
 
 Title from the ticket or the first commit subject; the body links the
 ticket and carries the evidence section the evidence record below
-describes, built from the record just written. The update replaces the whole body, so start from the one just
-read back: keep what is already there (evidence the evidence stage
+describes, built from the record just written. The update replaces the
+whole body, so start from the one just read back: keep what is already there (evidence the evidence stage
 attached, a teammate's edits) and change only what this stage owns. The
 domain's title, template and voice rules win over this paragraph.
 
