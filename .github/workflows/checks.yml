@@ -284,11 +284,12 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
       - name: Digraph checker cases
         run: bash plugins/mattstack/plugin/skills/process-digraphs/test-check-dot.sh
-      - name: Pipeline gate stop hook tests
+      - name: Plugin hook tests
         working-directory: plugins/mattstack
         run: |
           bash hooks/tests/test-pipeline-gate-stop.sh
           sh tests/test-gate-stop-hook.sh
+          bash hooks/tests/test-agent-effort-guard.sh
       - name: Every plugin digraph passes check-dot (warnings fail)
         working-directory: plugins/mattstack
         run: |

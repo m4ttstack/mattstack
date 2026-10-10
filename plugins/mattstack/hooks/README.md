@@ -14,6 +14,7 @@ names must be a path inside this repo.
 | `hooks/pipeline-gate-stop.sh` | `Stop` | when this session's pipeline run is still `running`, not held, and no backgrounded MCP call or async agent is pending in the transcript, blocks the turn from ending in prose (exit 2) and hands the agent the five exits: continue, open the decision as a form, hold, close, or arm a gate wait; fails open on every error before the run is matched, and the transcript scan falls back to the block |
 | `hooks/spill-read-note.sh` | `SessionStart` | adds one line of context: read a tool result Claude Code saved to a file with the Read tool, because a Bash read of that folder (`sed`, `cat`, `head`) asks the user for permission once per call |
 | `hooks/relocation-announce.sh` | `PreToolUse` on `EnterWorktree` | hands the hook's stdin to `rt worktree announce-relocation` so the daemon can accept this pane's relocation dialog; fails open on every error |
+| `hooks/agent-effort-guard.sh` | `PreToolUse` on `Agent` | blocks an Agent call that names a model but no effort (exit 2), so the agent retries with the effort from the model-tiering table; a fork passes, and it fails open on every error |
 
 **`herdr-doorbell.sh` is hand-installed** by symlink into
 `~/.claude/hooks/`. herdr installs its own managed hook there and tells you to
