@@ -28,6 +28,7 @@ import { packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share
 import { setSetting } from "../lib/settings/write.ts";
 import { initPack, NEEDS_YOU_REFUSALS, POLICY_REFUSALS, type InitDeps, type InitOutcome, type InitRemedy } from "../lib/skills/init.ts";
 import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
+import { readFloor } from "../lib/engine-floor.ts";
 import { textInput } from "../lib/ui/prompts.ts";
 import * as ui from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
@@ -199,6 +200,10 @@ function realDeps(opts: { json: boolean }): InitDeps {
       } catch {
         return null;
       }
+    },
+    engineFloor: () => {
+      const dir = resolvePluginRoots().byName.mattstack?.dir;
+      return dir ? readFloor((path) => (existsSync(path) ? readFileSync(path, "utf8") : null), dir) : null;
     },
     claude: claudeBin ? (args) => run(claudeBin, args) : null,
     registerRepo: async (dir) => {

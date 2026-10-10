@@ -616,6 +616,23 @@ describe("initPack", () => {
     expect(calls.claude.some((a) => a[1] === "marketplace" && a[2] === "add")).toBe(false);
   });
 
+  test("an engine whose floor is above this rt refuses before writing, and a later init with a fitting app goes through", async () => {
+    const { deps, calls, fs } = world();
+    deps.engine = () => "0.30.28";
+    deps.engineFloor = () => "0.31.0";
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "needs-newer-app", detail: refusalCopy("0.30.28", "the acme pack", "0.31.0") });
+    expect(fs.exists(`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/plugin`)).toBe(false);
+    expect(calls.claims).toEqual([]);
+    expect(calls.compiled).toEqual([]);
+    expect(calls.remembered).toEqual([]);
+
+    deps.engine = () => "0.31.0";
+    const retry = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(retry.ok).toBe(true);
+    expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
+  });
+
   test("a pack whose floor fits is installed", async () => {
     const { deps, calls, fs } = world();
     deps.engine = () => "0.31.0";

@@ -10,7 +10,7 @@ import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
-import { readFloor, refusalCopy, runnableEngine } from "../engine-floor.ts";
+import { readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
 import { admit, installArgs } from "../setup/plugin-calls.ts";
 import { parseMarker } from "../team/org-marker.ts";
 import { orgLayoutWaitingError, pickedCloneReady, pickOrgClone } from "../team/org-layout.ts";
@@ -340,6 +340,8 @@ export type InitDeps = {
   rememberShare(zone: ZoneInfo, paths: string[]): void;
   /** The engine version this rt runs; null when it cannot tell. */
   engine?: () => string | null;
+  /** The installed mattstack engine's own floor, which compile copies into the pack. */
+  engineFloor?: () => Floor;
 };
 
 /** The pack folder plus every other file init wrote, relative to the org clone. */
@@ -481,6 +483,12 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   }
   const marketplace = zone.marketplace ?? zone.org;
   const pluginId = `${pack}@${marketplace}`;
+
+  // Checked before anything is written: a refusal after compile would leave a pack that the next init refuses as pack-exists.
+  const fitsEngine = admit((deps.engineFloor ?? (() => null))(), (deps.engine ?? runnableEngine)());
+  if (!fitsEngine.ok) {
+    return refuse("needs-newer-app", refusalCopy(fitsEngine.engine, `the ${pack} pack`, fitsEngine.floor), undefined, "rt wrote nothing, so run this again once the app updates.");
+  }
 
   const wrote: string[] = [];
 
