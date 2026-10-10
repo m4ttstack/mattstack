@@ -94,7 +94,7 @@ export function createRunsHandlers(
       if (!runId) return { ok: false as const, error: "missing runId" };
       const byCase = "case" in payload;
       const address = byCase ? readAddress(payload) : null;
-      if (byCase && !address) return { ok: false as const, error: "bad address" };
+      if (byCase && !address) return { ok: false as const, error: "bad address: slot must be before or after, theme light or dark, annotated a boolean" };
       const key = payload.key as EvidenceImageKey | EvidenceTextKey;
       const isText = !byCase && (EVIDENCE_TEXT_KEYS as readonly string[]).includes(key);
       if (!byCase && !isText && !(EVIDENCE_IMAGE_KEYS as readonly string[]).includes(key)) return { ok: false as const, error: "unknown key" };

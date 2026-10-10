@@ -112,13 +112,13 @@ describe("runs handlers", () => {
     const ann = await call({ case: "c1", slot: "before", annotated: true });
     expect(Buffer.from(ann.data.base64, "base64").equals(PNG2)).toBe(true);
     expect((await call({ case: "c1", slot: "after", theme: "dark" })).ok).toBe(true);
-    expect((await call({ case: "c1", slot: "after" })).error).toBe("theme required: this slot has light and dark images");
+    expect((await call({ case: "c1", slot: "after" })).error).toBe("theme required: this slot is themed");
     expect((await call({ case: "c1", slot: "before", theme: "light" })).error).toBe("this slot has no themes");
     expect((await call({ case: "c1", slot: "after", theme: "light" })).error).toBe("no evidence");
-    expect((await call({ case: "c1", slot: "middle" })).error).toBe("bad address");
-    expect((await call({ case: "c1", slot: "before", theme: "sepia" })).error).toBe("bad address");
-    expect((await call({ case: 3, slot: "before" })).error).toBe("bad address");
-    expect((await call({ case: "c1", slot: "before", annotated: "yes" })).error).toBe("bad address");
+    expect((await call({ case: "c1", slot: "middle" })).error).toBe("bad address: slot must be before or after, theme light or dark, annotated a boolean");
+    expect((await call({ case: "c1", slot: "before", theme: "sepia" })).error).toBe("bad address: slot must be before or after, theme light or dark, annotated a boolean");
+    expect((await call({ case: 3, slot: "before" })).error).toBe("bad address: slot must be before or after, theme light or dark, annotated a boolean");
+    expect((await call({ case: "c1", slot: "before", annotated: "yes" })).error).toBe("bad address: slot must be before or after, theme light or dark, annotated a boolean");
   });
 
   test("runs:evidence addresses a v1 value as case 'case', and key addressing is unchanged", async () => {

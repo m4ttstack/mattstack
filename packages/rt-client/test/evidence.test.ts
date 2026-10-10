@@ -173,7 +173,7 @@ describe("evidence helpers", () => {
     expect(resolveEvidencePath(record, { case: "shape2", slot: "after", theme: "dark" })).toEqual({ ok: true, path: "/e/a-dark.png" });
   });
   test("resolveEvidencePath refuses a missing theme on a themed slot and a theme on an unthemed one", () => {
-    expect(resolveEvidencePath(record, { case: "shape2", slot: "after" })).toEqual({ ok: false, error: "theme required: this slot has light and dark images" });
+    expect(resolveEvidencePath(record, { case: "shape2", slot: "after" })).toEqual({ ok: false, error: "theme required: this slot is themed" });
     expect(resolveEvidencePath(record, { case: "shape2", slot: "before", theme: "light" })).toEqual({ ok: false, error: "this slot has no themes" });
   });
   test("resolveEvidencePath answers no evidence for an unknown case, absent slot, absent theme or absent annotation", () => {
@@ -222,6 +222,7 @@ describe("validateEvidence", () => {
       [one({ label: " ", after: { path: "/a.png", waiver: "w" } }), 'case "c1" needs a label'],
       [one({}), 'case "c1" needs a before or an after'],
       [one({ after: "/a.png" }), 'case "c1" after must be an image or a {light, dark} pair'],
+      [one({ after: { light: "x" } }), 'case "c1" after (light) must be an image'],
       [one({ after: {} }), 'case "c1" after must be an image or a {light, dark} pair'],
       [one({ after: { path: "a.png", waiver: "w" } }), 'case "c1" after path must be an absolute path'],
       [one({ after: { path: "/a.png", annotated: "aa.png", caption: "c" } }), 'case "c1" after annotated must be an absolute path'],

@@ -177,7 +177,7 @@ export function resolveEvidencePath(record: EvidenceRecord, address: EvidenceAdd
   const shots = record.cases.find((c) => c.id === address.case)?.[address.slot];
   if (!shots) return none;
   const themed = shots.some((s) => s.theme !== undefined);
-  if (themed && !address.theme) return { ok: false, error: "theme required: this slot has light and dark images" };
+  if (themed && !address.theme) return { ok: false, error: "theme required: this slot is themed" };
   if (!themed && address.theme) return { ok: false, error: "this slot has no themes" };
   const shot = themed ? shots.find((s) => s.theme === address.theme) : shots[0];
   const path = address.annotated ? shot?.annotated : shot?.path;
@@ -211,6 +211,7 @@ function slotProblem(o: unknown, where: string, caseWaived: boolean): string | n
   const themes = EVIDENCE_THEMES.filter((t) => o[t] !== undefined);
   if (themes.length === 0) return `${where} ${PAIR}`;
   for (const t of themes) {
+    if (!isObject(o[t])) return `${where} (${t}) must be an image`;
     const problem = imageProblem(o[t], `${where} (${t})`, caseWaived);
     if (problem) return problem;
   }
