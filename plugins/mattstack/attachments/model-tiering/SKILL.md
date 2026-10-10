@@ -42,12 +42,15 @@ silent downgrade.
 | Work shape | Tier | Effort |
 |---|---|---|
 | Simple, high-volume, or disposable lookup; extraction; transcription plus testing (the brief carries the literal code) | `haiku` | `medium` |
+| Mechanical execution -- complete spec, 2-3 files, existing pattern to follow | `sonnet` | `low` |
+| Integration -- merge branches, run verification, report | `sonnet` | `low` |
+| Re-review of a small fix whose finding is known | `sonnet` | `medium` |
 | Reading-heavy fan-out where each worker returns a judgment (an assessment, not a list) | `sonnet` | `medium` |
-| Mechanical execution -- complete spec, 2-3 files, existing pattern to follow | `opus` | `low` |
-| Integration -- merge branches, run verification, report | `opus` | `low` |
+| First review of a small, low-risk diff -- mechanical, one concern, under about 100 lines | `sonnet` | `high` |
 | Design / triage -- multiple valid approaches, cross-layer, product decisions | `opus` | `medium` |
-| Review -- any diff, artifact, or MR | `opus` | `high` |
+| Review of a normal feature diff or MR | `opus` | `high` |
 | Long-horizon autonomous coding -- larger than one sitting | `opus` | `xhigh` |
+| Review of a large or risky change -- concurrency, security, auth, money, data migrations, cross-cutting -- or a final whole-branch review | `opus` | `xhigh` |
 | Escalation only -- `opus` at `xhigh` reached a wrong conclusion with full context, or the user asks for it | `fable` | `high` |
 
 When two rows fit, take the one further down the table: rows run from
@@ -55,8 +58,14 @@ cheapest to most capable.
 
 **Floors.** `haiku` is only for work where the input already contains the
 answer and the output is easy to check; on multi-step work it takes more
-turns and costs more overall. A reviewer is never below `opus`: a review
-exists to catch what the author missed.
+turns and costs more overall. A reviewer never runs on a weaker model than
+the one that wrote the change under review (for a re-review, the fix): a
+review exists to catch what the author missed.
+
+**Other skills' tier words.** When another skill names a tier instead of a
+model (superpowers says "cheap", "standard", "most capable"), read cheap as
+`haiku`, standard as `sonnet`, and most capable as `opus`; `fable` stays
+escalation-only. Take the effort from this table's row for the work.
 
 **Excluded aliases.** `opusplan` upgrades only inside Claude Code's plan
 permission mode, which skill-driven workers never enter -- do not re-add it.

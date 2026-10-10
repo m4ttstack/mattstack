@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.30.26 + mattstack:model-tiering@0.30.26 + mattstack:execution-strategy@0.30.26 + mattstack:cswap-accounts@0.30.26"
+  compiled: "mattstack@0.30.27 + mattstack:model-tiering@0.30.27 + mattstack:execution-strategy@0.30.27 + mattstack:cswap-accounts@0.30.27"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.30.26 path=attachments/orchestration/shepherdr/SKILL.md lines=15-888 -->
+<!-- part: step source=mattstack:shepherdr version=0.30.27 path=attachments/orchestration/shepherdr/SKILL.md lines=15-888 -->
 
 # shepherdr
 
@@ -27,7 +27,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.30.26 path=attachments/model-tiering/SKILL.md lines=8-149 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.30.27 path=attachments/model-tiering/SKILL.md lines=8-158 -->
 # Model Tiering
 
 Start from `opus` and tune **effort** first; change tier only when the work
@@ -65,12 +65,15 @@ silent downgrade.
 | Work shape | Tier | Effort |
 |---|---|---|
 | Simple, high-volume, or disposable lookup; extraction; transcription plus testing (the brief carries the literal code) | `haiku` | `medium` |
+| Mechanical execution -- complete spec, 2-3 files, existing pattern to follow | `sonnet` | `low` |
+| Integration -- merge branches, run verification, report | `sonnet` | `low` |
+| Re-review of a small fix whose finding is known | `sonnet` | `medium` |
 | Reading-heavy fan-out where each worker returns a judgment (an assessment, not a list) | `sonnet` | `medium` |
-| Mechanical execution -- complete spec, 2-3 files, existing pattern to follow | `opus` | `low` |
-| Integration -- merge branches, run verification, report | `opus` | `low` |
+| First review of a small, low-risk diff -- mechanical, one concern, under about 100 lines | `sonnet` | `high` |
 | Design / triage -- multiple valid approaches, cross-layer, product decisions | `opus` | `medium` |
-| Review -- any diff, artifact, or MR | `opus` | `high` |
+| Review of a normal feature diff or MR | `opus` | `high` |
 | Long-horizon autonomous coding -- larger than one sitting | `opus` | `xhigh` |
+| Review of a large or risky change -- concurrency, security, auth, money, data migrations, cross-cutting -- or a final whole-branch review | `opus` | `xhigh` |
 | Escalation only -- `opus` at `xhigh` reached a wrong conclusion with full context, or the user asks for it | `fable` | `high` |
 
 When two rows fit, take the one further down the table: rows run from
@@ -78,8 +81,14 @@ cheapest to most capable.
 
 **Floors.** `haiku` is only for work where the input already contains the
 answer and the output is easy to check; on multi-step work it takes more
-turns and costs more overall. A reviewer is never below `opus`: a review
-exists to catch what the author missed.
+turns and costs more overall. A reviewer never runs on a weaker model than
+the one that wrote the change under review (for a re-review, the fix): a
+review exists to catch what the author missed.
+
+**Other skills' tier words.** When another skill names a tier instead of a
+model (superpowers says "cheap", "standard", "most capable"), read cheap as
+`haiku`, standard as `sonnet`, and most capable as `opus`; `fable` stays
+escalation-only. Take the effort from this table's row for the work.
 
 **Excluded aliases.** `opusplan` upgrades only inside Claude Code's plan
 permission mode, which skill-driven workers never enter -- do not re-add it.
@@ -175,7 +184,7 @@ framework they override.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.30.26 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.30.27 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -290,7 +299,7 @@ When nothing is inlined above, every default in this engine stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.30.26 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.30.27 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -1163,7 +1172,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.30.26 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.30.27 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
