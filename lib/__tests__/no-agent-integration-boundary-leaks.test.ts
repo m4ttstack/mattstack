@@ -79,9 +79,10 @@ const ALLOWED: Record<string, Allowed> = {
   "commands/skills-writing-style.ts": { why: "legacy", reason: "reads Claude's user skills folder directly", modules: [`${C}skills.ts`] },
 };
 
-const NATIVE = /^lib\/agent-integrations\/(claude|codex)\//;
-/** Static, type-only, dynamic and `typeof import()` forms alike. */
-const SPECIFIER = /(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)["']([^"']+)["']/g;
+/** The folder itself counts: an import of its index reaches the same modules. */
+const NATIVE = /^lib\/agent-integrations\/(claude|codex)(\/|$)/;
+/** Static, type-only, dynamic, `typeof import()` and `require()` forms alike. */
+const SPECIFIER = /(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)["']([^"']+)["']/g;
 
 function isTest(path: string): boolean {
   return /(^|\/)__tests__\//.test(path) || /\.test\.tsx?$/.test(path) || path.startsWith("e2e/") || /(^|\/)tests?\//.test(path);

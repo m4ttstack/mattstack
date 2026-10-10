@@ -16,6 +16,12 @@ from `scripts/acceptance/tested-versions.json`.
 `bun scripts/acceptance/harnesses.ts --verify --evidence <this folder>/harness-integrations-acceptance.json`
 is the check, and it exits 0 for nothing less.
 
+Until scripted capture helpers exist (ruling P18), a pass whose record says
+`attestedBy: "operator"` is operator-attested, not machine-proven: the runner
+checks its files, native event log, identity and timing, but cannot know the
+step ran as described. Only the artifact and native version probes,
+`release-artifact` and `codex-only-no-claude` are `attestedBy: "machine"`.
+
 Earlier evidence (source tests, the live-18 and live-19 runs, task reports)
 is cited where it narrows a gap. None of it counts as a pass here: the design
 requires the distributed workflow matrix.
@@ -40,7 +46,7 @@ requires the distributed workflow matrix.
 | A14 | Continuation policy | hook scenarios above, `hook-repeated-stop`, `pipeline` | Blocked (S9b) | Whether Codex plan-mode clarify opens a gate is unverified (S11). |
 | A15 | CI leases | `ci-lease` | Blocked (S9b) | None beyond the run. |
 | A16 | File confinement | `skills-mcp` | Blocked (S9b) | None beyond the run. |
-| A17 | Skill compilation | `release-artifact`, `skills-mcp` | Blocked (S9b) | The marketplace now publishes a Codex build of `mattstack` with a `.codex-plugin` manifest and a Codex catalog, but nothing in setup adds that marketplace to Codex yet, and the manifest and catalog shapes are read from rt's own reader, not checked against Codex. The pack's hand-written `plugin/skills` are not in the Codex build. Team packs install their Claude build on Codex (S12). |
+| A17 | Skill compilation | `release-artifact`, `skills-mcp` | Blocked (S9b) | Decision (ruling P17): every release compiles and strictly checks the Codex build of `mattstack`, but the `.codex-plugin` manifest, `targets/codex/` and the `.agents/plugins/marketplace.json` catalog are published only with `RT_PUBLISH_CODEX_BUILD=1`, off by default. Turning it on waits for a task that installs the build on Codex and checks those shapes live; they are read from rt's own reader today. The pack's hand-written `plugin/skills` are not in the Codex build. Team packs install their Claude build on Codex (S12). |
 | A18 | Skill maintenance | `skills-maintenance` | Blocked (S9b) | Plain compile, check and expand, and `rt team` listing, still read Claude's plugin list (S12). `skills audit` uses a locked `codex exec`, not a launch (ruling P14). |
 | A19 | Skill behaviour and delegation | `skills-mcp`, `shepherd-workers` | Blocked (S9b) | Still Claude-only: the shepherdr engine, wrap-up form, watch-ci sleeps, execution strategy (S11). |
 | A20 | Installation | `install`, `codex-only-no-claude` | Blocked (S9b) | A Codex-only clean install has never run. The VM driver now takes `HARNESS_PROFILE`; the switch must be turned on before setup. |

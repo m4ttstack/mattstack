@@ -436,7 +436,13 @@ fi
 plist_set LSMinimumSystemVersion string 14.0
 # The commit this bundle was built from, in both flavors: harness acceptance
 # records it as the artifact under test, so a run proves a specific build.
-SOURCE_COMMIT="${GITHUB_SHA:-$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)}"
+# A local build from a tree with uncommitted tracked changes is not that
+# commit, so its stamp says -dirty and acceptance refuses it. CI's release
+# stamps GITHUB_SHA as is: its version bump edits tracked files on purpose.
+SOURCE_COMMIT="${GITHUB_SHA:-}"
+if [ -z "$SOURCE_COMMIT" ] && SOURCE_COMMIT="$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null)"; then
+    [ -n "$(git -C "$REPO_DIR" status --porcelain --untracked-files=no 2>/dev/null)" ] && SOURCE_COMMIT="$SOURCE_COMMIT-dirty"
+fi
 if [ -n "$SOURCE_COMMIT" ]; then
     plutil -replace MSSourceCommit -string "$SOURCE_COMMIT" "$INFO"
 fi

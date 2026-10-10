@@ -303,6 +303,7 @@ describe("rt changes that affect a plugin", () => {
     "lib/command-tree-resolve.ts",
     "lib/command-tree.ts",
     "cli.ts",
+    "scripts/release/marketplace.sh",
   ])("%s runs plugin-mattstack when the plugin exists", (f) => {
     withPlugin("mattstack", (root) => expect(rtTriggeredPluginDirs([f], root)).toEqual(["plugins/mattstack"]));
   });

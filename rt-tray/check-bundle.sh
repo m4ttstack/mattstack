@@ -390,8 +390,17 @@ check_helpers() { # app
             fail "$exe skills: dot directory $dotdir would break the bundle seal"
         done < <(find "$app/Contents/Helpers/skills" -type d -name '*.*' -print0)
     fi
-    # Codex's builds, one tree per app under skills-targets/codex/: the same
-    # SKILL.md and dot rules, plus the codex marker on a generated tree.
+    # Codex's builds, one tree per app under skills-targets/codex/: board and
+    # gitq must be there, with the same SKILL.md and dot rules, plus the codex
+    # marker on board's generated tree.
+    local codexapp
+    for codexapp in board gitq; do
+        if [ -n "$(find "$app/Contents/Helpers/skills-targets/codex/$codexapp" -mindepth 2 -maxdepth 2 -name SKILL.md -print -quit 2>/dev/null)" ]; then
+            pass "$exe codex skills: $codexapp ships a Codex build"
+        else
+            fail "$exe codex skills: Helpers/skills-targets/codex/$codexapp is missing or holds no skill"
+        fi
+    done
     if [ -d "$app/Contents/Helpers/skills-targets" ]; then
         while IFS= read -r -d '' skdir; do
             [ -f "$skdir/SKILL.md" ] && pass "$exe codex skills: $(basename "$(dirname "$skdir")")/$(basename "$skdir") has SKILL.md" \

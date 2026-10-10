@@ -24,11 +24,11 @@ import {
   type EvidenceFile, type TestedMatrix,
 } from "../evidence.ts";
 import {
-  blockedRun, captureDriver, parseNativeEvents, runHarnessAcceptance, runProfile, verifyHarnessAcceptance,
+  blockedRun, captureDriver, importProfileRun, parseNativeEvents, runHarnessAcceptance, runProfile, verifyHarnessAcceptance,
   type Driver,
 } from "../harnesses.ts";
 import { AUDIT_IDS, PLAN_SCENARIO_IDS, PROFILES, requiredSlots, SCENARIOS, slotKey, type Profile } from "../scenarios.ts";
-import { COMMIT, fixtureEnv, type FixtureEnv } from "./fixture-env.ts";
+import { COMMIT, eventLog, fixtureEnv, type FixtureEnv } from "./fixture-env.ts";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const MATRIX_PATH = join(ROOT, "scripts", "acceptance", "tested-versions.json");
@@ -381,6 +381,154 @@ describe("the runner never passes what it did not observe", () => {
     const run = blockedRun("codex-only", "not run yet: S9b");
     expect(run.scenarios.map((s) => slotKey(s.scenario, s.harness))).toEqual(requiredSlots("codex-only").map((s) => slotKey(s.scenario.id, s.harness)));
     expect(run.scenarios.every((s) => s.outcome === "blocked" && s.reason === "not run yet: S9b")).toBe(true);
+  });
+});
+
+describe("capture verification (review hardening)", () => {
+  const restartManifest = (over: Record<string, unknown> = {}) => ({
+    outcome: "passed" as const, files: ["r.log"], events: "r.events.jsonl",
+    hook: { revision: "rev", trust: "trusted" as const, proof: "receipts" as const },
+    service: { id: "com.mattstack.daemon", recordedAt: "2026-10-10T00:00:00.000Z" },
+    native: {
+      before: { nativeId: "thread-codex", generation: 2, pending: ["q-1"] },
+      after: { nativeId: "thread-codex", generation: 3, pending: [] },
+      fate: "completed" as const, fateSource: "native" as const,
+    },
+    ...over,
+  });
+
+  async function restartRecord(manifest: Record<string, unknown>, files: Record<string, string>) {
+    const evidence = join(tempDir("rt-acceptance-ev-"), "acceptance.json");
+    const e = env();
+    e.capture("codex-only", "rt-restart-after-answer@codex", manifest as never, files);
+    const run = await runProfile({ profile: "codex-only", evidence, environment: e.descriptorPath, execFor: () => e.exec });
+    return run.scenarios.find((s) => s.scenario === "rt-restart-after-answer")!;
+  }
+
+  test("a restart capture with matching events, before and after the recorded stop, passes as operator-attested", async () => {
+    const record = await restartRecord(restartManifest(), { "r.log": "ok\n", "r.events.jsonl": eventLog("codex", true) });
+    expect(record.outcome).toBe("passed");
+    expect(record.attestedBy).toBe("operator");
+    expect(record.events).toBe("harness-integrations/codex-only/rt-restart-after-answer@codex/r.events.jsonl");
+  });
+
+  test("a restart or disconnect capture with no event log fails", async () => {
+    const record = await restartRecord(restartManifest({ events: undefined }), { "r.log": "ok\n" });
+    expect(record.outcome).toBe("failed");
+    expect(record.reason).toContain("carries no native event log");
+  });
+
+  test("events that never show the original session at the later generation fail", async () => {
+    const record = await restartRecord(restartManifest(), { "r.log": "ok\n", "r.events.jsonl": eventLog("codex", true, { afterGeneration: 4 }) });
+    expect(record.outcome).toBe("failed");
+    expect(record.reason).toContain("no native event shows thread-codex at generation 3 after the restart");
+  });
+
+  test("a service recorded after the stop fails", async () => {
+    const record = await restartRecord(
+      restartManifest({ service: { id: "com.mattstack.daemon", recordedAt: "2026-10-10T00:00:05.000Z" } }),
+      { "r.log": "ok\n", "r.events.jsonl": eventLog("codex", true) },
+    );
+    expect(record.outcome).toBe("failed");
+    expect(record.reason).toContain("the service was not recorded before the stop");
+  });
+
+  test("an event log with no stop marker fails a disruptive scenario", async () => {
+    const record = await restartRecord(restartManifest(), { "r.log": "ok\n", "r.events.jsonl": eventLog("codex", false) });
+    expect(record.outcome).toBe("failed");
+    expect(record.reason).toContain("does not mark the service-stop");
+  });
+
+  test("an empty captured file is not evidence", async () => {
+    const evidence = join(tempDir("rt-acceptance-ev-"), "acceptance.json");
+    const e = env();
+    e.capture("claude-only", "chat@claude", { outcome: "passed", files: ["chat.log"], hook: { revision: "r", trust: "trusted", proof: "installation" } }, { "chat.log": "" });
+    const run = await runProfile({ profile: "claude-only", evidence, environment: e.descriptorPath, execFor: () => e.exec });
+    const record = run.scenarios.find((s) => s.scenario === "chat")!;
+    expect(record.outcome).toBe("failed");
+    expect(record.reason).toContain("is empty");
+  });
+
+  test("an evidence path that is a folder, or a record observed outside its run, fails verify", async () => {
+    const { evidence } = await passingMatrix();
+    const doc = load(evidence);
+    const run = doc.profiles.mixed!;
+    const chat = run.scenarios.find((s) => s.scenario === "chat")!;
+    chat.evidence = [chat.evidence[0]!.replace(/\/[^/]+$/, "")];
+    const skills = run.scenarios.find((s) => s.scenario === "skills-mcp")!;
+    skills.observedAt = "2020-01-01T00:00:00.000Z";
+    writeFileSync(evidence, JSON.stringify(doc));
+    const result = verifyHarnessAcceptance(evidence, MATRIX_PATH);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain("is not a file");
+      expect(result.error.message).toContain("was observed outside its run");
+    }
+  });
+
+  test("automated drivers are machine-attested, and the file says what operator attestation means", async () => {
+    const { evidence } = await passingMatrix();
+    const doc = load(evidence);
+    expect(doc.attestation).toContain("ruling P18");
+    const run = doc.profiles["codex-only"]!;
+    expect(run.scenarios.find((s) => s.scenario === "release-artifact")!.attestedBy).toBe("machine");
+    expect(run.scenarios.find((s) => s.scenario === "codex-only-no-claude")!.attestedBy).toBe("machine");
+    expect(run.scenarios.find((s) => s.scenario === "chat")!.attestedBy).toBe("operator");
+  });
+
+  test("a bundle built from a dirty tree fails the matrix", async () => {
+    const { evidence } = await passingMatrix();
+    const doc = load(evidence);
+    for (const p of PROFILES) {
+      doc.profiles[p]!.artifact.commit = `${COMMIT}-dirty`;
+      for (const s of doc.profiles[p]!.scenarios) s.artifact = doc.profiles[p]!.artifact;
+    }
+    expect(matrixProblems(doc, { matrix: matrix() })).toContain(`claude-only: the installed artifact was built from a tree with uncommitted changes (${COMMIT}-dirty)`);
+  });
+
+  test("a run with no environment clears the profile's old captured files too", async () => {
+    const evidence = join(tempDir("rt-acceptance-ev-"), "acceptance.json");
+    const stale = join(evidence, "..", "harness-integrations", "mixed", "chat@claude");
+    mkdirSync(stale, { recursive: true });
+    writeFileSync(join(stale, "old.log"), "old\n");
+    await runProfile({ profile: "mixed", evidence, environment: join(tempDir("rt-acceptance-none-"), "missing.json") });
+    expect(existsSync(stale)).toBe(false);
+  });
+});
+
+describe("import validates the guest run first", () => {
+  test("a guest run whose pass does not hold is refused and nothing is written", async () => {
+    const guest = join(tempDir("rt-acceptance-guest-"), "acceptance.json");
+    const e = env();
+    e.captureAllPassing("claude-only");
+    await runHarnessAcceptance({ profile: "claude-only", evidence: guest, environment: e.descriptorPath, execFor: () => e.exec });
+    const doc = load(guest);
+    doc.profiles["claude-only"]!.scenarios.find((s) => s.scenario === "chat")!.evidence = [];
+    writeFileSync(guest, JSON.stringify(doc));
+    const shared = join(tempDir("rt-acceptance-host-"), "acceptance.json");
+    const result = importProfileRun(guest, "claude-only", shared, MATRIX_PATH);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("chat@claude passed with no evidence");
+    expect(existsSync(shared)).toBe(false);
+    expect(existsSync(join(shared, "..", "harness-integrations"))).toBe(false);
+  });
+
+  test("a partial guest run imports with its blocked slots as they are", async () => {
+    const guest = join(tempDir("rt-acceptance-guest-"), "acceptance.json");
+    const e = env();
+    e.capture("codex-only", "chat@codex", { outcome: "passed", files: ["c.log"], hook: { revision: "r", trust: "trusted", proof: "receipts" } }, { "c.log": "ok\n" });
+    await runHarnessAcceptance({ profile: "codex-only", evidence: guest, environment: e.descriptorPath, execFor: () => e.exec });
+    const shared = join(tempDir("rt-acceptance-host-"), "acceptance.json");
+    expect(importProfileRun(guest, "codex-only", shared, MATRIX_PATH)).toEqual({ ok: true, data: undefined });
+    const run = load(shared).profiles["codex-only"]!;
+    expect(run.scenarios.find((s) => s.scenario === "chat")!.outcome).toBe("passed");
+    expect(run.scenarios.some((s) => s.outcome === "blocked")).toBe(true);
+  });
+
+  test("a vm descriptor on the regular HOME is refused outside a guest", () => {
+    const e = env({ kind: "vm" });
+    expect(loadEnvironment(e.descriptorPath, e.descriptor.home, () => false).ok).toBe(false);
+    expect(loadEnvironment(e.descriptorPath, e.descriptor.home, () => true).ok).toBe(true);
   });
 });
 

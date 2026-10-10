@@ -228,12 +228,37 @@ describe("marketplace.sh validation", () => {
     return tree;
   }
 
-  test("a pack that compiles publishes its Codex build, manifest and catalog beside Claude's", () => {
+  test("by default a pack's Codex build is compiled and checked but never published", () => {
     const tree = compilingTree();
     const src = sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
     const bare = bareRepo();
     const calls = join(scratch("calls"), "log");
-    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: tree, RT_CODEX_COMPILE: codexCompile(), CODEX_CALLS: calls });
+    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: tree, RT_CODEX_COMPILE: codexCompile(), CODEX_CALLS: calls, RT_PUBLISH_CODEX_BUILD: "" });
+    expect(r.code).toBe(0);
+    expect(readFileSync(calls, "utf8").trim().split("\n").map((l) => l.split(" ")[0])).toEqual(["compile", "check"]);
+    const files = publishedFiles(bare);
+    expect(files.some((f) => f.startsWith(".agents/") || f.includes(".codex-plugin") || f.includes("/targets/"))).toBe(false);
+    expect(files).toContain("plugins/mattstack/.claude-plugin/plugin.json");
+  });
+
+  test("the Codex build compiles with no publish token in its environment", () => {
+    const tree = compilingTree();
+    const src = sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
+    const stub = join(scratch("bin"), "rt-skills");
+    const seen = join(scratch("seen"), "log");
+    writeFileSync(stub, `#!/bin/sh\necho "token=\${MARKETPLACE_TOKEN:-none}" >> "${seen}"\nexit 1\n`);
+    chmodSync(stub, 0o755);
+    const r = run(["--dry-run", src], { RT_TREE_ROOT: tree, RT_CODEX_COMPILE: stub, MARKETPLACE_TOKEN: "secret-value" });
+    expect(r.code).not.toBe(0);
+    expect(readFileSync(seen, "utf8")).toBe("token=none\n");
+  });
+
+  test("with the opt-in a pack that compiles publishes its Codex build, manifest and catalog beside Claude's", () => {
+    const tree = compilingTree();
+    const src = sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
+    const bare = bareRepo();
+    const calls = join(scratch("calls"), "log");
+    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: tree, RT_CODEX_COMPILE: codexCompile(), CODEX_CALLS: calls, RT_PUBLISH_CODEX_BUILD: "1" });
     expect(r.code).toBe(0);
     const ran = readFileSync(calls, "utf8").trim().split("\n");
     expect(ran.map((l) => l.split(" ")[0])).toEqual(["compile", "check"]);
@@ -267,7 +292,7 @@ describe("marketplace.sh validation", () => {
     const src = sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
     const bare = bareRepo();
     const calls = join(scratch("calls"), "log");
-    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: tree, RT_CODEX_COMPILE: codexCompile(), CODEX_CALLS: calls });
+    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: tree, RT_CODEX_COMPILE: codexCompile(), CODEX_CALLS: calls, RT_PUBLISH_CODEX_BUILD: "1" });
     expect(r.code).toBe(0);
     expect(existsSync(calls)).toBe(false);
     expect(publishedFiles(bare).some((f) => f.startsWith(".agents/") || f.includes(".codex-plugin"))).toBe(false);

@@ -92,8 +92,9 @@ jobs:
       # `plugins.install` adds this marketplace on every machine rt sets up, so
       # it has to be live before the release shipping that installer is. It
       # pins plugin repos and ships the in-tree plugins from this commit (their
-      # Codex builds compiled from it in the staged copy), never anything else
-      # this run builds, so it goes out first: a broken catalog then
+      # Codex builds are compiled and checked from it in the staged copy, and
+      # published only with RT_PUBLISH_CODEX_BUILD=1), never anything else this
+      # run builds, so it goes out first: a broken catalog then
       # costs seconds instead of the twenty minutes it takes to reach
       # notarization. A run that changes nothing needs no token; the script
       # pushes only a real diff.

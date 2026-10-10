@@ -50,6 +50,14 @@ export type ScenarioRecord = {
   native?: NativeFate;
   /** The service a disruptive scenario stopped or restarted, recorded before it did. */
   service?: { id: string; recordedAt: string };
+  /** The native event log among `evidence`, for a scenario whose identity and timing are checked against one. */
+  events?: string;
+  /**
+   * Who stands behind a pass: `machine` when a driver observed it itself,
+   * `operator` when it rests on a capture someone made (ruling P18). Null
+   * for a slot that never ran.
+   */
+  attestedBy: "machine" | "operator" | null;
   observedAt: string;
 };
 
@@ -86,15 +94,19 @@ export type EvidenceFile = {
   schema: number;
   kind: string;
   matrix: string;
+  /** What a pass in this file stands on; see each record's `attestedBy`. */
+  attestation: string;
   profiles: Partial<Record<Profile, ProfileRun>>;
 };
+
+export const ATTESTATION = "A pass with attestedBy \"operator\" rests on a capture the operator made: the runner checks its files, native events, identity and timing, but cannot prove the step ran as described (ruling P18). Only attestedBy \"machine\" passes were observed by the runner itself: the artifact and native version probes, release-artifact and codex-only-no-claude.";
 
 export type TestedMatrix = { schema: number; harnesses: Record<string, { versions: string[] }> };
 
 export const DEFAULT_MATRIX_PATH = "scripts/acceptance/tested-versions.json";
 
 export function emptyEvidence(): EvidenceFile {
-  return { schema: EVIDENCE_SCHEMA, kind: EVIDENCE_KIND, matrix: DEFAULT_MATRIX_PATH, profiles: {} };
+  return { schema: EVIDENCE_SCHEMA, kind: EVIDENCE_KIND, matrix: DEFAULT_MATRIX_PATH, attestation: ATTESTATION, profiles: {} };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -173,7 +185,7 @@ export function writeProfileRun(path: string, run: ProfileRun): void {
     if (!current.ok) throw new Error(current.error.message);
     const doc = current.data;
     doc.profiles = { ...doc.profiles, [run.profile]: run };
-    const ordered: EvidenceFile = { ...doc, profiles: {} };
+    const ordered: EvidenceFile = { ...doc, attestation: ATTESTATION, profiles: {} };
     for (const p of PROFILES) if (doc.profiles[p]) ordered.profiles[p] = doc.profiles[p];
     const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
     writeFileSync(tmp, `${JSON.stringify(ordered, null, 2)}\n`);
@@ -219,7 +231,11 @@ export function evidencePathProblem(path: string, profile: Profile): string | nu
 
 const TEXT_EXTENSIONS = /\.(json|jsonl|txt|log|md|toml|yaml|yml|csv|html)$/i;
 
-export type VerifyOptions = { root?: string; matrix?: TestedMatrix; checkFiles?: boolean };
+export type VerifyOptions = {
+  root?: string; matrix?: TestedMatrix; checkFiles?: boolean;
+  /** Report failed and blocked slots as they are, without counting them as problems (an import of a partial run). */
+  allowUnpassed?: boolean;
+};
 
 const PROOF_KIND: Record<AcceptanceHarness, HookRecord["proof"]> = { claude: "installation", codex: "receipts" };
 
@@ -243,11 +259,12 @@ export function matrixProblems(doc: EvidenceFile, opts: VerifyOptions = {}): str
   return problems;
 }
 
-function profileProblems(run: ProfileRun, profile: Profile, matrix: TestedMatrix | undefined, opts: VerifyOptions): string[] {
+export function profileProblems(run: ProfileRun, profile: Profile, matrix: TestedMatrix | undefined, opts: VerifyOptions): string[] {
   const problems: string[] = [];
   const harnesses = PROFILE_HARNESSES[profile];
   if (run.profile !== profile) problems.push(`${profile}: its run says it is ${run.profile}`);
   if (!run.artifact?.commit || !run.artifact?.version) problems.push(`${profile}: the installed artifact's commit and version were not recorded`);
+  else if (run.artifact.commit.endsWith("-dirty")) problems.push(`${profile}: the installed artifact was built from a tree with uncommitted changes (${run.artifact.commit})`);
   for (const h of ACCEPTANCE_HARNESSES) {
     const version = run.natives?.[h] ?? null;
     if (harnesses.includes(h)) {
@@ -302,7 +319,9 @@ export function recordProblems(record: ScenarioRecord, run: ProfileRun, profile:
   const at = `${profile}: ${key}`;
   if (record.profile !== profile) problems.push(`${at} was recorded under ${record.profile}`);
   if (record.outcome !== "passed") {
-    if (record.outcome === "blocked" || record.outcome === "failed") problems.push(`${at} ${record.outcome}${record.reason ? `: ${record.reason}` : ""}`);
+    if (record.outcome === "blocked" || record.outcome === "failed") {
+      if (!opts.allowUnpassed) problems.push(`${at} ${record.outcome}${record.reason ? `: ${record.reason}` : ""}`);
+    }
     else problems.push(`${at} has outcome ${String(record.outcome)}, which is not passed, failed or blocked`);
     return problems;
   }
@@ -316,6 +335,11 @@ export function recordProblems(record: ScenarioRecord, run: ProfileRun, profile:
     if ((record.natives?.[h] ?? null) !== (run.natives?.[h] ?? null)) problems.push(`${at} ran ${h} ${record.natives?.[h] ?? "absent"}, not the profile's ${run.natives?.[h] ?? "absent"}`);
   }
   if (!record.permissionMode) problems.push(`${at} records no permission mode`);
+  if (record.attestedBy !== "machine" && record.attestedBy !== "operator") problems.push(`${at} does not say whether the runner or an operator stands behind it`);
+  const observed = Date.parse(record.observedAt);
+  if (Number.isNaN(observed) || observed < Date.parse(run.startedAt) || observed > Date.parse(run.finishedAt)) {
+    problems.push(`${at} was observed outside its run (${record.observedAt})`);
+  }
   if (record.harness) {
     if (record.launch !== "managed" && record.launch !== "manual") problems.push(`${at} records no managed or manual launch`);
     const hook = record.hook;
@@ -327,6 +351,11 @@ export function recordProblems(record: ScenarioRecord, run: ProfileRun, profile:
     if (!record.service?.id || !record.service.recordedAt) problems.push(`${at} did not record the service it stopped before stopping it`);
   }
   if (def.restart) problems.push(...restartProblems(record.native, at));
+  if (def.events) {
+    if (!record.events) problems.push(`${at} carries no native event log`);
+    else if (!record.evidence?.includes(record.events)) problems.push(`${at}: its event log ${record.events} is not among its evidence`);
+    else if (opts.checkFiles && opts.root) problems.push(...eventProblems(join(opts.root, record.events), record, run, def, at));
+  }
   if (!record.evidence?.length) problems.push(`${at} passed with no evidence`);
   for (const path of record.evidence ?? []) {
     const problem = evidencePathProblem(path, profile);
@@ -362,10 +391,84 @@ function fileProblems(abs: string, rel: string, at: string): string[] {
     return [`${at}: ${rel} is missing`];
   }
   if (st.isSymbolicLink()) return [`${at}: ${rel} is a link`];
-  if (!st.isFile()) return [];
+  if (!st.isFile()) return [`${at}: ${rel} is not a file`];
+  if (st.size === 0) return [`${at}: ${rel} is empty`];
   if (!TEXT_EXTENSIONS.test(rel)) return [];
   const secret = findSecret(readFileSync(abs, "utf8"));
   return secret ? [`${at}: ${rel} carries a credential (${secret})`] : [];
+}
+
+export type NativeEvent = { harness: AcceptanceHarness; sessionId: string; generation: number; type: string; at: string };
+
+/** The service stop a disruptive capture marks in its event log. */
+export const SERVICE_STOP_EVENT = "service-stop";
+
+/** Native events a capture recorded, one JSON object per line; a malformed line is never counted as evidence. */
+export function parseNativeEvents(text: string, harnesses: readonly AcceptanceHarness[]): Outcome<NativeEvent[]> {
+  const events: NativeEvent[] = [];
+  const lines = text.split("\n");
+  const bad = (i: number, why: string): Outcome<NativeEvent[]> => ({ ok: false, error: { code: "invalid", message: `native event line ${i + 1} ${why}` } });
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim();
+    if (!line) continue;
+    let e: unknown;
+    try {
+      e = JSON.parse(line);
+    } catch {
+      return bad(i, "is not JSON");
+    }
+    if (typeof e !== "object" || e === null || Array.isArray(e)) return bad(i, "is not an object");
+    const ev = e as Partial<NativeEvent>;
+    if (!harnesses.includes(ev.harness as AcceptanceHarness)) return bad(i, `names harness ${String(ev.harness)}, which this run does not include`);
+    if (typeof ev.sessionId !== "string" || !ev.sessionId) return bad(i, "has no session id");
+    if (!Number.isInteger(ev.generation) || (ev.generation as number) < 0) return bad(i, "has no attachment generation");
+    if (typeof ev.type !== "string" || !ev.type) return bad(i, "has no type");
+    if (typeof ev.at !== "string" || Number.isNaN(Date.parse(ev.at))) return bad(i, "has no time");
+    events.push(ev as NativeEvent);
+  }
+  if (events.length === 0) return { ok: false, error: { code: "invalid", message: "the native event log holds no events" } };
+  return { ok: true, data: events };
+}
+
+/**
+ * A disruptive capture's events must show its service recorded before the
+ * stop, and a restart's must show the original native session at both its
+ * generations, the later one only after the stop.
+ */
+export function eventTimelineProblems(events: NativeEvent[], record: Pick<ScenarioRecord, "native" | "service">, disruptive: boolean, restart: boolean, at: string): string[] {
+  const problems: string[] = [];
+  const time = (e: NativeEvent) => Date.parse(e.at);
+  const stop = events.filter((e) => e.type === SERVICE_STOP_EVENT).sort((a, b) => time(a) - time(b))[0];
+  if (disruptive) {
+    if (!stop) problems.push(`${at}: its event log does not mark the ${SERVICE_STOP_EVENT}`);
+    else if (!record.service?.recordedAt || !(Date.parse(record.service.recordedAt) < time(stop))) {
+      problems.push(`${at}: the service was not recorded before the stop`);
+    } else {
+      const firstAfter = events.filter((e) => time(e) > time(stop)).sort((a, b) => time(a) - time(b))[0];
+      if (firstAfter && !(Date.parse(record.service.recordedAt) < time(firstAfter))) problems.push(`${at}: the service was recorded after events that followed the stop`);
+    }
+  }
+  if (restart && record.native) {
+    const { before, after } = record.native;
+    const of = (generation: number) => events.filter((e) => e.sessionId === before.nativeId && e.generation === generation);
+    if (of(before.generation).length === 0) problems.push(`${at}: no native event shows ${before.nativeId} at generation ${before.generation} before the restart`);
+    const later = of(after.generation);
+    if (later.length === 0) problems.push(`${at}: no native event shows ${before.nativeId} at generation ${after.generation} after the restart`);
+    else if (stop && !later.some((e) => time(e) > time(stop))) problems.push(`${at}: ${before.nativeId} is never seen at generation ${after.generation} after the stop`);
+  }
+  return problems;
+}
+
+function eventProblems(abs: string, record: ScenarioRecord, run: ProfileRun, def: { needs: readonly string[]; restart?: true }, at: string): string[] {
+  let text: string;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return [`${at}: its event log is missing`];
+  }
+  const parsed = parseNativeEvents(text, PROFILE_HARNESSES[run.profile]);
+  if (!parsed.ok) return [`${at}: ${parsed.error.message}`];
+  return eventTimelineProblems(parsed.data, record, def.needs.includes("disruptive"), def.restart === true, at);
 }
 
 export function verifyEvidenceFile(path: string, matrixPath: string): Outcome<void> {

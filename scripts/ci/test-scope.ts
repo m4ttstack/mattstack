@@ -117,8 +117,10 @@ export function pluginDirs(changed: string[]): string[] {
 }
 
 // rt paths a plugin's own checks read through `rt`: plugin-mattstack runs
-// `rt skills check` and diffs its mcp-tools reference against `rt mcp tools`,
-// so a change to either surface can turn it red with no plugin file touched.
+// `rt skills check` (Claude and Codex builds) and diffs its mcp-tools
+// reference against `rt mcp tools`, so a change to either surface can turn it
+// red with no plugin file touched. The release's marketplace publish runs the
+// same Codex compile, so a change to it runs the job too.
 // Keys are repo path prefixes.
 export const RT_PLUGIN_TRIGGERS: Record<string, string> = {
   "lib/mcp/": "plugins/mattstack",
@@ -127,6 +129,7 @@ export const RT_PLUGIN_TRIGGERS: Record<string, string> = {
   "commands/skills": "plugins/mattstack",
   "lib/command-tree": "plugins/mattstack",
   "cli.ts": "plugins/mattstack",
+  "scripts/release/marketplace.sh": "plugins/mattstack",
 };
 
 export function rtTriggeredPluginDirs(changed: string[], root: string = ROOT): string[] {

@@ -23,10 +23,13 @@ import {
   type EnvironmentDescriptor, type Exec,
 } from "./environment.ts";
 import {
-  DEFAULT_MATRIX_PATH, EVIDENCE_FILES_DIR, findSecret, readEvidence, recordProblems, verifyEvidenceFile, writeProfileRun,
+  DEFAULT_MATRIX_PATH, EVIDENCE_FILES_DIR, findSecret, parseNativeEvents, profileProblems, readEvidence, readMatrix, recordProblems,
+  verifyEvidenceFile, writeProfileRun,
   type Artifact, type EnvironmentRecord, type HookRecord, type NativeFate, type NativeFormRecord, type NativeVersions,
   type ProfileRun, type ScenarioOutcome, type ScenarioRecord,
 } from "./evidence.ts";
+export { parseNativeEvents, type NativeEvent } from "./evidence.ts";
+
 import {
   NATIVE_FORM_FEATURES, PROFILE_HARNESSES, PROFILES, requiredSlots, slotKey,
   type AcceptanceHarness, type Profile, type ScenarioDef,
@@ -51,6 +54,10 @@ export type DriverResult = {
   native?: NativeFate;
   hook?: HookRecord | null;
   service?: { id: string; recordedAt: string };
+  /** The native event log among `evidence`. */
+  events?: string;
+  /** Absent, the pass rests on an operator's capture. */
+  attestedBy?: "machine" | "operator";
 };
 
 export type Driver = (ctx: DriverContext) => Promise<DriverResult>;
@@ -64,6 +71,8 @@ export type RunOptions = {
   drivers?: Record<string, Driver>;
   now?: () => Date;
   realHome?: string;
+  /** Whether the runner itself is inside a VM guest; probed when omitted. */
+  inVm?: () => boolean;
   execFor?: (env: EnvironmentDescriptor) => Exec;
 };
 
@@ -133,35 +142,6 @@ function slotContext(base: { profile: Profile; env: EnvironmentDescriptor; exec:
   };
 }
 
-// ── native event evidence ────────────────────────────────────────────────
-
-export type NativeEvent = { harness: AcceptanceHarness; sessionId: string; generation: number; type: string; at: string };
-
-/** Native events a capture recorded, one JSON object per line; a malformed line is never counted as evidence. */
-export function parseNativeEvents(text: string, harnesses: readonly AcceptanceHarness[]): Outcome<NativeEvent[]> {
-  const events: NativeEvent[] = [];
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!.trim();
-    if (!line) continue;
-    let e: unknown;
-    try {
-      e = JSON.parse(line);
-    } catch {
-      return { ok: false, error: { code: "invalid", message: `native event line ${i + 1} is not JSON` } };
-    }
-    const ev = e as Partial<NativeEvent>;
-    if (typeof e !== "object" || e === null || Array.isArray(e)) return { ok: false, error: { code: "invalid", message: `native event line ${i + 1} is not an object` } };
-    if (!harnesses.includes(ev.harness as AcceptanceHarness)) return { ok: false, error: { code: "invalid", message: `native event line ${i + 1} names harness ${String(ev.harness)}, which this run does not include` } };
-    if (typeof ev.sessionId !== "string" || !ev.sessionId) return { ok: false, error: { code: "invalid", message: `native event line ${i + 1} has no session id` } };
-    if (!Number.isInteger(ev.generation) || (ev.generation as number) < 0) return { ok: false, error: { code: "invalid", message: `native event line ${i + 1} has no attachment generation` } };
-    if (typeof ev.type !== "string" || !ev.type) return { ok: false, error: { code: "invalid", message: `native event line ${i + 1} has no type` } };
-    if (typeof ev.at !== "string" || Number.isNaN(Date.parse(ev.at))) return { ok: false, error: { code: "invalid", message: `native event line ${i + 1} has no time` } };
-    events.push(ev as NativeEvent);
-  }
-  return { ok: true, data: events };
-}
-
 // ── drivers ──────────────────────────────────────────────────────────────
 
 /**
@@ -193,6 +173,7 @@ export const captureDriver: Driver = async (ctx) => {
   }
   if (!["passed", "failed", "blocked"].includes(m.outcome)) return { outcome: "failed", reason: `the ${key} capture manifest has outcome ${String(m.outcome)}` };
   const evidence: string[] = [];
+  let events: string | undefined;
   for (const file of m.files ?? []) {
     const abs = resolve(folder, file);
     if (!abs.startsWith(`${resolve(folder)}/`)) return { outcome: "failed", reason: `${file} is outside the capture folder` };
@@ -208,8 +189,9 @@ export const captureDriver: Driver = async (ctx) => {
     const copied = ctx.copyEvidence(abs);
     if (!copied.ok) return { outcome: "failed", reason: copied.error.message };
     evidence.push(copied.data);
+    events = copied.data;
   }
-  return { outcome: m.outcome, reason: m.reason, evidence, native: m.native, hook: m.hook ?? null, service: m.service };
+  return { outcome: m.outcome, reason: m.reason, evidence, ...(events && { events }), native: m.native, hook: m.hook ?? null, service: m.service, attestedBy: "operator" };
 };
 
 const BOARD_CODEX_MARKER = "skills-target.json";
@@ -254,8 +236,8 @@ export const releaseArtifactDriver: Driver = async (ctx) => {
   const evidence = [ctx.writeEvidence("bundle-checks.json", `${JSON.stringify(checks, null, 2)}\n`)];
   const failed = checks.filter((c) => !c.ok);
   return failed.length === 0
-    ? { outcome: "passed", evidence }
-    : { outcome: "failed", reason: failed.map((c) => c.check + (c.detail ? ` (${c.detail})` : "")).join("; "), evidence };
+    ? { outcome: "passed", evidence, attestedBy: "machine" }
+    : { outcome: "failed", reason: failed.map((c) => c.check + (c.detail ? ` (${c.detail})` : "")).join("; "), evidence, attestedBy: "machine" };
 };
 
 /** Nothing ran Claude and nothing wrote its configuration. */
@@ -273,7 +255,7 @@ export const codexOnlyNoClaudeDriver: Driver = async (ctx) => {
     ...(findings.claudeConfigDir ? ["~/.claude exists"] : []),
     ...(findings.claudeJson ? ["~/.claude.json exists"] : []),
   ];
-  return problems.length === 0 ? { outcome: "passed", evidence } : { outcome: "failed", reason: problems.join("; "), evidence };
+  return problems.length === 0 ? { outcome: "passed", evidence, attestedBy: "machine" } : { outcome: "failed", reason: problems.join("; "), evidence, attestedBy: "machine" };
 };
 
 export const DEFAULT_DRIVERS: Record<string, Driver> = {
@@ -295,7 +277,7 @@ export function probeArtifact(env: EnvironmentDescriptor, exec: Exec): Artifact 
   const commit = plistValue(exec, plist, "MSSourceCommit");
   const rt = exec([env.rt, "--version"]);
   const rtVersion = rt.status === 0 ? parseVersion(rt.stdout) : null;
-  return { commit: commit && /^[0-9a-f]{40}$/.test(commit) ? commit : null, version: version && rtVersion === parseVersion(version) ? version : null };
+  return { commit: commit && /^[0-9a-f]{40}(-dirty)?$/.test(commit) ? commit : null, version: version && rtVersion === parseVersion(version) ? version : null };
 }
 
 export function probeNatives(profile: Profile, exec: Exec): NativeVersions {
@@ -325,7 +307,7 @@ function nativeForms(env: EnvironmentDescriptor | null, profile: Profile): Nativ
 function emptyRecord(profile: Profile, scenario: ScenarioDef, harness: AcceptanceHarness | undefined, outcome: ScenarioOutcome, reason: string, at: string): ScenarioRecord {
   return {
     scenario: scenario.id, ...(harness && { harness }), profile, outcome, reason, auditIds: [...scenario.auditIds],
-    artifact: { commit: null, version: null }, natives: {}, permissionMode: null, hook: null, launch: null, evidence: [], observedAt: at,
+    artifact: { commit: null, version: null }, natives: {}, permissionMode: null, hook: null, launch: null, evidence: [], attestedBy: null, observedAt: at,
   };
 }
 
@@ -352,14 +334,15 @@ export async function runProfile(opts: RunOptions): Promise<ProfileRun> {
   const now = opts.now ?? (() => new Date());
   const { profile } = opts;
   if (!PROFILES.includes(profile)) throw new Error(`unknown profile ${profile}; choose ${PROFILES.join(", ")}`);
-  const loaded = loadEnvironment(opts.environment ?? process.env[ENV_VAR], opts.realHome);
+  // A run replaces its profile's results, blocked or not, so its old captured files go with them.
+  const dir = profileEvidenceDir(opts.evidence, profile);
+  if (basename(dirname(dir)) !== EVIDENCE_FILES_DIR || basename(dir) !== profile) throw new Error(`refusing to clear ${dir}`);
+  rmSync(dir, { recursive: true, force: true });
+  const loaded = loadEnvironment(opts.environment ?? process.env[ENV_VAR], opts.realHome, opts.inVm);
   if (!loaded.ok) return blockedRun(profile, loaded.error.message, now);
   const env = loaded.data;
   const exec = guardedExec((opts.execFor ?? environmentExec)(env), profile);
   const startedAt = iso(now);
-  const dir = profileEvidenceDir(opts.evidence, profile);
-  if (basename(dirname(dir)) !== EVIDENCE_FILES_DIR || basename(dir) !== profile) throw new Error(`refusing to clear ${dir}`);
-  rmSync(dir, { recursive: true, force: true });
 
   const artifact = probeArtifact(env, exec);
   const natives = probeNatives(profile, exec);
@@ -392,6 +375,7 @@ export async function runProfile(opts: RunOptions): Promise<ProfileRun> {
       auditIds: [...scenario.auditIds], artifact, natives, permissionMode: env.permissionMode,
       hook: harness ? result.hook ?? null : null, launch: harness ? env.launch : null,
       evidence: result.evidence ?? [], ...(result.native && { native: result.native }), ...(result.service && { service: result.service }),
+      ...(result.events && { events: result.events }), attestedBy: result.attestedBy ?? "operator",
       observedAt: at,
     };
     run.scenarios.push(record);
@@ -418,16 +402,29 @@ export async function runHarnessAcceptance(options: { profile: Profile; evidence
 }
 
 /** Checks the completed matrix: ok only when every profile passed every required scenario on one tested artifact. */
-export function verifyHarnessAcceptance(evidence: string, matrix: string = join(resolve(import.meta.dir, "..", ".."), DEFAULT_MATRIX_PATH)): Outcome<void> {
+function defaultMatrix(): string {
+  return join(resolve(import.meta.dir, "..", ".."), DEFAULT_MATRIX_PATH);
+}
+
+export function verifyHarnessAcceptance(evidence: string, matrix: string = defaultMatrix()): Outcome<void> {
   return verifyEvidenceFile(evidence, matrix);
 }
 
-/** Takes one profile's run from an evidence file written elsewhere (a guest), with its captured files, into the shared file. */
-export function importProfileRun(from: string, profile: Profile, evidence: string): Outcome<void> {
+/**
+ * Takes one profile's run from an evidence file written elsewhere (a guest),
+ * with its captured files, into the shared file. The run is checked first
+ * with verify's own checks, failed and blocked slots aside, and nothing is
+ * written when it does not hold.
+ */
+export function importProfileRun(from: string, profile: Profile, evidence: string, matrixPath: string = defaultMatrix()): Outcome<void> {
   const doc = readEvidence(from);
   if (!doc.ok) return doc;
   const run = doc.data.profiles[profile];
   if (!run) return { ok: false, error: { code: "invalid", message: `${from} has no ${profile} run` } };
+  const matrix = readMatrix(matrixPath);
+  if (!matrix.ok) return matrix;
+  const problems = profileProblems(run, profile, matrix.data, { root: dirname(resolve(from)), checkFiles: true, allowUnpassed: true });
+  if (problems.length > 0) return { ok: false, error: { code: "invalid", message: `the ${profile} run in ${from} cannot be imported:\n${problems.join("\n")}` } };
   const src = profileEvidenceDir(from, profile);
   const dest = profileEvidenceDir(evidence, profile);
   if (resolve(src) !== resolve(dest)) {
@@ -498,7 +495,7 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   if (from) {
-    const imported = importProfileRun(from, profile as Profile, evidence);
+    const imported = importProfileRun(from, profile as Profile, evidence, matrix);
     if (!imported.ok) {
       console.error(imported.error.message);
       return 1;

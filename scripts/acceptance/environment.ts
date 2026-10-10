@@ -52,7 +52,13 @@ export type LoadedEnvironment = { descriptor: EnvironmentDescriptor; exec: Exec 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** The descriptor, checked against its root's ownership marker; an error says why the run must record every scenario blocked. */
-export function loadEnvironment(path: string | undefined, realHome: string = homedir()): Outcome<EnvironmentDescriptor> {
+/** True inside a macOS virtual machine guest (the hypervisor flag the kernel reports). */
+export function runningInVm(): boolean {
+  const res = spawnSync("/usr/sbin/sysctl", ["-n", "kern.hv_vmm_present"], { encoding: "utf8" });
+  return res.status === 0 && res.stdout.trim() === "1";
+}
+
+export function loadEnvironment(path: string | undefined, realHome: string = homedir(), inVm: () => boolean = runningInVm): Outcome<EnvironmentDescriptor> {
   if (!path) return { ok: false, error: { code: "not-ready", message: `no acceptance-owned environment: set ${ENV_VAR} to its descriptor` } };
   let doc: unknown;
   try {
@@ -81,7 +87,8 @@ export function loadEnvironment(path: string | undefined, realHome: string = hom
   }
   if (owned !== d.id) return { ok: false, error: { code: "refused", message: `${marker} names ${owned || "nothing"}, not ${d.id}` } };
 
-  if (d.kind === "isolated-home" && resolve(d.home) === resolve(realHome)) {
+  // Inside a guest the runner's own HOME is the disposable tester's; anywhere else it is a person's.
+  if (d.kind !== "shared-home" && resolve(d.home) === resolve(realHome) && !(d.kind === "vm" && inVm())) {
     return { ok: false, error: { code: "refused", message: `${d.kind} must not use the regular HOME ${realHome}` } };
   }
   if (d.kind === "shared-home" && d.disruptive) {

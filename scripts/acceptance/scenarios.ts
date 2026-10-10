@@ -57,6 +57,8 @@ export type ScenarioDef = {
   profiles?: readonly Profile[];
   /** A restart scenario must prove what happened to the original operation, not that a replacement worked. */
   restart?: true;
+  /** The capture must carry the native event log its identity and timing are checked against. */
+  events?: true;
 };
 
 export const SCENARIOS: readonly ScenarioDef[] = [
@@ -66,12 +68,12 @@ export const SCENARIOS: readonly ScenarioDef[] = [
   { id: "hook-script-tampered", title: "A tampered hook program is refused and never treated as proof", scope: "harness", auditIds: ["A12", "A14"], needs: [] },
   { id: "hook-timeout", title: "A hook that times out fails closed and the gate still holds", scope: "harness", auditIds: ["A12", "A14"], needs: [] },
   { id: "hook-repeated-stop", title: "Repeated Stop attempts cannot end a run past a required gate", scope: "harness", auditIds: ["A14"], needs: [] },
-  { id: "question-controller-reconnect", title: "A pending question survives its controller reconnecting", scope: "harness", auditIds: ["A11"], needs: ["disruptive"] },
+  { id: "question-controller-reconnect", title: "A pending question survives its controller reconnecting", scope: "harness", auditIds: ["A11"], needs: ["disruptive"], events: true },
   { id: "question-answer-race", title: "Competing answers: one stored winner, completed once natively", scope: "harness", auditIds: ["A11"], needs: ["person", "browser"] },
-  { id: "all-clients-disconnect", title: "Every client disconnects; owed deliveries and gates recover", scope: "harness", auditIds: ["A09", "A11"], needs: ["disruptive"] },
-  { id: "rt-restart-after-answer", title: "rt restarts after an answer and before native completion", scope: "harness", auditIds: ["A11"], needs: ["disruptive"], restart: true },
-  { id: "native-restart-pending-question", title: "The harness restarts with a question pending", scope: "harness", auditIds: ["A06", "A11"], needs: ["disruptive"], restart: true },
-  { id: "native-restart-queued-input", title: "The harness restarts with peer input queued", scope: "harness", auditIds: ["A09"], needs: ["disruptive"], restart: true },
+  { id: "all-clients-disconnect", title: "Every client disconnects; owed deliveries and gates recover", scope: "harness", auditIds: ["A09", "A11"], needs: ["disruptive"], events: true },
+  { id: "rt-restart-after-answer", title: "rt restarts after an answer and before native completion", scope: "harness", auditIds: ["A11"], needs: ["disruptive"], restart: true, events: true },
+  { id: "native-restart-pending-question", title: "The harness restarts with a question pending", scope: "harness", auditIds: ["A06", "A11"], needs: ["disruptive"], restart: true, events: true },
+  { id: "native-restart-queued-input", title: "The harness restarts with peer input queued", scope: "harness", auditIds: ["A09"], needs: ["disruptive"], restart: true, events: true },
   { id: "consumption-client-id", title: "Consumption is attributed by the native client id, not by transport acceptance", scope: "harness", auditIds: ["A09"], needs: [] },
   { id: "default-cli-adoption", title: "rt agent starts the configured default harness", scope: "harness", auditIds: ["A01", "A26"], needs: [] },
 
@@ -95,7 +97,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
   { id: "state-working", title: "Runtime state: working", scope: "harness", auditIds: ["A05", "A06"], needs: [] },
   { id: "state-question-blocked", title: "Runtime state: blocked on a question", scope: "harness", auditIds: ["A06", "A11"], needs: [] },
   { id: "state-background", title: "Runtime state: foreground idle with background work", scope: "harness", auditIds: ["A06"], needs: [] },
-  { id: "state-disconnected", title: "Runtime state: disconnected", scope: "harness", auditIds: ["A05", "A07"], needs: ["disruptive"] },
+  { id: "state-disconnected", title: "Runtime state: disconnected", scope: "harness", auditIds: ["A05", "A07"], needs: ["disruptive"], events: true },
   { id: "state-resumed", title: "Runtime state: resumed", scope: "harness", auditIds: ["A07", "A08"], needs: [] },
   { id: "state-confirmed-dead", title: "Runtime state: confirmed dead, distinct from unknown", scope: "harness", auditIds: ["A05"], needs: ["disruptive"] },
   { id: "update", title: "An app update keeps every choice and re-runs only update-safe steps", scope: "profile", auditIds: ["A22"], needs: ["disruptive"] },

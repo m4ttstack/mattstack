@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildTreeRows, CODEX_SKILLS_AS_WRITTEN, codexSkillsSource, WORKSPACE_BUILD_ARGS } from "../build-apps.ts";
+import { buildTreeRows, WORKSPACE_BUILD_ARGS } from "../build-apps.ts";
 
 function fakeApp(root: string, name: string, opts: { skills?: boolean; serve?: boolean; codexTarget?: string } = {}) {
   const dir = join(root, name);
@@ -143,16 +143,6 @@ describe("build-apps", () => {
     fakeApp(apps, "alpha", { skills: true, codexTarget: "Run ${CLAUDE_SKILL_DIR}/x.sh\n" });
     await expect(buildTreeRows({ appsRoot: apps, depsRoot: join(work, "deps"), lockPath: treeLock(work, ["alpha"]), arch: "arm64", log: () => {} }))
       .rejects.toThrow(/names a Claude skill variable/);
-  });
-
-  test("this repo's board and gitq each have a Codex build that ships clean", () => {
-    const appsDir = join(import.meta.dir, "..", "..", "apps");
-    expect(codexSkillsSource(join(appsDir, "board"), "board")).toBe(join(appsDir, "board", "skills-targets", "codex"));
-    expect(codexSkillsSource(join(appsDir, "gitq"), "gitq")).toBe(join(appsDir, "gitq", "skills"));
-    expect(CODEX_SKILLS_AS_WRITTEN.has("deck")).toBe(false);
-    for (const entry of readdirSync(join(appsDir, "gitq", "skills"), { recursive: true, withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith(".md")) expect(readFileSync(join(entry.parentPath, entry.name), "utf8")).not.toMatch(/\$\{CLAUDE_[A-Z_]+\}/);
-    }
   });
 
   test("the workspace build filter excludes glance-react", () => {

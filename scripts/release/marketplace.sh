@@ -126,10 +126,14 @@ for name in $TREE_NAMES; do
 done
 
 # Codex's own build of every in-tree pack that compiles (it carries a
-# surface.jsonc). It is compiled into the staged copy only, never into the
-# checkout, under a throwaway HOME. Its manifest sits at the pack root because
-# the compiled skills reach the pack's attachments by climbing back to it, and
-# a Codex catalog beside the Claude one lists each pack that has a build.
+# surface.jsonc), compiled into the staged copy only, never into the checkout,
+# under a throwaway HOME with no publish token. Every run compiles and checks
+# it, so a broken build stops the release. It is published only with
+# RT_PUBLISH_CODEX_BUILD=1: until a task installs it on Codex and checks the
+# manifest and catalog shapes live, no guessed shape goes into the public
+# catalog. Published, its manifest sits at the pack root because the compiled
+# skills reach the pack's attachments by climbing back to it, and a Codex
+# catalog beside the Claude one lists each pack that has a build.
 # RT_CODEX_COMPILE names a stand-in for `rt skills` (the tests use one).
 codex_skills() {
     if [ -n "${RT_CODEX_COMPILE:-}" ]; then "$RT_CODEX_COMPILE" "$@"; else bun "$ROOT/cli.ts" skills "$@"; fi
@@ -140,7 +144,7 @@ for name in $TREE_NAMES; do
     [ -f "$pack/surface.jsonc" ] || continue
     CHOME="$(mktemp -d "${TMPDIR:-/tmp}/mattstack-marketplace-codex.XXXXXX")"
     mkdir -p "$CHOME/mattstack"
-    if ! ( unset CLAUDE_CONFIG_DIR CODEX_HOME; export HOME="$CHOME" RT_SKIP_SETUP=1 RT_BATCH=1
+    if ! ( unset CLAUDE_CONFIG_DIR CODEX_HOME MARKETPLACE_TOKEN; export HOME="$CHOME" RT_SKIP_SETUP=1 RT_BATCH=1
            codex_skills compile --harness codex --pack-dir "$pack" --mattstack-dir "$CHOME/mattstack" \
            && codex_skills check --harness codex --strict --pack-dir "$pack" --mattstack-dir "$CHOME/mattstack" ); then
         rm -rf "$CHOME"
@@ -149,6 +153,11 @@ for name in $TREE_NAMES; do
     rm -rf "$CHOME"
     [ -n "$(find "$pack/targets/codex/skills" -name SKILL.md -print -quit 2>/dev/null)" ] \
         || { echo "✗ $name: the Codex build has no skills" >&2; exit 1; }
+    if [ "${RT_PUBLISH_CODEX_BUILD:-0}" != 1 ]; then
+        rm -rf "$pack/targets/codex"; rmdir "$pack/targets" 2>/dev/null || true
+        echo "✓ $name: Codex build compiles and checks clean (not published; RT_PUBLISH_CODEX_BUILD=1 publishes it)"
+        continue
+    fi
     python3 - "$pack" <<'PY' || { echo "✗ $name: cannot write its Codex manifest" >&2; exit 1; }
 import json, os, sys
 pack = sys.argv[1]

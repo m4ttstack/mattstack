@@ -140,6 +140,10 @@ describe("the committed acceptance evidence", () => {
     expect(verifyHarnessAcceptance(COMMITTED).ok).toBe(allPassed);
   });
 
+  test("says that capture-only passes are operator-attested", () => {
+    expect(doc.attestation).toContain("ruling P18");
+  });
+
   test("a scenario that has not passed says why", () => {
     for (const profile of PROFILES) {
       for (const s of doc.profiles[profile]!.scenarios) {

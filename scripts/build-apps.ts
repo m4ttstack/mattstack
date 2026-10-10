@@ -62,7 +62,7 @@ export function codexSkillsSource(app: string, name: string): string | null {
 }
 
 /** A Codex skills tree that still names a Claude skill variable would hand Codex a path it never sets. */
-function assertCodexClean(dir: string, name: string): void {
+export function assertCodexClean(dir: string, name: string): void {
   for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
     const path = join(entry.parentPath, entry.name);

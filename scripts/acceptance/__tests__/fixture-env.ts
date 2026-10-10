@@ -87,12 +87,25 @@ export function fixtureEnv(opts: Partial<EnvironmentDescriptor> & { versions?: P
             fate: "completed", fateSource: "native",
           },
         }),
+        ...(scenario.events && { events: `${key}.events.jsonl` }),
       };
-      capture(profile, key, manifest, { [file]: `${key} observed\n` });
+      const files: Record<string, string> = { [file]: `${key} observed\n` };
+      if (scenario.events) files[`${key}.events.jsonl`] = eventLog(harness ?? "codex", scenario.needs.includes("disruptive"));
+      capture(profile, key, manifest, files);
     }
   };
 
   return { root, descriptorPath, descriptor, calls, exec, capture, captureAllPassing };
+}
+
+/** A native event log for one slot: the session at generation 2, the service stop, then generation 3. */
+export function eventLog(harness: string, disruptive: boolean, over: { stopAt?: string; afterGeneration?: number } = {}): string {
+  const ev = (generation: number, type: string, at: string) => JSON.stringify({ harness, sessionId: `thread-${harness}`, generation, type, at });
+  return [
+    ev(2, "turn", "2026-10-10T00:00:01.000Z"),
+    ...(disruptive ? [ev(2, "service-stop", over.stopAt ?? "2026-10-10T00:00:02.000Z")] : []),
+    ev(over.afterGeneration ?? 3, "turn", "2026-10-10T00:00:03.000Z"),
+  ].join("\n") + "\n";
 }
 
 /**
