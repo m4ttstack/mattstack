@@ -640,7 +640,7 @@ describe("syncPack", () => {
 
     const byName = Object.fromEntries(report.steps.map((s) => [s.name, s]));
     expect(byName["update-pack"]!.status).toBe("skipped");
-    expect(byName["update-pack"]!.detail).toBe(heldCopy(pluginId(pack), "1.0.0", "0.31.0"));
+    expect(byName["update-pack"]!.detail).toBe(heldCopy(pack.name, "1.0.0", "0.31.0"));
     expect(byName["verify-installed"]!.status).toBe("skipped");
     expect(report.ok).toBe(true);
     expect(calls.some((c) => c.args[1] === "update" && c.args[2] === pluginId(pack))).toBe(false);

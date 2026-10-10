@@ -962,7 +962,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const admission = admit(readFloor(readFileOrNull, pack.dir), (deps.engine ?? runnableEngine)());
     if (!admission.ok) {
       packHeld = true;
-      return skipped(heldCopy(id, packSourceVersion, admission.floor));
+      return skipped(heldCopy(pack.name, packSourceVersion, admission.floor));
     }
     const res = await deps.run(deps.claudeBin!, updateArgs(admission, id));
     if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);
