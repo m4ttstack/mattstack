@@ -650,15 +650,42 @@ export async function runCommand(
         const args = rest.filter(a => a !== '--json');
         const [name, action] = args;
         if (!name) {
-          const { body } = await apiJson('/api/v1/live');
+          const { status, body } = await apiJson('/api/v1/live');
+          if (status >= 400) {
+            io.err(body.error ?? `failed (${status})`);
+            return 1;
+          }
+          const apps: Array<{
+            name: string;
+            source: string;
+            branch: string | null;
+          }> = body.apps ?? [];
           if (json) io.out(JSON.stringify(body));
+          else if (apps.length === 0) io.out('nothing is live');
           else
-            for (const a of body.apps ?? [])
-              io.out(`${String(a.name).padEnd(24)} ${a.branch ?? 'main'}`);
+            for (const a of apps) {
+              const { body: s } = await apiJson(
+                `/api/v1/apps/${a.name}/live/sources`
+              );
+              const isMain = (s.sources ?? []).some(
+                (x: { path: string; main: boolean }) =>
+                  x.main && x.path === a.source
+              );
+              io.out(
+                `${a.name.padEnd(24)} ${isMain ? 'main' : (a.branch ?? a.source)}`
+              );
+            }
           return 0;
         }
         if (action === 'on') {
           const want = flag(args, '--worktree');
+          if (
+            args.includes('--worktree') &&
+            (want === undefined || want.startsWith('--'))
+          ) {
+            io.err(USAGE);
+            return 2;
+          }
           const { status: ss, body: s } = await apiJson(
             `/api/v1/apps/${name}/live/sources`
           );
