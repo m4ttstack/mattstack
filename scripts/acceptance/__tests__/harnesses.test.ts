@@ -27,7 +27,7 @@ import {
   blockedRun, captureDriver, parseNativeEvents, runHarnessAcceptance, runProfile, verifyHarnessAcceptance,
   type Driver,
 } from "../harnesses.ts";
-import { PLAN_SCENARIO_IDS, PROFILES, requiredSlots, SCENARIOS, slotKey, type Profile } from "../scenarios.ts";
+import { AUDIT_IDS, PLAN_SCENARIO_IDS, PROFILES, requiredSlots, SCENARIOS, slotKey, type Profile } from "../scenarios.ts";
 import { COMMIT, fixtureEnv, type FixtureEnv } from "./fixture-env.ts";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
@@ -82,6 +82,11 @@ describe("the acceptance matrix", () => {
       for (const id of PLAN_SCENARIO_IDS) expect(ids.has(id)).toBe(true);
     }
     expect(new Set(SCENARIOS.map((s) => s.id)).size).toBe(SCENARIOS.length);
+  });
+
+  test("every audit row A01 to A28 has a scenario that is evidence for it", () => {
+    for (const id of AUDIT_IDS) expect(SCENARIOS.some((s) => s.auditIds.includes(id)), id).toBe(true);
+    for (const s of SCENARIOS) for (const id of s.auditIds) expect(AUDIT_IDS).toContain(id);
   });
 
   test("mixed requires each harness and both shepherds", () => {

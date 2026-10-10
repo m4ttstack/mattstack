@@ -86,7 +86,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
   { id: "gates-external-answer", title: "A gate answered in the browser completes the native question", scope: "harness", auditIds: ["A11", "A12"], needs: ["person", "browser"] },
   { id: "pipeline", title: "A pipeline run attributes its stages and holds at its gates", scope: "harness", auditIds: ["A13", "A14"], needs: [] },
   { id: "ci-lease", title: "CI lease acquire, release and replacement", scope: "harness", auditIds: ["A15"], needs: [] },
-  { id: "shepherd-workers", title: "shepherdr spawns, supervises, retries and closes workers", scope: "harness", auditIds: ["A03", "A04", "A05"], needs: [] },
+  { id: "shepherd-workers", title: "shepherdr spawns, supervises, retries and closes workers", scope: "harness", auditIds: ["A03", "A04", "A05", "A19"], needs: [] },
   { id: "board-actions", title: "Board review, respond and doctor launch and report", scope: "harness", auditIds: ["A23"], needs: ["browser"] },
   { id: "gitq-actions", title: "gitq agent actions launch and report their job", scope: "harness", auditIds: ["A25"], needs: [] },
   { id: "chat-app", title: "The chat app finds, creates, invites and messages sessions", scope: "harness", auditIds: ["A10", "A24"], needs: ["browser"] },

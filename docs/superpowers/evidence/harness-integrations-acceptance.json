@@ -5,9 +5,9 @@
   "profiles": {
     "claude-only": {
       "profile": "claude-only",
-      "runId": "claude-only-2026-10-10T02:24:04.321Z",
-      "startedAt": "2026-10-10T02:24:04.321Z",
-      "finishedAt": "2026-10-10T02:24:04.321Z",
+      "runId": "claude-only-2026-10-10T02:33:39.991Z",
+      "startedAt": "2026-10-10T02:33:39.991Z",
+      "finishedAt": "2026-10-10T02:33:39.991Z",
       "environment": null,
       "artifact": {
         "commit": null,
@@ -37,7 +37,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "hook-trust-changed",
@@ -59,7 +59,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "hook-script-tampered",
@@ -80,7 +80,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "hook-timeout",
@@ -101,7 +101,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "hook-repeated-stop",
@@ -121,7 +121,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "question-controller-reconnect",
@@ -141,7 +141,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "question-answer-race",
@@ -161,7 +161,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "all-clients-disconnect",
@@ -182,7 +182,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "rt-restart-after-answer",
@@ -202,7 +202,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "native-restart-pending-question",
@@ -223,7 +223,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "native-restart-queued-input",
@@ -243,7 +243,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "consumption-client-id",
@@ -263,7 +263,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "default-cli-adoption",
@@ -284,7 +284,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "install",
@@ -305,7 +305,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "release-artifact",
@@ -325,7 +325,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "skills-mcp",
@@ -348,7 +348,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "skills-maintenance",
@@ -368,7 +368,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "launch-headless",
@@ -390,7 +390,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "launch-herdr",
@@ -413,7 +413,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "chat",
@@ -435,7 +435,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "gates-external-answer",
@@ -456,7 +456,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "pipeline",
@@ -477,7 +477,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "ci-lease",
@@ -497,7 +497,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "shepherd-workers",
@@ -508,7 +508,8 @@
           "auditIds": [
             "A03",
             "A04",
-            "A05"
+            "A05",
+            "A19"
           ],
           "artifact": {
             "commit": null,
@@ -519,7 +520,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "board-actions",
@@ -539,7 +540,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "gitq-actions",
@@ -559,7 +560,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "chat-app",
@@ -580,7 +581,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "worktrees",
@@ -600,7 +601,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-idle",
@@ -621,7 +622,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-working",
@@ -642,7 +643,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-question-blocked",
@@ -663,7 +664,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-background",
@@ -683,7 +684,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-disconnected",
@@ -704,7 +705,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-resumed",
@@ -725,7 +726,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-confirmed-dead",
@@ -745,7 +746,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "update",
@@ -764,7 +765,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "restore",
@@ -783,7 +784,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "uninstall",
@@ -802,7 +803,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.321Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         }
       ],
       "nativeForms": [
@@ -815,9 +816,9 @@
     },
     "codex-only": {
       "profile": "codex-only",
-      "runId": "codex-only-2026-10-10T02:24:04.322Z",
-      "startedAt": "2026-10-10T02:24:04.322Z",
-      "finishedAt": "2026-10-10T02:24:04.322Z",
+      "runId": "codex-only-2026-10-10T02:33:39.991Z",
+      "startedAt": "2026-10-10T02:33:39.991Z",
+      "finishedAt": "2026-10-10T02:33:39.991Z",
       "environment": null,
       "artifact": {
         "commit": null,
@@ -847,7 +848,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "hook-trust-changed",
@@ -869,7 +870,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "hook-script-tampered",
@@ -890,7 +891,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "hook-timeout",
@@ -911,7 +912,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "hook-repeated-stop",
@@ -931,7 +932,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "question-controller-reconnect",
@@ -951,7 +952,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "question-answer-race",
@@ -971,7 +972,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "all-clients-disconnect",
@@ -992,7 +993,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "rt-restart-after-answer",
@@ -1012,7 +1013,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "native-restart-pending-question",
@@ -1033,7 +1034,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "native-restart-queued-input",
@@ -1053,7 +1054,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "consumption-client-id",
@@ -1073,7 +1074,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "default-cli-adoption",
@@ -1094,7 +1095,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "install",
@@ -1115,7 +1116,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "release-artifact",
@@ -1135,7 +1136,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "skills-mcp",
@@ -1158,7 +1159,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "skills-maintenance",
@@ -1178,7 +1179,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "launch-headless",
@@ -1200,7 +1201,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "launch-herdr",
@@ -1223,7 +1224,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "chat",
@@ -1245,7 +1246,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "gates-external-answer",
@@ -1266,7 +1267,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "pipeline",
@@ -1287,7 +1288,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "ci-lease",
@@ -1307,7 +1308,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "shepherd-workers",
@@ -1318,7 +1319,8 @@
           "auditIds": [
             "A03",
             "A04",
-            "A05"
+            "A05",
+            "A19"
           ],
           "artifact": {
             "commit": null,
@@ -1329,7 +1331,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "board-actions",
@@ -1349,7 +1351,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "gitq-actions",
@@ -1369,7 +1371,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "chat-app",
@@ -1390,7 +1392,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "worktrees",
@@ -1410,7 +1412,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-idle",
@@ -1431,7 +1433,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-working",
@@ -1452,7 +1454,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-question-blocked",
@@ -1473,7 +1475,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-background",
@@ -1493,7 +1495,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-disconnected",
@@ -1514,7 +1516,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-resumed",
@@ -1535,7 +1537,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "state-confirmed-dead",
@@ -1555,7 +1557,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "update",
@@ -1574,7 +1576,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "restore",
@@ -1593,7 +1595,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "uninstall",
@@ -1612,7 +1614,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         },
         {
           "scenario": "codex-only-no-claude",
@@ -1632,7 +1634,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.991Z"
         }
       ],
       "nativeForms": [
@@ -1645,9 +1647,9 @@
     },
     "mixed": {
       "profile": "mixed",
-      "runId": "mixed-2026-10-10T02:24:04.322Z",
-      "startedAt": "2026-10-10T02:24:04.322Z",
-      "finishedAt": "2026-10-10T02:24:04.322Z",
+      "runId": "mixed-2026-10-10T02:33:39.992Z",
+      "startedAt": "2026-10-10T02:33:39.992Z",
+      "finishedAt": "2026-10-10T02:33:39.992Z",
       "environment": null,
       "artifact": {
         "commit": null,
@@ -1677,7 +1679,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "hook-trust-fresh",
@@ -1699,7 +1701,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "hook-trust-changed",
@@ -1721,7 +1723,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "hook-trust-changed",
@@ -1743,7 +1745,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "hook-script-tampered",
@@ -1764,7 +1766,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "hook-script-tampered",
@@ -1785,7 +1787,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "hook-timeout",
@@ -1806,7 +1808,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "hook-timeout",
@@ -1827,7 +1829,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "hook-repeated-stop",
@@ -1847,7 +1849,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "hook-repeated-stop",
@@ -1867,7 +1869,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "question-controller-reconnect",
@@ -1887,7 +1889,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "question-controller-reconnect",
@@ -1907,7 +1909,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "question-answer-race",
@@ -1927,7 +1929,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "question-answer-race",
@@ -1947,7 +1949,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "all-clients-disconnect",
@@ -1968,7 +1970,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "all-clients-disconnect",
@@ -1989,7 +1991,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "rt-restart-after-answer",
@@ -2009,7 +2011,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "rt-restart-after-answer",
@@ -2029,7 +2031,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "native-restart-pending-question",
@@ -2050,7 +2052,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "native-restart-pending-question",
@@ -2071,7 +2073,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "native-restart-queued-input",
@@ -2091,7 +2093,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "native-restart-queued-input",
@@ -2111,7 +2113,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "consumption-client-id",
@@ -2131,7 +2133,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "consumption-client-id",
@@ -2151,7 +2153,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "default-cli-adoption",
@@ -2172,7 +2174,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "default-cli-adoption",
@@ -2193,7 +2195,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "install",
@@ -2214,7 +2216,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "release-artifact",
@@ -2234,7 +2236,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "skills-mcp",
@@ -2257,7 +2259,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "skills-mcp",
@@ -2280,7 +2282,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "skills-maintenance",
@@ -2300,7 +2302,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "skills-maintenance",
@@ -2320,7 +2322,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "launch-headless",
@@ -2342,7 +2344,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "launch-headless",
@@ -2364,7 +2366,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "launch-herdr",
@@ -2387,7 +2389,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "launch-herdr",
@@ -2410,7 +2412,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "chat",
@@ -2432,7 +2434,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "chat",
@@ -2454,7 +2456,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "gates-external-answer",
@@ -2475,7 +2477,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "gates-external-answer",
@@ -2496,7 +2498,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "pipeline",
@@ -2517,7 +2519,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "pipeline",
@@ -2538,7 +2540,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "ci-lease",
@@ -2558,7 +2560,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "ci-lease",
@@ -2578,7 +2580,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "shepherd-workers",
@@ -2589,7 +2591,8 @@
           "auditIds": [
             "A03",
             "A04",
-            "A05"
+            "A05",
+            "A19"
           ],
           "artifact": {
             "commit": null,
@@ -2600,7 +2603,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "shepherd-workers",
@@ -2611,7 +2614,8 @@
           "auditIds": [
             "A03",
             "A04",
-            "A05"
+            "A05",
+            "A19"
           ],
           "artifact": {
             "commit": null,
@@ -2622,7 +2626,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "board-actions",
@@ -2642,7 +2646,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "board-actions",
@@ -2662,7 +2666,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "gitq-actions",
@@ -2682,7 +2686,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "gitq-actions",
@@ -2702,7 +2706,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "chat-app",
@@ -2723,7 +2727,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "chat-app",
@@ -2744,7 +2748,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "worktrees",
@@ -2764,7 +2768,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "worktrees",
@@ -2784,7 +2788,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-idle",
@@ -2805,7 +2809,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-idle",
@@ -2826,7 +2830,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-working",
@@ -2847,7 +2851,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-working",
@@ -2868,7 +2872,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-question-blocked",
@@ -2889,7 +2893,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-question-blocked",
@@ -2910,7 +2914,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-background",
@@ -2930,7 +2934,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-background",
@@ -2950,7 +2954,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-disconnected",
@@ -2971,7 +2975,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-disconnected",
@@ -2992,7 +2996,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-resumed",
@@ -3013,7 +3017,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-resumed",
@@ -3034,7 +3038,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-confirmed-dead",
@@ -3054,7 +3058,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "state-confirmed-dead",
@@ -3074,7 +3078,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "update",
@@ -3093,7 +3097,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "restore",
@@ -3112,7 +3116,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "uninstall",
@@ -3131,7 +3135,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "mixed-shepherd-claude",
@@ -3152,7 +3156,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         },
         {
           "scenario": "mixed-shepherd-codex",
@@ -3173,7 +3177,7 @@
           "hook": null,
           "launch": null,
           "evidence": [],
-          "observedAt": "2026-10-10T02:24:04.322Z"
+          "observedAt": "2026-10-10T02:33:39.992Z"
         }
       ],
       "nativeForms": [
