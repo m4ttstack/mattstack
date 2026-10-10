@@ -202,8 +202,12 @@ function realDeps(opts: { json: boolean }): InitDeps {
       }
     },
     engineFloor: () => {
-      const dir = resolvePluginRoots().byName.mattstack?.dir;
-      return dir ? readFloor((path) => (existsSync(path) ? readFileSync(path, "utf8") : null), dir) : null;
+      try {
+        const dir = resolvePluginRoots().byName.mattstack?.dir;
+        return dir ? readFloor((path) => (existsSync(path) ? readFileSync(path, "utf8") : null), dir) : null;
+      } catch {
+        return null;
+      }
     },
     claude: claudeBin ? (args) => run(claudeBin, args) : null,
     registerRepo: async (dir) => {

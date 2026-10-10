@@ -915,6 +915,21 @@ describe("initPack", () => {
     expect(calls.claims).toEqual([["beta/beta", ["acme/api"]]]);
   });
 
+  test("a floor above this rt refuses an interactive no-org init before the org is created", async () => {
+    let created = 0;
+    const { deps } = world({
+      gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }),
+      isTTY: true,
+      noOrg: true,
+      createZone: async () => { created += 1; return { slug: "beta", team: "beta", dir: ORG_ROOT("beta") }; },
+    });
+    deps.engine = () => "0.30.28";
+    deps.engineFloor = () => "0.31.0";
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "needs-newer-app" });
+    expect(created).toBe(0);
+  });
+
   test("zone-missing with a TTY: createZone reports a team but writes no folder, so the re-resolve miss names that team, not null", async () => {
     const { deps } = world({
       gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }),

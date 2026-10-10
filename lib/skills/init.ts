@@ -416,6 +416,11 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   if (opts.team !== null && !TEAM_NAME_RE.test(opts.team)) {
     return refuse("zone-missing", `${opts.team || "An empty name"} is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter`, "rt skills init --team <name>");
   }
+  // Checked before anything is written: a refusal after createZone or compile would leave an org or a pack on disk.
+  const floorRefusal = (label: string): InitOutcome | null => {
+    const fits = admit((deps.engineFloor ?? (() => null))(), (deps.engine ?? runnableEngine)());
+    return fits.ok ? null : refuse("needs-newer-app", refusalCopy(fits.engine, label, fits.floor), undefined, "rt wrote nothing, so run this again once the app updates.");
+  };
   let orgs = readOrgSlugs(deps.fs, deps.home);
   if (opts.zone !== null && !orgs.includes(opts.zone)) {
     return refuse("zone-missing", `There is no org called ${opts.zone} on this Mac${orgs.length > 0 ? `. Orgs here: ${orgs.join(", ")}` : ""}`);
@@ -435,6 +440,8 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     if (!deps.isTTY || opts.team !== null) {
       return refuse("zone-missing", "This Mac has no org yet, so there is no team to hold a pack", `rt team create <name> --remote <url> --first-team ${opts.team ?? "<team>"}`);
     }
+    const early = floorRefusal(`the ${opts.team ?? "new team"} pack`);
+    if (early) return early;
     const answer = await deps.promptZone();
     const created = await deps.createZone(answer.name, answer.remote);
     wantedTeam = created.team;
@@ -484,11 +491,8 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   const marketplace = zone.marketplace ?? zone.org;
   const pluginId = `${pack}@${marketplace}`;
 
-  // Checked before anything is written: a refusal after compile would leave a pack that the next init refuses as pack-exists.
-  const fitsEngine = admit((deps.engineFloor ?? (() => null))(), (deps.engine ?? runnableEngine)());
-  if (!fitsEngine.ok) {
-    return refuse("needs-newer-app", refusalCopy(fitsEngine.engine, `the ${pack} pack`, fitsEngine.floor), undefined, "rt wrote nothing, so run this again once the app updates.");
-  }
+  const lateFloor = floorRefusal(`the ${pack} pack`);
+  if (lateFloor) return lateFloor;
 
   const wrote: string[] = [];
 
