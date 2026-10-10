@@ -54,7 +54,12 @@ describe('runs api', () => {
   it('refuses an image key on the transcript route without asking the daemon', async () => {
     vi.mocked(rt.runEvidence).mockClear();
     const wire = 'remote:gitlab.com%2Fgroup%2Frepo';
-    for (const key of ['before', 'beforeAnnotated', 'after', 'afterAnnotated']) {
+    for (const key of [
+      'before',
+      'beforeAnnotated',
+      'after',
+      'afterAnnotated',
+    ]) {
       const res = await routes.fetch(
         new Request(`http://localhost/api/runs/${wire}/run-1/evidence/${key}`)
       );
@@ -144,7 +149,9 @@ describe('runs api', () => {
       error: 'no evidence',
     });
     const res = await routes.fetch(
-      new Request('http://localhost/api/runs/remote:a/run-1/evidence/transcript')
+      new Request(
+        'http://localhost/api/runs/remote:a/run-1/evidence/transcript'
+      )
     );
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toEqual({ error: 'no evidence' });
