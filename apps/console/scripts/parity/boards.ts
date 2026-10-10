@@ -445,4 +445,38 @@ export const BOARDS: Board<Scenario>[] = [
       ],
     }
   ),
+  // Evidence v2 (docs/apps/design/console/2026-10-10-console-evidence-v2-design.md).
+  runsBoard(
+    'runs-ev-record',
+    'Evidence v2 · Record (3 cases)',
+    'fk63W',
+    `${RUN}/20261008-1210?tab=evidence`,
+    ['Evidence'],
+    1180
+  ),
+  runsBoard(
+    'runs-ev-story',
+    'Evidence v2 · Story rows · B · one shot per case (3 cases)',
+    'u5oje',
+    `${RUN}/20261008-1210`,
+    ['Story list'],
+    820,
+    {
+      // The board draws the evidence and ship rows open.
+      action: {
+        kind: 'clicks',
+        layers: ['Stage evidence', 'Stage ship'],
+        waitFor: 'strip',
+      },
+    }
+  ),
+  runsBoard(
+    'runs-ev-compare',
+    'Evidence v2 · Compare (case, theme)',
+    'Yhu2H',
+    `${RUN}/20261008-1210?compare=side&case=order-card-themes&theme=dark`,
+    ['Compare'],
+    960,
+    { appRoots: { Compare: 'Compare modal' } }
+  ),
 ];
