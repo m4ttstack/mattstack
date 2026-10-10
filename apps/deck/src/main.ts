@@ -12,7 +12,7 @@ import { isAuthorized, startRestartDetached } from '../core/proxy-restart.ts';
 import { reconcileOnce } from '../core/reconcile.ts';
 import { logPortHolder, redirectAgentOutput } from './agent-log.ts';
 import { isDevMode } from './api/dev-mode.ts';
-import { reresolveManagedApps } from './api/register.ts';
+import { reresolveManagedApps, setLiveSweepDeps } from './api/register.ts';
 import { startApi } from './api/server.ts';
 import { claimApiInfo, runModeFromEnv, stateDir } from './api/state.ts';
 import { reconcileMattstackTld } from './api/tld-reconcile.ts';
@@ -222,6 +222,9 @@ export async function serve(): Promise<void> {
     console.error('mattstack-tld reconcile failed:', err);
   }
 
+  setLiveSweepDeps({
+    onRouteWrite: () => setTimeout(runCanaryCheck, 500),
+  });
   void reresolveOnBoot({
     bundleRoot,
     reresolve: () => reresolveManagedApps(drivers),
@@ -229,7 +232,9 @@ export async function serve(): Promise<void> {
   }).finally(() => bootSweep.resolve());
 
   const reconcileInterval = setInterval(() => {
-    reconcileOnce().catch(err => console.error('reconcile tick failed:', err));
+    reconcileOnce({
+      onRouteWrite: () => setTimeout(runCanaryCheck, 500),
+    }).catch(err => console.error('reconcile tick failed:', err));
   }, 5000);
 
   if (gatewayEnabled) {

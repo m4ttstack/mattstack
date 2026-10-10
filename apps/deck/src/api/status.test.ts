@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
@@ -19,6 +25,7 @@ process.env.LOCAL_APPS_SETTINGS_PATH = join(dir, 'settings.json');
 process.env.HOME = dir;
 
 const { buildStatus } = await import('./status.ts');
+const { clearLive, setLive } = await import('../../core/settings.ts');
 const { getRecord, putRecord, reloadRegistry } =
   await import('../registry/records.ts');
 const { resetNewCodeCache } = await import('../registry/new-code.ts');
@@ -598,4 +605,56 @@ test('a user app never carries newCode', async () => {
     a => a.name === 'myapp'
   )!;
   expect(row.newCode).toBeUndefined();
+});
+
+function liveApp(): string {
+  const root = realpathSync(
+    gitRepo({
+      'apps/myapp/mattstack.deck.json': JSON.stringify({
+        name: 'myapp',
+        dev: { start: 'true', build: 'true', deploy: 'true', lint: 'true' },
+        live: [{ kind: 'server', start: 'bun run s --port $PORT' }],
+      }),
+    })
+  );
+  const first = commit(root, { 'apps/myapp/a.ts': '1' });
+  commit(root, { 'apps/myapp/a.ts': '2' });
+  putRecord({
+    name: 'myapp',
+    managedBy: 'rt',
+    port: 19999,
+    kind: 'service',
+    createdAt: 'x',
+    dev: { workingDirectory: join(root, 'apps/myapp') },
+    lastDeploy: { sha: first, at: 'then' },
+  });
+  setLive('myapp', { source: root, branch: 'main', startedAt: 't' });
+  return root;
+}
+
+test('a live row drops newCode, build and deploy, and carries the live fields', async () => {
+  liveApp();
+  const row = (await buildStatus({ ...opts, devMode: true })).apps.find(
+    a => a.name === 'myapp'
+  )!;
+  clearLive('myapp');
+  expect(row.live?.processes.map(p => p.id)).toEqual(['server']);
+  expect(row.newCode).toBeUndefined();
+  expect(row.commands).toEqual(['lint']);
+});
+
+test('live fields appear only for a local caller in dev mode', async () => {
+  liveApp();
+  const pub = (
+    await buildStatus({ ...opts, local: false, devMode: true })
+  ).apps.find(a => a.name === 'myapp')!;
+  const prod = (await buildStatus({ ...opts, devMode: false })).apps.find(
+    a => a.name === 'myapp'
+  )!;
+  clearLive('myapp');
+  for (const row of [pub, prod]) {
+    expect(row.live).toBeUndefined();
+    expect(row.liveSetup).toBeUndefined();
+    expect(row.liveBlocked).toBeUndefined();
+  }
 });

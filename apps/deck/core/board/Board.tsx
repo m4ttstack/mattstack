@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Alert, Badge, Button, ICONS, ToastHost } from '@mattstack/tui-kit';
 import { AppsTable } from './AppsTable.tsx';
+import { GoLiveModal } from './live/GoLiveModal.tsx';
+import { SetupFailedModal } from './live/SetupFailedModal.tsx';
 import { sublineHealthy, type Row } from './logic.ts';
 import { AddAppModal, RemoveConfirm, UnlinkConfirm } from './modals.tsx';
 import { AppSettingsModal } from './settings/AppSettingsModal.tsx';
@@ -59,7 +61,8 @@ function TunnelBadge({
 }
 
 export function Board() {
-  const board = useBoardState();
+  const mainRef = useRef<HTMLElement>(null);
+  const board = useBoardState(mainRef);
   const {
     data,
     sections,
@@ -72,7 +75,6 @@ export function Board() {
     proxyNotice,
   } = board;
 
-  const mainRef = useRef<HTMLElement>(null);
   const gearRefs = useRef(new Map<string, HTMLButtonElement>()).current;
   const registerGear = (name: string, el: HTMLButtonElement | null) => {
     if (el) gearRefs.set(name, el);
@@ -241,6 +243,14 @@ export function Board() {
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       <RemoveConfirm board={board} />
       <UnlinkConfirm board={board} />
+      <GoLiveModal live={board.live} />
+      <SetupFailedModal
+        live={board.live}
+        onFullLog={name => {
+          board.live.close();
+          openSettings(name);
+        }}
+      />
       <ToastHost toasts={board.toasts} />
     </main>
   );

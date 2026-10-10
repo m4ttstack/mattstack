@@ -77,6 +77,28 @@ interface StatusRow {
     status: 'deploying' | 'verifying' | 'live' | 'error';
     url: string | null;
   } | null;
+  /** Dev mode, local, mattstack apps: present while the app runs live. */
+  live?: {
+    branch: string | null;
+    main: boolean;
+    startedAt: string;
+    uiPort: number | null;
+    movedFrom: string | null;
+    processes: {
+      id: string;
+      kind: 'server' | 'ui' | 'worker';
+      command: string;
+      port: number | null;
+      running: boolean;
+    }[];
+  };
+  liveSetup?: {
+    state: 'running' | 'failed';
+    branch: string | null;
+    log: string[];
+  };
+  /** null: can go live; a string: why not; absent: live controls do not apply. */
+  liveBlocked?: string | null;
 }
 
 export interface StatusData {
@@ -108,11 +130,18 @@ function healthyFraction(data: StatusData): string {
   return `${data.up} of ${data.total} healthy`;
 }
 
+export function liveCount(data: StatusData): number {
+  return data.apps.filter(r => r.live).length;
+}
+
 export function subline(data: StatusData | null): string {
   if (!data) return 'loading…';
   const pub = data.apps.filter(r => r.published).length;
   const prot = data.apps.filter(r => r.hasPassword).length;
-  const parts = [healthyFraction(data), `${pub} public`];
+  const live = liveCount(data);
+  const parts = [healthyFraction(data)];
+  if (live) parts.push(`${live} live`);
+  parts.push(`${pub} public`);
   if (prot) parts.push(`${prot} protected`);
   return parts.join(' · ');
 }
@@ -428,6 +457,7 @@ export function behindRows(rows: Row[]): Row[] {
   return rows.filter(
     r =>
       r.enabled !== false &&
+      !r.live &&
       r.newCode != null &&
       (r.commands ?? []).includes('deploy')
   );
@@ -438,7 +468,7 @@ export function behindRows(rows: Row[]): Row[] {
 export function redeployButtonText(rows: Row[]): string {
   const behind = behindRows(rows);
   const deployable = rows.filter(
-    r => r.enabled !== false && (r.commands ?? []).includes('deploy')
+    r => r.enabled !== false && !r.live && (r.commands ?? []).includes('deploy')
   );
   if (behind.length === 1)
     return `Redeploy ${behind[0]!.displayName ?? behind[0]!.name}`;

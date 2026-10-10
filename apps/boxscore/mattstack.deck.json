@@ -14,5 +14,9 @@
     "start": "bun src/server/index.ts",
     "build": "bun run build",
     "deploy": "bun run build && deck restart boxscore"
-  }
+  },
+  "live": [
+    { "kind": "server", "start": "bun --watch src/server/index.ts" },
+    { "kind": "ui", "start": "bun x vite --port $PORT --strictPort" }
+  ]
 }

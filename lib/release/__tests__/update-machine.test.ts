@@ -55,6 +55,8 @@ interface Options {
   deckPackageAtTag?: string;
   /** `fresh`: pid actually cycles on the broad `deck restart --managed`. `recovers` (default true): a targeted `deck restart <name>` retry cycles the pid when the broad restart didn't. */
   managed?: { name: string; fresh: boolean; recovers?: boolean; psUnparseable?: boolean; psTime?: "before" | "after"; settleAfterChecks?: number }[];
+  /** The apps `deck live --json` names; omitted means the deck has no `live` verb (an older deck) and the call fails. */
+  live?: string[];
   daemonSourceRev?: string | null;
   /** What GitHub's compare API reports for <released sha>...<daemon rev>; omitted means the call is unhandled and fails. */
   compareStatus?: string;
@@ -228,6 +230,10 @@ function fakeSeams(opts: Options = {}): {
           return ok(deckListTable(managed.map((m) => m.name)));
         }
         if (sub === "--version") return ok(`${opts.deckVersion ?? "3.4.0"}\n`);
+        if (sub === "live --json") {
+          if (!opts.live) return fail("deck: unknown command live");
+          return ok(`${JSON.stringify({ apps: opts.live.map((name) => ({ name, source: "/wt", branch: "wt", startedAt: "t" })) })}\n`);
+        }
       }
       if (cmd.startsWith("launchctl kickstart")) return ok("");
       if (cmd.startsWith("launchctl print")) {
@@ -880,6 +886,31 @@ describe("rt release update-machine", () => {
       const leg = report.legs.find((l) => l.id === "served-suite")!;
       expect(leg.status).toBe("ok");
     });
+  });
+
+  test("served suite: a live app counts as fresh and the leg says it is live", async () => {
+    const { seams, calls } = fakeSeams({
+      managed: [{ name: "board", fresh: true }, { name: "chat", fresh: false, recovers: false }],
+      live: ["chat"],
+    });
+    const report = await runUpdateMachine(seams, { yes: true });
+    const leg = report.legs.find((l) => l.id === "served-suite")!;
+    expect(leg.status).toBe("ok");
+    expect(leg.detail).toContain("chat is live, so rt did not check its pid");
+    expect(calls).not.toContain(`${DEV_DECK} restart chat`);
+    const verify = report.legs.find((l) => l.id === "verify")!;
+    expect(verify.status).toBe("ok");
+    expect(verify.detail).toContain("chat is live, so rt did not check its pid");
+  });
+
+  test("served suite: a deck with no live verb checks every app's pid", async () => {
+    const { seams } = fakeSeams({
+      managed: [{ name: "chat", fresh: false, recovers: false }],
+    });
+    const report = await runUpdateMachine(seams, { yes: true });
+    const leg = report.legs.find((l) => l.id === "served-suite")!;
+    expect(leg.status).toBe("error");
+    expect(leg.detail).toContain("chat");
   });
 
   test("served suite: freshness reads the top-level pid, not a nested sub-section's", async () => {

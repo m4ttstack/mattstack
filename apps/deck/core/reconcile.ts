@@ -1,3 +1,4 @@
+import { isDevMode } from '../src/api/dev-mode.ts';
 import { getPlatformSettings } from '../src/api/platform-settings.ts';
 import { CfDnsApi, resolveCfDns, type CfDns } from '../src/edge/cf-dns.ts';
 import { defaultCfDir, resolveCloudflared } from '../src/edge/domain.ts';
@@ -6,6 +7,7 @@ import { RailwayCli } from '../src/edge/railway.ts';
 import { reconcileRemote } from '../src/edge/remote.ts';
 import { readDeckSecrets } from '../src/edge/rt-secrets.ts';
 import { CloudflaredCli } from '../src/edge/tunnel.ts';
+import { reconcileLive } from '../src/live/reconcile.ts';
 import { listRecords } from '../src/registry/records.ts';
 import { LaunchdManager } from '../src/services/launchd.ts';
 import { readRoutes, readServices, type PortlessRoute } from './discover.ts';
@@ -97,14 +99,30 @@ async function reconcileEdgeTick(): Promise<void> {
   }
 }
 
+let liveTick: Promise<void> | null = null;
+
+// A tick that outlasts the interval would otherwise overlap the next one.
+async function reconcileLiveTick(onRouteWrite?: () => void): Promise<void> {
+  if (!isDevMode() || liveTick) return;
+  liveTick = reconcileLive(new LaunchdManager(), { onRouteWrite })
+    .catch(err => console.error('live reconcile failed:', err))
+    .finally(() => {
+      liveTick = null;
+    });
+  await liveTick;
+}
+
 // Side-effectful wrapper used by the server's interval. Writes only on drift.
-export async function reconcileOnce(): Promise<void> {
+export async function reconcileOnce(
+  opts: { onRouteWrite?: () => void } = {}
+): Promise<void> {
   for (const { hostname, devPort } of overridesToReassert(
     readRoutes(),
     getOverrides()
   )) {
     setRoutePort(hostname, devPort);
   }
+  await reconcileLiveTick(opts.onRouteWrite);
   await reconcileRemoteTick();
   await reconcileEdgeTick();
 }

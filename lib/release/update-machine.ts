@@ -279,6 +279,29 @@ async function managedAppNames(seams: UpdateMachineSeams, deck: string): Promise
   return parsed;
 }
 
+/** A live app runs as its live processes, never under `com.mattstack.deck.<app>`, so its pid there never cycles. */
+export function parseLiveDeckApps(raw: string): string[] {
+  try {
+    const apps = (JSON.parse(raw) as { apps?: unknown }).apps;
+    if (!Array.isArray(apps)) return [];
+    return apps.map((a) => (a as { name?: unknown })?.name).filter((n): n is string => typeof n === "string");
+  } catch {
+    return [];
+  }
+}
+
+/** A deck older than live mode has no `live` verb, and nothing on it is live. */
+async function liveAppNames(seams: UpdateMachineSeams, deck: string): Promise<Set<string>> {
+  const r = await seams.exec([deck, "live", "--json"]);
+  return new Set(r.exitCode === 0 ? parseLiveDeckApps(r.stdout) : []);
+}
+
+function liveNote(live: string[]): string {
+  if (live.length === 0) return "";
+  if (live.length === 1) return `; ${live[0]} is live, so rt did not check its pid`;
+  return `; ${live.join(", ")} are live, so rt did not check their pids`;
+}
+
 async function managedAppPid(seams: UpdateMachineSeams, app: string): Promise<number | null> {
   const r = await seams.exec(["launchctl", "print", `gui/${seams.uid}/com.mattstack.deck.${app}`]);
   return parseLaunchctlPid(r.stdout);
@@ -536,7 +559,9 @@ async function runServedSuiteLeg(seams: UpdateMachineSeams, deck: string): Promi
 
   const namesResult = await managedAppNames(seams, deck);
   if ("error" in namesResult) return { result: errorLeg("served-suite", SERVED_SUITE_LABEL, namesResult.error), witness: null };
-  const apps = namesResult.apps;
+  const liveNow = await liveAppNames(seams, deck);
+  const live = namesResult.apps.filter((a) => liveNow.has(a));
+  const apps = namesResult.apps.filter((a) => !liveNow.has(a));
 
   const baselinePids = await snapshotPids(seams, apps);
   const witness: RestartWitness = { marker: seams.clock(), baselinePids };
@@ -563,7 +588,7 @@ async function runServedSuiteLeg(seams: UpdateMachineSeams, deck: string): Promi
     }
   }
 
-  return { result: okLeg("served-suite", SERVED_SUITE_LABEL, "managed apps restarted and every pid cycled"), witness };
+  return { result: okLeg("served-suite", SERVED_SUITE_LABEL, `managed apps restarted and every pid cycled${liveNote(live)}`), witness };
 }
 
 /** The dev app, its daemon and its source rev are this Mac's only when the dev app was running. */
@@ -611,7 +636,10 @@ async function runVerifyLeg(
     if ("error" in namesResult) {
       problems.push(namesResult.error);
     } else {
-      const stale = await staleManagedApps(seams, namesResult.apps, witness);
+      const liveNow = await liveAppNames(seams, deck);
+      staleNote = liveNote(namesResult.apps.filter((a) => liveNow.has(a)));
+      const checked = namesResult.apps.filter((a) => !liveNow.has(a));
+      const stale = await staleManagedApps(seams, checked, witness);
       if (stale.length > 0) problems.push(`managed app pid predates the restart: ${stale.join(", ")}`);
     }
   } else {

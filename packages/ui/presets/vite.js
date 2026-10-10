@@ -24,6 +24,8 @@ const GROUPS = [
   },
 ];
 
+const DECK_HOSTS = ['.mattstack', '.localhost'];
+
 /**
  * The app-kit packages ship TSX and CSS modules as source under
  * node_modules, so they are excluded from dependency pre-bundling and the
@@ -31,6 +33,7 @@ const GROUPS = [
  */
 export function mattstackVite(opts) {
   const { apiPort, proxy = true, extraGroups = [] } = opts;
+  const serverPort = Number(process.env.SERVER_PORT) || apiPort;
   return {
     plugins: [react({ exclude: /\/node_modules\/(?!@mattstack\/)/ })],
     optimizeDeps: {
@@ -76,17 +79,20 @@ export function mattstackVite(opts) {
         output: { codeSplitting: { groups: [...extraGroups, ...GROUPS] } },
       },
     },
-    server: proxy
-      ? {
-          proxy: {
-            '/api': {
-              target: `http://127.0.0.1:${apiPort}`,
-              changeOrigin: true,
+    server: {
+      allowedHosts: DECK_HOSTS,
+      ...(proxy
+        ? {
+            proxy: {
+              '/api': {
+                target: `http://127.0.0.1:${serverPort}`,
+                changeOrigin: true,
+              },
+              '/ws': { target: `ws://127.0.0.1:${serverPort}`, ws: true },
             },
-            '/ws': { target: `ws://127.0.0.1:${apiPort}`, ws: true },
-          },
-        }
-      : undefined,
+          }
+        : {}),
+    },
     preview: {
       allowedHosts: process.env.PREVIEW_ALLOWED_HOSTS?.split(',') ?? [],
     },

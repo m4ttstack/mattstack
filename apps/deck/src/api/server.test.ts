@@ -36,6 +36,7 @@ const { FakeCfDns } = await import('../../test/fixture/remote.ts');
 const { reloadRegistry, getRecord, putRecord, deleteRecord } =
   await import('../registry/records.ts');
 const { reloadPlatformSettings } = await import('./platform-settings.ts');
+const { setLive, clearLive } = await import('../../core/settings.ts');
 
 const PORT = 18917;
 let server: ReturnType<typeof startApi>;
@@ -561,6 +562,27 @@ test('publish flips settings through the versioned path', async () => {
   expect(res.status).toBe(200);
   const status = await (await api('/api/v1/status')).json();
   expect(status.apps.find((a: any) => a.name === 'p1').published).toBe(false);
+});
+
+test('PUT override is refused while the app is live', async () => {
+  putRecord({
+    name: 'livey',
+    managedBy: 'rt',
+    port: 18099,
+    kind: 'service',
+    createdAt: '',
+  });
+  setLive('livey', { source: '/x', branch: 'main', startedAt: 'x' });
+  const res = await api('/api/v1/apps/livey/override', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ devPort: 5173 }),
+  });
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({
+    error: 'live mode owns this route; stop live first',
+  });
+  clearLive('livey');
 });
 
 test('mutations through a public host are forbidden', async () => {
