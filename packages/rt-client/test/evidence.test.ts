@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { legacyItems, parseEvidence } from "../src/evidence.ts";
+import { evidenceShots, legacyItems, parseEvidence, readEvidence, resolveEvidencePath, uploadablePaths } from "../src/evidence.ts";
 
 describe("parseEvidence", () => {
   test("v1 lists image keys in fixed order, skipping absent ones", () => {
@@ -70,5 +70,119 @@ describe("legacy evidence paths", () => {
       { kind: "file", value: "/a/c.log" },
       { kind: "url", value: "http://localhost:4001/orders/1#x" },
     ]);
+  });
+});
+
+const V2 = {
+  v: 2,
+  cases: [
+    {
+      id: "shape2",
+      label: "Shape 2 plate",
+      before: { path: "/e/b.png", annotated: "/e/b-ann.png", caption: "Red box: blank plate" },
+      after: {
+        light: { path: "/e/a-light.png", annotated: "/e/a-light-ann.png", caption: "Arrow: plate shows" },
+        dark: { path: "/e/a-dark.png", waiver: "Same marks as light" },
+      },
+    },
+    { id: "empty", label: "Empty state", after: { path: "/e/empty.png" }, waiver: "Pixel-identical" },
+  ],
+  transcript: "/e/console.log",
+  url: "http://localhost:4001/c/1",
+};
+
+describe("readEvidence", () => {
+  test("v2 reads cases in order, themed slots light first, run keys carried", () => {
+    const r = readEvidence(JSON.stringify(V2));
+    expect(r.version).toBe(2);
+    if (r.version !== 2) throw new Error("unreachable");
+    expect(r.source).toBe(2);
+    expect(r.transcript).toBe("/e/console.log");
+    expect(r.url).toBe("http://localhost:4001/c/1");
+    expect(r.cases.map((c) => c.id)).toEqual(["shape2", "empty"]);
+    expect(r.cases[0]!.before).toEqual([{ path: "/e/b.png", annotated: "/e/b-ann.png", caption: "Red box: blank plate" }]);
+    expect(r.cases[0]!.after).toEqual([
+      { theme: "light", path: "/e/a-light.png", annotated: "/e/a-light-ann.png", caption: "Arrow: plate shows" },
+      { theme: "dark", path: "/e/a-dark.png", waiver: "Same marks as light" },
+    ]);
+  });
+  test("a case waiver becomes the effective waiver of its unannotated images only", () => {
+    const value = { v: 2, cases: [{ id: "c", label: "C", waiver: "why", before: { path: "/b.png", annotated: "/ba.png", caption: "x" }, after: { path: "/a.png" } }] };
+    const r = readEvidence(JSON.stringify(value));
+    if (r.version !== 2) throw new Error("unreachable");
+    expect(r.cases[0]!.waiver).toBe("why");
+    expect(r.cases[0]!.before![0]!.waiver).toBeUndefined();
+    expect(r.cases[0]!.after![0]!.waiver).toBe("why");
+  });
+  test("a slot with one theme reads as one themed shot", () => {
+    const r = readEvidence(JSON.stringify({ v: 2, cases: [{ id: "c", label: "C", after: { dark: { path: "/d.png", waiver: "w" } } }] }));
+    if (r.version !== 2) throw new Error("unreachable");
+    expect(r.cases[0]!.after).toEqual([{ theme: "dark", path: "/d.png", waiver: "w" }]);
+  });
+  test("drops unreadable cases and repeated ids, keeping the first", () => {
+    const value = { v: 2, cases: [{ id: "a", label: "A", after: { path: "/1.png" } }, { label: "no id" }, { id: "a", label: "A2", after: { path: "/2.png" } }, { id: "b", label: "B" }] };
+    const r = readEvidence(JSON.stringify(value));
+    if (r.version !== 2) throw new Error("unreachable");
+    expect(r.cases.map((c) => c.label)).toEqual(["A"]);
+  });
+  test("v2 with no readable case falls back to the link scan", () => {
+    expect(readEvidence(JSON.stringify({ v: 2, cases: [{ note: "/x/y.png" }] }))).toEqual({ version: 0, links: ["/x/y.png"] });
+  });
+  test("v1 reads as one case with id 'case', label from its case text", () => {
+    const v1 = { v: 1, before: "/e/b.png", beforeAnnotated: "/e/ba.png", after: "/e/a.png", case: "hail claim", transcript: "/e/t.md", attach: "mr" };
+    expect(readEvidence(JSON.stringify(v1))).toEqual({
+      version: 2,
+      source: 1,
+      transcript: "/e/t.md",
+      attach: "mr",
+      cases: [{ id: "case", label: "hail claim", before: [{ path: "/e/b.png", annotated: "/e/ba.png" }], after: [{ path: "/e/a.png" }] }],
+    });
+  });
+  test("v1 without case text is labelled Evidence", () => {
+    const r = readEvidence(JSON.stringify({ v: 1, before: "/b.png" }));
+    if (r.version !== 2) throw new Error("unreachable");
+    expect(r.cases[0]!.label).toBe("Evidence");
+  });
+  test("legacy text and no evidence read as parseEvidence reads them", () => {
+    expect(readEvidence("see /tmp/b.png")).toEqual({ version: 0, links: ["/tmp/b.png"] });
+    for (const v of [null, "", "-", JSON.stringify({ plan: "none" })]) expect(readEvidence(v)).toEqual({ version: null });
+  });
+  test("parseEvidence is unchanged on a v2 value: it falls to links", () => {
+    const r = parseEvidence(JSON.stringify(V2));
+    expect(r.version).toBe(0);
+    if (r.version !== 0) throw new Error("unreachable");
+    expect(r.links).toContain("/e/a-dark.png");
+    expect(r.links).toContain("/e/b-ann.png");
+  });
+});
+
+describe("evidence helpers", () => {
+  const record = readEvidence(JSON.stringify(V2));
+  test("evidenceShots lists every shot with its case and slot", () => {
+    expect(evidenceShots(record).map((s) => `${s.caseId}/${s.slot}/${s.shot.theme ?? "-"}`)).toEqual([
+      "shape2/before/-", "shape2/after/light", "shape2/after/dark", "empty/after/-",
+    ]);
+    expect(evidenceShots({ version: null })).toEqual([]);
+  });
+  test("uploadablePaths: annotated images and waived bases, never a base with an annotated copy", () => {
+    expect(uploadablePaths(record)).toEqual(["/e/b-ann.png", "/e/a-light-ann.png", "/e/a-dark.png", "/e/empty.png"]);
+  });
+  test("resolveEvidencePath addresses by case, slot, theme and variant", () => {
+    expect(resolveEvidencePath(record, { case: "shape2", slot: "before" })).toEqual({ ok: true, path: "/e/b.png" });
+    expect(resolveEvidencePath(record, { case: "shape2", slot: "before", annotated: true })).toEqual({ ok: true, path: "/e/b-ann.png" });
+    expect(resolveEvidencePath(record, { case: "shape2", slot: "after", theme: "dark" })).toEqual({ ok: true, path: "/e/a-dark.png" });
+  });
+  test("resolveEvidencePath refuses a missing theme on a themed slot and a theme on an unthemed one", () => {
+    expect(resolveEvidencePath(record, { case: "shape2", slot: "after" })).toEqual({ ok: false, error: "theme required: this slot has light and dark images" });
+    expect(resolveEvidencePath(record, { case: "shape2", slot: "before", theme: "light" })).toEqual({ ok: false, error: "this slot has no themes" });
+  });
+  test("resolveEvidencePath answers no evidence for an unknown case, absent slot, absent theme or absent annotation", () => {
+    for (const a of [
+      { case: "nope", slot: "after" as const },
+      { case: "empty", slot: "before" as const },
+      { case: "shape2", slot: "after" as const, theme: "dark" as const, annotated: true },
+    ]) expect(resolveEvidencePath(record, a)).toEqual({ ok: false, error: "no evidence" });
+    const oneTheme = readEvidence(JSON.stringify({ v: 2, cases: [{ id: "c", label: "C", after: { dark: { path: "/d.png", waiver: "w" } } }] }));
+    expect(resolveEvidencePath(oneTheme, { case: "c", slot: "after", theme: "light" })).toEqual({ ok: false, error: "no evidence" });
   });
 });

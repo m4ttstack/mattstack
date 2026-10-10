@@ -43,6 +43,7 @@ function stringsIn(value: unknown): string[] {
   return [];
 }
 
+/** @deprecated Use readEvidence; kept until the console moves to cases. */
 export function parseEvidence(value: string | null | undefined): ParsedEvidence {
   const raw = value?.trim() ?? "";
   if (raw === "" || raw === "-") return { version: null };
@@ -67,4 +68,118 @@ export function parseEvidence(value: string | null | undefined): ParsedEvidence 
   }
   const links = linksIn(raw);
   return links.length ? { version: 0, links } : { version: null };
+}
+
+export const EVIDENCE_SLOTS = ["before", "after"] as const;
+export type EvidenceSlotName = (typeof EVIDENCE_SLOTS)[number];
+export const EVIDENCE_THEMES = ["light", "dark"] as const;
+export type EvidenceTheme = (typeof EVIDENCE_THEMES)[number];
+export const V1_CASE_ID = "case";
+
+export interface EvidenceShot { theme?: EvidenceTheme; path: string; annotated?: string; caption?: string; waiver?: string }
+export interface EvidenceCase { id: string; label: string; waiver?: string; before?: EvidenceShot[]; after?: EvidenceShot[] }
+export type EvidenceRecord =
+  | { version: 2; source: 1 | 2; cases: EvidenceCase[]; transcript?: string; url?: string; attach?: string }
+  | { version: 0; links: string[] }
+  | { version: null };
+export interface EvidenceAddress { case: string; slot: EvidenceSlotName; theme?: EvidenceTheme; annotated?: boolean }
+export type EvidenceShotRef = { caseId: string; slot: EvidenceSlotName; shot: EvidenceShot };
+
+const RUN_KEYS = ["transcript", "url", "attach"] as const;
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+function nonEmpty(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+// A case waiver covers only images with neither an annotated copy nor a waiver of their own.
+function readImage(o: unknown, theme: EvidenceTheme | undefined, caseWaiver: string | undefined): EvidenceShot | null {
+  if (!isObject(o) || !nonEmpty(o.path)) return null;
+  const shot: EvidenceShot = { path: o.path };
+  if (theme) shot.theme = theme;
+  if (nonEmpty(o.annotated)) shot.annotated = o.annotated;
+  if (nonEmpty(o.caption)) shot.caption = o.caption;
+  const waiver = nonEmpty(o.waiver) ? o.waiver : shot.annotated ? undefined : caseWaiver;
+  if (waiver) shot.waiver = waiver;
+  return shot;
+}
+
+function readSlot(o: unknown, caseWaiver: string | undefined): EvidenceShot[] | undefined {
+  if (!isObject(o)) return undefined;
+  if ("path" in o) {
+    const shot = readImage(o, undefined, caseWaiver);
+    return shot ? [shot] : undefined;
+  }
+  const shots = EVIDENCE_THEMES.map((t) => readImage(o[t], t, caseWaiver)).filter((s): s is EvidenceShot => s !== null);
+  return shots.length ? shots : undefined;
+}
+
+function readCase(o: unknown): EvidenceCase | null {
+  if (!isObject(o) || !nonEmpty(o.id) || !nonEmpty(o.label)) return null;
+  const waiver = nonEmpty(o.waiver) ? o.waiver : undefined;
+  const c: EvidenceCase = { id: o.id, label: o.label };
+  if (waiver) c.waiver = waiver;
+  for (const slot of EVIDENCE_SLOTS) {
+    const shots = readSlot(o[slot], waiver);
+    if (shots) c[slot] = shots;
+  }
+  return c.before || c.after ? c : null;
+}
+
+function withRunKeys(record: Extract<EvidenceRecord, { version: 2 }>, from: Record<string, unknown>): EvidenceRecord {
+  for (const k of RUN_KEYS) if (nonEmpty(from[k])) record[k] = from[k] as string;
+  return record;
+}
+
+function v1Shot(path: string, annotated: string | undefined): EvidenceShot {
+  return annotated ? { path, annotated } : { path };
+}
+
+/** Reads any evidence value as cases (v1 becomes one case) or legacy links. */
+export function readEvidence(value: string | null | undefined): EvidenceRecord {
+  let json: unknown;
+  try { json = JSON.parse(value?.trim() ?? ""); } catch { json = undefined; }
+  if (isObject(json) && json.v === 2 && Array.isArray(json.cases)) {
+    const seen = new Set<string>();
+    const cases: EvidenceCase[] = [];
+    for (const raw of json.cases) {
+      const c = readCase(raw);
+      if (c && !seen.has(c.id)) { seen.add(c.id); cases.push(c); }
+    }
+    if (cases.length) return withRunKeys({ version: 2, source: 2, cases }, json);
+  }
+  const legacy = parseEvidence(value);
+  if (legacy.version !== 1) return legacy;
+  const e = legacy.evidence;
+  const only: EvidenceCase = { id: V1_CASE_ID, label: nonEmpty(e.case) ? e.case : "Evidence", before: [v1Shot(e.before, e.beforeAnnotated)] };
+  if (nonEmpty(e.after)) only.after = [v1Shot(e.after, e.afterAnnotated)];
+  return withRunKeys({ version: 2, source: 1, cases: [only] }, e as unknown as Record<string, unknown>);
+}
+
+export function evidenceShots(record: EvidenceRecord): EvidenceShotRef[] {
+  if (record.version !== 2) return [];
+  return record.cases.flatMap((c) =>
+    EVIDENCE_SLOTS.flatMap((slot) => (c[slot] ?? []).map((shot) => ({ caseId: c.id, slot, shot }))),
+  );
+}
+
+/** The paths a run's record lets go to an MR: annotated images and waived bases. */
+export function uploadablePaths(record: EvidenceRecord): string[] {
+  return evidenceShots(record).flatMap(({ shot }) => (shot.annotated ? [shot.annotated] : shot.waiver ? [shot.path] : []));
+}
+
+export function resolveEvidencePath(record: EvidenceRecord, address: EvidenceAddress): { ok: true; path: string } | { ok: false; error: string } {
+  const none = { ok: false as const, error: "no evidence" };
+  if (record.version !== 2) return none;
+  const shots = record.cases.find((c) => c.id === address.case)?.[address.slot];
+  if (!shots) return none;
+  const themed = shots.some((s) => s.theme !== undefined);
+  if (themed && !address.theme) return { ok: false, error: "theme required: this slot has light and dark images" };
+  if (!themed && address.theme) return { ok: false, error: "this slot has no themes" };
+  const shot = themed ? shots.find((s) => s.theme === address.theme) : shots[0];
+  const path = address.annotated ? shot?.annotated : shot?.path;
+  return path ? { ok: true, path } : none;
 }
