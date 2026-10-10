@@ -57,7 +57,8 @@ function sourceDir(plugins: Plugin[]): string {
 function run(args: string[], env: Record<string, string> = {}): { code: number; out: string } {
   const res = spawnSync("bash", [SCRIPT, ...args], {
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    // A path no fetch can reach, so a test that names no remote never touches GitHub.
+    env: { ...process.env, RT_MARKETPLACE_REPO: "/nonexistent/mattstack-marketplace", ...env },
   });
   return { code: res.status ?? -1, out: `${res.stdout ?? ""}${res.stderr ?? ""}` };
 }
@@ -282,6 +283,14 @@ describe("marketplace.sh publish", () => {
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("older than the published");
     expect(git(bare, "rev-parse", "main")).toBe(before);
+  });
+
+  test("a dry run refuses a lower mattstack version too", () => {
+    const bare = bareRepo();
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.31.0") }).code).toBe(0);
+    const r = run(["--dry-run", packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.30.28") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("older than the published");
   });
 
   test("the comparison is numeric per segment, so 0.9.0 is older than 0.10.0", () => {

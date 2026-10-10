@@ -200,11 +200,6 @@ else
     echo "  note: claude not on PATH — structural validation only"
 fi
 
-if [ "$DRY_RUN" -eq 1 ]; then
-    echo "✓ dry run: staged and validated, not pushed"
-    exit 0
-fi
-
 # RT_MARKETPLACE_REPO takes "owner/name" or any git URL/path; the latter is how
 # the tests publish into a throwaway bare repo instead of GitHub.
 case "$TARGET_REPO" in
@@ -220,8 +215,12 @@ case "$TARGET_REPO" in
         ;;
 esac
 
+# Fetched before the dry-run exit, so a rehearsal refuses a lower version too.
+# The published repo is public, so the fetch needs no token.
 git -C "$STAGE" remote add origin "$PUSH_URL"
+FETCHED=0
 if git -C "$STAGE" fetch -q --depth 1 origin main 2>/dev/null; then
+    FETCHED=1
     PUBLISHED_VER="$(git -C "$STAGE" show FETCH_HEAD:plugins/mattstack/.claude-plugin/plugin.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' 2>/dev/null || true)"
     STAGED_VER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version",""))' "$STAGE/plugins/mattstack/.claude-plugin/plugin.json" 2>/dev/null || true)"
     if [ -n "$PUBLISHED_VER" ] && [ -n "$STAGED_VER" ] && python3 - "$STAGED_VER" "$PUBLISHED_VER" <<'PY'
@@ -233,6 +232,14 @@ PY
         echo "✗ mattstack $STAGED_VER is older than the published $PUBLISHED_VER, refusing to publish it" >&2
         exit 1
     fi
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "✓ dry run: staged and validated, not pushed"
+    exit 0
+fi
+
+if [ "$FETCHED" -eq 1 ]; then
     # History is kept (no force push), but the tree is wholly the staged one:
     # a plugin dropped from the catalog must also leave the published repo.
     git -C "$STAGE" reset -q --soft FETCH_HEAD
