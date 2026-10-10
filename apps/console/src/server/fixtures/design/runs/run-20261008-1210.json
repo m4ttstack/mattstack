@@ -1,0 +1,103 @@
+{
+  "run": {
+    "id": "20261008-1210",
+    "work_type": "feature",
+    "pipeline": "work",
+    "status": "done",
+    "started_at": "2026-10-08T12:10:00-05:00",
+    "ended_at": "2026-10-08T13:40:00-05:00",
+    "outcome": {
+      "status": "done",
+      "mr": {
+        "iid": 421,
+        "state": "merged",
+        "url": "https://gitlab.com/acme/web/-/merge_requests/421",
+        "mergedAt": "2026-10-08T13:42:00-05:00"
+      },
+      "ci": "success"
+    }
+  },
+  "stages": [
+    {
+      "name": "provision",
+      "status": "done",
+      "started_at": "2026-10-08T12:10:00-05:00",
+      "ended_at": "2026-10-08T12:11:00-05:00"
+    },
+    {
+      "name": "plan",
+      "status": "done",
+      "started_at": "2026-10-08T12:11:00-05:00",
+      "ended_at": "2026-10-08T12:21:00-05:00"
+    },
+    {
+      "name": "gates",
+      "status": "done",
+      "started_at": "2026-10-08T12:21:00-05:00",
+      "ended_at": "2026-10-08T12:22:00-05:00"
+    },
+    {
+      "name": "evidence",
+      "status": "done",
+      "started_at": "2026-10-08T12:22:00-05:00",
+      "ended_at": "2026-10-08T13:06:00-05:00"
+    },
+    {
+      "name": "implement",
+      "status": "done",
+      "started_at": "2026-10-08T13:06:00-05:00",
+      "ended_at": "2026-10-08T13:26:00-05:00"
+    },
+    {
+      "name": "self-review",
+      "status": "done",
+      "started_at": "2026-10-08T13:26:00-05:00",
+      "ended_at": "2026-10-08T13:29:00-05:00"
+    },
+    {
+      "name": "ship",
+      "status": "done",
+      "started_at": "2026-10-08T13:29:00-05:00",
+      "ended_at": "2026-10-08T13:35:00-05:00"
+    },
+    {
+      "name": "watch-ci",
+      "status": "done",
+      "started_at": "2026-10-08T13:35:00-05:00",
+      "ended_at": "2026-10-08T13:40:00-05:00"
+    }
+  ],
+  "fields": [
+    {
+      "key": "pipeline-stages",
+      "value": "provision plan gates evidence implement self-review ship watch-ci",
+      "produced_by": "provision",
+      "at": "2026-10-08T11:42:05-05:00"
+    },
+    {
+      "key": "ticket",
+      "value": "WEB-421",
+      "produced_by": "provision",
+      "at": "2026-10-08T12:10:10-05:00"
+    },
+    {
+      "key": "title",
+      "value": "Show delivery windows on the order card",
+      "produced_by": "provision",
+      "at": "2026-10-08T12:10:15-05:00"
+    },
+    {
+      "key": "branch",
+      "value": "web-421-delivery-windows",
+      "produced_by": "provision",
+      "at": "2026-10-08T12:10:20-05:00"
+    },
+    {
+      "key": "evidence",
+      "value": "{\"v\": 2, \"cases\": [{\"id\": \"rush-window\", \"label\": \"Rush order, same-day window\", \"before\": {\"path\": \"/fixture/evidence/web-421/rush-before.png\", \"annotated\": \"/fixture/evidence/web-421/rush-before-annotated.png\", \"caption\": \"Red box: the order card shows no delivery window\"}, \"after\": {\"path\": \"/fixture/evidence/web-421/rush-after.png\", \"annotated\": \"/fixture/evidence/web-421/rush-after-annotated.png\", \"caption\": \"Red box: \\\"Today, 2–4 PM\\\" now sits under the total\"}}, {\"id\": \"order-card-themes\", \"label\": \"Order card in light and dark\", \"before\": {\"light\": {\"path\": \"/fixture/evidence/web-421/card-before-light.png\", \"annotated\": \"/fixture/evidence/web-421/card-before-light-annotated.png\", \"caption\": \"Red box: no window line under the total\"}, \"dark\": {\"path\": \"/fixture/evidence/web-421/card-before-dark.png\", \"annotated\": \"/fixture/evidence/web-421/card-before-dark-annotated.png\", \"caption\": \"Red box: no window line under the total\"}}, \"after\": {\"light\": {\"path\": \"/fixture/evidence/web-421/card-after-light.png\", \"annotated\": \"/fixture/evidence/web-421/card-after-light-annotated.png\", \"caption\": \"Arrow: the window keeps its contrast on the card\"}, \"dark\": {\"path\": \"/fixture/evidence/web-421/card-after-dark.png\", \"waiver\": \"Same marks as light; only the theme differs\"}}}, {\"id\": \"empty-state\", \"label\": \"No delivery window yet\", \"after\": {\"path\": \"/fixture/evidence/web-421/empty-after.png\"}, \"waiver\": \"Before and after are pixel-identical\"}], \"transcript\": \"/fixture/evidence/web-409/transcript-after.md\", \"url\": \"http://localhost:4001/orders/4821\", \"attach\": \"ship\"}",
+      "produced_by": "ship",
+      "at": "2026-10-08T13:34:00-05:00"
+    }
+  ],
+  "decisions": []
+}

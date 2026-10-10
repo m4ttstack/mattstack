@@ -11,9 +11,9 @@ import {
   paneList,
   rtCommand,
   runEvidence,
+  runEvidenceAt,
   serializeIdentity,
   type ChatPane,
-  type EvidenceImageKey,
   type EvidenceTextKey,
   type RunFieldRow,
 } from '@mattstack/rt-client';
@@ -290,11 +290,10 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
       .get('/api/runs/:repo/:runId/evidence/:key', async c => {
         const { repo: rawRepo, runId, key } = c.req.param();
         if (fixture) {
-          const evidence = await fixture.evidence(
-            canonicalRepo(rawRepo),
-            runId,
-            key as EvidenceImageKey | EvidenceTextKey
-          );
+          const evidence =
+            key === 'transcript'
+              ? await fixture.transcript(canonicalRepo(rawRepo), runId)
+              : null;
           if (!evidence) return c.json({ error: 'no evidence' }, 404);
           return new Response(evidence.bytes, {
             status: 200,
@@ -308,7 +307,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
         }
         const res = await runEvidence(
           runId,
-          key as EvidenceImageKey | EvidenceTextKey,
+          key as EvidenceTextKey,
           canonicalRepo(rawRepo),
           { sockPath: process.env.RT_SOCK_PATH }
         );
@@ -327,6 +326,51 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
         if (res.data.base64 === undefined) {
           return c.json({ error: 'no evidence' }, 404);
         }
+        return new Response(Buffer.from(res.data.base64, 'base64'), {
+          status: 200,
+          headers: {
+            'content-type': res.data.mime,
+            'cache-control': 'private, max-age=3600',
+          },
+        });
+      })
+      .get('/api/runs/:repo/:runId/evidence/:case/:slot', async c => {
+        const { repo: rawRepo, runId, case: caseId, slot } = c.req.param();
+        const theme = c.req.query('theme');
+        const annotated = c.req.query('annotated') === '1';
+        if (
+          (slot !== 'before' && slot !== 'after') ||
+          (theme !== undefined && theme !== 'light' && theme !== 'dark')
+        )
+          return c.json({ error: 'no evidence' }, 404);
+        if (fixture) {
+          const file = await fixture.evidenceImage(
+            canonicalRepo(rawRepo),
+            runId,
+            { caseId, slot, theme, annotated }
+          );
+          if (!file) return c.json({ error: 'no evidence' }, 404);
+          return new Response(file.bytes, {
+            status: 200,
+            headers: {
+              'content-type': file.mime,
+              'cache-control': 'private, max-age=3600',
+            },
+          });
+        }
+        const res = await runEvidenceAt(
+          runId,
+          {
+            case: caseId,
+            slot,
+            ...(theme ? { theme } : {}),
+            ...(annotated ? { annotated } : {}),
+          },
+          canonicalRepo(rawRepo),
+          { sockPath: process.env.RT_SOCK_PATH }
+        );
+        if (!res.ok || !res.data?.base64)
+          return c.json({ error: res.error ?? 'no evidence' }, 404);
         return new Response(Buffer.from(res.data.base64, 'base64'), {
           status: 200,
           headers: {

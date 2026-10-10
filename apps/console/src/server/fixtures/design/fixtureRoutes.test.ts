@@ -13,6 +13,7 @@ vi.mock('@mattstack/rt-client', async importOriginal => {
     listRuns: vi.fn(daemon),
     getRun: vi.fn(daemon),
     runEvidence: vi.fn(daemon),
+    runEvidenceAt: vi.fn(daemon),
     abandonRun: vi.fn(daemon),
     agentAdopt: vi.fn(daemon),
     agentResume: vi.fn(daemon),
@@ -109,16 +110,39 @@ describe('the routes under the design fixture', () => {
     });
   });
 
-  it('serves evidence bytes and the transcript as text', async () => {
-    const image = await get(`${RUN}/20261008-1142/evidence/before`);
-    expect(image.status).toBe(200);
-    expect(image.headers.get('content-type')).toBe('image/png');
+  it('serves an image by case, slot and theme, and the transcript as text', async () => {
+    const v1 = await get(
+      `${RUN}/20261008-1142/evidence/case/after?annotated=1`
+    );
+    expect(v1.status).toBe(200);
+    expect(v1.headers.get('content-type')).toBe('image/png');
+    const dark = await get(
+      `${RUN}/20261008-1210/evidence/order-card-themes/after?theme=dark`
+    );
+    expect(dark.status).toBe(200);
+    const waived = await get(`${RUN}/20261008-1210/evidence/empty-state/after`);
+    expect(waived.status).toBe(200);
     const transcript = await get(`${RUN}/20261008-1142/evidence/transcript`);
     expect(transcript.headers.get('content-type')).toBe(
       'text/markdown; charset=utf-8'
     );
     expect(await transcript.text()).toContain('0 warnings, 0 errors');
-    expect((await get(`${RUN}/20261008-1338/evidence/after`)).status).toBe(404);
+  });
+
+  it('answers 404 for anything the record does not hold', async () => {
+    for (const path of [
+      `${RUN}/20261008-1210/evidence/order-card-themes/after`, // themed slot, no theme
+      `${RUN}/20261008-1210/evidence/rush-window/after?theme=dark`, // unthemed slot, a theme
+      `${RUN}/20261008-1210/evidence/empty-state/after?annotated=1`, // no annotated copy
+      `${RUN}/20261008-1210/evidence/nope/after`,
+      `${RUN}/20261008-1210/evidence/rush-window/middle`,
+      `${RUN}/20261008-1210/evidence/order-card-themes/after?theme=sepia`,
+      `${RUN}/20261008-1338/evidence/case/after`,
+    ]) {
+      const res = await get(path);
+      expect(res.status, path).toBe(404);
+      expect(await res.json()).toEqual({ error: 'no evidence' });
+    }
   });
 
   it('serves a legacy run’s named image and refuses every other path', async () => {
