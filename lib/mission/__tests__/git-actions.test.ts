@@ -166,6 +166,51 @@ describe("runAction: pull on a diverged branch (GHD's divergent-branch default)"
     }
   });
 
+  test("a merge pull blocked by local changes to an incoming file names that file (GHD's MergeWithLocalChanges)", async () => {
+    const { a, b } = await diverged();
+    try {
+      await b.write("a.txt", "uncommitted\n");
+      const pulled = await runAction(b.dir, "pull", { remote: "origin", branch: "main" });
+      expect(pulled.ok).toBe(false);
+      expect(pulled.localChangesOverwritten).toEqual({ files: ["a.txt"] });
+    } finally {
+      await a.cleanup();
+      await b.cleanup();
+    }
+  });
+
+  test("a rebase pull blocked by unstaged changes is the same error with no file list (GHD's RebaseWithLocalChanges)", async () => {
+    const { a, b } = await diverged();
+    try {
+      await b.git(["config", "pull.rebase", "true"]);
+      await b.write("b.txt", "uncommitted\n");
+      const pulled = await runAction(b.dir, "pull-rebase", { remote: "origin", branch: "main" });
+      expect(pulled.ok).toBe(false);
+      expect(pulled.localChangesOverwritten).toEqual({ files: [] });
+    } finally {
+      await a.cleanup();
+      await b.cleanup();
+    }
+  });
+
+  test("a failed pull GHD does not classify reports git's error line and its files, not its last line", async () => {
+    const { a, b } = await diverged();
+    try {
+      await a.write("new.txt", "remote\n");
+      await a.commitAll("remote adds new.txt");
+      await runAction(a.dir, "push", { remote: "origin", branch: "main" });
+      await b.git(["fetch", "origin"]);
+      await b.write("new.txt", "untracked\n");
+      const pulled = await runAction(b.dir, "pull", { remote: "origin", branch: "main" });
+      expect(pulled.ok).toBe(false);
+      expect(pulled.localChangesOverwritten).toBeUndefined();
+      expect(pulled.detail).toBe("error: The following untracked working tree files would be overwritten by merge: new.txt");
+    } finally {
+      await a.cleanup();
+      await b.cleanup();
+    }
+  });
+
   test("with no pull.ff or pull.rebase config, pull merges instead of refusing", async () => {
     const { a, b } = await diverged();
     try {

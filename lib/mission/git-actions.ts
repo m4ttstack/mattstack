@@ -25,11 +25,33 @@ export interface ActionResult {
   detail: string;
   /** GHD's PushNotFastForward: the remote has commits this branch lacks, so the view offers to fetch them. */
   pushNeedsPull?: boolean;
+  /** GHD's MergeWithLocalChanges or RebaseWithLocalChanges: uncommitted changes blocked a pull, so the view offers to stash them. */
+  localChangesOverwritten?: { files: string[] };
 }
 
 // dugite's PushNotFastForward pattern, the error GHD's pushNeedsPullHandler
 // turns into its Newer Commits on Remote dialog.
 const PUSH_NOT_FAST_FORWARD = /\((non-fast-forward|fetch first)\)\nerror: failed to push some refs to '.*'/;
+
+// dugite's MergeWithLocalChanges and RebaseWithLocalChanges patterns, two of
+// the errors GHD's localChangesOverwrittenHandler turns into its dialog.
+const MERGE_WITH_LOCAL_CHANGES = /error: Your local changes to the following files would be overwritten by merge:\n/;
+const REBASE_WITH_LOCAL_CHANGES = /error: cannot (pull with rebase|rebase): You have unstaged changes\.\n\s*error: [Pp]lease commit or stash them\./;
+
+/** GHD app/src/ui/lib/parse-files-to-be-overwritten.ts. */
+export function parseFilesToBeOverwritten(errorMessage: string): string[] {
+  const files: string[] = [];
+  let inFilesList = false;
+  for (const line of errorMessage.split("\n")) {
+    if (inFilesList) {
+      if (!line.startsWith("\t")) break;
+      files.push(line.trimStart());
+    } else if (line.startsWith("error:") && line.includes("files would be overwritten") && line.endsWith(":")) {
+      inFilesList = true;
+    }
+  }
+  return files;
+}
 
 function formatFetchMeta(lastFetchedAt: string | null): string {
   if (lastFetchedAt === null) return "Never fetched";
@@ -76,12 +98,18 @@ export function deriveAction(input: {
   return { kind: "push", title: "Push origin", meta, ahead, behind };
 }
 
-function lastStderrLine(stderr: string): string {
+// git closes many failures with a generic line ("Merge with strategy ort
+// failed.", a hint), so the first error or fatal line is the reason, with
+// the files it lists when it ends in one.
+function failureDetail(stderr: string): string {
   const lines = stderr
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  return lines.length > 0 ? lines[lines.length - 1]! : "";
+  const errorLine = lines.find((line) => /^(error|fatal): /.test(line));
+  if (errorLine === undefined) return lines.length > 0 ? lines[lines.length - 1]! : "";
+  const files = errorLine.endsWith(":") ? parseFilesToBeOverwritten(stderr) : [];
+  return files.length > 0 ? `${errorLine} ${files.join(", ")}` : errorLine;
 }
 
 async function spawnGitStderr(cwd: string, args: string[]): Promise<{ ok: boolean; stderr: string }> {
@@ -98,13 +126,13 @@ async function spawnGitStderr(cwd: string, args: string[]): Promise<{ ok: boolea
 
 async function spawnGit(cwd: string, args: string[]): Promise<ActionResult> {
   const { ok, stderr } = await spawnGitStderr(cwd, args);
-  return ok ? { ok: true, detail: "" } : { ok: false, detail: lastStderrLine(stderr) };
+  return ok ? { ok: true, detail: "" } : { ok: false, detail: failureDetail(stderr) };
 }
 
 async function push(cwd: string, remote: string): Promise<ActionResult> {
   const { ok, stderr } = await spawnGitStderr(cwd, ["push", remote]);
   if (ok) return { ok: true, detail: "" };
-  return { ok: false, detail: lastStderrLine(stderr), pushNeedsPull: PUSH_NOT_FAST_FORWARD.test(stderr) };
+  return { ok: false, detail: failureDetail(stderr), pushNeedsPull: PUSH_NOT_FAST_FORWARD.test(stderr) };
 }
 
 // getRemoteDefaultBranch's local-first path (mission's own interactive
@@ -149,9 +177,17 @@ export async function runAction(
     }
     case "pull":
     case "pull-rebase": {
-      const result = await spawnGit(cwd, await pullArgs(cwd, remote));
-      if (result.ok) await refreshDefaultBranchSymref(cwd, remote);
-      return result;
+      const { ok, stderr } = await spawnGitStderr(cwd, await pullArgs(cwd, remote));
+      if (ok) {
+        await refreshDefaultBranchSymref(cwd, remote);
+        return { ok: true, detail: "" };
+      }
+      const blocked = MERGE_WITH_LOCAL_CHANGES.test(stderr) || REBASE_WITH_LOCAL_CHANGES.test(stderr);
+      return {
+        ok: false,
+        detail: failureDetail(stderr),
+        ...(blocked ? { localChangesOverwritten: { files: parseFilesToBeOverwritten(stderr) } } : {}),
+      };
     }
     case "push":
       return push(cwd, remote);
@@ -188,6 +224,6 @@ export async function publishRepo(
     new Response(proc.stderr as ReadableStream).text(),
     proc.exited,
   ]);
-  if (code !== 0) return { ok: false, detail: lastStderrLine(err) };
+  if (code !== 0) return { ok: false, detail: failureDetail(err) };
   return { ok: true, detail: "" };
 }
