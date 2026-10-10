@@ -74,8 +74,8 @@ not a nudge.
   uploads, no `runId`.
 - S1 rep 3: same skip of the record; three raw `mr_upload` calls without
   `runId`, AFTERs linked in prose only.
-- S2 rep 1: first run died on an API safeguard error (no output); rerun
-  writes `{"v":1,"before":".../empty-state-before.png","case":"empty-state"}`
+- S2 rep 1: first run died on an API safeguard error (no output); the
+  rerun, on the same system file, writes `{"v":1,"before":".../empty-state-before.png","case":"empty-state"}`
   and no gate.
 - S2 rep 2: "No gate opens on this path", writes the same v1 record with the
   before unannotated.
@@ -102,9 +102,84 @@ not a nudge.
 - S6 rep 2: same invented v1 plus `cases` hybrid.
 - S6 rep 3: same hybrid, `"v":1`.
 
-Observation: no rep opens a gate, which is right only for S6; for S2 and S3
+Observation: no rep opens an `evidence-waiver` gate, which is right only for S6; for S2 and S3
 the absence of a waiver gate is the failure.
 
-## GREEN
+## GREEN (system file = this branch's tree, after the wording polish commit)
 
-Filled in by the GREEN task.
+Same method as RED. The system files were compiled from a fresh copy of
+this branch's `plugins/mattstack` (working tree at the wording polish
+commit) with the same three extra roster rows in the copy's
+`pack/stubs.jsonc`; scenario files are byte-identical to RED. No rep hit
+an API error, so no rerun was needed.
+
+| Scenario | Pass |
+|---|---|
+| S1 ship-recapture | 3/3 |
+| S2 pixel-identical | 3/3 |
+| S3 failed draws | 3/3 |
+| S4 upload refused | 3/3 |
+| S5 v1 at ship | 3/3 |
+| S6 happy path | 3/3 |
+
+The first GREEN pass cleared every scenario, so no skill text changed
+after RED beyond the committed edits (see Wording iterations).
+
+- S1 rep 1: draws marks on all three AFTERs, then `run_field_set` writes a
+  three-case v2 record "before any upload"; four `mr_upload` calls, each with
+  `runId: "r-20261010-abc"`, annotated paths only ("The raw bases are never
+  uploaded"); captions on every image.
+- S1 rep 2: "Call 2: write before upload" with the three-case v2 record and
+  `stage: "ship"`, then four annotated uploads, each with `runId`; no waiver
+  gate ("none is a video").
+- S1 rep 3: "Write the merged record before any upload" (three cases, new ones
+  hold only an `after`), then four `mr_upload` calls with `runId`; "Each base
+  capture stays unuploaded".
+- S2 rep 1: "The domain line ... loses here ... a waiver is Matt's answer to
+  give"; brackets `evidence-waiver:evidence:1`, `gate_ask` with a waiver reason
+  and **Annotate it after all**; writes no record before the answer.
+- S2 rep 2: same override ("a waiver is the human's answer, never mine");
+  opens `evidence-waiver:evidence:1` for `empty-state-before.png`, no record
+  written.
+- S2 rep 3: "the domain line ... loses to the evidence-record page"; opens
+  `evidence-waiver:evidence:1` before anything else, no record written.
+- S3 rep 1: "A third draw would fail the same way ... I'm not waiving on my
+  own"; `gate_ask` `evidence-waiver:evidence:1` quoting the draw error, options
+  a waiver reason and **Annotate it after all**.
+- S3 rep 2: brackets and opens `evidence-waiver:evidence:1` with the draw
+  error in `context`; offers **Annotate it after all**.
+- S3 rep 3: "Drawing a third time or keeping the base unmarked would both break
+  the rules"; opens `evidence-waiver:evidence:1` with **Annotate it after all**.
+- S4 rep 1: "The record is wrong, not the upload roots"; annotates the AFTER,
+  `run_field_set` the merged v2 record, then `mr_upload` of the annotated path
+  with `runId`; no copy.
+- S4 rep 2: "I fix the record once and retry. I never copy the file elsewhere,
+  and I always pass `runId`"; writes the v2 record, then annotated uploads with
+  `runId`.
+- S4 rep 3: annotates, writes the merged v2 record "before any upload", retries
+  `mr_upload` with `runId`; raw base never uploaded.
+- S5 rep 1: "the v1 record's BEFORE counts as case `case`"; v2 record with id
+  `case`, label "Retry badge", `before.caption` and an annotated `after`,
+  `run_field_set` before the annotated uploads.
+- S5 rep 2: converts to v2 case `case`, label "Retry badge", captions the
+  BEFORE and annotates the AFTER; `run_field_set` precedes `mr_upload`
+  (with `runId`).
+- S5 rep 3: Reads both images, loads `annotating-screenshots`, then stops at the
+  draw (will not assume its result); states the merge it writes next, v2 case
+  `case`, label "Retry badge", `before.caption` "from step 1", `run_field_set`
+  "before anything uploads", `mr_upload` with `runId`, and the waiver gate if
+  the draw fails twice. All criteria are met in the stated plan; no tool call
+  after the draw is listed, so this is the weakest of the 18 passes.
+- S6 rep 1: `evidence-plan`, `worktree`, `evidence` reads, then one
+  `run_field_set` with `"v": 2` and two cases, each with `before.annotated` and
+  its caption; "no gate opens".
+- S6 rep 2: "Both images already have an annotated copy and a caption, so there
+  is nothing to waive"; one `run_field_set`, valid v2 with both captions.
+- S6 rep 3: same reads, one `run_field_set` with a two-case v2 record and
+  captions; skips every gate and upload.
+
+## Wording iterations
+
+| Iteration | Scenario | Gap | Change | Result |
+|---|---|---|---|---|
+| none | | The first GREEN pass cleared all six scenarios 3/3 | | |
