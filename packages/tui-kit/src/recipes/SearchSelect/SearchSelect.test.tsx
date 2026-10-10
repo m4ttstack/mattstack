@@ -145,6 +145,20 @@ describe('SearchSelect (browser)', () => {
       .toHaveTextContent('main');
   });
 
+  it('marks only the selected option with a check', async () => {
+    await renderWithTheme(<Harness />);
+    await userEvent.click(page.getByRole('combobox', { name: 'Code to run' }));
+    await expect
+      .element(page.getByRole('option', { name: /console-runs-3/ }))
+      .toBeVisible();
+    const checked = [
+      ...document.querySelectorAll('[data-part="search-select-item"]'),
+    ].filter(o => o.querySelector('[data-part="search-select-check"]'));
+    expect(checked.map(o => o.textContent?.trim())).toEqual([
+      'mainshared checkout',
+    ]);
+  });
+
   it('renders the footer after the list', async () => {
     await renderWithTheme(
       <SearchSelect

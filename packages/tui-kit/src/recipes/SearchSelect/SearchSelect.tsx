@@ -2,6 +2,7 @@ import { Combobox } from "@base-ui/react/combobox";
 import type { ComponentProps, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { defineComponent } from "../../builders.ts";
+import { CHECK_ICON, Icon } from "../Icon/Icon.tsx";
 import classes from "./SearchSelect.module.css";
 
 /** Authoring category (2 = transient overlay). Read off this module by
@@ -10,8 +11,8 @@ export const recipeCategory = 2 as const;
 
 const SEARCHSELECT_SELECTORS = [
   "root", "label", "trigger", "value", "chevron", "portal", "positioner",
-  "popup", "search", "list", "groupLabel", "item", "itemIcon", "itemLabel",
-  "itemDetail", "empty", "footer",
+  "popup", "searchBox", "searchIcon", "search", "list", "groupLabel", "item",
+  "itemIcon", "itemLabel", "itemDetail", "check", "empty", "footer",
 ] as const;
 
 /** Measures with no theme rung, routed through recipe-local custom properties. */
@@ -29,7 +30,11 @@ export const SEARCHSELECT_PARTS = {
   trigger: "search-select-trigger",
   popup: "search-select-popup",
   item: "search-select-item",
+  check: "search-select-check",
 } as const;
+
+/** lucide 1.48.0 `search`, its circle flattened into arcs. */
+const SEARCH_ICON = "M21 21l-4.34-4.34M3 11a8 8 0 1 0 16 0a8 8 0 1 0-16 0";
 
 export interface SearchSelectItem {
   value: string;
@@ -124,7 +129,12 @@ export const SearchSelect = defineComponent<
           <Combobox.Portal container={wrapper}>
             <Combobox.Positioner align="start" sideOffset={4} {...getStyles("positioner")}>
               <Combobox.Popup {...getStyles("popup")} data-part={SEARCHSELECT_PARTS.popup} aria-label={label}>
-                <Combobox.Input {...getStyles("search")} placeholder={searchPlaceholder} />
+                <div {...getStyles("searchBox")}>
+                  <span {...getStyles("searchIcon")}>
+                    <Icon d={SEARCH_ICON} />
+                  </span>
+                  <Combobox.Input {...getStyles("search")} placeholder={searchPlaceholder} />
+                </div>
                 <Combobox.Empty {...getStyles("empty")}>{emptyText ?? "Nothing matches"}</Combobox.Empty>
                 <Combobox.List {...getStyles("list")}>
                   {(group: Group) => (
@@ -136,6 +146,9 @@ export const SearchSelect = defineComponent<
                             {item.icon && <span {...getStyles("itemIcon")}>{item.icon}</span>}
                             <span {...getStyles("itemLabel")}>{item.label}</span>
                             {item.detail && <span {...getStyles("itemDetail")}>{item.detail}</span>}
+                            <Combobox.ItemIndicator {...getStyles("check")} data-part={SEARCHSELECT_PARTS.check}>
+                              <Icon d={CHECK_ICON} />
+                            </Combobox.ItemIndicator>
                           </Combobox.Item>
                         )}
                       </Combobox.Collection>
