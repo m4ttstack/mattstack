@@ -4,7 +4,7 @@ import { linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, wr
 import { basename, dirname, join } from "path";
 import { homedir, tmpdir } from "os";
 import {
-  cachedReadRoots, checkReadRootPath, checkTempRootPath, PLUGIN_LIST_TIMEOUT_MS, tempRootsForThisProcess, type ReadRootSources,
+  cachedReadRoots, checkReadRootPath, checkTempRootPath, codexPluginRootsSync, PLUGIN_LIST_TIMEOUT_MS, tempRootsForThisProcess, type ReadRootSources,
 } from "../temp-root-guard.ts";
 
 const createdDirs: string[] = [];
@@ -383,5 +383,17 @@ describe("foreign temporary path remains refused: integration roots (M6c)", () =
     expect(checkReadRootPath(join(foreign, "secret.md"), read.roots).ok).toBe(false);
     expect(checkReadRootPath(join(owned, "linked.md"), read.roots).ok).toBe(false);
     expect(checkReadRootPath(`${owned}/../foreign/secret.md`, read.roots).ok).toBe(false);
+  });
+});
+
+describe("Codex's read roots", () => {
+  test("a Mac with Codex turned on but not installed has no Codex roots, so a refusal never blames a Codex listing", () => {
+    expect(codexPluginRootsSync(() => null)).toEqual([]);
+    const read = cachedReadRoots({ tempRoots: () => [], pluginRoots: () => [], packRoots: () => [], resourceRoots: () => codexPluginRootsSync(() => null), now: () => 0 })();
+    expect(read.resourceListError).toBeUndefined();
+    const dir = realTempDir("rt-guard-claude-only-");
+    writeFileSync(join(dir, "brief.md"), "x");
+    const r = checkReadRootPath(join(dir, "brief.md"), read.roots, read.pluginListError, read.resourceListError);
+    expect(r.ok ? "" : r.error).not.toContain("integration resources");
   });
 });

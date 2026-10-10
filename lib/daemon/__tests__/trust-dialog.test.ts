@@ -98,6 +98,17 @@ describe("readTrustPrompt", () => {
     expect(readTrustPrompt(screen)).toEqual({ kind: "undrivable" });
   });
 
+  test("a warning or option in the scrollback above the dialog is not the dialog's own", () => {
+    const scrollback = [
+      "$ cat notes.md",
+      "⚠ remember to pre-approve the lint tool",
+      "❯ 1. No, exit",
+      "  2. Yes, proceed",
+    ].join("\n");
+    expect(readTrustPrompt(`${scrollback}\n${PLAIN}`)).toEqual({ kind: "accept", variant: "plain", keys: ["enter"] });
+    expect(readTrustPrompt(`${scrollback}\n${ELEVATED}`)).toEqual({ kind: "pre-approved" });
+  });
+
   test("the header is recognized even when the options have scrolled off", () => {
     expect(readTrustPrompt("│ Do you trust the files in this folder?  │\n")).toEqual({ kind: "undrivable" });
   });

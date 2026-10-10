@@ -493,9 +493,13 @@ describe("Codex ownership across update, restore and uninstall", () => {
       { id: "integrations.remove" as const, title: "Remove what rt added to Codex", kind: "rt" as const },
       { id: "data" as const, title: "Delete ~/.mattstack (settings, teams, secrets)", kind: "rt" as const },
     ];
-    const { ctx } = makeCtx(world.p, { integrations: CODEX_ONLY });
+    const { ctx, events } = makeCtx(world.p, { integrations: CODEX_ONLY });
     const result = await runUninstall(ctx, actions, { detectEditors: () => [], harnessInstalls: [{ id: "codex", loadInstall: async () => adapter() }] });
     expect(result.ok).toBe(true);
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "step", id: "data", state: "done",
+      detail: `Removed ${join(world.home, ".mattstack")}, except rt's Codex hook program, which Codex may still be running. rt no longer keeps track of it, so delete it yourself once Codex is closed`,
+    }));
     expect(existsSync(program!)).toBe(true);
     expect(readdirSync(join(world.home, ".mattstack"))).toEqual(["rt"]);
     expect(readdirSync(join(world.home, ".mattstack", "rt"))).toEqual(["codex-policy"]);

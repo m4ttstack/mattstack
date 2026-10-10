@@ -56,9 +56,14 @@ function readOptions(screen: string): Option[] {
 export function readTrustPrompt(screen: string): TrustPrompt | null {
   const workspace = readWorkspacePrompt(screen.split("\n"));
   if (workspace !== null) return workspace;
-  if (!HEADER_RE.test(screen)) return null;
-  if (PRE_APPROVAL_RE.test(screen)) return { kind: "pre-approved" };
-  return walkToAccept(readOptions(screen), (keys) => ({ kind: "accept", variant: "plain", keys }));
+  const lines = screen.split("\n");
+  const header = lines.findLastIndex((l) => HEADER_RE.test(l));
+  if (header < 0) return null;
+  // The dialog runs from its header to the bottom of the screen; scrollback
+  // above it is not its text.
+  const dialog = lines.slice(header).join("\n");
+  if (PRE_APPROVAL_RE.test(dialog)) return { kind: "pre-approved" };
+  return walkToAccept(readOptions(dialog), (keys) => ({ kind: "accept", variant: "plain", keys }));
 }
 
 function walkToAccept<T>(options: Option[], make: (keys: Array<"up" | "down" | "enter">) => T, acceptRe: RegExp = ACCEPT_RE): T | { kind: "undrivable" } {

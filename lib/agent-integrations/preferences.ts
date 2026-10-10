@@ -112,8 +112,8 @@ export type IntegrationChoice = { enabled: string[]; defaultHarness?: string };
 
 /**
  * Setup's write of a chosen set and default. A default must be one of the
- * chosen, and a user write this Mac's own list would hide is refused;
- * nothing is written on a refusal.
+ * chosen, and a user write this Mac's own list or default would hide is
+ * refused; nothing is written on a refusal.
  */
 export function writeIntegrationChoice(choice: IntegrationChoice, scope: "user" | "machine"): Outcome<void> {
   const valid = validateIntegrationPreference(choice.enabled);
@@ -129,6 +129,15 @@ export function writeIntegrationChoice(choice: IntegrationChoice, scope: "user" 
       error: {
         code: "refused",
         message: `This Mac has its own list of integrations, which would hide this change. Change this Mac's list instead: rt settings set ${INTEGRATIONS_SETTING} '${JSON.stringify(valid.data)}' --scope machine`,
+      },
+    };
+  }
+  if (scope === "user" && def !== undefined && getSetting("agent.provider").provenance.at(-1)?.scope === "machine") {
+    return {
+      ok: false,
+      error: {
+        code: "refused",
+        message: `This Mac has its own default agent, which would hide this change. Change this Mac's default instead: rt settings set agent.provider ${def} --scope machine`,
       },
     };
   }

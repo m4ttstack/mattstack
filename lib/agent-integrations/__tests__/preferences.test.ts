@@ -161,6 +161,24 @@ describe("writeIntegrationChoice", () => {
     expect(getSetting("agent.provider").provenance.at(-1)?.scope).toBe("machine");
   });
 
+  test("a user default this Mac's own default would hide is refused and changes nothing", () => {
+    setSetting("agent.provider", "claude", "machine");
+    const machine = readFileSync(machineSettingsPath(), "utf8");
+
+    expect(writeIntegrationChoice({ enabled: ["codex"], defaultHarness: "codex" }, "user")).toEqual({
+      ok: false,
+      error: {
+        code: "refused",
+        message: "This Mac has its own default agent, which would hide this change. Change this Mac's default instead: rt settings set agent.provider codex --scope machine",
+      },
+    });
+    expect(getSetting("agent.integrations").value).toBeUndefined();
+    expect(readFileSync(machineSettingsPath(), "utf8")).toBe(machine);
+
+    expect(writeIntegrationChoice({ enabled: ["codex"] }, "user")).toEqual({ ok: true, data: undefined });
+    expect(enabledIntegrations()).toEqual(["codex"]);
+  });
+
   test("refuses an invalid list and writes nothing", () => {
     expect(writeIntegrationChoice({ enabled: ["claude", "claude"] }, "user").ok).toBe(false);
     expect(getSetting("agent.integrations").value).toBeUndefined();

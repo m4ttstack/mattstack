@@ -14,6 +14,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   CODEX_PLUGIN_LIST_TIMEOUT_MS,
+  codexBin,
   codexHomeFor,
   makeCachedPluginListRunner,
   resolveSkillPath,
@@ -403,5 +404,18 @@ describe('codexHomeFor', () => {
   test('a relative home is refused', () => {
     const result = codexHomeFor({ HOME: '/u', CODEX_HOME: 'work' });
     expect(result.ok ? '' : result.error.code).toBe('invalid');
+  });
+});
+
+describe('codexBin', () => {
+  test('is looked up on each call, so a codex installed after the board started is found', () => {
+    let found: string | null = null;
+    const which = () => found;
+    expect(codexBin({ HOME: '/u' }, which)).toBe('/u/.local/bin/codex');
+    found = '/opt/homebrew/bin/codex';
+    expect(codexBin({ HOME: '/u' }, which)).toBe('/opt/homebrew/bin/codex');
+    expect(codexBin({ HOME: '/u', CODEX_BIN: '/x/codex' }, which)).toBe(
+      '/x/codex'
+    );
   });
 });

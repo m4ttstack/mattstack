@@ -145,10 +145,17 @@ export async function resolveSkillPath(
   }
 }
 
-const CODEX_BIN =
-  process.env.CODEX_BIN ||
-  Bun.which('codex') ||
-  join(homedir(), '.local', 'bin', 'codex');
+/** Resolved per launch, so a codex installed after the board started is found. */
+export function codexBin(
+  env: Record<string, string | undefined> = process.env,
+  which: (cmd: string) => string | null = cmd => Bun.which(cmd)
+): string {
+  return (
+    env.CODEX_BIN ||
+    which('codex') ||
+    join(env.HOME || homedir(), '.local', 'bin', 'codex')
+  );
+}
 
 /** Bounded: a hung codex CLI must not hold a launch forever. Equal to rt's
     PLUGIN_LIST_TIMEOUT_MS; a parity test in rt pins the two together. */
@@ -284,7 +291,7 @@ export function makeCachedCodexPluginLister(
 export const defaultCodexPluginLister: CodexPluginLister =
   makeCachedCodexPluginLister(async () => {
     const home = codexHomeFor();
-    return home.ok ? runCodexPluginList(CODEX_BIN, home.data) : home;
+    return home.ok ? runCodexPluginList(codexBin(), home.data) : home;
   });
 
 export interface AgentSkillDeps {

@@ -119,12 +119,16 @@ export const readRootsForThisProcess = cachedReadRoots({
   now: Date.now,
 });
 
-/** The guard resolves synchronously, so it lists Codex here the way it lists Claude: one bounded subprocess per TTL. */
-function codexPluginRootsSync(): string[] {
+/**
+ * The guard resolves synchronously, so it lists Codex here the way it lists
+ * Claude: one bounded subprocess per TTL. With no Codex installed there is
+ * nothing of Codex's to admit, which is not a failed listing.
+ */
+export function codexPluginRootsSync(resolveBin: () => string | null = resolveCodexBinIfPresent): string[] {
+  const bin = resolveBin();
+  if (bin === null) return [];
   const home = codexHomeFor(undefined, process.env);
   if (!home.ok) throw new Error(home.error.message);
-  const bin = resolveCodexBinIfPresent();
-  if (bin === null) throw new Error("codex plugin list failed: Codex is not installed");
   const raw = execFileSync(bin, CODEX_PLUGIN_LIST_ARGS, {
     encoding: "utf8", env: codexListEnv(process.env, home.data.home), timeout: PLUGIN_LIST_TIMEOUT_MS, stdio: ["ignore", "pipe", "ignore"],
   });

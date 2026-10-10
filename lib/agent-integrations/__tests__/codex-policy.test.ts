@@ -806,3 +806,21 @@ describe("rt agent policy-hook", () => {
     expect(run).toMatchObject({ stdout: "", stderr: "refused", exits: [2] });
   });
 });
+
+describe("codexWording", () => {
+  test("Codex's refusal and Stop texts name no Claude tool and no background wait", () => {
+    const texts = [
+      ...["gate-1", undefined].map((subject) => sharedPolicy.forkDenyReason(subject)),
+      sharedPolicy.stopReason("r-open", "ship"),
+    ].map((text) => codexWording(text, sharedPolicy));
+    for (const text of texts) {
+      expect(text).not.toContain("AskUserQuestion");
+      expect(text).not.toMatch(/background/i);
+    }
+  });
+
+  test("a Claude clause edited without its Codex twin fails the pin", () => {
+    const drifted = { ...sharedPolicy, FORK_WAIT_CLAUSE: "wait: background `rt gate wait <id>` then end the turn." };
+    expect(codexWording(sharedPolicy.forkDenyReason("gate-1"), drifted)).toMatch(/background/i);
+  });
+});

@@ -337,7 +337,11 @@ export function recordProblems(record: ScenarioRecord, run: ProfileRun, profile:
   if (!record.permissionMode) problems.push(`${at} records no permission mode`);
   if (record.attestedBy !== "machine" && record.attestedBy !== "operator") problems.push(`${at} does not say whether the runner or an operator stands behind it`);
   const observed = Date.parse(record.observedAt);
-  if (Number.isNaN(observed) || observed < Date.parse(run.startedAt) || observed > Date.parse(run.finishedAt)) {
+  const started = Date.parse(run.startedAt);
+  const finished = Date.parse(run.finishedAt);
+  if (Number.isNaN(started) || Number.isNaN(finished)) {
+    problems.push(`${at}: its run has no valid start or finish time, so when it was observed cannot be checked`);
+  } else if (Number.isNaN(observed) || observed < started || observed > finished) {
     problems.push(`${at} was observed outside its run (${record.observedAt})`);
   }
   if (record.harness) {
@@ -432,10 +436,11 @@ export function parseNativeEvents(text: string, harnesses: readonly AcceptanceHa
 
 /**
  * A disruptive capture's events must show its service recorded before the
- * stop, and a restart's must show the original native session at both its
- * generations, the later one only after the stop.
+ * stop, and a restart's must show the original native session, under the
+ * record's own harness, at its first generation before the stop and at the
+ * later one after it.
  */
-export function eventTimelineProblems(events: NativeEvent[], record: Pick<ScenarioRecord, "native" | "service">, disruptive: boolean, restart: boolean, at: string): string[] {
+export function eventTimelineProblems(events: NativeEvent[], record: Pick<ScenarioRecord, "harness" | "native" | "service">, disruptive: boolean, restart: boolean, at: string): string[] {
   const problems: string[] = [];
   const time = (e: NativeEvent) => Date.parse(e.at);
   const stop = events.filter((e) => e.type === SERVICE_STOP_EVENT).sort((a, b) => time(a) - time(b))[0];
@@ -450,8 +455,10 @@ export function eventTimelineProblems(events: NativeEvent[], record: Pick<Scenar
   }
   if (restart && record.native) {
     const { before, after } = record.native;
-    const of = (generation: number) => events.filter((e) => e.sessionId === before.nativeId && e.generation === generation);
-    if (of(before.generation).length === 0) problems.push(`${at}: no native event shows ${before.nativeId} at generation ${before.generation} before the restart`);
+    const of = (generation: number) => events.filter((e) => e.harness === record.harness && e.sessionId === before.nativeId && e.generation === generation);
+    const earlier = of(before.generation);
+    if (earlier.length === 0) problems.push(`${at}: no native event shows ${before.nativeId} at generation ${before.generation} before the restart`);
+    else if (stop && !earlier.some((e) => time(e) < time(stop))) problems.push(`${at}: ${before.nativeId} is never seen at generation ${before.generation} before the stop`);
     const later = of(after.generation);
     if (later.length === 0) problems.push(`${at}: no native event shows ${before.nativeId} at generation ${after.generation} after the restart`);
     else if (stop && !later.some((e) => time(e) > time(stop))) problems.push(`${at}: ${before.nativeId} is never seen at generation ${after.generation} after the stop`);

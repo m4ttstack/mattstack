@@ -369,9 +369,11 @@ async function dataRun(ctx: ApplyContext, stayedSoFar: readonly string[] = []): 
   const kept = wanted.filter((k) => !links.some((l) => k.startsWith(`${l}/`)));
   const stayed = [
     ...links.map((l) => `${l} was a link, so rt removed only the link and left what it points to`),
-    ...kept.filter((k) => !stayedSoFar.some((s) => s.includes(k))).map((k) => `${k} (rt's Codex hook program, which Codex may still be running; delete it once Codex is closed)`),
+    ...kept.filter((k) => !stayedSoFar.some((s) => s.includes(k))).map((k) => `${k} (rt's Codex hook program, which Codex may still be running. rt no longer keeps track of it, so delete it yourself once Codex is closed)`),
   ];
-  const detail = kept.length === 0 ? `Removed ${dir}` : `Removed ${dir}, except rt's Codex hook program, which Codex may still be running`;
+  const detail = kept.length === 0
+    ? `Removed ${dir}`
+    : `Removed ${dir}, except rt's Codex hook program, which Codex may still be running. rt no longer keeps track of it, so delete it yourself once Codex is closed`;
   return { outcome: { state: "done", detail }, ...(stayed.length > 0 ? { stayed } : {}) };
 }
 

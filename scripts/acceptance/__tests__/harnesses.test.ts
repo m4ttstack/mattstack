@@ -20,7 +20,7 @@ import { openStateDb } from "../../../lib/state/db.ts";
 import { declarationProblems } from "../conformance.ts";
 import { loadEnvironment } from "../environment.ts";
 import {
-  evidencePathProblem, matrixProblems, readEvidence, readMatrix, restartProblems,
+  eventTimelineProblems, evidencePathProblem, matrixProblems, readEvidence, readMatrix, restartProblems,
   type EvidenceFile, type TestedMatrix,
 } from "../evidence.ts";
 import {
@@ -439,6 +439,24 @@ describe("capture verification (review hardening)", () => {
     expect(record.reason).toContain("does not mark the service-stop");
   });
 
+  test("the original session seen at its first generation only after the stop fails", async () => {
+    const ev = (generation: number, type: string, at: string) => JSON.stringify({ harness: "codex", sessionId: "thread-codex", generation, type, at });
+    const log = [ev(2, "service-stop", "2026-10-10T00:00:02.000Z"), ev(2, "turn", "2026-10-10T00:00:03.000Z"), ev(3, "turn", "2026-10-10T00:00:04.000Z")].join("\n") + "\n";
+    const record = await restartRecord(restartManifest(), { "r.log": "ok\n", "r.events.jsonl": log });
+    expect(record.outcome).toBe("failed");
+    expect(record.reason).toContain("thread-codex is never seen at generation 2 before the stop");
+  });
+
+  test("events from another harness with the same session id do not count", () => {
+    const native = restartManifest().native;
+    const ev = (harness: "claude" | "codex", generation: number, type: string, at: string) => ({ harness, sessionId: "thread-codex", generation, type, at });
+    const events = [ev("claude", 2, "turn", "2026-10-10T00:00:01.000Z"), ev("codex", 2, "service-stop", "2026-10-10T00:00:02.000Z"), ev("claude", 3, "turn", "2026-10-10T00:00:03.000Z")];
+    const problems = eventTimelineProblems(events, { harness: "codex", native, service: restartManifest().service }, true, true, "x");
+    expect(problems).toContain("x: thread-codex is never seen at generation 2 before the stop");
+    expect(problems).toContain("x: no native event shows thread-codex at generation 3 after the restart");
+    expect(eventTimelineProblems(events.map((e) => ({ ...e, harness: "codex" as const })), { harness: "codex", native, service: restartManifest().service }, true, true, "x")).toEqual([]);
+  });
+
   test("an empty captured file is not evidence", async () => {
     const evidence = join(tempDir("rt-acceptance-ev-"), "acceptance.json");
     const e = env();
@@ -464,6 +482,16 @@ describe("capture verification (review hardening)", () => {
       expect(result.error.message).toContain("is not a file");
       expect(result.error.message).toContain("was observed outside its run");
     }
+  });
+
+  test("a run whose start or finish is not a time fails verify instead of admitting every record", async () => {
+    const { evidence } = await passingMatrix();
+    const doc = load(evidence);
+    doc.profiles.mixed!.startedAt = "not a time";
+    writeFileSync(evidence, JSON.stringify(doc));
+    const result = verifyHarnessAcceptance(evidence, MATRIX_PATH);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("its run has no valid start or finish time");
   });
 
   test("automated drivers are machine-attested, and the file says what operator attestation means", async () => {
