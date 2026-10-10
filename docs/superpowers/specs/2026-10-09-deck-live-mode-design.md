@@ -125,7 +125,9 @@ data `rt worktree list --json` prints: `path`, `branch`, `kind`, `readyAt`,
 `lastActiveAt`). It leaves out the golden tree and the spare trees rt keeps
 ready to hand out (non-claimed `kind`s), since rt could hand one away mid-session.
 
-A worktree **needs setup** when rt has not marked it ready (no `readyAt`). Setup runs in that worktree: install
+A worktree **needs setup** when rt has not marked it ready (no `readyAt`) and no
+finished setup has left `node_modules/.deck-live-ready` behind (setup deletes
+that marker before it starts and writes it only when `bun install` exits 0). Setup runs in that worktree: install
 packages (the root `postinstall` builds the shared workspace packages too).
 No app build is needed, since live mode runs source. Setup output streams to
 the row and is kept for the failure modal.

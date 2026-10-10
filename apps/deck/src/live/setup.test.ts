@@ -1,6 +1,9 @@
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { afterEach, expect, test } from 'bun:test';
 
-import { clearSetup, runSetup, setupFor } from './setup.ts';
+import { clearSetup, readyMarker, runSetup, setupFor } from './setup.ts';
 
 afterEach(() => clearSetup('chat'));
 
@@ -59,4 +62,25 @@ test('the log keeps only the last 200 lines', async () => {
   const log = setupFor('chat')!.log;
   expect(log.length).toBe(200);
   expect(log.at(-1)).toBe('line 299');
+});
+
+test('a clean install marks the tree ready', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'deck-setup-'));
+  await runSetup('chat', root, null, { run: async () => 0 });
+  expect(existsSync(readyMarker(root))).toBe(true);
+});
+
+test('a failed install over a half-installed tree leaves no ready mark', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'deck-setup-'));
+  mkdirSync(join(root, 'node_modules'));
+  writeFileSync(readyMarker(root), '');
+  let markedDuringRun = true;
+  await runSetup('chat', root, null, {
+    run: async () => {
+      markedDuringRun = existsSync(readyMarker(root));
+      return 1;
+    },
+  });
+  expect(markedDuringRun).toBe(false);
+  expect(existsSync(readyMarker(root))).toBe(false);
 });

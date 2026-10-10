@@ -1,3 +1,6 @@
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
+
 import { composeCommandPath, resolveProgram } from '../services/exec-env.ts';
 
 export interface SetupRun {
@@ -18,6 +21,20 @@ export interface SetupDeps {
 }
 
 const LOG_LINES = 200;
+
+/** Written only after `bun install` exits 0, so a tree whose install died
+    halfway still reads as needing setup. node_modules is git-ignored. */
+export function readyMarker(root: string): string {
+  return join(root, 'node_modules', '.deck-live-ready');
+}
+
+function markReady(root: string): void {
+  try {
+    mkdirSync(dirname(readyMarker(root)), { recursive: true });
+    writeFileSync(readyMarker(root), '');
+  } catch {}
+}
+
 const runs = new Map<string, SetupRun>();
 
 export function setupFor(app: string): SetupRun | undefined {
@@ -99,6 +116,7 @@ export async function runSetup(
     if (run.log.length > LOG_LINES) run.log.shift();
   };
   push('$ bun install');
+  rmSync(readyMarker(root), { force: true });
   let code: number;
   try {
     code = await (deps.run ?? defaultRun)(['bun', 'install'], root, push);
@@ -107,6 +125,7 @@ export async function runSetup(
     code = -1;
   }
   if (code === 0) {
+    markReady(root);
     if (runs.get(app) === run) runs.delete(app);
     return true;
   }

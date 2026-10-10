@@ -4,6 +4,7 @@ import { join, relative } from 'path';
 import { rtCommand } from '@mattstack/rt-client';
 import { git } from '../edge/source.ts';
 import type { AppRecord } from '../registry/records.ts';
+import { readyMarker } from './setup.ts';
 
 /** Mirrors rt-client's WorktreeTreeRow, which the package does not export. */
 export interface TreeRow {
@@ -118,7 +119,7 @@ export async function listLiveSources(
       path: real(t.path),
       branch: t.branch,
       main: false,
-      needsSetup: !t.readyAt && !exists(join(t.path, 'node_modules')),
+      needsSetup: !t.readyAt && !exists(readyMarker(t.path)),
       lastActiveAt: t.lastActiveAt ?? null,
     }))
     .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''));

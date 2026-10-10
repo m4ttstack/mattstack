@@ -1,9 +1,10 @@
-import { mkdirSync, realpathSync } from 'fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { expect, test } from 'bun:test';
 
 import { gitRepo } from '../../test/git-fixture.ts';
 import type { AppRecord } from '../registry/records.ts';
+import { readyMarker } from './setup.ts';
 import {
   appDirIn,
   branchOf,
@@ -84,16 +85,21 @@ test('main first, then claimed and unmanaged trees of the same repo by last use'
   ]);
 });
 
-test('an unready tree with installed packages does not need setup', async () => {
+test('an unready tree needs setup until a finished install marks it ready', async () => {
   const wt = realpathSync(gitRepo({ 'a.txt': 'a' }));
   mkdirSync(join(wt, 'node_modules'));
-  const { sources } = await listLiveSources(root, {
-    listTrees: async () => [
-      row({ path: root, kind: 'main', state: null, branch: 'main' }),
-      row({ path: wt, kind: 'unmanaged', state: null, readyAt: null }),
-    ],
-  });
-  expect(sources[1]!.needsSetup).toBe(false);
+  const list = async () =>
+    (
+      await listLiveSources(root, {
+        listTrees: async () => [
+          row({ path: root, kind: 'main', state: null, branch: 'main' }),
+          row({ path: wt, kind: 'unmanaged', state: null, readyAt: null }),
+        ],
+      })
+    ).sources[1]!.needsSetup;
+  expect(await list()).toBe(true);
+  writeFileSync(readyMarker(wt), '');
+  expect(await list()).toBe(false);
 });
 
 test('an unreachable rt daemon still offers main', async () => {
