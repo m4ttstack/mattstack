@@ -163,6 +163,11 @@ body {
 .live-failed {
   all: unset;
   cursor: pointer;
+  border-radius: var(--radius-sm, 4px);
+}
+.live-failed:focus-visible {
+  outline: 2px solid var(--text-accent-small);
+  outline-offset: 2px;
 }
 
 /* hstack is a block-level flex container, so a chip after the name would be

@@ -1,6 +1,8 @@
 // Pure port of the Alpine `board` component (core/board.js): same strings,
 // same branch order, `Date.now()` replaced by an explicit `now` parameter so
 // every function here is deterministic and side-effect free.
+import { liveCount } from './live/live-logic.ts';
+
 export const REFRESH_MS = 5000;
 export const RESTART_TIMEOUT_MS = 30000;
 export const RESTART_SETTLE_MS = 10000;
@@ -130,7 +132,7 @@ export function subline(data: StatusData | null): string {
   if (!data) return 'loading…';
   const pub = data.apps.filter(r => r.published).length;
   const prot = data.apps.filter(r => r.hasPassword).length;
-  const live = data.apps.filter(r => r.live).length;
+  const live = liveCount(data);
   const parts = [healthyFraction(data)];
   if (live) parts.push(`${live} live`);
   parts.push(`${pub} public`);
@@ -449,6 +451,7 @@ export function behindRows(rows: Row[]): Row[] {
   return rows.filter(
     r =>
       r.enabled !== false &&
+      !r.live &&
       r.newCode != null &&
       (r.commands ?? []).includes('deploy')
   );
@@ -459,7 +462,8 @@ export function behindRows(rows: Row[]): Row[] {
 export function redeployButtonText(rows: Row[]): string {
   const behind = behindRows(rows);
   const deployable = rows.filter(
-    r => r.enabled !== false && (r.commands ?? []).includes('deploy')
+    r =>
+      r.enabled !== false && !r.live && (r.commands ?? []).includes('deploy')
   );
   if (behind.length === 1)
     return `Redeploy ${behind[0]!.displayName ?? behind[0]!.name}`;
