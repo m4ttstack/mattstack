@@ -770,9 +770,7 @@ describe('KeyPanel', () => {
       await screen.findByTestId('layer-user.repo'),
       'set board.ticketPrefixes at user · repo'
     );
-    expect(
-      screen.getByText('Saves to user · repo')
-    ).toBeInTheDocument();
+    expect(screen.getByText('Saves to user · repo')).toBeInTheDocument();
 
     let loaded: (body: unknown) => void = () => {};
     explainGet.mockReturnValue(
