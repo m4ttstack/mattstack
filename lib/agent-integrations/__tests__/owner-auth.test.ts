@@ -2,16 +2,21 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { processFlavor } from "../../flavor.ts";
+import { buildFlavor } from "../../flavor.ts";
 import { DEV_TRAY_APP_BUNDLE, installedTrayAppPath, machineSettingsPath, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
 import {
-  confirmOwner, interpretOwnerAuth, locateOwnerAuthHelper, OWNER_AUTH_HELPER, realOwnerAuthRunner, type OwnerAuthRun, type OwnerAuthRunner,
+  confirmOwner, interpretOwnerAuth, locateOwnerAuthHelper, OWNER_AUTH_HELPER, ownerAuthRequirement, realOwnerAuthRunner, verifyOwnerAuthHelper,
+  type CodesignRun, type OwnerAuthRun, type OwnerAuthRunner,
 } from "../codex/owner-auth.ts";
 
-function runner(answer: OwnerAuthRun | Error, path: string | null = "/Applications/mattstack.app/Contents/Helpers/rt-owner-auth") {
+function runner(answer: OwnerAuthRun | Error, path: string | null = "/Applications/mattstack.app/Contents/Helpers/rt-owner-auth", verdict: string | null | Error = null) {
   const calls: string[][] = [];
   const r: OwnerAuthRunner = {
     locate: () => path,
+    verify: async () => {
+      if (verdict instanceof Error) throw verdict;
+      return verdict;
+    },
     run: async (argv) => {
       calls.push(argv);
       if (answer instanceof Error) throw answer;
@@ -85,6 +90,103 @@ describe("the owner check", () => {
     expect(locateOwnerAuthHelper({ flavor: "dev", fromExec: "/tmp/elsewhere/mattstack-dev.app", home: "/h", exists: (p) => p.startsWith("/tmp/") })).toBeNull();
   });
 
+  test("a helper that fails its signature check is never run", async () => {
+    const { r, calls } = runner({ exitCode: 0, stdout: "authenticated", stderr: "" }, undefined, "not signed by mattstack");
+    expect(await confirmOwner("trust", r)).toEqual({ ok: false, outcome: "failed", message: "not signed by mattstack" });
+    expect(calls).toEqual([]);
+  });
+
+  test("a signature check that throws refuses without running the helper", async () => {
+    const { r, calls } = runner({ exitCode: 0, stdout: "authenticated", stderr: "" }, undefined, new Error("spawn ENOENT"));
+    expect(await confirmOwner("trust", r)).toMatchObject({ ok: false, outcome: "failed" });
+    expect(calls).toEqual([]);
+  });
+
+  describe("the prod signature check", () => {
+    const helper = "/Applications/mattstack.app/Contents/Helpers/rt-owner-auth";
+    const bundle = "/Applications/mattstack.app";
+    const signed = (team: string, verifyExit: number) => {
+      const calls: string[][] = [];
+      const codesign = async (argv: [string, ...string[]]): Promise<CodesignRun> => {
+        calls.push(argv);
+        if (argv.includes("-d")) return { exitCode: 0, stdout: "", stderr: `Executable=${bundle}/Contents/MacOS/mattstack\nIdentifier=com.mattstack.app\nTeamIdentifier=${team}\n` };
+        return { exitCode: verifyExit, stdout: "", stderr: verifyExit === 0 ? "" : "test-requirement: code failed to satisfy specified code requirement(s)" };
+      };
+      return { codesign, calls };
+    };
+
+    test("the requirement anchors to Apple, the team and the helper's identifier", () => {
+      expect(ownerAuthRequirement("ABCDE12345")).toBe('anchor apple generic and certificate leaf[subject.OU] = "ABCDE12345" and identifier "com.mattstack.helper.rt-owner-auth"');
+    });
+
+    test("passes a helper signed by the running app's own team", async () => {
+      const { codesign, calls } = signed("ABCDE12345", 0);
+      expect(await verifyOwnerAuthHelper(helper, bundle, codesign)).toBeNull();
+      expect(calls).toEqual([
+        ["codesign", "-d", "--verbose=2", bundle],
+        ["codesign", "--verify", "--strict", "-R", `=${ownerAuthRequirement("ABCDE12345")}`, helper],
+      ]);
+    });
+
+    test("refuses a helper that does not satisfy the requirement", async () => {
+      const { codesign } = signed("ABCDE12345", 3);
+      expect(await verifyOwnerAuthHelper(helper, bundle, codesign)).toBe(
+        "The Touch ID helper in this app is not the one mattstack signed, so rt did not run it. Nothing was trusted.",
+      );
+    });
+
+    test("refuses when the running app carries no team, without checking the helper", async () => {
+      for (const team of ["not set", "", "abc"]) {
+        const { codesign, calls } = signed(team, 0);
+        expect(await verifyOwnerAuthHelper(helper, bundle, codesign)).toBe(
+          "This copy of mattstack is not signed by its developer, so rt cannot check the Touch ID helper. Nothing was trusted.",
+        );
+        expect(calls).toHaveLength(1);
+      }
+    });
+  });
+
+  describe("MATTSTACK_FLAVOR", () => {
+    const origHome = process.env.HOME;
+    const origFlavor = process.env.MATTSTACK_FLAVOR;
+    let root = "";
+    afterEach(() => {
+      process.env.HOME = origHome;
+      if (origFlavor === undefined) delete process.env.MATTSTACK_FLAVOR;
+      else process.env.MATTSTACK_FLAVOR = origFlavor;
+      if (root) rmSync(root, { recursive: true, force: true });
+    });
+
+    test("never moves a compiled build's lookup to the user-writable dev app", async () => {
+      root = realpathSync(mkdtempSync(join(tmpdir(), "owner-auth-flavor-")));
+      process.env.HOME = join(root, "home");
+      const fake = join(process.env.HOME, "Applications", DEV_TRAY_APP_BUNDLE, "Contents", "Helpers", OWNER_AUTH_HELPER);
+      mkdirSync(dirname(fake), { recursive: true });
+      writeFileSync(fake, "#!/bin/sh\necho authenticated\n", { mode: 0o755 });
+      process.env.MATTSTACK_FLAVOR = "dev";
+      expect(realOwnerAuthRunner({ built: "prod", fromExec: null }).locate()).toBeNull();
+      expect(realOwnerAuthRunner({ built: "dev", fromExec: null }).locate()).not.toBeNull();
+    });
+
+    test("a compiled build checks the helper's signature and a source run does not", async () => {
+      const calls: string[][] = [];
+      const codesign = async (argv: [string, ...string[]]): Promise<CodesignRun> => {
+        calls.push(argv);
+        return { exitCode: 0, stdout: "", stderr: "TeamIdentifier=not set\n" };
+      };
+      process.env.MATTSTACK_FLAVOR = "dev";
+      expect(await realOwnerAuthRunner({ built: "dev", fromExec: null, codesign }).verify("/x")).toBeNull();
+      expect(calls).toEqual([]);
+      expect(await realOwnerAuthRunner({ built: "prod", fromExec: "/Applications/mattstack.app", codesign }).verify("/x")).not.toBeNull();
+      expect(calls).toHaveLength(1);
+    });
+
+    test("a compiled build with no bundle of its own refuses the check", async () => {
+      const codesign = async (): Promise<CodesignRun> => ({ exitCode: 0, stdout: "", stderr: "" });
+      expect(await realOwnerAuthRunner({ built: "prod", fromExec: null, codesign }).verify("/x")).not.toBeNull();
+    });
+  });
+
   describe("a repointed mattstack.appPath", () => {
     const origHome = process.env.HOME;
     let root = "";
@@ -96,7 +198,7 @@ describe("the owner check", () => {
     test("is never where the helper comes from", () => {
       root = realpathSync(mkdtempSync(join(tmpdir(), "owner-auth-")));
       process.env.HOME = join(root, "home");
-      const bundle = processFlavor() === "prod" ? TRAY_APP_BUNDLE : DEV_TRAY_APP_BUNDLE;
+      const bundle = buildFlavor() === "prod" ? TRAY_APP_BUNDLE : DEV_TRAY_APP_BUNDLE;
       const planted = join(root, "planted", bundle);
       const fake = join(planted, "Contents", "Helpers", OWNER_AUTH_HELPER);
       mkdirSync(dirname(fake), { recursive: true });
