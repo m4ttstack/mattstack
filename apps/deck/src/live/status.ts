@@ -1,0 +1,91 @@
+import type { LaunchdService } from '../../core/discover.ts';
+import { getLive } from '../../core/settings.ts';
+import { liveProcessIds, type LiveKind } from '../registry/deck-manifest.ts';
+import { isMattstackOwned, type AppRecord } from '../registry/records.ts';
+import { readLinkedManifest } from '../registry/serve-shape.ts';
+import { isPlatformManagedBy } from '../services/manager.ts';
+import { liveManifestAt } from './engine.ts';
+import { liveLabel } from './labels.ts';
+import { setupFor } from './setup.ts';
+import { appDirIn, sharedRootFor } from './sources.ts';
+
+export interface LiveRow {
+  branch: string | null;
+  main: boolean;
+  startedAt: string;
+  uiPort: number | null;
+  movedFrom: string | null;
+  processes: Array<{
+    id: string;
+    kind: LiveKind;
+    command: string;
+    port: number | null;
+    running: boolean;
+  }>;
+}
+
+export interface LiveRowFields {
+  live?: LiveRow;
+  liveSetup?: {
+    state: 'running' | 'failed';
+    branch: string | null;
+    log: string[];
+  };
+  /** null: the app can go live; a string: why it cannot; absent: live controls do not apply. */
+  liveBlocked?: string | null;
+}
+
+export function liveRowFields(
+  record: AppRecord | undefined,
+  opts: { devMode: boolean; local: boolean },
+  services: LaunchdService[]
+): LiveRowFields {
+  if (!record || !opts.devMode || !opts.local) return {};
+  if (!isMattstackOwned(record) || isPlatformManagedBy(record.managedBy))
+    return {};
+  const out: LiveRowFields = {};
+  const setup = setupFor(record.name);
+  if (setup)
+    out.liveSetup = {
+      state: setup.state,
+      branch: setup.branch,
+      log: setup.log,
+    };
+  const state = getLive(record.name);
+  const sharedRoot = sharedRootFor(record);
+  const dir =
+    state && sharedRoot ? appDirIn(record, state.source, sharedRoot) : null;
+  if (state && sharedRoot && dir) {
+    const manifest = liveManifestAt(dir);
+    const live = manifest.ok ? manifest.live : [];
+    const ids = liveProcessIds(live);
+    out.live = {
+      branch: state.branch,
+      main: state.source === sharedRoot,
+      startedAt: state.startedAt,
+      uiPort: state.uiPort ?? null,
+      movedFrom: state.movedFrom ?? null,
+      processes: live.map((p, i) => ({
+        id: ids[i]!,
+        kind: p.kind,
+        command: p.start,
+        port:
+          p.kind === 'server'
+            ? record.port
+            : p.kind === 'ui'
+              ? (state.uiPort ?? null)
+              : null,
+        running:
+          services.find(s => s.label === liveLabel(record.name, ids[i]!))
+            ?.pid != null,
+      })),
+    };
+    return out;
+  }
+  const link = readLinkedManifest(record);
+  if (link.state !== 'linked') return out;
+  out.liveBlocked =
+    link.manifest.liveError ??
+    (link.manifest.live ? null : 'no live list in the manifest');
+  return out;
+}
