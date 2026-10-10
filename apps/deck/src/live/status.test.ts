@@ -66,6 +66,17 @@ test('a live app lists its processes and which are running', async () => {
   });
 });
 
+test('a live source that changed branch shows the branch it is on now', async () => {
+  setLive('chat', {
+    source: shared,
+    branch: 'old-branch',
+    startedAt: 't',
+    uiPort: 11140,
+  });
+  const f = await liveRowFields(record(), ON, [], async () => true);
+  expect(f.live?.branch).toBe('main');
+});
+
 test('a failed setup carries its log', async () => {
   await runSetup('chat', '/wt/a', 'a', {
     run: async (_c, _d, on) => (on('boom'), 1),

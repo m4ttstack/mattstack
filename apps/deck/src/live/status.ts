@@ -7,7 +7,7 @@ import { isPlatformManagedBy } from '../services/manager.ts';
 import { liveManifestAt } from './engine.ts';
 import { liveLabel } from './labels.ts';
 import { setupFor } from './setup.ts';
-import { appDirIn, sharedRootFor } from './sources.ts';
+import { appDirIn, branchOf, sharedRootFor } from './sources.ts';
 
 export interface LiveRow {
   branch: string | null;
@@ -63,7 +63,7 @@ export async function liveRowFields(
     const live = manifest.ok ? manifest.live : [];
     const ids = liveProcessIds(live);
     out.live = {
-      branch: state.branch,
+      branch: branchOf(state.source),
       main: state.source === sharedRoot,
       startedAt: state.startedAt,
       uiPort: state.uiPort ?? null,
