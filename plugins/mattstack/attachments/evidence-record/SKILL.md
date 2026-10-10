@@ -32,20 +32,22 @@ captures, records or uploads evidence follows this page.
 ```
 
 - One case per thing verified, in the order a reader should see them.
-  `id` is a stable slug (lowercase letters, digits and hyphens, at most 64
-  characters) that never changes once written; `label` is what a reader
+  `id` is a stable slug matching `^[a-z0-9][a-z0-9-]{0,63}$` that never changes once written; `label` is what a reader
   sees.
 - A case has a `before`, an `after`, or both. A slot is one image, or a
   `{light, dark}` pair only when the plan or the domain says the run's
   theme matters.
 - Every image is **annotated** (`annotated` plus a `caption` naming what
   the marks point at) or **waived** (its own `waiver`, or its case's).
-  Nothing else is valid.
+  Nothing else is valid. A case-level `waiver` covers only the images the
+  case holds when it is written, never one added later.
 - Paths are absolute. Unbound, files live under
   `~/.mattstack/work/<run id>/evidence/`.
 - `<run id>` is the path segment before `/state.db` in the `runDb` this
   verb carries.
-- `transcript`, `url` and `attach` are run-level. `{"plan": "none"}`
+- `transcript`, `url` and `attach` are run-level. A transcript is text,
+  is never uploaded, and needs no caption or waiver.
+-  `{"plan": "none"}`
   stays the no-evidence value.
 
 ## Annotate or waive each image the record does not yet cover
@@ -56,7 +58,7 @@ digraph annotate_or_waive {
 
     "Image needs cover" [shape=ellipse];
     "Nothing selected for it at an annotations question?" [shape=diamond];
-    "Video, transcript, or nothing worth marking?" [shape=diamond];
+    "Video, or nothing worth marking?" [shape=diamond];
     "Draw the marks to a sibling -annotated file" [shape=box];
     "Drawn?" [shape=diamond];
     "Drawn after an Annotate it after all answer?" [shape=diamond];
@@ -73,10 +75,10 @@ digraph annotate_or_waive {
 
     "Image needs cover" -> "Nothing selected for it at an annotations question?";
     "Nothing selected for it at an annotations question?" -> "Waiver openings for this image = 2?" [label="yes"];
-    "Nothing selected for it at an annotations question?" -> "Video, transcript, or nothing worth marking?" [label="no, or no such question"];
-    "Video, transcript, or nothing worth marking?" -> "Waiver openings for this image = 2?" [label="yes"];
-    "Video, transcript, or nothing worth marking?" -> "Draw the marks to a sibling -annotated file" [label="no"];
-    "Video, transcript, or nothing worth marking?" -> "STOP: a waiver is the human's answer, never the agent's" [label="tempted to keep the base unmarked"];
+    "Nothing selected for it at an annotations question?" -> "Video, or nothing worth marking?" [label="no, or no such question"];
+    "Video, or nothing worth marking?" -> "Waiver openings for this image = 2?" [label="yes"];
+    "Video, or nothing worth marking?" -> "Draw the marks to a sibling -annotated file" [label="no"];
+    "Video, or nothing worth marking?" -> "STOP: a waiver is the human's answer, never the agent's" [label="tempted to keep the base unmarked"];
     "STOP: a waiver is the human's answer, never the agent's" -> "Waiver openings for this image = 2?";
     "Draw the marks to a sibling -annotated file" -> "Drawn?";
     "Drawn?" -> "Write the caption" [label="yes"];
@@ -141,8 +143,8 @@ Read `evidence` with `run_field_get`, then:
 
 | What it holds | Do |
 |---|---|
-| `evidence@2` | Add each new case; an AFTER for an existing case's `id` sets that case's `after`. Keep every other case and key. |
-| `evidence@1` (`"v": 1`) | Convert it to one case: `id` `case`, `label` = its `case` text or `Evidence`, `before` = `{path: before, annotated: beforeAnnotated}`, and `after` likewise when present; keep `transcript`, `url` and `attach`. Each annotated image gets a caption (write it; no gate). Each raw image is not yet covered. |
+| `evidence@2` | Add each new case; an AFTER for an existing case's `id` sets that case's `after`. If that case carries a case `waiver`, first move it onto each of the case's existing images that has no `annotated` copy as an image `waiver`, delete the case's `waiver` key, then set `after`; the new image goes through "Annotate or waive" like any other. Keep every other case and key. |
+| `evidence@1` (`"v": 1`) | Convert it to one case: `id` `case`, `label` = its `case` text or `Evidence`, `before` = `{path: before}` plus `annotated: beforeAnnotated` only when that is set, and `after` likewise when present (never `"annotated": null`); keep `transcript`, `url` and `attach`. Each annotated image gets a caption (write it; no gate). Each raw image is not yet covered. |
 | unset (the read errors), `-`, `{"plan": "none"}` | Start a new record. |
 | other JSON with a `url` (such as `{"plan": "ticket", "url": ...}`) | Start a new record and keep its `url`. |
 | any other text (legacy links) | Start a new record and carry the old text in `attach`, so the description still shows it. |
