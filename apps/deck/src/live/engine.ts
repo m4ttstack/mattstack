@@ -83,7 +83,7 @@ function tldsOf(deps: LiveDeps): string[] {
   return [...new Set([...getPlatformSettings().tlds, MATTSTACK_TLD])];
 }
 
-async function installedLabelsOf(deps: LiveDeps): Promise<string[]> {
+export async function installedLabelsOf(deps: LiveDeps): Promise<string[]> {
   if (deps.installedLabels) return deps.installedLabels();
   let files: string[];
   try {
