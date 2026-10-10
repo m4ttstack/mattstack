@@ -104,7 +104,7 @@ it:
 |---|---|---|
 | `convergePackCache` (daemon pull) | team packs | held |
 | `plugins.install` (setup, `rt setup update`) | team packs and mattstack | held; mattstack first runs `claude plugin marketplace update mattstack` (refreshes the listing, installs nothing) so the floor read is current, and an offline refresh falls back to the cached copy |
-| `org.folder`'s `convergeMarketplace` | user-scope plugins it reinstalls from the moved clone | held |
+| `org.folder`'s `convergeMarketplace` | user-scope plugins it reinstalls from the moved clone | the move is deferred: re-adding the marketplace removes its installed plugins first, so a held pack would be lost rather than kept. `org.folder` leaves the clone and marketplace where they are and reports the hold until the app updates |
 | `rt skills sync`, `update-engine` (`refreshCachedEngine`) | mattstack | sync refuses: "this app runs engine X; the engine on main needs Y. Update the app first." Compiling against the old cache would push a downgrade, which `refreshCachedEngine` exists to prevent |
 | `rt skills sync`, `update-pack` | team pack | held |
 | `rt skills init` | the freshly compiled pack | refused, with the same update-the-app message |
@@ -115,9 +115,15 @@ nothing it depends on changes; for one not installed (a new member, a fresh
 Mac), install nothing. When the app updates, the next pull or launch finds the
 floor fits and installs the held version with no other step.
 
-A guard test (`lib/__tests__/no-ungated-plugin-install.test.ts`) fails any
-`"plugin", "install"` or `"plugin", "update"` argument list in `lib/` or
-`commands/` outside the helper, so a new call site cannot skip the gate.
+Every other plugin rt installs (chat, herdr-chat, fast-browser and the rest
+of `BASE_PLUGINS`) goes through the same helper with no floor, so the
+helper's module is the one place those argument lists exist: `settlePack`'s
+install runs inside it, and `org-folder-marketplace.ts` takes both its
+executed argv and the command strings it hands a person from the module's
+argv builders. A guard test (`lib/__tests__/no-ungated-plugin-install.test.ts`)
+fails any `"plugin", "install"` or `"plugin", "update"` argument list in
+`lib/` or `commands/` outside that module, so a new call site cannot skip the
+gate.
 
 ### What a person sees
 
@@ -130,19 +136,21 @@ and this Mac's `runnableEngine()`, so no install result needs persisting.
   `needs-you` with "claimview 0.11.0 needs a newer mattstack app (engine
   0.31.0 or later). Update the app when it's offered." It carries no
   "Install plugins" action, since installing is what the gate refuses. A
-  held pack with an older version installed counts as satisfied for
-  `isInstallSatisfied` (`plan.ts`); a held pack never installed counts as
-  satisfied too, because nothing a member does except updating the app can
-  clear it, and Install must not be blocked on it.
-- **`tool.plugins`**: a held mattstack plugin reads the same way. The
+  held row returns `false` from `isInstallSatisfied` (`plan.ts`), the way a
+  `skipped` row does today, so `applyInstallSatisfiedFlip` never makes it
+  required and it never lands in `requiredMissing`: nothing a member does
+  except updating the app can clear it, and Install must not be blocked on
+  it (the RT-260 dead end).
+- **`tool.plugins`**: a held mattstack plugin reads the same way, and is
+  left out of the flip the same way. The
   finish-gated writing-style row is unaffected: a held plugin keeps its
   installed version and its presets.
 - `rt setup update` notifies for these `needs-you` rows like any other. A
   floor no release has shipped yet reads the same; the update simply isn't
   offered yet.
 - The daemon logs a hold at `info` when a pull first finds it, keyed in the
-  team snapshot's kv namespace by pack and served version, so a hold logs
-  once per version rather than once per pull.
+  new `pack-holds` kv namespace (`lib/state/kv-blob.ts`) by pack and served
+  version, so a hold logs once per version rather than once per pull.
 
 ### Keeping the floor honest
 
@@ -241,13 +249,16 @@ Each edit goes through `superpowers:writing-skills`.
 - The floor readers: team pack present, missing, unparsable; mattstack via
   `installLocation`, a non-inline catalog entry (fits), an offline refresh
   falling back to the cached copy.
+- `org.folder` defers the move while a reinstall would be held.
 - `gatedPluginCall` through each call site in the table: fits → the `claude`
   call runs; floor above → no `claude` call, held (or sync and init refuse
   with the update-the-app message); not installed and floor above → nothing
   installed; no floor file → today's behaviour.
 - `packRow` and `tool.plugins`: a held pack (installed older, and never
-  installed) reads `needs-you` with the copy above and no install action, and
-  `isInstallSatisfied` treats it as satisfied.
+  installed) reads `needs-you` with the copy above and no install action;
+  `isInstallSatisfied` returns `false` for it, so after Install it is not
+  flipped to required and stays out of `requiredMissing` (`canInstall` stays
+  true).
 - Compile writes `pack/requires.json` from the engine's floor, lists it in
   `written`, writes none when the engine has none, and `rt skills check`
   flags a stale one.
