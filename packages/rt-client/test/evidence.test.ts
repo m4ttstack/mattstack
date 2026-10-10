@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { evidenceShots, legacyItems, parseEvidence, readEvidence, resolveEvidencePath, uploadablePaths } from "../src/evidence.ts";
+import { evidenceShots, legacyItems, parseEvidence, readEvidence, resolveEvidencePath, uploadablePaths, validateEvidence } from "../src/evidence.ts";
 
 describe("parseEvidence", () => {
   test("v1 lists image keys in fixed order, skipping absent ones", () => {
@@ -184,5 +184,54 @@ describe("evidence helpers", () => {
     ]) expect(resolveEvidencePath(record, a)).toEqual({ ok: false, error: "no evidence" });
     const oneTheme = readEvidence(JSON.stringify({ v: 2, cases: [{ id: "c", label: "C", after: { dark: { path: "/d.png", waiver: "w" } } }] }));
     expect(resolveEvidencePath(oneTheme, { case: "c", slot: "after", theme: "light" })).toEqual({ ok: false, error: "no evidence" });
+  });
+});
+
+describe("validateEvidence", () => {
+  const ok = { ok: true };
+  const bad = (value: unknown) => validateEvidence(JSON.stringify(value));
+  const one = (c: object) => ({ v: 2, cases: [{ id: "c1", label: "Case", ...c }] });
+
+  test("non-v2 values pass", () => {
+    for (const v of ["", "-", "see /tmp/x.png", JSON.stringify({ plan: "none" }), JSON.stringify({ v: 1, before: "/b.png" })]) {
+      expect(validateEvidence(v)).toEqual(ok);
+    }
+  });
+  test("an annotated pair, an image waiver, a case waiver and a one-theme slot pass", () => {
+    expect(bad(V2)).toEqual(ok);
+    expect(bad(one({ after: { dark: { path: "/d.png", annotated: "/da.png", caption: "x" } } }))).toEqual(ok);
+    expect(bad(one({ after: { path: "/a.png" }, waiver: "identical" }))).toEqual(ok);
+  });
+  test("a raw image with no annotation and no waiver is refused, naming case, slot and theme", () => {
+    expect(bad(one({ after: { path: "/a.png" } }))).toEqual({
+      ok: false,
+      error: 'evidence@2: case "c1" after has no annotated image and no waiver; annotate it or add a waiver with a reason',
+    });
+    expect(bad(one({ before: { light: { path: "/l.png", waiver: "w" }, dark: { path: "/d.png" } } }))).toEqual({
+      ok: false,
+      error: 'evidence@2: case "c1" before (dark) has no annotated image and no waiver; annotate it or add a waiver with a reason',
+    });
+  });
+  test("each structural problem is refused with its own message", () => {
+    const cases: [unknown, string][] = [
+      [{ v: 2 }, "cases must be a non-empty list"],
+      [{ v: 2, cases: [] }, "cases must be a non-empty list"],
+      [{ v: 2, cases: ["x"] }, "case 1 is not an object"],
+      [{ v: 2, cases: [{ id: "Bad Id", label: "L", after: { path: "/a.png", waiver: "w" } }] }, "case 1 needs an id of lowercase letters, digits and dashes"],
+      [{ v: 2, cases: [{ id: "a", label: "L", after: { path: "/a.png", waiver: "w" } }, { id: "a", label: "L", after: { path: "/b.png", waiver: "w" } }] }, 'case "a" appears twice'],
+      [one({ label: " ", after: { path: "/a.png", waiver: "w" } }), 'case "c1" needs a label'],
+      [one({}), 'case "c1" needs a before or an after'],
+      [one({ after: "/a.png" }), 'case "c1" after must be an image or a {light, dark} pair'],
+      [one({ after: {} }), 'case "c1" after must be an image or a {light, dark} pair'],
+      [one({ after: { path: "a.png", waiver: "w" } }), 'case "c1" after path must be an absolute path'],
+      [one({ after: { path: "/a.png", annotated: "aa.png", caption: "c" } }), 'case "c1" after annotated must be an absolute path'],
+      [one({ after: { path: "/a.png", annotated: "/aa.png" } }), 'case "c1" after has an annotated image but no caption; say what the markers point at'],
+      [one({ after: { path: "/a.png", annotated: "/aa.png", caption: "" } }), 'case "c1" after has an empty caption'],
+      [one({ after: { path: "/a.png", annotated: "/aa.png", caption: "c", waiver: "w" } }), 'case "c1" after has both an annotated image and a waiver; keep one'],
+      [one({ after: { path: "/a.png", waiver: " " } }), 'case "c1" after has an empty waiver; give a reason'],
+      [one({ after: { path: "/a.png" }, waiver: "" }), 'case "c1" has an empty waiver; give a reason'],
+      [{ ...one({ after: { path: "/a.png", waiver: "w" } }), transcript: "t.md" }, "transcript must be an absolute path"],
+    ];
+    for (const [value, message] of cases) expect(bad(value)).toEqual({ ok: false, error: `evidence@2: ${message}` });
   });
 });

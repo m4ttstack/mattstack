@@ -183,3 +183,63 @@ export function resolveEvidencePath(record: EvidenceRecord, address: EvidenceAdd
   const path = address.annotated ? shot?.annotated : shot?.path;
   return path ? { ok: true, path } : none;
 }
+
+const CASE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const PAIR = "must be an image or a {light, dark} pair";
+
+function isAbsolutePath(v: unknown): v is string {
+  return typeof v === "string" && v.startsWith("/");
+}
+
+function imageProblem(o: unknown, where: string, caseWaived: boolean): string | null {
+  if (!isObject(o)) return `${where} ${PAIR}`;
+  if (!isAbsolutePath(o.path)) return `${where} path must be an absolute path`;
+  if (o.annotated !== undefined && !isAbsolutePath(o.annotated)) return `${where} annotated must be an absolute path`;
+  if (o.caption !== undefined && !nonEmpty(o.caption)) return `${where} has an empty caption`;
+  if (o.waiver !== undefined && !nonEmpty(o.waiver)) return `${where} has an empty waiver; give a reason`;
+  if (o.annotated !== undefined && o.waiver !== undefined) return `${where} has both an annotated image and a waiver; keep one`;
+  if (o.annotated !== undefined && o.caption === undefined) return `${where} has an annotated image but no caption; say what the markers point at`;
+  if (o.annotated === undefined && o.waiver === undefined && !caseWaived) {
+    return `${where} has no annotated image and no waiver; annotate it or add a waiver with a reason`;
+  }
+  return null;
+}
+
+function slotProblem(o: unknown, where: string, caseWaived: boolean): string | null {
+  if (!isObject(o)) return `${where} ${PAIR}`;
+  if ("path" in o) return imageProblem(o, where, caseWaived);
+  const themes = EVIDENCE_THEMES.filter((t) => o[t] !== undefined);
+  if (themes.length === 0) return `${where} ${PAIR}`;
+  for (const t of themes) {
+    const problem = imageProblem(o[t], `${where} (${t})`, caseWaived);
+    if (problem) return problem;
+  }
+  return null;
+}
+
+/** Refuses a v2 value with an image neither annotated nor waived, or a malformed one; any other value passes. */
+export function validateEvidence(value: string): { ok: true } | { ok: false; error: string } {
+  let json: unknown;
+  try { json = JSON.parse(value.trim()); } catch { return { ok: true }; }
+  if (!isObject(json) || json.v !== 2) return { ok: true };
+  const fail = (message: string) => ({ ok: false as const, error: `evidence@2: ${message}` });
+  if (json.transcript !== undefined && !isAbsolutePath(json.transcript)) return fail("transcript must be an absolute path");
+  if (!Array.isArray(json.cases) || json.cases.length === 0) return fail("cases must be a non-empty list");
+  const ids = new Set<string>();
+  for (const [i, c] of json.cases.entries()) {
+    if (!isObject(c)) return fail(`case ${i + 1} is not an object`);
+    if (typeof c.id !== "string" || !CASE_ID.test(c.id)) return fail(`case ${i + 1} needs an id of lowercase letters, digits and dashes`);
+    if (ids.has(c.id)) return fail(`case "${c.id}" appears twice`);
+    ids.add(c.id);
+    const where = `case "${c.id}"`;
+    if (!nonEmpty(c.label)) return fail(`${where} needs a label`);
+    if (c.waiver !== undefined && !nonEmpty(c.waiver)) return fail(`${where} has an empty waiver; give a reason`);
+    if (c.before === undefined && c.after === undefined) return fail(`${where} needs a before or an after`);
+    for (const slot of EVIDENCE_SLOTS) {
+      if (c[slot] === undefined) continue;
+      const problem = slotProblem(c[slot], `${where} ${slot}`, c.waiver !== undefined);
+      if (problem) return fail(problem);
+    }
+  }
+  return { ok: true };
+}
