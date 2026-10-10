@@ -36,6 +36,7 @@ import { getSetting } from "./settings/resolve.ts";
 import { mergeRegistries, type TreeRecord } from "./worktree/registry.ts";
 import { currentBranchAsync, listWorktreesAsync } from "./worktree/git-async.ts";
 import { isTrashPath } from "./worktree/trash.ts";
+import { isPickableWorktree } from "../packages/rt-client/src/worktrees.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1442,23 +1443,27 @@ export function repoFromOptionValue(repos: KnownRepo[], value: string): KnownRep
 
 /** A repo's worktrees in picker order: the main worktree (git lists it
     first) stays first, the rest sort A→Z by branch, or directory name when
-    detached. Trashed rows are dropped here too: rows can come from a cache
-    snapshot written before a dispose, and this is the last seam every
-    general picker shares. A copy: `repo.worktrees` keeps git's own order for
-    everything agent-facing (`rt worktree list --json`). */
-export function pickerWorktrees(repo: Pick<KnownRepo, "worktrees">): KnownRepo["worktrees"] {
-  // on-deck/* trees are unclaimed pool plumbing: entering one bypasses claim
-  // tracking and the freshen/shrink cycle can dispose it underfoot, so no
-  // picker offers them. Explicit --worktree branch resolution bypasses this
-  // seam deliberately. gitq work slots are that tool's surgery scratch trees;
-  // gitq's own recognition contract is the `gitq-<n>` basename (its slot
-  // roots have moved twice), so the filter matches on the same.
-  const [main, ...rest] = repo.worktrees.filter(
-    (wt) => !isTrashPath(wt.path) && !wt.branch.startsWith("on-deck/") && !/^gitq-\d+$/.test(basename(wt.path)),
-  );
+    detached. The rest pass the shared pickable rule (rt-client), which drops
+    trashed rows a cache snapshot written before a dispose can still carry,
+    unclaimed on-deck trees, gitq work slots and folders that are gone. The
+    main row stays even when its folder is missing: that is the lost-repo
+    case, which must stay pickable so it gets missingRepoFailure. Explicit
+    --worktree branch resolution bypasses this seam deliberately. A copy:
+    `repo.worktrees` keeps git's own order for everything agent-facing
+    (`rt worktree list --json`). */
+export function pickerWorktrees(
+  repo: Pick<KnownRepo, "worktrees">,
+  exists: (path: string) => boolean = existsSync,
+): KnownRepo["worktrees"] {
+  const [main, ...rest] = repo.worktrees;
   if (!main) return [];
   const label = (wt: KnownRepo["worktrees"][number]) => wt.branch || basename(wt.path);
-  return [main, ...rest.sort((a, b) => label(a).localeCompare(label(b), undefined, { sensitivity: "base" }))];
+  return [
+    main,
+    ...rest
+      .filter((wt) => isPickableWorktree(wt, exists))
+      .sort((a, b) => label(a).localeCompare(label(b), undefined, { sensitivity: "base" })),
+  ];
 }
 
 // ─── Test seam ───────────────────────────────────────────────────────────────

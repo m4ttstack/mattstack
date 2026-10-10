@@ -920,18 +920,19 @@ describe("repoOptions labels", () => {
 describe("pickerWorktrees", () => {
   const { pickerWorktrees } = require("../repo-index.ts") as typeof import("../repo-index.ts");
   const wt = (path: string, branch: string) => ({ path, branch, isBare: false });
+  const all = () => true;
 
   test("keeps the main worktree first, then the rest A→Z by branch (case-insensitive), dir name when detached", () => {
     const repo = {
       repoName: "x", dataDir: "/d",
       worktrees: [wt("/r/main", "master"), wt("/r/tonks", "tonks"), wt("/r/Bill", "Bill"), wt("/r/dean", ""), wt("/r/alpha", "alpha")],
     };
-    expect(pickerWorktrees(repo).map((w) => w.path)).toEqual(["/r/main", "/r/alpha", "/r/Bill", "/r/dean", "/r/tonks"]);
+    expect(pickerWorktrees(repo, all).map((w) => w.path)).toEqual(["/r/main", "/r/alpha", "/r/Bill", "/r/dean", "/r/tonks"]);
   });
 
   test("does not mutate the repo's own git-ordered list", () => {
     const repo = { repoName: "x", dataDir: "/d", worktrees: [wt("/r/main", "master"), wt("/r/z", "z"), wt("/r/a", "a")] };
-    pickerWorktrees(repo);
+    pickerWorktrees(repo, all);
     expect(repo.worktrees.map((w) => w.path)).toEqual(["/r/main", "/r/z", "/r/a"]);
   });
 
@@ -945,7 +946,7 @@ describe("pickerWorktrees", () => {
         wt("/pool/x/charlie", "rt-3-live"),
       ],
     };
-    expect(pickerWorktrees(repo).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/charlie"]);
+    expect(pickerWorktrees(repo, all).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/charlie"]);
   });
 
   test("excludes on-deck pool trees (unclaimed plumbing, not for direct entry)", () => {
@@ -958,7 +959,7 @@ describe("pickerWorktrees", () => {
         wt("/pool/x/luna", "on-deck/luna"),
       ],
     };
-    expect(pickerWorktrees(repo).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/charlie"]);
+    expect(pickerWorktrees(repo, all).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/charlie"]);
   });
 
   test("excludes gitq work slots by their gitq-<n> basename, wherever they sit", () => {
@@ -971,6 +972,15 @@ describe("pickerWorktrees", () => {
         wt("/pool/x/gitq-ish", "rt-4-live"),
       ],
     };
-    expect(pickerWorktrees(repo).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/gitq-ish"]);
+    expect(pickerWorktrees(repo, all).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/gitq-ish"]);
+  });
+
+  test("drops linked trees whose folder is gone, but keeps a missing main", () => {
+    const repo = {
+      repoName: "x", dataDir: "/d",
+      worktrees: [wt("/pool/x/main", "master"), wt("/pool/x/gone", "rt-5-gone"), wt("/pool/x/charlie", "rt-3-live")],
+    };
+    const exists = (p: string) => p === "/pool/x/charlie";
+    expect(pickerWorktrees(repo, exists).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/charlie"]);
   });
 });
