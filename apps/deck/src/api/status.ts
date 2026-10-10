@@ -18,6 +18,7 @@ import { TUNNEL_LABEL } from '../edge/domain.ts';
 import { tunnelRowHealth } from '../edge/edge-health.ts';
 import { edgeDrift } from '../edge/edge-reconcile.ts';
 import { getOAuth, type OAuth } from '../edge/oauth.ts';
+import { liveRowFields, type LiveRowFields } from '../live/status.ts';
 import { allocatePort } from '../registry/allocate.ts';
 import {
   effectiveIdentity,
@@ -140,6 +141,10 @@ export interface StatusRow {
   /** Dev mode, local callers, linked managed rows only: the checkout has
       commits touching this app since its last deploy. */
   newCode?: NewCode;
+  /** Dev mode, local callers, mattstack apps that are not the platform. */
+  live?: LiveRowFields['live'];
+  liveSetup?: LiveRowFields['liveSetup'];
+  liveBlocked?: LiveRowFields['liveBlocked'];
   publicOrigin: 'tunnel' | 'railway';
   remote: { status: RemoteState['status']; url: string | null } | null;
 }
@@ -346,6 +351,17 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
       const owned = record?.managedBy != null && record.managedBy !== 'user';
       const displayTld = publicDomain ?? (owned ? MATTSTACK_TLD : 'localhost');
       const identity = record && effectiveIdentity(record);
+      const liveFields = await liveRowFields(
+        record,
+        { devMode: !!opts.devMode, local: opts.local },
+        services,
+        async port =>
+          port === a.port ? health.ok : (await checkHealth(port)).ok
+      );
+      const isLive = liveFields.live !== undefined;
+      const commands = record
+        ? commandKeysFor(record, !!opts.devMode)
+        : undefined;
       return {
         name: a.name,
         displayName: identity ? identity.displayName : a.name,
@@ -390,7 +406,9 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
             }
           : null,
         oauth: getOAuth(a.name),
-        commands: record ? commandKeysFor(record, !!opts.devMode) : undefined,
+        commands: isLive
+          ? commands?.filter(c => c !== 'build' && c !== 'deploy')
+          : commands,
         devLink:
           record && record.managedBy !== 'user' && opts.devMode
             ? readLinkedManifest(record).state
@@ -401,7 +419,8 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
               ? (record.dev?.workingDirectory ?? null)
               : null
             : undefined,
-        newCode: newCodeForRow(record, opts),
+        newCode: isLive ? undefined : newCodeForRow(record, opts),
+        ...liveFields,
         publicOrigin:
           record?.remote?.status === 'live'
             ? ('railway' as const)

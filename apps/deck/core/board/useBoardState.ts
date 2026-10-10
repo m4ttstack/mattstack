@@ -5,7 +5,13 @@
 // checkbox (see onPasswordSwitch/onOauthSwitch there) is unnecessary here:
 // leaving `checked`-backing state untouched on a failed request already
 // re-renders the control back to the server's last-known truth.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 
 import { useToasts } from '@mattstack/tui-kit';
 import {
@@ -17,6 +23,7 @@ import {
   pushRemote as postPushRemote,
   setRemote as postSetRemote,
 } from './api.ts';
+import { useLive } from './live/useLive.ts';
 import {
   addPayload,
   autoBanner,
@@ -176,8 +183,12 @@ function blankAddModal(step: AddModalState['step']): AddModalState {
   };
 }
 
-export function useBoardState() {
+/** `fallbackFocusRef` is where focus lands when a closed dialog's opener is gone. */
+export function useBoardState(
+  fallbackFocusRef?: RefObject<HTMLElement | null>
+) {
   const [data, setData] = useState<StatusData | null>(null);
+  const [now, setNow] = useState(Date.now);
   const [restarting, setRestarting] = useState<RestartingMap>({});
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [addModal, setAddModal] = useState<AddModalState | null>(null);
@@ -217,6 +228,7 @@ export function useBoardState() {
       const next = await getStatus();
       setRestarting(prev => reconcileRestarting(prev, next, Date.now()));
       setData(next);
+      setNow(Date.now());
       // A stale proxy serves old ports on .localhost while every health probe
       // (which hits ports directly) still reads green, so say so loudly.
       if (next.canManage && Date.now() > proxyHoldUntil.current) {
@@ -234,6 +246,8 @@ export function useBoardState() {
     const id = setInterval(refresh, REFRESH_MS);
     return () => clearInterval(id);
   }, [refresh]);
+
+  const live = useLive(refresh, addToast, fallbackFocusRef);
 
   const isRestarting = useCallback(
     (row: Row) => isRowRestarting(row, restarting, commandRuns),
@@ -900,6 +914,9 @@ export function useBoardState() {
 
   return {
     data,
+    now,
+    live,
+    openLive: live.open,
     sections: sectionsOf(data),
     tunnels: tunnelsOf(data),
     subline: sublineOf(data),

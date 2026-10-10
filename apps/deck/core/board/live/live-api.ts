@@ -1,0 +1,73 @@
+import { apiDelete, apiPut } from '../api.ts';
+
+export type SourceRow = {
+  path: string;
+  branch: string | null;
+  main: boolean;
+  needsSetup: boolean;
+  lastActiveAt: string | null;
+  liveApps: string[];
+};
+
+type LiveAnswer = {
+  status: number;
+  body: { ok?: true; setup?: 'running'; error?: string };
+};
+
+export async function getSources(
+  name: string
+): Promise<{ sources: SourceRow[]; error: string | null }> {
+  try {
+    const res = await fetch(`/api/v1/apps/${name}/live/sources`);
+    const body = (await res.json().catch(() => ({}))) as {
+      sources?: SourceRow[];
+      error?: string | null;
+    };
+    if (!res.ok)
+      return { sources: [], error: body.error || "That didn't work." };
+    return { sources: body.sources ?? [], error: body.error ?? null };
+  } catch {
+    return { sources: [], error: "The board didn't answer." };
+  }
+}
+
+async function send(res: Promise<Response>): Promise<LiveAnswer> {
+  try {
+    const r = await res;
+    const body = (await r.json().catch(() => ({}))) as LiveAnswer['body'];
+    return { status: r.status, body };
+  } catch {
+    return { status: 0, body: { error: "The board didn't answer." } };
+  }
+}
+
+export function putLive(name: string, source: string): Promise<LiveAnswer> {
+  return send(apiPut(`/api/v1/apps/${name}/live`, { source }));
+}
+
+export function deleteLive(name: string): Promise<LiveAnswer> {
+  return send(apiDelete(`/api/v1/apps/${name}/live`));
+}
+
+export function dismissSetup(name: string): Promise<LiveAnswer> {
+  return send(apiDelete(`/api/v1/apps/${name}/live/setup`));
+}
+
+export async function getProcessLog(
+  name: string,
+  id: string
+): Promise<{ lines: string[]; error: string | null }> {
+  try {
+    const res = await fetch(
+      `/api/v1/apps/${name}/logs?process=${encodeURIComponent(id)}&lines=200`
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      lines?: string[];
+      error?: string;
+    };
+    if (!res.ok) return { lines: [], error: body.error || "That didn't work." };
+    return { lines: body.lines ?? [], error: null };
+  } catch {
+    return { lines: [], error: "The board didn't answer." };
+  }
+}

@@ -15,6 +15,7 @@ import { CodeBlock } from './CodeBlock.tsx';
 import { DangerFooter } from './DangerFooter.tsx';
 import { GatesBlock } from './GatesBlock.tsx';
 import { IssuesBlock, SettingsHeader } from './Header.tsx';
+import { LiveProcessesBlock } from './LiveProcessesBlock.tsx';
 import { PortBlock } from './PortBlock.tsx';
 import { ReachBlock } from './ReachBlock.tsx';
 import { RecentErrors } from './RecentErrors.tsx';
@@ -45,6 +46,7 @@ function AppForm(props: BlockProps) {
       <div className="settings-grid">
         <div className="settings-col">
           <CodeBlock {...props} />
+          <LiveProcessesBlock {...props} />
           <AppBlock {...props} />
           <PortBlock {...props} />
           <RecentErrors {...props} />

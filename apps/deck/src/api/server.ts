@@ -27,6 +27,8 @@ import { setRoutePort } from '../../core/routes-writer.ts';
 import {
   clearOverride,
   clearPassword,
+  getLive,
+  getLives,
   getOverride,
   setOverride,
   setPassword,
@@ -54,7 +56,18 @@ import {
 import { readDeckSecrets, type RtSecretsDeps } from '../edge/rt-secrets.ts';
 import { gitProvenance, untrackedEnvPresent } from '../edge/source.ts';
 import type { TunnelDriver } from '../edge/tunnel.ts';
+import {
+  goLive,
+  kickstartLive,
+  liveManifestAt,
+  liveRefusal,
+  stopLive,
+  type LiveDeps,
+} from '../live/engine.ts';
+import { clearSetup, setupFor } from '../live/setup.ts';
+import { appDirIn, listLiveSources, sharedRootFor } from '../live/sources.ts';
 import { convert } from '../registry/convert.ts';
+import { liveProcessIds } from '../registry/deck-manifest.ts';
 import { migrate } from '../registry/migrate.ts';
 import { stampDeploy } from '../registry/new-code.ts';
 import { getRecord, listRecords } from '../registry/records.ts';
@@ -114,6 +127,8 @@ export interface ApiDeps extends Drivers {
   resolveCloudflared?: () => string | null;
   /** How long /api/apps and /api/v1/apps wait on `bootSweep` before answering 503. */
   bootSweepWaitMs?: number;
+  /** Test seam for live mode; production leaves it unset. */
+  live?: LiveDeps;
 }
 
 const BOOT_SWEEP_WAIT_MS = 10_000;
@@ -161,6 +176,17 @@ async function edgeDns(deps: ApiDeps): Promise<CfDns | null> {
 
 export function callerOf(req: Request): string {
   return req.headers.get('x-local-caller')?.trim() || 'user';
+}
+
+function liveProcessIdsOf(name: string): string[] {
+  const record = getRecord(name);
+  const state = getLive(name);
+  const root = record ? sharedRootFor(record) : null;
+  const dir =
+    record && state && root ? appDirIn(record, state.source, root) : null;
+  if (!dir) return [];
+  const manifest = liveManifestAt(dir);
+  return manifest.ok ? liveProcessIds(manifest.live) : [];
 }
 
 function json(body: unknown, status = 200): Response {
@@ -359,6 +385,12 @@ export function startApi(deps: ApiDeps) {
           return json({ error: 'forbidden' }, 403);
         const caller = callerOf(req);
         const force = url.searchParams.get('force') === 'true';
+        const liveDeps: LiveDeps = {
+          devMode: deps.devMode ?? isDevMode,
+          onRouteWrite: deps.onRouteWrite,
+          reinstall: () => reresolveManagedApps(deps),
+          ...deps.live,
+        };
 
         if (pathname === '/api/v1/status' && req.method === 'GET') {
           return json(await buildStatus(statusOpts));
@@ -423,6 +455,67 @@ export function startApi(deps: ApiDeps) {
             deps
           );
           return json(r.body, r.status);
+        }
+
+        if (pathname === '/api/v1/live' && req.method === 'GET') {
+          if (!local) return json({ error: 'forbidden' }, 403);
+          return json({
+            apps: Object.entries(getLives()).map(([name, s]) => ({
+              name,
+              source: s.source,
+              branch: s.branch,
+              startedAt: s.startedAt,
+            })),
+          });
+        }
+        const liveSources = pathname.match(
+          /^\/api\/v1\/apps\/([^/]+)\/live\/sources$/
+        );
+        const liveSetup = pathname.match(
+          /^\/api\/v1\/apps\/([^/]+)\/live\/setup$/
+        );
+        if (liveSetup && req.method === 'DELETE') {
+          if (!local) return json({ error: 'forbidden' }, 403);
+          const app = liveSetup[1]!;
+          if (setupFor(app)?.state === 'running')
+            return json({ error: 'setup is still running' }, 409);
+          clearSetup(app);
+          return json({ ok: true });
+        }
+        if (liveSources && req.method === 'GET') {
+          if (!local) return json({ error: 'forbidden' }, 403);
+          const record = getRecord(liveSources[1]!);
+          const refusal = liveRefusal(
+            record,
+            (liveDeps.devMode ?? isDevMode)()
+          );
+          if (refusal)
+            return json(
+              { error: refusal },
+              refusal === 'unknown app' ? 404 : 400
+            );
+          const root = sharedRootFor(record!);
+          if (!root)
+            return json(
+              {
+                error: `${record!.name}'s linked source is not a git checkout`,
+              },
+              400
+            );
+          const { sources, error } = await listLiveSources(
+            root,
+            liveDeps.sources
+          );
+          const lives = Object.entries(getLives());
+          return json({
+            sources: sources.map(s => ({
+              ...s,
+              liveApps: lives
+                .filter(([, l]) => l.source === s.path)
+                .map(([n]) => n),
+            })),
+            error,
+          });
         }
 
         // Checked ahead of the generic /apps/:name matcher below so a real app
@@ -627,6 +720,10 @@ export function startApi(deps: ApiDeps) {
             return json(r.body, r.status);
           }
           if (sub === 'restart' && req.method === 'POST') {
+            if (getLive(name) && (liveDeps.devMode ?? isDevMode)())
+              return json({
+                ok: await kickstartLive(name, deps.manager, liveDeps),
+              });
             // Records restart via their label; legacy rows still restart via the
             // discovered-services whitelist exactly like the old /restart.
             const label = await restartLabelFor(name, deps);
@@ -638,6 +735,32 @@ export function startApi(deps: ApiDeps) {
             );
             if (!svc) return json({ error: 'unknown app' }, 404);
             return json({ ok: await restartService(svc.label) });
+          }
+          if (sub === 'live' && req.method === 'PUT') {
+            const b = await body(req);
+            const r = await goLive(
+              name,
+              String(b.source ?? ''),
+              deps.manager,
+              liveDeps
+            );
+            return json(r.body, r.status);
+          }
+          if (sub === 'live' && req.method === 'DELETE') {
+            const wasLive = !!getLive(name);
+            if (!wasLive && setupFor(name)?.state !== 'running') {
+              clearSetup(name);
+              return json({ ok: true });
+            }
+            const r = await stopLive(name, deps.manager, liveDeps);
+            if (r.status === 200 && wasLive) {
+              try {
+                await reresolveManagedApps(deps);
+              } catch (err) {
+                console.error(`sweep after stopping ${name} live failed:`, err);
+              }
+            }
+            return json(r.body, r.status);
           }
           if (sub === 'alt' && req.method === 'POST') {
             const record = getRecord(name);
@@ -653,6 +776,24 @@ export function startApi(deps: ApiDeps) {
           if (sub === 'logs' && req.method === 'GET') {
             const lines = Number(url.searchParams.get('lines') ?? 40);
             const record = getRecord(name);
+            const proc = url.searchParams.get('process');
+            if (proc !== null) {
+              if (!liveProcessIdsOf(name).includes(proc))
+                return json({ error: 'unknown live process' }, 400);
+              const tail = (stream: 'out' | 'err') =>
+                tailFile(
+                  join(logsDir(), `${name}.live.${proc}.${stream}.log`),
+                  lines
+                );
+              const out = tail('out');
+              const err = tail('err');
+              return json({
+                lines: [
+                  ...(out.length ? ['stdout', ...out] : []),
+                  ...(err.length ? ['stderr', ...err] : []),
+                ],
+              });
+            }
             const stderrPath = record
               ? join(logsDir(), `${name}.err.log`)
               : null;
@@ -870,6 +1011,8 @@ async function applyOverride(
 ): Promise<[unknown, number]> {
   if (!getRecord(app) && !knownRouteApp(app))
     return [{ error: 'unknown app' }, 404];
+  if (getLive(app))
+    return [{ error: 'live mode owns this route; stop live first' }, 409];
   const curRoute = readRoutes().find(
     r => bareName(r.hostname, getPlatformSettings().tlds) === app
   );

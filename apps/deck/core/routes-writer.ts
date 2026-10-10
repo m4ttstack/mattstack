@@ -86,6 +86,16 @@ export function repointRoutes(
   return moved;
 }
 
+/** Every host of `app` under any of `tlds` (not only `<app>.localhost`) to
+    `port`, in place, via repointRoutes. Returns the hostnames that moved. */
+export function setAppRoutesPort(
+  app: string,
+  port: number,
+  tlds: string[]
+): string[] {
+  return repointRoutes(app, port, tlds);
+}
+
 const LOCK_STALE_MS = 10_000;
 const LOCK_TIMEOUT_MS = 15_000;
 

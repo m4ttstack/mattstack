@@ -59,6 +59,10 @@ const {
   getPublicFollowsOverride,
   setPublicFollowsOverride,
   renameAppSettings,
+  getLive,
+  setLive,
+  clearLive,
+  getLives,
 } = await import('./settings.ts');
 
 const origHome = process.env.HOME;
@@ -524,6 +528,41 @@ test('store key present: renameAppSettings carries published/publicFollowsOverri
   expect(stored?.['old-name']).toBeUndefined();
   expect(stored?.['new-name']?.publicFollowsOverride).toBe(true);
   expect(getPublicFollowsOverride('new-name')).toBe(true);
+});
+
+const LIVE = {
+  source: '/tmp/wt/console-runs-3',
+  branch: 'console-runs-3',
+  startedAt: '2026-10-09T21:12:00.000Z',
+  uiPort: 11140,
+};
+
+test('setLive persists and survives reload', () => {
+  setLive('chat', LIVE);
+  reloadSettings();
+  expect(getLive('chat')).toEqual(LIVE);
+  expect(getLives()).toEqual({ chat: LIVE });
+});
+
+test('clearLive removes it and leaves the rest of the entry', async () => {
+  await setPublished('chat', false);
+  setLive('chat', LIVE);
+  clearLive('chat');
+  expect(getLive('chat')).toBeUndefined();
+  expect(getAppSettings('chat').published).toBe(false);
+});
+
+test('live stays file-local: the store never carries it', () => {
+  setSetting('deck.apps', { chat: { published: true } }, 'user');
+  reloadSettings();
+  setLive('chat', LIVE);
+  const store =
+    getSetting<Record<string, Record<string, unknown>>>('deck.apps').value!;
+  expect(store.chat).not.toHaveProperty('live');
+  const onDisk = JSON.parse(
+    readFileSync(process.env.LOCAL_APPS_SETTINGS_PATH!, 'utf8')
+  );
+  expect(onDisk.apps.chat.live).toEqual(LIVE);
 });
 
 test('store key present: every deck.apps write passes validateWrite', async () => {

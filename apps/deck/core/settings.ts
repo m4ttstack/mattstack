@@ -16,6 +16,16 @@ export interface PortOverride {
   basePort: number;
 }
 
+export interface LiveState {
+  /** Root of the checkout the app runs live from: the shared checkout or a worktree. */
+  source: string;
+  branch: string | null;
+  startedAt: string;
+  uiPort?: number;
+  /** The branch a deleted worktree moved the app off, for the board's warning. */
+  movedFrom?: string;
+}
+
 export interface AppSettings {
   published: boolean;
   passwordHash?: string;
@@ -37,6 +47,7 @@ interface AppEntry {
   passwordVersion?: number;
   override?: PortOverride;
   publicFollowsOverride?: boolean;
+  live?: LiveState;
 }
 
 export interface SettingsFile {
@@ -397,6 +408,33 @@ export function getOverrides(): Record<string, PortOverride> {
   const out: Record<string, PortOverride> = {};
   for (const [app, s] of Object.entries(cache.apps)) {
     if (s.override) out[app] = s.override;
+  }
+  return out;
+}
+
+export function getLive(app: string): LiveState | undefined {
+  return cache.apps[app]?.live;
+}
+
+export function setLive(app: string, live: LiveState): void {
+  const previous = structuredClone(cache);
+  ensure(app).live = live;
+  save(previous);
+}
+
+export function clearLive(app: string): void {
+  const entry = cache.apps[app];
+  if (entry?.live) {
+    const previous = structuredClone(cache);
+    delete entry.live;
+    save(previous);
+  }
+}
+
+export function getLives(): Record<string, LiveState> {
+  const out: Record<string, LiveState> = {};
+  for (const [app, s] of Object.entries(cache.apps)) {
+    if (s.live) out[app] = s.live;
   }
   return out;
 }

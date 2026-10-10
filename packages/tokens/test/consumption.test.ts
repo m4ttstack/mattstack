@@ -29,6 +29,8 @@ const RAMP_WAIVER =
 // definition-only and must not carry a waiver.
 const RAMP_NOW_CONSUMED = new Set([
   '--page',
+  '--border-control',
+  '--line-3',
   ...[1, 2, 3, 4].map(i => `--text-${i}`),
   '--fill-accent',
   '--text-accent',

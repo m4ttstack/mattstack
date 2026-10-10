@@ -154,6 +154,90 @@ body {
 .t-warn {
   color: var(--text-warn);
 }
+.live-source .live-source-name {
+  font-family: var(--font-mono);
+}
+.live-mark {
+  color: var(--text-accent);
+}
+.live-source [data-part='icon']:not(.live-mark) {
+  color: var(--text-2);
+}
+.live-failed {
+  all: unset;
+  cursor: pointer;
+  border-radius: var(--radius-sm, 4px);
+}
+.live-failed:focus-visible {
+  outline: 2px solid var(--text-accent-small);
+  outline-offset: 2px;
+}
+.t-accent {
+  color: var(--text-accent-small);
+}
+/* Head, body and footer bands like the app settings modal, whose frame
+   rules in settings.css this modal shares. */
+.live-modal {
+  width: min(30rem, 100%);
+  max-width: min(30rem, 100%);
+}
+.live-modal-title {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xxs);
+}
+.live-modal-title .muted {
+  font-weight: normal;
+  font-size: var(--font-size-px13);
+  color: var(--text-2);
+}
+.live-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-rem150);
+}
+.live-body .muted {
+  color: var(--text-2);
+}
+.live-footer {
+  justify-content: flex-end;
+}
+.live-footer .footer-start {
+  margin-right: auto;
+}
+.live-help {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xxs);
+}
+.live-help:empty {
+  display: none;
+}
+.live-help p {
+  margin: 0;
+  font-size: var(--font-size-px12);
+}
+.live-modal kbd {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-px12);
+}
+.live-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+.live-log {
+  margin: 0;
+  padding: var(--spacing-md);
+  background: var(--surface-inset);
+  border: 1px solid var(--border-on-card);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-px12);
+  white-space: pre-wrap;
+}
 
 /* hstack is a block-level flex container, so a chip after the name would be
    pushed onto its own line and stand the row up taller. */

@@ -122,6 +122,17 @@ export type {
 } from "./recipes/ScrollPane/ScrollPane.tsx";
 
 export {
+  SEARCHSELECT_PARTS,
+  SearchSelect,
+  searchSelectTheme,
+} from "./recipes/SearchSelect/SearchSelect.tsx";
+export type {
+  SearchSelectItem,
+  SearchSelectOwnProps,
+  SearchSelectProps,
+} from "./recipes/SearchSelect/SearchSelect.tsx";
+
+export {
   LabeledSeg,
   labeledSegTheme,
   SEGMENTED_PARTS,

@@ -11,6 +11,7 @@ import {
 import { removeRoutes } from '../../core/routes-writer.ts';
 import {
   clearOverride,
+  getLive,
   getOverride,
   renameAppSettings,
 } from '../../core/settings.ts';
@@ -20,6 +21,13 @@ import type { EdgeProxy } from '../edge/portless.ts';
 import type { RailwayDriver } from '../edge/railway.ts';
 import { disableRemote } from '../edge/remote.ts';
 import type { TunnelDriver } from '../edge/tunnel.ts';
+import {
+  installLive,
+  kickstartLive,
+  stopLive,
+  withLiveLock,
+  type LiveDeps,
+} from '../live/engine.ts';
 import { allocatePort } from '../registry/allocate.ts';
 import {
   MATTSTACK_REGISTRAR,
@@ -57,11 +65,7 @@ import {
 import { serviceEnv } from '../registry/service-env.ts';
 import { composeServicePath, resolveProgram } from '../services/exec-env.ts';
 import type { DeckOwner } from '../services/helper-owner.ts';
-import {
-  readInstalledEnvironment,
-  readInstalledProgramArguments,
-  readInstalledWorkingDirectory,
-} from '../services/launchd.ts';
+import { installedMatches } from '../services/installed.ts';
 import {
   isPlatformManagedBy,
   LABEL_PREFIX,
@@ -70,7 +74,6 @@ import {
   type ServiceManager,
   type ServiceSpec,
 } from '../services/manager.ts';
-import { renderedEnvironment } from '../services/plist.ts';
 import { getPlatformSettings } from './platform-settings.ts';
 import { logsDir } from './state.ts';
 import { safeRecord } from './status.ts';
@@ -118,6 +121,11 @@ const NAME_RE = /^[a-z0-9][a-z0-9.-]*$/;
 export let serveShapeDeps: ServeShapeDeps = {};
 export function setServeShapeDeps(deps: ServeShapeDeps): void {
   serveShapeDeps = deps;
+}
+
+export let liveSweepDeps: LiveDeps = {};
+export function setLiveSweepDeps(deps: LiveDeps): void {
+  liveSweepDeps = deps;
 }
 
 interface BuiltSpec {
@@ -173,16 +181,6 @@ function ensureWorkingDirectory(record: AppRecord, cwd: string): boolean {
 
 function specFor(record: AppRecord, shape: ResolvedShape): ServiceSpec {
   return buildSpec(record, shape).spec;
-}
-
-function sameEnvironment(
-  a: Record<string, string>,
-  b: Record<string, string>
-): boolean {
-  const keys = Object.keys(a);
-  return (
-    keys.length === Object.keys(b).length && keys.every(k => a[k] === b[k])
-  );
 }
 
 /**
@@ -400,7 +398,13 @@ async function teardownRecord(
   drivers: Drivers
 ): Promise<{ ok: boolean; issues: SyncIssue[] }> {
   const issues: SyncIssue[] = [];
-  if (record.kind === 'service' && record.label) {
+  if (getLive(record.name)) {
+    const issue = await runDriver('launchd', async () => {
+      await stopLive(record.name, drivers.manager, liveSweepDeps);
+    });
+    if (issue) issues.push(issue);
+  }
+  if (issues.length === 0 && record.kind === 'service' && record.label) {
     const issue = await runDriver('launchd', () =>
       drivers.manager.uninstall(record.label!)
     );
@@ -524,7 +528,10 @@ export async function restartManagedApps(
       // kickstart signals failure via its boolean return (label not
       // installed), not by throwing — same contract the single-app
       // POST /apps/:name/restart route relies on.
-      const ok = await drivers.manager.kickstart(record.label);
+      const ok =
+        getLive(record.name) && resolveFlavor(serveShapeDeps).dev
+          ? await kickstartLive(record.name, drivers.manager, liveSweepDeps)
+          : await drivers.manager.kickstart(record.label);
       if (ok) restarted.push(record.name);
       else failed.push({ name: record.name, error: 'kickstart failed' });
     } catch (err) {
@@ -699,7 +706,21 @@ async function sweepManagedApps(drivers: Drivers): Promise<FlowResult> {
       continue;
     // The platform never restarts itself mid-request; bootstrapSelf owns its shape.
     if (isPlatformManagedBy(record.managedBy)) continue;
-    if (notServedHere(record, serveShapeDeps)) {
+    const servedHere = !notServedHere(record, serveShapeDeps);
+    if (
+      getLive(record.name) &&
+      (!flavor.dev || !servedHere || !isEnabled(record))
+    ) {
+      const issue = await runDriver('launchd', async () => {
+        await stopLive(record.name, drivers.manager, liveSweepDeps);
+      });
+      if (issue) {
+        addIssue(record.name, issue);
+        failed.push({ name: record.name, error: issue.message });
+        continue;
+      }
+    }
+    if (!servedHere) {
       const issue = await runDriver('launchd', () =>
         drivers.manager.uninstall(record.label!)
       );
@@ -724,6 +745,33 @@ async function sweepManagedApps(drivers: Drivers): Promise<FlowResult> {
       }
       clearIssues(record.name, 'launchd');
       disabled.push(record.name);
+      continue;
+    }
+    const liveOutcome = await withLiveLock(record.name, async () => {
+      const live = getLive(record.name);
+      if (!live) return null;
+      const issue = await runDriver('launchd', () =>
+        drivers.manager.uninstall(record.label!)
+      );
+      return {
+        err:
+          issue?.message ??
+          (await installLive(record, live, drivers.manager, liveSweepDeps)),
+      };
+    });
+    if (liveOutcome) {
+      const { err } = liveOutcome;
+      if (err) {
+        addIssue(record.name, {
+          source: 'launchd',
+          message: err,
+          at: new Date().toISOString(),
+        });
+        failed.push({ name: record.name, error: err });
+      } else {
+        clearIssues(record.name, 'launchd');
+        unchanged.push(record.name);
+      }
       continue;
     }
     const shape = serveShape(record, serveShapeDeps);
@@ -811,19 +859,6 @@ async function sweepManagedApps(drivers: Drivers): Promise<FlowResult> {
   };
 }
 
-function installedMatches(label: string, spec: ServiceSpec): boolean {
-  const installed = readInstalledProgramArguments(label);
-  const installedEnv = readInstalledEnvironment(label);
-  return (
-    installed !== null &&
-    installed.length === spec.programArguments.length &&
-    installed.every((a, i) => a === spec.programArguments[i]) &&
-    readInstalledWorkingDirectory(label) === spec.workingDirectory &&
-    installedEnv !== null &&
-    sameEnvironment(installedEnv, renderedEnvironment(spec))
-  );
-}
-
 /**
  * Lifecycle verb behind `deck remove --managed [name]`: with a name it removes
  * only that managed record, without one every non-user record deck
@@ -907,6 +942,20 @@ export async function editApp(
       status: 200,
       body: { record: safeRecord(getRecord(record.name)!) },
     };
+  }
+
+  // Live state and the `.live.*` labels are keyed by the app's name and run
+  // from its dev link: a rename or an unlink would leave the running processes
+  // orphaned while the next reconcile tick installs a second set.
+  if (getLive(record.name)) {
+    const renames = patch.name !== undefined && patch.name !== record.name;
+    const unlinks = patch.dev === null;
+    const relinksToMissing =
+      patch.dev != null &&
+      (typeof patch.dev.workingDirectory !== 'string' ||
+        !existsSync(patch.dev.workingDirectory));
+    if (renames || unlinks || relinksToMissing)
+      return { status: 409, body: { error: 'stop live first' } };
   }
 
   // Computed from the patch's own keys, not a hand-listed set of the other
@@ -1003,13 +1052,16 @@ export async function editApp(
   // revert to the wrong port, so the edit drops the override rather than
   // leave it silently wrong.
   const portChanged = next.port !== record.port;
+  // While live the engine owns the app's services and routes; the reconcile
+  // tick re-asserts them from the record written here.
+  const live = !!getLive(record.name);
 
   // Never uninstall the old shape unless the patch is guaranteed to leave a
   // runnable one: resolve the prospective shape before any teardown call, not
   // after, or a patch that resolves to nothing tears down with nothing to fall
   // back on.
   const servedHere =
-    next.kind === 'service' && !notServedHere(next, serveShapeDeps);
+    !live && next.kind === 'service' && !notServedHere(next, serveShapeDeps);
   const nextShape = servedHere ? serveShape(next, serveShapeDeps) : null;
   if (servedHere && !nextShape) {
     return {
@@ -1027,7 +1079,7 @@ export async function editApp(
   // old entry outright, a same-name edit is about to overwrite it via putRecord
   // below), so an addIssue() written here against the old key would be lost.
   const teardownIssues: SyncIssue[] = [];
-  if (next.kind === 'service' && oldLabel) {
+  if (!live && next.kind === 'service' && oldLabel) {
     const issue = await runDriver('launchd', () =>
       drivers.manager.uninstall(oldLabel)
     );
@@ -1076,9 +1128,10 @@ export async function editApp(
   // base port has already cleared the override above, so there's nothing to
   // prefer; alias straight to the new base port.
   const liveOverride = portChanged ? undefined : getOverride(next.name);
-  await tryDriver(next.name, 'portless', () =>
-    drivers.edge.alias(next.name, liveOverride?.devPort ?? next.port)
-  );
+  if (!live)
+    await tryDriver(next.name, 'portless', () =>
+      drivers.edge.alias(next.name, liveOverride?.devPort ?? next.port)
+    );
   // Teardown issues land last, against the record that actually got persisted.
   // After the stand-up calls, too: tryDriver clears its source on success, and a
   // teardown failure (say an orphaned launchd service the uninstall left behind)

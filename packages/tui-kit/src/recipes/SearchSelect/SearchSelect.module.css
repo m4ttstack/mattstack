@@ -1,0 +1,56 @@
+@layer soribashi.recipes {
+  .root { display: flex; flex-direction: column; gap: var(--spacing-px6); }
+  .label { color: var(--text-1); font-family: var(--font-sans); font-size: var(--font-size-px13); font-weight: 500; }
+  .trigger {
+    box-sizing: border-box; display: flex; align-items: center; gap: var(--spacing-px6);
+    width: 100%; padding: var(--spacing-px6) var(--spacing-px10);
+    background: var(--card); color: var(--text-1); border: 1px solid var(--border-control);
+    border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--font-size-px13);
+    cursor: default;
+  }
+  .trigger[data-popup-open] { border-color: var(--fill-accent); }
+  .value { flex: 1; text-align: left; }
+  .chevron { color: var(--text-2); display: flex; }
+  .portal { position: fixed; top: 0; left: 0; width: 0; height: 0; z-index: 300; }
+  .popup {
+    box-sizing: border-box; width: var(--anchor-width); max-height: min(var(--sb-searchselect-max-h), var(--available-height));
+    display: flex; flex-direction: column; background: var(--card); color: var(--text-1);
+    border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-menu);
+    overflow: hidden; outline: none;
+  }
+  .searchBox {
+    box-sizing: border-box; display: flex; align-items: center; gap: var(--spacing-px8);
+    margin: var(--spacing-px8); padding: var(--spacing-px6) var(--spacing-px10);
+    background: var(--inset); border: 1px solid var(--border-control); border-radius: var(--radius-md);
+  }
+  .searchBox:focus-within { outline: 1px solid var(--fill-accent); outline-offset: 1px; }
+  .searchIcon { color: var(--text-2); display: flex; }
+  .search {
+    flex: 1; min-width: 0; margin: 0; padding: 0; background: none; border: none; color: var(--text-1);
+    font-family: var(--font-sans); font-size: var(--font-size-px13); outline: none;
+  }
+  .list { overflow-y: auto; overscroll-behavior: contain; padding-bottom: var(--spacing-px4); }
+  .groupLabel {
+    padding: var(--spacing-px8) var(--spacing-px14) var(--spacing-px4); color: var(--text-2);
+    font-family: var(--font-sans); font-size: var(--font-size-px11); font-weight: 500;
+    letter-spacing: var(--sb-searchselect-tracking); text-transform: uppercase;
+  }
+  .item {
+    display: flex; align-items: center; gap: var(--spacing-px8); min-height: var(--sb-searchselect-item-h);
+    padding: 0 var(--spacing-px14); font-family: var(--font-mono); font-size: var(--font-size-px13);
+    cursor: default; outline: none;
+  }
+  .item[data-highlighted] { background: var(--sb-searchselect-hover); }
+  .itemIcon { color: var(--text-2); display: flex; }
+  .itemLabel { flex: 1; }
+  .itemDetail { color: var(--text-2); font-family: var(--font-sans); font-size: var(--font-size-px12); }
+  .check { color: var(--text-accent); display: flex; }
+  .empty { padding: var(--spacing-px10) var(--spacing-px14); color: var(--text-2); font-size: var(--font-size-px13); }
+  /* Base UI keeps Empty mounted as a live region and drops only its children. */
+  .empty:empty { padding: 0; }
+  .footer {
+    display: flex; gap: var(--spacing-px14); padding: var(--spacing-px8) var(--spacing-px14);
+    background: var(--panel); border-top: 1px solid var(--line-3); color: var(--text-2);
+    font-family: var(--font-sans); font-size: var(--font-size-px12);
+  }
+}

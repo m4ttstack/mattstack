@@ -17,8 +17,13 @@ const dir = mkdtempSync(join(tmpdir(), 'la-routes-'));
 process.env.LOCAL_APPS_ROUTES_PATH = join(dir, 'routes.json');
 const routesPath = process.env.LOCAL_APPS_ROUTES_PATH;
 
-const { addRoutes, removeRoutes, repointRoutes, setRoutePort } =
-  await import('./routes-writer.ts');
+const {
+  addRoutes,
+  removeRoutes,
+  repointRoutes,
+  setAppRoutesPort,
+  setRoutePort,
+} = await import('./routes-writer.ts');
 const { readRoutes } = await import('./discover.ts');
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -139,6 +144,28 @@ test('repointRoutes moves every host under a name to one port, in place, and not
     'board.mattstack': 11007,
   });
   expect(statSync(routesPath).ino).toBe(before);
+});
+
+test('setAppRoutesPort moves every TLD of one app and nothing else', () => {
+  writeFileSync(
+    routesPath,
+    JSON.stringify([
+      { hostname: 'chat.mattstack', port: 11002, pid: 0 },
+      { hostname: 'chat.localhost', port: 11002, pid: 0 },
+      { hostname: 'console.localhost', port: 11001, pid: 0 },
+    ])
+  );
+  expect(setAppRoutesPort('chat', 11140, ['localhost', 'mattstack'])).toEqual([
+    'chat.mattstack',
+    'chat.localhost',
+  ]);
+  const routes = JSON.parse(readFileSync(routesPath, 'utf8'));
+  expect(routes.map((r: { port: number }) => r.port)).toEqual([
+    11140, 11140, 11001,
+  ]);
+  expect(setAppRoutesPort('chat', 11140, ['localhost', 'mattstack'])).toEqual(
+    []
+  );
 });
 
 test('repointRoutes writes nothing when every host already serves the port', () => {

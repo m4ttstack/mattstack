@@ -1,6 +1,13 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+export const LIVE_KINDS = ['server', 'ui', 'worker'] as const;
+export type LiveKind = (typeof LIVE_KINDS)[number];
+export interface LiveProcess {
+  kind: LiveKind;
+  start: string;
+}
+
 export interface DeckManifest {
   name: string;
   displayName?: string;
@@ -21,6 +28,10 @@ export interface DeckManifest {
   env?: Record<string, string>;
   /** Normalized overlays: each may carry only `port` and/or `start`. */
   altConfigs?: Record<string, { port?: number; start?: string }>;
+  /** Live-mode processes; set only when the `live` list is valid. */
+  live?: LiveProcess[];
+  /** Why the `live` list cannot be used; the rest of the manifest still loads. */
+  liveError?: string;
 }
 
 export type ParseResult =
@@ -31,6 +42,37 @@ const COMMAND_KEY_RE = /^[a-z0-9-]+$/;
 
 function err(error: string): ParseResult {
   return { ok: false, error };
+}
+
+export function parseLive(
+  raw: unknown
+): { ok: true; live: LiveProcess[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw)) return { ok: false, error: 'live must be a list' };
+  const live: LiveProcess[] = [];
+  for (const [i, entry] of raw.entries()) {
+    const n = i + 1;
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry))
+      return { ok: false, error: `live entry ${n} must be an object` };
+    const { kind, start } = entry as Record<string, unknown>;
+    if (!LIVE_KINDS.includes(kind as LiveKind))
+      return { ok: false, error: `live entry ${n} has an unknown kind` };
+    if (typeof start !== 'string' || start.trim() === '')
+      return { ok: false, error: `live entry ${n} has no start command` };
+    live.push({ kind: kind as LiveKind, start });
+  }
+  const count = (k: LiveKind) => live.filter(p => p.kind === k).length;
+  if (count('server') === 0)
+    return { ok: false, error: 'no server in the live list' };
+  if (count('server') > 1)
+    return { ok: false, error: 'more than one server in the live list' };
+  if (count('ui') > 1)
+    return { ok: false, error: 'more than one ui in the live list' };
+  return { ok: true, live };
+}
+
+export function liveProcessIds(live: LiveProcess[]): string[] {
+  let worker = 0;
+  return live.map(p => (p.kind === 'worker' ? `worker-${++worker}` : p.kind));
 }
 
 export function readDeckManifest(dir: string): ParseResult {
@@ -129,6 +171,12 @@ export function readDeckManifest(dir: string): ParseResult {
       env[key] = val;
     }
     out.env = env;
+  }
+
+  if (m.live !== undefined) {
+    const live = parseLive(m.live);
+    if (live.ok) out.live = live.live;
+    else out.liveError = live.error;
   }
 
   if (m.altConfigs !== undefined) {

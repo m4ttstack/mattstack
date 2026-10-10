@@ -15,5 +15,8 @@
   "bundle": {
     "build": "bun run build",
     "artifact": "dist/board"
-  }
+  },
+  "live": [
+    { "kind": "server", "start": "caffeinate -s bun --watch src/server.ts" }
+  ]
 }

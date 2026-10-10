@@ -15,3 +15,4 @@ Add a row when a page introduces a concept.
 | Claude Code back at its prompt with shells, monitors or subagents still running | background work | mauve ring, busy |
 | A workspace kept at the top of flock's sidebar | pinned workspace, pin | favorite, bookmark |
 | flock's three window modes | view (Workspaces, Overview, Arrange) | mode, screen, page |
+| A mattstack app deck runs from source, reloading as you edit | live, go live | dev mode, hot mode, watch mode |

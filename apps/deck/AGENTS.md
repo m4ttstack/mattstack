@@ -61,6 +61,26 @@ bundle's `Info.plist` (`src/api/dev-mode.ts`), true in mattstack-dev.app.
 Outside a bundle deck is production. A bundled deck re-resolves managed
 apps at boot, so launching the other app moves them over.
 
+A mattstack app can also declare `live`, a list of processes that run it
+from source with reloading: exactly one `server` (gets the app's port as
+`$PORT`), at most one `ui` (gets a spare port as `$PORT`), and any number of
+`worker`s (no port); every one gets `$SERVER_PORT`. Live mode is dev mode
+only and per app (`deck live <app> on|off`, or the board's LIVE column), and
+runs from the shared checkout or one of the user's rt worktrees
+(`src/live/`). While live, the app's normal service is uninstalled and each
+process runs as `com.mattstack.deck.<name>.live.<id>` (`server`, `ui`,
+`worker-N`) on the command PATH (`composeCommandPath`, since the bundle's
+`Helpers/bun` cannot load the native addon vite needs). Live state sits on
+the app's entry in deck's `settings.json`, file-local and never in the rt
+store; the boot sweep and the reconcile tick keep it in place, and a live
+app whose worktree is deleted moves to main. Live mode points every route of
+the app (`.mattstack` and `.localhost`) at the `ui` process itself, because
+the dev-port override only moves `.localhost`; the override is refused while
+an app is live. While an app is live, a restart (one app or `--managed`)
+kickstarts its live processes, `deck register --dir` updates only its record
+and link, and removing it stops live first. Live operations on one app are serialized
+(`withLiveLock`), and nothing may await the sweep while holding that lock.
+
 Dev mode is only for mattstack's own apps. `managedBy` classifies every entry:
 `rt` (mattstack-owned), `deck` (deck itself), or `user` (someone's own local
 app, which they registered themselves and which is not bundled with

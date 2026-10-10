@@ -95,6 +95,34 @@ export function PortBlock({ row, data, board, blocks }: BlockProps) {
       : blocks.portInput
         ? 'Point the route at a dev server while you work on it, then revert.'
         : null;
+  if (row.live) {
+    return (
+      <section data-block="port" aria-label="Port" className="settings-block">
+        <div className="settings-block-head">
+          <h3 className="settings-heading">Port</h3>
+          {row.live.uiPort != null && (
+            <p className="settings-note">
+              {`${host} goes to the live UI while ${row.name} is live.`}
+            </p>
+          )}
+        </div>
+        <dl className="settings-facts">
+          <dt>
+            Assigned <Help tip={ASSIGNED_TIP} />
+          </dt>
+          <dd className="settings-mono">{row.port}</dd>
+          {row.live.uiPort != null && (
+            <>
+              <dt>
+                Live UI <Help tip="Where the live UI runs" />
+              </dt>
+              <dd className="settings-mono t-accent">{row.live.uiPort}</dd>
+            </>
+          )}
+        </dl>
+      </section>
+    );
+  }
   const overrideLabel = (
     <dt>
       Dev override <Help tip={devOverrideTip(host, assigned)} />
