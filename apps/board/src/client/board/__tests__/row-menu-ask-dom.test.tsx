@@ -49,7 +49,7 @@ test('engaged peers block the item with a reason', async () => {
   );
   await openSub('all agent actions');
   const ask = itemTexts().find(t => t.includes('request review from'));
-  expect(ask).toContain('everyone engaged');
+  expect(ask).toContain('no teammate left to ask');
   await clickItem('request review from');
   expect(harness.effects).toEqual([]);
 });

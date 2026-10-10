@@ -424,7 +424,7 @@ export function rowActions(
                       u => u !== mrx.author.username && env.peers!.includes(u)
                     )
                   ? 'no teammate boards connected'
-                  : 'everyone engaged',
+                  : 'no teammate left to ask',
             }
       )
     );
