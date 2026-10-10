@@ -190,6 +190,61 @@ under `claude/` and `codex/`) and the Claude Code mod at
   `-32600` wording and fails safe: an unmatched error leaves the thread
   attached.
 - **`rt agent integrations` is agent-safe**, so the `rt_verb` tool runs it.
+- **Which harnesses are on is the person's choice, kept per Mac.** The
+  list `agent.integrations` and the default `agent.provider` that
+  `rt setup harnesses <ids…> --default <id>` saves (the tray's picker runs
+  it) are machine scope, and the `2026-10-09-record-enabled-integrations`
+  migration records, at machine scope, the list a Mac already used from its
+  own `agent.provider`. `writeIntegrationChoice`
+  (`lib/agent-integrations/preferences.ts`) is the one write, and it refuses
+  a user-scope list or default that a machine value would hide. `rt setup
+  harnesses` is never agent-safe.
+- **Every Codex hook approval ends at macOS's owner check.**
+  `applyCodexPolicyInstall` calls `confirmOwner`
+  (`lib/agent-integrations/codex/owner-auth.ts`), which runs the app's
+  `Contents/Helpers/rt-owner-auth` (built into both flavors) and counts only
+  exit 0 with `authenticated`. The terminal review and the tray's approval
+  sheet (which runs `rt setup codex-policy --approve <id>`) both end there.
+  The helper is found by the flavor rt was built as, never
+  `MATTSTACK_FLAVOR` and never `mattstack.appPath`: a compiled rt uses its
+  own bundle alone and runs the helper only after `codesign --verify
+  --strict` passes a requirement anchored to Apple, the running app's own
+  team and `com.mattstack.helper.rt-owner-auth`; a source run uses the dev
+  app in `/Applications` or `~/Applications`. No helper, a failed check, or
+  `NODE_ENV=test` refuses.
+- **`lib/__tests__/no-agent-integration-boundary-leaks.test.ts` is a
+  two-way ratchet.** Only the files it lists, each with a reason, import
+  `lib/agent-integrations/{claude,codex}/` directly. A new import fails until
+  it is listed (better: reach the harness through the registry), and a
+  listed file that stops importing fails until its row goes.
+- **Codex gets its own build of the app skills.** `scripts/build-apps.ts`
+  stages an app's `skills-targets/codex` tree, `rt-tray/build.sh` lands it at
+  `Contents/Helpers/skills-targets/codex/<app>`, and `skills.link` links a
+  Codex host from there; `scripts/__tests__/no-codex-skills-bundle-drift.test.ts`
+  pins the three together. `assertCodexClean` fails the build on a
+  `${CLAUDE_*}` variable or a tool Codex lacks. An app in
+  `CODEX_WITHHELD_APP_SKILLS` (`lib/skills/harness-target.ts`; gitq today)
+  ships and links no Codex build, and a Codex action of it refuses, until its
+  skills carry the questions fragment; `check-bundle.sh` fails a bundle that
+  ships one.
+- **Harness acceptance runs only in an environment it owns.**
+  `scripts/acceptance/harnesses.ts --profile <claude-only|codex-only|mixed>`
+  drives the environment the `RT_ACCEPTANCE_ENV` descriptor names, whose root
+  must hold a `.rt-acceptance-owned` marker naming the same id; without one
+  every scenario is recorded blocked, never passed. Results go to
+  `docs/superpowers/evidence/harness-integrations-acceptance.json`, and
+  `--verify` exits 0 only for a complete matrix that passed on one artifact
+  at versions `scripts/acceptance/tested-versions.json` lists. Each pass
+  says who stands behind it: `machine` when the runner observed it,
+  `operator` for a capture made by hand, whose files, events and timing the
+  runner checks but whose steps it cannot prove. The artifact's commit is the
+  bundle's `MSSourceCommit` Info.plist stamp, which `build.sh` marks `-dirty`
+  for a dirty tree.
+- **Every release compiles and strictly checks the mattstack plugin's
+  Codex build** (`scripts/release/marketplace.sh`), so a broken one stops
+  the release, but publishes its `.codex-plugin` manifest, `targets/codex/`
+  and the Codex catalog only with `RT_PUBLISH_CODEX_BUILD=1`, which stays off
+  until a task installs the build on Codex and checks those shapes live.
 - **The mods register blocks only inside `TESTED_CLAUDE_CODE`**
   (`lib/agent-integrations/claude/mod-links.ts`). Outside that range a mod
   registers with no blocks and the shell hooks keep the session. Widen the
@@ -876,7 +931,13 @@ step update-safe only when it is idempotent, never calls `ctx.need`, and
 never overwrites a value the user chose; under `ctx.update` it also leaves
 alone what the member undid since rt put it there (a disabled or removed
 plugin, an editor setup-state has no record of).
-`lib/setup/__tests__/update-safe.test.ts` pins the set. Add a one-time fix as a `MigrationDef` in
+`lib/setup/__tests__/update-safe.test.ts` pins the set. A harness's own
+steps (`INTEGRATION_STEP_IDS` in `lib/setup/contract.ts`, today `codex.mcp`
+and `codex.policy`) sit outside `STEP_IDS`: a run that does not install for
+that harness neither lists nor accepts them. Both are update-safe through
+ownership: they rewrite only entries rt recorded adding and the member kept,
+never add back what the member removed, and a rewritten Codex hook waits on
+review again rather than being trusted. Add a one-time fix as a `MigrationDef` in
 `lib/setup/migrations/index.ts` with a dated id that is never renamed; it
 runs once per machine and is recorded when `done` or `skipped`. The tray
 only spawns the verb and routes the `setup_update` notification click to the
@@ -937,6 +998,16 @@ pane, add it as a fixture, and only then touch the regexes. A parser that
 "fails closed" here reads as a pane that never starts, so RT-263 tracks the
 residue and every change needs the Bash-spoof, MCP-spoof and painted-dialog
 fixtures still passing.
+
+The folder-trust dialog (`readTrustPrompt` in `lib/daemon/trust-dialog.ts`, driven by
+`lib/daemon/trust-accept.ts`) has one rule no switch changes: a dialog
+saying the repo pre-approves tool permissions is never answered. It comes
+back `pre-approved`, the walk sends no key and reports `needs-person`, and
+the person decides, since accepting would grant those permissions on their
+behalf. The 2.1.283+ layout is driven only when every paragraph and option
+on it is one the parser knows; anything else is left to the person, so a
+reworded warning can never read as its absence. The older layout is read
+from its header down, so scrollback above it is not its text.
 
 ## State backup
 

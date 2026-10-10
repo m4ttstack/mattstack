@@ -472,6 +472,16 @@ selection; it does not require Claude authentication for a Codex audit.
 
 ### S9: Verify distributed profiles and close the audit
 
+> **Split (2026-10-09):** S9 runs in two steps. S9a builds the acceptance
+> tooling and guards below (runner and `--verify`, the boundary-leak guard,
+> the e2e contract test, the bundle's Codex skills, the Codex plugin compile,
+> CI and release wiring, the A01 to A28 map with its gaps) under unit and
+> conformance tests only. S9b runs the three profiles on built artifacts in
+> the VM and live, with Matt, and closes the batched live checks. The runs
+> need real auth and a VM that an unattended implementer cannot use. Since
+> the final review, gitq's skills are withheld from Codex until they carry
+> the questions fragment, so A25 stays Blocked.
+
 **Files:** Create `scripts/acceptance/harnesses.ts`,
 `scripts/acceptance/__tests__/harnesses.test.ts`,
 `e2e/tests/harness-contract.test.ts`,
