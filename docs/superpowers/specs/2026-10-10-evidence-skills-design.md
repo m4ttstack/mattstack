@@ -3,7 +3,7 @@
 SKILLS-97, shared-pipeline half. Builds on evidence@2 (RT-483, spec
 `2026-10-10-evidence-v2-design.md`), which merged the shape, the
 `run_field_set` validator and the record-checked `mr_upload {runId}`.
-The claimview team pack is a separate later job and is not touched here.
+The team pack half is a separate later job and is not touched here.
 
 ## Problem
 
@@ -159,7 +159,7 @@ its AFTERs come in as new cases.
 
 `gate-protocol` (so no board skills re-expansion), `wrap-up-form`, the
 slot contracts (`evidence-domain@1`, `ship-domain@1` keep their shape),
-`stage-watch-ci`, the claimview pack, the console.
+`stage-watch-ci`, team packs, the console.
 
 ## Verification
 

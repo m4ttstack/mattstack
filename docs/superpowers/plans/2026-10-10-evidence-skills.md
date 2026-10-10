@@ -25,7 +25,7 @@ by `rt skills compile`. Checks: `tests/certify.sh`, `check-dot.py`,
 ## Global Constraints
 
 - Write only under `plugins/mattstack/`, `docs/superpowers/specs/`,
-  `docs/superpowers/plans/` and `.superpowers/`. Never touch the claimview
+  `docs/superpowers/plans/` and `.superpowers/`. Never touch a team
   pack, `apps/`, `lib/` or `packages/`.
 - Never edit `plugins/mattstack/attachments/gate-protocol/` (an edit there
   forces a board skills re-expansion this job is not allowed to commit).
