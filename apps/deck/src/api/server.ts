@@ -780,11 +780,18 @@ export function startApi(deps: ApiDeps) {
             if (proc !== null) {
               if (!liveProcessIdsOf(name).includes(proc))
                 return json({ error: 'unknown live process' }, 400);
-              return json({
-                stderr: tailFile(
-                  join(logsDir(), `${name}.live.${proc}.err.log`),
+              const tail = (stream: 'out' | 'err') =>
+                tailFile(
+                  join(logsDir(), `${name}.live.${proc}.${stream}.log`),
                   lines
-                ),
+                );
+              const out = tail('out');
+              const err = tail('err');
+              return json({
+                lines: [
+                  ...(out.length ? ['stdout', ...out] : []),
+                  ...(err.length ? ['stderr', ...err] : []),
+                ],
               });
             }
             const stderrPath = record

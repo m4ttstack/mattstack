@@ -363,7 +363,9 @@ test('settings while live: a process shows its log on demand', async () => {
   await withBoard(
     async page => {
       await page.route(/\/apps\/atlas\/logs\?process=ui/, r =>
-        r.fulfill({ json: { stderr: ['vite: ready', 'hmr update'] } })
+        r.fulfill({
+          json: { lines: ['stdout', 'vite: ready', 'hmr update'] },
+        })
       );
       await page
         .getByRole('button', { name: 'settings for atlas', exact: true })

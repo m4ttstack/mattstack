@@ -62,11 +62,11 @@ export async function getProcessLog(
       `/api/v1/apps/${name}/logs?process=${encodeURIComponent(id)}&lines=200`
     );
     const body = (await res.json().catch(() => ({}))) as {
-      stderr?: string[];
+      lines?: string[];
       error?: string;
     };
     if (!res.ok) return { lines: [], error: body.error || "That didn't work." };
-    return { lines: body.stderr ?? [], error: null };
+    return { lines: body.lines ?? [], error: null };
   } catch {
     return { lines: [], error: "The board didn't answer." };
   }

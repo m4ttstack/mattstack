@@ -210,10 +210,17 @@ test('logs of a live process: the tail for a known id, 400 otherwise', async () 
     body: JSON.stringify({ source: kit.shared }),
   });
   mkdirSync(logsDir(), { recursive: true });
+  writeFileSync(join(logsDir(), 'chat.live.ui.out.log'), 'ready\n');
   writeFileSync(join(logsDir(), 'chat.live.ui.err.log'), 'one\ntwo\n');
   const ok = await api('/api/v1/apps/chat/logs?process=ui');
   expect(ok.status).toBe(200);
-  expect(await ok.json()).toEqual({ stderr: ['one', 'two'] });
+  expect(await ok.json()).toEqual({
+    lines: ['stdout', 'ready', 'stderr', 'one', 'two'],
+  });
+  writeFileSync(join(logsDir(), 'chat.live.ui.out.log'), '');
+  expect(await (await api('/api/v1/apps/chat/logs?process=ui')).json()).toEqual(
+    { lines: ['stderr', 'one', 'two'] }
+  );
   for (const bad of ['nope', '../x', 'ui/../../x'])
     expect(
       (await api(`/api/v1/apps/chat/logs?process=${encodeURIComponent(bad)}`))
