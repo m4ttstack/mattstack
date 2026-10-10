@@ -47,8 +47,7 @@ captures, records or uploads evidence follows this page.
   verb carries.
 - `transcript`, `url` and `attach` are run-level. A transcript is text,
   is never uploaded, and needs no caption or waiver.
--  `{"plan": "none"}`
-  stays the no-evidence value.
+  `{"plan": "none"}` stays the no-evidence value.
 
 ## Annotate or waive each image the record does not yet cover
 
