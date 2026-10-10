@@ -301,6 +301,34 @@ describe("marketplace.sh publish", () => {
     expect(r.out).toContain("older than the published");
   });
 
+  test("a prerelease is older than its release", () => {
+    const bare = bareRepo();
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.32.0") }).code).toBe(0);
+    const r = run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.32.0-rc1") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("older than the published");
+  });
+
+  test("a release above a published prerelease publishes", () => {
+    const bare = bareRepo();
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.32.0-rc1") }).code).toBe(0);
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.32.0") }).code).toBe(0);
+  });
+
+  test("a version it cannot order is refused, never waved through", () => {
+    const bare = bareRepo();
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.31.0") }).code).toBe(0);
+    const r = run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("next") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("cannot order");
+  });
+
+  test("a dry run that cannot read the published catalog says it skipped the check", () => {
+    const r = run(["--dry-run", packSource()], { RT_TREE_ROOT: packTree("0.31.0") });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("could not read the published catalog");
+  });
+
   test("a rejected catalog never reaches the remote", () => {
     const bare = bareRepo();
     const r = run([sourceDir([urlPlugin("fast-browser", undefined, "short")])], { RT_MARKETPLACE_REPO: bare });
