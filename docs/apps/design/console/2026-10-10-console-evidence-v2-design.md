@@ -42,8 +42,11 @@ links) or `version: null`; a v1 value is one case with id `case`.
 - `slotsOf(case)`: the slots present, before then after.
 - `themesIn(case)`: the themes the case's slots carry (`[]` unthemed).
 - `shotIn(case, slot, theme?)`: the shot for a theme, else the slot's first.
-- `isWaived(shot)` / `caseWaived(case)`: a shot shown unmarked, and a case
-  where any image is waived.
+- `isWaived(shot)`: an image that goes out unmarked (no annotated copy, a
+  waiver). `caseWaived(case)` and `phaseWaived(case, slot)`: **a case (or
+  one of its slots) is waived when none of its images is annotated**. One
+  waived image beside an annotated one (the dark twin of a marked light
+  shot) is shown on its own line, never as a waived case.
 - `evidenceUrl(repo, runId, {caseId, slot, theme?, annotated})` and
   `transcriptUrl(repo, runId)`.
 
@@ -72,8 +75,8 @@ The runs list draws no evidence count any more, so nothing else changes.
 One Evidence card (as today), its eyebrow `EVIDENCE · n` and "attached to
 !iid". Inside, one group per case, separated by a rule:
 
-- **Head**: the case label (500); when the case has a waiver, a quiet gray
-  `waived` badge; when it carries both themes, a gray `light + dark` badge.
+- **Head**: the case label (500); when the case is waived (none of its
+  images annotated), a quiet gray `waived` badge; when it carries both themes, a gray `light + dark` badge.
   A v1 record whose label is the reader's fallback (`Evidence`) draws no
   head, so a v1 run with no case text reads as one plain pair.
 - **Thumbnails**: Before and After in the existing two-column grid, each the
@@ -102,13 +105,14 @@ off; v1 keeps its existing placement rules).
 - **Several cases** (option B, recommended): one 240px thumbnail per case
   in a wrapping strip: the annotated image, else the waived base, the light
   theme when the slot is themed. Under it the case label (500) with its
-  `waived` or `light + dark` badge, then the caption or `Waived: <reason>`.
+  `light + dark` badge and, when its images in that phase are all waived,
+  `waived`, then the caption or `Waived: <reason>`.
   Clicking a thumbnail opens compare on that case and phase; the plain
   capture is there. Option A (every case's plain and annotated thumbnails,
   `renders/runs-ev-story-option-a.*.png`) was drawn and is not proposed: it
   runs three times as tall for the same information.
-- The summary reads `3 cases, 1 waived` (waived = cases with any waived
-  image in that phase), plus `, 1 link` where the url shows; a one-case
+- The summary reads `3 cases, 1 waived` (waived = cases whose images in
+  that phase are all waived), plus `, 1 link` where the url shows; a one-case
   record keeps today's `2 screenshots, 1 link`.
 
 ### Compare modal (board `runs-ev-compare`)
