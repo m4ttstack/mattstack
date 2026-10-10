@@ -17,8 +17,13 @@ const dir = mkdtempSync(join(tmpdir(), 'la-routes-'));
 process.env.LOCAL_APPS_ROUTES_PATH = join(dir, 'routes.json');
 const routesPath = process.env.LOCAL_APPS_ROUTES_PATH;
 
-const { addRoutes, removeRoutes, repointRoutes, setRoutePort } =
-  await import('./routes-writer.ts');
+const {
+  addRoutes,
+  removeRoutes,
+  repointRoutes,
+  setAppRoutesPort,
+  setRoutePort,
+} = await import('./routes-writer.ts');
 const { readRoutes } = await import('./discover.ts');
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

@@ -3,6 +3,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 
 import { getPlatformSettings } from '../src/api/platform-settings.ts';
+import { isLiveLabel } from '../src/live/labels.ts';
 
 // Computed fresh on every call (not frozen at import time) so callers that set
 // LOCAL_APPS_ROUTES_PATH after this module first loads (tests, in particular)
@@ -301,7 +302,7 @@ export function orphanServices(
   services: LaunchdService[]
 ): LaunchdService[] {
   const claimed = new Set(apps.map(a => a.service?.label).filter(Boolean));
-  return services.filter(s => !claimed.has(s.label));
+  return services.filter(s => !claimed.has(s.label) && !isLiveLabel(s.label));
 }
 
 export interface Health {
