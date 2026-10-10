@@ -14,7 +14,6 @@ import {
   runEvidenceAt,
   serializeIdentity,
   type ChatPane,
-  type EvidenceTextKey,
   type RunFieldRow,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
@@ -289,11 +288,12 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
       )
       .get('/api/runs/:repo/:runId/evidence/:key', async c => {
         const { repo: rawRepo, runId, key } = c.req.param();
+        if (key !== 'transcript') return c.json({ error: 'no evidence' }, 404);
         if (fixture) {
-          const evidence =
-            key === 'transcript'
-              ? await fixture.transcript(canonicalRepo(rawRepo), runId)
-              : null;
+          const evidence = await fixture.transcript(
+            canonicalRepo(rawRepo),
+            runId
+          );
           if (!evidence) return c.json({ error: 'no evidence' }, 404);
           return new Response(evidence.bytes, {
             status: 200,
@@ -307,7 +307,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
         }
         const res = await runEvidence(
           runId,
-          key as EvidenceTextKey,
+          'transcript',
           canonicalRepo(rawRepo),
           { sockPath: process.env.RT_SOCK_PATH }
         );
@@ -370,7 +370,7 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           { sockPath: process.env.RT_SOCK_PATH }
         );
         if (!res.ok || !res.data?.base64)
-          return c.json({ error: res.error ?? 'no evidence' }, 404);
+          return c.json({ error: 'no evidence' }, 404);
         return new Response(Buffer.from(res.data.base64, 'base64'), {
           status: 200,
           headers: {
