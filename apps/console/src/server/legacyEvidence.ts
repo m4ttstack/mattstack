@@ -1,4 +1,4 @@
-import { legacyItems, parseEvidence } from '@mattstack/rt-client/evidence';
+import { legacyItems, readEvidence } from '@mattstack/rt-client/evidence';
 
 export const LEGACY_IMAGE_MIME: Record<string, string> = {
   '.png': 'image/png',
@@ -25,7 +25,7 @@ export function legacyImagePath({
   realpath,
   evidenceRoot,
 }: LegacyImageInput): string | null {
-  const parsed = parseEvidence(evidence);
+  const parsed = readEvidence(evidence);
   if (parsed.version !== 0) return null;
   const named = legacyItems(parsed.links).some(
     i => i.kind === 'image' && i.value === path

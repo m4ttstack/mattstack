@@ -827,7 +827,7 @@ describe('RunDetail: finished run', () => {
     await waitFor(() =>
       expect(tabsOf(record)).toEqual([
         ['Story', 'true'],
-        ['Evidence3', 'false'],
+        ['Evidence1', 'false'],
         ['Inputs', 'false'],
       ])
     );
@@ -1037,7 +1037,7 @@ describe('RunDetail: finished run', () => {
       const dialog = await screen.findByRole('dialog');
       expect(within(dialog).getByRole('img')).toHaveAttribute(
         'src',
-        expect.stringContaining('/evidence/beforeAnnotated')
+        expect.stringContaining('/evidence/case/before?annotated=1')
       );
       const record = screen.getByTestId('run-record');
       expect(
@@ -1104,7 +1104,7 @@ describe('RunDetail: finished run', () => {
     );
     expect(tabsOf(record).map(([name]) => name)).toEqual([
       'Story',
-      'Evidence2',
+      'Evidence1',
       'Inputs',
     ]);
     expect(within(record).getByRole('tablist')).toHaveAttribute(

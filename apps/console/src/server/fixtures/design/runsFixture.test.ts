@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { optionLabel, stripRecommended } from '@mattstack/gate-kit';
 import {
   gateOptionValue,
-  parseEvidence,
+  readEvidence,
   type GateOption,
   type GateRow,
   type RunDetail,
@@ -258,7 +258,7 @@ describe('the runs boards draw the fixture', () => {
     expect(texts).toContain(
       String(gates.filter(g => g.status === 'answered').length)
     );
-    const evidence = parseEvidence(field(abandoned, 'evidence'));
+    const evidence = readEvidence(field(abandoned, 'evidence'));
     expect(evidence.version).toBe(0);
     if (evidence.version === 0)
       expect(texts).toContain(`${evidence.links.length} links`);
@@ -556,7 +556,7 @@ describe('runsFixture', () => {
       await runs.legacyEvidenceFile(REPO, '20261008-1142', `${dir}/before.png`)
     ).toBeNull();
     const d = await detail('20261007-1520');
-    expect(parseEvidence(field(d, 'evidence')).version).toBe(0);
+    expect(readEvidence(field(d, 'evidence')).version).toBe(0);
     expect((await runs.listRuns()).some(r => r.id === '20261007-1520')).toBe(
       false
     );
