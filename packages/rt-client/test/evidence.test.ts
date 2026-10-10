@@ -188,7 +188,7 @@ describe("evidence helpers", () => {
 });
 
 describe("validateEvidence", () => {
-  const ok = { ok: true };
+  const ok = { ok: true } as const;
   const bad = (value: unknown) => validateEvidence(JSON.stringify(value));
   const one = (c: object) => ({ v: 2, cases: [{ id: "c1", label: "Case", ...c }] });
 
