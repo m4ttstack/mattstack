@@ -9,7 +9,8 @@ import {
 } from '../api/register.ts';
 import { FakeEdgeProxy } from '../edge/portless.ts';
 import { putRecord } from '../registry/records.ts';
-import { freshChat, routes } from './test-kit.ts';
+import { goLive } from './engine.ts';
+import { freshChat, managerOf, routes } from './test-kit.ts';
 
 let { shared, manager, deps, record } = freshChat();
 beforeEach(() => {
@@ -63,6 +64,38 @@ test('a disabled live app is stopped by the sweep', async () => {
     false
   );
   expect(routes().map(r => r.port)).toEqual([11002, 11002]);
+});
+
+test('a failed go-live can re-run the sweep without deadlocking', async () => {
+  setServeShapeDeps({ devMode: () => true, catalog: null, helpersDir: null });
+  clearLive('chat');
+  const failing = managerOf(() => manager);
+  failing.install = async spec => {
+    if (spec.label.includes('.live.')) throw new Error('install refused');
+    await manager.install(spec);
+  };
+  let swept = false;
+  const attempt = goLive(
+    'chat',
+    shared,
+    failing,
+    deps({
+      reinstall: async () => {
+        await reresolveManagedApps({
+          manager: failing,
+          edge: new FakeEdgeProxy(),
+        });
+        swept = true;
+      },
+    })
+  );
+  const timeout = new Promise<'deadlock'>(resolve =>
+    setTimeout(() => resolve('deadlock'), 3000)
+  );
+  const r = await Promise.race([attempt, timeout]);
+  expect(r).not.toBe('deadlock');
+  expect(swept).toBe(true);
+  expect(getLive('chat')).toBeUndefined();
 });
 
 function pointRoutesAtLiveUi(): void {

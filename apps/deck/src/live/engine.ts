@@ -254,6 +254,10 @@ async function rollback(
   try {
     await stopLiveUnlocked(name, manager, deps);
   } catch {}
+}
+
+/** Never under a live lock: the sweep it runs takes each app's lock. */
+async function reinstallAfterFailure(deps: LiveDeps): Promise<void> {
   try {
     await deps.reinstall?.();
   } catch {}
@@ -309,12 +313,19 @@ function afterSetup(
   void runSetup(record.name, source, branch, deps.setup)
     .then(async ok => {
       if (pending.get(record.name) !== token) return;
-      pending.delete(record.name);
-      if (!ok) return;
-      const err = await withLiveLock(record.name, () =>
-        activate(record, source, live, manager, deps)
-      );
-      if (err) fail(err);
+      if (!ok) {
+        pending.delete(record.name);
+        return;
+      }
+      const err = await withLiveLock(record.name, async () => {
+        if (pending.get(record.name) !== token) return null;
+        pending.delete(record.name);
+        return activate(record, source, live, manager, deps);
+      });
+      if (err) {
+        await reinstallAfterFailure(deps);
+        fail(err);
+      }
     })
     .catch(e => {
       if (pending.get(record.name) === token) pending.delete(record.name);
@@ -353,6 +364,7 @@ export async function goLive(
   const err = await withLiveLock(name, () =>
     activate(record!, source, manifest.live, manager, deps)
   );
+  if (err) await reinstallAfterFailure(deps);
   return err ? refuse(500, err) : { status: 200, body: { ok: true } };
 }
 
@@ -361,6 +373,7 @@ export function stopLive(
   manager: ServiceManager,
   deps: LiveDeps = {}
 ): Promise<LiveResult> {
+  pending.delete(name);
   return withLiveLock(name, () => stopLiveUnlocked(name, manager, deps));
 }
 
