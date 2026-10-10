@@ -53,14 +53,19 @@ let codexHookReviewChecks: [Check] = [
         rt.answers["setup codex-policy --approve cp-now"] = (0, #"{"contract":1,"at":"x","ok":true,"approved":"cp-now","hooksPath":"/h/hooks.json"}"#)
         rt.answers["setup codex-policy --approve cp-old"] = (2, #"{"contract":1,"at":"x","error":{"code":"stale","message":"These hooks changed after you looked at them, so rt trusted nothing. Look at them again before you approve."}}"#)
         rt.answers["setup codex-policy --approve cp-cancel"] = (2, #"{"contract":1,"at":"x","error":{"code":"refused","message":"You cancelled the Touch ID check, so rt trusted nothing."}}"#)
-        let client = await ChoiceClient(rt: rt)
-        c.expect(await client.run(["setup", "codex-policy", "--approve", "cp-now", "--json"]) == nil)
+        rt.answers["setup codex-policy --approve cp-crash"] = (1, "")
+        func approval(_ id: String) throws -> CodexHookApproval {
+            let review = CodexHookReview(id: id, codexHome: "/h", hooksPath: "/h/hooks.json", configPath: "/h/config.toml", executable: "/h/rt", digest: "d", hooks: [])
+            return try c.requireSome(CodexHookApproval(action: RowAction(type: .reviewCodexHooks, label: "Review…", verb: ["setup", "codex-policy"], review: review)))
+        }
+        let approver = await CodexHookApprover(rt: rt)
+        c.expectEqual(await approver.approve(try approval("cp-now")), .approved)
         c.expectEqual(rt.calls.last?.args, ["setup", "codex-policy", "--approve", "cp-now", "--json"])
         c.expectEqual(rt.calls.last?.stdin, nil, "nothing but the id travels")
-        c.expectEqual(await client.run(["setup", "codex-policy", "--approve", "cp-old", "--json"]),
-                      "These hooks changed after you looked at them, so rt trusted nothing. Look at them again before you approve.")
-        c.expectEqual(await client.run(["setup", "codex-policy", "--approve", "cp-cancel", "--json"]),
-                      "You cancelled the Touch ID check, so rt trusted nothing.")
+        c.expectEqual(await approver.approve(try approval("cp-old")),
+                      .stale("These hooks changed after you looked at them, so rt trusted nothing. Look at them again before you approve."))
+        c.expectEqual(await approver.approve(try approval("cp-cancel")), .refused("You cancelled the Touch ID check, so rt trusted nothing."))
+        if case .refused = await approver.approve(try approval("cp-crash")) {} else { c.fail("an unexpected exit is a refusal the sheet shows") }
     },
     Check("codex hooks: the Done screen never routes the review, and an older tray shows no button for it") { c in
         let review = CodexHookReview(id: "cp-1", codexHome: "/h", hooksPath: "/h/hooks.json", configPath: "/h/config.toml", executable: "/h/rt", digest: "d", hooks: [])
@@ -78,6 +83,8 @@ let ownerAuthChecks: [Check] = [
             if case .reason = OwnerAuthContract.parse(bad) { c.fail("accepted \(bad)") }
         }
         c.expectEqual(OwnerAuthContract.usageExit, 64)
+        let rtReason = "trust 2 rt hooks in Codex (/Users/member/.codex). Approve only if you just pressed Approve in mattstack or ran rt setup codex-policy."
+        c.expectEqual(OwnerAuthContract.parse(["--reason", rtReason]), .reason(rtReason), "the reason rt sends fits the helper")
     },
     Check("owner auth helper: one word and exit code per outcome, matching rt's reader") { c in
         let cases: [(OwnerAuthOutcome, String, Int32)] = [

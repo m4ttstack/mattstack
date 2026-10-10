@@ -28,7 +28,7 @@ import {
   CODEX_POLICY_EVENTS, CODEX_POLICY_SOURCE, codexPolicyManifest, codexUserHooksPath, parseCodexPolicyHookCommand, validInstallationId,
   type CodexHookHandler, type CodexPolicyEvent,
 } from "./hook-manifest.ts";
-import { confirmOwner, type OwnerAuthResult } from "./owner-auth.ts";
+import { confirmOwner, OWNER_AUTH_REASON_MAX, type OwnerAuthResult } from "./owner-auth.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { isRecord } from "./protocol.ts";
 import { homeInUse, runningCodexHomes } from "./running.ts";
@@ -165,16 +165,22 @@ function defaultDeps(): PolicyInstallDeps {
 
 const withDefaults = (deps: Partial<PolicyInstallDeps>): PolicyInstallDeps => ({ ...defaultDeps(), ...deps });
 
+/** `liveListHooks` with each Codex call capped at `timeoutMs`, so a wedged app server cannot hold a caller past its own deadline for long. */
+export function listHooksWithin(timeoutMs: number): PolicyInstallDeps["listHooks"] {
+  return (cwd, profile) => liveListHooks(cwd, profile, timeoutMs);
+}
+
 /** Asks the app server already running for this profile; it never starts one. */
-async function liveListHooks(cwd: string, profile: string): Promise<Outcome<ListedPolicyHook[]>> {
+async function liveListHooks(cwd: string, profile: string, timeoutMs?: number): Promise<Outcome<ListedPolicyHook[]>> {
   const { connectCodexControl, discoverCodexEndpoint } = await import("./control.ts");
-  const endpoint = await discoverCodexEndpoint();
+  const { runCapture } = await import("../../subprocess.ts");
+  const endpoint = await discoverCodexEndpoint(timeoutMs === undefined ? {} : { run: (argv, opts) => runCapture(argv, { ...opts, timeoutMs }) });
   if (!endpoint.ok) {
     return fail("not-ready", `Codex is not running, so rt cannot read the hashes Codex gives its hooks (${endpoint.error.message}). Open Codex, then run this again.`);
   }
   let control: Awaited<ReturnType<typeof connectCodexControl>>;
   try {
-    control = await connectCodexControl({ socketPath: endpoint.data.socketPath, profile });
+    control = await connectCodexControl({ socketPath: endpoint.data.socketPath, profile }, timeoutMs === undefined ? {} : { timeoutMs });
   } catch (err) {
     return fail("not-ready", `rt could not reach Codex to read its hooks: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -633,7 +639,9 @@ export async function planCodexPolicyInstall(input: { cwd?: string; profile: str
 /** What macOS's owner sheet says is being approved; it reads after "<helper> is trying to". */
 export function ownerAuthReason(review: PolicyReview): string {
   const count = review.hooks.length === 1 ? "1 rt hook" : `${review.hooks.length} rt hooks`;
-  return `trust ${count} in Codex (${review.codexHome})`;
+  const only = "Approve only if you just pressed Approve in mattstack or ran rt setup codex-policy.";
+  const named = `trust ${count} in Codex (${review.codexHome}). ${only}`;
+  return named.length <= OWNER_AUTH_REASON_MAX ? named : `trust ${count} in Codex. ${only}`;
 }
 
 const changed = (path: string): Outcome<void> =>
@@ -733,6 +741,11 @@ export async function applyCodexPolicyInstall(plan: PolicyInstallPlan, reviewed:
   const review = plan.reviews[0]!;
   const owner = await deps.confirmOwner(ownerAuthReason(review));
   if (!owner.ok) return fail("refused", owner.message);
+  // The owner sheet can stay up for minutes; what it approved must still be on disk when rt writes.
+  if (fingerprint(readText(plan.hooksPath)) !== plan.hooksFile.before) return changed(plan.hooksPath);
+  if (presentDigest(plan.artifact.path) !== plan.artifact.digest) {
+    return fail("refused", `The hook program at ${plan.artifact.path} changed while macOS was asking, so rt trusted nothing. Run it again.`);
+  }
   const text = editConfig(readText(plan.configPath), plan.config.hooks, plan.config.replace);
   if (text === null) return fail("refused", `rt could not trust its hooks in ${plan.configPath} without changing your other Codex settings.`);
   const wrote = replaceFile(plan.configPath, plan.config.before, text);

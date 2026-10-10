@@ -1,5 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { confirmOwner, interpretOwnerAuth, OWNER_AUTH_HELPER, ownerAuthHelperPath, type OwnerAuthRun, type OwnerAuthRunner } from "../codex/owner-auth.ts";
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { dirname, join } from "path";
+import { processFlavor } from "../../flavor.ts";
+import { DEV_TRAY_APP_BUNDLE, installedTrayAppPath, machineSettingsPath, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
+import {
+  confirmOwner, interpretOwnerAuth, locateOwnerAuthHelper, OWNER_AUTH_HELPER, realOwnerAuthRunner, type OwnerAuthRun, type OwnerAuthRunner,
+} from "../codex/owner-auth.ts";
 
 function runner(answer: OwnerAuthRun | Error, path: string | null = "/Applications/mattstack.app/Contents/Helpers/rt-owner-auth") {
   const calls: string[][] = [];
@@ -65,10 +72,42 @@ describe("the owner check", () => {
     expect(await confirmOwner("trust", undefined, { NODE_ENV: "test" })).toMatchObject({ ok: false, outcome: "unavailable" });
   });
 
-  test("the helper is looked for only inside the app bundle", () => {
-    const exists = (p: string) => p === `/Applications/mattstack-dev.app/Contents/Helpers/${OWNER_AUTH_HELPER}`;
-    expect(ownerAuthHelperPath("/Applications/mattstack-dev.app", exists)).toBe("/Applications/mattstack-dev.app/Contents/Helpers/rt-owner-auth");
-    expect(ownerAuthHelperPath("/Applications/mattstack.app", exists)).toBeNull();
-    expect(ownerAuthHelperPath(null, () => true)).toBeNull();
+  test("prod uses only the bundle rt runs from", () => {
+    const all = () => true;
+    expect(locateOwnerAuthHelper({ flavor: "prod", fromExec: "/Applications/mattstack.app", home: "/h", exists: all })).toBe(`/Applications/mattstack.app/Contents/Helpers/${OWNER_AUTH_HELPER}`);
+    expect(locateOwnerAuthHelper({ flavor: "prod", fromExec: null, home: "/h", exists: all })).toBeNull();
+  });
+
+  test("dev and source runs use only the dev app's two fixed install locations", () => {
+    const user = `/h/Applications/mattstack-dev.app/Contents/Helpers/${OWNER_AUTH_HELPER}`;
+    expect(locateOwnerAuthHelper({ flavor: "dev", fromExec: null, home: "/h", exists: () => true })).toBe(`/Applications/mattstack-dev.app/Contents/Helpers/${OWNER_AUTH_HELPER}`);
+    expect(locateOwnerAuthHelper({ flavor: "dev", fromExec: null, home: "/h", exists: (p) => p === user })).toBe(user);
+    expect(locateOwnerAuthHelper({ flavor: "dev", fromExec: "/tmp/elsewhere/mattstack-dev.app", home: "/h", exists: (p) => p.startsWith("/tmp/") })).toBeNull();
+  });
+
+  describe("a repointed mattstack.appPath", () => {
+    const origHome = process.env.HOME;
+    let root = "";
+    afterEach(() => {
+      process.env.HOME = origHome;
+      if (root) rmSync(root, { recursive: true, force: true });
+    });
+
+    test("is never where the helper comes from", () => {
+      root = realpathSync(mkdtempSync(join(tmpdir(), "owner-auth-")));
+      process.env.HOME = join(root, "home");
+      const bundle = processFlavor() === "prod" ? TRAY_APP_BUNDLE : DEV_TRAY_APP_BUNDLE;
+      const planted = join(root, "planted", bundle);
+      const fake = join(planted, "Contents", "Helpers", OWNER_AUTH_HELPER);
+      mkdirSync(dirname(fake), { recursive: true });
+      writeFileSync(fake, "#!/bin/sh\necho authenticated\n", { mode: 0o755 });
+      mkdirSync(dirname(machineSettingsPath()), { recursive: true });
+      writeFileSync(machineSettingsPath(), JSON.stringify({ "mattstack.appPath": planted }));
+      expect(installedTrayAppPath(bundle, existsSync)).toBe(planted);
+      expect(realOwnerAuthRunner().locate()).not.toBe(fake);
+      for (const flavor of ["dev", "prod"] as const) {
+        expect(locateOwnerAuthHelper({ flavor, fromExec: null, home: process.env.HOME, exists: existsSync })).not.toBe(fake);
+      }
+    });
   });
 });

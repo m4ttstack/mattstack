@@ -3,20 +3,20 @@ import MattstackCore
 
 /// The Codex hooks row's review: rt's own payload, shown as the terminal
 /// review shows it. Approve runs the approval's argv, and rt asks macOS for
-/// Touch ID or the password itself; `onApprove` returns nil or rt's refusal,
-/// which stays in the sheet.
+/// Touch ID or the password itself. A refusal stays in the sheet; a stale
+/// review closes it, since this sheet's id can never succeed again.
 struct CodexHooksSheet: View {
     let title: String
     let subtitle: String?
     let footnote: String?
     let approval: CodexHookApproval
-    let onApprove: ([String]) async -> String?
+    let onApprove: (CodexHookApproval) async -> CodexHookApprovalResult
 
     @State private var busy = false
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
 
-    init?(row: PlanRow, onApprove: @escaping ([String]) async -> String?) {
+    init?(row: PlanRow, onApprove: @escaping (CodexHookApproval) async -> CodexHookApprovalResult) {
         guard let action = row.action, let approval = CodexHookApproval(action: action) else { return nil }
         self.title = row.title
         self.subtitle = action.subtitle
@@ -130,11 +130,13 @@ struct CodexHooksSheet: View {
         guard !busy else { return }
         busy = true
         error = nil
-        let args = approval.args
         Task { @MainActor in
-            let failure = await onApprove(args)
+            let result = await onApprove(approval)
             busy = false
-            if let failure { error = failure } else { dismiss() }
+            switch result {
+            case .approved, .stale: dismiss()
+            case .refused(let message): error = message
+            }
         }
     }
 }

@@ -39,3 +39,30 @@ public struct CodexHookApproval: Equatable, Sendable {
         self.args = verb + ["--approve", review.id, "--json"]
     }
 }
+
+public enum CodexHookApprovalResult: Equatable, Sendable {
+    case approved
+    /// rt refused (Touch ID declined or unavailable, a write it would not make); the sheet shows rt's words.
+    case refused(String)
+    /// The review is no longer rt's current one, so this sheet can never succeed; the row needs a fresh look.
+    case stale(String)
+}
+
+/// Runs an approval's argv and sorts rt's answer by its error code alone.
+@MainActor
+public final class CodexHookApprover {
+    private let rt: RtRunning
+    public init(rt: RtRunning) { self.rt = rt }
+
+    public func approve(_ approval: CodexHookApproval) async -> CodexHookApprovalResult {
+        let verb = approval.args.dropLast().joined(separator: " ")
+        do {
+            let result = try await rt.run(approval.args, stdin: nil)
+            if let e = result.userError { return e.code == "stale" ? .stale(e.message) : .refused(e.message) }
+            if result.exitCode != 0 { return .refused(result.failureCopy(verb: verb)) }
+            return .approved
+        } catch {
+            return .refused((error as? RtClientError)?.copy ?? "rt \(verb) failed to start.")
+        }
+    }
+}

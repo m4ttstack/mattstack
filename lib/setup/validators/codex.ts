@@ -114,17 +114,33 @@ export function codexHookReviewPayload(review: PolicyReview): CodexHookReview {
   };
 }
 
-/** The plan for this Mac's Codex profile; it only reads, and never starts Codex to ask it. */
+export const CODEX_POLICY_PLAN_DEADLINE_MS = PROBE_TIMEOUT_MS;
+
+/** A plan that is not back by `ms` reads as Codex not answering, so a wedged app server cannot hold the checklist. */
+export function withPlanDeadline(plan: CodexPolicyPlanner, ms: number): CodexPolicyPlanner {
+  return () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<Outcome<PolicyInstallPlan>>((resolve) => {
+      timer = setTimeout(() => resolve({ ok: false, error: { code: "not-ready", message: "rt could not ask Codex right now. Re-check in a moment." } }), ms);
+    });
+    return Promise.race([plan(), late]).finally(() => clearTimeout(timer));
+  };
+}
+
+/** The plan for this Mac's Codex profile; it only reads, never starts Codex, and gives up at the deadline. */
 export function codexPolicyPlanner(p: Probes): CodexPolicyPlanner {
-  return async () => {
-    const [{ planCodexPolicyInstall }, { canonicalCodexProfile }, { bundledToolPath }] = await Promise.all([
+  return withPlanDeadline(async () => {
+    const [{ listHooksWithin, planCodexPolicyInstall }, { canonicalCodexProfile }, { bundledToolPath }] = await Promise.all([
       import("../../agent-integrations/codex/policy-install.ts"),
       import("../../agent-integrations/codex/profile.ts"),
       import("../../deps/resolve.ts"),
     ]);
     const env = { ...p.env, HOME: p.home };
-    return planCodexPolicyInstall({ profile: canonicalCodexProfile(undefined, env) }, { env, home: p.home, rtSource: () => bundledToolPath(p, "rt") });
-  };
+    return planCodexPolicyInstall(
+      { profile: canonicalCodexProfile(undefined, env) },
+      { env, home: p.home, rtSource: () => bundledToolPath(p, "rt"), listHooks: listHooksWithin(CODEX_POLICY_PLAN_DEADLINE_MS) },
+    );
+  }, CODEX_POLICY_PLAN_DEADLINE_MS);
 }
 
 /** rt's Codex policy hooks: added by Install, trusted only after a person approves them. */

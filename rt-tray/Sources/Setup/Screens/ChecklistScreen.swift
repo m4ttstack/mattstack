@@ -89,11 +89,12 @@ struct ChecklistScreen: View {
             }) { sheet }
         }
         .sheet(item: $codexHooks) { row in
-            if let sheet = CodexHooksSheet(row: row, onApprove: { args in
-                let failure = await ChoiceClient(rt: rt).run(args)
-                // A refusal (a changed review, a declined Touch ID) re-reads the plan too, so the row shows rt's current review.
+            if let sheet = CodexHooksSheet(row: row, onApprove: { approval in
+                let result = await CodexHookApprover(rt: rt).approve(approval)
+                // Every answer re-reads the plan, so the row carries rt's current review.
                 await model.afterAction(rowId: row.id)
-                return failure
+                if case .stale(let message) = result { actionError = (row.id, message) }
+                return result
             }) { sheet }
         }
         // .contain: without it, the footer HStack's only interactive child

@@ -8,9 +8,9 @@ import type { PolicyProof } from "../../agent-integrations/contracts.ts";
 import { parseCodexPolicyHookCommand } from "../../agent-integrations/codex/hook-manifest.ts";
 import { createCodexPolicy, type CodexPolicyChecker } from "../../agent-integrations/codex/policy.ts";
 import {
-  applyCodexPolicyInstall, codexPolicyRecovery, planCodexPolicyInstall, type ListedPolicyHook, type PolicyInstallDeps, type PolicyInstallPlan,
+  applyCodexPolicyInstall, codexPolicyRecovery, ownerAuthReason, planCodexPolicyInstall, type ListedPolicyHook, type PolicyInstallDeps, type PolicyInstallPlan, type PolicyReview,
 } from "../../agent-integrations/codex/policy-install.ts";
-import type { OwnerAuthResult } from "../../agent-integrations/codex/owner-auth.ts";
+import { OWNER_AUTH_REASON_MAX, type OwnerAuthResult } from "../../agent-integrations/codex/owner-auth.ts";
 import { codexPolicyStep, createCodexPolicyStep } from "../../agent-integrations/codex/install.ts";
 import { setupCodexPolicy, type CodexPolicyDeps } from "../../../commands/setup.ts";
 import { TREE } from "../../command-tree-def.ts";
@@ -194,6 +194,10 @@ function stateOf() {
   const path = join(world.home, ".mattstack", "rt", "setup-state.json");
   return readSetupState(fakeProbes({ home: world.home, files: existsSync(path) ? { [path]: readFileSync(path, "utf8") } : {} }));
 }
+
+/** What macOS's owner sheet is asked to say for this world's two hooks. */
+const ownerReason = (): string =>
+  `trust 2 rt hooks in Codex (${world.codexHome}). Approve only if you just pressed Approve in mattstack or ran rt setup codex-policy.`;
 
 /** The profile rt is given: the Codex home itself, or a symlink to it when a test sets `world.profileLink`. */
 const profileOf = (): string => world.profileLink ?? world.codexHome;
@@ -447,7 +451,7 @@ describe("Codex policy install in the user layer", () => {
     expect(world.owner.reasons).toEqual([]);
     const hooks = await plan();
     expect(await approve(hooks)).toEqual({ ok: true, data: undefined });
-    expect(world.owner.reasons).toEqual([`trust 2 rt hooks in Codex (${world.codexHome})`]);
+    expect(world.owner.reasons).toEqual([ownerReason()]);
   });
 
   for (const answer of [
@@ -466,6 +470,37 @@ describe("Codex policy install in the user layer", () => {
       expect((await plan()).stage).toBe("hooks");
     });
   }
+
+  test("the owner sheet's reason stays within the helper's cap, dropping the path before the warning", () => {
+    const review = { codexHome: "/h/.codex", hooks: [{}, {}] } as unknown as PolicyReview;
+    expect(ownerAuthReason(review)).toBe("trust 2 rt hooks in Codex (/h/.codex). Approve only if you just pressed Approve in mattstack or ran rt setup codex-policy.");
+    const long = { codexHome: `/${"x".repeat(400)}`, hooks: [{}] } as unknown as PolicyReview;
+    expect(ownerAuthReason(long)).toBe("trust 1 rt hook in Codex. Approve only if you just pressed Approve in mattstack or ran rt setup codex-policy.");
+    expect(ownerAuthReason(long).length).toBeLessThanOrEqual(OWNER_AUTH_REASON_MAX);
+  });
+
+  test("a hooks file or hook program changed while macOS asks trusts nothing", async () => {
+    expect(await applyCodexPolicyInstall(await plan(), [], world.deps)).toEqual({ ok: true, data: undefined });
+    const hooks = await plan();
+    const configBefore = existsSync(world.config) ? readFileSync(world.config, "utf8") : null;
+    const hooksBefore = readFileSync(world.hooksPath, "utf8");
+    world.deps.confirmOwner = async () => {
+      writeFileSync(world.hooksPath, hooksBefore.replace("{", `{"edited":true,`));
+      return { ok: true };
+    };
+    expect(await approve(hooks)).toMatchObject({ ok: false, error: { code: "refused", message: expect.stringContaining(world.hooksPath) } });
+    expect(existsSync(world.config) ? readFileSync(world.config, "utf8") : null).toBe(configBefore);
+
+    writeFileSync(world.hooksPath, hooksBefore);
+    const again = await plan();
+    world.deps.confirmOwner = async () => {
+      writeFileSync(again.artifact.path, "swapped program bytes");
+      return { ok: true };
+    };
+    expect(await approve(again)).toMatchObject({ ok: false, error: { code: "refused", message: expect.stringContaining(again.artifact.path) } });
+    expect(existsSync(world.config) ? readFileSync(world.config, "utf8") : null).toBe(configBefore);
+    expect(stateOf().codexPolicy?.trust).toEqual({});
+  });
 
   test("a stale or missing review id refuses before macOS is asked", async () => {
     expect(await applyCodexPolicyInstall(await plan(), [], world.deps)).toEqual({ ok: true, data: undefined });
@@ -651,7 +686,7 @@ describe("rt setup codex-policy", () => {
     const result = await run({ answers: [true] });
     expect(result.exitCode).toBeUndefined();
     expect(result.confirms).toEqual(["Trust these hooks in Codex?"]);
-    expect(world.owner.reasons).toEqual([`trust 2 rt hooks in Codex (${world.codexHome})`]);
+    expect(world.owner.reasons).toEqual([ownerReason()]);
     expect(result.shown).toContain(world.codexHome);
     expect(result.shown).toContain(world.hooksPath);
     expect(result.shown).toContain("agent policy-hook --installation");
@@ -687,7 +722,7 @@ describe("rt setup codex-policy", () => {
       const result = await run({ args: ["--approve", id, "--json"], tty: false });
       expect(result.exitCode).toBeUndefined();
       expect(result.confirms).toEqual([]);
-      expect(world.owner.reasons).toEqual([`trust 2 rt hooks in Codex (${world.codexHome})`]);
+      expect(world.owner.reasons).toEqual([ownerReason()]);
       expect(result.json).toEqual([{ contract: 1, at: "2026-10-09T12:00:00.000Z", ok: true, approved: id, hooksPath: world.hooksPath }]);
       const trusted = readConfig(world).hooks.state as Record<string, { trusted_hash: string }>;
       expect(Object.fromEntries(Object.entries(trusted).map(([k, v]) => [k, v.trusted_hash]))).toEqual(

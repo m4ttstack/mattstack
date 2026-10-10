@@ -4,7 +4,7 @@ import type { PolicyInstallPlan, PolicyReview } from "../../agent-integrations/c
 import { codexPolicyReviewBlocks } from "../../../commands/setup.ts";
 import { renderPlain } from "../../ui/out-plain.ts";
 import type { Action } from "../contract.ts";
-import { codexPolicyRow } from "../validators/codex.ts";
+import { CODEX_POLICY_PLAN_DEADLINE_MS, codexPolicyRow, withPlanDeadline } from "../validators/codex.ts";
 
 const REVIEW: PolicyReview = {
   id: "cp-0123456789abcdef0123456789abcdef",
@@ -60,6 +60,16 @@ describe("the Codex hooks row", () => {
     const r = await codexPolicyRow(async () => planAt("installed"));
     expect(r.status).toBe("ready");
     expect(r.action).toBeNull();
+  });
+
+  test("a Codex that does not answer in time reads as needs-you, not a held plan", async () => {
+    const started = Date.now();
+    const wedged = withPlanDeadline(() => new Promise(() => {}), 50);
+    const r = await codexPolicyRow(wedged);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(r).toMatchObject({ status: "needs-you", detail: "rt could not ask Codex right now. Re-check in a moment.", action: null });
+    expect(await withPlanDeadline(async () => planAt("installed"), 50)()).toEqual(planAt("installed"));
+    expect(CODEX_POLICY_PLAN_DEADLINE_MS).toBe(5000);
   });
 
   test("a plan rt cannot make says why, and offers no approval", async () => {
