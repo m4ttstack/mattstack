@@ -116,7 +116,9 @@ public final class TeamChoiceModel: ObservableObject {
         ghHandle = status.handle
         ghOwners = status.owners ?? [status.handle].compactMap { $0 }
         ghOwner = ghOwners.first
-        useGhRepo = true
+        // Creating the repo runs `gh repo create`, and only a live gh session
+        // yields a handle; a stored token alone cannot create it.
+        useGhRepo = status.handle != nil
         didLoadGitHubStatus = true
     }
 
