@@ -2,20 +2,20 @@
 
 ## Problem
 
-Two plugins reach a member's Mac independently of the app that runs them:
-
-- **Team packs** arrive whenever the org clone pulls. `convergePackCache`
-  (`lib/setup/pack-cache.ts`) runs `claude plugin update` for any pack whose
-  served version changed, and setup's `plugins.install` step and
-  `rt skills sync` install packs too.
-- **The mattstack plugin** is published to the marketplace as the first step
-  of `release.yml`, before the app is built, and `plugins.install` updates it
-  at the next launch. A member can run a new plugin on an old app for days.
-
-A pack or plugin whose skills call a tool, a tool argument or a daemon verb
+Team packs reach a member's Mac independently of the app that runs them. The
+daemon pulls the org clone at any time, and `convergePackCache`
+(`lib/setup/pack-cache.ts`) runs `claude plugin update` for any pack whose
+served version changed; setup's `plugins.install`, `rt skills sync`,
+`rt skills init` and `org.folder`'s marketplace converge install plugins too.
+A pack whose compiled skills call a tool, a tool argument or a daemon verb
 that only a newer rt has (RT-483's `mr_upload` `runId`, for one) breaks every
 run on a Mac that hasn't updated the app. Nothing checks for this; today a
 person has to wait for everyone to update before publishing.
+
+The mattstack plugin has the same exposure in a smaller window: any
+`plugins.install` run (`rt setup apply`, `rt setup pack`, an update run for
+an app version whose catalog publish lagged) installs whatever the published
+catalog offers, whatever app this Mac runs.
 
 The common case must stay untouched: a team pack change that needs nothing
 new from rt goes out and installs at once, with no app update.
@@ -24,21 +24,30 @@ new from rt goes out and installs at once, with no app update.
 
 ### The engine a Mac can run
 
-One function, `runnableEngine()`, answers which mattstack engine this Mac's
-rt was built with:
+`runnableEngine()` returns the mattstack engine version this Mac's rt was
+built with, or `null` when it can't tell:
 
 - **Prod (compiled) rt:** a constant `MATTSTACK_ENGINE`, baked by
-  `bun build --define` on the same line as `RT_VERSION` in `release.yml`,
-  from the built tree's `plugins/mattstack/.claude-plugin/plugin.json`
-  `version`, never from git.
+  `bun build --define` on the same line as `RT_VERSION` in `release.yml`
+  (line 155 today), from the built tree's
+  `plugins/mattstack/.claude-plugin/plugin.json` `version`, never from git,
+  so a dispatch or rehearsal build bakes what the tag publishes.
 - **Source rt** (Matt's dev app, a collaborator's dev app, `bun cli.ts`): the
   `version` in `<source root>/plugins/mattstack/.claude-plugin/plugin.json`,
   read at call time. A collaborator's clone at an older commit reads older,
   which is correct.
+- **Unbaked compiled rt** (a hand build, bench-startup's local compile) and a
+  source tree whose `plugin.json` is missing or unreadable: `null`.
+
+`fits(floor, engine)` is true when there is no floor, when `engine` is
+`null`, or when `semver(engine) >= semver(floor)`. An unknown engine fails
+open, logged once per process at `warn`: only developer builds lack the
+value, and the release asserts it is present (see Release), so failing
+closed would only ever block a developer's own Mac.
 
 `rt --version --json` prints `{ "rt": <RT_VERSION>, "engine": <runnable
-engine>, "flavor": <flavor> }`. Plain `rt --version` is unchanged, since its
-first line is parsed by the release workflow and setup.
+engine or null>, "flavor": <flavor> }`. Plain `rt --version` is unchanged,
+since its first line is parsed by the release workflow and setup.
 
 ### The floor
 
@@ -50,75 +59,170 @@ first line is parsed by the release workflow and setup.
 
 It reads "skills from this engine need an app whose engine is at least
 0.31.0". It is raised only by an engine change whose skill text uses a tool,
-a tool argument or a daemon verb that older apps lack. A routine engine
-change leaves it alone. It starts at `0.31.0` (#791 and #794).
+a tool argument or a daemon verb that older apps lack, and it is raised to
+the `plugin.json` version that same change bumps to. A routine engine change
+leaves it alone. It starts at `0.31.0` (#791 and #794).
 
-`rt skills compile` copies the floor of the engine it compiled against into
-the team pack's own `pack/requires.json`, regenerated on every compile and
-never hand-edited. A pack with no `pack/requires.json` has no floor, so every
-pack compiled before this change installs as today. Packs that extend an org
-base take the engine's floor; a base pack declares none.
+`rt skills compile` writes the floor of the engine it compiled against into
+the team pack's own `pack/requires.json`, on every compile, and adds the file
+to compile's `written` list so sync's commit and push carry it. Nobody edits
+it by hand; `rt skills check` reports a missing or stale one as drift like
+any compiled output. An engine with no `pack/requires.json` writes none, and
+a pack with none has no floor, so every pack compiled before this change
+installs as today. Packs that extend an org base take the engine's floor; a
+base pack declares none.
 
-The file lives under `pack/` so Claude Code never sees an unknown
-`plugin.json` key.
+Why a new file rather than the pack's `requirements.jsonc`: that file is
+hand-authored by the team and lists CLI tools setup installs; this one is
+generated by compile and describes the engine. Merging them would put a
+generated value in a file people edit. It lives under `pack/` so Claude Code
+never sees an unknown `plugin.json` key.
+
+### Reading a plugin's floor
+
+- **A team pack:** `pack/requires.json` in the served pack's directory in the
+  org clone (the same directory `readServedPacks` resolves).
+- **The mattstack plugin:** `pack/requires.json` in the registered `mattstack`
+  marketplace's copy, found through `installLocation` in
+  `claude plugin marketplace list --json` for each Claude config dir, at
+  `<installLocation>/plugins/mattstack/pack/requires.json`. Where the catalog
+  entry is not an inline relative source (Matt's dev marketplace points
+  `mattstack` at a `git-subdir` `file://` URL into the monorepo checkout), the
+  floor is not read and the plugin fits: that plugin comes from the same
+  checkout the source rt runs from, so they cannot skew.
+- A floor file that is missing means no floor; one that does not parse is
+  logged at `warn` and treated as no floor, never as a hold.
 
 ### The gate
 
-`fits(floor, engine)`: true when there is no floor, or when
-`semver(engine) >= semver(floor)`. Every rt path that installs or updates a
-team pack or the mattstack plugin asks it first:
+One helper, `gatedPluginCall(runner, id, verb, floor)`, owns every
+`claude plugin install` and `claude plugin update` rt issues for a team pack
+or the mattstack plugin, and asks `fits` first. Every call site goes through
+it:
 
-| Path | What it reads the floor from |
-|---|---|
-| `convergePackCache` (daemon pull) | the served pack's `pack/requires.json` in the org clone |
-| `plugins.install` (setup, `rt setup update`) | team packs: as above. mattstack: run `claude plugin marketplace update mattstack` (refreshes the listing, installs nothing), then read `pack/requires.json` from the refreshed marketplace copy |
-| `rt skills sync` | the pack's `pack/requires.json` after compile |
+| Call site | Plugin | When the floor doesn't fit |
+|---|---|---|
+| `convergePackCache` (daemon pull) | team packs | held |
+| `plugins.install` (setup, `rt setup update`) | team packs and mattstack | held; mattstack first runs `claude plugin marketplace update mattstack` (refreshes the listing, installs nothing) so the floor read is current, and an offline refresh falls back to the cached copy |
+| `org.folder`'s `convergeMarketplace` | user-scope plugins it reinstalls from the moved clone | held |
+| `rt skills sync`, `update-engine` (`refreshCachedEngine`) | mattstack | sync refuses: "this app runs engine X; the engine on main needs Y. Update the app first." Compiling against the old cache would push a downgrade, which `refreshCachedEngine` exists to prevent |
+| `rt skills sync`, `update-pack` | team pack | held |
+| `rt skills init` | the freshly compiled pack | refused, with the same update-the-app message |
 
-When the floor doesn't fit:
+"Held" means: for an installed plugin, skip the update and keep the installed
+version, which still runs because a compiled pack carries its engine text and
+nothing it depends on changes; for one not installed (a new member, a fresh
+Mac), install nothing. When the app updates, the next pull or launch finds the
+floor fits and installs the held version with no other step.
 
-- **Installed already:** skip the update. The installed version keeps running,
-  which is safe because a compiled pack carries its engine text and nothing
-  else it depends on changes. The result records the pack as `held` with its
-  floor.
-- **Not installed** (a new member, a fresh Mac): install nothing.
-
-When the app updates, the next pull or launch finds the floor fits and
-installs the held version with no other step.
+A guard test (`lib/__tests__/no-ungated-plugin-install.test.ts`) fails any
+`"plugin", "install"` or `"plugin", "update"` argument list in `lib/` or
+`commands/` outside the helper, so a new call site cannot skip the gate.
 
 ### What a person sees
 
-One needs-you setup row, `packs.held`, listing each held plugin:
+No new row: the existing rows learn about holds. Each validator recomputes
+holds from the same reads the gate uses (the served version and floor in the
+org clone; the mattstack floor from the marketplace copy, without a refresh)
+and this Mac's `runnableEngine()`, so no install result needs persisting.
 
-> claimview 0.11.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered.
-
-`rt setup update` notifies for it like any needs-you row. It is not
-finish-gated or required: nothing a member does except updating the app
-clears it, and the old pack keeps working meanwhile. The daemon logs each
-hold once per pack version. A floor no release has shipped yet reads the
-same: the app update simply isn't offered yet.
+- **`pack.<name>`** (`validators/tools.ts` `packRow`): a held pack reads
+  `needs-you` with "claimview 0.11.0 needs a newer mattstack app (engine
+  0.31.0 or later). Update the app when it's offered." It carries no
+  "Install plugins" action, since installing is what the gate refuses. A
+  held pack with an older version installed counts as satisfied for
+  `isInstallSatisfied` (`plan.ts`); a held pack never installed counts as
+  satisfied too, because nothing a member does except updating the app can
+  clear it, and Install must not be blocked on it.
+- **`tool.plugins`**: a held mattstack plugin reads the same way. The
+  finish-gated writing-style row is unaffected: a held plugin keeps its
+  installed version and its presets.
+- `rt setup update` notifies for these `needs-you` rows like any other. A
+  floor no release has shipped yet reads the same; the update simply isn't
+  offered yet.
+- The daemon logs a hold at `info` when a pull first finds it, keyed in the
+  team snapshot's kv namespace by pack and served version, so a hold logs
+  once per version rather than once per pull.
 
 ### Keeping the floor honest
 
-Raising `minEngine` is the one hand-maintained step, so CI nudges it: the
-`plugin-mattstack` job fails a PR that changes
-`plugins/mattstack/attachments/mcp-tools/reference.md` (a tool or argument
-added or changed) without changing `pack/requires.json`, unless the PR body
-carries `engine-floor: unchanged` with a reason. The check sees MCP tools and
-their arguments only; a dependency on new daemon behaviour behind an existing
-tool (a stricter validator, a new verb reached through `rt_verb`) is the
-author's call, and `mattstack:editing-skills` gains one line saying when to
-raise the floor.
+- Raising `minEngine` is the one hand-maintained step, so the
+  `plugin-mattstack` CI job fails a PR that changes
+  `plugins/mattstack/attachments/mcp-tools/reference.md` (a tool or argument
+  added or changed) without changing `pack/requires.json`, unless the PR body
+  carries `engine-floor: unchanged` with a reason. The check sees MCP tools
+  and their arguments only; a dependency on new daemon behaviour behind an
+  existing tool (a stricter validator, a new verb reached through `rt_verb`)
+  is the author's call.
+- The same job asserts `minEngine <= plugin.json version`: a floor above the
+  engine itself would hold the plugin on every Mac, the one built from it
+  included.
 
 ### Release
 
-- `release.yml` bakes `MATTSTACK_ENGINE` beside `RT_VERSION`.
-- After the build, it asserts `rt --version --json`'s `engine` equals the
-  tagged tree's `plugin.json` version.
-- The marketplace publish moves from the first step to after the GitHub
-  release and appcast, so a failed run never publishes a plugin with no app.
+- `release.yml` bakes `MATTSTACK_ENGINE` beside `RT_VERSION` on the one
+  compile line.
+- After the build, it asserts `rt --version --json`'s `engine` is present and
+  equals the tagged tree's `plugin.json` version, so a missing value fails as
+  well as a mismatch.
+- The marketplace stays ahead of the app. Its `--dry-run` validation keeps
+  its place as the first step (the catalog fails in seconds, before
+  anything is built), and the real publish moves from first to after build,
+  notarize and the Gatekeeper check, immediately before the GitHub release
+  object (which makes `appcast.xml` live) is created. A run that fails before
+  that point publishes nothing; a publish that fails stops the run with no
+  release. An app is never offered before its catalog (the reason
+  `release.yml`'s comment gives for publishing first: `plugins.install` adds
+  the catalog's base plugins), and the once-per-version update run never
+  stamps a new app against an old catalog. With the floor in place, a catalog
+  seconds ahead of its app is harmless.
 - The publish refuses a mattstack plugin version below the one on the
   published marketplace (a patch cut from an older base).
-- The `rt:release` preflight gains the matching checks (release owner).
+- A test stages the marketplace tree the way `marketplace.sh` does
+  (`git archive HEAD -- plugins/mattstack`) and asserts
+  `plugins/mattstack/pack/requires.json` is in it, so an `export-ignore`
+  never silently drops the floor.
+- The `rt:release` preflight runs the same engine assertion against the
+  locally built binary only as
+  `env -i HOME=<temp> rt --version --json` (a built binary only ever runs
+  under an isolated HOME).
+
+### Rollout
+
+The gate protects only Macs whose app contains it. Every app released
+before RT-486 ships (v2.24.0 included) installs packs unconditionally and
+reads no floor at all; the first protected app is the release that carries
+RT-486. So the SKILLS-97 claimview pack update (floor 0.31.0)
+is guarded only for members already on that release; until the team's
+members are on it, publishing that pack still waits on them updating, as
+today.
+
+## Skills and docs
+
+Each edit goes through `superpowers:writing-skills`.
+
+- `rt:release` (`skills/rt-release/SKILL.md`): the intro's "the workflow's
+  first step publishes the plugin catalog" becomes the new order; the
+  "Plugin catalog" preflight row gains the lower-version refusal and the
+  engine assertion under an isolated HOME; "Audit the range for what set-up
+  Macs miss" adds `lib/setup/pack-cache.ts` and the gate, and a check for a
+  team pack held on this release.
+- `rt:mattstack-release` (`skills/mattstack-release/SKILL.md`, `reference.md`):
+  "Mirror the workflow's env and order" gains the `MATTSTACK_ENGINE` define
+  and the `engine` field beside `RT_VERSION`; the `MARKETPLACE_TOKEN` note
+  says a failed run before the publish publishes nothing.
+- `mattstack:editing-skills`: "Bump version in the manifest" says when to
+  raise `minEngine` and to what; the publish sections note that a team pack
+  or the mattstack plugin can be held on an older app; the "What compile and
+  check read" table lists `pack/requires.json` as compile output; the sync
+  text covers a held pack and sync's refusal.
+- `mattstack:extending-a-pack`: the compile-output list adds
+  `pack/requires.json` (generated, never hand-edited); "Publish" notes a held
+  pack waits for the app.
+- `mattstack:creating-a-pack`: how members receive the pack mentions the hold
+  and the row that explains it.
+- `docs/release-and-distribution.md`: the marketplace's place in the order
+  and the `MARKETPLACE_TOKEN` note.
 
 ## Out of scope
 
@@ -128,19 +232,27 @@ raise the floor.
 - Other plugins: chat, herdr-chat, fast-browser.
 - Hand-added requirements in a team pack beyond the engine floor.
 - A new mattstack plugin whose MCP server needs a newer bundled rt than the
-  app has. The floor holds the plugin in that case only when its author
-  raised `minEngine`.
+  app has, beyond what its author's `minEngine` raise covers.
 
 ## Testing
 
-- `fits` and `runnableEngine` (baked constant, source tree, missing or bad
-  `plugin.json`) as pure functions.
-- `convergePackCache`: fits → updates; floor above → held, no `claude` call,
-  result names the floor; not installed and floor above → nothing installed;
-  no `pack/requires.json` → today's behaviour.
-- `plugins.install`: a held team pack and a held mattstack plugin, each
-  leaving the installed version alone and feeding the `packs.held` row.
-- Compile writes `pack/requires.json` from the engine's floor and drops it
-  when the engine has none.
-- The release script refuses a lower plugin version; the CI floor check fails
-  a reference change with no floor change and passes with the waiver line.
+- `fits` and `runnableEngine`: baked constant, source tree, missing or bad
+  `plugin.json` (`null`, fits everything, warns once).
+- The floor readers: team pack present, missing, unparsable; mattstack via
+  `installLocation`, a non-inline catalog entry (fits), an offline refresh
+  falling back to the cached copy.
+- `gatedPluginCall` through each call site in the table: fits → the `claude`
+  call runs; floor above → no `claude` call, held (or sync and init refuse
+  with the update-the-app message); not installed and floor above → nothing
+  installed; no floor file → today's behaviour.
+- `packRow` and `tool.plugins`: a held pack (installed older, and never
+  installed) reads `needs-you` with the copy above and no install action, and
+  `isInstallSatisfied` treats it as satisfied.
+- Compile writes `pack/requires.json` from the engine's floor, lists it in
+  `written`, writes none when the engine has none, and `rt skills check`
+  flags a stale one.
+- The guard test fails a raw plugin install or update outside the helper.
+- Release: the staged marketplace tree carries `pack/requires.json`; the
+  publish refuses a lower plugin version; the CI floor check fails a
+  reference change with no floor change, passes with the waiver line, and
+  fails a floor above the plugin version.
