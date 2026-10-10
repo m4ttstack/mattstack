@@ -2,7 +2,7 @@ import { Code, Skeleton, Spoiler, Text } from '@mattstack/app-kit/core';
 import { useQuery } from '@tanstack/react-query';
 
 import { GateContext } from '../GateContext';
-import { evidenceUrl } from './evidenceImages';
+import { transcriptUrl } from './evidenceImages';
 
 /** About 40 lines of the block's monospace text. */
 const PREVIEW_HEIGHT = 680;
@@ -18,7 +18,7 @@ async function fetchTranscript(
   repo: string,
   runId: string
 ): Promise<Transcript | null> {
-  const res = await fetch(evidenceUrl(repo, runId, 'transcript'));
+  const res = await fetch(transcriptUrl(repo, runId));
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`transcript failed: ${res.status}`);
   return {

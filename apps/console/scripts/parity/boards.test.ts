@@ -44,7 +44,7 @@ const clickedLayers = (board: (typeof app.boards)[number]) =>
   );
 
 describe('console parity boards', () => {
-  it('lists the thirty boards of the design README', () => {
+  it('lists the thirty-three boards of the design README', () => {
     expect(app.boards.map(b => b.slug)).toEqual([
       'template-work',
       'template-plan',
@@ -76,6 +76,9 @@ describe('console parity boards', () => {
       'runs-p2-story-details',
       'runs-p2-overlays',
       'runs-p2-search',
+      'runs-ev-record',
+      'runs-ev-story',
+      'runs-ev-compare',
     ]);
   });
 

@@ -1,8 +1,7 @@
 import '../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
-import type { ParsedEvidence } from '@mattstack/rt-client';
-import { parseEvidence } from '@mattstack/rt-client/evidence';
+import { readEvidence } from '@mattstack/rt-client/evidence';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -15,7 +14,7 @@ const RUN = '20261008-1142';
 const BASE = `/api/runs/${REPO}/${RUN}/evidence`;
 
 function evidenceOf(fields: Record<string, string>) {
-  return parseEvidence(JSON.stringify({ v: 1, ...fields }));
+  return readEvidence(JSON.stringify({ v: 1, ...fields }));
 }
 
 const BOTH = evidenceOf({
@@ -83,8 +82,8 @@ describe('EvidenceCard story variant', () => {
   it('shows the phase as thumbnails, plain then annotated, each named under it', () => {
     const { container, getByText } = story({ phase: 'before' });
     expect(shownSrcs(container)).toEqual([
-      `${BASE}/before`,
-      `${BASE}/beforeAnnotated`,
+      `${BASE}/case/before`,
+      `${BASE}/case/before?annotated=1`,
     ]);
     expect(getByText('before.png')).toBeInTheDocument();
     expect(getByText('before-annotated.png')).toBeInTheDocument();
@@ -94,8 +93,8 @@ describe('EvidenceCard story variant', () => {
   it('shows the asked phase only', () => {
     const { container } = story({ phase: 'after' });
     expect(shownSrcs(container)).toEqual([
-      `${BASE}/after`,
-      `${BASE}/afterAnnotated`,
+      `${BASE}/case/after`,
+      `${BASE}/case/after?annotated=1`,
     ]);
   });
 
@@ -136,7 +135,10 @@ describe('EvidenceCard story variant', () => {
       within(dialog)
         .getAllByRole('img')
         .map(i => i.getAttribute('src'))
-    ).toEqual([`${BASE}/beforeAnnotated`, `${BASE}/afterAnnotated`]);
+    ).toEqual([
+      `${BASE}/case/before?annotated=1`,
+      `${BASE}/case/after?annotated=1`,
+    ]);
   });
 
   it('opens the compare modal on the thumbnail clicked', async () => {
@@ -148,7 +150,7 @@ describe('EvidenceCard story variant', () => {
       within(dialog)
         .getAllByRole('img')
         .map(i => i.getAttribute('src'))
-    ).toEqual([`${BASE}/before`]);
+    ).toEqual([`${BASE}/case/before`]);
   });
 
   it('replaces a broken image with a placeholder and does not request it again', () => {
@@ -175,12 +177,12 @@ describe('EvidenceCard story variant', () => {
         </QueryClientProvider>
       );
       const { container, getByText, rerender } = renderWithProviders(card);
-      expect(requested).toEqual([`${BASE}/before`]);
+      expect(requested).toEqual([`${BASE}/case/before`]);
       fireEvent.error(container.querySelector('img')!);
       expect(getByText('image unavailable')).toBeInTheDocument();
       expect(container.querySelector('img')).toBeNull();
       rerender(card);
-      expect(requested).toEqual([`${BASE}/before`]);
+      expect(requested).toEqual([`${BASE}/case/before`]);
     } finally {
       spy.mockRestore();
     }
@@ -189,7 +191,7 @@ describe('EvidenceCard story variant', () => {
 
 describe('EvidenceCard legacy and empty evidence', () => {
   const DIR = '/Users/acme/.mattstack/evidence/web-377';
-  const LEGACY = parseEvidence(
+  const LEGACY = readEvidence(
     `${DIR}/before.png ${DIR}/after.png http://localhost:4001/orders/4821#parcels 12/12 cards`
   );
   const fileSrc = (path: string) =>
@@ -267,7 +269,7 @@ describe('EvidenceCard legacy and empty evidence', () => {
   });
 
   it('opens a file path in the editor when it can, else shows it as text', () => {
-    const legacy = parseEvidence('/Users/acme/notes.md /Users/acme/run.log');
+    const legacy = readEvidence('/Users/acme/notes.md /Users/acme/run.log');
     const { container, getByText } = story({
       evidence: legacy,
       pathHref: p => (p.endsWith('.md') ? `vscode://file${p}` : null),
@@ -281,18 +283,116 @@ describe('EvidenceCard legacy and empty evidence', () => {
   });
 
   it('renders nothing when there is no evidence', () => {
-    const { container } = story({ evidence: parseEvidence('') });
+    const { container } = story({ evidence: readEvidence('') });
     expect(drawn(container)).toHaveLength(0);
+  });
+});
+
+const W = '/fixture/evidence/web-421';
+const THREE = readEvidence(
+  JSON.stringify({
+    v: 2,
+    cases: [
+      {
+        id: 'rush-window',
+        label: 'Rush order, same-day window',
+        before: {
+          path: `${W}/rush-before.png`,
+          annotated: `${W}/rush-before-annotated.png`,
+          caption: 'Red box: no window',
+        },
+        after: {
+          path: `${W}/rush-after.png`,
+          annotated: `${W}/rush-after-annotated.png`,
+          caption: 'Red box: window shows',
+        },
+      },
+      {
+        id: 'order-card-themes',
+        label: 'Order card in light and dark',
+        after: {
+          light: {
+            path: `${W}/l.png`,
+            annotated: `${W}/l-annotated.png`,
+            caption: 'Arrow: contrast',
+          },
+          dark: { path: `${W}/d.png`, waiver: 'Same marks as light' },
+        },
+      },
+      {
+        id: 'empty-state',
+        label: 'No delivery window yet',
+        after: { path: `${W}/empty-after.png` },
+        waiver: 'Before and after are pixel-identical',
+      },
+    ],
+    attach: 'ship',
+  })
+);
+
+describe('EvidenceCard story variant, one waived case', () => {
+  it('names the case waiver under the image, as no head carries it', () => {
+    story({
+      evidence: readEvidence(
+        JSON.stringify({
+          v: 2,
+          cases: [
+            {
+              id: 'empty-state',
+              label: 'No delivery window yet',
+              after: { path: '/x/empty-after.png' },
+              waiver: 'Before and after are pixel-identical',
+            },
+          ],
+        })
+      ),
+      phase: 'after',
+    });
+    expect(
+      screen.getByText('Waived: Before and after are pixel-identical')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Waived')).toBeNull();
+  });
+});
+
+describe('EvidenceCard story variant, several cases', () => {
+  it('draws one annotated shot per case for several cases, with label and line', () => {
+    const { container } = story({ evidence: THREE, phase: 'after' });
+    expect(
+      container.querySelectorAll('[data-testid="case-thumb"]')
+    ).toHaveLength(3);
+    expect(shownSrcs(container)).toEqual([
+      '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/rush-window/after?annotated=1',
+      '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/order-card-themes/after?theme=light&annotated=1',
+      '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/empty-state/after',
+    ]);
+    expect(
+      screen.getByText('Waived: Before and after are pixel-identical')
+    ).toBeInTheDocument();
+    expect(screen.getByText('waived')).toBeInTheDocument();
+  });
+
+  it('keeps a one-case run as today: plain then annotated, each named', () => {
+    const { container } = story({ phase: 'after' });
+    expect(shownSrcs(container)).toEqual([
+      `${BASE}/case/after`,
+      `${BASE}/case/after?annotated=1`,
+    ]);
+    expect(screen.getByText('after.png')).toBeInTheDocument();
+    expect(screen.getByText('after-annotated.png')).toBeInTheDocument();
   });
 });
 
 describe('EvidenceCard record variant', () => {
   it('draws Before and After thumbnails with their captions and the count', () => {
     const { container, getByText } = record({ mrIid: '405' });
-    expect(shownSrcs(container)).toEqual([`${BASE}/before`, `${BASE}/after`]);
-    expect(getByText('EVIDENCE · 4')).toBeInTheDocument();
+    expect(shownSrcs(container)).toEqual([
+      `${BASE}/case/before?annotated=1`,
+      `${BASE}/case/after?annotated=1`,
+    ]);
+    expect(getByText('EVIDENCE · 1')).toBeInTheDocument();
     expect(getByText('Before')).toBeInTheDocument();
-    expect(getByText('after.png')).toBeInTheDocument();
+    expect(getByText('After')).toBeInTheDocument();
   });
 
   it('says where the evidence is attached when it went to the ship MR', () => {
@@ -312,18 +412,15 @@ describe('EvidenceCard record variant', () => {
     expect(queryByText(/attached to/)).toBeNull();
   });
 
-  it('shows the case used', () => {
-    const { getByText } = record();
-    expect(getByText('CASE USED')).toBeInTheDocument();
+  it('heads the pair with the case label', () => {
+    const { getByText, queryByText } = record();
     expect(getByText('Rush order, Sep 14 delay, Denver')).toBeInTheDocument();
+    expect(queryByText('CASE USED')).toBeNull();
   });
 
-  it('omits the case card and the transcript when the run recorded neither', () => {
+  it('omits the transcript when the run recorded none', () => {
     vi.stubGlobal('fetch', fetchMock);
-    const { queryByText } = record({
-      evidence: evidenceOf({ before: '/x/before.png' }),
-    });
-    expect(queryByText('CASE USED')).toBeNull();
+    record({ evidence: evidenceOf({ before: '/x/before.png' }) });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -349,35 +446,73 @@ describe('EvidenceCard record variant', () => {
     const user = userEvent.setup();
     const onCompare = vi.fn();
     const { getByRole } = record({ onCompare });
-    await user.click(getByRole('button', { name: /open after\.png/i }));
+    await user.click(
+      getByRole('button', { name: /open after-annotated\.png/i })
+    );
     expect(onCompare.mock.calls).toEqual([
-      [{ mode: 'after', variant: 'plain' }],
+      [{ caseId: 'case', mode: 'after', variant: 'annotated' }],
     ]);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+});
 
-  it('opens the compare modal on the phase and variant of the thumbnail clicked', async () => {
-    const user = userEvent.setup();
-    const { getByRole } = record();
-    await user.click(getByRole('button', { name: /open after\.png/i }));
-    const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByRole('img')).toHaveAttribute(
-      'src',
-      `${BASE}/after`
-    );
+describe('EvidenceCard record variant, evidence@2', () => {
+  it('draws one group per case under a case count', () => {
+    const { container } = record({ evidence: THREE, mrIid: '421' });
+    expect(screen.getByText('EVIDENCE · 3')).toBeInTheDocument();
+    expect(
+      container.querySelectorAll('[data-testid="case-group"]')
+    ).toHaveLength(3);
+    expect(screen.getByText('Rush order, same-day window')).toBeInTheDocument();
+    expect(screen.queryByText('CASE USED')).not.toBeInTheDocument();
   });
 
-  it('draws no thumbnails, count or compare button when there are no images', () => {
-    const noImages: ParsedEvidence = {
-      version: 1,
-      evidence: { v: 1, before: '', case: 'Only a case' },
-      images: [],
-    };
-    const { getByText, queryByText, queryByRole } = record({
-      evidence: noImages,
+  it('shows the annotated image and its caption, a theme label and badges', () => {
+    const { container } = record({ evidence: THREE });
+    expect(shownSrcs(container)).toContain(
+      '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/rush-window/after?annotated=1'
+    );
+    expect(screen.getByText('Red box: window shows')).toBeInTheDocument();
+    expect(screen.getByText('light + dark')).toBeInTheDocument();
+    expect(screen.getByText('light')).toBeInTheDocument();
+  });
+
+  it('reads a waived case calm: badge, the reason once, and Waived under its image', () => {
+    record({ evidence: THREE });
+    expect(screen.getByText('waived')).toBeInTheDocument();
+    expect(
+      screen.getByText('Waived: Before and after are pixel-identical')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Waived')).toBeInTheDocument();
+  });
+
+  it('keeps After in its column when a case has no before', () => {
+    record({ evidence: THREE });
+    expect(screen.getAllByText('No before image')).toHaveLength(2);
+  });
+
+  it('opens compare on the case, phase and theme of the thumbnail clicked', async () => {
+    const onCompare = vi.fn();
+    record({ evidence: THREE, onCompare });
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Open l-annotated.png full size' })
+    );
+    expect(onCompare).toHaveBeenCalledWith({
+      caseId: 'order-card-themes',
+      mode: 'after',
+      theme: 'light',
+      variant: 'annotated',
     });
-    expect(getByText('Only a case')).toBeInTheDocument();
-    expect(queryByText(/EVIDENCE/)).toBeNull();
-    expect(queryByRole('button', { name: /compare full size/i })).toBeNull();
+  });
+
+  it('draws a v1 run as one pair with no head when it named no case', () => {
+    const { container } = record({
+      evidence: evidenceOf({
+        before: '/a/before.png',
+        after: '/a/after.png',
+      }),
+    });
+    expect(screen.getByText('EVIDENCE · 1')).toBeInTheDocument();
+    expect(container.querySelector('[data-parity="label"]')).toBeNull();
   });
 });

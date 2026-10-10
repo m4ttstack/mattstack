@@ -3,10 +3,11 @@
   padding: 16px;
 }
 
+/* Thumbnails line up at the top: their captions run to different lengths. */
 .strip {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 12px;
 }
 
@@ -45,4 +46,21 @@
 
 .path {
   overflow-wrap: anywhere;
+}
+
+.caseGroup {
+  min-width: 0;
+}
+
+/* Before and After always side by side, so an After with no Before stays on
+   the right. */
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.noBefore {
+  min-width: 0;
+  padding-top: 2px;
 }

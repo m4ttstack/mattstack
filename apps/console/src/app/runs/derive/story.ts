@@ -6,8 +6,8 @@ import type {
 } from '@mattstack/rt-client';
 import {
   legacyItems,
-  parseEvidence,
-  type ParsedEvidence,
+  readEvidence,
+  type EvidenceRecord,
 } from '@mattstack/rt-client/evidence';
 
 import { fieldLabel, placeFields, storyFields } from './fields';
@@ -119,14 +119,15 @@ function attemptOfGate(
 }
 
 function evidencePhases(value: string | undefined): StoryEvidence[] {
-  const parsed = parseEvidence(value);
-  if (parsed.version === 0) return ['legacy'];
-  if (parsed.version !== 1) return [];
-  const keys = new Set(parsed.images.map(i => i.key));
-  const out: StoryEvidence[] = [];
-  if (keys.has('before') || keys.has('beforeAnnotated')) out.push('before');
-  if (keys.has('after') || keys.has('afterAnnotated')) out.push('after');
-  return out;
+  const rec = readEvidence(value);
+  if (rec.version === 0) return ['legacy'];
+  if (rec.version !== 2) return [];
+  const has = (p: 'before' | 'after') =>
+    rec.cases.some(c => (c[p]?.length ?? 0) > 0);
+  return [
+    ...(has('before') ? (['before'] as const) : []),
+    ...(has('after') ? (['after'] as const) : []),
+  ];
 }
 
 function labelOf(a: StageAttempt, runsOfStage: number): string {
@@ -284,7 +285,7 @@ export function runBlock(input: StoryInput): StoryEntry | null {
     opened body already shows. */
 export function stageSummary(
   entry: StoryEntry,
-  evidence: ParsedEvidence | null = null
+  evidence: EvidenceRecord | null = null
 ): string {
   const count = answeredQuestionCount(entry.gates);
   const captured =
@@ -304,26 +305,43 @@ export function stageSummary(
 
 const counted = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
-/** "2 screenshots, 1 link": what one phase of a run's evidence captured. */
+/** "2 screenshots, 1 link" or "3 cases, 1 waived": what one phase of a run's
+    evidence captured. Several cases count by case; one counts its images. A
+    case is waived in a phase when it has images there and none is annotated
+    (the same rule as `phaseWaived` in run-page). */
 function evidenceSummary(
-  evidence: ParsedEvidence,
+  evidence: EvidenceRecord,
   phase: StoryEvidence,
   entryUrl: boolean
 ): string | null {
-  let shots = 0;
-  let links = 0;
+  const parts: string[] = [];
   if (evidence.version === 0) {
+    let shots = 0;
+    let links = 0;
     for (const item of legacyItems(evidence.links))
       if (item.kind === 'image') shots += 1;
       else links += 1;
-  } else if (evidence.version === 1) {
-    shots = evidence.images.filter(i => i.key.startsWith(phase)).length;
-    if (entryUrl && evidence.evidence.url) links = 1;
+    if (shots > 0) parts.push(counted(shots, 'screenshot'));
+    if (links > 0) parts.push(counted(links, 'link'));
+  } else if (evidence.version === 2 && phase !== 'legacy') {
+    const inPhase = evidence.cases.filter(c => (c[phase]?.length ?? 0) > 0);
+    if (evidence.cases.length === 1) {
+      const shots = (inPhase[0]?.[phase] ?? []).reduce(
+        (n, s) => n + (s.annotated ? 2 : 1),
+        0
+      );
+      if (shots > 0) parts.push(counted(shots, 'screenshot'));
+    } else if (inPhase.length > 0) {
+      const waived = inPhase.filter(c =>
+        (c[phase] ?? []).every(s => !s.annotated && !!s.waiver)
+      ).length;
+      parts.push(
+        counted(inPhase.length, 'case') +
+          (waived > 0 ? `, ${waived} waived` : '')
+      );
+    }
+    if (entryUrl && evidence.url) parts.push(counted(1, 'link'));
   }
-  const parts = [
-    shots > 0 ? counted(shots, 'screenshot') : null,
-    links > 0 ? counted(links, 'link') : null,
-  ].filter(Boolean);
   return parts.length > 0 ? parts.join(', ') : null;
 }
 

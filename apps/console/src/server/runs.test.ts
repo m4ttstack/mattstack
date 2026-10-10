@@ -17,6 +17,7 @@ vi.mock('@mattstack/rt-client', () => ({
   rtCommand: vi.fn(async () => ({ ok: true, data: { repos: {} } })),
   getRun: vi.fn(async () => ({ ok: false, error: 'no such run' })),
   runEvidence: vi.fn(),
+  runEvidenceAt: vi.fn(),
   abandonRun: vi.fn(async () => ({ ok: true, data: { ok: true } })),
   subscribe: vi.fn(() => () => {}),
   getSetting: vi.fn(() => ({ value: 30, provenance: [] })),
@@ -50,8 +51,27 @@ describe('runs api', () => {
     expect(rt.getRun).toHaveBeenCalledWith('run-1', wire);
   });
 
-  it('relays an evidence image with its mime type', async () => {
-    vi.mocked(rt.runEvidence).mockResolvedValueOnce({
+  it('refuses an image key on the transcript route without asking the daemon', async () => {
+    vi.mocked(rt.runEvidence).mockClear();
+    const wire = 'remote:gitlab.com%2Fgroup%2Frepo';
+    for (const key of [
+      'before',
+      'beforeAnnotated',
+      'after',
+      'afterAnnotated',
+    ]) {
+      const res = await routes.fetch(
+        new Request(`http://localhost/api/runs/${wire}/run-1/evidence/${key}`)
+      );
+      expect(res.status).toBe(404);
+      await expect(res.json()).resolves.toEqual({ error: 'no evidence' });
+    }
+    expect(rt.runEvidence).not.toHaveBeenCalled();
+  });
+
+  it('relays a case image by address with its mime type', async () => {
+    vi.mocked(rt.runEvidenceAt).mockClear();
+    vi.mocked(rt.runEvidenceAt).mockResolvedValueOnce({
       ok: true,
       data: {
         mime: 'image/png',
@@ -60,17 +80,33 @@ describe('runs api', () => {
     });
     const wire = 'remote:gitlab.com%2Fgroup%2Frepo';
     const res = await routes.fetch(
-      new Request(`http://localhost/api/runs/${wire}/run-1/evidence/before`)
+      new Request(
+        `http://localhost/api/runs/${wire}/run-1/evidence/case-a/before?theme=dark&annotated=1`
+      )
     );
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/png');
     expect(res.headers.get('cache-control')).toBe('private, max-age=3600');
     expect(await res.text()).toBe('png!');
-    expect(vi.mocked(rt.runEvidence).mock.calls[0]!.slice(0, 3)).toEqual([
+    expect(vi.mocked(rt.runEvidenceAt).mock.calls[0]!.slice(0, 3)).toEqual([
       'run-1',
-      'before',
+      { case: 'case-a', slot: 'before', theme: 'dark', annotated: true },
       wire,
     ]);
+  });
+
+  it('answers a bare 404 when the daemon refuses a case image', async () => {
+    vi.mocked(rt.runEvidenceAt).mockResolvedValueOnce({
+      ok: false,
+      error: 'theme required',
+    });
+    const res = await routes.fetch(
+      new Request(
+        'http://localhost/api/runs/remote:a/run-1/evidence/case-a/after'
+      )
+    );
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({ error: 'no evidence' });
   });
 
   it('relays a transcript as utf-8 text with its content type', async () => {
@@ -113,7 +149,9 @@ describe('runs api', () => {
       error: 'no evidence',
     });
     const res = await routes.fetch(
-      new Request('http://localhost/api/runs/remote:a/run-1/evidence/after')
+      new Request(
+        'http://localhost/api/runs/remote:a/run-1/evidence/transcript'
+      )
     );
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toEqual({ error: 'no evidence' });
