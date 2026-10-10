@@ -42,6 +42,7 @@ import {
   type EvidenceCases,
   type EvidencePhase,
 } from './evidenceImages';
+import { ShotLine } from './ShotLine';
 import { TranscriptBlock } from './TranscriptBlock';
 
 export interface EvidenceCardProps {
@@ -113,16 +114,7 @@ function Thumb({
       >
         {name}
       </Text>
-      {line ? (
-        <Text
-          fz="sm"
-          lh="normal"
-          c={line.kind === 'waiver' ? 'dimmed' : undefined}
-          data-parity={line.kind}
-        >
-          {line.text}
-        </Text>
-      ) : null}
+      <ShotLine line={line} size="sm" />
     </Stack>
   );
 }
@@ -274,16 +266,7 @@ function CaseThumb({
         </Text>
         <CaseBadges c={c} phase={phase} />
       </Group>
-      {line ? (
-        <Text
-          fz="sm"
-          lh="normal"
-          c={line.kind === 'waiver' ? 'dimmed' : undefined}
-          data-parity={line.kind}
-        >
-          {line.text}
-        </Text>
-      ) : null}
+      <ShotLine line={line} size="sm" />
     </Stack>
   );
 }
@@ -435,16 +418,7 @@ function CaseShot({
             {PHASE_LABEL[phase]}
           </Text>
         )}
-        {line ? (
-          <Text
-            fz="sm"
-            lh="normal"
-            c={line.kind === 'waiver' ? 'dimmed' : undefined}
-            data-parity={line.kind}
-          >
-            {line.text}
-          </Text>
-        ) : null}
+        <ShotLine line={line} size="sm" />
       </Stack>
     </Stack>
   );

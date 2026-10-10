@@ -35,6 +35,7 @@ import {
   type EvidencePhase,
   type EvidenceVariant,
 } from './evidenceImages';
+import { ShotLine } from './ShotLine';
 
 /** Where the compare modal opens: the mode, the variant a thumbnail showed,
     and the case and theme. Empty opens the first case side by side, annotated. */
@@ -276,16 +277,7 @@ export function EvidenceCompare({
                     ? PHASE_LABEL[p]
                     : shownName(shot, variant)}
                 </Text>
-                {line ? (
-                  <Text
-                    fz="md"
-                    lh="normal"
-                    c={line.kind === 'waiver' ? 'dimmed' : undefined}
-                    data-parity={line.kind}
-                  >
-                    {line.text}
-                  </Text>
-                ) : null}
+                <ShotLine line={line} size="md" />
               </Stack>
             </Stack>
           );
