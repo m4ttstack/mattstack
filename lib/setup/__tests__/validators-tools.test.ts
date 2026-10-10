@@ -15,6 +15,7 @@ import type { DetectedEditor } from "../../editors.ts";
 import type { ExecResult } from "../probes.ts";
 import type { Action, Row } from "../contract.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
+import { heldCopy } from "../../engine-floor.ts";
 import { PORTLESS_LAUNCHD_PLIST } from "../steps/services.ts";
 
 // ─── ground truth, shaped from the real CLIs captured on 2026-09-03 ───
@@ -1650,8 +1651,10 @@ describe("toolRows: tool.proxy", () => {
 const TEAM_CLONE = "/fake-home/.mattstack/orgs/acme";
 
 async function toolRowsFor(opts: {
-  servedPacks?: { id: string; name: string; servedVersion: string | null }[];
+  servedPacks?: { id: string; name: string; servedVersion: string | null; floor?: string }[];
   servedError?: string;
+  engine?: string | null;
+  mattstackFloor?: string;
   activeTeam?: string | null;
   pluginList: unknown[];
 }): Promise<Row[]> {
@@ -1669,15 +1672,23 @@ async function toolRowsFor(opts: {
     for (const s of packs) {
       if (s.servedVersion !== null) {
         files[`${TEAM_CLONE}/packs/${s.name}/.claude-plugin/plugin.json`] = JSON.stringify({ version: s.servedVersion });
+        if (s.floor) files[`${TEAM_CLONE}/packs/${s.name}/pack/requires.json`] = JSON.stringify({ minEngine: s.floor });
       }
     }
+  }
+  if (opts.mattstackFloor) {
+    files["/ms-market/.claude-plugin/marketplace.json"] = JSON.stringify({ name: "mattstack", plugins: [{ name: "mattstack", source: "./plugins/mattstack" }] });
+    files["/ms-market/plugins/mattstack/pack/requires.json"] = JSON.stringify({ minEngine: opts.mattstackFloor });
   }
   const p = fakeProbes({
     home: "/fake-home",
     files,
-    exec: async (argv) => (argv.includes("list") ? { code: 0, stdout: JSON.stringify(opts.pluginList), stderr: "" } : { code: 0, stdout: "", stderr: "" }),
+    exec: async (argv) => argv.includes("marketplace") && opts.mattstackFloor
+      ? { code: 0, stdout: JSON.stringify([{ name: "mattstack", installLocation: "/ms-market" }]), stderr: "" }
+      : (argv.includes("list") ? { code: 0, stdout: JSON.stringify(opts.pluginList), stderr: "" } : { code: 0, stdout: "", stderr: "" }),
   });
-  return toolRows(p, [], { hasBrew: false, secrets: NO_SECRETS, teamSlug: "acme", activeTeam: opts.activeTeam ?? null }, NOOP_SEAMS);
+  const engine = opts.engine === undefined ? "0.30.28" : opts.engine;
+  return toolRows(p, [], { hasBrew: false, secrets: NO_SECRETS, teamSlug: "acme", activeTeam: opts.activeTeam ?? null }, { ...NOOP_SEAMS, engine: () => engine });
 }
 
 test("a team-served pack gets a row even with no requirements.jsonc, naming its version", async () => {
@@ -1742,4 +1753,44 @@ test("an unparsable marketplace.json renders one error row, outside the pack nam
   // A "pack." id here would be flipped to required in status mode and could
   // never go ready, blocking Install forever for a member who cannot fix it.
   expect(errorRow.id.startsWith("pack.")).toBe(false);
+});
+
+test("a pack whose floor this engine cannot meet is held with no action, installed older or not installed", async () => {
+  const servedPacks = [{ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: "0.6.0", floor: "0.31.0" }];
+  for (const pluginList of [[{ id: "acme-skills@acme-market", version: "0.5.28", enabled: true }], []]) {
+    const rows = await toolRowsFor({ activeTeam: "acme-skills", servedPacks, pluginList });
+    const row = rows.find((r) => r.id === "pack.acme-skills")!;
+    expect(row.status).toBe("needs-you");
+    expect(row.detail).toBe(heldCopy("acme-skills", "0.6.0", "0.31.0"));
+    expect(row.action).toBeNull();
+  }
+});
+
+test("a pack whose floor is met keeps the routine stale row with its Install action", async () => {
+  const rows = await toolRowsFor({
+    activeTeam: "acme-skills",
+    servedPacks: [{ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: "0.6.0", floor: "0.30.0" }],
+    pluginList: [{ id: "acme-skills@acme-market", version: "0.5.28", enabled: true }],
+  });
+  const row = rows.find((r) => r.id === "pack.acme-skills")!;
+  expect(row.detail).toBe("Installed 0.5.28; the team serves 0.6.0");
+  expect(row.action).not.toBeNull();
+});
+
+test("an engine that cannot be read holds nothing", async () => {
+  const rows = await toolRowsFor({
+    activeTeam: "acme-skills",
+    engine: null,
+    servedPacks: [{ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: "0.6.0", floor: "0.31.0" }],
+    pluginList: [],
+  });
+  expect(rows.find((r) => r.id === "pack.acme-skills")!.status).toBe("missing");
+});
+
+test("tool.plugins is held with no action when the mattstack catalog floor is above the engine", async () => {
+  const rows = await toolRowsFor({ mattstackFloor: "0.31.0", pluginList: JSON.parse(REAL_PLUGIN_LIST_JSON) });
+  const row = rows.find((r) => r.id === "tool.plugins")!;
+  expect(row.status).toBe("needs-you");
+  expect(row.detail).toBe(heldCopy("mattstack", null, "0.31.0"));
+  expect(row.action).toBeNull();
 });
