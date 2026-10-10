@@ -173,7 +173,7 @@ body {
   outline-offset: 2px;
 }
 .t-accent {
-  color: var(--text-accent);
+  color: var(--text-accent-small);
 }
 /* Head, body and footer bands like the app settings modal, whose frame
    rules in settings.css this modal shares. */
@@ -182,7 +182,6 @@ body {
   max-width: min(30rem, 100%);
 }
 .live-modal-title {
-  font-weight: 600;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xxs);

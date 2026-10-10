@@ -93,7 +93,8 @@
   align-items: center;
   gap: var(--spacing-sm);
 }
-.settings-name {
+.settings-name,
+.live-modal-title {
   font-size: calc(var(--font-size-rem100) * 1.25);
   font-weight: 700;
 }
