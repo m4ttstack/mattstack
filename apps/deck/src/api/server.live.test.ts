@@ -1,11 +1,11 @@
 import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
 
-import { freshChat, managerOf } from '../live/test-kit.ts';
 import { clearLive, getLive } from '../../core/settings.ts';
 import { FakeEdgeProxy } from '../edge/portless.ts';
 import { FakeTunnelDriver } from '../edge/tunnel.ts';
 import type { LiveDeps } from '../live/engine.ts';
 import { clearSetup, runSetup, setupFor } from '../live/setup.ts';
+import { freshChat, managerOf } from '../live/test-kit.ts';
 import { startApi } from './server.ts';
 
 const PORT = 18951;

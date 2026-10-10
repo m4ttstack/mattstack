@@ -558,9 +558,8 @@ test('live stays file-local: the store never carries it', () => {
   setSetting('deck.apps', { chat: { published: true } }, 'user');
   reloadSettings();
   setLive('chat', LIVE);
-  const store = getSetting<Record<string, Record<string, unknown>>>(
-    'deck.apps'
-  ).value!;
+  const store =
+    getSetting<Record<string, Record<string, unknown>>>('deck.apps').value!;
   expect(store.chat).not.toHaveProperty('live');
   const onDisk = JSON.parse(
     readFileSync(process.env.LOCAL_APPS_SETTINGS_PATH!, 'utf8')

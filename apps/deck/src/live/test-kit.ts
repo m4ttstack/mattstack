@@ -18,14 +18,21 @@ process.env.HOME = dir;
 
 const { commit, gitRepo } = await import('../../test/git-fixture.ts');
 const { FakeServiceManager } = await import('../services/fake.ts');
-const { getRecord, putRecord, reloadRegistry } = await import('../registry/records.ts');
+const { getRecord, putRecord, reloadRegistry } =
+  await import('../registry/records.ts');
 const { reloadSettings } = await import('../../core/settings.ts');
 
 export { commit, gitRepo };
 
 // Each start goes through sh (the $PORT), so no test depends on where bun lives.
-export const SERVER = { kind: 'server', start: 'bun --watch src/server/index.ts --port $PORT' } as const;
-export const UI = { kind: 'ui', start: 'bun x vite --port $PORT --strictPort' } as const;
+export const SERVER = {
+  kind: 'server',
+  start: 'bun --watch src/server/index.ts --port $PORT',
+} as const;
+export const UI = {
+  kind: 'ui',
+  start: 'bun x vite --port $PORT --strictPort',
+} as const;
 export const manifest = (live: unknown[]) =>
   JSON.stringify({ name: 'chat', port: 11002, live });
 
@@ -55,8 +62,14 @@ export function freshChat() {
       { hostname: 'chat.localhost', port: 11002, pid: 0 },
     ])
   );
-  writeFileSync(process.env.LOCAL_REGISTRY_PATH!, JSON.stringify({ version: 1, apps: {} }));
-  writeFileSync(process.env.LOCAL_APPS_SETTINGS_PATH!, JSON.stringify({ version: 1, apps: {} }));
+  writeFileSync(
+    process.env.LOCAL_REGISTRY_PATH!,
+    JSON.stringify({ version: 1, apps: {} })
+  );
+  writeFileSync(
+    process.env.LOCAL_APPS_SETTINGS_PATH!,
+    JSON.stringify({ version: 1, apps: {} })
+  );
   reloadRegistry();
   reloadSettings();
   putRecord({

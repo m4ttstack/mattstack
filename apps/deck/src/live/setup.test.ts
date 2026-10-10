@@ -31,7 +31,10 @@ test('a failed install keeps its log for the board', async () => {
     source: '/wt/a',
     branch: 'a',
     state: 'failed',
-    log: ['$ bun install', 'error: lockfile had changes, but lockfile is frozen'],
+    log: [
+      '$ bun install',
+      'error: lockfile had changes, but lockfile is frozen',
+    ],
     at: '2026-10-09T21:00:00.000Z',
   });
 });

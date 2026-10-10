@@ -84,8 +84,9 @@ export async function liveRowFields(
             running:
               port !== null
                 ? await portUp(port)
-                : services.find(s => s.label === liveLabel(record.name, ids[i]!))
-                    ?.pid != null,
+                : services.find(
+                    s => s.label === liveLabel(record.name, ids[i]!)
+                  )?.pid != null,
           };
         })
       ),

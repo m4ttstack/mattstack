@@ -18,6 +18,7 @@ import { TUNNEL_LABEL } from '../edge/domain.ts';
 import { tunnelRowHealth } from '../edge/edge-health.ts';
 import { edgeDrift } from '../edge/edge-reconcile.ts';
 import { getOAuth, type OAuth } from '../edge/oauth.ts';
+import { liveRowFields, type LiveRowFields } from '../live/status.ts';
 import { allocatePort } from '../registry/allocate.ts';
 import {
   effectiveIdentity,
@@ -34,7 +35,6 @@ import {
   type RemoteState,
   type SyncIssue,
 } from '../registry/records.ts';
-import { liveRowFields, type LiveRowFields } from '../live/status.ts';
 import { commandKeysFor, readLinkedManifest } from '../registry/serve-shape.ts';
 import { isPlatformManagedBy, PLATFORM_NAME } from '../services/manager.ts';
 import { getPlatformSettings } from './platform-settings.ts';
@@ -355,7 +355,8 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
         record,
         { devMode: !!opts.devMode, local: opts.local },
         services,
-        async port => (port === a.port ? health.ok : (await checkHealth(port)).ok)
+        async port =>
+          port === a.port ? health.ok : (await checkHealth(port)).ok
       );
       const isLive = liveFields.live !== undefined;
       const commands = record

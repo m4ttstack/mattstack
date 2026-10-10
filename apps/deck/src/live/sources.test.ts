@@ -52,12 +52,26 @@ test('main first, then claimed and unmanaged trees of the same repo by last use'
     exists: () => false,
     listTrees: async () => [
       row({ path: root, kind: 'main', state: null, branch: 'main' }),
-      row({ path: '/wt/old', branch: 'old', lastActiveAt: '2026-10-01T00:00:00Z' }),
-      row({ path: '/wt/new', branch: 'new', lastActiveAt: '2026-10-09T00:00:00Z' }),
+      row({
+        path: '/wt/old',
+        branch: 'old',
+        lastActiveAt: '2026-10-01T00:00:00Z',
+      }),
+      row({
+        path: '/wt/new',
+        branch: 'new',
+        lastActiveAt: '2026-10-09T00:00:00Z',
+      }),
       row({ path: '/wt/spare', kind: 'on-deck', state: 'ready' }),
       row({ path: '/wt/golden', kind: 'golden', state: null }),
       row({ path: '/wt/gone', state: 'disposable' }),
-      row({ path: '/wt/hand', kind: 'unmanaged', state: null, readyAt: null, branch: 'hand' }),
+      row({
+        path: '/wt/hand',
+        kind: 'unmanaged',
+        state: null,
+        readyAt: null,
+        branch: 'hand',
+      }),
       row({ path: '/other', repoName: 'remote:other', branch: 'other' }),
     ],
   });
@@ -89,7 +103,13 @@ test('an unreachable rt daemon still offers main', async () => {
     },
   });
   expect(sources).toEqual([
-    { path: root, branch: 'main', main: true, needsSetup: false, lastActiveAt: null },
+    {
+      path: root,
+      branch: 'main',
+      main: true,
+      needsSetup: false,
+      lastActiveAt: null,
+    },
   ]);
   expect(error).toBe('rt daemon unreachable');
 });

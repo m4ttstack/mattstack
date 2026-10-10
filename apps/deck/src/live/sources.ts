@@ -71,14 +71,17 @@ export function branchOf(root: string): string | null {
 
 async function defaultListTrees(): Promise<TreeRow[]> {
   const res = await rtCommand<{ trees: TreeRow[] }>('worktree:list', {});
-  if (!res.ok || !res.data) throw new Error(res.error ?? 'rt worktree list failed');
+  if (!res.ok || !res.data)
+    throw new Error(res.error ?? 'rt worktree list failed');
   return res.data.trees;
 }
 
 /** Claimed and hand-made trees only: rt hands its spare trees out, so one
     picked here could change hands mid-session. */
 function pickable(t: TreeRow): boolean {
-  return (t.kind === 'ephemeral' && t.state === 'claimed') || t.kind === 'unmanaged';
+  return (
+    (t.kind === 'ephemeral' && t.state === 'claimed') || t.kind === 'unmanaged'
+  );
 }
 
 export async function listLiveSources(
@@ -97,11 +100,20 @@ export async function listLiveSources(
   try {
     trees = await (deps.listTrees ?? defaultListTrees)();
   } catch (err) {
-    return { sources: [main], error: err instanceof Error ? err.message : String(err) };
+    return {
+      sources: [main],
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
   const repo = trees.find(t => real(t.path) === sharedRoot)?.repoName;
   const worktrees = trees
-    .filter(t => repo !== undefined && t.repoName === repo && real(t.path) !== sharedRoot && pickable(t))
+    .filter(
+      t =>
+        repo !== undefined &&
+        t.repoName === repo &&
+        real(t.path) !== sharedRoot &&
+        pickable(t)
+    )
     .map(t => ({
       path: real(t.path),
       branch: t.branch,
