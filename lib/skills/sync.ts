@@ -4,7 +4,10 @@ import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
 import { layoutAbove, markerAtRef, updateSentence } from "../team/org-layout.ts";
 import { ORG_MARKER_REL, parseMarker } from "../team/org-marker.ts";
-import { ADMIT_UNFLOORED, updateArgs } from "../setup/plugin-calls.ts";
+import { heldCopy, readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
+import { admit, updateArgs } from "../setup/plugin-calls.ts";
+import { mattstackFloor } from "../setup/mattstack-floor.ts";
+import { createRealProbes } from "../setup/probes.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -24,6 +27,10 @@ export type SyncDeps = {
   inTreeRoot: string | null;
   /** Where org clones live: a pack inside one follows whatever branch that clone has checked out. */
   orgsRoot?: string | null;
+  /** The engine version this rt runs; null when it cannot tell. */
+  engine?: () => string | null;
+  /** The floor the mattstack marketplace's cached copy publishes. */
+  engineFloor?: () => Promise<Floor>;
 };
 
 /**
@@ -370,6 +377,14 @@ function chosenEntryVersion(list: PluginListEntry[], id: string, scope: string |
   return entry ? installedVersionFor([entry], id) : null;
 }
 
+function readFileOrNull(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDeps, opts: SyncOptions = {}): Promise<SyncReport> {
   const mayWritePack = deps.mayCompile(pack.name);
   const NOT_YOURS = "This pack is out of date, but only its team's owners recompile it";
@@ -633,8 +648,11 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (market.code !== 0) {
       return refused(`Updating the ${engine.marketplace} marketplace failed: ${market.stderr.trim()}. ${stopped}`);
     }
+    const floor = await (deps.engineFloor ?? (() => mattstackFloor(createRealProbes(), (a) => deps.run(deps.claudeBin!, a), { refresh: false })))();
+    const admission = admit(floor, (deps.engine ?? runnableEngine)());
+    if (!admission.ok) return refused(refusalCopy(admission.engine, "the engine on main", admission.floor));
     const scopeArgs = engine.scope ? ["--scope", engine.scope] : [];
-    const update = await deps.run(deps.claudeBin!, updateArgs(ADMIT_UNFLOORED, id, [...scopeArgs, "-y"]));
+    const update = await deps.run(deps.claudeBin!, updateArgs(admission, id, [...scopeArgs, "-y"]));
     if (update.code !== 0) return refused(`Updating ${id} failed: ${update.stderr.trim()}. ${stopped}`);
     installedEngineAfter = chosenEntryVersion(await listInstalled(deps), id, engine.scope);
     if (installedEngineAfter === null) return refused(`${id} is not installed after its update. ${stopped}`);
@@ -648,7 +666,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (engineCached) return refreshCachedEngine();
     if (installedEngineBefore === engineSourceVersion) return skipped(`engine already at ${engineSourceVersion}`);
     const id = pluginId(engine);
-    const res = await deps.run(deps.claudeBin!, updateArgs(ADMIT_UNFLOORED, id));
+    const admission = admit(readFloor(readFileOrNull, engine.dir), (deps.engine ?? runnableEngine)());
+    if (!admission.ok) return refused(refusalCopy(admission.engine, "the engine on main", admission.floor));
+    const res = await deps.run(deps.claudeBin!, updateArgs(admission, id));
     if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);
     installedEngineAfter = engineSourceVersion;
     return ran(`updated ${id}`);
@@ -934,11 +954,17 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   // (the noOp return above already exited the other case) -- an update is
   // due unless a member's drifted source already matches its installed copy.
   const notInstalled = `${pack.name} is not installed on this Mac`;
+  let packHeld = false;
   const updatePack = await tryStep(async () => {
     if (installedPackBefore === null) return skipped(notInstalled);
     if (!mine && installedPackBefore === packSourceVersion) return skipped("the installed copy already matches the source");
     const id = pluginId(pack);
-    const res = await deps.run(deps.claudeBin!, updateArgs(ADMIT_UNFLOORED, id));
+    const admission = admit(readFloor(readFileOrNull, pack.dir), (deps.engine ?? runnableEngine)());
+    if (!admission.ok) {
+      packHeld = true;
+      return skipped(heldCopy(id, packSourceVersion, admission.floor));
+    }
+    const res = await deps.run(deps.claudeBin!, updateArgs(admission, id));
     if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);
     return ran(`updated ${id}`);
   });
@@ -947,6 +973,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
 
   const verifyInstalled = await tryStep(async () => {
     if (installedPackBefore === null) return skipped(notInstalled);
+    if (packHeld) return skipped("held for the app");
     const list = await listInstalled(deps);
     installedPackAfter = installedVersionFor(list, pluginId(pack));
     installedEngineAfter = installedVersionFor(list, pluginId(engine));

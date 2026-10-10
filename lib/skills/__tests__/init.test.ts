@@ -7,6 +7,7 @@ import { readTeamLocal } from "../../team/team-local.ts";
 import { teamPublish } from "../../../commands/team.ts";
 import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, readOrgSlugs, type InitDeps, type RunResult } from "../init.ts";
 import { UserActionableError } from "../../errors.ts";
+import { refusalCopy } from "../../engine-floor.ts";
 import { stripJsonc } from "../sources.ts";
 
 /** mkdirp'd dirs and dirs that already hold a file are writable; anything else throws ENOENT, mirroring a real fs. */
@@ -593,6 +594,36 @@ describe("initPack", () => {
     expect(out).toMatchObject({ ok: false, refused: false, code: "install-failed" });
     if (out.ok || out.refused) return;
     expect(out.detail).toContain("no such plugin");
+  });
+
+  test("a compiled pack whose floor is above this rt's engine is not installed", async () => {
+    const { deps, calls, fs } = world();
+    deps.engine = () => "0.30.28";
+    deps.compile = async (dir) => {
+      calls.compiled.push(dir);
+      fs.mkdirp(`${dir}/pack`);
+      fs.writeFile(`${dir}/pack/requires.json`, JSON.stringify({ minEngine: "0.31.0" }));
+      return { ok: true, errors: [] };
+    };
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: false, code: "install-failed" });
+    if (out.ok || out.refused) return;
+    expect(out.detail).toBe(refusalCopy("0.30.28", "the acme pack", "0.31.0"));
+    expect(out.remedy?.commands.some((c) => c.includes("plugin install"))).toBe(false);
+    expect(calls.claude.some((a) => a[1] === "install")).toBe(false);
+  });
+
+  test("a pack whose floor fits is installed", async () => {
+    const { deps, calls, fs } = world();
+    deps.engine = () => "0.31.0";
+    deps.compile = async (dir) => {
+      fs.mkdirp(`${dir}/pack`);
+      fs.writeFile(`${dir}/pack/requires.json`, JSON.stringify({ minEngine: "0.31.0" }));
+      return { ok: true, errors: [] };
+    };
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out.ok).toBe(true);
+    expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
   });
 
   test("a pack skeleton that never compiled is carried on: claim, materialize, compile, install", async () => {

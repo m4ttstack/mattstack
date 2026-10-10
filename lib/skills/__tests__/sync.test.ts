@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { PackInfo } from "../packs.ts";
+import { heldCopy, refusalCopy } from "../../engine-floor.ts";
 import { execFileSync } from "child_process";
 import { createHash } from "crypto";
 import { childEnv, runCapture } from "../../subprocess.ts";
@@ -575,6 +576,74 @@ describe("syncPack", () => {
     expect(report.steps[0]!.status).toBe("refused");
     expect(report.steps[0]!.detail).toContain("pack checkout at");
     expect(report.steps[0]!.detail).toContain("has uncommitted changes");
+  });
+
+  test("10h: a cached engine whose marketplace floor is above this rt refuses before the update, check or compile", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = { ...fixturePack("mattstack", "mattstack", "2.0.0"), installedCache: true };
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false],
+    });
+    deps.engine = () => "0.30.28";
+    deps.engineFloor = async () => "0.31.0";
+
+    const report = await syncPack(pack, engine, deps);
+
+    const last = report.steps.at(-1)!;
+    expect(last.name).toBe("update-engine");
+    expect(last.status).toBe("refused");
+    expect(last.detail).toBe(refusalCopy("0.30.28", "the engine on main", "0.31.0"));
+    expect(report.ok).toBe(false);
+    expect(calls.some((c) => c.args[1] === "update" && c.args[2] === pluginId(engine))).toBe(false);
+    expect(calls.some((c) => c.cmd === "checkPack")).toBe(false);
+  });
+
+  test("10i: a source-checkout engine whose own floor is above this rt refuses without updating", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    mkdirSync(join(engine.dir, "pack"), { recursive: true });
+    writeFileSync(join(engine.dir, "pack", "requires.json"), JSON.stringify({ minEngine: "0.31.0" }));
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "1.9.0" },
+      drift: [false],
+    });
+    deps.engine = () => "0.30.28";
+
+    const report = await syncPack(pack, engine, deps);
+
+    const last = report.steps.at(-1)!;
+    expect(last.name).toBe("update-engine");
+    expect(last.status).toBe("refused");
+    expect(last.detail).toBe(refusalCopy("0.30.28", "the engine on main", "0.31.0"));
+    expect(calls.some((c) => c.args[1] === "update" && c.args[2] === pluginId(engine))).toBe(false);
+  });
+
+  test("12a: a pack whose floor is above this rt is held, not updated, and verify-installed does not fail the run", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    mkdirSync(join(pack.dir, "pack"), { recursive: true });
+    writeFileSync(join(pack.dir, "pack", "requires.json"), JSON.stringify({ minEngine: "0.31.0" }));
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false],
+    });
+    deps.engine = () => "0.30.28";
+
+    const report = await syncPack(pack, engine, deps);
+
+    const byName = Object.fromEntries(report.steps.map((s) => [s.name, s]));
+    expect(byName["update-pack"]!.status).toBe("skipped");
+    expect(byName["update-pack"]!.detail).toBe(heldCopy(pluginId(pack), "1.0.0", "0.31.0"));
+    expect(byName["verify-installed"]!.status).toBe("skipped");
+    expect(report.ok).toBe(true);
+    expect(calls.some((c) => c.args[1] === "update" && c.args[2] === pluginId(pack))).toBe(false);
   });
 
   test("11: cswap sweep warns about exactly the divergent session", async () => {

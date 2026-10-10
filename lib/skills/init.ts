@@ -10,7 +10,8 @@ import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
-import { ADMIT_UNFLOORED, installArgs } from "../setup/plugin-calls.ts";
+import { readFloor, refusalCopy, runnableEngine } from "../engine-floor.ts";
+import { admit, installArgs } from "../setup/plugin-calls.ts";
 import { parseMarker } from "../team/org-marker.ts";
 import { orgLayoutWaitingError, pickedCloneReady, pickOrgClone } from "../team/org-layout.ts";
 import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, teamPackSource, unconvertedTeamPackError } from "../team/team-pack-path.ts";
@@ -337,6 +338,8 @@ export type InitDeps = {
   sharePack(zone: ZoneInfo, paths: string[]): Promise<PackShare>;
   /** Remembers a share for `rt team publish` to finish if init stops before its own share. */
   rememberShare(zone: ZoneInfo, paths: string[]): void;
+  /** The engine version this rt runs; null when it cannot tell. */
+  engine?: () => string | null;
 };
 
 /** The pack folder plus every other file init wrote, relative to the org clone. */
@@ -488,7 +491,9 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     if (code === "compile-failed" || code === "check-drift") {
       return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`, share] };
     }
-    return { commands: [`claude plugin marketplace add ${zone.orgDir}`, `claude plugin install ${pluginId}`, share] };
+    const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
+    const install = admission.ok ? [`claude ${installArgs(admission, pluginId).join(" ")}`] : [];
+    return { commands: [`claude plugin marketplace add ${zone.orgDir}`, ...install, share] };
   };
 
   const failed = (code: FailureCode, detail: string, from?: { why?: string; next?: string }): InitOutcome => ({
@@ -553,6 +558,9 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   if ("outcome" in checkedAttempt) return checkedAttempt.outcome;
   if (checkedAttempt.value.drift) return failed("check-drift", "The pack was out of date right after it compiled");
 
+  const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
+  if (!admission.ok) return failed("install-failed", refusalCopy(admission.engine, `the ${pack} pack`, admission.floor));
+
   const known = await attempt("install-failed", () => marketplaceNames(claude));
   if ("outcome" in known) return known.outcome;
   if (!known.value || !known.value.has(marketplace)) {
@@ -562,7 +570,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
       return failed("install-failed", `Adding the team's marketplace to Claude Code failed (exit ${added.value.code}): ${added.value.stderr.trim() || added.value.stdout.trim()}`);
     }
   }
-  const installed = await attempt("install-failed", () => claude(installArgs(ADMIT_UNFLOORED, pluginId)));
+  const installed = await attempt("install-failed", () => claude(installArgs(admission, pluginId)));
   if ("outcome" in installed) return installed.outcome;
   if (installed.value.code !== 0 && !isAlreadyDone(installed.value)) {
     return failed("install-failed", `Installing ${pluginId} in Claude Code failed (exit ${installed.value.code}): ${installed.value.stderr.trim() || installed.value.stdout.trim()}`);
