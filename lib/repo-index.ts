@@ -1443,11 +1443,12 @@ export function repoFromOptionValue(repos: KnownRepo[], value: string): KnownRep
 
 /** A repo's worktrees in picker order: the main worktree (git lists it
     first) stays first, the rest sort A→Z by branch, or directory name when
-    detached. The rest pass the shared pickable rule (rt-client), which drops
-    trashed rows a cache snapshot written before a dispose can still carry,
-    unclaimed on-deck trees, gitq work slots and folders that are gone. The
-    main row stays even when its folder is missing: that is the lost-repo
-    case, which must stay pickable so it gets missingRepoFailure. Explicit
+    detached. Every row passes the shared pickable rule (rt-client), which
+    drops trashed rows a cache snapshot written before a dispose can still
+    carry, unclaimed on-deck trees, the golden tree, gitq work slots and
+    folders that are gone. The main row skips only the folder check: a
+    missing main is the lost-repo case, which must stay pickable so it gets
+    missingRepoFailure. Explicit
     --worktree branch resolution bypasses this seam deliberately. A copy:
     `repo.worktrees` keeps git's own order for everything agent-facing
     (`rt worktree list --json`). */
@@ -1455,15 +1456,12 @@ export function pickerWorktrees(
   repo: Pick<KnownRepo, "worktrees">,
   exists: (path: string) => boolean = existsSync,
 ): KnownRepo["worktrees"] {
-  const [main, ...rest] = repo.worktrees;
+  const [main, ...rest] = repo.worktrees.filter((wt, i) =>
+    isPickableWorktree(wt, i === 0 ? () => true : exists),
+  );
   if (!main) return [];
   const label = (wt: KnownRepo["worktrees"][number]) => wt.branch || basename(wt.path);
-  return [
-    main,
-    ...rest
-      .filter((wt) => isPickableWorktree(wt, exists))
-      .sort((a, b) => label(a).localeCompare(label(b), undefined, { sensitivity: "base" })),
-  ];
+  return [main, ...rest.sort((a, b) => label(a).localeCompare(label(b), undefined, { sensitivity: "base" }))];
 }
 
 // ─── Test seam ───────────────────────────────────────────────────────────────

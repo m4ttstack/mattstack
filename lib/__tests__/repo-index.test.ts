@@ -991,4 +991,12 @@ describe("pickerWorktrees", () => {
     const exists = (p: string) => p === "/pool/x/charlie";
     expect(pickerWorktrees(repo, exists).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/charlie"]);
   });
+
+  test("the first row passes the rule too, apart from its folder check", () => {
+    const repo = {
+      repoName: "x", dataDir: "/d",
+      worktrees: [wt("/golden/gh-o-x", "rt/golden"), wt("/pool/x/charlie", "rt-3-live")],
+    };
+    expect(pickerWorktrees(repo, all).map((w) => w.path)).toEqual(["/pool/x/charlie"]);
+  });
 });
