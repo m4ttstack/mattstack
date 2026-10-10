@@ -43,6 +43,11 @@ export function __resetCapturedFlavor(): void {
   captured = null;
 }
 
+/** `rt --version --json`: what release and preflight assert the baked engine against. */
+export function versionJson(version: string, engine: string | null, flavor: Flavor): string {
+  return JSON.stringify({ rt: version, engine, flavor });
+}
+
 /**
  * `rt --version`'s output. The first line must stay exactly `rt <version>`:
  * the release workflow and the setup checklist's rt row read only that line.

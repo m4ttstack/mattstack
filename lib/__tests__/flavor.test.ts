@@ -3,7 +3,7 @@ import { spawnSync } from "child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { __resetCapturedFlavor, captureProcessFlavor, daemonLabelFor, deckLabelFor, otherFlavor, processFlavor, versionBanner } from "../flavor.ts";
+import { __resetCapturedFlavor, captureProcessFlavor, daemonLabelFor, deckLabelFor, otherFlavor, processFlavor, versionBanner, versionJson } from "../flavor.ts";
 
 describe("versionBanner", () => {
   const where = { execPath: "/Applications/mattstack.app/Contents/Helpers/rt", sourceDir: "/src/mattstack" };
@@ -114,5 +114,12 @@ describe("labels", () => {
   test("otherFlavor flips", () => {
     expect(otherFlavor("dev")).toBe("prod");
     expect(otherFlavor("prod")).toBe("dev");
+  });
+});
+
+describe("versionJson", () => {
+  test("carries rt, engine and flavor, in that order", () => {
+    expect(versionJson("v2.24.0", "0.31.0", "prod")).toBe('{"rt":"v2.24.0","engine":"0.31.0","flavor":"prod"}');
+    expect(versionJson("dev", null, "dev")).toBe('{"rt":"dev","engine":null,"flavor":"dev"}');
   });
 });

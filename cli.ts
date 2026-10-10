@@ -16,7 +16,7 @@
 
 import { dispatch } from "./lib/command-tree.ts";
 import { TREE } from "./lib/command-tree-def.ts";
-import { buildFlavor, captureProcessFlavor, processFlavor, versionBanner } from "./lib/flavor.ts";
+import { buildFlavor, captureProcessFlavor, processFlavor, versionBanner, versionJson } from "./lib/flavor.ts";
 import { rtDir, migrateLegacyRtDir, migrateLegacyPluginsDir, LEGACY_RT_LABEL, RT_DIR_LABEL, trayAppPath } from "./lib/rt-paths.ts";
 
 captureProcessFlavor();
@@ -110,7 +110,12 @@ await reportMigrations();
 
 if (args[0] === "--version" || args[0] === "-V") {
   const { payload } = await import("./lib/ui/out.ts");
-  payload(versionBanner(_RT_VERSION, processFlavor(), buildFlavor(), { execPath: process.execPath, sourceDir: import.meta.dir }) + "\n");
+  if (args.includes("--json")) {
+    const { runnableEngine } = await import("./lib/engine-floor.ts");
+    payload(versionJson(_RT_VERSION, runnableEngine(), processFlavor()) + "\n");
+  } else {
+    payload(versionBanner(_RT_VERSION, processFlavor(), buildFlavor(), { execPath: process.execPath, sourceDir: import.meta.dir }) + "\n");
+  }
 } else if (args[0] === "--daemon") {
   // Hidden entry point: start the daemon server directly.
   // Used when rt is a compiled binary — daemon install spawns `rt --daemon`
