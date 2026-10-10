@@ -1,33 +1,43 @@
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   Group,
   Modal,
   Paper,
   SegmentedControl,
+  Select,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
-import type { EvidenceTheme } from '@mattstack/rt-client/evidence';
+import type {
+  EvidenceCase,
+  EvidenceTheme,
+} from '@mattstack/rt-client/evidence';
 import { useLocation, useSearch } from 'wouter';
 
 import classes from './EvidenceCompare.module.css';
 import { EvidenceImage } from './EvidenceImage';
 import {
+  addressOf,
+  evidenceTitle,
   evidenceUrl,
+  headLabel,
   isCompareMode,
+  isTheme,
   MODE_LABEL,
   PHASE_LABEL,
-  phasesIn,
-  shotFor,
-  shotsOf,
+  shotIn,
+  shotLine,
+  shownName,
+  slotsOf,
+  themesIn,
   type CompareMode,
+  type EvidenceCases,
   type EvidencePhase,
-  type EvidenceV1Parsed,
   type EvidenceVariant,
 } from './evidenceImages';
 
-/** Where the compare modal opens: the mode, and the variant a thumbnail
-    showed. Empty opens it side by side, annotated. */
+/** Where the compare modal opens: the mode, the variant a thumbnail showed,
+    and the case and theme. Empty opens the first case side by side, annotated. */
 export interface CompareOpen {
   mode?: CompareMode;
   variant?: EvidenceVariant;
@@ -35,22 +45,60 @@ export interface CompareOpen {
   theme?: EvidenceTheme;
 }
 
-const COMPARE_PARAM = 'compare';
+/** What the modal shows now, which the page writes back into the link. */
+export interface CompareShown {
+  caseId: string;
+  mode: CompareMode;
+  theme?: EvidenceTheme;
+}
 
-/** `?compare=<mode>` on a record: the mode a link asks for, and a way to drop
-    the param once the modal it opened closes. */
+const COMPARE_PARAM = 'compare';
+const CASE_PARAM = 'case';
+const THEME_PARAM = 'theme';
+
+/** `?compare=<mode>&case=<id>&theme=<theme>` on a record: what a link asks
+    for, a way to keep the link in step with the modal, and a way to drop it
+    once the modal closes. */
 export function useCompareLink() {
   const search = useSearch();
   const [location, navigate] = useLocation();
-  const asked = new URLSearchParams(search).get(COMPARE_PARAM);
+  const params = new URLSearchParams(search);
+  const asked = params.get(COMPARE_PARAM);
+  const theme = params.get(THEME_PARAM);
+  const open: CompareOpen | null = isCompareMode(asked)
+    ? {
+        mode: asked,
+        caseId: params.get(CASE_PARAM) ?? undefined,
+        theme: isTheme(theme) ? theme : undefined,
+      }
+    : null;
+  const write = useCallback(
+    (next: URLSearchParams) => {
+      const qs = next.toString();
+      navigate(qs ? `${location}?${qs}` : location, { replace: true });
+    },
+    [location, navigate]
+  );
   const clear = useCallback(() => {
-    const params = new URLSearchParams(search);
-    if (!params.has(COMPARE_PARAM)) return;
-    params.delete(COMPARE_PARAM);
-    const qs = params.toString();
-    navigate(qs ? `${location}?${qs}` : location, { replace: true });
-  }, [search, location, navigate]);
-  return { mode: isCompareMode(asked) ? asked : null, asked, clear };
+    const next = new URLSearchParams(search);
+    if (!next.has(COMPARE_PARAM)) return;
+    for (const k of [COMPARE_PARAM, CASE_PARAM, THEME_PARAM]) next.delete(k);
+    write(next);
+  }, [search, write]);
+  const sync = useCallback(
+    (shown: CompareShown) => {
+      const next = new URLSearchParams(search);
+      if (!next.has(COMPARE_PARAM)) return;
+      next.set(COMPARE_PARAM, shown.mode);
+      next.set(CASE_PARAM, shown.caseId);
+      if (shown.theme) next.set(THEME_PARAM, shown.theme);
+      else next.delete(THEME_PARAM);
+      if (next.toString() !== new URLSearchParams(search).toString())
+        write(next);
+    },
+    [search, write]
+  );
+  return { open, asked, clear, sync };
 }
 
 /** Evidence full size: the kit modal less a margin, its title, any control
@@ -105,30 +153,66 @@ export function EvidenceFrame({ src, name }: { src: string; name: string }) {
 export interface EvidenceCompareProps extends CompareOpen {
   repo: string;
   runId: string;
-  evidence: EvidenceV1Parsed;
-  /** The run it belongs to, e.g. its ticket and the case it was captured on. */
-  title: string;
+  record: EvidenceCases;
+  /** The run's ticket, which heads the modal. */
+  ticket?: string | null;
   onClose: () => void;
+  /** Called with what the modal shows, on open and on every change. */
+  onShow?: (shown: CompareShown) => void;
 }
 
-/** The evidence full size: Before, After, or both side by side, picked by one
-    control. Side by side when both phases exist and none is asked for. */
+function modesOf(c: EvidenceCase): CompareMode[] {
+  const phases = slotsOf(c);
+  return phases.length > 1 ? [...phases, 'side'] : phases;
+}
+
+/** The evidence full size: one case at a time, Before, After, or both side
+    by side, in the theme asked for when the case has both. Side by side when
+    both phases exist and none is asked for. */
 export function EvidenceCompare({
   repo,
   runId,
-  evidence,
-  title,
-  mode: asked,
+  record,
+  ticket,
+  mode: askedMode,
+  caseId: askedCase,
+  theme: askedTheme,
   variant = 'annotated',
   onClose,
+  onShow,
 }: EvidenceCompareProps) {
-  const shots = shotsOf(evidence);
-  const phases = phasesIn(shots);
-  const modes: CompareMode[] = phases.length > 1 ? [...phases, 'side'] : phases;
-  const [mode, setMode] = useState<CompareMode>(
-    asked && modes.includes(asked) ? asked : (modes.at(-1) ?? 'before')
+  const first = record.cases[0]!;
+  const [caseId, setCaseId] = useState(
+    record.cases.some(x => x.id === askedCase) ? askedCase! : first.id
   );
-  const shown: EvidencePhase[] = mode === 'side' ? phases : [mode];
+  const c = record.cases.find(x => x.id === caseId) ?? first;
+  const modes = modesOf(c);
+  const [mode, setMode] = useState<CompareMode>(
+    askedMode && modes.includes(askedMode)
+      ? askedMode
+      : (modes.at(-1) ?? 'before')
+  );
+  const themes = themesIn(c);
+  const [theme, setTheme] = useState<EvidenceTheme | undefined>(
+    askedTheme && themes.includes(askedTheme) ? askedTheme : themes[0]
+  );
+  const shownMode = modes.includes(mode) ? mode : (modes.at(-1) ?? 'before');
+  const shownTheme = theme && themes.includes(theme) ? theme : themes[0];
+
+  useEffect(() => {
+    onShow?.({
+      caseId: c.id,
+      mode: shownMode,
+      ...(shownTheme ? { theme: shownTheme } : {}),
+    });
+  }, [c.id, shownMode, shownTheme, onShow]);
+
+  const several = record.cases.length > 1;
+  const title = several
+    ? (ticket ?? 'Evidence')
+    : evidenceTitle(ticket, headLabel(record, c) ?? undefined);
+  const phases: EvidencePhase[] =
+    shownMode === 'side' ? slotsOf(c) : [shownMode];
 
   return (
     <EvidenceModal
@@ -136,40 +220,77 @@ export function EvidenceCompare({
       onClose={onClose}
       parityRoot="Compare modal"
       controls={
-        modes.length > 1 && (
-          <SegmentedControl
-            aria-label="Before, after or side by side"
-            value={mode}
-            onChange={v => setMode(v as CompareMode)}
-            data={modes.map(m => ({ value: m, label: MODE_LABEL[m] }))}
-            data-parity="seg"
-          />
-        )
+        <>
+          {several ? (
+            <Select
+              aria-label="Case"
+              value={c.id}
+              onChange={v => v && setCaseId(v)}
+              data={record.cases.map(x => ({ value: x.id, label: x.label }))}
+              allowDeselect={false}
+              classNames={{ root: classes.caseSelect }}
+              data-parity="case select"
+            />
+          ) : null}
+          {themes.length === 2 ? (
+            <SegmentedControl
+              aria-label="Theme"
+              value={shownTheme}
+              onChange={v => setTheme(v as EvidenceTheme)}
+              data={[
+                { value: 'light', label: 'Light' },
+                { value: 'dark', label: 'Dark' },
+              ]}
+              data-parity="theme"
+            />
+          ) : null}
+          {modes.length > 1 ? (
+            <SegmentedControl
+              aria-label="Before, after or side by side"
+              value={shownMode}
+              onChange={v => setMode(v as CompareMode)}
+              data={modes.map(m => ({ value: m, label: MODE_LABEL[m] }))}
+              data-parity="seg"
+            />
+          ) : null}
+        </>
       }
     >
       <div
         className={classes.images}
-        data-side={mode === 'side' ? 'true' : 'false'}
+        data-side={shownMode === 'side' ? 'true' : 'false'}
       >
-        {shown.map(p => {
-          const shot = shotFor(shots[p], variant);
+        {phases.map(p => {
+          const shot = shotIn(c, p, shownTheme);
           if (!shot) return null;
+          const line = shotLine(c, shot);
           return (
             <Stack key={p} gap={6} className={classes.column}>
               <EvidenceFrame
-                src={evidenceUrl(repo, runId, shot.key)}
-                name={shot.fileName}
+                src={evidenceUrl(repo, runId, addressOf(c, p, shot, variant))}
+                name={shownName(shot, variant)}
               />
-              <Text
-                fz="md"
-                fw={500}
-                lh="normal"
-                c="dimmed"
-                truncate
-                data-parity="cap"
-              >
-                {mode === 'side' ? PHASE_LABEL[p] : shot.fileName}
-              </Text>
+              <Stack gap={2} data-parity="cap">
+                <Text fz="md" fw={500} lh="normal" truncate data-parity="phase">
+                  {shownMode === 'side'
+                    ? PHASE_LABEL[p]
+                    : shownName(shot, variant)}
+                </Text>
+                {line ? (
+                  <Text
+                    fz="md"
+                    lh="normal"
+                    c={line.kind === 'waiver' ? 'dimmed' : undefined}
+                    data-parity={line.kind}
+                  >
+                    {line.kind === 'waiver' &&
+                    line.text === 'Waived' &&
+                    c.waiver
+                      ? `Waived: ${c.waiver}`
+                      : line.text}
+                  </Text>
+                ) : null}
+              </Stack>
             </Stack>
           );
         })}

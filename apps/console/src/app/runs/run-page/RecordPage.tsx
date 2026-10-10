@@ -75,10 +75,10 @@ export function RecordPage({
   const link = useCompareLink();
   const askedTab = new URLSearchParams(useSearch()).get('tab');
   const [compare, setCompare] = useState<CompareOpen | null>(() =>
-    comparable && link.mode ? { mode: link.mode } : null
+    comparable && link.open ? link.open : null
   );
   const [tab, setTab] = useState<RecordTab | null>(() =>
-    comparable && link.mode
+    comparable && link.open
       ? 'evidence'
       : askedTab === 'story' || askedTab === 'evidence' || askedTab === 'inputs'
         ? askedTab
@@ -208,6 +208,7 @@ export function RecordPage({
           record={comparable}
           ticket={facts.hero.ticket}
           {...compare}
+          onShow={link.sync}
           onClose={() => {
             setCompare(null);
             link.clear();

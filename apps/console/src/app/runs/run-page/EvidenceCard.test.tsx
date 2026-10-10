@@ -135,7 +135,7 @@ describe('EvidenceCard story variant', () => {
       within(dialog)
         .getAllByRole('img')
         .map(i => i.getAttribute('src'))
-    ).toEqual([`${BASE}/beforeAnnotated`, `${BASE}/afterAnnotated`]);
+    ).toEqual([`${BASE}/case/before?annotated=1`]);
   });
 
   it('opens the compare modal on the thumbnail clicked', async () => {
@@ -147,7 +147,7 @@ describe('EvidenceCard story variant', () => {
       within(dialog)
         .getAllByRole('img')
         .map(i => i.getAttribute('src'))
-    ).toEqual([`${BASE}/before`]);
+    ).toEqual([`${BASE}/case/before`]);
   });
 
   it('replaces a broken image with a placeholder and does not request it again', () => {

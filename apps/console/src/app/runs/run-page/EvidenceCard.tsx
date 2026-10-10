@@ -28,6 +28,7 @@ import { EvidenceImage } from './EvidenceImage';
 import {
   addressOf,
   badgesOf,
+  evidenceTitle,
   evidenceUrl,
   fileNameOf,
   headLabel,
@@ -63,15 +64,6 @@ export interface EvidenceCardProps {
   /** Record only: the page owns the compare modal (it follows `?compare=`),
       so the card hands it each request. */
   onCompare?: (open: CompareOpen) => void;
-}
-
-/** "WEB-409 · Rush order, Sep 14 delay, Denver": the run, then what the
-    full-size view shows. */
-export function evidenceTitle(
-  ticket: string | null | undefined,
-  what?: string
-): string {
-  return [ticket, what].filter(Boolean).join(' · ') || 'Evidence';
 }
 
 /** A thumbnail's frame: a screenshot's proportions at the width of the

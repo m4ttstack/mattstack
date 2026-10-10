@@ -109,6 +109,15 @@ export function headLabel(rec: EvidenceCases, c: EvidenceCase): string | null {
   return rec.source === 1 && c.label === V1_FALLBACK_LABEL ? null : c.label;
 }
 
+/** "WEB-409 · Rush order, Sep 14 delay, Denver": the run, then what the
+    full-size view shows. */
+export function evidenceTitle(
+  ticket: string | null | undefined,
+  what?: string
+): string {
+  return [ticket, what].filter(Boolean).join(' · ') || 'Evidence';
+}
+
 export interface ShotAddress {
   caseId: string;
   slot: EvidencePhase;
