@@ -86,14 +86,18 @@ button with a tooltip naming the problem; the rest of the manifest still loads.
 2. Stop the app's normal service.
 3. Start one launchd service per `live` entry, with the working directory set
    to `<source>/apps/<name>`.
-4. If there is a `ui` entry, point the route at its port through the existing
-   port override path (`setRoutePort` and `setOverride` in deck), owned by live
-   mode.
+4. If there is a `ui` entry, point every route of the app (`<name>.mattstack`
+   and `<name>.localhost`) at its port. Live mode does this itself rather than
+   through the dev-port override: that override only moves `<name>.localhost`,
+   because `<name>.mattstack` is a separate route entry. If a manual override
+   is set when the app goes live, it is cleared first.
 5. Record the live state on the app's settings entry, beside `override`:
-   `{ source, startedAt }`.
+   `{ source, startedAt, uiPort }`. The reconcile tick re-asserts the route
+   move the way it re-asserts overrides.
 
-**Off.** Stop the live services, restore the route through the override's
-captured `basePort`, clear the live state, and start the normal service again.
+**Off.** Stop every installed live service of the app (by label, so one the
+manifest no longer names still goes), point its routes back at its own port,
+clear the live state, and start the normal service again.
 Nothing about the normal service (its dev link, its installed plist) is touched
 while live, so off is a clean return.
 
