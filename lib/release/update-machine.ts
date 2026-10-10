@@ -750,7 +750,7 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
   let devNotRunning = (await pgrepPids(seams, DEV_APP_ANCHOR)).length === 0;
   await runGatedLeg("dev-bundle", DEV_BUNDLE_LABEL, () => runDevBundleLeg(seams, ctx, () => { devNotRunning = true; }, true));
   const publishBlocker = !notaryReady
-    ? `Not run: no notary profile named ${seams.notaryProfile} on this Mac; save one once with: xcrun notarytool store-credentials ${seams.notaryProfile}`
+    ? `Not run: could not read the notary profile ${seams.notaryProfile}. If the login keychain is locked, unlock it and run this again; if the profile was never saved, save it once with: xcrun notarytool store-credentials ${seams.notaryProfile}`
     : legs.find((l) => l.id === "dev-bundle")?.status !== "ok"
       ? "Not run: the dev app was not built in this run"
       : null;
