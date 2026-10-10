@@ -84,3 +84,22 @@ test('a failed install over a half-installed tree leaves no ready mark', async (
   expect(markedDuringRun).toBe(false);
   expect(existsSync(readyMarker(root))).toBe(false);
 });
+
+test('a marker that cannot be removed fails the run with the error in its log', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'deck-setup-'));
+  let ran = false;
+  const ok = await runSetup('chat', root, null, {
+    removeMarker: () => {
+      throw new Error('EACCES: marker is busy');
+    },
+    run: async () => {
+      ran = true;
+      return 0;
+    },
+  });
+  expect(ok).toBe(false);
+  expect(ran).toBe(false);
+  const run = setupFor('chat');
+  expect(run?.state).toBe('failed');
+  expect(run?.log.join('\n')).toContain('EACCES: marker is busy');
+});

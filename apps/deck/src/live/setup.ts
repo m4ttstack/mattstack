@@ -18,6 +18,7 @@ export interface SetupDeps {
     onLine: (line: string) => void
   ) => Promise<number>;
   now?: () => Date;
+  removeMarker?: (path: string) => void;
 }
 
 const LOG_LINES = 200;
@@ -116,9 +117,11 @@ export async function runSetup(
     if (run.log.length > LOG_LINES) run.log.shift();
   };
   push('$ bun install');
-  rmSync(readyMarker(root), { force: true });
   let code: number;
   try {
+    (deps.removeMarker ?? (path => rmSync(path, { force: true })))(
+      readyMarker(root)
+    );
     code = await (deps.run ?? defaultRun)(['bun', 'install'], root, push);
   } catch (err) {
     push(String(err));
