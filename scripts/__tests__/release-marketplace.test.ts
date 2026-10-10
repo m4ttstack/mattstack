@@ -261,7 +261,7 @@ describe("marketplace.sh publish", () => {
     mkdirSync(join(pack, ".claude-plugin"), { recursive: true });
     mkdirSync(join(pack, "pack"), { recursive: true });
     writeFileSync(join(pack, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version }));
-    writeFileSync(join(pack, "pack", "requires.json"), JSON.stringify({ engine: version }));
+    writeFileSync(join(pack, "pack", "requires.json"), JSON.stringify({ minEngine: version }));
     git(tree, "add", "-A");
     git(tree, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "pack");
     return tree;

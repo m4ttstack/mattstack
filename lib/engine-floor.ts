@@ -44,9 +44,7 @@ export function runnableEngine(deps: EngineDeps = defaultDeps()): string | null 
       try {
         const v = (JSON.parse(raw) as { version?: unknown }).version;
         if (typeof v === "string" && v.length > 0) return v;
-      } catch {
-        // falls through to unknown
-      }
+      } catch {}
     }
   }
   if (!warned) {
@@ -68,9 +66,7 @@ export function readFloor(readFile: (path: string) => string | null, pluginDir: 
   try {
     const v = (JSON.parse(raw) as { minEngine?: unknown }).minEngine;
     if (typeof v === "string" && v.length > 0) return v;
-  } catch {
-    // falls through
-  }
+  } catch {}
   warn("engine-floor", `${path} is not a valid engine floor, so it is ignored`, {});
   return null;
 }
