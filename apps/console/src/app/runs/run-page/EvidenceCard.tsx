@@ -94,11 +94,13 @@ function Thumb({
   src,
   name,
   size,
+  line,
   onOpen,
 }: {
   src: string;
   name: string;
   size: 'story' | 'record';
+  line?: { kind: 'caption' | 'waiver'; text: string } | null;
   onOpen: () => void;
 }) {
   return (
@@ -119,6 +121,16 @@ function Thumb({
       >
         {name}
       </Text>
+      {line ? (
+        <Text
+          fz="sm"
+          lh="normal"
+          c={line.kind === 'waiver' ? 'dimmed' : undefined}
+          data-parity={line.kind}
+        >
+          {line.text}
+        </Text>
+      ) : null}
     </Stack>
   );
 }
@@ -134,6 +146,7 @@ function UrlLink({ url }: { url: string }) {
       lh="normal"
       c="accent"
       className={classes.link}
+      data-parity="link"
     >
       <Icon name="externalLink" size={13} data-parity="i" />
       <span data-parity="t">{urlLabel(url)}</span>
@@ -229,54 +242,144 @@ function LegacyEvidence({
   );
 }
 
-/** The story's evidence: the stage's screenshots as thumbnails, the page they
-    were taken on, and the way to see them full size. */
+/** One case in a several-case story row: its annotated shot (or the waived
+    base), then its label, badges and line. */
+function CaseThumb({
+  repo,
+  runId,
+  c,
+  phase,
+  onCompare,
+}: {
+  repo: string;
+  runId: string;
+  c: EvidenceCase;
+  phase: EvidencePhase;
+  onCompare: (open: CompareOpen) => void;
+}) {
+  const shot = shotIn(c, phase, 'light');
+  if (!shot) return null;
+  const line = shotLine(c, shot);
+  return (
+    <Stack gap={4} className={classes.storyThumb} data-parity="case">
+      <ThumbFrame>
+        <EvidenceImage
+          src={evidenceUrl(repo, runId, addressOf(c, phase, shot))}
+          name={shownName(shot)}
+          cover
+          onOpen={() =>
+            onCompare({
+              caseId: c.id,
+              mode: phase,
+              theme: shot.theme,
+              variant: 'annotated',
+            })
+          }
+        />
+      </ThumbFrame>
+      <Group gap={6} wrap="nowrap" data-parity="label line">
+        <Text fz="sm" lh="normal" fw={500} truncate data-parity="label">
+          {c.label}
+        </Text>
+        <CaseBadges c={c} phase={phase} />
+      </Group>
+      {line ? (
+        <Text
+          fz="sm"
+          lh="normal"
+          c={line.kind === 'waiver' ? 'dimmed' : undefined}
+          data-parity={line.kind}
+        >
+          {line.kind === 'waiver' && line.text === 'Waived' && c.waiver
+            ? `Waived: ${c.waiver}`
+            : line.text}
+        </Text>
+      ) : null}
+    </Stack>
+  );
+}
+
+/** The story's evidence: one case's shots as they are, or one shot per case
+    for several, the page they were taken on, and the way to see them full
+    size. */
 function StoryEvidence({
   repo,
   runId,
-  evidence,
+  rec,
   phase: only,
   withUrl,
   onCompare,
 }: {
   repo: string;
   runId: string;
-  evidence: EvidenceCases;
+  rec: EvidenceCases;
   phase?: EvidencePhase;
   withUrl: boolean;
   onCompare: (open: CompareOpen) => void;
 }) {
-  const c = evidence.cases[0]!;
-  const phase = only ?? slotsOf(c)[0];
-  const shot = phase ? shotIn(c, phase, 'light') : null;
-  if (!phase || !shot) return null;
-  const url = withUrl ? evidence.url : undefined;
-  const variants = shot.annotated
-    ? (['plain', 'annotated'] as const)
-    : (['plain'] as const);
-
+  const phase =
+    only ??
+    (['before', 'after'] as const).find(p =>
+      rec.cases.some(c => (c[p]?.length ?? 0) > 0)
+    );
+  if (!phase) return null;
+  const inPhase = rec.cases.filter(c => (c[phase]?.length ?? 0) > 0);
+  if (inPhase.length === 0) return null;
+  const url = withUrl ? rec.url : undefined;
+  const one = rec.cases.length === 1 ? inPhase[0]! : null;
+  const shot = one ? shotIn(one, phase, 'light') : null;
   return (
     <Stack gap={12}>
-      <div className={classes.strip}>
-        {variants.map(variant => (
-          <Thumb
-            key={variant}
-            src={evidenceUrl(repo, runId, addressOf(c, phase, shot, variant))}
-            name={shownName(shot, variant)}
-            size="story"
-            onOpen={() => onCompare({ caseId: c.id, mode: phase, variant })}
-          />
-        ))}
+      <div className={classes.strip} data-parity="strip">
+        {one && shot
+          ? (['plain', 'annotated'] as const)
+              .filter(v => v === 'plain' || shot.annotated)
+              .map(variant => (
+                <Thumb
+                  key={variant}
+                  src={evidenceUrl(
+                    repo,
+                    runId,
+                    addressOf(one, phase, shot, variant)
+                  )}
+                  name={shownName(shot, variant)}
+                  size="story"
+                  line={
+                    variant === 'annotated' || !shot.annotated
+                      ? shotLine(one, shot)
+                      : null
+                  }
+                  onOpen={() =>
+                    onCompare({
+                      caseId: one.id,
+                      mode: phase,
+                      theme: shot.theme,
+                      variant,
+                    })
+                  }
+                />
+              ))
+          : inPhase.map(c => (
+              <CaseThumb
+                key={c.id}
+                repo={repo}
+                runId={runId}
+                c={c}
+                phase={phase}
+                onCompare={onCompare}
+              />
+            ))}
       </div>
-      <Group gap={16} wrap="wrap" className={classes.links}>
-        {url && <UrlLink url={url} />}
+      <Group gap={16} wrap="wrap" className={classes.links} data-parity="links">
+        {url ? <UrlLink url={url} /> : null}
         <Anchor
           component="button"
           type="button"
           fz="md"
           lh="normal"
           c="accent"
-          onClick={() => onCompare({})}
+          onClick={() => onCompare({ mode: phase })}
+          data-parity="open"
         >
           Open full size →
         </Anchor>
@@ -363,8 +466,8 @@ function CaseShot({
 }
 
 /** The quiet gray badges after a case's label. */
-function CaseBadges({ c }: { c: EvidenceCase }) {
-  return badgesOf(c).map(b => (
+function CaseBadges({ c, phase }: { c: EvidenceCase; phase?: EvidencePhase }) {
+  return badgesOf(c, phase).map(b => (
     <Badge
       key={b}
       variant="light"
@@ -534,7 +637,7 @@ function CaseEvidence({
         <StoryEvidence
           repo={repo}
           runId={runId}
-          evidence={evidence}
+          rec={evidence}
           phase={phase}
           withUrl={withUrl}
           onCompare={request}

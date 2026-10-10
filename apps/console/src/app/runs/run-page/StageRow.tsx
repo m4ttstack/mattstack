@@ -10,7 +10,7 @@ import type { MantineColor } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { IconName } from '@mattstack/app-kit/icons';
 import type { RunFieldRow } from '@mattstack/rt-client';
-import { parseEvidence } from '@mattstack/rt-client/evidence';
+import { readEvidence } from '@mattstack/rt-client/evidence';
 
 import { formatDuration } from '../derive/duration';
 import { fieldLabel } from '../derive/fields';
@@ -109,7 +109,7 @@ export function StageNavItem({
   active: boolean;
   onPick: () => void;
 }) {
-  const evidence = entry.evidence ? parseEvidence(evidenceField?.value) : null;
+  const evidence = entry.evidence ? readEvidence(evidenceField?.value) : null;
   const summary = stageSummary(entry, evidence);
   return (
     <NavLink
@@ -162,7 +162,7 @@ export function StagePane({
   ticket = null,
   heading = false,
 }: StagePaneProps) {
-  const evidence = entry.evidence ? parseEvidence(evidenceField?.value) : null;
+  const evidence = entry.evidence ? readEvidence(evidenceField?.value) : null;
   return (
     <Stack
       gap={14}

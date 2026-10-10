@@ -82,8 +82,8 @@ describe('EvidenceCard story variant', () => {
   it('shows the phase as thumbnails, plain then annotated, each named under it', () => {
     const { container, getByText } = story({ phase: 'before' });
     expect(shownSrcs(container)).toEqual([
-      `${BASE}/before`,
-      `${BASE}/beforeAnnotated`,
+      `${BASE}/case/before`,
+      `${BASE}/case/before?annotated=1`,
     ]);
     expect(getByText('before.png')).toBeInTheDocument();
     expect(getByText('before-annotated.png')).toBeInTheDocument();
@@ -93,8 +93,8 @@ describe('EvidenceCard story variant', () => {
   it('shows the asked phase only', () => {
     const { container } = story({ phase: 'after' });
     expect(shownSrcs(container)).toEqual([
-      `${BASE}/after`,
-      `${BASE}/afterAnnotated`,
+      `${BASE}/case/after`,
+      `${BASE}/case/after?annotated=1`,
     ]);
   });
 
@@ -174,12 +174,12 @@ describe('EvidenceCard story variant', () => {
         </QueryClientProvider>
       );
       const { container, getByText, rerender } = renderWithProviders(card);
-      expect(requested).toEqual([`${BASE}/before`]);
+      expect(requested).toEqual([`${BASE}/case/before`]);
       fireEvent.error(container.querySelector('img')!);
       expect(getByText('image unavailable')).toBeInTheDocument();
       expect(container.querySelector('img')).toBeNull();
       rerender(card);
-      expect(requested).toEqual([`${BASE}/before`]);
+      expect(requested).toEqual([`${BASE}/case/before`]);
     } finally {
       spy.mockRestore();
     }
@@ -326,6 +326,32 @@ const THREE = readEvidence(
     attach: 'ship',
   })
 );
+
+describe('EvidenceCard story variant, several cases', () => {
+  it('draws one annotated shot per case for several cases, with label and line', () => {
+    const { container } = story({ evidence: THREE, phase: 'after' });
+    expect(container.querySelectorAll('[data-parity="case"]')).toHaveLength(3);
+    expect(shownSrcs(container)).toEqual([
+      '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/rush-window/after?annotated=1',
+      '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/order-card-themes/after?theme=light&annotated=1',
+      '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/empty-state/after',
+    ]);
+    expect(
+      screen.getByText('Waived: Before and after are pixel-identical')
+    ).toBeInTheDocument();
+    expect(screen.getByText('waived')).toBeInTheDocument();
+  });
+
+  it('keeps a one-case run as today: plain then annotated, each named', () => {
+    const { container } = story({ phase: 'after' });
+    expect(shownSrcs(container)).toEqual([
+      `${BASE}/case/after`,
+      `${BASE}/case/after?annotated=1`,
+    ]);
+    expect(screen.getByText('after.png')).toBeInTheDocument();
+    expect(screen.getByText('after-annotated.png')).toBeInTheDocument();
+  });
+});
 
 describe('EvidenceCard record variant', () => {
   it('draws Before and After thumbnails with their captions and the count', () => {
