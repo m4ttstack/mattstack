@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { MissionDriver } from "../driver.ts";
+import { MissionDriver, type MissionDeps } from "../driver.ts";
+import { runAction } from "../git-actions.ts";
 import type { MissionModel } from "../model.ts";
-import { LiveSession, makeSandbox, realDeps, type Sandbox } from "./compose-harness.ts";
+import { LiveSession, makeSandbox, realDeps, runGit, type Sandbox } from "./compose-harness.ts";
 
-async function start(sandbox: Sandbox): Promise<{ session: LiveSession; seed: MissionModel; stop: () => Promise<void> }> {
+async function start(
+  sandbox: Sandbox,
+  over: Partial<MissionDeps> = {},
+): Promise<{ session: LiveSession; seed: MissionModel; stop: () => Promise<void> }> {
   const session = new LiveSession();
   const opened: MissionModel[] = [];
-  const driver = new MissionDriver(realDeps(sandbox, session, (m) => opened.push(m)), { repo: "sandbox", worktree: sandbox.dir });
+  const driver = new MissionDriver({ ...realDeps(sandbox, session, (m) => opened.push(m)), ...over }, { repo: "sandbox", worktree: sandbox.dir });
   const run = driver.run();
   const deadline = Date.now() + 5_000;
   while (opened.length === 0) {
@@ -210,6 +214,48 @@ describe("mission compose: stash against a real repo", () => {
       await sandbox.git(["stash", "push", "-m", "!!GitHub_Desktop<main>"]);
       const m = await session.sweep();
       expect(m.stash?.branch).toBe("main");
+      await stop();
+    } finally {
+      await sandbox.cleanup();
+    }
+  }, 30_000);
+});
+
+async function until(session: LiveSession, label: string, pred: (m: MissionModel) => boolean): Promise<MissionModel> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const hit = session.pushed.find(pred);
+    if (hit) return hit;
+    if (Date.now() > deadline) throw new Error(`no model where ${label}`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+describe("mission compose: a pull blocked by local changes against a real remote", () => {
+  test("opens the dialog with the file, and Stash Changes and Continue stashes then pulls", async () => {
+    const sandbox = await seeded();
+    const root = join(sandbox.dir, "..");
+    const peer = join(root, "peer");
+    try {
+      await sandbox.git(["push", "-u", "origin", "main"]);
+      await runGit(root, ["clone", "-b", "main", join(root, "origin.git"), peer]);
+      await Bun.write(join(peer, "a.txt"), "1\n2\n3\n4\nremote\n");
+      await runGit(peer, ["commit", "-am", "remote edit"]);
+      await runGit(peer, ["push", "origin", "main"]);
+      await sandbox.git(["fetch", "origin"]);
+      await sandbox.write("a.txt", "1\n2\n3\n4\nlocal\n");
+
+      const { session, stop } = await start(sandbox, { runAction });
+      session.send({ t: "intent", name: "mission:action", payload: {} });
+      const blocked = await until(session, "the dialog opens", (m) => m.localChangesPrompt !== null);
+      expect(blocked.localChangesPrompt).toEqual({ seq: 1, action: "pull", files: ["a.txt"] });
+      expect(blocked.notice).toBe("");
+
+      session.send({ t: "intent", name: "mission:stash-and-retry", payload: {} });
+      await until(session, "the pull lands", (m) => m.action.kind === "fetch" && m.stash !== null);
+      expect((await sandbox.git(["rev-parse", "HEAD"])).trim()).toBe((await sandbox.git(["rev-parse", "origin/main"])).trim());
+      expect(readFileSync(join(sandbox.dir, "a.txt"), "utf8")).toBe("1\n2\n3\n4\nremote\n");
+      expect(await desktopStashes(sandbox)).toEqual(["On main: !!GitHub_Desktop<main>"]);
       await stop();
     } finally {
       await sandbox.cleanup();
