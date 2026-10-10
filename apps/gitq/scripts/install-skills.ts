@@ -9,9 +9,12 @@
     picks one harness, and a folder given as the last argument replaces its
     default (used by tests).
 
-    gitq's skills name no Claude-only variable and no harness fragment, so
-    skills/ is also their Codex build; a skill with a file that does is not
-    linked for another harness. An id gitq has no skills for is skipped. */
+    A skill with a file naming a Claude-only variable, a Claude-only tool
+    (AskUserQuestion, SendMessage) or a harness fragment has no build for
+    another harness and is not linked there, so Codex is never handed a skill
+    it cannot finish. Today every gitq skill names AskUserQuestion, so Codex
+    gets none until they carry the questions fragment. An id gitq has no
+    skills for is skipped. */
 import { readFileSync, readdirSync, existsSync, lstatSync, readlinkSync, symlinkSync, rmSync, mkdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -61,6 +64,7 @@ function skillName(dir: string): string | null {
 }
 
 const CLAUDE_ONLY_MARKERS = ['${CLAUDE_', '{{harness:'];
+const CLAUDE_ONLY_TOOLS = /\b(AskUserQuestion|SendMessage)\b/;
 
 /** The first file under a skill folder that only Claude's build can carry as written, relative to it; null when none does. */
 export function claudeOnlyFile(skillDir: string, rel = ''): string | null {
@@ -71,7 +75,7 @@ export function claudeOnlyFile(skillDir: string, rel = ''): string | null {
       if (found) return found;
     } else if (entry.isFile()) {
       const text = readFileSync(join(skillDir, path), 'utf8');
-      if (CLAUDE_ONLY_MARKERS.some((m) => text.includes(m))) return path;
+      if (CLAUDE_ONLY_MARKERS.some((m) => text.includes(m)) || CLAUDE_ONLY_TOOLS.test(text)) return path;
     }
   }
   return null;

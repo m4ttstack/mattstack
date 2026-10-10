@@ -206,6 +206,8 @@ describe('launchAction', () => {
     await expect(launchAction({ ...BASE, harness: 'codex' }, io)).rejects.toThrow(
       'The gitq:sync skill is not installed for Codex, so gitq cannot start it there.',
     );
+    const err = await launchAction({ ...BASE, harness: 'codex' }, io).catch((e: unknown) => e);
+    expect((err as Error).message).not.toContain('rt setup');
     expect(starts).toEqual([]);
   });
 

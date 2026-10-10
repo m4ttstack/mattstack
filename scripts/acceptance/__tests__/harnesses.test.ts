@@ -595,6 +595,18 @@ describe("Codex-only artifact never executes Claude", () => {
     expect(checks.some((c: { ok: boolean }) => !c.ok)).toBe(true);
   });
 
+  test("a bundle that ships a withheld app's Codex build fails release-artifact", async () => {
+    const evidence = join(tempDir("rt-acceptance-ev-"), "acceptance.json");
+    const e = env();
+    const held = join(e.descriptor.app, "Contents", "Helpers", "skills-targets", "codex", "gitq", "sync");
+    mkdirSync(held, { recursive: true });
+    writeFileSync(join(held, "SKILL.md"), "---\nname: sync\n---\nAsk with AskUserQuestion.\n");
+    const run = await runProfile({ profile: "codex-only", evidence, environment: e.descriptorPath, execFor: () => e.exec });
+    const record = run.scenarios.find((s) => s.scenario === "release-artifact")!;
+    expect(record.outcome).toBe("failed");
+    expect(record.reason).toContain("Helpers/skills-targets/codex/gitq is absent: its skills are withheld from Codex");
+  });
+
   test("the artifact's commit comes from the bundle's own stamp", async () => {
     const evidence = join(tempDir("rt-acceptance-ev-"), "acceptance.json");
     const e = env();

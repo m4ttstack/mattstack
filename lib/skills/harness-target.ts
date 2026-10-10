@@ -84,6 +84,23 @@ export function knownHarnesses(): string[] {
   return Object.keys(TARGETS);
 }
 
+/** The Codex target with no fragments: enough to check a built tree for what Codex cannot run. */
+export const CODEX_BUILD_TARGET: SkillTarget = {
+  harness: "codex",
+  capabilities: TARGETS.codex!.capabilities,
+  fragments: {},
+  foreignTools: TARGETS.codex!.foreignTools,
+  resourcePath: TARGETS.codex!.resourcePath,
+};
+
+/**
+ * Apps whose skills still name a tool Codex lacks and carry no
+ * `{{harness:questions}}` fragment yet. Codex never gets them, from the
+ * bundle or from setup, so a Codex user is never handed a skill that cannot
+ * finish. An app leaves this set when its skills are ported.
+ */
+export const CODEX_WITHHELD_APP_SKILLS: ReadonlySet<string> = new Set(["gitq"]);
+
 const FRAGMENT_HEADING_RE = /^## ([a-z][a-z0-9-]*)\s*$/;
 
 /**

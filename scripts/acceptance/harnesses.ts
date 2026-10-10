@@ -18,6 +18,7 @@
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import type { Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
+import { CODEX_WITHHELD_APP_SKILLS } from "../../lib/skills/harness-target.ts";
 import {
   environmentExec, ENV_VAR, loadEnvironment, parseVersion, tripwireCount,
   type EnvironmentDescriptor, type Exec,
@@ -219,9 +220,9 @@ export const releaseArtifactDriver: Driver = async (ctx) => {
       marker = null;
     }
     check("Helpers/skills-targets/codex/board is the Codex build", (marker as { harness?: string } | null)?.harness === "codex");
-    for (const app of ["board", "gitq"]) {
-      const dir = join(root, app);
-      check(`Helpers/skills-targets/codex/${app} holds skills`, skillDirs(dir).some((s) => existsSync(join(dir, s, "SKILL.md"))));
+    check("Helpers/skills-targets/codex/board holds skills", skillDirs(board).some((s) => existsSync(join(board, s, "SKILL.md"))));
+    for (const app of [...CODEX_WITHHELD_APP_SKILLS].sort()) {
+      check(`Helpers/skills-targets/codex/${app} is absent: its skills are withheld from Codex`, !existsSync(join(root, app)));
     }
     const leaks: string[] = [];
     const walk = (dir: string, rel: string) => {

@@ -51,6 +51,17 @@ describe("linkBundledSkills", () => {
     expect(existsSync(join(claudeDir, "gitq:track"))).toBe(true);
   });
 
+  test("never links a withheld app, and says why", () => {
+    bundleSkill("gitq", "track", "gitq:track");
+    bundleSkill("board", "review", "board:review");
+
+    const result = linkBundledSkills({ skillsRoot, hostSkillsDir: claudeDir, isBundled: all, withheld: new Set(["gitq"]) });
+
+    expect(result.find((r) => r.app === "gitq")).toEqual({ app: "gitq", linked: 0, changed: false, skipped: "its skills do not run under this agent yet" });
+    expect(existsSync(join(claudeDir, "gitq:track"))).toBe(false);
+    expect(existsSync(join(claudeDir, "board:review"))).toBe(true);
+  });
+
   test("honors .skillsignore, so maintainer-only skills never link", () => {
     bundleSkill("rt", "rt-chat", "rt:chat");
     bundleSkill("rt", "rt-release", "rt:release");

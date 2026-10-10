@@ -229,7 +229,7 @@ function harnessActionPrompt(harness: HarnessId, opts: ActionLaunchOpts, io: Act
   const skill = `gitq:${opts.action}`;
   const path = join(io.codexSkillsDir(), skill, 'SKILL.md');
   if (!io.exists(path)) {
-    throw new Error(`The ${skill} skill is not installed for Codex, so gitq cannot start it there. Run rt setup to link it.`);
+    throw new Error(`The ${skill} skill is not installed for Codex, so gitq cannot start it there.`);
   }
   const args = [opts.runDir, opts.stack, '--state', opts.statePath, '--status-bin', statusBinPath()].join(' ');
   return `Use the ${skill} skill at ${path} with these arguments: ${args}`;

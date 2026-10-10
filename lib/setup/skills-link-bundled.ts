@@ -31,6 +31,8 @@ export function linkBundledSkills(opts: {
   hostSkillsDir: string;
   /** True when the app's own binary is in the bundle. */
   isBundled: (app: string) => boolean;
+  /** Apps whose skills this harness never gets, whatever the bundle holds. */
+  withheld?: ReadonlySet<string>;
   dryRun?: boolean;
 }): BundledSkillsResult[] {
   if (!existsSync(opts.skillsRoot)) return [];
@@ -39,6 +41,10 @@ export function linkBundledSkills(opts: {
   for (const entry of readdirSync(opts.skillsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const app = entry.name;
+    if (opts.withheld?.has(app)) {
+      results.push({ app, linked: 0, changed: false, skipped: "its skills do not run under this agent yet" });
+      continue;
+    }
     if (!opts.isBundled(app)) {
       results.push({ app, linked: 0, changed: false, skipped: "not bundled" });
       continue;

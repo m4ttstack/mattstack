@@ -144,8 +144,8 @@ function bundle(app: string): void {
   for (const appName of ["board", "gitq"]) {
     mkdirSync(join(helpers, "skills", appName, "review"), { recursive: true });
     writeFileSync(join(helpers, "skills", appName, "review", "SKILL.md"), "---\nname: review\n---\nRun ${CLAUDE_SKILL_DIR}/scripts/x.sh\n");
-    mkdirSync(join(helpers, "skills-targets", "codex", appName, "review"), { recursive: true });
-    writeFileSync(join(helpers, "skills-targets", "codex", appName, "review", "SKILL.md"), "---\nname: review\n---\nRun scripts/x.sh\n");
   }
+  mkdirSync(join(helpers, "skills-targets", "codex", "board", "review"), { recursive: true });
+  writeFileSync(join(helpers, "skills-targets", "codex", "board", "review", "SKILL.md"), "---\nname: review\n---\nRun scripts/x.sh\n");
   writeFileSync(join(helpers, "skills-targets", "codex", "board", "skills-target.json"), '{"harness":"codex"}\n');
 }

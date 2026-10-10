@@ -278,7 +278,7 @@ A local web board showing every configured repo's stacks: per branch status badg
 
 Right-clicking a stack offers four actions. Each one spawns a herdr tab running `claude` with the matching `gitq:*` skill, so the badge updates live while the agent works. Relaunching a live action refocuses its tab instead of double-spawning.
 
-With mattstack's agent integrations turned on (`agent.integrations.enabled`), rt starts the action instead, with your default agent when it is turned on, else the first one that is (Claude Code or Codex). Only the session rt started can then report that job's status. That check reads the session from the reporting command's environment, so it catches a worker reporting the wrong job by accident; it does not stop a process that deliberately sets another session's id.
+With mattstack's agent integrations turned on (`agent.integrations.enabled`), rt starts the action instead, with your default agent when it is turned on, else the first one that is (Claude Code or Codex). Codex cannot run gitq's skills yet (see Agent skills), so an action started with Codex refuses. Only the session rt started can then report that job's status. That check reads the session from the reporting command's environment, so it catches a worker reporting the wrong job by accident; it does not stop a process that deliberately sets another session's id.
 
 ```bash
 mkdir -p ~/.mattstack/gitq
@@ -306,7 +306,7 @@ bun run scripts/install-skills.ts
 
 `install-skills.ts` is checkout-only. It replaces any existing symlink at `~/.claude/skills/<name>`, so it relinks over the app's links, and the app's setup leaves a link it did not make alone: the checkout links stay until you remove them.
 
-With the agent integrations turned on, it links into the skills folder of each agent that is on instead: `~/.claude/skills` for Claude Code, `$CODEX_HOME/skills` (default `~/.codex/skills`) for Codex. `--harness claude` or `--harness codex` picks one.
+With the agent integrations turned on, it links into the skills folder of each agent that is on instead: `~/.claude/skills` for Claude Code, `$CODEX_HOME/skills` (default `~/.codex/skills`) for Codex. `--harness claude` or `--harness codex` picks one. Codex gets none of them yet: each skill still asks its questions through Claude Code's own question tool, so neither the app's setup nor this script links them for Codex until they are ported.
 
 Four are one per board action:
 

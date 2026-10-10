@@ -18,6 +18,7 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { spawnSync } from "child_process";
 import { parseDepsLock } from "../lib/bundle-layout.ts";
+import { CODEX_BUILD_TARGET, CODEX_WITHHELD_APP_SKILLS, foreignToolWarnings } from "../lib/skills/harness-target.ts";
 import { stageIdentity } from "./lib/app-identity.ts";
 import { readBundleRecipe } from "./lib/validate-manifest.ts";
 
@@ -37,16 +38,18 @@ const SAFE_NAME = /^[a-z0-9][a-z0-9-]*$/;
 
 /**
  * Apps whose skills Codex loads exactly as written: they name no Claude skill
- * variable, so their Codex build is the source tree itself. Every other app
- * ships Codex skills only from a generated `skills-targets/codex` tree.
+ * variable or Claude-only tool, so their Codex build is the source tree
+ * itself. Every other app ships Codex skills only from a generated
+ * `skills-targets/codex` tree.
  */
-export const CODEX_SKILLS_AS_WRITTEN: ReadonlySet<string> = new Set(["gitq"]);
+export const CODEX_SKILLS_AS_WRITTEN: ReadonlySet<string> = new Set();
 
 const TARGET_MARKER = "skills-target.json";
 const CLAUDE_SKILL_VARIABLE = /\$\{CLAUDE_[A-Z_]+\}/;
 
 /** The folder a tree row's Codex skills ship from, or null when it has no Codex build. */
 export function codexSkillsSource(app: string, name: string): string | null {
+  if (CODEX_WITHHELD_APP_SKILLS.has(name)) return null;
   const target = join(app, "skills-targets", "codex");
   if (existsSync(target)) {
     let marker: { harness?: unknown } | null = null;
@@ -61,14 +64,21 @@ export function codexSkillsSource(app: string, name: string): string | null {
   return CODEX_SKILLS_AS_WRITTEN.has(name) && existsSync(join(app, "skills")) ? join(app, "skills") : null;
 }
 
-/** A Codex skills tree that still names a Claude skill variable would hand Codex a path it never sets. */
+/**
+ * A Codex skills tree that still names a Claude skill variable would hand
+ * Codex a path it never sets, and one naming a Claude-only tool a step it
+ * cannot take.
+ */
 export function assertCodexClean(dir: string, name: string): void {
   for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
     const path = join(entry.parentPath, entry.name);
-    if (CLAUDE_SKILL_VARIABLE.test(readFileSync(path, "utf8"))) {
+    const text = readFileSync(path, "utf8");
+    if (CLAUDE_SKILL_VARIABLE.test(text)) {
       throw new Error(`${name}: ${path} names a Claude skill variable, so it cannot ship as Codex's build`);
     }
+    const foreign = foreignToolWarnings(text, CODEX_BUILD_TARGET);
+    if (foreign.length > 0) throw new Error(`${name}: ${path}: ${foreign.join("; ")}, so it cannot ship as Codex's build`);
   }
 }
 
@@ -112,7 +122,9 @@ export async function buildTreeRows(s: BuildAppsSeams): Promise<string[]> {
         if (!existsSync(skills)) throw new Error(`${row.name}: deps.lock says skills but apps/${row.name}/skills is absent`);
         cpSync(skills, join(deps, `${row.name}-skills`), { recursive: true });
         const codex = codexSkillsSource(app, row.name);
-        if (codex) {
+        if (CODEX_WITHHELD_APP_SKILLS.has(row.name)) {
+          s.log(`  . ${row.name}: its skills are withheld from Codex until they carry the questions fragment`);
+        } else if (codex) {
           assertCodexClean(codex, row.name);
           cpSync(codex, join(deps, `${row.name}-skills-codex`), { recursive: true });
         } else {

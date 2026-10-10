@@ -54,7 +54,7 @@ requires the distributed workflow matrix.
 | A22 | Update, restore, uninstall | `update`, `restore`, `uninstall` | Blocked (S9b) | No full restore has run on a Codex-only Mac (S10). |
 | A23 | Board | `board-actions` | Blocked (S9b) | Board keeps its own copy of the harness helpers rt-client now exports (S7). |
 | A24 | Chat app and Herdr chat | `chat`, `chat-app` | Blocked (S9b) | None beyond the run. |
-| A25 | gitq | `gitq-actions` | Blocked (S9b) | gitq's skills ship to Codex as written; they still name `AskUserQuestion` for the form fallback. |
+| A25 | gitq | `gitq-actions` | Blocked | gitq's skills still name `AskUserQuestion` and carry no questions fragment, so they are withheld from Codex (no bundle build, no setup link, a Codex action refuses) until they are ported. |
 | A26 | Console, tray, onboarding | `default-cli-adoption`, `install` | Blocked (S9b) | Dev-app UI checks in both schemes are owed (S8, S8b, S8c). The solo card copy names Claude Code. |
 | A27 | Worktrees | `worktrees` | Blocked (S9b) | live-19 O9: the reconciler adopts unregistered worktrees, which registered/auto-accept then admit (Matt asked for a write-up). O5 and O2 from live-18 stand. |
 | A28 | Release and clean room | `release-artifact`, `codex-only-no-claude` | Blocked (S9b) | Deck's and rt's own skills have no Codex build and are not shipped for Codex. The release workflow is not gated on this matrix. |

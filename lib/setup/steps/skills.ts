@@ -26,6 +26,7 @@ import { resolveForge } from "./forge-identity.ts";
 import { repoBasename, skippedIdentities } from "./repos.ts";
 import { toFailedOutcome, unwritten } from "./step-utils.ts";
 import { codexUserSkillsDir } from "../../agent-integrations/codex/skills.ts";
+import { CODEX_WITHHELD_APP_SKILLS } from "../../skills/harness-target.ts";
 import { harnessSelected, noHarnessDetail, selectionFor, stepSelectionFor, type IntegrationSelection } from "../integration-selection.ts";
 import { codexHomeOf } from "../validators/codex.ts";
 
@@ -87,14 +88,14 @@ async function skillsLinkRun(ctx: ApplyContext): Promise<StepOutcome> {
 /** Where Codex's own build of each app's skills lands in the bundle, beside Claude's `skills/`. */
 const CODEX_BUNDLED_SKILLS = ["skills-targets", "codex"];
 
-type SkillsHost = { harness: string; dir: string; bundled: string };
+type SkillsHost = { harness: string; dir: string; bundled: string; withheld?: ReadonlySet<string> };
 
 /** Each selected harness's own skills folder, with the bundle folder holding the skills built for it. */
 function skillsHosts(ctx: ApplyContext, selection: IntegrationSelection): SkillsHost[] {
   const hosts: SkillsHost[] = [];
   if (harnessSelected(selection, "claude")) hosts.push({ harness: "claude", dir: join(ctx.p.home, ".claude", "skills"), bundled: join(HELPERS_DIR, "skills") });
   const codexHome = harnessSelected(selection, "codex") ? codexHomeOf(ctx.p) : null;
-  if (codexHome !== null) hosts.push({ harness: "codex", dir: codexUserSkillsDir(codexHome), bundled: join(HELPERS_DIR, ...CODEX_BUNDLED_SKILLS) });
+  if (codexHome !== null) hosts.push({ harness: "codex", dir: codexUserSkillsDir(codexHome), bundled: join(HELPERS_DIR, ...CODEX_BUNDLED_SKILLS), withheld: CODEX_WITHHELD_APP_SKILLS });
   return hosts;
 }
 
@@ -120,7 +121,7 @@ async function skillsLinkForHosts(ctx: ApplyContext, hosts: SkillsHost[]): Promi
   let total = 0;
   const apps = new Set<string>();
   for (const host of hosts) {
-    const results = linkBundledSkills({ skillsRoot: join(root, host.bundled), hostSkillsDir: host.dir, isBundled: (app) => bundledToolPath(ctx.p, app) !== null });
+    const results = linkBundledSkills({ skillsRoot: join(root, host.bundled), hostSkillsDir: host.dir, isBundled: (app) => bundledToolPath(ctx.p, app) !== null, withheld: host.withheld });
     if (results.length === 0) ctx.log("skills.link", `${host.harness}: this build ships no skills for it`);
     for (const r of results.filter((x) => x.skipped)) ctx.log("skills.link", `${r.app} (${host.harness}): ${r.skipped}`);
     for (const r of results.filter((x) => !x.skipped)) {

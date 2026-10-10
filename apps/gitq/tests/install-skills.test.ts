@@ -40,12 +40,11 @@ describe('install-skills', () => {
     expect(lstatSync(join(dest, 'gitq:sync')).isSymbolicLink()).toBe(true);
   });
 
-  test('--harness codex links the same skills into the given Codex skills folder', () => {
+  test('--harness codex links none of today\'s skills, since each still names a Claude-only tool', () => {
     const res = spawnSync('bun', ['run', SCRIPT, '--harness', 'codex', dest], { encoding: 'utf8' });
     expect(res.status).toBe(0);
-    for (const name of SKILLS) {
-      expect(readlinkSync(join(dest, name))).toBe(join(SKILLS_SRC, name.slice('gitq:'.length)));
-    }
+    expect(readdirSync(dest)).toEqual([]);
+    expect(res.stderr).toContain("skip    gitq:sync: SKILL.md is written for Claude's build only, so it has no codex build");
   });
 
   test('a harness gitq has no skills for is skipped with one line', () => {
@@ -55,11 +54,11 @@ describe('install-skills', () => {
     expect(readdirSync(dest)).toEqual([]);
   });
 
-  test('no gitq skill file is written for Claude only, so its source is also its Codex build', () => {
-    for (const dir of readdirSync(SKILLS_SRC)) expect(claudeOnlyFile(join(SKILLS_SRC, dir))).toBeNull();
+  test('every gitq skill still names a Claude-only tool, so none has a Codex build until it carries the questions fragment', () => {
+    for (const dir of readdirSync(SKILLS_SRC)) expect(claudeOnlyFile(join(SKILLS_SRC, dir))).not.toBeNull();
   });
 
-  test('a Claude-only variable or a harness fragment anywhere in a skill folder marks it', () => {
+  test('a Claude-only variable, tool or harness fragment anywhere in a skill folder marks it', () => {
     const skill = join(dest, 'fixture-skill');
     mkdirSync(join(skill, 'refs', 'deep'), { recursive: true });
     writeFileSync(join(skill, 'SKILL.md'), 'name: x\n');
@@ -70,6 +69,13 @@ describe('install-skills', () => {
     rmSync(join(skill, 'refs', 'deep', 'step.md'));
     writeFileSync(join(skill, 'run.sh'), 'cd "${CLAUDE_SKILL_DIR}"\n');
     expect(claudeOnlyFile(skill)).toBe('run.sh');
+    rmSync(join(skill, 'run.sh'));
+    for (const tool of ['AskUserQuestion', 'SendMessage']) {
+      writeFileSync(join(skill, 'refs', 'ask.md'), `Ask with ${tool}.\n`);
+      expect(claudeOnlyFile(skill)).toBe(join('refs', 'ask.md'));
+    }
+    writeFileSync(join(skill, 'refs', 'ask.md'), 'AskUserQuestions is another word\n');
+    expect(claudeOnlyFile(skill)).toBeNull();
   });
 
   describe('with no folder given', () => {
@@ -101,18 +107,18 @@ describe('install-skills', () => {
       expect(existsSync(join(home, 'codex'))).toBe(false);
     });
 
-    test('switch on: links into each harness turned on, and only those', () => {
-      const res = runIn({ 'agent.integrations.enabled': true, 'agent.integrations': ['codex'] });
+    test('switch on: links only for the harnesses turned on, and Codex gets no skill that cannot finish', () => {
+      const res = runIn({ 'agent.integrations.enabled': true, 'agent.integrations': ['claude', 'codex'] });
       expect(res.status).toBe(0);
-      for (const name of SKILLS) expect(lstatSync(join(home, 'codex', 'skills', name)).isSymbolicLink()).toBe(true);
-      expect(existsSync(join(home, '.claude'))).toBe(false);
+      for (const name of SKILLS) expect(lstatSync(join(home, '.claude', 'skills', name)).isSymbolicLink()).toBe(true);
+      expect(readdirSync(join(home, 'codex', 'skills'))).toEqual([]);
     });
 
-    test('switch on: an id gitq has no skills for is skipped and the rest are linked', () => {
-      const res = runIn({ 'agent.integrations.enabled': true, 'agent.integrations': ['pilot', 'codex'] });
+    test('switch on: an id gitq has no skills for is skipped with one line', () => {
+      const res = runIn({ 'agent.integrations.enabled': true, 'agent.integrations': ['pilot', 'claude'] });
       expect(res.status).toBe(0);
       expect(res.stderr.trim()).toBe('skip    pilot: gitq has no skills for pilot');
-      for (const name of SKILLS) expect(lstatSync(join(home, 'codex', 'skills', name)).isSymbolicLink()).toBe(true);
+      for (const name of SKILLS) expect(lstatSync(join(home, '.claude', 'skills', name)).isSymbolicLink()).toBe(true);
     });
   });
 

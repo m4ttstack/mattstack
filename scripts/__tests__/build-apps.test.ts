@@ -123,7 +123,8 @@ describe("build-apps", () => {
     expect(readFileSync(join(deps, "arm64", "alpha-skills", "hello", "SKILL.md"), "utf8")).toBe("# hello\n");
     expect(readFileSync(join(deps, "arm64", "alpha-skills-codex", "hello", "SKILL.md"), "utf8")).toBe("# hello for codex\n");
     expect(existsSync(join(deps, "arm64", "alpha-skills-codex", "skills-target.json"))).toBe(true);
-    expect(readFileSync(join(deps, "arm64", "gitq-skills-codex", "hello", "SKILL.md"), "utf8")).toBe("# hello\n");
+    expect(existsSync(join(deps, "arm64", "gitq-skills-codex"))).toBe(false);
+    expect(logs).toContain("  . gitq: its skills are withheld from Codex until they carry the questions fragment");
     expect(existsSync(join(deps, "arm64", "beta-skills-codex"))).toBe(false);
     expect(logs).toContain("  . beta: no Codex build of its skills");
   });
@@ -143,6 +144,16 @@ describe("build-apps", () => {
     fakeApp(apps, "alpha", { skills: true, codexTarget: "Run ${CLAUDE_SKILL_DIR}/x.sh\n" });
     await expect(buildTreeRows({ appsRoot: apps, depsRoot: join(work, "deps"), lockPath: treeLock(work, ["alpha"]), arch: "arm64", log: () => {} }))
       .rejects.toThrow(/names a Claude skill variable/);
+  });
+
+  test("refuses a Codex skills tree that names a tool Codex does not have", async () => {
+    for (const tool of ["AskUserQuestion", "SendMessage"]) {
+      const work = mkdtempSync(join(tmpdir(), "build-apps-"));
+      const apps = join(work, "apps");
+      fakeApp(apps, "alpha", { skills: true, codexTarget: `Ask with ${tool}.\n` });
+      await expect(buildTreeRows({ appsRoot: apps, depsRoot: join(work, "deps"), lockPath: treeLock(work, ["alpha"]), arch: "arm64", log: () => {} }))
+        .rejects.toThrow(`body names ${tool}, which the codex target does not have`);
+    }
   });
 
   test("the workspace build filter excludes glance-react", () => {

@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
+import { CODEX_WITHHELD_APP_SKILLS } from "../../lib/skills/harness-target.ts";
 import { assertCodexClean, CODEX_SKILLS_AS_WRITTEN, codexSkillsSource } from "../build-apps.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -26,11 +27,19 @@ describe("Codex skills in the bundle", () => {
     expect(read("lib/setup/steps/skills.ts")).toContain('const CODEX_BUNDLED_SKILLS = ["skills-targets", "codex"];');
   });
 
-  test("the bundle check admits the folder and requires board's and gitq's builds", () => {
+  test("the bundle check admits the folder, requires board's build and refuses a withheld app's", () => {
     const check = read("rt-tray/check-bundle.sh");
     expect(check).toMatch(/local allowed="[^"]* skills-targets /);
     expect(check).toContain('"$app/Contents/Helpers/skills-targets/codex"');
-    expect(check).toContain("for codexapp in board gitq; do");
+    expect(check).toContain("for codexapp in board; do");
+    expect(check).toContain(`for heldapp in ${[...CODEX_WITHHELD_APP_SKILLS].sort().join(" ")}; do`);
+  });
+
+  test("gitq's skills are withheld from Codex until they carry the questions fragment", () => {
+    expect(CODEX_WITHHELD_APP_SKILLS.has("gitq")).toBe(true);
+    expect(CODEX_SKILLS_AS_WRITTEN.has("gitq")).toBe(false);
+    expect(codexSkillsSource(join(APPS, "gitq"), "gitq")).toBeNull();
+    expect(read("lib/setup/steps/skills.ts")).toContain("withheld: CODEX_WITHHELD_APP_SKILLS");
   });
 
   test("the build stamps the commit acceptance records, marked when the tree is dirty", () => {
@@ -50,7 +59,7 @@ describe("Codex skills in the bundle", () => {
       expect(() => assertCodexClean(source, name)).not.toThrow();
       built.push(name);
     }
-    expect(built.sort()).toEqual(["board", "gitq"]);
+    expect(built.sort()).toEqual(["board"]);
     expect(codexSkillsSource(join(APPS, "board"), "board")).toBe(join(APPS, "board", "skills-targets", "codex"));
     expect(CODEX_SKILLS_AS_WRITTEN.has("deck")).toBe(false);
   });
