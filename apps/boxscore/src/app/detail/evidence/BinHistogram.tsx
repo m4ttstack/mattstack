@@ -1,4 +1,4 @@
-import { useGrow } from '../../ui/useGrow';
+import { useGrow } from '@mattstack/app-kit/hooks';
 import { BandChart } from './BandChart';
 import classes from './charts.module.css';
 

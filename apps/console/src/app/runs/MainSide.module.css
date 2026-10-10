@@ -1,0 +1,34 @@
+.columns {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap);
+  width: 100%;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
+
+.side {
+  flex: 0 0 var(--side-w);
+  width: var(--side-w);
+  min-width: 0;
+}
+
+/* Sticky inside a side column needs the column as tall as the main one. */
+.columns:has(.side [data-sticky]) {
+  align-items: stretch;
+}
+
+@media (max-width: 68em) {
+  .columns {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .side {
+    flex-basis: auto;
+    width: 100%;
+  }
+}

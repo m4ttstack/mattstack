@@ -22,16 +22,47 @@
 
 @media (hover: hover) {
   .railEntry[data-rail-expanded]:hover {
-    background-color: var(--mantine-primary-color-light-hover);
+    background-color: color-mix(in srgb, var(--tk-text-1) 10%, transparent);
   }
 }
 
 .railEntry[data-rail-expanded]:focus-visible {
-  background-color: var(--mantine-primary-color-light-hover);
+  background-color: color-mix(in srgb, var(--tk-text-1) 10%, transparent);
 }
 
-.railEntry[data-rail-expanded]:not([aria-current]) .railEntryIcon {
-  background-color: transparent;
+/* The rail marks place in neutral, leaving colour to the app's mark. The
+   current entry is a small card: the card surface and soft edge (no drop
+   shadow: .railEntryRow clips outside the icon, so a shadow shows cut). Hover is a thin
+   wash of the body text (darker in light, lighter in dark), and the current
+   entry keeps its card under the pointer. Mantine sets the
+   ActionIcon's colour variables inline, so these set the properties
+   themselves. */
+.railEntry[aria-current] .railEntryIcon {
+  background-color: var(--tk-card);
+  box-shadow: inset 0 0 0 1px var(--tk-border-soft);
+  color: var(--tk-text-1);
+}
+
+@media (hover: hover) {
+  .railEntry:not([data-rail-expanded]):not([aria-current]):hover
+    .railEntryIcon {
+    background-color: color-mix(in srgb, var(--tk-text-1) 10%, transparent);
+  }
+}
+
+/* Keyboard focus rings the icon square, which is what the eye reads as the
+   entry, in the primary colour: a solid 2px ring drawn just inside the
+   icon's edge, since .railEntryRow clips anything outside it (overflow
+   hidden, for the sliding label). The entry's own box spans the rail wider
+   than the icon, so its ring is turned off. Doubled class: Mantine's ring (.mantine-focus-auto)
+   has the same weight and loads later, so a single class loses to it. */
+.railEntry.railEntry:focus-visible {
+  outline: none;
+}
+
+.railEntry:focus-visible .railEntryIcon {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
 }
 
 .railEntryRow {

@@ -42,12 +42,15 @@ export interface PageShellContentProps {
   /** Content, or a render prop receiving the computed available height. */
   children: React.ReactNode | ((height: string) => React.ReactNode);
   /**
-   * Surface override. @default bg.level3
+   * Surface override. @default bg.level2, the panel step, so cards on it
+   * (ground Papers) read as raised by their fill alone.
    *
-   * An explicit surface marks the frame `data-own-surface`, which a theme
-   * that paints every content frame (Tokyo's grid) reads as "leave it".
+   * An explicit surface marks the frame `data-own-surface`.
    */
   bg?: FlexProps['bg'];
+  /** Draws the theme's graph-paper grid over the surface (Tokyo's board
+      paper). Off by default; a page opts in. */
+  grid?: boolean;
   /**
    * Extra props for the outer ScrollArea (scroll mode only).
    *
@@ -98,6 +101,7 @@ export interface PageShellContentProps {
 export const Content = ({
   children,
   bg,
+  grid,
   scrollAreaProps,
   topNotch,
   contentContainer,
@@ -148,7 +152,8 @@ export const Content = ({
       <Flex
         id="page-shell-content"
         data-own-surface={bg !== undefined || undefined}
-        bg={bg ?? schemeBg.level3}
+        data-grid={grid || undefined}
+        bg={bg ?? schemeBg.level2}
         direction="column"
         flex={1}
         mih={height}
@@ -174,8 +179,9 @@ export const Content = ({
       data-own-surface={
         bg !== undefined || scrollAreaProps?.bg !== undefined || undefined
       }
+      data-grid={grid || undefined}
       mah={height}
-      bg={bg ?? schemeBg.level3}
+      bg={bg ?? schemeBg.level2}
       flex={1}
       {...scrollAreaProps}
     >

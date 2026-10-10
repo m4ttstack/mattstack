@@ -4,14 +4,12 @@ import type { RunDetail } from '@mattstack/rt-client';
 import { useEditorHref } from '../../editorHref';
 import { nowOf } from '../derive/clock';
 import { filePath } from '../derive/fields';
-import { inputsSummary } from '../derive/inputs';
 import { enrichedRunTitle, runKind } from '../derive/kind';
 import { runPageFacts } from '../derive/page';
 import { liveStory, runBlock } from '../derive/story';
-import { useEffectiveInputs } from '../EffectiveInputs';
 import { useLinearWorkspace, useRunsEnrich } from '../useRuns';
 import { useInputsDrawer } from './InputsDrawer';
-import type { FactProps, SideCardsProps } from './SideCards';
+import type { FactProps } from './SideCards';
 import { useRunGates } from './useRunGates';
 
 export type RunPageData = RunDetail & {
@@ -20,7 +18,7 @@ export type RunPageData = RunDetail & {
 };
 
 /** What the live page and the record both read from a run: its gates and
-    enrichment, the page facts, the story, the side card rows and the inputs
+    enrichment, the page facts, the story, the header's fact rows and the inputs
     drawer. */
 export function useRunParts(repo: string, runId: string, data: RunPageData) {
   const { run, stages, fields, decisions } = data;
@@ -32,7 +30,6 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
   const workspace = useLinearWorkspace().data ?? null;
   const editorHref = useEditorHref();
   const drawer = useInputsDrawer();
-  const inputs = useEffectiveInputs(repo, runId);
 
   const worktreePath = fields.find(f => f.key === 'worktree')?.value ?? null;
   const pathHref = useCallback(
@@ -80,24 +77,7 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
       empty: 'not recorded',
       sub: facts.branch.sub,
     },
-    {
-      name: 'Worktree',
-      label: 'Worktree',
-      icon: 'folder',
-      iconLayer: 'folder',
-      value: facts.worktree.value,
-      empty: 'not recorded',
-      copy: facts.worktree.path,
-      sub: facts.worktree.sub,
-    },
   ];
-
-  const summary = inputs.data ? inputsSummary(inputs.data) : null;
-  const sideInputs: SideCardsProps['inputs'] = summary
-    ? { state: 'ready', ...summary }
-    : inputs.isError
-      ? { state: 'error' }
-      : { state: 'loading' };
 
   return {
     now,
@@ -110,7 +90,6 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
     story,
     block,
     factRows,
-    sideInputs,
     evidenceField: fields.find(f => f.key === 'evidence') ?? null,
     title: enrichedRunTitle(
       run,

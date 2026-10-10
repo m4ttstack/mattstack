@@ -1,9 +1,9 @@
-import { Fragment, useState, type FormEvent } from 'react';
+import { Fragment, useState } from 'react';
 import {
   ActionIcon,
   Anchor,
-  Badge,
   Button,
+  Divider,
   Group,
   Menu,
   Paper,
@@ -11,17 +11,19 @@ import {
   Text,
   TextInput,
 } from '@mattstack/app-kit/core';
+import { useModalForm } from '@mattstack/app-kit/forms';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
-import { modals } from '@mattstack/app-kit/modals';
 import { notifications } from '@mattstack/app-kit/notifications';
 import { useQueryClient } from '@tanstack/react-query';
+import { z } from 'zod';
 
 import { client } from '../../api';
 import type { HeroLiveness } from '../derive/liveness';
 import type { RailStage } from '../derive/stages';
+import { focusPane, LivenessBadge } from '../LivenessBadge';
 import { readApiError } from '../useRuns';
-import { Dot } from './Dot';
 import classes from './RunHeader.module.css';
+import { FactsStrip, type FactProps } from './SideCards';
 import { StageRail } from './StageRail';
 
 export interface RunHeaderProps {
@@ -41,17 +43,8 @@ export interface RunHeaderProps {
   canResume: boolean;
   canAbandon: boolean;
   onViewInputs: () => void;
-}
-
-async function focusPane(pane: string) {
-  try {
-    const res = await client.api.panes[':id'].focus.$post({
-      param: { id: pane },
-    });
-    if (!res.ok) notifications.error("couldn't focus the pane");
-  } catch {
-    notifications.error("couldn't focus the pane");
-  }
+  /** The run's links, along the foot of the card. */
+  facts?: FactProps[];
 }
 
 /** The hero's ticket line (ticket, meta) over the run's title. */
@@ -75,7 +68,7 @@ export function HeroTitle({
               href={ticketUrl}
               target="_blank"
               rel="noopener noreferrer"
-              fz={13}
+              fz="lg"
               fw={700}
               lh="normal"
               c="accent"
@@ -93,7 +86,7 @@ export function HeroTitle({
             </Anchor>
           ) : (
             <Text
-              fz={13}
+              fz="lg"
               fw={700}
               lh="normal"
               c="accent"
@@ -104,11 +97,11 @@ export function HeroTitle({
             </Text>
           )
         ) : null}
-        <Text fz={12.5} lh="normal" c="dimmed" truncate data-parity="meta">
+        <Text fz="md" lh="normal" c="dimmed" truncate data-parity="meta">
           {ticket ? `· ${meta}` : meta}
         </Text>
       </Group>
-      <Text fz={22} fw={700} lh="normal" data-parity="title">
+      <Text fz="h1" fw={700} lh="normal" data-parity="title">
         {title}
       </Text>
     </Stack>
@@ -118,83 +111,9 @@ export function HeroTitle({
 /** Why marking abandoned failed, or null once it worked. */
 type AbandonResult = string | null;
 
-const ABANDON_MODAL = 'run-abandon';
-
-/** The abandon dialog's body: the reason, an inline error that keeps the
-    reason when rt refuses, and Cancel beside the red confirm. */
-function AbandonForm({
-  submit,
-  onCancel,
-}: {
-  submit: (reason: string) => Promise<AbandonResult>;
-  onCancel: () => void;
-}) {
-  const [reason, setReason] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!reason.trim() || busy) return;
-    setBusy(true);
-    const failure = await submit(reason.trim());
-    setBusy(false);
-    setError(failure);
-  };
-
-  return (
-    <form onSubmit={e => void onSubmit(e)}>
-      <Stack gap={14}>
-        <Text fz={13} lh={1.55} c="dimmed" data-parity="p">
-          Use this when the agent is gone and the run will never finish.
-          It&apos;s the same as rt runs abandon in the terminal.
-        </Text>
-        <TextInput
-          data-autofocus
-          label="Why is this run dead?"
-          placeholder="wedged overnight, no owning process"
-          value={reason}
-          disabled={busy}
-          onChange={e => {
-            setReason(e.currentTarget.value);
-            setError(null);
-          }}
-          attributes={{
-            label: { 'data-parity': 'l' },
-            input: { 'data-parity': 'input' },
-          }}
-        />
-        {error ? (
-          <Group gap={6} wrap="nowrap" role="alert" data-parity="err">
-            <Icon
-              name="circleAlert"
-              size={14}
-              color="var(--tk-text-bad-vivid)"
-              data-parity="i"
-            />
-            <Text fz={12.5} lh="normal" c="bad" data-parity="t">
-              Couldn&apos;t mark it: {error}. Nothing changed.
-            </Text>
-          </Group>
-        ) : null}
-        <Group gap={8} justify="flex-end">
-          <Button variant="default" onClick={onCancel} data-parity="btn Cancel">
-            <span data-parity="l">Cancel</span>
-          </Button>
-          <Button
-            type="submit"
-            color="bad"
-            loading={busy}
-            disabled={!reason.trim()}
-            data-parity="btn Mark abandoned"
-          >
-            <span data-parity="l">Mark abandoned</span>
-          </Button>
-        </Group>
-      </Stack>
-    </form>
-  );
-}
+const abandonSchema = z.object({
+  reason: z.string().trim().min(1, 'Say why the run is dead'),
+});
 
 interface RunAction {
   label: string;
@@ -268,6 +187,7 @@ export function RunHeader({
   canResume,
   canAbandon,
   onViewInputs,
+  facts = [],
 }: RunHeaderProps) {
   const queryClient = useQueryClient();
   const [resumed, setResumed] = useState(false);
@@ -305,17 +225,19 @@ export function RunHeader({
     } catch {
       return "the console server didn't answer";
     }
-    modals.close(ABANDON_MODAL);
     await queryClient.invalidateQueries({ queryKey: ['run', repo, runId] });
     await queryClient.invalidateQueries({ queryKey: ['runs'] });
     return null;
   };
 
-  const abandon = () =>
-    modals.open({
-      modalId: ABANDON_MODAL,
+  const abandonForm = useModalForm({
+    schema: abandonSchema,
+    initialValues: { reason: '' },
+    submitLabel: 'Mark abandoned',
+    destructive: true,
+    modalProps: {
       title: (
-        <Text span fz={16} fw={700} lh="normal" data-parity="t">
+        <Text span fz="h3" fw={700} lh="normal" data-parity="t">
           {`Mark ${ticket ?? runId} abandoned?`}
         </Text>
       ),
@@ -323,13 +245,33 @@ export function RunHeader({
         inner: { 'data-parity': 'Abandon dialog' },
         content: { 'data-parity': 'dialog' },
       },
-      children: (
-        <AbandonForm
-          submit={markAbandoned}
-          onCancel={() => modals.close(ABANDON_MODAL)}
+    },
+    onSubmit: async ({ reason }) => {
+      const failure = await markAbandoned(reason);
+      if (failure !== null)
+        throw new Error(`Couldn't mark it: ${failure}. Nothing changed.`);
+    },
+  });
+
+  const abandon = () =>
+    abandonForm.open(form => (
+      <>
+        <Text fz="lg" lh={1.55} c="dimmed" data-parity="p">
+          Use this when the agent is gone and the run will never finish.
+          It&apos;s the same as rt runs abandon in the terminal.
+        </Text>
+        <TextInput
+          data-autofocus
+          label="Why is this run dead?"
+          placeholder="wedged overnight, no owning process"
+          attributes={{
+            label: { 'data-parity': 'l' },
+            input: { 'data-parity': 'input' },
+          }}
+          {...form.getInputProps('reason')}
         />
-      ),
-    });
+      </>
+    ));
 
   const actions: RunAction[] = [
     ...(canResume && !resumed
@@ -372,18 +314,11 @@ export function RunHeader({
             title={title}
           />
           <Group gap={8} wrap="nowrap">
-            <Badge
+            <LivenessBadge
+              liveness={liveness}
               size="lg"
-              radius="xl"
-              variant="light"
-              color={liveness.tone}
-              tt="none"
-              leftSection={<Dot tone={liveness.tone} data-parity="dot" />}
               data-testid="liveness"
-              data-parity="Chip liveness"
-            >
-              <span data-parity="label">{liveness.label}</span>
-            </Badge>
+            />
             {pane ? (
               <Button
                 leftSection={
@@ -404,6 +339,12 @@ export function RunHeader({
           </Group>
         </Group>
         {rail ? <StageRail stages={rail} finished={finished} /> : null}
+        {facts.length ? (
+          <>
+            <Divider />
+            <FactsStrip facts={facts} />
+          </>
+        ) : null}
       </Stack>
     </Paper>
   );

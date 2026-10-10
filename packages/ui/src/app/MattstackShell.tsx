@@ -1,10 +1,13 @@
 import {
   Children,
   isValidElement,
+  useContext,
   useEffect,
+  useState,
   type ReactElement,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 
 import {
   Group,
@@ -16,7 +19,7 @@ import {
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { AppLauncher } from './AppLauncher';
 import { ColorSchemeControl } from './ColorSchemeControl';
-import { ShellRailContext } from './shell-context';
+import { ShellAppBarContext, ShellRailContext } from './shell-context';
 
 export const MATTSTACK_HEADER_HEIGHT = 48;
 
@@ -45,6 +48,25 @@ export interface MattstackShellHeaderProps {
  *  wrapper component. Renders nothing where it is written. */
 const HeaderSlot: (props: MattstackShellHeaderProps) => null = () => null;
 
+export interface MattstackShellAppBarProps {
+  /** `start` follows the page context (a scope picker); `end` sits before
+   *  the header actions (who you are). @default 'start' */
+  side?: 'start' | 'end';
+  children: ReactNode;
+}
+
+/** Puts a page's own controls in the top bar from wherever the page renders
+ *  them, so the page keeps its state and the bar shows it. Outside a
+ *  `MattstackShell` they render in place. */
+function AppBar({ side = 'start', children }: MattstackShellAppBarProps) {
+  const targets = useContext(ShellAppBarContext);
+  // Outside a shell (a test, a story, an embed) the controls render where
+  // the page wrote them, so they are still there to use.
+  if (targets === null) return <>{children}</>;
+  const target = targets[side];
+  return target ? createPortal(children, target) : null;
+}
+
 export interface MattstackShellProps {
   name: string;
   /** 30px works with the wordmark recipe; the app owns the artwork. */
@@ -60,6 +82,10 @@ export interface MattstackShellProps {
   appName?: string;
   /** Override the launcher's derived deck base URL (dev, custom domain). */
   deckBase?: string;
+  /** Puts `mark` in the rail's top spot, in place of the expand trigger,
+   *  and leaves the top bar to the page's own controls: no mark and no app
+   *  name there. Needs the rail. @default false */
+  markInRail?: boolean;
   children: ReactNode;
 }
 
@@ -102,12 +128,16 @@ function Shell({
   railLabel = 'App sections',
   appName,
   deckBase,
+  markInRail = false,
   children,
 }: MattstackShellProps) {
   const rail = useRailState();
   const headerProps = useHeaderProps();
+  const [appBarStart, setAppBarStart] = useState<HTMLElement | null>(null);
+  const [appBarEnd, setAppBarEnd] = useState<HTMLElement | null>(null);
   const { rail: railSlot, railBottom, header, page } = partition(children);
   const expanded = withRail && rail.effectiveExpanded;
+  const railMark = withRail && markInRail;
   const strayRailChildren =
     !withRail && (railSlot != null || railBottom != null);
   useEffect(() => {
@@ -118,58 +148,71 @@ function Shell({
   }, [name, strayRailChildren]);
   return (
     <ShellRailContext.Provider value={{ expanded, close: rail.close }}>
-      <RailShell
-        headerHeight={headerHeight}
-        headerProps={headerProps}
-        header={
-          <Group justify="space-between" w="100%" wrap="nowrap">
-            <Group gap="sm" wrap="nowrap" miw={0}>
-              {mark}
-              {header?.children ?? (
-                <Text fw={700} fz={15} lh={1} style={{ whiteSpace: 'nowrap' }}>
-                  {name}
-                </Text>
-              )}
-            </Group>
-            <Group gap="md" wrap="nowrap">
-              {header?.actions}
-              {!withRail && (
-                <ColorSchemeControl
-                  variant="button"
-                  size={MATTSTACK_HEADER_ICON_SIZE}
-                  iconSize={16}
-                />
-              )}
-              {appName && (
-                <AppLauncher currentApp={appName} deckBase={deckBase} />
-              )}
-            </Group>
-          </Group>
-        }
-        rail={
-          withRail ? (
-            <Rail
-              label={railLabel}
-              expanded={expanded}
-              onToggleExpanded={rail.toggleExpanded}
-              pinBottom={
-                <>
-                  {railBottom}
-                  <ColorSchemeControl expanded={expanded} />
-                </>
-              }
-            >
-              {railSlot}
-            </Rail>
-          ) : null
-        }
-        railExpanded={expanded}
-        railOpened={rail.opened}
-        onToggleRail={rail.toggleOpened}
-        onCloseRail={rail.close}
+      <ShellAppBarContext.Provider
+        value={{ start: appBarStart, end: appBarEnd }}
       >
-        {page}
-      </RailShell>
+        <RailShell
+          headerHeight={headerHeight}
+          headerProps={headerProps}
+          header={
+            <Group justify="space-between" w="100%" wrap="nowrap">
+              <Group gap="sm" wrap="nowrap" miw={0}>
+                {!railMark && mark}
+                {header?.children ??
+                  (railMark ? null : (
+                    <Text
+                      fw={700}
+                      fz={15}
+                      lh={1}
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      {name}
+                    </Text>
+                  ))}
+                <div ref={setAppBarStart} style={{ display: 'contents' }} />
+              </Group>
+              <Group gap="md" wrap="nowrap">
+                <div ref={setAppBarEnd} style={{ display: 'contents' }} />
+                {header?.actions}
+                {!withRail && (
+                  <ColorSchemeControl
+                    variant="button"
+                    size={MATTSTACK_HEADER_ICON_SIZE}
+                    iconSize={16}
+                  />
+                )}
+                {appName && (
+                  <AppLauncher currentApp={appName} deckBase={deckBase} />
+                )}
+              </Group>
+            </Group>
+          }
+          rail={
+            withRail ? (
+              <Rail
+                label={railLabel}
+                top={railMark ? mark : undefined}
+                expanded={expanded}
+                onToggleExpanded={rail.toggleExpanded}
+                pinBottom={
+                  <>
+                    {railBottom}
+                    <ColorSchemeControl expanded={expanded} />
+                  </>
+                }
+              >
+                {railSlot}
+              </Rail>
+            ) : null
+          }
+          railExpanded={expanded}
+          railOpened={rail.opened}
+          onToggleRail={rail.toggleOpened}
+          onCloseRail={rail.close}
+        >
+          {page}
+        </RailShell>
+      </ShellAppBarContext.Provider>
     </ShellRailContext.Provider>
   );
 }
@@ -178,4 +221,5 @@ export const MattstackShell = /* @__PURE__ */ Object.assign(Shell, {
   Rail: RailSlot,
   RailBottom: RailBottomSlot,
   Header: HeaderSlot,
+  AppBar,
 });

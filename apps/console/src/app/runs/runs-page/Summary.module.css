@@ -11,40 +11,6 @@
   padding: 18px;
 }
 
-.stack {
-  display: flex;
-  gap: 2px;
-  height: 10px;
-  overflow: hidden;
-  border-radius: 5px;
-}
-
-.part {
-  flex: var(--share) 1 0;
-  height: 10px;
-}
-
-.part[data-category='work'] {
-  background-color: var(--tk-fill-ok);
-}
-
-.part[data-category='ci'] {
-  background-color: var(--tk-fill-warn);
-}
-
-.part[data-category='you'] {
-  background-color: var(--tk-fill-bad);
-}
-
-.part[data-category='idle'] {
-  background-color: var(--tk-line-2);
-}
-
-.totals {
-  display: flex;
-  gap: 20px;
-}
-
 .decision {
   min-width: 0;
 }

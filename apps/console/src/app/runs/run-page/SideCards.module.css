@@ -1,12 +1,7 @@
-.side {
-  flex: 0 0 340px;
-  width: 340px;
-  min-width: 0;
-}
-
-.card {
-  padding: 18px;
-  width: 100%;
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px 32px;
 }
 
 .fact {
@@ -22,8 +17,4 @@
 .grow {
   flex: 1;
   min-width: 0;
-}
-
-.start {
-  align-self: flex-start;
 }

@@ -1,12 +1,11 @@
-import { useState } from 'react';
-import { Button, Code, Skeleton, Stack, Text } from '@mattstack/app-kit/core';
+import { Code, Skeleton, Spoiler, Text } from '@mattstack/app-kit/core';
 import { useQuery } from '@tanstack/react-query';
 
 import { GateContext } from '../GateContext';
 import { evidenceUrl } from './evidenceImages';
-import classes from './TranscriptBlock.module.css';
 
-const PREVIEW_LINES = 40;
+/** About 40 lines of the block's monospace text. */
+const PREVIEW_HEIGHT = 680;
 
 interface Transcript {
   text: string;
@@ -36,9 +35,8 @@ export interface TranscriptBlockProps {
 }
 
 /** The evidence transcript: a `.md` file as markdown, anything else as a
-    monospace block of its first 40 lines. */
+    monospace block whose first 40 lines or so show until it is opened. */
 export function TranscriptBlock({ repo, runId }: TranscriptBlockProps) {
-  const [all, setAll] = useState(false);
   const { data, isPending, isError } = useQuery({
     queryKey: ['evidence-transcript', repo, runId],
     queryFn: () => fetchTranscript(repo, runId),
@@ -58,28 +56,21 @@ export function TranscriptBlock({ repo, runId }: TranscriptBlockProps) {
   if (data.markdown) {
     return (
       <div data-parity="Transcript" data-transcript="markdown">
-        <GateContext text={data.text} />
+        <GateContext text={data.text} fill />
       </div>
     );
   }
 
   const lines = data.text.replace(/\n$/, '').split('\n');
-  const clipped = !all && lines.length > PREVIEW_LINES;
   return (
-    <Stack gap="xs" data-parity="Transcript" data-transcript="plain">
-      <Code block>
-        {(clipped ? lines.slice(0, PREVIEW_LINES) : lines).join('\n')}
-      </Code>
-      {clipped && (
-        <Button
-          variant="subtle"
-          size="compact-sm"
-          className={classes.more}
-          onClick={() => setAll(true)}
-        >
-          show all {lines.length} lines
-        </Button>
-      )}
-    </Stack>
+    <Spoiler
+      maxHeight={PREVIEW_HEIGHT}
+      showLabel={`show all ${lines.length} lines`}
+      hideLabel="show fewer lines"
+      data-parity="Transcript"
+      data-transcript="plain"
+    >
+      <Code block>{lines.join('\n')}</Code>
+    </Spoiler>
   );
 }

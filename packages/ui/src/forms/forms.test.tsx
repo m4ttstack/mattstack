@@ -196,3 +196,41 @@ test('useModalForm hosts its FormContainer chrome-free inside the modal body', a
   expect(modalBody?.querySelector('.mantine-Paper-root')).toBeNull();
   expect(modalBody?.querySelector('form')).not.toBeNull();
 });
+
+test('a destructive modal form labels its red submit, offers Cancel, and keeps the values when the submit throws', async () => {
+  const onSubmit = vi.fn().mockRejectedValue(new Error('rt refused'));
+  function Demo() {
+    const { open } = useModalForm({
+      schema: renameSchema,
+      initialValues: { name: '' },
+      onSubmit,
+      submitLabel: 'Mark abandoned',
+      destructive: true,
+      modalProps: { title: 'Abandon' },
+    });
+    return (
+      <button
+        onClick={() =>
+          open(form => (
+            <TextInput label="Name" {...form.getInputProps('name')} />
+          ))
+        }
+      >
+        open
+      </button>
+    );
+  }
+  renderWithProviders(<Demo />);
+  await userEvent.click(screen.getByText('open'));
+  await userEvent.type(await screen.findByLabelText('Name'), 'wedged');
+
+  const submit = screen.getByRole('button', { name: 'Mark abandoned' });
+  expect(submit.getAttribute('style') ?? '').toContain('red');
+  await userEvent.click(submit);
+
+  expect(await screen.findByText('rt refused')).toBeInTheDocument();
+  expect(screen.getByLabelText('Name')).toHaveValue('wedged');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull());
+});

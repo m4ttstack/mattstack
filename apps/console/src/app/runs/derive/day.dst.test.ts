@@ -32,15 +32,11 @@ describe('dayAxis across a clock change', () => {
     expect((dayAt('2026-03-09') - dayAt('2026-03-08')) / 3_600_000).toBe(23);
   });
 
-  it('stretches to the wall-clock hour on a 25-hour day', () => {
+  it('keeps the working day at 8 AM to 6 PM wall clock on a 25-hour day', () => {
     const now = at(11, 3, 12);
-    const axis = dayAxis(
-      [row(at(11, 1, 18), at(11, 1, 19, 30))],
-      '2026-11-01',
-      now
-    );
+    const axis = dayAxis([row(at(11, 1, 9), at(11, 1, 10))], '2026-11-01', now);
     expect(axis.from).toBe(at(11, 1, 8));
-    expect(axis.to).toBe(at(11, 1, 20));
+    expect(axis.to).toBe(at(11, 1, 18));
     expect(axis.ticks.map(t => t.layer)).toEqual([
       't8',
       't10',
@@ -48,19 +44,14 @@ describe('dayAxis across a clock change', () => {
       't14',
       't16',
       't18',
-      't20',
     ]);
   });
 
-  it('keeps a late bar whole on a 23-hour day', () => {
+  it('runs the night 6 PM to 8 AM wall clock across the spring change', () => {
     const now = at(3, 10, 12);
-    const axis = dayAxis(
-      [row(at(3, 8, 17), at(3, 8, 18, 30))],
-      '2026-03-08',
-      now
-    );
-    expect(axis.to).toBe(at(3, 8, 20));
-    expect(axis.from).toBe(at(3, 8, 8));
+    const axis = dayAxis([], '2026-03-07', now, true);
+    expect(axis.from).toBe(at(3, 7, 18));
+    expect(axis.to).toBe(at(3, 8, 8));
   });
 
   it('counts the whole of a bar in the totals on both days', () => {
@@ -76,12 +67,12 @@ describe('dayAxis across a clock change', () => {
         status: 'done',
         current_stage: null,
         spawned_by: null,
-        started_at: at(month, day, 17),
-        ended_at: at(month, day, 18, 30),
+        started_at: at(month, day, 15),
+        ended_at: at(month, day, 16, 30),
         pack_commits: null,
         pack_dirty: 0,
         attention: { needs: false, reason: null, evidence: '' },
-        last_event_at: at(month, day, 18, 30),
+        last_event_at: at(month, day, 16, 30),
         ticket: null,
         branch: null,
       } as RunSummary;

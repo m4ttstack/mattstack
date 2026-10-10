@@ -238,7 +238,7 @@ describe('runs page, Day timeline', () => {
       within(live)
         .getAllByTestId('timeline-bar')
         .map(b => b.dataset.kind)
-    ).toEqual(['done', 'idle', 'running']);
+    ).toEqual(['done', 'running']);
     expect(live).toHaveTextContent('implement · 35m');
     expect(row).toHaveTextContent('merged !405 · 2h 30m');
   });
@@ -246,9 +246,12 @@ describe('runs page, Day timeline', () => {
   it('moves between days in the URL', async () => {
     renderPage();
     await screen.findByTestId('timeline-row-live');
-    expect(screen.getByRole('button', { name: 'Next day' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Today' })).toBeDisabled();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Previous day' }));
+    // The day picker: yesterday's cell in the month heat map.
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Wed, Oct 7, / })
+    );
     await waitFor(() => expect(rowIds()).toEqual(['yday']));
     expect(location.search).toBe('?view=timeline&day=2026-10-07');
     expect(screen.getByText('Yesterday')).toBeInTheDocument();
@@ -261,7 +264,7 @@ describe('runs page, Day timeline', () => {
   it('adds up where the time went to the bars', async () => {
     renderPage();
     await screen.findByTestId('timeline-row-merged');
-    // live: 22m plan, 1h 48m idle, 35m implement; merged: 18m + 1h 42m
+    // live: 22m plan, (1h 48m idle), 35m implement; merged: 18m + 1h 42m
     // stage work around 30m waiting on you.
     await waitFor(() =>
       expect(screen.getByTestId('total-work')).toHaveTextContent(
@@ -271,9 +274,8 @@ describe('runs page, Day timeline', () => {
     expect(screen.getByTestId('total-you')).toHaveTextContent(
       '30mWaiting on you'
     );
-    expect(screen.getByTestId('total-idle')).toHaveTextContent(
-      '1h 48mIdle or held'
-    );
+    // Idle and held time is not drawn, so it is no total either.
+    expect(screen.queryByTestId('total-idle')).toBeNull();
     expect(screen.getByTestId('total-ci')).toHaveTextContent('0mWaiting on CI');
     expect(screen.getByTestId('day-timeline')).toHaveTextContent(
       'waiting for you: 30m today.'

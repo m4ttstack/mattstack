@@ -2,6 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import {
   Group,
   Modal,
+  Paper,
   SegmentedControl,
   Stack,
   Text,
@@ -87,9 +88,14 @@ export function EvidenceModal({
 /** One image full size, kept to its aspect ratio inside the frame. */
 export function EvidenceFrame({ src, name }: { src: string; name: string }) {
   return (
-    <div className={classes.frame} data-parity="img">
+    <Paper
+      variant="panel-outline"
+      radius="md"
+      className={classes.frame}
+      data-parity="img"
+    >
       <EvidenceImage src={src} name={name} maxHeight="100%" />
-    </div>
+    </Paper>
   );
 }
 
@@ -152,7 +158,7 @@ export function EvidenceCompare({
                 name={shot.fileName}
               />
               <Text
-                fz={12}
+                fz="md"
                 fw={500}
                 lh="normal"
                 c="dimmed"

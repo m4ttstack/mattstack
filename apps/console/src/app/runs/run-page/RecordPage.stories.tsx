@@ -3,22 +3,11 @@ import '../../icons';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import type { DecisionStage } from '../derive/record';
-import {
-  answeredWith,
-  AT,
-  FINDINGS_CONTEXT,
-  gateOf,
-  PROSE_CONTEXT,
-  reviewQuestion,
-} from './decisionFixtures';
-import { DecisionsTab } from './DecisionsTab';
 import { RecordHeader } from './RecordHeader';
 
 /** The record view's parts in the states the record boards draw. The whole
     page reads the run's routes, so it is checked against the design fixture
     (see the parity runbook) rather than here. */
-const MIN = 60_000;
 const queryClient = new QueryClient();
 
 const meta = {
@@ -94,79 +83,6 @@ export const HeaderReview: S = {
         { id: 'decisions', value: '1', label: 'decision' },
         { id: 'waiting', value: '6m', label: 'waiting on you' },
       ]}
-    />
-  ),
-};
-
-const plan: DecisionStage = {
-  stage: 'plan',
-  gates: [
-    gateOf({ id: 'g-1', context: PROSE_CONTEXT }),
-    gateOf({
-      id: 'g-2',
-      answer: answeredWith({
-        approach: { value: 'panel', note: 'The backend can wait a sprint.' },
-      }),
-    }),
-  ],
-  answered: 2,
-  durationMs: 12 * MIN,
-  overrides: 1,
-  status: 'done',
-};
-
-const ship: DecisionStage = {
-  stage: 'ship',
-  gates: [
-    gateOf({
-      id: 'g-3',
-      status: 'closed',
-      closedReason: 'superseded',
-      answer: null,
-      closedAt: AT,
-    }),
-  ],
-  answered: 0,
-  durationMs: 8 * MIN,
-  overrides: 0,
-  status: 'done',
-};
-
-export const DecisionsWorkRun: S = {
-  render: () => <DecisionsTab groups={[plan, ship]} byStage evidence={null} />,
-};
-
-export const DecisionsReviewRun: S = {
-  render: () => (
-    <DecisionsTab
-      groups={[
-        {
-          stage: 'review',
-          gates: [
-            gateOf({
-              id: 'g-post',
-              kind: 'review-post',
-              questions: [reviewQuestion],
-              context: FINDINGS_CONTEXT,
-              answer: answeredWith(
-                {
-                  outcome: {
-                    value: 'changes',
-                    text: 'Two must-fix items before this merges.',
-                  },
-                },
-                'board'
-              ),
-            }),
-          ],
-          answered: 1,
-          durationMs: 23 * MIN,
-          overrides: 0,
-          status: 'done',
-        },
-      ]}
-      byStage={false}
-      evidence={null}
     />
   ),
 };

@@ -15,43 +15,21 @@
   min-width: 0;
 }
 
-.storyFrame,
-.thumbFrame {
+/* A screenshot's 16:10, at the width of the column; the image fills it. */
+.frame {
   display: flex;
-  align-items: center;
-  border-radius: 8px;
+  aspect-ratio: 16 / 10;
   overflow: hidden;
-  background-color: var(--tk-panel);
-  outline: 1px solid var(--tk-line-3);
-  outline-offset: -0.5px;
-}
-
-.storyFrame {
-  height: 144px;
 }
 
 .thumbs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
 }
 
 .thumb {
   min-width: 0;
-}
-
-.thumbFrame {
-  height: 132px;
-}
-
-.compareLabel {
-  flex: 1;
-}
-
-.thumbButton {
-  display: block;
-  width: 100%;
-  cursor: zoom-in;
 }
 
 .links {

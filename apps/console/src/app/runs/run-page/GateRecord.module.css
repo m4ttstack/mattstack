@@ -1,0 +1,144 @@
+.gate {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  scroll-margin-top: var(--mantine-spacing-xl);
+}
+
+.gate + .gate {
+  padding-top: 14px;
+  border-top: 1px solid var(--tk-line-1);
+}
+
+.gate[data-linked] {
+  border-radius: 8px;
+  outline: 2px solid var(--tk-accent);
+  outline-offset: 6px;
+}
+
+.gate[data-ended] .option {
+  opacity: 0.6;
+}
+
+.stamp {
+  justify-content: flex-end;
+}
+
+.summary {
+  margin-bottom: 4px;
+}
+
+.summaryTitle {
+  font-size: var(--mantine-font-size-sm);
+}
+
+.question {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding-block: 10px;
+}
+
+.question + .question {
+  border-top: 1px solid var(--tk-line-1);
+}
+
+.ask {
+  flex: 0 0 230px;
+  width: 230px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.keep {
+  flex-shrink: 0;
+}
+
+.option {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+
+.option:not([data-picked]) {
+  opacity: 0.7;
+}
+
+.optionIcon {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--tk-text-3);
+}
+
+.option[data-picked] .optionIcon {
+  color: var(--tk-text-accent);
+}
+
+.ok {
+  flex-shrink: 0;
+  color: var(--tk-text-ok);
+}
+
+.note {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--tk-wash);
+}
+
+.verdict {
+  padding-block: 8px;
+}
+
+.sectionHead {
+  padding-block: 4px 6px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 4px;
+}
+
+.row[data-align='start'] {
+  align-items: flex-start;
+  padding-block: 12px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--tk-line-1);
+}
+
+.row[data-dim] {
+  opacity: 0.62;
+}
+
+.severity {
+  display: flex;
+  flex: 0 0 76px;
+}
+
+.where {
+  overflow-wrap: anywhere;
+}
+
+.pick {
+  flex: 0 0 96px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A clamped summary fades out above its Show all instead of cutting a line
+   in half. */
+.faded {
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}

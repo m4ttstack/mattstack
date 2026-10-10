@@ -55,6 +55,11 @@ export type { LazyLoaderProps } from './lazy-loader/LazyLoader';
 // installed package).
 export { PageShell } from './page-shell/PageShell';
 export type { PageShellProps } from './page-shell/PageShell';
+export { HeatCalendar } from './heat-calendar/HeatCalendar';
+export type {
+  HeatCalendarDay,
+  HeatCalendarProps,
+} from './heat-calendar/HeatCalendar';
 // PageShell's sub-components ride on the static attachments
 // (PageShell.Sidebar and friends), so only the context hook and the
 // sub-components' props types cross the barrel for consumers composing

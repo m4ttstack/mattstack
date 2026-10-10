@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 
 import { Progress } from '@mattstack/app-kit/core';
+import { useGrow, type Grow } from '@mattstack/app-kit/hooks';
 import { formatNumber } from '../../../shared/metrics';
 import { pipelinesByDay, type DayStatus } from '../../model/evidence-shapes';
 import { dayLabel } from '../../model/labels';
-import { useGrow, type Grow } from '../../ui/useGrow';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
 import panels from './panels.module.css';

@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 
+import { useGrow } from '@mattstack/app-kit/hooks';
 import { formatNumber } from '../../../shared/metrics';
 import { mergeDays, type MergeDay } from '../../model/evidence-shapes';
 import { dayLabel } from '../../model/labels';
-import { useGrow } from '../../ui/useGrow';
 import { BandChart } from './BandChart';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';

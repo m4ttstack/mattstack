@@ -20,9 +20,5 @@
   justify-content: center;
   height: calc(90dvh - 150px);
   min-height: 200px;
-  border-radius: 6px;
   overflow: hidden;
-  background-color: var(--tk-panel);
-  outline: 1px solid var(--tk-line-3);
-  outline-offset: -0.5px;
 }

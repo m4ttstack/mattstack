@@ -25,6 +25,10 @@ export interface FormContainerProps<
   /** Top-level error to summarize above the submit row (e.g. a failed mutation). */
   error?: ReactNode;
   submitLabel?: ReactNode;
+  /** Renders the submit button red, for an action that destroys or ends something. @default false */
+  destructive?: boolean;
+  /** Adds a Cancel button beside submit that calls this. */
+  onCancel?: () => void;
   /**
    * Skips the built-in error `Alert` and submit-button row, so the form
    * renders just its fields and you supply your own error/submit UI in
@@ -62,6 +66,8 @@ export function FormContainer<Values extends Record<string, unknown>>({
   hideChrome = false,
   error,
   submitLabel = 'Submit',
+  destructive = false,
+  onCancel,
   children,
 }: FormContainerProps<Values>) {
   const body = (
@@ -85,7 +91,21 @@ export function FormContainer<Values extends Record<string, unknown>>({
 
         {!hideChrome && (
           <Group justify="flex-end" mt="sm">
-            <Button type="submit" loading={loading}>
+            {onCancel ? (
+              <Button
+                color="gray"
+                variant="light"
+                disabled={loading}
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+            ) : null}
+            <Button
+              type="submit"
+              color={destructive ? 'red' : undefined}
+              loading={loading}
+            >
               {submitLabel}
             </Button>
           </Group>

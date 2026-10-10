@@ -1,9 +1,19 @@
-import type { CSSProperties } from 'react';
-import { Paper, Stack, Text } from '@mattstack/app-kit/core';
+import { Group, Paper, Progress, Stack } from '@mattstack/app-kit/core';
+import { useGrow } from '@mattstack/app-kit/hooks';
 
-import { CATEGORIES, type DayTotals } from '../derive/day';
+import { CATEGORIES, type Category, type DayTotals } from '../derive/day';
 import { formatDuration } from '../derive/duration';
+import { Eyebrow } from '../Eyebrow';
+import { Stat } from '../Stat';
 import classes from './Summary.module.css';
+
+/** Each part's hue; idle takes the segmented bar's soft gray. */
+const TONE: Record<Category, string> = {
+  work: 'ok',
+  ci: 'warn',
+  you: 'bad',
+  idle: 'gray',
+};
 
 const totalText = (ms: number) => (ms < 60_000 ? '0m' : formatDuration(ms));
 
@@ -19,6 +29,8 @@ export function TimeSpent({
   /** The bars have not landed, so no total is known yet. */
   loading: boolean;
 }) {
+  const sum = CATEGORIES.reduce((n, c) => n + totals[c.category], 0) || 1;
+  const grow = useGrow();
   return (
     <Paper
       variant="ground"
@@ -29,40 +41,39 @@ export function TimeSpent({
       data-testid="time-spent"
     >
       <Stack gap={12}>
-        <Text
-          fz={10.5}
-          fw={500}
-          lh="normal"
-          tt="uppercase"
-          lts={0.8}
-          c="dimmed"
-          data-parity="label"
-        >
+        <Eyebrow data-parity="label">
           {isToday ? "Where today's time went" : "Where that day's time went"}
-        </Text>
-        <div className={classes.stack}>
-          {CATEGORIES.filter(c => !loading && totals[c.category] > 0).map(c => (
-            <div
+        </Eyebrow>
+        <Progress.Root
+          variant="segmented"
+          size={10}
+          radius="xl"
+          data-parity="bar"
+        >
+          {CATEGORIES.filter(c => !loading && totals[c.category] > 0).map(
+            (c, i) => (
+              <Progress.Section
+                key={c.category}
+                value={(totals[c.category] / sum) * 100}
+                color={TONE[c.category]}
+                className={grow('x', i).className}
+                style={grow('x', i).style}
+                data-category={c.category}
+                data-parity={`part ${c.category}`}
+              />
+            )
+          )}
+        </Progress.Root>
+        <Group gap={20} align="flex-start">
+          {CATEGORIES.map(c => (
+            <Stat
               key={c.category}
-              className={classes.part}
-              data-category={c.category}
-              style={{ '--share': totals[c.category] } as CSSProperties}
-              data-parity={`part ${c.category}`}
+              value={loading ? '—' : totalText(totals[c.category])}
+              label={c.label}
+              data-testid={`total-${c.category}`}
             />
           ))}
-        </div>
-        <div className={classes.totals}>
-          {CATEGORIES.map(c => (
-            <Stack key={c.category} gap={2} data-testid={`total-${c.category}`}>
-              <Text fz={15} fw={700} lh="normal" data-parity="value">
-                {loading ? '—' : totalText(totals[c.category])}
-              </Text>
-              <Text fz={12} lh="normal" c="dimmed" data-parity="label">
-                {c.label}
-              </Text>
-            </Stack>
-          ))}
-        </div>
+        </Group>
       </Stack>
     </Paper>
   );

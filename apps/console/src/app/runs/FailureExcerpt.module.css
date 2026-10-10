@@ -10,10 +10,6 @@
   max-height: 240px;
   overflow: auto;
   padding: 8px 10px;
-  border-radius: 8px;
-  background-color: var(--tk-card);
-  outline: 1px solid var(--tk-line-3);
-  outline-offset: -0.5px;
 }
 
 .lines {

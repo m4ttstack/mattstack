@@ -55,12 +55,11 @@ const SCOPES = ['user', 'org', 'team', 'machine'] as const;
 // Viewing another team hides this Mac's own layers, so only the shared
 // scopes are left to filter by.
 const SHARED_SCOPES = ['org', 'team'] as const;
-// The context row centres its 32px controls; the filters sit 12px under
-// them with 14px below, as on the H4 board.
-const CONTEXT_ROW = 56;
-const TOOLBAR_ROW = 50;
-// The context row and the toolbar row, plus the header's own bottom hairline.
-const HEADER_HEIGHT = CONTEXT_ROW + TOOLBAR_ROW + 1;
+// The filters row centres its 36px controls; the org and team pickers
+// sit in the app's top bar.
+const TOOLBAR_ROW = 60;
+// The toolbar row plus the header's own bottom hairline.
+const HEADER_HEIGHT = TOOLBAR_ROW + 1;
 const FIX_CHIP_STYLES = {
   label: { height: 34, paddingInline: 12, fontSize: 13, fontWeight: 600 },
 };
@@ -306,23 +305,21 @@ export function SettingsPage() {
                     >
                       <VisuallyHidden component="h1">Settings</VisuallyHidden>
                       <Stack gap={0} w="100%">
-                        <Group h={CONTEXT_ROW} px={32} wrap="nowrap">
-                          <SettingsContextBar
-                            org={store.org}
-                            team={store.team}
-                            ownTeam={store.ownTeam}
-                            viewer={store.viewer}
-                            other={other}
-                            onPickTeam={setViewTeam}
-                          />
-                        </Group>
+                        <SettingsContextBar
+                          org={store.org}
+                          team={store.team}
+                          ownTeam={store.ownTeam}
+                          viewer={store.viewer}
+                          other={other}
+                          onPickTeam={setViewTeam}
+                        />
                         <Group
                           role="toolbar"
                           aria-label="settings filters"
                           gap={10}
                           px={32}
                           h={TOOLBAR_ROW}
-                          align="flex-start"
+                          align="center"
                           wrap="nowrap"
                         >
                           <TextInput

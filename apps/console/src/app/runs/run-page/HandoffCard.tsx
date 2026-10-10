@@ -1,18 +1,12 @@
-import {
-  Badge,
-  Button,
-  Group,
-  Kbd,
-  Paper,
-  Stack,
-  Text,
-} from '@mattstack/app-kit/core';
+import { Button, Group, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { GateRow } from '@mattstack/rt-client';
 
 import { contextSchema, structuredContextSummary } from '../derive/answers';
 import { formatDuration } from '../derive/duration';
 import { gateKindLabel, optionViews } from '../derive/gates';
+import { OptionChips } from '../OptionChips';
+import { StatusCard } from '../StatusCard';
 import { Dot } from './Dot';
 import classes from './HandoffCard.module.css';
 import inline from './inline.module.css';
@@ -54,78 +48,36 @@ export function HandoffCard({
   const summaries = summaryLines(gate);
 
   return (
-    <Paper
-      variant="ground"
-      withBorder
-      radius={12}
-      className={classes.card}
+    <StatusCard
+      tone="warn"
+      head={
+        <>
+          <Dot tone="warn" size="md" data-parity="live" />
+          <Text fz="md" fw={700} lh="normal" c="warn" data-parity="title">
+            {gateKindLabel(gate.kind)} · waiting in the board
+          </Text>
+          <Text fz="md" lh="normal" c="warn" ml="auto" data-parity="times">
+            opened {formatDuration(now - gate.openedAt)} ago
+          </Text>
+        </>
+      }
+      headProps={{ 'data-parity': 'Now head' }}
       data-gate-id={gate.id}
       data-parity="Now"
     >
-      <div className={classes.head} data-parity="Now head">
-        <Group
-          justify="space-between"
-          wrap="nowrap"
-          className={classes.headRow}
-        >
-          <Group gap={8} wrap="nowrap">
-            <Dot tone="warn" size="md" data-parity="live" />
-            <Text fz={12.5} fw={700} lh="normal" c="warn" data-parity="title">
-              {gateKindLabel(gate.kind)} · waiting in the board
-            </Text>
-          </Group>
-          <Text fz={12} lh="normal" c="warn" data-parity="times">
-            opened {formatDuration(now - gate.openedAt)} ago
-          </Text>
-        </Group>
-      </div>
       <Stack gap={10} className={classes.body}>
         {gate.questions.map(q => (
           <Stack key={q.id} gap={10} data-question={q.id}>
-            <Text fz={14} fw={500} lh="normal" data-parity="q">
+            <Text fz="lg" fw={500} lh="normal" data-parity="q">
               {q.label}
             </Text>
-            <Group gap={8}>
-              {optionViews(q).map((o, i) => (
-                <Badge
-                  key={o.value}
-                  size="lg"
-                  variant="default"
-                  tt="none"
-                  className={classes.chip}
-                  leftSection={
-                    i < 9 ? (
-                      <Kbd size="xs" data-parity="kbd">
-                        <span data-parity="k">{i + 1}</span>
-                      </Kbd>
-                    ) : undefined
-                  }
-                  rightSection={
-                    o.recommended ? (
-                      <Badge
-                        size="xs"
-                        variant="light"
-                        color="accent"
-                        tt="none"
-                        data-parity="rec"
-                      >
-                        <span data-parity="r">recommended</span>
-                      </Badge>
-                    ) : undefined
-                  }
-                  data-option={o.value}
-                  data-parity={`opt ${o.text}`}
-                >
-                  <span data-parity="l">{o.text}</span>
-                </Badge>
-              ))}
-            </Group>
+            <OptionChips options={optionViews(q)} />
           </Stack>
         ))}
         {summaries.map(line => (
           <Group key={line} gap={6} wrap="nowrap" data-summary>
             <Icon name="braces" size={14} data-parity="braces" />
-            <Text fz={12} lh="normal" c="dimmed" data-parity="s">
+            <Text fz="md" lh="normal" c="dimmed" data-parity="s">
               {line}
             </Text>
           </Group>
@@ -152,6 +104,6 @@ export function HandoffCard({
           )}
         </Group>
       </Stack>
-    </Paper>
+    </StatusCard>
   );
 }

@@ -1,16 +1,15 @@
-.columns {
-  display: flex;
-  align-items: flex-start;
-  gap: 20px;
-  width: 100%;
-}
-
-.story {
-  flex: 1;
-  min-width: 0;
+/* A record tab with one column reads at a column's width, left-aligned
+   under the tabs; only a tab with a side rail takes the whole width. */
+.single {
+  max-width: 960px;
 }
 
 .slot {
   width: 100%;
   scroll-margin-top: var(--mantine-spacing-xl);
+}
+
+/* Matt asked for the active record tab on the card surface (2026-10-09). */
+.recordTab[data-active] {
+  background-color: var(--tk-card);
 }

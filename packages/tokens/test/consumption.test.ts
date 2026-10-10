@@ -50,6 +50,8 @@ const RETIRED_ALIAS_WAIVER =
   'pre-migration alias kept in the public CSS contract; every recipe moved to the ramp name, so nothing in this repo reads it any more.';
 
 const WAIVED_TUI: Record<string, string> = {
+  '--shadow-card':
+    "card lift read by apps/board's header, roster and MR cards; no kit recipe reads it.",
   ...Object.fromEntries(
     ['--accent-text', '--green', '--red', '--surface-wash-accent-fg-70'].map(
       name => [name, RETIRED_ALIAS_WAIVER]
@@ -291,8 +293,6 @@ const WAIVED_TOKYO: Record<string, string> = {
     'darkened small-badge text companion, added for the review-gate redesign; no packages/ui component wires it yet.',
   '--tk-muted':
     "raw neutral fill, kept for parity with tui-kit's --muted until the step-5 audit",
-  '--tk-border-soft':
-    "soft rule, kept for parity with tui-kit's --border-soft; no packages/ui component wires it yet",
 };
 
 const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');

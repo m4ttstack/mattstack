@@ -41,7 +41,7 @@
 :root[data-mantine-color-scheme='light'] {
   /* BEGIN GENERATED: tokyo tokens light */
   /* Light surfaces: white cards on Radix slate 2 to 4 (packages/tokens/src/radix.ts); contrast rides text and borders, not surface-to-surface fill. */
-  --tk-chrome: #e8e8ec;
+  --tk-chrome: #f0f0f3;
   --tk-bg: #f0f0f3;
   --tk-panel: #f9f9fb;
   --tk-card: #ffffff;
@@ -132,6 +132,7 @@
   --tk-text-purple-vivid: #8145b5;
   --tk-text-cyan-vivid: #107d98;
   --tk-text-gold-vivid: #ab6400;
+  --tk-shadow-card: 0 2px 5px -1px rgb(16 24 40 / 16%);
 
   --tk-wash: 10%;
   /* END GENERATED */
@@ -228,6 +229,7 @@
   --tk-text-purple-vivid: #d19dff;
   --tk-text-cyan-vivid: #4ccce6;
   --tk-text-gold-vivid: #ffca16;
+  --tk-shadow-card: 0 2px 5px -1px rgb(0 0 0 / 60%);
 
   --tk-wash: 15%;
   /* END GENERATED */
@@ -463,29 +465,21 @@ body {
 /* END GENERATED: base rules (font smoothing) */
 
 /*
- * The graph-paper grid. NOT painted on `body`: PageShell's root and
- * RailShell's `AppShell.Main` both sit between body and every route, and
- * both fill the viewport with an opaque `bg.level1` (the same `--tk-bg`),
- * so a body-level grid is permanently covered and never reaches the
- * screen. `#page-shell-content` -- PageShell's own capped `ScrollArea`,
- * the one surface every route (board/search/run detail) actually scrolls
- * inside -- is the first point in that stack that is genuinely visible.
+ * The graph-paper grid, opt-in: `<PageShell.Content grid>` marks its frame
+ * `data-grid`, and the lines draw over whatever surface the frame has. NOT
+ * painted on `body`: PageShell's root and RailShell's `AppShell.Main` both
+ * fill the viewport with an opaque surface, so a body-level grid would never
+ * reach the screen. `#page-shell-content`, PageShell's own scroll frame, is
+ * the first point in that stack that is genuinely visible.
  *
- * `!important` is required on every sub-property: PageShell sets this
- * element's background via Mantine's `bg` style prop, which lands as an
- * inline `background` declaration, and only `!important` in a stylesheet
- * outranks an inline non-important one.
+ * `!important` because PageShell sets this element's background through
+ * Mantine's `bg` style prop, an inline declaration, and only `!important` in
+ * a stylesheet outranks it.
  *
- * `background-attachment: fixed` still anchors to the viewport, not to
- * this element's own scroll box, even though this element -- not
- * `body` -- is what actually scrolls (confirmed by loading the app: the
- * grid holds still while the list scrolls past it).
- *
- * A Content given its own `bg` carries `data-own-surface` and keeps that
- * surface: a page that sets rows on the card opts out of the paper.
+ * `background-attachment: fixed` anchors to the viewport, not this element's
+ * own scroll box, so the grid holds still while the content scrolls past it.
  */
-#page-shell-content:not([data-own-surface]) {
-  background-color: var(--tk-bg) !important;
+#page-shell-content[data-grid] {
   background-image:
     linear-gradient(var(--tk-grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--tk-grid-line) 1px, transparent 1px) !important;
@@ -496,8 +490,9 @@ body {
 /*
  * The chrome ladder, Supabase model: the app's rail and site header sit on the
  * CHROME surface (--tk-chrome, the grey frame around the app), PageShell's own
- * sidebar and header on the CARD surface (white), and the route's content is the
- * near-white canvas (--tk-bg, gridded above). Chrome is its own token so the
+ * sidebar and header on the CARD surface (white), and the route's content on the
+ * PANEL surface, so its cards (white ground Papers) lift off it by fill alone.
+ * Chrome is its own token so the
  * bg/panel/card elevation ladder stays ordered (bg < panel < card) -- panel is the
  * raised content surface, not the frame. Every kit consumer lays out the same way
  * by importing this file; without it the kit puts rail, header and sidebar on one
@@ -505,7 +500,7 @@ body {
  *
  * `!important` for the same reason as the grid above: the kit sets these
  * backgrounds as inline styles. A Sidebar given its own `bg` carries
- * `data-own-surface` and keeps that surface, as Content does above.
+ * `data-own-surface` and keeps that surface.
  */
 .mantine-AppShell-header,
 .mantine-AppShell-navbar {

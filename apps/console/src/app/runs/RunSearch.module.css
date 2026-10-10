@@ -2,8 +2,6 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 28px 40px;
-  color: var(--tk-text-1);
   contain: inline-size;
 }
 

@@ -63,7 +63,11 @@ export function useRunList(repo?: string) {
       const res = await client.api.runs.$get({ query: repo ? { repo } : {} });
       if (!res.ok) throw await readApiError(res, 'runs list failed');
       // Only the design fixture's answer carries `asOf` (see derive/clock.ts).
-      return (await res.json()) as { runs: RunSummary[]; asOf?: number };
+      return (await res.json()) as {
+        runs: RunSummary[];
+        repos?: { repo: string; label: string }[];
+        asOf?: number;
+      };
     },
     refetchInterval: POLL_MS,
     retry: retryOnce,

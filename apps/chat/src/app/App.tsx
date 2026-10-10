@@ -4,7 +4,10 @@ import {
   DaemonBanner,
   MattstackShell,
   NotFoundPage,
+  ScopeBar,
   useDaemonHealth,
+  useViewer,
+  ViewerChip,
 } from '@mattstack/app-kit/app';
 import {
   Box,
@@ -1137,6 +1140,8 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
   const [path] = useLocation();
   const route = useAppRoute();
   const daemon = useDaemonHealth(initialState?.daemonReachable);
+  // Your org, team and role for the top bar, as console shows them.
+  const viewer = useViewer();
   const { buddies, refetchBuddies } = useBuddies(initialState?.buddies);
   const { rooms, setRooms, refetchRooms } = useRooms(initialState?.rooms);
   // A room mid-close is still in the daemon's list until the close request
@@ -1432,7 +1437,9 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
       actions={buddyActions}
     >
       <PanePickerProvider>
-        <MattstackShell name="chat" mark={<AppMark size={30} />}>
+        <MattstackShell name="chat" markInRail mark={<AppMark size={26} />}>
+          <ScopeBar info={viewer} />
+          <ViewerChip info={viewer} />
           <MattstackShell.Rail>
             <RailLink
               icon="inbox"

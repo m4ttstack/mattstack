@@ -1,10 +1,13 @@
-import { Group, Paper, Stack, Text } from '@mattstack/app-kit/core';
+import { Fragment } from 'react';
+import { Divider, Group, Paper, Stack, Text } from '@mattstack/app-kit/core';
 import type { RunOutcome } from '@mattstack/rt-client';
 
 import type { RecordStat, RecordStatId } from '../derive/record';
+import { Stat } from '../Stat';
 import { OutcomeBadge } from './OutcomeBadge';
 import classes from './RecordHeader.module.css';
 import { HeroTitle } from './RunHeader';
+import { FactsStrip, type FactProps } from './SideCards';
 
 /** The boards name each stat cell by its role. */
 const STAT_LAYER: Record<RecordStatId, string> = {
@@ -24,6 +27,8 @@ export interface RecordHeaderProps {
   stats: RecordStat[];
   /** An abandoned run's quoted reason, under the card, when recorded. */
   abandoned?: string | null;
+  /** The run's links, along the foot of the card. */
+  facts?: FactProps[];
 }
 
 /** A finished run's hero: ticket, span and title, how it ended, and the
@@ -36,6 +41,7 @@ export function RecordHeader({
   outcome,
   stats,
   abandoned = null,
+  facts = [],
 }: RecordHeaderProps) {
   const hero = (
     <Paper
@@ -46,7 +52,7 @@ export function RecordHeader({
       data-testid="record-header"
       data-parity="Hero"
     >
-      <Stack gap={16}>
+      <Stack gap={14}>
         <Group gap={16} wrap="nowrap" align="flex-start">
           <HeroTitle
             ticket={ticket}
@@ -56,25 +62,30 @@ export function RecordHeader({
           />
           {outcome ? <OutcomeBadge outcome={outcome} /> : null}
         </Group>
+        <Divider />
         <div className={classes.stats} data-parity="Key numbers">
           {/* The first cell draws no rule, so the boards key its text
               straight through it. */}
           {stats.map((s, i) => (
-            <div
-              key={s.id}
-              className={classes.stat}
-              data-stat={s.id}
-              data-parity={i > 0 ? STAT_LAYER[s.id] : undefined}
-            >
-              <Text fz={19} fw={700} lh="normal" data-parity="value">
-                {s.value}
-              </Text>
-              <Text fz={12} lh="normal" c="dimmed" data-parity="label">
-                {s.label}
-              </Text>
-            </div>
+            <Fragment key={s.id}>
+              {i > 0 ? <Divider orientation="vertical" /> : null}
+              <Stat
+                value={s.value}
+                label={s.label}
+                size="h2"
+                className={classes.stat}
+                data-stat={s.id}
+                data-parity={i > 0 ? STAT_LAYER[s.id] : undefined}
+              />
+            </Fragment>
           ))}
         </div>
+        {facts.length ? (
+          <>
+            <Divider />
+            <FactsStrip facts={facts} />
+          </>
+        ) : null}
       </Stack>
     </Paper>
   );
@@ -83,7 +94,7 @@ export function RecordHeader({
     <Stack gap={10}>
       {hero}
       <Text
-        fz={13}
+        fz="lg"
         lh="normal"
         c="dimmed"
         className={classes.abandoned}

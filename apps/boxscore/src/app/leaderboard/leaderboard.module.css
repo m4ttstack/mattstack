@@ -514,6 +514,7 @@
   outline: 1px solid var(--tk-border-soft);
   outline-offset: -0.5px;
   background: var(--tk-card);
+  box-shadow: var(--tk-shadow-card);
 }
 
 .cardHead {

@@ -361,7 +361,8 @@ describe('WiringMap: the header row', () => {
     );
     renderWiring();
 
-    await screen.findByTestId('pack-select');
+    // The pack picker is settings' team menu over the packs.
+    await screen.findByRole('button', { name: /switch team/ });
     expect(screen.queryByTestId('pack-name')).not.toBeInTheDocument();
   });
 
@@ -405,17 +406,15 @@ describe('WiringMap: the pack picker', () => {
     );
   });
 
-  it('writes a picked pack to the URL and drops the old focus', async () => {
+  it('opens the pack menu on the shown pack', async () => {
     twoPacks();
-    window.history.pushState(null, '', '/wiring?focus=watch-ci');
-    const user = userEvent.setup();
+    window.history.pushState(null, '', '/wiring?pack=acme');
     renderWiring();
 
-    await user.click(await screen.findByTestId('pack-select'));
-    await user.click(await screen.findByRole('option', { name: 'acme' }));
-
-    const params = new URLSearchParams(window.location.search);
-    expect(params.get('pack')).toBe('acme');
-    expect(params.get('focus')).toBeNull();
+    // Settings' team menu over the packs; picking from it is the settings
+    // page's own test (same component).
+    expect(
+      await screen.findByRole('button', { name: 'team: acme, switch team' })
+    ).toBeInTheDocument();
   });
 });

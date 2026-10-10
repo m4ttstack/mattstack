@@ -292,12 +292,13 @@ describe('Graph tab: the focus list', () => {
     expect(within(list).getByTestId('focus-stage-plan')).toBeInTheDocument();
   });
 
-  it('draws rows in the wash tone and the switch in the contrast tone', async () => {
+  it('draws rows in the NavLink highlight and the switch in the contrast tone', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=shepherdr');
     const list = await focusList();
 
-    expect(within(list).getByTestId('focus-shepherdr')).toHaveAttribute(
+    // The settings sidebar's highlight: NavLink's default (light) variant.
+    expect(within(list).getByTestId('focus-shepherdr')).not.toHaveAttribute(
       'data-variant',
       'wash'
     );

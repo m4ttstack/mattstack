@@ -950,7 +950,7 @@ describe('the context bar', () => {
     bodies.length = 0;
   });
 
-  it('says where you are and who you are', async () => {
+  it('says where you are; who you are lives in the app bar, not the page', async () => {
     answer(ADMIN);
     renderPage();
     const header = document.getElementById('page-shell-header')!;
@@ -958,9 +958,7 @@ describe('the context bar', () => {
     expect(
       within(header).getByRole('button', { name: 'team: widgets, switch team' })
     ).toBeInTheDocument();
-    const who = within(header).getByTestId('settings-viewer');
-    expect(who).toHaveTextContent('Sam Rivera');
-    expect(who).toHaveTextContent('org admin');
+    expect(screen.queryByTestId('settings-viewer')).toBeNull();
   });
 
   it('a member gets a fixed team label, no switcher', async () => {
@@ -971,9 +969,6 @@ describe('the context bar', () => {
     expect(
       within(header).queryByRole('button', { name: /switch team/ })
     ).toBeNull();
-    expect(within(header).getByTestId('settings-viewer')).toHaveTextContent(
-      'member'
-    );
   });
 
   it('picking another team reads it, notes where edits go, and Back returns', async () => {

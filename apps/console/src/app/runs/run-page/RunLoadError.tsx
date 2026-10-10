@@ -71,10 +71,10 @@ export function RunLoadError({
           >
             <Icon name="circleAlert" size={16} data-parity="i" />
           </ThemeIcon>
-          <Text fz={16} fw={700} lh="normal" data-parity="h">
+          <Text fz="h3" fw={700} lh="normal" data-parity="h">
             {title}
           </Text>
-          <Text fz={13} lh={1.55} c="dimmed" data-parity="p">
+          <Text fz="lg" lh={1.55} c="dimmed" data-parity="p">
             {body}
           </Text>
           <Group gap={8} className={classes.btns}>

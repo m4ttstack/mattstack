@@ -96,6 +96,10 @@ export interface Tokens {
     baseSize: string;
     lineHeight: string;
   };
+  shadow: {
+    /** The card shadow's geometry and its colour per scheme. */
+    card: { geometry: string; light: string; dark: string };
+  };
 }
 
 type Scheme = 'light' | 'dark';
@@ -265,7 +269,9 @@ export const TOKENS: Tokens = {
       card: 1,
       panel: 2,
       page: 3,
-      chrome: 4,
+      // The app frame (rail and top bar) one step off the panel page, so it
+      // frames the content without reading as a dark band.
+      chrome: 3,
       inset: 3,
       overlay: 2,
       raised: 4,
@@ -304,6 +310,16 @@ export const TOKENS: Tokens = {
     sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
     baseSize: '13.5px',
     lineHeight: '1.55',
+  },
+  shadow: {
+    // The lift a card takes off its page: a drop only, short and dense, since
+    // the card's own outline is its edge. Dark's page is near black, so dark
+    // needs a far denser alpha to show.
+    card: {
+      geometry: '0 2px 5px -1px',
+      light: 'rgb(16 24 40 / 16%)',
+      dark: 'rgb(0 0 0 / 60%)',
+    },
   },
 };
 

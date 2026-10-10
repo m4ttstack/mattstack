@@ -91,20 +91,28 @@
   --switch-bg: var(--tk-line-1);
 }
 
-/* Paper's `variant="ground"`: a card on the page ground (--tk-bg). It takes
-   the card surface in both schemes (Mantine's body surface is the panel in
-   dark) and, bordered, a rule in the kit border, a step stronger than
-   Mantine's separator gray, so it holds against the ground. The rule is an
-   outline inside the edge, not a border: it draws over the card's contents,
-   so a full-width header or row keeps the card's whole width and nothing
-   clips it. A card marked `data-selected` rings in the accent instead. */
+/* Paper's `variant="ground"`: a card on the page (PageShell.Content's panel
+   surface). It takes the card surface in both schemes (Mantine's body
+   surface is the panel in dark) and lifts on the shared card shadow.
+   Bordered, it draws a hairline in the soft border, since the fill and the
+   shadow already set it off. The rule is an outline inside the edge, not a
+   border: it draws over the card's contents, so a full-width header or row
+   keeps the card's whole width and nothing clips it. A card marked
+   `data-selected` rings in the accent instead. */
 .paperRoot[data-variant='ground'] {
   background-color: var(--tk-card);
+  box-shadow: var(--tk-shadow-card);
+}
+
+/* A ground card set inside another (a row card in a section card) sits on
+   that card, not the page, so it takes no lift. */
+.paperRoot[data-variant='ground'] .paperRoot[data-variant='ground'] {
+  box-shadow: none;
 }
 
 .paperRoot[data-variant='ground'][data-with-border] {
   border-width: 0;
-  outline: 1px solid var(--tk-border);
+  outline: 1px solid var(--tk-border-soft);
   outline-offset: -1px;
 }
 
@@ -251,16 +259,22 @@
    card surface, ruled in the soft line step. A checked card rings in the
    accent over the accent wash, and a Kbd inside it (the option's number
    key) takes the accent on a rule tinted from it. The rule is an outline
-   inside the edge, as on a ground Paper, so the focus ring is restated. */
-.choiceCard[data-variant='wash'] {
+   inside the edge, as on a ground Paper, so the focus ring is restated.
+   The wash is a selection's (`--ui-wash`), as a picked palette row's is. */
+.choiceCard[data-variant='wash'],
+.spotlightAction[data-variant='wash'] {
   --choice-key-line: 30%;
+}
+
+.choiceCard[data-variant='wash'] {
   border-width: 0;
   outline: 1px solid var(--tk-line-3);
   outline-offset: -1px;
   background-color: var(--tk-card);
 }
 
-:where([data-mantine-color-scheme='dark']) .choiceCard[data-variant='wash'] {
+:where([data-mantine-color-scheme='dark'])
+  :is(.choiceCard, .spotlightAction)[data-variant='wash'] {
   --choice-key-line: 40%;
 }
 
@@ -269,7 +283,7 @@
   outline-offset: -0.75px;
   background-color: color-mix(
     in srgb,
-    var(--tk-fill-accent) var(--tk-wash),
+    var(--tk-fill-accent) var(--ui-wash),
     var(--tk-card)
   );
 }
@@ -330,7 +344,32 @@
 }
 
 .spotlightAction[data-variant='wash'][data-selected] .kbdRoot {
-  border-color: color-mix(in srgb, var(--tk-fill-accent) 30%, var(--tk-card));
+  border-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--choice-key-line),
+    var(--tk-card)
+  );
   background-color: var(--tk-card);
   color: var(--tk-text-accent);
+}
+
+/* An Accordion control's focus ring sits inside its edge. Rows usually live
+   in a clipped card, which cuts the outset ring down to a stray accent line
+   under the header. The doubled class outranks Mantine's focus rule. */
+.accordionControl.accordionControl:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Kbd's `size="xxs"`: a key cap small enough to sit inside a chip or badge
+   with even room around it. Mantine's smallest size is `xs`, whose cap fills
+   most of a large badge's height. */
+.kbdRoot {
+  --kbd-fz-xxs: 10px;
+}
+
+.kbdRoot[data-size='xxs'] {
+  min-width: 16px;
+  padding: 2px 4px;
+  border-bottom-width: 2px;
+  line-height: 1;
 }

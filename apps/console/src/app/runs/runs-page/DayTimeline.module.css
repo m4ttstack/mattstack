@@ -63,10 +63,6 @@
   flex-shrink: 0;
 }
 
-.ticket {
-  text-decoration: none;
-}
-
 .ticks,
 .track {
   position: relative;
@@ -111,18 +107,33 @@
   background-color: var(--tk-panel);
 }
 
-.seg {
+/* A run's bar: placed on the day by its span, never shorter than a dot. */
+.runBar {
   position: absolute;
-  top: 3px;
+  top: 4px;
   left: calc(var(--x) * 100%);
-  width: max(calc(var(--w) * 100% - 2px), 2px);
-  height: 12px;
-  border-radius: 3px;
+  width: max(calc(var(--w) * 100%), 10px);
+}
+
+/* A run that carries on past the frame's edge ends square on that side,
+   so it reads as cut off by the frame rather than ended. */
+/* Mantine rounds the end sections themselves (logical corners), so those
+   square off with the bar. */
+.runBar[data-cut-start],
+.runBar[data-cut-start] .seg {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
+.runBar[data-cut-end],
+.runBar[data-cut-end] .seg {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
 }
 
 .seg:focus-visible {
   outline: 2px solid var(--tk-fill-accent);
-  outline-offset: 1px;
+  outline-offset: -2px;
 }
 
 .seg[data-kind='done'] {
@@ -181,8 +192,9 @@
 }
 
 .empty {
-  padding: 18px;
+  padding: 48px 18px;
   border-bottom: 1px solid var(--tk-border-soft);
+  text-align: center;
 }
 
 .barCard {

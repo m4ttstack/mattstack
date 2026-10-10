@@ -8,7 +8,15 @@ import type {
 // pure black (or unconditionally white with autoContrast off); neither lands
 // on the kit's measured per-hue pick. `gold` is absent: it has no Mantine
 // colour entry, so no filled gold button exists to label.
-const ON_FILL_HUES = new Set(['accent', 'ok', 'bad', 'warn', 'purple', 'cyan']);
+const ON_FILL_HUES = new Set([
+  'accent',
+  'ok',
+  'bad',
+  'warn',
+  'purple',
+  'cyan',
+  'gold',
+]);
 
 /**
  * Opt-in tones for labels that sit on the page ground (`--tk-bg`), where

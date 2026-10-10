@@ -9,6 +9,7 @@ import {
   getRun,
   listRuns,
   paneList,
+  rtCommand,
   runEvidence,
   serializeIdentity,
   type ChatPane,
@@ -28,6 +29,7 @@ import {
 } from './fixtures/design/runsFixture';
 import { listAllRunGates } from './gates';
 import { LEGACY_IMAGE_MIME, legacyImagePath } from './legacyEvidence';
+import { repoChoices } from './repoChoices';
 import { markSeen, readSeen } from './seen';
 
 /** Hono's c.req.param() always URI-decodes a captured segment; a repo
@@ -112,14 +114,39 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
         const repo = c.req.query('repo');
         if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
         if (fixture) {
+          const runs = await fixture.listRuns(repo);
+          const repos = runs.map(r => r.repo);
           return c.json(
-            { runs: await fixture.listRuns(repo), asOf: await fixture.asOf() },
+            {
+              runs,
+              repos: repoChoices(repos, repos),
+              asOf: await fixture.asOf(),
+            },
             200
           );
         }
-        const res = await listRuns(repo);
+        const [res, known] = await Promise.all([
+          listRuns(repo),
+          rtCommand('repos', {}),
+        ]);
         if (!res.ok) return c.json({ error: res.error }, 502);
-        return c.json(res.data, 200);
+        const registered = known.ok
+          ? Object.keys(
+              (known.data as { repos?: Record<string, unknown> }).repos ?? {}
+            )
+          : [];
+        const runs = res.data?.runs ?? [];
+        return c.json(
+          {
+            ...res.data,
+            runs,
+            repos: repoChoices(
+              runs.map(r => r.repo),
+              registered
+            ),
+          },
+          200
+        );
       })
       .get('/api/runs/:repo/:runId', async c => {
         const { repo: rawRepo, runId } = c.req.param();

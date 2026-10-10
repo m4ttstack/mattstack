@@ -81,7 +81,7 @@
     },
     {
       "key": "self-review",
-      "value": "passed, two minor notes",
+      "value": "passed with two minor notes: packages/web/src/features/orders/assignee-filter/AssigneeFilterDropdownWithServerSideSearchAndKeyboardNavigationAndRosterPagination.tsx:142 has no test for an empty roster, and useAssigneeFilterQueryWithDebouncedServerSideSearchAndCaching.ts reads the roster twice on first render",
       "produced_by": "self-review",
       "at": "2026-10-08T16:09:00-05:00"
     },

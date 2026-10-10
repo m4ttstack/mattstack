@@ -1,10 +1,10 @@
-import { useId, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import {
   Group,
+  NavLink,
   Stack,
   Text,
   ThemeIcon,
-  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import type { MantineColor } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
@@ -17,9 +17,9 @@ import { fieldLabel } from '../derive/fields';
 import type { StageAttempt } from '../derive/stages';
 import { stageSummary, type StoryEntry } from '../derive/story';
 import { FailureExcerpt } from '../FailureExcerpt';
-import { DecisionRow } from './DecisionRow';
 import { EvidenceCard } from './EvidenceCard';
 import { FieldValue } from './FieldValue';
+import { GateRecordView } from './GateRecord';
 import { StageDocLink } from './StageDoc';
 import classes from './StageRow.module.css';
 
@@ -33,7 +33,7 @@ export const STAGE_BULLET: Record<
   running: { color: 'accent', icon: 'loader', layer: 'loader' },
 };
 
-const VALUE_TYPE = { fz: 13, lh: 'normal' };
+const VALUE_TYPE = { fz: 'lg', lh: 'normal' };
 
 /** One labelled line of an opened stage: the label in a fixed column, the
     value beside it. */
@@ -53,7 +53,7 @@ function StageField({
       data-row={label}
     >
       <Text
-        fz={12.5}
+        fz="md"
         lh="normal"
         c="dimmed"
         className={classes.key}
@@ -66,185 +66,189 @@ function StageField({
   );
 }
 
-export interface StageRowProps {
+export interface StagePaneProps {
   entry: StoryEntry;
-  open: boolean;
-  onToggle: () => void;
   repo: string;
   runId: string;
   evidenceField: RunFieldRow | null;
   pathHref?: (path: string) => string | null;
-  /** The gate a deep link names: its decision opens and rings. */
+  /** The gate a deep link names: its decision rings. */
   linkedGateId?: string | null;
   /** The run's ticket, which heads the evidence's full-size view. */
   ticket?: string | null;
+  /** Draw the stage's name over it: only when no list beside it names it. */
+  heading?: boolean;
 }
 
-/** One stage attempt of the story as a row: what it was and a one-line
-    summary while folded; its fields, decisions and evidence once opened. */
-export function StageRow({
+function Bullet({ entry, size = 18 }: { entry: StoryEntry; size?: number }) {
+  const bullet = STAGE_BULLET[entry.attempt.status];
+  return (
+    <ThemeIcon
+      radius="xl"
+      size={size}
+      color={bullet.color}
+      aria-label={entry.attempt.status}
+      className={classes.keep}
+      data-parity="bullet"
+    >
+      <Icon name={bullet.icon} size={size - 7} data-parity={bullet.layer} />
+    </ThemeIcon>
+  );
+}
+
+/** One stage attempt in the story's list: its bullet, name, time and a
+    one-line summary. Picking it shows the attempt in the pane. */
+export function StageNavItem({
   entry,
-  open,
-  onToggle,
+  evidenceField,
+  active,
+  onPick,
+}: {
+  entry: StoryEntry;
+  evidenceField: RunFieldRow | null;
+  active: boolean;
+  onPick: () => void;
+}) {
+  const evidence = entry.evidence ? parseEvidence(evidenceField?.value) : null;
+  const summary = stageSummary(entry, evidence);
+  return (
+    <NavLink
+      component="button"
+      active={active}
+      onClick={onPick}
+      leftSection={<Bullet entry={entry} size={16} />}
+      label={
+        <Group gap={8} wrap="nowrap" justify="space-between">
+          <Text
+            span
+            fz="md"
+            fw={active ? 600 : 500}
+            truncate
+            data-parity="name"
+          >
+            {entry.label}
+          </Text>
+          {entry.durationMs != null ? (
+            <Text
+              span
+              fz="sm"
+              c="dimmed"
+              className={classes.keep}
+              data-parity="duration"
+            >
+              {formatDuration(entry.durationMs)}
+            </Text>
+          ) : null}
+        </Group>
+      }
+      description={summary || undefined}
+      classNames={{ root: classes.nav, description: classes.navSummary }}
+      data-stage={entry.attempt.stage}
+      data-attempt={entry.attempt.attempt}
+      aria-current={active ? 'step' : undefined}
+    />
+  );
+}
+
+/** One stage attempt in full: its name and time over its stage doc, fields,
+    decisions and evidence. */
+export function StagePane({
+  entry,
   repo,
   runId,
   evidenceField,
   pathHref,
   linkedGateId = null,
   ticket = null,
-}: StageRowProps) {
-  const bodyId = useId();
-  const bullet = STAGE_BULLET[entry.attempt.status];
+  heading = false,
+}: StagePaneProps) {
   const evidence = entry.evidence ? parseEvidence(evidenceField?.value) : null;
-  const summary = stageSummary(entry, evidence);
-
   return (
-    <div
-      className={classes.row}
+    <Stack
+      gap={14}
+      className={classes.pane}
       data-stage={entry.attempt.stage}
       data-attempt={entry.attempt.attempt}
-      data-open={open ? 'true' : 'false'}
       data-parity={`Stage ${entry.attempt.stage}`}
     >
-      <div
-        className={classes.head}
-        onClick={e => {
-          // The stage doc modal portals out of the row but still bubbles here.
-          if (e.currentTarget.contains(e.target as Node)) onToggle();
-        }}
-      >
-        <ThemeIcon
-          radius="xl"
-          size={18}
-          color={bullet.color}
-          aria-label={entry.attempt.status}
-          className={classes.bullet}
-          data-parity="bullet"
-        >
-          <Icon name={bullet.icon} size={11} data-parity={bullet.layer} />
-        </ThemeIcon>
-        <Text
-          fz={14}
-          fw={500}
-          lh="normal"
-          className={classes.keep}
-          data-parity="name"
-        >
-          {entry.label}
-        </Text>
-        {entry.durationMs != null ? (
-          <Text
-            fz={12.5}
-            lh="normal"
-            c="dimmed"
-            className={classes.keep}
-            data-parity="duration"
-          >
-            {formatDuration(entry.durationMs)}
+      {heading ? (
+        <Group gap={10} wrap="nowrap">
+          <Bullet entry={entry} />
+          <Text fz="xl" fw={600} lh="normal" data-parity="name">
+            {entry.label}
           </Text>
-        ) : null}
-        <Text
-          fz={13}
-          lh="normal"
-          c="dimmed"
-          truncate
-          className={classes.summary}
-          data-parity={summary ? 'summary' : undefined}
-        >
-          {summary}
-        </Text>
-        {open ? (
-          <StageDocLink stage={entry.attempt.stage} className={classes.keep} />
-        ) : null}
-        <UnstyledButton
-          className={classes.chevron}
-          aria-expanded={open}
-          aria-controls={open ? bodyId : undefined}
-          aria-label={`${open ? 'Hide' : 'Show'} ${entry.label}`}
-          onClick={e => {
-            e.stopPropagation();
-            onToggle();
-          }}
-        >
-          <Icon
-            name={open ? 'chevronDown' : 'chevronRight'}
-            size={15}
-            data-parity="chevron"
+          {entry.durationMs != null ? (
+            <Text fz="md" c="dimmed">
+              {formatDuration(entry.durationMs)}
+            </Text>
+          ) : null}
+          <div className={classes.summary} />
+          <StageDocLink stage={entry.attempt.stage} className={classes.doc} />
+        </Group>
+      ) : (
+        <Group justify="flex-end">
+          <StageDocLink stage={entry.attempt.stage} className={classes.doc} />
+        </Group>
+      )}
+      {entry.fields.map(f => (
+        <StageField key={f.key} label={fieldLabel(f.key)}>
+          <FieldValue
+            fieldKey={f.key}
+            value={f.value}
+            pathHref={pathHref}
+            type={VALUE_TYPE}
+            data-parity="v"
           />
-        </UnstyledButton>
-      </div>
-      {open ? (
-        <Stack gap={10} id={bodyId} className={classes.body}>
-          {entry.fields.map(f => (
-            <StageField key={f.key} label={fieldLabel(f.key)}>
-              <FieldValue
-                fieldKey={f.key}
-                value={f.value}
-                pathHref={pathHref}
-                type={VALUE_TYPE}
-                data-parity="v"
+        </StageField>
+      ))}
+      {entry.failure ? (
+        <>
+          <StageField label="Failed">
+            <Text {...VALUE_TYPE} data-parity="v">
+              {entry.failure.reason ?? 'No reason recorded'}
+            </Text>
+          </StageField>
+          {entry.failure.detailPath ? (
+            <StageField label="Log">
+              <FailureExcerpt
+                repo={repo}
+                runId={runId}
+                detailPath={entry.failure.detailPath}
               />
             </StageField>
-          ))}
-          {entry.failure ? (
-            <>
-              <StageField label="Failed">
-                <Text {...VALUE_TYPE} data-parity="v">
-                  {entry.failure.reason ?? 'No reason recorded'}
-                </Text>
-              </StageField>
-              {entry.failure.detailPath ? (
-                <StageField label="Log">
-                  <FailureExcerpt
-                    repo={repo}
-                    runId={runId}
-                    detailPath={entry.failure.detailPath}
-                  />
-                </StageField>
-              ) : null}
-            </>
           ) : null}
-          {entry.redirect ? (
-            <StageField label="Redirected">
-              <Text {...VALUE_TYPE} data-parity="v">
-                {entry.redirect}
-              </Text>
-            </StageField>
-          ) : null}
-          {entry.holds.map(h => (
-            <StageField key={h.from} label="Held">
-              <Text {...VALUE_TYPE} data-parity="v">
-                {h.to != null
-                  ? `held ${formatDuration(h.to - h.from)}`
-                  : 'held'}
-                {h.reason ? ` · ${h.reason}` : ''}
-              </Text>
-            </StageField>
-          ))}
-          {entry.gates.flatMap(g =>
-            g.questions.map(q => (
-              <DecisionRow
-                key={`${g.id}-${q.id}`}
-                gate={g}
-                question={q}
-                linked={g.id === linkedGateId}
-              />
-            ))
-          )}
-          {evidence && entry.evidence ? (
-            <EvidenceCard
-              repo={repo}
-              runId={runId}
-              evidence={evidence}
-              variant="story"
-              ticket={ticket}
-              phase={entry.evidence === 'legacy' ? undefined : entry.evidence}
-              withUrl={entry.evidenceUrl ?? false}
-              pathHref={pathHref}
-            />
-          ) : null}
-        </Stack>
+        </>
       ) : null}
-    </div>
+      {entry.redirect ? (
+        <StageField label="Redirected">
+          <Text {...VALUE_TYPE} data-parity="v">
+            {entry.redirect}
+          </Text>
+        </StageField>
+      ) : null}
+      {entry.holds.map(h => (
+        <StageField key={h.from} label="Held">
+          <Text {...VALUE_TYPE} data-parity="v">
+            {h.to != null ? `held ${formatDuration(h.to - h.from)}` : 'held'}
+            {h.reason ? ` · ${h.reason}` : ''}
+          </Text>
+        </StageField>
+      ))}
+      {entry.gates.map(g => (
+        <GateRecordView key={g.id} gate={g} linked={g.id === linkedGateId} />
+      ))}
+      {evidence && entry.evidence ? (
+        <EvidenceCard
+          repo={repo}
+          runId={runId}
+          evidence={evidence}
+          variant="story"
+          ticket={ticket}
+          phase={entry.evidence === 'legacy' ? undefined : entry.evidence}
+          withUrl={entry.evidenceUrl ?? false}
+          pathHref={pathHref}
+        />
+      ) : null}
+    </Stack>
   );
 }

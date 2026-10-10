@@ -196,6 +196,50 @@ export const ModalForm: Story = {
   render: () => <ModalFormDemo />,
 };
 
+// --- Destructive modal form: a labelled red submit with Cancel beside it ----
+
+const reasonSchema = z.object({
+  reason: z.string().trim().min(1, 'Say why'),
+});
+
+function DestructiveModalFormDemo() {
+  const { open } = useModalForm({
+    schema: reasonSchema,
+    initialValues: { reason: '' },
+    submitLabel: 'Retire item',
+    destructive: true,
+    modalProps: { title: 'Retire camera_kit?' },
+    onSubmit: async () => {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      throw new Error('The item is on loan. Nothing changed.');
+    },
+  });
+
+  return (
+    <Container py="lg" size="sm">
+      <Button
+        color="red"
+        onClick={() =>
+          open(form => (
+            <TextInput
+              data-autofocus
+              label="Why retire it?"
+              {...form.getInputProps('reason')}
+            />
+          ))
+        }
+      >
+        Retire item
+      </Button>
+    </Container>
+  );
+}
+
+export const DestructiveModalForm: Story = {
+  name: 'destructive (labelled red submit, Cancel)',
+  render: () => <DestructiveModalFormDemo />,
+};
+
 // --- Table shadow: layered header background + sticky header --------------
 
 const rows = Array.from({ length: 20 }, (_, i) => ({

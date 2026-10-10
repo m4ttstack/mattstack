@@ -28,18 +28,6 @@
   align-items: center;
   gap: 14px;
   width: 100%;
-  padding-top: 10px;
-  border-top: 1px solid var(--tk-border-soft);
-}
-
-.link {
-  text-decoration: none;
-}
-
-@media (hover: hover) {
-  .link:hover {
-    text-decoration: underline;
-  }
 }
 
 /* The kit's 28px ActionIcon keeps its size without making the head row

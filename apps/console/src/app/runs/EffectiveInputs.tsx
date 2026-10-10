@@ -1,14 +1,13 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
+  Accordion,
   Anchor,
   Badge,
   Paper,
   Skeleton,
   Stack,
   Text,
-  UnstyledButton,
 } from '@mattstack/app-kit/core';
-import { Icon } from '@mattstack/app-kit/icons';
 import type { RunDecisionRow } from '@mattstack/rt-client';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
@@ -19,9 +18,10 @@ import type {
   PackVersionRow,
 } from '../../server/effectiveInputs';
 import { client } from '../api';
+import accordion from './accordion.module.css';
 import { decisionSentence, packState, settingValue } from './derive/inputs';
 import classes from './EffectiveInputs.module.css';
-import { LABEL_TYPE } from './run-page/SideCards';
+import { Eyebrow } from './Eyebrow';
 import {
   StageDocText,
   useStageDoc,
@@ -50,9 +50,7 @@ export function useEffectiveInputs(repo: string, runId: string) {
 function Section({ name, children }: { name: string; children: ReactNode }) {
   return (
     <Stack gap={8}>
-      <Text {...LABEL_TYPE} data-parity="h">
-        {name}
-      </Text>
+      <Eyebrow data-parity="h">{name}</Eyebrow>
       {children}
     </Stack>
   );
@@ -77,9 +75,9 @@ const Spacer = () => <span className={classes.sp} />;
 function Pill({ label, tone }: ReturnType<typeof packState>) {
   return (
     <Badge
-      size="xs"
+      size="sm"
       variant={tone === 'quiet' ? 'panel-outline' : 'light'}
-      color={tone === 'quiet' ? 'gray' : tone}
+      color={tone === 'quiet' ? undefined : tone}
       tt="none"
       data-parity="pill"
       attributes={{ label: { 'data-parity': 'l' } }}
@@ -96,10 +94,10 @@ function PackRow({ pack, last }: { pack: PackVersionRow; last: boolean }) {
       data-parity={last ? undefined : 'row'}
       data-testid={`pack-row-${pack.pack}`}
     >
-      <Text fz={13.5} fw={500} lh="normal" data-parity="n">
+      <Text fz="lg" fw={500} lh="normal" data-parity="n">
         {pack.pack}
       </Text>
-      <Text ff="monospace" fz={12} lh="normal" c="dimmed" data-parity="s">
+      <Text ff="monospace" fz="md" lh="normal" c="dimmed" data-parity="s">
         {pack.recordedSha.slice(0, 7)}
       </Text>
       <Spacer />
@@ -112,7 +110,7 @@ function PacksSection({ payload }: { payload: EffectiveInputsPayload }) {
   return (
     <Section name="Packs">
       {payload.packVersions === null ? (
-        <Text fz={12.5} lh="normal" c="dimmed">
+        <Text fz="md" lh="normal" c="dimmed">
           pre-v2 run — pack version not recorded
         </Text>
       ) : (
@@ -123,7 +121,7 @@ function PacksSection({ payload }: { payload: EffectiveInputsPayload }) {
         </Box>
       )}
       {payload.packDirty && (
-        <Text fz={12.5} lh="normal" c="dimmed">
+        <Text fz="md" lh="normal" c="dimmed">
           pack tree had uncommitted changes — the as-run text may exist in no
           commit
         </Text>
@@ -132,19 +130,27 @@ function PacksSection({ payload }: { payload: EffectiveInputsPayload }) {
   );
 }
 
+/** Accordion's parts, through `classNames`: layout and spacing only. */
+const ROW_CLASSES = {
+  item: classes.item,
+  control: classes.control,
+  label: classes.head,
+};
+
 function StageDocRow({
   repo,
   runId,
   stage,
+  open,
 }: {
   repo: string;
   runId: string;
   stage: string;
+  /** Whether the section's accordion has this row open. */
+  open: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   const doc = useStageDoc(repo, runId, stage);
   const drawer = useStageDocDrawer();
-  const bodyId = useId();
   const missing = doc.data === null;
   const meta = missing
     ? 'no doc at this version'
@@ -155,47 +161,43 @@ function StageDocRow({
         : '';
   const expanded = open && !missing && !doc.isError;
   return (
-    <div
-      className={`${classes.rule} ${classes.row}`}
-      data-open={expanded || undefined}
+    <Accordion.Item
+      value={stage}
       data-parity={`doc ${stage}`}
       data-testid={`stage-row-${stage}`}
     >
-      <UnstyledButton
-        className={classes.head}
-        aria-expanded={expanded}
-        aria-controls={expanded ? bodyId : undefined}
-        disabled={missing || doc.isError}
-        onClick={() => setOpen(o => !o)}
-      >
-        <Icon
-          name={expanded ? 'chevronDown' : 'chevronRight'}
-          size={14}
-          className={classes.chev}
-          data-parity="chev"
-        />
-        <Text fz={13.5} fw={expanded ? 500 : 400} lh="normal" data-parity="n">
+      <Accordion.Control disabled={missing || doc.isError}>
+        <Text
+          span
+          fz="lg"
+          fw={expanded ? 500 : 400}
+          lh="normal"
+          data-parity="n"
+        >
           {stage}
-        </Text>
+        </Text>{' '}
         <Spacer />
         <Text
-          fz={12}
+          span
+          fz="md"
           lh="normal"
           c="dimmed"
           data-parity={meta ? 'm' : undefined}
         >
           {meta}
         </Text>
-      </UnstyledButton>
-      {expanded ? (
-        <Stack gap={8} className={classes.body} id={bodyId}>
+      </Accordion.Control>
+      <Accordion.Panel
+        classNames={{ content: `${accordion.content} ${classes.body}` }}
+      >
+        <Stack gap={8}>
           {doc.data ? (
             <>
               <StageDocText text={doc.data.text} preview />
               <Anchor
                 component="button"
                 type="button"
-                fz={12.5}
+                fz="md"
                 fw={500}
                 lh="normal"
                 c="accent"
@@ -210,8 +212,8 @@ function StageDocRow({
             <Skeleton height={60} />
           )}
         </Stack>
-      ) : null}
-    </div>
+      </Accordion.Panel>
+    </Accordion.Item>
   );
 }
 
@@ -225,7 +227,7 @@ function DecisionRow({ decision }: { decision: RunDecisionRow }) {
     >
       <div className={classes.line}>
         <Text
-          fz={13}
+          fz="lg"
           lh="normal"
           c="dimmed"
           className={classes.key}
@@ -233,11 +235,11 @@ function DecisionRow({ decision }: { decision: RunDecisionRow }) {
         >
           {label}
         </Text>
-        <Text fz={13} fw={500} lh="normal" data-parity="v">
+        <Text fz="lg" fw={500} lh="normal" data-parity="v">
           {value}
         </Text>
       </div>
-      <Text fz={11.5} lh="normal" c="dimmed" data-parity="m">
+      <Text fz="sm" lh="normal" c="dimmed" data-parity="m">
         {meta}
       </Text>
     </Stack>
@@ -245,53 +247,45 @@ function DecisionRow({ decision }: { decision: RunDecisionRow }) {
 }
 
 function ConfigRow({ row }: { row: ConfigDepRow }) {
-  const [open, setOpen] = useState(false);
   const inEffect = new Set(row.provenance.map(p => p.scope));
   const scope = row.provenance.at(-1)?.scope ?? null;
-  const whereId = useId();
   return (
-    <div
-      className={`${classes.rule} ${classes.row}`}
-      data-open={open || undefined}
+    <Accordion.Item
+      value={row.key}
       data-parity={`row ${row.key}`}
       data-testid={`config-row-${row.key}`}
     >
-      <UnstyledButton
-        className={classes.head}
-        aria-expanded={open}
-        aria-controls={open ? whereId : undefined}
-        onClick={() => setOpen(o => !o)}
-      >
+      <Accordion.Control>
         <Text
+          span
           ff="monospace"
-          fz={12}
+          fz="md"
           lh="normal"
           className={classes.key}
           data-parity="k"
         >
           {row.key}
-        </Text>
-        <Text fz={13} lh="normal" c="dimmed" truncate data-parity="v">
+        </Text>{' '}
+        <Text
+          span
+          fz="lg"
+          lh="normal"
+          c="dimmed"
+          truncate
+          className={classes.value}
+          data-parity="v"
+        >
           {'value' in row ? settingValue(row.value) : 'unset'}
-        </Text>
+        </Text>{' '}
         <Spacer />
         {scope ? <Pill label={scope} tone="quiet" /> : null}
-        <Icon
-          name={open ? 'chevronDown' : 'chevronRight'}
-          size={14}
-          className={classes.chev}
-          data-parity="go"
-        />
-      </UnstyledButton>
-      {open ? (
-        <Stack
-          gap={6}
-          className={classes.where}
-          id={whereId}
-          data-parity="where"
-        >
+      </Accordion.Control>
+      <Accordion.Panel
+        classNames={{ content: `${accordion.content} ${classes.where}` }}
+      >
+        <Stack gap={6} data-parity="where">
           {row.description ? (
-            <Text fz={12.5} lh="normal" c="dimmed" data-parity="d">
+            <Text fz="md" lh="normal" c="dimmed" data-parity="d">
               {row.description}
             </Text>
           ) : null}
@@ -305,7 +299,7 @@ function ConfigRow({ row }: { row: ConfigDepRow }) {
                 data-testid={`scope-${layer.scope}`}
               >
                 <Text
-                  fz={12}
+                  fz="md"
                   fw={live ? 500 : 400}
                   lh="normal"
                   c={live ? undefined : 'dimmed'}
@@ -316,7 +310,7 @@ function ConfigRow({ row }: { row: ConfigDepRow }) {
                 </Text>
                 <Text
                   ff="monospace"
-                  fz={11.5}
+                  fz="sm"
                   lh="normal"
                   c={live ? undefined : 'dimmed'}
                   truncate
@@ -326,7 +320,7 @@ function ConfigRow({ row }: { row: ConfigDepRow }) {
                 </Text>
                 {live ? (
                   <Text
-                    fz={11.5}
+                    fz="sm"
                     fw={500}
                     lh="normal"
                     c="ok"
@@ -342,7 +336,7 @@ function ConfigRow({ row }: { row: ConfigDepRow }) {
           <Anchor
             component={Link}
             href={`/settings?explain=${encodeURIComponent(row.key)}`}
-            fz={12.5}
+            fz="md"
             fw={500}
             lh="normal"
             c="accent"
@@ -352,8 +346,8 @@ function ConfigRow({ row }: { row: ConfigDepRow }) {
             Change it in Settings →
           </Anchor>
         </Stack>
-      ) : null}
-    </div>
+      </Accordion.Panel>
+    </Accordion.Item>
   );
 }
 
@@ -363,6 +357,8 @@ export interface EffectiveInputsProps {
   decisions: RunDecisionRow[];
   /** Says what the panel is, where no drawer header says it already. */
   intro?: boolean;
+  /** Sets the sections in two columns, on a page wide enough for them. */
+  wide?: boolean;
 }
 
 /**
@@ -376,13 +372,15 @@ export function EffectiveInputs({
   runId,
   decisions,
   intro = false,
+  wide = false,
 }: EffectiveInputsProps) {
   const query = useEffectiveInputs(repo, runId);
+  const [openDocs, setOpenDocs] = useState<string[]>([]);
 
   return (
     <Stack gap={22} data-testid="effective-inputs">
       {intro ? (
-        <Text fz={13} lh="normal" c="dimmed">
+        <Text fz="lg" lh="normal" c="dimmed">
           {INPUTS_SUB}
         </Text>
       ) : null}
@@ -390,53 +388,77 @@ export function EffectiveInputs({
         <Skeleton height={160} data-testid="effective-inputs-loading" />
       )}
       {query.isError && (
-        <Text fz={13} lh="normal" c="bad" data-testid="effective-inputs-error">
+        <Text fz="lg" lh="normal" c="bad" data-testid="effective-inputs-error">
           Could not load effective inputs: {(query.error as Error).message}
         </Text>
       )}
       {query.data && (
-        <>
-          <PacksSection payload={query.data} />
-          <Section name="Stage docs">
-            <Box>
-              {query.data.stages.map(stage => (
-                <StageDocRow
-                  key={stage}
-                  repo={repo}
-                  runId={runId}
-                  stage={stage}
-                />
-              ))}
-            </Box>
-          </Section>
-          <Section name="Decisions in force">
-            {decisions.length === 0 ? (
-              <Text fz={12.5} lh="normal" c="dimmed">
-                No decisions were recorded for this run.
-              </Text>
-            ) : (
+        <div className={wide ? classes.split : classes.single}>
+          <div className={classes.half}>
+            <PacksSection payload={query.data} />
+            <Section name="Stage docs">
               <Box>
-                {decisions.map(decision => (
-                  <DecisionRow
-                    key={`${decision.contract}-${decision.decided_at}`}
-                    decision={decision}
-                  />
-                ))}
+                <Accordion
+                  multiple
+                  value={openDocs}
+                  onChange={setOpenDocs}
+                  keepMounted={false}
+                  chevronPosition="left"
+                  chevron={<Accordion.Chevron size={14} data-parity="chev" />}
+                  classNames={{ ...ROW_CLASSES, chevron: classes.chev }}
+                >
+                  {query.data.stages.map(stage => (
+                    <StageDocRow
+                      key={stage}
+                      repo={repo}
+                      runId={runId}
+                      stage={stage}
+                      open={openDocs.includes(stage)}
+                    />
+                  ))}
+                </Accordion>
               </Box>
-            )}
-          </Section>
-          <Section name="Configuration (current values)">
-            <Box>
-              {query.data.config.map(row => (
-                <ConfigRow key={row.key} row={row} />
-              ))}
-            </Box>
-          </Section>
-          <Text fz={12} lh="normal" c="dimmed" data-parity="foot">
-            Runs don&apos;t record the config they read, so these are
-            today&apos;s values.
-          </Text>
-        </>
+            </Section>
+          </div>
+          <div className={classes.half}>
+            <Section name="Decisions in force">
+              {decisions.length === 0 ? (
+                <Text fz="md" lh="normal" c="dimmed">
+                  No decisions were recorded for this run.
+                </Text>
+              ) : (
+                <Box>
+                  {decisions.map(decision => (
+                    <DecisionRow
+                      key={`${decision.contract}-${decision.decided_at}`}
+                      decision={decision}
+                    />
+                  ))}
+                </Box>
+              )}
+            </Section>
+            <Section name="Configuration (current values)">
+              <Box>
+                <Accordion
+                  multiple
+                  keepMounted={false}
+                  chevron={<Accordion.Chevron size={14} data-parity="go" />}
+                  classNames={{ ...ROW_CLASSES, chevron: classes.chevEnd }}
+                >
+                  {query.data.config.map(row => (
+                    <ConfigRow key={row.key} row={row} />
+                  ))}
+                </Accordion>
+              </Box>
+            </Section>
+          </div>
+        </div>
+      )}
+      {query.data && (
+        <Text fz="md" lh="normal" c="dimmed" data-parity="foot">
+          Runs don&apos;t record the config they read, so these are today&apos;s
+          values.
+        </Text>
       )}
     </Stack>
   );

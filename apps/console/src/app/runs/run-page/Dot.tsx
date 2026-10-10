@@ -1,9 +1,8 @@
-import type { ComponentPropsWithoutRef } from 'react';
+import { ThemeIcon, type ThemeIconProps } from '@mattstack/app-kit/core';
 
 import type { HeroTone } from '../derive/liveness';
-import classes from './Dot.module.css';
 
-/** A solid status dot in a tone's fill. */
+/** A solid status dot in a tone's fill: a kit ThemeIcon with no glyph. */
 export function Dot({
   tone,
   size = 'sm',
@@ -11,8 +10,17 @@ export function Dot({
 }: {
   tone: HeroTone;
   size?: 'sm' | 'md';
-} & Omit<ComponentPropsWithoutRef<'span'>, 'className'>) {
+} & Omit<ThemeIconProps, 'color' | 'size' | 'radius' | 'children'> & {
+    'data-parity'?: string;
+  }) {
   return (
-    <span className={classes.dot} data-tone={tone} data-size={size} {...rest} />
+    <ThemeIcon
+      size={size === 'md' ? 8 : 7}
+      radius="xl"
+      color={tone}
+      aria-hidden
+      data-tone={tone}
+      {...rest}
+    />
   );
 }

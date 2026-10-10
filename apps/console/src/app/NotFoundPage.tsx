@@ -19,13 +19,13 @@ export function NotFoundPage() {
   return (
     <PageShell>
       <PageShell.Main>
-        <PageShell.Content bg="var(--tk-panel)" contentContainer={false}>
+        <PageShell.Content contentContainer={false}>
           <div className={classes.page} data-parity="Not found">
             <Stack align="center" gap={8} ta="center">
-              <Text fz={18} fw={700} lh="normal" data-parity="h">
+              <Text fz="h2" fw={700} lh="normal" data-parity="h">
                 Nothing at this address
               </Text>
-              <Text fz={13} lh="normal" c="dimmed" data-parity="p">
+              <Text fz="lg" lh="normal" c="dimmed" data-parity="p">
                 {notFoundReason(days)}
               </Text>
               <Button component={Link} href="/" data-parity="btn">

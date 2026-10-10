@@ -1,11 +1,9 @@
-import { Spotlight } from '@mattstack/app-kit/spotlight';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type {
   RunDetail as RunDetailData,
   RunSummary,
 } from '@mattstack/rt-client';
-import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import './icons';
@@ -72,47 +70,26 @@ afterEach(() => {
   window.history.pushState(null, '', '/');
 });
 
-describe('App keyboard contract', () => {
-  // The single-key handoff copies (t/b/w/m/c) live on the run detail view and
-  // must not fire while the palette's own search input has focus. Spotlight
-  // traps its own keys via a real <input>, and useHotkeys' default
-  // tagsToIgnore already excludes INPUT -- this proves that combination
-  // actually holds end to end, rather than assuming it from reading either
-  // library's source separately.
-  it('types "b" into the open palette instead of firing the branch-copy hotkey', async () => {
+describe('App shell', () => {
+  it('puts the mark in the rail and the scheme control at its foot, with no app launcher', async () => {
     window.history.pushState(null, '', '/runs/repo-tools/run-1');
     runsGet.mockResolvedValue(ok({ runs: [run()] }));
     detailGet.mockResolvedValue(ok(DETAIL));
     artifactGet.mockResolvedValue(ok({ lines: [], truncated: false }));
     gatesGet.mockResolvedValue(ok({ gates: [] }));
 
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText },
-      configurable: true,
-    });
-
     renderWithProviders(<App />);
-
-    // Detail view is live and its hotkeys are registered.
     await screen.findByTestId('record-header');
 
-    // The shell renders console's wordmark and its rail scheme control, and
-    // no app launcher: the mattstack viewer owns app switching.
-    expect(screen.getByText('console')).toBeInTheDocument();
+    // The mattstack viewer owns app switching, and the mark tops the rail,
+    // so the top bar names no app.
+    expect(
+      within(screen.getByRole('banner')).queryByText('console', {
+        exact: true,
+      })
+    ).toBeNull();
     expect(screen.getByLabelText('Color scheme: System')).toBeInTheDocument();
     expect(screen.queryByLabelText('Apps')).not.toBeInTheDocument();
-
-    Spotlight.open();
-    const input = await screen.findByPlaceholderText(
-      'Search runs, or jump to a page…'
-    );
-    input.focus();
-
-    await userEvent.keyboard('b');
-
-    expect(input).toHaveValue('b');
-    await waitFor(() => expect(writeText).not.toHaveBeenCalled());
   });
 });
 
@@ -131,16 +108,14 @@ describe('App routes', () => {
 });
 
 describe('App bar', () => {
-  it('names the page beside the app, as plain text, and in the tab title', async () => {
+  it('carries no page breadcrumb; the page name is the tab title', async () => {
     window.history.pushState(null, '', '/search');
     gatesGet.mockResolvedValue(ok({ gates: [] }));
     runsGet.mockResolvedValue(ok({ runs: [] }));
 
     renderWithProviders(<App />);
 
-    const bar = await screen.findByTestId('app-bar-page');
-    expect(bar).toHaveTextContent('consoleSearch');
-    expect(bar.querySelector('a, button')).toBeNull();
     await waitFor(() => expect(document.title).toBe('Search · console'));
+    expect(screen.queryByTestId('app-bar-page')).toBeNull();
   });
 });

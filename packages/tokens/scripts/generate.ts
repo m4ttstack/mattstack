@@ -139,7 +139,13 @@ function generateTuiKitTokens(): string {
     '\n' +
     renderConst('GENERATED_FONT_FAMILY', fontFamily) +
     '\n' +
-    `export const GENERATED_LINE_HEIGHT_BASE = ${JSON.stringify(lineHeightBase)} as const;\n`
+    `export const GENERATED_LINE_HEIGHT_BASE = ${JSON.stringify(lineHeightBase)} as const;\n` +
+    '\n' +
+    // One light-dark() string: tui-kit's dark override takes colours only,
+    // and its bundler leaves light-dark() alone.
+    renderConst('GENERATED_SHADOW', {
+      card: `${TOKENS.shadow.card.geometry} light-dark(${TOKENS.shadow.card.light}, ${TOKENS.shadow.card.dark})`,
+    })
   );
 }
 
@@ -282,6 +288,10 @@ function renderTokyoSchemeBlock(scheme: 'light' | 'dark'): string {
       h =>
         `  --tk-text-${h}-vivid: ${at(`hueTextVivid.${h}`, t.hueTextVivid[h])};`
     ),
+    // Each scheme block carries its own colour, never light-dark(): the
+    // apps' production CSS build (Lightning CSS) rewrites light-dark() into a
+    // var fallback that leaves a shadow with two colours, which is invalid.
+    `  --tk-shadow-card: ${TOKENS.shadow.card.geometry} ${TOKENS.shadow.card[scheme]};`,
     '',
     `  --tk-wash: ${d.wash};`,
   ].join('\n');

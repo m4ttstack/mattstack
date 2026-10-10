@@ -167,7 +167,8 @@ function containsCompoundChild(children: React.ReactNode): boolean {
  *
  * Layering: the shell sits on `bg.level1` (page background); sidebar and
  * header share the raised `bg.level2` surface (override via
- * `sideBarHeaderBg`); content defaults to `bg.level3`.
+ * `sideBarHeaderBg`); content defaults to `bg.level2` too, and draws the
+ * theme's grid only when it passes `grid`.
  */
 function PageShellRoot({
   children,

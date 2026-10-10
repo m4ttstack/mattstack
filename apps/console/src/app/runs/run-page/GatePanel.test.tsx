@@ -404,7 +404,7 @@ describe('GatePanel', () => {
       ])
     ).toEqual([
       ['path', 'a.ts:42'],
-      ['line', 'const x = 1'],
+      ['block', 'const x = 1'],
     ]);
   });
 
@@ -422,12 +422,15 @@ describe('GatePanel', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows the parked badge and keeps the resume note on the pane button', () => {
+  it('shows the parked badge and keeps the resume note on the pane button', async () => {
     renderPanel(gateRow({ status: 'parked' }));
     expect(screen.getByText('parked')).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: /Open the pane/ });
+    expect(button).toBeDisabled();
+    await userEvent.hover(button.parentElement!);
     expect(
-      screen.getByRole('button', { name: /Open the pane/ })
-    ).toHaveAttribute('title', 'parked; resume is board-owned');
+      await screen.findByText('parked; resume is board-owned')
+    ).toBeInTheDocument();
   });
 
   it('shows the active question context over the gate context', async () => {

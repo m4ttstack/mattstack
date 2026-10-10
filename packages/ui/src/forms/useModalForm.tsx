@@ -20,6 +20,10 @@ export interface UseModalFormOptions<
   onSubmit: (values: z.infer<Schema>) => unknown | Promise<unknown>;
   /** Shown via `notifications.success` once the submission resolves. */
   successMessage?: string;
+  /** The submit button's label. @default 'Submit' */
+  submitLabel?: ReactNode;
+  /** A red submit and a Cancel beside it, as `modals.confirm`'s `destructive`. @default false */
+  destructive?: boolean;
   /** Extra props for the hosting `@mattstack/app-kit/modals` modal (title, size, ...). `children` and `modalId` are set internally and can't be overridden here. */
   modalProps?: Partial<Omit<OpenModalOptions, 'children' | 'modalId'>>;
 }
@@ -38,6 +42,8 @@ interface ModalFormBodyProps<
   initialValues: z.infer<Schema>;
   onSubmit: (values: z.infer<Schema>) => unknown | Promise<unknown>;
   successMessage?: string;
+  submitLabel?: ReactNode;
+  destructive?: boolean;
   fields: FieldsRenderer<Schema>;
 }
 
@@ -53,6 +59,8 @@ function ModalFormBody<Schema extends z.ZodType<Record<string, unknown>>>({
   initialValues,
   onSubmit,
   successMessage,
+  submitLabel,
+  destructive = false,
   fields,
 }: ModalFormBodyProps<Schema>) {
   const form = useForm({
@@ -82,6 +90,9 @@ function ModalFormBody<Schema extends z.ZodType<Record<string, unknown>>>({
       form={form}
       onSubmit={handleSubmit}
       loading={loading}
+      submitLabel={submitLabel}
+      destructive={destructive}
+      onCancel={destructive ? () => modals.close(modalId) : undefined}
       // The modal body IS the surface here -- `plain` keeps FormContainer
       // from drawing a second bordered/shadowed Paper inside it.
       plain
@@ -118,8 +129,15 @@ export function useModalForm<Schema extends z.ZodType<Record<string, unknown>>>(
 
   const open = useCallback((fields: FieldsRenderer<Schema>) => {
     const modalId = `modal-form-${modalFormCounter++}`;
-    const { schema, initialValues, onSubmit, successMessage, modalProps } =
-      optionsRef.current;
+    const {
+      schema,
+      initialValues,
+      onSubmit,
+      successMessage,
+      submitLabel,
+      destructive,
+      modalProps,
+    } = optionsRef.current;
 
     modals.open({
       title: modalProps?.title ?? '',
@@ -136,6 +154,8 @@ export function useModalForm<Schema extends z.ZodType<Record<string, unknown>>>(
           initialValues={initialValues}
           onSubmit={onSubmit}
           successMessage={successMessage}
+          submitLabel={submitLabel}
+          destructive={destructive}
           fields={fields}
         />
       ),

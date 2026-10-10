@@ -4,6 +4,10 @@
   cursor: zoom-in;
 }
 
+.open[data-cover] {
+  height: 100%;
+}
+
 .missing {
   min-height: 120px;
   width: 100%;

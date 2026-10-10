@@ -7,18 +7,6 @@
   border-bottom: 1px solid var(--tk-border);
 }
 
-.row {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  min-width: 0;
-  background-color: var(--tk-card);
-}
-
-.row[data-open] {
-  background-color: var(--tk-panel);
-}
-
 .flat {
   display: flex;
   align-items: center;
@@ -28,22 +16,30 @@
   padding: 10px 14px;
 }
 
+/* Accordion's parts, through `classNames`: layout and spacing only; the
+   rules, hover and chevron are Accordion's. */
+.item:last-child {
+  border-bottom-width: 0;
+}
+
+.control {
+  padding-inline: 14px;
+}
+
 .head {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
   min-width: 0;
-  padding: 10px 14px;
-}
-
-.head:disabled {
-  cursor: default;
+  padding-block: 10px;
 }
 
 .chev {
-  flex: none;
-  color: var(--tk-text-3);
+  margin-inline: 0 10px;
+}
+
+.chevEnd {
+  margin-inline-start: 10px;
 }
 
 .sp {
@@ -56,8 +52,12 @@
   width: 150px;
 }
 
+.value {
+  min-width: 0;
+}
+
 .body {
-  padding: 2px 14px 14px 38px;
+  padding-inline: 38px 14px;
 }
 
 .start {
@@ -76,7 +76,7 @@
 }
 
 .where {
-  padding: 0 14px 12px;
+  padding-inline: 14px;
 }
 
 .scope {
@@ -95,4 +95,32 @@
 .push {
   flex: none;
   margin-left: auto;
+}
+
+/* The sections: one column in the drawer; on the record's tab two fixed
+   columns (packs and stage docs, then decisions and config), so opening a
+   row never moves a section to the other column. */
+.single,
+.half {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 22px 28px;
+}
+
+.single > .half {
+  display: contents;
+}
+
+@media (max-width: 1100px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

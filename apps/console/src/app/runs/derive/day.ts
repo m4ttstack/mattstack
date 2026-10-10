@@ -18,9 +18,14 @@ import { stageAttempts } from './stages';
 import { timelineSegments, type SegmentKind } from './timeline';
 
 const HOUR_MS = 60 * 60 * 1000;
-const AXIS_START_HOUR = 8;
-const AXIS_END_HOUR = 18;
 const TICK_HOURS = 2;
+/** The working day the axis always shows, 8 AM to 6 PM. */
+const DAY_START_HOUR = 8;
+const DAY_END_HOUR = 18;
+/** A work stretch with no activity this long is a run left open, not work. */
+const QUIET_MS = 4 * HOUR_MS;
+/** How long after its last activity a quiet stretch still counts as work. */
+const QUIET_GRACE_MS = 30 * 60 * 1000;
 /** A tick this close to the now marker would sit under its label. */
 const TICK_CLEAR_OF_NOW_MS = HOUR_MS;
 
@@ -41,16 +46,15 @@ export const CATEGORIES: { category: Category; label: string }[] = [
   { category: 'work', label: 'Stage work' },
   { category: 'ci', label: 'Waiting on CI' },
   { category: 'you', label: 'Waiting on you' },
-  { category: 'idle', label: 'Idle or held' },
 ];
 
-/** The legend, in the board's order; held shares idle's swatch. */
+/** The legend, in the board's order. Idle and held time is not drawn, so it
+    has no swatch. */
 export const LEGEND: { kind: SegmentKind; label: string }[] = [
   { kind: 'done', label: 'stage done' },
   { kind: 'running', label: 'running now' },
   { kind: 'you', label: 'waiting on you' },
   { kind: 'ci', label: 'waiting on CI' },
-  { kind: 'idle', label: 'idle / held' },
 ];
 
 const KIND_LABEL: Record<SegmentKind, string> = {
@@ -120,6 +124,23 @@ export function dayAt(key: string, hour = 0): number {
   return new Date(Number(y), Number(m) - 1, Number(d), hour).getTime();
 }
 
+/** Idle or held: time a run sat with nothing happening. It is not drawn,
+    stretches no axis and counts toward no total. */
+export function isQuiet(bar: Pick<Bar, 'kind'>): boolean {
+  return bar.kind === 'idle' || bar.kind === 'held';
+}
+
+/** The window a day's timeline covers: the whole day, or with `overnight`
+    the night after it, 6 PM to 8 AM the next morning. */
+export function dayWindow(
+  key: string,
+  overnight = false
+): { from: number; to: number } {
+  return overnight
+    ? { from: dayAt(key, DAY_END_HOUR), to: dayAt(key, 24 + DAY_START_HOUR) }
+    : { from: dayAt(key), to: dayAt(key, 24) };
+}
+
 /** Run ids are unique within a repo only. */
 export function runDetailKey(run: Pick<RunSummary, 'repo' | 'id'>): string {
   return JSON.stringify([run.repo, run.id]);
@@ -128,6 +149,62 @@ export function runDetailKey(run: Pick<RunSummary, 'repo' | 'id'>): string {
 export function shiftDay(key: string, days: number): string {
   const [, y, m, d] = DAY_KEY.exec(key)!;
   return dayKey(new Date(Number(y), Number(m) - 1, Number(d) + days).getTime());
+}
+
+export interface HeatDay {
+  date: string;
+  level: 0 | 1 | 2 | 3;
+  count: number;
+  inWindow: boolean;
+}
+
+/**
+ * One calendar month as weeks, Sunday first, padded to whole weeks: each
+ * day with how many runs moved on it (started, ended or last moved; a run
+ * only held open across the day does not count) and a level from 0 to 3
+ * against the month's busiest day. Days outside the month, or after today,
+ * are outside the window. `month` is any day key in it.
+ */
+export function heatMonth(
+  runs: RunSummary[],
+  now: number,
+  month: string
+): HeatDay[][] {
+  const today = dayKey(now);
+  const first = `${month.slice(0, 7)}-01`;
+  const lead = new Date(`${first}T12:00:00`).getDay();
+  const start = shiftDay(first, -lead);
+  const days: HeatDay[] = [];
+  for (let i = 0; ; i++) {
+    const date = shiftDay(start, i);
+    if (i % 7 === 0 && i > 0 && date.slice(0, 7) !== first.slice(0, 7)) break;
+    const inWindow = date.slice(0, 7) === first.slice(0, 7) && date <= today;
+    const { from, to } = dayWindow(date);
+    const on = (t: number | null | undefined) =>
+      t != null && t >= from && t < to;
+    const count = inWindow
+      ? runs.filter(
+          r => on(r.started_at) || on(r.ended_at) || on(r.last_event_at)
+        ).length
+      : 0;
+    days.push({ date, level: 0, count, inWindow });
+  }
+  const most = Math.max(1, ...days.map(d => d.count));
+  for (const day of days)
+    day.level =
+      day.count === 0
+        ? 0
+        : (Math.min(3, Math.ceil((day.count / most) * 3)) as 1 | 2 | 3);
+  return Array.from({ length: days.length / 7 }, (_, w) =>
+    days.slice(w * 7, w * 7 + 7)
+  );
+}
+
+/** The first of the month `months` from the month of `key`. */
+export function shiftMonth(key: string, months: number): string {
+  const [y, m] = key.split('-').map(Number);
+  const d = new Date(y!, m! - 1 + months, 1);
+  return dayKey(d.getTime());
 }
 
 /** When a run stopped being active: its end, a stale run's last event, else
@@ -178,6 +255,47 @@ function mergeBars(
   return bars;
 }
 
+/**
+ * Splits work or a CI wait that went quiet: inside such a bar, a gap
+ * between two activity points (a stage starting or ending, a decision, a
+ * gate opening or being answered) longer than QUIET_MS keeps its kind for
+ * QUIET_GRACE_MS and is idle after that. A run left sitting in a stage
+ * overnight then reads as idle, not hours of work or of CI. Waiting on you
+ * is left alone: an open gate overnight is still waiting on you. Display
+ * only: rt's record is unchanged.
+ */
+function splitQuiet(bars: Bar[], activity: number[]): Bar[] {
+  const points = [...new Set(activity)].sort((a, b) => a - b);
+  const out: Bar[] = [];
+  for (const bar of bars) {
+    if (bar.kind !== 'done' && bar.kind !== 'running' && bar.kind !== 'ci') {
+      out.push(bar);
+      continue;
+    }
+    // A bar clipped to the day starts at midnight, not at an activity: its
+    // quiet is measured from the last activity before it, the evening before.
+    const before = points.filter(t => t <= bar.from).at(-1) ?? bar.from;
+    const inside = [
+      before,
+      ...points.filter(t => t > bar.from && t < bar.to),
+      bar.to,
+    ];
+    let start = bar.from;
+    for (let i = 1; i < inside.length; i++) {
+      const a = inside[i - 1]!;
+      const b = inside[i]!;
+      if (b - a <= QUIET_MS) continue;
+      const quietFrom = Math.max(start, a + QUIET_GRACE_MS);
+      if (quietFrom >= b) continue;
+      if (quietFrom > start) out.push({ ...bar, from: start, to: quietFrom });
+      out.push({ ...bar, kind: 'idle', from: quietFrom, to: b, gates: [] });
+      start = b;
+    }
+    if (bar.to > start) out.push({ ...bar, from: start, to: bar.to });
+  }
+  return out;
+}
+
 /** One run's bars over the window. A stage still marked running on a
     finished run is drawn as done, ending at the run's end. On a stale run
     the open stage runs only to the last event; after it the run is idle. */
@@ -215,7 +333,12 @@ export function rowBars({
     dayStart: from,
     dayEnd: to,
   });
-  return mergeBars(segments, mine, now);
+  const activity = [
+    ...attempts.flatMap(a => [a.startedAt, a.endedAt]),
+    ...detail.decisions.map(d => d.decided_at),
+    ...mine.flatMap(g => [g.openedAt, g.answer?.answeredAt]),
+  ].filter((t): t is number => typeof t === 'number');
+  return splitQuiet(mergeBars(segments, mine, now), activity);
 }
 
 function currentStageStart(run: RunSummary): number | null {
@@ -278,37 +401,50 @@ export function timelineSub(
 const hourLabel = (ms: number) =>
   new Date(ms).toLocaleTimeString([], { hour: 'numeric' });
 
-/** The wall-clock hour of `ms` on the day `key` (the next midnight is 24),
-    so a 23- or 25-hour day still lines up with `dayAt`. */
-function wallHour(ms: number, key: string): number {
-  if (ms <= dayAt(key)) return 0;
-  if (ms >= dayAt(key, 24)) return 24;
-  const d = new Date(ms);
-  return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+/** The night after `key`, 6 PM to 8 AM, ticked every two hours; now is
+    marked when it falls inside. */
+function nightAxis(key: string, now: number): DayAxis {
+  const lo = DAY_END_HOUR;
+  const hi = 24 + DAY_START_HOUR;
+  const from = dayAt(key, lo);
+  const to = dayAt(key, hi);
+  const marked = now >= from && now <= to ? now : null;
+  const ticks: Tick[] = [];
+  for (let h = lo; h <= hi; h += TICK_HOURS) {
+    const at = dayAt(key, h);
+    if (marked != null && Math.abs(at - marked) < TICK_CLEAR_OF_NOW_MS)
+      continue;
+    ticks.push({
+      at,
+      label: hourLabel(at),
+      layer: `t${h % 24}`,
+      end: h === hi,
+    });
+  }
+  return { from, to, ticks, now: marked };
 }
 
-/** 8 AM to 6 PM, stretched in two-hour steps to cover any bar that is not
-    idle; now is marked on today. */
-export function dayAxis(rows: DayRow[], key: string, now: number): DayAxis {
-  let lo = AXIS_START_HOUR;
-  let hi = AXIS_END_HOUR;
-  for (const row of rows) {
-    for (const bar of row.bars) {
-      if (bar.kind === 'idle') continue;
-      const a = wallHour(bar.from, key);
-      const b = wallHour(bar.to, key);
-      lo = Math.min(lo, Math.floor(a / TICK_HOURS) * TICK_HOURS);
-      hi = Math.max(hi, Math.ceil(b / TICK_HOURS) * TICK_HOURS);
-    }
-  }
-  lo = Math.max(0, lo);
-  hi = Math.min(24, hi);
+/** The working day, 8 AM to 6 PM, ticked every two hours; `overnight`
+    draws the night after it instead, 6 PM to 8 AM. Now is marked when it
+    falls inside. */
+export function dayAxis(
+  _rows: DayRow[],
+  key: string,
+  now: number,
+  overnight = false
+): DayAxis {
+  if (overnight) return nightAxis(key, now);
+  // A fixed frame, so every day reads on the same scale; a bar that runs
+  // past either edge is clipped there, and Night covers the evening.
+  const lo = DAY_START_HOUR;
+  const hi = DAY_END_HOUR;
+  const step = TICK_HOURS;
   const from = dayAt(key, lo);
   const to = dayAt(key, hi);
   const isToday = dayKey(now) === key;
   const marked = isToday && now >= from && now <= to ? now : null;
   const ticks: Tick[] = [];
-  for (let h = lo; h <= hi; h += TICK_HOURS) {
+  for (let h = lo; h <= hi; h += step) {
     const at = dayAt(key, h);
     if (marked != null && Math.abs(at - marked) < TICK_CLEAR_OF_NOW_MS)
       continue;
@@ -467,6 +603,7 @@ export function dayTimeline({
   key,
   now,
   repoName = null,
+  overnight = false,
 }: {
   runs: RunSummary[];
   details: Map<string, Pick<RunDetail, 'stages' | 'decisions'>>;
@@ -475,9 +612,10 @@ export function dayTimeline({
   now: number;
   /** The repo the page is filtered to, named first in the sub line. */
   repoName?: string | null;
+  /** Show the whole day, not just the working day. */
+  overnight?: boolean;
 }): DayTimeline {
-  const from = dayAt(key);
-  const to = dayAt(key, 24);
+  const { from, to } = dayWindow(key, overnight);
   const isToday = dayKey(now) === key;
   const active = runs
     .filter(r => activeOn(r, from, to, now))
@@ -487,17 +625,25 @@ export function dayTimeline({
         b.started_at - a.started_at ||
         b.id.localeCompare(a.id)
     );
-  const raw: DayRow[] = active.map(run => {
+  const raw = active.map(run => {
     const gates = gatesByRun.get(run.id) ?? [];
     const detail = details.get(runDetailKey(run));
     return {
+      loaded: detail != null,
       run,
       bars: detail ? rowBars({ run, detail, gates, from, to, now }) : [],
       sub: timelineSub(run, detail?.stages ?? [], gates, now, isToday),
     };
   });
-  const axis = dayAxis(raw, key, now);
-  const rows = raw.map(r => ({ ...r, bars: clipBars(r.bars, axis) }));
+  const axis = dayAxis(raw, key, now, overnight);
+  // A run with nothing to draw inside the frame (all idle or held, or
+  // active only outside these hours) did nothing you can see here, so it
+  // has no row. One still loading keeps its row until its detail says.
+  const rows: DayRow[] = raw.flatMap(({ loaded, ...r }) => {
+    const bars = clipBars(r.bars, axis);
+    if (loaded && !bars.some(bar => !isQuiet(bar))) return [];
+    return [{ ...r, bars }];
+  });
 
   const finished = active.filter(
     r => r.ended_at != null && r.ended_at >= from && r.ended_at < to

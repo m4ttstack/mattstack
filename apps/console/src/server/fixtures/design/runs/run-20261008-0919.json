@@ -76,13 +76,13 @@
     },
     {
       "key": "branch",
-      "value": "web-401-readonly-admin-menu",
+      "value": "web-401-readonly-admin-menu-hidden-by-role-in-the-nav-config-and-the-command-palette-and-the-settings-sidebar",
       "produced_by": "provision",
       "at": "2026-10-08T09:19:20-05:00"
     },
     {
       "key": "worktree",
-      "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/sam",
+      "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/web-401-readonly-admin-menu-hidden-by-role-in-the-nav-config-and-the-command-palette-and-the-settings-sidebar",
       "produced_by": "provision",
       "at": "2026-10-08T09:19:30-05:00"
     },
@@ -109,6 +109,18 @@
       "value": "!398",
       "produced_by": "ship",
       "at": "2026-10-08T10:52:00-05:00"
+    },
+    {
+      "key": "plan",
+      "value": "docs/superpowers/plans/2026-10-08-readonly-admin-menu-hidden-by-role-in-the-nav-config-and-the-command-palette.md",
+      "produced_by": "implement",
+      "at": "2026-10-08T10:39:00-05:00"
+    },
+    {
+      "key": "self-review",
+      "value": "passed with two minor notes: packages/web/src/features/orders/admin-menu/AssigneeFilterDropdownWithServerSideSearchAndKeyboardNavigationAndRosterPagination.tsx:142 has no test for an empty roster, and useAssigneeFilterQueryWithDebouncedServerSideSearchAndCaching.ts reads the roster twice on first render",
+      "produced_by": "self-review",
+      "at": "2026-10-08T10:47:00-05:00"
     }
   ],
   "decisions": []

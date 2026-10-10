@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 
+import { useGrow, type Grow } from '@mattstack/app-kit/hooks';
 import { formatNumber } from '../../../shared/metrics';
 import type { EvidenceRow } from '../../../shared/types';
 import { waitBins } from '../../model/evidence-shapes';
-import { useGrow, type Grow } from '../../ui/useGrow';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
 import panels from './panels.module.css';

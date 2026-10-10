@@ -57,6 +57,12 @@ beforeEach(() => {
 });
 
 describe("viewing another team", () => {
+  test("viewer names who you are and your org and team, without reading any defs", async () => {
+    const body = (await (await handle(get("/api/settings/viewer")))!.json()) as { org: string; activeTeam: string; viewer: ViewerWire };
+    expect(body).toEqual({ org: "acme", activeTeam: "widgets", viewer: ADMIN });
+    expect(explainCalls).toEqual([]);
+  });
+
   test("defs reads your own team by default, keeps your layers, and names who you are", async () => {
     const body = (await (await handle(get("/api/settings/defs")))!.json()) as DefsBody;
     expect(body.viewer).toEqual(ADMIN);

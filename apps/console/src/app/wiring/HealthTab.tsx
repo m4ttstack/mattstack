@@ -111,19 +111,20 @@ interface StatCardProps {
 }
 
 function StatCard({ count, label, color }: StatCardProps) {
-  const { bg, text, border } = useSchemeColors();
+  const { text } = useSchemeColors();
   const tone = color ? text.highContrast(color) : text.muted;
 
   return (
     <Paper
-      bg={bg.level2}
+      variant="ground"
+      withBorder
       radius="xl"
       // Health.dc.html `.stat` padding (15px 16px) has no matching spacing
       // step at this theme's scale.
-      style={{ border: `1px solid ${border.default}`, padding: '15px 16px' }}
+      style={{ padding: '15px 16px' }}
       data-testid={`health-stat-${slugify(label)}`}
     >
-      <Text fz={26} fw={700} lh={1} c={tone}>
+      <Text fz="h2" fw={700} lh={1}>
         {count}
       </Text>
       <Group gap={7} align="center" wrap="nowrap" mt={8}>
@@ -137,7 +138,7 @@ function StatCard({ count, label, color }: StatCardProps) {
             background: tone,
           }}
         />
-        <Text fz={11} c={text.muted}>
+        <Text fz="md" lh="normal">
           {label}
         </Text>
       </Group>
@@ -278,14 +279,15 @@ function HealthGroupCard<T>({
   getKey,
   renderRow,
 }: HealthGroupCardProps<T>) {
-  const { bg, text, border } = useSchemeColors();
+  const { bg, text } = useSchemeColors();
   const dotColor = intent ? text.highContrast(intent) : text.muted;
 
   return (
     <Paper
-      bg={bg.level2}
+      variant="ground"
+      withBorder
       radius="xl"
-      style={{ border: `1px solid ${border.default}`, overflow: 'hidden' }}
+      style={{ overflow: 'hidden' }}
       data-testid={`health-group-${slugify(title)}`}
     >
       <Group
@@ -352,7 +354,7 @@ function HealthGroupCard<T>({
  * the active tab IS the fetch trigger.
  */
 export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
-  const { bg, text, border } = useSchemeColors();
+  const { text } = useSchemeColors();
   const compositionQuery = useCompositionSnapshot(pack);
   const checkQuery = useSkillsCheck(pack);
 
@@ -487,10 +489,10 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
       <div style={{ marginTop: showCachesBar ? 14 : 18 }}>
         {clean ? (
           <Paper
-            bg={bg.level2}
+            variant="ground"
+            withBorder
             radius="xl"
             p="xl"
-            style={{ border: `1px solid ${border.default}` }}
             data-testid="health-empty"
           >
             <Group gap="xs" wrap="nowrap">

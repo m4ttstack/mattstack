@@ -319,7 +319,7 @@ describe('EffectiveInputs', () => {
 
     const row = screen.getByTestId('config-row-rt.worktrees');
     expect(
-      within(row).getByText('Per-repo worktree pool.')
+      await within(row).findByText('Per-repo worktree pool.')
     ).toBeInTheDocument();
     const scopes = within(row)
       .getAllByTestId(/^scope-/)

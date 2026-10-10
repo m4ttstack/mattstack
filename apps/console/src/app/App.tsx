@@ -1,7 +1,6 @@
 import { Component, useEffect, type ReactNode } from 'react';
-import { MattstackShell } from '@mattstack/app-kit/app';
-import { GenericError, Group, Text } from '@mattstack/app-kit/core';
-import { Icons } from '@mattstack/app-kit/icons';
+import { MattstackShell, useViewer, ViewerChip } from '@mattstack/app-kit/app';
+import { GenericError } from '@mattstack/app-kit/core';
 import { RailLink } from '@mattstack/app-kit/router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Redirect, useLocation } from 'wouter';
@@ -9,7 +8,6 @@ import { Redirect, useLocation } from 'wouter';
 import { SHELL_HEADER_HEIGHT } from './chrome';
 import { GateRedirect } from './gates/GateRedirect';
 import { NotFoundPage } from './NotFoundPage';
-import { ConsolePalette } from './palette/ConsolePalette';
 import { createQueryClient } from './queryClient';
 import { useAppRoute, type AppRoute } from './routes';
 import { RunDetail } from './runs/RunDetail';
@@ -96,6 +94,7 @@ export function App() {
   const [path] = useLocation();
   const route = useAppRoute();
   const section = chromeSection(route);
+  const viewer = useViewer();
   const label = section ? SECTION_LABEL[section] : null;
   useEffect(() => {
     document.title = label ? `${label} · console` : 'console';
@@ -113,39 +112,24 @@ export function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* One instance for the whole app: its own ⌘K shortcut and its own
-          search input, which already owns keyboard focus while open -- the
-          detail view's single-key copies never see those keys. */}
-      <ConsolePalette />
       <MattstackShell
         name="console"
+        markInRail
         headerHeight={SHELL_HEADER_HEIGHT}
         mark={
           <img
             src="/favicon.svg"
             alt=""
-            width={30}
-            height={30}
+            width={26}
+            height={26}
             style={{ display: 'block', flex: 'none' }}
           />
         }
       >
-        {label && (
-          <MattstackShell.Header>
-            <Group gap={8} wrap="nowrap" data-testid="app-bar-page">
-              <Text fw={700} fz={15} lh={1} style={{ whiteSpace: 'nowrap' }}>
-                console
-              </Text>
-              <Icons.chevronRight size={14} color="var(--tk-text-4)" />
-              <Text fz={14} fw={500} lh={1} c="var(--tk-text-3)">
-                {label}
-              </Text>
-            </Group>
-          </MattstackShell.Header>
-        )}
+        <ViewerChip info={viewer} />
         <MattstackShell.Rail>
           <RailLink
-            icon="layers"
+            icon="workflow"
             label="Runs"
             href="/"
             active={section === 'runs'}

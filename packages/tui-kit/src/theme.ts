@@ -3,6 +3,7 @@ import {
   GENERATED_DARK_COLORS,
   GENERATED_FONT_FAMILY,
   GENERATED_LIGHT_COLORS,
+  GENERATED_SHADOW,
   GENERATED_LINE_HEIGHT_BASE,
 } from "./generated/tokens.ts";
 import { tuiIntentResolver } from "./intent-resolver.ts";
@@ -163,6 +164,7 @@ export const tuiTheme = createTheme({
     // would trip the no-hardcoded-values gate.
     lineHeight: { base: GENERATED_LINE_HEIGHT_BASE, snug: "1.4" },
     shadow: {
+      card: GENERATED_SHADOW.card,
       menu: "0 10px 30px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18)",
       modal: "0 12px 40px rgba(0, 0, 0, 0.25)",
       toast: "0 6px 20px rgba(0, 0, 0, 0.25)",

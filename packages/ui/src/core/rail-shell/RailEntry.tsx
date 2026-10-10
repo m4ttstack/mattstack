@@ -61,7 +61,7 @@ const RailEntryInner = /* @__PURE__ */ forwardRef<
           <ActionIcon
             component="div"
             className={classes.railEntryIcon}
-            variant={active ? 'filled' : 'subtle'}
+            variant={active ? 'light' : 'subtle'}
             size="lg"
             c={disabled && !active ? 'dimmed' : undefined}
           >

@@ -6,6 +6,10 @@
   overflow-wrap: anywhere;
 }
 
+.prose[data-fill] {
+  max-width: none;
+}
+
 .prose > :first-child {
   margin-top: 0;
 }
@@ -15,53 +19,16 @@
 }
 
 .prose p,
-.prose ul,
-.prose ol,
 .prose pre,
-.prose blockquote {
+.list,
+.quote {
   margin: 0 0 var(--mantine-spacing-xs);
-}
-
-.prose ul,
-.prose ol {
-  padding-left: 1.25rem;
-}
-
-.prose li + li {
-  margin-top: 4px;
-}
-
-.prose code {
-  font-family: var(--mantine-font-family-monospace);
-  font-size: 0.9em;
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: var(--tk-inset);
-  color: var(--tk-text-1);
-}
-
-.prose pre {
-  padding: var(--mantine-spacing-xs);
-  border-radius: 6px;
-  background: var(--tk-inset);
-  overflow-x: auto;
-}
-
-.prose pre code {
-  padding: 0;
-  background: none;
 }
 
 .prose strong {
   font-weight: 700;
-  color: var(--tk-text-1);
 }
 
-.prose a {
-  color: var(--tk-text-accent);
-}
-
-.prose blockquote {
-  padding-left: var(--mantine-spacing-sm);
-  border-left: 2px solid var(--tk-line-1);
+.quote {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
 }

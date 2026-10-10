@@ -133,6 +133,8 @@ export const baseTheme = /* @__PURE__ */ createTheme({
       // `variant="on-fill"`: a key hint inside a filled button (see the CSS
       // module).
       Kbd: { classNames: { root: classes.kbdRoot } },
+      // The control's focus ring sits inside its edge (see the CSS module).
+      Accordion: { classNames: { control: classes.accordionControl } },
       Code: { defaultProps: { fz: 'sm' } },
       Modal: { defaultProps: { centered: true, padding: 'lg' } },
       // Tight, single-line-by-default groups: the common case is a row of
@@ -176,7 +178,7 @@ export const baseTheme = /* @__PURE__ */ createTheme({
       Tooltip: {
         defaultProps: {
           withArrow: true,
-          openDelay: 500,
+          openDelay: 750,
           position: 'bottom',
           offset: 10,
           multiline: true,
@@ -187,6 +189,9 @@ export const baseTheme = /* @__PURE__ */ createTheme({
           transitionProps: { transition: 'pop-top-left', duration: 400 },
         },
       },
+      // A group of tooltips (a rail) waits as long as one tooltip does before
+      // its first opens; the rest then open at once.
+      TooltipGroup: { defaultProps: { openDelay: 750 } },
       // Menus share the tooltip's pop-in; dropdown surfaces carry a shadow so
       // floating layers separate from the page the same way everywhere.
       Menu: {
@@ -207,7 +212,10 @@ export const baseTheme = /* @__PURE__ */ createTheme({
       MenuDivider: { defaultProps: { my: 'xs' } },
       Popover: { defaultProps: { shadow: 'md' } },
       HoverCard: { defaultProps: { shadow: 'md' } },
-      Anchor: { defaultProps: { underline: 'hover', c: 'blue' } },
+      // No default `c`: a link takes `--mantine-color-anchor`, the theme's
+      // link-text role. A hue's `-text` shade is not held to the text bar in
+      // dark, and read under it there.
+      Anchor: { defaultProps: { underline: 'hover' } },
     }),
   },
 });

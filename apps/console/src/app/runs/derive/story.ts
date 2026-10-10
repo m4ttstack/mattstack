@@ -87,7 +87,12 @@ function redirectText(selection: string): string {
   return reason ?? selection;
 }
 
+/** Gates the board raises to get your attention to a pane: they ask
+    nothing about the work, so the story leaves them out. */
+const BOARD_PINGS = new Set(['pane-attention']);
+
 function isSettled(g: GateRow): boolean {
+  if (BOARD_PINGS.has(g.kind)) return false;
   return g.status === 'answered' || g.status === 'closed';
 }
 

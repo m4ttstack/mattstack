@@ -14,6 +14,7 @@ vi.mock('@mattstack/rt-client', () => ({
   agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   paneList: vi.fn(async () => ({ ok: true, data: { panes: [] } })),
   listRuns: vi.fn(async () => ({ ok: true, data: { runs: [] } })),
+  rtCommand: vi.fn(async () => ({ ok: true, data: { repos: {} } })),
   getRun: vi.fn(async () => ({ ok: false, error: 'no such run' })),
   runEvidence: vi.fn(),
   abandonRun: vi.fn(async () => ({ ok: true, data: { ok: true } })),
@@ -124,7 +125,7 @@ describe('runs api', () => {
     );
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ runs: [] });
+    await expect(res.json()).resolves.toEqual({ runs: [], repos: [] });
     expect(rt.listRuns).toHaveBeenCalledWith('repo-tools');
   });
 

@@ -1,13 +1,28 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Group, Loader, Paper, Popover, Text } from '@mattstack/app-kit/core';
-import { useWindowEvent } from '@mattstack/app-kit/hooks';
-import { Icon } from '@mattstack/app-kit/icons';
+import {
+  Fragment,
+  type ComponentPropsWithRef,
+  type CSSProperties,
+} from 'react';
+import {
+  Anchor,
+  Group,
+  HoverCard,
+  Loader,
+  Paper,
+  Progress,
+  ScrollArea,
+  Stack,
+  Text,
+  useHoverCardContext,
+} from '@mattstack/app-kit/core';
+import { useGrow, useWindowEvent, type Grow } from '@mattstack/app-kit/hooks';
 import { Link } from 'wouter';
 
 import {
   barDetail,
   barLabel,
   barPlacement,
+  isQuiet,
   LEGEND,
   type Bar,
   type DayAxis,
@@ -15,6 +30,8 @@ import {
 } from '../derive/day';
 import { formatDuration } from '../derive/duration';
 import type { SegmentKind } from '../derive/timeline';
+import { Glyph } from '../Glyph';
+import scrollFit from '../scrollFit.module.css';
 import classes from './DayTimeline.module.css';
 import { runHref, ticketOf } from './runLinks';
 
@@ -31,7 +48,7 @@ export function TimelineLegend() {
             data-kind={item.kind}
             data-parity="sw"
           />
-          <Text fz={12} lh="normal" c="dimmed" data-parity="label">
+          <Text fz="md" lh="normal" c="dimmed" data-parity="label">
             {item.label}
           </Text>
         </div>
@@ -49,7 +66,7 @@ function Axis({ axis }: { axis: DayAxis }) {
         {axis.ticks.map(tick => (
           <Text
             key={tick.layer}
-            fz={11}
+            fz="sm"
             lh="normal"
             c="dimmed"
             className={classes.tick}
@@ -62,7 +79,7 @@ function Axis({ axis }: { axis: DayAxis }) {
         ))}
         {axis.now != null ? (
           <Text
-            fz={11}
+            fz="sm"
             fw={700}
             lh="normal"
             c="accent"
@@ -90,60 +107,54 @@ const TITLE_COLOR: Record<SegmentKind, string> = {
   idle: 'dimmed',
 };
 
-/** One bar, with a card on hover or focus naming its stage, its span and,
-    for a waiting stretch, the gate and its pick. */
-function BarSegment({ bar, axis }: { bar: Bar; axis: DayAxis }) {
-  const [opened, setOpened] = useState(false);
-  const timer = useRef<number | undefined>(undefined);
-  const { x, w } = barPlacement(bar, axis);
-  const detail = barDetail(bar);
-  const open = () => {
-    window.clearTimeout(timer.current);
-    setOpened(true);
-  };
-  const openSoon = () => {
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(open, HOVER_OPEN_DELAY_MS);
-  };
-  const close = () => {
-    window.clearTimeout(timer.current);
-    setOpened(false);
-  };
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+/** The bar itself. Hovering it opens its card through HoverCard; keyboard
+    focus opens it the same way, and Escape closes it. */
+function BarTarget({
+  bar,
+  share,
+  ...target
+}: ComponentPropsWithRef<'div'> & { bar: Bar; share: number }) {
+  const card = useHoverCardContext();
   useWindowEvent('keydown', event => {
-    if (opened && event.key === 'Escape') close();
+    if (event.key === 'Escape') card.closeDropdown();
   });
   return (
-    <Popover
-      opened={opened}
-      onDismiss={close}
+    <Progress.Section
+      {...target}
+      value={share}
+      tabIndex={0}
+      aria-label={barLabel(bar)}
+      className={classes.seg}
+      data-kind={bar.kind}
+      data-parity="seg"
+      data-testid="timeline-bar"
+      onFocus={card.openDropdown}
+      onBlur={card.closeDropdown}
+    />
+  );
+}
+
+/** One bar, with a card on hover or focus naming its stage, its span and,
+    for a waiting stretch, the gate and its pick. */
+function BarSegment({ bar, share }: { bar: Bar; share: number }) {
+  const detail = barDetail(bar);
+  return (
+    <HoverCard
+      openDelay={HOVER_OPEN_DELAY_MS}
       position="bottom"
       offset={8}
       width={300}
     >
-      <Popover.Target>
-        <div
-          tabIndex={0}
-          role="img"
-          aria-label={barLabel(bar)}
-          className={classes.seg}
-          data-kind={bar.kind}
-          style={{ '--x': x, '--w': w } as CSSProperties}
-          data-parity="seg"
-          data-testid="timeline-bar"
-          onMouseEnter={openSoon}
-          onMouseLeave={close}
-          onFocus={open}
-          onBlur={close}
-        />
-      </Popover.Target>
-      <Popover.Dropdown
+      <HoverCard.Target>
+        <BarTarget bar={bar} share={share} />
+      </HoverCard.Target>
+      <HoverCard.Dropdown
         className={classes.barCard}
         data-parity="hover card"
         data-testid="bar-card"
       >
         <Text
-          fz={13}
+          fz="lg"
           fw={700}
           lh="normal"
           c={TITLE_COLOR[bar.kind]}
@@ -151,16 +162,63 @@ function BarSegment({ bar, axis }: { bar: Bar; axis: DayAxis }) {
         >
           {detail.title}
         </Text>
-        <Text fz={12} lh="normal" c="dimmed" data-parity="a">
+        <Text fz="md" lh="normal" c="dimmed" data-parity="a">
           {detail.span}
         </Text>
         {detail.gate ? (
-          <Text fz={12.5} lh="18px" data-parity="q">
+          <Text fz="md" lh="18px" data-parity="q">
             {`Gate: ${detail.gate}`}
           </Text>
         ) : null}
-      </Popover.Dropdown>
-    </Popover>
+      </HoverCard.Dropdown>
+    </HoverCard>
+  );
+}
+
+/** A run's day as one rounded bar from its first active stretch to its
+    last, each a section sized by its share, as boxscore draws a stacked
+    bar. Idle and held time between them stays empty, and a run with only
+    quiet time that day draws no bar. Too short to see, the bar keeps a
+    minimum length (see .runBar). */
+function RunBar({
+  bars,
+  axis,
+  grow,
+}: {
+  bars: Bar[];
+  axis: DayAxis;
+  grow: Grow;
+}) {
+  const active = bars.filter(bar => !isQuiet(bar));
+  const first = active[0];
+  const last = active[active.length - 1];
+  if (!first || !last) return null;
+  const span = last.to - first.from || 1;
+  const { x, w } = barPlacement({ from: first.from, to: last.to }, axis);
+  const share = (ms: number) => (ms / span) * 100;
+  return (
+    <Progress.Root
+      size={10}
+      radius="xl"
+      className={`${classes.runBar} ${grow.className}`}
+      // A run that carries on past an edge of the frame ends square there.
+      data-cut-start={first.from <= axis.from || undefined}
+      data-cut-end={last.to >= axis.to || undefined}
+      style={{ '--x': x, '--w': w, ...grow.style } as CSSProperties}
+      data-parity="run bar"
+    >
+      {active.map((bar, i) => {
+        const gap = i > 0 ? bar.from - active[i - 1]!.to : 0;
+        return (
+          <Fragment key={bar.from}>
+            {gap > 0 ? (
+              <Progress.Section value={share(gap)} color="transparent" />
+            ) : null}
+            <BarSegment bar={bar} share={share(bar.to - bar.from)} />
+          </Fragment>
+        );
+      })}
+    </Progress.Root>
   );
 }
 
@@ -168,11 +226,15 @@ function Lane({
   row,
   title,
   axis,
+  index,
 }: {
   row: DayRow;
   title: string;
   axis: DayAxis;
+  /** The lane's place down the card, which staggers its bars' grow-in. */
+  index: number;
 }) {
+  const grow = useGrow();
   const ticket = ticketOf(row.run);
   const href = runHref(row.run);
   return (
@@ -184,25 +246,24 @@ function Lane({
       <div className={classes.label}>
         <Group gap={8} wrap="nowrap" className={classes.line}>
           {ticket ? (
-            <Text
+            <Anchor
               component={Link}
               href={href}
-              fz={12.5}
+              fz="md"
               fw={700}
               lh="normal"
-              c="accent"
-              className={`${classes.keep} ${classes.ticket}`}
+              className={classes.keep}
               data-parity="ticket"
             >
               {ticket}
-            </Text>
+            </Anchor>
           ) : null}
-          <Text fz={12.5} fw={500} lh="normal" truncate data-parity="title">
+          <Text fz="md" fw={500} lh="normal" truncate data-parity="title">
             {title}
           </Text>
         </Group>
         <Text
-          fz={11.5}
+          fz="sm"
           fw={row.sub.waiting ? 500 : 400}
           lh="normal"
           c={row.sub.waiting ? 'bad' : 'dimmed'}
@@ -214,9 +275,7 @@ function Lane({
       </div>
       <div className={classes.track}>
         <div className={classes.base} data-parity="base" />
-        {row.bars.map(bar => (
-          <BarSegment key={bar.from} bar={bar} axis={axis} />
-        ))}
+        <RunBar bars={row.bars} axis={axis} grow={grow('x', index)} />
         {axis.now != null ? (
           <div
             className={classes.nowLine}
@@ -238,6 +297,8 @@ export interface DayTimelineProps {
   /** The day's runs or their stages have not landed yet. */
   loading: boolean;
   titleOf: (row: DayRow) => string;
+  /** How tall the lanes may grow before they scroll under the axis. */
+  lanesMaxHeight?: number | string;
 }
 
 /** One row of stage bars per run active on the day, on one time axis. */
@@ -248,6 +309,7 @@ export function DayTimeline({
   isToday,
   loading,
   titleOf,
+  lanesMaxHeight = 784,
 }: DayTimelineProps) {
   const when = isToday ? 'today' : 'that day';
   const waited = youMs > 0 ? formatDuration(youMs) : 'none';
@@ -264,31 +326,46 @@ export function DayTimeline({
       {rows.length === 0 && loading ? (
         <div className={classes.empty} data-testid="timeline-loading">
           <Group gap={8} wrap="nowrap">
-            <Loader size="xs" />
-            <Text fz={13} lh="normal" c="dimmed">
+            <Loader size="sm" />
+            <Text fz="lg" lh="normal" c="dimmed">
               Loading the day's runs…
             </Text>
           </Group>
         </div>
       ) : rows.length > 0 ? (
-        rows.map(row => (
-          <Lane key={row.run.id} row={row} title={titleOf(row)} axis={axis} />
-        ))
+        // The lanes scroll under the axis once a busy day outgrows the card.
+        <ScrollArea.Autosize
+          mah={lanesMaxHeight}
+          type="auto"
+          scrollbars="y"
+          classNames={{ root: scrollFit.root, content: scrollFit.content }}
+        >
+          {rows.map((row, i) => (
+            <Lane
+              key={row.run.id}
+              row={row}
+              title={titleOf(row)}
+              axis={axis}
+              index={i}
+            />
+          ))}
+        </ScrollArea.Autosize>
       ) : (
-        <div className={classes.empty}>
-          <Text fz={13} lh="normal" c="dimmed">
-            {`No runs were active ${when}.`}
-          </Text>
+        <div className={classes.empty} data-testid="timeline-empty">
+          <Stack gap={6} align="center">
+            <Glyph name="calendar" size={20} color="dimmed" />
+            <Text fz="lg" fw={500} lh="normal">
+              {`No runs were active ${when}.`}
+            </Text>
+            <Text fz="md" lh="normal" c="dimmed">
+              Pick another day in the calendar.
+            </Text>
+          </Stack>
         </div>
       )}
       <div className={classes.hint} data-parity="Hint">
-        <Icon
-          name="info"
-          size={13}
-          color="var(--tk-text-3)"
-          data-parity="info"
-        />
-        <Text fz={12} lh="normal" c="dimmed" data-parity="hint">
+        <Glyph name="info" size={13} color="dimmed" data-parity="info" />
+        <Text fz="md" lh="normal" c="dimmed" data-parity="hint">
           {loading
             ? 'Hover a bar for the stage and its gate.'
             : `Hover a bar for the stage and its gate. A red stretch is time a run sat waiting for you: ${waited} ${when}.`}

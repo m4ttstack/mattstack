@@ -45,9 +45,11 @@ describe('DayTimeline', () => {
       'aria-label',
       expect.stringMatching(/^plan · waiting on you · 10:00 AM to 10:01 AM$/)
     );
-    expect(screen.getByRole('img', { name: /^plan · waiting on you/ })).toBe(
-      bars[1]
-    );
+    // A stage is a section of its run's Progress bar, which Mantine gives
+    // the progressbar role.
+    expect(
+      screen.getByRole('progressbar', { name: /^plan · waiting on you/ })
+    ).toBe(bars[1]);
   });
 
   it('opens a card on hover or focus with the stage, span and gate pick', async () => {
