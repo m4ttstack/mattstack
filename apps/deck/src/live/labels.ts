@@ -13,3 +13,9 @@ export function liveLabel(name: string, id: string): string {
 export function isLiveLabel(label: string): boolean {
   return label.startsWith(LABEL_PREFIX) && label.includes(LIVE_SEGMENT);
 }
+
+/** Process ids never hold the live segment, but an app name may. */
+export function liveAppOf(label: string): string | null {
+  if (!isLiveLabel(label)) return null;
+  return label.slice(LABEL_PREFIX.length, label.lastIndexOf(LIVE_SEGMENT));
+}

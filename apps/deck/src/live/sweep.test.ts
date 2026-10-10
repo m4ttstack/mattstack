@@ -2,13 +2,16 @@ import { writeFileSync } from 'fs';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 
 import { clearLive, getLive, setLive } from '../../core/settings.ts';
+import { applyManifest } from '../api/register-manifest.ts';
 import {
   reresolveManagedApps,
+  restartManagedApps,
   setLiveSweepDeps,
   setServeShapeDeps,
+  unregisterApp,
 } from '../api/register.ts';
 import { FakeEdgeProxy } from '../edge/portless.ts';
-import { putRecord } from '../registry/records.ts';
+import { getRecord, putRecord } from '../registry/records.ts';
 import { goLive } from './engine.ts';
 import { freshChat, managerOf, routes } from './test-kit.ts';
 
@@ -107,3 +110,49 @@ function pointRoutesAtLiveUi(): void {
     ])
   );
 }
+
+const LIVE_LABELS = [
+  'com.mattstack.deck.chat.live.server',
+  'com.mattstack.deck.chat.live.ui',
+];
+
+function installLiveLabels(): void {
+  manager.installed.delete('com.mattstack.deck.chat');
+  for (const label of LIVE_LABELS) manager.installed.set(label, {} as never);
+}
+
+test('a release restart kickstarts a live app through its live processes', async () => {
+  setServeShapeDeps({ devMode: () => true, catalog: null, helpersDir: null });
+  installLiveLabels();
+  const r = await restartManagedApps({ manager, edge: new FakeEdgeProxy() });
+  expect(r.body).toEqual({ ok: true, restarted: ['chat'], failed: [] });
+  expect(manager.kickstarts.sort()).toEqual(LIVE_LABELS);
+});
+
+test('relinking a live app updates its link without touching its services or routes', async () => {
+  setServeShapeDeps({ devMode: () => true, catalog: null, helpersDir: null });
+  installLiveLabels();
+  pointRoutesAtLiveUi();
+  const appDir = record().dev!.workingDirectory;
+  putRecord({ ...record(), dev: undefined });
+  const edge = new FakeEdgeProxy();
+  const r = await applyManifest(appDir, undefined, { manager, edge });
+  expect(r.status).toBe(200);
+  expect(record().dev?.workingDirectory).toBe(appDir);
+  expect([...manager.installed.keys()].sort()).toEqual(LIVE_LABELS);
+  expect(edge.aliases.has('chat')).toBe(false);
+  expect(routes().map(r => r.port)).toEqual([11140, 11140]);
+});
+
+test('removing a live app stops its live processes first', async () => {
+  installLiveLabels();
+  pointRoutesAtLiveUi();
+  const r = await unregisterApp('chat', 'rt', true, {
+    manager,
+    edge: new FakeEdgeProxy(),
+  });
+  expect(r.body).toEqual({ ok: true });
+  expect(getLive('chat')).toBeUndefined();
+  expect([...manager.installed.keys()]).toEqual([]);
+  expect(getRecord('chat')).toBeUndefined();
+});

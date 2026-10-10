@@ -191,6 +191,20 @@ export async function uninstallLive(
       await manager.uninstall(label);
 }
 
+/** False when no live process is installed or any kickstart fails. */
+export async function kickstartLive(
+  name: string,
+  manager: ServiceManager,
+  deps: LiveDeps = {}
+): Promise<boolean> {
+  const prefix = liveLabelPrefix(name);
+  const labels = (await installedLabelsOf(deps)).filter(l =>
+    l.startsWith(prefix)
+  );
+  const oks = await Promise.all(labels.map(l => manager.kickstart(l)));
+  return oks.length > 0 && oks.every(Boolean);
+}
+
 function routeTo(record: AppRecord, port: number, deps: LiveDeps): void {
   if (setAppRoutesPort(record.name, port, tldsOf(deps)).length)
     deps.onRouteWrite?.();

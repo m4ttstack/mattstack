@@ -58,13 +58,12 @@ import { gitProvenance, untrackedEnvPresent } from '../edge/source.ts';
 import type { TunnelDriver } from '../edge/tunnel.ts';
 import {
   goLive,
-  installedLabelsOf,
+  kickstartLive,
   liveManifestAt,
   liveRefusal,
   stopLive,
   type LiveDeps,
 } from '../live/engine.ts';
-import { liveLabelPrefix } from '../live/labels.ts';
 import { clearSetup, setupFor } from '../live/setup.ts';
 import { appDirIn, listLiveSources, sharedRootFor } from '../live/sources.ts';
 import { convert } from '../registry/convert.ts';
@@ -721,16 +720,10 @@ export function startApi(deps: ApiDeps) {
             return json(r.body, r.status);
           }
           if (sub === 'restart' && req.method === 'POST') {
-            if (getLive(name) && (liveDeps.devMode ?? isDevMode)()) {
-              const prefix = liveLabelPrefix(name);
-              const labels = (await installedLabelsOf(liveDeps)).filter(l =>
-                l.startsWith(prefix)
-              );
-              const oks = await Promise.all(
-                labels.map(l => deps.manager.kickstart(l))
-              );
-              return json({ ok: oks.length > 0 && oks.every(Boolean) });
-            }
+            if (getLive(name) && (liveDeps.devMode ?? isDevMode)())
+              return json({
+                ok: await kickstartLive(name, deps.manager, liveDeps),
+              });
             // Records restart via their label; legacy rows still restart via the
             // discovered-services whitelist exactly like the old /restart.
             const label = await restartLabelFor(name, deps);

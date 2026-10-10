@@ -12,6 +12,7 @@ import type { ServiceManager } from '../services/manager.ts';
 import {
   installLive,
   stopLiveUnlocked,
+  uninstallLive,
   withLiveLock,
   type LiveDeps,
 } from './engine.ts';
@@ -30,6 +31,7 @@ async function reconcileApp(
   if (!state || !sameState(state, seen)) return;
   const record = getRecord(name);
   if (!record) {
+    await uninstallLive(name, manager, deps);
     clearLive(name);
     return;
   }

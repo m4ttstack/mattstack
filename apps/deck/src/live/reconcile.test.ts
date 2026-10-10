@@ -53,10 +53,14 @@ test('a live app whose routes drifted is pointed back at its UI', async () => {
   expect(routes().map(r => r.port)).toEqual([11140, 11140]);
 });
 
-test('live state for a removed app is dropped', async () => {
+test('live state for a removed app is dropped and its live processes stop', async () => {
   setLive('ghost', { source: shared, branch: 'main', startedAt: 'x' });
+  manager.installed.set('com.mattstack.deck.ghost.live.server', {} as never);
   await reconcileLive(manager, deps());
   expect(getLive('ghost')).toBeUndefined();
+  expect(manager.installed.has('com.mattstack.deck.ghost.live.server')).toBe(
+    false
+  );
 });
 
 const liveLabels = () =>

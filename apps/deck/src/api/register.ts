@@ -23,6 +23,7 @@ import { disableRemote } from '../edge/remote.ts';
 import type { TunnelDriver } from '../edge/tunnel.ts';
 import {
   installLive,
+  kickstartLive,
   stopLive,
   withLiveLock,
   type LiveDeps,
@@ -397,7 +398,13 @@ async function teardownRecord(
   drivers: Drivers
 ): Promise<{ ok: boolean; issues: SyncIssue[] }> {
   const issues: SyncIssue[] = [];
-  if (record.kind === 'service' && record.label) {
+  if (getLive(record.name)) {
+    const issue = await runDriver('launchd', async () => {
+      await stopLive(record.name, drivers.manager, liveSweepDeps);
+    });
+    if (issue) issues.push(issue);
+  }
+  if (issues.length === 0 && record.kind === 'service' && record.label) {
     const issue = await runDriver('launchd', () =>
       drivers.manager.uninstall(record.label!)
     );
@@ -521,7 +528,10 @@ export async function restartManagedApps(
       // kickstart signals failure via its boolean return (label not
       // installed), not by throwing — same contract the single-app
       // POST /apps/:name/restart route relies on.
-      const ok = await drivers.manager.kickstart(record.label);
+      const ok =
+        getLive(record.name) && resolveFlavor(serveShapeDeps).dev
+          ? await kickstartLive(record.name, drivers.manager, liveSweepDeps)
+          : await drivers.manager.kickstart(record.label);
       if (ok) restarted.push(record.name);
       else failed.push({ name: record.name, error: 'kickstart failed' });
     } catch (err) {
@@ -1033,8 +1043,11 @@ export async function editApp(
   // runnable one: resolve the prospective shape before any teardown call, not
   // after, or a patch that resolves to nothing tears down with nothing to fall
   // back on.
+  // While live the engine owns the app's services and routes; the reconcile
+  // tick re-asserts them from the record written here.
+  const live = !!getLive(record.name);
   const servedHere =
-    next.kind === 'service' && !notServedHere(next, serveShapeDeps);
+    !live && next.kind === 'service' && !notServedHere(next, serveShapeDeps);
   const nextShape = servedHere ? serveShape(next, serveShapeDeps) : null;
   if (servedHere && !nextShape) {
     return {
@@ -1052,7 +1065,7 @@ export async function editApp(
   // old entry outright, a same-name edit is about to overwrite it via putRecord
   // below), so an addIssue() written here against the old key would be lost.
   const teardownIssues: SyncIssue[] = [];
-  if (next.kind === 'service' && oldLabel) {
+  if (!live && next.kind === 'service' && oldLabel) {
     const issue = await runDriver('launchd', () =>
       drivers.manager.uninstall(oldLabel)
     );
@@ -1101,9 +1114,10 @@ export async function editApp(
   // base port has already cleared the override above, so there's nothing to
   // prefer; alias straight to the new base port.
   const liveOverride = portChanged ? undefined : getOverride(next.name);
-  await tryDriver(next.name, 'portless', () =>
-    drivers.edge.alias(next.name, liveOverride?.devPort ?? next.port)
-  );
+  if (!live)
+    await tryDriver(next.name, 'portless', () =>
+      drivers.edge.alias(next.name, liveOverride?.devPort ?? next.port)
+    );
   // Teardown issues land last, against the record that actually got persisted.
   // After the stand-up calls, too: tryDriver clears its source on success, and a
   // teardown failure (say an orphaned launchd service the uninstall left behind)

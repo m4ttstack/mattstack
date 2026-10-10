@@ -76,7 +76,9 @@ store; the boot sweep and the reconcile tick keep it in place, and a live
 app whose worktree is deleted moves to main. Live mode points every route of
 the app (`.mattstack` and `.localhost`) at the `ui` process itself, because
 the dev-port override only moves `.localhost`; the override is refused while
-an app is live. Live operations on one app are serialized
+an app is live. While an app is live, a restart (one app or `--managed`)
+kickstarts its live processes, `deck register --dir` updates only its record
+and link, and removing it stops live first. Live operations on one app are serialized
 (`withLiveLock`), and nothing may await the sweep while holding that lock.
 
 Dev mode is only for mattstack's own apps. `managedBy` classifies every entry:

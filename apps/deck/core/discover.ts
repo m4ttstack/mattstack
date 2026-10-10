@@ -3,7 +3,8 @@ import { homedir } from 'os';
 import { join } from 'path';
 
 import { getPlatformSettings } from '../src/api/platform-settings.ts';
-import { isLiveLabel } from '../src/live/labels.ts';
+import { liveAppOf } from '../src/live/labels.ts';
+import { getLive } from './settings.ts';
 
 // Computed fresh on every call (not frozen at import time) so callers that set
 // LOCAL_APPS_ROUTES_PATH after this module first loads (tests, in particular)
@@ -296,13 +297,19 @@ export function joinApps(
   });
 }
 
-/** Services that have no portless route (e.g. the mr-board tunnel). */
+/** Services that have no portless route (e.g. the mr-board tunnel). A live
+    process belongs to its app's row only while that app is live. */
 export function orphanServices(
   apps: App[],
-  services: LaunchdService[]
+  services: LaunchdService[],
+  isLive: (name: string) => boolean = name => !!getLive(name)
 ): LaunchdService[] {
   const claimed = new Set(apps.map(a => a.service?.label).filter(Boolean));
-  return services.filter(s => !claimed.has(s.label) && !isLiveLabel(s.label));
+  return services.filter(s => {
+    if (claimed.has(s.label)) return false;
+    const app = liveAppOf(s.label);
+    return app === null || !isLive(app);
+  });
 }
 
 export interface Health {
