@@ -201,3 +201,19 @@ test('the list prints a server error and exits 1', async () => {
     broken.stop(true);
   }
 });
+
+const git = (cwd: string, ...args: string[]) =>
+  Bun.spawnSync(['git', ...args], { cwd });
+
+test('a live app on a detached worktree lists its path', async () => {
+  const wt = withWorktree();
+  git(wt, 'checkout', '--detach');
+  await run(['live', 'chat', 'on', '--worktree', wt]);
+  expect((await run(['live'])).out).toEqual([`${'chat'.padEnd(24)} ${wt}`]);
+});
+
+test('a live app on the shared checkout lists main whatever its branch', async () => {
+  git(kit.shared, 'checkout', '-b', 'something-else');
+  await run(['live', 'chat', 'on']);
+  expect((await run(['live'])).out).toEqual([`${'chat'.padEnd(24)} main`]);
+});
