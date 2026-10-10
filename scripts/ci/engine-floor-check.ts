@@ -10,7 +10,7 @@ export function checkEngineFloor(input: { changed: string[]; prBody: string; flo
     errors.push(`${FLOOR} sets minEngine ${input.floor}, above the plugin's own version ${input.pluginVersion}; every Mac would hold it.`);
   }
   if (input.changed.includes(REF) && !input.changed.includes(FLOOR) && !/^engine-floor: unchanged\b/m.test(input.prBody)) {
-    errors.push(`The MCP tools reference changed but ${FLOOR} did not. Raise minEngine to this PR's plugin version if skills now need the new tools, or add a line "engine-floor: unchanged <reason>" to the PR body.`);
+    errors.push(`The MCP tools reference changed but ${FLOOR} did not. Raise minEngine to this PR's plugin version if skills now need the new tools, or add a line "engine-floor: unchanged <reason>" to the PR body. Edit the PR body, then push a commit (re-running the job reads the old body).`);
   }
   return errors;
 }

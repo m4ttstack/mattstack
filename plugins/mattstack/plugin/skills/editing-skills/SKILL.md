@@ -314,6 +314,7 @@ instead of installing text it cannot run. When the change needs nothing new
 from the app, leave the floor and, if the `Engine floor` check in the
 `plugin-mattstack` job asks (it does whenever the MCP tools reference
 changes), add a line `engine-floor: unchanged <reason>` to the PR body.
+Edit the PR body, then push a commit: re-running the job reads the old body.
 
 ### Push the default branch from the checkout
 
