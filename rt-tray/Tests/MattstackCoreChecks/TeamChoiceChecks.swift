@@ -62,6 +62,19 @@ let teamChoiceChecks: [Check] = [
             c.expectEqual(m.canContinue, true)
         }
     },
+    Check("create: a ready GitHub token with no gh session keeps the repository URL field") { c in
+        let rt = ScriptedRt()
+        rt.answers["setup github status"] = (0, #"{"contract":1,"integration":"github","status":"ready","detail":"GitHub token works","scopesSeen":["repo"]}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await m.loadGitHubStatus()
+        await MainActor.run {
+            c.expectEqual(m.ghHandle, nil)
+            c.expectEqual(m.useGhRepo, false, "no handle means no GitHub repo toggle, so the URL field must stay")
+            m.teamName = "Acme Claims"
+            m.remoteURL = "https://example.com/t.git"
+            c.expectEqual(m.canContinue, true)
+        }
+    },
     Check("create: validateAndPrepare calls home init --dry-run then team create, never with secrets on argv") { c in
         let rt = ScriptedRt()
         rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
