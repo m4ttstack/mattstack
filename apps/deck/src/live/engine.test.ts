@@ -1,6 +1,6 @@
 import { realpathSync } from 'fs';
 import { join } from 'path';
-import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 
 import {
   clearLive,
@@ -303,4 +303,58 @@ test('a failed install stops live and asks for the normal service back', async (
   expect(r.status).toBe(500);
   expect(getLive('chat')).toBeUndefined();
   expect(reinstalled).toBe(1);
+});
+
+test('a sweep that throws after a failed go-live is logged', async () => {
+  const logged = spyOn(console, 'error').mockImplementation(() => {});
+  manager.failNext = 'com.mattstack.deck.chat.live.server';
+  try {
+    await goLive(
+      'chat',
+      shared,
+      manager,
+      deps({
+        reinstall: async () => {
+          throw new Error('sweep blew up');
+        },
+      })
+    );
+    expect(String(logged.mock.calls[0]?.[1])).toContain('sweep blew up');
+  } finally {
+    logged.mockRestore();
+  }
+});
+
+test('a failed switch keeps the app live on its old source', async () => {
+  let reinstalled = 0;
+  const wt = realpathSync(
+    gitRepo({ 'apps/chat/mattstack.deck.json': manifest([SERVER, UI]) })
+  );
+  const d = deps({
+    reinstall: async () => void reinstalled++,
+    sources: {
+      exists: () => true,
+      listTrees: async () => [
+        ...trees(),
+        {
+          path: wt,
+          branch: 'wt',
+          kind: 'unmanaged',
+          state: null,
+          repoName: 'r',
+        },
+      ],
+    },
+  });
+  expect((await goLive('chat', shared, manager, d)).status).toBe(200);
+  const before = getLive('chat')!;
+  manager.failNext = 'com.mattstack.deck.chat.live.server';
+  expect((await goLive('chat', wt, manager, d)).status).toBe(500);
+  expect(getLive('chat')).toEqual(before);
+  expect(reinstalled).toBe(0);
+  expect(manager.installed.has('com.mattstack.deck.chat')).toBe(false);
+  expect(
+    manager.installed.get('com.mattstack.deck.chat.live.ui')!.workingDirectory
+  ).toBe(join(shared, 'apps/chat'));
+  expect(routes().map(x => x.port)).toEqual([before.uiPort!, before.uiPort!]);
 });

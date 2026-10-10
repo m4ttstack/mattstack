@@ -1,4 +1,5 @@
 import { Alert, Button, ICONS, Modal } from '@mattstack/tui-kit';
+import { liveSourceLabel } from './live-logic.ts';
 import type { LiveState } from './useLive.ts';
 
 export function SetupFailedModal({
@@ -18,7 +19,9 @@ export function SetupFailedModal({
         <span className="live-modal-title">
           {title}
           <span className="muted">
-            {m.row.name} is still running its normal code.
+            {m.row.live
+              ? `${m.row.name} is still live from ${liveSourceLabel(m.row.live)}.`
+              : `${m.row.name} is still running its normal code.`}
           </span>
         </span>
       }

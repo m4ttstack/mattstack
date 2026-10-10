@@ -18,6 +18,10 @@ export type LiveCellState =
       movedFrom: string | null;
     };
 
+export function liveSourceLabel(live: NonNullable<Row['live']>): string {
+  return live.main ? 'main' : (live.branch ?? 'worktree');
+}
+
 function starting(row: Row, now: number): boolean {
   const live = row.live;
   if (!live || live.processes.every(p => p.running)) return false;
@@ -39,7 +43,7 @@ export function liveCell(
     if (starting(row, now)) return { kind: 'starting' };
     return {
       kind: 'live',
-      label: row.live.main ? 'main' : (row.live.branch ?? 'worktree'),
+      label: liveSourceLabel(row.live),
       worktree: !row.live.main,
       movedFrom: row.live.movedFrom,
     };

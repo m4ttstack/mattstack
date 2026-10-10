@@ -260,7 +260,27 @@ async function rollback(
 async function reinstallAfterFailure(deps: LiveDeps): Promise<void> {
   try {
     await deps.reinstall?.();
-  } catch {}
+  } catch (err) {
+    console.error('reinstalling services after a failed go-live failed:', err);
+  }
+}
+
+/** `reinstall` asks the caller to run the sweep once the lock is released,
+    to bring the normal service back. */
+type Activation = { error: string | null; reinstall: boolean };
+
+async function restore(
+  record: AppRecord,
+  previous: LiveState,
+  manager: ServiceManager,
+  deps: LiveDeps
+): Promise<boolean> {
+  try {
+    setLive(record.name, previous);
+    return (await installLive(record, previous, manager, deps)) === null;
+  } catch {
+    return false;
+  }
 }
 
 async function activate(
@@ -269,15 +289,16 @@ async function activate(
   live: LiveProcess[],
   manager: ServiceManager,
   deps: LiveDeps
-): Promise<string | null> {
+): Promise<Activation> {
   let err: string | null;
+  const previous = getLive(record.name);
   try {
-    const previous = getLive(record.name);
     const hasUi = live.some(p => p.kind === 'ui');
     const uiPort = hasUi
       ? (previous?.uiPort ?? (await freeUiPort()))
       : undefined;
-    if (hasUi && uiPort == null) return 'no free port for the live UI';
+    if (hasUi && uiPort == null)
+      return { error: 'no free port for the live UI', reinstall: false };
     if (!previous) {
       if (record.label) await manager.uninstall(record.label);
       if (getOverride(record.name)) clearOverride(record.name);
@@ -292,8 +313,11 @@ async function activate(
   } catch (e) {
     err = messageOf(e);
   }
-  if (err) await rollback(record.name, manager, deps);
-  return err;
+  if (!err) return { error: null, reinstall: false };
+  if (previous && (await restore(record, previous, manager, deps)))
+    return { error: err, reinstall: false };
+  await rollback(record.name, manager, deps);
+  return { error: err, reinstall: true };
 }
 
 function afterSetup(
@@ -317,15 +341,13 @@ function afterSetup(
         pending.delete(record.name);
         return;
       }
-      const err = await withLiveLock(record.name, async () => {
+      const outcome = await withLiveLock(record.name, async () => {
         if (pending.get(record.name) !== token) return null;
         pending.delete(record.name);
         return activate(record, source, live, manager, deps);
       });
-      if (err) {
-        await reinstallAfterFailure(deps);
-        fail(err);
-      }
+      if (outcome?.reinstall) await reinstallAfterFailure(deps);
+      if (outcome?.error) fail(outcome.error);
     })
     .catch(e => {
       if (pending.get(record.name) === token) pending.delete(record.name);
@@ -361,11 +383,11 @@ export async function goLive(
     afterSetup(record!, source, picked.branch, manifest.live, manager, deps);
     return { status: 202, body: { ok: true, setup: 'running' } };
   }
-  const err = await withLiveLock(name, () =>
+  const { error, reinstall } = await withLiveLock(name, () =>
     activate(record!, source, manifest.live, manager, deps)
   );
-  if (err) await reinstallAfterFailure(deps);
-  return err ? refuse(500, err) : { status: 200, body: { ok: true } };
+  if (reinstall) await reinstallAfterFailure(deps);
+  return error ? refuse(500, error) : { status: 200, body: { ok: true } };
 }
 
 export function stopLive(

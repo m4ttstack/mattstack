@@ -209,6 +209,9 @@ test('setup failed: shows the branch and the log, Dismiss sends DELETE', async (
         "Couldn't set up deck-live-mode"
       );
       expect(await dialog.textContent()).toContain('lockfile is frozen');
+      expect(await dialog.textContent()).toContain(
+        'is still running its normal code.'
+      );
       await dialog.getByRole('button', { name: 'Dismiss' }).click();
       await modal(page).waitFor({ state: 'detached' });
       expect(calls).toEqual(['DELETE setup']);
@@ -421,10 +424,11 @@ test('a live app with a failed setup: Change code opens the live modal, Dismiss 
       await page.keyboard.press('Escape');
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: 'atlas setup failed' }).click();
-      await modal(page)
-        .filter({ hasText: "Couldn't set up" })
-        .getByRole('button', { name: 'Dismiss' })
-        .click();
+      const failed = modal(page).filter({ hasText: "Couldn't set up" });
+      expect(await failed.textContent()).toContain(
+        'atlas is still live from console-runs-3.'
+      );
+      await failed.getByRole('button', { name: 'Dismiss' }).click();
       await page.waitForTimeout(150);
       expect(calls.filter(c => c.startsWith('DELETE'))).toEqual([
         'DELETE /api/v1/apps/atlas/live/setup',
