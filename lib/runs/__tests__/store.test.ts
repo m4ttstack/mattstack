@@ -175,6 +175,25 @@ describe("run summary stage and count fields", () => {
     expect(byId.get("r-5")!.evidence_links).toBe(0);
     expect(readRun("remote:alpha", "r-3")!.run.evidence_links).toBe(3);
   });
+
+  test("v2 evidence counts every base and annotated image, and its cases; v1 counts as one case", () => {
+    const dir = root();
+    const v2 = {
+      v: 2,
+      cases: [
+        { id: "a", label: "A", before: { path: "/b.png", annotated: "/ba.png", caption: "x" }, after: { light: { path: "/l.png", waiver: "w" }, dark: { path: "/d.png", waiver: "w" } } },
+        { id: "b", label: "B", after: { path: "/e.png" }, waiver: "same" },
+      ],
+    };
+    seedRun(dir, "remote:alpha", "r-v2", 1000, 1, { fields: [{ key: "evidence", value: JSON.stringify(v2), producedBy: "evidence" }] });
+    seedRun(dir, "remote:alpha", "r-v1", 1001, 1, { fields: [{ key: "evidence", value: JSON.stringify({ v: 1, before: "/b.png", beforeAnnotated: "/ba.png" }), producedBy: "evidence" }] });
+    seedRun(dir, "remote:alpha", "r-old", 1002, 1, { fields: [{ key: "evidence", value: "see /tmp/x.png" }] });
+    const byId = new Map(listRuns("remote:alpha").map((s) => [s.id, s]));
+    expect(byId.get("r-v2")).toMatchObject({ evidence_count: 5, evidence_cases: 2, evidence_links: 0 });
+    expect(byId.get("r-v1")).toMatchObject({ evidence_count: 2, evidence_cases: 1, evidence_links: 0 });
+    expect(byId.get("r-old")).toMatchObject({ evidence_count: 0, evidence_cases: 0, evidence_links: 1 });
+    expect(readRun("remote:alpha", "r-v2")!.run.evidence_cases).toBe(2);
+  });
 });
 
 describe("findRunsBySession", () => {

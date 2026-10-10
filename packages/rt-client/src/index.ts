@@ -15,6 +15,7 @@ export {
   getRun,
   abandonRun,
   runEvidence,
+  runEvidenceAt,
   chatJoin,
   chatLeave,
   chatAck,

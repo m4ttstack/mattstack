@@ -8,7 +8,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { rtCommand } from "./transport.ts";
 import type { RtResponse, RtClientOptions } from "./transport.ts";
-import type { EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
+import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
 import type {
   DemandDecl,
   ProjectMRsData,
@@ -161,6 +161,17 @@ export function runEvidence(
   const payload: Record<string, unknown> = { runId, key };
   if (repo !== undefined) payload.repo = repo;
   return rtCommand<{ mime: string; base64?: string; text?: string }>("runs:evidence", payload, { sockPath: opts.sockPath, timeoutMs: 15_000 });
+}
+
+export function runEvidenceAt(
+  runId: string,
+  address: EvidenceAddress,
+  repo?: string,
+  opts: RtClientOptions = {},
+): Promise<RtResponse<{ mime: string; base64?: string }>> {
+  const payload: Record<string, unknown> = { runId, ...address };
+  if (repo !== undefined) payload.repo = repo;
+  return rtCommand<{ mime: string; base64?: string }>("runs:evidence", payload, { sockPath: opts.sockPath, timeoutMs: 15_000 });
 }
 
 /**

@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, readdirSync, statSync, type Dirent } from "fs";
 import { join } from "path";
 import type { Attention, RunDecisionRow, RunDetail, RunFieldRow, RunStageRow, RunSummary } from "../../packages/rt-client/src/commands.ts";
-import { parseEvidence } from "../../packages/rt-client/src/evidence.ts";
+import { evidenceShots, readEvidence } from "../../packages/rt-client/src/evidence.ts";
 import { computeAttention, fieldValue, lastEventAt, type RunLiveness } from "./attention.ts";
 import { buildOutcome, readAllCachedOutcomes, readCachedOutcome, type CachedOutcome } from "./outcome.ts";
 import { isPathComponent, runsRoot } from "./paths.ts";
@@ -95,13 +95,14 @@ function stageSummaries(stages: RunStageRow[]): NonNullable<RunSummary["stages"]
   return stages.map((s) => ({ name: s.name, status: s.status, started_at: s.started_at, ended_at: s.ended_at, attempt: s.attempt }));
 }
 
-/** The summary's evidence counts: images a v1 field serves, links a legacy one names. */
-function evidenceCounts(fields: RunFieldRow[]): { evidence_count: number; evidence_links: number } {
-  const parsed = parseEvidence(fieldValue(fields, "evidence"));
-  return {
-    evidence_count: parsed.version === 1 ? parsed.images.length : 0,
-    evidence_links: parsed.version === 0 ? parsed.links.length : 0,
-  };
+/** The summary's evidence counts: images and cases a v1 or v2 field records, links a legacy one names. */
+function evidenceCounts(fields: RunFieldRow[]): { evidence_count: number; evidence_links: number; evidence_cases: number } {
+  const record = readEvidence(fieldValue(fields, "evidence"));
+  if (record.version === 2) {
+    const images = evidenceShots(record).reduce((n, { shot }) => n + (shot.annotated ? 2 : 1), 0);
+    return { evidence_count: images, evidence_links: 0, evidence_cases: record.cases.length };
+  }
+  return { evidence_count: 0, evidence_links: record.version === 0 ? record.links.length : 0, evidence_cases: 0 };
 }
 
 // What buildOutcome reads from the run db; kept beside a cached summary so the

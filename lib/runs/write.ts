@@ -7,6 +7,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
+import { validateEvidence } from "../../packages/rt-client/src/evidence.ts";
 import { recordIdentity } from "./identity.ts";
 
 export const KNOWN_SCHEMA_VERSION = 2;
@@ -139,6 +140,10 @@ export function stageEnd(
 }
 
 export function fieldSet(db: Database, key: string, value: string, stage: string, now: number = Date.now()): Ok | Fail {
+  if (key === "evidence") {
+    const valid = validateEvidence(value);
+    if (!valid.ok) return { ok: false, error: valid.error, code: 2 };
+  }
   try {
     db.run("INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at) SELECT id, ?, ?, ?, ? FROM runs", [key, value, stage, now]);
     return { ok: true };

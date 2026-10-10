@@ -173,6 +173,28 @@ describe("stage lifecycle", () => {
 });
 
 describe("fields", () => {
+  test("field set refuses an evidence@2 image with no annotation and no waiver, keeping the old value", () => {
+    const db = started();
+    const good = JSON.stringify({ v: 2, cases: [{ id: "c1", label: "C", after: { path: "/a.png", waiver: "identical" } }] });
+    expect(fieldSet(db, "evidence", good, "evidence", 10)).toEqual({ ok: true });
+    const raw = JSON.stringify({ v: 2, cases: [{ id: "c1", label: "C", after: { path: "/a.png" } }] });
+    expect(fieldSet(db, "evidence", raw, "ship", 20)).toEqual({
+      ok: false,
+      code: 2,
+      error: 'evidence@2: case "c1" after has no annotated image and no waiver; annotate it or add a waiver with a reason',
+    });
+    expect(fieldGet(db, "evidence")).toEqual({ ok: true, value: good });
+    db.close();
+  });
+
+  test("field set still writes v1 and legacy evidence, and validates only the evidence key", () => {
+    const db = started();
+    expect(fieldSet(db, "evidence", JSON.stringify({ v: 1, before: "/b.png" }), "evidence", 10)).toEqual({ ok: true });
+    expect(fieldSet(db, "evidence", "see /tmp/x.png", "evidence", 11)).toEqual({ ok: true });
+    expect(fieldSet(db, "notes", JSON.stringify({ v: 2, cases: [] }), "plan", 12)).toEqual({ ok: true });
+    db.close();
+  });
+
   test("field set/get round-trips a value with single quotes; a missing key is exit 3", () => {
     const db = started();
     expect(fieldSet(db, "mr-url", "https://x/1?a='b'", "ship", 10)).toEqual({ ok: true });
