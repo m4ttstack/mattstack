@@ -60,6 +60,7 @@ type World = {
   configDir?: string;
   claudeBinOverride?: string | null;
   mainVersions?: Record<string, string>;
+  mainFloors?: Record<string, string>;
   marketplaceUpdateFail?: Record<string, string>;
   cacheUpdateTo?: Record<string, string>;
   /** Listed ahead of the installed entries: the same plugin id at another scope. */
@@ -143,6 +144,11 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       if (args[0] === "show") {
         const [ref, path] = args[1]!.split(/:(.*)/s);
         if (ref !== "main") return { code: 128, stdout: "", stderr: `unknown ref ${ref}` };
+        if (path!.endsWith("pack/requires.json")) {
+          const floor = world.mainFloors?.[path!.replace(/\/?pack\/requires\.json$/, "")];
+          if (floor) return { code: 0, stdout: JSON.stringify({ minEngine: floor }), stderr: "" };
+          return { code: 128, stdout: "", stderr: `fatal: path '${path}' does not exist in 'main'` };
+        }
         const rel = path!.replace(/\/?\.claude-plugin\/plugin\.json$/, "");
         const onMain = world.mainVersions?.[rel];
         if (onMain) return { code: 0, stdout: JSON.stringify({ version: onMain }), stderr: "" };
@@ -1221,6 +1227,7 @@ describe("in-tree engine", () => {
     expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === dirname(engine.dir)).map((c) => c.args.join(" "))).toEqual([
       "branch --show-current",
       "show main:mattstack/.claude-plugin/plugin.json",
+      "show main:mattstack/pack/requires.json",
     ]);
     expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["status", "branch", "pull"]);
     expect(report.steps.find((s) => s.name === "pull-engine")).toMatchObject({ status: "skipped" });
@@ -1246,7 +1253,7 @@ describe("in-tree pack", () => {
     const deps = { ...makeDeps(pack, engine, world), inTreeRoot: pack.dir };
     const report = await syncPack(pack, engine, deps);
     expect(report.ok).toBe(true);
-    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["branch", "show"]);
+    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["branch", "show", "show"]);
     expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === engine.dir).map((c) => c.args[0])).toEqual(["status", "branch", "pull"]);
     expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "skipped" });
     expect(report.steps.find((s) => s.name === "update-pack")).toMatchObject({ status: "ran" });
@@ -1262,6 +1269,7 @@ describe("in-tree pack", () => {
     expect(world.calls.filter((c) => c.cmd === "git").map((c) => c.args.join(" "))).toEqual([
       "branch --show-current",
       "show main:.claude-plugin/plugin.json",
+      "show main:pack/requires.json",
     ]);
     expect(report.steps.find((s) => s.name === "update-pack")).toMatchObject({ status: "ran" });
     expect(report.versions.pack.installedAfter).toBe("1.2.3");
@@ -1353,6 +1361,47 @@ describe("in-tree plugins install from main", () => {
     expect(report.ok).toBe(true);
     expect(report.versions.pack.source).toBe("0.1.0");
     expect(stepNames(report.steps)).not.toContain("update-pack");
+  });
+
+  test("an in-tree engine takes its floor from main, not the working tree", async () => {
+    const root = tmp("rt-sync-checkout-");
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3", join(root, "plugins"));
+    mkdirSync(join(engine.dir, "pack"), { recursive: true });
+    writeFileSync(join(engine.dir, "pack", "requires.json"), JSON.stringify({ minEngine: "0.30.0" }));
+    const pack = fixturePack("acme", "mattstack", "0.1.0");
+    const world: World = {
+      calls: [],
+      installed: { "mattstack@mattstack": "1.2.2", "acme@mattstack": "0.1.0" },
+      drift: [false],
+      mainFloors: { "plugins/mattstack": "0.31.0" },
+    };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: root };
+    deps.engine = () => "0.30.28";
+    const report = await syncPack(pack, engine, deps);
+    expect(report.steps.find((s) => s.name === "update-engine")).toMatchObject({
+      status: "refused",
+      detail: refusalCopy("0.30.28", "the engine on main", "0.31.0"),
+    });
+    expect(world.calls.some((c) => c.args[1] === "update" && c.args[2] === "mattstack@mattstack")).toBe(false);
+  });
+
+  test("an in-tree pack takes its floor from main, not the working tree", async () => {
+    const root = tmp("rt-sync-checkout-");
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3");
+    const pack = fixturePack("acme", "mattstack", "0.1.1", join(root, "plugins"));
+    mkdirSync(join(pack.dir, "pack"), { recursive: true });
+    writeFileSync(join(pack.dir, "pack", "requires.json"), JSON.stringify({ minEngine: "0.30.0" }));
+    const world: World = {
+      calls: [],
+      installed: { "mattstack@mattstack": "1.2.3", "acme@mattstack": "0.1.0" },
+      drift: [false],
+      mainFloors: { "plugins/acme": "0.31.0" },
+    };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: root };
+    deps.engine = () => "0.30.28";
+    const report = await syncPack(pack, engine, deps);
+    expect(report.steps.find((s) => s.name === "update-pack")).toMatchObject({ status: "skipped", detail: heldCopy(pack.name, "0.1.1", "0.31.0") });
+    expect(world.calls.some((c) => c.args[1] === "update" && c.args[2] === "acme@mattstack")).toBe(false);
   });
 
   test("warns without failing when the shared checkout is on another branch", async () => {

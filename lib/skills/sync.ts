@@ -4,7 +4,7 @@ import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
 import { layoutAbove, markerAtRef, updateSentence } from "../team/org-layout.ts";
 import { ORG_MARKER_REL, parseMarker } from "../team/org-marker.ts";
-import { heldCopy, readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
+import { FLOOR_REL, heldCopy, readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
 import { admit, updateArgs } from "../setup/plugin-calls.ts";
 import { mattstackFloor } from "../setup/mattstack-floor.ts";
 import { createRealProbes } from "../setup/probes.ts";
@@ -198,6 +198,13 @@ async function readInTreeVersion(deps: SyncDeps, root: string, dir: string): Pro
   const manifest = JSON.parse(res.stdout) as { version?: string };
   if (typeof manifest.version !== "string") throw new Error(`${spec} has no version`);
   return manifest.version;
+}
+
+/** The floor an in-tree plugin installs with is the one on its source's ref, the same ref its version comes from. */
+async function readInTreeFloor(deps: SyncDeps, root: string, dir: string): Promise<Floor> {
+  const rel = relative(root, dir).split(sep).join("/");
+  const res = await deps.run("git", ["show", `${IN_TREE_REF}:${rel === "" ? "" : rel + "/"}${FLOOR_REL}`], { cwd: root });
+  return readFloor(() => (res.code === 0 ? res.stdout : null), dir);
 }
 
 async function inTreeBranchNote(deps: SyncDeps, root: string): Promise<string> {
@@ -666,7 +673,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (engineCached) return refreshCachedEngine();
     if (installedEngineBefore === engineSourceVersion) return skipped(`engine already at ${engineSourceVersion}`);
     const id = pluginId(engine);
-    const admission = admit(readFloor(readFileOrNull, engine.dir), (deps.engine ?? runnableEngine)());
+    const floor = engineInTree ? await readInTreeFloor(deps, inTreeRoot!, engine.dir) : readFloor(readFileOrNull, engine.dir);
+    const admission = admit(floor, (deps.engine ?? runnableEngine)());
     if (!admission.ok) return refused(refusalCopy(admission.engine, "the engine on main", admission.floor));
     const res = await deps.run(deps.claudeBin!, updateArgs(admission, id));
     if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);
@@ -959,7 +967,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (installedPackBefore === null) return skipped(notInstalled);
     if (!mine && installedPackBefore === packSourceVersion) return skipped("the installed copy already matches the source");
     const id = pluginId(pack);
-    const admission = admit(readFloor(readFileOrNull, pack.dir), (deps.engine ?? runnableEngine)());
+    const floor = packInTree ? await readInTreeFloor(deps, inTreeRoot!, pack.dir) : readFloor(readFileOrNull, pack.dir);
+    const admission = admit(floor, (deps.engine ?? runnableEngine)());
     if (!admission.ok) {
       packHeld = true;
       return skipped(heldCopy(pack.name, packSourceVersion, admission.floor));
