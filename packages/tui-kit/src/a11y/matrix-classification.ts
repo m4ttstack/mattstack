@@ -64,6 +64,9 @@ export const MATRIX_CLASSIFICATION: Record<string, MatrixClassification> = {
   ScrollPane: {
     exempt: "structural: fixed --card/--border-soft/--accent-text pairs, no intent axis",
   },
+  SearchSelect: {
+    exempt: "structural chrome: fixed --card/--inset/--panel/--border/--text-* pairs, no intent axis",
+  },
   Segmented: {
     exempt:
       "structural chrome: fixed --panel/--muted/--accent/--bg/--fg pairs (the accent segment is the SELECTED state, not an intent), no intent axis",
