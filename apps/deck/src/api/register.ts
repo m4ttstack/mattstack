@@ -1038,14 +1038,14 @@ export async function editApp(
   // revert to the wrong port, so the edit drops the override rather than
   // leave it silently wrong.
   const portChanged = next.port !== record.port;
+  // While live the engine owns the app's services and routes; the reconcile
+  // tick re-asserts them from the record written here.
+  const live = !!getLive(record.name);
 
   // Never uninstall the old shape unless the patch is guaranteed to leave a
   // runnable one: resolve the prospective shape before any teardown call, not
   // after, or a patch that resolves to nothing tears down with nothing to fall
   // back on.
-  // While live the engine owns the app's services and routes; the reconcile
-  // tick re-asserts them from the record written here.
-  const live = !!getLive(record.name);
   const servedHere =
     !live && next.kind === 'service' && !notServedHere(next, serveShapeDeps);
   const nextShape = servedHere ? serveShape(next, serveShapeDeps) : null;
