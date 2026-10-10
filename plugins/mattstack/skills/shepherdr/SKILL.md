@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.30.26 + mattstack:model-tiering@0.30.26 + mattstack:execution-strategy@0.30.26 + mattstack:cswap-accounts@0.30.26"
+  compiled: "mattstack@0.30.28 + mattstack:model-tiering@0.30.28 + mattstack:execution-strategy@0.30.28 + mattstack:cswap-accounts@0.30.28"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.30.26 path=attachments/orchestration/shepherdr/SKILL.md lines=15-888 -->
+<!-- part: step source=mattstack:shepherdr version=0.30.28 path=attachments/orchestration/shepherdr/SKILL.md lines=15-888 -->
 
 # shepherdr
 
@@ -27,14 +27,14 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.30.26 path=attachments/model-tiering/SKILL.md lines=8-149 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.30.28 path=attachments/model-tiering/SKILL.md lines=8-164 -->
 # Model Tiering
 
-Start from `opus` and tune **effort** first; change tier only when the work
-shape calls for it. On Anthropic's published cost-per-task measurements, the
-stronger model at lower effort usually beats a weaker model at higher effort,
-and `fable` earns its price only where `opus` at higher effort still falls
-short. An omitted model flag inherits the parent's model and an omitted effort
+Start from the table's row for the work; where no row fits, start from
+`opus`. Within a tier, tune **effort** before changing the tier: on
+Anthropic's published cost-per-task measurements, raising effort usually
+beats moving up a model, and `fable` earns its price only where `opus` at
+higher effort still falls short. An omitted model flag inherits the parent's model and an omitted effort
 inherits the harness default, so every spawn names both.
 
 ## Delegate or do it inline
@@ -65,21 +65,35 @@ silent downgrade.
 | Work shape | Tier | Effort |
 |---|---|---|
 | Simple, high-volume, or disposable lookup; extraction; transcription plus testing (the brief carries the literal code) | `haiku` | `medium` |
+| Mechanical execution -- complete spec, 2-3 files, existing pattern to follow | `sonnet` | `low` |
+| Merge and verify -- merge branches, run verification, report; no new code | `sonnet` | `low` |
+| Re-review of a small fix whose finding is known | `sonnet` | `medium` |
 | Reading-heavy fan-out where each worker returns a judgment (an assessment, not a list) | `sonnet` | `medium` |
-| Mechanical execution -- complete spec, 2-3 files, existing pattern to follow | `opus` | `low` |
-| Integration -- merge branches, run verification, report | `opus` | `low` |
+| First review of a small, low-risk diff -- mechanical, one concern, under about 100 lines | `sonnet` | `high` |
 | Design / triage -- multiple valid approaches, cross-layer, product decisions | `opus` | `medium` |
-| Review -- any diff, artifact, or MR | `opus` | `high` |
+| Review of a mid-sized diff or MR -- neither small and low-risk nor large or risky | `opus` | `high` |
 | Long-horizon autonomous coding -- larger than one sitting | `opus` | `xhigh` |
-| Escalation only -- `opus` at `xhigh` reached a wrong conclusion with full context, or the user asks for it | `fable` | `high` |
+| Review of a large or risky change -- concurrency, security, auth, money, data migrations, cross-cutting -- or a final whole-branch review | `opus` | `xhigh` |
+| Escalation only -- `opus` at `xhigh` reached a wrong conclusion with full context, the user asks for it, or the reviewer floor needs it | `fable` | `high` |
 
 When two rows fit, take the one further down the table: rows run from
-cheapest to most capable.
+cheapest to most capable. The four review rows split by scope and risk, so
+pick a review's row by those, not by this tie-break.
 
 **Floors.** `haiku` is only for work where the input already contains the
 answer and the output is easy to check; on multi-step work it takes more
-turns and costs more overall. A reviewer is never below `opus`: a review
-exists to catch what the author missed.
+turns and costs more overall. A reviewer never runs on a weaker model than
+the one that wrote the change under review (for a re-review, the fix): a
+review exists to catch what the author missed. A change written on `fable`
+gets a `fable` reviewer at the review row's effort.
+
+**Other skills' tier words.** When another skill names a tier instead of a
+model (superpowers says "cheap", "standard", "most capable"), place the work
+in this table and take both the tier and the effort from its row. The word
+only says where to look: cheap points at the `haiku` and `sonnet` rows,
+standard at the `sonnet` rows, most capable at the `opus` rows. Where the
+word and the work's shape disagree, the shape wins. `fable` stays
+escalation-only.
 
 **Excluded aliases.** `opusplan` upgrades only inside Claude Code's plan
 permission mode, which skill-driven workers never enter -- do not re-add it.
@@ -135,8 +149,9 @@ plus workflow orchestration), not a level in the ladder.
   counted from the effort the last attempt named (from its table row's effort
   when it named none): `low` -> `medium` -> `high` -> `xhigh` -> `fable` at
   `high`. `max` is off the ladder: only when the user asks for it. A wrong
-  `haiku` or `sonnet` attempt re-runs on the same model at `high`, then
-  moves to `opus` at `medium` and climbs from there.
+  `haiku` or `sonnet` attempt re-runs on the same model at `high` (skipped
+  when it already ran at `high`), then moves to `opus` at `medium` (a review
+  at `high`) and climbs from there.
 
 ## Complexity signals
 
@@ -159,7 +174,7 @@ When in doubt, raise effort before raising the tier.
 
 A design-tier agent that runs the superpowers chain (brainstorming, spec,
 plan, implement) dispatches its implementer sub-agents by the same table. The
-plan's task descriptions carry the complexity signals: a task touching 1-2
+plan's task descriptions carry the complexity signals: a task touching 2-3
 files with complete code in the spec is mechanical; a task requiring broad
 codebase understanding is design.
 
@@ -175,7 +190,7 @@ framework they override.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.30.26 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.30.28 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -290,7 +305,7 @@ When nothing is inlined above, every default in this engine stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.30.26 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.30.28 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -1163,7 +1178,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.30.26 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.30.28 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
