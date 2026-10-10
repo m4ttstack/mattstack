@@ -222,6 +222,17 @@ esac
 
 git -C "$STAGE" remote add origin "$PUSH_URL"
 if git -C "$STAGE" fetch -q --depth 1 origin main 2>/dev/null; then
+    PUBLISHED_VER="$(git -C "$STAGE" show FETCH_HEAD:plugins/mattstack/.claude-plugin/plugin.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' 2>/dev/null || true)"
+    STAGED_VER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version",""))' "$STAGE/plugins/mattstack/.claude-plugin/plugin.json" 2>/dev/null || true)"
+    if [ -n "$PUBLISHED_VER" ] && [ -n "$STAGED_VER" ] && python3 - "$STAGED_VER" "$PUBLISHED_VER" <<'PY'
+import sys
+a, b = ([int(x) for x in v.split(".")] for v in sys.argv[1:3])
+sys.exit(0 if a < b else 1)
+PY
+    then
+        echo "✗ mattstack $STAGED_VER is older than the published $PUBLISHED_VER, refusing to publish it" >&2
+        exit 1
+    fi
     # History is kept (no force push), but the tree is wholly the staged one:
     # a plugin dropped from the catalog must also leave the published repo.
     git -C "$STAGE" reset -q --soft FETCH_HEAD

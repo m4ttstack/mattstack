@@ -89,24 +89,12 @@ jobs:
           bun install --frozen-lockfile --ignore-scripts
           bun run postinstall
 
-      # `plugins.install` adds this marketplace on every machine rt sets up, so
-      # it has to be live before the release shipping that installer is. It
-      # pins plugin repos and ships the in-tree plugins from this commit, never
-      # anything this run builds, so it goes out first: a broken catalog then
-      # costs seconds instead of the twenty minutes it takes to reach
-      # notarization. A run that changes nothing needs no token; the script
-      # pushes only a real diff.
-      - name: Publish the marketplace catalog
+      # Validation stays first so a broken catalog costs seconds instead of the
+      # twenty minutes it takes to reach notarization. The publish itself runs
+      # last, just before Create Release (see "Publish the marketplace catalog").
+      - name: Validate the marketplace catalog
         shell: bash
-        env:
-          MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
-          PUBLISH: ${{ steps.meta.outputs.publish }}
-        run: |
-          if [ "$PUBLISH" = "true" ]; then
-            scripts/release/marketplace.sh
-          else
-            scripts/release/marketplace.sh --dry-run
-          fi
+        run: scripts/release/marketplace.sh --dry-run
 
       # ── Developer ID (required on a tag; ad-hoc on a dry run) ────────────────
       - name: Check signing secrets
@@ -152,7 +140,10 @@ jobs:
       # RT_VERSION here keeps the tag's "v" prefix — cli.ts's own contract
       # (see its RT_VERSION comment) expects that form for `rt --version`.
       - name: Compile rt (arm64)
-        run: bun build --compile --target=bun-darwin-arm64 --no-compile-autoload-bunfig --no-compile-autoload-dotenv ./cli.ts --outfile dist/rt --define RT_VERSION='"${{ steps.meta.outputs.tag }}"'
+        shell: bash
+        run: |
+          ENGINE="$(jq -r .version plugins/mattstack/.claude-plugin/plugin.json)"
+          bun build --compile --target=bun-darwin-arm64 --no-compile-autoload-bunfig --no-compile-autoload-dotenv ./cli.ts --outfile dist/rt --define RT_VERSION='"${{ steps.meta.outputs.tag }}"' --define MATTSTACK_ENGINE="\"$ENGINE\""
 
       - uses: actions/setup-go@v5
         with:
@@ -289,6 +280,14 @@ jobs:
           [ "$PLIST_VERSION" = "$VERSION" ] || { echo "::error::CFBundleShortVersionString '$PLIST_VERSION' != tag version '$VERSION'"; exit 1; }
           [ "$RT_TOKEN" = "$VERSION" ] || { echo "::error::rt --version '$RT_OUT' != tag version '$VERSION'"; exit 1; }
 
+      - name: Assert the baked engine matches the plugin
+        shell: bash
+        run: |
+          WANT="$(jq -r .version plugins/mattstack/.claude-plugin/plugin.json)"
+          GOT="$(env -i HOME="$(mktemp -d)" PATH="$PATH" dist/rt --version --json | jq -r '.engine // empty')"
+          [ -n "$GOT" ] || { echo "::error::rt --version --json has no engine"; exit 1; }
+          [ "$GOT" = "$WANT" ] || { echo "::error::baked engine '$GOT' != plugin.json '$WANT'"; exit 1; }
+
       - name: Notarize and staple the app
         if: steps.signing.outputs.available == 'true'
         env:
@@ -394,6 +393,17 @@ jobs:
           test -f "out/mattstack-${ARTIFACT_VERSION}.dmg" || { echo "::error::missing dmg"; exit 1; }
           test -f out/appcast.xml || { echo "::error::missing appcast.xml"; exit 1; }
           test -f out/SHA256SUMS || { echo "::error::missing SHA256SUMS"; exit 1; }
+
+      # Live before the app is: plugins.install adds the catalog's base plugins,
+      # so an app must never be offered before its catalog. It runs after every
+      # step that can fail, so a failed run publishes nothing, and a failed
+      # publish stops the run before Create Release makes appcast.xml live.
+      - name: Publish the marketplace catalog
+        if: steps.meta.outputs.publish == 'true'
+        shell: bash
+        env:
+          MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+        run: scripts/release/marketplace.sh
 
       - name: Create Release
         if: steps.meta.outputs.publish == 'true'
