@@ -135,7 +135,10 @@ describe('EvidenceCard story variant', () => {
       within(dialog)
         .getAllByRole('img')
         .map(i => i.getAttribute('src'))
-    ).toEqual([`${BASE}/case/before?annotated=1`]);
+    ).toEqual([
+      `${BASE}/case/before?annotated=1`,
+      `${BASE}/case/after?annotated=1`,
+    ]);
   });
 
   it('opens the compare modal on the thumbnail clicked', async () => {

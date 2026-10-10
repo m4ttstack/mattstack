@@ -370,7 +370,7 @@ function StoryEvidence({
           fz="md"
           lh="normal"
           c="accent"
-          onClick={() => onCompare({ mode: phase })}
+          onClick={() => onCompare({})}
           data-parity="open"
         >
           Open full size →

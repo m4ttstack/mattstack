@@ -230,6 +230,32 @@ describe('EvidenceCompare, several cases', () => {
       'Rush order, same-day window'
     );
     expect(screen.queryByRole('radiogroup', { name: 'Theme' })).toBeNull();
+    expect(screen.getAllByRole('img').map(i => i.getAttribute('src'))).toEqual([
+      `/api/runs/${REPO}/${RUN}/evidence/rush-window/before?annotated=1`,
+      `/api/runs/${REPO}/${RUN}/evidence/rush-window/after?annotated=1`,
+    ]);
+  });
+
+  it('shows the light shot, with no theme control, when dark is asked of a light-only slot', async () => {
+    const lightOnly = readEvidence(
+      JSON.stringify({
+        v: 2,
+        cases: [
+          {
+            id: 'card',
+            label: 'Order card',
+            after: { light: { path: `${W}/l.png` } },
+          },
+        ],
+      })
+    ) as EvidenceCases;
+    open({ record: lightOnly, theme: 'dark', mode: 'after' });
+    await screen.findByRole('img');
+    expect(screen.queryByRole('radiogroup', { name: 'Theme' })).toBeNull();
+    expect(screen.getByRole('img')).toHaveAttribute(
+      'src',
+      `/api/runs/${REPO}/${RUN}/evidence/card/after?theme=light`
+    );
   });
 
   it('keeps the mode when the new case has it, else takes its last', async () => {
