@@ -2,9 +2,9 @@ import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+import type { WorktreeTreeRow } from '@mattstack/rt-client';
 import type { ServiceManager } from '../services/manager.ts';
 import type { LiveDeps } from './engine.ts';
-import type { TreeRow } from './sources.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'deck-live-'));
 process.env.LOCAL_STATE_DIR = dir;
@@ -83,8 +83,16 @@ export function freshChat() {
   });
   const manager = new FakeServiceManager();
   manager.installed.set('com.mattstack.deck.chat', {} as never);
-  const trees = (): TreeRow[] => [
-    { path: shared, branch: 'main', kind: 'main', state: null, repoName: 'r' },
+  const trees = (): WorktreeTreeRow[] => [
+    {
+      name: 'main',
+      mr: null,
+      path: shared,
+      branch: 'main',
+      kind: 'main',
+      state: null,
+      repoName: 'r',
+    },
   ];
   const deps = (over: Partial<LiveDeps> = {}): LiveDeps => ({
     devMode: () => true,

@@ -157,6 +157,8 @@ test('DELETE during a running setup cancels the go-live', async () => {
       list: async () => [
         ...kit.trees(),
         {
+          name: 'wt',
+          mr: null,
           path: wt,
           branch: 'main',
           kind: 'unmanaged',

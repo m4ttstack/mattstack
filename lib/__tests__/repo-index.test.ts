@@ -975,6 +975,14 @@ describe("pickerWorktrees", () => {
     expect(pickerWorktrees(repo, all).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/gitq-ish"]);
   });
 
+  test("excludes the golden tree, which git lists on its rt/golden branch", () => {
+    const repo = {
+      repoName: "x", dataDir: "/d",
+      worktrees: [wt("/pool/x/main", "master"), wt("/golden/gh-o-x", "rt/golden"), wt("/pool/x/charlie", "rt-3-live")],
+    };
+    expect(pickerWorktrees(repo, all).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/charlie"]);
+  });
+
   test("drops linked trees whose folder is gone, but keeps a missing main", () => {
     const repo = {
       repoName: "x", dataDir: "/d",

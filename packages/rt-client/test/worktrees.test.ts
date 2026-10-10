@@ -4,12 +4,14 @@ import {
   isPickableWorktree,
   isTrashPath,
   listPickableWorktrees,
-  type PickableWorktreeRow,
+  type WorktreeTreeRow,
 } from "../src/index.ts";
 
 const all = () => true;
 
-const row = (over: Partial<PickableWorktreeRow>): PickableWorktreeRow => ({
+const row = (over: Partial<WorktreeTreeRow>): WorktreeTreeRow => ({
+  name: "alpha",
+  mr: null,
   path: "/pool/x/alpha",
   branch: "alpha",
   kind: "ephemeral",
@@ -53,6 +55,7 @@ describe("isPickableWorktree", () => {
     expect(isPickableWorktree({ path: "/r/alpha", branch: "alpha" }, all)).toBe(true);
     expect(isPickableWorktree({ path: "/r/alpha", branch: "" }, all)).toBe(true);
     expect(isPickableWorktree({ path: "/r/luna", branch: "on-deck/luna" }, all)).toBe(false);
+    expect(isPickableWorktree({ path: "/golden/gh-o-x", branch: "rt/golden" }, all)).toBe(false);
     expect(isPickableWorktree({ path: "/r/gitq-ish", branch: "x" }, all)).toBe(true);
   });
 });

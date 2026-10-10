@@ -31,6 +31,9 @@ export function isTrashPath(path: string): boolean {
   return path.split("/").some((seg) => seg === RETAIN_DIR || seg.startsWith(TRASH_PREFIX));
 }
 
+/** rt's golden tree's branch; rt's worktree registry re-exports this one copy. */
+export const GOLDEN_BRANCH = "rt/golden";
+
 export interface PickableWorktreeRow {
   path: string;
   branch?: string | null;
@@ -41,17 +44,18 @@ export interface PickableWorktreeRow {
 }
 
 /**
- * Rows from git carry no `kind` and get only the path and branch rules. A
- * registry row is pickable only when it is the main checkout, a tree rt does
- * not manage, or a claimed ephemeral tree: a spare could be handed to someone
- * else mid-session, and a golden or disposable tree is rt's own.
+ * Rows from git carry no `kind` or `state` and get only the path and branch
+ * rules, so a disposable tree still on its own branch passes there. A registry
+ * row is pickable only when it is the main checkout, a tree rt does not
+ * manage, or a claimed ephemeral tree: a spare could be handed to someone else
+ * mid-session, and a golden or disposable tree is rt's own.
  */
 export function isPickableWorktree(
   row: PickableWorktreeRow,
   exists: (path: string) => boolean = existsSync,
 ): boolean {
   if (isTrashPath(row.path)) return false;
-  if (row.branch?.startsWith("on-deck/")) return false;
+  if (row.branch?.startsWith("on-deck/") || row.branch === GOLDEN_BRANCH) return false;
   // gitq's recognition contract for its work slots is the basename; their roots have moved twice.
   if (/^gitq-\d+$/.test(basename(row.path))) return false;
   if (row.kind !== undefined) {
@@ -64,10 +68,10 @@ export function isPickableWorktree(
 
 export type PickableSort = "recent" | "name";
 
-export interface ListPickableOpts<T extends PickableWorktreeRow> {
+export interface ListPickableOpts {
   sort?: PickableSort;
   exists?: (path: string) => boolean;
-  list?: (repoName: string) => Promise<T[]>;
+  list?: (repoName: string) => Promise<WorktreeTreeRow[]>;
 }
 
 /** The daemon's `worktree:list` rows for one repo; throws the daemon's error. */
@@ -82,12 +86,12 @@ function nameOf(row: PickableWorktreeRow): string {
 }
 
 /** A repo's pickable trees, main first. A daemon failure is an `error`, never a throw. */
-export async function listPickableWorktrees<T extends PickableWorktreeRow = WorktreeTreeRow>(
+export async function listPickableWorktrees(
   repoName: string,
-  opts: ListPickableOpts<T> = {},
-): Promise<{ trees: T[]; error: string | null }> {
-  const list = opts.list ?? (listWorktreeRows as unknown as (repoName: string) => Promise<T[]>);
-  let rows: T[];
+  opts: ListPickableOpts = {},
+): Promise<{ trees: WorktreeTreeRow[]; error: string | null }> {
+  const list = opts.list ?? listWorktreeRows;
+  let rows: WorktreeTreeRow[];
   try {
     rows = await list(repoName);
   } catch (err) {

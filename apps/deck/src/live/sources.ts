@@ -1,21 +1,14 @@
 import { existsSync, realpathSync } from 'fs';
 import { join, relative } from 'path';
 
-import { listPickableWorktrees, listWorktreeRows } from '@mattstack/rt-client';
+import {
+  listPickableWorktrees,
+  listWorktreeRows,
+  type WorktreeTreeRow,
+} from '@mattstack/rt-client';
 import { git } from '../edge/source.ts';
 import type { AppRecord } from '../registry/records.ts';
 import { readyMarker } from './setup.ts';
-
-/** The `worktree:list` fields deck reads. */
-export interface TreeRow {
-  path: string;
-  branch: string | null;
-  kind: string;
-  state: string | null;
-  repoName: string;
-  readyAt?: string | null;
-  lastActiveAt?: string | null;
-}
 
 export interface LiveSource {
   path: string;
@@ -26,7 +19,7 @@ export interface LiveSource {
 }
 
 export interface SourcesDeps {
-  list?: () => Promise<TreeRow[]>;
+  list?: () => Promise<WorktreeTreeRow[]>;
   exists?: (path: string) => boolean;
 }
 
@@ -82,11 +75,9 @@ export async function listLiveSources(
     needsSetup: false,
     lastActiveAt: null,
   };
-  let rows: TreeRow[];
+  let rows: WorktreeTreeRow[];
   try {
-    rows = await (
-      deps.list ?? (listWorktreeRows as () => Promise<TreeRow[]>)
-    )();
+    rows = await (deps.list ?? listWorktreeRows)();
   } catch (err) {
     return {
       sources: [main],
@@ -100,7 +91,7 @@ export async function listLiveSources(
     exists,
   });
   const worktrees = trees
-    .filter(t => real(t.path) !== sharedRoot)
+    .filter(t => t.kind !== 'main' && real(t.path) !== sharedRoot)
     .map(t => ({
       path: real(t.path),
       branch: t.branch,

@@ -101,6 +101,8 @@ function withWorktree(
         list: async () => [
           ...kit.trees(),
           {
+            name: 'wt',
+            mr: null,
             path: wt,
             branch: 'feat',
             kind: 'unmanaged',

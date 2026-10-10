@@ -2,6 +2,7 @@ import { mkdirSync, realpathSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { expect, test } from 'bun:test';
 
+import type { WorktreeTreeRow } from '@mattstack/rt-client';
 import { gitRepo } from '../../test/git-fixture.ts';
 import type { AppRecord } from '../registry/records.ts';
 import { readyMarker } from './setup.ts';
@@ -10,7 +11,6 @@ import {
   branchOf,
   listLiveSources,
   sharedRootFor,
-  type TreeRow,
 } from './sources.ts';
 
 const root = realpathSync(gitRepo({ 'apps/chat/mattstack.deck.json': '{}' }));
@@ -23,7 +23,9 @@ const record = {
   dev: { workingDirectory: join(root, 'apps/chat') },
 } as AppRecord;
 
-const row = (over: Partial<TreeRow>): TreeRow => ({
+const row = (over: Partial<WorktreeTreeRow>): WorktreeTreeRow => ({
+  name: 'x',
+  mr: null,
   path: '/wt/x',
   branch: 'x',
   kind: 'ephemeral',
@@ -86,6 +88,21 @@ test('main first, then claimed and unmanaged trees of the same repo by last use'
     ['new', false, false],
     ['old', false, false],
     ['hand', false, true],
+  ]);
+});
+
+test('a linked shared root does not list the repo main checkout as a worktree', async () => {
+  const { sources } = await listLiveSources(root, {
+    exists: () => true,
+    list: async () => [
+      row({ path: '/repo/main', kind: 'main', state: null, branch: 'main' }),
+      row({ path: root, kind: 'unmanaged', state: null, branch: 'linked' }),
+      row({ path: '/wt/other', branch: 'other' }),
+    ],
+  });
+  expect(sources.map(s => [s.path, s.main])).toEqual([
+    [root, true],
+    ['/wt/other', false],
   ]);
 });
 

@@ -119,6 +119,8 @@ test('a worktree without the app is refused', async () => {
         list: async () => [
           ...trees(),
           {
+            name: 'wt',
+            mr: null,
             path: wt,
             branch: 'wt',
             kind: 'unmanaged',
@@ -155,6 +157,8 @@ test('a worktree that needs setup answers 202, then goes live when setup passes'
         list: async () => [
           ...trees(),
           {
+            name: 'wt',
+            mr: null,
             path: wt,
             branch: 'main',
             kind: 'unmanaged',
@@ -184,6 +188,8 @@ function setupDeps(wt: string) {
       list: async () => [
         ...trees(),
         {
+          name: 'wt',
+          mr: null,
           path: wt,
           branch: 'main',
           kind: 'unmanaged',
@@ -337,6 +343,8 @@ test('a failed switch keeps the app live on its old source', async () => {
       list: async () => [
         ...trees(),
         {
+          name: 'wt',
+          mr: null,
           path: wt,
           branch: 'wt',
           kind: 'unmanaged',

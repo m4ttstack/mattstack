@@ -169,8 +169,6 @@ export {
   isPickableWorktree,
   listPickableWorktrees,
   listWorktreeRows,
-  TRASH_PREFIX,
-  RETAIN_DIR,
 } from "./worktrees.ts";
 export type { PickableWorktreeRow, PickableSort, ListPickableOpts } from "./worktrees.ts";
 
