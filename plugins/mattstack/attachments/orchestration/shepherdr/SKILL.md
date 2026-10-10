@@ -219,8 +219,8 @@ half ("opus" / "fable" / "sonnet"). With both halves open, each label
 carries both ("superpowers, opus" / "direct-tdd, sonnet").
 
 **Effort rides with the model, not as a question.** Take the effort from
-the bound tier table's row for the job, and change it only when the user
-names a reason. Every spawn carries the chosen model and effort (`model` and
+the bound tier table's row for the job, or from its escalation rule on a
+respawn; change it otherwise only when the user names a reason. Every spawn carries the chosen model and effort (`model` and
 `effort` on `herd_spawn`, `--model` and `--effort` on a Bash spawn); a spawn
 without them launches on the defaults and silently defeats tiering.
 
