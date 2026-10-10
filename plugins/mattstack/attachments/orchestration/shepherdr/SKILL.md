@@ -218,11 +218,11 @@ hand, so from-plan): which model?"), and each label carries only the open
 half ("opus" / "fable" / "sonnet"). With both halves open, each label
 carries both ("superpowers, opus" / "direct-tdd, sonnet").
 
-**Effort is a session default, not a question.** Per the bound tiering
-skill, use the model's default effort and deviate only when the user names
-a reason. Every spawn carries the chosen model (`model` on `herd_spawn`,
-`--model` on a Bash spawn) and carries effort only when overridden; a spawn
-without a model launches on the default model and silently defeats tiering.
+**Effort rides with the model, not as a question.** Take the effort from
+the bound tier table's row for the job, and change it only when the user
+names a reason. Every spawn carries the chosen model and effort (`model` and
+`effort` on `herd_spawn`, `--model` and `--effort` on a Bash spawn); a spawn
+without them launches on the defaults and silently defeats tiering.
 
 **Domain hook -- model floor and strategy pin.** Unbound: both halves are
 open and the tier table's recommendation stands. A bound domain part may
