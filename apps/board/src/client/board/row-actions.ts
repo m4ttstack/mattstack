@@ -110,7 +110,7 @@ export interface RowAction extends MenuEntry {
 /** A pick option for a teammate's agent: the username stays the payload. */
 function peerOption(env: ActionEnv, value: string) {
   const name = env.names?.get(value);
-  return name ? { value, label: `${name}'s agent` } : { value };
+  return name ? { value, label: name } : { value };
 }
 
 export interface ActionEnv {
