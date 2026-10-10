@@ -314,7 +314,14 @@ rehearsal of main after it merges, belong to `rt:release`.
 Mirror the workflow's env and order. The deltas that matter outside CI:
 
 - **Versions**: `TAG=vX.Y.Z` (what `--define RT_VERSION` gets and what `rt --version` prints),
-  `VERSION=X.Y.Z` bare (Info.plist; `build.sh` rejects anything non-numeric).
+  `VERSION=X.Y.Z` bare (Info.plist; `build.sh` rejects anything non-numeric). The compile takes
+  `--define MATTSTACK_ENGINE` beside `RT_VERSION`, set to the `version` in
+  `plugins/mattstack/.claude-plugin/plugin.json` (`jq -r .version`); `rt --version --json`
+  prints it as `engine`, and the workflow fails when the two differ.
+- **Catalog**: `MARKETPLACE_TOKEN` is used only by the late `Publish the marketplace catalog`
+  step, just before Create Release, so a run that fails earlier has published nothing. The early
+  step only validates (`--dry-run`); the publish refuses a mattstack version older than the
+  published one.
 - **Signing**: locally `build.sh` uses whatever Developer ID Application identity is in your login
   keychain (`security find-identity -v -p codesigning`); CI imports it fresh from the
   `APPLE_CERT_P12_*` secrets.
