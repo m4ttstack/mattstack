@@ -5,7 +5,7 @@
  * token and base URL the other GitLab verbs use.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { setSetting } from "../../settings/write.ts";
@@ -160,5 +160,79 @@ describe("mr:upload", () => {
     const res = await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toContain("markdown");
+  });
+
+  describe("with runId", () => {
+    function record(value: object | string | null) {
+      return { runEvidence: (id: string) => (id === "run-1" ? { found: true as const, evidence: value === null || typeof value === "string" ? value : JSON.stringify(value) } : { found: false as const }) };
+    }
+    function v2(dir: string) {
+      return {
+        v: 2,
+        cases: [
+          { id: "c1", label: "C", before: { path: join(dir, "raw.png"), annotated: join(dir, "raw-ann.png"), caption: "box" } },
+          { id: "c2", label: "D", after: { dark: { path: join(dir, "waived.png") } }, waiver: "identical" },
+        ],
+      };
+    }
+
+    test("an annotated image the record lists uploads", async () => {
+      png(repoPath, "raw.png");
+      const h = harness({ repoPath, ...record(v2(repoPath)) });
+      const res = await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "raw-ann.png"), runId: "run-1" });
+      expect(res.ok).toBe(true);
+      expect(h.calls.length).toBe(1);
+    });
+
+    test("a waived case uploads its base image", async () => {
+      const h = harness({ repoPath, ...record(v2(repoPath)) });
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "waived.png"), runId: "run-1" })).ok).toBe(true);
+    });
+
+    test("a raw capture with an annotated copy is refused, naming the file and its annotated copy", async () => {
+      const h = harness({ repoPath, ...record(v2(repoPath)) });
+      const res = await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "raw.png"), runId: "run-1" });
+      expect(res).toEqual({ ok: false, error: 'raw.png is the raw capture for case "c1" before; upload its annotated image raw-ann.png instead' });
+      expect(h.calls.length).toBe(0);
+    });
+
+    test("an image missing from the record is refused, naming the file", async () => {
+      const h = harness({ repoPath, ...record(v2(repoPath)) });
+      const res = await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "stray.png"), runId: "run-1" });
+      expect(res).toEqual({ ok: false, error: "stray.png is not in run run-1's evidence record as an annotated image or a waived capture; record it with run_field_set first" });
+      expect(h.calls.length).toBe(0);
+    });
+
+    test("a record path reached through a symlink matches by realpath", async () => {
+      const real = png(repoPath, "waived.png");
+      const linkDir = join(elsewhere, "link");
+      symlinkSync(repoPath, linkDir);
+      const h = harness({ repoPath, ...record({ v: 2, cases: [{ id: "c", label: "C", after: { path: join(linkDir, "waived.png"), waiver: "w" } }] }) });
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: real, runId: "run-1" })).ok).toBe(true);
+    });
+
+    test("an unknown run, a run with no record, and a bad runId are refused", async () => {
+      const file = png(repoPath, "x.png");
+      expect(await harness({ repoPath, ...record(null) }).handlers["mr:upload"]({ repoName: REPO, path: file, runId: "run-2" }))
+        .toEqual({ ok: false, error: "run run-2 not found" });
+      expect(await harness({ repoPath, ...record(null) }).handlers["mr:upload"]({ repoName: REPO, path: file, runId: "run-1" }))
+        .toEqual({ ok: false, error: "run run-1 has no evidence record; write evidence before uploading with runId" });
+      expect(await harness({ repoPath, ...record("see /tmp/x.png") }).handlers["mr:upload"]({ repoName: REPO, path: file, runId: "run-1" }))
+        .toEqual({ ok: false, error: "run run-1 has no evidence record; write evidence before uploading with runId" });
+      expect(await harness({ repoPath, ...record(null) }).handlers["mr:upload"]({ repoName: REPO, path: file, runId: 7 }))
+        .toEqual({ ok: false, error: "runId must be a non-empty string" });
+    });
+
+    test("a v1 record admits its annotated image only", async () => {
+      const value = { v: 1, before: join(repoPath, "b.png"), beforeAnnotated: join(repoPath, "ba.png") };
+      const h = harness({ repoPath, ...record(value) });
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "ba.png"), runId: "run-1" })).ok).toBe(true);
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "b.png"), runId: "run-1" })).ok).toBe(false);
+    });
+
+    test("without runId the record is never read", async () => {
+      const h = harness({ repoPath, runEvidence: () => { throw new Error("read"); } });
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) })).ok).toBe(true);
+    });
   });
 });
