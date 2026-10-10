@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "harnesses": {
+    "claude": {
+      "versions": ["2.1.294"],
+      "basis": "The Claude Code release CI's plugin-mattstack-mods job installs and the live-18/live-19 runs used. Each version is listed on its own: a version inside the mods' TESTED_CLAUDE_CODE range is not tested until it is added here."
+    },
+    "codex": {
+      "versions": ["0.160.0"],
+      "basis": "The Codex release the app-server protocol fixture (CODEX_PROTOCOL_VERSION) was captured from. A later release is not tested until it is added here."
+    }
+  }
+}
