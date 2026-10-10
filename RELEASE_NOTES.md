@@ -13,6 +13,7 @@ When your org's admin moves the org onto layout 3, a Mac still on v2.22 holds it
 
 - the shims and PATH rows are judged from your login shell, so they match what your terminal runs (#756)
 - an older rt block in your shell profile with no end marker can be repaired from setup (#766)
+- creating a team from setup or Settings > Team shows the repository URL field when GitHub is connected without a gh session, instead of offering no way to name a repo (#784)
 
 ### Console
 
@@ -25,6 +26,10 @@ When your org's admin moves the org onto layout 3, a Mac still on v2.22 holds it
 - settings can show another team's values, for the roles that reach it, with your own user and machine scopes hidden while you look (#782)
 - settings sections split into blocks by scope, a key groups under the layer that sets it, and per-project keys group by where their repo sections live (#782)
 - the runs pages are quieter: finished stages fold, the gate form is polished, and a failed answer keeps your picks (#783)
+- the top bar carries your org and team pills, the team menu and you with your role, and the logo tops the rail; the ⌘K palette is gone
+- the runs timeline draws one bar per run over a fixed 8 AM to 6 PM day or a 6 PM to 8 AM night, leaves idle and held time out, and picks its day from a heat map
+- the run page reads each gate as its answered record, the story is a stage list beside the picked stage, and the record's Decisions tab is gone
+- the runs repo picker lists only repos rt has registered, and wiring's pack picker is the settings team menu
 
 ### Deck
 
@@ -41,6 +46,10 @@ When your org's admin moves the org onto layout 3, a Mac still on v2.22 holds it
 - a My MRs chip on All hides your own rows, and one MR refreshes from GitLab from its row menu
 - code owner approvals count once per section
 - the board says when no teammate board is connected, instead of everyone engaged
+
+### Chat
+
+- the logo tops the rail, and the top bar shows your org, team and role
 
 ### Worktrees
 
@@ -65,7 +74,7 @@ When your org's admin moves the org onto layout 3, a Mac still on v2.22 holds it
 
 - one page per app for board and flock, grounded in the code, with docs conventions and a lint gate (#750, #753)
 - the team directory, the board's Slack item and agent menu are documented (#757, #759, #765)
-- the console runs view and viewing another team's settings, deck's dev mode, the board's new row menu items and Show chip, `rt worktree restore`, glitter's rejected push, the PATH row and moving an org onto layout 3 are documented
+- the console runs view, its timeline and viewing another team's settings, chat's top bar, deck's dev mode, the board's new row menu items and Show chip, `rt worktree restore`, glitter's rejected push, the PATH row and moving an org onto layout 3 are documented
 
 ### Release
 
