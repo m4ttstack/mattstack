@@ -220,20 +220,30 @@ digraph ship {
     "Own run (MR identity)?" [shape=diamond];
     "run_field_set {key: mr, value: <url>, stage: ship}" [shape=plaintext];
 
-    "Capture the AFTER when the domain names one (ship)" [shape=box];
-    "AFTER captured, or none named (ship)?" [shape=diamond];
-    "AFTER attempts = 3 (ship)?" [shape=diamond];
+    "run_field_get {key: evidence} (ship)" [shape=plaintext];
+    "Capture the AFTER for the next case the domain names (ship)" [shape=box];
+    "AFTER captured, or none left to capture (ship)?" [shape=diamond];
+    "AFTER attempts for this case = 3 (ship)?" [shape=diamond];
+    "Every named case tried (ship)?" [shape=diamond];
+    "A v1 or v2 record with an image, or an AFTER was captured (ship)?" [shape=diamond];
+    "Merge into the record (evidence-record)" [shape=box];
+    "Annotate or waive each image the record does not yet cover (evidence-record)" [shape=box];
+    "Annotate or waive outcome (ship)?" [shape=diamond];
+    "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: <the run's stage>}" [shape=plaintext];
+    "evidence write result (ship)?" [shape=diamond];
+    "Validator refusals = 2 (ship)?" [shape=diamond];
+    "Record fixed once already (ship)?" [shape=diamond];
     "Files to attach (ship)?" [shape=diamond];
-    "mr_upload {mrUrl, path} per file; keep each markdown" [shape=plaintext];
+    "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [shape=plaintext];
     "mr_upload result (ship)?" [shape=diamond];
     "Upload retried with a corrected path (ship)?" [shape=diamond];
-    "mr_upload {mrUrl, path: <the corrected absolute path>}" [shape=plaintext];
+    "mr_upload {mrUrl, path: <the corrected absolute path>, runId}" [shape=plaintext];
     "STOP: upload only with mr_upload (ship)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "ship off-script gate: mr_upload refused" [shape=box];
     "ship off-script answer (mr_upload)?" [shape=diamond];
     "Upload off-script rounds = 2 (ship)?" [shape=diamond];
     "Timed-out upload retried once (ship)?" [shape=diamond];
-    "mr_upload {mrUrl, path: <the timed-out file>}" [shape=plaintext];
+    "mr_upload {mrUrl, path: <the timed-out file>, runId}" [shape=plaintext];
     "Domain owns the title or description (ship)?" [shape=diamond];
     "Forge host (ship, read back the description)?" [shape=diamond];
     "mr_view {mrUrl}" [shape=plaintext];
@@ -391,38 +401,57 @@ digraph ship {
     "gh pr create result (ship)?" -> "Own run (MR identity)?" [label="already exists: keep the url it prints"];
     "gh pr create result (ship)?" -> "Which exit is this (ship)?" [label="any other error: a failure, quoted as the reason"];
     "Own run (MR identity)?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="yes"];
-    "Own run (MR identity)?" -> "Capture the AFTER when the domain names one (ship)" [label="no: inherited"];
-    "run_field_set {key: mr, value: <url>, stage: ship}" -> "Capture the AFTER when the domain names one (ship)";
-
-    "Capture the AFTER when the domain names one (ship)" -> "AFTER captured, or none named (ship)?";
-    "AFTER captured, or none named (ship)?" -> "Files to attach (ship)?" [label="yes"];
-    "AFTER captured, or none named (ship)?" -> "AFTER attempts = 3 (ship)?" [label="no: the capture failed"];
-    "AFTER attempts = 3 (ship)?" -> "Capture the AFTER when the domain names one (ship)" [label="no: another attempt"];
-    "AFTER attempts = 3 (ship)?" -> "Files to attach (ship)?" [label="yes: go on without it; the description names the gap"];
-    "Files to attach (ship)?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="yes, GitLab"];
+    "Own run (MR identity)?" -> "run_field_get {key: evidence} (ship)" [label="no: inherited"];
+    "run_field_set {key: mr, value: <url>, stage: ship}" -> "run_field_get {key: evidence} (ship)";
+    "run_field_get {key: evidence} (ship)" -> "Capture the AFTER for the next case the domain names (ship)";
+    "Capture the AFTER for the next case the domain names (ship)" -> "AFTER captured, or none left to capture (ship)?";
+    "AFTER captured, or none left to capture (ship)?" -> "Every named case tried (ship)?" [label="captured"];
+    "AFTER captured, or none left to capture (ship)?" -> "A v1 or v2 record with an image, or an AFTER was captured (ship)?" [label="none named: there is no AFTER"];
+    "AFTER captured, or none left to capture (ship)?" -> "AFTER attempts for this case = 3 (ship)?" [label="the capture failed"];
+    "AFTER attempts for this case = 3 (ship)?" -> "Capture the AFTER for the next case the domain names (ship)" [label="no: another attempt, same case"];
+    "AFTER attempts for this case = 3 (ship)?" -> "Every named case tried (ship)?" [label="yes: go on without it; the description names the gap"];
+    "Every named case tried (ship)?" -> "Capture the AFTER for the next case the domain names (ship)" [label="no"];
+    "Every named case tried (ship)?" -> "A v1 or v2 record with an image, or an AFTER was captured (ship)?" [label="yes"];
+    "A v1 or v2 record with an image, or an AFTER was captured (ship)?" -> "Merge into the record (evidence-record)" [label="yes"];
+    "A v1 or v2 record with an image, or an AFTER was captured (ship)?" -> "Files to attach (ship)?" [label="no"];
+    "Merge into the record (evidence-record)" -> "Annotate or waive each image the record does not yet cover (evidence-record)";
+    "Annotate or waive each image the record does not yet cover (evidence-record)" -> "Annotate or waive outcome (ship)?";
+    "Annotate or waive outcome (ship)?" -> "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: <the run's stage>}" [label="ready"];
+    "Annotate or waive outcome (ship)?" -> "Which exit is this (ship)?" [label="hold: held at evidence-waiver"];
+    "Annotate or waive outcome (ship)?" -> "Which exit is this (ship)?" [label="a failure: waiver openings spent, the images named"];
+    "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: <the run's stage>}" -> "evidence write result (ship)?";
+    "evidence write result (ship)?" -> "Files to attach (ship)?" [label="ok"];
+    "evidence write result (ship)?" -> "Validator refusals = 2 (ship)?" [label="refused: the validator names an image"];
+    "evidence write result (ship)?" -> "Which exit is this (ship)?" [label="any other error: a failure, quoted as the reason"];
+    "Validator refusals = 2 (ship)?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no"];
+    "Validator refusals = 2 (ship)?" -> "Which exit is this (ship)?" [label="a failure: the evidence refusal quoted"];
+    "Files to attach (ship)?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="yes, GitLab: every uploadable path in the record (a repeat upload is harmless)"];
     "Files to attach (ship)?" -> "Domain owns the title or description (ship)?" [label="no, or GitHub: link the paths"];
-    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result (ship)?";
+    "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" -> "mr_upload result (ship)?";
     "mr_upload result (ship)?" -> "Domain owns the title or description (ship)?" [label="ok: every file uploaded"];
-    "mr_upload result (ship)?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="ok: files still to upload"];
+    "mr_upload result (ship)?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="ok: files still to upload"];
     "mr_upload result (ship)?" -> "Upload retried with a corrected path (ship)?" [label="path must be absolute, or file not found"];
     "mr_upload result (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="any other refusal: outside the roots, bytes, size"];
     "mr_upload result (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="tempted to copy the file into an allowed root, or upload another way"];
-    "Upload retried with a corrected path (ship)?" -> "mr_upload {mrUrl, path: <the corrected absolute path>}" [label="no: this file's one fix"];
+    "mr_upload result (ship)?" -> "Record fixed once already (ship)?" [label="refused: not in the record, or a raw capture"];
+    "Record fixed once already (ship)?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no: the named file"];
+    "Record fixed once already (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="yes"];
+    "Upload retried with a corrected path (ship)?" -> "mr_upload {mrUrl, path: <the corrected absolute path>, runId}" [label="no: this file's one fix"];
     "Upload retried with a corrected path (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="yes"];
-    "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result (ship)?";
+    "mr_upload {mrUrl, path: <the corrected absolute path>, runId}" -> "mr_upload result (ship)?";
     "mr_upload result (ship)?" -> "Timed-out upload retried once (ship)?" [label="timed out"];
-    "Timed-out upload retried once (ship)?" -> "mr_upload {mrUrl, path: <the timed-out file>}" [label="no: retry once, a timed-out upload is safe to repeat"];
+    "Timed-out upload retried once (ship)?" -> "mr_upload {mrUrl, path: <the timed-out file>, runId}" [label="no: retry once, a timed-out upload is safe to repeat"];
     "Timed-out upload retried once (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="yes: timed out twice"];
-    "mr_upload {mrUrl, path: <the timed-out file>}" -> "mr_upload result (ship)?";
+    "mr_upload {mrUrl, path: <the timed-out file>, runId}" -> "mr_upload result (ship)?";
     "STOP: upload only with mr_upload (ship)" -> "ship off-script gate: mr_upload refused";
     "ship off-script gate: mr_upload refused" -> "ship off-script answer (mr_upload)?";
     "ship off-script answer (mr_upload)?" -> "Domain owns the title or description (ship)?" [label="take: link the refused files' local paths"];
     "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hand back: a failure, the upload refusal is the reason"];
     "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hold: nothing linked"];
     "ship off-script answer (mr_upload)?" -> "Upload off-script rounds = 2 (ship)?" [label="iterate: the human fixed the cause, retry the upload"];
-    "Upload off-script rounds = 2 (ship)?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
+    "Upload off-script rounds = 2 (ship)?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="no: retry the refused files"];
     "Upload off-script rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the upload refusal quoted"];
-    "Domain owns the title or description (ship)?" -> "Forge host (ship, read back the description)?" [label="yes, or files or an AFTER to link"];
+    "Domain owns the title or description (ship)?" -> "Forge host (ship, read back the description)?" [label="yes, or an evidence section to write"];
     "Domain owns the title or description (ship)?" -> "Domain runs CI after the MR (ship)?" [label="no: the create call wrote them"];
     "Forge host (ship, read back the description)?" -> "mr_view {mrUrl}" [label="GitLab"];
     "Forge host (ship, read back the description)?" -> "gh pr view <mr> --json title,body" [label="GitHub"];
@@ -618,9 +647,10 @@ the second, the verb fails with the comparison quoted.
 ### ship off-script gate: mr_upload refused
 
 The upload guard refused a file past its one fix; a second timeout on
-the same file reaches this gate too, and Iterate retries it once the
-human has checked the daemon. Scope
-`off-script:<stage>:<n>`, sharing `n` with the push's off-script gate,
+the same file reaches this gate too (Iterate retries it once the human
+has checked the daemon), as does a second refusal that the file is not
+in the record or is a raw capture. Scope `off-script:<stage>:<n>`,
+sharing `n` with the push's off-script gate,
 `context` quoting the refusal and the path; the `action`/`next` questions
 and selection are the push gate's. Take writes the description with the
 refused files' local paths linked instead of uploads, while files already
@@ -629,19 +659,29 @@ file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file under an
 allowed root is only ever the human's move: the roots are the boundary on
 what leaves the machine.
 
-### Capture the AFTER when the domain names one (ship)
+### Capture the AFTER for the next case the domain names (ship)
 
-The same view as the domain's BEFORE, on the sha just pushed. The counter
-is attempts within this pass; after the third failure, ship without it and
-say in the description what was tried. Unbound, there is no AFTER.
+For each case in the record, the same view as its BEFORE, on the sha
+just pushed; a v1 record's BEFORE counts as the case `case`, so an AFTER
+of that view belongs to it. Any other capture the domain names is a new
+case with its own `id` and `label`. The counter is attempts per case
+within this pass; after the third failure that case goes on without its
+AFTER and the description says what was tried. Unbound, there is no
+AFTER. The record is this run's: an own run's `runDb`, or the inherited
+one. With no BEFORE in it, each AFTER comes in as a new case. Every
+capture goes into the record through the evidence record's merge and
+annotate steps, and is written before anything uploads; a capture is
+never uploaded on its own.
 
 ### Write the title and description (ship)
 
 Title from the ticket or the first commit subject; the body links the
-ticket and every attachment, with the upload markdown where it exists. The
-update replaces the whole body, so start from the one just read back: keep
-what is already there (a teammate's edits) and change only what this verb
-owns. The domain's title, template and voice rules win over this paragraph.
+ticket and carries the evidence section the evidence record below
+describes, built from the record just written. The update replaces the
+whole body, so start from the one just read back: the record's evidence
+section replaces any evidence block an earlier stage wrote, and everything
+else already there (a teammate's edits) is kept; change only what this
+verb owns. The domain's title, template and voice rules win over this paragraph.
 
 ### Run watch-ci inheriting this run
 
@@ -700,12 +740,18 @@ draft and the note quoted in the final report.
 
 ## Domain rules
 
-If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
+If a rule below asks for a move this graph marks STOP, take the off-script
+edge instead. A rule that keeps a capture out of the record, or keeps a
+base with no waiver, yields to the evidence record.
 
 {{slot:domain}}
 
 When nothing is inlined above, the graph alone is the flow: no steps before
 the gate, no fast checks, no rebase, no AFTER, no CI watch.
+
+## Evidence record
+
+{{include:evidence-record}}
 
 ## Gate protocol
 
