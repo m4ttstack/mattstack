@@ -1,7 +1,13 @@
 import { useCallback, useRef, useState, type RefObject } from 'react';
 
 import type { Row } from '../logic.ts';
-import { deleteLive, getSources, putLive, type SourceRow } from './live-api.ts';
+import {
+  deleteLive,
+  dismissSetup,
+  getSources,
+  putLive,
+  type SourceRow,
+} from './live-api.ts';
 
 export type LiveModalState = {
   row: Row;
@@ -48,29 +54,50 @@ export function useLive(
   const modalRef = useRef<LiveModalState | null>(null);
   modalRef.current = modal;
   const openerCell = useRef<Element | null>(null);
+  const openFallback = useRef<(() => HTMLElement | null) | null>(null);
 
-  const open = useCallback((row: Row, opener: HTMLElement) => {
-    const mode =
-      row.liveSetup?.state === 'failed' ? 'failed' : row.live ? 'live' : 'go';
-    openerCell.current = opener.closest('td');
-    setModal({
-      row,
-      mode,
-      sources: null,
-      error: null,
-      picked: null,
-      busy: false,
-      opener,
-    });
-    void getSources(row.name).then(({ sources, error }) => {
-      const list = ordered(sources);
-      setModal(m =>
-        m && m.row.name === row.name && m.sources == null
-          ? { ...m, sources: list, error, picked: rowSource(row, list) }
-          : m
-      );
-    });
-  }, []);
+  /** `live` forces the live modal for a live row whose source switch left a
+      failed setup behind; `fallback` is where focus lands when the opener has
+      gone by the time the modal closes. */
+  const open = useCallback(
+    (
+      row: Row,
+      opener: HTMLElement,
+      opts: {
+        mode?: 'live';
+        fallback?: () => HTMLElement | null;
+      } = {}
+    ) => {
+      const mode =
+        opts.mode === 'live' && row.live
+          ? 'live'
+          : row.liveSetup?.state === 'failed'
+            ? 'failed'
+            : row.live
+              ? 'live'
+              : 'go';
+      openerCell.current = opener.closest('td');
+      openFallback.current = opts.fallback ?? null;
+      setModal({
+        row,
+        mode,
+        sources: null,
+        error: null,
+        picked: null,
+        busy: false,
+        opener,
+      });
+      void getSources(row.name).then(({ sources, error }) => {
+        const list = ordered(sources);
+        setModal(m =>
+          m && m.row.name === row.name && m.sources == null
+            ? { ...m, sources: list, error, picked: rowSource(row, list) }
+            : m
+        );
+      });
+    },
+    []
+  );
 
   // A refresh can swap the opener for another control in the same cell (go
   // live becomes the source button) or for nothing focusable (the setup
@@ -85,7 +112,10 @@ export function useLive(
         : null;
       const target = opener?.isConnected
         ? opener
-        : (inCell ?? fallbackFocusRef?.current ?? null);
+        : (inCell ??
+          openFallback.current?.() ??
+          fallbackFocusRef?.current ??
+          null);
       target?.focus();
     });
   }, [fallbackFocusRef]);
@@ -129,7 +159,7 @@ export function useLive(
   }, [run, addToast]);
 
   const dismiss = useCallback(async () => {
-    await run(m => deleteLive(m.row.name));
+    await run(m => dismissSetup(m.row.name));
   }, [run]);
 
   return { modal, open, close, pick, submit, stop, dismiss };

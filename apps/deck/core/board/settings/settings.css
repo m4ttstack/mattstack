@@ -288,8 +288,14 @@
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-md);
 }
-.live-proc + .live-proc {
+.live-proc-item + .live-proc-item {
   border-top: 1px solid var(--border-on-card);
+}
+.live-proc-log {
+  margin: 0 var(--spacing-md) var(--spacing-md);
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
 }
 .live-proc-kind {
   width: 3rem;

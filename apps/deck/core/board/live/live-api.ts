@@ -48,3 +48,26 @@ export function putLive(name: string, source: string): Promise<LiveAnswer> {
 export function deleteLive(name: string): Promise<LiveAnswer> {
   return send(apiDelete(`/api/v1/apps/${name}/live`));
 }
+
+export function dismissSetup(name: string): Promise<LiveAnswer> {
+  return send(apiDelete(`/api/v1/apps/${name}/live/setup`));
+}
+
+export async function getProcessLog(
+  name: string,
+  id: string
+): Promise<{ lines: string[]; error: string | null }> {
+  try {
+    const res = await fetch(
+      `/api/v1/apps/${name}/logs?process=${encodeURIComponent(id)}&lines=200`
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      stderr?: string[];
+      error?: string;
+    };
+    if (!res.ok) return { lines: [], error: body.error || "That didn't work." };
+    return { lines: body.stderr ?? [], error: null };
+  } catch {
+    return { lines: [], error: "The board didn't answer." };
+  }
+}

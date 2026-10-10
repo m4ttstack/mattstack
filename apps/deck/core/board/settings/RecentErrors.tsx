@@ -3,8 +3,10 @@ import type { BlockProps } from './block.ts';
 
 export function RecentErrors({ row, blocks }: BlockProps) {
   if (!blocks.errors) return null;
-  const setupFailed = row.liveSetup?.state === 'failed';
-  const stderr = setupFailed ? row.liveSetup!.log : (row.service?.stderr ?? []);
+  const failedSetup =
+    row.liveSetup?.state === 'failed' ? row.liveSetup : undefined;
+  const setupFailed = failedSetup !== undefined;
+  const stderr = failedSetup ? failedSetup.log : (row.service?.stderr ?? []);
   const tail = stderr.join('\n');
   return (
     <section

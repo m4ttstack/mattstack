@@ -26,6 +26,21 @@ function linkFooter(row: Row): string {
   return 'Link a source checkout to get build and deploy here, and source serving in dev mode.';
 }
 
+/** The modal's close button is where focus lands if the opener is gone once
+    the live modal closes (a successful Stop Live removes it). */
+function openLiveFromSettings(
+  row: Row,
+  board: BlockProps['board'],
+  opener: HTMLElement
+) {
+  const dialog = opener.closest('[role="dialog"]');
+  board.openLive(row, opener, {
+    mode: 'live',
+    fallback: () =>
+      dialog?.querySelector<HTMLElement>('[data-part="modal-close"]') ?? null,
+  });
+}
+
 function homeRelative(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/)/, '~');
 }
@@ -90,14 +105,16 @@ export function CodeBlock({ row, data, board, blocks }: BlockProps) {
           </dd>
         </dl>
         <div className="settings-actions">
-          <Button onClick={e => board.openLive(row, e.currentTarget)}>
+          <Button
+            onClick={e => openLiveFromSettings(row, board, e.currentTarget)}
+          >
             <Icon d={GIT_BRANCH} /> Change code
           </Button>
           <span className="settings-actions-end">
             <Button
               variant="subtle"
               intent="bad"
-              onClick={e => board.openLive(row, e.currentTarget)}
+              onClick={e => openLiveFromSettings(row, board, e.currentTarget)}
             >
               Stop Live
             </Button>

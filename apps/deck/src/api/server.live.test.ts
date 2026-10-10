@@ -1,4 +1,4 @@
-import { realpathSync, writeFileSync } from 'fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
 
@@ -17,6 +17,7 @@ import {
 } from '../live/test-kit.ts';
 import { setServeShapeDeps } from './register.ts';
 import { startApi } from './server.ts';
+import { logsDir } from './state.ts';
 
 const PORT = 18951;
 let kit = freshChat();
@@ -201,4 +202,50 @@ test('PUT refuses outside dev mode', async () => {
     error: 'live mode only runs in the dev app',
   });
   expect(getLive('chat')).toBeUndefined();
+});
+
+test('logs of a live process: the tail for a known id, 400 otherwise', async () => {
+  await api('/api/v1/apps/chat/live', {
+    method: 'PUT',
+    body: JSON.stringify({ source: kit.shared }),
+  });
+  mkdirSync(logsDir(), { recursive: true });
+  writeFileSync(join(logsDir(), 'chat.live.ui.err.log'), 'one\ntwo\n');
+  const ok = await api('/api/v1/apps/chat/logs?process=ui');
+  expect(ok.status).toBe(200);
+  expect(await ok.json()).toEqual({ stderr: ['one', 'two'] });
+  for (const bad of ['nope', '../x', 'ui/../../x'])
+    expect(
+      (await api(`/api/v1/apps/chat/logs?process=${encodeURIComponent(bad)}`))
+        .status
+    ).toBe(400);
+});
+
+test('logs of a live process: 400 when the app is not live', async () => {
+  expect((await api('/api/v1/apps/chat/logs?process=ui')).status).toBe(400);
+});
+
+test('DELETE live/setup dismisses a failed setup and leaves the app live', async () => {
+  await api('/api/v1/apps/chat/live', {
+    method: 'PUT',
+    body: JSON.stringify({ source: kit.shared }),
+  });
+  await runSetup('chat', '/wt/a', 'a', { run: async () => 1 });
+  expect(setupFor('chat')?.state).toBe('failed');
+  const res = await api('/api/v1/apps/chat/live/setup', { method: 'DELETE' });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(setupFor('chat')).toBeUndefined();
+  expect(getLive('chat')).toBeDefined();
+});
+
+test('DELETE live/setup answers 409 while setup is running', async () => {
+  let finish!: (code: number) => void;
+  const running = runSetup('chat', '/wt/a', 'a', {
+    run: () => new Promise<number>(res => (finish = res)),
+  });
+  const res = await api('/api/v1/apps/chat/live/setup', { method: 'DELETE' });
+  expect(res.status).toBe(409);
+  finish(0);
+  await running;
 });

@@ -59,14 +59,16 @@ import type { TunnelDriver } from '../edge/tunnel.ts';
 import {
   goLive,
   installedLabelsOf,
+  liveManifestAt,
   liveRefusal,
   stopLive,
   type LiveDeps,
 } from '../live/engine.ts';
 import { liveLabelPrefix } from '../live/labels.ts';
 import { clearSetup, setupFor } from '../live/setup.ts';
-import { listLiveSources, sharedRootFor } from '../live/sources.ts';
+import { appDirIn, listLiveSources, sharedRootFor } from '../live/sources.ts';
 import { convert } from '../registry/convert.ts';
+import { liveProcessIds } from '../registry/deck-manifest.ts';
 import { migrate } from '../registry/migrate.ts';
 import { stampDeploy } from '../registry/new-code.ts';
 import { getRecord, listRecords } from '../registry/records.ts';
@@ -175,6 +177,17 @@ async function edgeDns(deps: ApiDeps): Promise<CfDns | null> {
 
 export function callerOf(req: Request): string {
   return req.headers.get('x-local-caller')?.trim() || 'user';
+}
+
+function liveProcessIdsOf(name: string): string[] {
+  const record = getRecord(name);
+  const state = getLive(name);
+  const root = record ? sharedRootFor(record) : null;
+  const dir =
+    record && state && root ? appDirIn(record, state.source, root) : null;
+  if (!dir) return [];
+  const manifest = liveManifestAt(dir);
+  return manifest.ok ? liveProcessIds(manifest.live) : [];
 }
 
 function json(body: unknown, status = 200): Response {
@@ -459,6 +472,17 @@ export function startApi(deps: ApiDeps) {
         const liveSources = pathname.match(
           /^\/api\/v1\/apps\/([^/]+)\/live\/sources$/
         );
+        const liveSetup = pathname.match(
+          /^\/api\/v1\/apps\/([^/]+)\/live\/setup$/
+        );
+        if (liveSetup && req.method === 'DELETE') {
+          if (!local) return json({ error: 'forbidden' }, 403);
+          const app = liveSetup[1]!;
+          if (setupFor(app)?.state === 'running')
+            return json({ error: 'setup is still running' }, 409);
+          clearSetup(app);
+          return json({ ok: true });
+        }
         if (liveSources && req.method === 'GET') {
           if (!local) return json({ error: 'forbidden' }, 403);
           const record = getRecord(liveSources[1]!);
@@ -759,6 +783,17 @@ export function startApi(deps: ApiDeps) {
           if (sub === 'logs' && req.method === 'GET') {
             const lines = Number(url.searchParams.get('lines') ?? 40);
             const record = getRecord(name);
+            const proc = url.searchParams.get('process');
+            if (proc !== null) {
+              if (!liveProcessIdsOf(name).includes(proc))
+                return json({ error: 'unknown live process' }, 400);
+              return json({
+                stderr: tailFile(
+                  join(logsDir(), `${name}.live.${proc}.err.log`),
+                  lines
+                ),
+              });
+            }
             const stderrPath = record
               ? join(logsDir(), `${name}.err.log`)
               : null;

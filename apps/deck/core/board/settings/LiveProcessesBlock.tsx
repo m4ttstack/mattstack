@@ -1,5 +1,61 @@
-import { Badge } from '@mattstack/tui-kit';
+import { useState } from 'react';
+
+import { Badge, Button } from '@mattstack/tui-kit';
+import { getProcessLog } from '../live/live-api.ts';
+import type { Row } from '../logic.ts';
 import type { BlockProps } from './block.ts';
+
+type Process = NonNullable<Row['live']>['processes'][number];
+type Log = { lines: string[]; error: string | null } | 'loading';
+
+function ProcessRow({ app, proc }: { app: string; proc: Process }) {
+  const [log, setLog] = useState<Log | null>(null);
+  const toggle = () => {
+    if (log) {
+      setLog(null);
+      return;
+    }
+    setLog('loading');
+    void getProcessLog(app, proc.id).then(setLog);
+  };
+  const text =
+    log === null || log === 'loading'
+      ? ''
+      : (log.error ?? (log.lines.length ? log.lines.join('\n') : 'No output.'));
+  return (
+    <li className="live-proc-item">
+      <div className="live-proc">
+        <span className="live-proc-kind">{proc.kind}</span>
+        <code className="live-proc-cmd" title={proc.command}>
+          {proc.command}
+        </code>
+        {proc.port != null && (
+          <span className="settings-mono">{proc.port}</span>
+        )}
+        <Badge intent={proc.running ? 'ok' : 'bad'}>
+          {proc.running ? 'running' : 'down'}
+        </Badge>
+        <Button
+          variant="subtle"
+          size="sm"
+          aria-expanded={log !== null}
+          aria-label={`${proc.id} logs`}
+          onClick={toggle}
+        >
+          Logs
+        </Button>
+      </div>
+      {log !== null && log !== 'loading' && (
+        <pre
+          className="settings-errors-tail live-proc-log"
+          aria-label={`${proc.id} log`}
+        >
+          {text}
+        </pre>
+      )}
+    </li>
+  );
+}
 
 export function LiveProcessesBlock({ row }: BlockProps) {
   if (!row.live) return null;
@@ -17,16 +73,7 @@ export function LiveProcessesBlock({ row }: BlockProps) {
       </div>
       <ul className="live-procs">
         {row.live.processes.map(p => (
-          <li key={p.id} className="live-proc">
-            <span className="live-proc-kind">{p.kind}</span>
-            <code className="live-proc-cmd" title={p.command}>
-              {p.command}
-            </code>
-            {p.port != null && <span className="settings-mono">{p.port}</span>}
-            <Badge intent={p.running ? 'ok' : 'bad'}>
-              {p.running ? 'running' : 'down'}
-            </Badge>
-          </li>
+          <ProcessRow key={p.id} app={row.name} proc={p} />
         ))}
       </ul>
     </section>

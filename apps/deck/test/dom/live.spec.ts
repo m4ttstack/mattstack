@@ -199,8 +199,8 @@ test('setup failed: shows the branch and the log, Dismiss sends DELETE', async (
     async page => {
       await page.route('**/live/sources', r => r.fulfill({ json: SOURCES }));
       const calls: string[] = [];
-      await page.route('**/api/v1/apps/*/live', async r => {
-        calls.push(r.request().method());
+      await page.route('**/api/v1/apps/*/live/setup', async r => {
+        calls.push(`${r.request().method()} setup`);
         await r.fulfill({ json: { ok: true } });
       });
       await page.getByRole('button', { name: /setup failed/ }).click();
@@ -211,7 +211,7 @@ test('setup failed: shows the branch and the log, Dismiss sends DELETE', async (
       expect(await dialog.textContent()).toContain('lockfile is frozen');
       await dialog.getByRole('button', { name: 'Dismiss' }).click();
       await modal(page).waitFor({ state: 'detached' });
-      expect(calls).toEqual(['DELETE']);
+      expect(calls).toEqual(['DELETE setup']);
     },
     { fixture: 'status-live.json' }
   );
@@ -294,18 +294,141 @@ test('settings while live: source, processes, live UI port', async () => {
   );
 });
 
-test('settings while live: Stop Live opens the live modal', async () => {
+test('settings while live: Stop Live opens the live modal, Escape closes only it', async () => {
   await withBoard(
     async page => {
+      await page.route('**/live/sources', r => r.fulfill({ json: SOURCES }));
       await page
         .getByRole('button', { name: 'settings for atlas', exact: true })
         .click();
-      const dialog = page.getByRole('dialog', { name: 'settings for atlas' });
-      await dialog.getByRole('button', { name: 'Stop Live' }).click();
-      await page.waitForTimeout(200);
+      const settings = page.getByRole('dialog', {
+        name: 'settings for atlas',
+      });
+      await settings.getByRole('button', { name: 'Stop Live' }).click();
+      const live = page.getByRole('dialog', {
+        name: 'atlas is live',
+        exact: true,
+      });
+      await live.waitFor();
+      await page.keyboard.press('Escape');
+      await live.waitFor({ state: 'detached' });
+      expect(await settings.count()).toBe(1);
+      await page.waitForFunction(
+        () => document.activeElement?.textContent?.trim() === 'Stop Live'
+      );
       expect(
-        await page.getByRole('button', { name: 'Stop Live' }).count()
-      ).toBeGreaterThan(1);
+        await settings
+          .getByRole('button', { name: 'Stop Live' })
+          .evaluate(el => el === document.activeElement)
+      ).toBe(true);
+    },
+    { fixture: 'status-live.json' }
+  );
+});
+
+test('settings while live: a successful Stop Live leaves focus inside settings', async () => {
+  await withBoard(
+    async page => {
+      await page.route('**/live/sources', r => r.fulfill({ json: SOURCES }));
+      await page.route('**/api/v1/apps/*/live', r =>
+        r.fulfill({ json: { ok: true } })
+      );
+      await page
+        .getByRole('button', { name: 'settings for atlas', exact: true })
+        .click();
+      const settings = page.getByRole('dialog', {
+        name: 'settings for atlas',
+      });
+      await settings.getByRole('button', { name: 'Stop Live' }).click();
+      await page
+        .getByRole('dialog', { name: 'atlas is live', exact: true })
+        .getByRole('button', { name: 'Stop Live' })
+        .click();
+      await page.getByText('Live mode stopped').waitFor();
+      await page.waitForTimeout(150);
+      expect(
+        await page.evaluate(
+          () => !!document.activeElement?.closest('[role="dialog"]')
+        )
+      ).toBe(true);
+    },
+    { fixture: 'status-live.json' }
+  );
+});
+
+test('settings while live: a process shows its log on demand', async () => {
+  await withBoard(
+    async page => {
+      await page.route(/\/apps\/atlas\/logs\?process=ui/, r =>
+        r.fulfill({ json: { stderr: ['vite: ready', 'hmr update'] } })
+      );
+      await page
+        .getByRole('button', { name: 'settings for atlas', exact: true })
+        .click();
+      const procs = page
+        .getByRole('dialog', { name: 'settings for atlas' })
+        .locator('[data-block="live-processes"]');
+      await procs.getByRole('button', { name: 'ui logs' }).click();
+      await procs.getByLabel('ui log', { exact: true }).waitFor();
+      expect(
+        await procs.getByLabel('ui log', { exact: true }).textContent()
+      ).toContain('hmr update');
+      await procs.getByRole('button', { name: 'ui logs' }).click();
+      await procs
+        .getByLabel('ui log', { exact: true })
+        .waitFor({ state: 'detached' });
+    },
+    { fixture: 'status-live.json' }
+  );
+});
+
+test('a live app with a failed setup: Change code opens the live modal, Dismiss keeps it live', async () => {
+  await withBoard(
+    async page => {
+      await page.route('**/api/v1/status', async r => {
+        const res = await r.fetch();
+        const data = await res.json();
+        const atlas = data.apps.find(
+          (a: { name: string }) => a.name === 'atlas'
+        );
+        atlas.liveSetup = {
+          state: 'failed',
+          branch: 'deck-live-mode',
+          log: ['error: lockfile is frozen'],
+        };
+        await r.fulfill({ json: data });
+      });
+      await page.reload();
+      await page.waitForSelector('[data-board-ready]');
+      await page.route('**/live/sources', r => r.fulfill({ json: SOURCES }));
+      const calls: string[] = [];
+      await page.route('**/api/v1/apps/*/live**', async r => {
+        calls.push(
+          `${r.request().method()} ${new URL(r.request().url()).pathname}`
+        );
+        await r.fulfill({ json: { ok: true } });
+      });
+      await page
+        .getByRole('button', { name: 'settings for atlas', exact: true })
+        .click();
+      await page
+        .getByRole('dialog', { name: 'settings for atlas' })
+        .getByRole('button', { name: 'Change code' })
+        .click();
+      await page
+        .getByRole('dialog', { name: 'atlas is live', exact: true })
+        .waitFor();
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: 'atlas setup failed' }).click();
+      await modal(page)
+        .filter({ hasText: "Couldn't set up" })
+        .getByRole('button', { name: 'Dismiss' })
+        .click();
+      await page.waitForTimeout(150);
+      expect(calls.filter(c => c.startsWith('DELETE'))).toEqual([
+        'DELETE /api/v1/apps/atlas/live/setup',
+      ]);
     },
     { fixture: 'status-live.json' }
   );
