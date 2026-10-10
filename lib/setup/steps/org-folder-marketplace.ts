@@ -6,7 +6,10 @@
  * project or local plugin is handed back as an install to run in its project.
  * A pending record in setup-state is written before the remove, so a run that
  * stops between remove and add is finished by the next one. Every Claude config
- * dir is re-pointed: the default one and each cswap account's.
+ * dir is re-pointed: the default one and each cswap account's. While a served
+ * pack is held by its engine floor the re-point is a bare `marketplace add`,
+ * which re-points the name and keeps the installed copies (verified against
+ * claude 2.1.296).
  */
 
 import { realpathSync } from "fs";
@@ -263,12 +266,11 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
     handedBackIds.push(...handOff.map((pl) => pl.id).filter((id) => !handedBackIds.includes(id)));
   }
   rewriteMarketplaces(ctx, clone.stalePaths, clone.dir);
+  if (handedBack.length > 0) notes.push(`${handedBackIds.join(", ")} must be reinstalled from the project that used ${handedBackIds.length === 1 ? "it" : "them"}`);
   if (heldNotes.length > 0) {
-    return { state: "partial", detail: `${[...heldNotes, ...notes].join(" ")} The marketplace now points at the moved folder; rt reinstalls nothing until the app updates.`, ...(handedBack.length > 0 ? { commands: handedBack } : {}) };
+    const detail = [...heldNotes, ...(notes.length > 0 ? [`${notes.join("; ")}.`] : []), "The marketplace now points at the moved folder; rt reinstalls nothing until the app updates."].join(" ");
+    return { state: "partial", detail, ...(handedBack.length > 0 ? { commands: handedBack } : {}) };
   }
-  if (handedBack.length > 0) {
-    notes.push(`${handedBackIds.join(", ")} must be reinstalled from the project that used ${handedBackIds.length === 1 ? "it" : "them"}`);
-    return { state: "partial", detail: notes.join("; "), commands: handedBack };
-  }
+  if (handedBack.length > 0) return { state: "partial", detail: notes.join("; "), commands: handedBack };
   return { state: sawMarketplace ? "done" : "skipped", detail: notes.join("; ") };
 }
