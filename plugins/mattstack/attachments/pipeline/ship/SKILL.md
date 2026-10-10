@@ -225,7 +225,7 @@ digraph ship {
     "AFTER captured, or none left to capture (ship)?" [shape=diamond];
     "AFTER attempts for this case = 3 (ship)?" [shape=diamond];
     "Every named case tried (ship)?" [shape=diamond];
-    "Record holds images or an AFTER was captured (ship)?" [shape=diamond];
+    "A v1 or v2 record with an image, or an AFTER was captured (ship)?" [shape=diamond];
     "Merge into the record (evidence-record)" [shape=box];
     "Annotate or waive each image the record does not yet cover (evidence-record)" [shape=box];
     "Annotate or waive outcome (ship)?" [shape=diamond];
@@ -406,14 +406,14 @@ digraph ship {
     "run_field_get {key: evidence} (ship)" -> "Capture the AFTER for the next case the domain names (ship)";
     "Capture the AFTER for the next case the domain names (ship)" -> "AFTER captured, or none left to capture (ship)?";
     "AFTER captured, or none left to capture (ship)?" -> "Every named case tried (ship)?" [label="captured"];
-    "AFTER captured, or none left to capture (ship)?" -> "Record holds images or an AFTER was captured (ship)?" [label="none named: there is no AFTER"];
+    "AFTER captured, or none left to capture (ship)?" -> "A v1 or v2 record with an image, or an AFTER was captured (ship)?" [label="none named: there is no AFTER"];
     "AFTER captured, or none left to capture (ship)?" -> "AFTER attempts for this case = 3 (ship)?" [label="the capture failed"];
     "AFTER attempts for this case = 3 (ship)?" -> "Capture the AFTER for the next case the domain names (ship)" [label="no: another attempt, same case"];
     "AFTER attempts for this case = 3 (ship)?" -> "Every named case tried (ship)?" [label="yes: go on without it; the description names the gap"];
     "Every named case tried (ship)?" -> "Capture the AFTER for the next case the domain names (ship)" [label="no"];
-    "Every named case tried (ship)?" -> "Record holds images or an AFTER was captured (ship)?" [label="yes"];
-    "Record holds images or an AFTER was captured (ship)?" -> "Merge into the record (evidence-record)" [label="yes"];
-    "Record holds images or an AFTER was captured (ship)?" -> "Files to attach (ship)?" [label="no"];
+    "Every named case tried (ship)?" -> "A v1 or v2 record with an image, or an AFTER was captured (ship)?" [label="yes"];
+    "A v1 or v2 record with an image, or an AFTER was captured (ship)?" -> "Merge into the record (evidence-record)" [label="yes"];
+    "A v1 or v2 record with an image, or an AFTER was captured (ship)?" -> "Files to attach (ship)?" [label="no"];
     "Merge into the record (evidence-record)" -> "Annotate or waive each image the record does not yet cover (evidence-record)";
     "Annotate or waive each image the record does not yet cover (evidence-record)" -> "Annotate or waive outcome (ship)?";
     "Annotate or waive outcome (ship)?" -> "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: <the run's stage>}" [label="ready"];
@@ -678,9 +678,10 @@ never uploaded on its own.
 Title from the ticket or the first commit subject; the body links the
 ticket and carries the evidence section the evidence record below
 describes, built from the record just written. The update replaces the
-whole body, so start from the one just read back: keep
-what is already there (a teammate's edits) and change only what this verb
-owns. The domain's title, template and voice rules win over this paragraph.
+whole body, so start from the one just read back: the record's evidence
+section replaces any evidence block an earlier stage wrote, and everything
+else already there (a teammate's edits) is kept; change only what this
+verb owns. The domain's title, template and voice rules win over this paragraph.
 
 ### Run watch-ci inheriting this run
 

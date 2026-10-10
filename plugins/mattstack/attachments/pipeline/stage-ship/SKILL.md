@@ -93,7 +93,7 @@ digraph ship {
     "AFTER captured, or none left to capture?" [shape=diamond];
     "AFTER attempts for this case = 3?" [shape=diamond];
     "Every named case tried?" [shape=diamond];
-    "Record holds images or an AFTER was captured?" [shape=diamond];
+    "A v1 or v2 record with an image, or an AFTER was captured?" [shape=diamond];
     "Merge into the record (evidence-record)" [shape=box];
     "Annotate or waive each image the record does not yet cover (evidence-record)" [shape=box];
     "Annotate or waive outcome?" [shape=diamond];
@@ -232,14 +232,14 @@ digraph ship {
     "run_field_get {key: evidence}" -> "Capture the AFTER for the next case the domain names";
     "Capture the AFTER for the next case the domain names" -> "AFTER captured, or none left to capture?";
     "AFTER captured, or none left to capture?" -> "Every named case tried?" [label="captured"];
-    "AFTER captured, or none left to capture?" -> "Record holds images or an AFTER was captured?" [label="none named: there is no AFTER"];
+    "AFTER captured, or none left to capture?" -> "A v1 or v2 record with an image, or an AFTER was captured?" [label="none named: there is no AFTER"];
     "AFTER captured, or none left to capture?" -> "AFTER attempts for this case = 3?" [label="the capture failed"];
     "AFTER attempts for this case = 3?" -> "Capture the AFTER for the next case the domain names" [label="no: another attempt, same case"];
     "AFTER attempts for this case = 3?" -> "Every named case tried?" [label="yes: go on without it; the description names the gap"];
     "Every named case tried?" -> "Capture the AFTER for the next case the domain names" [label="no"];
-    "Every named case tried?" -> "Record holds images or an AFTER was captured?" [label="yes"];
-    "Record holds images or an AFTER was captured?" -> "Merge into the record (evidence-record)" [label="yes"];
-    "Record holds images or an AFTER was captured?" -> "Files to attach?" [label="no"];
+    "Every named case tried?" -> "A v1 or v2 record with an image, or an AFTER was captured?" [label="yes"];
+    "A v1 or v2 record with an image, or an AFTER was captured?" -> "Merge into the record (evidence-record)" [label="yes"];
+    "A v1 or v2 record with an image, or an AFTER was captured?" -> "Files to attach?" [label="no"];
     "Merge into the record (evidence-record)" -> "Annotate or waive each image the record does not yet cover (evidence-record)";
     "Annotate or waive each image the record does not yet cover (evidence-record)" -> "Annotate or waive outcome?";
     "Annotate or waive outcome?" -> "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: ship}" [label="ready"];
@@ -360,8 +360,10 @@ on what leaves the machine.
 Title from the ticket or the first commit subject; the body links the
 ticket and carries the evidence section the evidence record below
 describes, built from the record just written. The update replaces the
-whole body, so start from the one just read back: keep what is already there (evidence the evidence stage
-attached, a teammate's edits) and change only what this stage owns. The
+whole body, so start from the one just read back: the record's evidence
+section replaces any evidence block an earlier stage wrote, and everything
+else already there (a teammate's edits) is kept; change only what this
+stage owns. The
 domain's title, template and voice rules win over this paragraph.
 
 ### Gate clarify: which forge?
