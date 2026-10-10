@@ -1,77 +1,171 @@
-import { parseEvidence } from '@mattstack/rt-client/evidence';
+import { readEvidence } from '@mattstack/rt-client/evidence';
 import { describe, expect, it } from 'vitest';
 
 import {
+  addressOf,
+  badgesOf,
+  caseWaived,
   evidenceUrl,
-  fileNameOf,
-  legacyImageUrl,
-  phasesIn,
-  shotFor,
-  shotsOf,
-  variantsIn,
-  type EvidenceV1Parsed,
+  headLabel,
+  isTheme,
+  phaseWaived,
+  shotIn,
+  shotLine,
+  shownName,
+  slotsOf,
+  themesIn,
+  transcriptUrl,
+  type EvidenceCases,
 } from './evidenceImages';
 
-function v1(fields: Record<string, string>): EvidenceV1Parsed {
-  const parsed = parseEvidence(JSON.stringify({ v: 1, ...fields }));
-  if (parsed.version !== 1) throw new Error('not v1');
-  return parsed;
+const E = '/fixture/evidence/web-421';
+const V2 = {
+  v: 2,
+  cases: [
+    {
+      id: 'rush-window',
+      label: 'Rush order, same-day window',
+      before: {
+        path: `${E}/rush-before.png`,
+        annotated: `${E}/rush-before-annotated.png`,
+        caption: 'Red box: no window',
+      },
+      after: {
+        path: `${E}/rush-after.png`,
+        annotated: `${E}/rush-after-annotated.png`,
+        caption: 'Red box: window shows',
+      },
+    },
+    {
+      id: 'order-card-themes',
+      label: 'Order card in light and dark',
+      after: {
+        light: {
+          path: `${E}/card-after-light.png`,
+          annotated: `${E}/card-after-light-annotated.png`,
+          caption: 'Arrow: contrast',
+        },
+        dark: {
+          path: `${E}/card-after-dark.png`,
+          waiver: 'Same marks as light; only the theme differs',
+        },
+      },
+    },
+    {
+      id: 'empty-state',
+      label: 'No delivery window yet',
+      after: { path: `${E}/empty-after.png` },
+      waiver: 'Before and after are pixel-identical',
+    },
+    {
+      id: 'dark-only',
+      label: 'Dark only',
+      after: { dark: { path: `${E}/d.png`, waiver: 'x' } },
+    },
+  ],
+};
+
+function cases(value: unknown): EvidenceCases {
+  const rec = readEvidence(JSON.stringify(value));
+  if (rec.version !== 2) throw new Error('expected cases');
+  return rec;
 }
+const rec = cases(V2);
+const [rush, themes, empty, darkOnly] = rec.cases;
 
-describe('evidenceImages', () => {
-  it('groups the images by phase and variant with their file names', () => {
-    const shots = shotsOf(
-      v1({
-        before: '/x/web-409/before.png',
-        after: '/x/web-409/after.png',
-        afterAnnotated: '/x/web-409/after-annotated.png',
-      })
-    );
-    expect(shots.before).toEqual({
-      plain: { key: 'before', fileName: 'before.png' },
+describe('case helpers', () => {
+  it('lists slots before then after, and themes light first', () => {
+    expect(slotsOf(rush!)).toEqual(['before', 'after']);
+    expect(slotsOf(themes!)).toEqual(['after']);
+    expect(themesIn(themes!)).toEqual(['light', 'dark']);
+    expect(themesIn(rush!)).toEqual([]);
+    expect(themesIn(darkOnly!)).toEqual(['dark']);
+  });
+
+  it('picks the asked theme, else the slot’s first shot', () => {
+    expect(shotIn(themes!, 'after', 'dark')?.theme).toBe('dark');
+    expect(shotIn(themes!, 'after')?.theme).toBe('light');
+    expect(shotIn(darkOnly!, 'after', 'light')?.theme).toBe('dark');
+    expect(shotIn(rush!, 'after', 'dark')?.theme).toBeUndefined();
+    expect(shotIn(themes!, 'before')).toBeNull();
+  });
+
+  it('calls a case or slot waived only when none of its images is annotated', () => {
+    expect(caseWaived(empty!)).toBe(true);
+    expect(caseWaived(themes!)).toBe(false);
+    expect(phaseWaived(themes!, 'after')).toBe(false);
+    expect(phaseWaived(empty!, 'after')).toBe(true);
+    expect(phaseWaived(empty!, 'before')).toBe(false);
+  });
+
+  it('badges themes and a waived case', () => {
+    expect(badgesOf(themes!)).toEqual(['light + dark']);
+    expect(badgesOf(empty!)).toEqual(['waived']);
+    expect(badgesOf(empty!, 'after')).toEqual(['waived']);
+    expect(badgesOf(rush!)).toEqual([]);
+  });
+
+  it('says what an image shows: its caption, its own waiver, or Waived under the case’s', () => {
+    expect(shotLine(rush!, shotIn(rush!, 'after')!)).toEqual({
+      kind: 'caption',
+      text: 'Red box: window shows',
     });
-    expect(variantsIn(shots.after)).toEqual(['plain', 'annotated']);
-    expect(phasesIn(shots)).toEqual(['before', 'after']);
+    expect(shotLine(themes!, shotIn(themes!, 'after', 'dark')!)).toEqual({
+      kind: 'waiver',
+      text: 'Waived: Same marks as light; only the theme differs',
+    });
+    expect(shotLine(empty!, shotIn(empty!, 'after')!)).toEqual({
+      kind: 'waiver',
+      text: 'Waived',
+    });
   });
 
-  it('lists only the phases that have an image', () => {
-    expect(phasesIn(shotsOf(v1({ before: '/x/before.png' })))).toEqual([
-      'before',
-    ]);
+  it('heads a case with its label, except a v1 record’s fallback label', () => {
+    expect(headLabel(rec, rush!)).toBe('Rush order, same-day window');
+    const v1 = cases({ v: 1, before: '/a/b.png' });
+    expect(headLabel(v1, v1.cases[0]!)).toBeNull();
+    const named = cases({ v: 1, before: '/a/b.png', case: 'Rush order' });
+    expect(headLabel(named, named.cases[0]!)).toBe('Rush order');
   });
 
-  it('prefers the asked variant and falls back to the one present', () => {
-    const phase = shotsOf(v1({ before: '/x/before.png' })).before;
-    expect(shotFor(phase)?.key).toBe('before');
-    expect(shotFor(phase, 'annotated')?.key).toBe('before');
-    const both = shotsOf(
-      v1({ before: '/x/b.png', beforeAnnotated: '/x/ba.png' })
-    ).before;
-    expect(shotFor(both)?.key).toBe('beforeAnnotated');
-    expect(shotFor(both, 'plain')?.key).toBe('before');
-    expect(shotFor({})).toBeNull();
+  it('addresses the annotated image by default and the base when there is none', () => {
+    const shot = shotIn(themes!, 'after', 'light')!;
+    expect(addressOf(themes!, 'after', shot)).toEqual({
+      caseId: 'order-card-themes',
+      slot: 'after',
+      theme: 'light',
+      annotated: true,
+    });
+    expect(addressOf(themes!, 'after', shot, 'plain').annotated).toBe(false);
+    expect(addressOf(empty!, 'after', shotIn(empty!, 'after')!)).toEqual({
+      caseId: 'empty-state',
+      slot: 'after',
+      annotated: false,
+    });
+    expect(shownName(shot)).toBe('card-after-light-annotated.png');
+    expect(shownName(shot, 'plain')).toBe('card-after-light.png');
   });
 
-  it('takes the file name off the last path segment', () => {
-    expect(fileNameOf('/a/b/c.png')).toBe('c.png');
-    expect(fileNameOf('c.png')).toBe('c.png');
-  });
-
-  it('builds the route url without re-encoding the wire repo', () => {
-    expect(evidenceUrl('remote:acme%2Fweb', '2026 10', 'after')).toBe(
-      '/api/runs/remote:acme%2Fweb/2026%2010/evidence/after'
-    );
-  });
-
-  it('builds the legacy image url from the wire repo, run id and encoded path', () => {
+  it('builds the image and transcript URLs', () => {
     expect(
-      legacyImageUrl(
-        'remote%3Aacme%2Fweb',
-        '20261007-1520',
-        '/Users/acme/.mattstack/evidence/web-377/before shot.png'
-      )
+      evidenceUrl('remote:acme%2Fweb', '20261008-1210', {
+        caseId: 'order-card-themes',
+        slot: 'after',
+        theme: 'dark',
+        annotated: false,
+      })
     ).toBe(
-      '/api/runs/remote%3Aacme%2Fweb/20261007-1520/evidence-file?path=%2FUsers%2Facme%2F.mattstack%2Fevidence%2Fweb-377%2Fbefore%20shot.png'
+      '/api/runs/remote:acme%2Fweb/20261008-1210/evidence/order-card-themes/after?theme=dark'
     );
+    expect(
+      evidenceUrl('r', '1', { caseId: 'case', slot: 'before', annotated: true })
+    ).toBe('/api/runs/r/1/evidence/case/before?annotated=1');
+    expect(transcriptUrl('r', '1')).toBe('/api/runs/r/1/evidence/transcript');
+  });
+
+  it('knows a theme', () => {
+    expect(isTheme('dark')).toBe(true);
+    expect(isTheme('sepia')).toBe(false);
+    expect(isTheme(null)).toBe(false);
   });
 });

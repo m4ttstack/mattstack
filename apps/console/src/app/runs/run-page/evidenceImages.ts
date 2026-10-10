@@ -1,7 +1,13 @@
-import type { EvidenceImageKey, ParsedEvidence } from '@mattstack/rt-client';
+import type {
+  EvidenceCase,
+  EvidenceRecord,
+  EvidenceShot,
+  EvidenceSlotName,
+  EvidenceTheme,
+} from '@mattstack/rt-client/evidence';
 
-export type EvidenceV1Parsed = Extract<ParsedEvidence, { version: 1 }>;
-export type EvidencePhase = 'before' | 'after';
+export type EvidenceCases = Extract<EvidenceRecord, { version: 2 }>;
+export type EvidencePhase = EvidenceSlotName;
 export type EvidenceVariant = 'plain' | 'annotated';
 export type CompareMode = EvidencePhase | 'side';
 
@@ -14,8 +20,17 @@ export const MODE_LABEL: Record<CompareMode, string> = {
   side: 'Side by side',
 };
 
+const PHASES: EvidencePhase[] = ['before', 'after'];
+const THEMES: EvidenceTheme[] = ['light', 'dark'];
+/** What `readEvidence` names a v1 record's one case when it has no text. */
+const V1_FALLBACK_LABEL = 'Evidence';
+
 export function isCompareMode(value: string | null): value is CompareMode {
   return value === 'before' || value === 'after' || value === 'side';
+}
+
+export function isTheme(value: string | null): value is EvidenceTheme {
+  return value === 'light' || value === 'dark';
 }
 
 /** A web link as a person reads it: no scheme. */
@@ -23,59 +38,107 @@ export function urlLabel(url: string): string {
   return url.replace(/^https?:\/\//i, '');
 }
 
-export interface EvidenceShot {
-  key: EvidenceImageKey;
-  fileName: string;
-}
-
-export type PhaseShots = Partial<Record<EvidenceVariant, EvidenceShot>>;
-
-const KEYS: Record<EvidencePhase, Record<EvidenceVariant, EvidenceImageKey>> = {
-  before: { plain: 'before', annotated: 'beforeAnnotated' },
-  after: { plain: 'after', annotated: 'afterAnnotated' },
-};
-
 export function fileNameOf(path: string): string {
   return path.split('/').filter(Boolean).at(-1) ?? path;
 }
 
-/** The images a v1 evidence field carries, grouped by phase and variant. */
-export function shotsOf(
-  evidence: EvidenceV1Parsed
-): Record<EvidencePhase, PhaseShots> {
-  const byKey = new Map(evidence.images.map(i => [i.key, i.path]));
-  const phase = (p: EvidencePhase): PhaseShots => {
-    const shots: PhaseShots = {};
-    for (const v of ['plain', 'annotated'] as const) {
-      const key = KEYS[p][v];
-      const path = byKey.get(key);
-      if (path) shots[v] = { key, fileName: fileNameOf(path) };
-    }
-    return shots;
-  };
-  return { before: phase('before'), after: phase('after') };
+export function slotsOf(c: EvidenceCase): EvidencePhase[] {
+  return PHASES.filter(p => (c[p]?.length ?? 0) > 0);
 }
 
-export function phasesIn(
-  shots: Record<EvidencePhase, PhaseShots>
-): EvidencePhase[] {
-  return (['before', 'after'] as const).filter(
-    p => Object.keys(shots[p]).length > 0
+export function themesIn(c: EvidenceCase): EvidenceTheme[] {
+  const seen = new Set(
+    PHASES.flatMap(p => c[p] ?? []).flatMap(s => (s.theme ? [s.theme] : []))
   );
+  return THEMES.filter(t => seen.has(t));
 }
 
-export function variantsIn(phase: PhaseShots): EvidenceVariant[] {
-  return (['plain', 'annotated'] as const).filter(v => phase[v]);
-}
-
-/** The wanted variant when the phase has it, else the one it does have;
-    annotated is the default since it is the one a person marked up to read. */
-export function shotFor(
-  phase: PhaseShots,
-  variant: EvidenceVariant = 'annotated'
+/** The slot's shot in the asked theme, else its first (light comes first). */
+export function shotIn(
+  c: EvidenceCase,
+  slot: EvidencePhase,
+  theme?: EvidenceTheme
 ): EvidenceShot | null {
-  return (
-    phase[variant] ?? phase[variant === 'plain' ? 'annotated' : 'plain'] ?? null
+  const shots = c[slot] ?? [];
+  return shots.find(s => s.theme === theme) ?? shots[0] ?? null;
+}
+
+/** An image that goes out unmarked: no annotated copy, and a waiver. */
+export function isWaived(shot: EvidenceShot): boolean {
+  return !shot.annotated && !!shot.waiver;
+}
+
+/** A slot is waived when it has images and none of them is annotated. */
+export function phaseWaived(c: EvidenceCase, slot: EvidencePhase): boolean {
+  const shots = c[slot] ?? [];
+  return shots.length > 0 && shots.every(isWaived);
+}
+
+/** A case is waived when none of its images is annotated. */
+export function caseWaived(c: EvidenceCase): boolean {
+  const shots = PHASES.flatMap(p => c[p] ?? []);
+  return shots.length > 0 && shots.every(isWaived);
+}
+
+/** The quiet badges after a case's label: its themes, then waived. */
+export function badgesOf(c: EvidenceCase, slot?: EvidencePhase): string[] {
+  const waived = slot ? phaseWaived(c, slot) : caseWaived(c);
+  return [
+    ...(themesIn(c).length === 2 ? ['light + dark'] : []),
+    ...(waived ? ['waived'] : []),
+  ];
+}
+
+/** The line under an image: its caption, its own waiver, or "Waived" when
+    the case's waiver (shown once under the case) covers it. */
+export function shotLine(
+  c: EvidenceCase,
+  shot: EvidenceShot
+): { kind: 'caption' | 'waiver'; text: string } | null {
+  if (shot.annotated)
+    return shot.caption ? { kind: 'caption', text: shot.caption } : null;
+  if (!shot.waiver) return null;
+  return {
+    kind: 'waiver',
+    text: shot.waiver === c.waiver ? 'Waived' : `Waived: ${shot.waiver}`,
+  };
+}
+
+/** A case's heading, or none for a v1 record that named no case. */
+export function headLabel(rec: EvidenceCases, c: EvidenceCase): string | null {
+  return rec.source === 1 && c.label === V1_FALLBACK_LABEL ? null : c.label;
+}
+
+export interface ShotAddress {
+  caseId: string;
+  slot: EvidencePhase;
+  theme?: EvidenceTheme;
+  annotated: boolean;
+}
+
+/** Where a shot is served: annotated unless the plain one is asked for or
+    there is no annotated copy. */
+export function addressOf(
+  c: EvidenceCase,
+  slot: EvidencePhase,
+  shot: EvidenceShot,
+  variant: EvidenceVariant = 'annotated'
+): ShotAddress {
+  return {
+    caseId: c.id,
+    slot,
+    ...(shot.theme ? { theme: shot.theme } : {}),
+    annotated: variant === 'annotated' && !!shot.annotated,
+  };
+}
+
+/** The file name of the image `addressOf` serves for the same variant. */
+export function shownName(
+  shot: EvidenceShot,
+  variant: EvidenceVariant = 'annotated'
+): string {
+  return fileNameOf(
+    variant === 'annotated' && shot.annotated ? shot.annotated : shot.path
   );
 }
 
@@ -84,9 +147,17 @@ export function shotFor(
 export function evidenceUrl(
   repo: string,
   runId: string,
-  key: EvidenceImageKey | 'transcript'
+  a: ShotAddress
 ): string {
-  return `/api/runs/${repo}/${encodeURIComponent(runId)}/evidence/${key}`;
+  const query = new URLSearchParams();
+  if (a.theme) query.set('theme', a.theme);
+  if (a.annotated) query.set('annotated', '1');
+  const qs = query.toString();
+  return `/api/runs/${repo}/${encodeURIComponent(runId)}/evidence/${encodeURIComponent(a.caseId)}/${a.slot}${qs ? `?${qs}` : ''}`;
+}
+
+export function transcriptUrl(repo: string, runId: string): string {
+  return `/api/runs/${repo}/${encodeURIComponent(runId)}/evidence/transcript`;
 }
 
 /** A legacy run's image is addressed by the path its evidence text names. */
