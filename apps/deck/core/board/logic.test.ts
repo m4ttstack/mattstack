@@ -628,6 +628,16 @@ test('a live row with newCode and deploy stays out of the redeploy strip', () =>
   expect(behindRows(rows).length).toBe(1);
   expect(redeployButtonText(rows)).toBe('Redeploy A');
 });
+test('redeployButtonText: a live row does not break "all"', () => {
+  const nc = { deployed: 'x', head: 'y' };
+  const live = { branch: 'b', main: false, startedAt: '', uiPort: null, movedFrom: null, processes: [] };
+  const rows = [
+    { name: 'a', displayName: 'A', newCode: nc, commands: ['deploy'] },
+    { name: 'b', displayName: 'B', newCode: nc, commands: ['deploy'] },
+    { name: 'l', displayName: 'L', newCode: nc, commands: ['deploy'], live },
+  ] as unknown as Row[];
+  expect(redeployButtonText(rows)).toBe('Redeploy all');
+});
 test('subline: counts live apps', () => {
   const live = { branch: null, main: true, startedAt: '', uiPort: null, movedFrom: null, processes: [] };
   const data = { up: 2, total: 2, apps: [{ live }, {}] } as unknown as StatusData;

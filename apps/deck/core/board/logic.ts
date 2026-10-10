@@ -1,8 +1,6 @@
 // Pure port of the Alpine `board` component (core/board.js): same strings,
 // same branch order, `Date.now()` replaced by an explicit `now` parameter so
 // every function here is deterministic and side-effect free.
-import { liveCount } from './live/live-logic.ts';
-
 export const REFRESH_MS = 5000;
 export const RESTART_TIMEOUT_MS = 30000;
 export const RESTART_SETTLE_MS = 10000;
@@ -126,6 +124,10 @@ export type Notice = { kind: 'ok' | 'bad'; message: string; command?: string };
 
 function healthyFraction(data: StatusData): string {
   return `${data.up} of ${data.total} healthy`;
+}
+
+export function liveCount(data: StatusData): number {
+  return data.apps.filter(r => r.live).length;
 }
 
 export function subline(data: StatusData | null): string {

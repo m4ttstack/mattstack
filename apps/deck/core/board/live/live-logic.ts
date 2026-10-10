@@ -1,4 +1,6 @@
-import { isPlatform, type Row, type StatusData } from '../logic.ts';
+import { isPlatform, liveCount, type Row, type StatusData } from '../logic.ts';
+
+export { liveCount };
 
 export const LIVE_STARTING_MS = 30_000;
 
@@ -41,8 +43,4 @@ export function liveHealth(row: Row, now: number): { tone: 'warn' | 'bad'; text:
   if (!down) return null;
   if (starting(row, now)) return { tone: 'warn', text: 'starting' };
   return { tone: 'bad', text: `${down.kind} down` };
-}
-
-export function liveCount(data: StatusData): number {
-  return data.apps.filter(r => r.live).length;
 }
