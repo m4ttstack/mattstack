@@ -4,6 +4,8 @@ import { join } from 'path';
 import { expect, test } from 'bun:test';
 
 import {
+  liveProcessIds,
+  parseLive,
   readDeckManifest,
   resolveServeShape,
   startArgv,
@@ -410,4 +412,53 @@ test('rejects a non-boolean requiresTeam', () => {
     ok: false,
     error: 'requiresTeam must be a boolean',
   });
+});
+
+const SERVER = { kind: 'server', start: 'bun --watch src/server/index.ts' };
+const UI = { kind: 'ui', start: 'vite --port $PORT --strictPort' };
+
+test('reads a valid live list', () => {
+  const dir = repo({
+    'mattstack.deck.json': JSON.stringify({ name: 'chat', live: [SERVER, UI] }),
+  });
+  const r = readDeckManifest(dir);
+  expect(r?.ok && r.manifest.live).toEqual([SERVER, UI]);
+  expect(r?.ok && r.manifest.liveError).toBeUndefined();
+});
+
+test('a broken live list keeps the rest of the manifest', () => {
+  const dir = repo({
+    'mattstack.deck.json': JSON.stringify({
+      name: 'chat',
+      port: 11002,
+      live: [UI],
+    }),
+  });
+  const r = readDeckManifest(dir);
+  expect(r?.ok).toBe(true);
+  expect(r?.ok && r.manifest.port).toBe(11002);
+  expect(r?.ok && r.manifest.live).toBeUndefined();
+  expect(r?.ok && r.manifest.liveError).toBe('no server in the live list');
+});
+
+test.each([
+  [{}, 'live must be a list'],
+  [[SERVER, SERVER], 'more than one server in the live list'],
+  [[SERVER, UI, UI], 'more than one ui in the live list'],
+  [[SERVER, { kind: 'proxy', start: 'x' }], 'live entry 2 has an unknown kind'],
+  [[{ kind: 'server', start: '  ' }], 'live entry 1 has no start command'],
+  [[SERVER, 'nope'], 'live entry 2 must be an object'],
+])('parseLive refuses %j', (raw, error) => {
+  expect(parseLive(raw)).toEqual({ ok: false, error });
+});
+
+test('liveProcessIds numbers workers and keeps server and ui as is', () => {
+  expect(
+    liveProcessIds([
+      { kind: 'server', start: 'a' },
+      { kind: 'worker', start: 'b' },
+      { kind: 'ui', start: 'c' },
+      { kind: 'worker', start: 'd' },
+    ])
+  ).toEqual(['server', 'worker-1', 'ui', 'worker-2']);
 });
