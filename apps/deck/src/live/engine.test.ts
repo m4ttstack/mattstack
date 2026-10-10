@@ -116,7 +116,7 @@ test('a worktree without the app is refused', async () => {
     deps({
       sources: {
         exists: () => true,
-        listTrees: async () => [
+        list: async () => [
           ...trees(),
           {
             path: wt,
@@ -151,8 +151,8 @@ test('a worktree that needs setup answers 202, then goes live when setup passes'
     manager,
     deps({
       sources: {
-        exists: () => false,
-        listTrees: async () => [
+        exists: p => !p.endsWith('.deck-live-ready'),
+        list: async () => [
           ...trees(),
           {
             path: wt,
@@ -180,8 +180,8 @@ function setupDeps(wt: string) {
   let finish!: (code: number) => void;
   const d = deps({
     sources: {
-      exists: () => false,
-      listTrees: async () => [
+      exists: p => !p.endsWith('.deck-live-ready'),
+      list: async () => [
         ...trees(),
         {
           path: wt,
@@ -334,7 +334,7 @@ test('a failed switch keeps the app live on its old source', async () => {
     reinstall: async () => void reinstalled++,
     sources: {
       exists: () => true,
-      listTrees: async () => [
+      list: async () => [
         ...trees(),
         {
           path: wt,

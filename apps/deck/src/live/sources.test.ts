@@ -50,8 +50,8 @@ test('branchOf reads the checked out branch', () => {
 
 test('main first, then claimed and unmanaged trees of the same repo by last use', async () => {
   const { sources, error } = await listLiveSources(root, {
-    exists: () => false,
-    listTrees: async () => [
+    exists: p => !p.endsWith('.deck-live-ready') && p !== '/wt/missing',
+    list: async () => [
       row({ path: root, kind: 'main', state: null, branch: 'main' }),
       row({
         path: '/wt/old',
@@ -63,9 +63,13 @@ test('main first, then claimed and unmanaged trees of the same repo by last use'
         branch: 'new',
         lastActiveAt: '2026-10-09T00:00:00Z',
       }),
-      row({ path: '/wt/spare', kind: 'on-deck', state: 'ready' }),
-      row({ path: '/wt/golden', kind: 'golden', state: null }),
-      row({ path: '/wt/gone', state: 'disposable' }),
+      row({ path: '/wt/golden', kind: 'golden', state: null, branch: null }),
+      row({ path: '/wt/spare', state: 'on-deck', branch: 'on-deck/spare' }),
+      row({ path: '/wt/fresh', state: 'creating', branch: 'fresh' }),
+      row({ path: '/wt/done', state: 'disposable', branch: 'done' }),
+      row({ path: '/gitq/work/abc/gitq-3', branch: 'surgery' }),
+      row({ path: '/wt/.trash-x-123', branch: 'trashed' }),
+      row({ path: '/wt/missing', branch: 'missing' }),
       row({
         path: '/wt/hand',
         kind: 'unmanaged',
@@ -91,7 +95,7 @@ test('an unready tree needs setup until a finished install marks it ready', asyn
   const list = async () =>
     (
       await listLiveSources(root, {
-        listTrees: async () => [
+        list: async () => [
           row({ path: root, kind: 'main', state: null, branch: 'main' }),
           row({ path: wt, kind: 'unmanaged', state: null, readyAt: null }),
         ],
@@ -104,7 +108,7 @@ test('an unready tree needs setup until a finished install marks it ready', asyn
 
 test('an unreachable rt daemon still offers main', async () => {
   const { sources, error } = await listLiveSources(root, {
-    listTrees: async () => {
+    list: async () => {
       throw new Error('rt daemon unreachable');
     },
   });

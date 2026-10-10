@@ -153,8 +153,8 @@ test('DELETE during a running setup cancels the go-live', async () => {
   let finish!: (code: number) => void;
   Object.assign(live, {
     sources: {
-      exists: () => false,
-      listTrees: async () => [
+      exists: p => !p.endsWith('.deck-live-ready'),
+      list: async () => [
         ...kit.trees(),
         {
           path: wt,

@@ -90,7 +90,7 @@ export function freshChat() {
     devMode: () => true,
     installedLabels: async () => [...manager.installed.keys()],
     tlds: () => ['localhost', 'mattstack'],
-    sources: { listTrees: async () => trees(), exists: () => true },
+    sources: { list: async () => trees(), exists: () => true },
     now: () => new Date('2026-10-09T21:12:00Z'),
     ...over,
   });
