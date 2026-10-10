@@ -309,7 +309,7 @@ describe("startTeamSnapshots", () => {
     const h = harness({
       converge: async (_p: unknown, slug: string) => {
         converged.push(slug);
-        return { updated: [], installed: [], rolledBack: [], current: [], skipped: [], failed: [] };
+        return { updated: [], installed: [], rolledBack: [], current: [], skipped: [], failed: [], held: [] };
       },
     });
     clone(h.root, "acme");
@@ -375,6 +375,31 @@ describe("startTeamSnapshots", () => {
     await onPulled();
     expect(lines).toEqual(["pack held: this app's engine is below its floor"]);
     expect([...seen]).toEqual(["acme-skills@acme-market@0.6.0"]);
+  });
+
+  describe("a failing hold store never fails the pull hook", () => {
+    const entry = (id: string) => ({ id, to: "0.6.0", floor: "0.31.0", engine: "0.30.28" });
+    const result = { updated: [], installed: [], rolledBack: [], current: [], skipped: [], failed: [], held: [entry("a@m"), entry("b@m")] };
+
+    for (const broken of ["has", "mark"] as const) {
+      test(`${broken} throwing still resolves and logs every held pack`, async () => {
+        const log = fakeLog();
+        const holds = {
+          has: () => { if (broken === "has") throw new Error("db down"); return false; },
+          mark: () => { if (broken === "mark") throw new Error("db down"); },
+        };
+        const onPulled = createOnPulled({
+          probes: fakeProbes({ home: "/h" }),
+          slug: "acme",
+          log,
+          converge: async () => result,
+          holds,
+        });
+        await onPulled();
+        expect(log.calls.filter((c) => c.level === "info")).toHaveLength(2);
+        expect(log.calls.filter((c) => c.level === "warn")).toHaveLength(2);
+      });
+    }
   });
 
   describe("the role decides the mode", () => {

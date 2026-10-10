@@ -96,11 +96,21 @@ export function createOnPulled(opts: {
   return async () => {
     try {
       const result = await opts.converge(opts.probes, opts.slug, opts.log);
-      for (const h of result?.held ?? []) {
+      for (const h of result.held) {
         const key = `${h.id}@${h.to}`;
-        if (holds.has(key)) continue;
+        let seen = false;
+        try {
+          seen = holds.has(key);
+        } catch (err) {
+          opts.log.warn({ err, key }, "pack hold dedupe unreadable; logging the hold again");
+        }
+        if (seen) continue;
         opts.log.info({ ...h }, "pack held: this app's engine is below its floor");
-        holds.mark(key);
+        try {
+          holds.mark(key);
+        } catch (err) {
+          opts.log.warn({ err, key }, "pack hold could not be remembered");
+        }
       }
     } finally {
       await opts.afterPull?.(opts.slug);
