@@ -38,5 +38,13 @@ export const SHIELD =
 export const TRASH =
   'M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6';
 
+export const RADIO =
+  'M14 12a2 2 0 1 0-4 0a2 2 0 1 0 4 0M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14';
+
+export const GIT_BRANCH =
+  'M6 3v12M15 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M18 9a9 9 0 0 1-9 9';
+
+export const CHEVRON_DOWN = 'm6 9 6 6 6-6';
+
 export const UPLOAD =
   'M12 3v12M17 8l-5-5-5 5M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4';

@@ -154,6 +154,16 @@ body {
 .t-warn {
   color: var(--text-warn);
 }
+.live-source .live-source-name {
+  font-family: var(--font-mono);
+}
+.live-source .live-source-mark {
+  color: var(--text-accent-small);
+}
+.live-failed {
+  all: unset;
+  cursor: pointer;
+}
 
 /* hstack is a block-level flex container, so a chip after the name would be
    pushed onto its own line and stand the row up taller. */

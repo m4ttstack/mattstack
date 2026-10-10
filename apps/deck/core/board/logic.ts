@@ -77,6 +77,24 @@ interface StatusRow {
     status: 'deploying' | 'verifying' | 'live' | 'error';
     url: string | null;
   } | null;
+  /** Dev mode, local, mattstack apps: present while the app runs live. */
+  live?: {
+    branch: string | null;
+    main: boolean;
+    startedAt: string;
+    uiPort: number | null;
+    movedFrom: string | null;
+    processes: {
+      id: string;
+      kind: 'server' | 'ui' | 'worker';
+      command: string;
+      port: number | null;
+      running: boolean;
+    }[];
+  };
+  liveSetup?: { state: 'running' | 'failed'; branch: string | null; log: string[] };
+  /** null: can go live; a string: why not; absent: live controls do not apply. */
+  liveBlocked?: string | null;
 }
 
 export interface StatusData {
@@ -112,7 +130,10 @@ export function subline(data: StatusData | null): string {
   if (!data) return 'loading…';
   const pub = data.apps.filter(r => r.published).length;
   const prot = data.apps.filter(r => r.hasPassword).length;
-  const parts = [healthyFraction(data), `${pub} public`];
+  const live = data.apps.filter(r => r.live).length;
+  const parts = [healthyFraction(data)];
+  if (live) parts.push(`${live} live`);
+  parts.push(`${pub} public`);
   if (prot) parts.push(`${prot} protected`);
   return parts.join(' · ');
 }

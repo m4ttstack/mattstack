@@ -26,6 +26,8 @@ import {
   type Row,
   type StatusData,
 } from './logic.ts';
+import { LiveCell } from './live/LiveCell.tsx';
+import { liveHealth } from './live/live-logic.ts';
 import { OptimisticSwitch } from './optimistic.tsx';
 import { Tooltip } from './Tooltip.tsx';
 import type { BoardState } from './useBoardState.ts';
@@ -38,7 +40,7 @@ import type { BoardState } from './useBoardState.ts';
     section), so two tables on one page always pick the same entry. */
 const COL_WIDTHS = {
   plain: ['36%', '8%', '11%', '21%', '24%'],
-  versioned: ['28%', '7%', '10%', '16%', '17%', '22%'],
+  versioned: ['26%', '7%', '10%', '15%', '8%', '14%', '20%'],
 };
 
 export interface AppsSection {
@@ -77,6 +79,8 @@ export function AppsTable({
     onPublish,
   } = board;
   const versioned = showVersionColumn(data);
+  const now = Date.now();
+  const openLive = () => {};
   const widths = versioned ? COL_WIDTHS.versioned : COL_WIDTHS.plain;
   return (
     <Table className="apps-grid">
@@ -98,6 +102,7 @@ export function AppsTable({
         <Table.HeadCell>health</Table.HeadCell>
         {versioned && <Table.HeadCell>version</Table.HeadCell>}
         <Table.HeadCell className="col-gap">public</Table.HeadCell>
+        {versioned && <Table.HeadCell>live</Table.HeadCell>}
         <Table.HeadCell />
       </Table.Head>
       <Table.Body>
@@ -112,7 +117,7 @@ export function AppsTable({
                 <PortCell row={row} data={data} />
               </Table.Cell>
               <Table.Cell>
-                <HealthCell row={row} restarting={restarting} />
+                <HealthCell row={row} restarting={restarting} now={now} />
               </Table.Cell>
               {versioned && (
                 <Table.Cell>
@@ -122,6 +127,16 @@ export function AppsTable({
               <Table.Cell className="col-gap">
                 <PublishCell row={row} data={data} onPublish={onPublish} />
               </Table.Cell>
+              {versioned && (
+                <Table.Cell>
+                  <LiveCell
+                    row={row}
+                    data={data}
+                    now={now}
+                    onOpen={openLive}
+                  />
+                </Table.Cell>
+              )}
               <Table.Cell align="end">
                 <span className="row-actions">
                   <CommandsCell
@@ -264,8 +279,25 @@ export function OffBadge() {
   );
 }
 
-function HealthCell({ row, restarting }: { row: Row; restarting: boolean }) {
+function HealthCell({
+  row,
+  restarting,
+  now,
+}: {
+  row: Row;
+  restarting: boolean;
+  now: number;
+}) {
   if (row.enabled === false) return <OffBadge />;
+  const liveDown = liveHealth(row, now);
+  if (liveDown && !restarting) {
+    return (
+      <Badge intent={liveDown.tone}>
+        {liveDown.tone === 'warn' && <Spinner size="xs" />}
+        {liveDown.text}
+      </Badge>
+    );
+  }
   if (restarting) {
     return (
       <Badge intent="warn">
