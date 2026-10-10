@@ -211,6 +211,18 @@ describe("runs handlers", () => {
     const seams = (tree: string) => ({ isRunTree: (p: string, repo: string) => p === tree && repo === "remote:alpha" });
     const call = (tree: string, runId: string) => (createRunsHandlers({ log } as any, noEmit, seams(tree))["runs:evidence"] as any)({ runId, key: "transcript" });
 
+    test("serves the transcript of a v2 record, and refuses one outside the registered worktree", async () => {
+      const dir = root();
+      const tree = mkdtempSync(join(tmpdir(), "rt-tree-"));
+      writeFileSync(join(tree, "run.md"), "# V2\n");
+      writeFileSync(join(tree, "b.png"), PNG);
+      const value = { v: 2, transcript: join(tree, "run.md"), cases: [{ id: "c1", label: "C", before: { path: join(tree, "b.png"), waiver: "w" } }] };
+      seedRun(dir, "remote:alpha", "t-v2", 1000, 1, { fields: [{ key: "worktree", value: tree }, { key: "evidence", value: JSON.stringify(value) }] });
+      expect(await call(tree, "t-v2")).toEqual({ ok: true, data: { mime: "text/markdown", text: "# V2\n" } });
+      const unregistered = (createRunsHandlers({ log } as any, noEmit, { isRunTree: () => false })["runs:evidence"] as any)({ runId: "t-v2", key: "transcript" });
+      expect((await unregistered).ok).toBe(false);
+    });
+
     test("serves a .md transcript from the registered worktree as markdown text", async () => {
       const tree = seedTranscript("t-1", "run.md", "# Run\n");
       expect(await call(tree, "t-1")).toEqual({ ok: true, data: { mime: "text/markdown", text: "# Run\n" } });

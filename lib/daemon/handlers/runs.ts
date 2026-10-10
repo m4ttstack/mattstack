@@ -10,7 +10,7 @@ import { getRunLiveness } from "../../runs/liveness.ts";
 import { abandonRun } from "../../runs/reconcile.ts";
 import { checkTextPath, checkUploadPath } from "../upload-guard.ts";
 import {
-  EVIDENCE_IMAGE_KEYS, EVIDENCE_SLOTS, EVIDENCE_TEXT_KEYS, EVIDENCE_THEMES, parseEvidence, readEvidence, resolveEvidencePath,
+  EVIDENCE_IMAGE_KEYS, EVIDENCE_SLOTS, EVIDENCE_TEXT_KEYS, EVIDENCE_THEMES, V1_CASE_ID, readEvidence, resolveEvidencePath,
   type EvidenceAddress, type EvidenceImageKey, type EvidenceTextKey,
 } from "../../../packages/rt-client/src/evidence.ts";
 import type { HandlerContext, CommandResult } from "./types.ts";
@@ -109,8 +109,15 @@ export function createRunsHandlers(
           if (!found.ok) return { ok: false as const, error: found.error };
           path = found.path;
         } else {
-          const parsed = parseEvidence(value);
-          path = parsed.version !== 1 ? undefined : isText ? parsed.evidence.transcript : parsed.images.find((i) => i.key === key)?.path;
+          const record = readEvidence(value);
+          if (record.version === 2) {
+            if (isText) path = record.transcript;
+            else {
+              const slot = key.startsWith("before") ? "before" : "after";
+              const found = resolveEvidencePath(record, { case: V1_CASE_ID, slot, annotated: key.endsWith("Annotated") });
+              path = found.ok ? found.path : undefined;
+            }
+          }
         }
         if (!path) return { ok: false as const, error: "no evidence" };
         // `worktree` is a field any agent can set, so it is a root only when rt registered that tree to this run's repo.
