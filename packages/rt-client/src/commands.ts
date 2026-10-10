@@ -396,8 +396,10 @@ export interface RunSummary {
   /** Executed stages only, in run order — the pipeline may define more that have not started. */
   stages?: { name: string; status: string; started_at: number | null; ended_at?: number | null; attempt?: number }[];
   decision_count?: number;
-  /** Images the run's `evidence` field serves; 0 for legacy or absent evidence. */
+  /** Images the run's `evidence` field records (each base and each annotated copy); 0 for legacy or absent evidence. */
   evidence_count?: number;
+  /** Cases the run's `evidence` field records (v1 counts as one); 0 for legacy or absent evidence. */
+  evidence_cases?: number;
   /** Links a legacy (pre-v1) `evidence` field names; 0 for v1 or absent evidence. */
   evidence_links?: number;
   /** How the run ended up: its own status plus the MR it opened or reviewed. Absent on pre-outcome daemons. */
