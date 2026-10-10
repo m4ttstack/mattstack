@@ -97,10 +97,12 @@ function withWorktree(
     live,
     kit.deps({
       sources: {
-        exists: () => over.exists ?? true,
-        listTrees: async () => [
+        exists: p => !p.endsWith('.deck-live-ready') || (over.exists ?? true),
+        list: async () => [
           ...kit.trees(),
           {
+            name: 'wt',
+            mr: null,
             path: wt,
             branch: 'feat',
             kind: 'unmanaged',

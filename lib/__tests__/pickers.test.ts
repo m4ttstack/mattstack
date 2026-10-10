@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { installFakePick, type PickFakeStep } from "../ui/pick-fake.ts";
@@ -263,17 +263,21 @@ describe("pickWorktreeWithSwitch: incremental enrichment", () => {
     const enrichSpy = spyOn(enrichModule, "enrichBranches").mockReturnValue(enrichPromise);
 
     const { pickWorktreeWithSwitch } = await import("../pickers.ts");
+    const wt1 = join(home, "wt1");
+    const wt2 = join(home, "wt2");
+    mkdirSync(wt1);
+    mkdirSync(wt2);
     const repo: KnownRepo = {
       repoName: "solo",
       worktrees: [
-        { path: "/a/wt1", branch: "eng-123-fix-thing", isBare: false },
-        { path: "/a/wt2", branch: "feature", isBare: false },
+        { path: wt1, branch: "eng-123-fix-thing", isBare: false },
+        { path: wt2, branch: "feature", isBare: false },
       ],
       dataDir: "/d",
     };
 
-    fake = installFakePick([resultStep({ action: "select", value: "/a/wt1" })]);
-    const donePromise = pickWorktreeWithSwitch(repo, "/a/wt2");
+    fake = installFakePick([resultStep({ action: "select", value: wt1 })]);
+    const donePromise = pickWorktreeWithSwitch(repo, wt2);
 
     // Cheap rows are on the wire from the very first runPick call -- no
     // await for enrichment stands between "picker opens" and "rows visible".
@@ -284,13 +288,13 @@ describe("pickWorktreeWithSwitch: incremental enrichment", () => {
     for (let i = 0; i < 20 && fake.calls.length === 0; i++) await Promise.resolve();
     const call = fake.calls[0]!;
     expect(call.request.rows).toHaveLength(2);
-    const cheap = call.request.rows.find((r) => r.value === "/a/wt1")!;
+    const cheap = call.request.rows.find((r) => r.value === wt1)!;
     expect(cheap.left.map((s) => s.text).join("")).toBe("wt1  eng-123-fix-thing");
     expect(call.updates).toHaveLength(0);
 
     const enriched: EnrichedBranch[] = [
-      { path: "/a/wt1", dirName: "wt1", branch: "eng-123-fix-thing", linearId: "ENG-123", ticket: null, mr: null },
-      { path: "/a/wt2", dirName: "wt2", branch: "feature", linearId: null, ticket: null, mr: null },
+      { path: wt1, dirName: "wt1", branch: "eng-123-fix-thing", linearId: "ENG-123", ticket: null, mr: null },
+      { path: wt2, dirName: "wt2", branch: "feature", linearId: null, ticket: null, mr: null },
     ];
     resolveEnrich(enriched);
 
@@ -299,10 +303,10 @@ describe("pickWorktreeWithSwitch: incremental enrichment", () => {
     // are microtask-only -- no real I/O once enrichBranches is stubbed).
     expect(call.updates).toHaveLength(1);
     const updatedRows = call.updates[0]!.rows!;
-    const wt1Row = updatedRows.find((r) => r.value === "/a/wt1")!;
+    const wt1Row = updatedRows.find((r) => r.value === wt1)!;
     expect(wt1Row.right).toEqual([{ text: "ENG-123", tone: "dimmer" }]);
-    const wt2Row = updatedRows.find((r) => r.value === "/a/wt2")!;
-    // currentPath ("/a/wt2") gets the right-pinned "(current)" marker appended.
+    const wt2Row = updatedRows.find((r) => r.value === wt2)!;
+    // currentPath (wt2) gets the right-pinned "(current)" marker appended.
     expect(wt2Row.right).toEqual([{ text: "[Local Only]", tone: "dimmer" }, { text: "  " }, { text: "(current)", tone: "faint" }]);
 
     expect(enrichSpy).toHaveBeenCalledTimes(1);

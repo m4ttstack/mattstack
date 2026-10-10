@@ -549,9 +549,11 @@ export interface TccCheckData {
 }
 
 export interface WorktreeTreeRow {
-  name: string; kind: string; state: string; path: string; branch: string | null;
+  name: string; kind: string; state?: string | null; path: string; branch: string | null;
   repoName: string; mr: { iid: number; state: string; title: string } | null;
   duplicateBranch?: true;
+  readyAt?: string | null;
+  lastActiveAt?: string | null;
   [extra: string]: unknown;
 }
 export interface WorktreeListData {

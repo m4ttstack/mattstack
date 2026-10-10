@@ -2,6 +2,7 @@ import { mkdirSync, realpathSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { expect, test } from 'bun:test';
 
+import type { WorktreeTreeRow } from '@mattstack/rt-client';
 import { gitRepo } from '../../test/git-fixture.ts';
 import type { AppRecord } from '../registry/records.ts';
 import { readyMarker } from './setup.ts';
@@ -10,7 +11,6 @@ import {
   branchOf,
   listLiveSources,
   sharedRootFor,
-  type TreeRow,
 } from './sources.ts';
 
 const root = realpathSync(gitRepo({ 'apps/chat/mattstack.deck.json': '{}' }));
@@ -23,7 +23,9 @@ const record = {
   dev: { workingDirectory: join(root, 'apps/chat') },
 } as AppRecord;
 
-const row = (over: Partial<TreeRow>): TreeRow => ({
+const row = (over: Partial<WorktreeTreeRow>): WorktreeTreeRow => ({
+  name: 'x',
+  mr: null,
   path: '/wt/x',
   branch: 'x',
   kind: 'ephemeral',
@@ -50,8 +52,8 @@ test('branchOf reads the checked out branch', () => {
 
 test('main first, then claimed and unmanaged trees of the same repo by last use', async () => {
   const { sources, error } = await listLiveSources(root, {
-    exists: () => false,
-    listTrees: async () => [
+    exists: p => !p.endsWith('.deck-live-ready') && p !== '/wt/missing',
+    list: async () => [
       row({ path: root, kind: 'main', state: null, branch: 'main' }),
       row({
         path: '/wt/old',
@@ -63,9 +65,13 @@ test('main first, then claimed and unmanaged trees of the same repo by last use'
         branch: 'new',
         lastActiveAt: '2026-10-09T00:00:00Z',
       }),
-      row({ path: '/wt/spare', kind: 'on-deck', state: 'ready' }),
-      row({ path: '/wt/golden', kind: 'golden', state: null }),
-      row({ path: '/wt/gone', state: 'disposable' }),
+      row({ path: '/wt/golden', kind: 'golden', state: null, branch: null }),
+      row({ path: '/wt/spare', state: 'on-deck', branch: 'on-deck/spare' }),
+      row({ path: '/wt/fresh', state: 'creating', branch: 'fresh' }),
+      row({ path: '/wt/done', state: 'disposable', branch: 'done' }),
+      row({ path: '/gitq/work/abc/gitq-3', branch: 'surgery' }),
+      row({ path: '/wt/.trash-x-123', branch: 'trashed' }),
+      row({ path: '/wt/missing', branch: 'missing' }),
       row({
         path: '/wt/hand',
         kind: 'unmanaged',
@@ -85,13 +91,28 @@ test('main first, then claimed and unmanaged trees of the same repo by last use'
   ]);
 });
 
+test('a linked shared root does not list the repo main checkout as a worktree', async () => {
+  const { sources } = await listLiveSources(root, {
+    exists: () => true,
+    list: async () => [
+      row({ path: '/repo/main', kind: 'main', state: null, branch: 'main' }),
+      row({ path: root, kind: 'unmanaged', state: null, branch: 'linked' }),
+      row({ path: '/wt/other', branch: 'other' }),
+    ],
+  });
+  expect(sources.map(s => [s.path, s.main])).toEqual([
+    [root, true],
+    ['/wt/other', false],
+  ]);
+});
+
 test('an unready tree needs setup until a finished install marks it ready', async () => {
   const wt = realpathSync(gitRepo({ 'a.txt': 'a' }));
   mkdirSync(join(wt, 'node_modules'));
   const list = async () =>
     (
       await listLiveSources(root, {
-        listTrees: async () => [
+        list: async () => [
           row({ path: root, kind: 'main', state: null, branch: 'main' }),
           row({ path: wt, kind: 'unmanaged', state: null, readyAt: null }),
         ],
@@ -104,7 +125,7 @@ test('an unready tree needs setup until a finished install marks it ready', asyn
 
 test('an unreachable rt daemon still offers main', async () => {
   const { sources, error } = await listLiveSources(root, {
-    listTrees: async () => {
+    list: async () => {
       throw new Error('rt daemon unreachable');
     },
   });
