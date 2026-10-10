@@ -656,7 +656,7 @@ GitLab only. Edit an open MR: title, description, addLabels, removeLabels (add a
 ### mr_upload
 
 <!-- mcp-lint: allow -->
-GitLab only. Upload one local image or video (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), rt's evidence folder ~/.mattstack/evidence/ (for screenshots you want to upload), a pipeline run's own evidence folder (~/.mattstack/work/<run id>/evidence/, for a run that exists on this machine), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, a file with other hard links, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+GitLab only. Upload one local image or video (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), rt's evidence folder ~/.mattstack/evidence/ (for screenshots you want to upload), a pipeline run's own evidence folder (~/.mattstack/work/<run id>/evidence/, for a run that exists on this machine), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, a file with other hard links, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. Pass runId when the file is a pipeline run's evidence: the daemon then also refuses a file that run's evidence record does not list as an annotated image or a waived capture, and names the file. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
 {
@@ -673,6 +673,10 @@ GitLab only. Upload one local image or video (png, jpg, jpeg, gif, webp, mp4, mo
     "path": {
       "type": "string",
       "description": "Absolute path of the file to upload."
+    },
+    "runId": {
+      "type": "string",
+      "description": "A pipeline run's id. With it, the file must be in that run's evidence record as an annotated image or a waived capture."
     }
   },
   "required": [

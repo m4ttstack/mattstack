@@ -601,20 +601,26 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_upload",
-      description: `GitLab only. Upload one local image or video (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), rt's evidence folder ~/.mattstack/evidence/ (for screenshots you want to upload), a pipeline run's own evidence folder (~/.mattstack/work/<run id>/evidence/, for a run that exists on this machine), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, a file with other hard links, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Upload one local image or video (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), rt's evidence folder ~/.mattstack/evidence/ (for screenshots you want to upload), a pipeline run's own evidence folder (~/.mattstack/work/<run id>/evidence/, for a run that exists on this machine), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, a file with other hard links, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. Pass runId when the file is a pipeline run's evidence: the daemon then also refuses a file that run's evidence record does not list as an annotated image or a waived capture, and names the file. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
-        properties: { ...REPO_TARGET_PROPS, path: { type: "string", description: "Absolute path of the file to upload." } },
+        properties: {
+          ...REPO_TARGET_PROPS,
+          path: { type: "string", description: "Absolute path of the file to upload." },
+          runId: { type: "string", description: "A pipeline run's id. With it, the file must be in that run's evidence record as an annotated image or a waived capture." },
+        },
         required: ["path"],
         additionalProperties: false,
       },
       shellForms: { none: "uploads have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
-        const bad = checkRequired(input, [{ name: "path", type: "string" }]);
+        const bad = checkRequired(input, [{ name: "path", type: "string" }]) ?? checkOptional(input, [{ name: "runId", type: "string" }]);
         if (bad) return err(bad);
         const target = await resolveRepoTarget(input);
         if (!target.ok) return err(target.error);
-        const res = await rtCommand<Commands["mr:upload"]["data"]>("mr:upload", { repoName: target.identity, path: input.path as string }, { timeoutMs: MR_UPLOAD_TIMEOUT_MS });
+        const payload: Commands["mr:upload"]["payload"] = { repoName: target.identity, path: input.path as string };
+        if (typeof input.runId === "string") payload.runId = input.runId;
+        const res = await rtCommand<Commands["mr:upload"]["data"]>("mr:upload", payload, { timeoutMs: MR_UPLOAD_TIMEOUT_MS });
         const out = fromResponse(res);
         if (out.ok || !/timed ?out|timeout/i.test(out.error ?? "")) return out;
         return err(`${out.error}; the upload may have landed anyway, and an unused upload is harmless, so retrying is safe`);

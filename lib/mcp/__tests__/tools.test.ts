@@ -920,7 +920,21 @@ describe("mcpTools", () => {
       const schema = mcpTools().find((t) => t.name === "mr_upload")!.inputSchema as { required?: string[]; additionalProperties?: boolean; properties?: Record<string, unknown> };
       expect(schema.required).toEqual(["path"]);
       expect(schema.additionalProperties).toBe(false);
-      expect(Object.keys(schema.properties ?? {}).sort()).toEqual(["mrUrl", "path", "repoName"]);
+      expect(Object.keys(schema.properties ?? {}).sort()).toEqual(["mrUrl", "path", "repoName", "runId"]);
+    });
+
+    test("runId rides the payload only when given, and a non-string runId is refused before the daemon", async () => {
+      const calls = fakeDaemon();
+      const tool = mcpTools().find((t) => t.name === "mr_upload")!;
+      await tool.handler({ repoName: "remote:x", path: "/tmp/shot.png", runId: "run-1" }, {} as NodeJS.ProcessEnv);
+      expect(calls[0]!.payload).toEqual({ repoName: "remote:x", path: "/tmp/shot.png", runId: "run-1" });
+      const bad = await tool.handler({ repoName: "remote:x", path: "/tmp/shot.png", runId: 5 }, {} as NodeJS.ProcessEnv);
+      expect(bad.ok).toBe(false);
+      expect(calls.length).toBe(1);
+    });
+
+    test("description tells a pipeline to pass runId for evidence", () => {
+      expect(mcpTools().find((t) => t.name === "mr_upload")!.description).toContain("Pass runId when the file is a pipeline run's evidence");
     });
 
     test("sends mr:upload with the resolved repo, the path and the 120s timeout, and returns url and markdown", async () => {
