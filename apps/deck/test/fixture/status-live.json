@@ -176,6 +176,57 @@
       "liveBlocked": null
     },
     {
+      "name": "relay",
+      "displayTld": "mattstack",
+      "port": 11009,
+      "url": "https://relay.localhost",
+      "publicUrl": null,
+      "health": {
+        "ok": true,
+        "status": 200,
+        "ms": 22
+      },
+      "service": {
+        "label": "com.mattstack.deck.relay",
+        "short": "relay",
+        "pid": 5402,
+        "lastExitStatus": 0,
+        "unmanaged": null,
+        "stderr": []
+      },
+      "published": false,
+      "hasPassword": false,
+      "isTunnel": false,
+      "override": null,
+      "publicFollowsOverride": false,
+      "self": false,
+      "managedBy": "mattstack",
+      "issues": [],
+      "record": {
+        "kind": "service",
+        "command": [
+          "bun",
+          "run",
+          "server.ts"
+        ],
+        "workingDirectory": "/Users/matt/Documents/GitHub/relay"
+      },
+      "oauth": {
+        "mode": "off"
+      },
+      "devLink": "linked",
+      "devDir": "/Users/matt/Documents/GitHub/relay",
+      "liveBlocked": null,
+      "liveSetup": {
+        "state": "failed",
+        "branch": "deck-live-mode",
+        "log": [
+          "$ bun install",
+          "error: lockfile had changes, but lockfile is frozen"
+        ]
+      }
+    },
+    {
       "name": "orbit",
       "displayTld": "localhost",
       "port": 3007,

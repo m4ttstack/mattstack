@@ -169,6 +169,51 @@ body {
   outline: 2px solid var(--text-accent-small);
   outline-offset: 2px;
 }
+.t-accent {
+  color: var(--text-accent-small);
+}
+.live-modal {
+  width: min(30rem, calc(100vw - 2rem));
+}
+.live-modal-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.live-modal-title .muted {
+  font-weight: normal;
+  font-size: var(--font-size-px13);
+  color: var(--text-2);
+}
+.live-help {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.live-help:empty {
+  display: none;
+}
+.live-help p {
+  margin: 0;
+  font-size: var(--font-size-px12);
+}
+.live-modal kbd {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-px12);
+}
+.live-log {
+  margin: 0;
+  padding: 0.75rem;
+  background: var(--surface-inset);
+  border: 1px solid var(--border-on-card);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-px12);
+  white-space: pre-wrap;
+}
+.modal-footer .footer-start {
+  margin-right: auto;
+}
 
 /* hstack is a block-level flex container, so a chip after the name would be
    pushed onto its own line and stand the row up taller. */

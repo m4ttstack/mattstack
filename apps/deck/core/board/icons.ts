@@ -46,5 +46,8 @@ export const GIT_BRANCH =
 
 export const CHEVRON_DOWN = 'm6 9 6 6 6-6';
 
+export const HOUSE =
+  'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z';
+
 export const UPLOAD =
   'M12 3v12M17 8l-5-5-5 5M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4';

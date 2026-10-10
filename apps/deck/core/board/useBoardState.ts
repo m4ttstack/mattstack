@@ -17,6 +17,7 @@ import {
   pushRemote as postPushRemote,
   setRemote as postSetRemote,
 } from './api.ts';
+import { useLive } from './live/useLive.ts';
 import {
   addPayload,
   autoBanner,
@@ -178,6 +179,7 @@ function blankAddModal(step: AddModalState['step']): AddModalState {
 
 export function useBoardState() {
   const [data, setData] = useState<StatusData | null>(null);
+  const [now, setNow] = useState(Date.now);
   const [restarting, setRestarting] = useState<RestartingMap>({});
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [addModal, setAddModal] = useState<AddModalState | null>(null);
@@ -217,6 +219,7 @@ export function useBoardState() {
       const next = await getStatus();
       setRestarting(prev => reconcileRestarting(prev, next, Date.now()));
       setData(next);
+      setNow(Date.now());
       // A stale proxy serves old ports on .localhost while every health probe
       // (which hits ports directly) still reads green, so say so loudly.
       if (next.canManage && Date.now() > proxyHoldUntil.current) {
@@ -234,6 +237,8 @@ export function useBoardState() {
     const id = setInterval(refresh, REFRESH_MS);
     return () => clearInterval(id);
   }, [refresh]);
+
+  const live = useLive(refresh, addToast);
 
   const isRestarting = useCallback(
     (row: Row) => isRowRestarting(row, restarting, commandRuns),
@@ -900,6 +905,9 @@ export function useBoardState() {
 
   return {
     data,
+    now,
+    live,
+    openLive: live.open,
     sections: sectionsOf(data),
     tunnels: tunnelsOf(data),
     subline: sublineOf(data),

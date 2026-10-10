@@ -14,6 +14,8 @@ import {
 } from '@mattstack/tui-kit';
 import { CommandButton } from './CommandButton.tsx';
 import { GLOBE } from './icons.ts';
+import { liveHealth } from './live/live-logic.ts';
+import { LiveCell } from './live/LiveCell.tsx';
 import {
   commandKey,
   effectiveOverride,
@@ -26,8 +28,6 @@ import {
   type Row,
   type StatusData,
 } from './logic.ts';
-import { LiveCell } from './live/LiveCell.tsx';
-import { liveHealth } from './live/live-logic.ts';
 import { OptimisticSwitch } from './optimistic.tsx';
 import { Tooltip } from './Tooltip.tsx';
 import type { BoardState } from './useBoardState.ts';
@@ -77,10 +77,10 @@ export function AppsTable({
     commandRuns,
     linkSource,
     onPublish,
+    now,
+    openLive,
   } = board;
   const versioned = showVersionColumn(data);
-  const now = Date.now();
-  const openLive = () => {};
   const widths = versioned ? COL_WIDTHS.versioned : COL_WIDTHS.plain;
   return (
     <Table className="apps-grid">
@@ -129,12 +129,7 @@ export function AppsTable({
               </Table.Cell>
               {versioned && (
                 <Table.Cell>
-                  <LiveCell
-                    row={row}
-                    data={data}
-                    now={now}
-                    onOpen={openLive}
-                  />
+                  <LiveCell row={row} data={data} now={now} onOpen={openLive} />
                 </Table.Cell>
               )}
               <Table.Cell align="end">
