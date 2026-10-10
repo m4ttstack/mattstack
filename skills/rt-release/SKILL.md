@@ -13,7 +13,12 @@ ruling, and every update ships as the full zip). CI owns the release object. The
 (`Validate the marketplace catalog`, a `--dry-run`) and publishes it last, just before Create
 Release (`Publish the marketplace catalog`: `scripts/release/marketplace.sh` pushes `marketplace/`
 to `m4ttstack/mattstack-marketplace`, needing `MARKETPLACE_TOKEN` only when the catalog changed),
-so a run that fails anywhere publishes nothing.
+so a run that fails before that step publishes nothing. When Create Release fails after the
+publish, the catalog is live without its app: a Mac on the older app holds any plugin whose engine
+floor it cannot run, and nothing breaks. Recover by re-running the release for the same tag: the
+publish finds the published tree already matching and pushes nothing, then Create Release runs.
+To abandon the tag instead, ship the next version; the publish refuses a mattstack version older
+than the published one, so the previous catalog cannot go back over it.
 rt ships only inside mattstack.app (`Contents/MacOS/rt`, updated through Sparkle); there are
 no tarballs. The build, signing, notarization, clean-room and appcast half, and hand completion
 of a broken publish, is `rt:mattstack-release`. The GitHub repo is `m4ttstack/mattstack`.

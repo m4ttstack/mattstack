@@ -29,8 +29,14 @@ One tag (`v*`) produces, via `.github/workflows/release.yml` on macos-15:
   at generation time, `--refresh` re-resolves). The catalog is validated
   first (`Validate the marketplace catalog`, a `--dry-run`) and published
   last (`Publish the marketplace catalog`, just before `Create Release`),
-  so a run that fails anywhere publishes nothing. The publish refuses a
-  mattstack version older than the published one.
+  so a run that fails before that step publishes nothing. The publish
+  refuses a mattstack version older than the published one. If `Create
+  Release` fails after the publish, the catalog is live without its app
+  (an older app holds any plugin whose engine floor it cannot run).
+  Re-run the release for the same tag: the publish finds the tree already
+  published and pushes nothing, then `Create Release` runs. An abandoned
+  tag is fixed forward by the next release, since the publish will not
+  put the previous catalog back over a newer mattstack version.
 
 `workflow_dispatch` runs everything **except publish** — the standing dry
 run. A dispatch's DMG lands as the `release-dry-run` artifact and is fully

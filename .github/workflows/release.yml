@@ -396,8 +396,10 @@ jobs:
 
       # Live before the app is: plugins.install adds the catalog's base plugins,
       # so an app must never be offered before its catalog. It runs after every
-      # step that can fail, so a failed run publishes nothing, and a failed
-      # publish stops the run before Create Release makes appcast.xml live.
+      # step that can fail but Create Release, and a failed publish stops the
+      # run before Create Release makes appcast.xml live. If Create Release
+      # fails, re-run the tag: this step then finds the tree published and
+      # pushes nothing (skills/rt-release/SKILL.md).
       - name: Publish the marketplace catalog
         if: steps.meta.outputs.publish == 'true'
         shell: bash
