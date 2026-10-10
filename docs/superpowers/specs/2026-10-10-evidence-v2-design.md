@@ -128,9 +128,9 @@ export function readEvidence(value: string | null | undefined): EvidenceRecord;
 `parseEvidence`, `ParsedEvidence`, `EVIDENCE_IMAGE_KEYS` and `EvidenceV1`
 stay as they are. A v2 value given to `parseEvidence` falls to its existing
 link scan (`version: 0`) and lists every path, which is how today's console
-shows a v2 run until RT-484 lands. They are marked deprecated in favour of
-`readEvidence`; RT-484 removes their console callers, and a later change
-removes them.
+shows a v2 run until RT-484 lands. `parseEvidence` is marked deprecated in favour of
+`readEvidence`; the others stay as they are, since the console still uses
+them. RT-484 removes the console callers, and a later change removes them.
 
 Helpers exported beside the reader, used by the daemon and free for the
 console:
@@ -139,6 +139,12 @@ console:
 - `uploadablePaths(record)`: the paths that may go to an MR: every
   `annotated`, plus every waived image's `path`. A base path with an
   annotated counterpart is not in it.
+- `resolveEvidencePath(record, address)`: the file path for an address, or
+  the refusal.
+- `EvidenceAddress`: the `{case, slot, theme?, annotated?}` type.
+- `EVIDENCE_SLOTS`: the slot names, `before` and `after`.
+- `EVIDENCE_THEMES`: the theme names, `light` and `dark`.
+- `V1_CASE_ID`: the id (`case`) a v1 record's single case carries.
 
 ## Writing: the validator
 
@@ -183,7 +189,7 @@ field keeps its previous value.
   - no v1 or v2 record: `run <id> has no evidence record; write evidence
     before uploading with runId`.
   - a raw base that has an annotated counterpart: `<file> is the raw
-    capture for case "<id>" <slot>; upload its annotated image <name>
+    capture for case "<id>" <slot>[ (<theme>)]; upload its annotated image <name>
     instead`.
   - anything else: `<file> is not in run <id>'s evidence record as an
     annotated image or a waived capture; record it with run_field_set
@@ -206,16 +212,19 @@ field keeps its previous value.
   fails `no evidence` when there is none. The path goes through the same
   guard and roots as today.
 
-`Commands["runs:evidence"]["payload"]` becomes the union, and
-`runsEvidence` in `client.ts` takes it, so the console's existing `{key}`
-call still typechecks.
+`Commands["runs:evidence"]["payload"]` becomes the union. `runEvidence` in
+`client.ts` keeps the `{key}` form unchanged, so the console's existing call
+still typechecks; the new `runEvidenceAt(runId, address, repo?)` takes the
+case address.
 
 ## Counting
 
 `evidenceCounts` (`lib/runs/store.ts`) reads through `readEvidence`:
 
 - `evidence_count`: images served, counting each base and each annotated
-  path (for v1 this equals today's count).
+  path (for v1 this equals today's count). A v1 value with an `after*` key but
+  no non-empty `after` reads with no after slot, so such hand-written
+  values count one fewer image.
 - `evidence_cases`: new, the number of cases (v1 counts as 1), so RT-484
   can choose images or cases for `EVIDENCE · n`. Added as an optional field
   on the run summary type in `commands.ts`.
