@@ -52,10 +52,10 @@ Expected: rebase clean (this branch only touches `apps/console` and `docs/apps/d
 
 ```bash
 grep -n "export function readEvidence\|export interface EvidenceCase\|export interface EvidenceShot\|export type EvidenceRecord\|export type EvidenceTheme\|export type EvidenceSlotName" packages/rt-client/src/evidence.ts
-grep -n "export function runEvidence" -A 12 packages/rt-client/src/client.ts
+grep -n "export function runEvidenceAt\|export function runEvidence" -A 12 packages/rt-client/src/client.ts
 grep -n "evidence_cases" packages/rt-client/src/commands.ts
 ```
-Expected: all six evidence exports; `runEvidence` accepts either a `key` or a `{ case, slot, theme?, annotated? }` address (RT-483 calls it `runsEvidence` in its spec; the function in `client.ts` is the one to use whatever its name); `evidence_cases?: number` on the run summary. If the address argument's shape differs from `{ case, slot, theme?, annotated? }`, adapt Task 2's one call to it and say so in the task report.
+Expected: all six evidence exports; `runEvidence(runId, key, repo, opts)` unchanged and a new `runEvidenceAt(runId, address, repo?, opts?)` taking rt-client's own `EvidenceAddress` (`{ case, slot, theme?, annotated? }`); `evidence_cases?: number` on the run summary. The console's own address type is named `ShotAddress` so it never collides with rt-client's `EvidenceAddress`. If `runEvidenceAt`'s parameters differ, adapt Task 2's one call to them and say so in the task report.
 
 ---
 
@@ -88,10 +88,10 @@ export function caseWaived(c: EvidenceCase): boolean;
 export function badgesOf(c: EvidenceCase, slot?: EvidencePhase): string[];
 export function shotLine(c: EvidenceCase, shot: EvidenceShot): { kind: 'caption' | 'waiver'; text: string } | null;
 export function headLabel(rec: EvidenceCases, c: EvidenceCase): string | null;
-export interface EvidenceAddress { caseId: string; slot: EvidencePhase; theme?: EvidenceTheme; annotated: boolean }
-export function addressOf(c: EvidenceCase, slot: EvidencePhase, shot: EvidenceShot, variant?: EvidenceVariant): EvidenceAddress;
+export interface ShotAddress { caseId: string; slot: EvidencePhase; theme?: EvidenceTheme; annotated: boolean }
+export function addressOf(c: EvidenceCase, slot: EvidencePhase, shot: EvidenceShot, variant?: EvidenceVariant): ShotAddress;
 export function shownName(shot: EvidenceShot, variant?: EvidenceVariant): string;
-export function evidenceUrl(repo: string, runId: string, a: EvidenceAddress): string;
+export function evidenceUrl(repo: string, runId: string, a: ShotAddress): string;
 export function transcriptUrl(repo: string, runId: string): string;
 export function legacyImageUrl(repo: string, runId: string, path: string): string; // unchanged
 ```
@@ -352,7 +352,7 @@ export function headLabel(rec: EvidenceCases, c: EvidenceCase): string | null {
   return rec.source === 1 && c.label === V1_FALLBACK_LABEL ? null : c.label;
 }
 
-export interface EvidenceAddress {
+export interface ShotAddress {
   caseId: string;
   slot: EvidencePhase;
   theme?: EvidenceTheme;
@@ -366,7 +366,7 @@ export function addressOf(
   slot: EvidencePhase,
   shot: EvidenceShot,
   variant: EvidenceVariant = 'annotated'
-): EvidenceAddress {
+): ShotAddress {
   return {
     caseId: c.id,
     slot,
@@ -390,7 +390,7 @@ export function shownName(
 export function evidenceUrl(
   repo: string,
   runId: string,
-  a: EvidenceAddress
+  a: ShotAddress
 ): string {
   const query = new URLSearchParams();
   if (a.theme) query.set('theme', a.theme);
@@ -651,7 +651,7 @@ and add right after that handler (chained, inline, as every route here is):
             headers: { 'content-type': file.mime, 'cache-control': 'private, max-age=3600' },
           });
         }
-        const res = await runEvidence(
+        const res = await runEvidenceAt(
           runId,
           { case: caseId, slot, ...(theme ? { theme } : {}), ...(annotated ? { annotated } : {}) },
           canonicalRepo(rawRepo),
@@ -665,7 +665,7 @@ and add right after that handler (chained, inline, as every route here is):
         });
       })
 ```
-Drop `EvidenceImageKey` from the imports; the `/evidence/:key` real branch casts `key as EvidenceTextKey`.
+Import `runEvidenceAt` beside `runEvidence`. Drop `EvidenceImageKey` from the imports; the `/evidence/:key` real branch casts `key as EvidenceTextKey`. In `fixtureRoutes.test.ts`'s `vi.mock`, add `runEvidenceAt: vi.fn(daemon)` beside `runEvidence`.
 
 - [ ] **Step 7: Run to verify they pass**
 
