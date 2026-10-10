@@ -1,4 +1,4 @@
-import type { LaunchdService } from '../../core/discover.ts';
+import { checkHealth, type LaunchdService } from '../../core/discover.ts';
 import { getLive } from '../../core/settings.ts';
 import { liveProcessIds, type LiveKind } from '../registry/deck-manifest.ts';
 import { isMattstackOwned, type AppRecord } from '../registry/records.ts';
@@ -35,11 +35,14 @@ export interface LiveRowFields {
   liveBlocked?: string | null;
 }
 
-export function liveRowFields(
+/** A server or ui is up when its port answers; a worker has no port, so its process decides. */
+export async function liveRowFields(
   record: AppRecord | undefined,
   opts: { devMode: boolean; local: boolean },
-  services: LaunchdService[]
-): LiveRowFields {
+  services: LaunchdService[],
+  portUp: (port: number) => Promise<boolean> = async port =>
+    (await checkHealth(port)).ok
+): Promise<LiveRowFields> {
   if (!record || !opts.devMode || !opts.local) return {};
   if (!isMattstackOwned(record) || isPlatformManagedBy(record.managedBy))
     return {};
@@ -52,7 +55,7 @@ export function liveRowFields(
       log: setup.log,
     };
   const state = getLive(record.name);
-  const sharedRoot = sharedRootFor(record);
+  const sharedRoot = state ? sharedRootFor(record) : null;
   const dir =
     state && sharedRoot ? appDirIn(record, state.source, sharedRoot) : null;
   if (state && sharedRoot && dir) {
@@ -65,20 +68,27 @@ export function liveRowFields(
       startedAt: state.startedAt,
       uiPort: state.uiPort ?? null,
       movedFrom: state.movedFrom ?? null,
-      processes: live.map((p, i) => ({
-        id: ids[i]!,
-        kind: p.kind,
-        command: p.start,
-        port:
-          p.kind === 'server'
-            ? record.port
-            : p.kind === 'ui'
-              ? (state.uiPort ?? null)
-              : null,
-        running:
-          services.find(s => s.label === liveLabel(record.name, ids[i]!))
-            ?.pid != null,
-      })),
+      processes: await Promise.all(
+        live.map(async (p, i) => {
+          const port =
+            p.kind === 'server'
+              ? record.port
+              : p.kind === 'ui'
+                ? (state.uiPort ?? null)
+                : null;
+          return {
+            id: ids[i]!,
+            kind: p.kind,
+            command: p.start,
+            port,
+            running:
+              port !== null
+                ? await portUp(port)
+                : services.find(s => s.label === liveLabel(record.name, ids[i]!))
+                    ?.pid != null,
+          };
+        })
+      ),
     };
     return out;
   }

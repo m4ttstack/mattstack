@@ -351,10 +351,11 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
       const owned = record?.managedBy != null && record.managedBy !== 'user';
       const displayTld = publicDomain ?? (owned ? MATTSTACK_TLD : 'localhost');
       const identity = record && effectiveIdentity(record);
-      const liveFields = liveRowFields(
+      const liveFields = await liveRowFields(
         record,
         { devMode: !!opts.devMode, local: opts.local },
-        services
+        services,
+        async port => (port === a.port ? health.ok : (await checkHealth(port)).ok)
       );
       const isLive = liveFields.live !== undefined;
       const commands = record
