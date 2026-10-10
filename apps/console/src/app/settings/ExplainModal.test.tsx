@@ -561,9 +561,7 @@ describe('ExplainModal', () => {
 
     await clickNamedLayerAction('set rt.notify.eventBridges at user');
     const layer = screen.getByTestId('layer-user');
-    expect(
-      within(layer).getByText('Saves to user')
-    ).toBeInTheDocument();
+    expect(within(layer).getByText('Saves to user')).toBeInTheDocument();
     expect(within(layer).getByRole('textbox', { name: 'JSON' })).toHaveValue(
       '[]'
     );
@@ -788,9 +786,7 @@ describe('with a repo picked', () => {
     );
 
     const layer = await screen.findByTestId('layer-team.repo');
-    expect(
-      within(layer).getByText('Saves to team · repo')
-    ).toBeInTheDocument();
+    expect(within(layer).getByText('Saves to team · repo')).toBeInTheDocument();
     expect(within(layer).getByRole('button', { name: 'Save' })).toBeDisabled();
     await waitFor(() =>
       expect(

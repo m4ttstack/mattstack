@@ -172,8 +172,8 @@ final class SetupFlowUITests: XCTestCase {
         el("setup.team.create.name").click()
         el("setup.team.create.name").typeText("Acme Claims")
         XCTAssertTrue(app.staticTexts["Slug: acme-claims"].waitForExistence(timeout: 3))
-        // The stub always answers `setup github status` as ready, so
-        // TeamChoiceModel.loadGitHubStatus() flips useGhRepo on and the
+        // The stub always answers `setup github status` as ready with a
+        // handle, so TeamChoiceModel.loadGitHubStatus() flips useGhRepo on and the
         // plain remote-URL field never renders; canContinue is already
         // satisfied by the detected GitHub handle alone.
         waitFor("setup.team.create.useGh")
