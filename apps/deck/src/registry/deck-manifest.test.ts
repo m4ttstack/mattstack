@@ -9,6 +9,7 @@ import {
   readDeckManifest,
   resolveServeShape,
   startArgv,
+  type LiveProcess,
 } from './deck-manifest.ts';
 
 function repo(files: Record<string, string>): string {
@@ -414,8 +415,11 @@ test('rejects a non-boolean requiresTeam', () => {
   });
 });
 
-const SERVER = { kind: 'server', start: 'bun --watch src/server/index.ts' };
-const UI = { kind: 'ui', start: 'vite --port $PORT --strictPort' };
+const SERVER: LiveProcess = {
+  kind: 'server',
+  start: 'bun --watch src/server/index.ts',
+};
+const UI: LiveProcess = { kind: 'ui', start: 'vite --port $PORT --strictPort' };
 
 test('reads a valid live list', () => {
   const dir = repo({
