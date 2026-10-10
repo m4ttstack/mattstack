@@ -1,4 +1,4 @@
-import { composeServicePath, resolveProgram } from '../services/exec-env.ts';
+import { composeCommandPath, resolveProgram } from '../services/exec-env.ts';
 
 export interface SetupRun {
   source: string;
@@ -45,13 +45,13 @@ async function pump(
   if (buf) onLine(buf);
 }
 
-/** Spawns with deck's composed PATH: launchd starts deck on a bare one. */
+/** Command-run PATH: the bundle's bun cannot load the native addons postinstall needs, so the user's bun wins. */
 async function defaultRun(
   cmd: string[],
   cwd: string,
   onLine: (line: string) => void
 ): Promise<number> {
-  const path = composeServicePath();
+  const path = composeCommandPath();
   const program = resolveProgram(cmd[0]!, path);
   if (!program) throw new Error(`${cmd[0]} not found on the service PATH`);
   const proc = Bun.spawn([program, ...cmd.slice(1)], {
