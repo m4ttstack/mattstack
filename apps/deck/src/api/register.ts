@@ -944,6 +944,20 @@ export async function editApp(
     };
   }
 
+  // Live state and the `.live.*` labels are keyed by the app's name and run
+  // from its dev link: a rename or an unlink would leave the running processes
+  // orphaned while the next reconcile tick installs a second set.
+  if (getLive(record.name)) {
+    const renames = patch.name !== undefined && patch.name !== record.name;
+    const unlinks = patch.dev === null;
+    const relinksToMissing =
+      patch.dev != null &&
+      (typeof patch.dev.workingDirectory !== 'string' ||
+        !existsSync(patch.dev.workingDirectory));
+    if (renames || unlinks || relinksToMissing)
+      return { status: 409, body: { error: 'stop live first' } };
+  }
+
   // Computed from the patch's own keys, not a hand-listed set of the other
   // fields: a future patch field must not be silently swept into this carve-out.
   const devOnly =

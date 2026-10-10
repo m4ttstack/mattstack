@@ -58,6 +58,9 @@ const {
   getOverride,
   setPublicFollowsOverride,
   reloadSettings,
+  getLive,
+  setLive,
+  clearLive,
 } = await import('../../core/settings.ts');
 const { setOAuth, getOAuth, reloadOAuth } = await import('../edge/oauth.ts');
 const { adoptApp } = await import('./register.ts');
@@ -877,6 +880,103 @@ test('edit: dev: null unlinks', async () => {
 
   expect(res.status).toBe(200);
   expect(getRecord('myapp')!.dev).toBeUndefined();
+});
+
+function linkedDir(name: string): string {
+  const d = mkdtempSync(join(tmpdir(), 'dev-link-'));
+  writeFileSync(join(d, 'mattstack.deck.json'), JSON.stringify({ name }));
+  return d;
+}
+const liveState = { source: '/x', branch: 'main', startedAt: 't' };
+
+test('edit: a rename is refused while the app is live, leaving state and labels alone', async () => {
+  await registerApp(input, drivers);
+  setLive('myapp', liveState);
+
+  const res = await editApp(
+    'myapp',
+    { name: 'renamed' },
+    'user',
+    false,
+    drivers
+  );
+
+  expect(res).toEqual({ status: 409, body: { error: 'stop live first' } });
+  expect(getRecord('myapp')).toBeDefined();
+  expect(getRecord('renamed')).toBeUndefined();
+  expect(getLive('myapp')).toEqual(liveState);
+  expect(getLive('renamed')).toBeUndefined();
+  expect(drivers.manager.installed.has('com.mattstack.deck.renamed')).toBe(
+    false
+  );
+  clearLive('myapp');
+});
+
+test('adopt --as is refused while the app is live', async () => {
+  await registerApp({ ...input, name: 'mrs' }, drivers);
+  setLive('mrs', liveState);
+
+  const res = await adoptApp('mrs', { as: 'board' }, drivers);
+
+  expect(res).toEqual({ status: 409, body: { error: 'stop live first' } });
+  expect(getRecord('mrs')).toBeDefined();
+  expect(getRecord('board')).toBeUndefined();
+  expect(getLive('mrs')).toEqual(liveState);
+  clearLive('mrs');
+});
+
+test('edit: unlinking and relinking to a missing dir are refused while live; a relink to a real dir still works', async () => {
+  await registerApp(input, drivers);
+  const first = linkedDir('myapp');
+  await editApp(
+    'myapp',
+    { dev: { workingDirectory: first } },
+    'user',
+    false,
+    drivers
+  );
+  setLive('myapp', liveState);
+
+  const unlink = await editApp('myapp', { dev: null }, 'user', false, drivers);
+  const missing = await editApp(
+    'myapp',
+    { dev: { workingDirectory: join(dir, 'nope') } },
+    'user',
+    false,
+    drivers
+  );
+  expect(unlink).toEqual({ status: 409, body: { error: 'stop live first' } });
+  expect(missing).toEqual({ status: 409, body: { error: 'stop live first' } });
+  expect(getRecord('myapp')!.dev).toEqual({ workingDirectory: first });
+
+  const second = linkedDir('myapp');
+  const relink = await editApp(
+    'myapp',
+    { dev: { workingDirectory: second } },
+    'user',
+    false,
+    drivers
+  );
+  expect(relink.status).toBe(200);
+  expect(getRecord('myapp')!.dev).toEqual({ workingDirectory: second });
+  clearLive('myapp');
+});
+
+test('edit: a rename goes through once live is stopped', async () => {
+  await registerApp(input, drivers);
+  setLive('myapp', liveState);
+  clearLive('myapp');
+
+  const res = await editApp(
+    'myapp',
+    { name: 'renamed' },
+    'user',
+    false,
+    drivers
+  );
+
+  expect(res.status).toBe(200);
+  expect(getRecord('renamed')).toBeDefined();
 });
 
 // ─── editApp: the platform's own record takes a record-only dev path ──────
