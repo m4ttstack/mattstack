@@ -49,6 +49,7 @@ The button on the right of the top bar always offers the next sensible remote st
 
 - When the branch has diverged, one Pull button shows both counts. There is no combined pull-and-push step.
 - When the remote rejects a push because it has commits your branch lacks, glitter opens Newer Commits on Remote. Its Fetch fetches those commits, and the button then offers Pull.
+- When your uncommitted changes block a pull, glitter opens an Error dialog. It lists the files the pull would overwrite when git names them. **Stash Changes and Continue** stashes them on the branch and runs the pull again. If the branch already has a stash, the only choice is **Close**.
 - When `pull.rebase` is set, it reads "Pull origin with rebase".
 - On a detached HEAD it reads "Detached HEAD", and `f` refuses with a notice.
 - Publish repository asks for a name, then private or public. Type `owner/name` to publish to an organization. It runs `gh repo create`, so the GitHub CLI must be signed in.
