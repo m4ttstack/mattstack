@@ -27,6 +27,7 @@ import { setRoutePort } from '../../core/routes-writer.ts';
 import {
   clearOverride,
   clearPassword,
+  getLive,
   getOverride,
   setOverride,
   setPassword,
@@ -870,6 +871,8 @@ async function applyOverride(
 ): Promise<[unknown, number]> {
   if (!getRecord(app) && !knownRouteApp(app))
     return [{ error: 'unknown app' }, 404];
+  if (getLive(app))
+    return [{ error: 'live mode owns this route; stop live first' }, 409];
   const curRoute = readRoutes().find(
     r => bareName(r.hostname, getPlatformSettings().tlds) === app
   );

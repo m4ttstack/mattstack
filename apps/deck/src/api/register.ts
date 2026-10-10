@@ -10,7 +10,9 @@ import {
 } from '../../core/discover.ts';
 import { removeRoutes } from '../../core/routes-writer.ts';
 import {
+  clearLive,
   clearOverride,
+  getLive,
   getOverride,
   renameAppSettings,
 } from '../../core/settings.ts';
@@ -20,6 +22,7 @@ import type { EdgeProxy } from '../edge/portless.ts';
 import type { RailwayDriver } from '../edge/railway.ts';
 import { disableRemote } from '../edge/remote.ts';
 import type { TunnelDriver } from '../edge/tunnel.ts';
+import { installLive, uninstallLive, type LiveDeps } from '../live/engine.ts';
 import { allocatePort } from '../registry/allocate.ts';
 import {
   MATTSTACK_REGISTRAR,
@@ -113,6 +116,11 @@ const NAME_RE = /^[a-z0-9][a-z0-9.-]*$/;
 export let serveShapeDeps: ServeShapeDeps = {};
 export function setServeShapeDeps(deps: ServeShapeDeps): void {
   serveShapeDeps = deps;
+}
+
+export let liveSweepDeps: LiveDeps = {};
+export function setLiveSweepDeps(deps: LiveDeps): void {
+  liveSweepDeps = deps;
 }
 
 interface BuiltSpec {
@@ -709,6 +717,30 @@ async function sweepManagedApps(drivers: Drivers): Promise<FlowResult> {
       }
       clearIssues(record.name, 'launchd');
       disabled.push(record.name);
+      continue;
+    }
+    const live = getLive(record.name);
+    if (live && !flavor.dev) {
+      await uninstallLive(record.name, drivers.manager, liveSweepDeps);
+      clearLive(record.name);
+    } else if (live) {
+      const issue = await runDriver('launchd', () =>
+        drivers.manager.uninstall(record.label!)
+      );
+      const err =
+        issue?.message ??
+        (await installLive(record, live, drivers.manager, liveSweepDeps));
+      if (err) {
+        addIssue(record.name, {
+          source: 'launchd',
+          message: err,
+          at: new Date().toISOString(),
+        });
+        failed.push({ name: record.name, error: err });
+      } else {
+        clearIssues(record.name, 'launchd');
+        unchanged.push(record.name);
+      }
       continue;
     }
     const shape = serveShape(record, serveShapeDeps);

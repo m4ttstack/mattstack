@@ -1,3 +1,4 @@
+import { isDevMode } from '../src/api/dev-mode.ts';
 import { getPlatformSettings } from '../src/api/platform-settings.ts';
 import { CfDnsApi, resolveCfDns, type CfDns } from '../src/edge/cf-dns.ts';
 import { defaultCfDir, resolveCloudflared } from '../src/edge/domain.ts';
@@ -6,6 +7,7 @@ import { RailwayCli } from '../src/edge/railway.ts';
 import { reconcileRemote } from '../src/edge/remote.ts';
 import { readDeckSecrets } from '../src/edge/rt-secrets.ts';
 import { CloudflaredCli } from '../src/edge/tunnel.ts';
+import { reconcileLive } from '../src/live/reconcile.ts';
 import { listRecords } from '../src/registry/records.ts';
 import { LaunchdManager } from '../src/services/launchd.ts';
 import { readRoutes, readServices, type PortlessRoute } from './discover.ts';
@@ -104,6 +106,13 @@ export async function reconcileOnce(): Promise<void> {
     getOverrides()
   )) {
     setRoutePort(hostname, devPort);
+  }
+  if (isDevMode()) {
+    try {
+      await reconcileLive(new LaunchdManager());
+    } catch (err) {
+      console.error('live reconcile failed:', err);
+    }
   }
   await reconcileRemoteTick();
   await reconcileEdgeTick();
