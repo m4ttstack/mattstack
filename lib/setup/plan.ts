@@ -130,12 +130,13 @@ const INSTALL_SATISFIED_IDS = new Set(["perm.login-items", "tool.daemon", "tool.
  * cannot: the two that reach here are a pack whose source rt does not manage,
  * and (on a machine with no `claude` at all) every `pack.*` row plus
  * `tool.plugins`. Flipping any of those to required parks canInstall at false
- * with nothing the user can do about it. A `needs-you` row with no action is
+ * with nothing the user can do about it. A `needs-you` pack row with no action is
  * the same: a pack held for an app update, which Install cannot clear.
  */
 function isInstallSatisfied(r: Row): boolean {
   if (r.status === "skipped") return false;
-  if (r.status === "needs-you" && r.action === null) return false;
+  const packRow = r.id === "tool.plugins" || r.id.startsWith("pack.");
+  if (packRow && r.status === "needs-you" && r.action === null) return false;
   return INSTALL_SATISFIED_IDS.has(r.id) || r.id.startsWith("pack.");
 }
 

@@ -351,6 +351,13 @@ test("a pack held for an app update stays required:false in both modes and never
   }
 });
 
+test("a daemon row that needs you with no action, as in CI, still flips like any other Install-satisfied row", () => {
+  const daemon = row({ id: "tool.daemon", kind: "tool", title: "rt daemon", why: "x", required: false, status: "needs-you", detail: "Not running (expected in CI)", action: null });
+  const flip = (mode: "plan" | "status") => applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [daemon] }], mode)[0]!.rows[0]!;
+  expect(flip("plan").required).toBe(false);
+  expect(flip("status").required).toBe(true);
+});
+
 function gatedRow(status: Row["status"]): Row {
   return row({
     id: "tool.fast-browser-extension",
