@@ -904,6 +904,38 @@ describe("MissionDriver: real remote name, pull.rebase, and guards", () => {
     await new MissionDriver(deps, START).run();
 
     expect(calls).toEqual(["pull"]);
+    // Busy while it checks, then a fresh model, even though it stashed nothing.
+    expect((session.pushed as MissionModel[]).filter((m) => m.action.kind === "busy")).toHaveLength(2);
+  });
+
+  test("the retry is one-shot: a second Stash Changes and Continue does nothing", async () => {
+    const calls: string[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:action" },
+      { t: "intent", name: "mission:stash-and-retry" },
+      { t: "intent", name: "mission:stash-and-retry" },
+      { t: "intent", name: "quit" },
+    ]);
+    const client = makeFakeClient({ snapshot: async () => dirtyBehind() });
+    client.createDesktopStashEntry = async () => {
+      calls.push("stash");
+      return true;
+    };
+    let failed = false;
+    const deps = baseDeps({
+      session,
+      client,
+      runAction: async (_cwd, kind) => {
+        calls.push(kind);
+        if (failed) return { ok: true, detail: "" };
+        failed = true;
+        return { ok: false, detail: "", localChangesOverwritten: { files: ["a.txt"] } };
+      },
+    });
+
+    await new MissionDriver(deps, START).run();
+
+    expect(calls).toEqual(["pull", "stash", "pull"]);
   });
 
   test("publishing runs gh behind the busy state, then refreshes into the pushed repo", async () => {

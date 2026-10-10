@@ -99,17 +99,19 @@ export function deriveAction(input: {
 }
 
 // git closes many failures with a generic line ("Merge with strategy ort
-// failed.", a hint), so the first error or fatal line is the reason, with
-// the files it lists when it ends in one.
-function failureDetail(stderr: string): string {
+// failed.", a hint), so the reason is an error line listing the files in the
+// way, else the first fatal line (an askpass error comes before the fatal
+// line that names the real cause), else the first error line.
+export function failureDetail(stderr: string): string {
   const lines = stderr
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  const errorLine = lines.find((line) => /^(error|fatal): /.test(line));
-  if (errorLine === undefined) return lines.length > 0 ? lines[lines.length - 1]! : "";
-  const files = errorLine.endsWith(":") ? parseFilesToBeOverwritten(stderr) : [];
-  return files.length > 0 ? `${errorLine} ${files.join(", ")}` : errorLine;
+  const files = parseFilesToBeOverwritten(stderr);
+  const filesLine = lines.find((line) => line.startsWith("error:") && line.includes("files would be overwritten") && line.endsWith(":"));
+  if (filesLine !== undefined && files.length > 0) return `${filesLine} ${files.join(", ")}`;
+  const reason = lines.find((line) => line.startsWith("fatal: ")) ?? lines.find((line) => line.startsWith("error: "));
+  return reason ?? (lines.length > 0 ? lines[lines.length - 1]! : "");
 }
 
 async function spawnGitStderr(cwd: string, args: string[]): Promise<{ ok: boolean; stderr: string }> {

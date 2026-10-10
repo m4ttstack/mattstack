@@ -5,7 +5,48 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scrubGitEnv } from "../../../packages/git-core/src/exec.ts";
 import type { GitWorktreeBadge } from "../../../packages/rt-client/src/commands.ts";
-import { deriveAction, publishRepo, runAction } from "../git-actions.ts";
+import { deriveAction, failureDetail, parseFilesToBeOverwritten, publishRepo, runAction } from "../git-actions.ts";
+
+describe("parseFilesToBeOverwritten (GHD's port)", () => {
+  test("reads the tab-indented list under the error line and stops at the first unindented line", () => {
+    const stderr = "error: Your local changes to the following files would be overwritten by merge:\n\ta.txt\n\tdir/b.txt\nPlease commit your changes or stash them before you merge.\n\tnot-a-file\nAborting\n";
+    expect(parseFilesToBeOverwritten(stderr)).toEqual(["a.txt", "dir/b.txt"]);
+  });
+
+  test("ignores an error line that is not about files being overwritten", () => {
+    expect(parseFilesToBeOverwritten("error: The following untracked working tree files would be removed by merge:\n\ta.txt\n")).toEqual([]);
+  });
+});
+
+describe("failureDetail", () => {
+  test("prefers git's fatal line over an earlier error line that lists no files", () => {
+    const stderr = "error: unable to read askpass response from '/usr/bin/askpass'\nfatal: could not read Username for 'https://example.com': Device not configured\n";
+    expect(failureDetail(stderr)).toBe("fatal: could not read Username for 'https://example.com': Device not configured");
+  });
+
+  test("keeps an error line that lists files, with its files", () => {
+    const stderr = "error: The following untracked working tree files would be overwritten by merge:\n\tnew.txt\nPlease move or remove them before you merge.\nAborting\nMerge with strategy ort failed.\n";
+    expect(failureDetail(stderr)).toBe("error: The following untracked working tree files would be overwritten by merge: new.txt");
+  });
+
+  test("falls back to the last line when git printed no error or fatal line", () => {
+    expect(failureDetail("hint: one\nsomething went wrong\n")).toBe("something went wrong");
+  });
+});
+
+describe("runAction: fetch failures", () => {
+  test("a fetch from a missing remote reports git's fatal line, not its closing advice", async () => {
+    const sb = await makeSandbox();
+    try {
+      await sb.git(["remote", "add", "origin", join(sb.dir, "..", "missing.git")]);
+      const fetched = await runAction(sb.dir, "fetch", { remote: "origin", branch: "main" });
+      expect(fetched.ok).toBe(false);
+      expect(fetched.detail).toStartWith("fatal: ");
+    } finally {
+      await sb.cleanup();
+    }
+  });
+});
 
 // Local mirror of packages/git-core/test-support/sandbox.ts: this module
 // stays standalone (no cross-package test import), and every spawn pins

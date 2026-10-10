@@ -949,23 +949,22 @@ export class MissionDriver {
     const retry = this.localChangesRetry;
     this.localChangesRetry = null;
     if (retry === null) return;
-    const client = this.deps.client(this.state.currentWorktree);
-    this.snapshot = await client.snapshot();
-    const branch = this.snapshot.branch;
-    if (branch === null || !canStash(this.snapshot)) return;
-    if ((await client.lastDesktopStashEntryForBranch(branch)) !== null) return;
-    let created: boolean;
-    try {
-      created = await client.createDesktopStashEntry(branch, untrackedPaths(this.snapshot));
-    } catch (err) {
-      this.notify(err instanceof Error ? err.message : String(err));
-      await this.refresh();
-      this.push();
-      return;
-    }
-    if (!created) return;
+    const cwd = this.state.currentWorktree;
+    const client = this.deps.client(cwd);
+    const nothingDone: ActionResult = { ok: true, detail: "" };
     await this.runBusy(
-      () => this.deps.runAction(this.state.currentWorktree, retry, { remote: this.remoteName ?? undefined, branch }),
+      async () => {
+        const snapshot = await client.snapshot();
+        const branch = snapshot.branch;
+        if (branch === null || !canStash(snapshot)) return nothingDone;
+        if ((await client.lastDesktopStashEntryForBranch(branch)) !== null) return nothingDone;
+        try {
+          if (!(await client.createDesktopStashEntry(branch, untrackedPaths(snapshot)))) return nothingDone;
+        } catch (err) {
+          return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+        }
+        return this.deps.runAction(cwd, retry, { remote: this.remoteName ?? undefined, branch });
+      },
       undefined,
       retry,
     );
