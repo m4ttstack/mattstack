@@ -93,6 +93,47 @@ describe("runs handlers", () => {
     expect(Buffer.from(r.data.base64, "base64").equals(PNG)).toBe(true);
   });
 
+  test("runs:evidence addresses a v2 image by case, slot, theme and variant", async () => {
+    const dir = root();
+    const tree = mkdtempSync(join(tmpdir(), "rt-tree-"));
+    const PNG2 = Buffer.concat([PNG, Buffer.from([1])]);
+    writeFileSync(join(tree, "b.png"), PNG);
+    writeFileSync(join(tree, "b-ann.png"), PNG2);
+    writeFileSync(join(tree, "dark.png"), PNG);
+    const value = {
+      v: 2,
+      cases: [{ id: "c1", label: "C", before: { path: join(tree, "b.png"), annotated: join(tree, "b-ann.png"), caption: "x" }, after: { dark: { path: join(tree, "dark.png"), waiver: "w" } } }],
+    };
+    seedRun(dir, "remote:alpha", "v2-1", 1000, 1, { fields: [{ key: "worktree", value: tree }, { key: "evidence", value: JSON.stringify(value) }] });
+    const h = createRunsHandlers({ log } as any, noEmit, { isRunTree: (p, repo) => p === tree && repo === "remote:alpha" });
+    const call = (p: object) => (h["runs:evidence"] as any)({ runId: "v2-1", ...p });
+    const base = await call({ case: "c1", slot: "before" });
+    expect(Buffer.from(base.data.base64, "base64").equals(PNG)).toBe(true);
+    const ann = await call({ case: "c1", slot: "before", annotated: true });
+    expect(Buffer.from(ann.data.base64, "base64").equals(PNG2)).toBe(true);
+    expect((await call({ case: "c1", slot: "after", theme: "dark" })).ok).toBe(true);
+    expect((await call({ case: "c1", slot: "after" })).error).toBe("theme required: this slot has light and dark images");
+    expect((await call({ case: "c1", slot: "before", theme: "light" })).error).toBe("this slot has no themes");
+    expect((await call({ case: "c1", slot: "after", theme: "light" })).error).toBe("no evidence");
+    expect((await call({ case: "c1", slot: "middle" })).error).toBe("bad address");
+    expect((await call({ case: "c1", slot: "before", theme: "sepia" })).error).toBe("bad address");
+    expect((await call({ case: 3, slot: "before" })).error).toBe("bad address");
+    expect((await call({ case: "c1", slot: "before", annotated: "yes" })).error).toBe("bad address");
+  });
+
+  test("runs:evidence addresses a v1 value as case 'case', and key addressing is unchanged", async () => {
+    const dir = root();
+    const tree = mkdtempSync(join(tmpdir(), "rt-tree-"));
+    writeFileSync(join(tree, "before.png"), PNG);
+    seedRun(dir, "remote:alpha", "v1-1", 1000, 1, { fields: [
+      { key: "worktree", value: tree },
+      { key: "evidence", value: JSON.stringify({ v: 1, before: join(tree, "before.png") }) },
+    ] });
+    const h = createRunsHandlers({ log } as any, noEmit, { isRunTree: (p, repo) => p === tree && repo === "remote:alpha" });
+    expect((await (h["runs:evidence"] as any)({ runId: "v1-1", case: "case", slot: "before" })).ok).toBe(true);
+    expect((await (h["runs:evidence"] as any)({ runId: "v1-1", key: "before" })).ok).toBe(true);
+  });
+
   test("runs:evidence does not admit a self-reported worktree that is not registered", async () => {
     const dir = root();
     const tree = mkdtempSync(join(tmpdir(), "rt-tree-"));

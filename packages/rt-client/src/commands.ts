@@ -4,7 +4,7 @@
  * its functions against this map so a new command only needs an entry here
  * plus one function, never a change to the transport itself.
  */
-import type { EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
+import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
 import type { PullRequest, MRDetail, Pipeline, PipelineJob } from "@mattstack/glance";
 
 export type Discussion = MRDetail["discussions"][number];
@@ -775,7 +775,7 @@ export interface Commands {
   "runs:list": { payload: { repo?: string }; data: { runs: RunSummary[] } };
   "runs:get": { payload: { runId: string; repo?: string }; data: RunDetail };
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
-  "runs:evidence": { payload: { runId: string; repo?: string; key: EvidenceImageKey | EvidenceTextKey }; data: { mime: string; base64?: string; text?: string } };
+  "runs:evidence": { payload: { runId: string; repo?: string } & ({ key: EvidenceImageKey | EvidenceTextKey } | EvidenceAddress); data: { mime: string; base64?: string; text?: string } };
   "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
   "chat:leave": { payload: { room: string; handle: string }; data: Record<string, never> };
   /** `others` counts the room's members besides the author, so a caller can tell "woke nobody of 7" from "nobody else is here". */
