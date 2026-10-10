@@ -57,11 +57,7 @@ import {
 import { serviceEnv } from '../registry/service-env.ts';
 import { composeServicePath, resolveProgram } from '../services/exec-env.ts';
 import type { DeckOwner } from '../services/helper-owner.ts';
-import {
-  readInstalledEnvironment,
-  readInstalledProgramArguments,
-  readInstalledWorkingDirectory,
-} from '../services/launchd.ts';
+import { installedMatches } from '../services/installed.ts';
 import {
   isPlatformManagedBy,
   LABEL_PREFIX,
@@ -70,7 +66,6 @@ import {
   type ServiceManager,
   type ServiceSpec,
 } from '../services/manager.ts';
-import { renderedEnvironment } from '../services/plist.ts';
 import { getPlatformSettings } from './platform-settings.ts';
 import { logsDir } from './state.ts';
 import { safeRecord } from './status.ts';
@@ -173,16 +168,6 @@ function ensureWorkingDirectory(record: AppRecord, cwd: string): boolean {
 
 function specFor(record: AppRecord, shape: ResolvedShape): ServiceSpec {
   return buildSpec(record, shape).spec;
-}
-
-function sameEnvironment(
-  a: Record<string, string>,
-  b: Record<string, string>
-): boolean {
-  const keys = Object.keys(a);
-  return (
-    keys.length === Object.keys(b).length && keys.every(k => a[k] === b[k])
-  );
 }
 
 /**
@@ -809,19 +794,6 @@ async function sweepManagedApps(drivers: Drivers): Promise<FlowResult> {
       failed,
     },
   };
-}
-
-function installedMatches(label: string, spec: ServiceSpec): boolean {
-  const installed = readInstalledProgramArguments(label);
-  const installedEnv = readInstalledEnvironment(label);
-  return (
-    installed !== null &&
-    installed.length === spec.programArguments.length &&
-    installed.every((a, i) => a === spec.programArguments[i]) &&
-    readInstalledWorkingDirectory(label) === spec.workingDirectory &&
-    installedEnv !== null &&
-    sameEnvironment(installedEnv, renderedEnvironment(spec))
-  );
 }
 
 /**
