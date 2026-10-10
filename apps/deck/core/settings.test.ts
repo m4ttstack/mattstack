@@ -530,8 +530,6 @@ test('store key present: renameAppSettings carries published/publicFollowsOverri
   expect(getPublicFollowsOverride('new-name')).toBe(true);
 });
 
-// ─── live state (deck live mode, Task 4) ─────────────────────────────────────
-
 const LIVE = {
   source: '/tmp/wt/console-runs-3',
   branch: 'console-runs-3',
