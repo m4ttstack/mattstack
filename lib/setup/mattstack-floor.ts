@@ -2,7 +2,7 @@ import { join } from "path";
 import { stripJsonc } from "../jsonc.ts";
 import { readFloor, type Floor } from "../engine-floor.ts";
 import type { ExecResult, Probes } from "./probes.ts";
-import { parseMarketplaceList } from "./steps/plugins.ts";
+import { parseMarketplaceList } from "./marketplace-list.ts";
 
 /**
  * The engine floor the mattstack plugin's catalog entry publishes, read from

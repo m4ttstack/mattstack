@@ -20,7 +20,8 @@ import { ADMIT_UNFLOORED, installArgs } from "../plugin-calls.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { readSetupState, updateSetupState, type PendingMarketplaceMove } from "../state.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
-import { claudeMessage, parseMarketplaceList } from "./plugins.ts";
+import { parseMarketplaceList } from "../marketplace-list.ts";
+import { claudeMessage } from "./plugins.ts";
 
 export interface MarketplaceOutcome {
   state: "done" | "skipped" | "partial";
