@@ -32,7 +32,7 @@ import { createRealProbes } from "../setup/probes.ts";
 import type { SessionIntent } from "../ui/protocol.ts";
 import type { SessionHandle } from "../ui/spawn.ts";
 import type { listWorktreesAsync, WorktreeEntry } from "../worktree/git-async.ts";
-import { deriveAction, type ActionKind, type ActionState, type RunnableAction } from "./git-actions.ts";
+import { deriveAction, type ActionKind, type ActionResult, type ActionState, type RunnableAction } from "./git-actions.ts";
 import { HistoryStore, type HistoryBranch } from "./history.ts";
 import { refreshIndicator } from "./indicator-refresh.ts";
 import { IndicatorUpdater } from "./indicator-updater.ts";
@@ -324,6 +324,9 @@ export class MissionDriver {
   private switchSeq = 0;
   private publishSeq = 0;
   private pushNeedsPullSeq = 0;
+  private localChangesSeq = 0;
+  /** GHD's retryAction: the pull the local changes dialog's Stash Changes and Continue reruns. */
+  private localChangesRetry: RunnableAction | null = null;
   /** Count, not a boolean: two syncHistory() calls can overlap (a tab-open racing a concurrent badge sync), and one completing/discarding itself must not clear the indicator while the other is still genuinely in flight. */
   private historySyncs = 0;
   /** See MissionDeps.resolveEditor for when this is re-read. */
@@ -359,6 +362,7 @@ export class MissionDriver {
       switchPrompt: null,
       publishPrompt: null,
       pushNeedsPullPrompt: null,
+      localChangesPrompt: null,
       tab: "changes",
     };
     this.updater = new IndicatorUpdater({
@@ -779,6 +783,9 @@ export class MissionDriver {
       case "mission:action":
         await this.handleAction();
         break;
+      case "mission:stash-and-retry":
+        await this.handleStashAndRetry();
+        break;
       case "mission:fetch":
         await this.runBusy(() => this.deps.runAction(this.state.currentWorktree, "fetch", { remote: this.remoteName ?? undefined, branch: this.snapshot.branch }));
         break;
@@ -892,6 +899,7 @@ export class MissionDriver {
       () => {
         if (kind === "push" || kind === "force-push") this.state.forcePushRecommended = false;
       },
+      kind,
     );
   }
 
@@ -906,16 +914,21 @@ export class MissionDriver {
    * either way it refreshes, since a failure can still change the repo (gh
    * adds origin before the push that fails, so remoteName moves).
    */
-  private async runBusy(run: () => Promise<{ ok: boolean; detail: string; pushNeedsPull?: boolean }>, onOk?: () => void): Promise<void> {
+  private async runBusy(run: () => Promise<ActionResult>, onOk?: () => void, retry?: RunnableAction): Promise<void> {
     this.state.busyAction = true;
     this.recomputeAction();
     this.push();
     try {
       const result = await run();
-      this.notify(result.ok || result.pushNeedsPull ? "" : result.detail);
+      const blocked = result.localChangesOverwritten;
+      this.notify(result.ok || result.pushNeedsPull || (blocked && retry) ? "" : result.detail);
       if (result.ok) onOk?.();
       await this.refresh();
       if (result.pushNeedsPull) this.state.pushNeedsPullPrompt = { seq: ++this.pushNeedsPullSeq };
+      if (blocked && retry) {
+        this.localChangesRetry = retry;
+        this.state.localChangesPrompt = { seq: ++this.localChangesSeq, action: "pull", files: blocked.files };
+      }
     } finally {
       // Reached on a rejection too, so a stalled/failed action never leaves
       // the model stuck busy for the caller's error boundary to clean up.
@@ -923,7 +936,39 @@ export class MissionDriver {
       this.recomputeAction();
       this.push();
       this.state.pushNeedsPullPrompt = null;
+      this.state.localChangesPrompt = null;
     }
+  }
+
+  /**
+   * GHD LocalChangesOverwrittenDialog.onSubmit: stash for the current
+   * branch, then rerun the pull. The dialog offers only Close when the
+   * branch already has a stash, so one here means nothing to do.
+   */
+  private async handleStashAndRetry(): Promise<void> {
+    const retry = this.localChangesRetry;
+    this.localChangesRetry = null;
+    if (retry === null) return;
+    const client = this.deps.client(this.state.currentWorktree);
+    this.snapshot = await client.snapshot();
+    const branch = this.snapshot.branch;
+    if (branch === null || !canStash(this.snapshot)) return;
+    if ((await client.lastDesktopStashEntryForBranch(branch)) !== null) return;
+    let created: boolean;
+    try {
+      created = await client.createDesktopStashEntry(branch, untrackedPaths(this.snapshot));
+    } catch (err) {
+      this.notify(err instanceof Error ? err.message : String(err));
+      await this.refresh();
+      this.push();
+      return;
+    }
+    if (!created) return;
+    await this.runBusy(
+      () => this.deps.runAction(this.state.currentWorktree, retry, { remote: this.remoteName ?? undefined, branch }),
+      undefined,
+      retry,
+    );
   }
 
   /**

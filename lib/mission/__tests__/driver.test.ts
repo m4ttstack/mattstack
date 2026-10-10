@@ -823,6 +823,89 @@ describe("MissionDriver: real remote name, pull.rebase, and guards", () => {
     expect(kinds).toEqual(["fetch"]);
   });
 
+  const dirtyBehind = (): RepoSnapshot =>
+    baseSnapshot({ behind: 1, files: [{ path: "a.txt", kind: "modified" } as RepoSnapshot["files"][number]] });
+
+  test("a pull blocked by local changes opens GHD's local changes dialog with the files instead of a notice", async () => {
+    const session = new FakeSession([
+      { t: "intent", name: "mission:action" },
+      { t: "intent", name: "mission:refresh" },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      client: makeFakeClient({ snapshot: async () => dirtyBehind() }),
+      runAction: async () => ({ ok: false, detail: "error: Your local changes", localChangesOverwritten: { files: ["a.txt"] } }),
+    });
+
+    await new MissionDriver(deps, START).run();
+
+    const models = session.pushed as MissionModel[];
+    expect(models.map((m) => m.localChangesPrompt).filter((p) => p !== null)).toEqual([{ seq: 1, action: "pull", files: ["a.txt"] }]);
+    expect(models.at(-1)!.localChangesPrompt).toBeNull();
+    expect(models.some((m) => m.notice.includes("local changes"))).toBe(false);
+  });
+
+  test("Stash Changes and Continue stashes for the branch, then retries the pull that failed", async () => {
+    const calls: string[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:action" },
+      { t: "intent", name: "mission:stash-and-retry" },
+      { t: "intent", name: "quit" },
+    ]);
+    const client = makeFakeClient({
+      snapshot: async () => dirtyBehind(),
+    });
+    client.createDesktopStashEntry = async (branch) => {
+      calls.push(`stash ${branch}`);
+      return true;
+    };
+    let failed = false;
+    const deps = baseDeps({
+      session,
+      client,
+      runAction: async (_cwd, kind) => {
+        calls.push(kind);
+        if (failed) return { ok: true, detail: "" };
+        failed = true;
+        return { ok: false, detail: "", localChangesOverwritten: { files: ["a.txt"] } };
+      },
+    });
+
+    await new MissionDriver(deps, START).run();
+
+    expect(calls).toEqual(["pull", "stash main", "pull"]);
+  });
+
+  test("Stash Changes and Continue does nothing when the branch already has a stash (GHD offers only Close)", async () => {
+    const calls: string[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:action" },
+      { t: "intent", name: "mission:stash-and-retry" },
+      { t: "intent", name: "quit" },
+    ]);
+    const client = makeFakeClient({
+      snapshot: async () => dirtyBehind(),
+    });
+    client.lastDesktopStashEntryForBranch = async () => ({ name: "stash@{0}", stashSha: "abc", branchName: "main", tree: "t", parents: [] });
+    client.createDesktopStashEntry = async () => {
+      calls.push("stash");
+      return true;
+    };
+    const deps = baseDeps({
+      session,
+      client,
+      runAction: async (_cwd, kind) => {
+        calls.push(kind);
+        return { ok: false, detail: "", localChangesOverwritten: { files: [] } };
+      },
+    });
+
+    await new MissionDriver(deps, START).run();
+
+    expect(calls).toEqual(["pull"]);
+  });
+
   test("publishing runs gh behind the busy state, then refreshes into the pushed repo", async () => {
     const published: { cwd: string; name: string; private: boolean }[] = [];
     let remotes: { name: string }[] = [];
