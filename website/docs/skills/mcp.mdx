@@ -103,6 +103,8 @@ It reads only png, jpg, jpeg, gif, webp, mp4, mov or webm files up to 50 MB whos
 rt settings set rt.mcp.uploadRoots '["/Users/you/Screenshots"]' --scope machine
 ```
 
+`mr_upload` also takes a pipeline run's `runId`. With it, the tool refuses a file that the run's evidence record does not list as an annotated image or a waived capture, and the refusal names the file.
+
 ### Git
 
 Each git tool takes `tree`, the absolute path of the root of a checkout or worktree of a repo registered with rt. Anything else (an unregistered repo, a directory inside a tree) is refused before git runs.

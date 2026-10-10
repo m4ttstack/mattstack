@@ -16,6 +16,12 @@ rt -V
 
 Prints the installed version (`rt <version>`) and exits.
 
+```bash
+rt --version --json
+```
+
+Prints one JSON line instead: `rt` is the version, `engine` is the mattstack engine this rt runs (`null` when it cannot tell), and `flavor` is `prod` or `dev`. A team pack can need a newer engine than yours; see [Teams and invites](/start/teams#a-pack-that-needs-a-newer-app).
+
 ## `--help` / `-h`
 
 ```bash

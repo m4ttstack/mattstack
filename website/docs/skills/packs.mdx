@@ -58,9 +58,13 @@ The skill sorts the ask into one of four places:
 
 For the lint example, you see a failing run first, with nothing running lint. Then a small fill skill written in your team's words is bound to the ship stage, `tests/certify.sh` and `rt skills check` pass, and the same task runs again with lint blocking the push. Publishing goes through `mattstack:editing-skills`: bump the pack version, commit, push, `rt skills sync --pack widgets`, `/reload-plugins`. A rule is undone the same way: remove the binding and the fill, bump, publish.
 
+## When a pack needs a newer app
+
+`rt skills compile` writes the floor of the mattstack engine it compiled against into the pack's `pack/requires.json`. The floor is the oldest mattstack app that can run the pack. A teammate whose app is older keeps the pack version they have, or gets none yet, until they update the app; see [Teams and invites](/start/teams#a-pack-that-needs-a-newer-app). `rt skills check` reports a missing or stale `pack/requires.json` as drift. `rt skills init` stops when your own app is older than the floor, and tells you to update the app first.
+
 ## What not to do
 
-- Do not edit `skills/work/`, `attachments/stage-*/` or an attachment folder holding `compiled.json`: compiled output, overwritten on the next compile.
+- Do not edit `skills/work/`, `attachments/stage-*/`, `pack/requires.json` or an attachment folder holding `compiled.json`: compiled output, overwritten on the next compile.
 - Do not edit the mattstack engine in the plugin cache: every team compiles from it, and the next update erases the edit.
 - Do not edit a repo's generated `skills.jsonc` under `~/.mattstack/repos/`: `rt skills materialize` regenerates it, and `pack/skills.jsonc` is the source.
 - Do not copy another team's pack: its fills carry that team's rules.

@@ -116,7 +116,7 @@ The rest of the agent work. Items with nothing to act on (no saved session, no r
 | <BoardIcon name="dismiss" /> | dismiss respond line | The same for a failed response. |
 | <BoardIcon name="dismiss" /> | dismiss doctor line | The same for a failed doctor. |
 | <BoardIcon name="people" /> | ask dev2's agent to re-review | Asks a teammate whose review left comments to review again. See [Asks between boards](#asks-between-boards). One item per such teammate, on your own MR. |
-| <BoardIcon name="agentCloud" /> | request review from… | Shown here, greyed, when there is nobody left to ask: "ask already sent", "no teammate boards connected" or "everyone engaged". |
+| <BoardIcon name="agentCloud" /> | request review from… | Shown here, greyed, when there is nobody left to ask: "ask already sent", "no teammate boards connected" or "no teammate left to ask". |
 
 ### What each agent does
 
@@ -329,7 +329,7 @@ sequenceDiagram
     participant A as dev1's board
     participant R as Team relay
     participant B as dev2's board
-    A->>A: request review from… → dev2's agent, Send ask
+    A->>A: request review from… → dev2, Send ask
     A->>R: the ask
     R->>B: wakes dev2's board
     alt dev2 always allows dev1
@@ -344,7 +344,7 @@ sequenceDiagram
     R->>A: band: reviewing, then reviewed: comments
 ```
 
-1. **dev1 asks.** From the menu, dev1 picks dev2's agent. A dialog asks "Ask dev2's agent to review !N?", explains that it runs on dev2's Mac with dev2's Claude usage once dev2 says go ahead, and takes an optional note for dev2. **Send ask** sends it.
+1. **dev1 asks.** From the menu, dev1 picks dev2. A dialog asks "Ask dev2's agent to review !N?", explains that it runs on dev2's Mac with dev2's Claude usage once dev2 says go ahead, and takes an optional note for dev2. **Send ask** sends it.
 2. **The relay carries it.** dev1's board sends the ask to the team's relay, which holds it until dev2's board picks it up. The ask carries the MR's link, number, title and branch, and the note; never its code or any credentials. If the relay cannot be reached, dev1's board keeps the ask and sends it later. One ask per MR is outstanding at a time: while it is, the ask items read "ask already sent".
 3. **dev2's board receives it.** dev2's rt daemon wakes the board as soon as the relay has something for it. If dev2 turned asks off, the board declines at once. If dev2 always allows dev1, the agent starts straight away. Otherwise the ask waits in dev2's inbox and dev1's board learns it is waiting.
 4. **dev2 decides.** Going ahead starts dev2's agent in a herdr pane on dev2's Mac. Declining sends dev2's reason and note back. An ask nobody answers in 48 hours expires.
