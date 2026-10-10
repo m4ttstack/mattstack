@@ -7,14 +7,17 @@
  * repo's index path and worktree registry, the Claude Code temp root for this
  * uid, and rt.mcp.uploadRoots read through the resolver at call time. The
  * guard adds its own built-in roots (rt's evidence folder, a run's evidence
- * folder) on top of these.
+ * folder) on top of these. With a runId, the file must also be in that run's
+ * evidence record (../evidence-record-check.ts).
  */
 import { isAbsolute } from "path";
 import { decodeRepo } from "../identity-decoder.ts";
 import { getRepoContext, providerRequestHook } from "../freshness.ts";
 import { loadSecrets } from "../../linear.ts";
 import { getSetting } from "../../settings/resolve.ts";
+import { findRun } from "../../runs/store.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
+import { evidenceUploadRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
 import { checkUploadPath, claudeTempRoots } from "../upload-guard.ts";
 import type { CommandResult, HandlerContext, HandlerMap } from "./types.ts";
 
@@ -29,6 +32,7 @@ export interface MrUploadSeams {
   tempRoots?: () => string[];
   fetchFn?: typeof fetch;
   requestHook?: () => ReturnType<typeof providerRequestHook>;
+  runEvidence?: (runId: string) => RunEvidenceLookup;
 }
 
 export function createMrUploadHandlers(
@@ -41,6 +45,10 @@ export function createMrUploadHandlers(
   const tempRootsFn = seams.tempRoots ?? (() => claudeTempRoots(typeof process.getuid === "function" ? process.getuid() : null));
   const fetchFn = seams.fetchFn ?? fetch;
   const hookFn = seams.requestHook ?? providerRequestHook;
+  const runEvidenceFn = seams.runEvidence ?? ((runId: string): RunEvidenceLookup => {
+    const detail = findRun(runId);
+    return detail ? { found: true, evidence: detail.fields.find((f) => f.key === "evidence")?.value ?? null } : { found: false };
+  });
   const uploadRootsFn = seams.uploadRoots ?? (() => {
     let entries: unknown;
     try {
@@ -60,7 +68,7 @@ export function createMrUploadHandlers(
 
   return {
     "mr:upload": async (payload, signal) => {
-      const p = payload as { repoName?: unknown; path?: unknown } | undefined;
+      const p = payload as { repoName?: unknown; path?: unknown; runId?: unknown } | undefined;
       const path = p?.path;
       if (typeof path !== "string" || !path.trim()) return { ok: false, error: "missing repoName/path" };
       const decoded = decodeRepo(payload);
@@ -72,6 +80,12 @@ export function createMrUploadHandlers(
       const roots = [repoPath, ...worktreePathsFn(repoName), ...tempRootsFn(), ...uploadRootsFn()];
       const checked = checkUploadPath(path.trim(), roots);
       if (!checked.ok) return { ok: false, error: checked.error };
+      if (p?.runId !== undefined) {
+        if (typeof p.runId !== "string" || !p.runId.trim()) return { ok: false, error: "runId must be a non-empty string" };
+        const runId = p.runId.trim();
+        const refusal = evidenceUploadRefusal({ runId, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(runId) });
+        if (refusal) return { ok: false, error: refusal };
+      }
 
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);

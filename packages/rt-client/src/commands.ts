@@ -962,9 +962,11 @@ export interface Commands {
       the markdown that embeds it in that project's MRs. Works before an MR
       exists. The daemon refuses a path outside its allowed roots, a
       directory, a file over 50 MB, or bytes that do not match the
-      extension. Uploads once; an orphaned upload is harmless. */
+      extension. Uploads once; an orphaned upload is harmless. With runId, the
+      daemon also refuses a file the run's evidence record does not list as an
+      annotated image or a waived capture. */
   "mr:upload": {
-    payload: { repoName: string; path: string };
+    payload: { repoName: string; path: string; runId?: string };
     data: { url: string; markdown: string };
   };
 
