@@ -111,6 +111,10 @@ attachment that `stage-evidence`, `stage-ship` and `ship` pull in with
   `attach` keeps its meaning, and after the upload the record is
   rewritten with `attach` set to the handed-back markdown.
 - The finish paragraph describes `evidence@2`; `{"plan": "none"}` stays.
+- A case whose BEFORE is only in the ticket has no image yet: it is
+  recorded at ship with its AFTER, and the ticket's location goes in the
+  run-level `url`. When every BEFORE is the ticket's, the stage writes
+  `{"plan": "ticket", "url": "<location>"}`, which the merge keeps as `url`.
 
 ### `stage-ship`
 
@@ -120,7 +124,8 @@ attachment that `stage-evidence`, `stage-ship` and `ship` pull in with
   waive** and the merge (step 6), and the record is written before
   any upload.
 - `mr_upload` passes `runId`. "Files to attach" is every uploadable path
-  in the record that the description read back does not already carry.
+  in the record; a repeat upload of a file the evidence stage already
+  attached is harmless, and the description uses one markdown per file.
 - The node `evidence reads as evidence@1 JSON?` and its "leave it, link the
   AFTER only" edge are removed: step 6 covers every value.
 - **Write the title and description** builds the evidence section from the
