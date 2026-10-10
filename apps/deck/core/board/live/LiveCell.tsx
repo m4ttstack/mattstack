@@ -1,5 +1,4 @@
 import { Badge, Button, Icon, ICONS, Spinner } from '@mattstack/tui-kit';
-
 import { CHEVRON_DOWN, GIT_BRANCH, RADIO } from '../icons.ts';
 import type { Row, StatusData } from '../logic.ts';
 import { Tooltip } from '../Tooltip.tsx';

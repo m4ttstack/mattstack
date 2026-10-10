@@ -92,7 +92,11 @@ interface StatusRow {
       running: boolean;
     }[];
   };
-  liveSetup?: { state: 'running' | 'failed'; branch: string | null; log: string[] };
+  liveSetup?: {
+    state: 'running' | 'failed';
+    branch: string | null;
+    log: string[];
+  };
   /** null: can go live; a string: why not; absent: live controls do not apply. */
   liveBlocked?: string | null;
 }
@@ -464,8 +468,7 @@ export function behindRows(rows: Row[]): Row[] {
 export function redeployButtonText(rows: Row[]): string {
   const behind = behindRows(rows);
   const deployable = rows.filter(
-    r =>
-      r.enabled !== false && !r.live && (r.commands ?? []).includes('deploy')
+    r => r.enabled !== false && !r.live && (r.commands ?? []).includes('deploy')
   );
   if (behind.length === 1)
     return `Redeploy ${behind[0]!.displayName ?? behind[0]!.name}`;

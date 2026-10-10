@@ -24,10 +24,10 @@ export async function getSources(
       error?: string | null;
     };
     if (!res.ok)
-      return { sources: [], error: body.error ?? `failed (${res.status})` };
+      return { sources: [], error: body.error || "That didn't work." };
     return { sources: body.sources ?? [], error: body.error ?? null };
   } catch {
-    return { sources: [], error: 'the board did not answer.' };
+    return { sources: [], error: "The board didn't answer." };
   }
 }
 
@@ -37,7 +37,7 @@ async function send(res: Promise<Response>): Promise<LiveAnswer> {
     const body = (await r.json().catch(() => ({}))) as LiveAnswer['body'];
     return { status: r.status, body };
   } catch {
-    return { status: 0, body: { error: 'the board did not answer.' } };
+    return { status: 0, body: { error: "The board didn't answer." } };
   }
 }
 

@@ -619,7 +619,14 @@ test('behindRows: newCode and a deploy command, off rows excluded', () => {
 });
 test('a live row with newCode and deploy stays out of the redeploy strip', () => {
   const nc = { deployed: 'x', head: 'y' };
-  const live = { branch: 'b', main: false, startedAt: '', uiPort: null, movedFrom: null, processes: [] };
+  const live = {
+    branch: 'b',
+    main: false,
+    startedAt: '',
+    uiPort: null,
+    movedFrom: null,
+    processes: [],
+  };
   const rows = [
     { name: 'a', displayName: 'A', newCode: nc, commands: ['deploy'] },
     { name: 'l', displayName: 'L', newCode: nc, commands: ['deploy'], live },
@@ -630,7 +637,14 @@ test('a live row with newCode and deploy stays out of the redeploy strip', () =>
 });
 test('redeployButtonText: a live row does not break "all"', () => {
   const nc = { deployed: 'x', head: 'y' };
-  const live = { branch: 'b', main: false, startedAt: '', uiPort: null, movedFrom: null, processes: [] };
+  const live = {
+    branch: 'b',
+    main: false,
+    startedAt: '',
+    uiPort: null,
+    movedFrom: null,
+    processes: [],
+  };
   const rows = [
     { name: 'a', displayName: 'A', newCode: nc, commands: ['deploy'] },
     { name: 'b', displayName: 'B', newCode: nc, commands: ['deploy'] },
@@ -639,8 +653,19 @@ test('redeployButtonText: a live row does not break "all"', () => {
   expect(redeployButtonText(rows)).toBe('Redeploy all');
 });
 test('subline: counts live apps', () => {
-  const live = { branch: null, main: true, startedAt: '', uiPort: null, movedFrom: null, processes: [] };
-  const data = { up: 2, total: 2, apps: [{ live }, {}] } as unknown as StatusData;
+  const live = {
+    branch: null,
+    main: true,
+    startedAt: '',
+    uiPort: null,
+    movedFrom: null,
+    processes: [],
+  };
+  const data = {
+    up: 2,
+    total: 2,
+    apps: [{ live }, {}],
+  } as unknown as StatusData;
   expect(subline(data)).toBe('2 of 2 healthy · 1 live · 0 public');
 });
 test('updateStripText', () => {

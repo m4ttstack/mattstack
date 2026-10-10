@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type RefObject } from 'react';
 
 import type { Row } from '../logic.ts';
 import { deleteLive, getSources, putLive, type SourceRow } from './live-api.ts';
@@ -25,29 +25,34 @@ function ordered(sources: SourceRow[]): SourceRow[] {
   ];
 }
 
-/** The source the row runs from now, or main when it is not live. */
-export function currentSource(row: Row, sources: SourceRow[]): string | null {
+/** The source the row runs from (live), was being set up from (failed), or
+    main for a row that is not live. Null when that worktree is not listed:
+    never stand main in for a worktree the row actually names. */
+export function rowSource(row: Row, sources: SourceRow[]): string | null {
   const main = sources.find(s => s.main)?.path ?? null;
-  const branch = row.live
-    ? row.live.main
+  const worktree = (branch: string | null) =>
+    branch == null
       ? null
-      : row.live.branch
-    : (row.liveSetup?.branch ?? null);
-  if (branch == null) return main;
-  return sources.find(s => !s.main && s.branch === branch)?.path ?? main;
+      : (sources.find(s => !s.main && s.branch === branch)?.path ?? null);
+  if (row.live) return row.live.main ? main : worktree(row.live.branch);
+  if (row.liveSetup) return worktree(row.liveSetup.branch);
+  return main;
 }
 
 export function useLive(
   refresh: () => Promise<unknown>,
-  addToast: (msg: string) => void
+  addToast: (msg: string) => void,
+  fallbackFocusRef?: RefObject<HTMLElement | null>
 ) {
   const [modal, setModal] = useState<LiveModalState | null>(null);
   const modalRef = useRef<LiveModalState | null>(null);
   modalRef.current = modal;
+  const openerCell = useRef<Element | null>(null);
 
   const open = useCallback((row: Row, opener: HTMLElement) => {
     const mode =
       row.liveSetup?.state === 'failed' ? 'failed' : row.live ? 'live' : 'go';
+    openerCell.current = opener.closest('td');
     setModal({
       row,
       mode,
@@ -61,17 +66,29 @@ export function useLive(
       const list = ordered(sources);
       setModal(m =>
         m && m.row.name === row.name && m.sources == null
-          ? { ...m, sources: list, error, picked: currentSource(row, list) }
+          ? { ...m, sources: list, error, picked: rowSource(row, list) }
           : m
       );
     });
   }, []);
 
+  // A refresh can swap the opener for another control in the same cell (go
+  // live becomes the source button) or for nothing focusable (the setup
+  // badge), so the cell and then the page are the fallbacks.
   const close = useCallback(() => {
     const opener = modalRef.current?.opener;
+    const cell = openerCell.current;
     setModal(null);
-    if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
-  }, []);
+    requestAnimationFrame(() => {
+      const inCell = cell?.isConnected
+        ? cell.querySelector<HTMLElement>('button:not([disabled])')
+        : null;
+      const target = opener?.isConnected
+        ? opener
+        : (inCell ?? fallbackFocusRef?.current ?? null);
+      target?.focus();
+    });
+  }, [fallbackFocusRef]);
 
   const pick = useCallback(
     (path: string) => setModal(m => m && { ...m, picked: path }),
@@ -90,14 +107,14 @@ export function useLive(
             ? {
                 ...cur,
                 busy: false,
-                error: r.body.error ?? `failed (${r.status})`,
+                error: r.body.error || "That didn't work.",
               }
             : cur
         );
         return false;
       }
-      close();
       await refresh();
+      close();
       return true;
     },
     [close, refresh]

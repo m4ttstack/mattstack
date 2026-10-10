@@ -61,7 +61,8 @@ function TunnelBadge({
 }
 
 export function Board() {
-  const board = useBoardState();
+  const mainRef = useRef<HTMLElement>(null);
+  const board = useBoardState(mainRef);
   const {
     data,
     sections,
@@ -74,7 +75,6 @@ export function Board() {
     proxyNotice,
   } = board;
 
-  const mainRef = useRef<HTMLElement>(null);
   const gearRefs = useRef(new Map<string, HTMLButtonElement>()).current;
   const registerGear = (name: string, el: HTMLButtonElement | null) => {
     if (el) gearRefs.set(name, el);

@@ -37,26 +37,16 @@
       "issues": [],
       "record": {
         "kind": "service",
-        "command": [
-          "bun",
-          "run",
-          "server.ts"
-        ],
+        "command": ["bun", "run", "server.ts"],
         "workingDirectory": "/Users/matt/Documents/GitHub/atlas"
       },
       "oauth": {
         "mode": "emails",
-        "emails": [
-          "matt@example.com",
-          "guest@example.com"
-        ]
+        "emails": ["matt@example.com", "guest@example.com"]
       },
       "devLink": "linked",
       "devDir": "/Users/matt/Documents/GitHub/atlas",
-      "commands": [
-        "build",
-        "deploy"
-      ],
+      "commands": ["build", "deploy"],
       "live": {
         "branch": "console-runs-3",
         "main": false,
@@ -113,11 +103,7 @@
       "issues": [],
       "record": {
         "kind": "service",
-        "command": [
-          "bun",
-          "run",
-          "dev"
-        ],
+        "command": ["bun", "run", "dev"],
         "workingDirectory": "/Users/matt/Documents/GitHub/forecast"
       },
       "oauth": {
@@ -141,9 +127,7 @@
         "pid": null,
         "lastExitStatus": 1,
         "unmanaged": null,
-        "stderr": [
-          "Error: connect ECONNREFUSED"
-        ]
+        "stderr": ["Error: connect ECONNREFUSED"]
       },
       "published": false,
       "hasPassword": false,
@@ -161,11 +145,7 @@
       ],
       "record": {
         "kind": "service",
-        "command": [
-          "bun",
-          "run",
-          "server.ts"
-        ],
+        "command": ["bun", "run", "server.ts"],
         "workingDirectory": "/Users/matt/Documents/GitHub/ledger"
       },
       "oauth": {
@@ -204,11 +184,7 @@
       "issues": [],
       "record": {
         "kind": "service",
-        "command": [
-          "bun",
-          "run",
-          "server.ts"
-        ],
+        "command": ["bun", "run", "server.ts"],
         "workingDirectory": "/Users/matt/Documents/GitHub/relay"
       },
       "oauth": {
@@ -258,11 +234,7 @@
       "issues": [],
       "record": {
         "kind": "service",
-        "command": [
-          "bun",
-          "run",
-          "dev"
-        ],
+        "command": ["bun", "run", "dev"],
         "workingDirectory": "/Users/matt/Documents/GitHub/orbit"
       },
       "oauth": {

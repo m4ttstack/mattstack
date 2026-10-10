@@ -10,7 +10,7 @@ import {
 } from '@mattstack/tui-kit';
 import { GIT_BRANCH, HOUSE, RADIO } from '../icons.ts';
 import type { SourceRow } from './live-api.ts';
-import { currentSource, type LiveState } from './useLive.ts';
+import { rowSource, type LiveState } from './useLive.ts';
 
 function items(sources: SourceRow[]) {
   const worktrees = sources.filter(s => !s.main).length;
@@ -22,7 +22,9 @@ function items(sources: SourceRow[]) {
     detail: s.main ? (
       'shared checkout'
     ) : s.liveApps.length ? (
-      <span className="t-accent">{s.liveApps.join(', ')} is live here</span>
+      <span className="t-accent">
+        {s.liveApps.join(', ')} {s.liveApps.length > 1 ? 'are' : 'is'} live here
+      </span>
     ) : s.needsSetup ? (
       <span className="t-warn">needs setup</span>
     ) : null,
@@ -51,7 +53,7 @@ export function GoLiveModal({ live }: { live: LiveState }) {
   const isLive = m.mode === 'live' && m.row.live != null;
   const picked = m.sources?.find(s => s.path === m.picked) ?? null;
   const unchanged =
-    isLive && m.sources != null && m.picked === currentSource(m.row, m.sources);
+    isLive && m.sources != null && m.picked === rowSource(m.row, m.sources);
   const title = isLive ? `${m.row.name} is live` : `Run ${m.row.name} live`;
   return (
     <Modal

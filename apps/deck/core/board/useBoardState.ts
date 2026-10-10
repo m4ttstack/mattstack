@@ -5,7 +5,13 @@
 // checkbox (see onPasswordSwitch/onOauthSwitch there) is unnecessary here:
 // leaving `checked`-backing state untouched on a failed request already
 // re-renders the control back to the server's last-known truth.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 
 import { useToasts } from '@mattstack/tui-kit';
 import {
@@ -177,7 +183,10 @@ function blankAddModal(step: AddModalState['step']): AddModalState {
   };
 }
 
-export function useBoardState() {
+/** `fallbackFocusRef` is where focus lands when a closed dialog's opener is gone. */
+export function useBoardState(
+  fallbackFocusRef?: RefObject<HTMLElement | null>
+) {
   const [data, setData] = useState<StatusData | null>(null);
   const [now, setNow] = useState(Date.now);
   const [restarting, setRestarting] = useState<RestartingMap>({});
@@ -238,7 +247,7 @@ export function useBoardState() {
     return () => clearInterval(id);
   }, [refresh]);
 
-  const live = useLive(refresh, addToast);
+  const live = useLive(refresh, addToast, fallbackFocusRef);
 
   const isRestarting = useCallback(
     (row: Row) => isRowRestarting(row, restarting, commandRuns),
