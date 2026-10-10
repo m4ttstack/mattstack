@@ -53,6 +53,8 @@ export interface ApplyContext {
   reloadTeam?: () => void;
   /** Test seam: the active team's name. Production reads it from the org's roster through `p`. */
   activeTeam?: () => string | null;
+  /** Test seam: the engine this app runs. Production reads it from `runnableEngine()`. */
+  engine?: () => string | null;
   identity?: { login?: typeof forgeLogin; token?: (ctx: ApplyContext, host: string) => Promise<string | null> };
   nonInteractive: boolean;
   /** Set only for `rt setup update`: a step must not re-assert anything the member undid since rt put it there (a disabled or removed plugin, an editor rt never installed into). */

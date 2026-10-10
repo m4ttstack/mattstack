@@ -28,6 +28,8 @@ import { activeTeamFor } from "../../team/active-team.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import type { PackRequirements, ToolRequirement } from "../requirements.ts";
 import { atLeast } from "../semver.ts";
+import { fits, heldCopy, runnableEngine, type Floor } from "../../engine-floor.ts";
+import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
 import { isValidBrewFormula } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
@@ -51,9 +53,11 @@ const MISSION_CONTROL_SETTINGS_ACTION: Action = { type: "open-settings", label: 
 export interface ToolsSeams {
   resolveTool: typeof resolveTool;
   detectEditors: typeof detectEditors;
+  /** The engine this rt runs; absent means the real one. */
+  engine?: () => string | null;
 }
 
-const REAL_SEAMS: ToolsSeams = { resolveTool, detectEditors };
+const REAL_SEAMS: ToolsSeams = { resolveTool, detectEditors, engine: runnableEngine };
 
 // ─── shared helpers ────────────────────────────────────────────────────────
 
@@ -534,7 +538,7 @@ const ENABLE_PLUGINS_ACTION: Action = { type: "run", label: "Enable plugins", ve
 export const INSTALLED_BY_INSTALL_NOTE = "Installed by Install (plugins.install).";
 
 /** RULING R-T8-L1b: a malformed pack (readPackRequirements/parseRequirements set `.error`) surfaces as an honest error row here — the one row this module always emits per pack — rather than being silently dropped. */
-function packRow(req: PackRequirements, pluginList: ExecResult, served?: ServedPack): Row {
+function packRow(req: PackRequirements, pluginList: ExecResult, served: ServedPack | undefined, engine: string | null): Row {
   const base = {
     id: `pack.${req.pack}`,
     kind: "tool" as const,
@@ -561,6 +565,10 @@ function packRow(req: PackRequirements, pluginList: ExecResult, served?: ServedP
     // contradicts this row's own detail.
     return row({ ...base, optionalNote: null, status: "skipped", detail: "Version unknown; rt does not track this source's version" });
   }
+  // A held pack offers no action: Install could not install it either, and the app update is the only fix.
+  if (served && served.servedVersion !== null && served.floor !== null && !fits(served.floor, engine) && entry?.version !== served.servedVersion) {
+    return row({ ...base, status: "needs-you", detail: heldCopy(req.pack, served.servedVersion, served.floor), action: null });
+  }
   if (!entry) return row({ ...base, status: "missing", detail: "Not installed yet", action: applyStepAction("Install plugins", "plugins.install") });
 
   const installed = entry.version ?? "unknown";
@@ -582,7 +590,7 @@ function packRow(req: PackRequirements, pluginList: ExecResult, served?: ServedP
 // ─── tool.plugins ───────────────────────────────────────────────────────────
 
 /** Exactly the classification packRow uses, so the two rows never disagree about what a `claude plugin list --json` result means. */
-function pluginsRow(pluginList: ExecResult): Row {
+function pluginsRow(pluginList: ExecResult, msFloor: Floor, engine: string | null): Row {
   const base = {
     id: "tool.plugins",
     kind: "tool" as const,
@@ -600,6 +608,7 @@ function pluginsRow(pluginList: ExecResult): Row {
 
   const byId = new Map(entries.map((e) => [e.id, e]));
   const expected = BASE_PLUGINS.map((id) => resolveBasePlugin(id, (candidate) => byId.has(candidate)));
+  if (msFloor !== null && !fits(msFloor, engine)) return row({ ...base, status: "needs-you", detail: heldCopy("mattstack", null, msFloor), action: null });
   const absent = expected.filter((id) => !byId.has(id));
   if (absent.length > 0) return row({ ...base, status: "missing", detail: `Not installed: ${absent.join(", ")}`, action: INSTALL_PLUGINS_ACTION });
 
@@ -793,7 +802,9 @@ export async function toolRows(
   // One listing feeds tool.plugins and every pack row; tool.plugins is
   // unconditional, so there is no longer a case where nothing needs it.
   const pluginList = await exec(p, ["claude", "plugin", "list", "--json"]);
-  rows.push(pluginsRow(pluginList));
+  const engine = (seams.engine ?? runnableEngine)();
+  const msFloor = await mattstackFloor(p, (args) => exec(p, ["claude", ...args]), { refresh: false }).catch((): Floor => null);
+  rows.push(pluginsRow(pluginList, msFloor, engine));
   rows.push(writingStyleRowFor(p, pluginList));
 
   const only = opts.activeTeam !== undefined ? opts.activeTeam : opts.teamSlug ? activeTeamFor(p, opts.teamSlug).team : null;
@@ -810,7 +821,7 @@ export async function toolRows(
   const names = [...new Set([...reqs.map((r) => r.pack), ...served.packs.map((s) => s.name)])].sort();
   for (const name of names) {
     const req = reqs.find((r) => r.pack === name) ?? { pack: name, tools: [], integrations: [] };
-    rows.push(packRow(req, pluginList, byPack.get(name)));
+    rows.push(packRow(req, pluginList, byPack.get(name), engine));
   }
 
   rows.push(await linearMcpRow(p, opts.secrets));

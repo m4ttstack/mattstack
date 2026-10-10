@@ -9,9 +9,16 @@ Pushing a version tag is what publishes. `.github/workflows/release.yml` (`on: p
 builds and notarizes mattstack.app, creates the GitHub release from the committed
 `RELEASE_NOTES.md`, and attaches the dmg, the zip, `appcast.xml` and `SHA256SUMS` (no Sparkle
 deltas: they never materialize while `Contents/Helpers` is signed per file, by the MAT-395
-ruling, and every update ships as the full zip). CI owns the release object. The workflow's first step publishes the plugin
-catalog (`scripts/release/marketplace.sh` pushes `marketplace/` to
-`m4ttstack/mattstack-marketplace`) and needs `MARKETPLACE_TOKEN` only when the catalog changed.
+ruling, and every update ships as the full zip). CI owns the release object. The workflow validates the plugin catalog first
+(`Validate the marketplace catalog`, a `--dry-run`) and publishes it last, just before Create
+Release (`Publish the marketplace catalog`: `scripts/release/marketplace.sh` pushes `marketplace/`
+to `m4ttstack/mattstack-marketplace`, needing `MARKETPLACE_TOKEN` only when the catalog changed),
+so a run that fails before that step publishes nothing. When Create Release fails after the
+publish, the catalog is live without its app: a Mac on the older app holds any plugin whose engine
+floor it cannot run, and nothing breaks. Recover by re-running the release for the same tag: the
+publish finds the published tree already matching and pushes nothing, then Create Release runs.
+To abandon the tag instead, ship the next version; the publish refuses a mattstack version older
+than the published one, so the previous catalog cannot go back over it.
 rt ships only inside mattstack.app (`Contents/MacOS/rt`, updated through Sparkle); there are
 no tarballs. The build, signing, notarization, clean-room and appcast half, and hand completion
 of a broken publish, is `rt:mattstack-release`. The GitHub repo is `m4ttstack/mattstack`.
@@ -225,7 +232,11 @@ Quote each stale row as preflight printed it (pinned vs current). Recommend per 
   in place and ignores `--dry-run`; review the diff and land it before the notes commit so the
   tag publishes current pins. The in-tree plugins, `chat` (`marketplace/plugins/chat`) and
   `mattstack` (`plugins/mattstack`), have no upstream and never drift; each bumps its own
-  `.claude-plugin/plugin.json` version when it changes.
+  `.claude-plugin/plugin.json` version when it changes. Two guards hold the mattstack version in
+  the run itself: `Assert the baked engine matches the plugin` fails unless
+  `env -i HOME=<temp> dist/rt --version --json`'s `engine` equals that `plugin.json` version, and
+  the publish refuses a mattstack version below the published one (`older than the published`),
+  so a release never moves the catalog backwards.
 - **Standalone fast-browser**: compared against `m4ttstack/fast-browser`'s main `package.json`
   (it publishes to npm, not GitHub releases). Hold only as Matt's recorded decision.
 - **Tool rows** (bun, sparkle, age, age-keygen, zstd, git-lfs, gh, glab, jq, node, sops,
@@ -285,9 +296,12 @@ Three reads, in this order:
    (`lib/setup/validators/`).
 2. The range against origin, `git log <newest-tag>..origin/main --stat`, then the diff of every
    commit that touches `lib/setup/`, `commands/setup.ts`, `commands/post-install.ts`,
-   `lib/team/` (the org clone's folder, marker and layout) or the daemon's pull hooks
-   (`lib/daemon/home-snapshot.ts`, `lib/daemon/team-snapshots.ts`), or that changes where rt
-   reads or writes a file, key or link on the user's machine.
+   `lib/team/` (the org clone's folder, marker and layout), the daemon's pull hooks
+   (`lib/daemon/home-snapshot.ts`, `lib/daemon/team-snapshots.ts`) or the pack installs
+   (`lib/setup/pack-cache.ts`, `lib/setup/plugin-calls.ts`), or that changes where rt reads or
+   writes a file, key or link on the user's machine. Also read each team pack's
+   `pack/requires.json` `minEngine`: a pack held on this release's engine floor installs for
+   members once they run this release, so name it in the notes rather than as a gap.
 3. Each such change against every row. One commit can fit several of the first three (a new
    step that also needs a token scope), and each fit is settled on its own:
 

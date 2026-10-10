@@ -6,20 +6,26 @@
  * project or local plugin is handed back as an install to run in its project.
  * A pending record in setup-state is written before the remove, so a run that
  * stops between remove and add is finished by the next one. Every Claude config
- * dir is re-pointed: the default one and each cswap account's.
+ * dir is re-pointed: the default one and each cswap account's. While a served
+ * pack is held by its engine floor the re-point is a bare `marketplace add`,
+ * which re-points the name and keeps the installed copies (verified against
+ * claude 2.1.296).
  */
 
 import { realpathSync } from "fs";
-import { join, resolve } from "path";
+import { basename, join, resolve } from "path";
 import { cswapConfigDirs } from "../../cswap.ts";
 import { stripJsonc } from "../../jsonc.ts";
 import { resolveTool } from "../../deps/resolve.ts";
 import type { ApplyContext } from "../apply.ts";
-import { PACK_EXEC_TIMEOUT_MS } from "../pack-cache.ts";
+import { heldCopy, runnableEngine } from "../../engine-floor.ts";
+import { PACK_EXEC_TIMEOUT_MS, readServedPacks } from "../pack-cache.ts";
+import { ADMIT_UNFLOORED, admit, installArgs, type Admission, type Admitted } from "../plugin-calls.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { readSetupState, updateSetupState, type PendingMarketplaceMove } from "../state.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
-import { claudeMessage, parseMarketplaceList } from "./plugins.ts";
+import { parseMarketplaceList } from "../marketplace-list.ts";
+import { claudeMessage } from "./plugins.ts";
 
 export interface MarketplaceOutcome {
   state: "done" | "skipped" | "partial";
@@ -95,7 +101,8 @@ interface Planned {
 }
 
 const step = (prefix: string, argv: string[]): Planned => ({ argv, command: `${prefix}claude ${argv.join(" ")}` });
-const install = (prefix: string, pl: InstalledPlugin): Planned => step(prefix, ["plugin", "install", pl.id, "--scope", pl.scope]);
+type Grant = (pl: InstalledPlugin) => Admitted;
+const install = (prefix: string, pl: InstalledPlugin, grant: Grant): Planned => step(prefix, installArgs(grant(pl), pl.id, ["--scope", pl.scope]));
 const disable = (prefix: string, pl: InstalledPlugin): Planned => step(prefix, ["plugin", "disable", pl.id]);
 
 /** A project or local install is bound to the project claude runs in, and rt runs from no particular project, so only user installs are rt's to redo. */
@@ -105,19 +112,19 @@ const userScoped = (pl: InstalledPlugin): boolean => pl.scope === "user";
  * A project or local plugin's on or off lives in that project's own settings, which a marketplace remove leaves alone, so
  * the hand-back is only the install, run from inside the project when claude named it.
  */
-const handBackInstall = (prefix: string, pl: InstalledPlugin): string => `${pl.projectPath ? `cd ${pl.projectPath} && ` : ""}${install(prefix, pl).command}`;
+const handBackInstall = (prefix: string, pl: InstalledPlugin, grant: Grant): string => `${pl.projectPath ? `cd ${pl.projectPath} && ` : ""}${install(prefix, pl, grant).command}`;
 
-function plan(prefix: string, name: string, dir: string, plugins: InstalledPlugin[], opts: { remove: boolean }): Planned[] {
+function plan(prefix: string, name: string, dir: string, plugins: InstalledPlugin[], opts: { remove: boolean }, grant: Grant): Planned[] {
   return [
     ...(opts.remove ? [step(prefix, ["plugin", "marketplace", "remove", name])] : []),
     step(prefix, ["plugin", "marketplace", "add", dir]),
-    ...plugins.map((pl) => install(prefix, pl)),
+    ...plugins.map((pl) => install(prefix, pl, grant)),
     ...plugins.filter((pl) => !pl.enabled).map((pl) => disable(prefix, pl)),
   ];
 }
 
-function handBack(prefix: string, plugins: InstalledPlugin[]): string[] {
-  return plugins.map((pl) => handBackInstall(prefix, pl));
+function handBack(prefix: string, plugins: InstalledPlugin[], grant: Grant): string[] {
+  return plugins.map((pl) => handBackInstall(prefix, pl, grant));
 }
 
 const pluralPlugins = (n: number): string => `${n} plugin${n === 1 ? "" : "s"}`;
@@ -136,7 +143,28 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
     return { state: "partial", detail: `Claude Code is not installed, so the ${name} marketplace may still point at the old folder. Install Claude Code and run the update again.` };
   }
 
+  const engine = ctx.engine ? ctx.engine() : runnableEngine();
+  const served = readServedPacks(ctx.p, basename(clone.dir)).packs;
+  const admissionFor = (pl: InstalledPlugin): Admission => {
+    const pack = served.find((x) => x.id === pl.id);
+    return pack ? admit(pack.floor, engine) : ADMIT_UNFLOORED;
+  };
+  /** Only reached for a plugin that is not held, so a refusal here is a bug in the held check. */
+  const grant: Grant = (pl) => {
+    const a = admissionFor(pl);
+    if (!a.ok) throw new Error(`${pl.id} needs engine ${a.floor} and was not held`);
+    return a;
+  };
+  const isHeld = (pl: InstalledPlugin): boolean => !admissionFor(pl).ok;
+  const heldCopies = (plugins: InstalledPlugin[]): string[] =>
+    plugins.flatMap((pl) => {
+      const a = admissionFor(pl);
+      const pack = served.find((x) => x.id === pl.id);
+      return !a.ok && pack ? [heldCopy(pack.name, pack.servedVersion, a.floor)] : [];
+    });
+
   const notes: string[] = [];
+  const heldNotes: string[] = [];
   const handedBack: string[] = [];
   const handedBackIds: string[] = [];
   let sawMarketplace = false;
@@ -155,36 +183,45 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
     let steps: Planned[];
     let handOff: InstalledPlugin[];
     let handOffCommands: string[];
-    let done: string;
+    let done: string | null;
     let stale: string[] = [];
+    let held: string[] = [];
+    // The plugins a pending record must still carry once this run's commands succeed; null leaves the record as it is.
+    let stillHeld: InstalledPlugin[] | null = null;
     if (pending && registered === null) {
-      // A run stopped after the remove: finish from what it recorded.
+      // A run stopped after the remove: finish from what it recorded, leaving out only what is held.
       sawMarketplace = true;
-      const user = pending.plugins.filter(userScoped);
-      handOff = pending.plugins.filter((pl) => !userScoped(pl));
-      handOffCommands = handBack(prefix, handOff);
-      steps = plan(prefix, name, clone.dir, user, { remove: false });
+      const fit = pending.plugins.filter((pl) => !isHeld(pl));
+      const user = fit.filter(userScoped);
+      handOff = fit.filter((pl) => !userScoped(pl));
+      held = heldCopies(pending.plugins);
+      stillHeld = pending.plugins.filter(isHeld);
+      handOffCommands = handBack(prefix, handOff, grant);
+      steps = plan(prefix, name, clone.dir, user, { remove: false }, grant);
       done = `${name} re-pointed in ${dir}, ${pluralPlugins(user.length)} reinstalled`;
     } else if (pending && atClone) {
       // A run stopped after the add: the marketplace is back, the plugins may not be. Reinstall what the record names and is still missing.
       sawMarketplace = true;
       const list = await run(["plugin", "list", "--json"]);
       const installed = list.code === 0 ? parseInstalledFrom(list.stdout, name) : null;
+      const fit = pending.plugins.filter((pl) => !isHeld(pl));
       if (installed === null) {
         return {
           state: "partial",
           detail: `Claude Code's plugin list could not be read (${claudeMessage(list, `exited ${list.code}`)}), so the ${name} plugins were not reinstalled. Running the update again retries.`,
-          commands: [...handedBack, ...plan(prefix, name, clone.dir, pending.plugins.filter(userScoped), { remove: false }).slice(1).map((s) => s.command), ...handBack(prefix, pending.plugins.filter((pl) => !userScoped(pl)))],
+          commands: [...handedBack, ...plan(prefix, name, clone.dir, fit.filter(userScoped), { remove: false }, grant).slice(1).map((s) => s.command), ...handBack(prefix, fit.filter((pl) => !userScoped(pl)), grant)],
         };
       }
       const present = new Map(installed.map((pl) => [pl.id, pl]));
       const missing = (pl: InstalledPlugin): boolean => !present.has(pl.id);
       const stillOn = (pl: InstalledPlugin): boolean => !pl.enabled && (present.get(pl.id)?.enabled ?? true);
-      const user = pending.plugins.filter(userScoped);
+      const user = fit.filter(userScoped);
       const toInstall = user.filter(missing);
-      steps = [...toInstall.map((pl) => install(prefix, pl)), ...user.filter(stillOn).map((pl) => disable(prefix, pl))];
-      handOff = pending.plugins.filter((pl) => !userScoped(pl) && missing(pl));
-      handOffCommands = handBack(prefix, handOff);
+      held = heldCopies(pending.plugins);
+      stillHeld = pending.plugins.filter(isHeld);
+      steps = [...toInstall.map((pl) => install(prefix, pl, grant)), ...user.filter(stillOn).map((pl) => disable(prefix, pl))];
+      handOff = fit.filter((pl) => !userScoped(pl) && missing(pl));
+      handOffCommands = handBack(prefix, handOff, grant);
       done = `finished reinstalling ${pluralPlugins(toInstall.length)} from ${name} in ${dir}`;
     } else if (registered === null) {
       notes.push(`${name} is not registered in ${dir}`);
@@ -205,11 +242,12 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
       const plugins = [...installed, ...carried];
       const user = plugins.filter(userScoped);
       handOff = plugins.filter((pl) => !userScoped(pl));
-      handOffCommands = handBack(prefix, handOff);
+      held = heldCopies(plugins);
+      handOffCommands = held.length > 0 ? [] : handBack(prefix, handOff, grant);
       stale = registered.source !== null ? [registered.source] : [];
-      setPending(ctx, { marketplace: name, dir: clone.dir, configDir: dir, plugins }, name, dir);
-      steps = plan(prefix, name, clone.dir, user, { remove: true });
-      done = `${name} re-pointed in ${dir}, ${pluralPlugins(user.length)} reinstalled`;
+      if (held.length === 0) setPending(ctx, { marketplace: name, dir: clone.dir, configDir: dir, plugins }, name, dir);
+      steps = held.length > 0 ? [step(prefix, ["plugin", "marketplace", "add", clone.dir])] : plan(prefix, name, clone.dir, user, { remove: true }, grant);
+      done = held.length > 0 ? null : `${name} re-pointed in ${dir}, ${pluralPlugins(user.length)} reinstalled`;
     }
 
     for (let i = 0; i < steps.length; i++) {
@@ -222,17 +260,21 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
         commands: [...handedBack, ...steps.slice(i).map((s) => s.command), ...handOffCommands],
       };
     }
-    // Cleared once every command rt runs exited 0; the handed-back installs are the person's to run.
-    setPending(ctx, null, name, dir);
     rewriteMarketplaces(ctx, [...clone.stalePaths, ...stale], clone.dir);
-    notes.push(done);
+    heldNotes.push(...held.filter((h) => !heldNotes.includes(h)));
+    // Cleared once every command rt runs exited 0, except for held plugins: the record is the only note of what a stopped move removed, for the update that can reinstall them.
+    if (held.length === 0) setPending(ctx, null, name, dir);
+    else if (stillHeld !== null) setPending(ctx, { marketplace: name, dir: clone.dir, configDir: dir, plugins: stillHeld }, name, dir);
+    if (done !== null) notes.push(done);
     handedBack.push(...handOffCommands);
     handedBackIds.push(...handOff.map((pl) => pl.id).filter((id) => !handedBackIds.includes(id)));
   }
   rewriteMarketplaces(ctx, clone.stalePaths, clone.dir);
-  if (handedBack.length > 0) {
-    notes.push(`${handedBackIds.join(", ")} must be reinstalled from the project that used ${handedBackIds.length === 1 ? "it" : "them"}`);
-    return { state: "partial", detail: notes.join("; "), commands: handedBack };
+  if (handedBack.length > 0) notes.push(`${handedBackIds.join(", ")} must be reinstalled from the project that used ${handedBackIds.length === 1 ? "it" : "them"}`);
+  if (heldNotes.length > 0) {
+    const detail = [...heldNotes, ...(notes.length > 0 ? [`${notes.join("; ")}.`] : []), "The marketplace now points at the moved folder; the held plugins wait for the app to update."].join(" ");
+    return { state: "partial", detail, ...(handedBack.length > 0 ? { commands: handedBack } : {}) };
   }
+  if (handedBack.length > 0) return { state: "partial", detail: notes.join("; "), commands: handedBack };
   return { state: sawMarketplace ? "done" : "skipped", detail: notes.join("; ") };
 }

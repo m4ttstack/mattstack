@@ -350,7 +350,11 @@ as init and the remedy left it, for the author.
   `restartNeeded` is always true; the reload runs in place, never a
   restart.
 - At `Pack published`, say that the team's members receive the pack
-  through `rt setup` (a Mac installs only its active team's pack). Every
+  through `rt setup` (a Mac installs only its active team's pack), unless
+  their app is below the pack's engine floor (`pack/requires.json`
+  `minEngine`, which compile writes): that Mac holds the pack, and its
+  `pack.<name>` setup row says the pack needs a newer mattstack app and to
+  update the app when it's offered. The pack installs once they do. Every
   later change to the pack goes out through the pack's own publish in
   `mattstack:editing-skills` (bump, commit, push, then
   `rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`), never through

@@ -5,8 +5,9 @@ import { cleanupOrgWorlds, orgWorld } from "../../team/__tests__/org-world.ts";
 import { rememberPackShare, sharePack } from "../../team/share-pack.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import { teamPublish } from "../../../commands/team.ts";
-import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, readOrgSlugs, type InitDeps, type RunResult } from "../init.ts";
+import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, POLICY_REFUSALS, readOrgSlugs, type InitDeps, type RunResult } from "../init.ts";
 import { UserActionableError } from "../../errors.ts";
+import { refusalCopy } from "../../engine-floor.ts";
 import { stripJsonc } from "../sources.ts";
 
 /** mkdirp'd dirs and dirs that already hold a file are writable; anything else throws ENOENT, mirroring a real fs. */
@@ -595,6 +596,56 @@ describe("initPack", () => {
     expect(out.detail).toContain("no such plugin");
   });
 
+  test("a compiled pack whose floor is above this rt's engine is not installed", async () => {
+    const { deps, calls, fs } = world();
+    deps.engine = () => "0.30.28";
+    deps.compile = async (dir) => {
+      calls.compiled.push(dir);
+      fs.mkdirp(`${dir}/pack`);
+      fs.writeFile(`${dir}/pack/requires.json`, JSON.stringify({ minEngine: "0.31.0" }));
+      return { ok: true, errors: [] };
+    };
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "needs-newer-app" });
+    if (out.ok || !out.refused) return;
+    expect(POLICY_REFUSALS.has(out.code)).toBe(true);
+    expect(out.detail).toBe(refusalCopy("0.30.28", "the acme pack", "0.31.0"));
+    expect(out.why).toBe("The pack is written, but rt will not install or share it until the app updates.");
+    expect(out.next).toBeUndefined();
+    expect(calls.claude.some((a) => a[1] === "install")).toBe(false);
+    expect(calls.claude.some((a) => a[1] === "marketplace" && a[2] === "add")).toBe(false);
+  });
+
+  test("an engine whose floor is above this rt refuses before writing, and a later init with a fitting app goes through", async () => {
+    const { deps, calls, fs } = world();
+    deps.engine = () => "0.30.28";
+    deps.engineFloor = () => "0.31.0";
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "needs-newer-app", detail: refusalCopy("0.30.28", "the acme pack", "0.31.0") });
+    expect(fs.exists(`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/plugin`)).toBe(false);
+    expect(calls.claims).toEqual([]);
+    expect(calls.compiled).toEqual([]);
+    expect(calls.remembered).toEqual([]);
+
+    deps.engine = () => "0.31.0";
+    const retry = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(retry.ok).toBe(true);
+    expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
+  });
+
+  test("a pack whose floor fits is installed", async () => {
+    const { deps, calls, fs } = world();
+    deps.engine = () => "0.31.0";
+    deps.compile = async (dir) => {
+      fs.mkdirp(`${dir}/pack`);
+      fs.writeFile(`${dir}/pack/requires.json`, JSON.stringify({ minEngine: "0.31.0" }));
+      return { ok: true, errors: [] };
+    };
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out.ok).toBe(true);
+    expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
+  });
+
   test("a pack skeleton that never compiled is carried on: claim, materialize, compile, install", async () => {
     const pack = `${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/plugin`;
     const { deps, calls, fs } = world({
@@ -862,6 +913,21 @@ describe("initPack", () => {
     expect(created).toEqual(["Beta https://gitlab.example.com/acme/mattstack-team-beta.git"]);
     expect(out.ok).toBe(true);
     expect(calls.claims).toEqual([["beta/beta", ["acme/api"]]]);
+  });
+
+  test("a floor above this rt refuses an interactive no-org init before the org is created", async () => {
+    let created = 0;
+    const { deps } = world({
+      gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }),
+      isTTY: true,
+      noOrg: true,
+      createZone: async () => { created += 1; return { slug: "beta", team: "beta", dir: ORG_ROOT("beta") }; },
+    });
+    deps.engine = () => "0.30.28";
+    deps.engineFloor = () => "0.31.0";
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "needs-newer-app" });
+    expect(created).toBe(0);
   });
 
   test("zone-missing with a TTY: createZone reports a team but writes no folder, so the re-resolve miss names that team, not null", async () => {

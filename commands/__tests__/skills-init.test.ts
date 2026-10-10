@@ -231,6 +231,11 @@ test("a refusal keeps its reason in the failure and refusal blocks", () => {
   expect(renderPlain(initRefusalBlocks(o))).toBe(`[refused] ${o.detail}\n  why: ${o.why}\n`);
 });
 
+test("a pack held by its engine floor is a refused note with no command to run", () => {
+  const o = { ok: false as const, refused: true as const, code: "needs-newer-app" as const, detail: "This app runs engine 0.30.28; the acme pack needs engine 0.31.0. Update the app first.", why: "The pack is written, but rt will not install or share it until the app updates." };
+  expect(renderPlain(initRefusalBlocks(o))).toBe(`[refused] ${o.detail}\n  why: ${o.why}\n`);
+});
+
 describe("repoListFailure", () => {
   test("a move the daemon did not answer keeps the daemon's why and the command that checks on it", () => {
     const err = repoListFailure("/r/api", {

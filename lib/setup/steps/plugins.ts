@@ -17,6 +17,7 @@
  */
 
 import { join } from "path";
+import { parseMarketplaceList, type RegisteredMarketplace } from "../marketplace-list.ts";
 import { resolveTool } from "../../deps/resolve.ts";
 import { stripJsonc } from "../../jsonc.ts";
 import { getSetting, isSharedScope, type Provenance } from "../../settings/resolve.ts";
@@ -25,7 +26,10 @@ import type { StepDef, StepOutcome } from "../apply.ts";
 import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import type { ExecResult, Probes } from "../probes.ts";
-import { childOutput, isAlready, isNotFound, parsePluginList, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
+import { childOutput, isAlready, isNotFound, parsePluginList, readServedPacks, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
+import { admit, updateArgs, type Admitted } from "../plugin-calls.ts";
+import { heldCopy, runnableEngine, type Floor } from "../../engine-floor.ts";
+import { mattstackFloor } from "../mattstack-floor.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import { activeTeamFor } from "../../team/active-team.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
@@ -65,33 +69,10 @@ function dedupe(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-export interface RegisteredMarketplace {
-  name: string;
-  kind: string | null;
-  /** The `repo`, `url` or `path` Claude Code recorded, whichever its `source` kind carries. */
-  source: string | null;
-}
-
 /** Registered marketplaces, or null when this claude cannot list them as JSON (the caller then falls back to the add's own reply). */
 async function listMarketplaces(run: (args: string[]) => Promise<ExecResult>): Promise<RegisteredMarketplace[] | null> {
   const res = await run(["plugin", "marketplace", "list", "--json"]);
   return res.code === 0 ? parseMarketplaceList(res.stdout) : null;
-}
-
-export function parseMarketplaceList(stdout: string): RegisteredMarketplace[] | null {
-  try {
-    const parsed: unknown = JSON.parse(stdout);
-    if (!Array.isArray(parsed)) return null;
-    const out: RegisteredMarketplace[] = [];
-    for (const m of parsed as { name?: unknown; source?: unknown; repo?: unknown; url?: unknown; path?: unknown }[]) {
-      if (typeof m?.name !== "string") continue;
-      const source = [m.repo, m.url, m.path].find((v): v is string => typeof v === "string" && v.length > 0) ?? null;
-      out.push({ name: m.name, kind: typeof m.source === "string" ? m.source : null, source });
-    }
-    return out;
-  } catch {
-    return null;
-  }
 }
 
 const GITHUB_SHORTHAND = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -275,6 +256,11 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     }
   }
 
+  const engine = ctx.engine ? ctx.engine() : runnableEngine();
+  const served = ctx.team.slug ? readServedPacks(ctx.p, ctx.team.slug).packs : [];
+  const servedById = new Map(served.map((pack) => [pack.id, pack]));
+  const held = new Set<string>();
+
   const settled: string[] = [];
   // Setup-state is the uninstall record, so it holds only what rt itself
   // added. Anything already present belongs to the member, and uninstall
@@ -337,6 +323,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     }
     const byId = new Map(installedBefore.map((e) => [e.id, e]));
     const knownNames = known ? new Set(known.map((m) => m.name)) : null;
+    const msFloor = await mattstackFloor(ctx.p, (args) => runIn(args), { refresh: true }).catch((): Floor => null);
 
     for (const listed of allPlugins) {
       const teamAuthored = teamAuthoredPlugins.includes(listed);
@@ -355,11 +342,21 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
         }
       }
 
+      const floor: Floor = plugin === "mattstack@mattstack" ? msFloor : (servedById.get(plugin)?.floor ?? null);
+      const admission = admit(floor, engine);
+      if (!admission.ok) {
+        const copy = heldCopy(plugin.slice(0, plugin.lastIndexOf("@")), servedById.get(plugin)?.servedVersion ?? null, admission.floor);
+        ctx.log("plugins.install", copy);
+        held.add(copy);
+        continue;
+      }
+      const admitted: Admitted = admission;
+
       // An already-installed plugin takes update, never install: install would
       // flip a deliberately disabled pack back on.
       if (byId.has(plugin)) {
         const disabled = !byId.get(plugin)!.enabled;
-        const updated = await runner.run(["plugin", "update", plugin, "-y"], PACK_EXEC_TIMEOUT_MS);
+        const updated = await runner.run(updateArgs(admitted, plugin, ["-y"]), PACK_EXEC_TIMEOUT_MS);
         if (updated.code === 0) {
           // Trusted plugins keep the best-effort re-enable they get today. The
           // `tool.plugins` needs-you row's action is `rt setup pack`, which
@@ -389,7 +386,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
 
       // `settled` accumulates across config dirs, so an id can repeat; the
       // dedupe below is what makes that harmless.
-      const outcome = await settlePack(runner, plugin, { teamAuthored, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+      const outcome = await settlePack(runner, plugin, admitted, { teamAuthored, timeoutMs: PACK_EXEC_TIMEOUT_MS });
 
       // Every trusted enable goes through here, both the fresh install
       // (`installed`) and the pack that turned out to be already present
@@ -433,7 +430,8 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   const materializeDetail = await runMaterializeAfterInstall(ctx);
   const pendingNote = pending.length > 0 ? `. ${pending.length} ${pending.length === 1 ? "plugin" : "plugins"} awaiting your approval to enable: ${pending.join(", ")}` : "";
-  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${pendingNote}` };
+  const heldNote = held.size > 0 ? ` ${[...held].join(" ")}` : "";
+  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${pendingNote}${heldNote}` };
 }
 
 /** The plugins.install step body — also `rt setup pack`'s first phase, so it lives under one name rather than two copies of the same try/catch. */

@@ -57,7 +57,8 @@ function sourceDir(plugins: Plugin[]): string {
 function run(args: string[], env: Record<string, string> = {}): { code: number; out: string } {
   const res = spawnSync("bash", [SCRIPT, ...args], {
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    // A path no fetch can reach, so a test that names no remote never touches GitHub.
+    env: { ...process.env, RT_MARKETPLACE_REPO: "/nonexistent/mattstack-marketplace", ...env },
   });
   return { code: res.status ?? -1, out: `${res.stdout ?? ""}${res.stderr ?? ""}` };
 }
@@ -250,6 +251,54 @@ describe("marketplace.sh publish", () => {
     expect(publishedFiles(bare)).toEqual([".claude-plugin/marketplace.json", "LICENSE", "README.md"]);
     // History is kept rather than force-pushed away.
     expect(git(bare, "rev-list", "--count", "main")).toBe("2");
+  });
+
+  /** A git checkout whose plugins/mattstack carries `version` and the engine floor file. */
+  function packTree(version: string): string {
+    const tree = scratch("pack-tree");
+    git(tree, "init", "-q", "-b", "main");
+    const pack = join(tree, "plugins", "mattstack");
+    mkdirSync(join(pack, ".claude-plugin"), { recursive: true });
+    mkdirSync(join(pack, "pack"), { recursive: true });
+    writeFileSync(join(pack, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version }));
+    writeFileSync(join(pack, "pack", "requires.json"), JSON.stringify({ minEngine: version }));
+    git(tree, "add", "-A");
+    git(tree, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "pack");
+    return tree;
+  }
+  const packSource = () => sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
+
+  test("the staged tree carries the engine floor", () => {
+    const bare = bareRepo();
+    const r = run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.31.0") });
+    expect(r.code).toBe(0);
+    expect(publishedFiles(bare)).toContain("plugins/mattstack/pack/requires.json");
+  });
+
+  test("a lower mattstack version is refused and leaves main unchanged", () => {
+    const bare = bareRepo();
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.31.0") }).code).toBe(0);
+    const before = git(bare, "rev-parse", "main");
+    const r = run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.30.28") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("older than the published");
+    expect(git(bare, "rev-parse", "main")).toBe(before);
+  });
+
+  test("a dry run refuses a lower mattstack version too", () => {
+    const bare = bareRepo();
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.31.0") }).code).toBe(0);
+    const r = run(["--dry-run", packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.30.28") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("older than the published");
+  });
+
+  test("the comparison is numeric per segment, so 0.9.0 is older than 0.10.0", () => {
+    const bare = bareRepo();
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.10.0") }).code).toBe(0);
+    const r = run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.9.0") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("older than the published");
   });
 
   test("a rejected catalog never reaches the remote", () => {
