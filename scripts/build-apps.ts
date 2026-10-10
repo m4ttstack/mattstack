@@ -3,8 +3,9 @@
  * Builds every deps.lock row with source "tree" from this checkout into
  * rt-tray/deps/<arch>/, in the layout scripts/fetch-deps.sh produces for a
  * downloaded row: the artifact at <name>, the launcher identity at
- * <name>-identity, the agent skills at <name>-skills. build.sh then bundles
- * both kinds of row the same way. The workspace packages under packages/*
+ * <name>-identity, the agent skills at <name>-skills, and Codex's own build
+ * of them at <name>-skills-codex. build.sh then bundles both kinds of row the
+ * same way. The workspace packages under packages/*
  * are built first: a recipe's dist import (settings-kit, tui-kit, ...) is
  * only fresh once its own package has been rebuilt from source in this run.
  *
@@ -12,7 +13,7 @@
  * Env: RT_DEPS_ROOT (default rt-tray/deps), RT_DEPS_LOCK (default
  * rt-tray/deps.lock), RT_APPS_ROOT (default apps/).
  */
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "fs";
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { spawnSync } from "child_process";
@@ -33,6 +34,43 @@ export interface BuildAppsSeams {
 }
 
 const SAFE_NAME = /^[a-z0-9][a-z0-9-]*$/;
+
+/**
+ * Apps whose skills Codex loads exactly as written: they name no Claude skill
+ * variable, so their Codex build is the source tree itself. Every other app
+ * ships Codex skills only from a generated `skills-targets/codex` tree.
+ */
+export const CODEX_SKILLS_AS_WRITTEN: ReadonlySet<string> = new Set(["gitq"]);
+
+const TARGET_MARKER = "skills-target.json";
+const CLAUDE_SKILL_VARIABLE = /\$\{CLAUDE_[A-Z_]+\}/;
+
+/** The folder a tree row's Codex skills ship from, or null when it has no Codex build. */
+export function codexSkillsSource(app: string, name: string): string | null {
+  const target = join(app, "skills-targets", "codex");
+  if (existsSync(target)) {
+    let marker: { harness?: unknown } | null = null;
+    try {
+      marker = JSON.parse(readFileSync(join(target, TARGET_MARKER), "utf8")) as { harness?: unknown };
+    } catch {
+      marker = null;
+    }
+    if (marker?.harness !== "codex") throw new Error(`${name}: skills-targets/codex has no codex ${TARGET_MARKER}; regenerate it`);
+    return target;
+  }
+  return CODEX_SKILLS_AS_WRITTEN.has(name) && existsSync(join(app, "skills")) ? join(app, "skills") : null;
+}
+
+/** A Codex skills tree that still names a Claude skill variable would hand Codex a path it never sets. */
+function assertCodexClean(dir: string, name: string): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const path = join(entry.parentPath, entry.name);
+    if (CLAUDE_SKILL_VARIABLE.test(readFileSync(path, "utf8"))) {
+      throw new Error(`${name}: ${path} names a Claude skill variable, so it cannot ship as Codex's build`);
+    }
+  }
+}
 
 export async function buildTreeRows(s: BuildAppsSeams): Promise<string[]> {
   const lock = parseDepsLock(readFileSync(s.lockPath, "utf8"));
@@ -63,7 +101,7 @@ export async function buildTreeRows(s: BuildAppsSeams): Promise<string[]> {
       }
       const smoke = spawnSync(artifact, ["--version"], { stdio: "ignore", env: { HOME: smokeHome, PATH: "/usr/bin:/bin" } });
       if (smoke.status !== 0) throw new Error(`${row.name}: ${recipe.artifact} --version exited ${smoke.status}`);
-      for (const suffix of ["", "-identity", "-skills", ".sha256", "-identity.sha256", "-skills.sha256"]) {
+      for (const suffix of ["", "-identity", "-skills", "-skills-codex", ".sha256", "-identity.sha256", "-skills.sha256"]) {
         rmSync(join(deps, `${row.name}${suffix}`), { recursive: true, force: true });
       }
       copyFileSync(artifact, join(deps, row.name));
@@ -73,6 +111,13 @@ export async function buildTreeRows(s: BuildAppsSeams): Promise<string[]> {
         const skills = join(app, "skills");
         if (!existsSync(skills)) throw new Error(`${row.name}: deps.lock says skills but apps/${row.name}/skills is absent`);
         cpSync(skills, join(deps, `${row.name}-skills`), { recursive: true });
+        const codex = codexSkillsSource(app, row.name);
+        if (codex) {
+          assertCodexClean(codex, row.name);
+          cpSync(codex, join(deps, `${row.name}-skills-codex`), { recursive: true });
+        } else {
+          s.log(`  . ${row.name}: no Codex build of its skills`);
+        }
       }
       s.log(`  ok ${row.name}`);
       built.push(row.name);

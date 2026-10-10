@@ -157,8 +157,15 @@ screen_readiness() {
     ax_wait_status tool.rt ready 60 || ax_fail "tool.rt not ready after Use mattstack's"
   fi
   # Installed is enough here: herdr's integration and Claude's sign-in are
-  # optional follow-ups the row reports as needs-you.
-  for tool in herdr claude; do
+  # optional follow-ups the row reports as needs-you. A harness profile
+  # installs exactly its own agent apps.
+  screen_harnesses
+  local tools="herdr claude"
+  [ -n "${HARNESS_PROFILE:-}" ] && tools="herdr $(harness_profile_ids)"
+  if [ "${HARNESS_PROFILE:-}" = codex-only ] && [ -n "$(ax_status tool.claude 2>/dev/null || true)" ]; then
+    ax_fail "a Codex-only checklist still shows the Claude Code row ($(ax_status tool.claude))"
+  fi
+  for tool in $tools; do
     if [ "$(ax_status "tool.$tool" || true)" = missing ]; then
       ax_click "setup.checklist.row.tool.$tool.action"
       ax_wait_status_not "tool.$tool" missing 600 || ax_fail "tool.$tool install did not finish in 10 min"
@@ -185,6 +192,37 @@ screen_readiness() {
   fi
   ax_find setup.checklist.continue >/dev/null || ax_fail "setup.checklist.continue axid missing"
   ax_click setup.checklist.continue
+}
+
+harness_profile_ids() {
+  case "${HARNESS_PROFILE:-}" in
+    claude-only) echo claude ;;
+    codex-only) echo codex ;;
+    mixed) echo "claude codex" ;;
+    *) ax_fail "unknown HARNESS_PROFILE ${HARNESS_PROFILE:-} (want claude-only|codex-only|mixed)" ;;
+  esac
+}
+
+# HARNESS_PROFILE's agent apps, chosen at the integrations row. The row's own
+# sheet is opened and captured; the choice itself goes through the verb that
+# sheet runs on Save, because its default picker is a SwiftUI menu System
+# Events cannot pick from reliably. Unset, the checklist is left as it was.
+screen_harnesses() {
+  local ids def
+  [ -n "${HARNESS_PROFILE:-}" ] || return 0
+  ids="$(harness_profile_ids)"
+  def="${HARNESS_DEFAULT:-${ids%% *}}"
+  ax_find setup.checklist.row.tool.integrations.action >/dev/null 2>&1 \
+    || ax_fail "no tool.integrations row: agent integrations must be on before setup (rt settings set agent.integrations.enabled true --scope machine)"
+  ax_click setup.checklist.row.tool.integrations.action
+  ax_wait_sheet_id setup.harnesses.submit 10 || ax_fail "the agent apps sheet did not open from tool.integrations"
+  ax_shot "03-harnesses-$HARNESS_PROFILE"
+  ax_click_sheet_id setup.harnesses.cancel || ax_fail "could not close the agent apps sheet"
+  # shellcheck disable=SC2086
+  rt setup harnesses $ids --default "$def" --json >>"$AX_LOG" 2>&1 || ax_fail "rt setup harnesses $ids --default $def failed"
+  ax_click setup.checklist.recheck
+  ax_wait_status tool.integrations ready 30 || ax_fail "tool.integrations is not ready after choosing $ids"
+  ax_log "agent apps: $ids (default $def)"
 }
 
 # The Local proxy row's own button, not Install's proxy step: it has to raise

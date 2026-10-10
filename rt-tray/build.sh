@@ -260,6 +260,19 @@ bundle_helpers() {
             HELPER_ENTITLEMENTS+=("$skills_dest	none")
             echo "  ✓ Helpers/skills/$name"
         fi
+        # Codex's own build of the same skills, where skills.link looks for a
+        # Codex host. The same dot rule applies; skills-target.json is a file.
+        if [ -d "$DEPS_DIR/$name-skills-codex" ]; then
+            while IFS= read -r -d '' bad; do
+                echo "  ✗ $name Codex skills dir '$(basename "$bad")' contains a dot; rename it in the app repo"; exit 1
+            done < <(find "$DEPS_DIR/$name-skills-codex" -type d -name '*.*' -print0)
+            skills_dest="$CONTENTS/Helpers/skills-targets/codex/$name"
+            rm -rf "$skills_dest"; mkdir -p "$(dirname "$skills_dest")"
+            cp -R "$DEPS_DIR/$name-skills-codex" "$skills_dest"
+            xattr -cr "$skills_dest" 2>/dev/null || true
+            HELPER_ENTITLEMENTS+=("$skills_dest	none")
+            echo "  ✓ Helpers/skills-targets/codex/$name"
+        fi
         # node ships a full development distribution, but the bundle needs it
         # only to run fast-browser's .mjs. include/ is 2726 C++ headers node-gyp
         # uses to compile native addons at build time; lib/node_modules/{npm,
@@ -421,6 +434,12 @@ if [ "$IS_DEV" = true ] && [ "${MS_DEV_RELEASE_BUILD:-0}" = 1 ]; then
     echo "  ✓ Marked as a release-built dev app"
 fi
 plist_set LSMinimumSystemVersion string 14.0
+# The commit this bundle was built from, in both flavors: harness acceptance
+# records it as the artifact under test, so a run proves a specific build.
+SOURCE_COMMIT="${GITHUB_SHA:-$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)}"
+if [ -n "$SOURCE_COMMIT" ]; then
+    plutil -replace MSSourceCommit -string "$SOURCE_COMMIT" "$INFO"
+fi
 
 if [ "$RT_VERSION" != "dev" ]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $RT_VERSION" "$INFO"

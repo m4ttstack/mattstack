@@ -125,6 +125,57 @@ for name in $TREE_NAMES; do
     fi
 done
 
+# Codex's own build of every in-tree pack that compiles (it carries a
+# surface.jsonc). It is compiled into the staged copy only, never into the
+# checkout, under a throwaway HOME. Its manifest sits at the pack root because
+# the compiled skills reach the pack's attachments by climbing back to it, and
+# a Codex catalog beside the Claude one lists each pack that has a build.
+# RT_CODEX_COMPILE names a stand-in for `rt skills` (the tests use one).
+codex_skills() {
+    if [ -n "${RT_CODEX_COMPILE:-}" ]; then "$RT_CODEX_COMPILE" "$@"; else bun "$ROOT/cli.ts" skills "$@"; fi
+}
+CODEX_PACKS=""
+for name in $TREE_NAMES; do
+    pack="$STAGE/plugins/$name"
+    [ -f "$pack/surface.jsonc" ] || continue
+    CHOME="$(mktemp -d "${TMPDIR:-/tmp}/mattstack-marketplace-codex.XXXXXX")"
+    mkdir -p "$CHOME/mattstack"
+    if ! ( unset CLAUDE_CONFIG_DIR CODEX_HOME; export HOME="$CHOME" RT_SKIP_SETUP=1 RT_BATCH=1
+           codex_skills compile --harness codex --pack-dir "$pack" --mattstack-dir "$CHOME/mattstack" \
+           && codex_skills check --harness codex --strict --pack-dir "$pack" --mattstack-dir "$CHOME/mattstack" ); then
+        rm -rf "$CHOME"
+        echo "✗ $name: the Codex build did not compile cleanly" >&2; exit 1
+    fi
+    rm -rf "$CHOME"
+    [ -n "$(find "$pack/targets/codex/skills" -name SKILL.md -print -quit 2>/dev/null)" ] \
+        || { echo "✗ $name: the Codex build has no skills" >&2; exit 1; }
+    python3 - "$pack" <<'PY' || { echo "✗ $name: cannot write its Codex manifest" >&2; exit 1; }
+import json, os, sys
+pack = sys.argv[1]
+claude = json.load(open(os.path.join(pack, ".claude-plugin", "plugin.json")))
+manifest = {k: claude[k] for k in ("name", "version", "description", "author", "license") if k in claude}
+manifest["skills"] = "./targets/codex/skills/"
+os.makedirs(os.path.join(pack, ".codex-plugin"), exist_ok=True)
+with open(os.path.join(pack, ".codex-plugin", "plugin.json"), "w") as fh:
+    json.dump(manifest, fh, indent=2)
+    fh.write("\n")
+PY
+    CODEX_PACKS="$CODEX_PACKS $name"
+    echo "✓ $name: Codex build staged"
+done
+if [ -n "$CODEX_PACKS" ]; then
+    python3 - "$STAGE" $CODEX_PACKS <<'PY' || { echo "✗ cannot write the Codex catalog" >&2; exit 1; }
+import json, os, sys
+stage, names = sys.argv[1], sys.argv[2:]
+claude = json.load(open(os.path.join(stage, ".claude-plugin", "marketplace.json")))
+catalog = {"name": claude["name"], "plugins": [{"name": n, "source": {"source": "local", "path": f"./plugins/{n}"}} for n in names]}
+os.makedirs(os.path.join(stage, ".agents", "plugins"), exist_ok=True)
+with open(os.path.join(stage, ".agents", "plugins", "marketplace.json"), "w") as fh:
+    json.dump(catalog, fh, indent=2)
+    fh.write("\n")
+PY
+fi
+
 # Before the catalog checks, so a symlinked plugin is named as one: git stores
 # a symlink as a link, so a clone of the published repo would get a dangling
 # pointer instead of the plugin. The local dev marketplace uses them
@@ -175,6 +226,18 @@ for plugin in doc.get("plugins") or []:
         problems.append(f"{name}: unsupported source {src!r}")
 if not doc.get("plugins"):
     problems.append("catalog lists no plugins")
+codex_catalog = os.path.join(stage, ".agents", "plugins", "marketplace.json")
+if os.path.exists(codex_catalog):
+    root = os.path.realpath(stage)
+    for plugin in json.load(open(codex_catalog)).get("plugins") or []:
+        name, src = plugin.get("name"), (plugin.get("source") or {})
+        if name not in names:
+            problems.append(f"{name}: in the Codex catalog but not the Claude one")
+        target = os.path.realpath(os.path.join(stage, src.get("path") or ""))
+        if src.get("source") != "local" or not target.startswith(root + os.sep):
+            problems.append(f"{name}: Codex source {src!r} is not a local path in the published tree")
+        elif not os.path.isfile(os.path.join(target, ".codex-plugin", "plugin.json")):
+            problems.append(f"{name}: Codex source has no .codex-plugin/plugin.json")
 for p in problems:
     print(f"✗ {p}", file=sys.stderr)
 sys.exit(1 if problems else 0)

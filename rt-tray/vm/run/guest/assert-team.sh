@@ -4,6 +4,12 @@
 # every team secret decryptable with THIS machine's age key, and every
 # deck-managed job actually running. Run as tester in the joiner guest.
 # Usage: assert-team.sh <slug> <expect.json>
+#
+# HARNESS_PROFILE (claude-only | codex-only | mixed) names the agent apps this
+# guest was set up with and turns on the profile assertions: each selected
+# harness got its own skills build and Mattstack MCP entry, and a Codex-only
+# guest has no Claude CLI or configuration at all. Unset, the run checks what
+# it always did (Claude's team plugins) and nothing more.
 set -uo pipefail
 SLUG="${1:?slug}"; EXPECT="${2:?expect.json}"
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -12,6 +18,39 @@ fails=0
 ok()  { echo "TEAM ok   $1"; }
 bad() { echo "TEAM FAIL $1"; fails=$((fails+1)); }
 TEAM="$HOME/.mattstack/teams/$SLUG"
+PROFILE_ASSERTS=0; [ -n "${HARNESS_PROFILE:-}" ] && PROFILE_ASSERTS=1
+HARNESS_PROFILE="${HARNESS_PROFILE:-claude-only}"
+case "$HARNESS_PROFILE" in
+  claude-only) WANT_CLAUDE=1; WANT_CODEX=0 ;;
+  codex-only)  WANT_CLAUDE=0; WANT_CODEX=1 ;;
+  mixed)       WANT_CLAUDE=1; WANT_CODEX=1 ;;
+  *) echo "TEAM FAIL unknown HARNESS_PROFILE $HARNESS_PROFILE (want claude-only|codex-only|mixed)"; exit 1 ;;
+esac
+CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
+APP_HELPERS="/Applications/mattstack.app/Contents/Helpers"
+
+# Profile: what the selected harnesses got, and what an unselected one did not.
+if [ "$PROFILE_ASSERTS" = 1 ] && [ "$WANT_CLAUDE" = 0 ]; then
+  if command -v claude >/dev/null 2>&1 && [ "${CLAUDE_TRIPWIRE:-}" != "$(command -v claude)" ]; then bad "claude is on PATH in a Codex-only guest: $(command -v claude)"; else ok "no Claude CLI on PATH"; fi
+  [ -e "$HOME/.claude" ] && bad "~/.claude exists in a Codex-only guest" || ok "no ~/.claude"
+  [ -e "$HOME/.claude.json" ] && bad "~/.claude.json exists in a Codex-only guest" || ok "no ~/.claude.json"
+  if [ -n "${CLAUDE_TRIPWIRE_LOG:-}" ] && [ -s "$CLAUDE_TRIPWIRE_LOG" ]; then bad "the Claude tripwire was called: $(head -1 "$CLAUDE_TRIPWIRE_LOG")"; else ok "the Claude tripwire was never called"; fi
+fi
+if [ "$PROFILE_ASSERTS" = 1 ] && [ "$WANT_CODEX" = 1 ]; then
+  command -v codex >/dev/null 2>&1 && ok "Codex CLI on PATH ($(codex --version 2>/dev/null | head -1))" || bad "no Codex CLI on PATH"
+  grep -q '^\[mcp_servers\.mattstack\]' "$CODEX_HOME_DIR/config.toml" 2>/dev/null && ok "Mattstack MCP entry in $CODEX_HOME_DIR/config.toml" || bad "no [mcp_servers.mattstack] in $CODEX_HOME_DIR/config.toml"
+  for app in board gitq; do
+    linked=$(find "$CODEX_HOME_DIR/skills" -maxdepth 1 -type l -lname "$APP_HELPERS/skills-targets/codex/$app/*" 2>/dev/null | wc -l | tr -d ' ')
+    [ "${linked:-0}" -gt 0 ] && ok "$app skills linked for Codex from the Codex build ($linked)" || bad "no $app skills linked for Codex from Helpers/skills-targets/codex/$app"
+  done
+  if find "$CODEX_HOME_DIR/skills" -maxdepth 1 -type l -lname "$APP_HELPERS/skills/*" 2>/dev/null | grep -q .; then bad "Codex links a Claude build from Helpers/skills"; else ok "Codex links no Claude build"; fi
+fi
+if [ "$PROFILE_ASSERTS" = 1 ] && [ "$WANT_CLAUDE" = 1 ]; then
+  for app in board gitq; do
+    linked=$(find "$HOME/.claude/skills" -maxdepth 1 -type l -lname "$APP_HELPERS/skills/$app/*" 2>/dev/null | wc -l | tr -d ' ')
+    [ "${linked:-0}" -gt 0 ] && ok "$app skills linked for Claude ($linked)" || bad "no $app skills linked for Claude from Helpers/skills/$app"
+  done
+fi
 
 [ -d "$TEAM/.git" ] && ok "team clone at $TEAM ($(git -C "$TEAM" rev-parse --short HEAD))" || bad "no team clone at $TEAM"
 
@@ -56,11 +95,25 @@ for repo in $(jq -r '.repos[]?' "$EXPECT"); do
   if [ -n "$ROOT" ] && [ -d "$ROOT/$repo/.git" ]; then ok "tracked repo cloned: $ROOT/$repo"; else bad "tracked repo not cloned: $repo (repoRoots[0]=${ROOT:-unset})"; fi
 done
 
-# Team plugins: installed (never auto-enabled) through the claude CLI.
-INSTALLED="$HOME/.claude/plugins/installed_plugins.json"
-for plugin in $(jq -r '.plugins[]?' "$EXPECT"); do
-  if [ -f "$INSTALLED" ] && jq -e --arg p "$plugin" '.plugins[$p] != null' "$INSTALLED" >/dev/null 2>&1; then ok "team plugin installed: $plugin"; else bad "team plugin not installed: $plugin"; fi
-done
+# Team plugins: installed (never auto-enabled) through each selected
+# harness's own CLI. A Codex-only profile reads Codex's list and never runs
+# claude, which the profile assertions below require to be absent.
+if [ "$WANT_CLAUDE" = 1 ]; then
+  INSTALLED="$HOME/.claude/plugins/installed_plugins.json"
+  for plugin in $(jq -r '.plugins[]?' "$EXPECT"); do
+    if [ -f "$INSTALLED" ] && jq -e --arg p "$plugin" '.plugins[$p] != null' "$INSTALLED" >/dev/null 2>&1; then ok "team plugin installed: $plugin"; else bad "team plugin not installed: $plugin"; fi
+  done
+fi
+if [ "$WANT_CODEX" = 1 ]; then
+  CODEX_LIST=$(codex plugin list --json 2>/dev/null)
+  for plugin in $(jq -r '.plugins[]?' "$EXPECT"); do
+    if printf '%s' "$CODEX_LIST" | jq -e --arg p "$plugin" '[.installed[]? | select(.installed == true and ((.pluginId // (.name + "@" + .marketplaceName)) == $p))] | length > 0' >/dev/null 2>&1; then
+      ok "team plugin installed for Codex: $plugin"
+    else
+      bad "team plugin not installed for Codex: $plugin"
+    fi
+  done
+fi
 
 # Team secrets: decrypt with the joiner's own key, straight through sops, so
 # "listed" (keys are plaintext in a sops file) never passes for "readable".
@@ -87,11 +140,17 @@ done
 # behind it works. The credential check is account.linear's row rather than a curl
 # from here: rt makes the api.linear.app call itself.
 if jq -e '.linearMcp == true' "$EXPECT" >/dev/null 2>&1; then
-  CJ="$HOME/.claude.json"
-  if [ -f "$CJ" ] && jq -e '.mcpServers.linear.url == "https://mcp.linear.app/mcp"' "$CJ" >/dev/null 2>&1; then
-    ok "linear MCP entry present in ~/.claude.json"
-  else
-    bad "no linear MCP entry in ~/.claude.json"
+  if [ "$WANT_CLAUDE" = 1 ]; then
+    CJ="$HOME/.claude.json"
+    if [ -f "$CJ" ] && jq -e '.mcpServers.linear.url == "https://mcp.linear.app/mcp"' "$CJ" >/dev/null 2>&1; then
+      ok "linear MCP entry present in ~/.claude.json"
+    else
+      bad "no linear MCP entry in ~/.claude.json"
+    fi
+  fi
+  # Setup writes Linear only into Claude's configuration today (audit A21).
+  if [ "$WANT_CODEX" = 1 ]; then
+    grep -q '^\[mcp_servers\.linear\]' "$CODEX_HOME_DIR/config.toml" 2>/dev/null && ok "linear MCP entry present in $CODEX_HOME_DIR/config.toml" || bad "no linear MCP entry in $CODEX_HOME_DIR/config.toml"
   fi
   for id in tool.linear-mcp account.linear; do
     ROW=$(printf '%s' "$SETUP_JSON" | jq -c --arg id "$id" '.groups[]?.rows[]? | select(.id == $id)' 2>/dev/null | head -1)

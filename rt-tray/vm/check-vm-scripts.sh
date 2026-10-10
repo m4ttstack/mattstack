@@ -315,6 +315,24 @@ t "screen_team leaves the GitHub-repo switch alone when it is off" env GUEST_RUN
    ax_wait_screen() { :; }; ax_shot() { :; }; ax_find() { [ "$1" = setup.team.create.useGh ]; }; ax_value() { printf 0; }
    ax_click() { calls="$calls click:$1"; }; ax_set_field() { calls="$calls set:$1"; }
    screen_team; case "$calls" in *useGh*) echo "$calls"; exit 1;; esac'
+t "screen_harnesses leaves the checklist alone with no profile" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c \
+  'source run/guest/ax.sh; source run/guest/screens.sh; calls=""; unset HARNESS_PROFILE
+   ax_click() { calls="$calls click:$1"; }; rt() { calls="$calls rt:$*"; }
+   screen_harnesses; [ -z "$calls" ] || { echo "$calls"; exit 1; }'
+t "screen_harnesses chooses only Codex for codex-only" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x HARNESS_PROFILE=codex-only bash -c \
+  'source run/guest/ax.sh; source run/guest/screens.sh; calls=""
+   ax_find() { :; }; ax_wait_sheet_id() { :; }; ax_shot() { :; }; ax_wait_status() { :; }; ax_log() { :; }
+   ax_click() { calls="$calls click:$1"; }; ax_click_sheet_id() { calls="$calls sheet:$1"; }; rt() { calls="$calls rt:$*"; }
+   screen_harnesses
+   case "$calls" in *"click:setup.checklist.row.tool.integrations.action"*"sheet:setup.harnesses.cancel"*"rt:setup harnesses codex --default codex --json"*"click:setup.checklist.recheck"*) ;; *) echo "$calls"; exit 1;; esac'
+t "screen_harnesses turns both on for mixed, Claude the default" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x HARNESS_PROFILE=mixed bash -c \
+  'source run/guest/ax.sh; source run/guest/screens.sh; calls=""
+   ax_find() { :; }; ax_wait_sheet_id() { :; }; ax_shot() { :; }; ax_wait_status() { :; }; ax_log() { :; }; ax_click() { :; }; ax_click_sheet_id() { :; }
+   rt() { calls="$calls rt:$*"; }
+   screen_harnesses; case "$calls" in *"rt:setup harnesses claude codex --default claude --json"*) ;; *) echo "$calls"; exit 1;; esac'
+t "assert-team profile assertions read each harness's own build" bash -c \
+  'grep -q "PROFILE_ASSERTS=1" run/guest/assert-team.sh && grep -q "skills-targets/codex/\$app" run/guest/assert-team.sh \
+   && grep -q "codex plugin list --json" run/guest/assert-team.sh && grep -q "CLAUDE_TRIPWIRE_LOG" run/guest/assert-team.sh'
 t "walkthrough mints with the rt from the dmg's sibling zip" bash -c \
   'grep -q "vm_rt_from_zip" run/walkthrough.sh'
 t "walkthrough drives the long guest phases through vm_guest_run" bash -c \

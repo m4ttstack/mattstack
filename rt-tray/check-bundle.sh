@@ -390,12 +390,28 @@ check_helpers() { # app
             fail "$exe skills: dot directory $dotdir would break the bundle seal"
         done < <(find "$app/Contents/Helpers/skills" -type d -name '*.*' -print0)
     fi
+    # Codex's builds, one tree per app under skills-targets/codex/: the same
+    # SKILL.md and dot rules, plus the codex marker on a generated tree.
+    if [ -d "$app/Contents/Helpers/skills-targets" ]; then
+        while IFS= read -r -d '' skdir; do
+            [ -f "$skdir/SKILL.md" ] && pass "$exe codex skills: $(basename "$(dirname "$skdir")")/$(basename "$skdir") has SKILL.md" \
+                || fail "$exe codex skills: $skdir has no SKILL.md"
+        done < <(find "$app/Contents/Helpers/skills-targets/codex" -mindepth 2 -maxdepth 2 -type d -print0)
+        while IFS= read -r -d '' dotdir; do
+            fail "$exe codex skills: dot directory $dotdir would break the bundle seal"
+        done < <(find "$app/Contents/Helpers/skills-targets" -type d -name '*.*' -print0)
+        if [ -d "$app/Contents/Helpers/skills-targets/codex/board" ]; then
+            grep -q '"harness": *"codex"' "$app/Contents/Helpers/skills-targets/codex/board/skills-target.json" 2>/dev/null \
+                && pass "$exe codex skills: board is the Codex build" \
+                || fail "$exe codex skills: board has no codex skills-target.json"
+        fi
+    fi
     # Reverse direction: every top-level Helpers entry must trace to a
     # deps.lock row or be a first-party build.sh product (rt-ui, skills,
     # mattstack-proxy-install).
     # The row loop above only proves declared things exist; a helper the
     # lock doesn't pin would otherwise ship unverified and unversioned.
-    local allowed=" rt-ui rt-owner-auth skills mattstack-proxy-install gate-fork.sh deck-pinned " seg entry stowaways=0
+    local allowed=" rt-ui rt-owner-auth skills skills-targets mattstack-proxy-install gate-fork.sh deck-pinned " seg entry stowaways=0
     while IFS= read -r row; do
         [ -n "$row" ] || continue
         split_tsv "$row"

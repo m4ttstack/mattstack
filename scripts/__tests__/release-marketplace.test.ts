@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { spawnSync, execFileSync } from "child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, readFileSync } from "fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { BASE_PLUGINS } from "../../lib/setup/base-plugins.ts";
@@ -204,6 +204,75 @@ describe("marketplace.sh validation", () => {
     expect(plugin).toEqual(["plugins/mattstack/.claude-plugin/plugin.json", "plugins/mattstack/README.md"]);
   });
 
+  /** A stand-in for `rt skills` that compiles one Codex skill, or fails at `step`. */
+  function codexCompile(fail?: "compile" | "check"): string {
+    const path = join(scratch("bin"), "rt-skills");
+    writeFileSync(path, [
+      "#!/bin/sh",
+      'verb="$1"; pack=""',
+      'while [ $# -gt 0 ]; do [ "$1" = --pack-dir ] && pack="$2"; shift; done',
+      `[ "$verb" = "${fail ?? "none"}" ] && { echo "$verb failed" >&2; exit 1; }`,
+      'if [ "$verb" = compile ]; then mkdir -p "$pack/targets/codex/skills/hello" && echo "# hello" > "$pack/targets/codex/skills/hello/SKILL.md" && echo \'{"harness":"codex"}\' > "$pack/targets/codex/skills-target.json"; fi',
+      'echo "$verb home=$HOME" >> "$CODEX_CALLS"',
+      "",
+    ].join("\n"));
+    chmodSync(path, 0o755);
+    return path;
+  }
+
+  function compilingTree(): string {
+    const tree = treeRepo();
+    writeFileSync(join(tree, "plugins", "mattstack", "surface.jsonc"), "{}\n");
+    git(tree, "add", "-A");
+    git(tree, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "surface");
+    return tree;
+  }
+
+  test("a pack that compiles publishes its Codex build, manifest and catalog beside Claude's", () => {
+    const tree = compilingTree();
+    const src = sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
+    const bare = bareRepo();
+    const calls = join(scratch("calls"), "log");
+    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: tree, RT_CODEX_COMPILE: codexCompile(), CODEX_CALLS: calls });
+    expect(r.code).toBe(0);
+    const ran = readFileSync(calls, "utf8").trim().split("\n");
+    expect(ran.map((l) => l.split(" ")[0])).toEqual(["compile", "check"]);
+    expect(ran.every((l) => !l.endsWith(`home=${process.env.HOME}`))).toBe(true);
+    expect(publishedFiles(bare)).toEqual(expect.arrayContaining([
+      ".agents/plugins/marketplace.json",
+      "plugins/mattstack/.codex-plugin/plugin.json",
+      "plugins/mattstack/targets/codex/skills/hello/SKILL.md",
+      "plugins/mattstack/.claude-plugin/plugin.json",
+    ]));
+    const manifest = JSON.parse(git(bare, "show", "main:plugins/mattstack/.codex-plugin/plugin.json"));
+    expect(manifest).toEqual({ name: "mattstack", version: "0.0.1", skills: "./targets/codex/skills/" });
+    const catalog = JSON.parse(git(bare, "show", "main:.agents/plugins/marketplace.json"));
+    expect(catalog).toEqual({ name: "mattstack", plugins: [{ name: "mattstack", source: { source: "local", path: "./plugins/mattstack" } }] });
+    // Compiled into the staged copy only, never the checkout.
+    expect(git(tree, "status", "--porcelain")).toBe("");
+  });
+
+  test("a Codex build that fails its strict check publishes nothing", () => {
+    const tree = compilingTree();
+    const src = sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
+    const bare = bareRepo();
+    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: tree, RT_CODEX_COMPILE: codexCompile("check"), CODEX_CALLS: join(scratch("calls"), "log") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("mattstack: the Codex build did not compile cleanly");
+    expect(() => git(bare, "rev-parse", "main")).toThrow();
+  });
+
+  test("a pack with no surface gets no Codex build or catalog", () => {
+    const tree = treeRepo();
+    const src = sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
+    const bare = bareRepo();
+    const calls = join(scratch("calls"), "log");
+    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: tree, RT_CODEX_COMPILE: codexCompile(), CODEX_CALLS: calls });
+    expect(r.code).toBe(0);
+    expect(existsSync(calls)).toBe(false);
+    expect(publishedFiles(bare).some((f) => f.startsWith(".agents/") || f.includes(".codex-plugin"))).toBe(false);
+  });
+
   test("a relative source missing from both places is still refused", () => {
     const src = sourceDir([{ name: "ghost", source: "./plugins/ghost", description: "x" }]);
     const r = run(["--dry-run", src], { RT_TREE_ROOT: treeRepo() });
@@ -378,6 +447,10 @@ describe("the catalog this repo actually publishes", () => {
   test("publishes the mattstack plugin from this repo's tree", () => {
     const entry = doc.plugins.find((p: { name: string }) => p.name === "mattstack");
     expect(entry.source).toBe("./plugins/mattstack");
+  });
+
+  test("the mattstack pack carries the surface its Codex build compiles from", () => {
+    expect(existsSync(join(ROOT, "plugins", "mattstack", "surface.jsonc"))).toBe(true);
   });
 
   test("is published to the source plugins.install hardcodes", () => {

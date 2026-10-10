@@ -285,6 +285,15 @@ jobs:
             echo "reference.md is stale. Regenerate: bun cli.ts mcp tools --json | bun plugins/mattstack/scripts/gen-mcp-tools.ts > plugins/mattstack/attachments/mcp-tools/reference.md"
             exit 1
           }
+      # The Codex build is not committed: the marketplace publish compiles it
+      # into its staged copy. This compiles it the same way, into the job's
+      # throwaway checkout, last, so a pack change that breaks it fails here
+      # first and its output reaches no earlier step.
+      - name: Codex skills build compiles and passes the strict check
+        run: |
+          mkdir -p "$RUNNER_TEMP/mattstack"
+          bun cli.ts skills compile --harness codex --pack-dir "$GITHUB_WORKSPACE/plugins/mattstack" --mattstack-dir "$RUNNER_TEMP/mattstack"
+          bun cli.ts skills check --harness codex --pack-dir "$GITHUB_WORKSPACE/plugins/mattstack" --mattstack-dir "$RUNNER_TEMP/mattstack" --strict
 
   # The Claude Code mod, checked by the engine release it targets: validate
   # reads the manifest and hooks module the way the loader does, and plugin

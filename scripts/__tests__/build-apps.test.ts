@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildTreeRows, WORKSPACE_BUILD_ARGS } from "../build-apps.ts";
+import { buildTreeRows, CODEX_SKILLS_AS_WRITTEN, codexSkillsSource, WORKSPACE_BUILD_ARGS } from "../build-apps.ts";
 
-function fakeApp(root: string, name: string, opts: { skills?: boolean; serve?: boolean } = {}) {
+function fakeApp(root: string, name: string, opts: { skills?: boolean; serve?: boolean; codexTarget?: string } = {}) {
   const dir = join(root, name);
   mkdirSync(join(dir, "dist"), { recursive: true });
   const homeFile = join(dir, "dist", `${name}.home`);
@@ -20,6 +20,11 @@ function fakeApp(root: string, name: string, opts: { skills?: boolean; serve?: b
   if (opts.skills) {
     mkdirSync(join(dir, "skills", "hello"), { recursive: true });
     writeFileSync(join(dir, "skills", "hello", "SKILL.md"), "# hello\n");
+  }
+  if (opts.codexTarget !== undefined) {
+    mkdirSync(join(dir, "skills-targets", "codex", "hello"), { recursive: true });
+    writeFileSync(join(dir, "skills-targets", "codex", "hello", "SKILL.md"), opts.codexTarget);
+    writeFileSync(join(dir, "skills-targets", "codex", "skills-target.json"), '{"harness":"codex"}\n');
   }
   return dir;
 }
@@ -95,6 +100,59 @@ describe("build-apps", () => {
     });
     expect(calls).toBe(1);
     expect(built).toEqual(["delta"]);
+  });
+
+  function treeLock(work: string, names: string[]): string {
+    const lock = join(work, "deps.lock");
+    writeFileSync(lock, JSON.stringify({ schema: 1, arch: "arm64", tools: names.map((name) => (
+      { name, version: "", license: "MIT", source: "tree", skills: true, archive: "raw", extract: "",
+        bundlePath: `Contents/Helpers/${name}`, exec: [`Contents/Helpers/${name}`], exposeByDefault: false,
+        entitlements: "jit", status: "bundled", kind: "helper" })) }));
+    return lock;
+  }
+
+  test("stages Codex's own build of an app's skills beside Claude's", async () => {
+    const work = mkdtempSync(join(tmpdir(), "build-apps-"));
+    const apps = join(work, "apps");
+    fakeApp(apps, "alpha", { skills: true, codexTarget: "# hello for codex\n" });
+    fakeApp(apps, "gitq", { skills: true });
+    fakeApp(apps, "beta", { skills: true });
+    const deps = join(work, "deps");
+    const logs: string[] = [];
+    await buildTreeRows({ appsRoot: apps, depsRoot: deps, lockPath: treeLock(work, ["alpha", "gitq", "beta"]), arch: "arm64", log: (l) => logs.push(l) });
+    expect(readFileSync(join(deps, "arm64", "alpha-skills", "hello", "SKILL.md"), "utf8")).toBe("# hello\n");
+    expect(readFileSync(join(deps, "arm64", "alpha-skills-codex", "hello", "SKILL.md"), "utf8")).toBe("# hello for codex\n");
+    expect(existsSync(join(deps, "arm64", "alpha-skills-codex", "skills-target.json"))).toBe(true);
+    expect(readFileSync(join(deps, "arm64", "gitq-skills-codex", "hello", "SKILL.md"), "utf8")).toBe("# hello\n");
+    expect(existsSync(join(deps, "arm64", "beta-skills-codex"))).toBe(false);
+    expect(logs).toContain("  . beta: no Codex build of its skills");
+  });
+
+  test("refuses a Codex skills tree with no codex marker", async () => {
+    const work = mkdtempSync(join(tmpdir(), "build-apps-"));
+    const apps = join(work, "apps");
+    const dir = fakeApp(apps, "alpha", { skills: true, codexTarget: "# hello\n" });
+    rmSync(join(dir, "skills-targets", "codex", "skills-target.json"));
+    await expect(buildTreeRows({ appsRoot: apps, depsRoot: join(work, "deps"), lockPath: treeLock(work, ["alpha"]), arch: "arm64", log: () => {} }))
+      .rejects.toThrow(/alpha: skills-targets\/codex has no codex skills-target.json/);
+  });
+
+  test("refuses a Codex skills tree that still names a Claude skill variable", async () => {
+    const work = mkdtempSync(join(tmpdir(), "build-apps-"));
+    const apps = join(work, "apps");
+    fakeApp(apps, "alpha", { skills: true, codexTarget: "Run ${CLAUDE_SKILL_DIR}/x.sh\n" });
+    await expect(buildTreeRows({ appsRoot: apps, depsRoot: join(work, "deps"), lockPath: treeLock(work, ["alpha"]), arch: "arm64", log: () => {} }))
+      .rejects.toThrow(/names a Claude skill variable/);
+  });
+
+  test("this repo's board and gitq each have a Codex build that ships clean", () => {
+    const appsDir = join(import.meta.dir, "..", "..", "apps");
+    expect(codexSkillsSource(join(appsDir, "board"), "board")).toBe(join(appsDir, "board", "skills-targets", "codex"));
+    expect(codexSkillsSource(join(appsDir, "gitq"), "gitq")).toBe(join(appsDir, "gitq", "skills"));
+    expect(CODEX_SKILLS_AS_WRITTEN.has("deck")).toBe(false);
+    for (const entry of readdirSync(join(appsDir, "gitq", "skills"), { recursive: true, withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md")) expect(readFileSync(join(entry.parentPath, entry.name), "utf8")).not.toMatch(/\$\{CLAUDE_[A-Z_]+\}/);
+    }
   });
 
   test("the workspace build filter excludes glance-react", () => {
