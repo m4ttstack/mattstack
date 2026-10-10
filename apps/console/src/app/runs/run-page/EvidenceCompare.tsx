@@ -7,6 +7,7 @@ import {
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
+import type { EvidenceTheme } from '@mattstack/rt-client/evidence';
 import { useLocation, useSearch } from 'wouter';
 
 import classes from './EvidenceCompare.module.css';
@@ -30,6 +31,8 @@ import {
 export interface CompareOpen {
   mode?: CompareMode;
   variant?: EvidenceVariant;
+  caseId?: string;
+  theme?: EvidenceTheme;
 }
 
 const COMPARE_PARAM = 'compare';

@@ -1,8 +1,20 @@
-import { useState, type ReactNode } from 'react';
-import { Anchor, Group, Paper, Stack, Text } from '@mattstack/app-kit/core';
+import { Fragment, useState, type ReactNode } from 'react';
+import {
+  Anchor,
+  Badge,
+  Divider,
+  Group,
+  Paper,
+  Stack,
+  Text,
+} from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
-import type { ParsedEvidence } from '@mattstack/rt-client';
-import { legacyItems, type LegacyItem } from '@mattstack/rt-client/evidence';
+import {
+  legacyItems,
+  type EvidenceCase,
+  type EvidenceRecord,
+  type LegacyItem,
+} from '@mattstack/rt-client/evidence';
 
 import { Eyebrow } from '../Eyebrow';
 import classes from './EvidenceCard.module.css';
@@ -14,18 +26,20 @@ import {
 } from './EvidenceCompare';
 import { EvidenceImage } from './EvidenceImage';
 import {
+  addressOf,
+  badgesOf,
   evidenceUrl,
   fileNameOf,
+  headLabel,
   legacyImageUrl,
   PHASE_LABEL,
-  phasesIn,
-  shotFor,
-  shotsOf,
+  shotIn,
+  shotLine,
+  shownName,
+  slotsOf,
   urlLabel,
-  variantsIn,
+  type EvidenceCases,
   type EvidencePhase,
-  type EvidenceV1Parsed,
-  type EvidenceVariant,
 } from './evidenceImages';
 import { TranscriptBlock } from './TranscriptBlock';
 
@@ -33,7 +47,7 @@ export interface EvidenceCardProps {
   /** The run's repo in the wire form the run page carries. */
   repo: string;
   runId: string;
-  evidence: ParsedEvidence;
+  evidence: EvidenceRecord;
   /** `story` is the live story's stage row, `record` the record view's column. */
   variant: 'story' | 'record';
   /** The run's ticket, which heads the full-size view. */
@@ -227,32 +241,32 @@ function StoryEvidence({
 }: {
   repo: string;
   runId: string;
-  evidence: EvidenceV1Parsed;
+  evidence: EvidenceCases;
   phase?: EvidencePhase;
   withUrl: boolean;
   onCompare: (open: CompareOpen) => void;
 }) {
-  const shots = shotsOf(evidence);
-  const phases = phasesIn(shots);
-  const phase = only ? phases.find(p => p === only) : phases[0];
-  if (!phase) return null;
-  const url = withUrl ? evidence.evidence.url : undefined;
+  const c = evidence.cases[0]!;
+  const phase = only ?? slotsOf(c)[0];
+  const shot = phase ? shotIn(c, phase, 'light') : null;
+  if (!phase || !shot) return null;
+  const url = withUrl ? evidence.url : undefined;
+  const variants = shot.annotated
+    ? (['plain', 'annotated'] as const)
+    : (['plain'] as const);
 
   return (
     <Stack gap={12}>
       <div className={classes.strip}>
-        {variantsIn(shots[phase]).map(variant => {
-          const shot = shots[phase][variant]!;
-          return (
-            <Thumb
-              key={variant}
-              src={evidenceUrl(repo, runId, shot.key)}
-              name={shot.fileName}
-              size="story"
-              onOpen={() => onCompare({ mode: phase, variant })}
-            />
-          );
-        })}
+        {variants.map(variant => (
+          <Thumb
+            key={variant}
+            src={evidenceUrl(repo, runId, addressOf(c, phase, shot, variant))}
+            name={shownName(shot, variant)}
+            size="story"
+            onOpen={() => onCompare({ caseId: c.id, mode: phase, variant })}
+          />
+        ))}
       </div>
       <Group gap={16} wrap="wrap" className={classes.links}>
         {url && <UrlLink url={url} />}
@@ -271,115 +285,191 @@ function StoryEvidence({
   );
 }
 
+/** One image of a case in the record: its thumbnail, the phase (and theme
+    when the slot has one), then its caption or waiver. */
+function CaseShot({
+  repo,
+  runId,
+  c,
+  phase,
+  onCompare,
+}: {
+  repo: string;
+  runId: string;
+  c: EvidenceCase;
+  phase: EvidencePhase;
+  onCompare: (open: CompareOpen) => void;
+}) {
+  const shot = shotIn(c, phase, 'light');
+  if (!shot)
+    return (
+      <div className={classes.noBefore} data-parity={`no ${phase}`}>
+        <Text fz="sm" lh="normal" c="dimmed" data-parity="t">
+          {`No ${phase} image`}
+        </Text>
+      </div>
+    );
+  const name = shownName(shot);
+  const line = shotLine(c, shot);
+  return (
+    <Stack
+      gap={6}
+      className={classes.thumb}
+      data-parity={`shot ${PHASE_LABEL[phase]}`}
+    >
+      <ThumbFrame>
+        <EvidenceImage
+          src={evidenceUrl(repo, runId, addressOf(c, phase, shot))}
+          name={name}
+          cover
+          onOpen={() =>
+            onCompare({
+              caseId: c.id,
+              mode: phase,
+              theme: shot.theme,
+              variant: 'annotated',
+            })
+          }
+        />
+      </ThumbFrame>
+      <Stack gap={2} data-parity="cap">
+        {shot.theme ? (
+          <Group gap={6} wrap="nowrap" data-parity="phase row">
+            <Text fz="sm" lh="normal" fw={500} data-parity="phase">
+              {PHASE_LABEL[phase]}
+            </Text>
+            <Text fz="sm" lh="normal" c="dimmed" data-parity="theme">
+              {shot.theme}
+            </Text>
+          </Group>
+        ) : (
+          <Text fz="sm" lh="normal" fw={500} data-parity="phase">
+            {PHASE_LABEL[phase]}
+          </Text>
+        )}
+        {line ? (
+          <Text
+            fz="sm"
+            lh="normal"
+            c={line.kind === 'waiver' ? 'dimmed' : undefined}
+            data-parity={line.kind}
+          >
+            {line.text}
+          </Text>
+        ) : null}
+      </Stack>
+    </Stack>
+  );
+}
+
+/** The quiet gray badges after a case's label. */
+function CaseBadges({ c }: { c: EvidenceCase }) {
+  return badgesOf(c).map(b => (
+    <Badge
+      key={b}
+      variant="light"
+      color="gray"
+      size="sm"
+      data-parity={`badge ${b}`}
+    >
+      {b}
+    </Badge>
+  ));
+}
+
+/** One case in the record: its head, the case's own waiver, and Before and
+    After side by side (an empty column keeps After on the right). */
+function CaseGroup({
+  repo,
+  runId,
+  rec,
+  c,
+  onCompare,
+}: {
+  repo: string;
+  runId: string;
+  rec: EvidenceCases;
+  c: EvidenceCase;
+  onCompare: (open: CompareOpen) => void;
+}) {
+  const label = headLabel(rec, c);
+  const phases = slotsOf(c);
+  return (
+    <Stack gap={10} className={classes.caseGroup} data-parity={`Case ${c.id}`}>
+      {label ? (
+        <Group gap={8} wrap="nowrap" data-parity="head">
+          <Text fz="md" lh="normal" fw={500} truncate data-parity="label">
+            {label}
+          </Text>
+          <CaseBadges c={c} />
+        </Group>
+      ) : null}
+      {c.waiver ? (
+        <Text fz="sm" lh="normal" c="dimmed" data-parity="case waiver">
+          {`Waived: ${c.waiver}`}
+        </Text>
+      ) : null}
+      <div className={classes.thumbs} data-parity="pair">
+        {(phases.length === 1 ? (['before', 'after'] as const) : phases).map(
+          p => (
+            <CaseShot
+              key={p}
+              repo={repo}
+              runId={runId}
+              c={c}
+              phase={p}
+              onCompare={onCompare}
+            />
+          )
+        )}
+      </div>
+    </Stack>
+  );
+}
+
 function RecordColumn({
   repo,
   runId,
-  evidence,
+  rec,
   mrIid,
   onCompare,
 }: {
   repo: string;
   runId: string;
-  evidence: EvidenceV1Parsed;
+  rec: EvidenceCases;
   mrIid?: string | null;
   onCompare: (open: CompareOpen) => void;
 }) {
-  const shots = shotsOf(evidence);
-  const phases = phasesIn(shots);
-  const { transcript, case: caseUsed, attach } = evidence.evidence;
-
-  const hasImages = phases.length > 0;
-  const count = evidence.images.length;
-  const heading = hasImages ? `EVIDENCE · ${count}` : 'EVIDENCE';
-
-  return (
-    <Stack gap={12}>
-      {(hasImages || transcript) && (
-        <Paper
-          variant="ground"
-          withBorder
-          radius={12}
-          className={classes.recordCard}
-          data-parity="Evidence"
-        >
-          <Stack gap={12}>
-            <Group justify="space-between" wrap="nowrap">
-              <Eyebrow data-parity="title">{heading}</Eyebrow>
-              {attach === 'ship' && mrIid && (
-                <Text fz="md" lh="normal" c="dimmed" data-parity="attached">
-                  attached to !{mrIid}
-                </Text>
-              )}
-            </Group>
-            {hasImages && (
-              <>
-                <div className={classes.thumbs}>
-                  {phases.map(p => {
-                    const shot = shotFor(shots[p], 'plain');
-                    if (!shot) return null;
-                    const shown: EvidenceVariant =
-                      shots[p].plain === shot ? 'plain' : 'annotated';
-                    return (
-                      <Stack key={p} gap={6} className={classes.thumb}>
-                        <ThumbFrame>
-                          <EvidenceImage
-                            src={evidenceUrl(repo, runId, shot.key)}
-                            name={shot.fileName}
-                            cover
-                            onOpen={() =>
-                              onCompare({ mode: p, variant: shown })
-                            }
-                          />
-                        </ThumbFrame>
-                        <Group gap={6} wrap="nowrap">
-                          <Text
-                            fz="md"
-                            lh="normal"
-                            fw={500}
-                            data-parity="phase"
-                          >
-                            {PHASE_LABEL[p]}
-                          </Text>
-                          <Text
-                            fz="md"
-                            lh="normal"
-                            c="dimmed"
-                            truncate
-                            data-parity="name"
-                          >
-                            {shot.fileName}
-                          </Text>
-                        </Group>
-                      </Stack>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-            {transcript && <TranscriptBlock repo={repo} runId={runId} />}
-          </Stack>
-        </Paper>
-      )}
-      {caseUsed && <CaseCard value={caseUsed} />}
-    </Stack>
-  );
-}
-
-/** The case the evidence was captured on. */
-function CaseCard({ value }: { value: string }) {
   return (
     <Paper
       variant="ground"
       withBorder
       radius={12}
       className={classes.recordCard}
-      data-parity="Case"
+      data-parity="Evidence"
     >
-      <Stack gap={8}>
-        <Eyebrow data-parity="title">CASE USED</Eyebrow>
-        <Text fz="lg" lh="normal" fw={500} data-parity="value">
-          {value}
-        </Text>
+      <Stack gap={16}>
+        <Group justify="space-between" wrap="nowrap">
+          <Eyebrow data-parity="title">{`EVIDENCE · ${rec.cases.length}`}</Eyebrow>
+          {rec.attach === 'ship' && mrIid ? (
+            <Text fz="md" lh="normal" c="dimmed" data-parity="attached">
+              attached to !{mrIid}
+            </Text>
+          ) : null}
+        </Group>
+        {rec.cases.map((c, i) => (
+          <Fragment key={c.id}>
+            {i > 0 ? <Divider data-parity="rule" /> : null}
+            <CaseGroup
+              repo={repo}
+              runId={runId}
+              rec={rec}
+              c={c}
+              onCompare={onCompare}
+            />
+          </Fragment>
+        ))}
+        {rec.transcript ? <TranscriptBlock repo={repo} runId={runId} /> : null}
       </Stack>
     </Paper>
   );
@@ -423,7 +513,7 @@ function RecordLegacy({
   );
 }
 
-function V1Evidence({
+function CaseEvidence({
   repo,
   runId,
   evidence,
@@ -434,7 +524,7 @@ function V1Evidence({
   withUrl = false,
   onCompare,
 }: Omit<EvidenceCardProps, 'evidence' | 'pathHref'> & {
-  evidence: EvidenceV1Parsed;
+  evidence: EvidenceCases;
 }) {
   const [own, setOwn] = useState<CompareOpen | null>(null);
   const request = onCompare ?? setOwn;
@@ -453,7 +543,7 @@ function V1Evidence({
         <RecordColumn
           repo={repo}
           runId={runId}
-          evidence={evidence}
+          rec={evidence}
           mrIid={mrIid}
           onCompare={request}
         />
@@ -462,8 +552,8 @@ function V1Evidence({
         <EvidenceCompare
           repo={repo}
           runId={runId}
-          evidence={evidence}
-          title={evidenceTitle(ticket, evidence.evidence.case)}
+          record={evidence}
+          ticket={ticket}
           {...own}
           onClose={() => setOwn(null)}
         />
@@ -472,7 +562,7 @@ function V1Evidence({
   );
 }
 
-/** A run's evidence: its screenshots, links and case, and nothing for a run
+/** A run's evidence: its cases, links and transcript, and nothing for a run
     that recorded none. */
 export function EvidenceCard({
   repo,
@@ -506,8 +596,9 @@ export function EvidenceCard({
         pathHref={pathHref}
       />
     );
+  if (evidence.version !== 2) return null;
   return (
-    <V1Evidence
+    <CaseEvidence
       repo={repo}
       runId={runId}
       evidence={evidence}
