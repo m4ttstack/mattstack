@@ -1054,6 +1054,30 @@ describe('RunDetail: finished run', () => {
     }
   });
 
+  it('writes the chosen tab into the URL, keeping other params and dropping it for Story', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/run?tab=inputs&keep=1');
+    try {
+      render(
+        workRun({
+          run: summary({ status: 'done', ended_at: at(90), agent: null }),
+        })
+      );
+      const record = await screen.findByTestId('run-record');
+      await user.click(within(record).getByRole('tab', { name: /Evidence/ }));
+      expect(new URLSearchParams(window.location.search).get('tab')).toBe(
+        'evidence'
+      );
+      expect(new URLSearchParams(window.location.search).get('keep')).toBe('1');
+      await user.click(within(record).getByRole('tab', { name: 'Story' }));
+      const search = new URLSearchParams(window.location.search);
+      expect(search.has('tab')).toBe(false);
+      expect(search.get('keep')).toBe('1');
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
   it('drops a ?compare= link on a run with no images to compare', async () => {
     window.history.replaceState(null, '', '/run?compare=side');
     try {

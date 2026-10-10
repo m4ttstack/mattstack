@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Badge, Stack, Tabs, Text } from '@mattstack/app-kit/core';
 import { readEvidence } from '@mattstack/rt-client/evidence';
-import { useSearch } from 'wouter';
+import { useLocation, useSearch } from 'wouter';
 
 import {
   abandonReason,
@@ -73,7 +73,9 @@ export function RecordPage({
   const hasEvidence = evidence != null && evidence.version !== null;
   const comparable = evidence?.version === 2 ? evidence : null;
   const link = useCompareLink();
-  const askedTab = new URLSearchParams(useSearch()).get('tab');
+  const search = useSearch();
+  const [location, navigate] = useLocation();
+  const askedTab = new URLSearchParams(search).get('tab');
   const [compare, setCompare] = useState<CompareOpen | null>(() =>
     comparable && link.open ? link.open : null
   );
@@ -84,6 +86,14 @@ export function RecordPage({
         ? askedTab
         : null
   );
+  const pickTab = (next: RecordTab) => {
+    setTab(next);
+    const query = new URLSearchParams(search);
+    if (next === 'story') query.delete('tab');
+    else query.set('tab', next);
+    const qs = query.toString();
+    navigate(qs ? `${location}?${qs}` : location, { replace: true });
+  };
   const staleLink = link.asked !== null && compare === null;
   const { clear: clearLink } = link;
   useEffect(() => {
@@ -140,7 +150,7 @@ export function RecordPage({
       <Tabs
         variant="outline"
         value={shown}
-        onChange={v => v && setTab(v as RecordTab)}
+        onChange={v => v && pickTab(v as RecordTab)}
         keepMounted={false}
       >
         <Stack gap={20}>
