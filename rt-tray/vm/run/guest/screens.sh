@@ -81,7 +81,10 @@ screen_readiness() {
   ax_shot 03-readiness-initial
   # Accounts → the forge token (the guest has no gh/glab; the PAT is typed, never logged, masked on screen).
   if ax_find "setup.checklist.row.account.$FORGE" >/dev/null 2>&1; then
-    if [ "$SCENARIO" = solo ] && [ -z "$PAT" ]; then
+    if [ "$(ax_status "account.$FORGE" || true)" = ready ]; then
+      # A later pass (solo's team upgrade) finds the token it connected earlier; the row has no action.
+      ax_log "account.$FORGE row is already ready; nothing to connect"
+    elif [ "$SCENARIO" = solo ] && [ -z "$PAT" ]; then
       # solo marks this row required: false; the walkthrough runs without a token.
       ax_log "account.$FORGE row is optional on solo and no token is set on the host; leaving it unconnected"
     else
