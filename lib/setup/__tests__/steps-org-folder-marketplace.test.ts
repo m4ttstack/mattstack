@@ -340,7 +340,7 @@ describe("convergeMarketplace", () => {
       const { p } = perDir({ [defaultCfg()]: old(), [dev1()]: null, [dev2()]: null }, { files });
       const out = await convergeMarketplace({ ...ctxFor(p), engine: () => "0.30.28" } as ApplyContext, { dir: clone(), stalePaths: [old()] });
       expect(out.detail).toBe(
-        `widgets 2.0.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered. acme is not registered in ${dev1()}; acme is not registered in ${dev2()}. The marketplace now points at the moved folder; rt reinstalls nothing until the app updates.`,
+        `widgets 2.0.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered. acme is not registered in ${dev1()}; acme is not registered in ${dev2()}. The marketplace now points at the moved folder; the held plugins wait for the app to update.`,
       );
     });
 
@@ -372,8 +372,57 @@ describe("convergeMarketplace", () => {
       expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
       expect(out.state).toBe("partial");
       expect(out.detail).toBe(
-        "widgets 2.0.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered. The marketplace now points at the moved folder; rt reinstalls nothing until the app updates.",
+        "widgets 2.0.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered. The marketplace now points at the moved folder; the held plugins wait for the app to update.",
       );
+    });
+
+    const recordOf = (plugins: { id: string; scope: string; enabled: boolean }[]) => ({ marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins });
+    const widgets = { id: "widgets@acme", scope: "user", enabled: true };
+    const gadgets = { id: "gadgets@acme", scope: "user", enabled: false };
+
+    test("a run that stopped after the remove reinstalls what fits, hands back what fits, and keeps only the held plugin pending", async () => {
+      const claude = claudeFake({ registeredAt: null, plugins: [] });
+      const p = probes(claude.exec, heldFiles());
+      updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [recordOf([widgets, gadgets, { id: "gizmos@acme", scope: "project", enabled: true }])] }));
+      const out = await convergeMarketplace({ ...ctxFor(p), engine: () => "0.30.28" } as ApplyContext, { dir: clone(), stalePaths: [] });
+      expect(claude.commands()).toEqual([
+        "plugin marketplace list --json",
+        `plugin marketplace add ${clone()}`,
+        "plugin install gadgets@acme --scope user",
+        "plugin disable gadgets@acme",
+      ]);
+      expect(out.state).toBe("partial");
+      expect(out.commands).toEqual(["claude plugin install gizmos@acme --scope project"]);
+      expect(out.detail).toBe(
+        `widgets 2.0.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered. acme re-pointed in ${defaultCfg()}, 1 plugin reinstalled; gizmos@acme must be reinstalled from the project that used it. The marketplace now points at the moved folder; the held plugins wait for the app to update.`,
+      );
+      expect(readSetupState(p).orgMarketplaceMoves).toEqual([recordOf([widgets])]);
+
+      const next = claudeFake({ registeredAt: clone(), plugins: [{ id: "gadgets@acme", enabled: false }] });
+      p.exec = (argv, o) => Promise.resolve(next.exec(argv, o));
+      const after = await convergeMarketplace({ ...ctxFor(p), engine: () => "0.31.0" } as ApplyContext, { dir: clone(), stalePaths: [] });
+      expect(after.state).toBe("done");
+      expect(next.commands()).toEqual(["plugin marketplace list --json", "plugin list --json", "plugin install widgets@acme --scope user"]);
+      expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
+    });
+
+    test("a run that stopped after the add reinstalls what fits and keeps only the held plugin pending", async () => {
+      const claude = claudeFake({ registeredAt: clone(), plugins: [] });
+      const p = probes(claude.exec, heldFiles());
+      updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [recordOf([widgets, gadgets])] }));
+      const out = await convergeMarketplace({ ...ctxFor(p), engine: () => "0.30.28" } as ApplyContext, { dir: clone(), stalePaths: [] });
+      expect(claude.commands()).toEqual(["plugin marketplace list --json", "plugin list --json", "plugin install gadgets@acme --scope user", "plugin disable gadgets@acme"]);
+      expect(out.state).toBe("partial");
+      expect(out.commands).toBeUndefined();
+      expect(out.detail).toContain("finished reinstalling 1 plugin from acme");
+      expect(readSetupState(p).orgMarketplaceMoves).toEqual([recordOf([widgets])]);
+
+      const next = claudeFake({ registeredAt: clone(), plugins: [{ id: "gadgets@acme", enabled: false }] });
+      p.exec = (argv, o) => Promise.resolve(next.exec(argv, o));
+      const after = await convergeMarketplace({ ...ctxFor(p), engine: () => "0.31.0" } as ApplyContext, { dir: clone(), stalePaths: [] });
+      expect(after.state).toBe("done");
+      expect(next.commands()).toEqual(["plugin marketplace list --json", "plugin list --json", "plugin install widgets@acme --scope user"]);
+      expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
     });
 
     test("an engine that meets the floor still takes the remove, add, reinstall path", async () => {
