@@ -333,7 +333,7 @@ const THREE = readEvidence(
 describe('EvidenceCard story variant, several cases', () => {
   it('draws one annotated shot per case for several cases, with label and line', () => {
     const { container } = story({ evidence: THREE, phase: 'after' });
-    expect(container.querySelectorAll('[data-parity="case"]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-testid="case-thumb"]')).toHaveLength(3);
     expect(shownSrcs(container)).toEqual([
       '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/rush-window/after?annotated=1',
       '/api/runs/remote:acme%2Fweb/20261008-1142/evidence/order-card-themes/after?theme=light&annotated=1',
@@ -433,7 +433,7 @@ describe('EvidenceCard record variant, evidence@2', () => {
   it('draws one group per case under a case count', () => {
     const { container } = record({ evidence: THREE, mrIid: '421' });
     expect(screen.getByText('EVIDENCE · 3')).toBeInTheDocument();
-    expect(container.querySelectorAll('[data-parity^="Case "]')).toHaveLength(
+    expect(container.querySelectorAll('[data-testid="case-group"]')).toHaveLength(
       3
     );
     expect(screen.getByText('Rush order, same-day window')).toBeInTheDocument();
@@ -486,6 +486,6 @@ describe('EvidenceCard record variant, evidence@2', () => {
       }),
     });
     expect(screen.getByText('EVIDENCE · 1')).toBeInTheDocument();
-    expect(container.querySelector('[data-parity="head"]')).toBeNull();
+    expect(container.querySelector('[data-parity="label"]')).toBeNull();
   });
 });

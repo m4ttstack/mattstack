@@ -138,7 +138,6 @@ function UrlLink({ url }: { url: string }) {
       lh="normal"
       c="accent"
       className={classes.link}
-      data-parity="link"
     >
       <Icon name="externalLink" size={13} data-parity="i" />
       <span data-parity="t">{urlLabel(url)}</span>
@@ -253,7 +252,7 @@ function CaseThumb({
   if (!shot) return null;
   const line = shotLine(c, shot);
   return (
-    <Stack gap={4} className={classes.storyThumb} data-parity="case">
+    <Stack gap={4} className={classes.storyThumb} data-testid="case-thumb">
       <ThumbFrame>
         <EvidenceImage
           src={evidenceUrl(repo, runId, addressOf(c, phase, shot))}
@@ -269,7 +268,7 @@ function CaseThumb({
           }
         />
       </ThumbFrame>
-      <Group gap={6} wrap="nowrap" data-parity="label line">
+      <Group gap={6} wrap="nowrap">
         <Text fz="sm" lh="normal" fw={500} truncate data-parity="label">
           {c.label}
         </Text>
@@ -322,7 +321,7 @@ function StoryEvidence({
   const shot = one ? shotIn(one, phase, 'light') : null;
   return (
     <Stack gap={12}>
-      <div className={classes.strip} data-parity="strip">
+      <div className={classes.strip}>
         {one && shot
           ? (['plain', 'annotated'] as const)
               .filter(v => v === 'plain' || shot.annotated)
@@ -362,7 +361,7 @@ function StoryEvidence({
               />
             ))}
       </div>
-      <Group gap={16} wrap="wrap" className={classes.links} data-parity="links">
+      <Group gap={16} wrap="wrap" className={classes.links}>
         {url ? <UrlLink url={url} /> : null}
         <Anchor
           component="button"
@@ -398,7 +397,7 @@ function CaseShot({
   const shot = shotIn(c, phase, 'light');
   if (!shot)
     return (
-      <div className={classes.noBefore} data-parity={`no ${phase}`}>
+      <div className={classes.noBefore}>
         <Text fz="sm" lh="normal" c="dimmed" data-parity="t">
           {`No ${phase} image`}
         </Text>
@@ -407,11 +406,7 @@ function CaseShot({
   const name = shownName(shot);
   const line = shotLine(c, shot);
   return (
-    <Stack
-      gap={6}
-      className={classes.thumb}
-      data-parity={`shot ${PHASE_LABEL[phase]}`}
-    >
+    <Stack gap={6} className={classes.thumb}>
       <ThumbFrame>
         <EvidenceImage
           src={evidenceUrl(repo, runId, addressOf(c, phase, shot))}
@@ -427,9 +422,9 @@ function CaseShot({
           }
         />
       </ThumbFrame>
-      <Stack gap={2} data-parity="cap">
+      <Stack gap={2}>
         {shot.theme ? (
-          <Group gap={6} wrap="nowrap" data-parity="phase row">
+          <Group gap={6} wrap="nowrap">
             <Text fz="sm" lh="normal" fw={500} data-parity="phase">
               {PHASE_LABEL[phase]}
             </Text>
@@ -490,9 +485,9 @@ function CaseGroup({
   const label = headLabel(rec, c);
   const phases = slotsOf(c);
   return (
-    <Stack gap={10} className={classes.caseGroup} data-parity={`Case ${c.id}`}>
+    <Stack gap={10} className={classes.caseGroup} data-testid="case-group">
       {label ? (
-        <Group gap={8} wrap="nowrap" data-parity="head">
+        <Group gap={8} wrap="nowrap">
           <Text fz="md" lh="normal" fw={500} truncate data-parity="label">
             {label}
           </Text>
@@ -504,7 +499,7 @@ function CaseGroup({
           {`Waived: ${c.waiver}`}
         </Text>
       ) : null}
-      <div className={classes.thumbs} data-parity="pair">
+      <div className={classes.pair}>
         {(phases.length === 1 ? (['before', 'after'] as const) : phases).map(
           p => (
             <CaseShot
