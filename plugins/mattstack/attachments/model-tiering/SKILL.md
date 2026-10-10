@@ -41,7 +41,7 @@ silent downgrade.
 
 | Work shape | Tier | Effort |
 |---|---|---|
-| Simple, high-volume, or disposable lookup; extraction; transcription plus testing (the brief carries the literal code) | `haiku` | `low` |
+| Simple, high-volume, or disposable lookup; extraction; transcription plus testing (the brief carries the literal code) | `haiku` | `medium` |
 | Reading-heavy fan-out where each worker returns a judgment (an assessment, not a list) | `sonnet` | `medium` |
 | Mechanical execution -- complete spec, 2-3 files, existing pattern to follow | `opus` | `low` |
 | Integration -- merge branches, run verification, report | `opus` | `low` |
@@ -87,7 +87,8 @@ respond differently:
   added about 1.4 points at 2.5x the cost.
 - **Research, lookups, and knowledge work mostly do not.** `medium` matched
   the default; `low` gave up 1-3 points for a third to a half off.
-- **Checkable output**: run at `low` and re-run only the failures at `high`.
+- **Checkable output**: keep the row's effort for the batch and re-run only
+  the failures at `high`.
 - `max` only when the user asks for it.
 
 Claude Code **clamps** an unsupported level to the highest supported level at
@@ -100,17 +101,19 @@ plus workflow orchestration), not a level in the ladder.
 - **Right idea, sloppy execution** (skipped a file, did not run the tests,
   did not double-check) -> higher effort, same tier.
 - **Wrong conclusion despite full context** -> higher effort first; next tier
-  up once the effort ladder is spent (`opus` at `xhigh`, then `fable`).
+  up once the model's ladder is spent (`haiku` or `sonnet` at `high`, then
+  `opus`; `opus` at `xhigh`, then `fable`).
 
 ## Escalation
 
 - Never retry a stuck agent **unchanged**.
 - Missing context -> same tier and effort, re-dispatched with the context.
-- Wrong despite full context -> one step up the ladder per wrong attempt,
+- Wrong despite full context on `opus` -> one step up the ladder per wrong attempt,
   counted from the effort the last attempt named (from its table row's effort
   when it named none): `low` -> `medium` -> `high` -> `xhigh` -> `fable` at
   `high`. `max` is off the ladder: only when the user asks for it. A wrong
-  `haiku` or `sonnet` attempt moves to `opus` at its row's effort first.
+  `haiku` or `sonnet` attempt re-runs on the same model at `high`, then
+  moves to `opus` at `medium` and climbs from there.
 
 ## Complexity signals
 
