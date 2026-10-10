@@ -1,6 +1,19 @@
 {
   "fetchedAt": "2026-10-08T16:20:00-05:00",
   "branches": {
+    "web-421-delivery-windows": {
+      "ticket": {
+        "identifier": "WEB-421",
+        "title": "Show delivery windows on the order card",
+        "url": "https://linear.app/acme/issue/WEB-421"
+      },
+      "mr": {
+        "iid": 421,
+        "webUrl": "https://gitlab.com/acme/web/-/merge_requests/421",
+        "state": "merged",
+        "pipeline": { "status": "success" }
+      }
+    },
     "web-418-assignee-filter": {
       "ticket": {
         "identifier": "WEB-418",

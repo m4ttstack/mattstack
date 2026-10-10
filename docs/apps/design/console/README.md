@@ -905,3 +905,111 @@ Round B of the kit-first cleanup:
   under the main one below 68em, which no board draws.
 - Small controls are the kit's `sm`: the key hint, the copy buttons, the
   pack pills, the outline "recommended" mark and the loader.
+
+## Evidence v2
+
+The run page reading evidence@2: one group per case in the record, one
+shot per case in the story, and a compare modal that picks a case and a
+theme. The spec is `2026-10-10-console-evidence-v2-design.md` beside this
+README. The boards are in `runs.pen`, light then dark, renders in
+`renders/` and exports in `parity/`.
+
+### Boards
+
+| slug              | frame (light)                                                | light id | dark id  | route                                                                                    | roots        |
+| ----------------- | ------------------------------------------------------------ | -------- | -------- | ---------------------------------------------------------------------------------------- | ------------ |
+| `runs-ev-record`  | `Evidence v2 · Record (3 cases)`                             | `fk63W`  | `KawsQ`  | `/runs/remote%3Aacme%2Fweb/20261008-1210?tab=evidence`                                   | `Evidence`   |
+| `runs-ev-story`   | `Evidence v2 · Story rows · B · one shot per case (3 cases)` | `u5oje`  | `E7Qki`  | `/runs/remote%3Aacme%2Fweb/20261008-1210`                                                | `Stage ship` |
+| `runs-ev-compare` | `Evidence v2 · Compare (case, theme)`                        | `Yhu2H`  | `F0mno7` | `/runs/remote%3Aacme%2Fweb/20261008-1210?compare=side&case=order-card-themes&theme=dark` | `Compare`    |
+
+Option A of the story (`KILKv` / `B22iH`, every case's plain and annotated
+thumbnails, `renders/runs-ev-story-option-a.<scheme>.png`) is kept for the
+record and never compared. Every board uses the `runs` scenario.
+
+### Fixture
+
+WEB-421 (`20261008-1210`) is a finished, merged work run recorded as
+evidence@2, hidden from the runs lists, with three cases: `rush-window`
+(before and after, both annotated with captions), `order-card-themes` (both
+phases themed; the dark after waived on its own) and `empty-state` (after
+only, under a case waiver). Its images are the WEB-409, WEB-401 and
+WEB-377 photos under new names (`files/evidence/IMAGES.md`), its
+transcript carries the board's text, and its enrichment gives its ticket
+title and the merged MR. WEB-409 and WEB-412 stay v1.
+
+### Board-fix list (Evidence v2)
+
+Record (runs-ev-record `Evidence`):
+
+- Thumbnails are the kit's 16:10 `panel-outline` frames (Round A): 287px
+  tall at the column's width where the board draws 220px, so the card is
+  taller and every layer under the first pair sits lower. Each frame shows
+  the photo on the panel surface; the board's tinted placeholder and its
+  shapes (`line`, `mark`) compare as missing.
+- Text sizes are theme sizes (Round B): the case label is `md`, the phase,
+  theme, caption and waiver lines `sm`, 13px tall against the board's
+  15-16px, so each line sits up to 2px higher than the one before it.
+  A narrower label moves its badges up to 15px left.
+- The case label, phase and caption take the kit's body colour, black in
+  light. The board draws captions grey; the spec gives the caption the body
+  tone and a waiver the dimmed one, so the two read apart. Quiet text (the
+  eyebrow, `light`, the waivers, "No before image") is the console's dimmed
+  tone, as "Quiet labels" in the runs redesign list says.
+- `waived` and `light + dark` are kit `Badge sm` `light` `gray`: the label
+  is the badge's own text (no `l` layer), the fill is the kit's gray light
+  tone, and each badge is about 2px wider and 1px taller.
+- The rules between cases are kit `Divider`s: a border in Divider's line
+  tone, not a filled rule.
+- The transcript is the markdown renderer's code block (the runs redesign
+  entry): no fill on the keyed block, its two lines not keyed, 10px
+  shorter.
+- "attached to !421" sits 1px left: its text is a hair wider.
+
+Story (runs-ev-story `Stage ship`):
+
+- The story is the stage list with the picked stage beside it (the kit
+  pass), opening on the newest finished stage. The board draws the old
+  accordion with the evidence and ship rows open, so the board compares the
+  ship pane alone; the evidence pane (the same strip over the before
+  images, plus the url) has no route of its own and is read by eye.
+- The row head (`bullet`, `check`, `name`, `duration`, `summary`,
+  `chevron`) lives in the stage list, so it compares as missing; the pane
+  has no 46px indent, starts 15px higher and is 30px shorter, and
+  "Stage doc" sits at its top right.
+- Thumbnails are 240px wide at 16:10, 150px tall against the board's 144.
+- The record's type, colour and badge entries apply. The waived case's
+  line fits on one line in `sm` where the board wraps it to two.
+
+Compare (runs-ev-compare `Compare`):
+
+- The modal is the kit `Modal` (the pass-2 compare entry): 1404px wide at
+  `calc(100vw - 48px)`, the frames as tall as the window allows, a 60px
+  header. The app keys it as runs-p2-overlays draws it, `modal` and
+  `modal/head`, so every board key compares as missing at the root and its
+  app copy as extra under `modal/`. Read by eye, every control, frame and
+  line the board draws is there.
+- The case picker is a kit `Select` (36px, its own chevron, the value not
+  keyed); Light / Dark and the mode are kit `SegmentedControl`s at their
+  default size (31px, options not keyed); the close button is the kit
+  `CloseButton`, focused on open, with no `x` layer.
+- Each frame's phase and line sit in one `cap` stack, as runs-p2-overlays
+  keys it, not at the root.
+- The frames show the photo contained on the panel surface; the board's
+  dark placeholder and shapes compare as missing. The fixture's light and
+  dark captures are the same photo.
+
+Pass-2 boards:
+
+- runs-p2-overlays `Compare`: `cap` is now a stack of the phase
+  (`cap/phase`) and the image's caption or waiver, so `cap` carries no
+  text or colour of its own and `cap/phase` is extra. The tile's other
+  entries are unchanged.
+- runs-p2-record: the record shows the annotated thumbnail, and the `Case`
+  card is gone (the case label heads the pair). The board cannot load
+  since the kit pass, which removed the Decisions tab: there is no
+  `Decision log` or `Evidence rail` root. runs-ev-record covers the
+  evidence card.
+- runs-p2-story-details: an annotated v1 story thumbnail carries no
+  caption line, as v1 records none. The board cannot load since the kit
+  pass made the story a stage list: there is no `Stage plan` row to click.
+  runs-ev-story covers the evidence strip.

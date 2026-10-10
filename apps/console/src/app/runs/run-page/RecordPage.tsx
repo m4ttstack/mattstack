@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Badge, Stack, Tabs, Text } from '@mattstack/app-kit/core';
-import { parseEvidence } from '@mattstack/rt-client/evidence';
+import { readEvidence } from '@mattstack/rt-client/evidence';
+import { useLocation, useSearch } from 'wouter';
 
 import {
   abandonReason,
@@ -11,7 +12,7 @@ import {
   type RecordTab,
 } from '../derive/record';
 import { EffectiveInputs } from '../EffectiveInputs';
-import { EvidenceCard, evidenceTitle } from './EvidenceCard';
+import { EvidenceCard } from './EvidenceCard';
 import {
   EvidenceCompare,
   useCompareLink,
@@ -68,18 +69,31 @@ export function RecordPage({
   const stats = recordStats({ run, gates: logGates, now });
   const evidenceValue = parts.evidenceField?.value;
   const evidence =
-    kind === 'work' ? parseEvidence(evidenceValue ?? undefined) : null;
+    kind === 'work' ? readEvidence(evidenceValue ?? undefined) : null;
   const hasEvidence = evidence != null && evidence.version !== null;
-  const comparable =
-    evidence?.version === 1 && evidence.images.length > 0 ? evidence : null;
+  const comparable = evidence?.version === 2 ? evidence : null;
   const link = useCompareLink();
+  const search = useSearch();
+  const [location, navigate] = useLocation();
+  const askedTab = new URLSearchParams(search).get('tab');
   const [compare, setCompare] = useState<CompareOpen | null>(() =>
-    comparable && link.mode ? { mode: link.mode } : null
+    comparable && link.open ? link.open : null
   );
   const [tab, setTab] = useState<RecordTab | null>(() =>
-    comparable && link.mode ? 'evidence' : null
+    comparable && link.open
+      ? 'evidence'
+      : askedTab === 'story' || askedTab === 'evidence' || askedTab === 'inputs'
+        ? askedTab
+        : null
   );
-  const shown = tab ?? 'story';
+  const pickTab = (next: RecordTab) => {
+    setTab(next);
+    const query = new URLSearchParams(search);
+    if (next === 'story') query.delete('tab');
+    else query.set('tab', next);
+    const qs = query.toString();
+    navigate(qs ? `${location}?${qs}` : location, { replace: true });
+  };
   const staleLink = link.asked !== null && compare === null;
   const { clear: clearLink } = link;
   useEffect(() => {
@@ -108,10 +122,11 @@ export function RecordPage({
     ...(evidenceColumn ? (['evidence'] as const) : []),
     'inputs',
   ];
+  const shown = tab && tabs.includes(tab) ? tab : 'story';
   const counts: Partial<Record<RecordTab, number>> = {
     evidence:
-      evidence?.version === 1
-        ? evidence.images.length || undefined
+      evidence?.version === 2
+        ? evidence.cases.length
         : evidence?.version === 0
           ? evidence.links.length || undefined
           : undefined,
@@ -135,7 +150,7 @@ export function RecordPage({
       <Tabs
         variant="outline"
         value={shown}
-        onChange={v => v && setTab(v as RecordTab)}
+        onChange={v => v && pickTab(v as RecordTab)}
         keepMounted={false}
       >
         <Stack gap={20}>
@@ -200,9 +215,10 @@ export function RecordPage({
         <EvidenceCompare
           repo={repo}
           runId={runId}
-          evidence={comparable}
-          title={evidenceTitle(facts.hero.ticket, comparable.evidence.case)}
+          record={comparable}
+          ticket={facts.hero.ticket}
           {...compare}
+          onShow={link.sync}
           onClose={() => {
             setCompare(null);
             link.clear();

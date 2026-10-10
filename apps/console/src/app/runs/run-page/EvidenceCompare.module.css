@@ -22,3 +22,7 @@
   min-height: 200px;
   overflow: hidden;
 }
+
+.caseSelect {
+  width: 280px;
+}

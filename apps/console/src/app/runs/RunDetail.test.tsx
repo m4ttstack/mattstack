@@ -827,7 +827,7 @@ describe('RunDetail: finished run', () => {
     await waitFor(() =>
       expect(tabsOf(record)).toEqual([
         ['Story', 'true'],
-        ['Evidence3', 'false'],
+        ['Evidence1', 'false'],
         ['Inputs', 'false'],
       ])
     );
@@ -1037,7 +1037,7 @@ describe('RunDetail: finished run', () => {
       const dialog = await screen.findByRole('dialog');
       expect(within(dialog).getByRole('img')).toHaveAttribute(
         'src',
-        expect.stringContaining('/evidence/beforeAnnotated')
+        expect.stringContaining('/evidence/case/before?annotated=1')
       );
       const record = screen.getByTestId('run-record');
       expect(
@@ -1049,6 +1049,30 @@ describe('RunDetail: finished run', () => {
       await user.click(within(record).getByRole('tab', { name: 'Story' }));
       await user.click(within(record).getByRole('tab', { name: /Evidence/ }));
       expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it('writes the chosen tab into the URL, keeping other params and dropping it for Story', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/run?tab=inputs&keep=1');
+    try {
+      render(
+        workRun({
+          run: summary({ status: 'done', ended_at: at(90), agent: null }),
+        })
+      );
+      const record = await screen.findByTestId('run-record');
+      await user.click(within(record).getByRole('tab', { name: /Evidence/ }));
+      expect(new URLSearchParams(window.location.search).get('tab')).toBe(
+        'evidence'
+      );
+      expect(new URLSearchParams(window.location.search).get('keep')).toBe('1');
+      await user.click(within(record).getByRole('tab', { name: 'Story' }));
+      const search = new URLSearchParams(window.location.search);
+      expect(search.has('tab')).toBe(false);
+      expect(search.get('keep')).toBe('1');
     } finally {
       window.history.replaceState(null, '', '/');
     }
@@ -1104,7 +1128,7 @@ describe('RunDetail: finished run', () => {
     );
     expect(tabsOf(record).map(([name]) => name)).toEqual([
       'Story',
-      'Evidence2',
+      'Evidence1',
       'Inputs',
     ]);
     expect(within(record).getByRole('tablist')).toHaveAttribute(

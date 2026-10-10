@@ -17,10 +17,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  parseEvidence,
   type BranchEnrichment,
-  type EvidenceImageKey,
-  type EvidenceTextKey,
   type GateRow,
   type RunDecisionRow,
   type RunDetail,
@@ -28,7 +25,7 @@ import {
   type RunStageRow,
   type RunSummary,
 } from '@mattstack/rt-client';
-import { legacyItems } from '@mattstack/rt-client/evidence';
+import { legacyItems, readEvidence } from '@mattstack/rt-client/evidence';
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { readExcerpt, type Excerpt } from '../../artifact';
@@ -73,10 +70,11 @@ export interface RunsFixture {
     runId: string,
     stage: string
   ): Promise<{ text: string; pack: string; sha: string } | null>;
-  evidence(
+  transcript(repo: string, runId: string): Promise<FixtureEvidence | null>;
+  evidenceImage(
     repo: string,
     runId: string,
-    key: EvidenceImageKey | EvidenceTextKey
+    a: { caseId: string; slot: string; theme?: string; annotated: boolean }
   ): Promise<FixtureEvidence | null>;
   artifact(repo: string, runId: string, path: string): Promise<Excerpt | null>;
   /** An image a legacy run's evidence names under the fixture's evidence root. */
@@ -202,7 +200,11 @@ function buildDetail(raw: RawRun, repo: string): RunDetail {
         : JSON.stringify(d.selection),
   }));
   const value = (key: string) => fields.find(f => f.key === key)?.value ?? null;
-  const evidence = parseEvidence(value('evidence'));
+  const evidence = readEvidence(value('evidence'));
+  const shots =
+    evidence.version === 2
+      ? evidence.cases.flatMap(c => [...(c.before ?? []), ...(c.after ?? [])])
+      : [];
   const times = [
     raw.run.started_at,
     ...stages.flatMap(s => [s.started_at, s.ended_at]),
@@ -231,7 +233,8 @@ function buildDetail(raw: RawRun, repo: string): RunDetail {
       attempt: s.attempt,
     })),
     decision_count: decisions.length,
-    evidence_count: evidence.version === 1 ? evidence.images.length : 0,
+    evidence_count: shots.reduce((n, s) => n + (s.annotated ? 2 : 1), 0),
+    evidence_cases: evidence.version === 2 ? evidence.cases.length : 0,
     evidence_links: evidence.version === 0 ? evidence.links.length : 0,
   };
   return { run, stages, fields, decisions, schemaAhead: false };
@@ -292,10 +295,16 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
     return gates.map(buildGate).sort((a, b) => a.openedAt - b.openedAt);
   }
 
+  async function fileOf(path: string): Promise<FixtureEvidence | null> {
+    const mime = MIME[extname(path).toLowerCase()];
+    if (!mime) return null;
+    return { mime, bytes: new Uint8Array(await readFile(onDisk(path))) };
+  }
+
   async function evidenceValue(repo: string, runId: string) {
     const detail = await getRun(repo, runId);
     const field = detail?.fields.find(f => f.key === 'evidence');
-    return parseEvidence(field?.value);
+    return readEvidence(field?.value);
   }
 
   return {
@@ -379,17 +388,22 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
       return first ? { text, pack: first.pack, sha: first.recordedSha } : null;
     },
 
-    async evidence(repo, runId, key) {
-      const parsed = await evidenceValue(repo, runId);
-      if (parsed.version !== 1) return null;
-      const path =
-        key === 'transcript'
-          ? parsed.evidence.transcript
-          : parsed.images.find(i => i.key === key)?.path;
-      if (!path) return null;
-      const mime = MIME[extname(path).toLowerCase()];
-      if (!mime) return null;
-      return { mime, bytes: new Uint8Array(await readFile(onDisk(path))) };
+    async transcript(repo, runId) {
+      const rec = await evidenceValue(repo, runId);
+      const path = rec.version === 2 ? rec.transcript : undefined;
+      return path ? fileOf(path) : null;
+    },
+
+    async evidenceImage(repo, runId, a) {
+      const rec = await evidenceValue(repo, runId);
+      if (rec.version !== 2) return null;
+      if (a.slot !== 'before' && a.slot !== 'after') return null;
+      const shots = rec.cases.find(x => x.id === a.caseId)?.[a.slot] ?? [];
+      const themed = shots.some(s => s.theme);
+      if (themed !== (a.theme !== undefined)) return null;
+      const shot = shots.find(s => s.theme === a.theme);
+      const path = a.annotated ? shot?.annotated : shot?.path;
+      return path ? fileOf(path) : null;
     },
 
     async legacyEvidenceFile(repo, runId, path) {

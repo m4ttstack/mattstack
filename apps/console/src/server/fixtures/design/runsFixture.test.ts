@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { optionLabel, stripRecommended } from '@mattstack/gate-kit';
 import {
   gateOptionValue,
-  parseEvidence,
+  readEvidence,
   type GateOption,
   type GateRow,
   type RunDetail,
@@ -153,6 +153,16 @@ describe('the runs boards draw the fixture', () => {
     expect((await runs.asOf('20261008-1340')) - gate!.openedAt).toBe(4 * MIN);
   });
 
+  it('WEB-421: three evidence@2 cases, counted by case and by image', async () => {
+    const f = runsFixture('runs');
+    const d = await f.getRun('remote:acme%2Fweb', '20261008-1210');
+    expect(d?.run.evidence_cases).toBe(3);
+    expect(d?.run.evidence_count).toBe(12);
+    expect((await f.listRuns()).some(r => r.id === '20261008-1210')).toBe(
+      false
+    );
+  });
+
   it('run-record: WEB-409 decisions, recommendation count, evidence and waiting', async () => {
     const texts = boardTexts('run-record');
     const d = await detail('20261008-1142');
@@ -248,7 +258,7 @@ describe('the runs boards draw the fixture', () => {
     expect(texts).toContain(
       String(gates.filter(g => g.status === 'answered').length)
     );
-    const evidence = parseEvidence(field(abandoned, 'evidence'));
+    const evidence = readEvidence(field(abandoned, 'evidence'));
     expect(evidence.version).toBe(0);
     if (evidence.version === 0)
       expect(texts).toContain(`${evidence.links.length} links`);
@@ -499,16 +509,32 @@ describe('runsFixture', () => {
   });
 
   it('serves evidence images, the transcript, and nothing for a key the run lacks', async () => {
-    const image = await runs.evidence(REPO, '20261008-1142', 'after');
+    const image = await runs.evidenceImage(REPO, '20261008-1142', {
+      caseId: 'case',
+      slot: 'after',
+      annotated: false,
+    });
     expect(image?.mime).toBe('image/png');
     expect([...image!.bytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
-    const transcript = await runs.evidence(REPO, '20261008-1142', 'transcript');
+    const transcript = await runs.transcript(REPO, '20261008-1142');
     expect(transcript?.mime).toBe('text/markdown');
     expect(new TextDecoder().decode(transcript!.bytes)).toContain(
       '0 warnings, 0 errors'
     );
-    expect(await runs.evidence(REPO, '20261008-1338', 'after')).toBeNull();
-    expect(await runs.evidence(REPO, '20261008-0900', 'before')).toBeNull();
+    expect(
+      await runs.evidenceImage(REPO, '20261008-1338', {
+        caseId: 'case',
+        slot: 'after',
+        annotated: false,
+      })
+    ).toBeNull();
+    expect(
+      await runs.evidenceImage(REPO, '20261008-0900', {
+        caseId: 'case',
+        slot: 'before',
+        annotated: false,
+      })
+    ).toBeNull();
   });
 
   it('serves the images a legacy run names, and nothing else', async () => {
@@ -530,7 +556,7 @@ describe('runsFixture', () => {
       await runs.legacyEvidenceFile(REPO, '20261008-1142', `${dir}/before.png`)
     ).toBeNull();
     const d = await detail('20261007-1520');
-    expect(parseEvidence(field(d, 'evidence')).version).toBe(0);
+    expect(readEvidence(field(d, 'evidence')).version).toBe(0);
     expect((await runs.listRuns()).some(r => r.id === '20261007-1520')).toBe(
       false
     );

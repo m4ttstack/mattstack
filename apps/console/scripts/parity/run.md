@@ -35,6 +35,9 @@ names its content roots in `boards.ts`:
 | `runs-p2-inputs`                                                             | `Drawer`                                                                           |
 | `runs-p2-runs`                                                               | `Title row`, `Summary`, `Banner waiting`, `Live cards`, `History`                  |
 | `runs-p2-states`, `runs-p2-overlays`, `runs-p2-search`                       | one root per panel (`panels` in `boards.ts`)                                       |
+| `runs-ev-record`                                                             | `Evidence`                                                                         |
+| `runs-ev-story`                                                              | `Stage ship`                                                                       |
+| `runs-ev-compare`                                                            | `Compare` (the app's `Compare modal`)                                              |
 
 The Lanes boards compare their whole `Content`: the title row, stat cards,
 banner, lanes and Earlier list are all its children. The runs boards come from
