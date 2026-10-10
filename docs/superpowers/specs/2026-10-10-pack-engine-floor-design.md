@@ -133,7 +133,7 @@ org clone; the mattstack floor from the marketplace copy, without a refresh)
 and this Mac's `runnableEngine()`, so no install result needs persisting.
 
 - **`pack.<name>`** (`validators/tools.ts` `packRow`): a held pack reads
-  `needs-you` with "claimview 0.11.0 needs a newer mattstack app (engine
+  `needs-you` with "acme-skills 0.11.0 needs a newer mattstack app (engine
   0.31.0 or later). Update the app when it's offered." It carries no
   "Install plugins" action, since installing is what the gate refuses. A
   held row returns `false` from `isInstallSatisfied` (`plan.ts`), the way a
@@ -200,7 +200,7 @@ and this Mac's `runnableEngine()`, so no install result needs persisting.
 The gate protects only Macs whose app contains it. Every app released
 before RT-486 ships (v2.24.0 included) installs packs unconditionally and
 reads no floor at all; the first protected app is the release that carries
-RT-486. So the SKILLS-97 claimview pack update (floor 0.31.0)
+RT-486. So a team pack update (floor 0.31.0)
 is guarded only for members already on that release; until the team's
 members are on it, publishing that pack still waits on them updating, as
 today.

@@ -24,7 +24,7 @@
 - A built rt binary only ever runs under an isolated HOME (`env -i HOME=<temp> …`).
 - Run `bun test` from the repo root only; locally run only the targeted test files for each task (CI runs the full suite).
 - Every skill edit goes through `superpowers:writing-skills`; `plugins/mattstack` changes bump `.claude-plugin/plugin.json`'s version.
-- Never put Assured ticket ids in this repo.
+- Never put employer ticket ids in this repo.
 
 ## Review Focus
 
@@ -105,7 +105,7 @@ describe("readFloor", () => {
 
 describe("copy", () => {
   test("held and refusal copy", () => {
-    expect(heldCopy("claimview", "0.11.0", "0.31.0")).toBe("claimview 0.11.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered.");
+    expect(heldCopy("acme-skills", "0.11.0", "0.31.0")).toBe("acme-skills 0.11.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered.");
     expect(refusalCopy("0.30.28", "the engine on main", "0.31.0")).toBe("This app runs engine 0.30.28; the engine on main needs engine 0.31.0. Update the app first.");
   });
 });
@@ -436,8 +436,8 @@ test("a fitting floor admits and builds argv", () => {
   const a = admit("0.31.0", "0.31.0");
   expect(a.ok).toBe(true);
   if (!a.ok) throw new Error("unreachable");
-  expect(updateArgs(a, "claimview@assured", ["-y"])).toEqual(["plugin", "update", "claimview@assured", "-y"]);
-  expect(installArgs(a, "claimview@assured")).toEqual(["plugin", "install", "claimview@assured"]);
+  expect(updateArgs(a, "acme-skills@acme-market", ["-y"])).toEqual(["plugin", "update", "acme-skills@acme-market", "-y"]);
+  expect(installArgs(a, "acme-skills@acme-market")).toEqual(["plugin", "install", "acme-skills@acme-market"]);
 });
 
 test("a floor above the engine refuses with both versions", () => {

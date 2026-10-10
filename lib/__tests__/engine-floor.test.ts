@@ -45,7 +45,7 @@ describe("readFloor", () => {
 
 describe("copy", () => {
   test("held and refusal copy", () => {
-    expect(heldCopy("claimview", "0.11.0", "0.31.0")).toBe("claimview 0.11.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered.");
+    expect(heldCopy("acme-skills", "0.11.0", "0.31.0")).toBe("acme-skills 0.11.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered.");
     expect(refusalCopy("0.30.28", "the engine on main", "0.31.0")).toBe("This app runs engine 0.30.28; the engine on main needs engine 0.31.0. Update the app first.");
   });
 });
