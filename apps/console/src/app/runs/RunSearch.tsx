@@ -61,17 +61,13 @@ export function RunSearch() {
           }
         />
         <PageShell.Content
-          bg="var(--tk-panel)"
-          contentContainerProps={{ maw: 1680, my: 0, p: 0 }}
+          contentContainerProps={{ maw: 1680, my: 0, px: 40, py: 28 }}
         >
           <div
             className={classes.page}
             data-parity="Search"
             data-testid="run-search"
           >
-            <Text fz={20} fw={700} lh="normal" data-parity="h">
-              Search
-            </Text>
             {runsQuery.isError ? (
               <GenericError
                 title="Couldn't load runs"
@@ -90,7 +86,7 @@ export function RunSearch() {
                   leftSection={<Icon name="search" size={16} />}
                   rightSection={
                     <Text
-                      fz={12}
+                      fz="md"
                       lh="normal"
                       c="dimmed"
                       className={classes.count}
@@ -106,7 +102,7 @@ export function RunSearch() {
                   data-testid="run-search-input"
                 />
                 {results.length === 0 ? (
-                  <Text fz={13} lh="normal" c="dimmed">
+                  <Text fz="lg" lh="normal" c="dimmed">
                     {query.trim() ? 'No runs match.' : 'No retained runs yet.'}
                   </Text>
                 ) : (

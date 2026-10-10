@@ -1,6 +1,6 @@
 import { Group, Text } from '@mattstack/app-kit/core';
-import { useSchemeColors } from '@mattstack/app-kit/hooks';
-import { Icons } from '@mattstack/app-kit/icons';
+
+import { Glyph } from './Glyph';
 
 export interface CommandProvenanceProps {
   /** The rt verb a person would type to get this panel's data. */
@@ -19,19 +19,13 @@ function formatAsOf(asOf: number | undefined): string {
     when. Kept to one quiet row -- provenance, not chrome -- so it never
     competes with the panel's own content. */
 export function CommandProvenance({ command, asOf }: CommandProvenanceProps) {
-  const { text } = useSchemeColors();
   return (
-    <Group
-      gap={6}
-      wrap="nowrap"
-      data-testid="command-provenance"
-      style={{ color: text.dimmed }}
-    >
-      <Icons.terminal size={12} />
-      <Text c={text.muted} size="xs" ff="monospace">
+    <Group gap={6} wrap="nowrap" data-testid="command-provenance">
+      <Glyph name="terminal" size={12} color="dimmed" />
+      <Text c="dimmed" size="sm" ff="monospace">
         {command}
       </Text>
-      <Text c={text.dimmed} size="xs">
+      <Text c="dimmed" size="sm">
         as of {formatAsOf(asOf)}
       </Text>
     </Group>

@@ -212,10 +212,12 @@ The five rules that prevent 90% of improvisation:
    token name and, for design tools, at `values.ts` as the place to read
    a current value.
 
-Mantine's own colour conveniences are off-system: `c="dimmed"`,
-`--mantine-color-dimmed`, and the stock gray scale do not track these
-ramps. Muted text is `--tk-text-3` / `--tk-text-4` (or the scheme-colors
-hook's muted role above), nothing else.
+Muted text on a kit component is `c="dimmed"`: the theme points
+`--mantine-color-dimmed` at slate 11, the same step as `--tk-text-3` and
+the scheme-colors hook's muted role, so it is safe at every Mantine size
+including `xs` (`apps/AGENTS.md`, "Text slots and sizes"). In CSS, muted
+text is `--tk-text-3` / `--tk-text-4`. The stock gray scale does not
+track these ramps and stays off-system.
 
 ## The contrast gates
 

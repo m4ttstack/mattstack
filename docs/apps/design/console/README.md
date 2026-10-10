@@ -607,7 +607,7 @@ Finished run record (runs-p2-record `Hero`, `Tabs`, `Decision log`,
   and Case cards are kit `Paper` ruled in `--tk-border`; answer stamps and
   card titles are `--tk-text-3`; the ticket and the "What the agent found"
   links are `--tk-text-accent`; the outcome pills are kit `Badge lg`, the
-  tabs kit `Tabs` with kit `Badge sm` counts, the overrode tag a kit
+  tabs kit `Tabs` (see "Disclosures and tabs" below), the overrode tag a kit
   `Badge sm` in warn and the recommended mark a kit `Badge xs` `outline` in
   gray (16px tall, its ring and label bright in dark), all as they ship.
 - No data source for two context labels: "The spec · 1 page" and
@@ -737,7 +737,8 @@ drawer` and `Setting inline`):
   colours, padding and 16px label line differ from the board's, so a pill
   is 3-18px narrower.
 - Stage names are 400, 500 when open (the board's 600 is outside the type
-  rules). Stage rows paint the card tone, the opened one the panel tone.
+  rules). Stage doc and setting rows are Accordion items (see "Disclosures
+  and tabs" below), so an opened row keeps the card tone.
 - runs-p2-inputs and runs-p2-overlays draw the same plan doc with different
   text: the inline preview's bullets read "Ask which approach, scope and
   delivery the run takes." and so on, where the stage doc drawer reads
@@ -796,3 +797,111 @@ draws "draft") and the card rules and quiet text:
   and its title under `Title row`, so the tile's `h` and stat keys compare
   as missing at the root and extra under those two frames. Read by eye,
   the banner, the dashes and the skeleton match.
+
+Disclosures and tabs (every runs board that draws a fold, a stage row, a
+decision row or the record tabs). Every expand and collapse is Mantine's
+`Accordion` as it ships, with only spacing set through `classNames`:
+
+- The story is one `Accordion multiple`; each stage row is an item. Its
+  chevron is Accordion's: it points down while folded and turns up when
+  open, at the row's right end, where the boards draw a right-pointing
+  chevron that turns down. The row's rule is Accordion's item border, and a
+  hovered head takes Accordion's hover fill.
+- A control cannot hold a link, so "Stage doc" moves from the opened head
+  into the top of the opened body, where the boards draw it beside the
+  chevron.
+- A decision row that can open is a one-item Accordion. Its chevron sits
+  before the answer stamp, where the boards draw it after, because the stamp
+  keeps its own focusable tooltip and so cannot sit inside the control.
+- The fold lines (What the agent found, What this turns on, N other
+  options, N not posted) are one-item Accordions with the chevron leading
+  the line, pointing down while folded. Their head is the full width of the
+  card, so its hover fill is too.
+- In the inputs drawer, stage doc and setting rows are Accordion items with
+  Accordion's rules and chevrons (the stage doc chevron leads, the setting
+  chevron trails). An opened row keeps the card tone; the board's panel
+  tone on the opened row is a colour the kit leaves to Accordion.
+- The record tabs are kit `Tabs` in the `outline` variant, each tab at the
+  kit's `md` text step (`fz="md"`, 0.76rem, 12.16px) and its count a `lg`
+  kit `Badge` (13px). No board draws the outline variant's box around the
+  selected tab.
+- Every opened Accordion panel shares one block padding (10px above, 14px
+  below, `runs/accordion.module.css`), with its content inset under its
+  header's label; the boards put the opened content tighter under the head.
+- A single-column record tab (Evidence, and Decisions with no evidence
+  rail) is capped at 960px, left-aligned under the tabs. The Inputs tab sets
+  its sections in two fixed columns (packs and stage docs, then decisions
+  and configuration; one column under 1100px); CSS columns were not used,
+  because opening a stage doc would rebalance them and move a section to
+  the other column. No board draws either.
+
+Round A of the kit-first cleanup:
+
+- The gate panel and the waiting banner are kit `Paper`s in the `ground`
+  variant, ringed through `data-attention="bad"`. The kit ring is 1px; the
+  banner's board ring is 1.5px.
+- The findings' fenced code is a kit `Code block` under its path line in
+  dimmed monospace, where the board draws one tinted box with the path
+  inside it.
+- The decision log is a kit `Timeline` (2px line, 24px bullets). Its
+  bullet ring is Timeline's line tone, where the board rings each bullet in
+  the page surface, and the line stops at the last stage's bullet.
+- The evidence rail sticks under the page header while the log scrolls,
+  when the rail fits the window. No board draws the scroll.
+- Evidence thumbnails are kit `Paper`s in `panel-outline` at 16:10 with the
+  photo filling the frame; the board's frames are a fixed 132px or 144px
+  tall. The compare button has no prev/next arrows.
+- Where the time went is a kit `Progress` in the `segmented` variant.
+- The bar hover card is a kit `HoverCard`.
+- The outcome tiles are kit `ThemeIcon`s (`light`); a gray tile takes the
+  kit's gray light tone, darker than the board's panel tone in dark.
+- "Show earlier days" is a kit `Button` (`subtle`, full width).
+- Status dots are glyphless kit `ThemeIcon`s in the tone's filled colour;
+  a gray dot takes the kit's gray fill, not `--tk-muted`.
+- Option chips keep a `lg` kit `Badge` with the key cap a kit `Kbd` at the
+  kit's new `xxs` size (17px) and "recommended" a `xs` kit `Badge`, where
+  the board draws a 10.5px accent word.
+- The palette's section heads are `Spotlight.ActionsGroup` labels and its
+  footer hints are kit `Kbd`s, where the board draws plain text.
+- The runs page and search page show their title once, in the page header;
+  the boards repeat it as a 24px and a 20px body heading.
+- The abandon dialog is the kit's `useModalForm` in its destructive mode:
+  a refusal shows in the kit's error `Alert`, an empty reason is the field's
+  own error, and Cancel is the kit's light gray button where the board
+  draws a default one.
+- Breadcrumb and other links take the theme's link-text role
+  (`--tk-accent-text`), not the blue alias's text shade.
+
+Round B of the kit-first cleanup:
+
+- Every runs, palette and 404 text size is a theme size, never the board's
+  px: 10.5px is `xs` (10.6), 11 and 11.5px `sm` (11.2), 12 and 12.5px `md`
+  (12.2), 13 to 14px `lg` (13.6), 14.5 and 15px `xl` (14.7), 16px `h3`
+  (15.7), 17 to 19px `h2` (17.6) and 22 and 24px `h1` (21.6). Body text at
+  the board's 13px reads a little larger and 12.5px a little smaller.
+- The Now card, the handoff card, the gate panel and the waiting banner
+  share one washed head band. The handoff card's recommended chip is
+  washed in the accent, as the banner's is, and its "recommended" marker is
+  a small filled accent `Badge` on both, where the board draws an accent
+  word.
+- The runs page's subtitle sits centred beside the filters, with no title
+  over it.
+- Status glyphs take their hue's text step through the theme (`c`), not
+  the board's `-vivid` value; today the two are the same colour.
+- Rules between a record's key numbers, under a live lane, and between a
+  review's findings are kit `Divider`s, in Divider's own line tone rather
+  than the board's `--tk-line-3` or `--tk-border`.
+- The answer note in a decision is a `panel-outline` kit `Paper`: the board
+  draws the panel fill with no rule.
+- The gate's findings code sits in a `soft-outline` kit `Paper` so it reads
+  as a box on the panel column; the failure excerpt is the same frame.
+- A plain transcript folds through the kit `Spoiler` at about 40 lines; a
+  Markdown one spans its card.
+- Markdown links, code, quotes and lists are kit `Anchor`, `Code`,
+  `Blockquote` and `List`. A stage doc's bullet is a `List` icon.
+- The stale run's outcome tile is the kit `quiet` tone, a raised square in
+  both schemes.
+- The run page, decision log and review record stack their side column
+  under the main one below 68em, which no board draws.
+- Small controls are the kit's `sm`: the key hint, the copy buttons, the
+  pack pills, the outline "recommended" mark and the loader.

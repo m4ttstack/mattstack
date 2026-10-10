@@ -110,9 +110,10 @@ export function InstalledCachesBar({
 
   return (
     <Paper
-      bg={bg.level2}
+      variant="ground"
+      withBorder
       radius="xl"
-      style={{ border: `1px solid ${border.default}`, padding: '13px 16px' }}
+      style={{ padding: '13px 16px' }}
       data-testid="installed-caches-bar"
     >
       <Group gap={9} align="center" wrap="nowrap">

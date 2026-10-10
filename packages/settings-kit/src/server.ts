@@ -476,6 +476,7 @@ export async function settingsHandler(
   const path = url.pathname;
   if (
     path !== `${base}/defs` &&
+    path !== `${base}/viewer` &&
     !path.startsWith(`${base}/explain/`) &&
     path !== `${base}/set` &&
     path !== `${base}/unset` &&
@@ -483,6 +484,16 @@ export async function settingsHandler(
     path !== `${base}/repos`
   ) {
     return null;
+  }
+
+  // Who you are and where, without the defs: what an app's top bar shows.
+  if (path === `${base}/viewer` && req.method === "GET") {
+    const active = rt.activeTeam();
+    return json({
+      org: active.org,
+      activeTeam: active.team,
+      viewer: rt.viewer ? rt.viewer() : readViewer(rt),
+    });
   }
 
   if (path === `${base}/defs` && req.method === "GET") {

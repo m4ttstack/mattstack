@@ -61,7 +61,10 @@ function renderAt(path: string) {
 test('/ is the Inbox: the rail names both views and the landing view is the inbox', () => {
   renderAt('/');
 
-  expect(screen.getByText('chat')).toBeTruthy();
+  // The mark tops the rail, so the top bar names no app.
+  expect(
+    within(screen.getByRole('banner')).queryByText('chat', { exact: true })
+  ).toBeNull();
 
   const rail = within(screen.getByRole('navigation', { name: 'App sections' }));
   const inbox = rail.getByRole('link', { name: 'Inbox' });
@@ -99,18 +102,11 @@ test('the rail hosts the color-scheme control', () => {
   expect(scheme()).toBe('light');
 });
 
-test('the rail expands into labels from its trigger', () => {
+test('the mark tops the rail in place of an expand trigger', () => {
   renderAt('/');
   const rail = within(screen.getByRole('navigation', { name: 'App sections' }));
-
-  const roomsLabel = () => rail.getByText('Rooms');
-  expect(roomsLabel().getAttribute('aria-hidden')).toBe('true');
-
-  fireEvent.click(rail.getByRole('button', { name: 'Expand navigation' }));
-  expect(roomsLabel().getAttribute('aria-hidden')).toBe('false');
-
-  fireEvent.click(rail.getByRole('button', { name: 'Collapse navigation' }));
-  expect(roomsLabel().getAttribute('aria-hidden')).toBe('true');
+  expect(rail.queryByRole('button', { name: 'Expand navigation' })).toBeNull();
+  expect(rail.getByText('Rooms').getAttribute('aria-hidden')).toBe('true');
 });
 
 test('on mobile, `/` is the phone inbox shell, not the desktop rail', async () => {

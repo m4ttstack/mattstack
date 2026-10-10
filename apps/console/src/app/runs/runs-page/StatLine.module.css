@@ -1,13 +1,10 @@
 .line {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 22px;
+  align-items: stretch;
   width: 100%;
 }
 
 .stat {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+  flex: 1 1 0;
+  padding: 0 20px;
 }

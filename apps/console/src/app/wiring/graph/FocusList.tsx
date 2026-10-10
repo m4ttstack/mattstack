@@ -111,7 +111,6 @@ function ItemRow({
     <NavLink
       component="button"
       type="button"
-      variant="wash"
       color="accent"
       active={active}
       label={
@@ -148,7 +147,6 @@ function StepRow({
     <NavLink
       component="button"
       type="button"
-      variant="wash"
       color="accent"
       active={active}
       label={
@@ -201,7 +199,6 @@ function PipelineRow({
     <NavLink
       component="button"
       type="button"
-      variant="wash"
       color="accent"
       active={active}
       label={

@@ -32,16 +32,9 @@ html {
      doctor lane (row and menu) read amber, distinct from ci-running and
      decide, which read the warn hue via --text-warn-vivid. */
   --orange: light-dark(#9e5c00, #ffca16);
-  /* The lift every board card (header, roster, MR groups) shares, so they
-     sit a step off the grid paper together: short and dense rather than
-     wide and soft, so the edge reads as a solid lift. The page is near
-     black in dark, so dark needs far denser alphas to show. */
   /* Interactive controls on a card take the ramp step above it, so they
      don't read white-on-white: panel in light, raised in dark. */
   --control-fill: light-dark(var(--surface-panel), var(--surface-raised));
-  --card-shadow:
-    0 1px 1px light-dark(rgb(16 24 40 / 8%), rgb(0 0 0 / 80%)),
-    0 2px 5px -1px light-dark(rgb(16 24 40 / 12%), rgb(0 0 0 / 75%));
 }
 body {
   font-size: 0.84375rem;
@@ -73,7 +66,7 @@ body {
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   background: var(--card);
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-card);
   position: relative;
 }
 /* The MR groups are the kit's Panel recipe, which paints its own fill. This
@@ -89,7 +82,7 @@ body {
   padding-top: 0;
   border-color: var(--border-soft);
   overflow: clip;
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-card);
 }
 /* The group label is the card's first row, a band tinted with the group's
    status hue (the pill colours below) when grouped by status and a neutral
@@ -1557,7 +1550,7 @@ body {
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   background: var(--card);
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-card);
 }
 /* Pending-decision callout above the roster: renders as the kit's filled
    accent button (Sidebar.tsx), the same accent blue the rest of the chrome
@@ -1788,7 +1781,7 @@ body {
 [data-part='modal'] {
   border-color: var(--border-soft);
   background: var(--card);
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-card);
 }
 /* A real button, on the selection bar's faint fill. */
 .tui-modal-x,

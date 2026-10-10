@@ -20,3 +20,6 @@ export { useHasOverflowX } from './useHasOverflowX';
 export { useHoverableTextStyle } from './useHoverableTextStyle';
 
 export { staticSchemeColors, useSchemeColors } from './useSchemeColors';
+
+export { growClasses, useGrow } from './useGrow';
+export type { Grow, GrowAxis } from './useGrow';

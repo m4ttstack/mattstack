@@ -216,6 +216,19 @@ function CardTones() {
             Next
           </Button>
         </Group>
+        <Text size="sm">Kbd xxs inside a large badge</Text>
+        <Group>
+          <Badge
+            size="lg"
+            variant="default"
+            leftSection={<Kbd size="xxs">1</Kbd>}
+          >
+            Server-side filter
+          </Badge>
+          <Badge size="lg" leftSection={<Kbd size="xxs">2</Kbd>}>
+            Client-side filter
+          </Badge>
+        </Group>
       </Stack>
     </Box>
   );

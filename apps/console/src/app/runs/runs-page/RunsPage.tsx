@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
+import { MattstackShell } from '@mattstack/app-kit/app';
 import {
-  Alert,
-  Button,
   Group,
   PageShell,
   Paper,
@@ -28,7 +27,9 @@ import {
   statCards,
   type RunsFilter,
 } from '../derive/lanes';
+import { Eyebrow } from '../Eyebrow';
 import { repoPath } from '../repoLabel';
+import { RetryAlert } from '../RetryAlert';
 import type { RunPageData } from '../run-page/useRunParts';
 import {
   useRunChrome,
@@ -57,28 +58,6 @@ const FILTERS: { value: RunsFilter; label: string }[] = [
 const ALL_REPOS = '';
 const NO_GATES: GateRow[] = [];
 
-function SectionLabel({
-  parity,
-  children,
-}: {
-  parity: string;
-  children: string;
-}) {
-  return (
-    <Text
-      fz={10.5}
-      fw={500}
-      lh="normal"
-      tt="uppercase"
-      lts={0.8}
-      c="dimmed"
-      data-parity={parity}
-    >
-      {children}
-    </Text>
-  );
-}
-
 function EmptyCard({ title, sub }: { title: string; sub: string }) {
   return (
     <Paper
@@ -89,10 +68,10 @@ function EmptyCard({ title, sub }: { title: string; sub: string }) {
       data-parity="Live empty"
     >
       <Stack gap={6}>
-        <Text fz={13.5} fw={500} lh="normal" data-parity="t">
+        <Text fz="lg" fw={500} lh="normal" data-parity="t">
           {title}
         </Text>
-        <Text fz={12.5} lh="normal" c="dimmed" data-parity="s">
+        <Text fz="md" lh="normal" c="dimmed" data-parity="s">
           {sub}
         </Text>
       </Stack>
@@ -125,25 +104,15 @@ function ListSkeleton() {
 /** The runs read failed: what that means for the numbers, and Retry. */
 function OutageBanner({ onRetry }: { onRetry: () => void }) {
   return (
-    <Alert
+    <RetryAlert
       color="warn"
-      variant="light"
-      icon={<Icon name="unplug" size={16} data-parity="i" />}
-      classNames={{
-        wrapper: classes.outageWrapper,
-        icon: classes.bannerIcon,
-        message: classes.outageMessage,
-      }}
+      icon="unplug"
+      onRetry={onRetry}
       data-testid="runs-outage"
       data-parity="banner"
     >
-      <Text fz={13} lh="normal" c="warn" data-parity="t">
-        Can&apos;t reach the rt daemon, so these numbers are unknown, not zero.
-      </Text>
-      <Button variant="default" onClick={onRetry} data-parity="btn Retry">
-        <span data-parity="l">Retry</span>
-      </Button>
-    </Alert>
+      Can&apos;t reach the rt daemon, so these numbers are unknown, not zero.
+    </RetryAlert>
   );
 }
 
@@ -186,10 +155,12 @@ export function RunsPage() {
     () => (runsQuery.data?.runs ?? []) as RunSummary[],
     [runsQuery.data]
   );
-  const repos = useMemo(
-    () => [...new Set(allRuns.map(r => r.repo))].sort(),
-    [allRuns]
-  );
+  // The server offers only the repos rt has registered, by their own names;
+  // test and smoke runs stay under "all repos".
+  const choices = useMemo(() => runsQuery.data?.repos ?? [], [runsQuery.data]);
+  const repos = useMemo(() => choices.map(c => c.repo), [choices]);
+  const labelOf = (repo: string) =>
+    choices.find(c => c.repo === repo)?.label ?? repoPath(repo);
   const runs = useMemo(
     () => (url.repo ? allRuns.filter(r => r.repo === url.repo) : allRuns),
     [allRuns, url.repo]
@@ -220,9 +191,9 @@ export function RunsPage() {
   });
 
   const repoName = url.repo
-    ? repoPath(url.repo)
+    ? labelOf(url.repo)
     : repos.length === 1
-      ? repoPath(repos[0]!)
+      ? labelOf(repos[0]!)
       : repos.length > 1
         ? `${repos.length} repos`
         : null;
@@ -262,145 +233,174 @@ export function RunsPage() {
           }
         />
         <PageShell.Content
-          bg="var(--tk-panel)"
-          contentContainerProps={{ maw: 1680, my: 0, p: 0 }}
+          contentContainerProps={{ maw: 1680, my: 0, px: 40, py: 28 }}
         >
-          {url.view === 'timeline' ? (
-            <div className={classes.page} data-testid="runs-page">
-              {outage ? <OutageBanner onRetry={retry} /> : null}
-              <TimelineView
-                runs={runs}
-                gates={gates}
-                gatesByRun={linked.byRun}
-                loading={!settled || !linked.loaded}
-                repoName={url.repo ? repoPath(url.repo) : null}
-                now={now}
-                day={url.day}
-                setUrl={setUrl}
-                titleOf={titleOf}
-              />
-            </div>
-          ) : (
-            <div
-              className={classes.page}
-              data-parity="Content"
-              data-testid="runs-page"
-            >
-              <div className={classes.titleRow} data-parity="Title row">
-                <Stack gap={4} className={classes.titleBlock}>
-                  <Text fz={24} fw={700} lh="normal" data-parity="title">
-                    Runs
-                  </Text>
-                  <Text fz={13} lh="normal" c="dimmed" data-parity="sub">
+          {height =>
+            url.view === 'timeline' ? (
+              <div className={classes.page} data-testid="runs-page">
+                {outage ? <OutageBanner onRetry={retry} /> : null}
+                <TimelineView
+                  runs={runs}
+                  gates={gates}
+                  gatesByRun={linked.byRun}
+                  loading={!settled || !linked.loaded}
+                  repoName={url.repo ? labelOf(url.repo) : null}
+                  now={now}
+                  day={url.day}
+                  setUrl={setUrl}
+                  titleOf={titleOf}
+                  height={height}
+                />
+              </div>
+            ) : (
+              <div
+                className={classes.page}
+                data-parity="Content"
+                data-testid="runs-page"
+              >
+                <Group
+                  justify="space-between"
+                  gap={16}
+                  w="100%"
+                  data-parity="Title row"
+                >
+                  <Text
+                    fz="lg"
+                    fw={500}
+                    lh="normal"
+                    truncate
+                    className={classes.titleBlock}
+                    data-parity="sub"
+                  >
                     {repoName
                       ? `${repoName} · every pipeline run on this Mac`
                       : 'every pipeline run on this Mac'}
                   </Text>
-                </Stack>
-                <Group gap={8} wrap="nowrap">
-                  <SegmentedControl
-                    aria-label="Show"
-                    data={FILTERS}
-                    value={url.filter}
-                    onChange={v => setUrl({ filter: v as RunsFilter })}
-                  />
-                  <Select
-                    aria-label="repo"
-                    w={180}
-                    allowDeselect={false}
-                    leftSection={<Icon name="gitBranch" size={14} />}
-                    value={url.repo ?? ALL_REPOS}
-                    data={[
-                      { value: ALL_REPOS, label: 'all repos' },
-                      ...repos.map(r => ({ value: r, label: repoPath(r) })),
-                      ...(url.repo && !repos.includes(url.repo)
-                        ? [{ value: url.repo, label: repoPath(url.repo) }]
-                        : []),
-                    ]}
-                    onChange={v => setUrl({ repo: v ? v : null })}
-                  />
-                  <ViewToggle
-                    view="lanes"
-                    onChange={view => setUrl({ view })}
-                  />
+                  <MattstackShell.AppBar>
+                    <Select
+                      aria-label="repo"
+                      w={200}
+                      size="xs"
+                      leftSection={<Icon name="gitBranch" size={14} />}
+                      value={url.repo ?? ALL_REPOS}
+                      data={[
+                        { value: ALL_REPOS, label: 'all repos' },
+                        ...choices.map(c => ({
+                          value: c.repo,
+                          label: c.label,
+                        })),
+                        ...(url.repo && !repos.includes(url.repo)
+                          ? [{ value: url.repo, label: labelOf(url.repo) }]
+                          : []),
+                      ]}
+                      onChange={v => setUrl({ repo: v ? v : null })}
+                    />
+                  </MattstackShell.AppBar>
+                  <Group gap={8} wrap="nowrap">
+                    <SegmentedControl
+                      aria-label="Show"
+                      data={FILTERS}
+                      value={url.filter}
+                      onChange={v => setUrl({ filter: v as RunsFilter })}
+                    />
+                    <ViewToggle
+                      view="lanes"
+                      onChange={view => setUrl({ view })}
+                    />
+                  </Group>
                 </Group>
-              </div>
 
-              {outage ? <OutageBanner onRetry={retry} /> : null}
+                {outage ? <OutageBanner onRetry={retry} /> : null}
 
-              <StatLine
-                cards={cards}
-                state={
-                  outage ? 'unknown' : runsQuery.isPending ? 'loading' : 'ready'
-                }
-              />
-
-              {!settled ? <ListSkeleton /> : null}
-
-              {settled && banner ? (
-                <WaitingBanner
-                  gate={banner.gate}
-                  ticket={ticketOf(banner.run)}
-                  title={titleOf(banner.run)}
-                  href={`${runHref(banner.run)}#gate-${encodeURIComponent(banner.gate.id)}`}
-                  now={now}
+                <StatLine
+                  cards={cards}
+                  state={
+                    outage
+                      ? 'unknown'
+                      : runsQuery.isPending
+                        ? 'loading'
+                        : 'ready'
+                  }
                 />
-              ) : null}
 
-              {settled && nothingWaiting ? (
-                <EmptyCard
-                  title="Nothing is waiting on you."
-                  sub="Gates that need your answer show up here."
-                />
-              ) : null}
+                {!settled ? <ListSkeleton /> : null}
 
-              {settled &&
-              lanes &&
-              !(url.filter === 'waiting' && lanes.length === 0) ? (
-                <>
-                  <SectionLabel parity="Live label">
-                    {`Live · ${lanes.length}`}
-                  </SectionLabel>
-                  {lanes.length > 0 ? (
-                    <div className={classes.lanes} data-parity="Live cards">
-                      {lanes.map(run => (
-                        <LaneSlot
-                          key={run.id}
-                          run={run}
-                          gates={gatesOf(run)}
-                          titleOf={titleOf}
-                          now={now}
-                        />
-                      ))}
+                {settled && banner ? (
+                  <WaitingBanner
+                    gate={banner.gate}
+                    ticket={ticketOf(banner.run)}
+                    title={titleOf(banner.run)}
+                    href={`${runHref(banner.run)}#gate-${encodeURIComponent(banner.gate.id)}`}
+                    now={now}
+                  />
+                ) : null}
+
+                {settled && nothingWaiting ? (
+                  <EmptyCard
+                    title="Nothing is waiting on you."
+                    sub="Gates that need your answer show up here."
+                  />
+                ) : null}
+
+                {settled &&
+                lanes &&
+                !(url.filter === 'waiting' && lanes.length === 0) ? (
+                  <>
+                    <Eyebrow c="var(--tk-fg)" fw={600} data-parity="Live label">
+                      {`Live · ${lanes.length}`}
+                    </Eyebrow>
+                    {lanes.length > 0 ? (
+                      <div className={classes.lanes} data-parity="Live cards">
+                        {lanes.map(run => (
+                          <LaneSlot
+                            key={run.id}
+                            run={run}
+                            gates={gatesOf(run)}
+                            titleOf={titleOf}
+                            now={now}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyCard
+                        title="Nothing running."
+                        sub="New runs show up here as soon as a pipeline starts."
+                      />
+                    )}
+                  </>
+                ) : null}
+
+                {settled &&
+                earlier &&
+                !(url.filter === 'waiting' && earlier.length === 0) ? (
+                  <>
+                    <div className={classes.label}>
+                      <Eyebrow
+                        c="var(--tk-fg)"
+                        fw={600}
+                        data-parity="Earlier label"
+                      >
+                        Earlier
+                      </Eyebrow>
                     </div>
-                  ) : (
-                    <EmptyCard
-                      title="Nothing running."
-                      sub="New runs show up here as soon as a pipeline starts."
-                    />
-                  )}
-                </>
-              ) : null}
-
-              {settled &&
-              earlier &&
-              !(url.filter === 'waiting' && earlier.length === 0) ? (
-                <>
-                  <div className={classes.label}>
-                    <SectionLabel parity="Earlier label">Earlier</SectionLabel>
-                  </div>
-                  {groups.length > 0 ? (
-                    <EarlierList groups={groups} info={info} now={now} paged />
-                  ) : (
-                    <EmptyCard
-                      title="No earlier runs."
-                      sub="Finished runs land here, grouped by day."
-                    />
-                  )}
-                </>
-              ) : null}
-            </div>
-          )}
+                    {groups.length > 0 ? (
+                      <EarlierList
+                        groups={groups}
+                        info={info}
+                        now={now}
+                        paged
+                      />
+                    ) : (
+                      <EmptyCard
+                        title="No earlier runs."
+                        sub="Finished runs land here, grouped by day."
+                      />
+                    )}
+                  </>
+                ) : null}
+              </div>
+            )
+          }
         </PageShell.Content>
       </PageShell.Main>
     </PageShell>

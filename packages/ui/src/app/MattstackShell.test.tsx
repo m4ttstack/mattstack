@@ -208,3 +208,27 @@ test('renders header page context in place of the name, with actions before the 
   expect(names.indexOf('Refresh')).toBeLessThan(names.indexOf('Apps'));
   expect(screen.getByTestId('page')).toBeInTheDocument();
 });
+
+test('a page puts its own controls in the top bar through AppBar', async () => {
+  const { hook } = memoryLocation({ path: '/' });
+  renderWithProviders(
+    <Router hook={hook}>
+      <MattstackShell name="probe">
+        <div data-testid="page">
+          <MattstackShell.AppBar>
+            <button type="button">scope</button>
+          </MattstackShell.AppBar>
+          <MattstackShell.AppBar side="end">
+            <span>you</span>
+          </MattstackShell.AppBar>
+        </div>
+      </MattstackShell>
+    </Router>
+  );
+  const banner = screen.getByRole('banner');
+  expect(
+    await within(banner).findByRole('button', { name: 'scope' })
+  ).toBeInTheDocument();
+  expect(within(banner).getByText('you')).toBeInTheDocument();
+  expect(within(screen.getByTestId('page')).queryByText('you')).toBeNull();
+});

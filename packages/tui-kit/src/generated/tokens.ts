@@ -89,7 +89,7 @@ export const GENERATED_LIGHT_COLORS = {
     "bg": "#f0f0f3",
     "panel": "#f9f9fb",
     "card": "#ffffff",
-    "chrome": "#e8e8ec",
+    "chrome": "#f0f0f3",
     "inset": "#f0f0f3",
     "overlay": "#f9f9fb",
     "raised": "#e8e8ec"
@@ -226,3 +226,7 @@ export const GENERATED_FONT_FAMILY = {
 } as const;
 
 export const GENERATED_LINE_HEIGHT_BASE = "1.55" as const;
+
+export const GENERATED_SHADOW = {
+  "card": "0 2px 5px -1px light-dark(rgb(16 24 40 / 16%), rgb(0 0 0 / 60%))"
+} as const;

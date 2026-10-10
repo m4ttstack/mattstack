@@ -1,6 +1,6 @@
 import { BarChart } from '@mattstack/app-kit/charts';
+import { useGrow } from '@mattstack/app-kit/hooks';
 import type { Bin } from '../../model/evidence-shapes';
-import { useGrow } from '../../ui/useGrow';
 import classes from './charts.module.css';
 
 const CHART_H = 144;

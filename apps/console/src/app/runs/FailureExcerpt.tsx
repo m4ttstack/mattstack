@@ -2,6 +2,7 @@ import {
   ActionIcon,
   Anchor,
   Group,
+  Paper,
   Skeleton,
   Text,
   Tooltip,
@@ -68,12 +69,12 @@ export function FailureExcerpt({
         className={classes.grow}
         data-testid="failure-excerpt-error"
       >
-        <Text fz={12.5} lh="18px" c="bad">
+        <Text fz="md" lh="18px" c="bad">
           {outsideRun
             ? 'This artifact lives outside the run directory.'
             : `Could not load ${detailPath}: ${(query.error as Error).message}`}
         </Text>
-        <Anchor href={editorHref(detailPath)} fz={12.5} lh="18px">
+        <Anchor href={editorHref(detailPath)} fz="md" lh="18px">
           open full artifact in editor
         </Anchor>
       </Group>
@@ -83,14 +84,16 @@ export function FailureExcerpt({
   const { lines, truncated } = query.data;
 
   return (
-    <div
+    <Paper
+      variant="soft-outline"
+      radius="lg"
       className={classes.excerpt}
       data-testid="failure-excerpt"
       data-parity="excerpt"
     >
       <Text
         ff="monospace"
-        fz={11.5}
+        fz="sm"
         lh="17px"
         c="dimmed"
         className={classes.lines}
@@ -117,6 +120,6 @@ export function FailureExcerpt({
           <Icon name="externalLink" size={13} />
         </ActionIcon>
       </Tooltip>
-    </div>
+    </Paper>
   );
 }

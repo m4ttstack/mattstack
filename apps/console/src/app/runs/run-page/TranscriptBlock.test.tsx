@@ -3,7 +3,6 @@ import '../../icons';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { TranscriptBlock } = await import('./TranscriptBlock');
@@ -64,20 +63,16 @@ describe('TranscriptBlock', () => {
     );
   });
 
-  it('shows the first 40 lines and the rest on "show all"', async () => {
-    const user = userEvent.setup();
+  it('keeps every line of a long transcript behind a "show all" fold', async () => {
     const text = Array.from({ length: 55 }, (_, i) => `line ${i + 1}`).join(
       '\n'
     );
     answer(text, 'text/plain; charset=utf-8');
-    const { findByRole, container } = block();
-    const button = await findByRole('button', { name: /show all/ });
-    const pre = () => container.querySelector('pre')!.textContent!;
-    expect(pre()).toContain('line 40');
-    expect(pre()).not.toContain('line 41');
-    await user.click(button);
-    expect(pre()).toContain('line 55');
-    expect(container.querySelector('button')).toBeNull();
+    const { findByText, container } = block();
+    await findByText(/line 55/);
+    const fold = container.querySelector('[data-transcript="plain"]');
+    expect(fold?.className).toMatch(/Spoiler/);
+    expect(fold?.querySelector('pre')?.textContent).toBe(text);
   });
 
   it('offers no "show all" for a short transcript', async () => {

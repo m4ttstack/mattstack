@@ -1,16 +1,15 @@
 import '../../icons';
 
-import { useState } from 'react';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { GateQuestion, GateRow } from '@mattstack/rt-client';
-import { screen, within } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import type { StoryEntry } from '../derive/story';
 import { answeredWith, AT, gateOf } from './decisionFixtures';
 
-const { StageRow } = await import('./StageRow');
+const { StagePane } = await import('./StageRow');
 const { Story } = await import('./Story');
 
 const question = (id: string, label: string, picked: string): GateQuestion => ({
@@ -71,105 +70,114 @@ const planEntry = (over: Partial<StoryEntry> = {}): StoryEntry => ({
   ...over,
 });
 
-function Harness({ start = false }: { start?: boolean }) {
-  const [open, setOpen] = useState(start);
-  return (
-    <StageRow
-      entry={planEntry()}
-      open={open}
-      onToggle={() => setOpen(o => !o)}
+const story = (entries: StoryEntry[]) =>
+  renderWithProviders(
+    <Story
       repo="remote:acme%2Fweb"
       runId="20261008-1338"
+      label="Story so far"
+      entries={entries}
       evidenceField={null}
     />
   );
-}
 
-describe('StageRow', () => {
-  it('sums a folded stage up in one line', () => {
-    renderWithProviders(<Harness />);
-    expect(
-      screen.getByText('3 decisions · Backend gap-fill + component work')
-    ).toBeInTheDocument();
-  });
+const gatesEntry = (): StoryEntry => ({
+  ...planEntry({ gates: [] }),
+  key: 'gates#1',
+  label: 'gates',
+  attempt: { ...planEntry().attempt, stage: 'gates' },
+  fields: [
+    {
+      key: 'extra-gate',
+      value: 'read the area docs',
+      produced_by: 'gates',
+      at: AT,
+    },
+  ],
+});
 
-  it('draws no fields or decisions while folded', () => {
-    renderWithProviders(<Harness />);
-    expect(screen.queryByText('Which approach?')).toBeNull();
-    expect(screen.queryByText('Approach')).toBeNull();
-    expect(screen.queryByText('Stage doc')).toBeNull();
-  });
+/** A stage's item in the story's list. */
+const itemOf = (stage: string) =>
+  document.querySelector<HTMLElement>(`nav [data-stage="${stage}"]`)!;
 
-  it('opens when its head is clicked', async () => {
-    renderWithProviders(<Harness />);
-    const toggle = screen.getByRole('button', { name: 'Show plan' });
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await userEvent.click(screen.getByText('plan'));
-    expect(screen.getByRole('button', { name: 'Hide plan' })).toHaveAttribute(
-      'aria-expanded',
-      'true'
-    );
-    expect(screen.getByText('Approach')).toBeInTheDocument();
-    expect(screen.getByText('Which approach?')).toBeInTheDocument();
-    expect(screen.getByText('Spec review')).toBeInTheDocument();
-    expect(screen.getByText('Stage doc')).toBeInTheDocument();
-  });
+/** The stage the pane shows. */
+const paneStage = () =>
+  document
+    .querySelector('[data-testid="story"] div > [data-stage]:not(button)')
+    ?.getAttribute('data-stage');
 
-  it('opens a decision to the pick, the options passed on and the note', async () => {
-    renderWithProviders(<Harness start />);
-    expect(screen.queryByText('Passed on')).toBeNull();
-    await userEvent.click(
-      screen.getAllByRole('button', { name: 'Show details' })[0]!
-    );
-    const open = screen
-      .getByText('Passed on')
-      .closest('[data-parity="decision open"]') as HTMLElement;
-    expect(
-      within(open).getByText('Backend gap-fill + component work')
-    ).toBeInTheDocument();
-    for (const text of [
-      'Panel component only, mock the data',
-      'Spike first, then decide',
-    ])
-      expect(within(open).getByText(text)).toBeInTheDocument();
-    expect(
-      within(open).getByText('“Recipients need it too”')
-    ).toBeInTheDocument();
-  });
-
-  it('starts the newest finished stage opened and the earlier ones folded', () => {
-    const gates: StoryEntry = {
-      ...planEntry({ gates: [] }),
-      key: 'gates#1',
-      label: 'gates',
-      attempt: { ...planEntry().attempt, stage: 'gates' },
-      fields: [
-        {
-          key: 'extra-gate',
-          value: 'read the area docs',
-          produced_by: 'gates',
-          at: AT,
-        },
-      ],
-    };
+describe('StagePane', () => {
+  const pane = () =>
     renderWithProviders(
-      <Story
+      <StagePane
+        entry={planEntry()}
         repo="remote:acme%2Fweb"
         runId="20261008-1338"
-        label="Story so far"
-        entries={[planEntry(), gates]}
         evidenceField={null}
       />
     );
-    expect(screen.getByRole('button', { name: 'Show plan' })).toHaveAttribute(
-      'aria-expanded',
-      'false'
+
+  it('draws the stage doc, fields and every decision', () => {
+    pane();
+    expect(screen.getByText('Stage doc')).toBeInTheDocument();
+    expect(screen.getByText('Approach')).toBeInTheDocument();
+    expect(screen.getByText('Which approach?')).toBeInTheDocument();
+    expect(screen.getByText('Spec review')).toBeInTheDocument();
+  });
+
+  it('shows a decision as its answered form: every option, the pick and the note', () => {
+    pane();
+    const pick = screen
+      .getByText('Backend gap-fill + component work')
+      .closest('[data-picked]');
+    expect(pick).not.toBeNull();
+    for (const text of [
+      'Panel component only, mock the data',
+      'Spike first, then decide',
+    ]) {
+      expect(screen.getByText(text).closest('[data-picked]')).toBeNull();
+    }
+    expect(screen.getByText('Recipients need it too')).toBeInTheDocument();
+  });
+});
+
+describe('Story', () => {
+  it('lists each stage with a one-line summary', () => {
+    story([planEntry(), gatesEntry()]);
+    expect(itemOf('plan')).toHaveTextContent(
+      '3 decisions · Backend gap-fill + component work'
     );
-    const newest = screen.getByRole('button', { name: 'Hide gates' });
-    expect(newest).toHaveAttribute('aria-expanded', 'true');
-    expect(
-      document.getElementById(newest.getAttribute('aria-controls')!)
-    ).toHaveTextContent('read the area docs');
+  });
+
+  it('starts on the newest finished stage and shows another when it is picked', async () => {
+    story([planEntry(), gatesEntry()]);
+    expect(itemOf('gates')).toHaveAttribute('aria-current', 'step');
+    expect(paneStage()).toBe('gates');
+    expect(screen.getByText('read the area docs')).toBeInTheDocument();
     expect(screen.queryByText('Which approach?')).toBeNull();
+    await userEvent.click(itemOf('plan'));
+    expect(paneStage()).toBe('plan');
+    expect(screen.getByText('Which approach?')).toBeInTheDocument();
+  });
+
+  it('starts on the newest finished stage while a later one runs', () => {
+    const running: StoryEntry = {
+      ...planEntry({ gates: [] }),
+      key: 'implement#1',
+      label: 'implement',
+      attempt: {
+        ...planEntry().attempt,
+        stage: 'implement',
+        status: 'running',
+      },
+    };
+    story([planEntry(), running]);
+    expect(itemOf('plan')).toHaveAttribute('aria-current', 'step');
+  });
+
+  it('draws one stage alone with no list', () => {
+    story([planEntry()]);
+    expect(document.querySelector('nav')).toBeNull();
+    expect(screen.getByText('Which approach?')).toBeInTheDocument();
   });
 });

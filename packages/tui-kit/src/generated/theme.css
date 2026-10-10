@@ -79,7 +79,7 @@
     --color-rule-3: light-dark(#d9d9e0, #363a3f);
     --color-surface-bg: light-dark(#f0f0f3, #111113);
     --color-surface-card: light-dark(#ffffff, #212225);
-    --color-surface-chrome: light-dark(#e8e8ec, #18191b);
+    --color-surface-chrome: light-dark(#f0f0f3, #18191b);
     --color-surface-inset: light-dark(#f0f0f3, #111113);
     --color-surface-overlay: light-dark(#f9f9fb, #212225);
     --color-surface-panel: light-dark(#f9f9fb, #18191b);
@@ -157,6 +157,7 @@
     --font-family-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --line-height-base: 1.55;
     --line-height-snug: 1.4;
+    --shadow-card: 0 2px 5px -1px light-dark(rgb(16 24 40 / 16%), rgb(0 0 0 / 60%));
     --shadow-drawer: -6px 0 32px rgba(0, 0, 0, 0.3);
     --shadow-drawer-left: 4px 0 28px rgba(0, 0, 0, 0.3);
     --shadow-menu: 0 10px 30px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18);

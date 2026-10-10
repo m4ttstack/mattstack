@@ -1,10 +1,10 @@
 import type { MantineColor } from '@mattstack/app-kit/core';
 import { Group, Progress, Stack, Text } from '@mattstack/app-kit/core';
-import { Icon } from '@mattstack/app-kit/icons';
 import type { IconName } from '@mattstack/app-kit/icons';
 
 import { formatDuration } from '../derive/duration';
 import type { RailStage } from '../derive/stages';
+import { Glyph } from '../Glyph';
 import { Dot } from './Dot';
 
 type Status = RailStage['status'];
@@ -22,18 +22,18 @@ const STATUS_COLOR: Record<Status, MantineColor | null> = {
 const STATUS_ICON: Partial<
   Record<Status, { name: IconName; layer: string; color: string }>
 > = {
-  done: { name: 'check', layer: 'check', color: 'var(--tk-text-ok-vivid)' },
+  done: { name: 'check', layer: 'check', color: 'ok' },
   failed: {
     name: 'circleX',
     layer: 'circle-x',
-    color: 'var(--tk-text-bad-vivid)',
+    color: 'bad',
   },
   redirected: {
     name: 'cornerUpLeft',
     layer: 'corner-up-left',
-    color: 'var(--tk-text-warn-vivid)',
+    color: 'warn',
   },
-  held: { name: 'clock', layer: 'clock', color: 'var(--tk-text-warn-vivid)' },
+  held: { name: 'clock', layer: 'clock', color: 'warn' },
 };
 
 const STATUS_SUFFIX: Partial<Record<Status, string>> = {
@@ -86,7 +86,7 @@ function Column({ stage, status }: { stage: RailStage; status: Status }) {
       <Bar status={status} parity="bar" />
       <Group gap={5} wrap="nowrap" data-part="lab">
         {icon ? (
-          <Icon
+          <Glyph
             name={icon.name}
             size={12}
             color={icon.color}
@@ -95,7 +95,7 @@ function Column({ stage, status }: { stage: RailStage; status: Status }) {
         ) : null}
         {status === 'running' ? <Dot tone="accent" data-parity="live" /> : null}
         <Text
-          fz={12}
+          fz="md"
           fw={500}
           lh="normal"
           c={status === 'waiting' ? 'bad' : notStarted ? 'dimmed' : undefined}
@@ -107,12 +107,12 @@ function Column({ stage, status }: { stage: RailStage; status: Status }) {
         </Text>
       </Group>
       <Group gap={8} wrap="nowrap" data-part="meta">
-        <Text fz={11.5} lh="normal" c="dimmed" data-parity={duration}>
+        <Text fz="sm" lh="normal" c="dimmed" data-parity={duration}>
           {duration}
         </Text>
         {stage.attempts > 1 ? (
           <Text
-            fz={11.5}
+            fz="sm"
             lh="normal"
             c="dimmed"
             data-parity={`×${stage.attempts}`}

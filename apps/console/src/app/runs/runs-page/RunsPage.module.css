@@ -2,8 +2,6 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding: 28px 40px;
-  color: var(--tk-text-1);
   /* PageShell's scroll frame grows to its content's min-content, and a
      truncated title's min-content is its whole text. */
   contain: inline-size;
@@ -38,23 +36,4 @@
 .empty {
   width: 100%;
   padding: 18px 20px;
-}
-
-.outageMessage {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.outageMessage > :first-child {
-  flex: 1;
-  min-width: 0;
-}
-
-.outageWrapper {
-  align-items: center;
-}
-
-.bannerIcon {
-  margin-top: 0;
 }

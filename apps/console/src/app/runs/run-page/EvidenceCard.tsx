@@ -1,17 +1,10 @@
 import { useState, type ReactNode } from 'react';
-import {
-  Anchor,
-  Button,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  UnstyledButton,
-} from '@mattstack/app-kit/core';
+import { Anchor, Group, Paper, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { ParsedEvidence } from '@mattstack/rt-client';
 import { legacyItems, type LegacyItem } from '@mattstack/rt-client/evidence';
 
+import { Eyebrow } from '../Eyebrow';
 import classes from './EvidenceCard.module.css';
 import {
   EvidenceCompare,
@@ -58,22 +51,6 @@ export interface EvidenceCardProps {
   onCompare?: (open: CompareOpen) => void;
 }
 
-function Label({ children, ...rest }: { children: ReactNode }) {
-  return (
-    <Text
-      fz={10.5}
-      fw={500}
-      lh="normal"
-      tt="uppercase"
-      c="dimmed"
-      lts={0.8}
-      {...rest}
-    >
-      {children}
-    </Text>
-  );
-}
-
 /** "WEB-409 · Rush order, Sep 14 delay, Denver": the run, then what the
     full-size view shows. */
 export function evidenceTitle(
@@ -81,6 +58,21 @@ export function evidenceTitle(
   what?: string
 ): string {
   return [ticket, what].filter(Boolean).join(' · ') || 'Evidence';
+}
+
+/** A thumbnail's frame: a screenshot's proportions at the width of the
+    column it sits in. */
+function ThumbFrame({ children }: { children: ReactNode }) {
+  return (
+    <Paper
+      variant="panel-outline"
+      radius="lg"
+      className={classes.frame}
+      data-parity="img"
+    >
+      {children}
+    </Paper>
+  );
 }
 
 /** One screenshot, the size of the column it sits in, its file name under it. */
@@ -100,20 +92,11 @@ function Thumb({
       gap={6}
       className={size === 'story' ? classes.storyThumb : classes.thumb}
     >
-      <div
-        className={size === 'story' ? classes.storyFrame : classes.thumbFrame}
-        data-parity="img"
-      >
-        <EvidenceImage
-          src={src}
-          name={name}
-          maxHeight={size === 'story' ? 144 : 132}
-          cover={size === 'record'}
-          onOpen={onOpen}
-        />
-      </div>
+      <ThumbFrame>
+        <EvidenceImage src={src} name={name} cover onOpen={onOpen} />
+      </ThumbFrame>
       <Text
-        fz={11.5}
+        fz="sm"
         lh="normal"
         ff="monospace"
         c="dimmed"
@@ -133,7 +116,7 @@ function UrlLink({ url }: { url: string }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      fz={12.5}
+      fz="md"
       lh="normal"
       c="accent"
       className={classes.link}
@@ -157,7 +140,7 @@ function FileLink({
   return href ? (
     <Anchor
       href={href}
-      fz={12.5}
+      fz="md"
       lh="normal"
       c="accent"
       ff="monospace"
@@ -166,7 +149,7 @@ function FileLink({
       {path}
     </Anchor>
   ) : (
-    <Text fz={12.5} lh="normal" ff="monospace" className={classes.path}>
+    <Text fz="md" lh="normal" ff="monospace" className={classes.path}>
       {path}
     </Text>
   );
@@ -276,7 +259,7 @@ function StoryEvidence({
         <Anchor
           component="button"
           type="button"
-          fz={12.5}
+          fz="md"
           lh="normal"
           c="accent"
           onClick={() => onCompare({})}
@@ -321,9 +304,9 @@ function RecordColumn({
         >
           <Stack gap={12}>
             <Group justify="space-between" wrap="nowrap">
-              <Label data-parity="title">{heading}</Label>
+              <Eyebrow data-parity="title">{heading}</Eyebrow>
               {attach === 'ship' && mrIid && (
-                <Text fz={12} lh="normal" c="dimmed" data-parity="attached">
+                <Text fz="md" lh="normal" c="dimmed" data-parity="attached">
                   attached to !{mrIid}
                 </Text>
               )}
@@ -338,25 +321,19 @@ function RecordColumn({
                       shots[p].plain === shot ? 'plain' : 'annotated';
                     return (
                       <Stack key={p} gap={6} className={classes.thumb}>
-                        <div className={classes.thumbFrame} data-parity="img">
-                          <UnstyledButton
-                            className={classes.thumbButton}
-                            aria-label={`Open ${shot.fileName} full size`}
-                            onClick={() =>
+                        <ThumbFrame>
+                          <EvidenceImage
+                            src={evidenceUrl(repo, runId, shot.key)}
+                            name={shot.fileName}
+                            cover
+                            onOpen={() =>
                               onCompare({ mode: p, variant: shown })
                             }
-                          >
-                            <EvidenceImage
-                              src={evidenceUrl(repo, runId, shot.key)}
-                              name={shot.fileName}
-                              maxHeight={132}
-                              cover
-                            />
-                          </UnstyledButton>
-                        </div>
+                          />
+                        </ThumbFrame>
                         <Group gap={6} wrap="nowrap">
                           <Text
-                            fz={12}
+                            fz="md"
                             lh="normal"
                             fw={500}
                             data-parity="phase"
@@ -364,7 +341,7 @@ function RecordColumn({
                             {PHASE_LABEL[p]}
                           </Text>
                           <Text
-                            fz={12}
+                            fz="md"
                             lh="normal"
                             c="dimmed"
                             truncate
@@ -377,25 +354,6 @@ function RecordColumn({
                     );
                   })}
                 </div>
-                <Button
-                  variant="default"
-                  fullWidth
-                  justify="space-between"
-                  leftSection={
-                    <Icon name="columns2" size={14} data-parity="columns-2" />
-                  }
-                  rightSection={
-                    <Group gap={6} aria-hidden data-parity="arrows">
-                      <Icon name="arrowLeft" size={14} />
-                      <Icon name="arrowRight" size={14} />
-                    </Group>
-                  }
-                  classNames={{ label: classes.compareLabel }}
-                  data-parity="Compare"
-                  onClick={() => onCompare({})}
-                >
-                  <span data-parity="label">Compare full size</span>
-                </Button>
               </>
             )}
             {transcript && <TranscriptBlock repo={repo} runId={runId} />}
@@ -418,8 +376,8 @@ function CaseCard({ value }: { value: string }) {
       data-parity="Case"
     >
       <Stack gap={8}>
-        <Label data-parity="title">CASE USED</Label>
-        <Text fz={13} lh="normal" fw={500} data-parity="value">
+        <Eyebrow data-parity="title">CASE USED</Eyebrow>
+        <Text fz="lg" lh="normal" fw={500} data-parity="value">
           {value}
         </Text>
       </Stack>
@@ -451,7 +409,7 @@ function RecordLegacy({
       data-parity="Evidence"
     >
       <Stack gap={12}>
-        <Label data-parity="title">{`EVIDENCE · ${links.length}`}</Label>
+        <Eyebrow data-parity="title">{`EVIDENCE · ${links.length}`}</Eyebrow>
         <LegacyEvidence
           repo={repo}
           runId={runId}

@@ -1,11 +1,4 @@
-import {
-  Badge,
-  Button,
-  Group,
-  Kbd,
-  Stack,
-  Text,
-} from '@mattstack/app-kit/core';
+import { Button, Group, Kbd, Stack, Text } from '@mattstack/app-kit/core';
 import { useHotkeys } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { GateRow } from '@mattstack/rt-client';
@@ -14,7 +7,9 @@ import { navigate } from 'wouter/use-browser-location';
 
 import { formatDuration } from '../derive/duration';
 import { optionViews } from '../derive/gates';
-import inline from '../run-page/inline.module.css';
+import { Glyph } from '../Glyph';
+import { OptionChips } from '../OptionChips';
+import { StatusCard } from '../StatusCard';
 import classes from './WaitingBanner.module.css';
 
 export interface WaitingBannerProps {
@@ -45,33 +40,32 @@ export function WaitingBanner({
   const count = gate.questions.length;
 
   return (
-    <div
-      className={classes.banner}
+    <StatusCard
+      tone="bad"
+      attention="bad"
+      head={
+        <>
+          <Glyph name="hand" size={14} color="bad" data-parity="hand" />
+          <Text fz="md" fw={700} lh="normal" c="bad" data-parity="title">
+            Waiting on you
+          </Text>
+          <Text fz="md" lh="normal" c="bad" data-parity="gate">
+            {gateName(gate.kind)} · opened {formatDuration(now - gate.openedAt)}{' '}
+            ago
+          </Text>
+        </>
+      }
+      headProps={{ 'data-parity': 'Header' }}
       data-parity="Banner waiting"
       data-testid="waiting-banner"
       data-gate-id={gate.id}
     >
-      <div className={classes.head} data-parity="Header">
-        <Icon
-          name="hand"
-          size={14}
-          color="var(--tk-text-bad-vivid)"
-          data-parity="hand"
-        />
-        <Text fz={12} fw={700} lh="normal" c="bad" data-parity="title">
-          Waiting on you
-        </Text>
-        <Text fz={12} lh="normal" c="bad" data-parity="gate">
-          {gateName(gate.kind)} · opened {formatDuration(now - gate.openedAt)}{' '}
-          ago
-        </Text>
-      </div>
       <div className={classes.body}>
         <Stack gap={6} className={classes.left}>
           <Group gap={8} wrap="nowrap">
             {ticket ? (
               <Text
-                fz={14}
+                fz="lg"
                 fw={700}
                 lh="normal"
                 c="accent"
@@ -80,51 +74,16 @@ export function WaitingBanner({
                 {ticket}
               </Text>
             ) : null}
-            <Text fz={14} fw={500} lh="normal" truncate data-parity="title">
+            <Text fz="lg" fw={500} lh="normal" truncate data-parity="title">
               {title}
             </Text>
           </Group>
           {question ? (
             <>
-              <Text fz={15} fw={500} lh="normal" data-parity="q">
+              <Text fz="xl" fw={500} lh="normal" data-parity="q">
                 {question.label}
               </Text>
-              <Group gap={8}>
-                {optionViews(question).map((o, i) => (
-                  <Badge
-                    key={o.value}
-                    size="lg"
-                    variant={o.recommended ? 'light' : 'default'}
-                    color={o.recommended ? 'accent' : undefined}
-                    tt="none"
-                    className={classes.chip}
-                    leftSection={
-                      i < 9 ? (
-                        <Kbd size="xs" className={inline.kbd} data-parity="kbd">
-                          <span data-parity="k">{i + 1}</span>
-                        </Kbd>
-                      ) : undefined
-                    }
-                    rightSection={
-                      o.recommended ? (
-                        <Text
-                          span
-                          fz={10.5}
-                          fw={500}
-                          c="accent"
-                          data-parity="rec"
-                        >
-                          recommended
-                        </Text>
-                      ) : undefined
-                    }
-                    data-option={o.value}
-                    data-parity="opt"
-                  >
-                    <span data-parity="label">{o.text}</span>
-                  </Badge>
-                ))}
-              </Group>
+              <OptionChips options={optionViews(question)} />
             </>
           ) : null}
         </Stack>
@@ -140,15 +99,15 @@ export function WaitingBanner({
             <span data-parity="label">Answer gate</span>
           </Button>
           <Group gap={6} wrap="nowrap" data-testid="key-hint">
-            <Text fz={12} lh="normal" c="dimmed" data-parity="or">
+            <Text fz="md" lh="normal" c="dimmed" data-parity="or">
               {count > 1 ? `1 of ${count} questions · or press` : 'or press'}
             </Text>
-            <Kbd size="xs" data-parity="key g">
+            <Kbd size="sm" data-parity="key g">
               <span data-parity="g">g</span>
             </Kbd>
           </Group>
         </Stack>
       </div>
-    </div>
+    </StatusCard>
   );
 }

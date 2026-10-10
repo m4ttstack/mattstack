@@ -1,8 +1,6 @@
 declare module '@mattstack/app-kit/icons' {
   interface AppIcons {
     workflow: true;
-    building: true;
-    team: true;
     layoutDashboard: true;
     fileText: true;
     fileX: true;
@@ -38,6 +36,14 @@ declare module '@mattstack/app-kit/icons' {
     image: true;
     circleAlert: true;
     unplug: true;
+    square: true;
+    squareCheck: true;
+    cornerDownRight: true;
+    sparkles: true;
+    messagesSquare: true;
+    gitCommit: true;
+    reply: true;
+    circleMinus: true;
   }
 }
 export {};

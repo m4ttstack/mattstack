@@ -43,7 +43,7 @@
         "pipeline": { "status": "success" }
       }
     },
-    "web-401-readonly-admin-menu": {
+    "web-401-readonly-admin-menu-hidden-by-role-in-the-nav-config-and-the-command-palette-and-the-settings-sidebar": {
       "ticket": {
         "identifier": "WEB-401",
         "title": "Read-only role hides the admin menu",

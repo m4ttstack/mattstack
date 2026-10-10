@@ -453,7 +453,12 @@ describe('RunDetail: live work run', () => {
   it('opens the drawer from View inputs and puts it in the URL', async () => {
     const user = userEvent.setup();
     render(workRun());
-    await user.click(await screen.findByText('View inputs →'));
+    const header = await screen.findByTestId('run-header');
+    const more = within(header).queryByRole('button', {
+      name: 'more run actions',
+    });
+    if (more) await user.click(more);
+    await user.click(await screen.findByText('View inputs'));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(window.location.search).toBe('?inputs');
   });
@@ -501,13 +506,12 @@ describe('RunDetail: live work run', () => {
     const page = await screen.findByTestId('run-page');
     const plan = await waitFor(() => {
       const el = page.querySelector<HTMLElement>(
-        '[data-testid="story"] [data-stage="plan"]'
+        '[data-testid="story"] [data-stage="plan"]:not(button)'
       );
       expect(el).not.toBeNull();
       return el!;
     });
-    expect(await within(plan).findByText('Passed on')).toBeInTheDocument();
-    expect(within(plan).getByText('Stub the data')).toBeInTheDocument();
+    expect(await within(plan).findByText('Stub the data')).toBeInTheDocument();
     await waitFor(() =>
       expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
     );
@@ -519,13 +523,6 @@ describe('RunDetail: live work run', () => {
     await userEvent.click(document.body);
     expect(linked()).not.toHaveAttribute('data-linked');
     expect(linked()).not.toHaveAttribute('data-selected');
-    expect(within(plan).getByText('Passed on')).toBeInTheDocument();
-
-    const toggle = () =>
-      within(plan).getByRole('button', { name: /^(Show|Hide) plan$/ });
-    await userEvent.click(toggle());
-    await userEvent.click(toggle());
-    expect(within(plan).queryByText('Passed on')).toBeNull();
   });
 
   it('keeps a #gate- link to one opening of its decision', async () => {
@@ -548,18 +545,13 @@ describe('RunDetail: live work run', () => {
     const page = await screen.findByTestId('run-page');
     const plan = await waitFor(() => {
       const el = page.querySelector<HTMLElement>(
-        '[data-testid="story"] [data-stage="plan"]'
+        '[data-testid="story"] [data-stage="plan"]:not(button)'
       );
       expect(el).not.toBeNull();
       return el!;
     });
-    expect(await within(plan).findByText('Passed on')).toBeInTheDocument();
+    expect(await within(plan).findByText('Stub the data')).toBeInTheDocument();
     await userEvent.keyboard('{Shift}');
-    const toggle = () =>
-      within(plan).getByRole('button', { name: /^(Show|Hide) plan$/ });
-    await userEvent.click(toggle());
-    await userEvent.click(toggle());
-    expect(within(plan).queryByText('Passed on')).toBeNull();
     expect(
       plan.querySelector('[data-gate-id="g-approach"]')
     ).not.toHaveAttribute('data-linked');
@@ -694,7 +686,7 @@ describe('RunDetail: one-stage review run', () => {
       within(page).getByTestId('run-header').querySelector('[data-part="rail"]')
     ).toBeNull();
     expect(
-      within(within(page).getByTestId('run-header')).getByText('!412')
+      within(within(page).getByTestId('run-header')).getAllByText('!412')[0]
     ).toBeInTheDocument();
     expect(
       await within(page).findByRole('link', { name: /Answer in the board/ })
@@ -829,33 +821,18 @@ describe('RunDetail: finished run', () => {
     );
   });
 
-  it('opens on Decisions, the stages heading the log, with the evidence beside them', async () => {
+  it('opens on the story, with the evidence and inputs beside it as tabs', async () => {
     render(merged(), mergedGates);
     const record = await screen.findByTestId('run-record');
     await waitFor(() =>
       expect(tabsOf(record)).toEqual([
-        ['Story', 'false'],
-        ['Decisions4', 'true'],
+        ['Story', 'true'],
         ['Evidence3', 'false'],
         ['Inputs', 'false'],
       ])
     );
-    expect(within(record).queryByRole('navigation')).toBeNull();
-    const log = within(record).getByTestId('decision-log');
-    expect(
-      [...log.querySelectorAll('[data-stage-group]')].map(e => e.textContent)
-    ).toEqual([
-      'plan2 decisions · 12m · 1 override',
-      'evidence1 decision · 44m',
-      'ship1 decision · 50m',
-    ]);
-    expect(
-      [...log.querySelectorAll('[data-gate-id]')].map(e =>
-        e.getAttribute('data-gate-id')
-      )
-    ).toEqual(['g1', 'g2', 'g3', 'g4']);
-    expect(within(record).getByText('CASE USED')).toBeInTheDocument();
-    expect(within(record).getByText('attached to !405')).toBeInTheDocument();
+    const story = within(record).getByTestId('story');
+    expect(story.querySelector('[data-stage="plan"]')).not.toBeNull();
   });
 
   it('draws the story on its tab, with no decisions card beside it', async () => {
@@ -1025,7 +1002,7 @@ describe('RunDetail: finished run', () => {
     render(reviewRecord(), [reviewPost()]);
     const record = await screen.findByTestId('run-record');
     const header = within(record).getByTestId('record-header');
-    expect(within(header).getByText('!412')).toBeInTheDocument();
+    expect(within(header).getAllByText('!412')[0]).toBeInTheDocument();
     await waitFor(() =>
       expect(outcomesOf(header)).toEqual(['Requested changes on !412'])
     );
@@ -1036,42 +1013,16 @@ describe('RunDetail: finished run', () => {
         'waiting',
       ])
     );
-    expect(tabsOf(record).map(([name]) => name)).toEqual([
-      'Story',
-      'Decisions1',
-      'Inputs',
-    ]);
-    expect(
-      within(record).queryByRole('navigation', { name: 'Decisions by stage' })
-    ).toBeNull();
+    expect(tabsOf(record).map(([name]) => name)).toEqual(['Story', 'Inputs']);
   });
 
-  it('leads a review record with the verdict and the findings it posted, then its decisions', async () => {
+  it('draws the post gate of a review record in its story as the verdict and findings', async () => {
     render(reviewRecord(), [reviewPost()]);
     const record = await screen.findByTestId('run-record');
-    const verdict = await within(record).findByTestId('review-verdict');
-    expect(within(verdict).getByText('Posted to !412')).toBeInTheDocument();
-    expect(
-      within(verdict).getByText('Request changes · 2 findings')
-    ).toBeInTheDocument();
-    expect(
-      within(verdict).getByRole('link', { name: /Open the MR/ })
-    ).toHaveAttribute(
-      'href',
-      'https://forge.test/acme/web/-/merge_requests/412'
+    const story = await within(record).findByTestId('story');
+    await waitFor(() =>
+      expect(story.querySelector('[data-gate-id]')).not.toBeNull()
     );
-    expect(within(verdict).getAllByText('Important')).toHaveLength(1);
-    expect(within(verdict).getAllByText('Minor')).toHaveLength(1);
-    expect(within(record).queryByText(/\[Important\]|\[Minor\]/)).toBeNull();
-    const log = within(record).getByTestId('decision-log');
-    expect(
-      verdict.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      within(log).getByText('What should the review post?')
-    ).toBeInTheDocument();
-    expect(within(log).queryByText('Post which findings to !412?')).toBeNull();
-    expect(within(record).getByTestId('review-side')).toBeInTheDocument();
   });
 
   it('opens the Evidence tab and the compare modal from a ?compare= link, once', async () => {
@@ -1156,6 +1107,10 @@ describe('RunDetail: finished run', () => {
       'Evidence2',
       'Inputs',
     ]);
+    expect(within(record).getByRole('tablist')).toHaveAttribute(
+      'data-variant',
+      'outline'
+    );
     expect(
       record.querySelector('[data-parity="Story label"]')
     ).toHaveTextContent(/^Story$/);

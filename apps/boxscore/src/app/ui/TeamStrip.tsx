@@ -1,5 +1,5 @@
+import { useGrow } from '@mattstack/app-kit/hooks';
 import classes from './ui.module.css';
-import { useGrow } from './useGrow';
 
 const AXIS = 360;
 const DOT = 10;

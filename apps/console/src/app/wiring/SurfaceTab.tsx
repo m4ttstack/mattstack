@@ -409,9 +409,10 @@ export function SurfaceTab({ pack }: SurfaceTabProps) {
 
   return (
     <Paper
-      bg={bg.level2}
+      variant="ground"
+      withBorder
       radius="xl"
-      style={{ border: `1px solid ${border.default}`, overflow: 'hidden' }}
+      style={{ overflow: 'hidden' }}
       data-testid="surface-tab"
     >
       <Box p="xl" pb={4}>

@@ -143,8 +143,7 @@ export function RunDetail({ repo, runId }: { repo: string; runId: string }) {
           actions={<Provenance repo={repo} runId={runId} />}
         />
         <PageShell.Content
-          bg="var(--tk-panel)"
-          contentContainerProps={{ maw: 1680, my: 0, p: 0 }}
+          contentContainerProps={{ maw: 1680, my: 0, px: 40, py: 28 }}
         >
           <div className={classes.page}>
             <RunDetailBody repo={repo} runId={runId} />

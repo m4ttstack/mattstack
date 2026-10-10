@@ -6,6 +6,7 @@ export {
   MattstackShell,
 } from './MattstackShell';
 export type {
+  MattstackShellAppBarProps,
   MattstackShellHeaderProps,
   MattstackShellProps,
 } from './MattstackShell';
@@ -24,3 +25,17 @@ export { useShellRail } from './shell-context';
 export type { ShellRailState } from './shell-context';
 export { SettingsEmbedModal } from './SettingsEmbedModal';
 export type { SettingsEmbedModalProps } from './SettingsEmbedModal';
+export {
+  OrgPill,
+  OwnersLine,
+  RoleBadge,
+  ScopeBar,
+  ScopeSlash,
+  ScopeTrigger,
+  TeamMenu,
+  TeamPill,
+  useViewer,
+  ViewerChip,
+  Who,
+} from './scope/Scope';
+export type { TeamItem, Viewer, ViewerInfo } from './scope/Scope';

@@ -1,0 +1,37 @@
+.card {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background-color: var(--tk-panel);
+}
+
+.head[data-tone='accent'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--tk-wash),
+    var(--tk-card)
+  );
+}
+
+.head[data-tone='warn'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-warn) var(--tk-wash),
+    var(--tk-card)
+  );
+}
+
+.head[data-tone='bad'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-bad) var(--tk-wash),
+    var(--tk-card)
+  );
+}

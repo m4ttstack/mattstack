@@ -1,0 +1,7 @@
+/* ScrollArea.Autosize sizes its content to min-content, so one long line
+   widens it past its card and nothing inside truncates. Through
+   `classNames`, the content takes the card's width instead. The doubled
+   class outranks Mantine's own (data-autosize) rule. */
+.root .content.content {
+  min-width: 0;
+}

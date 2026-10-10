@@ -14,7 +14,6 @@ import { InputsDrawer } from './InputsDrawer';
 import { NowCard } from './NowCard';
 import { RunHeader } from './RunHeader';
 import classes from './RunPage.module.css';
-import { SideCards } from './SideCards';
 import { StageDocDrawer } from './StageDoc';
 import { RunStory } from './Story';
 import { usePruneGateDrafts } from './useGateDraft';
@@ -23,6 +22,10 @@ import { useRunParts, type RunPageData } from './useRunParts';
 export type { RunPageData } from './useRunParts';
 
 /** The gate the URL names, as `?gate=<id>` or `#gate-<id>`. */
+/** How long a deep link waits for its decision to mount: about half a
+    second, past the accordion's open transition. */
+const GATE_LOOKUP_FRAMES = 30;
+
 function linkedGate(search: string): string | null {
   const fromQuery = new URLSearchParams(search).get('gate');
   const fromHash = /^#gate-(.+)$/.exec(location.hash)?.[1];
@@ -76,24 +79,35 @@ function useGateDeepLink(gates: GateRow[]): string | null {
       return;
     }
     if (consumed.current === id) return;
-    const el = document.querySelector(`[data-gate-id="${CSS.escape(id)}"]`);
-    if (!el) return;
-    consumed.current = id;
-    focusedFirst.current = true;
-    el.scrollIntoView({ block: 'center' });
-    if (el instanceof HTMLElement && el.hasAttribute('tabindex')) {
-      el.focus({ preventScroll: true });
-    }
-    if (fromQuery) {
-      const params = new URLSearchParams(search);
-      params.delete('gate');
-      const qs = params.toString();
-      history.replaceState(
-        null,
-        '',
-        location.pathname + (qs ? `?${qs}` : '') + location.hash
-      );
-    }
+    // The story's accordion mounts an opened stage's body a frame or two
+    // after it opens, so the decision may not exist yet.
+    let frame = 0;
+    let frames = 0;
+    const reach = () => {
+      const el = document.querySelector(`[data-gate-id="${CSS.escape(id)}"]`);
+      if (!el) {
+        if (frames++ < GATE_LOOKUP_FRAMES) frame = requestAnimationFrame(reach);
+        return;
+      }
+      consumed.current = id;
+      focusedFirst.current = true;
+      el.scrollIntoView({ block: 'center' });
+      if (el instanceof HTMLElement && el.hasAttribute('tabindex')) {
+        el.focus({ preventScroll: true });
+      }
+      if (fromQuery) {
+        const params = new URLSearchParams(search);
+        params.delete('gate');
+        const qs = params.toString();
+        history.replaceState(
+          null,
+          '',
+          location.pathname + (qs ? `?${qs}` : '') + location.hash
+        );
+      }
+    };
+    reach();
+    return () => cancelAnimationFrame(frame);
   }, [search, gates]);
   return linked;
 }
@@ -177,31 +191,25 @@ export function RunPage({
         canResume={facts.canResume}
         canAbandon={run.attention.needs && run.attention.reason === 'stale'}
         onViewInputs={drawer.open}
+        facts={parts.factRows}
       />
       {parts.gatesFailed ? (
         <GatesUnreadable onRetry={() => void parts.retryGates()} />
       ) : null}
-      <div className={classes.columns}>
-        <Stack gap={14} className={classes.story} data-parity="Story">
-          {gatePanels ?? slot}
-          <RunStory
-            repo={repo}
-            runId={runId}
-            label={kind === 'utility' ? run.work_type : kind}
-            story={story}
-            block={parts.block}
-            evidenceField={parts.evidenceField}
-            pathHref={pathHref}
-            linkedGateId={linkedGateId}
-            ticket={parts.facts.hero.ticket}
-          />
-        </Stack>
-        <SideCards
-          facts={parts.factRows}
-          inputs={parts.sideInputs}
-          onViewInputs={drawer.open}
+      <Stack gap={14} data-parity="Story">
+        {gatePanels ?? slot}
+        <RunStory
+          repo={repo}
+          runId={runId}
+          label={kind === 'utility' ? run.work_type : kind}
+          story={story}
+          block={parts.block}
+          evidenceField={parts.evidenceField}
+          pathHref={pathHref}
+          linkedGateId={linkedGateId}
+          ticket={parts.facts.hero.ticket}
         />
-      </div>
+      </Stack>
       <InputsDrawer
         repo={repo}
         runId={runId}

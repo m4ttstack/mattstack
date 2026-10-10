@@ -11,7 +11,7 @@ export interface EvidenceImageProps {
   onOpen?: () => void;
   /** Caps the image height; the compare modal and thumbnails differ. */
   maxHeight?: number | string;
-  /** A thumbnail: fills its frame at `maxHeight`, cropped from the top. */
+  /** A thumbnail: fills its frame edge to edge, cropped from the top. */
   cover?: boolean;
 }
 
@@ -48,8 +48,8 @@ export function EvidenceImage({
       src={src}
       alt={name}
       fit={cover ? 'cover' : 'contain'}
-      h={cover ? maxHeight : undefined}
-      mah={maxHeight}
+      h={cover ? '100%' : undefined}
+      mah={cover ? undefined : maxHeight}
       className={cover ? classes.cover : undefined}
       onError={() => setFailedSrc(src)}
     />
@@ -58,6 +58,7 @@ export function EvidenceImage({
   return (
     <UnstyledButton
       className={classes.open}
+      data-cover={cover || undefined}
       onClick={onOpen}
       aria-label={`Open ${name} full size`}
     >

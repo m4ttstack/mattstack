@@ -9,6 +9,7 @@
     var(--block-hue) calc(var(--tk-wash) * 0.5),
     transparent
   );
+  box-shadow: var(--tk-shadow-card);
 }
 
 /* The heading takes a second layer of the wash, so it reads a step darker

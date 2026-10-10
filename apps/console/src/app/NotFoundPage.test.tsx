@@ -77,8 +77,8 @@ describe('NotFoundPage', () => {
     pruneDaysGet.mockResolvedValue(ok({ days: 30 }));
     renderPage();
 
-    expect(document.querySelector('#page-shell-content')).toHaveAttribute(
-      'data-own-surface'
+    expect(document.querySelector('#page-shell-content')).not.toHaveAttribute(
+      'data-grid'
     );
   });
 });

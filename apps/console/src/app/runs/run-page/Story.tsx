@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Paper, Text } from '@mattstack/app-kit/core';
+import { Paper } from '@mattstack/app-kit/core';
 import type { RunFieldRow } from '@mattstack/rt-client';
 
 import type { StoryEntry } from '../derive/story';
-import { StageRow } from './StageRow';
+import { Eyebrow } from '../Eyebrow';
+import { StageNavItem, StagePane } from './StageRow';
 import classes from './Story.module.css';
 
 export interface StoryProps {
@@ -26,8 +27,15 @@ const keyOfGate = (entries: StoryEntry[], gateId: string | null) =>
     ? (entries.find(e => e.gates.some(g => g.id === gateId))?.key ?? null)
     : null;
 
-/** The run's attempts so far, oldest first, as one list of stage rows. The
-    newest starts opened; the rest start folded. */
+/** The stage a story opens on: its newest finished attempt, or its newest
+    attempt when none has finished yet. */
+const startingKey = (entries: StoryEntry[]) =>
+  (entries.findLast(e => e.attempt.status !== 'running') ?? entries.at(-1))
+    ?.key ?? null;
+
+/** The run's attempts so far: a list of them on the left, oldest first, and
+    the picked one in full beside it. The story starts on its newest finished
+    attempt; a deep link picks the attempt holding its gate. */
 export function Story({
   repo,
   runId,
@@ -38,37 +46,33 @@ export function Story({
   linkedGateId = null,
   ticket = null,
 }: StoryProps) {
-  const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(
-    () => new Map()
-  );
+  const [picked, setPicked] = useState<string | null>(null);
   const [seenLink, setSeenLink] = useState<string | null>(null);
   const linked = keyOfGate(entries, linkedGateId);
   if (linked && linkedGateId !== seenLink) {
     setSeenLink(linkedGateId);
-    setOverrides(new Map(overrides).set(linked, true));
+    setPicked(linked);
   }
 
   if (entries.length === 0) return null;
-  const newest = entries.at(-1)!.key;
-  const isOpen = (key: string) => overrides.get(key) ?? key === newest;
-  const toggle = (key: string) =>
-    setOverrides(prev =>
-      new Map(prev).set(key, !(prev.get(key) ?? key === newest))
-    );
+  const shown =
+    entries.find(e => e.key === picked) ??
+    entries.find(e => e.key === startingKey(entries))!;
+  const pane = (
+    <StagePane
+      entry={shown}
+      repo={repo}
+      runId={runId}
+      evidenceField={evidenceField}
+      pathHref={pathHref}
+      linkedGateId={linkedGateId}
+      ticket={ticket}
+    />
+  );
 
   return (
     <>
-      <Text
-        fz={10.5}
-        fw={500}
-        lh="normal"
-        tt="uppercase"
-        lts={0.8}
-        c="dimmed"
-        data-parity="Story label"
-      >
-        {label}
-      </Text>
+      <Eyebrow data-parity="Story label">{label}</Eyebrow>
       <Paper
         variant="ground"
         withBorder
@@ -77,20 +81,35 @@ export function Story({
         data-testid="story"
         data-parity="Story list"
       >
-        {entries.map(entry => (
-          <StageRow
-            key={entry.key}
-            entry={entry}
-            open={isOpen(entry.key)}
-            onToggle={() => toggle(entry.key)}
-            repo={repo}
-            runId={runId}
-            evidenceField={evidenceField}
-            pathHref={pathHref}
-            linkedGateId={linkedGateId}
-            ticket={ticket}
-          />
-        ))}
+        {entries.length > 1 ? (
+          <div className={classes.split}>
+            <nav aria-label="Stages" className={classes.stages}>
+              {entries.map(entry => (
+                <StageNavItem
+                  key={entry.key}
+                  entry={entry}
+                  evidenceField={evidenceField}
+                  active={entry.key === shown.key}
+                  onPick={() => setPicked(entry.key)}
+                />
+              ))}
+            </nav>
+            <div className={classes.pane}>{pane}</div>
+          </div>
+        ) : (
+          <div className={classes.pane}>
+            <StagePane
+              entry={shown}
+              repo={repo}
+              runId={runId}
+              evidenceField={evidenceField}
+              pathHref={pathHref}
+              linkedGateId={linkedGateId}
+              ticket={ticket}
+              heading
+            />
+          </div>
+        )}
       </Paper>
     </>
   );

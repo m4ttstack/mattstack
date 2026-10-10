@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+  Accordion,
   ActionIcon,
   Button,
   Combobox,
@@ -39,6 +40,16 @@ describe('base/app theme split', () => {
     expect(theme.primaryColor).toBe(appTheme.primaryColor ?? 'indigo');
     expect(theme.components).toBeDefined();
     expect(Object.keys(theme.components!)).toContain('Tooltip');
+  });
+});
+
+describe('anchor colour', () => {
+  it('leaves a link on the theme anchor role, not a hue text shade', () => {
+    const anchor = theme.components?.Anchor?.defaultProps as
+      Record<string, unknown> | undefined;
+    expect(anchor?.underline).toBe('hover');
+    expect(anchor).not.toHaveProperty('c');
+    expect(anchor).not.toHaveProperty('color');
   });
 });
 
@@ -132,6 +143,31 @@ describe('ground paper', () => {
   });
 });
 
+describe('accordion control focus ring', () => {
+  it('carries the kit class, whose rule pulls the ring inside the edge', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <Accordion>
+          <Accordion.Item value="a">
+            <Accordion.Control>row</Accordion.Control>
+            <Accordion.Panel>body</Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
+      </MantineProvider>
+    );
+    expect(
+      container.querySelector(`button.${classes.accordionControl}`)
+    ).not.toBeNull();
+    const css = readFileSync(
+      path.resolve(import.meta.dirname, 'component-styles.module.css'),
+      'utf-8'
+    );
+    expect(css).toMatch(
+      /\.accordionControl\.accordionControl:focus-visible\s*\{\s*outline-offset:\s*-2px;\s*\}/
+    );
+  });
+});
+
 describe('ground paper rule', () => {
   const css = readFileSync(
     path.resolve(import.meta.dirname, 'component-styles.module.css'),
@@ -145,7 +181,7 @@ describe('ground paper rule', () => {
       "\\.paperRoot\\[data-variant='ground'\\]\\[data-with-border\\]"
     );
     expect(bordered).toContain('border-width: 0');
-    expect(bordered).toContain('outline: 1px solid var(--tk-border)');
+    expect(bordered).toContain('outline: 1px solid var(--tk-border-soft)');
   });
 
   it('rings a selected ground card in the accent', () => {
@@ -461,10 +497,10 @@ describe('wash choice card', () => {
     expect(block).toContain('background-color: var(--tk-card)');
   });
 
-  it('rings a checked wash card in the accent over its wash', () => {
+  it('rings a checked wash card in the accent over a selection wash', () => {
     const block = rule(`${card}\\[data-checked\\]`);
     expect(block).toContain('outline: 1.5px solid var(--tk-fill-accent)');
-    expect(block).toContain('var(--tk-wash)');
+    expect(block).toContain('var(--ui-wash)');
   });
 
   it('keeps a focus ring on a wash card', () => {
@@ -496,6 +532,21 @@ describe('on-fill kbd', () => {
     const [onFill, plain] = container.querySelectorAll(`.${classes.kbdRoot}`);
     expect(onFill).toHaveAttribute('data-variant', 'on-fill');
     expect(plain).not.toHaveAttribute('data-variant');
+  });
+
+  it('takes an xxs size: a 10px cap marked by size, compact enough for a chip', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <Kbd size="xxs">1</Kbd>
+      </MantineProvider>
+    );
+    const kbd = container.querySelector(`.${classes.kbdRoot}`)!;
+    expect(kbd).toHaveAttribute('data-size', 'xxs');
+    expect(kbd.getAttribute('style')).toContain('var(--kbd-fz-xxs)');
+    expect(css).toMatch(/^\.kbdRoot \{\s*--kbd-fz-xxs: 10px;/m);
+    const xxs = rule("\\.kbdRoot\\[data-size='xxs'\\]");
+    expect(xxs).toContain('border-bottom-width: 2px');
+    expect(xxs).toContain('line-height: 1');
   });
 
   it('draws the on-fill label colour over a wash of it, with no rule', () => {

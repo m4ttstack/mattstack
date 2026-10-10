@@ -5,7 +5,6 @@ import type {
   GateAnswer,
   GateRow,
   RunFieldRow,
-  RunStageRow,
   RunSummary,
 } from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
@@ -13,16 +12,12 @@ import { describe, expect, it } from 'vitest';
 import {
   abandonReason,
   answeredQuestionCount,
-  decisionStages,
-  defaultRecordTab,
-  hasSettledGates,
   postedLabel,
   recommendationTally,
   recordEnd,
   recordSpan,
   recordStats,
   reviewDecisionGates,
-  reviewVerdict,
 } from './record';
 
 const MIN = 60_000;
@@ -84,22 +79,6 @@ const answered = (
       answeredAt: at(answeredAt),
     },
   });
-
-const stage = (
-  name: string,
-  from: number,
-  to: number | null,
-  status = 'done',
-  attempt = 1
-): RunStageRow => ({
-  name,
-  status,
-  attempt,
-  started_at: at(from),
-  ended_at: to == null ? null : at(to),
-  reason: null,
-  detail_path: null,
-});
 
 const field = (key: string, value: string): RunFieldRow => ({
   key,
@@ -290,107 +269,6 @@ describe('abandonReason', () => {
   });
 });
 
-describe('hasSettledGates', () => {
-  it('counts answered and closed gates, not open ones', () => {
-    expect(hasSettledGates([gate({ status: 'open' })])).toBe(false);
-    expect(hasSettledGates([gate({ status: 'closed' })])).toBe(true);
-    expect(hasSettledGates(workGates)).toBe(true);
-  });
-});
-
-describe('defaultRecordTab', () => {
-  it('opens on Decisions when a gate was answered', () => {
-    expect(defaultRecordTab(workGates)).toBe('decisions');
-  });
-
-  it('opens on Story otherwise', () => {
-    expect(
-      defaultRecordTab([gate({ status: 'closed', closedReason: 'abandoned' })])
-    ).toBe('story');
-  });
-});
-
-describe('decisionStages', () => {
-  const stages = [
-    stage('provision', 0, 1),
-    stage('plan', 1, 13),
-    stage('evidence', 14, 58),
-    stage('ship', 106, 114),
-  ];
-  const pipeline = 'provision plan gates evidence implement ship';
-
-  it('groups settled gates by stage in pipeline order', () => {
-    const shuffled = [...workGates].reverse();
-    const groups = decisionStages(shuffled, stages, run(), 0, pipeline);
-    expect(
-      groups.map(g => [
-        g.stage,
-        g.gates.map(x => x.id),
-        g.answered,
-        g.durationMs,
-        g.overrides,
-        g.status,
-      ])
-    ).toEqual([
-      ['plan', ['g1', 'g2', 'g3'], 3, 12 * MIN, 1, 'done'],
-      ['evidence', ['g4', 'g5'], 2, 44 * MIN, 0, 'done'],
-      ['ship', ['g6'], 1, 8 * MIN, 1, 'done'],
-    ]);
-  });
-
-  it('counts a stage’s answered questions and overrides, not its gates', () => {
-    const g = answered('m', 'plan', 2, 3, { pick: 1 });
-    const two = {
-      ...g,
-      questions: [g.questions[0]!, { ...g.questions[0]!, id: 'scope' }],
-      answer: { ...g.answer!, answers: { q: 'b', scope: 'b' } },
-    };
-    const [plan] = decisionStages([two], stages, run(), 0, pipeline);
-    expect([plan!.answered, plan!.overrides]).toEqual([2, 2]);
-  });
-
-  it('gives a stage with no attempt no status', () => {
-    const [other] = decisionStages(
-      [answered('x', 'triage', 0, 1)],
-      stages,
-      run(),
-      0,
-      pipeline
-    );
-    expect(other!.status).toBeNull();
-  });
-
-  it('keeps closed gates in their stage without counting them', () => {
-    const closed = gate({
-      id: 'c',
-      meta: { stage: 'plan' },
-      status: 'closed',
-      closedReason: 'superseded',
-      openedAt: at(30),
-    });
-    const [plan] = decisionStages(
-      [answered('g1', 'plan', 7, 7), closed, gate({ status: 'open' })],
-      stages,
-      run(),
-      0,
-      pipeline
-    );
-    expect(plan!.gates.map(g => g.id)).toEqual(['g1', 'c']);
-    expect(plan!.answered).toBe(1);
-  });
-
-  it('puts a stage the pipeline does not name after the ones it does', () => {
-    const groups = decisionStages(
-      [answered('x', 'triage', 0, 1), answered('y', 'plan', 2, 3)],
-      stages,
-      run(),
-      0,
-      pipeline
-    );
-    expect(groups.map(g => g.stage)).toEqual(['plan', 'triage']);
-  });
-});
-
 describe('postedLabel', () => {
   it('reads a posted disposition in sentence case', () => {
     expect(postedLabel('request changes')).toBe('Request changes');
@@ -491,96 +369,6 @@ const plainPost = (questions: [string, string[], string[]][]): GateRow =>
       answeredAt: at(5),
     },
   });
-
-describe('reviewVerdict', () => {
-  it('reads the verdict and each posted finding from the structured context', () => {
-    const verdict = reviewVerdict(fixtureGates('20261008-0940'));
-    expect(verdict?.verdict).toBe('Request changes');
-    expect(verdict?.mrIid).toBe('412');
-    expect(verdict?.findings.map(f => f.severity)).toEqual([
-      'important',
-      'important',
-      'minor',
-      'minor',
-    ]);
-    expect(verdict?.findings.filter(f => f.where).map(f => f.where)).toEqual([
-      'contacts/import/dedupe.ts:58',
-      'apps/contacts/src/import/pipeline/merge/strategies/mergeContactsKeepingNewestRecordAndDeletingTheLosingDuplicate.ts:12',
-    ]);
-    expect(verdict?.findings[0]).toEqual({
-      severity: 'important',
-      text: 'Dedupe matches on email only, so contacts without an email import twice.',
-      where: 'contacts/import/dedupe.ts:58',
-    });
-  });
-
-  it('parses the option label when a findings question has no context, across every findings question', () => {
-    const verdict = reviewVerdict([
-      plainPost([
-        [
-          'findings-1',
-          [
-            '[Important] Retry count resets (queue/retry.ts:18)',
-            '[Minor] Typo',
-          ],
-          ['findings-1-0'],
-        ],
-        ['findings-2', ['[Minor] Log is noisy'], ['findings-2-0']],
-      ]),
-    ]);
-    expect(verdict).toEqual({
-      verdict: 'Approve',
-      mrIid: '406',
-      notPosted: [{ severity: 'minor', text: 'Typo', where: null }],
-      findings: [
-        {
-          severity: 'important',
-          text: 'Retry count resets',
-          where: 'queue/retry.ts:18',
-        },
-        { severity: 'minor', text: 'Log is noisy', where: null },
-      ],
-    });
-  });
-
-  it('lists no unposted findings when every one was picked', () => {
-    expect(reviewVerdict(fixtureGates('20261008-0940'))?.notPosted).toEqual([]);
-  });
-
-  it('lists the offered findings that were not picked, from the context else the option label', () => {
-    const [post] = fixtureGates('20261008-0940').filter(
-      g => g.id === 'g-0940-post'
-    );
-    const gate: GateRow = {
-      ...post!,
-      answer: {
-        ...post!.answer!,
-        answers: { ...post!.answer!.answers, 'findings-1': ['f1', 'f3'] },
-      },
-    };
-    const verdict = reviewVerdict([gate]);
-    expect(verdict?.findings.map(f => f.text)).toEqual([
-      'Dedupe matches on email only, so contacts without an email import twice.',
-      "mergeContacts deletes the losing record; the name doesn't say so.",
-    ]);
-    expect(verdict?.notPosted).toEqual([
-      {
-        severity: 'important',
-        text: 'No test covers merging two contacts that share a phone number.',
-        where: null,
-      },
-      {
-        severity: 'minor',
-        text: 'The skip log prints the whole contact record, email included.',
-        where: null,
-      },
-    ]);
-  });
-
-  it('is null for a run that posted nothing', () => {
-    expect(reviewVerdict(workGates)).toBeNull();
-  });
-});
 
 describe('reviewDecisionGates', () => {
   it('leaves out the findings the verdict shows, and the gate context that lists them', () => {

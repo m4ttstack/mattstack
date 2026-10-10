@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
+import { useReducedMotion } from '@mantine/hooks';
 
-import { useReducedMotion } from '@mattstack/app-kit/hooks';
 import classes from './grow.module.css';
 
 export type GrowAxis = 'x' | 'y' | 'fade';
@@ -32,3 +32,6 @@ export function useGrow(): (axis: GrowAxis, index?: number) => Grow {
           } as CSSProperties,
         };
 }
+
+/** The animation classes, for a test that asserts a mark animates. */
+export { classes as growClasses };

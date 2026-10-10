@@ -1,10 +1,11 @@
 import { Fragment, useState } from 'react';
 import {
   Badge,
+  Button,
   Group,
   Paper,
   Text,
-  UnstyledButton,
+  ThemeIcon,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { RunSummary } from '@mattstack/rt-client';
@@ -20,17 +21,8 @@ import {
   rowEnd,
   rowSub,
   type DayGroup,
-  type OutcomeTile,
 } from '../derive/lanes';
 import classes from './EarlierList.module.css';
-
-const GLYPH: Record<OutcomeTile['tone'], string> = {
-  ok: 'var(--tk-text-ok-vivid)',
-  accent: 'var(--tk-text-accent-vivid)',
-  bad: 'var(--tk-text-bad-vivid)',
-  warn: 'var(--tk-text-warn-vivid)',
-  gray: 'var(--tk-text-3)',
-};
 
 export interface EarlierRowInfo {
   ticket: string | null;
@@ -71,23 +63,22 @@ function EarlierRow({
       data-testid={`run-row-${run.id}`}
       data-stale={stale ? 'true' : undefined}
     >
-      <span
+      <ThemeIcon
+        variant={tile.tone === 'gray' ? 'quiet' : 'light'}
+        color={tile.tone}
+        size={28}
+        radius="md"
         className={classes.tile}
         data-tone={tile.tone}
         data-parity="outcome"
       >
-        <Icon
-          name={tile.icon}
-          size={14}
-          color={GLYPH[tile.tone]}
-          data-parity={tile.layer}
-        />
-      </span>
+        <Icon name={tile.icon} size={14} data-parity={tile.layer} />
+      </ThemeIcon>
       <div className={classes.title}>
         <Group gap={8} wrap="nowrap" className={classes.line}>
           {info.ticket ? (
             <Text
-              fz={13}
+              fz="lg"
               fw={700}
               lh="normal"
               c={stale ? 'dimmed' : undefined}
@@ -98,7 +89,7 @@ function EarlierRow({
             </Text>
           ) : null}
           <Text
-            fz={13}
+            fz="lg"
             lh="normal"
             c={stale ? 'dimmed' : undefined}
             truncate
@@ -119,7 +110,7 @@ function EarlierRow({
             </Badge>
           ) : null}
         </Group>
-        <Text fz={12} lh="normal" c="dimmed" truncate data-parity="sub">
+        <Text fz="md" lh="normal" c="dimmed" truncate data-parity="sub">
           {rowSub(run)}
           {info.aging ? (
             <Text span inherit c="warn" data-testid="aging-warning">
@@ -131,7 +122,7 @@ function EarlierRow({
       </div>
       <div className={classes.meta}>
         <Text
-          fz={12}
+          fz="md"
           lh="normal"
           c="dimmed"
           className={classes.duration}
@@ -140,7 +131,7 @@ function EarlierRow({
           {formatDuration(rowDuration(run, now))}
         </Text>
         <Text
-          fz={12}
+          fz="md"
           lh="normal"
           c="dimmed"
           className={classes.end}
@@ -177,7 +168,7 @@ export function EarlierList({
       {shown.map(group => (
         <Fragment key={group.key}>
           <div className={classes.day} data-parity="Day">
-            <Text fz={11.5} fw={500} lh="normal" c="dimmed" data-parity="label">
+            <Text fz="sm" fw={500} lh="normal" c="dimmed" data-parity="label">
               {group.label}
             </Text>
           </div>
@@ -187,20 +178,15 @@ export function EarlierList({
         </Fragment>
       ))}
       {more ? (
-        <UnstyledButton
-          className={classes.more}
+        <Button
+          variant="subtle"
+          fullWidth
+          radius={0}
+          rightSection={<Icon name="chevronDown" size={14} data-parity="i" />}
           onClick={() => setDays(d => d + PAGE_DAYS)}
         >
-          <Text span fz={13} fw={500} lh="normal" c="accent" data-parity="t">
-            Show earlier days
-          </Text>
-          <Icon
-            name="chevronDown"
-            size={14}
-            color="var(--tk-text-accent)"
-            data-parity="i"
-          />
-        </UnstyledButton>
+          <span data-parity="t">Show earlier days</span>
+        </Button>
       ) : null}
     </Paper>
   );

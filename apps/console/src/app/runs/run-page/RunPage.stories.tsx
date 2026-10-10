@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StoryEntry } from '../derive/story';
 import { NowCard } from './NowCard';
 import { RunHeader } from './RunHeader';
-import { SideCards } from './SideCards';
+import { FactsStrip } from './SideCards';
 import { Story } from './Story';
 
 /** The live run page's parts in the states the boards draw. Data reads (the
@@ -229,9 +229,9 @@ export const ReviewBlock: S = {
   ),
 };
 
-export const SideWorkRun: S = {
+export const FactsWorkRun: S = {
   render: () => (
-    <SideCards
+    <FactsStrip
       facts={[
         {
           name: 'MR',
@@ -252,12 +252,6 @@ export const SideWorkRun: S = {
           sub: '4 commits @ 9f2c1a7',
         },
       ]}
-      inputs={{
-        state: 'ready',
-        pack: 'acme pack 4c1d9e2 · in sync',
-        counts: '3 settings · 5 stage docs',
-      }}
-      onViewInputs={() => {}}
     />
   ),
 };

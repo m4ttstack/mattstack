@@ -4,7 +4,7 @@ import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { ParsedEvidence } from '@mattstack/rt-client';
 import { parseEvidence } from '@mattstack/rt-client/evidence';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -345,28 +345,12 @@ describe('EvidenceCard record variant', () => {
     expect(fetchMock).toHaveBeenCalledWith(`${BASE}/transcript`);
   });
 
-  it('opens the compare modal from the button, side by side', async () => {
-    const user = userEvent.setup();
-    const { getByRole } = record();
-    await user.click(getByRole('button', { name: /compare full size/i }));
-    const dialog = await screen.findByRole('dialog');
-    await waitFor(() =>
-      expect(
-        within(dialog)
-          .getAllByRole('img')
-          .map(i => i.getAttribute('src'))
-      ).toEqual([`${BASE}/beforeAnnotated`, `${BASE}/afterAnnotated`])
-    );
-  });
-
   it('hands the compare request to the page when the page owns the modal', async () => {
     const user = userEvent.setup();
     const onCompare = vi.fn();
     const { getByRole } = record({ onCompare });
-    await user.click(getByRole('button', { name: /compare full size/i }));
     await user.click(getByRole('button', { name: /open after\.png/i }));
     expect(onCompare.mock.calls).toEqual([
-      [{}],
       [{ mode: 'after', variant: 'plain' }],
     ]);
     expect(screen.queryByRole('dialog')).toBeNull();

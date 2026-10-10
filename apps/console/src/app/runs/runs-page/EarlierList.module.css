@@ -34,63 +34,17 @@
 }
 
 @media (hover: hover) {
-  .row:hover,
-  .more:hover {
+  .row:hover {
     background-color: var(--row-hover);
   }
 }
 
-.row:focus-visible,
-.more:focus-visible {
+.row:focus-visible {
   background-color: var(--row-hover);
 }
 
-.more {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  box-sizing: border-box;
-  width: 100%;
-  padding: 12px 18px;
-}
-
 .tile {
-  display: flex;
   flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-}
-
-.tile[data-tone='ok'] {
-  --tone: var(--tk-fill-ok);
-}
-
-.tile[data-tone='accent'] {
-  --tone: var(--tk-fill-accent);
-}
-
-.tile[data-tone='bad'] {
-  --tone: var(--tk-fill-bad);
-}
-
-.tile[data-tone='warn'] {
-  --tone: var(--tk-fill-warn);
-}
-
-.tile:not([data-tone='gray']) {
-  background-color: color-mix(
-    in srgb,
-    var(--tone) var(--tk-wash),
-    var(--tk-card)
-  );
-}
-
-.tile[data-tone='gray'] {
-  background-color: var(--tk-panel);
 }
 
 .title {

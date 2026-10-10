@@ -1,0 +1,52 @@
+/* A label column, then seven day columns that share the width the calendar
+   is given, so it fits a sidebar or a card alike. */
+.calendar {
+  display: grid;
+  grid-template-columns: auto repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  align-items: center;
+}
+
+/* A week's row lays its label and days straight into the grid. */
+.row {
+  display: contents;
+}
+
+.dowLabel {
+  color: var(--tk-text-3);
+  font-size: var(--mantine-font-size-xs);
+  text-align: center;
+}
+
+.weekLabel {
+  padding-right: 4px;
+  color: var(--tk-text-3);
+  font-size: var(--mantine-font-size-xs);
+  white-space: nowrap;
+}
+
+.day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.day[data-out] {
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+}
+
+/* The open day keeps its heat fill and rings in the hue a hair out from
+   the cell, with the card showing between. */
+.day[data-selected] {
+  box-shadow:
+    0 0 0 2px var(--tk-card),
+    0 0 0 4px var(--heat-fill);
+}
+
+.count {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+}

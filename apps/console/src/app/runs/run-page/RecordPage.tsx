@@ -4,19 +4,13 @@ import { parseEvidence } from '@mattstack/rt-client/evidence';
 
 import {
   abandonReason,
-  answeredQuestionCount,
-  decisionStages,
-  defaultRecordTab,
-  hasSettledGates,
   recordEnd,
   recordSpan,
   recordStats,
   reviewDecisionGates,
-  reviewVerdict,
   type RecordTab,
 } from '../derive/record';
 import { EffectiveInputs } from '../EffectiveInputs';
-import { DecisionsTab } from './DecisionsTab';
 import { EvidenceCard, evidenceTitle } from './EvidenceCard';
 import {
   EvidenceCompare,
@@ -26,16 +20,13 @@ import {
 import { GatesUnreadable } from './GatesUnreadable';
 import { InputsDrawer } from './InputsDrawer';
 import { RecordHeader } from './RecordHeader';
-import { ReviewDecisions } from './ReviewVerdict';
 import classesPage from './RunPage.module.css';
-import { SideCards } from './SideCards';
 import { StageDocDrawer } from './StageDoc';
 import { RunStory } from './Story';
 import { useRunParts, type RunPageData } from './useRunParts';
 
 const TAB_LABEL: Record<RecordTab, string> = {
   story: 'Story',
-  decisions: 'Decisions',
   evidence: 'Evidence',
   inputs: 'Inputs',
 };
@@ -43,8 +34,10 @@ const TAB_LABEL: Record<RecordTab, string> = {
 function TabCount({ count, active }: { count: number; active: boolean }) {
   return (
     <Badge
-      size="sm"
       variant="light"
+      size="md"
+      radius="sm"
+      px={6}
       color={active ? 'accent' : 'gray'}
       data-parity="count"
     >
@@ -64,26 +57,15 @@ export function RecordPage({
   runId: string;
   data: RunPageData;
 }) {
-  const { run, stages, fields, decisions } = data;
+  const { run, fields, decisions } = data;
   const parts = useRunParts(repo, runId, data);
   const { now, kind, gates, facts, drawer } = parts;
   const handedOff = kind === 'review' || kind === 'respond';
-  const verdict = handedOff ? reviewVerdict(gates) : null;
   const logGates = handedOff ? reviewDecisionGates(gates) : gates;
 
   const end = recordEnd(run, now);
   const meta = `${run.pipeline} pipeline · ${recordSpan(run.started_at, end.at)}`;
   const stats = recordStats({ run, gates: logGates, now });
-  const groups = decisionStages(
-    logGates,
-    stages,
-    run,
-    now,
-    fields.find(f => f.key === 'pipeline-stages')?.value ?? null
-  );
-  const answered = answeredQuestionCount(logGates);
-  const withDecisions = verdict != null || hasSettledGates(logGates);
-  const reviewed = run.outcome?.reviewed ?? null;
   const evidenceValue = parts.evidenceField?.value;
   const evidence =
     kind === 'work' ? parseEvidence(evidenceValue ?? undefined) : null;
@@ -97,7 +79,7 @@ export function RecordPage({
   const [tab, setTab] = useState<RecordTab | null>(() =>
     comparable && link.mode ? 'evidence' : null
   );
-  const shown = tab ?? (verdict ? 'decisions' : defaultRecordTab(logGates));
+  const shown = tab ?? 'story';
   const staleLink = link.asked !== null && compare === null;
   const { clear: clearLink } = link;
   useEffect(() => {
@@ -123,12 +105,10 @@ export function RecordPage({
 
   const tabs: RecordTab[] = [
     'story',
-    ...(withDecisions ? (['decisions'] as const) : []),
     ...(evidenceColumn ? (['evidence'] as const) : []),
     'inputs',
   ];
   const counts: Partial<Record<RecordTab, number>> = {
-    decisions: answered || undefined,
     evidence:
       evidence?.version === 1
         ? evidence.images.length || undefined
@@ -147,11 +127,13 @@ export function RecordPage({
         outcome={run.outcome}
         stats={stats}
         abandoned={abandonReason(run, fields)}
+        facts={parts.factRows}
       />
       {parts.gatesFailed ? (
         <GatesUnreadable onRetry={() => void parts.retryGates()} />
       ) : null}
       <Tabs
+        variant="outline"
         value={shown}
         onChange={v => v && setTab(v as RecordTab)}
         keepMounted={false}
@@ -162,6 +144,8 @@ export function RecordPage({
               <Tabs.Tab
                 key={t}
                 value={t}
+                fz="md"
+                className={classesPage.recordTab}
                 rightSection={
                   counts[t] != null ? (
                     <TabCount count={counts[t]} active={t === shown} />
@@ -174,59 +158,32 @@ export function RecordPage({
             ))}
           </Tabs.List>
           <Tabs.Panel value="story">
-            <div className={classesPage.columns}>
-              <Stack gap={14} className={classesPage.story}>
-                <RunStory
-                  repo={repo}
-                  runId={runId}
-                  label={kind === 'utility' ? run.work_type : kind}
-                  storyLabel="Story"
-                  story={parts.story}
-                  block={parts.block}
-                  evidenceField={parts.evidenceField}
-                  pathHref={parts.pathHref}
-                  ticket={facts.hero.ticket}
-                />
-                {!parts.story?.entries.length && !parts.block ? (
-                  <Text fz={13} lh="normal" c="dimmed">
-                    This run recorded nothing to tell.
-                  </Text>
-                ) : null}
-              </Stack>
-              <SideCards
-                facts={parts.factRows}
-                inputs={parts.sideInputs}
-                onViewInputs={drawer.open}
+            <Stack gap={14}>
+              <RunStory
+                repo={repo}
+                runId={runId}
+                label={kind === 'utility' ? run.work_type : kind}
+                storyLabel="Story"
+                story={parts.story}
+                block={parts.block}
+                evidenceField={parts.evidenceField}
+                pathHref={parts.pathHref}
+                ticket={facts.hero.ticket}
               />
-            </div>
+              {!parts.story?.entries.length && !parts.block ? (
+                <Text fz="lg" lh="normal" c="dimmed">
+                  This run recorded nothing to tell.
+                </Text>
+              ) : null}
+            </Stack>
           </Tabs.Panel>
-          {withDecisions ? (
-            <Tabs.Panel value="decisions">
-              {handedOff ? (
-                <ReviewDecisions
-                  verdict={
-                    verdict && {
-                      ...verdict,
-                      mrIid:
-                        verdict.mrIid ??
-                        (reviewed ? String(reviewed.iid) : null),
-                      mrUrl: reviewed?.url ?? facts.mr.url,
-                    }
-                  }
-                  gates={groups.flatMap(g => g.gates)}
-                  facts={parts.factRows.filter(f => f.name !== 'Worktree')}
-                />
-              ) : (
-                <DecisionsTab
-                  groups={groups}
-                  byStage={kind === 'work'}
-                  evidence={evidenceColumn}
-                />
-              )}
-            </Tabs.Panel>
-          ) : null}
           {evidenceColumn ? (
-            <Tabs.Panel value="evidence">{evidenceColumn}</Tabs.Panel>
+            <Tabs.Panel
+              value="evidence"
+              classNames={{ panel: classesPage.single }}
+            >
+              {evidenceColumn}
+            </Tabs.Panel>
           ) : null}
           <Tabs.Panel value="inputs">
             <EffectiveInputs
@@ -234,6 +191,7 @@ export function RecordPage({
               runId={runId}
               decisions={decisions}
               intro
+              wide
             />
           </Tabs.Panel>
         </Stack>

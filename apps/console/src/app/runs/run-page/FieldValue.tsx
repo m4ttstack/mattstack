@@ -1,11 +1,22 @@
-import { Anchor, Code, Group, Spoiler, Text } from '@mattstack/app-kit/core';
+import {
+  Anchor,
+  Code,
+  Group,
+  Spoiler,
+  Text,
+  Tooltip,
+  type MantineFontSize,
+} from '@mattstack/app-kit/core';
 
 import { fieldKind } from '../derive/run';
 
 const SHORT_SHA = 7;
 
-/** 12.5px on an 18px line, as the Now card draws a value. */
-const VALUE_TYPE = { fz: 12.5, lh: '18px' };
+/** The Now card's value type: md on an 18px line. */
+const VALUE_TYPE: { fz: MantineFontSize; lh: string } = {
+  fz: 'md',
+  lh: '18px',
+};
 
 export interface FieldValueProps {
   fieldKey: string;
@@ -13,7 +24,7 @@ export interface FieldValueProps {
   /** Where a file path opens, or null to show it as text. */
   pathHref?: (path: string) => string | null;
   /** The value's size and line height. */
-  type?: { fz: number; lh: string };
+  type?: { fz: MantineFontSize; lh: string };
   'data-parity'?: string;
 }
 
@@ -81,9 +92,9 @@ export function FieldValue({
       return (
         <Group gap="xs" data-kind={kind} data-parity={parity}>
           {v.split(/\s+/).map((sha, i) => (
-            <Code key={`${sha}-${i}`} title={sha}>
-              {sha.slice(0, SHORT_SHA)}
-            </Code>
+            <Tooltip key={`${sha}-${i}`} label={sha}>
+              <Code tabIndex={0}>{sha.slice(0, SHORT_SHA)}</Code>
+            </Tooltip>
           ))}
         </Group>
       );

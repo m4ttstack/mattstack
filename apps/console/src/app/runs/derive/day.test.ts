@@ -329,17 +329,24 @@ describe('dayAxis', () => {
     expect(axis.ticks.at(-1)).toMatchObject({ label: '6 PM', end: true });
   });
 
-  it('stretches to cover activity and clips idle to the axis', () => {
+  it('keeps the 8 AM to 6 PM frame whatever the day held', () => {
     const axis = dayAxis(
       [
         row(YESTERDAY(6, 30), YESTERDAY(7)),
-        row(YESTERDAY(0), YESTERDAY(15), 'idle'),
+        row(YESTERDAY(19), YESTERDAY(22), 'ci'),
       ],
       '2026-10-07',
       NOW
     );
-    expect(axis.from).toBe(new Date(2026, 9, 7, 6).getTime());
+    expect(axis.from).toBe(new Date(2026, 9, 7, 8).getTime());
+    expect(axis.to).toBe(new Date(2026, 9, 7, 18).getTime());
     expect(axis.now).toBeNull();
+  });
+
+  it('draws the night after the day, 6 PM to 8 AM, when asked', () => {
+    const axis = dayAxis([], '2026-10-07', NOW, true);
+    expect(axis.from).toBe(new Date(2026, 9, 7, 18).getTime());
+    expect(axis.to).toBe(new Date(2026, 9, 8, 8).getTime());
   });
 
   it('places a bar as fractions of the axis', () => {
@@ -572,13 +579,19 @@ describe('dayTotals', () => {
 });
 
 describe('dayTimeline edges', () => {
-  const one = (r: RunSummary, stages: RunStageRow[], key: string) =>
+  const one = (
+    r: RunSummary,
+    stages: RunStageRow[],
+    key: string,
+    overnight = false
+  ) =>
     dayTimeline({
       runs: [r],
       details: new Map([[runDetailKey(r), detail(r, stages)]]),
       gatesByRun: new Map(),
       key,
       now: NOW,
+      overnight,
     });
 
   it('reads each repo its own detail when two runs share an id', () => {
@@ -612,7 +625,7 @@ describe('dayTimeline edges', () => {
     ]);
   });
 
-  it('splits a run that crosses midnight between its two days', () => {
+  it('draws a run across midnight in the night after its day, not the next day', () => {
     const r = run({
       id: 'late',
       status: 'done',
@@ -621,18 +634,17 @@ describe('dayTimeline edges', () => {
       last_event_at: TODAY(2),
     });
     const stages = [stage('implement', 'done', YESTERDAY(22), TODAY(2))];
-    const before = one(r, stages, '2026-10-07');
-    expect(before.axis.to).toBe(TODAY(0));
-    expect(before.rows[0]!.bars).toEqual([
+    const night = one(r, stages, '2026-10-07', true);
+    expect(night.rows[0]!.bars).toEqual([
       expect.objectContaining({
         kind: 'done',
         from: YESTERDAY(22),
-        to: TODAY(0),
+        to: TODAY(2),
       }),
     ]);
-    const after = one(r, stages, '2026-10-08');
-    expect(after.axis.from).toBe(TODAY(0));
-    expect(after.totals.work).toBe(2 * 60 * MIN);
+    expect(night.totals.work).toBe(4 * 60 * MIN);
+    // Outside the next day's working hours, it has no row there.
+    expect(one(r, stages, '2026-10-08').rows).toEqual([]);
   });
 
   it('runs a stale run only to its last event, then idles', () => {

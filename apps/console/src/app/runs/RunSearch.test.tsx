@@ -242,12 +242,10 @@ describe('RunSearch', () => {
     renderSearch();
 
     await screen.findByTestId('run-search');
-    expect(document.querySelector('#page-shell-content')).toHaveAttribute(
-      'data-own-surface'
+    expect(document.querySelector('#page-shell-content')).not.toHaveAttribute(
+      'data-grid'
     );
-    expect(
-      document.querySelector('[data-parity="Search"] [data-parity="h"]')
-    ).toHaveTextContent('Search');
+    expect(screen.getAllByText('Search', { exact: true })).toHaveLength(1);
   });
 });
 

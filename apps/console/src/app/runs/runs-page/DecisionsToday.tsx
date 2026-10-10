@@ -1,7 +1,9 @@
-import { Group, Paper, Stack, Text } from '@mattstack/app-kit/core';
-import { Icon } from '@mattstack/app-kit/icons';
+import { Group, Paper, ScrollArea, Stack, Text } from '@mattstack/app-kit/core';
 
 import { decisionCount, decisionText, type DayDecision } from '../derive/day';
+import { Eyebrow } from '../Eyebrow';
+import { Glyph } from '../Glyph';
+import scrollFit from '../scrollFit.module.css';
 import { ticketOf } from './runLinks';
 import classes from './Summary.module.css';
 
@@ -27,58 +29,60 @@ export function DecisionsToday({
       data-testid="decisions-today"
     >
       <Stack gap={10}>
-        <Text
-          fz={10.5}
-          fw={500}
-          lh="normal"
-          tt="uppercase"
-          lts={0.8}
-          c="dimmed"
-          data-parity="label"
-        >
+        <Eyebrow data-parity="label">
           {loading
             ? `Decisions you made ${when}`
             : `Decisions you made ${when} · ${decisionCount(decisions)}`}
-        </Text>
+        </Eyebrow>
         {loading ? (
-          <Text fz={12.5} lh="normal" c="dimmed">
+          <Text fz="md" lh="normal" c="dimmed">
             Loading your answers…
           </Text>
         ) : decisions.length === 0 ? (
-          <Text fz={12.5} lh="normal" c="dimmed">
+          <Text fz="md" lh="normal" c="dimmed">
             {`You answered no gates ${when}.`}
           </Text>
         ) : (
-          decisions.map(({ gate, run }) => (
-            <Group
-              key={gate.id}
-              gap={8}
-              wrap="nowrap"
-              className={classes.decision}
-              data-testid={`decision-${gate.id}`}
-            >
-              <Icon
-                name="signpost"
-                size={13}
-                color="var(--tk-text-3)"
-                data-parity="signpost"
-              />
-              {ticketOf(run) ? (
-                <Text
-                  fz={12}
-                  fw={700}
-                  lh="normal"
-                  className={classes.keep}
-                  data-parity="ticket"
+          // A long day's decisions scroll inside the card.
+          <ScrollArea.Autosize
+            mah={360}
+            type="auto"
+            scrollbars="y"
+            classNames={{ root: scrollFit.root, content: scrollFit.content }}
+          >
+            <Stack gap={10}>
+              {decisions.map(({ gate, run }) => (
+                <Group
+                  key={gate.id}
+                  gap={8}
+                  wrap="nowrap"
+                  className={classes.decision}
+                  data-testid={`decision-${gate.id}`}
                 >
-                  {ticketOf(run)}
-                </Text>
-              ) : null}
-              <Text fz={12.5} lh="normal" truncate data-parity="text">
-                {decisionText(gate)}
-              </Text>
-            </Group>
-          ))
+                  <Glyph
+                    name="signpost"
+                    size={13}
+                    color="dimmed"
+                    data-parity="signpost"
+                  />
+                  {ticketOf(run) ? (
+                    <Text
+                      fz="md"
+                      fw={700}
+                      lh="normal"
+                      className={classes.keep}
+                      data-parity="ticket"
+                    >
+                      {ticketOf(run)}
+                    </Text>
+                  ) : null}
+                  <Text fz="md" lh="normal" truncate data-parity="text">
+                    {decisionText(gate)}
+                  </Text>
+                </Group>
+              ))}
+            </Stack>
+          </ScrollArea.Autosize>
         )}
       </Stack>
     </Paper>

@@ -1,5 +1,12 @@
 import { useCallback } from 'react';
-import { Anchor, Drawer, Skeleton, Stack, Text } from '@mattstack/app-kit/core';
+import {
+  Anchor,
+  Drawer,
+  List,
+  Skeleton,
+  Stack,
+  Text,
+} from '@mattstack/app-kit/core';
 import { useQuery } from '@tanstack/react-query';
 import type { Components } from 'react-markdown';
 
@@ -60,25 +67,32 @@ export function useStageDocDrawer() {
   };
 }
 
-const bulleted: Components['li'] = ({ children }) => (
-  <li>
-    <span className={classes.bullet} data-parity="b" aria-hidden>
-      •
-    </span>
-    <span data-parity="t">{children}</span>
-  </li>
+const bulleted: Components['ul'] = ({ children }) => (
+  <List
+    spacing={8}
+    fz="inherit"
+    c="dimmed"
+    icon={
+      <Text span c="dimmed" data-parity="b" aria-hidden>
+        •
+      </Text>
+    }
+    className={classes.list}
+  >
+    {children}
+  </List>
 );
 
 const FULL: Components = {
   h1: ({ children }) => <h1 data-parity="h1">{children}</h1>,
   h2: ({ children }) => <h2 data-parity="h2">{children}</h2>,
   p: ({ children }) => <p data-parity="p">{children}</p>,
-  li: bulleted,
+  ul: bulleted,
 };
 
 const PREVIEW: Components = {
   p: ({ children }) => <p data-parity="p1">{children}</p>,
-  li: bulleted,
+  ul: bulleted,
 };
 
 /** A stage doc rendered as Markdown, its frontmatter and comments dropped.
@@ -114,13 +128,13 @@ function StageDocBody({
   if (query.isPending) return <Skeleton height={200} />;
   if (query.isError)
     return (
-      <Text fz={13} lh="normal" c="dimmed">
+      <Text fz="lg" lh="normal" c="dimmed">
         {(query.error as Error).message}
       </Text>
     );
   if (query.data === null)
     return (
-      <Text fz={13} lh="normal" c="dimmed" data-testid="stage-doc-no-doc">
+      <Text fz="lg" lh="normal" c="dimmed" data-testid="stage-doc-no-doc">
         No doc at this version.
       </Text>
     );
@@ -162,11 +176,11 @@ export function StageDocDrawer({
       classNames={{ header: drawer.header, body: drawer.body }}
       title={
         <Stack gap={2}>
-          <Text fz={15} fw={700} lh="normal" data-parity="t">
+          <Text fz="xl" fw={700} lh="normal" data-parity="t">
             {stage} · stage doc
           </Text>
           {source ? (
-            <Text fz={12} lh="normal" c="dimmed" data-parity="s">
+            <Text fz="md" lh="normal" c="dimmed" data-parity="s">
               {source}
             </Text>
           ) : null}
@@ -200,7 +214,7 @@ export function StageDocLink({
     <Anchor
       component="button"
       type="button"
-      fz={12.5}
+      fz="md"
       fw={500}
       lh="normal"
       c="accent"

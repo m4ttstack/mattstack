@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { growClasses as grow } from '@mattstack/app-kit/hooks';
 import { renderWithProviders as render } from '@mattstack/app-kit/test-utils';
 import { fixtureDetail, fixtureLeaderboard } from '../../server/fixture/index';
 import type { UserDetailResponse } from '../../shared/types';
 import { ReciprocityEvidence } from '../detail/evidence/ReciprocityEvidence';
-import grow from './grow.module.css';
 import { TeamStrip } from './TeamStrip';
 
 const points = [

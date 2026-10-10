@@ -728,6 +728,34 @@ test('Content marks an explicit surface so a theme can leave it alone', () => {
   );
 });
 
+test('Content sits on the panel step and draws the grid only when asked', () => {
+  const { unmount } = renderWithProviders(
+    <PageShell>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>plain</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+  const plain = document.getElementById('page-shell-content')!;
+  expect(plain.style.background).toContain('--ui-bg-2');
+  expect(plain).not.toHaveAttribute('data-grid');
+  unmount();
+  renderWithProviders(
+    <PageShell>
+      <PageShell.Main>
+        <PageShell.Content grid>
+          <div>gridded</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+  expect(document.getElementById('page-shell-content')).toHaveAttribute(
+    'data-grid'
+  );
+});
+
 test('a surface passed through scrollAreaProps marks the frame too', () => {
   renderWithProviders(
     <PageShell>

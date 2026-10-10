@@ -24,7 +24,7 @@ export function OutputRow({
       data-row={label}
     >
       <Text
-        fz={12.5}
+        fz="md"
         lh="normal"
         c="dimmed"
         className={classes.label}

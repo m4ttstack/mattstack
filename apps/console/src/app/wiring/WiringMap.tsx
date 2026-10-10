@@ -1,11 +1,17 @@
 import {
+  MattstackShell,
+  OrgPill,
+  ScopeSlash,
+  TeamMenu,
+  useViewer,
+} from '@mattstack/app-kit/app';
+import {
   Badge,
   Box,
   Button,
   GenericError,
   Group,
   PageShell,
-  Select,
   Skeleton,
   Stack,
   Text,
@@ -49,6 +55,9 @@ export function WiringMap() {
 
   const snapshot = useCompositionSnapshot(pack);
   const base = snapshot.data?.extends ?? null;
+  const who = useViewer();
+  const org = who?.org ?? null;
+  const viewer = who?.viewer ?? null;
   const unsynced = useUnsyncedBanner(pack);
   const showTab = (tab: WiringTab) => patch({ tab });
   const notch = pack
@@ -115,6 +124,48 @@ export function WiringMap() {
 
   const graphPack = url.tab === 'graph' ? pack : null;
 
+  // The pack this page reads, in the app's top bar beside the page's
+  // other context.
+  const packScope = (
+    <MattstackShell.AppBar>
+      {org && (
+        <>
+          <OrgPill org={org} />
+          {pack && <ScopeSlash />}
+        </>
+      )}
+      {packs.length > 1 && pack && (
+        // A team's pack carries the team's name, so this is settings' own
+        // team menu over the packs: picking your team (null) reads yours.
+        <TeamMenu
+          teams={packs.map(p => p.name)}
+          owners={viewer?.owners ?? {}}
+          ownTeam={viewer?.team ?? null}
+          team={pack}
+          onPick={team => patch({ pack: team ?? viewer?.team ?? pack })}
+        />
+      )}
+      {packs.length === 1 && pack && (
+        <Group gap={7} wrap="nowrap" data-testid="pack-name">
+          <Icons.package size={14} />
+          <Text fz={14} fw={500} maw={168} truncate title={pack}>
+            {pack}
+          </Text>
+        </Group>
+      )}
+      {pack && base && (
+        <Badge
+          size="sm"
+          variant="card-outline"
+          title={`This pack's fills and shared attachments come partly from the org's ${base.name} base pack.`}
+          data-testid="pack-extends"
+        >
+          {`extends ${base.name}`}
+        </Badge>
+      )}
+    </MattstackShell.AppBar>
+  );
+
   const actions = (
     <>
       <Box visibleFrom="lg">
@@ -135,92 +186,58 @@ export function WiringMap() {
           Open pack
         </Button>
       )}
-      {pack && base && (
-        <Badge
-          size="sm"
-          variant="quiet"
-          title={`This pack's fills and shared attachments come partly from the org's ${base.name} base pack.`}
-          data-testid="pack-extends"
-        >
-          {`extends ${base.name}`}
-        </Badge>
-      )}
-      {packs.length > 1 && pack && (
-        <Select
-          size="xs"
-          w={168}
-          data={packs.map(p => ({ value: p.name, label: p.name }))}
-          value={pack}
-          onChange={value => patch({ pack: value })}
-          data-testid="pack-select"
-        />
-      )}
-      {packs.length === 1 && pack && (
-        <Group gap={6} wrap="nowrap">
-          <Text size="xs" c={text.dimmed}>
-            pack
-          </Text>
-          <Text
-            size="sm"
-            fw={500}
-            maw={168}
-            truncate
-            title={pack}
-            data-testid="pack-name"
-          >
-            {pack}
-          </Text>
-        </Group>
-      )}
     </>
   );
 
   return (
-    <PageShell
-      tabBarHeight={PAGE_ROW_HEIGHT}
-      sidebarWidth={216}
-      drawerStateKey="console-wiring-focus"
-      tabs={tabs}
-      tabBar={{ title: 'Wiring', actions }}
-      topNotch={notch}
-    >
-      {graphPack && (
-        <PageShell.Sidebar hideCollapseButton bg="var(--tk-panel)">
-          <GraphSidebar pack={graphPack} />
-        </PageShell.Sidebar>
-      )}
-      <PageShell.Main>
-        {graphPack ? (
-          <PageShell.Content bg="var(--tk-bg)" contentContainer={false}>
-            {height => <GraphTab pack={graphPack} height={height} />}
-          </PageShell.Content>
-        ) : (
-          <PageShell.Content>
-            {packsQuery.isError ? (
-              <GenericError
-                title="Couldn't load skills packs"
-                message={(packsQuery.error as Error).message}
-                onRetry={() => void packsQuery.refetch()}
-              />
-            ) : !pack ? (
-              packsQuery.isPending ? (
-                <Skeleton height={200} data-testid="packs-loading" />
-              ) : (
-                <Text size="sm" c={text.dimmed} data-testid="no-packs">
-                  No skills packs found.
-                </Text>
-              )
-            ) : url.tab === 'surface' ? (
-              <SurfaceTab pack={pack} />
-            ) : (
-              <HealthTab
-                pack={pack}
-                onOpenSkill={verb => patch({ tab: 'graph', focus: verb })}
-              />
-            )}
-          </PageShell.Content>
+    <>
+      {packScope}
+      <PageShell
+        tabBarHeight={PAGE_ROW_HEIGHT}
+        sidebarWidth={216}
+        drawerStateKey="console-wiring-focus"
+        tabs={tabs}
+        tabBar={{ title: 'Wiring', actions }}
+        topNotch={notch}
+      >
+        {graphPack && (
+          <PageShell.Sidebar hideCollapseButton bg="var(--tk-panel)">
+            <GraphSidebar pack={graphPack} />
+          </PageShell.Sidebar>
         )}
-      </PageShell.Main>
-    </PageShell>
+        <PageShell.Main>
+          {graphPack ? (
+            <PageShell.Content bg="var(--tk-bg)" contentContainer={false}>
+              {height => <GraphTab pack={graphPack} height={height} />}
+            </PageShell.Content>
+          ) : (
+            <PageShell.Content>
+              {packsQuery.isError ? (
+                <GenericError
+                  title="Couldn't load skills packs"
+                  message={(packsQuery.error as Error).message}
+                  onRetry={() => void packsQuery.refetch()}
+                />
+              ) : !pack ? (
+                packsQuery.isPending ? (
+                  <Skeleton height={200} data-testid="packs-loading" />
+                ) : (
+                  <Text size="sm" c={text.dimmed} data-testid="no-packs">
+                    No skills packs found.
+                  </Text>
+                )
+              ) : url.tab === 'surface' ? (
+                <SurfaceTab pack={pack} />
+              ) : (
+                <HealthTab
+                  pack={pack}
+                  onOpenSkill={verb => patch({ tab: 'graph', focus: verb })}
+                />
+              )}
+            </PageShell.Content>
+          )}
+        </PageShell.Main>
+      </PageShell>
+    </>
   );
 }

@@ -33,6 +33,7 @@
     "@mattstack/glance": "workspace:*",
     "@mattstack/mantine-tokyo": "workspace:*",
     "@mattstack/rt-client": "workspace:*",
+    "@mattstack/settings-kit": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "hono": "catalog:",
     "invadrs": "^1.3.0",

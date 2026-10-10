@@ -1,0 +1,8 @@
+/* The one block rhythm for every console Accordion's open panel: a step of
+   air under the header and a little more before the next rule. Each
+   accordion sets only its own inline inset beside this, so the content
+   lines up under its header's label. Spacing only. */
+.content {
+  padding-top: 10px;
+  padding-bottom: 14px;
+}

@@ -21,6 +21,9 @@ export interface RailProps {
    * assumes the full-height alt-layout navbar `RailShell` provides.
    */
   pinBottom?: React.ReactNode;
+  /** Shown in the rail's top spot (an app's mark) in place of the
+   *  expand/collapse trigger, so the rail stays slim. */
+  top?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -38,6 +41,7 @@ export function Rail({
   expandLabel = 'Expand navigation',
   collapseLabel = 'Collapse navigation',
   pinBottom,
+  top,
   children,
 }: RailProps) {
   return (
@@ -55,39 +59,62 @@ export function Rail({
       component="nav"
       aria-label={label}
     >
-      <Group wrap="nowrap" className={classes.railEntryRow} visibleFrom="sm">
-        <Tooltip
-          label={expandLabel}
-          disabled={expanded}
-          position="right"
-          offset={16}
-        >
-          <ActionIcon
-            variant="subtle"
-            size="lg"
-            onClick={onToggleExpanded}
-            aria-label={expanded ? collapseLabel : expandLabel}
-            aria-expanded={expanded}
+      {/* One delay group for every tooltip in the rail: once one has opened,
+          the next opens at once as the pointer moves along the rail. */}
+      <Tooltip.Group>
+        {top != null ? (
+          <>
+            <Group
+              wrap="nowrap"
+              justify="center"
+              pl={0}
+              className={classes.railEntryRow}
+              visibleFrom="sm"
+            >
+              {top}
+            </Group>
+            <Box h={10} visibleFrom="sm" />
+          </>
+        ) : (
+          <Group
+            wrap="nowrap"
+            className={classes.railEntryRow}
+            visibleFrom="sm"
           >
-            <Icon
-              name="panelLeftOpen"
-              size={18}
-              className={
-                expanded
-                  ? `${classes.railTriggerIcon} ${classes.railTriggerIconFlipped}`
-                  : classes.railTriggerIcon
-              }
-            />
-          </ActionIcon>
-        </Tooltip>
-      </Group>
-      {children}
-      {pinBottom != null && (
-        <>
-          <Box flex={1} />
-          {pinBottom}
-        </>
-      )}
+            <Tooltip
+              label={expandLabel}
+              disabled={expanded}
+              position="right"
+              offset={16}
+            >
+              <ActionIcon
+                variant="subtle"
+                size="lg"
+                onClick={onToggleExpanded}
+                aria-label={expanded ? collapseLabel : expandLabel}
+                aria-expanded={expanded}
+              >
+                <Icon
+                  name="panelLeftOpen"
+                  size={18}
+                  className={
+                    expanded
+                      ? `${classes.railTriggerIcon} ${classes.railTriggerIconFlipped}`
+                      : classes.railTriggerIcon
+                  }
+                />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
+        )}
+        {children}
+        {pinBottom != null && (
+          <>
+            <Box flex={1} />
+            {pinBottom}
+          </>
+        )}
+      </Tooltip.Group>
     </Stack>
   );
 }
