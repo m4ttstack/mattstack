@@ -265,6 +265,97 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(detailOf(outcome)).not.toContain("gadgets@acme");
     });
 
+    describe("engine floor", () => {
+      const clone = () => join(home, ".mattstack", "orgs", "acme");
+      const packFiles = (floor: string) => ({
+        [join(clone(), ".claude-plugin", "marketplace.json")]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./packs/acme-skills" }] }),
+        [join(clone(), "packs", "acme-skills", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "0.6.0" }),
+        [join(clone(), "packs", "acme-skills", "pack", "requires.json")]: JSON.stringify({ minEngine: floor }),
+      });
+      const msCatalog = (source: unknown, floor: string | null) => ({
+        "/m/.claude-plugin/marketplace.json": JSON.stringify({ name: "mattstack", plugins: [{ name: "mattstack", source }] }),
+        ...(floor ? { "/m/plugins/mattstack/pack/requires.json": JSON.stringify({ minEngine: floor }) } : {}),
+      });
+
+      function harness(files: Record<string, string>, installed: unknown[], opts: { offline?: boolean } = {}) {
+        const execCalls: string[][] = [];
+        const p = fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin", ...files },
+          exec: async (argv) => {
+            execCalls.push(argv);
+            const [, , verb, sub] = argv;
+            if (verb === "list") return ok(JSON.stringify(installed));
+            if (verb === "marketplace" && sub === "list") return ok(JSON.stringify([{ name: "mattstack", source: "git", url: MATTSTACK_MARKETPLACE_SOURCE, installLocation: "/m" }]));
+            if (verb === "marketplace" && sub === "update" && opts.offline) return { code: 1, stdout: "", stderr: "offline" };
+            return ok("");
+          },
+        });
+        return { p, execCalls };
+      }
+      const team = { slug: "acme", name: "Acme", mode: "none" } as const;
+
+      test("a team pack whose served floor is above the engine is not updated, and the detail names it", async () => {
+        const { p, execCalls } = harness(packFiles("0.31.0"), [{ id: "acme-skills@acme-market", version: "0.5.0", enabled: false }]);
+        const { ctx } = makeCtx(p, { team, activeTeam: () => "acme-skills", engine: () => "0.30.28" });
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(execCalls.filter((a) => a.includes("acme-skills@acme-market"))).toEqual([]);
+        expect(detailOf(outcome)).toContain("acme-skills 0.6.0 needs a newer mattstack app (engine 0.31.0 or later)");
+      });
+
+      test("a held team pack that was never installed installs nothing", async () => {
+        const { p, execCalls } = harness(packFiles("0.31.0"), []);
+        const { ctx } = makeCtx(p, { team, activeTeam: () => "acme-skills", engine: () => "0.30.28" });
+
+        expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+        expect(execCalls.filter((a) => a.includes("acme-skills@acme-market"))).toEqual([]);
+      });
+
+      test("a team pack whose floor the engine meets still updates", async () => {
+        const { p, execCalls } = harness(packFiles("0.30.0"), [{ id: "acme-skills@acme-market", version: "0.5.0", enabled: false }]);
+        const { ctx } = makeCtx(p, { team, activeTeam: () => "acme-skills", engine: () => "0.30.28" });
+
+        await pluginsInstallStep.run(ctx);
+        expect(execCalls.some((a) => a[2] === "update" && a[3] === "acme-skills@acme-market")).toBe(true);
+      });
+
+      test("a mattstack plugin floor above the engine runs no update for it, and the step still succeeds", async () => {
+        const { p, execCalls } = harness(msCatalog("./plugins/mattstack", "0.31.0"), [{ id: "mattstack@mattstack", version: "0.30.0", enabled: true }]);
+        const { ctx } = makeCtx(p, { engine: () => "0.30.28" });
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(execCalls.filter((a) => a.includes("mattstack@mattstack"))).toEqual([]);
+        expect(detailOf(outcome)).toContain("mattstack needs a newer mattstack app (engine 0.31.0 or later)");
+      });
+
+      test("a dev marketplace's git-subdir catalog entry holds nothing", async () => {
+        const { p, execCalls } = harness(msCatalog({ source: "git-subdir", url: "file:///dev/mattstack", path: "plugins/mattstack" }, "9.0.0"), [
+          { id: "mattstack@mattstack", version: "0.30.0", enabled: true },
+        ]);
+        const { ctx } = makeCtx(p, { engine: () => "0.30.28" });
+
+        await pluginsInstallStep.run(ctx);
+        expect(execCalls.some((a) => a[2] === "update" && a[3] === "mattstack@mattstack")).toBe(true);
+      });
+
+      test("an offline marketplace refresh still completes the step", async () => {
+        const { p, execCalls } = harness(msCatalog("./plugins/mattstack", "0.30.0"), [{ id: "mattstack@mattstack", version: "0.30.0", enabled: true }], { offline: true });
+        const { ctx } = makeCtx(p, { engine: () => "0.30.28" });
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(execCalls.some((a) => a[2] === "marketplace" && a[3] === "update")).toBe(true);
+        expect(execCalls.some((a) => a[2] === "update" && a[3] === "mattstack@mattstack")).toBe(true);
+      });
+    });
+
     test("superpowers installs as a trusted baseline plugin, its marketplace added right after rt's own and ahead of team/user sources", async () => {
       const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
