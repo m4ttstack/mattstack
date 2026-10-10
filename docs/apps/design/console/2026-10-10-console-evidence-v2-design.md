@@ -78,9 +78,12 @@ One Evidence card (as today), its eyebrow `EVIDENCE · n` and "attached to
   head, so a v1 run with no case text reads as one plain pair.
 - **Thumbnails**: Before and After in the existing two-column grid, each the
   **annotated** image when there is one (else the base), the light theme
-  when the slot is themed. Clicking one opens compare on that case, phase
-  and theme.
-- **Under each thumbnail**: the phase (500), then one line: the caption when
+  when the slot is themed. A case with no before keeps After in the right
+  column, with a dimmed `No before image` line in the left, so the columns
+  line up down the card. Clicking a thumbnail opens compare on that case,
+  phase and theme.
+- **Under each thumbnail**: the phase (500), `light` after it in the dimmed
+  tone when the slot is themed, then one line: the caption when
   the image is annotated, else `Waived: <reason>` in the dimmed tone. A
   waiver that is the case's own (not the image's) shows once, under the
   head, as `Waived: <reason>`, and the images it covers say only `Waived`.
@@ -93,12 +96,17 @@ The evidence stage row shows every case's before images, the ship row every
 case's after images (as today, a phase with no image in any case is left
 off; v1 keeps its existing placement rules).
 
-- One case: as today (plain then annotated thumbnails, file names, the url,
-  "Open full size →"), plus the caption or waiver line under the annotated
-  one.
-- Several cases: one block per case with a quiet label line (label, and the
-  `waived` badge), then that case's thumbnails as above. Themed slots show
-  the light shot and say `light + dark` on the label line.
+- **One case**: as today (plain then annotated thumbnails with file names,
+  the url, "Open full size →"), plus the caption or waiver line under the
+  thumbnail it belongs to.
+- **Several cases** (option B, recommended): one 240px thumbnail per case
+  in a wrapping strip: the annotated image, else the waived base, the light
+  theme when the slot is themed. Under it the case label (500) with its
+  `waived` or `light + dark` badge, then the caption or `Waived: <reason>`.
+  Clicking a thumbnail opens compare on that case and phase; the plain
+  capture is there. Option A (every case's plain and annotated thumbnails,
+  `renders/runs-ev-story-option-a.*.png`) was drawn and is not proposed: it
+  runs three times as tall for the same information.
 - The summary reads `3 cases, 1 waived` (waived = cases with any waived
   image in that phase), plus `, 1 link` where the url shows; a one-case
   record keeps today's `2 screenshots, 1 link`.
@@ -108,7 +116,8 @@ off; v1 keeps its existing placement rules).
 Same modal, controls in the header, left to right:
 
 - **Case picker**: kit `Select` of case labels, shown when there is more than
-  one case. The title reads `ticket · <case label>`.
+  one case; the title is then the ticket alone (`WEB-421`). With one case
+  there is no picker and the title reads `ticket · <case label>`, as today.
 - **Theme**: kit `SegmentedControl` Light / Dark, shown only when the case
   has both themes; a slot with one theme shows that theme in both settings.
 - **Mode**: Before / After / Side by side, as today, over the case's slots.
@@ -150,9 +159,10 @@ lists), recorded as evidence@2 with three cases:
 
 1. `rush-window` "Rush order, same-day window": before and after, both
    annotated with captions.
-2. `order-card-themes` "Order card in light and dark": after only, themed;
-   light annotated with a caption, dark waived on its own ("Same marks as
-   light; only the theme differs").
+2. `order-card-themes` "Order card in light and dark": before and after,
+   both themed; both befores and the light after annotated with captions,
+   the dark after waived on its own ("Same marks as light; only the theme
+   differs").
 3. `empty-state` "No delivery window yet": after only, case waiver ("Before
    and after are pixel-identical").
 
@@ -161,17 +171,24 @@ and WEB-412 stay v1, so the existing boards keep their data.
 
 ## Boards
 
-New frames in `runs.pen`, light then dark, compared by the parity gate:
+New frames in `runs.pen`, light then dark (renders in `renders/`). Parity
+exports (`parity/<slug>.<scheme>.html`) are taken once the boards are
+approved, and the plan adds them to `boards.ts`.
 
-| slug | route | roots |
-|---|---|---|
-| `runs-ev-record` | `/runs/remote%3Aacme%2Fweb/20261008-1210?tab=evidence` | `Evidence` |
-| `runs-ev-story` | `/runs/remote%3Aacme%2Fweb/20261008-1210` (evidence and ship rows open) | `Stage evidence`, `Stage ship` |
-| `runs-ev-compare` | `/runs/remote%3Aacme%2Fweb/20261008-1210?compare=side&case=order-card-themes&theme=dark` | `Compare` |
+| slug | frame (light) | light id | dark id | route | roots |
+|---|---|---|---|---|---|
+| `runs-ev-record` | `Evidence v2 · Record (3 cases)` | `fk63W` | `KawsQ` | `/runs/remote%3Aacme%2Fweb/20261008-1210`, Evidence tab | `Evidence` |
+| `runs-ev-story` | `Evidence v2 · Story rows · B · one shot per case (3 cases)` | `u5oje` | `E7Qki` | `/runs/remote%3Aacme%2Fweb/20261008-1210`, evidence and ship rows open | `Story list` |
+| `runs-ev-compare` | `Evidence v2 · Compare (case, theme)` | `Yhu2H` | `F0mno7` | `…/20261008-1210?compare=side&case=order-card-themes&theme=dark` | `Compare` |
+
+Option A of the story (`KILKv` / `B22iH`) is kept for the record and never
+compared.
 
 `runs-p2-record`, `runs-p2-story-details` and `runs-p2-overlays` keep
-passing for the v1 runs, with one new board-fix entry each: the record
-thumbnail now shows the annotated image and the `Case` card is gone.
+passing for the v1 runs, with board-fix entries for what changes there: the
+record thumbnail shows the annotated image, the `Case` card is gone (the case
+label heads the pair), and an annotated story thumbnail carries no caption
+line because v1 records none.
 
 ## Error handling
 
