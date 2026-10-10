@@ -10,7 +10,6 @@ import {
 } from '../../core/discover.ts';
 import { removeRoutes } from '../../core/routes-writer.ts';
 import {
-  clearLive,
   clearOverride,
   getLive,
   getOverride,
@@ -22,7 +21,12 @@ import type { EdgeProxy } from '../edge/portless.ts';
 import type { RailwayDriver } from '../edge/railway.ts';
 import { disableRemote } from '../edge/remote.ts';
 import type { TunnelDriver } from '../edge/tunnel.ts';
-import { installLive, uninstallLive, type LiveDeps } from '../live/engine.ts';
+import {
+  installLive,
+  stopLive,
+  withLiveLock,
+  type LiveDeps,
+} from '../live/engine.ts';
 import { allocatePort } from '../registry/allocate.ts';
 import {
   MATTSTACK_REGISTRAR,
@@ -692,7 +696,21 @@ async function sweepManagedApps(drivers: Drivers): Promise<FlowResult> {
       continue;
     // The platform never restarts itself mid-request; bootstrapSelf owns its shape.
     if (isPlatformManagedBy(record.managedBy)) continue;
-    if (notServedHere(record, serveShapeDeps)) {
+    const servedHere = !notServedHere(record, serveShapeDeps);
+    if (
+      getLive(record.name) &&
+      (!flavor.dev || !servedHere || !isEnabled(record))
+    ) {
+      const issue = await runDriver('launchd', async () => {
+        await stopLive(record.name, drivers.manager, liveSweepDeps);
+      });
+      if (issue) {
+        addIssue(record.name, issue);
+        failed.push({ name: record.name, error: issue.message });
+        continue;
+      }
+    }
+    if (!servedHere) {
       const issue = await runDriver('launchd', () =>
         drivers.manager.uninstall(record.label!)
       );
@@ -719,17 +737,20 @@ async function sweepManagedApps(drivers: Drivers): Promise<FlowResult> {
       disabled.push(record.name);
       continue;
     }
-    const live = getLive(record.name);
-    if (live && !flavor.dev) {
-      await uninstallLive(record.name, drivers.manager, liveSweepDeps);
-      clearLive(record.name);
-    } else if (live) {
+    const liveOutcome = await withLiveLock(record.name, async () => {
+      const live = getLive(record.name);
+      if (!live) return null;
       const issue = await runDriver('launchd', () =>
         drivers.manager.uninstall(record.label!)
       );
-      const err =
-        issue?.message ??
-        (await installLive(record, live, drivers.manager, liveSweepDeps));
+      return {
+        err:
+          issue?.message ??
+          (await installLive(record, live, drivers.manager, liveSweepDeps)),
+      };
+    });
+    if (liveOutcome) {
+      const { err } = liveOutcome;
       if (err) {
         addIssue(record.name, {
           source: 'launchd',

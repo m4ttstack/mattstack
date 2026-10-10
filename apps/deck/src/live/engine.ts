@@ -1,7 +1,11 @@
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 
-import { MATTSTACK_TLD, readRoutes, readServices } from '../../core/discover.ts';
+import {
+  MATTSTACK_TLD,
+  readRoutes,
+  readServices,
+} from '../../core/discover.ts';
 import { setAppRoutesPort } from '../../core/routes-writer.ts';
 import {
   clearLive,
@@ -31,12 +35,13 @@ import { readLinkedManifest } from '../registry/serve-shape.ts';
 import { serviceEnv } from '../registry/service-env.ts';
 import { composeCommandPath, resolveProgram } from '../services/exec-env.ts';
 import { installedMatches } from '../services/installed.ts';
+import { agentsDir } from '../services/launchd.ts';
 import {
   isPlatformManagedBy,
   type ServiceManager,
   type ServiceSpec,
 } from '../services/manager.ts';
-import { liveLabel, liveLabelPrefix } from './labels.ts';
+import { isLiveLabel, liveLabel, liveLabelPrefix } from './labels.ts';
 import {
   clearSetup,
   recordSetupFailure,
@@ -80,7 +85,37 @@ function tldsOf(deps: LiveDeps): string[] {
 
 async function installedLabelsOf(deps: LiveDeps): Promise<string[]> {
   if (deps.installedLabels) return deps.installedLabels();
-  return (await readServices()).map(s => s.label);
+  let files: string[];
+  try {
+    files = readdirSync(agentsDir());
+  } catch {
+    return [];
+  }
+  return files
+    .filter(f => f.endsWith('.plist'))
+    .map(f => f.slice(0, -'.plist'.length))
+    .filter(isLiveLabel);
+}
+
+const locks = new Map<string, Promise<unknown>>();
+
+/** Serializes every live operation on one app (go-live, stop, the tick, the
+    sweep), so none installs services or writes routes over another. Not
+    reentrant: code already holding the lock calls the unlocked helpers. */
+export function withLiveLock<T>(
+  name: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const run = (locks.get(name) ?? Promise.resolve()).then(fn);
+  const tail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  locks.set(name, tail);
+  void tail.then(() => {
+    if (locks.get(name) === tail) locks.delete(name);
+  });
+  return run;
 }
 
 export function liveRefusal(
@@ -89,7 +124,8 @@ export function liveRefusal(
 ): string | null {
   if (!record) return 'unknown app';
   if (!devMode) return 'live mode only runs in the dev app';
-  if (isPlatformManagedBy(record.managedBy)) return 'deck itself cannot go live';
+  if (isPlatformManagedBy(record.managedBy))
+    return 'deck itself cannot go live';
   if (!isMattstackOwned(record)) return 'only mattstack apps can go live';
   if (readLinkedManifest(record).state !== 'linked')
     return `${record.name} has no linked source`;
@@ -124,8 +160,7 @@ export function liveSpecs(
     const id = ids[i]!;
     const [argv0, ...rest] = startArgv(proc.start);
     const program = resolveProgram(argv0!, path);
-    if (!program)
-      throw new Error(`couldn't find ${argv0}`);
+    if (!program) throw new Error(`couldn't find ${argv0}`);
     const environment: Record<string, string> = {
       ...base,
       PATH: path,
@@ -170,7 +205,8 @@ export async function installLive(
   deps: LiveDeps = {}
 ): Promise<string | null> {
   const sharedRoot = sharedRootFor(record);
-  if (!sharedRoot) return `${record.name}'s linked source is not a git checkout`;
+  if (!sharedRoot)
+    return `${record.name}'s linked source is not a git checkout`;
   const appDir = appDirIn(record, state.source, sharedRoot)!;
   if (!existsSync(appDir)) return `that checkout has no apps/${record.name}`;
   const manifest = liveManifestAt(appDir);
@@ -184,7 +220,12 @@ export async function installLive(
     return messageOf(err);
   }
   try {
-    await uninstallLive(record.name, manager, deps, new Set(specs.map(s => s.label)));
+    await uninstallLive(
+      record.name,
+      manager,
+      deps,
+      new Set(specs.map(s => s.label))
+    );
     for (const spec of specs) {
       if (installedMatches(spec.label, spec)) continue;
       await manager.uninstall(spec.label);
@@ -211,7 +252,7 @@ async function rollback(
   deps: LiveDeps
 ): Promise<void> {
   try {
-    await stopLive(name, manager, deps);
+    await stopLiveUnlocked(name, manager, deps);
   } catch {}
   try {
     await deps.reinstall?.();
@@ -229,7 +270,9 @@ async function activate(
   try {
     const previous = getLive(record.name);
     const hasUi = live.some(p => p.kind === 'ui');
-    const uiPort = hasUi ? (previous?.uiPort ?? (await freeUiPort())) : undefined;
+    const uiPort = hasUi
+      ? (previous?.uiPort ?? (await freeUiPort()))
+      : undefined;
     if (hasUi && uiPort == null) return 'no free port for the live UI';
     if (!previous) {
       if (record.label) await manager.uninstall(record.label);
@@ -268,7 +311,9 @@ function afterSetup(
       if (pending.get(record.name) !== token) return;
       pending.delete(record.name);
       if (!ok) return;
-      const err = await activate(record, source, live, manager, deps);
+      const err = await withLiveLock(record.name, () =>
+        activate(record, source, live, manager, deps)
+      );
       if (err) fail(err);
     })
     .catch(e => {
@@ -290,23 +335,37 @@ export async function goLive(
     return refuse(409, `${name} is still setting up`);
   pending.delete(name);
   const sharedRoot = sharedRootFor(record!);
-  if (!sharedRoot) return refuse(400, `${name}'s linked source is not a git checkout`);
+  if (!sharedRoot)
+    return refuse(400, `${name}'s linked source is not a git checkout`);
   const { sources } = await listLiveSources(sharedRoot, deps.sources);
   const picked = sources.find(s => s.path === source);
-  if (!picked) return refuse(400, 'pick the shared checkout or one of your worktrees');
+  if (!picked)
+    return refuse(400, 'pick the shared checkout or one of your worktrees');
   const appDir = appDirIn(record!, source, sharedRoot)!;
-  if (!existsSync(appDir)) return refuse(400, `that checkout has no apps/${name}`);
+  if (!existsSync(appDir))
+    return refuse(400, `that checkout has no apps/${name}`);
   const manifest = liveManifestAt(appDir);
   if (!manifest.ok) return refuse(400, manifest.error);
   if (picked.needsSetup) {
     afterSetup(record!, source, picked.branch, manifest.live, manager, deps);
     return { status: 202, body: { ok: true, setup: 'running' } };
   }
-  const err = await activate(record!, source, manifest.live, manager, deps);
+  const err = await withLiveLock(name, () =>
+    activate(record!, source, manifest.live, manager, deps)
+  );
   return err ? refuse(500, err) : { status: 200, body: { ok: true } };
 }
 
-export async function stopLive(
+export function stopLive(
+  name: string,
+  manager: ServiceManager,
+  deps: LiveDeps = {}
+): Promise<LiveResult> {
+  return withLiveLock(name, () => stopLiveUnlocked(name, manager, deps));
+}
+
+/** For callers already holding the app's live lock. */
+export async function stopLiveUnlocked(
   name: string,
   manager: ServiceManager,
   deps: LiveDeps = {}

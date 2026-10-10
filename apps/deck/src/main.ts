@@ -229,7 +229,9 @@ export async function serve(): Promise<void> {
   }).finally(() => bootSweep.resolve());
 
   const reconcileInterval = setInterval(() => {
-    reconcileOnce().catch(err => console.error('reconcile tick failed:', err));
+    reconcileOnce({
+      onRouteWrite: () => setTimeout(runCanaryCheck, 500),
+    }).catch(err => console.error('reconcile tick failed:', err));
   }, 5000);
 
   if (gatewayEnabled) {
