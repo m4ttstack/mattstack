@@ -64,7 +64,7 @@ import {
   type LiveDeps,
 } from '../live/engine.ts';
 import { liveLabelPrefix } from '../live/labels.ts';
-import { clearSetup } from '../live/setup.ts';
+import { clearSetup, setupFor } from '../live/setup.ts';
 import { listLiveSources, sharedRootFor } from '../live/sources.ts';
 import { convert } from '../registry/convert.ts';
 import { migrate } from '../registry/migrate.ts';
@@ -697,7 +697,7 @@ export function startApi(deps: ApiDeps) {
             return json(r.body, r.status);
           }
           if (sub === 'restart' && req.method === 'POST') {
-            if (getLive(name)) {
+            if (getLive(name) && (liveDeps.devMode ?? isDevMode)()) {
               const prefix = liveLabelPrefix(name);
               const labels = (await installedLabelsOf(liveDeps)).filter(l =>
                 l.startsWith(prefix)
@@ -730,12 +730,19 @@ export function startApi(deps: ApiDeps) {
             return json(r.body, r.status);
           }
           if (sub === 'live' && req.method === 'DELETE') {
-            if (!getLive(name)) {
+            const wasLive = !!getLive(name);
+            if (!wasLive && setupFor(name)?.state !== 'running') {
               clearSetup(name);
               return json({ ok: true });
             }
             const r = await stopLive(name, deps.manager, liveDeps);
-            if (r.status === 200) await reresolveManagedApps(deps);
+            if (r.status === 200 && wasLive) {
+              try {
+                await reresolveManagedApps(deps);
+              } catch (err) {
+                console.error(`sweep after stopping ${name} live failed:`, err);
+              }
+            }
             return json(r.body, r.status);
           }
           if (sub === 'alt' && req.method === 'POST') {

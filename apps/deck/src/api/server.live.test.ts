@@ -1,3 +1,5 @@
+import { realpathSync, writeFileSync } from 'fs';
+import { join } from 'path';
 import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
 
 import { clearLive, getLive } from '../../core/settings.ts';
@@ -5,7 +7,15 @@ import { FakeEdgeProxy } from '../edge/portless.ts';
 import { FakeTunnelDriver } from '../edge/tunnel.ts';
 import type { LiveDeps } from '../live/engine.ts';
 import { clearSetup, runSetup, setupFor } from '../live/setup.ts';
-import { freshChat, managerOf } from '../live/test-kit.ts';
+import {
+  freshChat,
+  gitRepo,
+  managerOf,
+  manifest,
+  SERVER,
+  UI,
+} from '../live/test-kit.ts';
+import { setServeShapeDeps } from './register.ts';
 import { startApi } from './server.ts';
 
 const PORT = 18951;
@@ -25,11 +35,13 @@ const server = startApi({
 });
 beforeEach(() => {
   kit = freshChat();
+  for (const k of Object.keys(live)) delete live[k as keyof LiveDeps];
   Object.assign(live, kit.deps());
 });
 afterEach(() => {
   clearLive('chat');
   clearSetup('chat');
+  setServeShapeDeps({});
 });
 afterAll(() => server.stop(true));
 
@@ -108,4 +120,85 @@ test('DELETE on an app that is not live dismisses a failed setup', async () => {
     (await api('/api/v1/apps/chat/live', { method: 'DELETE' })).status
   ).toBe(200);
   expect(setupFor('chat')).toBeUndefined();
+});
+
+test('DELETE of a live app brings the normal service back', async () => {
+  setServeShapeDeps({ devMode: () => true, catalog: null, helpersDir: null });
+  writeFileSync(
+    join(kit.shared, 'apps/chat/mattstack.deck.json'),
+    JSON.stringify({
+      name: 'chat',
+      port: 11002,
+      dev: { start: 'bun src/server/index.ts' },
+      live: [SERVER, UI],
+    })
+  );
+  await api('/api/v1/apps/chat/live', {
+    method: 'PUT',
+    body: JSON.stringify({ source: kit.shared }),
+  });
+  expect(kit.manager.installed.has('com.mattstack.deck.chat')).toBe(false);
+  await api('/api/v1/apps/chat/live', { method: 'DELETE' });
+  expect(kit.manager.installed.has('com.mattstack.deck.chat')).toBe(true);
+  expect(
+    [...kit.manager.installed.keys()].filter(l => l.includes('.live.'))
+  ).toEqual([]);
+});
+
+test('DELETE during a running setup cancels the go-live', async () => {
+  const wt = realpathSync(
+    gitRepo({ 'apps/chat/mattstack.deck.json': manifest([SERVER, UI]) })
+  );
+  let finish!: (code: number) => void;
+  Object.assign(live, {
+    sources: {
+      exists: () => false,
+      listTrees: async () => [
+        ...kit.trees(),
+        {
+          path: wt,
+          branch: 'main',
+          kind: 'unmanaged',
+          state: null,
+          repoName: 'r',
+          readyAt: null,
+        },
+      ],
+    },
+    setup: { run: () => new Promise<number>(res => (finish = res)) },
+  } satisfies LiveDeps);
+  const put = await api('/api/v1/apps/chat/live', {
+    method: 'PUT',
+    body: JSON.stringify({ source: wt }),
+  });
+  expect(put.status).toBe(202);
+  expect(
+    (await api('/api/v1/apps/chat/live', { method: 'DELETE' })).status
+  ).toBe(200);
+  expect(setupFor('chat')).toBeUndefined();
+  finish(0);
+  await new Promise(res => setTimeout(res, 20));
+  expect(getLive('chat')).toBeUndefined();
+  expect(kit.manager.installed.has('com.mattstack.deck.chat')).toBe(true);
+});
+
+test('the live reads answer 403 to a caller that is not local', async () => {
+  const remote = { headers: { 'cf-connecting-ip': '203.0.113.9' } };
+  expect((await api('/api/v1/live', remote)).status).toBe(403);
+  expect((await api('/api/v1/apps/chat/live/sources', remote)).status).toBe(
+    403
+  );
+});
+
+test('PUT refuses outside dev mode', async () => {
+  live.devMode = () => false;
+  const res = await api('/api/v1/apps/chat/live', {
+    method: 'PUT',
+    body: JSON.stringify({ source: kit.shared }),
+  });
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({
+    error: 'live mode only runs in the dev app',
+  });
+  expect(getLive('chat')).toBeUndefined();
 });
