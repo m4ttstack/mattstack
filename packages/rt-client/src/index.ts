@@ -153,6 +153,8 @@ export type {
   HerdListRow,
   HerdJobInfo,
   HerdStatusData,
+  WorktreeTreeRow,
+  WorktreeListData,
 } from "./commands.ts";
 
 export { subscribe, createRelay, DEFAULT_WS_URL } from "./relay.ts";
@@ -161,6 +163,16 @@ export type { RelayEventType } from "./relay.ts";
 export { daemonHealth } from "./health.ts";
 
 export { repoNameForPath } from "./repos.ts";
+
+export {
+  isTrashPath,
+  isPickableWorktree,
+  listPickableWorktrees,
+  listWorktreeRows,
+  TRASH_PREFIX,
+  RETAIN_DIR,
+} from "./worktrees.ts";
+export type { PickableWorktreeRow, PickableSort, ListPickableOpts } from "./worktrees.ts";
 
 export { decidePlacement, openSmartPane } from "./smart-pane.ts";
 export type { Placement, PlacementOpts, HerdrCall } from "./smart-pane.ts";
