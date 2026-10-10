@@ -1,7 +1,8 @@
 import { useState } from 'react';
 
-import { Button } from '@mattstack/tui-kit';
+import { Button, Icon } from '@mattstack/tui-kit';
 import { CommandButton } from '../CommandButton.tsx';
+import { GIT_BRANCH, RADIO } from '../icons.ts';
 import {
   commandKey,
   showDevLinkPrompt,
@@ -71,6 +72,40 @@ function Deployed({ row }: { row: Row }) {
 export function CodeBlock({ row, data, board, blocks }: BlockProps) {
   const [relinking, setRelinking] = useState(false);
   if (!blocks.code) return null;
+  if (row.live) {
+    return (
+      <section data-block="code" aria-label="Code" className="settings-block">
+        <div className="settings-block-head">
+          <h3 className="settings-heading">Code</h3>
+          <p className="settings-note">Live. It reloads as you edit.</p>
+        </div>
+        <dl className="settings-facts">
+          <dt>Source</dt>
+          <dd className="settings-live-source">
+            <Icon d={RADIO} className="t-accent" />
+            {!row.live.main && <Icon d={GIT_BRANCH} />}
+            <span className="settings-mono">
+              {row.live.main ? 'main' : row.live.branch}
+            </span>
+          </dd>
+        </dl>
+        <div className="settings-actions">
+          <Button onClick={e => board.openLive(row, e.currentTarget)}>
+            <Icon d={GIT_BRANCH} /> Change code
+          </Button>
+          <span className="settings-actions-end">
+            <Button
+              variant="subtle"
+              intent="bad"
+              onClick={e => board.openLive(row, e.currentTarget)}
+            >
+              Stop Live
+            </Button>
+          </span>
+        </div>
+      </section>
+    );
+  }
   const linked = row.devLink === 'linked';
   const showCommands =
     row.enabled !== false && !showDevLinkPrompt(row, data.canManage);

@@ -270,6 +270,39 @@
 .settings-actions .command-labeled[data-intent='warn']:hover:not(:disabled) {
   background: var(--button-hover);
 }
+.settings-live-source {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+}
+.live-procs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-on-card);
+  border-radius: var(--radius-lg);
+}
+.live-proc {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+}
+.live-proc + .live-proc {
+  border-top: 1px solid var(--border-on-card);
+}
+.live-proc-kind {
+  width: 3rem;
+  font-weight: 500;
+}
+.live-proc-cmd {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
 .settings-actions-end {
   display: flex;
   gap: var(--spacing-xs);

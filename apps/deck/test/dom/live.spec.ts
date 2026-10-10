@@ -259,3 +259,69 @@ test('setup failed on a worktree that is gone: Try Again stays disabled', async 
     { fixture: 'status-live.json' }
   );
 });
+
+test('settings while live: source, processes, live UI port', async () => {
+  await withBoard(
+    async page => {
+      await page
+        .getByRole('button', { name: 'settings for atlas', exact: true })
+        .click();
+      const dialog = page.getByRole('dialog', { name: 'settings for atlas' });
+      const code = dialog.locator('[data-block="code"]');
+      expect(await code.textContent()).toContain('console-runs-3');
+      expect(
+        await code.getByRole('button', { name: 'Change code' }).count()
+      ).toBe(1);
+      expect(
+        await code.getByRole('button', { name: 'Stop Live' }).count()
+      ).toBe(1);
+      expect(
+        await code.getByRole('button', { name: /redeploy/i }).count()
+      ).toBe(0);
+      expect(await code.getByRole('button', { name: 'relink' }).count()).toBe(
+        0
+      );
+      const procs = dialog.locator('[data-block="live-processes"]');
+      expect(await procs.textContent()).toContain(
+        'bun --watch src/server/index.ts'
+      );
+      expect(await procs.textContent()).toContain('11140');
+      const port = dialog.locator('[data-block="port"]');
+      expect(await port.textContent()).toContain('Live UI');
+      expect(await port.getByLabel('dev port override').count()).toBe(0);
+    },
+    { fixture: 'status-live.json' }
+  );
+});
+
+test('settings while live: Stop Live opens the live modal', async () => {
+  await withBoard(
+    async page => {
+      await page
+        .getByRole('button', { name: 'settings for atlas', exact: true })
+        .click();
+      const dialog = page.getByRole('dialog', { name: 'settings for atlas' });
+      await dialog.getByRole('button', { name: 'Stop Live' }).click();
+      await page.waitForTimeout(200);
+      expect(
+        await page.getByRole('button', { name: 'Stop Live' }).count()
+      ).toBeGreaterThan(1);
+    },
+    { fixture: 'status-live.json' }
+  );
+});
+
+test('settings after a failed setup: Recent errors shows the setup log', async () => {
+  await withBoard(
+    async page => {
+      await page
+        .getByRole('button', { name: 'settings for relay', exact: true })
+        .click();
+      const dialog = page.getByRole('dialog', { name: 'settings for relay' });
+      const errors = dialog.locator('[data-block="errors"]');
+      expect(await errors.textContent()).toContain('Setup log');
+      expect(await errors.textContent()).toContain('lockfile had changes');
+    },
+    { fixture: 'status-live.json' }
+  );
+});
