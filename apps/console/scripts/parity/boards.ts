@@ -459,16 +459,11 @@ export const BOARDS: Board<Scenario>[] = [
     'Evidence v2 · Story rows · B · one shot per case (3 cases)',
     'u5oje',
     `${RUN}/20261008-1210`,
-    ['Story list'],
-    820,
-    {
-      // The board draws the evidence and ship rows open.
-      action: {
-        kind: 'clicks',
-        layers: ['Stage evidence', 'Stage ship'],
-        waitFor: 'strip',
-      },
-    }
+    // The board draws the evidence and ship rows open in the old accordion;
+    // the story now shows one picked stage beside the list and opens on the
+    // newest finished one, ship, with no route to pick another.
+    ['Stage ship'],
+    820
   ),
   runsBoard(
     'runs-ev-compare',
