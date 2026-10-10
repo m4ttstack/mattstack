@@ -28,6 +28,22 @@ export function clearSetup(app: string): void {
   runs.delete(app);
 }
 
+export function recordSetupFailure(
+  app: string,
+  source: string,
+  branch: string | null,
+  lines: string[],
+  now: () => Date = () => new Date()
+): void {
+  runs.set(app, {
+    source,
+    branch,
+    state: 'failed',
+    log: lines.slice(-LOG_LINES),
+    at: now().toISOString(),
+  });
+}
+
 async function pump(
   stream: ReadableStream<Uint8Array>,
   onLine: (line: string) => void
@@ -91,7 +107,7 @@ export async function runSetup(
     code = -1;
   }
   if (code === 0) {
-    runs.delete(app);
+    if (runs.get(app) === run) runs.delete(app);
     return true;
   }
   run.state = 'failed';

@@ -37,7 +37,13 @@ import {
   type ServiceSpec,
 } from '../services/manager.ts';
 import { liveLabel, liveLabelPrefix } from './labels.ts';
-import { clearSetup, runSetup, setupFor, type SetupDeps } from './setup.ts';
+import {
+  clearSetup,
+  recordSetupFailure,
+  runSetup,
+  setupFor,
+  type SetupDeps,
+} from './setup.ts';
 import {
   appDirIn,
   branchOf,
@@ -63,6 +69,9 @@ const refuse = (status: number, error: string): LiveResult => ({
   status,
   body: { error },
 });
+
+const messageOf = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
 
 function tldsOf(deps: LiveDeps): string[] {
   if (deps.tlds) return deps.tlds();
@@ -116,7 +125,7 @@ export function liveSpecs(
     const [argv0, ...rest] = startArgv(proc.start);
     const program = resolveProgram(argv0!, path);
     if (!program)
-      throw new Error(`${argv0} not found on the service PATH (${path})`);
+      throw new Error(`couldn't find ${argv0}`);
     const environment: Record<string, string> = {
       ...base,
       PATH: path,
@@ -172,7 +181,7 @@ export async function installLive(
   try {
     specs = liveSpecs(record, manifest.live, appDir, state.uiPort ?? null);
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    return messageOf(err);
   }
   try {
     await uninstallLive(record.name, manager, deps, new Set(specs.map(s => s.label)));
@@ -182,7 +191,7 @@ export async function installLive(
       await manager.install(spec);
     }
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    return messageOf(err);
   }
   routeTo(record, hasUi ? state.uiPort! : record.port, deps);
   return null;
@@ -192,6 +201,23 @@ async function freeUiPort(): Promise<number | null> {
   return allocatePort(listRecords(), readRoutes(), await readServices());
 }
 
+/** Per-app go-live waiting on setup; a stop or a newer go-live replaces it,
+    so a setup that finishes late activates nothing. */
+const pending = new Map<string, symbol>();
+
+async function rollback(
+  name: string,
+  manager: ServiceManager,
+  deps: LiveDeps
+): Promise<void> {
+  try {
+    await stopLive(name, manager, deps);
+  } catch {}
+  try {
+    await deps.reinstall?.();
+  } catch {}
+}
+
 async function activate(
   record: AppRecord,
   source: string,
@@ -199,26 +225,56 @@ async function activate(
   manager: ServiceManager,
   deps: LiveDeps
 ): Promise<string | null> {
-  const previous = getLive(record.name);
-  const hasUi = live.some(p => p.kind === 'ui');
-  const uiPort = hasUi ? (previous?.uiPort ?? (await freeUiPort())) : undefined;
-  if (hasUi && uiPort == null) return 'no free port for the live UI';
-  if (!previous) {
-    if (getOverride(record.name)) clearOverride(record.name);
-    if (record.label) await manager.uninstall(record.label);
+  let err: string | null;
+  try {
+    const previous = getLive(record.name);
+    const hasUi = live.some(p => p.kind === 'ui');
+    const uiPort = hasUi ? (previous?.uiPort ?? (await freeUiPort())) : undefined;
+    if (hasUi && uiPort == null) return 'no free port for the live UI';
+    if (!previous) {
+      if (record.label) await manager.uninstall(record.label);
+      if (getOverride(record.name)) clearOverride(record.name);
+    }
+    setLive(record.name, {
+      source,
+      branch: branchOf(source),
+      startedAt: (deps.now ?? (() => new Date()))().toISOString(),
+      ...(uiPort != null && { uiPort }),
+    });
+    err = await installLive(record, getLive(record.name)!, manager, deps);
+  } catch (e) {
+    err = messageOf(e);
   }
-  setLive(record.name, {
-    source,
-    branch: branchOf(source),
-    startedAt: (deps.now ?? (() => new Date()))().toISOString(),
-    ...(uiPort != null && { uiPort }),
-  });
-  const err = await installLive(record, getLive(record.name)!, manager, deps);
-  if (err) {
-    await stopLive(record.name, manager, deps);
-    await deps.reinstall?.();
-  }
+  if (err) await rollback(record.name, manager, deps);
   return err;
+}
+
+function afterSetup(
+  record: AppRecord,
+  source: string,
+  branch: string | null,
+  live: LiveProcess[],
+  manager: ServiceManager,
+  deps: LiveDeps
+): void {
+  const token = Symbol(record.name);
+  pending.set(record.name, token);
+  const fail = (reason: string) =>
+    recordSetupFailure(record.name, source, branch, [
+      `setup finished, but going live failed: ${reason}`,
+    ]);
+  void runSetup(record.name, source, branch, deps.setup)
+    .then(async ok => {
+      if (pending.get(record.name) !== token) return;
+      pending.delete(record.name);
+      if (!ok) return;
+      const err = await activate(record, source, live, manager, deps);
+      if (err) fail(err);
+    })
+    .catch(e => {
+      if (pending.get(record.name) === token) pending.delete(record.name);
+      fail(messageOf(e));
+    });
 }
 
 export async function goLive(
@@ -232,6 +288,7 @@ export async function goLive(
   if (refusal) return refuse(refusal === 'unknown app' ? 404 : 400, refusal);
   if (setupFor(name)?.state === 'running')
     return refuse(409, `${name} is still setting up`);
+  pending.delete(name);
   const sharedRoot = sharedRootFor(record!);
   if (!sharedRoot) return refuse(400, `${name}'s linked source is not a git checkout`);
   const { sources } = await listLiveSources(sharedRoot, deps.sources);
@@ -242,9 +299,7 @@ export async function goLive(
   const manifest = liveManifestAt(appDir);
   if (!manifest.ok) return refuse(400, manifest.error);
   if (picked.needsSetup) {
-    void runSetup(name, source, picked.branch, deps.setup).then(ok =>
-      ok ? activate(record!, source, manifest.live, manager, deps) : null
-    );
+    afterSetup(record!, source, picked.branch, manifest.live, manager, deps);
     return { status: 202, body: { ok: true, setup: 'running' } };
   }
   const err = await activate(record!, source, manifest.live, manager, deps);
@@ -258,6 +313,7 @@ export async function stopLive(
 ): Promise<LiveResult> {
   const record = getRecord(name);
   if (!record) return refuse(404, 'unknown app');
+  pending.delete(name);
   clearSetup(name);
   await uninstallLive(name, manager, deps);
   routeTo(record, record.port, deps);

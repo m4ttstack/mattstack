@@ -112,6 +112,64 @@ test('a worktree that needs setup answers 202, then goes live when setup passes'
   expect(manager.installed.has('com.mattstack.deck.chat')).toBe(false);
 });
 
+function setupDeps(wt: string) {
+  let finish!: (code: number) => void;
+  const d = deps({
+    sources: {
+      exists: () => false,
+      listTrees: async () => [...trees(), { path: wt, branch: 'main', kind: 'unmanaged', state: null, repoName: 'r', readyAt: null }],
+    },
+    setup: { run: () => new Promise<number>(res => (finish = res)) },
+  });
+  return { d, finish: (code: number) => finish(code) };
+}
+
+test('stopping during setup cancels the pending go-live', async () => {
+  const wt = realpathSync(gitRepo({ 'apps/chat/mattstack.deck.json': manifest([SERVER, UI]) }));
+  const { d, finish } = setupDeps(wt);
+  expect((await goLive('chat', wt, manager, d)).status).toBe(202);
+  await stopLive('chat', manager, d);
+  finish(0);
+  await new Promise(res => setTimeout(res, 20));
+  expect(getLive('chat')).toBeUndefined();
+  expect(manager.installed.has('com.mattstack.deck.chat')).toBe(true);
+});
+
+test('a go-live that fails after setup rolls back and leaves the reason as a failed setup', async () => {
+  const wt = realpathSync(gitRepo({ 'apps/chat/mattstack.deck.json': manifest([SERVER, UI]) }));
+  let reinstalled = 0;
+  const { d, finish } = setupDeps(wt);
+  d.reinstall = async () => void reinstalled++;
+  expect((await goLive('chat', wt, manager, d)).status).toBe(202);
+  manager.failNext = 'com.mattstack.deck.chat';
+  finish(0);
+  await new Promise(res => setTimeout(res, 20));
+  expect(getLive('chat')).toBeUndefined();
+  expect(reinstalled).toBe(1);
+  const run = setupFor('chat')!;
+  expect(run.state).toBe('failed');
+  expect(run.source).toBe(wt);
+  expect(run.log.join('\n')).toContain('fake launchd: uninstall failed for com.mattstack.deck.chat');
+});
+
+test('a failed uninstall of the normal service rolls back and keeps the override', async () => {
+  let reinstalled = 0;
+  setOverride('chat', { devPort: 5173, basePort: 11002 });
+  manager.failNext = 'com.mattstack.deck.chat';
+  const r = await goLive('chat', shared, manager, deps({ reinstall: async () => void reinstalled++ }));
+  expect(r.status).toBe(500);
+  expect(getLive('chat')).toBeUndefined();
+  expect(reinstalled).toBe(1);
+  expect(getOverride('chat')).toEqual({ devPort: 5173, basePort: 11002 });
+});
+
+test('a start command that resolves to nothing is named plainly', () => {
+  const rec = { name: 'chat', managedBy: 'rt', port: 11002, kind: 'service', createdAt: '' } as never;
+  expect(() => liveSpecs(rec, [{ kind: 'server', start: 'no-such-tool-xyz a' }], '/x', null)).toThrow(
+    "couldn't find no-such-tool-xyz"
+  );
+});
+
 test('liveSpecs gives workers no PORT and numbers them', () => {
   const rec = { name: 'chat', managedBy: 'rt', port: 11002, kind: 'service', createdAt: '' } as never;
   const specs = liveSpecs(rec, [{ kind: 'server', start: 'echo a' }, { kind: 'worker', start: 'echo b' }], '/x', null);
