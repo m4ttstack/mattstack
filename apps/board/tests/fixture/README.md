@@ -1,6 +1,6 @@
 # Capture fixture
 
-`BOARD_FIXTURE=$(pwd)/tests/fixture bun run src/server.ts` boots an inert
+`PORT=7941 BOARD_FIXTURE=$(pwd)/tests/fixture bun run src/server.ts` boots an inert
 board: config from this dir, canned data endpoints, no tokens, no timers,
 no rt relay. Port 7941 (never the live board's 7930).
 

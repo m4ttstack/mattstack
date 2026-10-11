@@ -44,7 +44,7 @@ the MR actually sits in review.
 
 There is no screenshot in this README. The ones taken so far were captured
 against a real team's merge requests, branch names, and reviewer identities. To
-see the layout without wiring up a real GitLab project, boot the inert fixture board: `BOARD_FIXTURE=$(pwd)/tests/fixture bun run src/server.ts` (port 7941, invented data; see `tests/fixture/README.md`).
+see the layout without wiring up a real GitLab project, boot the inert fixture board: `PORT=7941 BOARD_FIXTURE=$(pwd)/tests/fixture bun run src/server.ts` (port 7941, invented data; see `tests/fixture/README.md`).
 
 ## Features
 
