@@ -1,9 +1,8 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Paper } from '@mattstack/app-kit/core';
 import type { RunFieldRow } from '@mattstack/rt-client';
 
 import type { StoryEntry } from '../derive/story';
-import { Eyebrow } from '../Eyebrow';
 import { StageNavItem, StagePane } from './StageRow';
 import classes from './Story.module.css';
 
@@ -21,6 +20,34 @@ export interface StoryProps {
   linkedGateId?: string | null;
   ticket?: string | null;
 }
+
+const BOTTOM_GAP = 24;
+const MIN_HEIGHT = 420;
+
+const scrolledAbove = (el: HTMLElement) => {
+  let total = 0;
+  for (let p = el.parentElement; p; p = p.parentElement) total += p.scrollTop;
+  return total;
+};
+
+/** Fits the split to the window below everything above it, measured as if
+    the page were scrolled to the top, so scrolling never resizes it. */
+const useFitToWindow = (split: boolean) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number>();
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      const top = el.getBoundingClientRect().top + scrolledAbove(el);
+      setHeight(Math.max(MIN_HEIGHT, window.innerHeight - top - BOTTOM_GAP));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [split]);
+  return { ref, height };
+};
 
 const keyOfGate = (entries: StoryEntry[], gateId: string | null) =>
   gateId
@@ -47,6 +74,7 @@ export function Story({
   ticket = null,
 }: StoryProps) {
   const [picked, setPicked] = useState<string | null>(null);
+  const fit = useFitToWindow(entries.length > 1);
   const [seenLink, setSeenLink] = useState<string | null>(null);
   const linked = keyOfGate(entries, linkedGateId);
   if (linked && linkedGateId !== seenLink) {
@@ -72,17 +100,21 @@ export function Story({
 
   return (
     <>
-      <Eyebrow data-parity="Story label">{label}</Eyebrow>
       <Paper
         variant="ground"
         withBorder
         radius={12}
         className={classes.list}
         data-testid="story"
+        aria-label={label}
         data-parity="Story list"
       >
         {entries.length > 1 ? (
-          <div className={classes.split}>
+          <div
+            ref={fit.ref}
+            className={classes.split}
+            style={{ height: fit.height }}
+          >
             <nav aria-label="Stages" className={classes.stages}>
               {entries.map(entry => (
                 <StageNavItem

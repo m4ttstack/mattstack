@@ -1135,9 +1135,7 @@ describe('RunDetail: finished run', () => {
       'data-variant',
       'outline'
     );
-    expect(
-      record.querySelector('[data-parity="Story label"]')
-    ).toHaveTextContent(/^Story$/);
+    expect(record.querySelector('[data-parity="Story label"]')).toBeNull();
     expect(within(record).queryByTestId('now-card')).toBeNull();
     const story = within(record).getByTestId('story');
     const section = story.querySelector('[data-stage="implement"]')!;
