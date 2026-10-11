@@ -5,7 +5,7 @@ import { getKnownRepos } from "../../repo-index.ts";
 import { onlyDefault } from "../../settings/presence.ts";
 import { parseIdentity } from "../../settings/identity.ts";
 import { getDef } from "../../settings/registry.ts";
-import { getSetting } from "../../settings/resolve.ts";
+import { getSetting, listSettings } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { boardRoots, sourceBoardRoots } from "../../team/board-token.ts";
 import type { StepOutcome } from "../apply.ts";
@@ -28,6 +28,7 @@ interface Tally {
   gitqFileKept: boolean;
   teamFields: boolean;
   leftInPlace: number;
+  keptForRefused: number;
   failed: string[];
 }
 
@@ -91,10 +92,16 @@ function gitqBoardCopies(c: Record<string, unknown>): Copy[] | null {
   return [{ key: "gitq.board", scope: "machine", value }];
 }
 
-type Written = "copied" | "held" | "unreadable" | "failed";
+type Written = "copied" | "held" | "refused" | "unreadable" | "failed";
+
+/** A store that holds only a value the resolver refused: never written over, but the file keeps the only valid copy. */
+function onlyRefused(key: string): boolean {
+  const row = listSettings().find((s) => s.key === key);
+  return row !== undefined && onlyDefault(row) && (row.invalid?.length ?? 0) > 0;
+}
 
 function writeCopy(copy: Copy, t: Tally): Written {
-  if (storeHolds(copy.key)) return "held";
+  if (storeHolds(copy.key)) return onlyRefused(copy.key) ? "refused" : "held";
   if (!validateWrite(getDef(copy.key)!, copy.value, { scope: copy.scope }).ok) return "unreadable";
   try {
     if (copy.scope === "user") setSetting(copy.key, copy.value, "user");
@@ -131,6 +138,10 @@ function importFile(p: FileProbes, file: string, read: Reader, t: Tally): Record
   if (written.includes("failed")) return parsed;
   if (written.includes("unreadable")) {
     t.leftInPlace++;
+    return parsed;
+  }
+  if (written.includes("refused")) {
+    t.keptForRefused++;
     return parsed;
   }
   try {
@@ -218,6 +229,7 @@ function outcome(t: Tally): StepOutcome {
     t.leftInPlace > 0
       ? `${t.leftInPlace} old ${plural(t.leftInPlace, "file has", "files have")} a value rt could not read, so rt left ${plural(t.leftInPlace, "it", "them")} where ${plural(t.leftInPlace, "it is", "they are")}`
       : null,
+    t.keptForRefused > 0 ? "Your settings hold a value rt cannot read for something your old board or gitq file also sets, so rt left that file where it is" : null,
   ].filter((s): s is string => s !== null);
   if (t.copied === 0 && !t.repaired) return { state: "skipped", detail: ["There were no old board or gitq settings to copy", ...notes].join(". ") };
   const copied = t.copied > 0 ? [`Copied ${t.copied} old board or gitq ${plural(t.copied, "setting", "settings")} into your settings`] : [];
@@ -237,7 +249,7 @@ export function makeImportAppSettingsMigration(seams: ImportAppSettingsSeams = r
     title: "Copy your old board and gitq settings into your settings",
     async run(ctx) {
       const p = ctx.p;
-      const t: Tally = { copied: 0, boardCopied: false, repaired: false, unrepaired: false, gitqFileKept: false, teamFields: false, leftInPlace: 0, failed: [] };
+      const t: Tally = { copied: 0, boardCopied: false, repaired: false, unrepaired: false, gitqFileKept: false, teamFields: false, leftInPlace: 0, keptForRefused: 0, failed: [] };
       const board = [...new Set(boardRoots(p, sourceBoardRoots()))].map((root) => join(root, "config.json")).find((file) => p.exists(file));
       if (board) {
         const parsed = importFile(p, board, boardCopies, t);

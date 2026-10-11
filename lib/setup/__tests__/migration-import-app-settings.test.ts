@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { updateRepoIndex } from "../../repo-index.ts";
@@ -98,6 +98,33 @@ describe("2026-10-11-import-app-settings", () => {
     const { p, outcome } = run({ [boardFile()]: { defaultMember: "dev1" } });
     expect(await outcome).toEqual(NOTHING);
     expect(getSetting("board.defaultMember").value).toBe("dev2");
+    expect(p.calls.renames).toContainEqual([boardFile(), `${boardFile()}.imported`]);
+  });
+
+  function plantRefused(key: string, valid: unknown, refused: unknown) {
+    setSetting(key, valid, "machine");
+    const file = machineSettingsPath();
+    writeFileSync(file, readFileSync(file, "utf8").replace(JSON.stringify(valid), JSON.stringify(refused)));
+    const resolved = getSetting(key);
+    expect(resolved.provenance.every((row) => row.scope === "default")).toBe(true);
+  }
+
+  test("a store holding only a refused value is never written over, and the file stays so its valid value is not lost", async () => {
+    plantRefused("board.triageMaxConcurrent", 3, "lots");
+    const { p, outcome } = run({ [boardFile()]: { defaultMember: "dev1", triage: { maxConcurrent: 4 } } });
+    expect(await outcome).toEqual({
+      state: "done",
+      detail: "Copied 1 old board or gitq setting into your settings. Your settings hold a value rt cannot read for something your old board or gitq file also sets, so rt left that file where it is",
+    });
+    expect(readFileSync(machineSettingsPath(), "utf8")).toContain('"lots"');
+    expect(getSetting("board.defaultMember").value).toBe("dev1");
+    expect(p.calls.renames).toEqual([]);
+  });
+
+  test("a store refusing a value the file does not set still lets the file move aside", async () => {
+    plantRefused("board.triageMaxConcurrent", 3, "lots");
+    const { p, outcome } = run({ [boardFile()]: { defaultMember: "dev1" } });
+    expect((await outcome).state).toBe("done");
     expect(p.calls.renames).toContainEqual([boardFile(), `${boardFile()}.imported`]);
   });
 
