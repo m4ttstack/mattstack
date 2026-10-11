@@ -132,6 +132,7 @@ function makeWorld(): World {
   const spawns: string[][] = [];
   const exec: ExecScript = (argv) => {
     spawns.push(argv);
+    if (argv.join(" ") === "codex app-server daemon version") return ok(JSON.stringify({ status: "running" }));
     return ok();
   };
   const w = {
@@ -160,7 +161,7 @@ const ctxFor = (overrides: Partial<ApplyContext> = {}) => makeCtx(world.p, { int
 /** Install, then the one review a person approves at a terminal. */
 async function installAndReview(): Promise<void> {
   const outcomes = await adapter().reconcile("restore", ctxFor());
-  expect(outcomes[1]!.state).toBe("needs-you");
+  expect(outcomes[2]!.state).toBe("needs-you");
   const planned = await planCodexPolicyInstall({ profile: world.codexHome }, world.deps);
   if (!planned.ok || planned.data.stage !== "hooks") throw new Error(`expected a review, got ${JSON.stringify(planned)}`);
   expect(await applyCodexPolicyInstall(planned.data, planned.data.reviews.map((r) => r.id), world.deps)).toEqual({ ok: true, data: undefined });
@@ -256,7 +257,7 @@ describe("Codex ownership across update, restore and uninstall", () => {
     const before = memberValues();
 
     const first = await adapter().reconcile("update", ctxFor());
-    expect(first).toEqual([{ state: "skipped", detail: "Already set up" }, { state: "skipped", detail: "Already set up" }]);
+    expect(first).toEqual([{ state: "skipped", detail: "Already set up" }, { state: "skipped", detail: "Already running" }, { state: "skipped", detail: "Already set up" }]);
     const settled = snapshotFiles();
     const again = await adapter().reconcile("update", ctxFor());
     expect(again).toEqual(first);
@@ -271,7 +272,7 @@ describe("Codex ownership across update, restore and uninstall", () => {
     writeFileSync(world.rtSource, "Ïúíþ compiled rt build 2", { mode: 0o755 });
 
     const outcomes = await adapter().reconcile("update", ctxFor());
-    expect(outcomes[1]).toMatchObject({ state: "needs-you", detail: expect.stringContaining("rt setup codex-policy") });
+    expect(outcomes[2]).toMatchObject({ state: "needs-you", detail: expect.stringContaining("rt setup codex-policy") });
     const hooksText = readFileSync(world.hooksPath, "utf8");
     expect(hooksText).not.toContain(oldProgram!);
     expect(existsSync(oldProgram!)).toBe(true);
@@ -293,10 +294,10 @@ describe("Codex ownership across update, restore and uninstall", () => {
   });
 
   test("a review that is still pending stays visible on every update, which writes nothing", async () => {
-    expect((await adapter().reconcile("restore", ctxFor()))[1]!.state).toBe("needs-you");
+    expect((await adapter().reconcile("restore", ctxFor()))[2]!.state).toBe("needs-you");
     const before = snapshotFiles();
     const outcomes = await adapter().reconcile("update", ctxFor());
-    expect(outcomes[1]).toEqual({ state: "needs-you", detail: "Codex's policy hooks still wait on your review. Review them in the app's setup checklist, or in a terminal: rt setup codex-policy" });
+    expect(outcomes[2]).toEqual({ state: "needs-you", detail: "Codex's policy hooks still wait on your review. Review them in the app's setup checklist, or in a terminal: rt setup codex-policy" });
     expect(snapshotFiles()).toEqual(before);
   });
 
@@ -314,11 +315,11 @@ describe("Codex ownership across update, restore and uninstall", () => {
         },
       },
     });
-    expect((await interrupted.reconcile("update", ctxFor()))[1]).toMatchObject({ state: "failed", detail: "rt was stopped" });
+    expect((await interrupted.reconcile("update", ctxFor()))[2]).toMatchObject({ state: "failed", detail: "rt was stopped" });
 
     const retried = await adapter().reconcile("update", ctxFor());
-    expect(retried[1]!.state).toBe("needs-you");
-    expect(retried[1]).toMatchObject({ detail: expect.stringContaining("rt setup codex-policy") });
+    expect(retried[2]!.state).toBe("needs-you");
+    expect(retried[2]).toMatchObject({ detail: expect.stringContaining("rt setup codex-policy") });
     const hooks = JSON.parse(readFileSync(world.hooksPath, "utf8")) as { hooks: Record<string, unknown[]> };
     expect(Object.values(hooks.hooks).map((groups) => groups.length)).toEqual([1, 1]);
     expect(stateOf().codexPolicy!.hooks[world.hooksPath]).toHaveLength(2);
@@ -335,6 +336,7 @@ describe("Codex ownership across update, restore and uninstall", () => {
     const outcomes = await adapter().reconcile("update", ctxFor());
     expect(outcomes).toEqual([
       { state: "skipped", detail: `You took Mattstack out of ${world.config}, so rt left it out` },
+      { state: "skipped", detail: "Already running" },
       { state: "skipped", detail: `You took rt's policy hooks out of ${world.hooksPath}, so rt left them out` },
     ]);
     expect(snapshotFiles()).toEqual(before);
@@ -345,7 +347,7 @@ describe("Codex ownership across update, restore and uninstall", () => {
     seedMember();
     const before = snapshotFiles();
     const outcomes = await adapter().reconcile("update", ctxFor());
-    expect(outcomes.map((o) => o.state)).toEqual(["skipped", "skipped"]);
+    expect(outcomes.map((o) => o.state)).toEqual(["skipped", "skipped", "skipped"]);
     expect(snapshotFiles()).toEqual(before);
     expect(stateOf().codexMcp).toBeUndefined();
     expect(stateOf().codexPolicy).toBeUndefined();
@@ -360,12 +362,12 @@ describe("Codex ownership across update, restore and uninstall", () => {
     const before = snapshotFiles();
 
     const outcomes = await adapter().reconcile("update", ctxFor());
-    expect(outcomes[1]!.state).not.toBe("done");
+    expect(outcomes[2]!.state).not.toBe("done");
     expect(snapshotFiles()).toEqual(before);
     expect(readConfig().hooks.state).toEqual(trusted);
 
     writeFileSync(world.rtSource, "Ïúíþ compiled rt build 2", { mode: 0o755 });
-    expect((await adapter().reconcile("update", ctxFor()))[1]).toEqual({
+    expect((await adapter().reconcile("update", ctxFor()))[2]).toEqual({
       state: "skipped", detail: `You changed rt's policy hooks in ${world.hooksPath}, so rt left them as they are`,
     });
     expect(snapshotFiles()).toEqual(before);
@@ -375,7 +377,7 @@ describe("Codex ownership across update, restore and uninstall", () => {
     seedMember();
     expect((await codexMcpStep.run(ctxFor())).state).toBe("done");
     const resumed = await adapter().reconcile("restore", ctxFor());
-    expect(resumed.map((o) => o.state)).toEqual(["skipped", "needs-you"]);
+    expect(resumed.map((o) => o.state)).toEqual(["skipped", "skipped", "needs-you"]);
     await installAndReview();
 
     const owned = stateOf().codexPolicy!;
@@ -435,6 +437,7 @@ describe("Codex ownership across update, restore and uninstall", () => {
     world.bindings = [binding("t1")];
     world.running = [world.codexHome];
     const program = artifactPaths();
+    world.spawns.length = 0;
 
     const outcomes = await adapter().reconcile("uninstall", ctxFor());
     expect(keptNotes(outcomes)).toEqual([

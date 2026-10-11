@@ -99,6 +99,55 @@ export function codexMcpRow(p: Probes): Row {
   return row({ ...base, status: "missing", detail: "Not added to Codex yet", action: add });
 }
 
+/** Codex's own words for a CLI that is not OpenAI's packaged install, which cannot run the app server. */
+const UNPACKAGED_RE = /no complete local package/i;
+export const CODEX_UNPACKAGED_DETAIL = "This Codex cannot run its app server. Uninstall it, then reinstall it with setup's Install, which uses OpenAI's installer";
+
+export type CodexAppServerState = "no-codex" | "running" | "stopped" | "unpackaged" | "timeout";
+
+export function isUnpackagedCodex(res: ExecResult): boolean {
+  return UNPACKAGED_RE.test(`${res.stdout}\n${res.stderr}`);
+}
+
+/** Reads `codex app-server daemon version`; it never starts anything. */
+export async function probeCodexAppServer(p: Probes): Promise<CodexAppServerState> {
+  const res = await exec(p, ["codex", "app-server", "daemon", "version"]);
+  if (res.code === 127) return "no-codex";
+  if (isUnpackagedCodex(res)) return "unpackaged";
+  if (res.code === 124) return "timeout";
+  if (res.code !== 0) return "stopped";
+  try {
+    const status = JSON.parse(res.stdout) as { status?: unknown } | null;
+    return status?.status === "running" ? "running" : "stopped";
+  } catch {
+    return "stopped";
+  }
+}
+
+/** The app server rt reaches Codex through: Install starts it, and the app's launch-time update brings it back after a restart. */
+export async function codexAppServerRow(p: Probes): Promise<Row> {
+  const base = {
+    id: "tool.codex-app-server",
+    kind: "tool" as const,
+    title: "Codex app server",
+    why: "rt reads Codex's hooks and runs Codex sessions through it.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  const state = await probeCodexAppServer(p);
+  if (state === "running") return row({ ...base, status: "ready", detail: "Running" });
+  if (state === "no-codex") return row({ ...base, status: "skipped", detail: "Codex is not installed yet" });
+  if (state === "unpackaged") return row({ ...base, status: "needs-you", detail: CODEX_UNPACKAGED_DETAIL });
+  if (state === "timeout") return row({ ...base, status: "error", detail: "Codex did not say in time whether its app server is running" });
+  return row({
+    ...base,
+    status: "missing",
+    detail: "Not running",
+    optionalNote: "Started by Install (codex.app-server).",
+    action: applyStepAction("Start", "codex.app-server"),
+  });
+}
+
 export type CodexPolicyPlanner = () => Promise<Outcome<PolicyInstallPlan>>;
 
 /** The review as a person sees it, at a terminal or in the menu-bar app's sheet. */

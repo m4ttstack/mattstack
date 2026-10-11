@@ -27,7 +27,7 @@ describe("update-safe steps", () => {
 
   test("of the integration steps, exactly Codex's own are update-safe: their ownership records say what rt wrote", () => {
     const steps = createIntegrationSteps(["claude", "codex"]).filter((s) => !STEPS.includes(s));
-    expect(steps.filter((s) => s.updateSafe).map((s) => s.id)).toEqual(["codex.mcp", "codex.policy"]);
+    expect(steps.filter((s) => s.updateSafe).map((s) => s.id)).toEqual(["codex.mcp", "codex.app-server", "codex.policy"]);
     for (const s of steps.filter((s) => s.updateSafe)) expect(s.kind).toBe("rt");
   });
 

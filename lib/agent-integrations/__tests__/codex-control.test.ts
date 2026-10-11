@@ -610,4 +610,31 @@ describe("codex endpoint discovery", () => {
     const failed = async () => ({ stdout: "", stderr: "", exitCode: 1 });
     expect(await discoverCodexEndpoint({ run: failed })).toMatchObject({ ok: false, error: { code: "not-ready" } });
   });
+
+  describe("under launchd's minimal PATH", () => {
+    const launchd = { HOME: "/home/x", PATH: "/usr/bin:/bin:/usr/sbin:/sbin" };
+    const argv0 = async (env: Record<string, string>, present: string[]) => {
+      const calls: string[][] = [];
+      const run = async (argv: string[]) => {
+        calls.push(argv);
+        return { stdout: JSON.stringify({ status: "running", socketPath: "/run/codex.sock" }), stderr: "", exitCode: 0 };
+      };
+      await discoverCodexEndpoint({ run, env, exists: (path) => present.includes(path) });
+      return calls[0]![0];
+    };
+
+    test("finds the codex OpenAI's installer put in ~/.local/bin", async () => {
+      expect(await argv0(launchd, ["/home/x/.local/bin/codex"])).toBe("/home/x/.local/bin/codex");
+    });
+
+    test("~/.local/bin wins over a Homebrew copy, as in setup's probes", async () => {
+      expect(await argv0(launchd, ["/home/x/.local/bin/codex", "/opt/homebrew/bin/codex"])).toBe("/home/x/.local/bin/codex");
+      expect(await argv0(launchd, ["/opt/homebrew/bin/codex"])).toBe("/opt/homebrew/bin/codex");
+    });
+
+    test("a codex on PATH keeps the bare name, and none anywhere leaves it to fail as before", async () => {
+      expect(await argv0({ HOME: "/home/x", PATH: "/opt/tools:/usr/bin" }, ["/opt/tools/codex", "/home/x/.local/bin/codex"])).toBe("codex");
+      expect(await argv0(launchd, [])).toBe("codex");
+    });
+  });
 });

@@ -8,7 +8,7 @@ import type { PolicyProof } from "../../agent-integrations/contracts.ts";
 import { parseCodexPolicyHookCommand } from "../../agent-integrations/codex/hook-manifest.ts";
 import { createCodexPolicy, type CodexPolicyChecker } from "../../agent-integrations/codex/policy.ts";
 import {
-  applyCodexPolicyInstall, codexPolicyRecovery, ownerAuthReason, planCodexPolicyInstall, type ListedPolicyHook, type PolicyInstallDeps, type PolicyInstallPlan, type PolicyReview,
+  applyCodexPolicyInstall, codexPolicyRecovery, liveListHooks, ownerAuthReason, planCodexPolicyInstall, type ListedPolicyHook, type PolicyInstallDeps, type PolicyInstallPlan, type PolicyReview,
 } from "../../agent-integrations/codex/policy-install.ts";
 import { OWNER_AUTH_REASON_MAX, type OwnerAuthResult } from "../../agent-integrations/codex/owner-auth.ts";
 import { codexPolicyStep, createCodexPolicyStep } from "../../agent-integrations/codex/install.ts";
@@ -800,5 +800,21 @@ describe("rt setup codex-policy", () => {
     expect(needsTTY([])).toBe(true);
     expect(needsTTY(["--approve", "cp-x", "--json"])).toBe(false);
     expect(listAgentSafe(TREE).some((e) => e.path.join(" ") === "setup codex-policy")).toBe(false);
+  });
+});
+
+describe("reading Codex's hooks with no app server running", () => {
+  test("points at setup's app server step, never at an app a CLI-only Mac does not have", async () => {
+    const listed = await liveListHooks("/repo", "/Users/member/.codex", undefined, {
+      discover: async () => ({ ok: false, error: { code: "not-ready", message: "The Codex app server is not running." } }),
+    });
+    expect(listed).toEqual({
+      ok: false,
+      error: {
+        code: "not-ready",
+        message: "Codex's app server is not running, so rt cannot read the hashes Codex gives its hooks (The Codex app server is not running.). Start it from setup's checklist, or in a terminal: rt setup apply --only codex.app-server",
+      },
+    });
+    expect(JSON.stringify(listed)).not.toContain("Open Codex");
   });
 });

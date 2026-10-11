@@ -170,13 +170,22 @@ export function listHooksWithin(timeoutMs: number): PolicyInstallDeps["listHooks
   return (cwd, profile) => liveListHooks(cwd, profile, timeoutMs);
 }
 
-/** Asks the app server already running for this profile; it never starts one. */
-async function liveListHooks(cwd: string, profile: string, timeoutMs?: number): Promise<Outcome<ListedPolicyHook[]>> {
+/** Asks the app server already running for this profile; it never starts one. Setup's `codex.app-server` step is what starts it. */
+export async function liveListHooks(
+  cwd: string,
+  profile: string,
+  timeoutMs?: number,
+  deps: { discover?: () => Promise<Outcome<{ socketPath: string }>> } = {},
+): Promise<Outcome<ListedPolicyHook[]>> {
   const { connectCodexControl, discoverCodexEndpoint } = await import("./control.ts");
   const { runCapture } = await import("../../subprocess.ts");
-  const endpoint = await discoverCodexEndpoint(timeoutMs === undefined ? {} : { run: (argv, opts) => runCapture(argv, { ...opts, timeoutMs }) });
+  const discover = deps.discover ?? (() => discoverCodexEndpoint(timeoutMs === undefined ? {} : { run: (argv, opts) => runCapture(argv, { ...opts, timeoutMs }) }));
+  const endpoint = await discover();
   if (!endpoint.ok) {
-    return fail("not-ready", `Codex is not running, so rt cannot read the hashes Codex gives its hooks (${endpoint.error.message}). Open Codex, then run this again.`);
+    return fail(
+      "not-ready",
+      `Codex's app server is not running, so rt cannot read the hashes Codex gives its hooks (${endpoint.error.message}). Start it from setup's checklist, or in a terminal: rt setup apply --only codex.app-server`,
+    );
   }
   let control: Awaited<ReturnType<typeof connectCodexControl>>;
   try {

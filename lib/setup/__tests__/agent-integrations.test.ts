@@ -292,7 +292,8 @@ describe("setup for the enabled harnesses", () => {
 
   test("with Codex selected, codex.mcp is a step the run lists and accepts, after Claude's", async () => {
     const ids = knownStepIds(setupSteps(STEPS, CODEX_ONLY));
-    expect(ids.indexOf("codex.mcp")).toBe(ids.indexOf("codex.policy") - 1);
+    expect(ids.indexOf("codex.mcp")).toBe(ids.indexOf("codex.app-server") - 1);
+    expect(ids.indexOf("codex.app-server")).toBe(ids.indexOf("codex.policy") - 1);
     expect(ids.indexOf("codex.policy")).toBe(ids.indexOf("fastbrowser.setup") - 1);
     const steps = setupSteps(STEPS, BOTH).map((s) => s.id);
     expect(steps.indexOf("codex.mcp")).toBe(steps.indexOf("claude.permissions") + 1);
@@ -492,12 +493,12 @@ describe("setup for the enabled harnesses", () => {
   describe("install adapters", () => {
     test("each harness supplies its own steps, in contract order, each once", () => {
       expect(HARNESS_INSTALLS.map((h) => h.id)).toEqual(["claude", "codex"]);
-      expect(createIntegrationSteps(["codex", "claude", "codex", "nope"]).map((s) => s.id)).toEqual(["plugins.install", "linear.mcp", "claude.permissions", "codex.mcp", "codex.policy"]);
+      expect(createIntegrationSteps(["codex", "claude", "codex", "nope"]).map((s) => s.id)).toEqual(["plugins.install", "linear.mcp", "claude.permissions", "codex.mcp", "codex.app-server", "codex.policy"]);
       expect(createIntegrationSteps([])).toEqual([]);
     });
 
     test("Codex's own steps are update-safe: their records say exactly what rt wrote", () => {
-      expect(createIntegrationSteps(["codex"]).filter((s) => s.updateSafe).map((s) => s.id)).toEqual(["codex.mcp", "codex.policy"]);
+      expect(createIntegrationSteps(["codex"]).filter((s) => s.updateSafe).map((s) => s.id)).toEqual(["codex.mcp", "codex.app-server", "codex.policy"]);
     });
 
     test("uninstall takes nothing back where rt recorded writing nothing", async () => {

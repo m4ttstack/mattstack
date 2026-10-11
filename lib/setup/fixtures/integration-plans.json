@@ -821,6 +821,18 @@
           },
           {
             "optionalNote": null,
+            "action": null,
+            "recheck": "on-activate",
+            "id": "tool.codex-app-server",
+            "kind": "tool",
+            "title": "Codex app server",
+            "why": "rt reads Codex's hooks and runs Codex sessions through it.",
+            "required": false,
+            "status": "ready",
+            "detail": "Running"
+          },
+          {
+            "optionalNote": null,
             "action": {
               "type": "review-codex-hooks",
               "label": "Review…",
@@ -1415,6 +1427,18 @@
             "required": false,
             "status": "missing",
             "detail": "rt is not on this Mac's PATH yet"
+          },
+          {
+            "optionalNote": null,
+            "action": null,
+            "recheck": "on-activate",
+            "id": "tool.codex-app-server",
+            "kind": "tool",
+            "title": "Codex app server",
+            "why": "rt reads Codex's hooks and runs Codex sessions through it.",
+            "required": false,
+            "status": "ready",
+            "detail": "Running"
           },
           {
             "optionalNote": null,

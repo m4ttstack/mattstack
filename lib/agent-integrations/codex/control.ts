@@ -9,9 +9,12 @@
  * shared native service.
  */
 
-import { isAbsolute } from "path";
+import { existsSync } from "fs";
+import { homedir } from "os";
+import { isAbsolute, join } from "path";
 import type { FaultCode, Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { ActiveQuestionHandle } from "../contracts.ts";
+import { wellKnownBinDirs } from "../../bundled-tool.ts";
 import { runCapture, type RunResult } from "../../subprocess.ts";
 import {
   CODEX_METHODS, isRecord, isRequestId, nativeThreadOf, parseCodexEvent,
@@ -572,12 +575,26 @@ export type CodexEndpoint = { socketPath: string };
 type Runner = (argv: [string, ...string[]], opts?: { timeoutMs?: number; env?: Record<string, string | undefined> }) =>
   Promise<RunResult>;
 
+/**
+ * `codex` while PATH has it, else the copy in ~/.local/bin (where OpenAI's
+ * installer puts it), then Homebrew's: a process the app starts runs under
+ * launchd's PATH, which has neither. Setup's probes resolve the same way.
+ */
+function codexCommand(env: Record<string, string | undefined>, exists: (path: string) => boolean): string {
+  if ((env.PATH ?? "").split(":").some((dir) => dir.length > 0 && exists(join(dir, "codex")))) return "codex";
+  const home = env.HOME ?? homedir();
+  const local = join(home, ".local", "bin");
+  const found = [local, ...wellKnownBinDirs(home).filter((dir) => dir !== local)].map((dir) => join(dir, "codex")).find(exists);
+  return found ?? "codex";
+}
+
 /** Reads where the running native app server listens. It never starts one. */
 export async function discoverCodexEndpoint(
-  deps: { run?: Runner; env?: Record<string, string | undefined> } = {},
+  deps: { run?: Runner; env?: Record<string, string | undefined>; exists?: (path: string) => boolean } = {},
 ): Promise<Outcome<CodexEndpoint>> {
   const run = deps.run ?? runCapture;
-  const result = await run(["codex", "app-server", "daemon", "version"], { timeoutMs: 10_000, env: deps.env });
+  const codex = codexCommand(deps.env ?? process.env, deps.exists ?? existsSync);
+  const result = await run([codex, "app-server", "daemon", "version"], { timeoutMs: 10_000, env: deps.env });
   if (result.exitCode !== 0) return fail("not-ready", "Codex could not report its app server.");
   let status: unknown;
   try {

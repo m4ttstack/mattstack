@@ -13,7 +13,9 @@ import { harnessSelected, selectionFor } from "../../setup/integration-selection
 import { createRealProbes, type Probes } from "../../setup/probes.ts";
 import { readSetupState, updateSetupState } from "../../setup/state.ts";
 import { toFailedOutcome } from "../../setup/steps/step-utils.ts";
-import { codexHomeOf, codexMcpRow, codexToolRow, desiredCodexMcpEntry } from "../../setup/validators/codex.ts";
+import {
+  CODEX_UNPACKAGED_DETAIL, codexHomeOf, codexMcpRow, codexToolRow, desiredCodexMcpEntry, isUnpackagedCodex, probeCodexAppServer,
+} from "../../setup/validators/codex.ts";
 import { runAdapterSteps, type HarnessInstall, type InstallAdapter } from "../install.ts";
 import { codexUserHooksPath } from "./hook-manifest.ts";
 import {
@@ -100,6 +102,53 @@ export const codexMcpStep: StepDef = {
   updateSafe: true,
   applies: (ctx) => harnessSelected(selectionFor(ctx), "codex"),
   run: installCodexMcp,
+};
+
+const BOOTSTRAP_TIMEOUT_MS = 30_000;
+
+function firstLine(s: string): string {
+  return s.trim().split("\n")[0] ?? "";
+}
+
+/**
+ * Bootstraps Codex's app server when it is not running, then reports it
+ * started only once `version` reads it running. The server keeps no
+ * LaunchAgent, so the app's launch-time update is what brings it back after
+ * a restart. It never stops, updates or opens remote control.
+ */
+async function codexAppServerRun(ctx: ApplyContext): Promise<StepOutcome> {
+  const before = await probeCodexAppServer(ctx.p);
+  if (before === "no-codex") return { state: "skipped", detail: "Codex is not installed yet" };
+  if (before === "running") return { state: "skipped", detail: "Already running" };
+  if (before === "unpackaged") return { state: "needs-you", detail: CODEX_UNPACKAGED_DETAIL };
+  if (before === "timeout") return { state: "needs-you", detail: "Codex did not say in time whether its app server is running. Check again in a moment" };
+
+  const boot = await ctx.p.exec(["codex", "app-server", "daemon", "bootstrap"], { timeoutMs: BOOTSTRAP_TIMEOUT_MS });
+  if (isUnpackagedCodex(boot)) return { state: "needs-you", detail: CODEX_UNPACKAGED_DETAIL };
+  // A server that keeps the bootstrap's output open reads as a timeout here, so only the re-probe decides.
+  if ((await probeCodexAppServer(ctx.p)) === "running") {
+    ctx.log("codex.app-server", "started Codex's app server");
+    return { state: "done", detail: "Started Codex's app server" };
+  }
+  if (boot.code === 124) return { state: "needs-you", detail: "Codex's app server did not start in time. Start it again from setup's checklist" };
+  if (boot.code !== 0) return { state: "needs-you", detail: `Codex could not start its app server (exit ${boot.code}): ${firstLine(boot.stderr || boot.stdout)}` };
+  return { state: "needs-you", detail: "Codex said it started its app server, but it is not running" };
+}
+
+/** Update-safe: it only starts a server that is not running, the state a restart leaves, and writes no file. */
+export const codexAppServerStep: StepDef = {
+  id: "codex.app-server",
+  title: "Start Codex's app server",
+  kind: "rt",
+  updateSafe: true,
+  applies: (ctx) => harnessSelected(selectionFor(ctx), "codex"),
+  run: async (ctx) => {
+    try {
+      return await codexAppServerRun(ctx);
+    } catch (err) {
+      return toFailedOutcome(err);
+    }
+  },
 };
 
 /** Takes out the entries rt recorded adding, each only while it is still exactly what rt wrote. */
@@ -284,7 +333,7 @@ async function codexReadsEntry(p: Probes): Promise<string | null> {
 export function createCodexInstall(deps: { p?: Probes; policy?: CodexPolicyStepDeps } = {}): InstallAdapter {
   const probes = (): Probes => deps.p ?? createRealProbes();
   const policyStep = deps.policy ? createCodexPolicyStep(deps.policy) : codexPolicyStep;
-  const steps = (): StepDef[] => [codexMcpStep, policyStep];
+  const steps = (): StepDef[] => [codexMcpStep, codexAppServerStep, policyStep];
   return {
     steps,
     async reconcile(mode, ctx) {

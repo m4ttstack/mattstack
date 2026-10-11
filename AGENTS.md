@@ -932,12 +932,16 @@ never overwrites a value the user chose; under `ctx.update` it also leaves
 alone what the member undid since rt put it there (a disabled or removed
 plugin, an editor setup-state has no record of).
 `lib/setup/__tests__/update-safe.test.ts` pins the set. A harness's own
-steps (`INTEGRATION_STEP_IDS` in `lib/setup/contract.ts`, today `codex.mcp`
-and `codex.policy`) sit outside `STEP_IDS`: a run that does not install for
-that harness neither lists nor accepts them. Both are update-safe through
-ownership: they rewrite only entries rt recorded adding and the member kept,
-never add back what the member removed, and a rewritten Codex hook waits on
-review again rather than being trusted. Add a one-time fix as a `MigrationDef` in
+steps (`INTEGRATION_STEP_IDS` in `lib/setup/contract.ts`, today `codex.mcp`,
+`codex.app-server` and `codex.policy`) sit outside `STEP_IDS`: a run that
+does not install for that harness neither lists nor accepts them. All three
+are update-safe. `codex.mcp` and `codex.policy` are safe through ownership:
+they rewrite only entries rt recorded adding and the member kept, never add
+back what the member removed, and a rewritten Codex hook waits on review
+again rather than being trusted. `codex.app-server` writes nothing and only
+bootstraps an app server that is not running; Codex's `pid` backend keeps no
+LaunchAgent, so this launch-time update is what brings it back after a
+restart. It never stops, updates or opens remote control on the server. Add a one-time fix as a `MigrationDef` in
 `lib/setup/migrations/index.ts` with a dated id that is never renamed; it
 runs once per machine and is recorded when `done` or `skipped`. The tray
 only spawns the verb and routes the `setup_update` notification click to the

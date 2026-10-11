@@ -18,7 +18,7 @@ export type Profile = (typeof PROFILES)[number];
 
 /** The rows whose copy the tray's checks and UI tests read. */
 export const HARNESS_ROW_IDS: ReadonlySet<string> = new Set([
-  "tool.claude", "tool.plugins", "tool.linear-mcp", "tool.codex", "tool.codex-mcp", "tool.codex-policy", "tool.integrations",
+  "tool.claude", "tool.plugins", "tool.linear-mcp", "tool.codex", "tool.codex-mcp", "tool.codex-app-server", "tool.codex-policy", "tool.integrations",
 ]);
 
 const CODEX_HOME = "/Users/member/.codex";
@@ -72,6 +72,7 @@ function execFor(profile: Profile): ExecScript {
     if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: true }));
     if (argv[0] === "claude" && argv[1] === "plugin") return ok("[]");
     if (argv[0] === "codex" && argv[1] === "--version") return ok("codex-cli 0.160.0");
+    if (argv.join(" ") === "codex app-server daemon version") return ok(JSON.stringify({ status: "running" }));
     return ok();
   };
 }

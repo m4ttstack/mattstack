@@ -152,6 +152,22 @@ describe("the setup plan's shape and copy", () => {
     expect(views(only)).toMatchSnapshot();
   });
 
+  for (const [label, answer] of [
+    ["is not running", ok(JSON.stringify({ status: "stopped" }))],
+    ["cannot run in this Codex", { code: 1, stdout: "", stderr: "this CLI has no complete local package; install a packaged Codex CLI or use the standalone installer" }],
+  ] as const) {
+    test(`integrations on, Codex only: the app server ${label}`, async () => {
+      const exec: ExecScript = (argv) => {
+        if (argv.join(" ") === "codex app-server daemon version") return answer;
+        return argv[0] === "codex" && argv[1] === "--version" ? ok("codex-cli 0.160.0") : readyExec(argv);
+      };
+      const codexPolicy = async () => ({ ok: false as const, error: { code: "not-ready" as const, message: "x" } });
+      const p = await composePlan({ p: fakeProbes({ exec }), secrets, ci: false, mode: "plan", orgs: [], waived: [], integrations: { switchOn: true, enabled: ["codex"] }, codexPolicy });
+      const only: Plan = { ...p, groups: p.groups.map((g) => ({ ...g, rows: g.rows.filter((r) => r.id === "tool.codex-app-server") })).filter((g) => g.rows.length > 0) };
+      expect(views(only)).toMatchSnapshot();
+    });
+  }
+
   for (const mode of ["plan", "status"] as const) {
     test(`${mode}: the machine view is unchanged`, async () => {
       expect(machineView(await plan(mode))).toMatchSnapshot();
