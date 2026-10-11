@@ -594,21 +594,23 @@ describe("codex protocol", () => {
 });
 
 describe("codex endpoint discovery", () => {
+  const hermetic = { env: { HOME: "/home/x", PATH: "/usr/bin:/bin" }, exists: () => false };
+
   test("reads the running endpoint and never starts one", async () => {
     const calls: string[][] = [];
     const run = async (argv: string[]) => {
       calls.push(argv);
       return { stdout: JSON.stringify({ status: "running", socketPath: "/run/codex.sock" }), stderr: "", exitCode: 0 };
     };
-    expect(await discoverCodexEndpoint({ run })).toEqual({ ok: true, data: { socketPath: "/run/codex.sock" } });
+    expect(await discoverCodexEndpoint({ run, ...hermetic })).toEqual({ ok: true, data: { socketPath: "/run/codex.sock" } });
     expect(calls).toEqual([["codex", "app-server", "daemon", "version"]]);
 
     const stopped = async () => ({ stdout: JSON.stringify({ status: "stopped" }), stderr: "", exitCode: 0 });
-    expect(await discoverCodexEndpoint({ run: stopped })).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(await discoverCodexEndpoint({ run: stopped, ...hermetic })).toMatchObject({ ok: false, error: { code: "not-ready" } });
     const broken = async () => ({ stdout: "garbage", stderr: "", exitCode: 0 });
-    expect(await discoverCodexEndpoint({ run: broken })).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(await discoverCodexEndpoint({ run: broken, ...hermetic })).toMatchObject({ ok: false, error: { code: "not-ready" } });
     const failed = async () => ({ stdout: "", stderr: "", exitCode: 1 });
-    expect(await discoverCodexEndpoint({ run: failed })).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(await discoverCodexEndpoint({ run: failed, ...hermetic })).toMatchObject({ ok: false, error: { code: "not-ready" } });
   });
 
   describe("under launchd's minimal PATH", () => {

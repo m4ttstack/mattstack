@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { codexAppServerStep, createCodexInstall } from "../../agent-integrations/codex/install.ts";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { codexAppServerStep, createCodexAppServerStep, createCodexInstall } from "../../agent-integrations/codex/install.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { IntegrationSelection } from "../integration-selection.ts";
 import type { ExecResult } from "../probes.ts";
@@ -88,6 +88,31 @@ describe("the Codex app server row", () => {
 });
 
 describe("codex.app-server", () => {
+  let waits: number[] = [];
+  const step = createCodexAppServerStep({ sleep: async (ms) => void waits.push(ms) });
+  beforeEach(() => {
+    waits = [];
+  });
+
+  test("a server still coming up right after the bootstrap is read again until it runs", async () => {
+    const p = codexMac([STOPPED, STOPPED, STOPPED, RUNNING]);
+    expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "done", detail: "Started Codex's app server" });
+    expect(ran(p)).toEqual([VERSION, BOOTSTRAP, VERSION, VERSION, VERSION]);
+    expect(waits).toHaveLength(2);
+  });
+
+  test("the wait after the bootstrap is bounded to a few reads over about three seconds", async () => {
+    const p = codexMac([STOPPED]);
+    expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "needs-you", detail: "Codex said it started its app server, but it is not running" });
+    expect(ran(p).filter((c) => c === VERSION)).toHaveLength(5);
+    expect(waits.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(3000);
+  });
+
+  test("no wait when the server runs at the first read after the bootstrap", async () => {
+    await step.run(ctxFor(codexMac([STOPPED, RUNNING])).ctx);
+    expect(waits).toEqual([]);
+  });
+
   test("is an rt step, update-safe, and applies only with Codex turned on", () => {
     expect(codexAppServerStep).toMatchObject({ id: "codex.app-server", kind: "rt", updateSafe: true });
     expect(codexAppServerStep.applies(ctxFor(codexMac([RUNNING])).ctx)).toBe(true);
@@ -101,69 +126,69 @@ describe("codex.app-server", () => {
 
   test("already running: nothing is started", async () => {
     const p = codexMac([RUNNING]);
-    expect(await codexAppServerStep.run(ctxFor(p).ctx)).toEqual({ state: "skipped", detail: "Already running" });
+    expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "skipped", detail: "Already running" });
     expect(ran(p)).toEqual([VERSION]);
   });
 
   test("not running: bootstraps it, then reads it running", async () => {
     const p = codexMac([STOPPED, RUNNING]);
     const { ctx, logs } = ctxFor(p);
-    expect(await codexAppServerStep.run(ctx)).toEqual({ state: "done", detail: "Started Codex's app server" });
+    expect(await step.run(ctx)).toEqual({ state: "done", detail: "Started Codex's app server" });
     expect(ran(p)).toEqual([VERSION, BOOTSTRAP, VERSION]);
     expect(logs).toEqual(["started Codex's app server"]);
   });
 
   test("an update run brings a stopped server back, the way a reboot leaves it", async () => {
     const p = codexMac([STOPPED, RUNNING]);
-    expect(await codexAppServerStep.run(ctxFor(p, { update: true }).ctx)).toEqual({ state: "done", detail: "Started Codex's app server" });
+    expect(await step.run(ctxFor(p, { update: true }).ctx)).toEqual({ state: "done", detail: "Started Codex's app server" });
     expect(ran(p)).toEqual([VERSION, BOOTSTRAP, VERSION]);
   });
 
   test("a bootstrap that holds its output open past the deadline still counts once the server reads running", async () => {
     const p = codexMac([STOPPED, RUNNING], { code: 124, stdout: "", stderr: "" });
-    expect(await codexAppServerStep.run(ctxFor(p).ctx)).toEqual({ state: "done", detail: "Started Codex's app server" });
+    expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "done", detail: "Started Codex's app server" });
   });
 
   test("a bootstrap that fails is a plain needs-you that does not stop Install", async () => {
     const p = codexMac([STOPPED], { code: 1, stdout: "", stderr: "Error: address in use\nmore" });
-    expect(await codexAppServerStep.run(ctxFor(p).ctx)).toEqual({ state: "needs-you", detail: "Codex could not start its app server (exit 1): Error: address in use" });
+    expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "needs-you", detail: "Codex could not start its app server (exit 1): Error: address in use" });
   });
 
   test("a bootstrap that times out with nothing running says so", async () => {
     const p = codexMac([STOPPED], { code: 124, stdout: "", stderr: "" });
-    expect(await codexAppServerStep.run(ctxFor(p).ctx)).toEqual({ state: "needs-you", detail: "Codex's app server did not start in time. Start it again from setup's checklist" });
+    expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "needs-you", detail: "Codex's app server did not start in time. Start it again from setup's checklist" });
   });
 
   test("a bootstrap that reports success but leaves nothing running is not claimed started", async () => {
     const p = codexMac([STOPPED]);
-    expect(await codexAppServerStep.run(ctxFor(p).ctx)).toEqual({ state: "needs-you", detail: "Codex said it started its app server, but it is not running" });
+    expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "needs-you", detail: "Codex said it started its app server, but it is not running" });
   });
 
   test("a Codex without its packaged install asks for a reinstall, whether the probe or the bootstrap says so", async () => {
     const atProbe = codexMac([UNPACKAGED]);
-    expect(await codexAppServerStep.run(ctxFor(atProbe).ctx)).toEqual({ state: "needs-you", detail: UNPACKAGED_COPY });
+    expect(await step.run(ctxFor(atProbe).ctx)).toEqual({ state: "needs-you", detail: UNPACKAGED_COPY });
     expect(ran(atProbe)).toEqual([VERSION]);
 
     const atBootstrap = codexMac([STOPPED], UNPACKAGED);
-    expect(await codexAppServerStep.run(ctxFor(atBootstrap).ctx)).toEqual({ state: "needs-you", detail: UNPACKAGED_COPY });
+    expect(await step.run(ctxFor(atBootstrap).ctx)).toEqual({ state: "needs-you", detail: UNPACKAGED_COPY });
     expect(ran(atBootstrap)).toEqual([VERSION, BOOTSTRAP]);
   });
 
   test("no Codex: skipped, and nothing is started", async () => {
     const p = codexMac([missing("codex")]);
-    expect(await codexAppServerStep.run(ctxFor(p).ctx)).toEqual({ state: "skipped", detail: "Codex is not installed yet" });
+    expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "skipped", detail: "Codex is not installed yet" });
     expect(ran(p)).toEqual([VERSION]);
   });
 
   test("a probe that times out starts nothing", async () => {
     const p = codexMac([{ code: 124, stdout: "", stderr: "" }]);
-    expect(await codexAppServerStep.run(ctxFor(p).ctx)).toEqual({ state: "needs-you", detail: "Codex did not say in time whether its app server is running. Check again in a moment" });
+    expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "needs-you", detail: "Codex did not say in time whether its app server is running. Check again in a moment" });
     expect(ran(p)).toEqual([VERSION]);
   });
 
   test("never asks for remote control, an update or a stop", async () => {
     const p = codexMac([STOPPED, RUNNING]);
-    await codexAppServerStep.run(ctxFor(p).ctx);
+    await step.run(ctxFor(p).ctx);
     for (const argv of p.calls.exec) {
       expect(argv).not.toContain("--remote-control");
       expect(argv).not.toContain("update");

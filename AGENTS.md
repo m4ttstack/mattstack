@@ -938,14 +938,18 @@ does not install for that harness neither lists nor accepts them. All three
 are update-safe. `codex.mcp` and `codex.policy` are safe through ownership:
 they rewrite only entries rt recorded adding and the member kept, never add
 back what the member removed, and a rewritten Codex hook waits on review
-again rather than being trusted. `codex.app-server` writes nothing and only
-bootstraps an app server that is not running; Codex's `pid` backend keeps no
-LaunchAgent, so this launch-time update is what brings it back after a
-restart. It never stops, updates or opens remote control on the server. Add a one-time fix as a `MigrationDef` in
-`lib/setup/migrations/index.ts` with a dated id that is never renamed; it
-runs once per machine and is recorded when `done` or `skipped`. The tray
-only spawns the verb and routes the `setup_update` notification click to the
-Setup status window; put no decision in Swift.
+again rather than being trusted. `codex.app-server` writes nothing; on
+every update run it bootstraps Codex's app server whenever it is not
+running, including one the member stopped on purpose. That is the one
+deliberate exception to leaving alone what the member undid: rt's Codex
+integration cannot work without the server, and Codex's `pid` backend keeps
+no LaunchAgent, so this launch-time update is the only thing that brings it
+back after a restart. It runs only `version` and `bootstrap`, never
+`update`, `stop` or remote control. Add a one-time fix as a
+`MigrationDef` in `lib/setup/migrations/index.ts` with a dated id that is
+never renamed; it runs once per machine and is recorded when `done` or
+`skipped`. The tray only spawns the verb and routes the `setup_update`
+notification click to the Setup status window; put no decision in Swift.
 
 ## Baseline Claude permissions are provisional, and never git
 

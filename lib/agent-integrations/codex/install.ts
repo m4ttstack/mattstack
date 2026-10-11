@@ -105,9 +105,22 @@ export const codexMcpStep: StepDef = {
 };
 
 const BOOTSTRAP_TIMEOUT_MS = 30_000;
+/** Reads after the bootstrap: one at once, then one per wait, about three seconds in all. */
+const STARTUP_WAITS_MS = [750, 1000, 1250];
 
 function firstLine(s: string): string {
   return s.trim().split("\n")[0] ?? "";
+}
+
+export type CodexAppServerStepDeps = { sleep?: (ms: number) => Promise<void> };
+
+async function runningSoon(ctx: ApplyContext, sleep: (ms: number) => Promise<void>): Promise<boolean> {
+  if ((await probeCodexAppServer(ctx.p)) === "running") return true;
+  for (const ms of STARTUP_WAITS_MS) {
+    await sleep(ms);
+    if ((await probeCodexAppServer(ctx.p)) === "running") return true;
+  }
+  return false;
 }
 
 /**
@@ -116,7 +129,7 @@ function firstLine(s: string): string {
  * LaunchAgent, so the app's launch-time update is what brings it back after
  * a restart. It never stops, updates or opens remote control.
  */
-async function codexAppServerRun(ctx: ApplyContext): Promise<StepOutcome> {
+async function codexAppServerRun(ctx: ApplyContext, sleep: (ms: number) => Promise<void>): Promise<StepOutcome> {
   const before = await probeCodexAppServer(ctx.p);
   if (before === "no-codex") return { state: "skipped", detail: "Codex is not installed yet" };
   if (before === "running") return { state: "skipped", detail: "Already running" };
@@ -126,7 +139,7 @@ async function codexAppServerRun(ctx: ApplyContext): Promise<StepOutcome> {
   const boot = await ctx.p.exec(["codex", "app-server", "daemon", "bootstrap"], { timeoutMs: BOOTSTRAP_TIMEOUT_MS });
   if (isUnpackagedCodex(boot)) return { state: "needs-you", detail: CODEX_UNPACKAGED_DETAIL };
   // A server that keeps the bootstrap's output open reads as a timeout here, so only the re-probe decides.
-  if ((await probeCodexAppServer(ctx.p)) === "running") {
+  if (await runningSoon(ctx, sleep)) {
     ctx.log("codex.app-server", "started Codex's app server");
     return { state: "done", detail: "Started Codex's app server" };
   }
@@ -136,20 +149,25 @@ async function codexAppServerRun(ctx: ApplyContext): Promise<StepOutcome> {
 }
 
 /** Update-safe: it only starts a server that is not running, the state a restart leaves, and writes no file. */
-export const codexAppServerStep: StepDef = {
-  id: "codex.app-server",
-  title: "Start Codex's app server",
-  kind: "rt",
-  updateSafe: true,
-  applies: (ctx) => harnessSelected(selectionFor(ctx), "codex"),
-  run: async (ctx) => {
-    try {
-      return await codexAppServerRun(ctx);
-    } catch (err) {
-      return toFailedOutcome(err);
-    }
-  },
-};
+export function createCodexAppServerStep(deps: CodexAppServerStepDeps = {}): StepDef {
+  const sleep = deps.sleep ?? ((ms: number) => Bun.sleep(ms));
+  return {
+    id: "codex.app-server",
+    title: "Start Codex's app server",
+    kind: "rt",
+    updateSafe: true,
+    applies: (ctx) => harnessSelected(selectionFor(ctx), "codex"),
+    run: async (ctx) => {
+      try {
+        return await codexAppServerRun(ctx, sleep);
+      } catch (err) {
+        return toFailedOutcome(err);
+      }
+    },
+  };
+}
+
+export const codexAppServerStep: StepDef = createCodexAppServerStep();
 
 /** Takes out the entries rt recorded adding, each only while it is still exactly what rt wrote. */
 async function removeCodexMcp(ctx: ApplyContext): Promise<StepOutcome[]> {

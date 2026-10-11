@@ -96,6 +96,7 @@ function codexMac(home: string, opts: { loggedIn?: boolean; files?: Record<strin
     if (cmd === "codex --version") return ok("codex-cli 0.160.0");
     if (cmd === "codex login status") return opts.loggedIn === false ? { code: 1, stdout: "Not logged in\n", stderr: "" } : ok("Logged in using ChatGPT\n");
     if (cmd === "codex plugin list --json") return ok('{"installed":[],"available":[]}');
+    if (cmd === "codex app-server daemon version") return ok(JSON.stringify({ status: "running" }));
     if (cmd === "herdr --version") return ok("herdr 0.8.0");
     if (cmd === "herdr integration status") return ok("claude: not installed\ncodex: current (v3)\n");
     return ok();
