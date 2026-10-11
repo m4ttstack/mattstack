@@ -867,6 +867,25 @@ describe('a composite layer value', () => {
     expect(onTab).toHaveBeenCalledWith('value');
   });
 
+  it('shows the default in a popover even when it is the value in effect', async () => {
+    const { onTab } = renderPanel(pool('deep', { enabled: true }), [
+      {
+        scope: 'default',
+        file: null,
+        present: true,
+        value: { enabled: true },
+      },
+      { scope: 'team', file: '/stores/team.jsonc', present: false },
+      { scope: 'user', file: '/stores/user.jsonc', present: false },
+    ]);
+    await userEvent.click(await screen.findByTestId('layer-value-default'));
+    const editor = await screen.findByTestId('codemirror-editor');
+    await waitFor(() =>
+      expect(editor.textContent).toContain('"enabled": true')
+    );
+    expect(onTab).not.toHaveBeenCalled();
+  });
+
   it('shows one part of a wider merge in a popover', async () => {
     const { onTab } = renderPanel(
       pool('deep', { enabled: true, debounceSec: 5 }),

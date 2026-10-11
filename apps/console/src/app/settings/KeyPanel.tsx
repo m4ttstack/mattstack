@@ -222,9 +222,10 @@ export function shapeOf(value: unknown): string {
   return valueText(value);
 }
 
-/** A composite layer's value: its shape, opening the whole value. A layer
-    whose value is the one in effect (it wins, or it is the only part of a
-    merge) opens the Value tab; any other layer shows its own JSON. */
+/** A composite layer's value: its shape, opening the whole value. A store
+    layer whose value is the one in effect (it wins, or it is the only part
+    of a merge) opens the Value tab; any other layer, the default included,
+    shows its own JSON. */
 function CompositeValue({
   value,
   inEffect,
@@ -301,8 +302,10 @@ function LayerValue({
       <CompositeValue
         value={row.value}
         inEffect={
-          role === 'winner' ||
-          (role === 'contributor' && sameJson(row.value, def.effective.value))
+          rungBase(row.scope) !== null &&
+          (role === 'winner' ||
+            (role === 'contributor' &&
+              sameJson(row.value, def.effective.value)))
         }
         muted={muted}
         testId={`layer-value-${row.scope}`}
