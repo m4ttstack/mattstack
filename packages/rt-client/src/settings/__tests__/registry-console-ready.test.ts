@@ -163,4 +163,22 @@ describe("every setting says what it is when nothing is set", () => {
     const bad = defs.filter((d) => d.defaultNote && (!/^[A-Z].*\.$/.test(d.defaultNote) || d.defaultNote.length > 80 || /--|`|\//.test(d.defaultNote)));
     expect(bad.map((d) => [d.key, d.defaultNote])).toEqual([]);
   });
+
+  test("agent model, effort and extraArgs keep their own default notes", () => {
+    const claude = "Left out, so Claude uses its own.";
+    const codex = "Left out, so Codex uses its own.";
+    const none = "No extra arguments.";
+    const want: Record<string, string> = {
+      "board.agent.model": claude,
+      "board.agent.effort": claude,
+      "agent.claude.model": claude,
+      "agent.claude.effort": claude,
+      "agent.claude.extraArgs": none,
+      "agent.codex.model": codex,
+      "agent.codex.effort": codex,
+      "agent.codex.extraArgs": none,
+    };
+    const got = Object.fromEntries(allDefs().filter((d) => d.key in want).map((d) => [d.key, d.defaultNote]));
+    expect(got).toEqual(want);
+  });
 });
