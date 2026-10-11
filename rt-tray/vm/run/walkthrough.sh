@@ -8,7 +8,12 @@ usage: walkthrough.sh --ver <14|15|26> (--dmg <path> | --app <mattstack.app>)
          [--scenario create|join|headless|solo] [--team-slug vmtest] [--pat-env MATTSTACK_VMTEST_PAT]
          [--invite-code-file <p>] [--team-remote <url> (solo scenario: runs the team-upgrade phase)] [--forge github|gitlab] [--update-dir <dir>] [--update-version <v>]
          [--fresh-team-repo] [--mint-rt <rt>] [--decline-trust] [--no-quarantine] [--no-graphics] [--keep] [--dry-run] [--verify-golden]
-         [--golden <name>]
+         [--golden <name>] [--harness-profile claude-only|codex-only|mixed] [--marketplace <dir>]
+--harness-profile turns agent integrations on before the screens and installs
+exactly that profile's agent apps; codex-only also puts a claude tripwire on
+PATH that logs to ~/acceptance/claude.log. --marketplace stages a published
+marketplace tree (scripts/release/marketplace.sh into a local repo) and points
+setup at it with RT_MATTSTACK_MARKETPLACE.
 --fresh-team-repo mints an empty team repo; with --scenario join the host also
 scaffolds the team there and mints the invite (under a throwaway HOME, with the
 bundle's rt or --mint-rt), so no --invite-code-file is needed.
@@ -19,6 +24,7 @@ VER=""; DMG=""; APP=""; SCENARIO=create; SLUG=vmtest; PAT_ENV=MATTSTACK_VMTEST_P
 # The create card's pasted-URL path (a fresh guest has no gh identity yet): the throwaway
 # org's team repo, same naming as run/team-setup.sh.
 TEAM_REMOTE="${TEAM_REMOTE:-https://github.com/${MATTSTACK_VMTEST_ORG:-mattstack-vmtest}/${MATTSTACK_VMTEST_TEAM_REPO:-mattstack-vmtest-team}.git}"
+HPROFILE=""; MARKETPLACE=""
 UPD=""; UPDV=""; QUAR=1; GRAPHICS=1; KEEP=0; DRY=0; VERIFY_GOLDEN=0; FRESH_REPO=0; DECLINE_TRUST=0; GOLDEN_OVERRIDE=""; MINT_RT=""
 while [ $# -gt 0 ]; do case "$1" in
   --ver) VER="$2"; shift 2;; --dmg) DMG="$2"; shift 2;; --app) APP="$2"; shift 2;;
@@ -26,12 +32,16 @@ while [ $# -gt 0 ]; do case "$1" in
   --invite-code-file) CODE_FILE="$2"; shift 2;; --team-remote) TEAM_REMOTE="$2"; shift 2;; --forge) FORGE="$2"; shift 2;;
   --update-dir) UPD="$2"; shift 2;; --update-version) UPDV="$2"; shift 2;;
   --golden) GOLDEN_OVERRIDE="$2"; shift 2;;
+  --harness-profile) HPROFILE="$2"; shift 2;; --marketplace) MARKETPLACE="$2"; shift 2;;
   --fresh-team-repo) FRESH_REPO=1; shift;; --mint-rt) MINT_RT="$2"; shift 2;;
   --decline-trust) DECLINE_TRUST=1; shift;;
   --no-quarantine) QUAR=0; shift;; --no-graphics) GRAPHICS=0; shift;; --keep) KEEP=1; shift;; --dry-run) DRY=1; shift;;
   --verify-golden) VERIFY_GOLDEN=1; shift;; -h|--help) usage;; *) vm_warn "unknown arg $1"; usage;; esac; done
 [ -n "$VER" ] || usage
 [ -n "$DMG" ] || [ -n "$APP" ] || usage
+case "$HPROFILE" in ""|claude-only|codex-only|mixed) ;; *) vm_warn "unknown --harness-profile $HPROFILE"; usage;; esac
+[ "$SCENARIO" = headless ] && [ -n "$HPROFILE" ] && { vm_warn "--harness-profile needs a driven scenario, not headless"; usage; }
+[ -z "$MARKETPLACE" ] || [ -f "$MARKETPLACE/.claude-plugin/marketplace.json" ] || { vm_warn "--marketplace $MARKETPLACE has no .claude-plugin/marketplace.json"; usage; }
 # `rt team create` refuses a remote with commits, so a freshly minted repo is
 # consumed by exactly one creator: the guest (create) or the host's mint (join).
 case "$SCENARIO" in create|join) ;; *) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo only applies to --scenario create or join"; usage; };; esac
@@ -244,6 +254,8 @@ if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
 fi
 if [ "$SCENARIO" != headless ] && [ -z "${!PAT_ENV:-}" ]; then vm_warn "\$$PAT_ENV empty — the forge account row cannot be connected; the screens phase will fail there if the app shows it"; fi
 if [ "$SCENARIO" = solo ] && [ -n "$TEAM_REMOTE" ] && [ -z "${!PAT_ENV:-}" ]; then vm_warn "\$$PAT_ENV empty; the team-upgrade phase needs the token to connect the forge row"; fi
+[ -n "$MARKETPLACE" ] && cp -R "$MARKETPLACE" "$VM_RUN_DIR/in/marketplace"
+[ "$HPROFILE" = codex-only ] && printf '%s\n' '#!/bin/sh' "echo \"\$(date -u +%FT%TZ) claude \$*\" >> /Users/$VM_TESTER_USER/acceptance/claude.log" 'exit 127' > "$VM_RUN_DIR/in/claude-tripwire"
 cp -R "$VM_ROOT/run/guest" "$VM_RUN_DIR/in/guest"; cp "$VM_ROOT/../../scripts/e2e-cleanroom.sh" "$VM_RUN_DIR/in/guest/" 2>/dev/null || true
 # The headless recipe's check-bundle step parses deps.lock with bun; CI gets
 # bun from setup-bun, but a clean-room guest has none, so the harness hands it
@@ -251,8 +263,8 @@ cp -R "$VM_ROOT/run/guest" "$VM_RUN_DIR/in/guest"; cp "$VM_ROOT/../../scripts/e2
 if [ "$SCENARIO" = headless ]; then
   cp "$(command -v bun)" "$VM_RUN_DIR/in/guest/bun" || vm_die "headless needs bun on the host to stage into the guest"
 fi
-printf '{"ver":"%s","scenario":"%s","dmg":"%s","appVersion":"%s","updateVersion":"%s","quarantine":%s,"graphics":%s}\n' \
-  "$VER" "$SCENARIO" "$DMG" "$APP_VERSION" "$UPDV" "$QUAR" "$GRAPHICS" > "$VM_RUN_DIR/in/params.json"
+printf '{"ver":"%s","scenario":"%s","dmg":"%s","appVersion":"%s","updateVersion":"%s","quarantine":%s,"graphics":%s,"harnessProfile":"%s","marketplace":%s}\n' \
+  "$VER" "$SCENARIO" "$DMG" "$APP_VERSION" "$UPDV" "$QUAR" "$GRAPHICS" "$HPROFILE" "$([ -n "$MARKETPLACE" ] && echo true || echo false)" > "$VM_RUN_DIR/in/params.json"
 vm_phase_end preflight pass
 
 # ── invite (join --fresh-team-repo) ─────────────────────────────────────────
@@ -304,7 +316,7 @@ else vm_phase_end boot fail "ssh as tester never came up$([ "$TRUSTED" = 0 ] && 
 
 # ── stage ────────────────────────────────────────────────────────────────────
 vm_phase_begin stage
-vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "mkdir -p $GUEST_BIN && cp -R '$GUEST_RUN/in/guest/.' $GUEST_BIN/ && chmod +x $GUEST_BIN/*.sh && if [ -f $GUEST_BIN/bun ]; then mkdir -p \$HOME/.bun/bin && mv $GUEST_BIN/bun \$HOME/.bun/bin/bun && chmod +x \$HOME/.bun/bin/bun; fi && test -f '$GUEST_RUN/in/mattstack.dmg' && touch '$GUEST_RUN/logs/.write-probe' && rm -f '$GUEST_RUN/logs/.write-probe'"
+vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "mkdir -p $GUEST_BIN && cp -R '$GUEST_RUN/in/guest/.' $GUEST_BIN/ && chmod +x $GUEST_BIN/*.sh && if [ -f $GUEST_BIN/bun ]; then mkdir -p \$HOME/.bun/bin && mv $GUEST_BIN/bun \$HOME/.bun/bin/bun && chmod +x \$HOME/.bun/bin/bun; fi && test -f '$GUEST_RUN/in/mattstack.dmg' && { [ ! -d '$GUEST_RUN/in/marketplace' ] || cp -R '$GUEST_RUN/in/marketplace' \$HOME/marketplace; } && touch '$GUEST_RUN/logs/.write-probe' && rm -f '$GUEST_RUN/logs/.write-probe'"
 rc=$?
 if [ "$rc" -eq 0 ]; then vm_phase_end stage pass
 else vm_phase_end stage fail "$(vm_fail_reason "$rc" "" "virtiofs share not readable/writable by tester in guest")"; exit 1; fi
@@ -321,6 +333,7 @@ vm_phase_begin launch
 # Prod builds honour MATTSTACK_APPCAST_URL only with --allow-appcast-override; the same env/arg is
 # replayed by drive-setup.sh on any driver-initiated relaunch (DRIVER_LAUNCH_ARGS).
 LAUNCH_ARGS=""; [ -n "$UPD" ] && LAUNCH_ARGS="--env MATTSTACK_APPCAST_URL=http://127.0.0.1:$VM_APPCAST_PORT/appcast.xml --arg --allow-appcast-override"
+[ -n "$MARKETPLACE" ] && LAUNCH_ARGS="--env RT_MATTSTACK_MARKETPLACE=/Users/$VM_TESTER_USER/marketplace $LAUNCH_ARGS"
 vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' bash $GUEST_BIN/install-app.sh launch $LAUNCH_ARGS" >>"$VM_RUN_DIR/logs/install.log" 2>&1
 rc=$?
 SHOT00=""
@@ -334,6 +347,22 @@ case $rc in
   2) vm_phase_end launch fail "Gatekeeper blocked the app (unnotarised build? rerun with --no-quarantine)" ${SHOT00:+"$SHOT00"}; exit 1 ;;
   *) vm_phase_end launch fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/install.log" "app did not start (logs/install.log)")" ${SHOT00:+"$SHOT00"}; exit 1 ;;
 esac
+
+# ── harness profile ──────────────────────────────────────────────────────────
+if [ -n "$HPROFILE" ]; then
+  vm_phase_begin harness-profile
+  # Before the screens: the integrations row and each agent app's row appear only with the switch on.
+  vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "/Applications/mattstack.app/Contents/MacOS/rt settings set agent.integrations.enabled true --scope machine" >>"$VM_RUN_DIR/logs/harness.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ] && [ "$HPROFILE" = codex-only ]; then
+    # A codex-only run must never execute Claude: anything that does lands a line in this log.
+    vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "sudo mkdir -p /usr/local/bin && sudo install -m 755 '$GUEST_RUN/in/claude-tripwire' /usr/local/bin/claude" >>"$VM_RUN_DIR/logs/harness.log" 2>&1 \
+      && vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "mkdir -p ~/acceptance && : > ~/acceptance/claude.log" >>"$VM_RUN_DIR/logs/harness.log" 2>&1
+    rc=$?
+  fi
+  if [ "$rc" -eq 0 ]; then vm_phase_end harness-profile pass "$HPROFILE"
+  else vm_phase_end harness-profile fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/harness.log" "could not turn integrations on (logs/harness.log)")"; exit 1; fi
+fi
 
 # ── screens / headless ───────────────────────────────────────────────────────
 vm_phase_begin screens
@@ -360,7 +389,7 @@ if [ "$SCENARIO" = headless ]; then
   vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "open -a /Applications/mattstack.app; sleep 8" >>"$VM_RUN_DIR/logs/screens.log" 2>&1 || true
 else
   CODE_ARG=""; [ -n "$CODE_FILE" ] && { cp "$CODE_FILE" "$VM_RUN_DIR/in/invite-code.txt"; CODE_ARG="--invite-code-file '$GUEST_RUN/in/invite-code.txt'"; }
-  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
+  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' HARNESS_PROFILE='$HPROFILE' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
   rc=$?
   if [ "$rc" -eq 0 ]; then
     vm_phase_end screens pass "" $(cd "$VM_RUN_DIR" && ls screenshots/0[1-5]-*.png 2>/dev/null)
