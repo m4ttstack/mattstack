@@ -161,8 +161,8 @@ state keys on `unwritten("skills.writingStyle")` instead of the resolver's
 - **Scope blocks.** `subheadOf` (`view.ts`) files a key whose value comes
   from `default`, or from nothing, in a new "Not set" block at the end of the
   section, with no scope badge. A scope block then holds only keys that
-  layer sets. The scope filter still finds an unset key under the scopes it
-  allows, as today.
+  layer sets. Picking a scope in the filter still shows only keys set
+  there, as today.
 - The row's `default` / `unset` source text stays.
 
 ### 6. Docs and skills
@@ -205,9 +205,12 @@ state keys on `unwritten("skills.writingStyle")` instead of the resolver's
 
 One PR per area, each green on its own, in this order:
 
-1. Registry `defaultNote` + every default and note + console-ready test +
-   console default line and neutral block. Apps still carry their
-   fallbacks, which now agree with the registry, so behaviour is unchanged.
+1. Registry `defaultNote` + every note + the defaults of keys with no latch
+   and no presence check + console-ready test (latched keys on a
+   shrink-only pending list) + console default line and "Not set" block.
+   Apps still carry their fallbacks, which now agree with the registry, so
+   behaviour is unchanged. A latched key gets its default in the PR that
+   retires its latch, because a default flips the latch.
 2. Import migration, then rt latch retirements (hooks, sdm, writing style,
    VS Code branch naming) and presence-check fixes.
 3. Board retirement.
