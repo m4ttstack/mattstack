@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { updateRepoIndex } from "../../repo-index.ts";
+import { machineSettingsPath } from "../../rt-paths.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
+import { setSetting, setSettingsNoticeSink, unsetSetting } from "../../settings/write.ts";
 import type { ApplyContext } from "../apply.ts";
 import { MIGRATIONS } from "../migrations/index.ts";
-import { boardCopies, importAppSettingsMigration } from "../migrations/import-app-settings.ts";
+import { boardCopies, importAppSettingsMigration, makeImportAppSettingsMigration } from "../migrations/import-app-settings.ts";
 import { importLegacySettingsMigration } from "../migrations/import-legacy-settings.ts";
 import { fakeProbes } from "./fakes.ts";
 
@@ -33,10 +34,22 @@ describe("2026-10-11-import-app-settings", () => {
 
   const boardFile = () => join(home, ".mattstack", "board", "config.json");
   const gitqFile = (name: string) => join(home, ".mattstack", "gitq", name);
+  let restarts: number;
+  let restartBoard: () => Promise<boolean>;
+  beforeEach(() => {
+    restarts = 0;
+    restartBoard = async () => true;
+  });
   function run(files: Record<string, unknown> = {}, env: Record<string, string> = {}) {
     const body = Object.fromEntries(Object.entries(files).map(([path, v]) => [path, typeof v === "string" ? v : JSON.stringify(v)]));
     const p = fakeProbes({ home, env, files: body });
-    return { p, outcome: importAppSettingsMigration.run({ p } as unknown as ApplyContext) };
+    const migration = makeImportAppSettingsMigration({
+      restartBoard: () => {
+        restarts++;
+        return restartBoard();
+      },
+    });
+    return { p, outcome: migration.run({ p } as unknown as ApplyContext) };
   }
   const stores = (key: string) => getSetting(key).provenance.filter((row) => row.scope !== "default").map((row) => row.scope);
 
@@ -188,6 +201,50 @@ describe("2026-10-11-import-app-settings", () => {
     expect((await outcome).detail).toBe("There were no old board or gitq settings to copy. Some repos on your gitq board are not on this Mac, so rt left that setting and your old gitq file as it was");
     expect(getSetting("gitq.board").value).toEqual({ repos: ["nowhere", "elsewhere"] });
     expect(p.calls.renames).toEqual([]);
+  });
+
+  test("a fixed gitq.board that cannot be written keeps gitq's config file, and the run fails so it retries", async () => {
+    setSetting("gitq.board", { repos: ["nowhere"], port: 11008 }, "machine");
+    const storeDir = dirname(machineSettingsPath());
+    chmodSync(storeDir, 0o555);
+    let result;
+    let renames;
+    try {
+      const { p, outcome } = run({ [gitqFile("config.json")]: { repos: [{ path: "/work/nowhere", name: "nowhere" }] } });
+      result = await outcome;
+      renames = p.calls.renames;
+    } finally {
+      chmodSync(storeDir, 0o755);
+    }
+    expect(result.state).toBe("failed");
+    expect(renames).toEqual([]);
+    expect(getSetting("gitq.board").value).toEqual({ repos: ["nowhere"], port: 11008 });
+  });
+
+  test("copying a board setting restarts the board, which read its settings before the copy", async () => {
+    expect((await run({ [boardFile()]: { defaultMember: "dev1" } }).outcome).state).toBe("done");
+    expect(restarts).toBe(1);
+  });
+
+  test("a run that copies nothing for the board leaves it running", async () => {
+    await run().outcome;
+    await run({ [gitqFile("settings.json")]: { maxWorkSlots: 5 } }).outcome;
+    setSetting("board.defaultMember", "dev2", "user");
+    await run({ [boardFile()]: { defaultMember: "dev1" } }).outcome;
+    expect(restarts).toBe(0);
+  });
+
+  test("a board that will not restart is still a done run, and tells you to restart it", async () => {
+    restartBoard = async () => false;
+    expect(await run({ [boardFile()]: { defaultMember: "dev1" } }).outcome).toEqual({
+      state: "done",
+      detail: "Copied 1 old board or gitq setting into your settings. rt could not restart your board, so restart it to pick up these settings",
+    });
+    restartBoard = async () => {
+      throw new Error("deck went away");
+    };
+    unsetSetting("board.defaultMember", "user");
+    expect((await run({ [boardFile()]: { defaultMember: "dev1" } }).outcome).detail).toContain("rt could not restart your board");
   });
 
   test("boardCopies maps only fields that have a user or machine key", () => {

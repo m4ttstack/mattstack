@@ -971,7 +971,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 }
 
 export async function realUseTeamSeams(deps: TeamDeps): Promise<UseTeamSeams> {
-  const { bundledToolPath, resolveTool } = await import("../lib/deps/resolve.ts");
+  const { resolveTool, restartAppWithDeck } = await import("../lib/deps/resolve.ts");
   const { claudeConfigDirs } = await import("../lib/setup/tools-install.ts");
   const { PACK_EXEC_TIMEOUT_MS } = await import("../lib/setup/pack-cache.ts");
   return {
@@ -1016,10 +1016,7 @@ export async function realUseTeamSeams(deps: TeamDeps): Promise<UseTeamSeams> {
       }
       return org;
     },
-    restartApp: async (app) => {
-      const deck = deps.deckPath ? deps.deckPath(deps.probes) : bundledToolPath(deps.probes, "deck");
-      return deck !== null && (await deps.probes.exec([deck, "restart", app])).code === 0;
-    },
+    restartApp: (app) => restartAppWithDeck(deps.probes, app, deps.deckPath ? deps.deckPath(deps.probes) : undefined),
   };
 }
 

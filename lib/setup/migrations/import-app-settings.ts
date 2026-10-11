@@ -1,5 +1,6 @@
 import { basename, join, resolve } from "path";
 import { validateWrite } from "../../../packages/rt-client/src/settings/validate-write.ts";
+import { restartAppWithDeck } from "../../deps/resolve.ts";
 import { getKnownRepos } from "../../repo-index.ts";
 import { onlyDefault } from "../../settings/presence.ts";
 import { parseIdentity } from "../../settings/identity.ts";
@@ -21,6 +22,7 @@ export interface Copy {
 
 interface Tally {
   copied: number;
+  boardCopied: boolean;
   repaired: boolean;
   unrepaired: boolean;
   gitqFileKept: boolean;
@@ -106,6 +108,7 @@ function writeCopy(copy: Copy, t: Tally): Written {
     return "failed";
   }
   t.copied++;
+  if (copy.key.startsWith("board.") || copy.key === "mattstack.roster") t.boardCopied = true;
   return "copied";
 }
 
@@ -168,7 +171,7 @@ function readRepos(p: FileProbes, file: string): unknown {
   }
 }
 
-/** rt setup used to seed gitq.board with bare repo names, which gitq refuses. Returns true when one is still bare afterwards. */
+/** rt setup used to seed gitq.board with bare repo names, which gitq refuses. Returns true when gitq's own file must stay: a name is still bare, or the fixed value could not be written. */
 function repairGitqBoard(t: Tally, fileRepos: unknown): boolean {
   const resolved = getSetting<{ repos?: unknown }>("gitq.board");
   const repos = resolved.value?.repos;
@@ -187,10 +190,16 @@ function repairGitqBoard(t: Tally, fileRepos: unknown): boolean {
     setSetting("gitq.board", { ...(resolved.value as Record<string, unknown>), repos: fixed }, "machine");
   } catch (err) {
     t.failed.push(`gitq.board: ${firstLine(err)}`);
-    return false;
+    return true;
   }
   t.repaired = true;
   return false;
+}
+
+const BOARD_NOT_RESTARTED = "rt could not restart your board, so restart it to pick up these settings";
+
+function withNote(o: StepOutcome, note: string): StepOutcome {
+  return { ...o, detail: o.detail ? `${o.detail}. ${note}` : note };
 }
 
 function outcome(t: Tally): StepOutcome {
@@ -215,23 +224,42 @@ function outcome(t: Tally): StepOutcome {
   return { state: "done", detail: [...copied, ...notes].join(". ") };
 }
 
-export const importAppSettingsMigration: MigrationDef = {
-  id: "2026-10-11-import-app-settings",
-  title: "Copy your old board and gitq settings into your settings",
-  async run(ctx) {
-    const p = ctx.p;
-    const t: Tally = { copied: 0, repaired: false, unrepaired: false, gitqFileKept: false, teamFields: false, leftInPlace: 0, failed: [] };
-    const board = [...new Set(boardRoots(p, sourceBoardRoots()))].map((root) => join(root, "config.json")).find((file) => p.exists(file));
-    if (board) {
-      const parsed = importFile(p, board, boardCopies, t);
-      if (parsed) t.teamFields = boardTeamFields(parsed);
-    }
-    const gitq = p.env.GITQ_APP_ROOT ? resolve(p.env.GITQ_APP_ROOT) : join(p.home, ".mattstack", "gitq");
-    importFile(p, join(gitq, "settings.json"), gitqSettingsCopies, t);
-    const boardFile = join(gitq, "config.json");
-    const stillBare = repairGitqBoard(t, readRepos(p, boardFile));
-    if (stillBare) t.gitqFileKept = p.exists(boardFile);
-    else importFile(p, boardFile, gitqBoardCopies, t);
-    return outcome(t);
-  },
-};
+export interface ImportAppSettingsSeams {
+  /** The board reads its settings once at boot, and it starts before this migration runs. */
+  restartBoard(p: Probes): Promise<boolean>;
+}
+
+const realSeams: ImportAppSettingsSeams = { restartBoard: (p) => restartAppWithDeck(p, "board") };
+
+export function makeImportAppSettingsMigration(seams: ImportAppSettingsSeams = realSeams): MigrationDef {
+  return {
+    id: "2026-10-11-import-app-settings",
+    title: "Copy your old board and gitq settings into your settings",
+    async run(ctx) {
+      const p = ctx.p;
+      const t: Tally = { copied: 0, boardCopied: false, repaired: false, unrepaired: false, gitqFileKept: false, teamFields: false, leftInPlace: 0, failed: [] };
+      const board = [...new Set(boardRoots(p, sourceBoardRoots()))].map((root) => join(root, "config.json")).find((file) => p.exists(file));
+      if (board) {
+        const parsed = importFile(p, board, boardCopies, t);
+        if (parsed) t.teamFields = boardTeamFields(parsed);
+      }
+      const gitq = p.env.GITQ_APP_ROOT ? resolve(p.env.GITQ_APP_ROOT) : join(p.home, ".mattstack", "gitq");
+      importFile(p, join(gitq, "settings.json"), gitqSettingsCopies, t);
+      const boardFile = join(gitq, "config.json");
+      const keepFile = repairGitqBoard(t, readRepos(p, boardFile));
+      if (keepFile) t.gitqFileKept = p.exists(boardFile);
+      else importFile(p, boardFile, gitqBoardCopies, t);
+      const result = outcome(t);
+      if (!t.boardCopied) return result;
+      let restarted = false;
+      try {
+        restarted = await seams.restartBoard(p);
+      } catch {
+        restarted = false;
+      }
+      return restarted ? result : withNote(result, BOARD_NOT_RESTARTED);
+    },
+  };
+}
+
+export const importAppSettingsMigration: MigrationDef = makeImportAppSettingsMigration();
