@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { allDefs } from "../../index.ts";
+import { allDefs, validateJson } from "../../index.ts";
 
 type Schema = { title?: string; description?: string; properties?: Record<string, Schema>; items?: Schema | Schema[]; additionalProperties?: Schema | boolean; anyOf?: Schema[]; oneOf?: Schema[] };
 
@@ -127,5 +127,58 @@ describe("every setting is console-ready", () => {
     const withGaps = [...gaps].filter(([, g]) => g.length > 0).map(([k]) => k);
     expect({ newGaps: [...gaps].filter(([k, g]) => g.length > 0 && !UNANNOTATED_YET.includes(k)).map(([, g]) => g).flat(), note: ADD_A_KEY }).toEqual({ newGaps: [], note: ADD_A_KEY });
     expect(UNANNOTATED_YET.filter((k) => !withGaps.includes(k))).toEqual([]);
+  });
+});
+
+/** Keys held for a legacy file or a presence check: each gets its default in
+    the PR that retires the hold. Shrink only. */
+const PENDING_DEFAULT: readonly string[] = [
+  "board.botUsernames", "board.cwds", "board.defaultMember", "board.doctorSkill",
+  "board.gateGraceMinutes", "board.hiddenMembers", "board.slack", "board.tabs",
+  "board.title", "board.triage", "board.triage.doctorSkill", "board.triageMaxConcurrent",
+  "board.workspaces", "claude.marketplaces", "claude.plugins", "deck.access",
+  "deck.apps", "deck.platform", "gitq.forges", "gitq.workSlots", "mattstack.roster",
+  "rt.branchNaming", "rt.hooks", "rt.sdmEnrichment", "sdm.carriers", "sdm.resources",
+  "skills.writingStyle",
+];
+
+describe("every setting says what it is when nothing is set", () => {
+  const defs = allDefs();
+  test("every key has a default or a defaultNote", () => {
+    const bare = defs.filter((d) => !("default" in d) && !d.defaultNote).map((d) => d.key);
+    expect({ newWithout: bare.filter((k) => !PENDING_DEFAULT.includes(k)), note: ADD_A_KEY }).toEqual({ newWithout: [], note: ADD_A_KEY });
+    expect(PENDING_DEFAULT.filter((k) => !bare.includes(k))).toEqual([]);
+  });
+  test("no key has both a default and a defaultNote", () => {
+    expect(defs.filter((d) => "default" in d && d.defaultNote).map((d) => d.key)).toEqual([]);
+  });
+  test("every default passes its key's schema", () => {
+    const bad = defs
+      .filter((d) => "default" in d && d.schema)
+      .map((d) => [d.key, validateJson(d.schema!, d.default)] as const)
+      .filter(([, issues]) => issues.length > 0);
+    expect(bad).toEqual([]);
+  });
+  test("a defaultNote is one short sentence", () => {
+    const bad = defs.filter((d) => d.defaultNote && (!/^[A-Z].*\.$/.test(d.defaultNote) || d.defaultNote.length > 80 || /--|`|\//.test(d.defaultNote)));
+    expect(bad.map((d) => [d.key, d.defaultNote])).toEqual([]);
+  });
+
+  test("agent model, effort and extraArgs keep their own default notes", () => {
+    const claude = "Left out, so Claude uses its own.";
+    const codex = "Left out, so Codex uses its own.";
+    const none = "No extra arguments.";
+    const want: Record<string, string> = {
+      "board.agent.model": claude,
+      "board.agent.effort": claude,
+      "agent.claude.model": claude,
+      "agent.claude.effort": claude,
+      "agent.claude.extraArgs": none,
+      "agent.codex.model": codex,
+      "agent.codex.effort": codex,
+      "agent.codex.extraArgs": none,
+    };
+    const got = Object.fromEntries(allDefs().filter((d) => d.key in want).map((d) => [d.key, d.defaultNote]));
+    expect(got).toEqual(want);
   });
 });

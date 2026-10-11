@@ -24,6 +24,7 @@ import type { Probes } from "../probes.ts";
 
 import { servicesRegisterStep, proxyInstallStep, PORTLESS_LAUNCHD_PLIST, PROXY_VERSION_PATH } from "../steps/services.ts";
 import { deckManagedStep } from "../steps/deck.ts";
+import { unwritten } from "../steps/step-utils.ts";
 import { skillsMaterializeStep, skillsLinkStep, boardKeysStep, cronTriageStep } from "../steps/skills.ts";
 import { personalSkillsDir } from "../../skills/writing-style-sources.ts";
 
@@ -1215,7 +1216,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = bundledProbes({ tools: ["board"] });
       const { ctx } = makeCtx(p);
       expect(await cronTriageStep.run(ctx)).toEqual({ state: "skipped", detail: "The board's re-review and peer ask hooks are off" });
-      expect(getSetting("rt.cron").value).toBeUndefined();
+      expect(unwritten("rt.cron")).toBe(true);
     });
 
     test("re-review off, peer asks on -> only board-peer is installed", async () => {

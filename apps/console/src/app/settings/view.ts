@@ -41,10 +41,12 @@ export function needsFixing(def: SettingDefWire): boolean {
   return (def.issues?.length ?? 0) > 0 || (def.mergedIssues?.length ?? 0) > 0;
 }
 
-const SUB_ORDER: StoreScope[] = ['org', 'team', 'user', 'machine'];
+export type SubheadScope = StoreScope | 'unset';
+
+const SUB_ORDER: SubheadScope[] = ['org', 'team', 'user', 'machine', 'unset'];
 
 export interface Subsection {
-  scope: StoreScope;
+  scope: SubheadScope;
   defs: SettingDefWire[];
 }
 
@@ -220,11 +222,11 @@ const isShared = (s: string | null | undefined): s is 'org' | 'team' =>
   s === 'org' || s === 'team';
 
 /** A key sits under the layer its value comes from, so its block and its row
-    say the same thing; a key nothing sets yet sits under its first scope. */
+    say the same thing; a key no store sets sits under Not set. */
 function subheadOf(
   def: SettingDefWire,
   sharedOnly = false
-): string | undefined {
+): SubheadScope | undefined {
   const allowed = (s: string | null | undefined) =>
     Boolean(s) && (!sharedOnly || isShared(s));
   const served = rungBase(def.effective.scope);
@@ -240,7 +242,11 @@ function subheadOf(
   const stores = new Set(
     (def.repos ?? []).flatMap(r => r.scopes).filter(s => allowed(s))
   );
-  if (stores.size === 1) return [...stores][0];
+  if (stores.size === 1) return [...stores][0] as StoreScope;
+  // A stray value (a store the key does not allow) is still set somewhere,
+  // so only a key no store holds at all is Not set.
+  if (served === null && stores.size === 0 && !(def.repos ?? []).length)
+    return 'unset';
   return sharedOnly ? def.scopes.find(isShared) : def.scopes[0];
 }
 

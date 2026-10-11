@@ -76,9 +76,10 @@ interface TrackedProcess {
   runawayNotified: boolean;
 }
 
-const DEFAULT_CPU_THRESHOLD = 80;
-const DEFAULT_SUSTAIN_MS = 5 * 60 * 1000; // 5 minutes
-const DEFAULT_GRACE_MS = 2 * 60 * 1000; // 2 minutes
+export const RUNAWAY_DEFAULTS = { cpuThreshold: 80, sustainMs: 5 * 60 * 1000, graceMs: 2 * 60 * 1000 } as const;
+const DEFAULT_CPU_THRESHOLD = RUNAWAY_DEFAULTS.cpuThreshold;
+const DEFAULT_SUSTAIN_MS = RUNAWAY_DEFAULTS.sustainMs;
+const DEFAULT_GRACE_MS = RUNAWAY_DEFAULTS.graceMs;
 const MAX_SAMPLES = 60; // 10 minutes at 10s intervals
 
 export type ScannerConfig = Value<"rt.runaway">;

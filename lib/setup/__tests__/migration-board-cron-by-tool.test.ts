@@ -8,6 +8,7 @@ import { peerTrigger, triageTrigger } from "../cron-install.ts";
 import { boardCronByToolMigration } from "../migrations/board-cron-by-tool.ts";
 import { MIGRATIONS } from "../migrations/index.ts";
 import type { ApplyContext } from "../apply.ts";
+import { unwritten } from "../steps/step-utils.ts";
 import { fakeProbes } from "./fakes.ts";
 
 const ctx = (): ApplyContext => ({ p: fakeProbes({ env: { PATH: "" } }) }) as Partial<ApplyContext> as ApplyContext;
@@ -78,7 +79,7 @@ describe("2026-10-10-board-cron-by-tool", () => {
 
   test("skips a Mac with no cron setting at all and writes nothing", async () => {
     expect((await boardCronByToolMigration.run(ctx())).state).toBe("skipped");
-    expect(triggers()).toBeUndefined();
+    expect(unwritten("rt.cron")).toBe(true);
   });
 
   test("skips when both board triggers are already in tool form", async () => {
