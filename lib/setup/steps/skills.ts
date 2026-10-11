@@ -2,7 +2,7 @@
  * `skills.materialize`, `board.keys`, `cron.triage` — three small rt-only
  * steps that share no state, kept in one file because none is big enough to
  * earn its own. Each wraps an existing, already-tested library
- * (`materializeSkills`, `getDef`/`setSetting`, `resolveBoardTriage`/
+ * (`materializeSkills`, `getDef`/`setSetting`, `resolveTool`/
  * `installCronTrigger`) rather than re-deriving its logic.
  */
 
