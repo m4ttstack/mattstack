@@ -2,23 +2,23 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A one-time setup migration copies the live legacy values rt still reads (per-repo `hooks.json`, the `preferences.md` writing-style line) into the user store, then rt's own latches and legacy fallbacks for `rt.hooks`, `sdm.resources`/`rt.sdmEnrichment`, `skills.writingStyle` and the VS Code extension's `rt.branchNaming` are deleted, each key gets its registry default and leaves `PENDING_DEFAULT`, and every "has anyone set this?" check on these keys asks provenance instead of `.value === undefined`.
+**Goal:** rt's git hook shim asks rt whether a hook runs instead of grepping a `hooks.json` cache, a one-time setup migration copies the live legacy values rt still reads (per-repo `hooks.json`, the `preferences.md` writing-style line) into the user store and swaps every installed shim, and rt's latches and legacy fallbacks for `rt.hooks`, `sdm.resources`/`rt.sdmEnrichment`, `skills.writingStyle` and the VS Code extension's `rt.branchNaming` are deleted. Each key gets its registry default and leaves `PENDING_DEFAULT`, and every "has anyone set this?" check on these keys asks provenance instead of `.value === undefined`.
 
-**Architecture:** A new `lib/settings/presence.ts` holds the three helpers every task uses: `onlyDefault(resolved)` (provenance is all `default`), `unwritten(key, opts)` (the existing step-utils helper, now taking `ResolveOpts`) and `registryDefault(key)` (a copy of the row's default, for a reader's error path). The migration `2026-10-10-import-legacy-settings` runs once per Mac from `rt setup update`, writes only `"user"` scope, and never overwrites a value any store holds (a value the resolver refused counts as held). Each retirement task then deletes one reader's fallback, adds the registry default, drops the row's `migrated`/latch text, and shrinks `PENDING_DEFAULT` in the same commit. A `no-presence-by-undefined` guard pins the remaining board and deck latches for PR 3 and PR 4.
+**Architecture:** A new `lib/settings/presence.ts` holds the helpers every task uses: `onlyDefault(resolved)` (provenance is all `default`), `unwritten(key, opts)` (the existing step-utils helper, now taking `ResolveOpts`) and `registryDefault(key)` (a copy of the row's default, for a reader's error path). The shim template moves to `lib/git-hooks/shims.ts`; each shim runs a baked-in rt as `rt hooks enabled <hook>`, a hidden leaf that resolves `rt.hooks` in-process and prints `on` or `off`, and the shim runs the real hook unless the answer is exactly `off`. Nothing writes `hooks.json` any more. The migration `2026-10-10-import-legacy-settings` runs once per Mac from `rt setup update`: it rewrites every installed shim, imports each `hooks.json` and the writing-style line at `"user"` scope without overwriting anything a store holds, and renames each imported `hooks.json` to `hooks.json.imported`. Each retirement task deletes one reader's fallback, adds the registry default, drops the row's `migrated`/latch text, and shrinks `PENDING_DEFAULT` in the same commit. A `no-presence-by-undefined` guard pins the remaining board and deck latches for PR 3 and PR 4.
 
-**Tech Stack:** Bun + TypeScript (rt, rt-client), `bun test` from the repo root, Vitest (console), the VS Code extension's bun tests, Docusaurus (website).
+**Tech Stack:** Bun + TypeScript (rt, rt-client), bash (the hook shim), `bun test` from the repo root, Vitest (console), the VS Code extension's bun tests, Docusaurus (website).
 
 **Spec:** `docs/superpowers/specs/2026-10-10-settings-defaults-sweep-design.md` (sections 2, 3, 4 and the appendix rows for the keys below). PR 1's plan, for what already landed: `docs/superpowers/plans/2026-10-10-settings-defaults-pr1-registry-console.md`.
 
-## Open questions for Matt
+## Decisions
 
-The spec is silent or self-conflicting on these, and each changes behaviour. The plan is written with the default named in each line; the line says what changes if you pick otherwise.
+Matt's answers to the plan's open questions; the tasks implement them.
 
-1. **`.imported` rename of files still in use.** The spec renames each imported file to `<name>.imported`. Two of PR 2's files are still read by something else: `hooks.json` is the cache the git hook shim greps and the file the daemon's hooks guard keys on (renaming it makes every hook run and stops the guard until the next `rt hooks`), and `preferences.md` holds other sections and is still the agent-side fallback in the board's review and respond skills. **Plan default:** copy `hooks.json` to `hooks.json.imported` and leave `hooks.json` in place; leave `preferences.md` untouched. To rename literally instead, Task 2 Step 3 swaps `copyFileSync` for `renameSync` and also renames `preferences.md`.
-2. **Repos with no remote.** Settings repo sections are keyed by remote, so a remote-less repo has nowhere to keep `rt.hooks`; today `rt hooks` keeps its choice in that repo's `hooks.json`. **Plan default:** `rt hooks` refuses in such a repo (a `refused` note, exit 1) before touching anything, so the existing `hooks.json` and shims keep working. Alternative: keep `hooks.json` as the store for remote-less repos only (a small branch in `loadHooksConfig`/`saveHooksConfig`).
-3. **Machine-scope `rt.hooks` values today's rt wrote.** `machine.repo` outranks `user.repo`, so an existing machine value would silently override every new user-scope write. **Plan default:** after its user write, `rt hooks` removes that repo's machine-scope value on this Mac (Task 3). The migration does not move them. Alternative: the migration moves them up front, which needs a per-rung read on the `no-settings-bypass` allowlist.
-4. **`hooks.json` freshness.** The shim reads only `hooks.json`, which rt rewrites when `rt hooks` or `rt settings set rt.hooks --repo` runs on this Mac. With user scope, a choice made on another Mac reaches this Mac's store by sync, but its cache keeps the old choice until someone runs `rt hooks` here. Also, an `rt hooks` run between installing this release and the launch-time `rt setup update` rewrites a not-yet-imported `hooks.json` from the default (every hook on). **Plan default:** no extra regeneration. Alternatives: regenerate every tracked repo's cache after the home repo pulls (the daemon's `onPulled`), and/or have `regenerateHooksCache` leave an existing `hooks.json` alone until `hooks.json.imported` exists.
-5. **StrongDM.** (a) `rt sdm enrichment init` scaffolds the file this PR stops reading. **Plan default:** remove `init`; `rt sdm enrichment` with any argument prints a `refused` note, and the bare verb shows the label count with no file path. Alternative: `init` prints an `rt settings set sdm.resources ... --scope team` command built from the scanned names. (b) A team whose owner never ran `2026-10-07-sdm-resources-key` still has only `rt.sdmEnrichment`; retiring it (the spec's call) drops those labels for its members. Alternative: list `rt.sdmEnrichment` in `RENAMES` as an older name of `sdm.resources`, so the resolver keeps reading it with no reader code.
+1. **The git hook shim reads the setting.** It runs rt (`rt hooks enabled <hook>`, hidden) and fails open: rt missing, failing or slower than 5 seconds means the hook runs. The `hooks.json` cache is retired: no `regenerateHooksCache`, nothing writes `hooks.json`. Shims already installed in repos are rewritten by the import migration (Task 3; nothing else installs shims outside `rt hooks`). The leaf answers on stdout, `on` or `off`, rather than by exit code: exit 1 is also rt's unexpected-error code, and keying on it would turn a crash into a skipped hook.
+2. **`.imported` rename.** With nothing reading `hooks.json`, an imported one is renamed to `hooks.json.imported`, after that repo's shims are rewritten. `preferences.md` stays untouched: the board's review and respond skills still read its other sections.
+3. **Repos with no remote.** `rt hooks` refuses in one (a `refused` note, exit 1). Its shim, once rewritten, asks rt, which finds no settings section for the repo and answers `on`, so every hook there runs.
+4. **Machine-scope values today's rt wrote.** `rt hooks` deletes that repo's machine-scope `rt.hooks` value when it writes at user scope, since `machine.repo` outranks `user.repo`.
+5. **StrongDM.** `rt sdm enrichment init` is removed. `rt.sdmEnrichment` is retired as the spec says, with no `RENAMES` alias.
 
 Assumed, not asked: the spec's "prints, once, the `rt settings set` an admin would run" is `warn()`'s once-per-process notice, and only while the key is unwritten.
 
@@ -27,7 +27,7 @@ Assumed, not asked: the spec's "prints, once, the `rt settings set` an admin wou
 | Key | This PR | Task |
 |---|---|---|
 | `claude.marketplaces`, `claude.plugins` | `default: []`. The only presence check was `commands/home.ts`'s installer pointer. | 1 |
-| `rt.hooks` | `default: { enabled: true }`, latch retired, writes go to user scope | 3 |
+| `rt.hooks` | `default: { enabled: true }`, latch and `hooks.json` cache retired, writes go to user scope, the shim reads the setting | 2 |
 | `skills.writingStyle` | `default: "mattstack:writing-style-conversational"`, `preferences.md` rung retired | 4 |
 | `sdm.resources`, `sdm.carriers` | `default: {}`, file fallback retired | 5 |
 | `rt.sdmEnrichment` | removed from the registry, joins `RETIRED_KEYS` | 5 |
@@ -43,6 +43,8 @@ Out of scope (PR 5, through `superpowers:writing-skills`): the `rt:settings` ski
 - Work in `/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/beorn` on branch `rt-487-settings-defaults-pr2`. Run `bun test` from the repo root (bunfig preload). Run only the targeted tests each task names; CI runs the full suite.
 - A setup migration writes only the user and machine stores: every `setSetting`/`unsetSetting` in `lib/setup/migrations/` passes the scope as the literal `"user"` or `"machine"` (`lib/__tests__/no-shared-store-migrations.test.ts`), and never names an org or team store path.
 - The import never overwrites a value any store holds, including a value the resolver refused. It is idempotent and records `done` or `skipped`; only a write that fails is `failed`, so it reruns.
+- The hook shim fails open: only an rt answer of exactly `off` skips a hook. It never reads a file of rt's, keeps the on-deck pre-commit guard, and gives rt no stdin (a pre-push hook's stdin belongs to the real hook).
+- `rt hooks enabled` stays fast: no daemon round trip, no repo-index write, no `context: "repo"` resolution; one `git config` read and an in-process settings resolve.
 - A built binary, or `bun run cli.ts` doing anything that touches HOME, runs only as `env -i HOME="$(mktemp -d)" PATH="$PATH" ...`.
 - After touching `packages/rt-client/src`, run `bun run --cwd packages/rt-client build` before testing any consumer (stale `dist/` footgun). After a registry or `SCHEMAS` change, run `env -i HOME="$(mktemp -d)" PATH="$PATH" bun run cli.ts settings schema lock` and commit the lock.
 - A key leaves `PENDING_DEFAULT` in the same commit that gives it a default. The list only shrinks.
@@ -50,16 +52,16 @@ Out of scope (PR 5, through `superpowers:writing-skills`): the `rt:settings` ski
 - "Has anyone set this?" is `unwritten` / `onlyDefault`, never `.value === undefined` or `!== undefined`.
 - No real org, team, repo or person names in code, tests, fixtures or docs: acme, widgets, gadgets, gitlab.example.com, example.com, dev1, dev2.
 - Comments only state a constraint the code cannot show.
-- Everything a person reads goes through `lib/ui/out.ts` (root `AGENTS.md`, "Output layer"): a refusal by policy is a `refused` line through `out.note`, never `out.fail`; coral (`failed`) only for failures; a command a person runs goes in a `next` callout via `out.cmd`, never mid-sentence; no `console.*` under `lib/`, `commands/` or `cli.ts`; `lib/` warns through `warn()` from `lib/ui/warn.ts`. Copy is short plain sentences to "you", with no flags, store names or step ids ("Command descriptions are plain language").
+- Everything a person reads goes through `lib/ui/out.ts` (root `AGENTS.md`, "Output layer"): a refusal by policy is a `refused` line through `out.note`, never `out.fail`; coral (`failed`) only for failures; a command a person runs goes in a `next` callout via `out.cmd`, never mid-sentence; a payload another program reads goes through `out.payload`; no `console.*` under `lib/`, `commands/` or `cli.ts`; `lib/` warns through `warn()` from `lib/ui/warn.ts`. Copy is short plain sentences to "you", with no flags, store names or step ids ("Command descriptions are plain language").
 - Do not edit any skill (`plugins/mattstack`, `skills/`, `apps/board/skills*`) in this PR.
 
 ## Review Focus
 
-- A repo whose `hooks.json` turned a hook off before any store value existed keeps that hook off after `rt setup update`, and `rt hooks status` still shows it off. Pinned in Task 3 ("after the import migration, regenerating the cache keeps the imported choices").
-- `rt hooks on` on a Mac where today's rt wrote a machine-scope value turns hooks back on. Pinned in Task 3.
-- A team that sets a writing style keeps it after the migration even when `preferences.md` names another; someone with no store value keeps their `preferences.md` choice. Pinned in Task 2.
-- A malformed legacy file (`hooks.json` that will not parse, a `writing-style:` line with an invalid id) or a store value the resolver refuses is left exactly as it was, and the migration records `skipped` or `done`, never `failed`. Pinned in Task 2.
-- Someone who chose the conversational style on purpose (a user value equal to the registry default) reads as chosen, and the setup row is `ready`. Pinned in Task 4.
+- The shim fails open: with rt missing, exiting with an error, printing nothing, or slower than the timeout, the real hook runs. Pinned in Task 2 (`lib/git-hooks/__tests__/shims.test.ts`).
+- An installed shim from today's rt (one that greps `hooks.json`) is replaced by the migration, so no repo is left with a shim reading a renamed file; a repo whose shim could not be rewritten keeps its old shim and its `hooks.json`. Pinned in Task 3.
+- A repo whose `hooks.json` had pre-push off keeps pre-push off through the import and the shim swap. Pinned in Task 3 ("pre-push stays off through the import and the shim swap").
+- A team that sets a writing style keeps it after the migration even when `preferences.md` names another; someone with no store value keeps their `preferences.md` choice. Pinned in Task 3.
+- A malformed legacy file (`hooks.json` that will not parse, a `writing-style:` line with an invalid id) or a store value the resolver refuses is left exactly as it was, and the migration records `skipped` or `done`, never `failed`. Pinned in Task 3.
 
 ---
 
@@ -329,7 +331,593 @@ git commit -m "settings: presence through provenance, claude.* defaults"
 
 ---
 
-### Task 2: The import migration
+### Task 2: `rt.hooks`: the shim asks rt, the cache and the latch go
+
+**Files:**
+- Create: `lib/git-hooks/shims.ts`, `lib/git-hooks/__tests__/shims.test.ts`
+- Create: `lib/git-origin.ts`
+- Modify: `lib/repo.ts:104-113` (`readOriginRemoteForIdentity` moves to `lib/git-origin.ts`)
+- Modify: `commands/hooks.ts` (module doc, `HOOKS_WRITE_SCOPE`, `probeHooksStore`, `readLegacyRaw`, `loadHooksConfig`, `regenerateHooksCache`, `refreshHooksCacheBestEffort`, `saveHooksConfig`, `generateShims`, `toggleHooks`, exports; new `hookState`, `hooksEnabled`)
+- Modify: `commands/__tests__/hooks.test.ts`
+- Modify: `lib/command-tree-def.ts:1004-1014` (`hooks` node gains a hidden `enabled` subcommand)
+- Modify: `commands/settings-keys.ts:376-400` (`regenBlocks`)
+- Replace: `commands/__tests__/settings-keys-hooks-regen.test.ts`
+- Modify: `lib/daemon/hooks-guard.ts:36-44`, `lib/daemon/handlers/hooks.ts`
+- Modify: `lib/daemon/__tests__/hooks-guard.test.ts:66-74`, `lib/daemon/__tests__/hooks-handlers.test.ts`
+- Modify: `packages/rt-client/src/settings/registry-defs.ts` (`rt.hooks` row)
+- Modify: `packages/rt-client/src/settings/__tests__/registry.test.ts`, `registry-console-ready.test.ts`
+
+**Interfaces:**
+- Consumes: `registryDefault` (Task 1).
+- Produces: `generateShims(dataDir: string, hookNames: string[], opts?: ShimOptions): void` and `shimScript(hookName: string, opts?: ShimOptions): string` from `lib/git-hooks/shims.ts`, with `interface ShimOptions { rtArgv?: string[]; timeoutSecs?: number }` (defaults `rtSelfArgv()` and 5). `readOriginRemoteForIdentity(cwd: string): string | null` from `lib/git-origin.ts`. From `commands/hooks.ts`: `hookState(hook: string | undefined, cwd?: string): "on" | "off"`, `hooksEnabled(args: string[]): Promise<void>`, `loadHooksConfig(discoveredHooks: string[], repoIdentity: string | null): HooksConfig`, `saveHooksConfig(config: HooksConfig, repoIdentity: string): void` (throws `UserActionableError` code `hooks-not-saved`). Removed: `regenerateHooksCache`, `hooksConfigPath`, `generateShims` (moved).
+
+- [ ] **Step 1: Write the failing shim tests**: `lib/git-hooks/__tests__/shims.test.ts`:
+
+```ts
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { generateShims } from "../shims.ts";
+
+describe("git hook shims", () => {
+  let dir: string;
+  let dataDir: string;
+  let repoRoot: string;
+  let marker: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "rt-shims-"));
+    dataDir = join(dir, "data");
+    repoRoot = join(dir, "repo");
+    mkdirSync(join(repoRoot, ".husky"), { recursive: true });
+    Bun.spawnSync(["git", "init", "-q", repoRoot]);
+    marker = join(dir, "ran");
+    writeFileSync(join(repoRoot, ".husky", "pre-push"), `#!/bin/bash\ncat > ${JSON.stringify(marker)}\n`, { mode: 0o755 });
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  function fakeRt(body: string, at = join(dir, "fake-rt")): string {
+    mkdirSync(join(at, ".."), { recursive: true });
+    writeFileSync(at, `#!/bin/bash\n${body}\n`, { mode: 0o755 });
+    return at;
+  }
+  function runShim(hook: string, stdin = ""): { code: number; stderr: string; ms: number } {
+    const start = performance.now();
+    const res = Bun.spawnSync(["bash", join(dataDir, "hooks", hook)], { cwd: repoRoot, stdin: Buffer.from(stdin), env: { PATH: "/usr/bin:/bin" } });
+    return { code: res.exitCode, stderr: res.stderr.toString(), ms: performance.now() - start };
+  }
+
+  test("rt answers off: the hook is skipped with a note", () => {
+    generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt('[ "$1 $2 $3" = "hooks enabled pre-push" ] && echo off')] });
+    const res = runShim("pre-push");
+    expect(res.code).toBe(0);
+    expect(res.stderr).toContain("rt: pre-push skipped (turned off with rt hooks)");
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("rt answers on: the real hook runs and gets the hook's stdin", () => {
+    generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("cat >/dev/null; echo on")] });
+    expect(runShim("pre-push", "refs/heads/main abc\n").code).toBe(0);
+    expect(readFileSync(marker, "utf8")).toBe("refs/heads/main abc\n");
+  });
+
+  test("rt fails: the real hook runs", () => {
+    generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("echo off >&2; exit 2")] });
+    runShim("pre-push");
+    expect(existsSync(marker)).toBe(true);
+  });
+
+  test("rt is missing: the real hook runs", () => {
+    generateShims(dataDir, ["pre-push"], { rtArgv: [join(dir, "no-such-rt")] });
+    runShim("pre-push");
+    expect(existsSync(marker)).toBe(true);
+  });
+
+  test("rt is too slow: the real hook runs once the timeout passes", () => {
+    generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("sleep 5; echo off")], timeoutSecs: 1 });
+    const res = runShim("pre-push");
+    expect(existsSync(marker)).toBe(true);
+    expect(res.ms).toBeLessThan(4000);
+  });
+
+  test("an rt path with spaces and a quote still reaches rt", () => {
+    generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("echo off", join(dir, "it's here", "rt"))] });
+    expect(runShim("pre-push").stderr).toContain("skipped");
+  });
+
+  test("a shim reads no file of rt's, and pre-commit keeps the on-deck guard", () => {
+    generateShims(dataDir, [], { rtArgv: ["/x/rt"] });
+    const shim = readFileSync(join(dataDir, "hooks", "pre-commit"), "utf8");
+    expect(shim).toContain("hooks enabled");
+    expect(shim).not.toContain("hooks.json");
+    expect(shim).toContain("on-deck/*");
+    expect(shim).toContain("commits are not allowed on on-deck branches");
+    expect(shim).toContain('exec "$REAL_HOOK" "$@"');
+  });
+
+  test("a non-pre-commit hook carries no on-deck guard", () => {
+    generateShims(dataDir, ["pre-push"], { rtArgv: ["/x/rt"] });
+    expect(readFileSync(join(dataDir, "hooks", "pre-push"), "utf8")).not.toContain("on-deck");
+  });
+});
+```
+
+- [ ] **Step 2: Run, expect FAIL**: `bun test lib/git-hooks/__tests__/shims.test.ts` (module not found).
+
+- [ ] **Step 3: Implement `lib/git-hooks/shims.ts`**
+
+```ts
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
+import { rtSelfArgv } from "../rt-self.ts";
+
+export interface ShimOptions {
+  /** Baked in, because a GUI git client runs hooks with a bare PATH. */
+  rtArgv?: string[];
+  timeoutSecs?: number;
+}
+
+const DEFAULT_TIMEOUT_SECS = 5;
+
+function shellQuote(s: string): string {
+  return `'${s.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * Only an answer of exactly "off" skips the hook: rt missing, failing or too
+ * slow runs it. rt gets /dev/null for stdin, because a pre-push hook's stdin
+ * belongs to the real hook.
+ */
+export function shimScript(hookName: string, opts: ShimOptions = {}): string {
+  const rt = (opts.rtArgv ?? rtSelfArgv()).map(shellQuote).join(" ");
+  const timeout = opts.timeoutSecs ?? DEFAULT_TIMEOUT_SECS;
+  const onDeckGuard = hookName === "pre-commit" ? `
+# On-deck guard: block commits on on-deck/* branches.
+CURRENT_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+if [[ "$CURRENT_BRANCH" == on-deck/* ]]; then
+  echo "rt: commits are not allowed on on-deck branches (on \\"$CURRENT_BRANCH\\")"
+  echo "rt: switch to a feature branch before committing"
+  exit 1
+fi
+` : "";
+  return `#!/bin/bash
+# rt hook shim: asks rt whether this hook is on and runs the real hook unless rt says off.
+${onDeckGuard}
+RT=(${rt})
+HOOK_NAME=${shellQuote(hookName)}
+
+ask_rt() {
+  RT_BATCH=1 "\${RT[@]}" hooks enabled "$HOOK_NAME" </dev/null 2>/dev/null &
+  local pid=$!
+  ( sleep ${timeout}; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local watchdog=$!
+  wait "$pid" 2>/dev/null
+  kill "$watchdog" 2>/dev/null
+}
+
+if [ -x "\${RT[0]}" ] && [ "$(ask_rt)" = "off" ]; then
+  echo "rt: $HOOK_NAME skipped (turned off with rt hooks)" >&2
+  exit 0
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+REAL_HOOK="$REPO_ROOT/.husky/$HOOK_NAME"
+
+if [ -x "$REAL_HOOK" ]; then
+  exec "$REAL_HOOK" "$@"
+fi
+`;
+}
+
+/** pre-commit is always written, so the on-deck guard runs even in a repo with no pre-commit of its own. */
+export function generateShims(dataDir: string, hookNames: string[], opts: ShimOptions = {}): void {
+  const hooksDir = join(dataDir, "hooks");
+  mkdirSync(hooksDir, { recursive: true });
+  for (const hookName of new Set(["pre-commit", ...hookNames])) {
+    writeFileSync(join(hooksDir, hookName), shimScript(hookName, opts), { mode: 0o755 });
+  }
+}
+```
+
+Run `bun test lib/git-hooks/__tests__/shims.test.ts`: PASS. (The fake rt is a bash script, so `-x "${RT[0]}"` holds for it.)
+
+- [ ] **Step 4: Write the failing rt-side tests**: in `commands/__tests__/hooks.test.ts`:
+
+1. Imports: drop `generateShims`, `hooksConfigPath`, `regenerateHooksCache` from the `../hooks.ts` import and add `hookState`, `hooksEnabled`; add `existsSync` from `fs`; `setSettingsNoticeSink` beside `setSetting`; `getDef` from `../../lib/settings/registry.ts`. In the outer `beforeEach` add `previousSink = setSettingsNoticeSink(() => {});` (declare `let previousSink: ReturnType<typeof setSettingsNoticeSink>;`) and restore it in the outer `afterEach`: user-scope writes print a share tip otherwise.
+2. Delete `writeLegacy`, `readCache`, the `regenerateHooksCache` describe, the "store writes + regeneration keep hooks.json honest" describe, the `generateShims` describe (now in `shims.test.ts`) and the "toggleHooks status regenerates the cache before displaying" describe.
+3. Replace the `loadHooksConfig` describe with:
+
+```ts
+  describe("loadHooksConfig", () => {
+    test("nothing set: the registry default, every hook on", () => {
+      expect(getDef("rt.hooks")!.default).toEqual({ enabled: true });
+      expect(loadHooksConfig(["pre-commit", "pre-push"], IDENTITY)).toEqual({ enabled: true, hooks: { "pre-commit": true, "pre-push": true } });
+    });
+
+    test("an old hooks.json is no longer read", () => {
+      writeFileSync(join(dataDir, "hooks.json"), JSON.stringify({ enabled: false, hooks: { "pre-commit": false } }));
+      expect(loadHooksConfig(["pre-commit"], IDENTITY)).toEqual({ enabled: true, hooks: { "pre-commit": true } });
+    });
+
+    test("a hook the store does not name runs", () => {
+      writeStoreValue({ enabled: true, hooks: { "pre-commit": false } });
+      expect(loadHooksConfig(["pre-commit", "pre-push"], IDENTITY)).toEqual({ enabled: true, hooks: { "pre-commit": false, "pre-push": true } });
+    });
+  });
+```
+
+4. Add the shim's question:
+
+```ts
+  describe("hookState: what the shim asks", () => {
+    function gitRepo(remote: string | null): void {
+      execFileSync("git", ["init", "-q", repoRoot]);
+      if (remote) execFileSync("git", ["-C", repoRoot, "remote", "add", "origin", remote]);
+    }
+
+    test("nothing set: on", () => {
+      gitRepo("git@example.com:org/repo.git");
+      expect(hookState("pre-push", repoRoot)).toBe("on");
+    });
+
+    test("a hook turned off for this repo is off; another hook is on", () => {
+      gitRepo("git@example.com:org/repo.git");
+      writeStoreValue({ hooks: { "pre-push": false } });
+      expect(hookState("pre-push", repoRoot)).toBe("off");
+      expect(hookState("pre-commit", repoRoot)).toBe("on");
+    });
+
+    test("hooks off for the repo: every hook is off", () => {
+      gitRepo("git@example.com:org/repo.git");
+      writeStoreValue({ enabled: false });
+      expect(hookState("pre-commit", repoRoot)).toBe("off");
+    });
+
+    test("a repo with no remote has no settings section, so its hooks run", () => {
+      gitRepo(null);
+      expect(hookState("pre-push", repoRoot)).toBe("on");
+    });
+
+    test("a store rt cannot read: on", () => {
+      gitRepo("git@example.com:org/repo.git");
+      mkdirSync(join(userSettingsPath(), ".."), { recursive: true });
+      writeFileSync(userSettingsPath(), "{not valid json");
+      expect(hookState("pre-push", repoRoot)).toBe("on");
+    });
+
+    test("no hook named: on", () => {
+      expect(hookState(undefined, repoRoot)).toBe("on");
+    });
+
+    test("the verb prints only the answer, on stdout", async () => {
+      gitRepo("git@example.com:org/repo.git");
+      writeStoreValue({ hooks: { "pre-push": false } });
+      const io = captureOut();
+      const cwd = process.cwd();
+      process.chdir(repoRoot);
+      try {
+        await hooksEnabled(["pre-push"]);
+        expect(io.stdout()).toBe("off\n");
+        expect(io.stderr()).toBe("");
+      } finally {
+        process.chdir(cwd);
+        io.restore();
+      }
+    });
+  });
+```
+
+5. Replace the `saveHooksConfig` describe with:
+
+```ts
+  describe("saveHooksConfig", () => {
+    test("writes your user settings for this repo and no hooks.json", () => {
+      const next: HooksConfig = { enabled: false, hooks: { "pre-commit": false } };
+      saveHooksConfig(next, IDENTITY);
+      const resolved = getSetting("rt.hooks", { repoIdentity: IDENTITY });
+      expect(resolved.value).toEqual(next);
+      expect(resolved.provenance.map((p) => p.scope)).toContain("user.repo");
+      expect(existsSync(join(dataDir, "hooks.json"))).toBe(false);
+    });
+
+    test("a value an older rt wrote on this Mac no longer outranks your choice", () => {
+      setSetting("rt.hooks", { enabled: false, hooks: {} }, "machine", { repoIdentity: IDENTITY });
+      saveHooksConfig({ enabled: true, hooks: { "pre-commit": true, "pre-push": true } }, IDENTITY);
+      const resolved = getSetting<HooksConfig>("rt.hooks", { repoIdentity: IDENTITY });
+      expect(resolved.value.enabled).toBe(true);
+      expect(resolved.provenance.map((p) => p.scope)).not.toContain("machine.repo");
+    });
+
+    test("a store rt cannot write is a failure", () => {
+      mkdirSync(join(userSettingsPath(), ".."), { recursive: true });
+      writeFileSync(userSettingsPath(), "{not valid json");
+      expect(() => saveHooksConfig({ enabled: false, hooks: {} }, IDENTITY)).toThrow("Your hooks choice was not saved");
+    });
+  });
+```
+
+6. In `describe("through toggleHooks", ...)`, change `ctx()` to pass `remoteUrl: "git@example.com:org/repo.git"`, and add:
+
+```ts
+      test("off installs shims that ask rt, and writes no hooks.json", async () => {
+        await toggleHooks(["off"], ctx());
+        expect(readFileSync(join(dataDir, "hooks", "pre-push"), "utf8")).toContain("hooks enabled");
+        expect(existsSync(join(dataDir, "hooks.json"))).toBe(false);
+      });
+
+      test("a repo with no remote is refused, and nothing is installed", async () => {
+        const noRemote: CommandContext = { identity: { repoName: "repo", identity: "path:%2Frepo", repoRoot, dataDir, remoteUrl: "", baseUrl: "" } };
+        await expect(toggleHooks(["off"], noRemote)).rejects.toThrow("exit 1");
+        expect(io.stderr()).toBe("[refused] This repo has no remote, so rt has nowhere to keep its hook choices\n");
+        expect(io.stdout()).toBe("");
+        expect(existsSync(join(dataDir, "hooks"))).toBe(false);
+      });
+```
+
+7. In "a hooks setting rt cannot read is shown once and logged", change both calls to `loadHooksConfig(["pre-commit"], IDENTITY)`. The "hooks:watch is sent ctx.identity.identity" test keeps its remote ctx and passes unchanged.
+
+- [ ] **Step 5: Write the failing daemon and settings-seam tests**
+
+`lib/daemon/__tests__/hooks-guard.test.ts`: `makeRtManagedRepo` stops writing `hooks.json` (delete that line and drop the helper comment's "hooks.json +"), so every existing guard test now proves a shims dir alone is guarded. Add:
+
+```ts
+test("a repo with an old hooks.json but no shims dir is not guarded", async () => {
+  const repoPath = makeGitRepo("unmanaged");
+  mkdirSync(repoDataDir("unmanaged"), { recursive: true });
+  writeFileSync(join(repoDataDir("unmanaged"), "hooks.json"), "{}");
+  const guard = createHooksGuard(log);
+  expect(await guard.checkAndRepairHooksPath("unmanaged", repoPath)).toBe(false);
+});
+```
+
+`lib/daemon/__tests__/hooks-handlers.test.ts`, add a describe with its own HOME (imports: `afterEach`, `beforeEach` from `bun:test`; `mkdtempSync`, `realpathSync`, `rmSync` from `fs`; `tmpdir` from `os`; `join` from `path`; `setSetting`, `setSettingsNoticeSink` from `../../settings/write.ts`):
+
+```ts
+describe("hooks:status reads the setting", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+  let previousSink: ReturnType<typeof setSettingsNoticeSink>;
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-hooks-status-")));
+    process.env.HOME = home;
+    previousSink = setSettingsNoticeSink(() => {});
+  });
+  afterEach(() => {
+    setSettingsNoticeSink(previousSink);
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("hooks:status answers with the repo's resolved rt.hooks setting", async () => {
+    setSetting("rt.hooks", { hooks: { "pre-push": false } }, "user", { repoIdentity: "example.com/org/repo" });
+    const h = createHooksHandlers(fakeCtx());
+    const res = (await h["hooks:status"]!({ repo: "remote:example.com%2Forg%2Frepo" })) as { ok: boolean; data: unknown };
+    expect(res).toEqual({ ok: true, data: { enabled: true, hooks: { "pre-push": false } } });
+  });
+
+  test("hooks:status for a repo with no remote is null: it has no settings section", async () => {
+    const h = createHooksHandlers(fakeCtx());
+    expect(await h["hooks:status"]!({ repo: "path:%2Fsrc%2Frepo" })).toEqual({ ok: true, data: null });
+  });
+});
+```
+
+Replace `commands/__tests__/settings-keys-hooks-regen.test.ts` with one file whose doc says the shim reads the setting itself, keeping the existing `beforeEach`/`afterEach` and these tests:
+
+```ts
+  test("a --repo write lands in the store and writes no hooks.json", async () => {
+    const cap = captureOut();
+    out.__test__.setHuman(() => false);
+    try {
+      await settingsSet(["rt.hooks", '{"enabled":false,"hooks":{}}', "--scope", "machine", "--repo", "hooks-regen-repo"]);
+      expect(cap.stdout()).not.toContain("Hooks updated");
+    } finally {
+      cap.restore();
+    }
+    expect(existsSync(join(repoDataDir("hooks-regen-repo"), "hooks.json"))).toBe(false);
+  });
+```
+
+plus the existing "a write with no --repo is refused" test with its last line changed to `expect(existsSync(join(repoDataDir("hooks-regen-repo"), "hooks.json"))).toBe(false);`. Drop the unrelated-key test and the `hooksConfigPath` import; rename the file's `describe` to `"rt settings set rt.hooks --repo"`.
+
+- [ ] **Step 6: Run, expect FAIL**
+
+```bash
+bun test commands/__tests__/hooks.test.ts commands/__tests__/settings-keys-hooks-regen.test.ts lib/daemon/__tests__/hooks-guard.test.ts lib/daemon/__tests__/hooks-handlers.test.ts
+```
+
+- [ ] **Step 7: Implement**
+
+`lib/git-origin.ts`:
+
+```ts
+import { execFileSync } from "child_process";
+
+/** The raw stored value: repo identity keys on it, so an insteadOf rewrite must not change it. */
+export function readOriginRemoteForIdentity(cwd: string): string | null {
+  try {
+    const text = execFileSync("git", ["config", "--get", "remote.origin.url"], { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+```
+
+In `lib/repo.ts`, delete the local `readOriginRemoteForIdentity` and import it from `./git-origin.ts`.
+
+`commands/hooks.ts`:
+
+- Module doc: replace lines 3-24 with
+
+```ts
+ * rt hooks: turn husky git hooks on and off for a repo.
+ *
+ * core.hooksPath points at shim scripts in ~/.mattstack/rt/repos/<repo>/hooks/
+ * (lib/git-hooks/shims.ts). Before each hook a shim asks `rt hooks enabled
+ * <hook>`, which resolves `rt.hooks` for the repo in-process, and runs the real
+ * .husky/ script unless the answer is "off". Your choices live in your user
+ * settings, keyed by the repo's remote.
+```
+
+- Imports: drop `readFileSync`, `writeFileSync`, `chmodSync` and whatever else `tsc` then reports unused; add `UserActionableError` from `../lib/errors.ts`, `registryDefault` from `../lib/settings/presence.ts`, `unsetSetting` beside `setSetting`, `generateShims` from `../lib/git-hooks/shims.ts`, `readOriginRemoteForIdentity` from `../lib/git-origin.ts`.
+- Replace everything from `const HOOKS_WRITE_SCOPE` through the end of the old `generateShims` (the "Shim generation" section included) with:
+
+```ts
+/** Your hook choices for a repo follow you to every Mac. */
+const HOOKS_WRITE_SCOPE: SettingScope = "user";
+
+/** A store rt cannot read falls back to the registry default, with a warning that never echoes the store's value. */
+function readHooksSetting(repoIdentity: string | null): Value<"rt.hooks"> {
+  try {
+    return getSetting<Value<"rt.hooks">>(SETTING_KEY, { repoIdentity }).value;
+  } catch (err) {
+    const message = (err as Error).message;
+    warn("hooks", `ignoring "${SETTING_KEY}" -- ${message}`, {
+      show: { title: "Your hooks setting is being ignored", hint: message.split("\n")[0], next: out.cmd("rt settings check") },
+    });
+    return registryDefault<Value<"rt.hooks">>(SETTING_KEY);
+  }
+}
+
+function hookRuns(declared: Value<"rt.hooks">, hook: string): boolean {
+  return declared.enabled !== false && declared.hooks?.[hook] !== false;
+}
+
+/** The resolved config the toggle UI starts from, with a hook the setting does not name turned on. */
+function loadHooksConfig(discoveredHooks: string[], repoIdentity: string | null): HooksConfig {
+  const declared = readHooksSetting(repoIdentity);
+  const hooks: Record<string, boolean> = {};
+  for (const hook of discoveredHooks) hooks[hook] = declared.hooks?.[hook] !== false;
+  return { enabled: declared.enabled !== false, hooks };
+}
+
+/**
+ * Writes your user settings, then drops this repo's machine value: an older
+ * rt wrote there, and machine.repo outranks user.repo, so it would hide this
+ * choice on this Mac.
+ */
+function saveHooksConfig(config: HooksConfig, repoIdentity: string): void {
+  try {
+    setSetting(SETTING_KEY, config, HOOKS_WRITE_SCOPE, { repoIdentity });
+    unsetSetting(SETTING_KEY, "machine", { repoIdentity });
+  } catch (err) {
+    throw new UserActionableError("hooks-not-saved", "Your hooks choice was not saved", {}, { why: (err as Error).message.split("\n")[0], next: "rt settings check" });
+  }
+}
+
+/** A repo with no remote has no settings section, so its hooks run. */
+export function hookState(hook: string | undefined, cwd: string = process.cwd()): "on" | "off" {
+  if (!hook) return "on";
+  const remote = readOriginRemoteForIdentity(cwd);
+  const identity = remote ? identityFromRemote(remote) : null;
+  return hookRuns(readHooksSetting(identity?.kind === "remote" ? identity.id : null), hook) ? "on" : "off";
+}
+
+/** `rt hooks enabled <hook>`: the question rt's git hook shim asks before every hook. */
+export async function hooksEnabled(args: string[]): Promise<void> {
+  out.payloadOnStdout();
+  out.payload(`${hookState(args[0])}\n`);
+}
+```
+
+- In `toggleHooks`: right after the `derivedIdentity`/`repoIdentity` lines,
+
+```ts
+  if (repoIdentity === null) {
+    out.note(out.line("refused", "This repo has no remote, so rt has nowhere to keep its hook choices"));
+    process.exit(1);
+  }
+```
+
+then `loadHooksConfig(discoveredHooks, repoIdentity)`; every `saveHooksConfig(repoRoot, dataDir, x, repoIdentity)` becomes `saveHooksConfig(x, repoIdentity)`; delete both `refreshHooksCacheBestEffort` calls (status and the non-TTY branch only print now). `generateShims(dataDir, discoveredHooks)` keeps its place.
+- Exports line: `export { applyHookSelection, discoverHooks, loadHooksConfig, runningHooks, saveHooksConfig, type HooksConfig };`.
+
+`lib/command-tree-def.ts`, in the `hooks` node after `args`:
+
+```ts
+    subcommands: {
+      enabled: {
+        description: "Hidden verb rt's git hook scripts call to ask whether a hook runs; never call directly",
+        module: "./commands/hooks.ts",
+        fn: "hooksEnabled",
+        hidden: true,
+        omitBehavior: { exempt: "called by rt's git hook scripts with the hook's name; never interactive" },
+        args: [{ name: "Hook", type: "text", placeholder: "pre-push", hint: "The git hook about to run" }],
+      },
+    },
+```
+
+The dispatcher runs a node with both a handler and subcommands as itself unless the first arg names a subcommand (`lib/command-tree.ts:258-275`), so `rt hooks off` and `rt hooks pre-push off` are unchanged. The leaf is `hidden`, so no breadcrumb paints over a commit; it sets no `context`, so it never mints a data dir or writes the repo index; `commands/hooks.ts` is already in `lib/module-registry.ts`. It takes no `--json` and is not `agentSafe`.
+
+`commands/settings-keys.ts` `regenBlocks`: delete the `rt.hooks` branch and the doc sentence about hooks.json. If `target` is then unused, drop the parameter and the argument at both call sites (`:333`, `:374`), and any import `tsc` reports unused.
+
+`lib/daemon/hooks-guard.ts` `checkAndRepairHooksPath`: delete `hooksJson` and make the guard
+
+```ts
+    // The shim dir is what rt installed; it carries the on-deck guard, which applies even with every hook on.
+    if (!existsSync(shimsDir)) return false;
+```
+
+`lib/daemon/handlers/hooks.ts`: doc line becomes `hooks:status  -- the repo's resolved rt.hooks setting (null for a repo with no remote)`; drop the `join`, `repoDataDir`, `readJson` imports; add `parseIdentity` from `../../settings/identity.ts` and `getSetting` from `../../settings/resolve.ts`; the handler body after `decodeRepo` becomes
+
+```ts
+      const identity = parseIdentity(decoded.repo);
+      if (identity?.kind !== "remote") return { ok: true, data: null };
+      return { ok: true, data: getSetting<unknown>("rt.hooks", { repoIdentity: identity.id }).value };
+```
+
+- [ ] **Step 8: Registry row**: in `registry-defs.ts`, make the `rt.hooks` row:
+
+```ts
+  {
+    key: "rt.hooks",
+    type: "object",
+    scopes: ALL_SCOPES,
+    default: { enabled: true },
+    merge: "deep",
+    repoScoped: true,
+    repoOnly: true,
+    description: "Per-repo git hook switches ({enabled, hooks: {<hookName>: boolean}}); a hook the map does not name runs. rt hooks writes your user settings, so a repo's choices follow you to every Mac. rt's git hook shim asks rt for this value before each hook and runs the hook unless it is off.",
+  },
+```
+
+(`migrated: true` goes: the row has no legacy reader left.) In `registry-console-ready.test.ts`, remove `"rt.hooks"` from `PENDING_DEFAULT`. In `registry.test.ts`: the `rt.hooks is a repo-scoped field-bag object with no default ...` test becomes `"rt.hooks is a repo-scoped field-bag object that defaults to every hook on"` with `expect(def?.default).toEqual({ enabled: true });`; remove `"rt.hooks"` from both `migrated:true` lists (the `exactly 28 keys are migrated:true` test and `migratedTrueKeys`), add `"rt.hooks"` to `suiteKeys`, bump `expect(suiteKeys).toHaveLength(87)` to `88`, and change both test titles' migrated count from 28 to 27.
+
+- [ ] **Step 9: Build and pass**
+
+```bash
+bun run --cwd packages/rt-client build
+bun test lib/git-hooks/__tests__/shims.test.ts commands/__tests__/hooks.test.ts commands/__tests__/settings-keys-hooks-regen.test.ts lib/daemon/__tests__/hooks-handlers.test.ts lib/daemon/__tests__/hooks-guard.test.ts packages/rt-client/src/settings/__tests__/registry.test.ts packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts packages/rt-client/src/settings/__tests__/schema-examples.test.ts lib/__tests__/no-raw-output.test.ts lib/__tests__/picker-conformance.test.ts lib/__tests__/no-eager-tui.test.ts
+bun run picker:check
+```
+
+- [ ] **Step 10: Measure the per-hook cost**: build a scratch binary and time the leaf against `--version` (the startup floor `scripts/bench-startup.ts` gates at 60 ms):
+
+```bash
+SCRATCH="$(mktemp -d)"
+bun build --compile ./cli.ts --outfile "$SCRATCH/rt" --no-compile-autoload-bunfig --no-compile-autoload-dotenv
+git init -q "$SCRATCH/repo"
+git -C "$SCRATCH/repo" remote add origin git@example.com:org/repo.git
+H="$(mktemp -d)"
+for v in "--version" "hooks enabled pre-push"; do
+  ( cd "$SCRATCH/repo" && time (for i in 1 2 3 4 5 6 7 8 9 10; do env -i HOME="$H" PATH="$PATH" RT_BATCH=1 "$SCRATCH/rt" $v >/dev/null; done) )
+done
+```
+
+Record both totals (per run is the total over 10) in the PR body as "per-hook cost: N ms, of which M ms is rt's startup". If the leaf costs more than startup plus about 20 ms, profile before going on: the likely costs are an eager import pulled into `commands/hooks.ts` or a CLI startup step that `hidden` leaves do not skip, and the fix is to defer it, never to add a cache file. Also check the run left one CLI log line per call in `$H/.mattstack/rt/logs/` and note it.
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add lib/git-hooks lib/git-origin.ts lib/repo.ts commands/hooks.ts commands/__tests__/hooks.test.ts lib/command-tree-def.ts commands/settings-keys.ts commands/__tests__/settings-keys-hooks-regen.test.ts lib/daemon/hooks-guard.ts lib/daemon/handlers/hooks.ts lib/daemon/__tests__/hooks-guard.test.ts lib/daemon/__tests__/hooks-handlers.test.ts packages/rt-client/src/settings/registry-defs.ts packages/rt-client/src/settings/__tests__/registry.test.ts packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts
+git commit -m "hooks: the shim asks rt; rt.hooks has a default and no hooks.json cache"
+```
+
+---
+
+### Task 3: The import migration, with the shim swap
 
 **Files:**
 - Create: `lib/setup/migrations/import-legacy-settings.ts`
@@ -338,8 +926,10 @@ git commit -m "settings: presence through provenance, claude.* defaults"
 - Modify: `commands/__tests__/onboarding-org.test.ts:440` (`expectedOrder`)
 
 **Interfaces:**
-- Consumes: `onlyDefault` (Task 1).
+- Consumes: `onlyDefault` (Task 1); `generateShims` from `lib/git-hooks/shims.ts` and `hookState` from `commands/hooks.ts` (Task 2, the latter in a test).
 - Produces: `importLegacySettingsMigration: MigrationDef` (id `2026-10-10-import-legacy-settings`); `legacyHooksValue(raw: unknown): { enabled: boolean; hooks: Record<string, boolean> } | null`; `parsePreferencesStyle(text: string): string | null` (copied here from `lib/skills/writing-style.ts`; Task 4 deletes the original).
+
+The run, in order: rewrite every installed shim (each `~/.mattstack/rt/repos/<dir>/hooks/`, whatever the folder's identity kind); then, for each remote-identity folder whose shims were rewritten or that has none, import its `hooks.json` into that repo's user section and rename it `hooks.json.imported`; then import the writing-style line. A folder whose shims could not be rewritten is skipped whole, so its old shim keeps reading its `hooks.json` and the failed run retries it.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -347,9 +937,11 @@ git commit -m "settings: presence through provenance, claude.* defaults"
 
 ```ts
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { execFileSync } from "child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
+import { hookState } from "../../../commands/hooks.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import { repoDataDir, userSettingsPath } from "../../rt-paths.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
@@ -362,6 +954,7 @@ import { importLegacySettingsMigration, legacyHooksValue, parsePreferencesStyle 
 
 const REPO = "gitlab.example.com/acme/widgets";
 const OFF = JSON.stringify({ enabled: false, hooks: { "pre-push": false } });
+const OLD_SHIM = '#!/bin/bash\nHOOKS_CONFIG="/x/hooks.json"\ngrep -o \'"enabled"\' "$HOOKS_CONFIG"\n';
 const NOTHING = { state: "skipped", detail: "There were no old settings to copy" };
 
 describe("2026-10-10-import-legacy-settings", () => {
@@ -382,14 +975,19 @@ describe("2026-10-10-import-legacy-settings", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  const remoteDir = (id: string) => serializeIdentity({ kind: "remote", id });
   function writeHooks(dirName: string, body: string): string {
     const dir = repoDataDir(dirName);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "hooks.json"), body);
     return join(dir, "hooks.json");
   }
-  const remoteDir = (id: string) => serializeIdentity({ kind: "remote", id });
-
+  function writeOldShim(dirName: string, hook: string): string {
+    const dir = join(repoDataDir(dirName), "hooks");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, hook), OLD_SHIM, { mode: 0o755 });
+    return join(dir, hook);
+  }
   function writePrefs(text: string): string {
     const file = join(home, ".mattstack", "user", "skills", "preferences.md");
     mkdirSync(dirname(file), { recursive: true });
@@ -408,17 +1006,62 @@ describe("2026-10-10-import-legacy-settings", () => {
     expect(existsSync(userSettingsPath())).toBe(false);
   });
 
-  test("copies a repo's hooks.json into that repo's user section and keeps the file the git hook reads", async () => {
+  test("copies a repo's hooks.json into that repo's user section and renames the file", async () => {
     const file = writeHooks(remoteDir(REPO), OFF);
     expect(await run()).toEqual({ state: "done", detail: "Copied your hook choices for 1 repo into your settings" });
     const resolved = getSetting<{ enabled: boolean; hooks: Record<string, boolean> }>("rt.hooks", { repoIdentity: REPO });
     expect(resolved.value).toMatchObject({ enabled: false, hooks: { "pre-push": false } });
     expect(resolved.provenance.map((p) => p.scope)).toContain("user.repo");
-    expect(readFileSync(file, "utf8")).toBe(OFF);
+    expect(existsSync(file)).toBe(false);
     expect(readFileSync(`${file}.imported`, "utf8")).toBe(OFF);
   });
 
-  test("a second run changes nothing", async () => {
+  test("an installed shim that reads hooks.json is rewritten to ask rt", async () => {
+    writeHooks(remoteDir(REPO), OFF);
+    const shim = writeOldShim(remoteDir(REPO), "pre-push");
+    expect(await run()).toEqual({ state: "done", detail: "Copied your hook choices for 1 repo into your settings. Updated rt's hook scripts in 1 repo" });
+    const text = readFileSync(shim, "utf8");
+    expect(text).toContain("hooks enabled");
+    expect(text).not.toContain("hooks.json");
+    expect(existsSync(join(dirname(shim), "pre-commit"))).toBe(true);
+  });
+
+  test("pre-push stays off through the import and the shim swap", async () => {
+    writeHooks(remoteDir(REPO), JSON.stringify({ enabled: true, hooks: { "pre-push": false } }));
+    writeOldShim(remoteDir(REPO), "pre-push");
+    await run();
+    const clone = join(home, "widgets");
+    execFileSync("git", ["init", "-q", clone]);
+    execFileSync("git", ["-C", clone, "remote", "add", "origin", `https://${REPO}.git`]);
+    expect(hookState("pre-push", clone)).toBe("off");
+    expect(hookState("pre-commit", clone)).toBe("on");
+  });
+
+  test("a repo whose shims cannot be rewritten keeps its old shim and its hooks.json, and the run fails so it retries", async () => {
+    const file = writeHooks(remoteDir(REPO), OFF);
+    const shim = writeOldShim(remoteDir(REPO), "pre-push");
+    chmodSync(shim, 0o444);
+    try {
+      const result = await run();
+      expect(result.state).toBe("failed");
+      expect(readFileSync(shim, "utf8")).toBe(OLD_SHIM);
+      expect(readFileSync(file, "utf8")).toBe(OFF);
+      expect(getSetting("rt.hooks", { repoIdentity: REPO }).provenance.every((p) => p.scope === "default")).toBe(true);
+    } finally {
+      chmodSync(shim, 0o755);
+    }
+  });
+
+  test("a remote-less repo's shims are rewritten, and its hooks.json is left where it is", async () => {
+    const pathDir = serializeIdentity({ kind: "path", id: "/src/widgets" });
+    const file = writeHooks(pathDir, OFF);
+    const shim = writeOldShim(pathDir, "pre-push");
+    expect(await run()).toEqual({ state: "done", detail: "Updated rt's hook scripts in 1 repo" });
+    expect(readFileSync(shim, "utf8")).toContain("hooks enabled");
+    expect(readFileSync(file, "utf8")).toBe(OFF);
+  });
+
+  test("a second run imports nothing more", async () => {
     writeHooks(remoteDir(REPO), OFF);
     writePrefs(PREFS);
     await run();
@@ -427,12 +1070,12 @@ describe("2026-10-10-import-legacy-settings", () => {
     expect(readFileSync(userSettingsPath(), "utf8")).toBe(store);
   });
 
-  test("a repo a store already sets keeps its value: its hooks.json is a cache", async () => {
+  test("a repo a store already sets keeps its value, and its hooks.json is not imported", async () => {
     setSetting("rt.hooks", { enabled: true, hooks: {} }, "machine", { repoIdentity: REPO });
     const file = writeHooks(remoteDir(REPO), OFF);
     expect(await run()).toEqual(NOTHING);
     expect(getSetting<{ enabled: boolean }>("rt.hooks", { repoIdentity: REPO }).value.enabled).toBe(true);
-    expect(existsSync(`${file}.imported`)).toBe(false);
+    expect(readFileSync(file, "utf8")).toBe(OFF);
   });
 
   test("a store value the resolver refuses still counts as set, and is never overwritten", async () => {
@@ -444,8 +1087,7 @@ describe("2026-10-10-import-legacy-settings", () => {
     expect(readFileSync(userSettingsPath(), "utf8")).toBe(text);
   });
 
-  test("a remote-less repo and an old name-keyed folder are left alone", async () => {
-    writeHooks(serializeIdentity({ kind: "path", id: "/src/widgets" }), OFF);
+  test("an old name-keyed folder is left alone", async () => {
     writeHooks("widgets", OFF);
     expect(await run()).toEqual(NOTHING);
   });
@@ -532,8 +1174,9 @@ describe("parsePreferencesStyle", () => {
 - [ ] **Step 3: Implement `lib/setup/migrations/import-legacy-settings.ts`**
 
 ```ts
-import { copyFileSync, existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, renameSync } from "fs";
 import { join } from "path";
+import { generateShims } from "../../git-hooks/shims.ts";
 import { mattstackHome, reposDir } from "../../rt-paths.ts";
 import { parseIdentity } from "../../settings/identity.ts";
 import { onlyDefault } from "../../settings/presence.ts";
@@ -548,6 +1191,7 @@ const STYLE_KEY = "skills.writingStyle";
 
 interface Tally {
   hooks: number;
+  shims: number;
   style: boolean;
   unreadable: number;
   failed: string[];
@@ -578,12 +1222,32 @@ export function parsePreferencesStyle(text: string): string | null {
   return null;
 }
 
+function repoDirs(): string[] {
+  return existsSync(reposDir()) ? readdirSync(reposDir()) : [];
+}
+
+/** Today's shims grep hooks.json; the rewrite makes each ask rt. Returns the folders whose shims could not be rewritten. */
+function replaceShims(t: Tally): Set<string> {
+  const stuck = new Set<string>();
+  for (const dir of repoDirs()) {
+    const shimsDir = join(reposDir(), dir, "hooks");
+    if (!existsSync(shimsDir)) continue;
+    try {
+      generateShims(join(reposDir(), dir), readdirSync(shimsDir).filter((name) => !name.startsWith(".")));
+      t.shims++;
+    } catch (err) {
+      t.failed.push(`${dir}: ${(err as Error).message.split("\n")[0]}`);
+      stuck.add(dir);
+    }
+  }
+  return stuck;
+}
+
 /** Only remote repos have a settings section, so a path-kind or pre-identity folder has nowhere to go. */
-function importHooks(t: Tally): void {
-  if (!existsSync(reposDir())) return;
-  for (const dir of readdirSync(reposDir())) {
+function importHooks(t: Tally, stuck: Set<string>): void {
+  for (const dir of repoDirs()) {
     const identity = parseIdentity(dir);
-    if (identity?.kind !== "remote") continue;
+    if (identity?.kind !== "remote" || stuck.has(dir)) continue;
     const file = join(reposDir(), dir, "hooks.json");
     const opts = { repoIdentity: identity.id };
     if (!existsSync(file) || storeHolds(HOOKS_KEY, opts)) continue;
@@ -607,8 +1271,7 @@ function importHooks(t: Tally): void {
       t.failed.push(`${identity.id}: the copy did not read back`);
       continue;
     }
-    // The shim and the daemon's hooks guard still read hooks.json, so it stays.
-    copyFileSync(file, `${file}.imported`);
+    renameSync(file, `${file}.imported`);
     t.hooks++;
   }
 }
@@ -636,7 +1299,7 @@ function outcome(t: Tally): StepOutcome {
   if (t.failed.length > 0) {
     return {
       state: "failed",
-      detail: `Could not copy ${t.failed.length} old ${plural(t.failed.length, "setting", "settings")} into your settings: ${t.failed[0]}`,
+      detail: `Could not copy or update ${t.failed.length} old ${plural(t.failed.length, "file", "files")}: ${t.failed[0]}`,
       remedy: "Run rt settings check, fix what it names, then Retry",
     };
   }
@@ -644,24 +1307,28 @@ function outcome(t: Tally): StepOutcome {
     t.hooks > 0 ? `your hook choices for ${t.hooks} ${plural(t.hooks, "repo", "repos")}` : null,
     t.style ? "your writing style" : null,
   ].filter((part): part is string => part !== null);
+  const sentences = [
+    copied.length > 0 ? `Copied ${copied.join(" and ")} into your settings` : null,
+    t.shims > 0 ? `Updated rt's hook scripts in ${t.shims} ${plural(t.shims, "repo", "repos")}` : null,
+  ].filter((s): s is string => s !== null);
   const unread = t.unreadable > 0 ? `${t.unreadable} old ${plural(t.unreadable, "file", "files")} could not be read, so rt left ${plural(t.unreadable, "it where it is", "them where they are")}` : null;
-  if (copied.length === 0) return { state: "skipped", detail: unread ? `There were no old settings to copy. ${unread}` : "There were no old settings to copy" };
-  return { state: "done", detail: `Copied ${copied.join(" and ")} into your settings${unread ? `. ${unread}` : ""}` };
+  if (sentences.length === 0) return { state: "skipped", detail: unread ? `There were no old settings to copy. ${unread}` : "There were no old settings to copy" };
+  return { state: "done", detail: [...sentences, ...(unread ? [unread] : [])].join(". ") };
 }
 
 export const importLegacySettingsMigration: MigrationDef = {
   id: "2026-10-10-import-legacy-settings",
   title: "Copy your old hook choices and writing style into your settings",
   async run() {
-    const tally: Tally = { hooks: 0, style: false, unreadable: 0, failed: [] };
-    importHooks(tally);
+    const tally: Tally = { hooks: 0, shims: 0, style: false, unreadable: 0, failed: [] };
+    importHooks(tally, replaceShims(tally));
     importWritingStyle(tally);
     return outcome(tally);
   },
 };
 ```
 
-In `lib/setup/migrations/index.ts`, import it and append it last:
+A second run rewrites the shims again (same bytes), so `t.shims` counts them and the "a second run imports nothing more" test seeds no shim dir. In `lib/setup/migrations/index.ts`, import it and append it last:
 
 ```ts
 import { importLegacySettingsMigration } from "./import-legacy-settings.ts";
@@ -680,239 +1347,13 @@ In `commands/__tests__/onboarding-org.test.ts:440`, add `"migration.2026-10-10-i
 bun test lib/setup/__tests__/migration-import-legacy-settings.test.ts lib/__tests__/no-shared-store-migrations.test.ts lib/__tests__/no-settings-bypass.test.ts lib/setup/__tests__/update-safe.test.ts lib/setup/__tests__/migrations.test.ts commands/__tests__/onboarding-org.test.ts commands/__tests__/member-upgrade.test.ts
 ```
 
-If `no-settings-bypass` flags the new file, the read reached for a per-rung helper; `listSettings` is not one, so go back to it rather than adding an allowlist entry.
+If `no-settings-bypass` flags the new file, the read reached for a per-rung helper; `listSettings` is not one, so go back to it rather than adding an allowlist entry. If the read-only shim test passes as root (CI runners can), skip it there with `test.skipIf(process.getuid?.() === 0)`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add lib/setup/migrations/import-legacy-settings.ts lib/setup/migrations/index.ts lib/setup/__tests__/migration-import-legacy-settings.test.ts commands/__tests__/onboarding-org.test.ts
-git commit -m "setup: import legacy hooks.json and writing style into the user store"
-```
-
----
-
-### Task 3: Retire the `rt.hooks` latch
-
-**Files:**
-- Modify: `commands/hooks.ts` (module doc, `HOOKS_WRITE_SCOPE`, `probeHooksStore`, `readLegacyRaw`, `loadHooksConfig`, `saveHooksConfig`, `toggleHooks`, exports)
-- Modify: `commands/__tests__/hooks.test.ts`
-- Modify: `packages/rt-client/src/settings/registry-defs.ts` (`rt.hooks` row)
-- Modify: `packages/rt-client/src/settings/__tests__/registry.test.ts`, `registry-console-ready.test.ts`
-
-**Interfaces:**
-- Consumes: `registryDefault` (Task 1); `importLegacySettingsMigration` (Task 2, in a test).
-- Produces: `loadHooksConfig(discoveredHooks: string[], repoIdentity: string | null): HooksConfig`; `saveHooksConfig(repoRoot: string, dataDir: string, config: HooksConfig, repoIdentity: string): void` (throws `UserActionableError` code `hooks-not-saved`). `regenerateHooksCache(repoRoot, dataDir, repoIdentity)` keeps its signature.
-
-- [ ] **Step 1: Write the failing tests**: in `commands/__tests__/hooks.test.ts`:
-
-1. Add imports: `existsSync` from `fs`; `serializeIdentity` from `../../lib/settings/identity.ts`; `setSettingsNoticeSink` beside `setSetting`; `importLegacySettingsMigration` from `../../lib/setup/migrations/import-legacy-settings.ts`; `type ApplyContext` from `../../lib/setup/apply.ts`; `getDef` from `../../lib/settings/registry.ts`. In the outer `beforeEach`, add `previousSink = setSettingsNoticeSink(() => {});` (declare `let previousSink: ReturnType<typeof setSettingsNoticeSink>;`), and restore it in the outer `afterEach`: user-scope writes print a share tip otherwise.
-2. Rename `writeLegacy` to `writeCache` everywhere (it only writes the file the shim reads).
-3. Replace the `describe("loadHooksConfig", ...)` block with:
-
-```ts
-  describe("loadHooksConfig", () => {
-    test("nothing set: the registry default, every hook on", () => {
-      expect(getDef("rt.hooks")!.default).toEqual({ enabled: true });
-      expect(loadHooksConfig(["pre-commit", "pre-push"], IDENTITY)).toEqual({ enabled: true, hooks: { "pre-commit": true, "pre-push": true } });
-    });
-
-    test("an old hooks.json is no longer read", () => {
-      writeCache({ enabled: false, hooks: { "pre-commit": false } });
-      expect(loadHooksConfig(["pre-commit"], IDENTITY)).toEqual({ enabled: true, hooks: { "pre-commit": true } });
-    });
-
-    test("a hook the store does not name runs", () => {
-      writeStoreValue({ enabled: true, hooks: { "pre-commit": false } });
-      expect(loadHooksConfig(["pre-commit", "pre-push"], IDENTITY)).toEqual({ enabled: true, hooks: { "pre-commit": false, "pre-push": true } });
-    });
-  });
-```
-
-4. In `describe("regenerateHooksCache", ...)`: change the "store unowned" test to
-
-```ts
-    test("nothing set: the cache is rewritten from the registry default", () => {
-      writeCache({ enabled: true, hooks: { "pre-commit": false } });
-      regenerateHooksCache(repoRoot, dataDir, IDENTITY);
-      expect(readCache()).toEqual({ enabled: true, hooks: { "pre-commit": true, "pre-push": true } });
-    });
-```
-
-change the probe-failure test's title to "a store rt cannot read is best-effort: never throws, and the cache is written from the registry default" (its expectation stays), and add:
-
-```ts
-    test("after the import migration, regenerating the cache keeps the imported choices", async () => {
-      const idDir = repoDataDir(serializeIdentity({ kind: "remote", id: IDENTITY }));
-      mkdirSync(idDir, { recursive: true });
-      writeFileSync(join(idDir, "hooks.json"), JSON.stringify({ enabled: true, hooks: { "pre-push": false } }));
-      await importLegacySettingsMigration.run({} as ApplyContext);
-      regenerateHooksCache(repoRoot, idDir, IDENTITY);
-      expect(JSON.parse(readFileSync(join(idDir, "hooks.json"), "utf8"))).toEqual({ enabled: true, hooks: { "pre-commit": true, "pre-push": false } });
-    });
-```
-
-5. Replace the `describe("saveHooksConfig", ...)` block with:
-
-```ts
-  describe("saveHooksConfig", () => {
-    test("writes your user settings for this repo and refreshes the cache", () => {
-      const next: HooksConfig = { enabled: false, hooks: { "pre-commit": false } };
-      saveHooksConfig(repoRoot, dataDir, next, IDENTITY);
-      const resolved = getSetting("rt.hooks", { repoIdentity: IDENTITY });
-      expect(resolved.value).toEqual(next);
-      expect(resolved.provenance.map((p) => p.scope)).toContain("user.repo");
-      expect(readCache()).toEqual({ enabled: false, hooks: { "pre-commit": false, "pre-push": true } });
-    });
-
-    test("a value an older rt wrote on this Mac no longer outranks your choice", () => {
-      setSetting("rt.hooks", { enabled: false, hooks: {} }, "machine", { repoIdentity: IDENTITY });
-      saveHooksConfig(repoRoot, dataDir, { enabled: true, hooks: { "pre-commit": true, "pre-push": true } }, IDENTITY);
-      const resolved = getSetting<HooksConfig>("rt.hooks", { repoIdentity: IDENTITY });
-      expect(resolved.value.enabled).toBe(true);
-      expect(resolved.provenance.map((p) => p.scope)).not.toContain("machine.repo");
-      expect(readCache()).toEqual({ enabled: true, hooks: { "pre-commit": true, "pre-push": true } });
-    });
-
-    test("a store rt cannot write is a failure, and the cache is left alone", () => {
-      mkdirSync(join(userSettingsPath(), ".."), { recursive: true });
-      writeFileSync(userSettingsPath(), "{not valid json");
-      expect(() => saveHooksConfig(repoRoot, dataDir, { enabled: false, hooks: {} }, IDENTITY)).toThrow("Your hooks choice was not saved");
-      expect(existsSync(hooksConfigPath(dataDir))).toBe(false);
-    });
-  });
-```
-
-6. In the `"store writes + regeneration"` test nothing changes. In `describe("through toggleHooks", ...)`, change `ctx()` to pass `remoteUrl: "git@example.com:org/repo.git"`, and add:
-
-```ts
-      test("a repo with no remote is refused, and its hook files are left alone", async () => {
-        writeCache({ enabled: false, hooks: { "pre-commit": false } });
-        const noRemote: CommandContext = { identity: { repoName: "repo", identity: "path:%2Frepo", repoRoot, dataDir, remoteUrl: "", baseUrl: "" } };
-        await expect(toggleHooks(["on"], noRemote)).rejects.toThrow("exit 1");
-        expect(io.stderr()).toBe("[refused] This repo has no remote, so rt has nowhere to keep its hook choices\n");
-        expect(io.stdout()).toBe("");
-        expect(readCache()).toEqual({ enabled: false, hooks: { "pre-commit": false } });
-        expect(existsSync(join(dataDir, "hooks"))).toBe(false);
-      });
-```
-
-7. In "a hooks setting rt cannot read is shown once and logged", change both calls to `loadHooksConfig(["pre-commit"], IDENTITY)`.
-
-- [ ] **Step 2: Run, expect FAIL**: `bun test commands/__tests__/hooks.test.ts` (signature mismatches, legacy file still read, machine value still wins, no refusal).
-
-- [ ] **Step 3: Implement in `commands/hooks.ts`**
-
-Replace the module doc's second and third paragraphs (lines 6-24) with:
-
-```ts
- * core.hooksPath points at shim scripts in ~/.mattstack/rt/repos/<repo>/hooks/.
- * A shim greps ~/.mattstack/rt/repos/<repo>/hooks.json and delegates to the
- * real .husky/ script. That file must stay a zero-spawn grep target, because a
- * git hook runs on every git operation and cannot pay for a second process, so
- * it is a cache of `rt.hooks`, rewritten at every seam that can change the
- * resolved value: `rt hooks` itself, `rt settings set rt.hooks --repo`
- * (commands/settings-keys.ts), and `rt hooks status`, where a person notices a
- * stale cache, so it self-heals there. The cache is never renamed or unlinked
- * out from under the shim.
-```
-
-Imports: drop `readFileSync`; add `import { UserActionableError } from "../lib/errors.ts";`, `import { registryDefault } from "../lib/settings/presence.ts";`, and `unsetSetting` beside `setSetting`.
-
-Replace everything from `const HOOKS_WRITE_SCOPE` through the end of `saveHooksConfig` (keeping `hooksConfigPath`, `regenerateHooksCache` and `refreshHooksCacheBestEffort`) with:
-
-```ts
-/** Your hook choices for a repo follow you to every Mac. */
-const HOOKS_WRITE_SCOPE: SettingScope = "user";
-
-function hooksConfigPath(dataDir: string): string {
-  return join(dataDir, "hooks.json");
-}
-
-/** A store rt cannot read falls back to the registry default, with a warning that never echoes the store's value. */
-function readHooksSetting(repoIdentity: string | null): Value<"rt.hooks"> {
-  try {
-    return getSetting<Value<"rt.hooks">>(SETTING_KEY, { repoIdentity }).value;
-  } catch (err) {
-    const message = (err as Error).message;
-    warn("hooks", `ignoring "${SETTING_KEY}" -- ${message}`, {
-      show: { title: "Your hooks setting is being ignored", hint: message.split("\n")[0], next: out.cmd("rt settings check") },
-    });
-    return registryDefault<Value<"rt.hooks">>(SETTING_KEY);
-  }
-}
-
-/** The resolved config, with a hook the setting does not name turned on. Both the toggle UI and the cache read it. */
-function loadHooksConfig(discoveredHooks: string[], repoIdentity: string | null): HooksConfig {
-  const declared = readHooksSetting(repoIdentity);
-  const hooks: Record<string, boolean> = {};
-  for (const hook of discoveredHooks) hooks[hook] = declared.hooks?.[hook] !== false;
-  return { enabled: declared.enabled !== false, hooks };
-}
-```
-
-then, after `refreshHooksCacheBestEffort`:
-
-```ts
-/**
- * Writes your user settings, then drops this repo's machine value: an older
- * rt wrote there, and machine.repo outranks user.repo, so it would hide this
- * choice on this Mac.
- */
-function saveHooksConfig(repoRoot: string, dataDir: string, config: HooksConfig, repoIdentity: string): void {
-  try {
-    setSetting(SETTING_KEY, config, HOOKS_WRITE_SCOPE, { repoIdentity });
-    unsetSetting(SETTING_KEY, "machine", { repoIdentity });
-  } catch (err) {
-    throw new UserActionableError("hooks-not-saved", "Your hooks choice was not saved", {}, { why: (err as Error).message.split("\n")[0], next: "rt settings check" });
-  }
-  regenerateHooksCache(repoRoot, dataDir, repoIdentity);
-}
-```
-
-In `regenerateHooksCache`, change its read to `const config = loadHooksConfig(discoveredHooks, repoIdentity);`; its doc comment stays.
-
-In `toggleHooks`, right after the `derivedIdentity`/`repoIdentity` lines and before `loadHooksConfig`:
-
-```ts
-  if (repoIdentity === null) {
-    out.note(out.line("refused", "This repo has no remote, so rt has nowhere to keep its hook choices"));
-    process.exit(1);
-  }
-```
-
-and change `loadHooksConfig(dataDir, discoveredHooks, repoIdentity)` to `loadHooksConfig(discoveredHooks, repoIdentity)`.
-
-- [ ] **Step 4: Registry row**: in `registry-defs.ts`, make the `rt.hooks` row:
-
-```ts
-  {
-    key: "rt.hooks",
-    type: "object",
-    scopes: ALL_SCOPES,
-    default: { enabled: true },
-    merge: "deep",
-    repoScoped: true,
-    repoOnly: true,
-    description: "Per-repo git hook switches ({enabled, hooks: {<hookName>: boolean}}); a hook the map does not name runs. rt hooks writes your user settings, so a repo's choices follow you to every Mac. The git hook shim reads repos/<repo>/hooks.json, a cache rt rewrites from this key whenever rt hooks or rt settings set --repo changes it.",
-  },
-```
-
-(`migrated: true` goes: the row has no legacy reader left.) In `registry-console-ready.test.ts`, remove `"rt.hooks"` from `PENDING_DEFAULT`. In `registry.test.ts`: the `rt.hooks is a repo-scoped field-bag object with no default ...` test becomes `"rt.hooks is a repo-scoped field-bag object that defaults to every hook on"` with `expect(def?.default).toEqual({ enabled: true });`; remove `"rt.hooks"` from both `migrated:true` lists (the `exactly 28 keys are migrated:true` test and `migratedTrueKeys`), add `"rt.hooks"` to `suiteKeys`, bump `expect(suiteKeys).toHaveLength(87)` to `88`, and change both test titles' migrated count from 28 to 27.
-
-- [ ] **Step 5: Build and pass**
-
-```bash
-bun run --cwd packages/rt-client build
-bun test commands/__tests__/hooks.test.ts commands/__tests__/settings-keys-hooks-regen.test.ts lib/daemon/__tests__/hooks-handlers.test.ts lib/daemon/__tests__/hooks-guard.test.ts packages/rt-client/src/settings/__tests__/registry.test.ts packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts packages/rt-client/src/settings/__tests__/schema-examples.test.ts lib/__tests__/no-raw-output.test.ts
-```
-
-Expected: PASS. If `settings-keys-hooks-regen.test.ts` asserts a cache built while nothing is set, its expectation becomes the default (every hook on).
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add commands/hooks.ts commands/__tests__/hooks.test.ts packages/rt-client/src/settings/registry-defs.ts packages/rt-client/src/settings/__tests__/registry.test.ts packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts
-git commit -m "hooks: rt.hooks reads only the store and writes your user settings"
+git commit -m "setup: swap hook shims and import legacy hooks.json and writing style"
 ```
 
 ---
@@ -929,7 +1370,7 @@ git commit -m "hooks: rt.hooks reads only the store and writes your user setting
 
 **Interfaces:**
 - Consumes: `onlyDefault`, `registryDefault` (Task 1).
-- Produces: `resolveWritingStyle(opts?: { read?: (key: string) => Resolved<unknown> }): ResolvedWritingStyle`; `WritingStyleSource = "user" | "team" | "fallback"`; `FALLBACK_WRITING_STYLE` (now the registry default). Removed: `preferencesPath`, `parsePreferencesStyle` (Task 2 owns the parser now). `source: "fallback"` means exactly what `unwritten("skills.writingStyle")` means, on the same read, so `show` and the setup row cannot disagree.
+- Produces: `resolveWritingStyle(opts?: { read?: (key: string) => Resolved<unknown> }): ResolvedWritingStyle`; `WritingStyleSource = "user" | "team" | "fallback"`; `FALLBACK_WRITING_STYLE` (now the registry default). Removed: `preferencesPath`, `parsePreferencesStyle` (Task 3 owns the parser now). `source: "fallback"` means exactly what `unwritten("skills.writingStyle")` means, on the same read, so `show` and the setup row cannot disagree.
 
 - [ ] **Step 1: Write the failing tests**: replace `lib/skills/__tests__/writing-style.test.ts` with:
 
