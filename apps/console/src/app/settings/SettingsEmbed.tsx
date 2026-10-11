@@ -54,8 +54,14 @@ export function SettingsEmbed({ group }: { group: string }) {
   useEffect(() => {
     const el = frame.current;
     if (!el) return;
-    const report = () =>
-      postToHost(embedMessage('height', { height: el.scrollHeight }));
+    // The box sits below the page's own top inset; the host's frame needs
+    // that inset under the content too, or the last row is clipped.
+    const report = () => {
+      const inset = el.getBoundingClientRect().top + window.scrollY;
+      postToHost(
+        embedMessage('height', { height: el.scrollHeight + 2 * inset })
+      );
+    };
     report();
     const ro = new ResizeObserver(report);
     ro.observe(el);

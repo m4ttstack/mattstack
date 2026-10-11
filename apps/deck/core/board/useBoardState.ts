@@ -195,7 +195,6 @@ export function useBoardState(
   const [editModal, setEditModal] = useState<EditModalState | null>(null);
   const [accessModal, setAccessModal] = useState<AccessModalState | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Row | null>(null);
-  const [pendingUnlink, setPendingUnlink] = useState<Row | null>(null);
   const [proxyNotice, setProxyNotice] = useState<Notice | null>(null);
   const [reloadingProxy, setReloadingProxy] = useState(false);
   const [commandRuns, setCommandRuns] = useState<CommandRuns>({});
@@ -656,14 +655,6 @@ export function useBoardState(
 
   // ---- remove ----
   const onRemove = useCallback((row: Row) => setPendingRemove(row), []);
-  const onUnlink = useCallback((row: Row) => setPendingUnlink(row), []);
-  const cancelUnlink = useCallback(() => setPendingUnlink(null), []);
-  const confirmUnlink = useCallback(async () => {
-    if (!pendingUnlink) return;
-    const row = pendingUnlink;
-    setPendingUnlink(null);
-    await unlinkSource(row);
-  }, [pendingUnlink, unlinkSource]);
   const cancelRemove = useCallback(() => setPendingRemove(null), []);
   const confirmRemove = useCallback(async () => {
     if (!pendingRemove) return;
@@ -955,10 +946,6 @@ export function useBoardState(
     pendingRemove,
     onRemove,
     cancelRemove,
-    pendingUnlink,
-    onUnlink,
-    cancelUnlink,
-    confirmUnlink,
     confirmRemove,
     accessModal,
     openAccess,
