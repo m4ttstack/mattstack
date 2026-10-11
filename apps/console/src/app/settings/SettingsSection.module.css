@@ -25,14 +25,14 @@
   );
 }
 
-/* Not set has no layer, so it takes the page's card surface instead of a
-   scope's wash. */
+/* Not set has no store, so it takes the default layer's gray, the same fill
+   as the default badge. */
 .block[data-scope='unset'] {
-  background: var(--tk-card);
+  background: var(--mantine-color-gray-light);
 }
 
 .block[data-scope='unset'] .head {
-  background: var(--tk-panel);
+  background: var(--mantine-color-gray-light-hover);
 }
 
 /* On the light heading's own wash a light badge almost vanishes, so it
