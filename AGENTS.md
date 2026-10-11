@@ -13,8 +13,8 @@ glance, gitq, or the acme skills, read `docs/architecture.md` for the links.
 Every key any mattstack app reads lives in the suite settings stores behind
 the resolver in `packages/rt-client`. Before adding a key, porting config, or
 touching `~/.mattstack`, read `docs/settings-architecture.md` (scope model,
-registry checklist, ownership latch, the call-time HOME and sops footguns).
-The working rules for `getSetting`/`setSetting`, scope choice and latches are
+registry checklist, defaults and default notes, the call-time HOME and sops footguns).
+The working rules for `getSetting`/`setSetting`, scope choice and defaults are
 the `rt-settings` skill (`skills/rt-settings/SKILL.md`); this file does not
 repeat them.
 

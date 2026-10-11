@@ -160,6 +160,14 @@ exist for out-of-process callers only.
    whose value describes one repo's code is `repoScoped` and `repoOnly`; keep
    a per-repo key global-capable only when some field is read with no repo,
    as `rt.gitStatus`'s sweep switch and interval are.
+   Then give the row its `default`, the value the app uses with nothing set
+   (`[]` or `{}` for a key whose empty value means no config), or, for a key
+   with none (an identity, a trust grant, a required or computed value), a
+   `defaultNote`: one short plain sentence the console shows instead.
+   `registry-console-ready.test.ts` fails a row with neither, or with both.
+   A reader takes `getSetting(k).value` with no `?? fallback` of its own and
+   asks whether anyone set a key with `unwritten`/`onlyDefault`
+   (`lib/settings/presence.ts`), never `.value === undefined`.
 2. Write the key's zod schema in `SCHEMAS`
    (`packages/rt-client/src/settings/registry-schemas.ts`), scalars included:
    the console edits only a key with a schema, and
@@ -311,28 +319,19 @@ highest older name it can migrate (`migrateFrom` steps in
   carry; release preflight runs the candidate's check against the real
   stores.
 
-## Porting an app's config (the ownership latch)
+## Porting history
 
-When a key migrates from an app's own config file, the transition pattern is:
-`getSetting(KEY).value === undefined` ⇒ the store does NOT own the key ⇒ read
-(and write) the legacy file as before; probe failures (try/catch) count as
-unowned plus ONE warning that never echoes values. Once the store owns the key
-it wins (per-field for field-bag objects, wholesale for maps — document which),
-and store values go through the SAME validators as file values. Writers hitting
-ENOENT on the legacy file write the store instead (file-authority is
-meaningless with no file). The cutover imports live values, VERIFIES the write
-actually persisted, then renames the legacy file to `<name>.migrated` — never
-unlinks it, so an interrupted run loses nothing and a corrupt file (left in
-place, unrenamed) stays recoverable by hand. Verifying is not optional:
-`persistOrWarn` swallows `SQLITE_BUSY`, so a write that returned is not
-necessarily a write that landed. Reference implementations:
-`lib/state/legacy-import.ts`, `lib/run-history.ts`,
-`apps/board/src/config.ts`,
-`apps/gitq/src/core/{worktrees,forges}.ts`, `apps/deck/src/api/platform-settings.ts`.
-
-**Invariant: keys behind an ownership latch must carry NO registry `default`** —
-a default materializes as a present value and flips the key store-authoritative
-on every install (stated at the `board.*` block in registry-defs).
+Until RT-487 an app's own config file could keep owning a key: the reader
+fell back to the file while `getSetting(k).value` was `undefined`, so a
+ported key carried no registry default. The
+`2026-10-10-import-legacy-settings` and `2026-10-11-import-app-settings`
+setup migrations copied the last live values into the user and machine
+stores, deck copies its own at boot, and every reader now reads the store
+alone. A new port goes in the same order: a migration copies the file's
+values (user and machine scope only, never over a value a store holds),
+verifies each copy read back, renames the file `<name>.imported`, and only
+then does the reader drop the file. `lib/state/legacy-import.ts` is the
+reference for verifying before the rename.
 
 ## Footguns (each cost a real debugging session)
 
