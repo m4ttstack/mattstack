@@ -5,9 +5,9 @@
 import { readFileSync, renameSync } from 'fs';
 import { join } from 'path';
 
-import { explainSetting, getSetting, setSetting } from '@mattstack/rt-client';
+import { getSetting, setSetting } from '@mattstack/rt-client';
 import { stateDir } from '../api/state.ts';
-import { heldEntries, type ExplainFn } from '../api/store-import.ts';
+import { defaultExplain, heldEntries, type ExplainFn } from '../api/store-import.ts';
 
 export type OAuth =
   | { mode: 'off' }
@@ -61,7 +61,7 @@ type SetSettingFn = typeof setSetting;
  * file is left for the next one.
  */
 export function importAccessFile(
-  explain: ExplainFn = explainSetting,
+  explain: ExplainFn = defaultExplain,
   write: SetSettingFn = setSetting
 ): Record<string, OAuth> {
   const path = accessPath();
@@ -101,7 +101,7 @@ export function importAccessFile(
   }
 }
 
-function readStore(resolve: GetSettingFn): Record<string, unknown> {
+function readStoredAccess(resolve: GetSettingFn): Record<string, unknown> {
   try {
     return resolve<Record<string, unknown>>(STORE_KEY).value as Record<
       string,
@@ -123,7 +123,7 @@ function load(
 ): AccessFile {
   const apps: Record<string, OAuth> = {};
   for (const [app, rule] of Object.entries({
-    ...readStore(resolve),
+    ...readStoredAccess(resolve),
     ...pending,
   }))
     if (isOAuth(rule)) apps[app] = rule;
@@ -154,7 +154,7 @@ export function getOAuth(app: string): OAuth {
  * the user scope holds: refuse instead.
  */
 function currentRawAccessStore(): Record<string, unknown> {
-  if (heldEntries(STORE_KEY, 'user', explainSetting).refused)
+  if (heldEntries(STORE_KEY, 'user', defaultExplain).refused)
     throw new Error(
       `deck: ${STORE_KEY} holds a value rt refused; fix it before changing sign-in rules`
     );

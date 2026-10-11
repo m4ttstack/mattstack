@@ -9,14 +9,13 @@ import { dirname, join } from 'path';
 import { isDeepStrictEqual } from 'util';
 
 import {
-  explainSetting,
   getDef,
   getSetting,
   setSetting,
   unsetSetting,
 } from '@mattstack/rt-client';
 import { stateDir } from './state.ts';
-import { heldEntries, type ExplainFn } from './store-import.ts';
+import { defaultExplain, heldEntries, type ExplainFn } from './store-import.ts';
 
 export interface TunnelIdentity {
   name: string;
@@ -101,7 +100,7 @@ function storeFieldsOf(values: PlatformSettings): StoreFields {
 
 /** Same one-time copy as core/settings.ts's importFileFields, per field instead of per app. */
 export function importFileFields(
-  explain: ExplainFn = explainSetting,
+  explain: ExplainFn = defaultExplain,
   write: SetSettingFn = setSetting
 ): Partial<StoreFields> {
   const file = readFile();
@@ -134,7 +133,7 @@ export function importFileFields(
   }
 }
 
-function readStore(resolve: GetSettingFn): StoreFields {
+function readStoredPlatform(resolve: GetSettingFn): StoreFields {
   try {
     return resolve<StoreFields>(STORE_KEY).value as StoreFields;
   } catch (err) {
@@ -157,7 +156,7 @@ function load(
   return {
     ...FILE_DEFAULTS,
     ...fileOnly,
-    ...readStore(resolve),
+    ...readStoredPlatform(resolve),
     ...pending,
   } as PlatformSettings;
 }
@@ -192,7 +191,7 @@ export function updatePlatformSettings(patch: Partial<PlatformSettings>): void {
   let ownBefore: { present: boolean; value?: unknown };
   let storeChanged: boolean;
   try {
-    const ownRow = explainSetting(STORE_KEY).find(r => r.scope === 'machine');
+    const ownRow = defaultExplain(STORE_KEY).find(r => r.scope === 'machine');
     ownBefore = ownRow?.present
       ? { present: true, value: ownRow.authored ?? ownRow.value }
       : { present: false };

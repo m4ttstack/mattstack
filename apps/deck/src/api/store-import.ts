@@ -2,6 +2,9 @@ import { explainSetting } from '@mattstack/rt-client';
 
 export type ExplainFn = typeof explainSetting;
 
+/** The resolver's per-scope explain, the one door every deck module reads rungs through. */
+export const defaultExplain: ExplainFn = explainSetting;
+
 export interface HeldEntries {
   /** A store holds a value the resolver refused; the import must leave it alone. */
   refused: boolean;

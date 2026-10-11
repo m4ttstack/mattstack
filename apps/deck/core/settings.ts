@@ -9,9 +9,9 @@ import {
 import { dirname, join } from 'path';
 import { isDeepStrictEqual } from 'util';
 
-import { explainSetting, getSetting, setSetting } from '@mattstack/rt-client';
+import { getSetting, setSetting } from '@mattstack/rt-client';
 import { stateDir } from '../src/api/state.ts';
-import { heldEntries, type ExplainFn } from '../src/api/store-import.ts';
+import { defaultExplain, heldEntries, type ExplainFn } from '../src/api/store-import.ts';
 
 export interface PortOverride {
   devPort: number;
@@ -126,7 +126,7 @@ function writeFile(state: SettingsFile): void {
  * file is left for the next one.
  */
 export function importFileFields(
-  explain: ExplainFn = explainSetting,
+  explain: ExplainFn = defaultExplain,
   write: SetSettingFn = setSetting
 ): StoreApps {
   const file = readFile();
@@ -165,7 +165,7 @@ export function importFileFields(
 }
 
 /** Null when the store cannot be read or holds a value the resolver refused, which makes every app read unpublished. */
-function readStore(resolve: GetSettingFn, explain: ExplainFn): StoreApps | null {
+function readStoredApps(resolve: GetSettingFn, explain: ExplainFn): StoreApps | null {
   try {
     if (heldEntries(STORE_KEY, 'user', explain).refused) {
       console.warn(
@@ -188,13 +188,13 @@ let storeUnreadable = false;
 function load(
   resolve: GetSettingFn,
   pending: StoreApps = {},
-  explain: ExplainFn = explainSetting
+  explain: ExplainFn = defaultExplain
 ): SettingsFile {
   const file = readFile();
   const apps: Record<string, AppEntry> = {};
   for (const [app, entry] of Object.entries(file.apps))
     apps[app] = fileEntry(entry);
-  const store = readStore(resolve, explain);
+  const store = readStoredApps(resolve, explain);
   storeUnreadable = store === null;
   for (const [app, fields] of Object.entries({ ...store, ...pending }))
     apps[app] = { ...apps[app], ...fields };
@@ -208,7 +208,7 @@ mintSecretIfMissing();
 export function reloadSettings(
   resolve: GetSettingFn = getSetting,
   pending: StoreApps = {},
-  explain: ExplainFn = explainSetting
+  explain: ExplainFn = defaultExplain
 ): void {
   cache = load(resolve, pending, explain);
   mintSecretIfMissing();
