@@ -38,7 +38,6 @@ import { BuddiesProvider } from './buddies-context';
 import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
-import { dmPairLabel, repeatedPairLabels } from './display-name';
 import { DmPairTitle } from './DmPairTitle';
 import type { FleetRoom } from './FleetTree';
 import { HUMAN_HANDLE } from './human';
@@ -428,27 +427,12 @@ function FleetDot({ color, hollow }: { color?: string; hollow?: boolean }) {
   );
 }
 
-function roomHeaderTitle(
-  room: RoomSummary | undefined,
-  withAvatars: boolean
-): ReactNode {
+function roomHeaderTitle(room: RoomSummary | undefined): ReactNode {
   if (!room) return '';
   return room.kind === 'dm' && room.participants ? (
-    <DmPairTitle pair={room.participants} withAvatars={withAvatars} />
+    <DmPairTitle pair={room.participants} />
   ) : (
     `#${room.room}`
-  );
-}
-
-/** The sidebar's own rule over the sidebar's own list: `railRooms` is what
-    `RoomRail` hands `FleetTree`, so the header and the rows cannot disagree. */
-function headerWithAvatars(
-  room: RoomSummary | undefined,
-  railRooms: FleetRoom[]
-): boolean {
-  if (room?.kind !== 'dm' || !room.participants) return false;
-  return repeatedPairLabels(railRooms.filter(r => r.kind === 'dm')).has(
-    dmPairLabel(room.participants)
   );
 }
 
@@ -463,14 +447,12 @@ function PhoneHeader({
   reachable,
   onOpenDrawer,
   onCloseRoom,
-  withAvatars,
 }: {
   room: RoomSummary | undefined;
   buddies: Buddy[];
   reachable: boolean;
   onOpenDrawer: () => void;
   onCloseRoom: (room: string) => void;
-  withAvatars: boolean;
 }) {
   const live = buddies.filter(b => b.status === 'live').length;
   const idle = buddies.filter(b => b.status === 'idle').length;
@@ -502,7 +484,7 @@ function PhoneHeader({
         fw={700}
         style={{ fontSize: 'var(--mantine-font-size-sm)', minWidth: 0 }}
       >
-        {roomHeaderTitle(room, withAvatars)}
+        {roomHeaderTitle(room)}
       </Text>
       <Box style={{ flex: 1 }} />
       <UnstyledButton
@@ -606,7 +588,6 @@ function PhoneChat({
         reachable={daemon.reachable}
         onOpenDrawer={() => setDrawerOpen(true)}
         onCloseRoom={onCloseRoom}
-        withAvatars={headerWithAvatars(activeRoomSummary, railRooms)}
       />
 
       <DaemonBanner
@@ -1041,7 +1022,6 @@ function ChatPage({
                   reachable={daemon.reachable}
                   onMarkedRead={() => void refetchRooms()}
                   onAddAgents={panesAvailable ? addAgents : undefined}
-                  withAvatars={headerWithAvatars(activeRoomSummary, railRooms)}
                 />
               </PageShell.Header>
             )

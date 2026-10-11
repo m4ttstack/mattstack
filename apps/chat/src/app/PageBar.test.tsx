@@ -323,7 +323,9 @@ test('a DM shows the pair as its title, wakes: all in its member popover', async
       buddies={[]}
     />
   );
-  expect(screen.getByText('deck-main ↔ rt-chat-wt')).toBeInTheDocument();
+  expect(screen.getByTestId('page-bar-title')).toHaveTextContent(
+    'deck-main ↔ rt-chat-wt'
+  );
   // A DM uses the same members chip + roster as a channel, so wakes moves
   // into the popover header.
   await userEvent.click(screen.getByTestId('members-chip'));
@@ -498,7 +500,7 @@ test('a DM title reads the pair by name, never an id', () => {
       buddies={[]}
     />
   );
-  expect(screen.getByText('kai ↔ remy')).toBeInTheDocument();
+  expect(screen.getByTestId('page-bar-title')).toHaveTextContent('kai ↔ remy');
   expect(screen.queryByText(/m2p4/)).toBeNull();
 });
 
@@ -548,30 +550,10 @@ test("a DM title whose pair repeats shows both ends' avatars, still by name", ()
         participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
       }}
       buddies={[]}
-      withAvatars
     />
   );
   const title = screen.getByTestId('page-bar-title');
   expect(title).toHaveTextContent('kai ↔ remy');
   expect(title).not.toHaveTextContent('m2p4');
   expect(avatars(title)).toHaveLength(2);
-});
-
-test('a DM title whose pair is unique keeps the plain label, no avatars', () => {
-  renderWithProviders(
-    <PageBar
-      room={{
-        room: 'dm-2c9b7e41d0a5',
-        memberCount: 3,
-        unread: 0,
-        mentions: 0,
-        kind: 'dm',
-        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
-      }}
-      buddies={[]}
-    />
-  );
-  const title = screen.getByTestId('page-bar-title');
-  expect(title).toHaveTextContent(/^kai ↔ remy$/);
-  expect(avatars(title)).toHaveLength(0);
 });
