@@ -331,7 +331,7 @@ t "screen_harnesses turns both on for mixed, Claude the default" env GUEST_RUN=/
    rt() { calls="$calls rt:$*"; }
    screen_harnesses; case "$calls" in *"rt:setup harnesses claude codex --default claude --json"*) ;; *) echo "$calls"; exit 1;; esac'
 t "assert-team profile assertions read each harness's own build" bash -c \
-  'grep -q "PROFILE_ASSERTS=1" run/guest/assert-team.sh && grep -q "skills-targets/codex/\$app" run/guest/assert-team.sh \
+  'grep -q "PROFILE_ASSERTS=1" run/guest/assert-team.sh && grep -q "skills-targets/codex/board" run/guest/assert-team.sh && grep -q -- "--profile-only" run/guest/assert-team.sh \
    && grep -q "codex plugin list --json" run/guest/assert-team.sh && grep -q "CLAUDE_TRIPWIRE_LOG" run/guest/assert-team.sh'
 t "walkthrough mints with the rt from the dmg's sibling zip" bash -c \
   'grep -q "vm_rt_from_zip" run/walkthrough.sh'

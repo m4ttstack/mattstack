@@ -4,6 +4,7 @@
 # every team secret decryptable with THIS machine's age key, and every
 # deck-managed job actually running. Run as tester in the joiner guest.
 # Usage: assert-team.sh <slug> <expect.json>
+#        assert-team.sh --profile-only   (a solo guest: the profile assertions alone)
 #
 # HARNESS_PROFILE (claude-only | codex-only | mixed) names the agent apps this
 # guest was set up with and turns on the profile assertions: each selected
@@ -11,7 +12,9 @@
 # guest has no Claude CLI or configuration at all. Unset, the run checks what
 # it always did (Claude's team plugins) and nothing more.
 set -uo pipefail
-SLUG="${1:?slug}"; EXPECT="${2:?expect.json}"
+PROFILE_ONLY=0
+if [ "${1:-}" = --profile-only ]; then PROFILE_ONLY=1; SLUG=""; EXPECT=""
+else SLUG="${1:?slug}"; EXPECT="${2:?expect.json}"; fi
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT="${RT:-/tmp/rt-new}"; [ -x "$RT" ] || RT=rt
 fails=0
@@ -34,15 +37,23 @@ if [ "$PROFILE_ASSERTS" = 1 ] && [ "$WANT_CLAUDE" = 0 ]; then
   if command -v claude >/dev/null 2>&1 && [ "${CLAUDE_TRIPWIRE:-}" != "$(command -v claude)" ]; then bad "claude is on PATH in a Codex-only guest: $(command -v claude)"; else ok "no Claude CLI on PATH"; fi
   [ -e "$HOME/.claude" ] && bad "~/.claude exists in a Codex-only guest" || ok "no ~/.claude"
   [ -e "$HOME/.claude.json" ] && bad "~/.claude.json exists in a Codex-only guest" || ok "no ~/.claude.json"
-  if [ -n "${CLAUDE_TRIPWIRE_LOG:-}" ] && [ -s "$CLAUDE_TRIPWIRE_LOG" ]; then bad "the Claude tripwire was called: $(head -1 "$CLAUDE_TRIPWIRE_LOG")"; else ok "the Claude tripwire was never called"; fi
+  chosen=$(cat "$HOME/acceptance/harness-chosen-at" 2>/dev/null)
+  if [ -n "${CLAUDE_TRIPWIRE_LOG:-}" ] && [ -s "$CLAUDE_TRIPWIRE_LOG" ]; then
+    after=$(awk -v t="$chosen" '$1 >= t' "$CLAUDE_TRIPWIRE_LOG")
+    before=$(awk -v t="$chosen" '$1 < t' "$CLAUDE_TRIPWIRE_LOG" | wc -l | tr -d ' ')
+    [ "$before" -gt 0 ] && echo "TEAM note $before Claude probe(s) before the agent apps were chosen at ${chosen:-?}, while the default selection still included Claude"
+    if [ -z "$chosen" ]; then bad "the Claude tripwire was called and no harness choice time was recorded: $(head -1 "$CLAUDE_TRIPWIRE_LOG")"
+    elif [ -n "$after" ]; then bad "the Claude tripwire was called after Codex-only was chosen: $(printf '%s\n' "$after" | head -1)"
+    else ok "the Claude tripwire was never called after Codex-only was chosen"; fi
+  else ok "the Claude tripwire was never called"; fi
 fi
 if [ "$PROFILE_ASSERTS" = 1 ] && [ "$WANT_CODEX" = 1 ]; then
   command -v codex >/dev/null 2>&1 && ok "Codex CLI on PATH ($(codex --version 2>/dev/null | head -1))" || bad "no Codex CLI on PATH"
   grep -q '^\[mcp_servers\.mattstack\]' "$CODEX_HOME_DIR/config.toml" 2>/dev/null && ok "Mattstack MCP entry in $CODEX_HOME_DIR/config.toml" || bad "no [mcp_servers.mattstack] in $CODEX_HOME_DIR/config.toml"
-  for app in board gitq; do
-    linked=$(find "$CODEX_HOME_DIR/skills" -maxdepth 1 -type l -lname "$APP_HELPERS/skills-targets/codex/$app/*" 2>/dev/null | wc -l | tr -d ' ')
-    [ "${linked:-0}" -gt 0 ] && ok "$app skills linked for Codex from the Codex build ($linked)" || bad "no $app skills linked for Codex from Helpers/skills-targets/codex/$app"
-  done
+  linked=$(find "$CODEX_HOME_DIR/skills" -maxdepth 1 -type l -lname "$APP_HELPERS/skills-targets/codex/board/*" 2>/dev/null | wc -l | tr -d ' ')
+  [ "${linked:-0}" -gt 0 ] && ok "board skills linked for Codex from the Codex build ($linked)" || bad "no board skills linked for Codex from Helpers/skills-targets/codex/board"
+  # gitq's skills stay off Codex until they carry the questions fragment (CODEX_WITHHELD_APP_SKILLS).
+  if find "$CODEX_HOME_DIR/skills" -maxdepth 1 -type l -lname "$APP_HELPERS/skills-targets/codex/gitq/*" 2>/dev/null | grep -q .; then bad "gitq skills linked for Codex, which withholds them"; else ok "no gitq skills linked for Codex"; fi
   if find "$CODEX_HOME_DIR/skills" -maxdepth 1 -type l -lname "$APP_HELPERS/skills/*" 2>/dev/null | grep -q .; then bad "Codex links a Claude build from Helpers/skills"; else ok "Codex links no Claude build"; fi
 fi
 if [ "$PROFILE_ASSERTS" = 1 ] && [ "$WANT_CLAUDE" = 1 ]; then
@@ -50,6 +61,11 @@ if [ "$PROFILE_ASSERTS" = 1 ] && [ "$WANT_CLAUDE" = 1 ]; then
     linked=$(find "$HOME/.claude/skills" -maxdepth 1 -type l -lname "$APP_HELPERS/skills/$app/*" 2>/dev/null | wc -l | tr -d ' ')
     [ "${linked:-0}" -gt 0 ] && ok "$app skills linked for Claude ($linked)" || bad "no $app skills linked for Claude from Helpers/skills/$app"
   done
+fi
+
+if [ "$PROFILE_ONLY" = 1 ]; then
+  echo "TEAM profile assertions: $fails failure(s)"
+  [ "$fails" -eq 0 ]; exit $?
 fi
 
 [ -d "$TEAM/.git" ] && ok "team clone at $TEAM ($(git -C "$TEAM" rev-parse --short HEAD))" || bad "no team clone at $TEAM"

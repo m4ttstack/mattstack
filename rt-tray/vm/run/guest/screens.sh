@@ -223,6 +223,8 @@ screen_harnesses() {
   ax_click setup.checklist.recheck
   ax_wait_status tool.integrations ready 30 || ax_fail "tool.integrations is not ready after choosing $ids"
   ax_log "agent apps: $ids (default $def)"
+  # Before this choice the absent list enables Claude, so a Codex-only guest's Claude tripwire counts only calls after it.
+  mkdir -p "$HOME/acceptance" && date -u +%FT%TZ > "$HOME/acceptance/harness-chosen-at"
 }
 
 # The Local proxy row's own button, not Install's proxy step: it has to raise
