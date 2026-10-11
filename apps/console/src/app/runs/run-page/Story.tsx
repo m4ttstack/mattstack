@@ -23,17 +23,24 @@ export interface StoryProps {
 
 const MIN_HEIGHT = 420;
 
-const scrollerOf = (el: HTMLElement): HTMLElement => {
+const px = (v: string) => parseFloat(v) || 0;
+
+/** The scroller the page scrolls in, and the padding, borders and margins
+    every ancestor up to it keeps below the element. */
+const frameOf = (el: HTMLElement) => {
+  let below = 0;
   for (let p = el.parentElement; p; p = p.parentElement) {
-    const { overflowY } = getComputedStyle(p);
-    if (overflowY === 'auto' || overflowY === 'scroll') return p;
+    const cs = getComputedStyle(p);
+    if (cs.overflowY === 'auto' || cs.overflowY === 'scroll')
+      return { scroller: p, below };
+    below +=
+      px(cs.paddingBottom) + px(cs.borderBottomWidth) + px(cs.marginBottom);
   }
-  return document.scrollingElement as HTMLElement;
+  return { scroller: document.documentElement, below };
 };
 
-/** Fits the split to the window: whatever the page puts above and below it
-    stays, and the split takes the rest, so the page itself never scrolls.
-    The page's scroller may size to its content, so the window is the bound. */
+/** Fits the split to the window: it takes every pixel between its top and
+    the page's own bottom padding, so the page itself never scrolls. */
 const useFitToWindow = (split: boolean) => {
   const ref = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number>();
@@ -41,15 +48,11 @@ const useFitToWindow = (split: boolean) => {
     const el = ref.current;
     if (!el) return;
     const fit = () => {
-      const scroller = scrollerOf(el);
-      const rect = el.getBoundingClientRect();
-      const offset =
-        rect.top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-      const below = scroller.scrollHeight - offset - rect.height;
-      const top = rect.top + scroller.scrollTop;
-      setHeight(
-        Math.max(MIN_HEIGHT, Math.floor(window.innerHeight - top - below))
-      );
+      const { scroller, below } = frameOf(el);
+      const bottom =
+        scroller.getBoundingClientRect().top + scroller.clientHeight;
+      const top = el.getBoundingClientRect().top + scroller.scrollTop;
+      setHeight(Math.max(MIN_HEIGHT, Math.floor(bottom - top - below)));
     };
     fit();
     window.addEventListener('resize', fit);
