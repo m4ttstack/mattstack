@@ -393,10 +393,10 @@ describe('boardSetting', () => {
   test('a resolver throw reads the default and warns once per key', () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      expect(boardSetting('board.gateGraceMinutes', throwing)).toBe(90);
-      expect(boardSetting('board.gateGraceMinutes', throwing)).toBe(90);
-      expect(boardSetting('board.agent.model', throwing)).toBeUndefined();
-      expect(boardSetting('board.agent.model', throwing)).toBeUndefined();
+      expect(boardSetting<number>('board.gateGraceMinutes', throwing)).toBe(90);
+      expect(boardSetting<number>('board.gateGraceMinutes', throwing)).toBe(90);
+      expect(boardSetting<string | undefined>('board.agent.model', throwing)).toBeUndefined();
+      expect(boardSetting<string | undefined>('board.agent.model', throwing)).toBeUndefined();
       expect(warn).toHaveBeenCalledTimes(2);
     } finally {
       warn.mockRestore();
