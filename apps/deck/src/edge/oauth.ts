@@ -147,8 +147,17 @@ export function getOAuth(app: string): OAuth {
   return cache.apps[app] ?? { mode: 'off' };
 }
 
-/** Pending rules sit under a fresh read of the store, so an entry another process wrote, or one load skipped as malformed, survives. */
+/**
+ * Pending rules sit under a fresh read of the store, so an entry another
+ * process wrote, or one load skipped as malformed, survives. A value the
+ * resolver refused reads as empty, so a write over it would drop every rule
+ * the user scope holds: refuse instead.
+ */
 function currentRawAccessStore(): Record<string, unknown> {
+  if (heldEntries(STORE_KEY, 'user', explainSetting).refused)
+    throw new Error(
+      `deck: ${STORE_KEY} holds a value rt refused; fix it before changing sign-in rules`
+    );
   return {
     ...pendingRules,
     ...(getSetting<Record<string, unknown>>(STORE_KEY).value as Record<

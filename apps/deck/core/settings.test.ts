@@ -638,6 +638,25 @@ test('a store read that throws during a save reverts the change instead of half-
   expect(getLive('chat')).toBeUndefined();
 });
 
+test('a deck.apps the resolver refuses fails closed like an unreadable store, until a reload reads a valid one', () => {
+  writeLegacyFile({ version: 1, apps: { widgets: { passwordVersion: 0 } } });
+  seedUserStore('deck.apps', ['not', 'an', 'object']);
+  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+  reloadSettings();
+  warnSpy.mockRestore();
+  expect(getAppSettings('widgets').published).toBe(false);
+  expect(getAppSettings('never-seen').published).toBe(false);
+  expect(() =>
+    setOverride('widgets', { devPort: 5173, basePort: 4100 })
+  ).toThrow();
+  expect(getOverride('widgets')).toBeUndefined();
+
+  seedUserStore('deck.apps', { widgets: { published: true } });
+  reloadSettings();
+  expect(getAppSettings('widgets').published).toBe(true);
+  expect(getAppSettings('never-seen').published).toBe(true);
+});
+
 test('a save after a boot that could not read deck.apps refuses, even once the store reads again', () => {
   writeLegacyFile({ version: 1, apps: { widgets: { passwordVersion: 0 } } });
   const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});

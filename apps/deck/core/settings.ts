@@ -164,9 +164,15 @@ export function importFileFields(
   }
 }
 
-/** Null when the store cannot be read, which makes every app read unpublished. */
-function readStore(resolve: GetSettingFn): StoreApps | null {
+/** Null when the store cannot be read or holds a value the resolver refused, which makes every app read unpublished. */
+function readStore(resolve: GetSettingFn, explain: ExplainFn): StoreApps | null {
   try {
+    if (heldEntries(STORE_KEY, 'user', explain).refused) {
+      console.warn(
+        `deck: ${STORE_KEY} holds a value rt refused, every app reads unpublished`
+      );
+      return null;
+    }
     return resolve<StoreApps>(STORE_KEY).value as StoreApps;
   } catch (err) {
     console.warn(
@@ -179,12 +185,16 @@ function readStore(resolve: GetSettingFn): StoreApps | null {
 
 let storeUnreadable = false;
 
-function load(resolve: GetSettingFn, pending: StoreApps = {}): SettingsFile {
+function load(
+  resolve: GetSettingFn,
+  pending: StoreApps = {},
+  explain: ExplainFn = explainSetting
+): SettingsFile {
   const file = readFile();
   const apps: Record<string, AppEntry> = {};
   for (const [app, entry] of Object.entries(file.apps))
     apps[app] = fileEntry(entry);
-  const store = readStore(resolve);
+  const store = readStore(resolve, explain);
   storeUnreadable = store === null;
   for (const [app, fields] of Object.entries({ ...store, ...pending }))
     apps[app] = { ...apps[app], ...fields };
@@ -197,9 +207,10 @@ mintSecretIfMissing();
 /** `pending` is what a failed boot import returned, for a reload that stands in for boot. */
 export function reloadSettings(
   resolve: GetSettingFn = getSetting,
-  pending: StoreApps = {}
+  pending: StoreApps = {},
+  explain: ExplainFn = explainSetting
 ): void {
-  cache = load(resolve, pending);
+  cache = load(resolve, pending, explain);
   mintSecretIfMissing();
 }
 

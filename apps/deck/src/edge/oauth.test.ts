@@ -201,6 +201,35 @@ test('store key present: a store write failure reverts the in-memory cache inste
   expect(getOAuth('a')).toEqual({ mode: 'off' });
 });
 
+test('a deck.access the resolver refuses is never written over: setOAuth throws and reverts', () => {
+  seedUserStore('deck.access', ['not', 'a', 'record']);
+  reloadOAuth();
+
+  expect(() =>
+    setOAuth('a', { mode: 'emails', emails: ['a@x.dev'] })
+  ).toThrow();
+  expect(getOAuth('a')).toEqual({ mode: 'off' });
+  const raw = JSON.parse(readFileSync(userStorePath(), 'utf8')) as Record<
+    string,
+    unknown
+  >;
+  expect(raw['deck.access']).toEqual(['not', 'a', 'record']);
+});
+
+test('a deck.access the resolver refuses is never written over: renameOAuth throws and reverts', () => {
+  setOAuth('mrs', { mode: 'domains', domains: ['corp.com'] });
+  seedUserStore('deck.access', 'not a record');
+
+  expect(() => renameOAuth('mrs', 'board')).toThrow();
+  expect(getOAuth('mrs')).toEqual({ mode: 'domains', domains: ['corp.com'] });
+  expect(getOAuth('board')).toEqual({ mode: 'off' });
+  const raw = JSON.parse(readFileSync(userStorePath(), 'utf8')) as Record<
+    string,
+    unknown
+  >;
+  expect(raw['deck.access']).toBe('not a record');
+});
+
 // ─── renameOAuth (adopt verb + edit-rename fix) ──────────────────────────────
 
 test('renameOAuth moves the rule in the store and never writes access.json', () => {
