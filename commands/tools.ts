@@ -29,7 +29,7 @@ function tool(args: string[]): string | undefined {
   return args.find((a) => !a.startsWith("--"));
 }
 
-/** Mirrors composePlan's own team resolution (readIntent → orgRefFromIntent) so a team-declared brew formula/vendor URL is found the same way the plan row that offered this Install action found it. No joined team is not an error: plenty of tools (herdr, claude, apple-clt) need no reqs at all. */
+/** Mirrors composePlan's own team resolution (readIntent → orgRefFromIntent) so a team-declared brew formula/vendor URL is found the same way the plan row that offered this Install action found it. No joined team is not an error: plenty of tools (herdr, claude, codex, apple-clt) need no reqs at all. */
 function resolveTeamReqs(p: Probes): PackRequirements[] {
   const ref = orgRefFromIntent(readIntent(p), listOrgs());
   return ref.slug ? readPackRequirements(p, ref.slug) : [];

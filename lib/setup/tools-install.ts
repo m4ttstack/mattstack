@@ -198,10 +198,10 @@ function linkOutcomeDetail(outcome: LinkOutcome): string {
   return outcome.ok ? (outcome.state === "already" ? `already linked at ${outcome.path}` : `linked at ${outcome.path}`) : outcome.detail;
 }
 
-/** `releases: false` (the integrations switch off) leaves RELEASE_BINARIES out, so the switch-off path is what it was before they existed. */
+/** RELEASE_BINARIES are only reached with `releases: true` (the integrations switch on), so the switch-off path is what it was before they existed. */
 export async function installTool(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS, opts: { releases?: boolean } = {}): Promise<InstallResult> {
   if (tool === "apple-clt") return installAppleClt(p);
-  const release = opts.releases === false ? undefined : RELEASE_BINARIES[tool];
+  const release = opts.releases === true ? RELEASE_BINARIES[tool] : undefined;
   if (release) return installReleaseBinary(p, tool, release);
 
   const bundled = seams.bundledToolExec(p, tool);
@@ -375,16 +375,16 @@ async function installReleaseBinary(p: Probes, tool: string, release: ReleaseBin
 
   const binDir = join(p.home, ".local", "bin");
   const dest = join(binDir, tool);
-  if ((p.exists(dest) || p.readlink(dest) !== null) && !(await isOwnReleaseInstall(p, dest))) {
-    return fail(`Something that rt did not put there is already at ${dest}`, { reason: "occupied" });
-  }
+  const occupied = async () => (p.exists(dest) || p.readlink(dest) !== null) && !(await isOwnReleaseInstall(p, dest));
+  const leftAlone = () => fail(`Something that rt did not put there is already at ${dest}`, { reason: "occupied" });
+  if (await occupied()) return leftAlone();
 
   const work = join(p.env.TMPDIR ?? "/tmp", "rt-vendor-install", `${tool}-release`);
   const archive = join(work, `${tool}.tar.gz`);
   p.removeDir(work);
   p.mkdirp(work);
   try {
-    const fetchRes = await p.exec(["curl", "-fsSL", release.url, "-o", archive], { timeoutMs: INSTALL_TIMEOUT_MS });
+    const fetchRes = await p.exec(["curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", release.url, "-o", archive], { timeoutMs: INSTALL_TIMEOUT_MS });
     if (fetchRes.code === 124) return fail(`Downloading ${name} did not finish in time`);
     if (fetchRes.code !== 0) return fail(`Downloading ${name} failed (exit ${fetchRes.code}): ${firstLine(fetchRes.stderr || fetchRes.stdout)}`);
 
@@ -402,7 +402,15 @@ async function installReleaseBinary(p: Probes, tool: string, release: ReleaseBin
     p.mkdirp(binDir);
     const staged = `${dest}.rt-new`;
     const put = await p.exec(["install", "-m", "755", extracted, staged], { timeoutMs: PROBE_TIMEOUT_MS * 6 });
-    if (put.code !== 0) return fail(`Putting ${name} in ${binDir} failed (exit ${put.code}): ${firstLine(put.stderr || put.stdout)}`);
+    if (put.code !== 0) {
+      p.removeFile(staged);
+      return fail(`Putting ${name} in ${binDir} failed (exit ${put.code}): ${firstLine(put.stderr || put.stdout)}`);
+    }
+    // The download can take minutes; a codex the member put there meanwhile is still theirs.
+    if (await occupied()) {
+      p.removeFile(staged);
+      return leftAlone();
+    }
     try {
       p.rename(staged, dest);
     } catch (err) {
