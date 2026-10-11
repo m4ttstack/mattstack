@@ -4,6 +4,8 @@
  * enabled; nothing here runs or reads Claude.
  */
 
+import type { Database } from "bun:sqlite";
+import { existsSync } from "fs";
 import { join } from "path";
 import { codexHomeFor, parseCodexPluginList } from "../../agent-integrations/codex/skills.ts";
 import { codexConfigFile, codexMcpEntry, readCodexMcpState, type CodexMcpEntry } from "../../agent-integrations/codex/mcp-config.ts";
@@ -101,6 +103,39 @@ export function codexServerPredatesSignIn(p: Probes): boolean {
   return typeof startSeconds === "number" && Number.isFinite(startSeconds) && signedInMs / 1000 > startSeconds;
 }
 
+/** How many Codex sessions rt holds attached, or null when rt cannot read them. */
+export type CodexSessionCount = () => Promise<number | null>;
+
+/** Reads the session store; a missing or unreadable state database is null, never zero. */
+export async function attachedCodexSessions(open?: () => Database): Promise<number | null> {
+  try {
+    const [{ getStateDb, stateDbPath }, { listAttachedBindings }] = await Promise.all([
+      import("../../state/index.ts"),
+      import("../../agent-integrations/session-store.ts"),
+    ]);
+    let db: Database;
+    if (open) db = open();
+    else if (!existsSync(stateDbPath())) return null;
+    else db = getStateDb("cli");
+    return listAttachedBindings(db, "codex").length;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What to do about a running server that started before the sign-in. auth.json
+ * may also be rewritten by a token refresh, so a server with attached Codex
+ * sessions is never restarted on its mtime alone, and one whose sessions rt
+ * cannot read is left alone.
+ */
+export async function codexRestartCall(p: Probes, sessions: CodexSessionCount): Promise<"none" | "restart" | "sessions-attached"> {
+  if (!codexServerPredatesSignIn(p)) return "none";
+  const attached = await sessions();
+  if (attached === null) return "none";
+  return attached > 0 ? "sessions-attached" : "restart";
+}
+
 export function codexMcpRow(p: Probes): Row {
   const base = {
     id: "tool.codex-mcp",
@@ -155,7 +190,7 @@ export async function probeCodexAppServer(p: Probes): Promise<CodexAppServerStat
 }
 
 /** The app server rt reaches Codex through: Install starts it once Codex is signed in, and the app's launch-time update brings it back after a restart. */
-export async function codexAppServerRow(p: Probes): Promise<Row> {
+export async function codexAppServerRow(p: Probes, sessions: CodexSessionCount = attachedCodexSessions): Promise<Row> {
   const base = {
     id: "tool.codex-app-server",
     kind: "tool" as const,
@@ -175,16 +210,18 @@ export async function codexAppServerRow(p: Probes): Promise<Row> {
   if (signIn !== "signed-in") {
     return row({ ...base, status: "needs-you", detail: "rt could not check your Codex sign-in. Confirm you are signed in", action: CODEX_SIGNIN_STEPS });
   }
-  if (state === "running" && codexServerPredatesSignIn(p)) {
+  if (state === "running") {
+    const call = await codexRestartCall(p, sessions);
+    if (call === "none") return row({ ...base, status: "ready", detail: "Running" });
     return row({
       ...base,
-      status: "missing",
-      detail: "Running, but it started before you signed in, so it cannot use your account",
-      optionalNote: "Restarted by Install (codex.app-server).",
+      status: "needs-you",
+      detail: call === "sessions-attached"
+        ? "Codex's app server started before you signed in. Restart it once your Codex sessions are done"
+        : "Running, but it started before you signed in, so it cannot use your account",
       action: applyStepAction("Restart", "codex.app-server"),
     });
   }
-  if (state === "running") return row({ ...base, status: "ready", detail: "Running" });
   return row({
     ...base,
     status: "missing",

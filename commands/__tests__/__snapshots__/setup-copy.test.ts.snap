@@ -1355,7 +1355,7 @@ exports[`the setup plan's shape and copy integrations on, Codex only: the app se
   "copy": {
     "tool.codex-app-server.action.label": "Restart",
     "tool.codex-app-server.detail": "Running, but it started before you signed in, so it cannot use your account",
-    "tool.codex-app-server.optionalNote": "Restarted by Install (codex.app-server).",
+    "tool.codex-app-server.optionalNote": null,
     "tool.codex-app-server.title": "Codex app server",
     "tool.codex-app-server.why": "rt reads Codex's hooks and runs Codex sessions through it.",
     "tools.title": "Tools",
@@ -1384,7 +1384,61 @@ exports[`the setup plan's shape and copy integrations on, Codex only: the app se
             "kind": "tool",
             "recheck": "on-activate",
             "required": false,
-            "status": "missing",
+            "status": "needs-you",
+          },
+        ],
+      },
+    ],
+    "requiredMissing": [
+      "perm.fda",
+      "tool.arch",
+      "tool.herdr",
+      "tool.app",
+    ],
+    "team": {
+      "mode": "none",
+      "name": "",
+      "slug": "",
+    },
+  },
+}
+`;
+
+exports[`the setup plan's shape and copy integrations on, Codex only: the app server started before the sign-in, with Codex sessions on it 1`] = `
+{
+  "copy": {
+    "tool.codex-app-server.action.label": "Restart",
+    "tool.codex-app-server.detail": "Codex's app server started before you signed in. Restart it once your Codex sessions are done",
+    "tool.codex-app-server.optionalNote": null,
+    "tool.codex-app-server.title": "Codex app server",
+    "tool.codex-app-server.why": "rt reads Codex's hooks and runs Codex sessions through it.",
+    "tools.title": "Tools",
+  },
+  "machine": {
+    "canInstall": false,
+    "contract": 1,
+    "finishBlockedBy": [
+      "skills.writing-style",
+    ],
+    "groups": [
+      {
+        "id": "tools",
+        "rows": [
+          {
+            "action": {
+              "type": "run",
+              "verb": [
+                "setup",
+                "apply",
+                "--only",
+                "codex.app-server",
+              ],
+            },
+            "id": "tool.codex-app-server",
+            "kind": "tool",
+            "recheck": "on-activate",
+            "required": false,
+            "status": "needs-you",
           },
         ],
       },

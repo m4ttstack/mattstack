@@ -168,9 +168,10 @@ describe("the setup plan's shape and copy", () => {
     });
   }
 
-  for (const [label, versionAnswer, signIn, startedBeforeSignIn] of [
-    ["waits on the Codex sign-in", ok(JSON.stringify({ status: "stopped" })), { code: 1, stdout: "Not logged in\n", stderr: "" }, false],
-    ["started before the sign-in", ok(JSON.stringify({ status: "running" })), ok("Logged in using ChatGPT\n"), true],
+  for (const [label, versionAnswer, signIn, startedBeforeSignIn, attached] of [
+    ["waits on the Codex sign-in", ok(JSON.stringify({ status: "stopped" })), { code: 1, stdout: "Not logged in\n", stderr: "" }, false, 0],
+    ["started before the sign-in", ok(JSON.stringify({ status: "running" })), ok("Logged in using ChatGPT\n"), true, 0],
+    ["started before the sign-in, with Codex sessions on it", ok(JSON.stringify({ status: "running" })), ok("Logged in using ChatGPT\n"), true, 1],
   ] as const) {
     test(`integrations on, Codex only: the app server ${label}`, async () => {
       const exec: ExecScript = (argv) => {
@@ -188,7 +189,10 @@ describe("the setup plan's shape and copy", () => {
         }),
       });
       const codexPolicy = async () => ({ ok: false as const, error: { code: "not-ready" as const, message: "x" } });
-      const p = await composePlan({ p: probes, secrets, ci: false, mode: "plan", orgs: [], waived: [], integrations: { switchOn: true, enabled: ["codex"] }, codexPolicy });
+      const p = await composePlan({
+        p: probes, secrets, ci: false, mode: "plan", orgs: [], waived: [], integrations: { switchOn: true, enabled: ["codex"] }, codexPolicy,
+        codexSessions: async () => attached,
+      });
       const only: Plan = { ...p, groups: p.groups.map((g) => ({ ...g, rows: g.rows.filter((r) => r.id === "tool.codex-app-server") })).filter((g) => g.rows.length > 0) };
       expect(views(only)).toMatchSnapshot();
     });

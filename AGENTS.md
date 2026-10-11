@@ -949,7 +949,11 @@ launch-time update is the only thing that brings it back after a restart.
 Its one restart: a running server that started before the sign-in
 (`auth.json`'s mtime, only stat'd and never read, is later than
 `daemon.pid`'s `processIdentity.startSeconds`) never picks that sign-in up,
-so it is restarted once; any read problem leaves it alone. It runs only
+so it is restarted once, but only while state.db holds no attached Codex
+session binding, since a token refresh may also rewrite `auth.json` and its
+mtime alone must never interrupt live sessions. With one attached, the step
+and row read needs-you (restart once your Codex sessions are done); any
+read problem, of the times or of the bindings, leaves it alone. It runs only
 `version`, `bootstrap` and that `restart`, never `update`, `stop` or remote
 control. Add a one-time fix as a
 `MigrationDef` in `lib/setup/migrations/index.ts` with a dated id that is

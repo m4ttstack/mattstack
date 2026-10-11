@@ -241,6 +241,9 @@ const REASON_CHARS = 300;
 /** How Codex reports a turn its app server could not authenticate: an app server started before the sign-in never picks it up (S9b). */
 const UNAUTHORIZED = /\b401\b|unauthori[sz]ed/i;
 
+/** Codex's own reason for refusing a request, without the "Codex refused <method>:" lead the control connection adds. */
+const refusalReason = (err: unknown): string => messageOf(err).replace(/^Codex refused [^:]+: /, "");
+
 /** Why a new session's first turn failed, in Codex's own words where it gave any, and what to do about it. */
 function firstTurnFailed(ended: "failed" | "interrupted" | "refused", reason: string | undefined): string {
   const words = reason === undefined ? "" : flat(reason).slice(0, REASON_CHARS).replace(/[.\s]+$/, "");
@@ -802,10 +805,11 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
           const started = await control.request("turn/start", { threadId, input: [{ type: "text", text: CODEX_INIT_PROMPT }] });
           turnId = isRecord(started) && isRecord(started.turn) ? started.turn.id : undefined;
         } catch (err) {
-          if (codeOf(err) === "refused") return letGo(key, entry, threadId, firstTurnFailed("refused", messageOf(err)));
+          if (codeOf(err) === "refused") return letGo(key, entry, threadId, firstTurnFailed("refused", refusalReason(err)));
           return failFrom(err, `${created}rt cannot tell whether its first turn started: `);
         }
-        if (!text(turnId)) return fail("invalid", `${created}its first turn came back without an id`);
+        // A turn may be running without an id rt can wait on, so the launch is kept like any unknown outcome.
+        if (!text(turnId)) return fail("ambiguous", `${created}its first turn came back without an id`);
         entry.initTurn = turnId;
       }
     }

@@ -14,8 +14,8 @@ import { createRealProbes, type Probes } from "../../setup/probes.ts";
 import { readSetupState, updateSetupState } from "../../setup/state.ts";
 import { toFailedOutcome } from "../../setup/steps/step-utils.ts";
 import {
-  CODEX_UNPACKAGED_DETAIL, codexHomeOf, codexMcpRow, codexServerPredatesSignIn, codexToolRow, desiredCodexMcpEntry, isUnpackagedCodex,
-  probeCodexAppServer, probeCodexSignIn,
+  attachedCodexSessions, CODEX_UNPACKAGED_DETAIL, codexHomeOf, codexMcpRow, codexRestartCall, codexToolRow, desiredCodexMcpEntry, isUnpackagedCodex,
+  probeCodexAppServer, probeCodexSignIn, type CodexSessionCount,
 } from "../../setup/validators/codex.ts";
 import { runAdapterSteps, type HarnessInstall, type InstallAdapter } from "../install.ts";
 import { codexUserHooksPath } from "./hook-manifest.ts";
@@ -113,7 +113,7 @@ function firstLine(s: string): string {
   return s.trim().split("\n")[0] ?? "";
 }
 
-export type CodexAppServerStepDeps = { sleep?: (ms: number) => Promise<void> };
+export type CodexAppServerStepDeps = { sleep?: (ms: number) => Promise<void>; codexSessions?: CodexSessionCount };
 
 async function runningSoon(ctx: ApplyContext, sleep: (ms: number) => Promise<void>): Promise<boolean> {
   if ((await probeCodexAppServer(ctx.p)) === "running") return true;
@@ -124,7 +124,7 @@ async function runningSoon(ctx: ApplyContext, sleep: (ms: number) => Promise<voi
   return false;
 }
 
-/** A server that started before the sign-in had no working session, so restarting it interrupts nothing. */
+/** Runs only while rt holds no attached Codex session, so the restart interrupts none of rt's sessions. */
 async function restartForSignIn(ctx: ApplyContext, sleep: (ms: number) => Promise<void>): Promise<StepOutcome> {
   const res = await ctx.p.exec(["codex", "app-server", "daemon", "restart"], { timeoutMs: BOOTSTRAP_TIMEOUT_MS });
   if (isUnpackagedCodex(res)) return { state: "needs-you", detail: CODEX_UNPACKAGED_DETAIL };
@@ -140,11 +140,14 @@ async function restartForSignIn(ctx: ApplyContext, sleep: (ms: number) => Promis
 /**
  * Starts Codex's app server only once Codex is signed in, and reports it
  * started only once `version` reads it running. A server that started before
- * the sign-in never picks it up, so that one is restarted. The server keeps
- * no LaunchAgent, so the app's launch-time update is what brings it back
- * after a restart. It never stops, updates or opens remote control.
+ * the sign-in never picks it up, so that one is restarted, but only while rt
+ * holds no attached Codex session: a token refresh may also rewrite
+ * auth.json, so its mtime alone never justifies interrupting live sessions.
+ * The server keeps no LaunchAgent, so the app's launch-time update is what
+ * brings it back after a restart. It never stops, updates or opens remote
+ * control.
  */
-async function codexAppServerRun(ctx: ApplyContext, sleep: (ms: number) => Promise<void>): Promise<StepOutcome> {
+async function codexAppServerRun(ctx: ApplyContext, sleep: (ms: number) => Promise<void>, sessions: CodexSessionCount): Promise<StepOutcome> {
   const before = await probeCodexAppServer(ctx.p);
   if (before === "no-codex") return { state: "skipped", detail: "Codex is not installed yet" };
   if (before === "unpackaged") return { state: "needs-you", detail: CODEX_UNPACKAGED_DETAIL };
@@ -156,7 +159,15 @@ async function codexAppServerRun(ctx: ApplyContext, sleep: (ms: number) => Promi
     return { state: "needs-you", detail: "rt could not check your Codex sign-in, so it did not start Codex's app server. Confirm you are signed in" };
   }
   if (before === "running") {
-    return codexServerPredatesSignIn(ctx.p) ? restartForSignIn(ctx, sleep) : { state: "skipped", detail: "Already running" };
+    const call = await codexRestartCall(ctx.p, sessions);
+    if (call === "restart") return restartForSignIn(ctx, sleep);
+    if (call === "sessions-attached") {
+      return {
+        state: "needs-you",
+        detail: "Codex's app server started before you signed in, and your Codex sessions are using it, so rt left it running. Restart it once they are done",
+      };
+    }
+    return { state: "skipped", detail: "Already running" };
   }
 
   const boot = await ctx.p.exec(["codex", "app-server", "daemon", "bootstrap"], { timeoutMs: BOOTSTRAP_TIMEOUT_MS });
@@ -171,9 +182,10 @@ async function codexAppServerRun(ctx: ApplyContext, sleep: (ms: number) => Promi
   return { state: "needs-you", detail: "Codex said it started its app server, but it is not running" };
 }
 
-/** Update-safe: it writes no file, starts only a server that is not running, and restarts only one that started before the sign-in. */
+/** Update-safe: it writes no file, starts only a server that is not running, and restarts only one that started before the sign-in and hosts no attached Codex session. */
 export function createCodexAppServerStep(deps: CodexAppServerStepDeps = {}): StepDef {
   const sleep = deps.sleep ?? ((ms: number) => Bun.sleep(ms));
+  const sessions = deps.codexSessions ?? attachedCodexSessions;
   return {
     id: "codex.app-server",
     title: "Start Codex's app server",
@@ -182,7 +194,7 @@ export function createCodexAppServerStep(deps: CodexAppServerStepDeps = {}): Ste
     applies: (ctx) => harnessSelected(selectionFor(ctx), "codex"),
     run: async (ctx) => {
       try {
-        return await codexAppServerRun(ctx, sleep);
+        return await codexAppServerRun(ctx, sleep, sessions);
       } catch (err) {
         return toFailedOutcome(err);
       }

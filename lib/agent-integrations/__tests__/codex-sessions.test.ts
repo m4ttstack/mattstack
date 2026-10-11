@@ -376,9 +376,18 @@ describe("codex session launch", () => {
     const sessions = h.sessions();
     const outcome = await sessions.launch(request());
     expect(outcome).toMatchObject({ ok: false, error: { code: "refused" } });
-    expect(outcome.ok || outcome.error.message).not.toMatch(/reservation|res-1|retry/i);
+    const message = outcome.ok ? "" : outcome.error.message;
+    expect(message).toBe("Codex could not run the new session's first turn: internal error. rt let go of the thread it made, so you can start again here");
     expect(freeFolder(h)).toBe(true);
     expect(data(await sessions.launch(request({ reservationId: "res-2" }))).native.value).toBe("T1");
+  });
+
+  test("a first turn answered with no turn id is ambiguous, and its folder stays held", async () => {
+    const h = await harness({ "turn/start": (s, m) => s.push({ id: m.id, result: { turn: { items: [], status: "inProgress" } } }) });
+    const outcome = await h.sessions().launch(request());
+    expect(outcome).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(outcome.ok || outcome.error.message).not.toMatch(/reservation|res-1|retry/i);
+    expect(freeFolder(h)).toBe(false);
   });
 
   test("an initialization turn that outlasts the wait is ambiguous; a same-id retry waits on the same turn", async () => {

@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { codexAppServerStep, createCodexAppServerStep, createCodexInstall } from "../../agent-integrations/codex/install.ts";
+import { createSessionStore } from "../../agent-integrations/session-store.ts";
+import { openStateDb } from "../../state/index.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { IntegrationSelection } from "../integration-selection.ts";
 import type { ExecResult } from "../probes.ts";
-import { codexAppServerRow } from "../validators/codex.ts";
+import { attachedCodexSessions, codexAppServerRow } from "../validators/codex.ts";
 import { toolRows } from "../validators/tools.ts";
 import { fakeProbes, missing, ok } from "./fakes.ts";
 
@@ -44,6 +49,9 @@ function codexMac(versions: ExecResult[], bootstrap: ExecResult = ok(JSON.string
     },
   });
 }
+
+const NO_SESSIONS = async () => 0;
+const UNREADABLE_SESSIONS = async () => null;
 
 /** Signed in a minute after the running server started: `codex login` while the server was up. */
 const signedInAfterStart = (versions: ExecResult[], opts: MacOpts = {}) =>
@@ -117,20 +125,35 @@ describe("the Codex app server row", () => {
     }
   });
 
-  test("running since before the sign-in offers a restart", async () => {
-    const row = await codexAppServerRow(signedInAfterStart([RUNNING]));
-    expect(row).toMatchObject({ status: "missing", detail: "Running, but it started before you signed in, so it cannot use your account" });
+  test("running since before the sign-in, with no Codex session on it, offers a restart", async () => {
+    const row = await codexAppServerRow(signedInAfterStart([RUNNING]), NO_SESSIONS);
+    expect(row).toMatchObject({ status: "needs-you", detail: "Running, but it started before you signed in, so it cannot use your account" });
     expect(row.action).toEqual({ type: "run", label: "Restart", verb: ["setup", "apply", "--only", "codex.app-server"] });
   });
 
-  test("running since after the sign-in, or with times rt cannot read, reads ready", async () => {
+  test("running since before the sign-in with Codex sessions attached asks to restart once they are done", async () => {
+    const row = await codexAppServerRow(signedInAfterStart([RUNNING]), async () => 2);
+    expect(row).toMatchObject({ status: "needs-you", detail: "Codex's app server started before you signed in. Restart it once your Codex sessions are done" });
+    expect(row.action).toEqual({ type: "run", label: "Restart", verb: ["setup", "apply", "--only", "codex.app-server"] });
+  });
+
+  test("running since after the sign-in, or with times or sessions rt cannot read, reads ready", async () => {
     for (const p of [
       codexMac([RUNNING], undefined, { pid: pidFile(STARTED_AT), authMtimeMs: (STARTED_AT - 60) * 1000 }),
       signedInAfterStart([RUNNING], { pid: "not json" }),
       codexMac([RUNNING], undefined, { authMtimeMs: (STARTED_AT + 60) * 1000 }),
     ]) {
-      expect(await codexAppServerRow(p)).toMatchObject({ status: "ready", detail: "Running" });
+      expect(await codexAppServerRow(p, NO_SESSIONS)).toMatchObject({ status: "ready", detail: "Running" });
     }
+    expect(await codexAppServerRow(signedInAfterStart([RUNNING]), UNREADABLE_SESSIONS)).toMatchObject({ status: "ready", detail: "Running" });
+  });
+
+  test("the sessions are read only when the server predates the sign-in", async () => {
+    let asked = 0;
+    const count = async () => { asked++; return 0; };
+    await codexAppServerRow(codexMac([RUNNING], undefined, { pid: pidFile(STARTED_AT), authMtimeMs: (STARTED_AT - 60) * 1000 }), count);
+    await createCodexAppServerStep({ sleep: async () => {}, codexSessions: count }).run(ctxFor(codexMac([STOPPED, RUNNING])).ctx);
+    expect(asked).toBe(0);
   });
 
   test("the row only reads: it never bootstraps", async () => {
@@ -140,9 +163,28 @@ describe("the Codex app server row", () => {
   });
 });
 
+describe("the attached Codex sessions a restart would interrupt", () => {
+  test("counts only Codex bindings still attached", async () => {
+    const db = openStateDb(join(mkdtempSync(join(tmpdir(), "codex-app-server-")), "state.db"));
+    const store = createSessionStore(db);
+    const ref = (harness: string, value: string) => ({ harness, profile: "default", kind: "id" as const, value });
+    expect(await attachedCodexSessions(() => db)).toBe(0);
+    const live = store.bind(store.reserve({ identity: "a" }), ref("codex", "T1"), { mode: "headless" });
+    store.bind(store.reserve({ identity: "b" }), ref("claude", "S1"), { mode: "headless" });
+    const gone = store.bind(store.reserve({ identity: "c" }), ref("codex", "T2"), { mode: "headless" });
+    if (!live.ok || !gone.ok) throw new Error("bind failed");
+    store.detach(gone.data.key, gone.data.attachment.generation);
+    expect(await attachedCodexSessions(() => db)).toBe(1);
+  });
+
+  test("a state database that cannot be opened reads as unknown", async () => {
+    expect(await attachedCodexSessions(() => { throw new Error("database is locked"); })).toBeNull();
+  });
+});
+
 describe("codex.app-server", () => {
   let waits: number[] = [];
-  const step = createCodexAppServerStep({ sleep: async (ms) => void waits.push(ms) });
+  const step = createCodexAppServerStep({ sleep: async (ms) => void waits.push(ms), codexSessions: NO_SESSIONS });
   beforeEach(() => {
     waits = [];
   });
@@ -267,6 +309,23 @@ describe("codex.app-server", () => {
     expect(logs).toEqual(["restarted Codex's app server, which started before the sign-in"]);
   });
 
+  test("a server that predates the sign-in but hosts attached Codex sessions is left running", async () => {
+    const p = signedInAfterStart([RUNNING]);
+    const busy = createCodexAppServerStep({ sleep: async () => {}, codexSessions: async () => 1 });
+    expect(await busy.run(ctxFor(p, { update: true }).ctx)).toEqual({
+      state: "needs-you",
+      detail: "Codex's app server started before you signed in, and your Codex sessions are using it, so rt left it running. Restart it once they are done",
+    });
+    expect(ran(p)).not.toContain(RESTART);
+  });
+
+  test("a server that predates the sign-in is left running when rt cannot read its Codex sessions", async () => {
+    const p = signedInAfterStart([RUNNING]);
+    const blind = createCodexAppServerStep({ sleep: async () => {}, codexSessions: UNREADABLE_SESSIONS });
+    expect(await blind.run(ctxFor(p).ctx)).toEqual({ state: "skipped", detail: "Already running" });
+    expect(ran(p)).not.toContain(RESTART);
+  });
+
   test("a sign-in in the same second the server started still counts as newer", async () => {
     const p = codexMac([RUNNING], undefined, { pid: pidFile(STARTED_AT), authMtimeMs: STARTED_AT * 1000 + 400 });
     await step.run(ctxFor(p).ctx);
@@ -319,7 +378,7 @@ describe("codex.app-server", () => {
       fileMtimeMs: watch("fileMtimeMs"), exists: watch("exists"), statPath: watch("statPath"), readlink: watch("readlink"),
     };
     await step.run(ctxFor(watched as typeof p).ctx);
-    await codexAppServerRow(watched as typeof p);
+    await codexAppServerRow(watched as typeof p, NO_SESSIONS);
     expect(touched.length).toBeGreaterThan(0);
     expect(new Set(touched)).toEqual(new Set(["fileMtimeMs"]));
   });
