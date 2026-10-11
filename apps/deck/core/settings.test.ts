@@ -637,3 +637,21 @@ test('a store read that throws during a save reverts the change instead of half-
   expect(() => setLive('chat', LIVE)).toThrow();
   expect(getLive('chat')).toBeUndefined();
 });
+
+test('a save after a boot that could not read deck.apps refuses, even once the store reads again', () => {
+  writeLegacyFile({ version: 1, apps: { widgets: { passwordVersion: 0 } } });
+  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+  reloadSettings(() => {
+    throw new Error('rt daemon unreachable');
+  });
+  warnSpy.mockRestore();
+  setSetting('deck.apps', { widgets: { published: false } }, 'user');
+
+  expect(() =>
+    setOverride('widgets', { devPort: 5173, basePort: 4100 })
+  ).toThrow();
+  expect(getSetting('deck.apps').value).toEqual({
+    widgets: { published: false },
+  });
+  expect(getOverride('widgets')).toBeUndefined();
+});

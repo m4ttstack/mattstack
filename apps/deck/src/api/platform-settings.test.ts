@@ -348,3 +348,21 @@ test('a platform.json that is not an object reads as empty instead of crashing',
   reloadPlatformSettings();
   expect(getPlatformSettings().tlds).toEqual(['localhost']);
 });
+
+test('a file-write failure with no machine value before unsets deck.platform rather than pinning its defaults', () => {
+  const platformPath = process.env.LOCAL_PLATFORM_SETTINGS_PATH!;
+  rmSync(platformPath, { force: true });
+  mkdirSync(platformPath, { recursive: true });
+  try {
+    expect(() =>
+      updatePlatformSettings({ publicDomain: 'after.example.dev' })
+    ).toThrow();
+  } finally {
+    rmSync(platformPath, { recursive: true, force: true });
+  }
+  const machineRow = explainSetting('deck.platform').find(
+    r => r.scope === 'machine'
+  );
+  expect(machineRow?.present).toBe(false);
+  expect(getPlatformSettings().publicDomain).toBeNull();
+});

@@ -277,6 +277,10 @@ function revertedAppsStoreDict(previous: SettingsFile): StoreApps {
 function save(previous: SettingsFile): void {
   let storeChanged: boolean;
   try {
+    if (storeUnreadable)
+      throw new Error(
+        `deck: ${STORE_KEY} could not be read at the last load; restart deck before changing app settings`
+      );
     const next = nextAppsStoreDict(previous);
     storeChanged = !isDeepStrictEqual(next, currentRawAppsStore());
     if (storeChanged) setSetting(STORE_KEY, next, 'user');

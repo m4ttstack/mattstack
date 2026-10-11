@@ -13,6 +13,7 @@ import {
   getDef,
   getSetting,
   setSetting,
+  unsetSetting,
 } from '@mattstack/rt-client';
 import { stateDir } from './state.ts';
 import { heldEntries, type ExplainFn } from './store-import.ts';
@@ -188,8 +189,13 @@ export function updatePlatformSettings(patch: Partial<PlatformSettings>): void {
     secrets: { ...cache.secrets, ...(patch.secrets ?? {}) },
   };
   let stored: StoreFields;
+  let ownBefore: { present: boolean; value?: unknown };
   let storeChanged: boolean;
   try {
+    const ownRow = explainSetting(STORE_KEY).find(r => r.scope === 'machine');
+    ownBefore = ownRow?.present
+      ? { present: true, value: ownRow.authored ?? ownRow.value }
+      : { present: false };
     stored = storeFieldsOf(
       getSetting<PlatformSettings>(STORE_KEY).value as PlatformSettings
     );
@@ -204,7 +210,9 @@ export function updatePlatformSettings(patch: Partial<PlatformSettings>): void {
   } catch (err) {
     if (storeChanged) {
       try {
-        setSetting(STORE_KEY, stored, 'machine');
+        if (ownBefore.present)
+          setSetting(STORE_KEY, ownBefore.value, 'machine');
+        else unsetSetting(STORE_KEY, 'machine');
       } catch (revertErr) {
         console.error(
           'platform settings save: failed to revert deck.platform after a file-write failure',
