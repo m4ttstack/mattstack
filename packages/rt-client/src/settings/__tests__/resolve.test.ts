@@ -150,6 +150,13 @@ describe("settings/resolve", () => {
       expect(got.value).toEqual({ onDeck: 0 });
       expect(got.provenance).toEqual([{ scope: "default", file: null }]);
     });
+
+    test("a key with no registry default and nothing set resolves to undefined with empty provenance", () => {
+      const got = getSetting("rt.dopplerTemplate", { repoIdentity: IDENTITY });
+
+      expect(got.value).toBeUndefined();
+      expect(got.provenance).toEqual([]);
+    });
   });
 
   // ─── precedence: the full scope ladder ─────────────────────────────────────

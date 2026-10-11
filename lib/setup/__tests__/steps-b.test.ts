@@ -1215,7 +1215,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = bundledProbes({ tools: ["board"] });
       const { ctx } = makeCtx(p);
       expect(await cronTriageStep.run(ctx)).toEqual({ state: "skipped", detail: "The board's re-review and peer ask hooks are off" });
-      expect(getSetting("rt.cron").value).toEqual({ triggers: [] });
+      expect(unwritten("rt.cron")).toBe(true);
     });
 
     test("re-review off, peer asks on -> only board-peer is installed", async () => {
