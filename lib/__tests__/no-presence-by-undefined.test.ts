@@ -16,11 +16,7 @@ const SOURCE_EXT = new Set([".ts", ".tsx", ".mts", ".js", ".mjs"]);
 const EXCLUDED_PREFIXES = ["packages/rt-client/src/settings/"];
 const PRESENCE = /\b(?:getSetting|resolve)\s*(?:<[^>()]*>)?\(\s*[^()]*\)\s*\.value\s*[!=]==?\s*undefined/g;
 
-const ALLOWLIST: Record<string, { count: number; reason: string }> = {
-  "apps/deck/core/settings.ts": { count: 1, reason: "deck.apps ownership latch; the deck retirement deletes it" },
-  "apps/deck/src/api/platform-settings.ts": { count: 1, reason: "deck.platform ownership latch; the deck retirement deletes it" },
-  "apps/deck/src/edge/oauth.ts": { count: 1, reason: "deck.access ownership latch; the deck retirement deletes it" },
-};
+const ALLOWLIST: Record<string, { count: number; reason: string }> = {};
 
 function* sourceFiles(path: string): Generator<string> {
   if (!existsSync(path)) return;

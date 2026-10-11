@@ -6,8 +6,9 @@ import {
   writeFileSync,
 } from 'fs';
 import { dirname, join } from 'path';
+import { isDeepStrictEqual } from 'util';
 
-import { getSetting, setSetting } from '@mattstack/rt-client';
+import { getDef, getSetting, setSetting } from '@mattstack/rt-client';
 import { stateDir } from './state.ts';
 
 export interface TunnelIdentity {
@@ -24,20 +25,24 @@ export interface PlatformSettings {
   tunnel: TunnelIdentity | null;
 }
 
-const DEFAULTS: PlatformSettings = {
-  publicDomain: null,
+const FILE_DEFAULTS: Pick<PlatformSettings, 'tlds' | 'secrets'> = {
   tlds: ['localhost'],
-  legacyPrefixes: [],
   secrets: {},
-  railway: null,
-  tunnel: null,
 };
 
 const STORE_KEY = 'deck.platform';
-type MigratedFields = Pick<
+type StoreFields = Pick<
   PlatformSettings,
   'publicDomain' | 'legacyPrefixes' | 'railway' | 'tunnel'
 >;
+const STORE_FIELDS = [
+  'publicDomain',
+  'legacyPrefixes',
+  'railway',
+  'tunnel',
+] as const;
+type GetSettingFn = typeof getSetting;
+type SetSettingFn = typeof setSetting;
 
 export function platformSettingsPath(): string {
   return (
@@ -46,60 +51,96 @@ export function platformSettingsPath(): string {
   );
 }
 
-type GetSettingFn = typeof getSetting;
-
-/**
- * Transition fallback for deck.platform (MAT-384): store wins PER FIELD over
- * platform.json; a field the store doesn't carry falls back to the file's
- * value; a resolver throw degrades to the file's values entirely (fail-open),
- * warning once per load. `resolve` defaults to the real resolver; tests
- * inject a throwing stand-in to cover the fail-open path without touching
- * real state. Delete this function whole at cutover, once the file no
- * longer carries these fields.
- */
-function withPlatformStoreFallback(
-  fileValues: MigratedFields,
-  resolve: GetSettingFn
-): MigratedFields {
-  let store: Partial<MigratedFields>;
+function readFile(): Record<string, unknown> {
   try {
-    store = (resolve<Partial<MigratedFields>>(STORE_KEY).value ??
-      {}) as Partial<MigratedFields>;
-  } catch (err) {
-    console.warn(
-      `deck: ${STORE_KEY} unavailable, falling back to platform.json`,
-      err
-    );
-    return fileValues;
+    return JSON.parse(readFileSync(platformSettingsPath(), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return {};
   }
+}
+
+/** platform.json keeps tlds and secrets; the store fields live in deck.platform. */
+function writeFile(values: Record<string, unknown>): void {
+  const {
+    publicDomain: _a,
+    legacyPrefixes: _b,
+    railway: _c,
+    tunnel: _d,
+    ...kept
+  } = values;
+  const path = platformSettingsPath();
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = path + '.tmp';
+  writeFileSync(tmp, JSON.stringify(kept, null, 2), { mode: 0o600 });
+  renameSync(tmp, path);
+  chmodSync(path, 0o600);
+}
+
+function storeFieldsOf(values: PlatformSettings): StoreFields {
   return {
-    publicDomain:
-      store.publicDomain !== undefined
-        ? store.publicDomain
-        : fileValues.publicDomain,
-    legacyPrefixes:
-      store.legacyPrefixes !== undefined
-        ? store.legacyPrefixes
-        : fileValues.legacyPrefixes,
-    railway: store.railway !== undefined ? store.railway : fileValues.railway,
-    tunnel: store.tunnel !== undefined ? store.tunnel : fileValues.tunnel,
+    publicDomain: values.publicDomain,
+    legacyPrefixes: values.legacyPrefixes,
+    railway: values.railway,
+    tunnel: values.tunnel,
   };
 }
 
-let cache: PlatformSettings = load(getSetting);
-
-function load(resolve: GetSettingFn): PlatformSettings {
-  let fileValues: PlatformSettings;
+/** Same one-time copy as core/settings.ts's importFileFields, for the four store fields. */
+export function importFileFields(
+  resolve: GetSettingFn = getSetting,
+  write: SetSettingFn = setSetting
+): Partial<StoreFields> {
+  const file = readFile();
+  const fields = Object.fromEntries(
+    STORE_FIELDS.filter(f => file[f] !== undefined).map(f => [f, file[f]])
+  ) as Partial<StoreFields>;
+  if (Object.keys(fields).length === 0) return {};
   try {
-    fileValues = {
-      ...DEFAULTS,
-      ...JSON.parse(readFileSync(platformSettingsPath(), 'utf8')),
-    };
-  } catch {
-    fileValues = structuredClone(DEFAULTS);
+    if (resolve(STORE_KEY).provenance.every(p => p.scope === 'default'))
+      write(STORE_KEY, fields, 'machine');
+    writeFile(file);
+    return {};
+  } catch (err) {
+    console.error(
+      `deck: could not move platform settings into ${STORE_KEY}; using platform.json until the next start`,
+      err
+    );
+    return fields;
   }
-  return { ...fileValues, ...withPlatformStoreFallback(fileValues, resolve) };
 }
+
+function readStore(resolve: GetSettingFn): StoreFields {
+  try {
+    return resolve<StoreFields>(STORE_KEY).value as StoreFields;
+  } catch (err) {
+    console.warn(`deck: ${STORE_KEY} unavailable, using its defaults`, err);
+    return structuredClone(getDef(STORE_KEY)!.default) as StoreFields;
+  }
+}
+
+function load(
+  resolve: GetSettingFn,
+  pending: Partial<StoreFields> = {}
+): PlatformSettings {
+  const {
+    publicDomain: _a,
+    legacyPrefixes: _b,
+    railway: _c,
+    tunnel: _d,
+    ...fileOnly
+  } = readFile();
+  return {
+    ...FILE_DEFAULTS,
+    ...fileOnly,
+    ...readStore(resolve),
+    ...pending,
+  } as PlatformSettings;
+}
+
+let cache: PlatformSettings = load(getSetting, importFileFields());
 
 export function reloadPlatformSettings(
   resolve: GetSettingFn = getSetting
@@ -111,96 +152,36 @@ export function getPlatformSettings(): PlatformSettings {
 }
 
 /**
- * Store ownership is a one-way latch, decided fresh on every write: rt-client's
- * read path never throws for an absent or lost key, it yields `undefined` (see
- * stores.ts -- even a malformed store file honest-degrades to "empty" there,
- * not a throw). So `undefined` here means the store does not yet own
- * deck.platform -- ownership flips only via the orchestrator's live import or
- * an explicit `rt settings set`, never manufactured by this function. Until
- * then, writes must not strip the file (there would be nowhere left holding
- * the value) and must not call `setSetting` (there is nothing to merge into,
- * and doing so would manufacture ownership deck never asked for).
+ * The store fields go to deck.platform (only when they changed), the rest to
+ * platform.json. Writing replaces deck.platform wholesale from this process's
+ * view, as any boot-read config in deck does; a restart picks up an outside
+ * edit.
  */
-function isPlatformStoreOwned(resolve: GetSettingFn): boolean {
-  try {
-    return resolve<unknown>(STORE_KEY).value !== undefined;
-  } catch {
-    return false;
-  }
-}
-
-export function updatePlatformSettings(
-  patch: Partial<PlatformSettings>,
-  resolve: GetSettingFn = getSetting
-): void {
+export function updatePlatformSettings(patch: Partial<PlatformSettings>): void {
   const previous = cache;
   cache = {
     ...cache,
     ...patch,
     secrets: { ...cache.secrets, ...(patch.secrets ?? {}) },
   };
-
-  const owned = isPlatformStoreOwned(resolve);
-  if (owned) {
+  const storeChanged = !isDeepStrictEqual(
+    storeFieldsOf(cache),
+    storeFieldsOf(previous)
+  );
+  if (storeChanged) {
     try {
-      // Unconditional, not just when `patch` touches a migrated field: the
-      // file write below always strips these migrated fields, so gating this on
-      // the patch would let a tlds/secrets-only patch erase them from disk
-      // with nowhere left holding the value. Writing the cache's current
-      // values back is a no-op when they're unchanged. This REPLACES
-      // deck.platform in the store wholesale from deck's boot-time cache --
-      // a field another process wrote to the store after this process
-      // booted is clobbered here, same as any other boot-read config in
-      // deck (a restart is what picks up an external edit).
-      setSetting(
-        STORE_KEY,
-        {
-          publicDomain: cache.publicDomain,
-          legacyPrefixes: cache.legacyPrefixes,
-          railway: cache.railway,
-          tunnel: cache.tunnel,
-        },
-        'machine'
-      );
+      setSetting(STORE_KEY, storeFieldsOf(cache), 'machine');
     } catch (err) {
-      cache = previous; // never claim a value neither the store nor the file actually holds
+      cache = previous;
       throw err;
     }
   }
-
-  const fileBody: Record<string, unknown> = owned
-    ? (() => {
-        const {
-          publicDomain: _publicDomain,
-          legacyPrefixes: _legacyPrefixes,
-          railway: _railway,
-          tunnel: _tunnel,
-          ...rest
-        } = cache;
-        return rest;
-      })()
-    : cache; // unowned: the file is the only place holding these fields, so it keeps them
-
-  const path = platformSettingsPath();
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = path + '.tmp';
   try {
-    writeFileSync(tmp, JSON.stringify(fileBody, null, 2), { mode: 0o600 });
-    renameSync(tmp, path);
-    chmodSync(path, 0o600);
+    writeFile(cache as unknown as Record<string, unknown>);
   } catch (err) {
-    if (owned) {
+    if (storeChanged) {
       try {
-        setSetting(
-          STORE_KEY,
-          {
-            publicDomain: previous.publicDomain,
-            legacyPrefixes: previous.legacyPrefixes,
-            railway: previous.railway,
-            tunnel: previous.tunnel,
-          },
-          'machine'
-        );
+        setSetting(STORE_KEY, storeFieldsOf(previous), 'machine');
       } catch (revertErr) {
         console.error(
           'platform settings save: failed to revert deck.platform after a file-write failure',

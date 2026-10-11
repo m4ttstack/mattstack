@@ -1,15 +1,15 @@
 // src/edge/oauth.test.ts
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
-import { afterAll, afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
 
 import { getSetting, setSetting } from '@mattstack/rt-client';
 
@@ -51,6 +51,8 @@ const {
   renameOAuth,
   reloadOAuth,
   oauthRequiresCf,
+  importAccessFile,
+  accessPath,
 } = await import('./oauth.ts');
 
 const origHome = process.env.HOME;
@@ -58,6 +60,7 @@ let home: string;
 
 beforeEach(() => {
   rmSync(ACCESS_PATH, { force: true });
+  rmSync(`${ACCESS_PATH}.imported`, { force: true });
   home = mkdtempSync(join(tmpdir(), 'local-oauth-home-'));
   process.env.HOME = home;
   reloadOAuth();
@@ -130,146 +133,25 @@ test('only an on-mode needs Cloudflare', () => {
   );
 });
 
-test('load drops every entry that does not match the current shape and rewrites the file', () => {
-  writeFileSync(
-    ACCESS_PATH,
-    JSON.stringify({
-      apps: {
-        legacyPublic: { tier: 'public' },
-        legacyOnlyMe: { tier: 'only-me', email: 'm@x.dev' },
-        legacyDomain: { tier: 'work-domain', emailDomain: 'corp.com' },
-        junk: { mode: 'emails', emails: [] },
-        keeper: { mode: 'emails', emails: ['a@x.dev'] },
-      },
-    })
-  );
-  reloadOAuth();
-
-  expect(getOAuth('legacyOnlyMe')).toEqual({ mode: 'off' });
-  expect(getOAuth('legacyDomain')).toEqual({ mode: 'off' });
-  expect(getOAuth('junk')).toEqual({ mode: 'off' });
-  expect(getOAuth('keeper')).toEqual({ mode: 'emails', emails: ['a@x.dev'] });
-
-  // The drop is written back, not re-derived on every load.
-  const onDisk = JSON.parse(readFileSync(ACCESS_PATH, 'utf8'));
-  expect(Object.keys(onDisk.apps)).toEqual(['keeper']);
-});
-
-test('a file with nothing to drop is left alone', () => {
-  setOAuth('a', { mode: 'emails', emails: ['a@x.dev'] });
-  const before = readFileSync(ACCESS_PATH, 'utf8');
-  const beforeStat = statSync(ACCESS_PATH);
-
-  reloadOAuth();
-
-  // Content alone cannot fail this: a rewrite is byte-identical, so an
-  // unconditional save() would still pass. save() writes a temp file and
-  // renames it over the target, so any write at all lands a NEW inode.
-  expect(statSync(ACCESS_PATH).ino).toBe(beforeStat.ino);
-  expect(readFileSync(ACCESS_PATH, 'utf8')).toBe(before);
-});
-
 // ─── deck.access store migration (MAT-384 Task 2) ────────────────────────────
 
-test('deck.access store entry wins over access.json wholesale, per app', () => {
-  writeFileSync(
-    ACCESS_PATH,
-    JSON.stringify({
-      apps: { a: { mode: 'domains', domains: ['file.example.com'] } },
-    })
-  );
-  setSetting(
-    'deck.access',
-    { a: { mode: 'emails', emails: ['store@example.com'] } },
-    'user'
-  );
-  reloadOAuth();
-  expect(getOAuth('a')).toEqual({
-    mode: 'emails',
-    emails: ['store@example.com'],
-  });
-});
-
-test('an app absent from the store falls back to its access.json entry', () => {
-  writeFileSync(
-    ACCESS_PATH,
-    JSON.stringify({
-      apps: { a: { mode: 'domains', domains: ['file.example.com'] } },
-    })
-  );
-  setSetting('deck.access', { b: { mode: 'off' } }, 'user');
-  reloadOAuth();
-  expect(getOAuth('a')).toEqual({
-    mode: 'domains',
-    domains: ['file.example.com'],
-  });
-});
-
 test("a store entry that doesn't match the OAuth shape is skipped, never rewritten", () => {
-  writeFileSync(
-    ACCESS_PATH,
-    JSON.stringify({
-      apps: { a: { mode: 'domains', domains: ['file.example.com'] } },
-    })
-  );
   seedUserStore('deck.access', { a: { tier: 'public' } });
   reloadOAuth();
-  expect(getOAuth('a')).toEqual({
-    mode: 'domains',
-    domains: ['file.example.com'],
-  });
+  expect(getOAuth('a')).toEqual({ mode: 'off' });
   // Never auto-rewrite the store: the malformed entry is still there verbatim.
   const stored = getSetting<Record<string, unknown>>('deck.access').value;
   expect(stored?.a).toEqual({ tier: 'public' });
 });
 
-test("a resolver throw degrades to access.json's entries entirely, warning once", () => {
-  writeFileSync(
-    ACCESS_PATH,
-    JSON.stringify({
-      apps: { a: { mode: 'domains', domains: ['file.example.com'] } },
-    })
-  );
-  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
-  const throwingResolver: typeof getSetting = () => {
-    throw new Error('rt daemon unreachable');
-  };
-  reloadOAuth(throwingResolver);
-  expect(getOAuth('a')).toEqual({
-    mode: 'domains',
-    domains: ['file.example.com'],
-  });
-  expect(warnSpy).toHaveBeenCalledTimes(1);
-  warnSpy.mockRestore();
-});
-
-// ─── store ownership latch (MAT-384 fix wave) ────────────────────────────────
-//
-// Store ownership of deck.access is a one-way latch, decided fresh on every
-// call from whether getSetting("deck.access") currently yields a defined
-// value. It starts absent in every one of these tests (a fresh temp HOME per
-// test, per beforeEach), so the "store key absent" tests below need no setup
-// at all; the "store key present" tests establish ownership explicitly with
-// a `setSetting` call before exercising setOAuth.
-
-test('store key absent: setOAuth keeps the rule in the file and never touches the store', () => {
-  setOAuth('a', { mode: 'emails', emails: ['a@x.dev'] });
-
-  const onDisk = JSON.parse(readFileSync(ACCESS_PATH, 'utf8'));
-  expect(onDisk.apps.a).toEqual({ mode: 'emails', emails: ['a@x.dev'] });
-  expect(getSetting<unknown>('deck.access').value).toBeUndefined();
-});
-
-test('store key present: setOAuth writes the store and stops persisting the rule to the file', () => {
+test('setOAuth writes the store', () => {
   setSetting('deck.access', { seed: { mode: 'off' } }, 'user');
   reloadOAuth();
 
   setOAuth('a', { mode: 'emails', emails: ['a@x.dev'] });
   const stored = getSetting<Record<string, unknown>>('deck.access').value;
   expect(stored?.a).toEqual({ mode: 'emails', emails: ['a@x.dev'] });
-
-  const onDisk = JSON.parse(readFileSync(ACCESS_PATH, 'utf8'));
-  expect(onDisk.apps).toEqual({});
+  expect(stored?.seed).toEqual({ mode: 'off' });
 });
 
 test("store key present: setOAuth on one app keeps every other app's rule current in the store too", () => {
@@ -294,61 +176,6 @@ test('store key present: a malformed store entry for another app survives a writ
   const stored = getSetting<Record<string, unknown>>('deck.access').value;
   expect(stored?.a).toEqual({ tier: 'public' });
   expect(stored?.b).toEqual({ mode: 'emails', emails: ['b@x.dev'] });
-});
-
-test('access.json is written 0600', () => {
-  setOAuth('a', { mode: 'off' });
-  const mode = statSync(ACCESS_PATH).mode & 0o777;
-  expect(mode).toBe(0o600);
-});
-
-test('store key absent: a file-write failure reverts the in-memory cache instead of silently keeping the change', () => {
-  setOAuth('a', { mode: 'off' }); // establishes a baseline the failed write must revert to
-
-  rmSync(ACCESS_PATH, { force: true });
-  mkdirSync(ACCESS_PATH, { recursive: true });
-  try {
-    expect(() =>
-      setOAuth('a', { mode: 'emails', emails: ['a@x.dev'] })
-    ).toThrow();
-  } finally {
-    rmSync(ACCESS_PATH, { recursive: true, force: true });
-  }
-
-  expect(getOAuth('a')).toEqual({ mode: 'off' });
-});
-
-test('a resolver throw on the ownership probe degrades to unowned rather than crashing the write', () => {
-  seedUserStore('deck.access', { poison: '${repoRoot}' });
-  reloadOAuth(); // load()'s own fallback already tolerates this; unaffected by the probe fix
-
-  expect(() =>
-    setOAuth('a', { mode: 'emails', emails: ['a@x.dev'] })
-  ).not.toThrow();
-
-  const onDisk = JSON.parse(readFileSync(ACCESS_PATH, 'utf8'));
-  expect(onDisk.apps.a).toEqual({ mode: 'emails', emails: ['a@x.dev'] });
-});
-
-test('store key present: a file-write failure collapsing access.json to {} does not revert the store or fail the call -- the store already persisted', () => {
-  setSetting('deck.access', { seed: { mode: 'off' } }, 'user');
-  reloadOAuth();
-
-  rmSync(ACCESS_PATH, { force: true });
-  mkdirSync(ACCESS_PATH, { recursive: true });
-  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
-  try {
-    expect(() =>
-      setOAuth('a', { mode: 'emails', emails: ['a@x.dev'] })
-    ).not.toThrow();
-    expect(warnSpy).toHaveBeenCalled();
-  } finally {
-    rmSync(ACCESS_PATH, { recursive: true, force: true });
-    warnSpy.mockRestore();
-  }
-
-  const stored = getSetting<Record<string, unknown>>('deck.access').value;
-  expect(stored?.a).toEqual({ mode: 'emails', emails: ['a@x.dev'] });
 });
 
 test('store key present: a store write failure reverts the in-memory cache instead of claiming a value neither side holds', () => {
@@ -376,15 +203,16 @@ test('store key present: a store write failure reverts the in-memory cache inste
 
 // ─── renameOAuth (adopt verb + edit-rename fix) ──────────────────────────────
 
-test('store key absent: renameOAuth moves the rule in the file and never touches the store', () => {
+test('renameOAuth moves the rule in the store and never writes access.json', () => {
   setOAuth('mrs', { mode: 'emails', emails: ['m@x.dev'] });
   renameOAuth('mrs', 'board');
 
   expect(getOAuth('board')).toEqual({ mode: 'emails', emails: ['m@x.dev'] });
   expect(getOAuth('mrs')).toEqual({ mode: 'off' });
-  const onDisk = JSON.parse(readFileSync(ACCESS_PATH, 'utf8'));
-  expect(Object.keys(onDisk.apps)).toEqual(['board']);
-  expect(getSetting<unknown>('deck.access').value).toBeUndefined();
+  expect(getSetting<Record<string, unknown>>('deck.access').value).toEqual({
+    board: { mode: 'emails', emails: ['m@x.dev'] },
+  });
+  expect(existsSync(ACCESS_PATH)).toBe(false);
 });
 
 test('store key present: renameOAuth drops the old key and writes the new one, other entries untouched', () => {
@@ -407,12 +235,12 @@ test('store key present: renameOAuth drops the old key and writes the new one, o
 
 test('renameOAuth with no rule under the old name is a no-op — no write at all', () => {
   setOAuth('keeper', { mode: 'off' });
-  const beforeStat = statSync(ACCESS_PATH);
+  const before = readFileSync(userStorePath(), 'utf8');
 
   renameOAuth('ghost', 'board');
 
-  expect(statSync(ACCESS_PATH).ino).toBe(beforeStat.ino);
-  expect(getSetting<unknown>('deck.access').value).toBeUndefined();
+  expect(readFileSync(userStorePath(), 'utf8')).toBe(before);
+  expect(getOAuth('board')).toEqual({ mode: 'off' });
 });
 
 test('store key present: a store write failure during renameOAuth reverts the cache and rethrows', () => {
@@ -427,4 +255,48 @@ test('store key present: a store write failure during renameOAuth reverts the ca
   expect(() => renameOAuth('mrs', 'board')).toThrow();
   expect(getOAuth('mrs')).toEqual({ mode: 'off' });
   expect(getOAuth('board')).toEqual({ mode: 'off' }); // default, not the moved rule
+});
+
+// ─── one-time copy out of access.json ────────────────────────────────────────
+
+test('access.json moves into deck.access once, valid rules only, and is renamed', () => {
+  writeFileSync(
+    accessPath(),
+    JSON.stringify({
+      apps: {
+        widgets: { mode: 'emails', emails: ['dev1@example.com'] },
+        stale: { mode: 'nope' },
+      },
+    })
+  );
+  expect(importAccessFile()).toEqual({});
+  expect(getSetting('deck.access').value).toEqual({
+    widgets: { mode: 'emails', emails: ['dev1@example.com'] },
+  });
+  expect(existsSync(accessPath())).toBe(false);
+  expect(existsSync(`${accessPath()}.imported`)).toBe(true);
+});
+
+test('a failed copy keeps this start on the file rules', () => {
+  writeFileSync(
+    accessPath(),
+    JSON.stringify({
+      apps: { widgets: { mode: 'domains', domains: ['example.com'] } },
+    })
+  );
+  const failing = (() => {
+    throw new Error('store locked');
+  }) as typeof setSetting;
+  expect(importAccessFile(getSetting, failing)).toEqual({
+    widgets: { mode: 'domains', domains: ['example.com'] },
+  });
+  expect(existsSync(accessPath())).toBe(true);
+});
+
+test('setOAuth writes the store and never access.json', () => {
+  setOAuth('widgets', { mode: 'domains', domains: ['example.com'] });
+  expect(getSetting('deck.access').value).toMatchObject({
+    widgets: { mode: 'domains', domains: ['example.com'] },
+  });
+  expect(existsSync(accessPath())).toBe(false);
 });
