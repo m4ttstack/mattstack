@@ -598,7 +598,7 @@ async function runRefreshSteps(steps: MaterializeStep[], exec: MaterializeExecSe
 
 /**
  * `claude.marketplaces`/`claude.plugins` replay is the installer's job, not
- * init's. This only points at it when either sets either, so a machine
+ * init's. This only points at it only when a store sets either key, so a machine
  * with nothing configured stays silent.
  */
 export function claudePluginsPointerMessage(marketplacesSet: boolean, pluginsSet: boolean): string | null {

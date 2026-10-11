@@ -46,7 +46,7 @@ describe("presence", () => {
   test("registryDefault hands back a copy", () => {
     const first = registryDefault<{ triggers: unknown[] }>("rt.cron");
     first.triggers.push("changed");
-    expect(registryDefault("rt.cron")).toEqual({ triggers: [] });
+    expect(registryDefault<unknown>("rt.cron")).toEqual({ triggers: [] });
     expect(registryDefault("rt.dopplerTemplate")).toBeUndefined();
     expect(() => registryDefault("no.such.key")).toThrow('unknown setting "no.such.key"');
   });
