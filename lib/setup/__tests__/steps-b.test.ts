@@ -1036,7 +1036,10 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(detailOf(outcome)).toContain("board.cwds");
       const cwd = getSetting<Record<string, string>>("board.cwds").value?.review;
       expect(cwd && existsSync(cwd) ? realpathSync(cwd) : cwd).toBe(realpathSync(clone));
-      expect(getSetting("gitq.board").value).toEqual({ repos: ["acme-dev"], port: 11008 });
+      const board = getSetting<{ repos: { path: string; name: string }[]; port: number }>("gitq.board").value!;
+      expect(board.port).toBe(11008);
+      expect(board.repos.map((r) => r.name)).toEqual(["acme-dev"]);
+      expect(board.repos.map((r) => realpathSync(r.path))).toEqual([realpathSync(clone)]);
       expect(logs.some((l) => l.line.includes("board.cwds"))).toBe(false);
     });
 
@@ -1058,7 +1061,10 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx: after } = makeCtx(fakeProbes({ home }), { snapshot });
       const outcome = await boardKeysStep.run(after);
       expect(detailOf(outcome)).toContain("board.cwds");
-      expect(getSetting("gitq.board").value).toEqual({ repos: ["acme-dev"], port: 11008 });
+      const board = getSetting<{ repos: { path: string; name: string }[]; port: number }>("gitq.board").value!;
+      expect(board.port).toBe(11008);
+      expect(board.repos.map((r) => r.name)).toEqual(["acme-dev"]);
+      expect(board.repos.map((r) => realpathSync(r.path))).toEqual([realpathSync(clone)]);
     });
 
     test("with only some tracked repos registered, board.cwds and gitq.board wait for the rest instead of latching a partial set", async () => {
@@ -1081,7 +1087,10 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       await updateRepoIndexAsync(serializeIdentity({ kind: "remote", id: "gitlab.com/acme/two" }), two);
       const { ctx: after } = makeCtx(fakeProbes({ home }), { snapshot });
       await boardKeysStep.run(after);
-      expect(getSetting("gitq.board").value).toEqual({ repos: ["one", "two"], port: 11008 });
+      const board = getSetting<{ repos: { path: string; name: string }[]; port: number }>("gitq.board").value!;
+      expect(board.port).toBe(11008);
+      expect(board.repos.map((r) => r.name)).toEqual(["one", "two"]);
+      expect(board.repos.map((r) => realpathSync(r.path))).toEqual([realpathSync(one), realpathSync(two)]);
       expect(getSetting<Record<string, string>>("board.cwds").value?.review).toBeDefined();
     });
 
@@ -1096,7 +1105,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(getDef("board.rtRepos")).toBeUndefined();
     });
 
-    test("writes board.cwds/gitq.board/gitq.workSlots once, then skips them once set (idempotent latch)", async () => {
+    test("writes board.cwds and gitq.board once, then skips them once set (idempotent latch)", async () => {
       const { repoName } = seedTrackedRepo();
       setSetting("rt.repoRoots", [home], "machine");
       const p = fakeProbes({ home });
@@ -1105,11 +1114,9 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const firstOutcome = await boardKeysStep.run(first);
       expect(detailOf(firstOutcome)).toContain("board.cwds");
       expect(detailOf(firstOutcome)).toContain("gitq.board");
-      expect(detailOf(firstOutcome)).toContain("gitq.workSlots");
       const expectedCwd = join(home, repoName);
       expect(getSetting("board.cwds").value).toEqual({ review: expectedCwd, respond: expectedCwd, doctor: expectedCwd });
-      expect(getSetting("gitq.board").value).toEqual({ repos: [repoName], port: 11008 });
-      expect(getSetting("gitq.workSlots").value).toEqual({ workSlotLocation: join(home, ".gitq-slots"), maxWorkSlots: 3 });
+      expect(getSetting("gitq.board").value).toEqual({ repos: [{ path: expect.any(String), name: repoName }], port: 11008 });
 
       // Someone (or a prior run) already set board.cwds by hand — the second run must not clobber it.
       setSetting("board.cwds", { review: "/custom", respond: "/custom", doctor: "/custom" }, "machine");
@@ -1119,16 +1126,15 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(getSetting("board.cwds").value).toEqual({ review: "/custom", respond: "/custom", doctor: "/custom" });
     });
 
-    test("no tracked repos and no repo root: gitq.board still writes (empty), board.cwds/gitq.workSlots honestly left unset, never crashes", async () => {
+    test("no tracked repos and no repo root: nothing is written and nothing crashes", async () => {
       const p = fakeProbes({ home });
       const { ctx, logs } = makeCtx(p);
       const outcome = await boardKeysStep.run(ctx);
-      expect(outcome).toEqual({ state: "done", detail: "Wrote gitq.board" });
-      expect(getSetting("gitq.board").value).toEqual({ repos: [], port: 11008 });
+      expect(outcome).toEqual({ state: "done", detail: "Nothing to write" });
+      expect(getSetting("gitq.board").value).toBeUndefined();
       expect(unwritten("board.cwds")).toBe(true);
-      expect(getSetting("gitq.workSlots").value).toBeUndefined();
-      expect(logs.some((l) => l.line.includes("board.cwds"))).toBe(true);
-      expect(logs.some((l) => l.line.includes("gitq.workSlots"))).toBe(true);
+      expect(unwritten("gitq.workSlots")).toBe(true);
+      expect(logs.some((l) => l.line.includes("gitq.board: the team tracks no repos"))).toBe(true);
     });
 
     const GITHUB_FORGE: TeamSnapshot = {

@@ -10,6 +10,7 @@ import {
   ensureWorkSlot,
   getWorkSlotLocation,
 } from '../../src/core/worktrees.ts';
+import { setSetting, unsetSetting } from '@mattstack/rt-client';
 import { resolveRepoIdentity } from '../../src/core/persistence.ts';
 import { getConfigDir, setConfigDir, repoHash } from '../../src/core/config-paths.ts';
 
@@ -130,7 +131,7 @@ describe('worktree map', () => {
     setConfigDir(sandboxConfigDir);
     try {
       await mkdir(sandboxConfigDir, { recursive: true });
-      await writeFile(join(sandboxConfigDir, 'settings.json'), JSON.stringify({ workSlotLocation: 'root' }));
+      setSetting('gitq.workSlots', { workSlotLocation: 'root' }, 'machine');
       expect(await getWorkSlotLocation()).toBe('root');
 
       // Through ensureWorkSlot, not just the pure function: the setting has to
@@ -144,6 +145,7 @@ describe('worktree map', () => {
       const registered = (await getWorktreeMap(pooled.dir)).filter((s) => s.isWorkSlot);
       expect(registered.map((s) => s.path)).toEqual([await realpath(slot)]);
     } finally {
+      unsetSetting('gitq.workSlots', 'machine');
       setConfigDir(restoreConfigDir);
     }
   });
@@ -155,9 +157,10 @@ describe('worktree map', () => {
     setConfigDir(sandboxConfigDir);
     try {
       await mkdir(sandboxConfigDir, { recursive: true });
-      await writeFile(join(sandboxConfigDir, 'settings.json'), JSON.stringify({ workSlotLocation: 'nowhere' }));
+      setSetting('gitq.workSlots', { workSlotLocation: 'nowhere' }, 'machine');
       expect(await getWorkSlotLocation()).toBe('auto');
     } finally {
+      unsetSetting('gitq.workSlots', 'machine');
       setConfigDir(restoreConfigDir);
     }
   });

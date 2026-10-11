@@ -132,7 +132,7 @@ describe("every setting is console-ready", () => {
 /** Keys held for a legacy file or a presence check: each gets its default in
     the PR that retires the hold. Shrink only. */
 const PENDING_DEFAULT: readonly string[] = [
-  "deck.access", "deck.apps", "deck.platform", "gitq.forges", "gitq.workSlots",
+  "deck.access", "deck.apps", "deck.platform",
 ];
 
 describe("every setting says what it is when nothing is set", () => {
