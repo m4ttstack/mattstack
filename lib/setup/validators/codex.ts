@@ -17,11 +17,7 @@ import { readSetupState } from "../state.ts";
 
 const PROBE_TIMEOUT_MS = 5000;
 
-const CODEX_INSTALL_STEPS: Action = {
-  type: "steps",
-  label: "Show steps…",
-  steps: ["Open a terminal", "Run: npm install -g @openai/codex", "Then run: codex --version"],
-};
+const CODEX_INSTALL: Action = { type: "install", label: "Install", tool: "codex", via: "vendor" };
 const CODEX_SIGNIN_STEPS: Action = { type: "steps", label: "Show steps…", steps: ["Open a terminal", "Run: codex login", "Follow the sign-in prompt"] };
 const removeOwnEntry = (path: string): Action => ({
   type: "steps",
@@ -60,7 +56,7 @@ export async function codexToolRow(p: Probes): Promise<Row> {
   const base = { id: "tool.codex", kind: "tool" as const, title: "Codex", why: "Runs the agent sessions rt drives and hands work off to.", required: true, recheck: "on-activate" as const };
 
   const versionRes = await exec(p, ["codex", "--version"]);
-  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "Codex is not installed", action: CODEX_INSTALL_STEPS });
+  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "Codex is not installed", action: CODEX_INSTALL });
   if (versionRes.code === 124) return row({ ...base, status: "error", detail: "Codex did not answer in time" });
   if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run Codex (exit ${versionRes.code})` });
   const named = `Codex ${versionOf(versionRes.stdout)}`;

@@ -233,6 +233,12 @@ describe("withWellKnownBinFallback", () => {
     const exists = (path: string) => path === "/home/x/.local/bin/herdr";
     expect(withWellKnownBinFallback(["herdr", "--version"], { home, pathDirs, exists })).toEqual(["/home/x/.local/bin/herdr", "--version"]);
   });
+  test("the Codex row's probes find the codex Install put in ~/.local/bin under launchd's PATH", () => {
+    const launchd = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+    const exists = (path: string) => path === "/home/x/.local/bin/codex";
+    expect(withWellKnownBinFallback(["codex", "--version"], { home, pathDirs: launchd, exists })).toEqual(["/home/x/.local/bin/codex", "--version"]);
+    expect(withWellKnownBinFallback(["codex", "login", "status"], { home, pathDirs: launchd, exists })).toEqual(["/home/x/.local/bin/codex", "login", "status"]);
+  });
   test("a bare command only Homebrew has becomes that absolute path", () => {
     const exists = (path: string) => path === "/opt/homebrew/bin/doppler";
     expect(withWellKnownBinFallback(["doppler", "--version"], { home, pathDirs, exists })).toEqual(["/opt/homebrew/bin/doppler", "--version"]);

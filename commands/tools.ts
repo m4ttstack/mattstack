@@ -18,7 +18,7 @@ import { usageFailure } from "../lib/ui/usage.ts";
 import { readIntent, orgRefFromIntent } from "../lib/setup/intent.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { readPackRequirements, type PackRequirements } from "../lib/setup/requirements.ts";
-import { BREW_FORMULAE, VENDOR_INSTALLERS, installTool, setupTool } from "../lib/setup/tools-install.ts";
+import { BREW_FORMULAE, RELEASE_BINARIES, VENDOR_INSTALLERS, installTool, setupTool } from "../lib/setup/tools-install.ts";
 import { hostSetupFor, readIntegrationSelection } from "../lib/setup/integration-selection.ts";
 import { bundledToolExec } from "../lib/deps/resolve.ts";
 import { DEFAULT_EXPOSED } from "../lib/deps/links.ts";
@@ -35,9 +35,9 @@ function resolveTeamReqs(p: Probes): PackRequirements[] {
   return ref.slug ? readPackRequirements(p, ref.slug) : [];
 }
 
-/** What installTool can act on here, mirroring its branch order: apple-clt, rt's bundled tools that resolve in this environment, its hardcoded brew/vendor formulae, and the joined team's declared tools. */
-function installableTools(p: Probes, reqs: PackRequirements[]): string[] {
-  const names = new Set<string>(["apple-clt", ...Object.keys(BREW_FORMULAE), ...Object.keys(VENDOR_INSTALLERS)]);
+/** What installTool can act on here, mirroring its branch order: apple-clt, rt's bundled tools that resolve in this environment, its hardcoded brew/vendor formulae, its release binaries while the integrations switch is on, and the joined team's declared tools. */
+function installableTools(p: Probes, reqs: PackRequirements[], releases: boolean): string[] {
+  const names = new Set<string>(["apple-clt", ...Object.keys(BREW_FORMULAE), ...Object.keys(VENDOR_INSTALLERS), ...(releases ? Object.keys(RELEASE_BINARIES) : [])]);
   for (const name of DEFAULT_EXPOSED) if (name !== "rt" && bundledToolExec(p, name)) names.add(name);
   for (const r of reqs) for (const t of r.tools) names.add(t.name);
   return [...names].sort();
@@ -53,10 +53,11 @@ async function pickTool(message: string, names: string[]): Promise<string | null
 
 export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
   const json = args.includes("--json");
+  const releases = readIntegrationSelection().switchOn;
   let t = tool(args);
   if (!t) {
     if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
-      t = (await pickTool("Install which tool?", installableTools(p, resolveTeamReqs(p)))) ?? undefined;
+      t = (await pickTool("Install which tool?", installableTools(p, resolveTeamReqs(p), releases))) ?? undefined;
       if (!t) process.exit(0);
     } else if (json) {
       exitUserError(new UserActionableError("usage", "usage: rt tools install <tool> [--json]"), json);
@@ -70,7 +71,7 @@ export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p:
 
   let result: Awaited<ReturnType<typeof installTool>>;
   try {
-    result = await installTool(p, t, reqs);
+    result = await installTool(p, t, reqs, undefined, { releases });
   } catch (err) {
     if (err instanceof UserActionableError) exitUserError(err, json);
     throw err;

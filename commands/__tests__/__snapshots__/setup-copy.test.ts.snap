@@ -1,5 +1,18 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
+exports[`the setup plan's shape and copy apply emits the org pull and identity titles after a join 1`] = `
+[
+  {
+    "id": "org.pull",
+    "title": "Pull your org",
+  },
+  {
+    "id": "team.identity",
+    "title": "Record who you are",
+  },
+]
+`;
+
 exports[`the setup plan's shape and copy integrations on, Codex only: the rows Codex adds 1`] = `
 {
   "copy": {
@@ -103,17 +116,55 @@ exports[`the setup plan's shape and copy integrations on, Codex only: the rows C
 }
 `;
 
-exports[`the setup plan's shape and copy apply emits the org pull and identity titles after a join 1`] = `
-[
-  {
-    "id": "org.pull",
-    "title": "Pull your org",
+exports[`the setup plan's shape and copy integrations on, Codex only: Codex is not installed yet 1`] = `
+{
+  "copy": {
+    "tool.codex.action.label": "Install",
+    "tool.codex.detail": "Codex is not installed",
+    "tool.codex.optionalNote": null,
+    "tool.codex.title": "Codex",
+    "tool.codex.why": "Runs the agent sessions rt drives and hands work off to.",
+    "tools.title": "Tools",
   },
-  {
-    "id": "team.identity",
-    "title": "Record who you are",
+  "machine": {
+    "canInstall": false,
+    "contract": 1,
+    "finishBlockedBy": [
+      "skills.writing-style",
+    ],
+    "groups": [
+      {
+        "id": "tools",
+        "rows": [
+          {
+            "action": {
+              "tool": "codex",
+              "type": "install",
+              "via": "vendor",
+            },
+            "id": "tool.codex",
+            "kind": "tool",
+            "recheck": "on-activate",
+            "required": true,
+            "status": "missing",
+          },
+        ],
+      },
+    ],
+    "requiredMissing": [
+      "perm.fda",
+      "tool.arch",
+      "tool.herdr",
+      "tool.codex",
+      "tool.app",
+    ],
+    "team": {
+      "mode": "none",
+      "name": "",
+      "slug": "",
+    },
   },
-]
+}
 `;
 
 exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`] = `

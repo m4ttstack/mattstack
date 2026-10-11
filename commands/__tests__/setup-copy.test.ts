@@ -145,6 +145,13 @@ describe("the setup plan's shape and copy", () => {
     expect(views(only)).toMatchSnapshot();
   });
 
+  test("integrations on, Codex only: Codex is not installed yet", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "codex" ? { code: 127, stdout: "", stderr: "ENOENT: codex" } : readyExec(argv));
+    const p = await composePlan({ p: fakeProbes({ exec }), secrets, ci: false, mode: "plan", orgs: [], waived: [], integrations: { switchOn: true, enabled: ["codex"] } });
+    const only: Plan = { ...p, groups: p.groups.map((g) => ({ ...g, rows: g.rows.filter((r) => r.id === "tool.codex") })).filter((g) => g.rows.length > 0) };
+    expect(views(only)).toMatchSnapshot();
+  });
+
   for (const mode of ["plan", "status"] as const) {
     test(`${mode}: the machine view is unchanged`, async () => {
       expect(machineView(await plan(mode))).toMatchSnapshot();

@@ -18,7 +18,7 @@ import { detectEditors, type DetectedEditor } from "../editors.ts";
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "./probes.ts";
 import type { PackRequirements } from "./requirements.ts";
-import { updateSetupState } from "./state.ts";
+import { readSetupState, updateSetupState } from "./state.ts";
 
 /**
  * URLs only — never a shell command. R-T21-a: nothing in this file ever
@@ -38,6 +38,32 @@ export const VENDOR_INSTALLERS: Record<string, string> = {
 const VENDOR_ALLOWED_HOSTS = new Set(["herdr.dev", "claude.ai", "bun.sh"]);
 
 export const BREW_FORMULAE: Record<string, string> = { herdr: "herdr", claude: "claude-code" };
+
+export interface ReleaseBinary {
+  version: string;
+  url: string;
+  sha256: string;
+  /** The one archive entry rt extracts; nothing else in the archive is written. */
+  member: string;
+}
+
+/**
+ * Prebuilt binaries rt installs itself into ~/.local/bin, under the same
+ * trust boundary as VENDOR_INSTALLERS: rt's own hardcoded list, never a
+ * team-declared value. Codex is pinned to the release the acceptance matrix
+ * tested (scripts/acceptance/tested-versions.json); a test fails when they drift.
+ */
+export const RELEASE_BINARIES: Record<string, ReleaseBinary> = {
+  codex: {
+    version: "0.160.0",
+    url: "https://github.com/openai/codex/releases/download/rust-v0.160.0/codex-aarch64-apple-darwin.tar.gz",
+    sha256: "07c3c7ca376a8f791115342f53138dda37e97cfa29b8125d0652d93784894b5d",
+    member: "codex-aarch64-apple-darwin",
+  },
+};
+
+const RELEASE_ALLOWED_HOSTS = new Set(["github.com"]);
+const RELEASE_TOOL_NAMES: Record<string, string> = { codex: "Codex" };
 
 /**
  * A team-declared `install.brew` runs as `brew install <formula>` — tap
@@ -172,8 +198,11 @@ function linkOutcomeDetail(outcome: LinkOutcome): string {
   return outcome.ok ? (outcome.state === "already" ? `already linked at ${outcome.path}` : `linked at ${outcome.path}`) : outcome.detail;
 }
 
-export async function installTool(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS): Promise<InstallResult> {
+/** `releases: false` (the integrations switch off) leaves RELEASE_BINARIES out, so the switch-off path is what it was before they existed. */
+export async function installTool(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS, opts: { releases?: boolean } = {}): Promise<InstallResult> {
   if (tool === "apple-clt") return installAppleClt(p);
+  const release = opts.releases === false ? undefined : RELEASE_BINARIES[tool];
+  if (release) return installReleaseBinary(p, tool, release);
 
   const bundled = seams.bundledToolExec(p, tool);
   if (bundled) {
@@ -274,8 +303,8 @@ async function runInstallerAndVerify(
   return { via, ok: true, detail: successDetail };
 }
 
-/** Rejects anything but https on one of the known vendor hosts — a hardcoded VENDOR_INSTALLERS entry only, never a team-declared URL (see installTool). */
-function validateVendorUrl(url: string): { ok: true } | { ok: false; detail: string } {
+/** Rejects anything but https on one of the known vendor hosts — a hardcoded VENDOR_INSTALLERS or RELEASE_BINARIES entry only, never a team-declared URL (see installTool). */
+function validateVendorUrl(url: string, allowedHosts: ReadonlySet<string> = VENDOR_ALLOWED_HOSTS): { ok: true } | { ok: false; detail: string } {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -283,7 +312,7 @@ function validateVendorUrl(url: string): { ok: true } | { ok: false; detail: str
     return { ok: false, detail: `The install URL is not valid: ${url}` };
   }
   if (parsed.protocol !== "https:") return { ok: false, detail: `The install URL must use https, not ${parsed.protocol} (${url})` };
-  if (!VENDOR_ALLOWED_HOSTS.has(parsed.hostname)) return { ok: false, detail: `The install URL's host ${parsed.hostname} is not a known vendor` };
+  if (!allowedHosts.has(parsed.hostname)) return { ok: false, detail: `The install URL's host ${parsed.hostname} is not a known vendor` };
   return { ok: true };
 }
 
@@ -312,6 +341,82 @@ async function runVendorInstaller(p: Probes, tool: string, url: string, opts: { 
   if (fetchRes.code !== 0) return { via: "vendor", ok: false, detail: `Downloading the install script failed (exit ${fetchRes.code}): ${firstLine(fetchRes.stderr || fetchRes.stdout)}` };
 
   return runInstallerAndVerify(p, tool, "vendor", [opts.shell ?? "sh", path, ...(opts.args ?? [])], "install script", "installed via vendor script", opts.verify);
+}
+
+async function sha256Of(p: Probes, path: string): Promise<string | null> {
+  const res = await p.exec(["shasum", "-a", "256", path], { timeoutMs: PROBE_TIMEOUT_MS * 6 });
+  return res.code === 0 ? (res.stdout.match(/^([0-9a-f]{64})\b/)?.[1] ?? null) : null;
+}
+
+/** rt's only when setup state recorded this path and the file still has the bytes rt wrote; a symlink or anything unrecorded is the member's. */
+async function isOwnReleaseInstall(p: Probes, dest: string): Promise<boolean> {
+  const recorded = readSetupState(p).releaseInstalls?.[dest];
+  if (!recorded || p.readlink(dest) !== null) return false;
+  return (await sha256Of(p, dest)) === recorded;
+}
+
+/**
+ * Installs a RELEASE_BINARIES entry at ~/.local/bin/<tool>. The archive's
+ * sha256 is checked before anything else reads it, and only the named
+ * member is extracted. Reports `via: "vendor"`, the value the app already
+ * decodes for a download rt makes itself.
+ */
+async function installReleaseBinary(p: Probes, tool: string, release: ReleaseBinary): Promise<InstallResult> {
+  const name = RELEASE_TOOL_NAMES[tool] ?? tool;
+  const fail = (detail: string, extra: Partial<InstallResult> = {}): InstallResult => ({ via: "vendor", ok: false, detail, ...extra });
+
+  const arch = await p.exec(["uname", "-m"], { timeoutMs: PROBE_TIMEOUT_MS });
+  const archName = arch.stdout.trim();
+  if (arch.code !== 0 || !archName) return fail("rt could not read this Mac's processor type");
+  if (archName !== "arm64") return fail(`${name}'s release build runs only on Apple silicon, and this Mac is ${archName}`);
+
+  const validated = validateVendorUrl(release.url, RELEASE_ALLOWED_HOSTS);
+  if (!validated.ok) return fail(validated.detail);
+
+  const binDir = join(p.home, ".local", "bin");
+  const dest = join(binDir, tool);
+  if ((p.exists(dest) || p.readlink(dest) !== null) && !(await isOwnReleaseInstall(p, dest))) {
+    return fail(`Something that rt did not put there is already at ${dest}`, { reason: "occupied" });
+  }
+
+  const work = join(p.env.TMPDIR ?? "/tmp", "rt-vendor-install", `${tool}-release`);
+  const archive = join(work, `${tool}.tar.gz`);
+  p.removeDir(work);
+  p.mkdirp(work);
+  try {
+    const fetchRes = await p.exec(["curl", "-fsSL", release.url, "-o", archive], { timeoutMs: INSTALL_TIMEOUT_MS });
+    if (fetchRes.code === 124) return fail(`Downloading ${name} did not finish in time`);
+    if (fetchRes.code !== 0) return fail(`Downloading ${name} failed (exit ${fetchRes.code}): ${firstLine(fetchRes.stderr || fetchRes.stdout)}`);
+
+    if ((await sha256Of(p, archive)) !== release.sha256) {
+      p.removeFile(archive);
+      return fail(`The ${name} download did not match its expected checksum, so rt deleted it`);
+    }
+
+    const untar = await p.exec(["tar", "-xzf", archive, "-C", work, release.member], { timeoutMs: INSTALL_TIMEOUT_MS });
+    if (untar.code !== 0) return fail(`Unpacking ${name} failed (exit ${untar.code}): ${firstLine(untar.stderr || untar.stdout)}`);
+    const extracted = join(work, release.member);
+    const digest = await sha256Of(p, extracted);
+    if (digest === null) return fail(`rt could not read the ${name} it unpacked`);
+
+    p.mkdirp(binDir);
+    const staged = `${dest}.rt-new`;
+    const put = await p.exec(["install", "-m", "755", extracted, staged], { timeoutMs: PROBE_TIMEOUT_MS * 6 });
+    if (put.code !== 0) return fail(`Putting ${name} in ${binDir} failed (exit ${put.code}): ${firstLine(put.stderr || put.stdout)}`);
+    try {
+      p.rename(staged, dest);
+    } catch (err) {
+      p.removeFile(staged);
+      return fail(`Putting ${name} in ${binDir} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    updateSetupState(p, (s) => ({ ...s, releaseInstalls: { ...(s.releaseInstalls ?? {}), [dest]: digest } }));
+
+    const verify = await p.exec([dest, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
+    if (verify.code !== 0) return fail(`${name} was put at ${dest}, but it does not run (exit ${verify.code})`);
+    return { via: "vendor", ok: true, detail: `Installed ${name} ${release.version} at ${dest}` };
+  } finally {
+    p.removeDir(work);
+  }
 }
 
 // ─── setupTool ───────────────────────────────────────────────────────────

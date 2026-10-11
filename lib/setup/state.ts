@@ -28,6 +28,8 @@ export interface SetupState {
   finishedAt?: string;
   /** Codex config files rt added its MCP entry to, each with that entry's fingerprint: a table whose fingerprint still matches is rt's to replace, any other is the member's. */
   codexMcp?: Record<string, string>;
+  /** Binaries rt installed from a pinned release (tools-install.ts), each path with the sha256 of the file rt wrote: one whose bytes still match is rt's to replace, any other is the member's. */
+  releaseInstalls?: Record<string, string>;
   /** What rt wrote for Codex's reviewed policy hooks in the user layer (policy-install.ts). Only these entries are rt's to replace or remove; an identical entry the member wrote is never listed. */
   codexPolicy?: CodexPolicyState;
 }
