@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 import { Button, Icon } from '@mattstack/tui-kit';
 import { CommandButton } from '../CommandButton.tsx';
-import { GIT_BRANCH, RADIO, SQUARE } from '../icons.ts';
+import { GIT_BRANCH, RADIO, STOP } from '../icons.ts';
 import {
   commandKey,
   showDevLinkPrompt,
@@ -116,7 +116,7 @@ export function CodeBlock({ row, data, board, blocks }: BlockProps) {
               intent="bad"
               onClick={e => openLiveFromSettings(row, board, e.currentTarget)}
             >
-              <Icon d={SQUARE} />
+              <Icon d={STOP} fill="currentColor" />
               Stop Live
             </Button>
           </span>

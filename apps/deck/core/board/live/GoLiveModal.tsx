@@ -9,7 +9,7 @@ import {
   SearchSelect,
   Spinner,
 } from '@mattstack/tui-kit';
-import { GIT_BRANCH, HOUSE, PLAY, RADIO, SQUARE } from '../icons.ts';
+import { GIT_BRANCH, HOUSE, PLAY, RADIO, STOP } from '../icons.ts';
 import type { SourceRow } from './live-api.ts';
 import { lastUsed } from './live-logic.ts';
 import { rowSource, type LiveState } from './useLive.ts';
@@ -148,7 +148,7 @@ export function GoLiveModal({ live }: { live: LiveState }) {
               disabled={m.busy}
               onClick={() => void live.stop()}
             >
-              <Icon d={SQUARE} />
+              <Icon d={STOP} fill="currentColor" />
               Stop Live
             </Button>
           )}

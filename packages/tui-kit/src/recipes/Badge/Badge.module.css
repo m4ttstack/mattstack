@@ -19,4 +19,8 @@
     padding: 0 var(--spacing-sm);
     white-space: nowrap;
   }
+
+  .root > [data-part="spinner"] {
+    margin-inline-end: var(--spacing-xxs);
+  }
 }
