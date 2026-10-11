@@ -330,8 +330,9 @@ stores, deck copies its own at boot, and every reader now reads the store
 alone. A new port goes in the same order: a migration copies the file's
 values (user and machine scope only, never over a value a store holds),
 verifies each copy read back, renames the file `<name>.imported`, and only
-then does the reader drop the file. `lib/state/legacy-import.ts` is the
-reference for verifying before the rename.
+then does the reader drop the file.
+`lib/setup/migrations/import-app-settings.ts` is the reference for
+verifying before the rename.
 
 ## Footguns (each cost a real debugging session)
 

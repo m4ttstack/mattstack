@@ -13,7 +13,7 @@ One root holds everything gitq owns: **`~/.mattstack/gitq`**, whether gitq runs 
 
 **`GITQ_APP_ROOT`** moves the root, resolved to an absolute path. `GITQ_CONFIG_DIR` still moves the CLI's own subset within it and wins where they overlap (below).
 
-gitq's files used to live in `~/.config/gitq`. The first run after the move copies that directory into the app root, verifies every file, and writes `migrated-from.json` recording where it came from. The old directory is **copied, never moved** — it stays exactly as it was, yours to delete once you are satisfied. Rerunning is a no-op. If both directories hold files and no marker connects them, gitq uses the app root and names the other one once rather than merging two stack stores, since nothing tells it which is current. See [Where state lives](/gitq/concepts/state).
+gitq's files used to live in `~/.config/gitq`. The first run after the move copies that directory into the app root, verifies every file, and writes `migrated-from.json` recording where it came from. The old directory is **copied, never moved**: it stays exactly as it was, yours to delete once you are satisfied. Rerunning is a no-op. If both directories hold files and no marker connects them, gitq uses the app root and names the other one once rather than merging two stack stores, since nothing tells it which is current. See [Where state lives](/gitq/concepts/state).
 
 ## The settings store
 
