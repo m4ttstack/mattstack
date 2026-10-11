@@ -75,7 +75,7 @@ describe("boardPeering: which Macs it applies to", () => {
     expect(await boardPeering(p, async () => null, false, [])).toEqual({ kind: "not-applicable" });
   });
 
-  test("a board whose legacy config.json tracks projects still applies", async () => {
+  test("an old config.json that tracks projects no longer makes the row apply", async () => {
     const p = fakeProbes({
       home: HOME,
       dirs: { [TEAMS]: ["acme"] },
@@ -84,7 +84,7 @@ describe("boardPeering: which Macs it applies to", () => {
         [`${HOME}/.mattstack/board/config.json`]: JSON.stringify({ projects: ["group/app"] }),
       },
     });
-    expect(await boardPeering(p, async () => null, false, [])).toEqual({ kind: "unpeered", teams: ["acme"] });
+    expect(await boardPeering(p, async () => null, false, [])).toEqual({ kind: "not-applicable" });
   });
 
   test("a team created on this Mac applies too", async () => {

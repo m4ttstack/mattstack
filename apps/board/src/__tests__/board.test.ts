@@ -55,7 +55,6 @@ const config: BoardConfig = {
   teamPack: '',
   botUsernames: [],
   rtRepos: {},
-  rtRepoOverrides: {},
   slack: {
     channel: 'code-review',
     singleTemplate: '{title}: {url}',
@@ -505,7 +504,7 @@ describe('buildBoard tagged rows (codeowner tabs)', () => {
   });
 
   test('still drops an untagged stranger, and tag-kept rows skip the prefix filter', () => {
-    const withPrefixes: BoardConfig = { ...withTabs, ticketPrefixes: ['CV'] };
+    const withPrefixes: BoardConfig = { ...withTabs, ticketPrefixes: ['ACME'] };
     // untagged stranger -> dropped
     const untaggedStranger = pr({
       id: 'gitlab:901',
@@ -517,7 +516,7 @@ describe('buildBoard tagged rows (codeowner tabs)', () => {
         avatarUrl: null,
       },
     });
-    // tagged stranger with no ticket prefix while ticketPrefixes=["CV"] -> kept
+    // tagged stranger with no ticket prefix while ticketPrefixes=["ACME"] -> kept
     const taggedNoPrefix = pr({
       id: 'gitlab:902',
       iid: 11,

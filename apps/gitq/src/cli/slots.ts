@@ -81,8 +81,7 @@ export async function withLeasedSlot(
       return fail(
         `all ${workSlotCount} work slots are busy (max ${max}); finish or abort a cascade, or raise maxWorkSlots -- ` +
           `rt settings explain gitq.workSlots first, then rt settings set gitq.workSlots '{"maxWorkSlots":N,...}' ` +
-          `--scope machine (it replaces the whole value, so keep any workSlotLocation you already have) ` +
-          `(or, until gitq.workSlots is imported, edit maxWorkSlots in settings.json)`,
+          `--scope machine (it replaces the whole value, so keep any workSlotLocation you already have)`,
       );
     }
     slotPath = await ensureWorkSlot(ctx.repoRoot, ctx.commonDir, map);

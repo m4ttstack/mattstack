@@ -362,7 +362,7 @@ describe("settings/resolve", () => {
     });
 
     test("a key with no default and nothing set resolves to undefined with no items", () => {
-      const got = getSetting<unknown>("gitq.workSlots");
+      const got = getSetting<unknown>("chat.handle");
       expect(got.value).toBeUndefined();
       expect(got.provenance).toEqual([]);
       expect(got.items).toBeUndefined();

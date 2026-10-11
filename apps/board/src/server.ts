@@ -1,5 +1,5 @@
-import { readFileSync, watch } from 'fs';
-import { basename, dirname, join } from 'path';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 import { canonicalHostRedirect } from '@mattstack/app-server/canonical-host';
 import {
@@ -60,7 +60,6 @@ import {
 import {
   applyRosterEdit,
   codeownerSlackOn,
-  CONFIG_PATH,
   daemonRepoField,
   displayName,
   loadAgentSettings,
@@ -748,7 +747,9 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
-      errors.push(`${projectPath}: no rtRepos mapping in config.json`);
+      errors.push(
+        `${projectPath}: could not derive its rt repo identity from board.gitlabHost`
+      );
       continue;
     }
     const res = await readProjectMRs(repoId, force ? 0 : undefined, {}, demand);
@@ -960,9 +961,12 @@ async function ownersPostPlan(
   }
   const repoName = daemonRepoField(config, projectPath);
   if (!repoName) {
-    return new Response(`${projectPath}: no rtRepos mapping in config.json`, {
-      status: 400,
-    });
+    return new Response(
+      `${projectPath}: could not derive its rt repo identity from board.gitlabHost`,
+      {
+        status: 400,
+      }
+    );
   }
   const res = await rtCommand<ForgeGetData>(
     'forge:get',
@@ -1133,7 +1137,7 @@ let lastReviewRecheckAt = 0;
 
 /** Resolves a review channel, reloading config when none is found:
     the team directory can land after boot (a setup migration, a team pull)
-    with no config.json change to trigger the watcher. */
+    with no write through this board to reload it. */
 function withReviewChannel<T>(
   resolve: () => T,
   found: (value: T) => boolean
@@ -1430,7 +1434,9 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
-      errors.push(`${projectPath}: no rtRepos mapping in config.json`);
+      errors.push(
+        `${projectPath}: could not derive its rt repo identity from board.gitlabHost`
+      );
       continue;
     }
     const res = await readProjectMRs(repoId, 20_000);
@@ -1683,12 +1689,9 @@ const httpServer = Bun.serve({
         allowComposite: 'shaped',
       });
       if (settingsRes) {
-        // Board's config is a snapshot resolved once at boot (see `config`
-        // below) and otherwise only refreshed by the config.json watcher --
-        // a write through this very API would otherwise sit in the settings
-        // store, correctly persisted, but invisible to this running process
-        // until a manual restart. A modal edit is the same kind of change as
-        // a config.json edit, so it gets the same live-reload treatment.
+        // Board's config is a snapshot resolved at boot, so a write through
+        // this API reloads it here; a store edit from a shell still needs a
+        // restart.
         if (req.method === 'POST' && settingsRes.ok)
           reloadConfig('settings changed');
         return settingsRes;
@@ -2038,7 +2041,6 @@ const httpServer = Bun.serve({
         try {
           config.members = saveRosterMembers(
             edit.members,
-            CONFIG_PATH,
             getSetting,
             setSetting,
             fresh.members.map(m => m.username)
@@ -4828,8 +4830,8 @@ const stopRelay = FIXTURE_DIR
       if (!RELAY_TYPES.has(type)) return;
       const repoName = (data as { repoName?: string } | null)?.repoName;
       // Relay events are keyed by the serialized identity now — compare
-      // like-for-like. Recomputed per event (not cached): config hot-reloads on
-      // config.json edits, so a cached Set could serve a stale allowlist.
+      // like-for-like. Recomputed per event (not cached): config reloads
+      // after a settings write, so a cached Set could serve a stale allowlist.
       const trackedIds = new Set(
         Object.values(config.rtRepos)
           .map(repoIdentityField)
@@ -4900,20 +4902,15 @@ if (writer) {
   );
 }
 
-// Hot-reload config.json so adding/removing members (or any setting) takes
-// effect without a restart. Watch the directory — that survives editors that
-// save atomically by swapping the file — and filter to our file. A mid-edit
-// invalid file is ignored, keeping the last good config. A store-backed
-// setting refreshes live only through this process's /api/settings/ mount
-// or /api/config/reload (which the console settings modal posts after each
-// write); `rt settings set` from a shell still needs a restart.
-let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+// Reload the config in place after a settings write through this board (the
+// /api/settings/ mount or /api/config/reload); a store edit from a shell
+// needs a restart.
 function reloadConfig(reason: string): void {
   try {
     Object.assign(config, loadConfig());
     namesFetchedAt = 0; // re-resolve display names, including new members
     // Stale, not dropped: checking a member in/out lands here (the board
-    // writes config.json itself), and dropping the snapshot would stall every
+    // writes the store itself), and dropping the snapshot would stall every
     // reader for a full team refetch. Serve the old board until this lands.
     cache.markStale();
     void refreshMemberNames();
@@ -4926,13 +4923,6 @@ function reloadConfig(reason: string): void {
     );
   }
 }
-
-if (!FIXTURE_DIR)
-  watch(dirname(CONFIG_PATH), (_event, filename) => {
-    if (filename && filename !== basename(CONFIG_PATH)) return;
-    clearTimeout(reloadTimer);
-    reloadTimer = setTimeout(() => reloadConfig('config.json changed'), 150);
-  });
 
 // Graceful shutdown: Sparkle replaces the whole bundle on update (this
 // process's inode vanishes mid-run) and launchd sends SIGTERM before its

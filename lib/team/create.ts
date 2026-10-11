@@ -168,7 +168,7 @@ export function defaultTeamName(orgSlug: string): string {
  * through a zero-recipient state.
  *
  * `board.projects` is deliberately not written: a present value claims repos
- * for the team's pack and flips the board's store-ownership latch.
+ * for the team's pack.
  */
 export function scaffoldFiles(slug: string, name: string, remote: string, recipients: string[] = [], team: string = defaultTeamName(slug)): Record<string, string> {
   const forge = forgeFromRemote(remote);

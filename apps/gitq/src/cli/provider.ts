@@ -3,7 +3,6 @@ import type { GitProvider } from '@mattstack/glance';
 import { resolveForgeToken, tokenSourceHint } from '../core/secrets.ts';
 import { readForgeOverrides, resolveForge, type ForgeOverrides } from '../core/forges.ts';
 import { hostFromRemoteUrl, projectPathFromRemoteUrl } from '../core/forge-helpers.ts';
-import { getSettingsFilePath } from '../core/config-paths.ts';
 
 /**
  * Forge provider + project path construction for the CLI.
@@ -27,7 +26,7 @@ export interface ForgeProviderContext {
 }
 
 export interface ForgeProviderOptions {
-  /** Host → forge map. Read from settings.json when not injected. */
+  /** Host → forge map. Read from gitq.forges when not injected. */
   overrides?: ForgeOverrides;
   env?: Record<string, string | undefined>;
   /**
@@ -69,8 +68,7 @@ export async function createForgeProvider(
       `cannot tell which forge "${host}" is (from remote ${remoteUrl}); check the current map with ` +
         `rt settings explain gitq.forges, then set it with rt settings set gitq.forges ` +
         `'{"${host}": ${entry}, ...}' --scope user (it replaces the whole host-keyed map, so keep any other ` +
-        `hosts you already have) (or, until gitq.forges is imported, in ${getSettingsFilePath()} as ` +
-        `{"forges": {"${host}": ${entry}}})`,
+        `hosts you already have)`,
     );
   }
 

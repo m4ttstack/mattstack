@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { onlyDefault, registryDefault, unwritten } from "../presence.ts";
+import { onlyDefault, registryDefault, storedValue, unwritten } from "../presence.ts";
+import { getSetting } from "../resolve.ts";
 import { setSetting, setSettingsNoticeSink } from "../write.ts";
 
 const REPO = "gitlab.example.com/acme/widgets";
@@ -24,6 +25,13 @@ describe("presence", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  test("storedValue reads a store's value and treats the registry default as nobody's choice", () => {
+    expect(storedValue("rt.cron")).toBeUndefined();
+    setSetting("rt.cron", { triggers: [] }, "machine");
+    expect(storedValue<{ triggers: unknown[] }>("rt.cron")).toEqual({ triggers: [] });
+    expect(storedValue("no.such.key")).toBeUndefined();
+  });
+
   test("onlyDefault reads provenance, never the value", () => {
     expect(onlyDefault({ provenance: [] })).toBe(true);
     expect(onlyDefault({ provenance: [{ scope: "default", file: null }] })).toBe(true);
@@ -41,6 +49,11 @@ describe("presence", () => {
     setSetting("rt.dopplerTemplate", [{ path: "env", project: "web", config: "dev" }], "machine", { repoIdentity: REPO });
     expect(unwritten("rt.dopplerTemplate", { repoIdentity: REPO })).toBe(false);
     expect(unwritten("rt.dopplerTemplate", { repoIdentity: "gitlab.example.com/acme/gadgets" })).toBe(true);
+  });
+
+  test("a team's title is its own value, never the registry default", () => {
+    expect(getSetting("board.title").value).toBe("MRs ready for review");
+    expect(storedValue("board.title")).toBeUndefined();
   });
 
   test("registryDefault hands back a copy", () => {

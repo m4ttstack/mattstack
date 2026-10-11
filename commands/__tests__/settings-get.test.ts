@@ -46,7 +46,7 @@ describe("rt settings get / list / explain", () => {
   });
 
   test("an unset key prints no value on stdout", async () => {
-    await settingsGet(["board.title"]);
+    await settingsGet(["chat.handle"]);
     expect(cap.stdout()).toBe("");
     expect(cap.stderr()).toContain("not set anywhere");
   });

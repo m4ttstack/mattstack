@@ -17,7 +17,7 @@ export const IS_COMPILED = MODULE_DIR.includes('$bunfs');
 /**
  * The one root every mutable thing gitq owns hangs off: the stack stores,
  * settings, the operation log, the work slots it creates, and the board's
- * config.json and state/jobs.
+ * state/jobs.
  *
  * `~/.mattstack/gitq` whether gitq runs from a checkout or as the bundled
  * binary. One root per helper is the mattstack compliance rule, and running

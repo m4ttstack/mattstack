@@ -11,30 +11,21 @@ It is a companion to the CLI, not a replacement for it. Everything it displays c
 
 ## Configure it
 
-The server reads `config.json` from the [app root](/gitq/reference/configuration#the-app-root), `~/.mattstack/gitq`, from a checkout as much as from the compiled binary, unless `GITQ_APP_ROOT` moves it. Start from the example:
+The server reads `gitq.board` from the rt settings store. `rt setup` writes it with the repos your team tracks; to set it by hand:
 
 ```bash
-mkdir -p ~/.mattstack/gitq
-cp config.example.json ~/.mattstack/gitq/config.json
-```
-
-```json
-{
-  "repos": [{ "path": "/Users/matt/Documents/GitHub/example", "name": "example" }],
-  "port": 11008,
-  "herdrWorkspace": "gitq"
-}
+rt settings set gitq.board '{"repos":[{"path":"/path/to/repo","name":"example"}],"port":11008,"herdrWorkspace":"gitq"}' --scope machine
 ```
 
 | Field | Meaning |
 | --- | --- |
 | `repos` | Required, and must be non-empty. One entry per repo to display. `path` is required. `name` is optional and defaults to the last path segment; it is the label shown on the board. |
-| `port` | Port to listen on. Defaults to `11008`. The `PORT` environment variable wins over this, so a launch agent can pin the port without editing the file. |
+| `port` | Port to listen on. Defaults to `11008`. The `PORT` environment variable wins over this, so a launch agent can pin the port without changing the setting. |
 | `herdrWorkspace` | The herdr workspace label that action tabs are launched into. Defaults to `gitq`. |
 
-There is no forge field. Each repo's provider, instance and token come from that repo's own git remote, so a board-wide host could never be right for more than one of them. A self-hosted instance is named once in `settings.json`'s `forges` for the whole of gitq. A `gitlabHost` key used to sit here validated and unread. An existing `config.json` still carrying it loads fine, ignored.
+There is no forge field. Each repo's provider, instance and token come from that repo's own git remote, so a board-wide host could never be right for more than one of them. A self-hosted instance is named once in `gitq.forges` for the whole of gitq. A `gitlabHost` key used to sit here validated and unread. A stored value still carrying it loads fine, ignored.
 
-Config is read once at startup. Editing `config.json` needs a restart. See [Configuration](/gitq/reference/configuration).
+Config is read once at startup. Changing `gitq.board` needs a restart. See [Configuration](/gitq/reference/configuration).
 
 ## Run it
 
@@ -42,7 +33,7 @@ Config is read once at startup. Editing `config.json` needs a restart. See [Conf
 bun run serve
 ```
 
-It prints one line and keeps running: `gitq board on http://localhost:<port>`, where `<port>` is whatever `config.json` (or `PORT`) resolved to, `11008` by default. It shuts down on `SIGTERM`/`SIGINT`, releasing the port before it exits, so a process manager can restart it immediately.
+It prints one line and keeps running: `gitq board on http://localhost:<port>`, where `<port>` is whatever `gitq.board` (or `PORT`) resolved to, `11008` by default. It shuts down on `SIGTERM`/`SIGINT`, releasing the port before it exits, so a process manager can restart it immediately.
 
 `bun run build:binary` compiles a standalone `dist/gitq` with the client bundle embedded, and `gitq board` runs the same server from it with no checkout on the machine. That binary is the form mattstack.app ships.
 
@@ -90,4 +81,4 @@ The same check is reported to the page, and the client hides every action menu i
 
 ## Restarting
 
-The React client is bundled in memory when the server starts, so **any change to the client code needs a restart** to show up. Two exceptions: `style.css` is re-read on every request from a checkout, so CSS edits are live; and `config.json`, like the client bundle, is read at startup and needs a restart. The compiled binary serves both the client bundle and `style.css` from copies embedded at build time, so nothing there is live-editable.
+The React client is bundled in memory when the server starts, so **any change to the client code needs a restart** to show up. Two exceptions: `style.css` is re-read on every request from a checkout, so CSS edits are live; and `gitq.board`, like the client bundle, is read at startup and needs a restart. The compiled binary serves both the client bundle and `style.css` from copies embedded at build time, so nothing there is live-editable.

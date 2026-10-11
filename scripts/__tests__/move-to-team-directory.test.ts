@@ -9,12 +9,12 @@ import { childEnv } from "../../lib/subprocess.ts";
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 
 const ORG_STORE = "mattstack/org/settings.org.jsonc";
-const CLAIM_STORE = "mattstack/teams/claim/settings.team.jsonc";
+const WIDGETS_STORE = "mattstack/teams/widgets/settings.team.jsonc";
 const MARKER = "mattstack/mattstack.jsonc";
 const GIT_IDENTITY = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
 const TABS = [
   { id: "team", label: "Team", source: { kind: "authors" } },
-  { id: "q", label: "Q", source: { kind: "codeowners", section: "Claim - #pod-claim" }, slackChannel: "pod-claim" },
+  { id: "q", label: "Q", source: { kind: "codeowners", section: "Widgets - #widgets-review" }, slackChannel: "widgets-review" },
 ];
 const script = join(import.meta.dir, "..", "move-to-team-directory.ts");
 
@@ -38,14 +38,14 @@ function org(opts: { layout?: number; settings?: Record<string, unknown> } = {})
   seedOrg({
     layout: opts.layout ?? 2,
     username: "me",
-    roles: { admins: ["me"], teams: { claim: { owners: ["owner1"] }, gadgets: { owners: ["me"] } } },
-    roster: [{ username: "me", teams: ["claim"] }, { username: "owner1", teams: ["claim"] }],
+    roles: { admins: ["me"], teams: { widgets: { owners: ["owner1"] }, gadgets: { owners: ["me"] } } },
+    roster: [{ username: "me", teams: ["widgets"] }, { username: "owner1", teams: ["widgets"] }],
     settings: opts.settings,
     teams: {
-      claim: {
-        "mattstack.integrations": { linear: { teamKey: "CV" } },
-        "board.slack": { channel: "claim-internal", singleTemplate: "{title}: {url}" },
-        "board.title": "Claim",
+      widgets: {
+        "mattstack.integrations": { linear: { teamKey: "ACME" } },
+        "board.slack": { channel: "widgets-internal", singleTemplate: "{title}: {url}" },
+        "board.title": "Widgets",
         // The v1 store name; board.tabs is stored as board.tabs@2 now.
         "board.tabs": TABS,
       },
@@ -98,8 +98,8 @@ test("plan mode prints each entry and each removed key, and changes no file", ()
   const result = run(dir, "me");
   expect(result.exitCode).toBe(0);
   const stdout = result.stdout.toString();
-  expect(stdout).toContain("directory: add claim (linear CV, review #claim-internal, code owners #pod-claim)");
-  expect(stdout).toContain("team claim: remove board.slack.channel, mattstack.integrations.linear.teamKey, board.tabs[].slackChannel");
+  expect(stdout).toContain("directory: add widgets (linear ACME, review #widgets-internal, code owners #widgets-review)");
+  expect(stdout).toContain("team widgets: remove board.slack.channel, mattstack.integrations.linear.teamKey, board.tabs[].slackChannel");
   expect(stdout).toContain("Nothing was written");
   expect(snapshot(dir)).toBe(before);
 });
@@ -113,14 +113,14 @@ test("--write writes the directory, deletes the moved keys, writes layout 3, and
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString()).toContain("Moved this org onto the team directory in one commit");
   expect(read(dir, ORG_STORE)["mattstack.directory"]).toEqual({
-    teams: { claim: { linear: { team: "CV" }, slack: { codeOwnersChannel: "pod-claim", channels: [{ name: "claim-internal", kind: "review" }] } } },
+    teams: { widgets: { linear: { team: "ACME" }, slack: { codeOwnersChannel: "widgets-review", channels: [{ name: "widgets-internal", kind: "review" }] } } },
   });
-  const claim = read(dir, CLAIM_STORE);
-  expect(claim["mattstack.integrations"]).toBeUndefined();
-  expect(claim["board.slack"]).toEqual({ singleTemplate: "{title}: {url}" });
-  expect(claim["board.title"]).toBe("Claim");
-  expect(claim["board.tabs@2"]).toEqual([TABS[0], { id: "q", label: "Q", source: TABS[1]!.source }]);
-  expect(claim["board.tabs"]).toBeUndefined();
+  const widgets = read(dir, WIDGETS_STORE);
+  expect(widgets["mattstack.integrations"]).toBeUndefined();
+  expect(widgets["board.slack"]).toEqual({ singleTemplate: "{title}: {url}" });
+  expect(widgets["board.title"]).toBe("Widgets");
+  expect(widgets["board.tabs@2"]).toEqual([TABS[0], { id: "q", label: "Q", source: TABS[1]!.source }]);
+  expect(widgets["board.tabs"]).toBeUndefined();
   expect(read(dir, MARKER)).toEqual({ role: "org", org: "acme", layout: 3 });
   expect(git(dir, "log", "-1", "--format=%s").trim()).toBe("org: move team channels and Linear keys into the team directory");
   expect(git(dir, "rev-list", "--count", "origin/main..HEAD").trim()).toBe("1");
@@ -194,8 +194,8 @@ test("a team store that is a symbolic link is refused before it is read", () => 
   const dir = org();
   const outside = join(home, "outside.jsonc");
   writeFileSync(outside, JSON.stringify({ "mattstack.integrations": { linear: { teamKey: "OUT" } } }));
-  rmSync(join(dir, CLAIM_STORE));
-  symlinkSync(outside, join(dir, CLAIM_STORE));
+  rmSync(join(dir, WIDGETS_STORE));
+  symlinkSync(outside, join(dir, WIDGETS_STORE));
   commitAndPush(dir);
   const before = snapshot(dir);
   const result = run(dir, "me", "--write");
@@ -207,28 +207,28 @@ test("a team store that is a symbolic link is refused before it is read", () => 
 
 test("a team store with a syntax error is refused, and nothing changes", () => {
   const dir = org();
-  writeFileSync(join(dir, CLAIM_STORE), '{ "board.title": "Claim", ');
+  writeFileSync(join(dir, WIDGETS_STORE), '{ "board.title": "Widgets", ');
   commitAndPush(dir);
   const before = snapshot(dir);
   const result = run(dir, "me", "--write");
   expect(result.exitCode).toBe(2);
   expect(result.stderr.toString()).toContain("A settings store cannot be read");
-  expect(result.stderr.toString()).toContain(`${CLAIM_STORE} has a syntax error. Fix it, then run this again.`);
+  expect(result.stderr.toString()).toContain(`${WIDGETS_STORE} has a syntax error. Fix it, then run this again.`);
   expect(snapshot(dir)).toBe(before);
 });
 
 test("a write that fails after the directory is written puts the clone back as it was", () => {
   const dir = org();
   const before = snapshot(dir);
-  const claimDir = dirname(join(dir, CLAIM_STORE));
-  // The directory lands in the org store first; the claim store's write then cannot make its temp file.
-  chmodSync(claimDir, 0o555);
+  const widgetsDir = dirname(join(dir, WIDGETS_STORE));
+  // The directory lands in the org store first; the widgets store's write then cannot make its temp file.
+  chmodSync(widgetsDir, 0o555);
   try {
     const result = run(dir, "me", "--write");
     expect(result.exitCode).toBe(1);
     expect(result.stderr.toString()).toContain("The move stopped partway, and the clone is back as it was");
   } finally {
-    chmodSync(claimDir, 0o755);
+    chmodSync(widgetsDir, 0o755);
   }
   expect(snapshot(dir)).toBe(before);
 });

@@ -1,11 +1,9 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import type { getSetting } from '@mattstack/rt-client';
-import { boardConfiguredAt, teamView } from '../config.ts';
+import { boardConfigured, teamView } from '../config.ts';
 import { serveUnconfigured, unconfiguredResponse } from '../unconfigured.ts';
+import { fakeResolve } from './fake-resolve.ts';
 
 type GetSettingFn = typeof getSetting;
 
@@ -18,60 +16,38 @@ afterEach(() => {
   Object.assign(teamView, realView);
 });
 
-function fakeResolve(values: Record<string, unknown>): GetSettingFn {
-  return (<T>(key: string) => ({
-    value: values[key] as T,
-    provenance: [],
-  })) as GetSettingFn;
-}
-
 const throwingResolve = (() => {
   throw new Error('store unreadable');
 }) as unknown as GetSettingFn;
 
 const STORE_OWNED = {
-  'board.gitlabHost': 'https://gitlab.com',
-  'board.projects': ['group/project'],
-  'mattstack.roster': [{ username: 'someone' }],
+  'board.gitlabHost': 'gitlab.example.com',
+  'board.projects': ['acme/widgets'],
+  'mattstack.roster': [{ username: 'dev1' }],
 };
 
-describe('boardConfiguredAt', () => {
-  test('a readable config file counts as configured', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'board-cfg-'));
-    const path = join(dir, 'config.json');
-    writeFileSync(path, '{}');
-    expect(boardConfiguredAt(path, fakeResolve({}))).toBe(true);
+describe('boardConfigured', () => {
+  test('a store holding every required field counts as configured', () => {
+    expect(boardConfigured(fakeResolve(STORE_OWNED))).toBe(true);
   });
 
-  test('no file and a store owning every required field counts as configured', () => {
-    const path = join(mkdtempSync(join(tmpdir(), 'board-cfg-')), 'config.json');
-    expect(boardConfiguredAt(path, fakeResolve(STORE_OWNED))).toBe(true);
+  test('an empty store is not configured', () => {
+    expect(boardConfigured(fakeResolve({}))).toBe(false);
   });
 
-  test('no file and an empty store is not configured', () => {
-    const path = join(mkdtempSync(join(tmpdir(), 'board-cfg-')), 'config.json');
-    expect(boardConfiguredAt(path, fakeResolve({}))).toBe(false);
-  });
-
-  test('no file and a store missing the roster is not configured', () => {
-    const path = join(mkdtempSync(join(tmpdir(), 'board-cfg-')), 'config.json');
+  test('a store missing the roster is not configured', () => {
     const { 'mattstack.roster': _, ...partial } = STORE_OWNED;
-    expect(boardConfiguredAt(path, fakeResolve(partial))).toBe(false);
+    expect(boardConfigured(fakeResolve(partial))).toBe(false);
   });
 
-  test('no file and an empty roster in the store is not configured', () => {
-    const path = join(mkdtempSync(join(tmpdir(), 'board-cfg-')), 'config.json');
+  test('an empty roster in the store is not configured', () => {
     expect(
-      boardConfiguredAt(
-        path,
-        fakeResolve({ ...STORE_OWNED, 'mattstack.roster': [] })
-      )
+      boardConfigured(fakeResolve({ ...STORE_OWNED, 'mattstack.roster': [] }))
     ).toBe(false);
   });
 
-  test('no file and an unreadable store is not configured', () => {
-    const path = join(mkdtempSync(join(tmpdir(), 'board-cfg-')), 'config.json');
-    expect(boardConfiguredAt(path, throwingResolve)).toBe(false);
+  test('an unreadable store is not configured', () => {
+    expect(boardConfigured(throwingResolve)).toBe(false);
   });
 });
 

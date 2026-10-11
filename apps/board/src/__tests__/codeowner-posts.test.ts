@@ -161,15 +161,15 @@ describe('planOwnersPost', () => {
   test('a section on any of my channels rides on the team row, matched without # and case', () => {
     const plan = planOwnersPost(
       [
-        { section: 'Claim - #POD-claim', approved: false },
-        { section: 'Claim Ops - #claim-internal', approved: false },
+        { section: 'Widgets - #WIDGETS-review', approved: false },
+        { section: 'Widgets Ops - #widgets-internal', approved: false },
         { section: 'Acme - #pod-acme', approved: false },
       ],
-      { posted: {}, ownChannels: ['pod-claim', 'claim-internal'] }
+      { posted: {}, ownChannels: ['widgets-review', 'widgets-internal'] }
     );
     expect(plan.ownSections).toEqual([
-      'Claim - #POD-claim',
-      'Claim Ops - #claim-internal',
+      'Widgets - #WIDGETS-review',
+      'Widgets Ops - #widgets-internal',
     ]);
     expect(plan.channels).toEqual([
       { channel: 'pod-acme', sections: ['Acme - #pod-acme'] },

@@ -107,7 +107,7 @@ const tab = z.looseObject({
   }),
 });
 
-// rt's board.keys setup step writes bare repo names; gitq's own loader reads { path, name? }.
+// Older rt seeded bare repo names; gitq reads { path, name? } and refuses a name, which the 2026-10-11 import rewrites.
 const gitqRepo = z.union([z.string(), z.looseObject({ path: z.string(), name: z.string().optional() })]);
 
 const sdmResourceEntry = z.looseObject({

@@ -7,9 +7,15 @@ import {
   writeFileSync,
 } from 'fs';
 import { dirname, join } from 'path';
+import { isDeepStrictEqual } from 'util';
 
 import { getSetting, setSetting } from '@mattstack/rt-client';
 import { stateDir } from '../src/api/state.ts';
+import {
+  defaultExplain,
+  heldEntries,
+  type ExplainFn,
+} from '../src/api/store-import.ts';
 
 export interface PortOverride {
   devPort: number;
@@ -72,94 +78,161 @@ export function settingsPath(): string {
 }
 
 const STORE_KEY = 'deck.apps';
-type MigratedAppFields = { published: boolean; publicFollowsOverride: boolean };
+type StoreAppFields = { published: boolean; publicFollowsOverride: boolean };
+type StoreApps = Record<string, Partial<StoreAppFields>>;
 type GetSettingFn = typeof getSetting;
+type SetSettingFn = typeof setSetting;
 
-/**
- * Transition fallback for deck.apps (MAT-384): per app, the store's
- * published/publicFollowsOverride win PER FIELD over settings.json; a field
- * the store doesn't carry for that app falls back to the file's value for
- * it; an app absent from the store falls back to its file entry untouched.
- * A resolver throw degrades to the file's entries entirely (fail-open),
- * warning once per load. `resolve` defaults to the real resolver; tests
- * inject a throwing stand-in to cover the fail-open path without touching
- * real state.
- */
-function withAppsStoreFallback(
-  fileApps: Record<string, AppEntry>,
-  resolve: GetSettingFn
-): Record<string, AppEntry> {
-  let store: Record<string, Partial<MigratedAppFields>>;
-  try {
-    store = (resolve<Record<string, Partial<MigratedAppFields>>>(STORE_KEY)
-      .value ?? {}) as Record<string, Partial<MigratedAppFields>>;
-  } catch (err) {
-    console.warn(
-      `deck: ${STORE_KEY} unavailable, falling back to settings.json`,
-      err
-    );
-    return fileApps;
-  }
-  const merged: Record<string, AppEntry> = { ...fileApps };
-  for (const [app, fields] of Object.entries(store)) {
-    const fileEntry = fileApps[app] ?? {};
-    merged[app] = {
-      ...fileEntry,
-      published:
-        fields.published !== undefined ? fields.published : fileEntry.published,
-      publicFollowsOverride:
-        fields.publicFollowsOverride !== undefined
-          ? fields.publicFollowsOverride
-          : fileEntry.publicFollowsOverride,
-    };
-  }
-  return merged;
+/** What settings.json keeps for an app: published and publicFollowsOverride live in deck.apps. */
+function fileEntry(entry: AppEntry): AppEntry {
+  const {
+    published: _published,
+    publicFollowsOverride: _follows,
+    ...rest
+  } = entry;
+  return rest;
 }
 
-let cache: SettingsFile = load(getSetting);
-mintSecretIfMissing();
-
-function load(resolve: GetSettingFn): SettingsFile {
-  let fileValues: SettingsFile;
+function readFile(): SettingsFile {
   try {
     const parsed = JSON.parse(
       readFileSync(settingsPath(), 'utf8')
     ) as SettingsFile;
     if (!parsed.apps) parsed.apps = {};
-    fileValues = parsed;
+    return parsed;
   } catch {
-    fileValues = { version: 1, apps: {} };
+    return { version: 1, apps: {} };
   }
-  return {
-    ...fileValues,
-    apps: withAppsStoreFallback(fileValues.apps, resolve),
-  };
 }
 
-export function reloadSettings(resolve: GetSettingFn = getSetting): void {
-  cache = load(resolve);
-  mintSecretIfMissing();
+function writeFile(state: SettingsFile): void {
+  const apps: Record<string, AppEntry> = {};
+  for (const [app, entry] of Object.entries(state.apps)) {
+    const kept = fileEntry(entry);
+    if (Object.keys(kept).length > 0) apps[app] = kept;
+  }
+  const path = settingsPath();
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = path + '.tmp';
+  writeFileSync(tmp, JSON.stringify({ ...state, apps }, null, 2), {
+    mode: 0o600,
+  });
+  renameSync(tmp, path);
+  chmodSync(path, 0o600);
 }
 
 /**
- * Minted at boot (module load) and on every reload, never lazily on the
- * request path: getSecret() used to mint-and-save on first call, which put a
- * live gateway request one save() failure away from throwing. Boot is the
- * only place that needs to tolerate that -- and with an unowned store, the
- * latched save() below never touches the store at all, only the file.
+ * A deck that kept published and publicFollowsOverride in settings.json
+ * copies them into deck.apps before its first read, so an app made private
+ * never reads as public. The copy fills only the apps no store sets, and
+ * leaves the file alone when a store holds a value the resolver refused.
+ * When the copy cannot land, the returned fields overlay this boot and the
+ * file is left for the next one.
  */
+export function importFileFields(
+  explain: ExplainFn = defaultExplain,
+  write: SetSettingFn = setSetting
+): StoreApps {
+  const file = readFile();
+  const fields: StoreApps = {};
+  for (const [app, entry] of Object.entries(file.apps)) {
+    const picked: Partial<StoreAppFields> = {};
+    if (entry.published !== undefined) picked.published = entry.published;
+    if (entry.publicFollowsOverride !== undefined)
+      picked.publicFollowsOverride = entry.publicFollowsOverride;
+    if (Object.keys(picked).length > 0) fields[app] = picked;
+  }
+  if (Object.keys(fields).length === 0) return {};
+  let missing: StoreApps = fields;
+  try {
+    const stored = heldEntries(STORE_KEY, 'user', explain);
+    if (stored.refused) {
+      console.error(
+        `deck: ${STORE_KEY} holds a value rt refused; using settings.json until it is fixed`
+      );
+      return fields;
+    }
+    missing = Object.fromEntries(
+      Object.entries(fields).filter(([app]) => !stored.held.has(app))
+    );
+    if (Object.keys(missing).length > 0)
+      write(STORE_KEY, { ...stored.own, ...missing }, 'user');
+    writeFile(file);
+    return {};
+  } catch (err) {
+    console.error(
+      `deck: could not move app publishing into ${STORE_KEY}; using settings.json until the next start`,
+      err
+    );
+    return missing;
+  }
+}
+
+/** Null when the store cannot be read or holds a value the resolver refused, which makes every app read unpublished. */
+function readStoredApps(
+  resolve: GetSettingFn,
+  explain: ExplainFn
+): StoreApps | null {
+  try {
+    if (heldEntries(STORE_KEY, 'user', explain).refused) {
+      console.warn(
+        `deck: ${STORE_KEY} holds a value rt refused, every app reads unpublished`
+      );
+      return null;
+    }
+    return resolve<StoreApps>(STORE_KEY).value as StoreApps;
+  } catch (err) {
+    console.warn(
+      `deck: ${STORE_KEY} unavailable, every app reads unpublished`,
+      err
+    );
+    return null;
+  }
+}
+
+let storeUnreadable = false;
+
+function load(
+  resolve: GetSettingFn,
+  pending: StoreApps = {},
+  explain: ExplainFn = defaultExplain
+): SettingsFile {
+  const file = readFile();
+  const apps: Record<string, AppEntry> = {};
+  for (const [app, entry] of Object.entries(file.apps))
+    apps[app] = fileEntry(entry);
+  const store = readStoredApps(resolve, explain);
+  storeUnreadable = store === null;
+  for (const [app, fields] of Object.entries({ ...store, ...pending }))
+    apps[app] = { ...apps[app], ...fields };
+  return { ...file, apps };
+}
+
+let cache: SettingsFile = load(getSetting, importFileFields());
+mintSecretIfMissing();
+
+/** `pending` is what a failed boot import returned, for a reload that stands in for boot. */
+export function reloadSettings(
+  resolve: GetSettingFn = getSetting,
+  pending: StoreApps = {},
+  explain: ExplainFn = defaultExplain
+): void {
+  cache = load(resolve, pending, explain);
+  mintSecretIfMissing();
+}
+
+/** Minted at boot and on every reload, never on the request path. The secret is file-only, so minting never writes the store. */
 function mintSecretIfMissing(): void {
   if (cache.secret) return;
-  const previous = structuredClone(cache);
   cache.secret = randomBytes(32).toString('hex');
-  save(previous);
+  writeFile(cache);
 }
 
 /** The store's view of every app currently in cache, defaults applied so both fields are always determinate. */
 function buildAppsStoreDict(
   state: SettingsFile
-): Record<string, MigratedAppFields> {
-  const out: Record<string, MigratedAppFields> = {};
+): Record<string, StoreAppFields> {
+  const out: Record<string, StoreAppFields> = {};
   for (const [app, entry] of Object.entries(state.apps)) {
     out[app] = {
       published: entry.published ?? true,
@@ -169,42 +242,8 @@ function buildAppsStoreDict(
   return out;
 }
 
-// An app whose ONLY fields ever were the two migrated ones (it entered cache
-// purely via a store merge in load(), never through ensure()) strips down to
-// `{}` -- omit it from the file entirely rather than accreting empty-object
-// noise for apps the file has nothing left to say about.
-function stripMigratedFields(state: SettingsFile): SettingsFile {
-  const apps: Record<string, AppEntry> = {};
-  for (const [app, entry] of Object.entries(state.apps)) {
-    const {
-      published: _published,
-      publicFollowsOverride: _publicFollowsOverride,
-      ...rest
-    } = entry;
-    if (Object.keys(rest).length > 0) apps[app] = rest;
-  }
-  return { ...state, apps };
-}
-
-/**
- * Store ownership is a one-way latch, decided fresh on every save: rt-client's
- * read path never throws for an absent or lost key, it yields `undefined`
- * (even a malformed store file honest-degrades to "empty", not a throw --
- * see rt-client's stores.ts). `undefined` here means the store does not yet
- * own deck.apps -- ownership flips only via the orchestrator's live import or
- * an explicit `rt settings set`, never manufactured by this function.
- */
-function isAppsStoreOwned(): boolean {
-  try {
-    return getSetting<unknown>(STORE_KEY).value !== undefined;
-  } catch {
-    return false;
-  }
-}
-
-function currentRawAppsStore(): Record<string, Partial<MigratedAppFields>> {
-  return (getSetting<Record<string, Partial<MigratedAppFields>>>(STORE_KEY)
-    .value ?? {}) as Record<string, Partial<MigratedAppFields>>;
+function currentRawAppsStore(): StoreApps {
+  return getSetting<StoreApps>(STORE_KEY).value as StoreApps;
 }
 
 /**
@@ -216,10 +255,8 @@ function currentRawAppsStore(): Record<string, Partial<MigratedAppFields>> {
  * should actually disappear from the store, so those are deleted from the
  * result.
  */
-function nextAppsStoreDict(
-  previous: SettingsFile
-): Record<string, Partial<MigratedAppFields>> {
-  const next: Record<string, Partial<MigratedAppFields>> = {
+function nextAppsStoreDict(previous: SettingsFile): StoreApps {
+  const next: StoreApps = {
     ...currentRawAppsStore(),
     ...buildAppsStoreDict(cache),
   };
@@ -237,10 +274,8 @@ function nextAppsStoreDict(
  * rename's new name, just added by the forward write this call is undoing --
  * are the one case an app should disappear from the store on revert.
  */
-function revertedAppsStoreDict(
-  previous: SettingsFile
-): Record<string, Partial<MigratedAppFields>> {
-  const reverted: Record<string, Partial<MigratedAppFields>> = {
+function revertedAppsStoreDict(previous: SettingsFile): StoreApps {
+  const reverted: StoreApps = {
     ...currentRawAppsStore(),
     ...buildAppsStoreDict(previous),
   };
@@ -251,41 +286,30 @@ function revertedAppsStoreDict(
 }
 
 /**
- * Every mutation funnels through here. While deck.apps is unowned (see
- * isAppsStoreOwned), saves write the migrated fields straight to
- * settings.json and never call setSetting -- calling it would manufacture
- * ownership deck itself never asked for. Once the store owns the key, saves
- * write a fresh overlay into the store (nextAppsStoreDict) and strip the two
- * migrated fields from every app in the file. Either branch reverts `cache`
- * to `previous` and rethrows on a failure, so a value is never claimed as
- * persisted when neither side actually holds it. A file-write failure AFTER
- * a successful store write additionally un-writes the store back to
- * `previous`'s view (best effort, logged if that itself fails) -- otherwise
- * the store would keep a new value (e.g. a renamed app) whose file-local
- * fields (passwordHash) never actually made it to disk.
+ * Every mutation funnels through here: the store fields go to deck.apps
+ * (only when they changed), the rest to settings.json. A failure reverts
+ * `cache` to `previous` and rethrows; a file failure after a store write
+ * un-writes the store too, so a renamed app never keeps a store entry whose
+ * password hash never reached disk.
  */
 function save(previous: SettingsFile): void {
-  const owned = isAppsStoreOwned();
-
-  if (owned) {
-    try {
-      setSetting(STORE_KEY, nextAppsStoreDict(previous), 'user');
-    } catch (err) {
-      cache = previous;
-      throw err;
-    }
-  }
-
-  const path = settingsPath();
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = path + '.tmp';
-  const fileBody = owned ? stripMigratedFields(cache) : cache;
+  let storeChanged: boolean;
   try {
-    writeFileSync(tmp, JSON.stringify(fileBody, null, 2), { mode: 0o600 });
-    renameSync(tmp, path);
-    chmodSync(path, 0o600);
+    if (storeUnreadable)
+      throw new Error(
+        `deck: ${STORE_KEY} could not be read at the last load; restart deck before changing app settings`
+      );
+    const next = nextAppsStoreDict(previous);
+    storeChanged = !isDeepStrictEqual(next, currentRawAppsStore());
+    if (storeChanged) setSetting(STORE_KEY, next, 'user');
   } catch (err) {
-    if (owned) {
+    cache = previous;
+    throw err;
+  }
+  try {
+    writeFile(cache);
+  } catch (err) {
+    if (storeChanged) {
       try {
         setSetting(STORE_KEY, revertedAppsStoreDict(previous), 'user');
       } catch (revertErr) {
@@ -304,7 +328,7 @@ function save(previous: SettingsFile): void {
 export function getAppSettings(app: string): AppSettings {
   const entry = cache.apps[app];
   return {
-    published: entry?.published ?? true,
+    published: storeUnreadable ? false : (entry?.published ?? true),
     passwordHash: entry?.passwordHash,
     passwordVersion: entry?.passwordVersion ?? 0,
     override: entry?.override,
@@ -358,7 +382,7 @@ export async function clearPassword(app: string): Promise<void> {
  * the raw entry because no setter above can: setPassword only takes a plaintext
  * to re-hash, and an existing hash has no plaintext to re-derive it from.
  * A no-op when the old name has no entry (nothing to carry). The store side
- * follows automatically (when the store owns deck.apps): save()'s overlay
+ * follows automatically: save()'s overlay
  * diffs `previous.apps` against the current cache, so the old key drops out
  * of the store and the new key picks up its fields.
  */
@@ -397,7 +421,7 @@ export function getPublicFollowsOverride(app: string): boolean {
 export function setPublicFollowsOverride(app: string, follows: boolean): void {
   const previous = structuredClone(cache);
   const entry = ensure(app);
-  // Store the default as an absent key rather than `false`, so settings.json
+  // Store the default as an absent key rather than `false`, so deck.apps
   // stays free of noise for the apps that never opt in.
   if (follows) entry.publicFollowsOverride = true;
   else delete entry.publicFollowsOverride;

@@ -2,15 +2,9 @@ import { describe, expect, test } from 'bun:test';
 
 import type { getSetting } from '@mattstack/rt-client';
 import { loadPeerAsksConfig } from '../triage/config.ts';
+import { fakeResolve } from './fake-resolve.ts';
 
 type GetSettingFn = typeof getSetting;
-
-function fakeResolve(values: Record<string, unknown>): GetSettingFn {
-  return (<T>(key: string) => ({
-    value: values[key] as T,
-    provenance: [],
-  })) as GetSettingFn;
-}
 
 describe('loadPeerAsksConfig', () => {
   test('unset defaults to enabled: a new member gets automatic asks', () => {

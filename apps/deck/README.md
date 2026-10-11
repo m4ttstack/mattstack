@@ -274,9 +274,10 @@ speak to the same thing underneath: a small HTTP API at `/api/v1` on
 localhost. Nothing the board can do is board-only; the same calls are
 there for scripts.
 
-The registry, logs, and sign-in rules live under `~/.mattstack/deck` as
-plain JSON on your own disk. Settings route through mattstack's own
-git-backed settings store instead, also just files, no server. Either
+The registry and logs live under `~/.mattstack/deck` as plain JSON on
+your own disk. Settings, sign-in rules included, route through
+mattstack's own git-backed settings store instead, also just files, no
+server. Either
 way: no database, no account, nothing to sign into.
 
 ## Migrating existing apps

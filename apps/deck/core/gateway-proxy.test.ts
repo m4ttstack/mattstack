@@ -4,6 +4,7 @@ import { join } from 'path';
 import type { Server } from 'bun';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 
+import { setSetting } from '@mattstack/rt-client';
 import type { WsProxyData } from './ws-proxy.ts';
 
 /**
@@ -30,11 +31,18 @@ const APP = 'testapp';
 const PUBLIC_DOMAIN = 'example.dev';
 const HOST = `${APP}.${PUBLIC_DOMAIN}`;
 
-// appFromHost now strips whatever publicDomain platform settings configure,
-// not a hardcoded suffix, so the gateway needs one on disk before it loads.
-writeFileSync(
-  PLATFORM_SETTINGS,
-  JSON.stringify({ publicDomain: PUBLIC_DOMAIN })
+// appFromHost strips whatever publicDomain platform settings configure, not a
+// hardcoded suffix, so the gateway needs one in the store before it loads.
+writeFileSync(PLATFORM_SETTINGS, '{}');
+setSetting(
+  'deck.platform',
+  {
+    publicDomain: PUBLIC_DOMAIN,
+    legacyPrefixes: [],
+    railway: null,
+    tunnel: null,
+  },
+  'machine'
 );
 
 /** The headers of the last request (HTTP or upgrade) the dev stand-in saw. */
@@ -79,13 +87,16 @@ function writeSettings(publicFollowsOverride: boolean) {
       secret: 'b'.repeat(64),
       apps: {
         [APP]: {
-          published: true,
           passwordVersion: 0,
           override: { devPort: dev.port, basePort: base.port },
-          ...(publicFollowsOverride ? { publicFollowsOverride: true } : {}),
         },
       },
     })
+  );
+  setSetting(
+    'deck.apps',
+    { [APP]: { published: true, publicFollowsOverride } },
+    'user'
   );
 }
 

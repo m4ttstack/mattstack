@@ -46,9 +46,6 @@ export const GITQ_CONFIG_DIR = DEFAULT_CONFIG_DIR;
 export function getStacksDir(): string {
   return join(_configDir, 'stacks');
 }
-export function getSettingsFilePath(): string {
-  return join(_configDir, 'settings.json');
-}
 export function getOperationLogFilePath(): string {
   return join(_configDir, 'operation-log.json');
 }
@@ -73,5 +70,4 @@ export function getWorkSlotRoot(): string {
 
 // Legacy constants — used by tests that import directly
 export const STACKS_DIR = join(DEFAULT_CONFIG_DIR, 'stacks');
-export const SETTINGS_PATH = join(DEFAULT_CONFIG_DIR, 'settings.json');
 export const OPERATION_LOG_PATH = join(DEFAULT_CONFIG_DIR, 'operation-log.json');

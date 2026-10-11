@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -9,9 +10,9 @@ import {
 } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
-import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
 
-import { getSetting, setSetting } from '@mattstack/rt-client';
+import { explainSetting, getSetting, setSetting } from '@mattstack/rt-client';
 
 // rt-client doesn't export its machine-store path helper; this literal is
 // duplicated from rt-client/src/settings/paths.ts#machineSettingsPath (which
@@ -46,6 +47,7 @@ const {
   updatePlatformSettings,
   reloadPlatformSettings,
   redactedSettings,
+  importFileFields,
 } = await import('./platform-settings.ts');
 
 const origHome = process.env.HOME;
@@ -105,7 +107,7 @@ test('redaction: the secrets field never transits, in any shape -- CF creds come
   expect(JSON.stringify(r)).not.toContain('tok');
 });
 
-test('deck.platform store value wins over platform.json, per field', () => {
+test("deck.platform's store value is what deck reads", () => {
   writeLegacyFile({
     publicDomain: 'file.example.dev',
     legacyPrefixes: ['/file-prefix'],
@@ -120,50 +122,6 @@ test('deck.platform store value wins over platform.json, per field', () => {
   reloadPlatformSettings();
   expect(getPlatformSettings().publicDomain).toBe('store.example.dev');
   expect(getPlatformSettings().legacyPrefixes).toEqual(['/store-prefix']);
-});
-
-test("a field absent from the store falls back to platform.json's value", () => {
-  writeLegacyFile({
-    publicDomain: 'file.example.dev',
-    legacyPrefixes: ['/file-prefix'],
-    tlds: ['localhost'],
-    secrets: {},
-  });
-  setSetting('deck.platform', { publicDomain: 'store.example.dev' }, 'machine');
-  reloadPlatformSettings();
-  expect(getPlatformSettings().publicDomain).toBe('store.example.dev');
-  expect(getPlatformSettings().legacyPrefixes).toEqual(['/file-prefix']);
-});
-
-test('the inverse: a store carrying only legacyPrefixes still falls back to the file for publicDomain', () => {
-  writeLegacyFile({
-    publicDomain: 'file.example.dev',
-    legacyPrefixes: ['/file-prefix'],
-    tlds: ['localhost'],
-    secrets: {},
-  });
-  setSetting('deck.platform', { legacyPrefixes: ['/store-prefix'] }, 'machine');
-  reloadPlatformSettings();
-  expect(getPlatformSettings().publicDomain).toBe('file.example.dev');
-  expect(getPlatformSettings().legacyPrefixes).toEqual(['/store-prefix']);
-});
-
-test("a resolver throw degrades to platform.json's values, warning once", () => {
-  writeLegacyFile({
-    publicDomain: 'file.example.dev',
-    legacyPrefixes: ['/file-prefix'],
-    tlds: ['localhost'],
-    secrets: {},
-  });
-  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
-  const throwingResolver: typeof getSetting = () => {
-    throw new Error('rt daemon unreachable');
-  };
-  reloadPlatformSettings(throwingResolver);
-  expect(getPlatformSettings().publicDomain).toBe('file.example.dev');
-  expect(getPlatformSettings().legacyPrefixes).toEqual(['/file-prefix']);
-  expect(warnSpy).toHaveBeenCalledTimes(1);
-  warnSpy.mockRestore();
 });
 
 test('updatePlatformSettings writes a patched migrated field to the store without clobbering the other', () => {
@@ -182,10 +140,7 @@ test('updatePlatformSettings writes a patched migrated field to the store withou
   expect(stored?.legacyPrefixes).toEqual(['/existing']);
 });
 
-test('store key present: platform.json no longer carries the migrated fields after a write', () => {
-  // Establish ownership first -- the latch only strips the file once the
-  // store already carries deck.platform (see the "store key absent" tests
-  // below for the opposite state).
+test('platform.json never carries the store fields after a write', () => {
   setSetting(
     'deck.platform',
     { publicDomain: 'seed.example.dev', legacyPrefixes: [] },
@@ -207,32 +162,13 @@ test('store key present: platform.json no longer carries the migrated fields aft
   expect(onDisk.secrets).toEqual({ cfApiToken: 'tok' });
 });
 
-test('store key absent: updatePlatformSettings keeps the migrated fields in the file and never touches the store', () => {
-  writeLegacyFile({
-    publicDomain: 'file.example.dev',
-    legacyPrefixes: ['/file-prefix'],
-    tlds: ['localhost'],
-    secrets: {},
-  });
-  reloadPlatformSettings();
-  updatePlatformSettings({ tlds: ['localhost', 'z'] });
-
-  const onDisk = JSON.parse(
-    readFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!, 'utf8')
-  );
-  expect(onDisk.publicDomain).toBe('file.example.dev');
-  expect(onDisk.legacyPrefixes).toEqual(['/file-prefix']);
-  expect(onDisk.tlds).toEqual(['localhost', 'z']);
-
-  // Ownership is never manufactured by deck's own save path.
-  expect(getSetting<unknown>('deck.platform').value).toBeUndefined();
-});
-
-test('store key absent: a publicDomain-changing write still lands only in the file', () => {
+test('a publicDomain write lands in the store', () => {
   updatePlatformSettings({ publicDomain: 'fresh.example.dev' });
   reloadPlatformSettings();
   expect(getPlatformSettings().publicDomain).toBe('fresh.example.dev');
-  expect(getSetting<unknown>('deck.platform').value).toBeUndefined();
+  expect(
+    getSetting<{ publicDomain?: string }>('deck.platform').value.publicDomain
+  ).toBe('fresh.example.dev');
 });
 
 test('platform.json is written 0600', () => {
@@ -252,20 +188,6 @@ test('an existing 0644 platform.json is upgraded to 0600 on the next write', () 
   updatePlatformSettings({ tlds: ['localhost', 'upgraded.dev'] });
   const mode = statSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!).mode & 0o777;
   expect(mode).toBe(0o600);
-});
-
-test('a tlds-only patch never strips publicDomain/legacyPrefixes that only the file was carrying', () => {
-  writeLegacyFile({
-    publicDomain: 'file-only.example.dev',
-    legacyPrefixes: ['/file-only-prefix'],
-    tlds: ['localhost'],
-    secrets: {},
-  });
-  reloadPlatformSettings();
-  updatePlatformSettings({ tlds: ['localhost', 'upgraded.dev'] });
-  reloadPlatformSettings();
-  expect(getPlatformSettings().publicDomain).toBe('file-only.example.dev');
-  expect(getPlatformSettings().legacyPrefixes).toEqual(['/file-only-prefix']);
 });
 
 test('store key present: a file-write failure after a successful store write restores the store to its previous value', () => {
@@ -294,20 +216,6 @@ test('store key present: a file-write failure after a successful store write res
   }>('deck.platform').value;
   expect(stored?.publicDomain).toBe('before.example.dev');
   expect(stored?.legacyPrefixes).toEqual(['/before']);
-});
-
-test('a resolver throw on the ownership probe degrades to unowned rather than crashing the write', () => {
-  setSetting('deck.platform', { poison: '${repoRoot}' }, 'machine');
-  reloadPlatformSettings(); // load()'s own fallback already tolerates this; unaffected by the probe fix
-
-  expect(() =>
-    updatePlatformSettings({ tlds: ['localhost', 'z'] })
-  ).not.toThrow();
-
-  const onDisk = JSON.parse(
-    readFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!, 'utf8')
-  );
-  expect(onDisk.tlds).toEqual(['localhost', 'z']);
 });
 
 test('store key present: a store write failure reverts the in-memory cache instead of claiming a value neither side holds', () => {
@@ -339,4 +247,165 @@ test('store key present: a store write failure reverts the in-memory cache inste
     updatePlatformSettings({ publicDomain: 'should-not-apply.example.dev' })
   ).toThrow();
   expect(getPlatformSettings().publicDomain).toBe(before);
+});
+
+test('nothing set reads the old defaults: no domain, no prefixes, no railway, no tunnel, localhost only', () => {
+  writeFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!, '{}');
+  reloadPlatformSettings();
+  expect(getPlatformSettings()).toEqual({
+    publicDomain: null,
+    tlds: ['localhost'],
+    legacyPrefixes: [],
+    secrets: {},
+    railway: null,
+    tunnel: null,
+  });
+});
+
+test('the four store fields move out of platform.json once; tlds and secrets stay', () => {
+  writeFileSync(
+    process.env.LOCAL_PLATFORM_SETTINGS_PATH!,
+    JSON.stringify({
+      publicDomain: 'apps.example.com',
+      legacyPrefixes: ['old'],
+      tlds: ['localhost', 'test'],
+      secrets: { cfZoneId: 'z' },
+    })
+  );
+  expect(importFileFields()).toEqual({});
+  expect(getSetting('deck.platform').value).toEqual({
+    publicDomain: 'apps.example.com',
+    legacyPrefixes: ['old'],
+    railway: null,
+    tunnel: null,
+  });
+  expect(
+    JSON.parse(readFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!, 'utf8'))
+  ).toEqual({ tlds: ['localhost', 'test'], secrets: { cfZoneId: 'z' } });
+});
+
+test('a tlds-only update writes the file and leaves the store alone', () => {
+  rmSync(machineStorePath(), { force: true });
+  reloadPlatformSettings();
+  updatePlatformSettings({ tlds: ['localhost', 'test'] });
+  expect(existsSync(machineStorePath())).toBe(false);
+});
+
+const failing = (() => {
+  throw new Error('store locked');
+}) as typeof setSetting;
+
+test('after a failed copy, a tlds-only update moves the file-only fields into the store instead of stripping them', () => {
+  writeLegacyFile({
+    publicDomain: 'apps.example.com',
+    tunnel: { name: 'n', uuid: 'u' },
+    tlds: ['localhost'],
+    secrets: {},
+  });
+  const pending = importFileFields(explainSetting, failing);
+  reloadPlatformSettings(getSetting, pending);
+  expect(getPlatformSettings().publicDomain).toBe('apps.example.com');
+  updatePlatformSettings({ tlds: ['localhost', 'test'] });
+  reloadPlatformSettings();
+  expect(getPlatformSettings().publicDomain).toBe('apps.example.com');
+  expect(getPlatformSettings().tunnel).toEqual({ name: 'n', uuid: 'u' });
+});
+
+test('the copy fills only the fields no store sets; a stored field keeps its stored value', () => {
+  setSetting('deck.platform', { publicDomain: 'store.example.com' }, 'machine');
+  writeLegacyFile({
+    publicDomain: 'file.example.com',
+    tunnel: { name: 'n', uuid: 'u' },
+  });
+  expect(importFileFields()).toEqual({});
+  const stored = getSetting<{ publicDomain: string; tunnel: unknown }>(
+    'deck.platform'
+  ).value;
+  expect(stored.publicDomain).toBe('store.example.com');
+  expect(stored.tunnel).toEqual({ name: 'n', uuid: 'u' });
+});
+
+test('a deck.platform value the resolver refused is never overwritten; platform.json stays', () => {
+  mkdirSync(dirname(machineStorePath()), { recursive: true });
+  writeFileSync(
+    machineStorePath(),
+    JSON.stringify({ 'deck.platform': 'oops' })
+  );
+  const body = JSON.stringify({ publicDomain: 'apps.example.com' });
+  writeFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!, body);
+  expect(importFileFields()).toEqual({ publicDomain: 'apps.example.com' });
+  expect(
+    JSON.parse(readFileSync(machineStorePath(), 'utf8'))['deck.platform']
+  ).toBe('oops');
+  expect(readFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!, 'utf8')).toBe(
+    body
+  );
+});
+
+test('a platform.json that is not an object reads as empty instead of crashing', () => {
+  writeFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!, 'null');
+  expect(importFileFields()).toEqual({});
+  reloadPlatformSettings();
+  expect(getPlatformSettings().tlds).toEqual(['localhost']);
+});
+
+test('a file-write failure with no machine value before unsets deck.platform rather than pinning its defaults', () => {
+  const platformPath = process.env.LOCAL_PLATFORM_SETTINGS_PATH!;
+  rmSync(platformPath, { force: true });
+  mkdirSync(platformPath, { recursive: true });
+  try {
+    expect(() =>
+      updatePlatformSettings({ publicDomain: 'after.example.dev' })
+    ).toThrow();
+  } finally {
+    rmSync(platformPath, { recursive: true, force: true });
+  }
+  const machineRow = explainSetting('deck.platform').find(
+    r => r.scope === 'machine'
+  );
+  expect(machineRow?.present).toBe(false);
+  expect(getPlatformSettings().publicDomain).toBeNull();
+});
+
+test('an update while deck.platform holds a refused value throws and writes nothing; a reload that reads a valid value clears it', () => {
+  mkdirSync(dirname(machineStorePath()), { recursive: true });
+  const refused = JSON.stringify({ 'deck.platform': 'oops' });
+  writeFileSync(machineStorePath(), refused);
+  reloadPlatformSettings();
+  expect(() =>
+    updatePlatformSettings({ publicDomain: 'over.example.dev' })
+  ).toThrow(/deck\.platform/);
+  expect(readFileSync(machineStorePath(), 'utf8')).toBe(refused);
+  expect(getPlatformSettings().publicDomain).toBeNull();
+
+  writeFileSync(
+    machineStorePath(),
+    JSON.stringify({ 'deck.platform': { publicDomain: 'fixed.example.dev' } })
+  );
+  reloadPlatformSettings();
+  updatePlatformSettings({ legacyPrefixes: ['/after'] });
+  expect(getSetting('deck.platform').value).toMatchObject({
+    publicDomain: 'fixed.example.dev',
+    legacyPrefixes: ['/after'],
+  });
+});
+
+test('an update after deck.platform could not be read at load throws and writes nothing; a reload that reads it clears it', () => {
+  setSetting('deck.platform', { publicDomain: 'real.example.dev' }, 'machine');
+  const before = readFileSync(machineStorePath(), 'utf8');
+  const throwing = (() => {
+    throw new Error('store unreadable');
+  }) as typeof getSetting;
+  reloadPlatformSettings(throwing);
+  expect(getPlatformSettings().publicDomain).toBeNull();
+  expect(() => updatePlatformSettings({ tlds: ['localhost', 'test'] })).toThrow(
+    /deck\.platform/
+  );
+  expect(readFileSync(machineStorePath(), 'utf8')).toBe(before);
+  expect(getPlatformSettings().tlds).toEqual(['localhost']);
+
+  reloadPlatformSettings();
+  updatePlatformSettings({ tlds: ['localhost', 'test'] });
+  expect(getPlatformSettings().publicDomain).toBe('real.example.dev');
+  expect(getPlatformSettings().tlds).toEqual(['localhost', 'test']);
 });

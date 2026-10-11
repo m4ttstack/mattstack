@@ -1,11 +1,12 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 
 import { switchboardUrl } from '@mattstack/rt-client';
 import {
+  boardSetting,
   daemonRepoField,
   parseConfig,
   repoIdentityField,
-  setHiddenInRaw,
+  resetBoardSettingWarnings,
 } from '../config.ts';
 
 const base = {
@@ -44,11 +45,12 @@ describe('parseConfig', () => {
 
   test('ticketPrefixes are uppercased and trimmed; rejects non-string entries', () => {
     expect(
-      parseConfig(JSON.stringify({ ...base, ticketPrefixes: ['cv', ' int '] }))
-        .ticketPrefixes
-    ).toEqual(['CV', 'INT']);
+      parseConfig(
+        JSON.stringify({ ...base, ticketPrefixes: ['acme', ' int '] })
+      ).ticketPrefixes
+    ).toEqual(['ACME', 'INT']);
     expect(() =>
-      parseConfig(JSON.stringify({ ...base, ticketPrefixes: 'CV' }))
+      parseConfig(JSON.stringify({ ...base, ticketPrefixes: 'ACME' }))
     ).toThrow(/ticketPrefixes/);
     expect(() =>
       parseConfig(JSON.stringify({ ...base, ticketPrefixes: [''] }))
@@ -183,18 +185,12 @@ describe('parseConfig', () => {
     ).toThrow(/reviewCwd/);
   });
 
-  test('rtRepos derives one identity per project from gitlabHost; explicit config.json entries are kept as overrides', () => {
+  test('rtRepos derives one identity per project from gitlabHost; rtRepos in the input is ignored', () => {
     const cfg = parseConfig(
       JSON.stringify({ ...base, rtRepos: { 'group/proj': 'proj-repo' } })
     );
-    expect(cfg.rtRepos).toEqual({
-      'org/repo': 'gitlab.com/org/repo',
-      'group/proj': 'proj-repo',
-    });
-    expect(cfg.rtRepoOverrides).toEqual({ 'group/proj': 'proj-repo' });
-    expect(parseConfig(JSON.stringify(base)).rtRepos).toEqual({
-      'org/repo': 'gitlab.com/org/repo',
-    });
+    expect(cfg.rtRepos).toEqual({ 'org/repo': 'gitlab.com/org/repo' });
+    expect(cfg.rtRepos['group/proj']).toBeUndefined();
   });
 
   test('config without tabs gets the implicit authors tab', () => {
@@ -368,34 +364,6 @@ describe('switchboard config', () => {
   });
 });
 
-describe('setHiddenInRaw', () => {
-  const raw = JSON.stringify(
-    { members: [{ username: 'alice', name: 'Alice' }, { username: 'bob' }] },
-    null,
-    2
-  );
-
-  test('sets the hidden flag on the named member', () => {
-    const parsed = JSON.parse(setHiddenInRaw(raw, 'bob', true));
-    expect(parsed.members.find((m: any) => m.username === 'bob').hidden).toBe(
-      true
-    );
-    expect(
-      parsed.members.find((m: any) => m.username === 'alice').hidden
-    ).toBeUndefined();
-  });
-
-  test('removes the flag entirely when set to false, keeping the file clean', () => {
-    const hidden = setHiddenInRaw(raw, 'alice', true);
-    const shown = JSON.parse(setHiddenInRaw(hidden, 'alice', false));
-    expect('hidden' in shown.members[0]).toBe(false);
-  });
-
-  test('throws for an unknown member', () => {
-    expect(() => setHiddenInRaw(raw, 'carol', true)).toThrow(/unknown member/);
-  });
-});
-
 describe('daemonRepoField', () => {
   test('a host/path config value is sent to the daemon as a serialized identity', () => {
     const payload = daemonRepoField(
@@ -413,5 +381,30 @@ describe('daemonRepoField', () => {
     expect(repoIdentityField('GitLab.com/Group/Repo')).toBe(
       'remote:gitlab.com%2FGroup%2FRepo'
     );
+  });
+});
+
+describe('boardSetting', () => {
+  const throwing = (() => {
+    throw new Error('store unreadable');
+  }) as unknown as Parameters<typeof boardSetting>[1];
+  beforeEach(resetBoardSettingWarnings);
+  afterEach(resetBoardSettingWarnings);
+
+  test('a resolver throw reads the default and warns once per key', () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(boardSetting<number>('board.gateGraceMinutes', throwing)).toBe(90);
+      expect(boardSetting<number>('board.gateGraceMinutes', throwing)).toBe(90);
+      expect(
+        boardSetting<string | undefined>('board.agent.model', throwing)
+      ).toBeUndefined();
+      expect(
+        boardSetting<string | undefined>('board.agent.model', throwing)
+      ).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

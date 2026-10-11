@@ -128,7 +128,7 @@ Make the `mattstack.integrations` description read: "Team-wide external integrat
         z.looseObject({
           linear: z
             .looseObject({
-              team: z.string().min(1).optional().meta({ title: "Linear team key", description: "The team's own Linear key, e.g. CV.", placeholder: "CV" }),
+              team: z.string().min(1).optional().meta({ title: "Linear team key", description: "The team's own Linear key, e.g. ACME.", placeholder: "ACME" }),
             })
             .optional(),
           slack: z
@@ -548,11 +548,11 @@ git commit -m "settings: refuse a shared code owners channel, note unknown chann
 describe('loadConfigFrom: mattstack.directory', () => {
   const DIRECTORY = {
     teams: {
-      claim: {
-        linear: { team: 'CV' },
+      widgets: {
+        linear: { team: 'ACME' },
         slack: {
-          codeOwnersChannel: 'pod-claim',
-          channels: [{ name: 'Claim-Internal', kind: 'review' }],
+          codeOwnersChannel: 'widgets-review',
+          channels: [{ name: 'Widgets-Internal', kind: 'review' }],
         },
       },
     },
@@ -563,19 +563,19 @@ describe('loadConfigFrom: mattstack.directory', () => {
   });
 
   test("my team's review channel is the slack channel, and its channels are mine", () => {
-    teamView.team = () => 'claim';
+    teamView.team = () => 'widgets';
     const cfg = loadConfigFrom(
       tmpConfig(),
       fakeResolve({ 'mattstack.directory': DIRECTORY })
     );
-    expect(cfg.slack.channel).toBe('claim-internal');
-    expect(cfg.ownChannels).toEqual(['pod-claim', 'claim-internal']);
+    expect(cfg.slack.channel).toBe('widgets-internal');
+    expect(cfg.ownChannels).toEqual(['widgets-review', 'widgets-internal']);
   });
 
   test('board.slack.reviewKind picks the kind', () => {
-    teamView.team = () => 'claim';
+    teamView.team = () => 'widgets';
     const dir = structuredClone(DIRECTORY);
-    dir.teams.claim.slack.channels.push({ name: 'claim-pr', kind: 'pr' });
+    dir.teams.widgets.slack.channels.push({ name: 'widgets-pr', kind: 'pr' });
     const cfg = loadConfigFrom(
       tmpConfig(),
       fakeResolve({
@@ -583,16 +583,16 @@ describe('loadConfigFrom: mattstack.directory', () => {
         'board.slack': { reviewKind: 'pr' },
       })
     );
-    expect(cfg.slack.channel).toBe('claim-pr');
+    expect(cfg.slack.channel).toBe('widgets-pr');
   });
 
   test('no review channel in my entry means no channel, not a default', () => {
-    teamView.team = () => 'claim';
+    teamView.team = () => 'widgets';
     const cfg = loadConfigFrom(
       tmpConfig(),
       fakeResolve({
         'mattstack.directory': {
-          teams: { claim: { slack: { codeOwnersChannel: 'pod-claim' } } },
+          teams: { widgets: { slack: { codeOwnersChannel: 'widgets-review' } } },
         },
       })
     );
@@ -600,11 +600,11 @@ describe('loadConfigFrom: mattstack.directory', () => {
   });
 
   test('a codeowners tab without its own channel takes my code owners channel; a set one wins', () => {
-    teamView.team = () => 'claim';
+    teamView.team = () => 'widgets';
     const tab = (id: string, slackChannel?: string) => ({
       id,
       label: id,
-      source: { kind: 'codeowners', section: 'Claim - #pod-claim' },
+      source: { kind: 'codeowners', section: 'Widgets - #widgets-review' },
       ...(slackChannel ? { slackChannel } : {}),
     });
     const cfg = loadConfigFrom(
@@ -615,28 +615,28 @@ describe('loadConfigFrom: mattstack.directory', () => {
       })
     );
     expect(cfg.tabs.map(t => t.slackChannel)).toEqual([
-      'pod-claim',
+      'widgets-review',
       'watch-elsewhere',
     ]);
   });
 
   test("ticket prefixes default to my team's Linear key; a set value wins", () => {
-    teamView.team = () => 'claim';
+    teamView.team = () => 'widgets';
     expect(
       loadConfigFrom(
         tmpConfig(),
         fakeResolve({ 'mattstack.directory': DIRECTORY })
       ).ticketPrefixes
-    ).toEqual(['CV']);
+    ).toEqual(['ACME']);
     expect(
       loadConfigFrom(
         tmpConfig(),
         fakeResolve({
           'mattstack.directory': DIRECTORY,
-          'board.ticketPrefixes': ['CV', 'PLA'],
+          'board.ticketPrefixes': ['ACME', 'WID'],
         })
       ).ticketPrefixes
-    ).toEqual(['CV', 'PLA']);
+    ).toEqual(['ACME', 'WID']);
   });
 
   test('on no team there is no channel and nothing is mine', () => {
@@ -775,15 +775,15 @@ git commit -m "board: the team directory is the only source of the review channe
   test('a section on any of my channels rides on the team row, matched without # and case', () => {
     const plan = planOwnersPost(
       [
-        { section: 'Claim - #POD-claim', approved: false },
-        { section: 'Claim Ops - #claim-internal', approved: false },
+        { section: 'Widgets - #WIDGETS-review', approved: false },
+        { section: 'Widgets Ops - #widgets-internal', approved: false },
         { section: 'Acme - #pod-acme', approved: false },
       ],
-      { posted: {}, ownChannels: ['pod-claim', 'claim-internal'] }
+      { posted: {}, ownChannels: ['widgets-review', 'widgets-internal'] }
     );
     expect(plan.ownSections).toEqual([
-      'Claim - #POD-claim',
-      'Claim Ops - #claim-internal',
+      'Widgets - #WIDGETS-review',
+      'Widgets Ops - #widgets-internal',
     ]);
     expect(plan.channels).toEqual([
       { channel: 'pod-acme', sections: ['Acme - #pod-acme'] },
@@ -985,15 +985,15 @@ git commit -m "board: route code owner sections by the team directory; no review
   test("the Linear key comes from the active team's directory entry", () => {
     const read = fakeReader({
       "mattstack.integrations": { forge: { host: "gitlab.example.com", provider: "gitlab" } },
-      "mattstack.directory": { teams: { claim: { linear: { team: "CV" } } } },
+      "mattstack.directory": { teams: { widgets: { linear: { team: "ACME" } } } },
     });
-    const snapshot = readTeamSnapshot(fakeProbes({ home: "/fake-home" }), "acme", { read, team: "claim" });
-    expect(snapshot.integrations.linear).toEqual({ teamKey: "CV" });
+    const snapshot = readTeamSnapshot(fakeProbes({ home: "/fake-home" }), "acme", { read, team: "widgets" });
+    expect(snapshot.integrations.linear).toEqual({ teamKey: "ACME" });
   });
 
   test("a stray integrations teamKey is ignored", () => {
     const read = fakeReader({ "mattstack.integrations": { linear: { teamKey: "OLD" } } });
-    const snapshot = readTeamSnapshot(fakeProbes({ home: "/fake-home" }), "acme", { read, team: "claim" });
+    const snapshot = readTeamSnapshot(fakeProbes({ home: "/fake-home" }), "acme", { read, team: "widgets" });
     expect(snapshot.integrations.linear).toBeUndefined();
   });
 ```
@@ -1095,29 +1095,29 @@ const tabsIn = (file: string) => readSection(getDef("board.tabs")!, store(file),
 
 const TABS = [
   { id: "team", label: "Team", source: { kind: "authors" } },
-  { id: "q", label: "Q", source: { kind: "codeowners", section: "Claim - #pod-claim" }, slackChannel: "pod-claim" },
+  { id: "q", label: "Q", source: { kind: "codeowners", section: "Widgets - #widgets-review" }, slackChannel: "widgets-review" },
   { id: "w", label: "W", source: { kind: "codeowners", section: "Acme - #pod-acme" }, slackChannel: "pod-acme" },
 ];
 // The v1 store name, as the live team store holds it today.
-const CLAIM_STORE = {
-  "mattstack.integrations": { linear: { teamKey: "CV" } },
-  "board.slack": { channel: "claim-internal", singleTemplate: "{title}: {url}" },
+const WIDGETS_STORE = {
+  "mattstack.integrations": { linear: { teamKey: "ACME" } },
+  "board.slack": { channel: "widgets-internal", singleTemplate: "{title}: {url}" },
   "board.tabs": TABS,
-  "board.ticketPrefixes": ["CV"],
+  "board.ticketPrefixes": ["ACME"],
 };
 const ENTRY = {
-  linear: { team: "CV" },
-  slack: { codeOwnersChannel: "pod-claim", channels: [{ name: "claim-internal", kind: "review" }] },
+  linear: { team: "ACME" },
+  slack: { codeOwnersChannel: "widgets-review", channels: [{ name: "widgets-internal", kind: "review" }] },
 };
-const adminRoles = { admins: ["me"], teams: { claim: { owners: ["me"] } } };
-const roster = [{ username: "me", teams: ["claim"] }];
+const adminRoles = { admins: ["me"], teams: { widgets: { owners: ["me"] } } };
+const roster = [{ username: "me", teams: ["widgets"] }];
 
 describe("entryFromTeamStore", () => {
   test("builds an entry from the Linear key, the board channel and the first codeowners tab channel", () => {
-    expect(entryFromTeamStore(CLAIM_STORE, {})).toEqual(ENTRY);
+    expect(entryFromTeamStore(WIDGETS_STORE, {})).toEqual(ENTRY);
   });
   test("reads tabs stored under the current versioned name too", () => {
-    const { "board.tabs": tabs, ...rest } = CLAIM_STORE;
+    const { "board.tabs": tabs, ...rest } = WIDGETS_STORE;
     expect(entryFromTeamStore({ ...rest, "board.tabs@2": tabs }, {})).toEqual(ENTRY);
   });
   test("takes the org's board channel when the team has none", () => {
@@ -1132,7 +1132,7 @@ describe("entryFromTeamStore", () => {
 
 describe("withoutRetired", () => {
   test("drops the moved fields and keeps everything else", () => {
-    expect(withoutRetired(CLAIM_STORE, ENTRY)).toEqual([
+    expect(withoutRetired(WIDGETS_STORE, ENTRY)).toEqual([
       { key: "board.slack", value: { singleTemplate: "{title}: {url}" } },
       { key: "mattstack.integrations", value: undefined },
       { key: "board.tabs", value: [TABS[0], { id: "q", label: "Q", source: TABS[1]!.source }, TABS[2]] },
@@ -1140,7 +1140,7 @@ describe("withoutRetired", () => {
     ]);
   });
   test("keeps ticket prefixes that add to the Linear key", () => {
-    expect(withoutRetired({ "board.ticketPrefixes": ["CV", "PLA"] }, ENTRY).find((w) => w.key === "board.ticketPrefixes")).toBeUndefined();
+    expect(withoutRetired({ "board.ticketPrefixes": ["ACME", "WID"] }, ENTRY).find((w) => w.key === "board.ticketPrefixes")).toBeUndefined();
   });
 });
 
@@ -1166,22 +1166,22 @@ describe("2026-10-08-team-directory", () => {
       roles: adminRoles,
       roster,
       settings: { "board.slack": { channel: "org-old" } },
-      teams: { claim: CLAIM_STORE },
+      teams: { widgets: WIDGETS_STORE },
     });
     const result = await run();
     expect(result.state).toBe("done");
-    expect(store(orgStore)["mattstack.directory"]).toEqual({ teams: { claim: ENTRY } });
+    expect(store(orgStore)["mattstack.directory"]).toEqual({ teams: { widgets: ENTRY } });
     expect(store(orgStore)["board.slack"]).toBeUndefined();
-    const team = store(teamStores.claim!);
+    const team = store(teamStores.widgets!);
     expect(team["board.slack"]).toEqual({ singleTemplate: "{title}: {url}" });
     expect(team["mattstack.integrations"]).toBeUndefined();
     expect(team["board.ticketPrefixes"]).toBeUndefined();
     expect(team["board.tabs"]).toBeUndefined();
-    expect(tabsIn(teamStores.claim!).map((t) => t.slackChannel)).toEqual([undefined, undefined, "pod-acme"]);
+    expect(tabsIn(teamStores.widgets!).map((t) => t.slackChannel)).toEqual([undefined, undefined, "pod-acme"]);
   });
 
   test("a second run changes nothing", async () => {
-    seedClone({ username: "me", roles: adminRoles, roster, teams: { claim: CLAIM_STORE } });
+    seedClone({ username: "me", roles: adminRoles, roster, teams: { widgets: WIDGETS_STORE } });
     await run();
     expect((await run()).state).toBe("skipped");
   });
@@ -1191,25 +1191,25 @@ describe("2026-10-08-team-directory", () => {
       username: "me",
       roles: adminRoles,
       roster,
-      settings: { "mattstack.directory": { teams: { claim: { linear: { team: "KEEP" } } } } },
-      teams: { claim: CLAIM_STORE },
+      settings: { "mattstack.directory": { teams: { widgets: { linear: { team: "KEEP" } } } } },
+      teams: { widgets: WIDGETS_STORE },
     });
     await run();
-    expect(store(orgStore)["mattstack.directory"]).toEqual({ teams: { claim: { linear: { team: "KEEP" } } } });
-    expect(store(teamStores.claim!)["mattstack.integrations"]).toBeUndefined();
+    expect(store(orgStore)["mattstack.directory"]).toEqual({ teams: { widgets: { linear: { team: "KEEP" } } } });
+    expect(store(teamStores.widgets!)["mattstack.integrations"]).toBeUndefined();
   });
 
   test("a Mac that cannot write the org store leaves every shared store alone", async () => {
     const { orgStore, teamStores } = seedClone({
       username: "me",
-      roles: { admins: ["someone-else"], teams: { claim: { owners: ["someone-else"] } } },
+      roles: { admins: ["someone-else"], teams: { widgets: { owners: ["someone-else"] } } },
       roster,
-      teams: { claim: CLAIM_STORE },
+      teams: { widgets: WIDGETS_STORE },
     });
     const result = await run();
     expect(result.state).toBe("skipped");
     expect(store(orgStore)["mattstack.directory"]).toBeUndefined();
-    expect(store(teamStores.claim!)["board.slack"]).toEqual(CLAIM_STORE["board.slack"]);
+    expect(store(teamStores.widgets!)["board.slack"]).toEqual(WIDGETS_STORE["board.slack"]);
   });
 });
 ```

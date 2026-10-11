@@ -61,6 +61,11 @@ export function bundledToolPath(p: Pick<Probes, "exists" | "home">, tool: string
   }
 }
 
+/** Restarts a served app through deck; false when deck is missing or the restart fails. */
+export async function restartAppWithDeck(p: Pick<Probes, "exists" | "home" | "exec">, app: string, deck: string | null = bundledToolPath(p, "deck")): Promise<boolean> {
+  return deck !== null && (await p.exec([deck, "restart", app])).code === 0;
+}
+
 /** Absolute argv prefix that runs a bundled tool, only if every entry exists. */
 export function bundledToolExec(p: Pick<Probes, "exists" | "home">, tool: string): string[] | null {
   const root = appBundlePath(p);

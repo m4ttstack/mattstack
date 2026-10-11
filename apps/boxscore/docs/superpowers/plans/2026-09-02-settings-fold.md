@@ -212,13 +212,13 @@ describe("readSettings", () => {
       "boxscore.ignoredMrs": ["g/p!9"],
       "boxscore.botPatterns": ["-bot$"],
       "boxscore.defaultRange": "7d",
-      "mattstack.integrations": { forge: { host: "gitlab.example", provider: "gitlab" }, linear: { teamKey: "CV" } },
+      "mattstack.integrations": { forge: { host: "gitlab.example", provider: "gitlab" }, linear: { teamKey: "ACME" } },
     });
     const s = readSettings();
     expect(s.users).toEqual(["ada", "bob"]);
     expect(s.roster).toHaveLength(3);
     expect(s.projects).toEqual(["g/p"]);
-    expect(s.linearTeam).toBe("CV");
+    expect(s.linearTeam).toBe("ACME");
     expect(s.doneStates).toEqual(["Done"]);
     expect(s.sizeBand).toEqual({ tooSmall: 5, tooLarge: 300 });
     expect(s.excludeFilePatterns).toEqual(["**/*.json"]);
@@ -706,7 +706,7 @@ describe("mergeRoster", () => {
 
 describe("mergeIntegrations", () => {
   it("fills only missing fields and reports no change when both are present", () => {
-    const current = { forge: { host: "gitlab.com", provider: "gitlab" }, linear: { teamKey: "CV" }, slack: { appId: "A1" } };
+    const current = { forge: { host: "gitlab.com", provider: "gitlab" }, linear: { teamKey: "ACME" }, slack: { appId: "A1" } };
     const { merged, changed } = mergeIntegrations(current, { host: "https://ignored.example", teamKey: "ZZ" });
     expect(changed).toBe(false);
     expect(merged).toEqual(current);
@@ -714,9 +714,9 @@ describe("mergeIntegrations", () => {
 
   it("fills a missing linear.teamKey and preserves unrelated blocks", () => {
     const current = { forge: { host: "gitlab.com" }, slack: { appId: "A1" } };
-    const { merged, changed } = mergeIntegrations(current, { teamKey: "CV" });
+    const { merged, changed } = mergeIntegrations(current, { teamKey: "ACME" });
     expect(changed).toBe(true);
-    expect(merged).toEqual({ forge: { host: "gitlab.com" }, slack: { appId: "A1" }, linear: { teamKey: "CV" } });
+    expect(merged).toEqual({ forge: { host: "gitlab.com" }, slack: { appId: "A1" }, linear: { teamKey: "ACME" } });
   });
 });
 ```
