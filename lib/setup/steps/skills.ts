@@ -17,7 +17,7 @@ import { setSetting } from "../../settings/write.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import type { StepId } from "../contract.ts";
-import { installCronTrigger, peerTrigger, resolveBoardTriage, triageTrigger } from "../cron-install.ts";
+import { installCronTrigger, peerTrigger, triageTrigger } from "../cron-install.ts";
 import { linkBundledSkills } from "../skills-link-bundled.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import { linkPersonalSkills } from "../../skills/writing-style-sources.ts";
@@ -235,15 +235,12 @@ async function cronTriageRun(ctx: ApplyContext): Promise<StepOutcome> {
   const peerAsks = hookOn("board.peerAsks");
   if (!reReview && !peerAsks) return { state: "skipped", detail: "The board's re-review and peer ask hooks are off" };
 
-  const board = resolveTool(ctx.p, "board").exec;
-  const resolution = resolveBoardTriage(ctx.p, getKnownRepos(), board);
-
-  if (resolution.kind === "missing") {
+  if (resolveTool(ctx.p, "board").exec === null) {
     return { state: "skipped", detail: "The board binary was not found. Run rt deps resolve board first" };
   }
 
-  if (reReview) installCronTrigger(triageTrigger(resolution.run));
-  if (peerAsks) installCronTrigger(peerTrigger(resolution.run));
+  if (reReview) installCronTrigger(triageTrigger());
+  if (peerAsks) installCronTrigger(peerTrigger());
   return { state: "done", detail: "Installed the board triage skill" };
 }
 

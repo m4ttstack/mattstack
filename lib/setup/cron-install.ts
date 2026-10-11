@@ -4,16 +4,14 @@
  * step.
  */
 
-import { join } from "path";
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
-import type { KnownRepo } from "../repo-index.ts";
-import { repoLabel } from "../repo-label.ts";
 
 export interface CronTrigger {
   name: string;
   event: string;
   run: string[];
+  tool?: string;
   repoName?: string;
   debounceMs?: number;
 }
@@ -21,54 +19,24 @@ export interface CronTrigger {
 export interface TriageTrigger extends CronTrigger {
   name: "board-triage";
   event: "project-mrs";
+  tool: "board";
   debounceMs: 5000;
 }
 
-/** `run` is the already-resolved invocation argv — see `resolveBoardTriage` for how the caller picks it (or refuses). */
-export function triageTrigger(run: string[]): TriageTrigger {
-  return { name: "board-triage", event: "project-mrs", run, debounceMs: 5000 };
+/** The daemon resolves `tool` from the running app at fire time, so switching apps never strands the trigger. */
+export function triageTrigger(): TriageTrigger {
+  return { name: "board-triage", event: "project-mrs", tool: "board", run: ["triage"], debounceMs: 5000 };
 }
 
 export interface PeerTrigger extends CronTrigger {
   name: "board-peer";
   event: "peer-inbox";
+  tool: "board";
   debounceMs: 300;
 }
 
-/** `triageRun` is the resolved triage invocation; the peer pass is the same entry with `--peer`. */
-export function peerTrigger(triageRun: string[]): PeerTrigger {
-  return { name: "board-peer", event: "peer-inbox", run: [...triageRun, "--peer"], debounceMs: 300 };
-}
-
-export type BoardTriageResolution =
-  | { kind: "checkout"; run: string[] }
-  /** No registered checkout carries `bin/triage.ts`, but board resolves (bundled or a user copy) — `<exec> triage` runs a one-shot pass (board main ecb43e9+; exit 0 = ran or disabled, non-zero = real failure). */
-  | { kind: "bundled"; run: string[] }
-  /** Board doesn't resolve at all — nothing to wire. */
-  | { kind: "missing" };
-
-/**
- * A registered "board" checkout carrying `bin/triage.ts` wins (source-of-truth
- * for anyone running board from source); otherwise fall back to whatever
- * board resolves to — bundled binary or a PATH copy — appending its `triage`
- * subcommand.
- */
-export function resolveBoardTriage(
-  p: { exists(path: string): boolean },
-  known: Pick<KnownRepo, "repoName" | "worktrees" | "registered">[],
-  boardExec: string[] | null,
-): BoardTriageResolution {
-  // `repoName` is a serialized identity for every row the index wrote
-  // post-cutover, so "board" only ever matches its decoded label. Two repos can
-  // carry that label, and `find` would then wire cron to whichever sorted
-  // first, so an ambiguous label takes the bundled fallback instead of a guess.
-  const boards = known.filter((r) => r.registered !== false && repoLabel(r.repoName) === "board");
-  const checkout = boards.length === 1 ? boards[0] : undefined;
-  if (checkout) {
-    const script = join(checkout.worktrees[0]!.path, "bin", "triage.ts");
-    if (p.exists(script)) return { kind: "checkout", run: ["bun", "run", script] };
-  }
-  return boardExec === null ? { kind: "missing" } : { kind: "bundled", run: [...boardExec, "triage"] };
+export function peerTrigger(): PeerTrigger {
+  return { name: "board-peer", event: "peer-inbox", tool: "board", run: ["triage", "--peer"], debounceMs: 300 };
 }
 
 export interface InstallCronTriggerDeps {
