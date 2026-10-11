@@ -437,7 +437,7 @@ test('two DM rows with kai stay distinct, read kai ↔ remy, and show different 
   expect(sprites(legacy)).toHaveLength(2);
   expect(sprites(legacy)[0]).toBe(sprites(recycled)[0]);
   expect(sprites(legacy)[1]).not.toBe(sprites(recycled)[1]);
-  expect(sprites(screen.getByTestId('dm-row-dm-jay-max'))).toEqual([]);
+  expect(sprites(screen.getByTestId('dm-row-dm-jay-max'))).toHaveLength(2);
 });
 
 test('workstream and offline rows show names; the overflow line reads pairs by name', async () => {

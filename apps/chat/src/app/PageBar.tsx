@@ -64,9 +64,6 @@ export interface PageBarProps {
   /** A prop, not `Date.now()` internally, so a DM's task chips are testable
       without fake timers. @default Date.now() */
   now?: number;
-  /** Set when another listed DM reads the same pair (`repeatedPairLabels`):
-      the title then carries each end's id-seeded avatar. */
-  withAvatars?: boolean;
 }
 
 /** The hash is an icon beside the title, as the artboard draws it, not a
@@ -163,7 +160,6 @@ export function PageBar({
   onMarkedRead,
   onAddAgents,
   now = Date.now(),
-  withAvatars = false,
 }: PageBarProps) {
   const [expandAll, setExpandAll] = useExpandAll();
   const handleMarkRead = () => {
@@ -196,7 +192,7 @@ export function PageBar({
         style={{ flex: 'none', maxWidth: '38%', minWidth: 0 }}
       >
         {room.kind === 'dm' && room.participants ? (
-          <DmPairTitle pair={room.participants} withAvatars={withAvatars} />
+          <DmPairTitle pair={room.participants} />
         ) : (
           roomTitle(room)
         )}

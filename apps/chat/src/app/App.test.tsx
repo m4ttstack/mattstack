@@ -310,25 +310,21 @@ test('an open DM whose pair repeats in the sidebar shows avatars in the page bar
   expect(avatarCount(screen.getByTestId('page-bar-title'))).toBe(2);
 });
 
-test('an open DM whose pair is unique keeps a plain page-bar title', () => {
+test('an open DM title carries both avatars, unique pair or not', () => {
   window.history.replaceState(null, '', '/r/dm-jay-max');
   renderWithProviders(<App initialState={kaiRemyDms} />);
   const title = screen.getByTestId('page-bar-title');
   expect(title).toHaveTextContent(/^jay ↔ max$/);
-  expect(avatarCount(title)).toBe(0);
+  expect(avatarCount(title)).toBe(2);
 });
 
-test('the phone header shows avatars only for a repeated pair', () => {
+test('the phone header shows both avatars', () => {
   setViewportWidth(390);
-  window.history.replaceState(null, '', '/r/dm-e41f7a3c68bd');
-  const { unmount } = renderWithProviders(<App initialState={kaiRemyDms} />);
-  const header = screen.getByTestId('phone-header');
-  expect(header).toHaveTextContent('kai ↔ remy');
-  expect(avatarCount(header)).toBe(2);
-  unmount();
   window.history.replaceState(null, '', '/r/dm-jay-max');
   renderWithProviders(<App initialState={kaiRemyDms} />);
-  expect(avatarCount(screen.getByTestId('phone-header'))).toBe(0);
+  const header = screen.getByTestId('phone-header');
+  expect(header).toHaveTextContent('jay ↔ max');
+  expect(avatarCount(header)).toBe(2);
 });
 
 test('a malformed room escape renders not-found instead of throwing', () => {

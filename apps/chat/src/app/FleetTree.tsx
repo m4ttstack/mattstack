@@ -13,12 +13,7 @@ import type { RoomSummary } from '@mattstack/rt-client';
 
 import { agentState, isRoomForRepo, stateLine } from './agent-state';
 import { AgentHoverCard, AgentName } from './AgentName';
-import {
-  displayName,
-  dmPairLabel,
-  repeatedPairLabels,
-  sameNameOrdinals,
-} from './display-name';
+import { displayName, dmPairLabel, sameNameOrdinals } from './display-name';
 import { doing } from './doing';
 import classes from './fleet-tree.module.css';
 import { MUTED_XS } from './presence-bits';
@@ -637,15 +632,12 @@ function OfflineRow({
 function DmRow({
   room,
   active,
-  withAvatars,
   onSelect,
   onClose,
   onMarkRead,
 }: {
   room: FleetRoom;
   active: boolean;
-  /** Set when another listed DM reads the same pair: the id-seeded avatars tell them apart. */
-  withAvatars: boolean;
   onSelect?: () => void;
   onClose?: (room: string) => void;
   onMarkRead?: (room: string) => void;
@@ -690,21 +682,11 @@ function DmRow({
         truncate
         style={{ fontSize: ROW_NAME_SIZE, flex: 1, minWidth: 0 }}
       >
-        <AgentName
-          handle={pair.a}
-          name={pair.aName}
-          withCard={false}
-          withAvatar={withAvatars}
-        />{' '}
+        <AgentName handle={pair.a} name={pair.aName} withCard={false} />{' '}
         <span style={{ color: 'var(--tk-text-purple-small)', flex: 'none' }}>
           ↔
         </span>{' '}
-        <AgentName
-          handle={pair.b}
-          name={pair.bName}
-          withCard={false}
-          withAvatar={withAvatars}
-        />
+        <AgentName handle={pair.b} name={pair.bName} withCard={false} />
       </Text>
       {room.unread > 0 && <UnreadBadge count={room.unread} />}
       {closable && (
@@ -807,7 +789,6 @@ export function FleetTree({
   const namedDms = dms.filter(d => d.participants);
   const shownDms = dmsExpanded ? namedDms : visibleDms(namedDms, activeRoom);
   const hiddenDms = namedDms.filter(d => !shownDms.includes(d));
-  const repeatedLabels = repeatedPairLabels(namedDms);
   const ordinals = sameNameOrdinals(
     groups.flatMap(g => g.online),
     displayName
@@ -870,7 +851,6 @@ export function FleetTree({
               key={room.room}
               room={room}
               active={room.room === activeRoom}
-              withAvatars={repeatedLabels.has(dmPairLabel(room.participants!))}
               onSelect={() => onOpenDm?.(room.room)}
               onClose={onClose}
               onMarkRead={onMarkRead}
