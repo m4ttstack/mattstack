@@ -111,7 +111,7 @@ describe("an org with two teams", () => {
     identifyAs("dev1");
     const out = await json(["settings", "explain", "board.title"]);
     const rows = out.rows as { scope: string; present: boolean }[];
-    expect(rows.filter((row) => row.present).map((row) => row.scope)).toEqual(["org", "team"]);
+    expect(rows.filter((row) => row.present).map((row) => row.scope)).toEqual(["default", "org", "team"]);
   });
 
   test("status reports the role and the teams", async () => {
