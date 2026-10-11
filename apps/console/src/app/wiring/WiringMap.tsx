@@ -12,7 +12,6 @@ import {
   GenericError,
   Group,
   PageShell,
-  Skeleton,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
@@ -28,8 +27,8 @@ import { GraphTab } from './graph/GraphTab';
 import { MissingPackNotice } from './graph/MissingPackNotice';
 import { UnsyncedBanner, useUnsyncedBanner } from './graph/UnsyncedBanner';
 import { useWiringUrl, type WiringTab } from './graph/useWiringUrl';
-import { HealthTab } from './HealthTab';
-import { SurfaceTab } from './SurfaceTab';
+import { HealthTab, HealthTabSkeleton } from './HealthTab';
+import { SurfaceGridSkeleton, SurfaceTab } from './SurfaceTab';
 import {
   useAttentionCount,
   useCompositionSnapshot,
@@ -220,7 +219,13 @@ export function WiringMap() {
                 />
               ) : !pack ? (
                 packsQuery.isPending ? (
-                  <Skeleton height={200} data-testid="packs-loading" />
+                  <div data-testid="packs-loading">
+                    {url.tab === 'surface' ? (
+                      <SurfaceGridSkeleton />
+                    ) : (
+                      <HealthTabSkeleton />
+                    )}
+                  </div>
                 ) : (
                   <Text size="sm" c={text.dimmed} data-testid="no-packs">
                     No skills packs found.

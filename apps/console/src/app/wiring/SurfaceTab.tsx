@@ -206,6 +206,31 @@ function FilterChip({ label, count, active, onClick }: FilterChipProps) {
   );
 }
 
+/** Mirrors the loaded grid's two columns of switch, name and kind badge rows. */
+export function SurfaceGridSkeleton() {
+  const widths = [96, 132, 84, 120, 108, 72, 140, 90, 116, 100];
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, minmax(0,1fr))',
+        gap: '2px 22px',
+        padding: '12px 16px',
+      }}
+      data-testid="surface-loading"
+      aria-busy
+    >
+      {widths.map((width, i) => (
+        <Group key={i} gap={ROW_GAP} wrap="nowrap" px="sm" py={6}>
+          <Skeleton height={20} width={34} radius="xl" />
+          <Skeleton height={13} width={width} radius="sm" />
+          <Skeleton height={16} width={52} radius="xl" />
+        </Group>
+      ))}
+    </div>
+  );
+}
+
 interface SurfaceGridRowProps {
   row: SkillsSurfaceRow;
   next: 'public' | 'internal';
@@ -466,7 +491,7 @@ export function SurfaceTab({ pack }: SurfaceTabProps) {
           />
         </Box>
       ) : surfaceQuery.isPending ? (
-        <Skeleton height={200} m="xl" data-testid="surface-loading" />
+        <SurfaceGridSkeleton />
       ) : (
         <div
           style={{
