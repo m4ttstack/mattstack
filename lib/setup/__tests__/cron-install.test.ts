@@ -1,4 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { getSetting } from "../../settings/resolve.ts";
+import { setSetting } from "../../settings/write.ts";
 import { PEER_INBOX_EVENT } from "../../daemon/peer-waker.ts";
 import {
   installCronTrigger,
@@ -86,5 +91,34 @@ describe("peerTrigger", () => {
 
   test("listens on exactly the event the daemon waker broadcasts", () => {
     expect(peerTrigger().event).toBe(PEER_INBOX_EVENT);
+  });
+});
+
+describe("read-then-write keeps other triggers as stored", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+  const VARIABLE = { name: "sync", event: "branches", run: ["${repoRoot}/bin/sync", "${home}/x"] };
+  const stored = () => getSetting<{ triggers: unknown[] }>("rt.cron", { expand: false }).value?.triggers;
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-cron-install-")));
+    process.env.HOME = home;
+    setSetting("rt.cron", { triggers: [VARIABLE] }, "machine");
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("installCronTrigger leaves another trigger's variables verbatim", () => {
+    installCronTrigger(triageTrigger());
+    expect(stored()).toEqual([VARIABLE, triageTrigger()]);
+  });
+
+  test("removeCronTrigger leaves another trigger's variables verbatim", () => {
+    installCronTrigger(triageTrigger());
+    removeCronTrigger("board-triage");
+    expect(stored()).toEqual([VARIABLE]);
   });
 });

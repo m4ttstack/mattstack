@@ -26,7 +26,7 @@ export const boardCronByToolMigration: MigrationDef = {
   id: "2026-10-10-board-cron-by-tool",
   title: "Run the board's schedules from the app that is running",
   async run() {
-    const triggers = getSetting<{ triggers?: CronTrigger[] }>("rt.cron").value?.triggers ?? [];
+    const triggers = getSetting<{ triggers?: CronTrigger[] }>("rt.cron", { expand: false }).value?.triggers ?? [];
     let changed = false;
     const next = triggers.map((trigger) => {
       const moved = toToolForm(trigger);

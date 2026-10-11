@@ -51,6 +51,13 @@ describe("2026-10-10-board-cron-by-tool", () => {
     ]);
   });
 
+  test("keeps another trigger's variables verbatim", async () => {
+    const variable = { name: "sync", event: "branches", run: ["${repoRoot}/bin/sync", "${home}/x"] };
+    seed([variable, { name: "board-triage", event: "project-mrs", run: ["/opt/board", "triage"], debounceMs: 5000 }]);
+    expect((await boardCronByToolMigration.run(ctx())).state).toBe("done");
+    expect(getSetting<{ triggers: unknown[] }>("rt.cron", { expand: false }).value?.triggers).toEqual([variable, triageTrigger()]);
+  });
+
   test("rewrites the one board trigger a Mac has", async () => {
     seed([{ name: "board-triage", event: "project-mrs", run: ["/opt/board", "triage"], debounceMs: 5000 }]);
     expect((await boardCronByToolMigration.run(ctx())).state).toBe("done");

@@ -56,7 +56,7 @@ type CronConfigValue = { triggers?: CronTrigger[] };
 // Unlike rt.repoTracking (which loadRepoTracking() folds with a SEPARATE
 // team-declared key), there is no second source rt.cron could be merging in.
 function readTriggers(getter: typeof getSetting): CronTrigger[] {
-  return getter<CronConfigValue>("rt.cron").value?.triggers ?? [];
+  return getter<CronConfigValue>("rt.cron", { expand: false }).value?.triggers ?? [];
 }
 
 /** Replaces any existing trigger of the same name and writes the whole list back to the machine store. */
