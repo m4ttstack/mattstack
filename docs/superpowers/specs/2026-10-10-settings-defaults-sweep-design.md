@@ -103,7 +103,7 @@ place renamed `<name>.imported` so nothing is lost. What it imports:
 
 | Legacy source | Key | Scope |
 |---|---|---|
-| `~/.mattstack/rt/repos/<repo>/hooks.json` | `rt.hooks` for that repo | machine.repo |
+| `~/.mattstack/rt/repos/<repo>/hooks.json` | `rt.hooks` for that repo | user.repo |
 | `~/.mattstack/user/skills/preferences.md` `writing-style:` line | `skills.writingStyle` | user |
 | `~/.mattstack/rt/sdm/enrichment.jsonc` | `sdm.resources` | **org** (not a migration's to write: see below) |
 | `<dataDir>/branch-naming.json` (VS Code) | `rt.branchNaming` | **org.repo** (same) |
@@ -138,6 +138,8 @@ admin would run if a file turns up. No import for them.
   design. `access.json` is no longer written.
 - **rt**: the `rt.hooks` legacy branch in `commands/hooks.ts` (the derived
   `hooks.json` the git hook scripts read stays, regenerated from the store),
+  and `rt hooks on/off` writes user scope instead of machine
+  (`HOOKS_WRITE_SCOPE`), so a repo's hook choices follow you to every Mac,
   the `sdm.resources` / `rt.sdmEnrichment` file fallback in
   `lib/sdm/enrichment.ts`, the `skills.writingStyle` `preferences.md` read in
   `lib/skills/writing-style.ts`, and the VS Code extension's
@@ -157,7 +159,7 @@ state keys on `unwritten("skills.writingStyle")` instead of the resolver's
   composite opens its JSON in a popover, shipped in d2d682ea8) or, with no
   default, the `defaultNote` in muted text in place of `not set`.
 - **Scope blocks.** `subheadOf` (`view.ts`) files a key whose value comes
-  from `default`, or from nothing, in a new neutral block at the end of the
+  from `default`, or from nothing, in a new "Not set" block at the end of the
   section, with no scope badge. A scope block then holds only keys that
   layer sets. The scope filter still finds an unset key under the scopes it
   allows, as today.
@@ -215,12 +217,6 @@ One PR per area, each green on its own, in this order:
 Deck and gitq bundle rt-client, so the new defaults reach those binaries at
 the next release; the in-tree apps pick them up on the next install or turbo
 build.
-
-## Open questions for review
-
-- The neutral console block's heading. Proposed: "Not set".
-- `rt.hooks` import scope: machine.repo (proposed, since `hooks.json` was
-  per-Mac) or user.repo (follows you to every Mac).
 
 ## Appendix: every key without a default today
 
