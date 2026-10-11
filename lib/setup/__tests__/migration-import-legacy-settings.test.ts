@@ -58,8 +58,8 @@ describe("2026-10-10-import-legacy-settings", () => {
   }
   const PREFS = "## Writing style\n\nwriting-style: `mattstack:writing-style-sparse`\n\n## Other\nkeep me\n";
 
-  test("is the last migration", () => {
-    expect(MIGRATIONS.at(-1)).toBe(importLegacySettingsMigration);
+  test("runs after the board cron migration", () => {
+    expect(MIGRATIONS.indexOf(importLegacySettingsMigration)).toBeGreaterThan(MIGRATIONS.findIndex((m) => m.id === "2026-10-10-board-cron-by-tool"));
     expect(importLegacySettingsMigration.id).toBe("2026-10-10-import-legacy-settings");
   });
 
