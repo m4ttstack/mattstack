@@ -174,7 +174,7 @@ describe("linear validate", () => {
       fetch: async () => ({ status: 200, body: JSON.stringify({ data: { viewer: { id: "u1" }, teams: { nodes: [{ key: "ENG" }] } } }), headers: {} }),
     });
 
-    const result = await INTEGRATIONS.linear.validate(p, "lin_api_x", { host: null, team: { slug: "acme", remote: null }, linearTeamKey: "CV" });
+    const result = await INTEGRATIONS.linear.validate(p, "lin_api_x", { host: null, team: { slug: "acme", remote: null }, linearTeamKey: "ACME" });
     expect(result.status).toBe("invalid");
   });
 
@@ -190,10 +190,10 @@ describe("linear validate", () => {
 
   test("declared teamKey found among viewer's teams → ready", async () => {
     const p = fakeProbes({
-      fetch: async () => ({ status: 200, body: JSON.stringify({ data: { viewer: { id: "u1" }, teams: { nodes: [{ key: "CV" }] } } }), headers: {} }),
+      fetch: async () => ({ status: 200, body: JSON.stringify({ data: { viewer: { id: "u1" }, teams: { nodes: [{ key: "ACME" }] } } }), headers: {} }),
     });
 
-    const result = await INTEGRATIONS.linear.validate(p, "lin_api_x", { host: null, team: { slug: "acme", remote: null }, linearTeamKey: "CV" });
+    const result = await INTEGRATIONS.linear.validate(p, "lin_api_x", { host: null, team: { slug: "acme", remote: null }, linearTeamKey: "ACME" });
     expect(result.status).toBe("ready");
   });
 

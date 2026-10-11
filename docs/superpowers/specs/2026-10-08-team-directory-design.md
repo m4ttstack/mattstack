@@ -53,7 +53,7 @@ A new registry key, `mattstack.directory`:
 "mattstack.directory": {
   "teams": {
     "acme": {
-      "linear": { "team": "CV" },
+      "linear": { "team": "ACME" },
       "slack": {
         "codeOwnersChannel": "pod-acme",
         "channels": [

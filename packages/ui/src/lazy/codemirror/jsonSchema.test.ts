@@ -80,7 +80,7 @@ const DIRECTORY = {
             properties: {
               team: {
                 title: 'Linear team key',
-                description: "The team's own Linear key, e.g. CV.",
+                description: "The team's own Linear key, e.g. ACME.",
                 type: 'string',
               },
             },
@@ -390,10 +390,10 @@ describe('jsonSchemaHint', () => {
 
   it('reaches a property inside a record entry', () => {
     expect(
-      hint('{"teams": {"acme": {"linear": {"t|eam": "CV"}}}}')
+      hint('{"teams": {"acme": {"linear": {"t|eam": "ACME"}}}}')
     ).toMatchObject({
       title: 'Linear team key',
-      description: "The team's own Linear key, e.g. CV.",
+      description: "The team's own Linear key, e.g. ACME.",
     });
   });
 

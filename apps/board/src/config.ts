@@ -184,7 +184,7 @@ export interface BoardConfig {
   gateGraceMinutes: number;
   /**
    * If non-empty, only show MRs whose Linear ticket key starts with one of
-   * these prefixes (e.g. ["CV"] to show only CV-#### tickets). Case-insensitive.
+   * these prefixes (e.g. ["ACME"] to show only ACME-#### tickets). Case-insensitive.
    * MRs with no detectable ticket key are hidden when this is set. Empty = show all.
    */
   ticketPrefixes: string[];

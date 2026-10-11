@@ -61,15 +61,15 @@ describe("readTeamSnapshot — injected read seam", () => {
   test("the Linear key comes from the active team's directory entry", () => {
     const read = fakeReader({
       "mattstack.integrations": { forge: { host: "gitlab.example.com", provider: "gitlab" } },
-      "mattstack.directory": { teams: { claim: { linear: { team: "CV" } } } },
+      "mattstack.directory": { teams: { widgets: { linear: { team: "ACME" } } } },
     });
-    const snapshot = readTeamSnapshot(fakeProbes({ home: "/fake-home" }), "acme", { read, team: "claim" });
-    expect(snapshot.integrations.linear).toEqual({ teamKey: "CV" });
+    const snapshot = readTeamSnapshot(fakeProbes({ home: "/fake-home" }), "acme", { read, team: "widgets" });
+    expect(snapshot.integrations.linear).toEqual({ teamKey: "ACME" });
   });
 
   test("a stray integrations teamKey is ignored", () => {
     const read = fakeReader({ "mattstack.integrations": { linear: { teamKey: "OLD" } } });
-    const snapshot = readTeamSnapshot(fakeProbes({ home: "/fake-home" }), "acme", { read, team: "claim" });
+    const snapshot = readTeamSnapshot(fakeProbes({ home: "/fake-home" }), "acme", { read, team: "widgets" });
     expect(snapshot.integrations.linear).toBeUndefined();
   });
 

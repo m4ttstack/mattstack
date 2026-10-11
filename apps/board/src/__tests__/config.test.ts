@@ -43,11 +43,11 @@ describe('parseConfig', () => {
 
   test('ticketPrefixes are uppercased and trimmed; rejects non-string entries', () => {
     expect(
-      parseConfig(JSON.stringify({ ...base, ticketPrefixes: ['cv', ' int '] }))
+      parseConfig(JSON.stringify({ ...base, ticketPrefixes: ['acme', ' int '] }))
         .ticketPrefixes
-    ).toEqual(['CV', 'INT']);
+    ).toEqual(['ACME', 'INT']);
     expect(() =>
-      parseConfig(JSON.stringify({ ...base, ticketPrefixes: 'CV' }))
+      parseConfig(JSON.stringify({ ...base, ticketPrefixes: 'ACME' }))
     ).toThrow(/ticketPrefixes/);
     expect(() =>
       parseConfig(JSON.stringify({ ...base, ticketPrefixes: [''] }))

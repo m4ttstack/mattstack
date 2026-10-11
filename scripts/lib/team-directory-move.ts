@@ -117,7 +117,7 @@ function removedKeys(write: Write): string {
   }
 }
 
-/** One added entry's fields, e.g. `linear CLAIM, review #pod-claim-internal, code owners #pod-claim`. */
+/** One added entry's fields, e.g. `linear ACME, review #widgets-internal, code owners #widgets-review`. */
 function entryFields(entry: DirectoryTeam): string {
   const fields = [
     ...(entry.linear?.team ? [`linear ${entry.linear.team}`] : []),

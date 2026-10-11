@@ -11,7 +11,7 @@ vi.mock('@mattstack/rt-client', () => ({
       return { value: { editors: {}, defaultEditor: 'zed' }, provenance: [] };
     if (key === 'mattstack.integrations')
       return {
-        value: { linear: { teamKey: 'CV', workspace: 'acme' } },
+        value: { linear: { teamKey: 'ACME', workspace: 'acme' } },
         provenance: [],
       };
     throw new Error(`unexpected setting key in test: ${key}`);
