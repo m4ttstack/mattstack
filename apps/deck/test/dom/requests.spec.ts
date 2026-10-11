@@ -243,25 +243,13 @@ async function driveEditSave(page: Page): Promise<void> {
   await waitFor(sawRequest('PATCH /api/v1/apps/:app'));
 }
 
-async function driveSourceUnlink(page: Page): Promise<void> {
-  const dlg = await openSettings(page, 'atlas');
-  await modalBlock(dlg, 'code')
-    .getByRole('button', { name: 'unlink', exact: true })
-    .click();
-  await page
-    .getByRole('dialog', { name: 'unlink atlas?', exact: true })
-    .getByRole('button', { name: 'unlink', exact: true })
-    .click();
-  await waitFor(sawRequest('PATCH /api/v1/apps/:app'));
-}
-
 async function driveRemove(page: Page): Promise<void> {
-  const dlg = await openSettings(page, 'atlas');
+  const dlg = await openSettings(page, 'orbit');
   await modalBlock(dlg, 'danger')
     .getByRole('button', { name: 'Remove app…', exact: true })
     .click();
   await page
-    .getByRole('dialog', { name: 'remove atlas?', exact: true })
+    .getByRole('dialog', { name: 'remove orbit?', exact: true })
     .getByRole('button', { name: 'remove app', exact: true })
     .click();
   await waitFor(sawRequest('DELETE /api/v1/apps/:app'));
@@ -304,7 +292,6 @@ test('the board page calls exactly the pinned set of /api/ requests', async () =
     await flow(drivePasswordRemove, page);
     await flow(driveGoogleSignInWho, page);
     await flow(driveEditSave, page);
-    await flow(driveSourceUnlink, page);
     await flow(driveRemove, page);
   });
   await withBoard(

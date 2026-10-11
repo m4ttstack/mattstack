@@ -31,7 +31,6 @@ import {
   settingsBlocks,
   settingsFormFor,
   showDevLinkPrompt,
-  showUnlinkButton,
   showVersionColumn,
   statusPill,
   subline,
@@ -168,18 +167,6 @@ test("showDevLinkPrompt: shown for unlinked/broken rows when canManage is true, 
   expect(
     showDevLinkPrompt(makeRow({ devLink: 'unlinked', self: true }), true)
   ).toBe(false);
-});
-
-test('showUnlinkButton: hidden on a public board (canManage false) even for a linked row', () => {
-  expect(showUnlinkButton(makeRow({ devLink: 'linked' }), false)).toBe(false);
-});
-
-test("showUnlinkButton: shown for a linked row when canManage is true, never for the platform's own row", () => {
-  expect(showUnlinkButton(makeRow({ devLink: 'linked' }), true)).toBe(true);
-  expect(
-    showUnlinkButton(makeRow({ devLink: 'linked', self: true }), true)
-  ).toBe(false);
-  expect(showUnlinkButton(makeRow({ devLink: 'unlinked' }), true)).toBe(false);
 });
 
 test('isPlatform: user-managed and undefined are not platform', () => {
@@ -780,8 +767,15 @@ test('settingsBlocks app: errors always, reach needs canManage and on, gates can
   );
 });
 
-test('settingsBlocks app: remove needs canManage and not self (RootScreen.tsx:371)', () => {
-  expect(settingsBlocks(baseRow(), baseData()).remove).toBe(true);
+test('settingsBlocks app: remove is only for a user app, with canManage', () => {
+  const user = baseRow({ managedBy: 'user' });
+  expect(settingsBlocks(user, baseData()).remove).toBe(true);
+  expect(settingsBlocks(user, baseData({ canManage: false })).remove).toBe(
+    false
+  );
+  expect(settingsBlocks(baseRow({ managedBy: 'rt' }), baseData()).remove).toBe(
+    false
+  );
   expect(settingsBlocks(baseRow({ self: true }), baseData()).remove).toBe(
     false
   );
@@ -842,7 +836,6 @@ test('settingsBlocks over the status fixture rows', () => {
     code: true,
     relink: true,
     portInput: true,
-    remove: true,
   };
   expect(by('atlas')).toEqual(managed);
   expect(by('forecast')).toEqual(app);

@@ -1,5 +1,3 @@
-import { useState } from 'react';
-
 import { Button, Icon } from '@mattstack/tui-kit';
 import { CommandButton } from '../CommandButton.tsx';
 import { GIT_BRANCH, RADIO, STOP } from '../icons.ts';
@@ -15,8 +13,6 @@ import { Help } from './Help.tsx';
 import { SourceLinkInput } from './SourceLinkInput.tsx';
 
 const DEPLOYED_TIP = 'Running commit, then the newest one';
-const RELINK_TIP = 'Use a different checkout';
-const UNLINK_TIP = 'Serve the installed bundle instead';
 
 const COMMAND_ORDER = ['deploy', 'build'];
 
@@ -82,10 +78,9 @@ function Deployed({ row }: { row: Row }) {
 }
 
 /** A managed row's linked checkout: where it serves from, what is deployed,
-    the manifest's commands, and relink or unlink. Commands follow the
-    table's own gates; relink and unlink need canManage. */
+    and the manifest's commands. Commands follow the table's own gates;
+    linking an unlinked checkout needs canManage. */
 export function CodeBlock({ row, data, board, blocks }: BlockProps) {
-  const [relinking, setRelinking] = useState(false);
   if (!blocks.code) return null;
   if (row.live) {
     return (
@@ -159,7 +154,7 @@ export function CodeBlock({ row, data, board, blocks }: BlockProps) {
         </dd>
         <Deployed row={row} />
       </dl>
-      {(commands.length > 0 || (canLink && linked)) && (
+      {commands.length > 0 && (
         <div className="settings-actions">
           {commands.map(name => (
             <CommandButton
@@ -171,37 +166,7 @@ export function CodeBlock({ row, data, board, blocks }: BlockProps) {
               labeled
             />
           ))}
-          {canLink && linked && (
-            <span className="settings-actions-end">
-              <Tooltip tip={RELINK_TIP}>
-                <Button
-                  variant="subtle"
-                  aria-expanded={relinking}
-                  onClick={() => setRelinking(v => !v)}
-                >
-                  relink
-                </Button>
-              </Tooltip>
-              <Tooltip tip={UNLINK_TIP}>
-                <Button
-                  variant="subtle"
-                  intent="bad"
-                  onClick={() => board.onUnlink(row)}
-                >
-                  unlink
-                </Button>
-              </Tooltip>
-            </span>
-          )}
         </div>
-      )}
-      {canLink && linked && relinking && (
-        <SourceLinkInput
-          row={row}
-          board={board}
-          done={() => setRelinking(false)}
-          autoFocus
-        />
       )}
     </section>
   );

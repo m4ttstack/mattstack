@@ -371,7 +371,9 @@ body {
 }
 
 /* The gear stays in the tab order and, on a pointer that can hover, only
-   shows while its row is hovered or holds focus. A touch screen cannot
+   shows while its row is hovered or holds keyboard focus: a closing modal
+   hands focus back to the gear, which must not pin it after a click. A
+   touch screen cannot
    hover, so there it always shows. The transition list repeats the kit
    Button's own, which this rule would otherwise replace. */
 .row-gear {
@@ -393,7 +395,7 @@ body {
     opacity: 1;
   }
 }
-.apps-grid [data-part='table-row']:focus-within .row-gear {
+.apps-grid [data-part='table-row']:has(:focus-visible) .row-gear {
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {

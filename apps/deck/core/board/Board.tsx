@@ -5,7 +5,7 @@ import { AppsTable } from './AppsTable.tsx';
 import { GoLiveModal } from './live/GoLiveModal.tsx';
 import { SetupFailedModal } from './live/SetupFailedModal.tsx';
 import { sublineHealthy, type Row } from './logic.ts';
-import { AddAppModal, RemoveConfirm, UnlinkConfirm } from './modals.tsx';
+import { AddAppModal, RemoveConfirm } from './modals.tsx';
 import { AppSettingsModal } from './settings/AppSettingsModal.tsx';
 import { SettingsModal } from './SettingsModal.tsx';
 import { Tooltip } from './Tooltip.tsx';
@@ -242,7 +242,6 @@ export function Board() {
       <AddAppModal board={board} />
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       <RemoveConfirm board={board} />
-      <UnlinkConfirm board={board} />
       <GoLiveModal live={board.live} />
       <SetupFailedModal
         live={board.live}

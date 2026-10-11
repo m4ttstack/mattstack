@@ -172,11 +172,6 @@ export function showDevLinkPrompt(row: Row, canManage: boolean): boolean {
   );
 }
 
-/** Unlink: same canManage gate as showDevLinkPrompt, for a row already linked. */
-export function showUnlinkButton(row: Row, canManage: boolean): boolean {
-  return canManage && !row.self && row.devLink === 'linked';
-}
-
 export function tunnelDomain(data: StatusData): string {
   return data.suffix === 'localhost' ? '' : data.suffix;
 }
@@ -582,7 +577,7 @@ export function settingsBlocks(row: Row, data: StatusData): SettingsBlocks {
     errors: true,
     reach: m && on,
     gates: m,
-    remove: m && !row.self,
+    remove: m && !managed,
     restart: on && canRestart,
     giveRoute: false,
   };

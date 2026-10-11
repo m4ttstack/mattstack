@@ -241,20 +241,12 @@ test('a row vanishing while its modal is open closes the modal and focus lands o
 // Header, status pill, forms by kind
 // ---------------------------------------------------------------------------
 
-test('forms per row kind: an app gets every block, a service and the tunnel get the reduced forms', async () => {
+test('forms per row kind: a managed app gets every block but remove, a service and the tunnel get the reduced forms', async () => {
   await withBoard(async page => {
     let dlg = await openSettings(page, 'atlas');
-    for (const id of [
-      'status',
-      'code',
-      'port',
-      'errors',
-      'reach',
-      'gates',
-      'danger',
-    ])
+    for (const id of ['status', 'code', 'port', 'errors', 'reach', 'gates'])
       expect(await block(dlg, id).count()).toBe(1);
-    for (const id of ['app', 'tunnel', 'service'])
+    for (const id of ['app', 'tunnel', 'service', 'danger'])
       expect(await block(dlg, id).count()).toBe(0);
     await closeSettings(page, 'atlas');
 
@@ -1023,111 +1015,15 @@ test("app: reopening after close starts from the row's values, not the discarded
 // Code block (managed rows; atlas is linked, ledger unlinked)
 // ---------------------------------------------------------------------------
 
-test('code: source path, command buttons, relink, and unlink PATCHes dev:null after its confirm', async () => {
+test('code: source path and command buttons, with no relink or unlink', async () => {
   await withBoard(async page => {
-    let patchBody: unknown = null;
-    await page.route('**/api/v1/apps/atlas', async route => {
-      if (route.request().method() !== 'PATCH') {
-        await route.continue();
-        return;
-      }
-      patchBody = route.request().postDataJSON();
-      await route.fulfill(ok);
-    });
-
     const dlg = await openSettings(page, 'atlas');
     const code = block(dlg, 'code');
     expect(await code.textContent()).toContain('Documents/GitHub/atlas');
     expect(await button(code, 'build atlas').count()).toBe(1);
     expect(await button(code, 'deploy atlas').count()).toBe(1);
-    expect(await button(code, 'relink').count()).toBe(1);
-
-    await button(code, 'unlink').click();
-    const confirm = page.getByRole('dialog', {
-      name: 'unlink atlas?',
-      exact: true,
-    });
-    await confirm.waitFor({ state: 'visible' });
-    await button(confirm, 'unlink').click();
-    await waitUntil(async () => patchBody !== null);
-    expect(patchBody).toEqual({ dev: null });
-  });
-});
-
-test('code: relink opens the path input and Enter PATCHes the new checkout', async () => {
-  await withBoard(async page => {
-    let patchBody: unknown = null;
-    await page.route('**/api/v1/apps/atlas', async route => {
-      if (route.request().method() !== 'PATCH') {
-        await route.continue();
-        return;
-      }
-      patchBody = route.request().postDataJSON();
-      await route.fulfill(ok);
-    });
-
-    const dlg = await openSettings(page, 'atlas');
-    const code = block(dlg, 'code');
-    await button(code, 'relink').click();
-    const input = code.getByRole('textbox', { name: 'source path for atlas' });
-    await input.fill('/Users/matt/src/atlas-two');
-    await input.press('Enter');
-
-    await waitUntil(async () => patchBody !== null);
-    expect(patchBody).toEqual({
-      dev: { workingDirectory: '/Users/matt/src/atlas-two' },
-    });
-  });
-});
-
-test("code: a refused relink shows the server's error inline and keeps the input", async () => {
-  await withBoard(async page => {
-    await page.route('**/api/v1/apps/atlas', async route => {
-      if (route.request().method() !== 'PATCH') {
-        await route.continue();
-        return;
-      }
-      await route.fulfill({
-        status: 400,
-        contentType: 'application/json',
-        body: JSON.stringify({ message: 'no mattstack.deck.json in /nope' }),
-      });
-    });
-
-    const dlg = await openSettings(page, 'atlas');
-    const code = block(dlg, 'code');
-    await button(code, 'relink').click();
-    const input = code.getByRole('textbox', { name: 'source path for atlas' });
-    await input.fill('/nope');
-    await input.press('Enter');
-
-    await waitUntil(async () =>
-      ((await code.textContent()) ?? '').includes(
-        'no mattstack.deck.json in /nope'
-      )
-    );
-    expect(await input.count()).toBe(1);
-    await waitUntil(
-      async () => (await activeLabel(page)) === 'source path for atlas'
-    );
-  });
-});
-
-test('code: Escape in an empty relink input closes only the input, not the modal', async () => {
-  await withBoard(async page => {
-    const dlg = await openSettings(page, 'atlas');
-    const code = block(dlg, 'code');
-    const relink = button(code, 'relink');
-    await relink.click();
-    const input = code.getByRole('textbox', { name: 'source path for atlas' });
-    await input.waitFor({ state: 'visible' });
-    expect(await input.inputValue()).toBe('');
-
-    await input.press('Escape');
-    await input.waitFor({ state: 'detached', timeout: 2000 });
-    await new Promise(r => setTimeout(r, 200));
-    expect(await settingsFor(page, 'atlas').isVisible()).toBe(true);
-    expect(await relink.getAttribute('aria-expanded')).toBe('false');
+    expect(await button(code, 'relink').count()).toBe(0);
+    expect(await button(code, 'unlink').count()).toBe(0);
   });
 });
 
@@ -1297,10 +1193,10 @@ async function boardAlert(page: Page, text: string): Promise<string | null> {
 
 test("remove: Remove app… opens the confirm with today's blast-radius copy, stacked over the modal", async () => {
   await withBoard(async page => {
-    const dlg = await openSettings(page, 'atlas');
+    const dlg = await openSettings(page, 'orbit');
     await button(block(dlg, 'danger'), 'Remove app…').click();
 
-    const confirm = removeConfirm(page, 'atlas');
+    const confirm = removeConfirm(page, 'orbit');
     await confirm.waitFor({ state: 'visible' });
     expect(
       await confirm.locator('[data-part="confirmdialog-body"]').textContent()
@@ -1314,15 +1210,15 @@ test("remove: Remove app… opens the confirm with today's blast-radius copy, st
 test('remove: cancel closes the confirm without deleting; the modal stays open', async () => {
   await withBoard(async page => {
     let deleteCalled = false;
-    await page.route('**/api/v1/apps/atlas', async route => {
+    await page.route('**/api/v1/apps/orbit', async route => {
       if (route.request().method() === 'DELETE') deleteCalled = true;
       await route.continue();
     });
 
-    const dlg = await openSettings(page, 'atlas');
+    const dlg = await openSettings(page, 'orbit');
     await button(block(dlg, 'danger'), 'Remove app…').click();
-    await button(removeConfirm(page, 'atlas'), 'cancel').click();
-    await removeConfirm(page, 'atlas').waitFor({ state: 'detached' });
+    await button(removeConfirm(page, 'orbit'), 'cancel').click();
+    await removeConfirm(page, 'orbit').waitFor({ state: 'detached' });
 
     expect(deleteCalled).toBe(false);
     expect(await dlg.isVisible()).toBe(true);
@@ -1331,12 +1227,12 @@ test('remove: cancel closes the confirm without deleting; the modal stays open',
 
 test('remove: Esc closes the confirm first and leaves the modal open', async () => {
   await withBoard(async page => {
-    const dlg = await openSettings(page, 'atlas');
+    const dlg = await openSettings(page, 'orbit');
     await button(block(dlg, 'danger'), 'Remove app…').click();
-    await removeConfirm(page, 'atlas').waitFor({ state: 'visible' });
+    await removeConfirm(page, 'orbit').waitFor({ state: 'visible' });
 
     await page.keyboard.press('Escape');
-    await removeConfirm(page, 'atlas').waitFor({ state: 'detached' });
+    await removeConfirm(page, 'orbit').waitFor({ state: 'detached' });
     expect(await dlg.isVisible()).toBe(true);
   });
 });
@@ -1344,7 +1240,7 @@ test('remove: Esc closes the confirm first and leaves the modal open', async () 
 test('remove: confirm DELETEs the app and closes the modal', async () => {
   await withBoard(async page => {
     let deleteCalled = false;
-    await page.route('**/api/v1/apps/atlas', async route => {
+    await page.route('**/api/v1/apps/orbit', async route => {
       if (route.request().method() !== 'DELETE') {
         await route.continue();
         return;
@@ -1359,7 +1255,7 @@ test('remove: confirm DELETEs the app and closes the modal', async () => {
         return;
       }
       const next = structuredClone(fixture) as typeof fixture;
-      next.apps = next.apps.filter(a => a.name !== 'atlas');
+      next.apps = next.apps.filter(a => a.name !== 'orbit');
       next.total -= 1;
       await route.fulfill({
         status: 200,
@@ -1368,18 +1264,25 @@ test('remove: confirm DELETEs the app and closes the modal', async () => {
       });
     });
 
-    const dlg = await openSettings(page, 'atlas');
+    const dlg = await openSettings(page, 'orbit');
     await button(block(dlg, 'danger'), 'Remove app…').click();
     removed = true;
-    await button(removeConfirm(page, 'atlas'), 'remove app').click();
+    await button(removeConfirm(page, 'orbit'), 'remove app').click();
 
     await waitUntil(async () => deleteCalled);
-    await settingsFor(page, 'atlas').waitFor({
+    await settingsFor(page, 'orbit').waitFor({
       state: 'detached',
       timeout: 8000,
     });
   });
 }, 15000);
+
+test('remove: a managed app offers no Remove app…', async () => {
+  await withBoard(async page => {
+    const dlg = await openSettings(page, 'atlas');
+    expect(await block(dlg, 'danger').count()).toBe(0);
+  });
+});
 
 test("remove: deck's own row offers no Remove app…", async () => {
   await withBoard(async page => {
@@ -1390,7 +1293,7 @@ test("remove: deck's own row offers no Remove app…", async () => {
 
 test('remove: a 200 whose body says ok:false shows the error on the board', async () => {
   await withBoard(async page => {
-    await page.route('**/api/v1/apps/atlas', async route => {
+    await page.route('**/api/v1/apps/orbit', async route => {
       if (route.request().method() !== 'DELETE') {
         await route.continue();
         return;
@@ -1405,17 +1308,17 @@ test('remove: a 200 whose body says ok:false shows the error on the board', asyn
       });
     });
 
-    await confirmRemove(page, 'atlas');
+    await confirmRemove(page, 'orbit');
 
-    expect(await boardAlert(page, 'removing atlas failed')).toContain(
-      'removing atlas failed: Error: EACCES: permission denied'
+    expect(await boardAlert(page, 'removing orbit failed')).toContain(
+      'removing orbit failed: Error: EACCES: permission denied'
     );
   });
 }, 12000);
 
 test('remove: a request that never answers shows an error on the board', async () => {
   await withBoard(async page => {
-    await page.route('**/api/v1/apps/atlas', async route => {
+    await page.route('**/api/v1/apps/orbit', async route => {
       if (route.request().method() !== 'DELETE') {
         await route.continue();
         return;
@@ -1423,23 +1326,23 @@ test('remove: a request that never answers shows an error on the board', async (
       await route.abort('connectionrefused');
     });
 
-    await confirmRemove(page, 'atlas');
+    await confirmRemove(page, 'orbit');
 
-    expect(await boardAlert(page, 'removing atlas failed')).toContain(
-      'removing atlas failed, the board did not answer.'
+    expect(await boardAlert(page, 'removing orbit failed')).toContain(
+      'removing orbit failed, the board did not answer.'
     );
   });
 }, 12000);
 
 test('remove: arrow keys never retarget the modal or the confirm', async () => {
   await withBoard(async page => {
-    const dlg = await openSettings(page, 'atlas');
+    const dlg = await openSettings(page, 'orbit');
     await page.keyboard.press('ArrowDown');
     expect(await dlg.isVisible()).toBe(true);
     expect(await settingsFor(page, 'forecast').count()).toBe(0);
 
     await button(block(dlg, 'danger'), 'Remove app…').click();
-    const confirm = removeConfirm(page, 'atlas');
+    const confirm = removeConfirm(page, 'orbit');
     await confirm.waitFor({ state: 'visible' });
     await page.keyboard.press('ArrowDown');
 
