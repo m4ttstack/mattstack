@@ -9,8 +9,9 @@ import {
 import { dirname, join } from 'path';
 import { isDeepStrictEqual } from 'util';
 
-import { getSetting, setSetting } from '@mattstack/rt-client';
+import { explainSetting, getSetting, setSetting } from '@mattstack/rt-client';
 import { stateDir } from '../src/api/state.ts';
+import { heldEntries, type ExplainFn } from '../src/api/store-import.ts';
 
 export interface PortOverride {
   devPort: number;
@@ -119,12 +120,13 @@ function writeFile(state: SettingsFile): void {
 /**
  * A deck that kept published and publicFollowsOverride in settings.json
  * copies them into deck.apps before its first read, so an app made private
- * never reads as public. A store that already sets deck.apps wins. When the
- * copy fails, the returned fields overlay this boot and the file is left for
- * the next one.
+ * never reads as public. The copy fills only the apps no store sets, and
+ * leaves the file alone when a store holds a value the resolver refused.
+ * When the copy cannot land, the returned fields overlay this boot and the
+ * file is left for the next one.
  */
 export function importFileFields(
-  resolve: GetSettingFn = getSetting,
+  explain: ExplainFn = explainSetting,
   write: SetSettingFn = setSetting
 ): StoreApps {
   const file = readFile();
@@ -137,9 +139,20 @@ export function importFileFields(
     if (Object.keys(picked).length > 0) fields[app] = picked;
   }
   if (Object.keys(fields).length === 0) return {};
+  let missing: StoreApps = fields;
   try {
-    if (resolve(STORE_KEY).provenance.every(p => p.scope === 'default'))
-      write(STORE_KEY, fields, 'user');
+    const stored = heldEntries(STORE_KEY, 'user', explain);
+    if (stored.refused) {
+      console.error(
+        `deck: ${STORE_KEY} holds a value rt refused; using settings.json until it is fixed`
+      );
+      return fields;
+    }
+    missing = Object.fromEntries(
+      Object.entries(fields).filter(([app]) => !stored.held.has(app))
+    );
+    if (Object.keys(missing).length > 0)
+      write(STORE_KEY, { ...stored.own, ...missing }, 'user');
     writeFile(file);
     return {};
   } catch (err) {
@@ -147,31 +160,33 @@ export function importFileFields(
       `deck: could not move app publishing into ${STORE_KEY}; using settings.json until the next start`,
       err
     );
-    return fields;
+    return missing;
   }
 }
 
-function readStore(resolve: GetSettingFn): StoreApps {
+/** Null when the store cannot be read, which makes every app read unpublished. */
+function readStore(resolve: GetSettingFn): StoreApps | null {
   try {
     return resolve<StoreApps>(STORE_KEY).value as StoreApps;
   } catch (err) {
     console.warn(
-      `deck: ${STORE_KEY} unavailable, apps read their defaults`,
+      `deck: ${STORE_KEY} unavailable, every app reads unpublished`,
       err
     );
-    return {};
+    return null;
   }
 }
+
+let storeUnreadable = false;
 
 function load(resolve: GetSettingFn, pending: StoreApps = {}): SettingsFile {
   const file = readFile();
   const apps: Record<string, AppEntry> = {};
   for (const [app, entry] of Object.entries(file.apps))
     apps[app] = fileEntry(entry);
-  for (const [app, fields] of Object.entries({
-    ...readStore(resolve),
-    ...pending,
-  }))
+  const store = readStore(resolve);
+  storeUnreadable = store === null;
+  for (const [app, fields] of Object.entries({ ...store, ...pending }))
     apps[app] = { ...apps[app], ...fields };
   return { ...file, apps };
 }
@@ -179,8 +194,12 @@ function load(resolve: GetSettingFn, pending: StoreApps = {}): SettingsFile {
 let cache: SettingsFile = load(getSetting, importFileFields());
 mintSecretIfMissing();
 
-export function reloadSettings(resolve: GetSettingFn = getSetting): void {
-  cache = load(resolve);
+/** `pending` is what a failed boot import returned, for a reload that stands in for boot. */
+export function reloadSettings(
+  resolve: GetSettingFn = getSetting,
+  pending: StoreApps = {}
+): void {
+  cache = load(resolve, pending);
   mintSecretIfMissing();
 }
 
@@ -256,15 +275,14 @@ function revertedAppsStoreDict(previous: SettingsFile): StoreApps {
  * password hash never reached disk.
  */
 function save(previous: SettingsFile): void {
-  const next = nextAppsStoreDict(previous);
-  const storeChanged = !isDeepStrictEqual(next, currentRawAppsStore());
-  if (storeChanged) {
-    try {
-      setSetting(STORE_KEY, next, 'user');
-    } catch (err) {
-      cache = previous;
-      throw err;
-    }
+  let storeChanged: boolean;
+  try {
+    const next = nextAppsStoreDict(previous);
+    storeChanged = !isDeepStrictEqual(next, currentRawAppsStore());
+    if (storeChanged) setSetting(STORE_KEY, next, 'user');
+  } catch (err) {
+    cache = previous;
+    throw err;
   }
   try {
     writeFile(cache);
@@ -288,7 +306,7 @@ function save(previous: SettingsFile): void {
 export function getAppSettings(app: string): AppSettings {
   const entry = cache.apps[app];
   return {
-    published: entry?.published ?? true,
+    published: storeUnreadable ? false : (entry?.published ?? true),
     passwordHash: entry?.passwordHash,
     passwordVersion: entry?.passwordVersion ?? 0,
     override: entry?.override,

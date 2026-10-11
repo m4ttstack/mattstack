@@ -12,7 +12,7 @@ import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 
-import { getSetting, setSetting } from '@mattstack/rt-client';
+import { explainSetting, getSetting, setSetting } from '@mattstack/rt-client';
 
 // rt-client doesn't export its machine-store path helper; this literal is
 // duplicated from rt-client/src/settings/paths.ts#machineSettingsPath (which
@@ -289,4 +289,62 @@ test('a tlds-only update writes the file and leaves the store alone', () => {
   reloadPlatformSettings();
   updatePlatformSettings({ tlds: ['localhost', 'test'] });
   expect(existsSync(machineStorePath())).toBe(false);
+});
+
+const failing = (() => {
+  throw new Error('store locked');
+}) as typeof setSetting;
+
+test('after a failed copy, a tlds-only update moves the file-only fields into the store instead of stripping them', () => {
+  writeLegacyFile({
+    publicDomain: 'apps.example.com',
+    tunnel: { name: 'n', uuid: 'u' },
+    tlds: ['localhost'],
+    secrets: {},
+  });
+  const pending = importFileFields(explainSetting, failing);
+  reloadPlatformSettings(getSetting, pending);
+  expect(getPlatformSettings().publicDomain).toBe('apps.example.com');
+  updatePlatformSettings({ tlds: ['localhost', 'test'] });
+  reloadPlatformSettings();
+  expect(getPlatformSettings().publicDomain).toBe('apps.example.com');
+  expect(getPlatformSettings().tunnel).toEqual({ name: 'n', uuid: 'u' });
+});
+
+test('the copy fills only the fields no store sets; a stored field keeps its stored value', () => {
+  setSetting('deck.platform', { publicDomain: 'store.example.com' }, 'machine');
+  writeLegacyFile({
+    publicDomain: 'file.example.com',
+    tunnel: { name: 'n', uuid: 'u' },
+  });
+  expect(importFileFields()).toEqual({});
+  const stored = getSetting<{ publicDomain: string; tunnel: unknown }>(
+    'deck.platform'
+  ).value;
+  expect(stored.publicDomain).toBe('store.example.com');
+  expect(stored.tunnel).toEqual({ name: 'n', uuid: 'u' });
+});
+
+test('a deck.platform value the resolver refused is never overwritten; platform.json stays', () => {
+  mkdirSync(dirname(machineStorePath()), { recursive: true });
+  writeFileSync(
+    machineStorePath(),
+    JSON.stringify({ 'deck.platform': 'oops' })
+  );
+  const body = JSON.stringify({ publicDomain: 'apps.example.com' });
+  writeFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!, body);
+  expect(importFileFields()).toEqual({ publicDomain: 'apps.example.com' });
+  expect(
+    JSON.parse(readFileSync(machineStorePath(), 'utf8'))['deck.platform']
+  ).toBe('oops');
+  expect(readFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!, 'utf8')).toBe(
+    body
+  );
+});
+
+test('a platform.json that is not an object reads as empty instead of crashing', () => {
+  writeFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH!, 'null');
+  expect(importFileFields()).toEqual({});
+  reloadPlatformSettings();
+  expect(getPlatformSettings().tlds).toEqual(['localhost']);
 });

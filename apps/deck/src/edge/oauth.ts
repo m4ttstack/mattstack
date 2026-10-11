@@ -5,8 +5,9 @@
 import { readFileSync, renameSync } from 'fs';
 import { join } from 'path';
 
-import { getSetting, setSetting } from '@mattstack/rt-client';
+import { explainSetting, getSetting, setSetting } from '@mattstack/rt-client';
 import { stateDir } from '../api/state.ts';
+import { heldEntries, type ExplainFn } from '../api/store-import.ts';
 
 export type OAuth =
   | { mode: 'off' }
@@ -54,12 +55,13 @@ type SetSettingFn = typeof setSetting;
 /**
  * A deck that kept sign-in rules in access.json copies its valid rules into
  * deck.access before the first read, then renames the file
- * access.json.imported. A store that already sets deck.access wins. When the
- * copy fails, the returned rules overlay this boot and the file is left for
- * the next one.
+ * access.json.imported. The copy fills only the apps no store sets, and
+ * leaves the file alone when a store holds a value the resolver refused.
+ * When the copy cannot land, the returned rules overlay this boot and the
+ * file is left for the next one.
  */
 export function importAccessFile(
-  resolve: GetSettingFn = getSetting,
+  explain: ExplainFn = explainSetting,
   write: SetSettingFn = setSetting
 ): Record<string, OAuth> {
   const path = accessPath();
@@ -74,12 +76,20 @@ export function importAccessFile(
   if (typeof apps === 'object' && apps !== null)
     for (const [app, rule] of Object.entries(apps))
       if (isOAuth(rule)) rules[app] = rule;
+  let missing: Record<string, OAuth> = rules;
   try {
-    if (
-      Object.keys(rules).length > 0 &&
-      resolve(STORE_KEY).provenance.every(p => p.scope === 'default')
-    )
-      write(STORE_KEY, rules, 'user');
+    const stored = heldEntries(STORE_KEY, 'user', explain);
+    if (stored.refused) {
+      console.error(
+        `deck: ${STORE_KEY} holds a value rt refused; using access.json until it is fixed`
+      );
+      return rules;
+    }
+    missing = Object.fromEntries(
+      Object.entries(rules).filter(([app]) => !stored.held.has(app))
+    );
+    if (Object.keys(missing).length > 0)
+      write(STORE_KEY, { ...stored.own, ...missing }, 'user');
     renameSync(path, `${path}.imported`);
     return {};
   } catch (err) {
@@ -87,7 +97,7 @@ export function importAccessFile(
       `deck: could not move sign-in rules into ${STORE_KEY}; using access.json until the next start`,
       err
     );
-    return rules;
+    return missing;
   }
 }
 
@@ -120,24 +130,34 @@ function load(
   return { apps };
 }
 
-let cache: AccessFile = load(getSetting, importAccessFile());
+/** Rules a failed boot import kept from access.json; every store write carries them until one lands. */
+let pendingRules: Record<string, OAuth> = importAccessFile();
+let cache: AccessFile = load(getSetting, pendingRules);
 
-export function reloadOAuth(resolve: GetSettingFn = getSetting): void {
-  cache = load(resolve);
+/** `pending` is what a failed boot import returned, for a reload that stands in for boot. */
+export function reloadOAuth(
+  resolve: GetSettingFn = getSetting,
+  pending: Record<string, OAuth> = {}
+): void {
+  pendingRules = pending;
+  cache = load(resolve, pending);
 }
 
 export function getOAuth(app: string): OAuth {
   return cache.apps[app] ?? { mode: 'off' };
 }
 
+/** Pending rules sit under a fresh read of the store, so an entry another process wrote, or one load skipped as malformed, survives. */
 function currentRawAccessStore(): Record<string, unknown> {
-  return getSetting<Record<string, unknown>>(STORE_KEY).value as Record<
-    string,
-    unknown
-  >;
+  return {
+    ...pendingRules,
+    ...(getSetting<Record<string, unknown>>(STORE_KEY).value as Record<
+      string,
+      unknown
+    >),
+  };
 }
 
-/** Overlays this one app onto a fresh read of the store, so an entry another process wrote, or one load skipped as malformed, survives. */
 export function setOAuth(app: string, rule: OAuth): void {
   const previous = structuredClone(cache);
   cache.apps[app] = rule;
@@ -147,6 +167,7 @@ export function setOAuth(app: string, rule: OAuth): void {
     cache = previous;
     throw err;
   }
+  pendingRules = {};
 }
 
 /**
@@ -160,14 +181,15 @@ export function renameOAuth(oldName: string, newName: string): void {
   const previous = structuredClone(cache);
   delete cache.apps[oldName];
   cache.apps[newName] = rule;
-  const next = { ...currentRawAccessStore(), [newName]: rule };
-  delete next[oldName];
   try {
+    const next = { ...currentRawAccessStore(), [newName]: rule };
+    delete next[oldName];
     setSetting(STORE_KEY, next, 'user');
   } catch (err) {
     cache = previous;
     throw err;
   }
+  pendingRules = {};
 }
 
 export function oauthRequiresCf(rule: OAuth): boolean {

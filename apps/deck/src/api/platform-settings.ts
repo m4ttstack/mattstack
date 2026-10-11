@@ -8,8 +8,14 @@ import {
 import { dirname, join } from 'path';
 import { isDeepStrictEqual } from 'util';
 
-import { getDef, getSetting, setSetting } from '@mattstack/rt-client';
+import {
+  explainSetting,
+  getDef,
+  getSetting,
+  setSetting,
+} from '@mattstack/rt-client';
 import { stateDir } from './state.ts';
+import { heldEntries, type ExplainFn } from './store-import.ts';
 
 export interface TunnelIdentity {
   name: string;
@@ -53,10 +59,14 @@ export function platformSettingsPath(): string {
 
 function readFile(): Record<string, unknown> {
   try {
-    return JSON.parse(readFileSync(platformSettingsPath(), 'utf8')) as Record<
-      string,
-      unknown
-    >;
+    const parsed: unknown = JSON.parse(
+      readFileSync(platformSettingsPath(), 'utf8')
+    );
+    return typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
   } catch {
     return {};
   }
@@ -88,9 +98,9 @@ function storeFieldsOf(values: PlatformSettings): StoreFields {
   };
 }
 
-/** Same one-time copy as core/settings.ts's importFileFields, for the four store fields. */
+/** Same one-time copy as core/settings.ts's importFileFields, per field instead of per app. */
 export function importFileFields(
-  resolve: GetSettingFn = getSetting,
+  explain: ExplainFn = explainSetting,
   write: SetSettingFn = setSetting
 ): Partial<StoreFields> {
   const file = readFile();
@@ -98,9 +108,20 @@ export function importFileFields(
     STORE_FIELDS.filter(f => file[f] !== undefined).map(f => [f, file[f]])
   ) as Partial<StoreFields>;
   if (Object.keys(fields).length === 0) return {};
+  let missing: Partial<StoreFields> = fields;
   try {
-    if (resolve(STORE_KEY).provenance.every(p => p.scope === 'default'))
-      write(STORE_KEY, fields, 'machine');
+    const stored = heldEntries(STORE_KEY, 'machine', explain);
+    if (stored.refused) {
+      console.error(
+        `deck: ${STORE_KEY} holds a value rt refused; using platform.json until it is fixed`
+      );
+      return fields;
+    }
+    missing = Object.fromEntries(
+      Object.entries(fields).filter(([f]) => !stored.held.has(f))
+    ) as Partial<StoreFields>;
+    if (Object.keys(missing).length > 0)
+      write(STORE_KEY, { ...stored.own, ...missing }, 'machine');
     writeFile(file);
     return {};
   } catch (err) {
@@ -108,7 +129,7 @@ export function importFileFields(
       `deck: could not move platform settings into ${STORE_KEY}; using platform.json until the next start`,
       err
     );
-    return fields;
+    return missing;
   }
 }
 
@@ -142,18 +163,20 @@ function load(
 
 let cache: PlatformSettings = load(getSetting, importFileFields());
 
+/** `pending` is what a failed boot import returned, for a reload that stands in for boot. */
 export function reloadPlatformSettings(
-  resolve: GetSettingFn = getSetting
+  resolve: GetSettingFn = getSetting,
+  pending: Partial<StoreFields> = {}
 ): void {
-  cache = load(resolve);
+  cache = load(resolve, pending);
 }
 export function getPlatformSettings(): PlatformSettings {
   return cache;
 }
 
 /**
- * The store fields go to deck.platform (only when they changed), the rest to
- * platform.json. Writing replaces deck.platform wholesale from this process's
+ * The store fields go to deck.platform (only when they differ from what the
+ * store holds), the rest to platform.json. Writing replaces deck.platform wholesale from this process's
  * view, as any boot-read config in deck does; a restart picks up an outside
  * edit.
  */
@@ -164,24 +187,24 @@ export function updatePlatformSettings(patch: Partial<PlatformSettings>): void {
     ...patch,
     secrets: { ...cache.secrets, ...(patch.secrets ?? {}) },
   };
-  const storeChanged = !isDeepStrictEqual(
-    storeFieldsOf(cache),
-    storeFieldsOf(previous)
-  );
-  if (storeChanged) {
-    try {
-      setSetting(STORE_KEY, storeFieldsOf(cache), 'machine');
-    } catch (err) {
-      cache = previous;
-      throw err;
-    }
+  let stored: StoreFields;
+  let storeChanged: boolean;
+  try {
+    stored = storeFieldsOf(
+      getSetting<PlatformSettings>(STORE_KEY).value as PlatformSettings
+    );
+    storeChanged = !isDeepStrictEqual(storeFieldsOf(cache), stored);
+    if (storeChanged) setSetting(STORE_KEY, storeFieldsOf(cache), 'machine');
+  } catch (err) {
+    cache = previous;
+    throw err;
   }
   try {
     writeFile(cache as unknown as Record<string, unknown>);
   } catch (err) {
     if (storeChanged) {
       try {
-        setSetting(STORE_KEY, storeFieldsOf(previous), 'machine');
+        setSetting(STORE_KEY, stored, 'machine');
       } catch (revertErr) {
         console.error(
           'platform settings save: failed to revert deck.platform after a file-write failure',

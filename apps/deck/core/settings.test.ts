@@ -13,6 +13,7 @@ import { dirname, join } from 'path';
 import { afterAll, afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 
 import {
+  explainSetting,
   getDef,
   getSetting,
   setSetting,
@@ -26,6 +27,12 @@ import {
 // dependency from here on rt-client's internals, only its public API.
 function userStorePath(): string {
   return join(process.env.HOME!, '.mattstack', 'user', 'settings.user.jsonc');
+}
+
+/** Writes the user store past rt-client's write gate, for a value the resolver refuses or cannot expand. */
+function seedUserStore(key: string, value: unknown): void {
+  mkdirSync(dirname(userStorePath()), { recursive: true });
+  writeFileSync(userStorePath(), JSON.stringify({ [key]: value }));
 }
 
 // Point the module at a throwaway file BEFORE importing it.
@@ -185,7 +192,7 @@ test('passwordHash/passwordVersion/override stay file-local: the store never car
   expect(s.passwordVersion).toBe(3);
 });
 
-test('a resolver throw warns once and keeps the file-only fields', () => {
+test('a resolver throw fails closed: every app reads unpublished, warning once, and the file-only fields stay', () => {
   writeLegacyFile({
     version: 1,
     apps: { nihongo: { passwordHash: 'h', passwordVersion: 3 } },
@@ -195,6 +202,8 @@ test('a resolver throw warns once and keeps the file-only fields', () => {
     throw new Error('rt daemon unreachable');
   };
   reloadSettings(throwingResolver);
+  expect(getAppSettings('nihongo').published).toBe(false);
+  expect(getAppSettings('never-seen').published).toBe(false);
   expect(getAppSettings('nihongo').passwordHash).toBe('h');
   expect(getAppSettings('nihongo').passwordVersion).toBe(3);
   expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -542,19 +551,22 @@ test('a private app in settings.json moves into deck.apps before the first read;
   expect(getAppSettings('widgets').published).toBe(false);
 });
 
-test('a deck.apps a store already sets is kept; the file copy is dropped, not imported', () => {
+test('the copy fills only the apps no store sets; a stored app keeps its stored value', () => {
   setSetting('deck.apps', { widgets: { published: true } }, 'user');
   writeFileSync(
     appsPath(),
-    JSON.stringify({ version: 1, apps: { widgets: { published: false } } })
+    JSON.stringify({
+      version: 1,
+      apps: { widgets: { published: false }, gadgets: { published: false } },
+    })
   );
-  importFileFields();
+  expect(importFileFields()).toEqual({});
   expect(getSetting('deck.apps').value).toEqual({
     widgets: { published: true },
+    gadgets: { published: false },
   });
   expect(JSON.parse(readFileSync(appsPath(), 'utf8')).apps).toEqual({});
 });
-
 test('a failed copy keeps this start on the file values and leaves the file alone', () => {
   const body = JSON.stringify({
     version: 1,
@@ -564,7 +576,7 @@ test('a failed copy keeps this start on the file values and leaves the file alon
   const failing = (() => {
     throw new Error('store locked');
   }) as typeof setSetting;
-  const pending = importFileFields(getSetting, failing);
+  const pending = importFileFields(explainSetting, failing);
   expect(pending).toEqual({ widgets: { published: false } });
   expect(readFileSync(appsPath(), 'utf8')).toBe(body);
 });
@@ -585,4 +597,43 @@ test('minting the secret on a fresh install writes no settings store', () => {
   reloadSettings();
   expect(getSecret()).toMatch(/^[0-9a-f]{64}$/);
   expect(existsSync(userStorePath())).toBe(false);
+});
+
+test('after a failed copy, the boot read keeps a private app private', () => {
+  writeFileSync(
+    appsPath(),
+    JSON.stringify({ version: 1, apps: { widgets: { published: false } } })
+  );
+  const failing = (() => {
+    throw new Error('store locked');
+  }) as typeof setSetting;
+  const pending = importFileFields(explainSetting, failing);
+  reloadSettings(getSetting, pending);
+  expect(getAppSettings('widgets').published).toBe(false);
+});
+
+test('a deck.apps value the resolver refused is never overwritten; the file stays and overlays this boot', () => {
+  seedUserStore('deck.apps', 'oops');
+  const body = JSON.stringify({
+    version: 1,
+    apps: { widgets: { published: false } },
+  });
+  writeFileSync(appsPath(), body);
+  const pending = importFileFields();
+  expect(pending).toEqual({ widgets: { published: false } });
+  expect(JSON.parse(readFileSync(userStorePath(), 'utf8'))['deck.apps']).toBe(
+    'oops'
+  );
+  expect(readFileSync(appsPath(), 'utf8')).toBe(body);
+  reloadSettings(getSetting, pending);
+  expect(getAppSettings('widgets').published).toBe(false);
+});
+
+test('a store read that throws during a save reverts the change instead of half-applying it', () => {
+  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+  seedUserStore('deck.apps', { poison: '${repoRoot}' });
+  reloadSettings();
+  warnSpy.mockRestore();
+  expect(() => setLive('chat', LIVE)).toThrow();
+  expect(getLive('chat')).toBeUndefined();
 });

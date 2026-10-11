@@ -11,7 +11,7 @@ import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
 
-import { getSetting, setSetting } from '@mattstack/rt-client';
+import { explainSetting, getSetting, setSetting } from '@mattstack/rt-client';
 
 // rt-client doesn't export its user-store path helper; this literal is
 // duplicated from rt-client/src/settings/paths.ts#userSettingsPath, same
@@ -287,7 +287,7 @@ test('a failed copy keeps this start on the file rules', () => {
   const failing = (() => {
     throw new Error('store locked');
   }) as typeof setSetting;
-  expect(importAccessFile(getSetting, failing)).toEqual({
+  expect(importAccessFile(explainSetting, failing)).toEqual({
     widgets: { mode: 'domains', domains: ['example.com'] },
   });
   expect(existsSync(accessPath())).toBe(true);
@@ -299,4 +299,73 @@ test('setOAuth writes the store and never access.json', () => {
     widgets: { mode: 'domains', domains: ['example.com'] },
   });
   expect(existsSync(accessPath())).toBe(false);
+});
+
+const failingWrite = (() => {
+  throw new Error('store locked');
+}) as typeof setSetting;
+
+test('the copy fills only the apps no store sets; a stored rule keeps its stored value', () => {
+  setSetting('deck.access', { gadgets: { mode: 'off' } }, 'user');
+  writeFileSync(
+    accessPath(),
+    JSON.stringify({
+      apps: {
+        widgets: { mode: 'emails', emails: ['dev1@example.com'] },
+        gadgets: { mode: 'domains', domains: ['example.com'] },
+      },
+    })
+  );
+  expect(importAccessFile()).toEqual({});
+  expect(getSetting('deck.access').value).toEqual({
+    gadgets: { mode: 'off' },
+    widgets: { mode: 'emails', emails: ['dev1@example.com'] },
+  });
+  expect(existsSync(`${accessPath()}.imported`)).toBe(true);
+});
+
+test('after a failed copy, the boot read keeps the file rule, and a write for another app carries it into the store', () => {
+  writeFileSync(
+    accessPath(),
+    JSON.stringify({
+      apps: { widgets: { mode: 'domains', domains: ['example.com'] } },
+    })
+  );
+  const pending = importAccessFile(explainSetting, failingWrite);
+  reloadOAuth(getSetting, pending);
+  expect(getOAuth('widgets')).toEqual({
+    mode: 'domains',
+    domains: ['example.com'],
+  });
+  setOAuth('gadgets', { mode: 'off' });
+  expect(getSetting('deck.access').value).toEqual({
+    widgets: { mode: 'domains', domains: ['example.com'] },
+    gadgets: { mode: 'off' },
+  });
+});
+
+test('a deck.access value the resolver refused is never overwritten; access.json stays', () => {
+  seedUserStore('deck.access', 'oops');
+  writeFileSync(
+    accessPath(),
+    JSON.stringify({
+      apps: { widgets: { mode: 'domains', domains: ['example.com'] } },
+    })
+  );
+  expect(importAccessFile()).toEqual({
+    widgets: { mode: 'domains', domains: ['example.com'] },
+  });
+  expect(JSON.parse(readFileSync(userStorePath(), 'utf8'))['deck.access']).toBe(
+    'oops'
+  );
+  expect(existsSync(accessPath())).toBe(true);
+});
+
+test('a store read that throws during renameOAuth reverts the rename', () => {
+  seedUserStore('deck.access', { poison: '${repoRoot}' });
+  const rule = { mode: 'domains' as const, domains: ['example.com'] };
+  reloadOAuth(() => ({ value: {}, provenance: [] }) as never, { mrs: rule });
+  expect(() => renameOAuth('mrs', 'board')).toThrow();
+  expect(getOAuth('mrs')).toEqual(rule);
+  expect(getOAuth('board')).toEqual({ mode: 'off' });
 });
