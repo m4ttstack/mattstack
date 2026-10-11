@@ -772,8 +772,7 @@ board registration and `rt team status --json` reports `peered` per member.
 The board's own roster only shows a read-only peered badge; it no longer
 invites, removes or joins.
 The `account.board-peering` row applies on a Mac in a team (created or
-joined) that runs a board (the team's `board.projects`, or the board's
-legacy `config.json`, tracks projects). It never shows on a Just Me Mac,
+joined) that runs a board (the team's `board.projects` tracks projects). It never shows on a Just Me Mac,
 nor on a creator's Mac that lacks the switchboard admin token (in rt's
 secrets, the environment or the board's `.env`) and joined no other team,
 since nothing there can peer it. It reads `needs-you` when neither the
