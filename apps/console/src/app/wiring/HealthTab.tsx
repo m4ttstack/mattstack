@@ -147,7 +147,7 @@ function StatCard({ count, label, color }: StatCardProps) {
 }
 
 /** Mirrors the loaded tab's stats, caches bar and one group card, so nothing jumps when the data lands. */
-function HealthTabSkeleton() {
+export function HealthTabSkeleton() {
   const { bg } = useSchemeColors();
 
   return (
