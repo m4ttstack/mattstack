@@ -28,7 +28,7 @@ describe("presence", () => {
   test("storedValue reads a store's value and treats the registry default as nobody's choice", () => {
     expect(storedValue("rt.cron")).toBeUndefined();
     setSetting("rt.cron", { triggers: [] }, "machine");
-    expect(storedValue("rt.cron")).toEqual({ triggers: [] });
+    expect(storedValue<{ triggers: unknown[] }>("rt.cron")).toEqual({ triggers: [] });
     expect(storedValue("no.such.key")).toBeUndefined();
   });
 

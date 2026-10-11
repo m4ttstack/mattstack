@@ -7,13 +7,13 @@ import { machineSettingsPath } from "../../rt-paths.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting, setSettingsNoticeSink, unsetSetting } from "../../settings/write.ts";
-import type { ApplyContext } from "../apply.ts";
+import type { ApplyContext, StepOutcome } from "../apply.ts";
 import { MIGRATIONS } from "../migrations/index.ts";
 import { boardCopies, importAppSettingsMigration, makeImportAppSettingsMigration } from "../migrations/import-app-settings.ts";
 import { importLegacySettingsMigration } from "../migrations/import-legacy-settings.ts";
 import { fakeProbes } from "./fakes.ts";
 
-const NOTHING = { state: "skipped", detail: "There were no old board or gitq settings to copy" };
+const NOTHING: StepOutcome = { state: "skipped", detail: "There were no old board or gitq settings to copy" };
 
 describe("2026-10-11-import-app-settings", () => {
   const origHome = process.env.HOME;
