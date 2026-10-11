@@ -58,7 +58,7 @@ export function parseCronConfig(value: unknown): CronConfig {
   return { triggers };
 }
 
-/** Absent/unresolvable setting → dormant. Invalid value → warn and dormant: a
+/** Unresolvable setting → dormant. Invalid value → warn and dormant: a
     config typo (or an unexpandable ${...} variable in a trigger's `run`
     string) must never take the daemon down. getSetting's own throws (a
     closed-set variable resolved without context) are caught here alongside
@@ -67,7 +67,6 @@ export function parseCronConfig(value: unknown): CronConfig {
 export function loadCronConfig(log?: CronLog): CronConfig {
   try {
     const raw = getSetting<unknown>("rt.cron").value;
-    if (raw === undefined) return { triggers: [] };
     return parseCronConfig(raw);
   } catch (err) {
     log?.warn(`cron: ignoring invalid rt.cron setting: ${err instanceof Error ? err.message : err}`);

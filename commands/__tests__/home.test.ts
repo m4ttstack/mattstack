@@ -1705,24 +1705,22 @@ describe("homeInit — the real intent read", () => {
 });
 
 describe("claudePluginsPointerMessage", () => {
-  test("neither key resolved: no message", () => {
-    expect(claudePluginsPointerMessage(undefined, undefined)).toBeNull();
+  test("neither key set in a store: no message", () => {
+    expect(claudePluginsPointerMessage(false, false)).toBeNull();
   });
 
-  test("marketplaces resolved, plugins not: points at the installer", () => {
-    const message = claudePluginsPointerMessage([{ name: "x" }], undefined);
+  test("marketplaces set, plugins not: points at the installer", () => {
+    const message = claudePluginsPointerMessage(true, false);
     expect(message).toContain("marketplace settings");
     expect(message).toContain("installer");
   });
 
-  test("plugins resolved, marketplaces not: points at the installer", () => {
-    const message = claudePluginsPointerMessage(undefined, ["some-plugin"]);
-    expect(message).toContain("Claude plugin");
+  test("plugins set, marketplaces not: points at the installer", () => {
+    expect(claudePluginsPointerMessage(false, true)).toContain("Claude plugin");
   });
 
   test("never suggests rt home init itself replays them", () => {
-    const message = claudePluginsPointerMessage([{ name: "x" }], ["y"]);
-    expect(message).toContain("not by rt home init");
+    expect(claudePluginsPointerMessage(true, true)).toContain("not by rt home init");
   });
 });
 

@@ -136,7 +136,7 @@ const PENDING_DEFAULT: readonly string[] = [
   "board.botUsernames", "board.cwds", "board.defaultMember", "board.doctorSkill",
   "board.gateGraceMinutes", "board.hiddenMembers", "board.slack", "board.tabs",
   "board.title", "board.triage", "board.triage.doctorSkill", "board.triageMaxConcurrent",
-  "board.workspaces", "claude.marketplaces", "claude.plugins", "deck.access",
+  "board.workspaces", "deck.access",
   "deck.apps", "deck.platform", "gitq.forges", "gitq.workSlots", "mattstack.roster",
   "rt.branchNaming", "rt.hooks", "rt.sdmEnrichment", "sdm.carriers", "sdm.resources",
   "skills.writingStyle",
