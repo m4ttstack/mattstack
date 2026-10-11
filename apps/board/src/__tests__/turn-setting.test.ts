@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 
 import { getDef } from '@mattstack/rt-client';
-
 import { readTurnConfig, resetTurnWarning } from '../turn-setting.ts';
 import { ALL_TURN } from '../turn.ts';
 
