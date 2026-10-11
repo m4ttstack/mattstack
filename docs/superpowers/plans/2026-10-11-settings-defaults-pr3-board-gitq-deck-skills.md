@@ -10,9 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-10-settings-defaults-sweep-design.md` (Delivery items 3, 4 and 5; sections 4, 6 and 7; the appendix). What already landed: `docs/superpowers/plans/2026-10-10-settings-defaults-pr1-registry-console.md` and `docs/superpowers/plans/2026-10-10-settings-defaults-pr2-import-and-rt-latches.md`.
 
-## Open questions for Matt
+## Decisions (Matt, 2026-10-11)
 
-Each needs an answer before Task 2 starts. The tasks implement the recommendation; the line after it says what changes otherwise.
+Matt accepted every recommendation below; the tasks implement them. Each "Otherwise" line records the rejected alternative.
 
 1. **Deck boots before the import runs.** The app starts deck, then runs `rt setup update` once its services settle (`AppDelegate.settleAgentsAfterLaunch`), and deck reads its settings once at boot with no reload. On a Mac whose store does not yet hold `deck.apps`, the new deck would read every app as published (the default) until its next restart, so an app someone made private would be public in that window; `deck.access` and `deck.platform` have the same gap. The spec (section 4) puts deck's import in the setup migration and does not cover this ordering.
    **Recommend:** deck copies its own migrated fields into the store at boot, before its first read (same rules as the migration: user or machine scope only, a store value wins, idempotent), and the rt migration covers only the board and gitq. A failed copy keeps that one boot on the file's values. Otherwise: Task 7's `importFileFields`/`importAccessFile` move into Task 2's migration and Task 7 gains a step that restarts deck after the migration copies anything.
