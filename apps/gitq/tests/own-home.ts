@@ -10,7 +10,7 @@ import { join } from 'node:path';
  * home-isolation.test.ts's "store file does not exist yet" check depending on
  * file order.
  */
-export function useOwnHome(): void {
+export function isolateHome(): void {
   let prev: string | undefined;
   let own: string | undefined;
   beforeEach(() => {

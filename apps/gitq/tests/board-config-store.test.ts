@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { getSetting, setSetting } from '@mattstack/rt-client';
-import { useOwnHome } from './own-home.ts';
+import { isolateHome } from './own-home.ts';
 import { loadConfig, type BoardConfig } from '../src/server/config.ts';
 
 type GetSettingFn = typeof getSetting;
@@ -13,7 +13,7 @@ function fakeResolve(values: Record<string, unknown>): GetSettingFn {
   })) as unknown as GetSettingFn;
 }
 
-useOwnHome();
+isolateHome();
 
 const storedConfig = { repos: [{ path: '/r/store' }], port: 9999, herdrWorkspace: 'stacks' };
 

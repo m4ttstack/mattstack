@@ -1,6 +1,6 @@
 import { describe, test, expect, spyOn } from 'bun:test';
 import { getSetting, setSetting } from '@mattstack/rt-client';
-import { useOwnHome } from './own-home.ts';
+import { isolateHome } from './own-home.ts';
 import { getMaxWorkSlots, getWorkSlotLocation } from '../src/core/worktrees.ts';
 import { resetStoreFallbackWarnings } from '../src/core/settings-fallback-warn.ts';
 
@@ -17,7 +17,7 @@ function throwingResolve(message = 'rt daemon unreachable'): GetSettingFn {
   }) as GetSettingFn;
 }
 
-useOwnHome();
+isolateHome();
 
 describe('getMaxWorkSlots (fake resolver, no real store IO)', () => {
   test('a stored maxWorkSlots is read', async () => {
