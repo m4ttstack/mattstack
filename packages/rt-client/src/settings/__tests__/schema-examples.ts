@@ -84,10 +84,12 @@ export const EXAMPLES: Record<string, Example> = {
       {},
       { triggers: [] },
       { triggers: [{ name: "board-triage", event: "project-mrs", run: ["bun", "run", "triage"], debounceMs: 5000 }, { name: "sync", event: "branches", repoName: "app", run: ["rt", "sync"] }] },
+      { triggers: [{ name: "board-peer", event: "peer-inbox", tool: "board", run: ["triage", "--peer"], debounceMs: 300 }] },
     ],
     bad: [
       { value: { triggers: [{ name: "board-triage", event: "project-mrs" }] }, path: ["triggers", 0, "run"] },
       { value: { triggers: [{ name: "board-triage", event: "project-mrs", run: ["rt"], debounceMs: "5000" }] }, path: ["triggers", 0, "debounceMs"] },
+      { value: { triggers: [{ name: "board-triage", event: "project-mrs", tool: "", run: ["triage"] }] }, path: ["triggers", 0, "tool"] },
     ],
     layer: [{ triggers: [{ name: "board-triage", event: "project-mrs", run: ["rt"] }] }],
   },

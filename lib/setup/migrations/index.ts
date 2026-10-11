@@ -4,6 +4,7 @@
  * ledger in setup-state.json keys on it.
  */
 
+import { boardCronByToolMigration } from "./board-cron-by-tool.ts";
 import { boardPeerTriggerMigration } from "./board-peer-trigger.ts";
 import { retireSwitchboardUrlMigration } from "./retire-switchboard-url.ts";
 import { sdmResourcesKeyMigration } from "./sdm-resources-key.ts";
@@ -38,6 +39,7 @@ export const MIGRATIONS: MigrationDef[] = [
   },
   retireSwitchboardUrlMigration,
   sdmResourcesKeyMigration,
+  boardCronByToolMigration,
 ];
 
 export function migrationEventId(id: string): MigrationEventId {
