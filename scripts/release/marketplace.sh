@@ -223,15 +223,35 @@ if git -C "$STAGE" fetch -q --depth 1 origin main 2>/dev/null; then
     FETCHED=1
     PUBLISHED_VER="$(git -C "$STAGE" show FETCH_HEAD:plugins/mattstack/.claude-plugin/plugin.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' 2>/dev/null || true)"
     STAGED_VER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version",""))' "$STAGE/plugins/mattstack/.claude-plugin/plugin.json" 2>/dev/null || true)"
-    if [ -n "$PUBLISHED_VER" ] && [ -n "$STAGED_VER" ] && python3 - "$STAGED_VER" "$PUBLISHED_VER" <<'PY'
-import sys
-a, b = ([int(x) for x in v.split(".")] for v in sys.argv[1:3])
-sys.exit(0 if a < b else 1)
+    if [ -n "$PUBLISHED_VER" ] && [ -n "$STAGED_VER" ]; then
+        # Exit 0: staged is older. 1: not older. 2: a version this cannot order.
+        # A prerelease (1.2.0-rc1) sorts below its release (1.2.0).
+        CMP=0
+        python3 - "$STAGED_VER" "$PUBLISHED_VER" <<'PY' || CMP=$?
+import re, sys
+def key(v):
+    m = re.fullmatch(r"(\d+(?:\.\d+)*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?", v)
+    if not m:
+        sys.exit(2)
+    core = [int(x) for x in m.group(1).split(".")]
+    core += [0] * (3 - len(core))
+    pre = m.group(2)
+    tags = [] if pre is None else [(0, int(t), "") if t.isdigit() else (1, 0, t) for t in pre.split(".")]
+    return (core, pre is None, tags)
+sys.exit(0 if key(sys.argv[1]) < key(sys.argv[2]) else 1)
 PY
-    then
-        echo "✗ mattstack $STAGED_VER is older than the published $PUBLISHED_VER, refusing to publish it" >&2
-        exit 1
+        if [ "$CMP" -eq 0 ]; then
+            echo "✗ mattstack $STAGED_VER is older than the published $PUBLISHED_VER, refusing to publish it" >&2
+            exit 1
+        elif [ "$CMP" -eq 2 ]; then
+            echo "✗ cannot order mattstack $STAGED_VER against the published $PUBLISHED_VER, refusing to publish it" >&2
+            exit 1
+        fi
+    elif [ -n "$PUBLISHED_VER$STAGED_VER" ]; then
+        echo "! could not read the mattstack version on both sides (staged '${STAGED_VER}', published '${PUBLISHED_VER}'), so the check against a lower mattstack version was skipped" >&2
     fi
+else
+    echo "! could not read the published catalog, so the check against a lower mattstack version was skipped" >&2
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
