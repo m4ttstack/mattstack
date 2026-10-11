@@ -99,7 +99,11 @@ export type LauncherDeps = {
 
 type PolicyReady = { adapter: PolicyAdapter; prepared: PreparedPolicy };
 
-/** Launch failures an adapter reports only when it made nothing, so the reservation may be claimed again. */
+/**
+ * Launch failures an adapter reports only when it left nothing to track (it
+ * made nothing, or let go of a session whose first turn definitely failed),
+ * so the reservation may be claimed again.
+ */
 const MADE_NOTHING: ReadonlySet<FaultCode> = new Set(["invalid", "unsupported", "refused"]);
 /** Submission failures an adapter reports only when nothing reached the session. */
 const SENT_NOTHING: ReadonlySet<FaultCode> = new Set(["invalid", "unsupported", "refused", "not-ready", "stale-binding"]);

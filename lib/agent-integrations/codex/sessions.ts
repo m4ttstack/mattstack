@@ -16,7 +16,9 @@
  * reservation id with whatever it already made (the thread, the init turn,
  * the pane). A retry with the same reservation id carries on from there;
  * nothing here starts a second thread or opens a second pane to cover an
- * unfinished or unknown result.
+ * unfinished or unknown result. The one known ending is a first turn Codex
+ * refused or ended without completing: that thread holds no work, so it is
+ * let go, unbound and left in Codex, and the launch is refused outright.
  *
  * Limit: tools run in the user-started app server, whose env rt cannot set, so a worker's gate identity comes from its binding.
  *
@@ -234,6 +236,20 @@ function threadGone(err: unknown, method: keyof typeof THREAD_GONE): boolean {
 }
 const home = (): string => process.env.HOME ?? homedir();
 const flat = (s: string): string => s.replace(/\s+/g, " ").trim();
+/** Long enough for any error Codex has been seen to give, short enough to read in one glance. */
+const REASON_CHARS = 300;
+/** How Codex reports a turn its app server could not authenticate: an app server started before the sign-in never picks it up (S9b). */
+const UNAUTHORIZED = /\b401\b|unauthori[sz]ed/i;
+
+/** Why a new session's first turn failed, in Codex's own words where it gave any, and what to do about it. */
+function firstTurnFailed(ended: "failed" | "interrupted" | "refused", reason: string | undefined): string {
+  const words = reason === undefined ? "" : flat(reason).slice(0, REASON_CHARS).replace(/[.\s]+$/, "");
+  const what = words !== "" ? `: ${words}` : ended === "interrupted" ? "; it was interrupted" : `; it ended ${ended}`;
+  const next = UNAUTHORIZED.test(words)
+    ? "Sign in to Codex first. If its app server was already running when you signed in, let setup restart it: rt setup apply --only codex.app-server"
+    : "rt let go of the thread it made, so you can start again here";
+  return `Codex could not run the new session's first turn${what}. ${next}`;
+}
 const realOr = (path: string): string => {
   try {
     return realpathSync(path);
@@ -720,7 +736,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     }
     const shown = await deps.confirmAttached(entry.pane, { threadId, evidence }, host);
     if (!shown.ok) {
-      return fail("not-ready", `Codex opened in pane ${entry.pane.pane} but has not attached to thread ${threadId}: ${shown.error.message}. Retry with reservation ${reservationId} to check that pane again`);
+      return fail("not-ready", `Codex opened in pane ${entry.pane.pane} but has not attached to thread ${threadId}: ${shown.error.message}`);
     }
     const { pane, socket, tabId, workspaceId } = entry.pane;
     const surface = { ...(tabId !== undefined && { tabId }), ...(workspaceId !== undefined && { workspaceId }) };
@@ -731,10 +747,10 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
   }
 
   /** Creates the thread unless this entry already has one, or Codex has not said whether it made one. */
-  async function create(entry: UnresolvedLaunch, key: string, params: Record<string, unknown>, reservationId: string): Promise<Outcome<void>> {
+  async function create(entry: UnresolvedLaunch, key: string, params: Record<string, unknown>): Promise<Outcome<void>> {
     let reservation = entry.reservation;
     if (reservation?.state === "unknown") {
-      return fail("ambiguous", `Codex has not said whether reservation ${reservationId} created a thread; rt will not start a second one`);
+      return fail("ambiguous", "Codex has not said whether it made a thread for this launch; rt will not start a second one");
     }
     if (reservation?.state === "started" && reservation.threadId) {
       entry.threadId = reservation.threadId;
@@ -754,17 +770,28 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       return ok(undefined);
     } catch (err) {
       if (reservation.state === "unknown") {
-        return fail("ambiguous", `Codex did not answer thread/start for ${entry.cwd}; the launch stays reserved until it is reconciled (${messageOf(err)})`);
+        return fail("ambiguous", `Codex did not answer when rt asked it for a thread in ${entry.cwd}, so rt cannot tell whether it made one (${messageOf(err)})`);
       }
       settle(key, entry);
       return failFrom(err);
     }
   }
 
+  /**
+   * A first turn Codex refused to start, or that ended without completing, is
+   * a known outcome: the thread holds no work. rt lets it go, unbound and
+   * left in Codex, and frees its folder; the refusal tells the launcher so.
+   */
+  function letGo(key: string, entry: UnresolvedLaunch, threadId: string, message: string): Outcome<void> {
+    settle(key, entry);
+    unsubscribe(threadId);
+    control.disown(threadId);
+    return fail("refused", message);
+  }
+
   /** Waits for the initialization turn, starting one only when this connection has seen none. */
-  async function initialize(entry: UnresolvedLaunch, threadId: string, reservationId: string): Promise<Outcome<void>> {
+  async function initialize(entry: UnresolvedLaunch, key: string, threadId: string): Promise<Outcome<void>> {
     const created = `Codex created thread ${threadId}, but `;
-    const retry = `; retry with reservation ${reservationId} to carry on with that thread`;
     if (!entry.initTurn) {
       const seen = hub.turns(threadId);
       if (seen.completed) entry.initDone = true;
@@ -775,19 +802,18 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
           const started = await control.request("turn/start", { threadId, input: [{ type: "text", text: CODEX_INIT_PROMPT }] });
           turnId = isRecord(started) && isRecord(started.turn) ? started.turn.id : undefined;
         } catch (err) {
-          return failFrom(err, `${created}its initialization turn did not start${retry}: `);
+          if (codeOf(err) === "refused") return letGo(key, entry, threadId, firstTurnFailed("refused", messageOf(err)));
+          return failFrom(err, `${created}rt cannot tell whether its first turn started: `);
         }
-        if (!text(turnId)) return fail("invalid", `${created}its initialization turn came back without an id${retry}`);
+        if (!text(turnId)) return fail("invalid", `${created}its first turn came back without an id`);
         entry.initTurn = turnId;
       }
     }
     if (entry.initDone) return ok(undefined);
-    const ended = await hub.waitTurn(threadId, entry.initTurn!, deps.clock, deps.initTurnTimeoutMs);
-    if (ended === undefined) return fail("ambiguous", `${created}its initialization turn has not finished yet${retry}`);
-    if (ended !== "completed") {
-      entry.initTurn = undefined;
-      return fail("not-ready", `${created}its initialization turn ended ${ended}${retry}`);
-    }
+    const turnId = entry.initTurn!;
+    const ended = await hub.waitTurn(threadId, turnId, deps.clock, deps.initTurnTimeoutMs);
+    if (ended === undefined || ended === "inProgress") return fail("ambiguous", `${created}its first turn has not finished yet`);
+    if (ended !== "completed") return letGo(key, entry, threadId, firstTurnFailed(ended, hub.turnError(threadId, turnId)));
     entry.initDone = true;
     return ok(undefined);
   }
@@ -914,12 +940,12 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
         }
 
         if (!entry.threadId) {
-          const made = await create(entry, key, params.data, request.reservationId);
+          const made = await create(entry, key, params.data);
           if (!made.ok) return made;
         }
         const threadId = entry.threadId!;
         own(threadId);
-        const initialized = await initialize(entry, threadId, request.reservationId);
+        const initialized = await initialize(entry, key, threadId);
         if (!initialized.ok) return initialized;
 
         const settings = settingsOf(entry.result);

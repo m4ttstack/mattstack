@@ -14,9 +14,9 @@ import type {
   HarnessIntegration, IntegrationRegistry, LaunchRequest, NativeLaunch, SessionAdapter, WorkInput,
 } from "../../agent-integrations/contracts.ts";
 import { createRegistry } from "../../agent-integrations/registry.ts";
-import { createSessionStore } from "../../agent-integrations/session-store.ts";
+import { createSessionStore, launchClaimedForAttempt } from "../../agent-integrations/session-store.ts";
 import { launchGuard, launchInProgress } from "../../agent-integrations/launch.ts";
-import { fakeCodex } from "../../agent-integrations/__tests__/codex-fake-server.ts";
+import { fakeCodex, type FakeCodexOptions } from "../../agent-integrations/__tests__/codex-fake-server.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { fakeHerdr, HerdrFakeError, type FakeHerdrHandler } from "../../herdr/__tests__/fake-herdr.ts";
@@ -390,6 +390,90 @@ describe("a Codex folder-trust refusal leaves nothing behind", () => {
     if (!spawned.ok) throw new Error(spawned.error);
     expect(codex.panes).toHaveLength(1);
     expect(spawned.data).toMatchObject({ agentId: expect.stringMatching(/\S/) });
+  });
+});
+
+describe("a Codex session whose first turn fails does not wedge its folder", () => {
+  /** Codex 0.160's words when its app server started before the sign-in (S9b). */
+  const UNAUTHORIZED = "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header";
+  const REPO = "remote:example.com%2Facme%2Fdev";
+  const codexGuard = (cwd: string) => launchGuard({ harness: "codex", options: {} }, cwd);
+
+  async function codexWith(db: Database, options: FakeCodexOptions) {
+    const config = join(mkdtempSync(join(tmpdir(), "agent-int-codex-home-")), "config.toml");
+    writeFileSync(config, "");
+    const codex = await fakeCodex(db, config, options);
+    stops.push(() => codex.close());
+    return codex;
+  }
+
+  test("a failed first turn keeps no record or held folder, says what Codex said, and a fresh start works", async () => {
+    const db = freshDb();
+    const codex = await codexWith(db, { initTurns: [{ status: "failed", error: UNAUTHORIZED }, { status: "completed" }] });
+    const { service, cwd } = spawnHarness(createRegistry([recordedClaude(db).integration, codex.integration]), db);
+    const payload = { repo: REPO, cwd, provider: "codex", surface: "headless" as const, prompt: "the brief" };
+
+    const failed = await service.start(payload);
+    expect(failed.ok).toBe(false);
+    if (failed.ok) return;
+    expect("kept" in failed).toBe(false);
+    expect(failed.error).toContain(UNAUTHORIZED);
+    expect(failed.error.endsWith("rt setup apply --only codex.app-server")).toBe(true);
+    expect(failed.error).not.toMatch(/reservation|rsv-|retry|kept/i);
+    const list = await service.handlers["agent:list"]({});
+    expect(list.ok && list.data.agents).toEqual([]);
+    expect(launchInProgress(db, codexGuard(cwd))).toBeNull();
+
+    const again = await service.start(payload);
+    if (!again.ok) throw new Error(again.error);
+    expect(codex.ops.filter((op) => op === "thread/start")).toHaveLength(2);
+    const shown = await service.handlers["agent:get"]({ id: again.data.id });
+    if (!shown.ok) throw new Error(shown.error);
+    expect((shown.data as { attention?: string }).attention).toBeUndefined();
+  });
+
+  test("a first turn that has not finished is still kept, and points at rt agent show rather than a reservation", async () => {
+    const db = freshDb();
+    const codex = await codexWith(db, { initTurns: ["hang"], initTurnTimeoutMs: 20 });
+    const { service, cwd } = spawnHarness(createRegistry([recordedClaude(db).integration, codex.integration]), db);
+
+    const kept = await service.start({ repo: REPO, cwd, provider: "codex", surface: "headless", prompt: "the brief" });
+    expect(kept.ok).toBe(false);
+    if (kept.ok || !("kept" in kept)) throw new Error("expected a kept launch");
+    expect(kept.error).toContain(`rt agent show ${kept.kept.agentId}`);
+    expect(kept.error).not.toMatch(/reservation|rsv-|retry/i);
+    expect(launchInProgress(db, codexGuard(cwd))).not.toBeNull();
+  });
+
+  test("a herd worker whose first turn fails activates no job attempt and leaves none claimed", async () => {
+    const db = freshDb();
+    const codex = await codexWith(db, { initTurns: [{ status: "failed", error: UNAUTHORIZED }] });
+    const repoDir = mkdtempSync(join(tmpdir(), "agent-int-repo-"));
+    mkdirSync(join(repoDir, ".git"));
+    const activated: string[] = [];
+    const authorized: string[] = [];
+    const service = createAgentService({
+      db, emitEvent: () => 0, integrations: createRegistry([recordedClaude(db).integration, codex.integration]),
+      integrationsEnabled: () => true, herdrRunner: noHerdrRunner,
+      herdr: (async () => ({ ok: false, code: "unreachable", message: "no server" })) as never,
+      attempts: {
+        activate: (id) => { activated.push(id); return { ok: true, data: undefined }; },
+        authorize: (id) => { authorized.push(id); return { ok: true, data: undefined }; },
+      },
+    });
+
+    const started = await service.startAttempt(
+      { repo: REPO, cwd: repoDir, provider: "codex", surface: "headless", prompt: "the brief" },
+      { id: "att-1", workId: "herd-work-att-1", required: [] },
+    );
+    expect(started.ok).toBe(false);
+    if (started.ok) return;
+    expect("kept" in started).toBe(false);
+    expect(started.error).toContain(UNAUTHORIZED);
+    expect(activated).toEqual([]);
+    expect(authorized).toEqual([]);
+    expect(launchClaimedForAttempt(db, "att-1")).toBe(false);
+    expect(codex.ops.filter((op) => op === "turn/start")).toHaveLength(1);
   });
 });
 

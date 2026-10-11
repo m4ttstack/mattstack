@@ -307,28 +307,78 @@ describe("codex session launch", () => {
     expect(h.ops.filter((m) => m === "turn/start")).toHaveLength(1);
   });
 
-  test("a failed initialization turn keeps the thread; a same-id retry initializes that thread again", async () => {
+  /** Codex 0.160's words when its app server started before the sign-in (S9b). */
+  const UNAUTHORIZED = "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header";
+
+  /** `ends` says how each initialization turn ends, in order; the last repeats. */
+  function endingTurns(ends: Array<{ status: string; error?: Message | null }>): Handler {
+    let turns = 0;
+    return (s, m) => {
+      const id = `U${turns}`;
+      const end = ends[Math.min(turns++, ends.length - 1)]!;
+      s.push({ id: m.id, result: { turn: { id, items: [], status: "inProgress" } } });
+      s.push({ method: "turn/completed", params: { threadId: m.params.threadId, turn: { id, items: [], status: end.status, error: end.error ?? null } } });
+    };
+  }
+
+  const freeFolder = (h: Awaited<ReturnType<typeof harness>>) => {
+    const reserved = h.control.reserveLaunch("/work/a");
+    if (reserved.ok) reserved.data.release();
+    return reserved.ok;
+  };
+
+  test("a failed initialization turn settles the launch: the thread is let go and the folder is free for a new one", async () => {
+    const h = await harness({ "turn/start": endingTurns([{ status: "failed", error: { message: UNAUTHORIZED, codexErrorInfo: "unauthorized" } }, { status: "completed" }]) });
+    const sessions = h.sessions();
+    const outcome = await sessions.launch(request());
+    expect(outcome).toMatchObject({ ok: false, error: { code: "refused" } });
+    const message = outcome.ok ? "" : outcome.error.message;
+    expect(message).toContain(UNAUTHORIZED);
+    expect(message.endsWith("rt setup apply --only codex.app-server")).toBe(true);
+    expect(message).not.toMatch(/reservation|res-1|retry/i);
+    expect(h.panes).toEqual([]);
+    expect(h.requests("thread/unsubscribe").map((m) => m.params.threadId)).toEqual(["T1"]);
+    expect(freeFolder(h)).toBe(true);
+
+    expect(data(await sessions.launch(request({ reservationId: "res-2" }))).native.value).toBe("T1");
+    expect(h.requests("thread/start")).toHaveLength(2);
+    expect(h.requests("turn/start")).toHaveLength(2);
+    expect(h.panes).toHaveLength(1);
+  });
+
+  test("a headless launch whose first turn fails or is interrupted settles the same way, in Codex's own words where it gave any", async () => {
+    for (const [end, words] of [
+      [{ status: "failed", error: { message: "stream disconnected before completion" } }, "stream disconnected before completion"],
+      [{ status: "failed" }, "it ended failed"],
+      [{ status: "interrupted" }, "it was interrupted"],
+    ] as const) {
+      const h = await harness({ "turn/start": endingTurns([end, { status: "completed" }]) });
+      const sessions = h.sessions();
+      const outcome = await sessions.launch(request({ mode: "headless" }));
+      expect(outcome).toMatchObject({ ok: false, error: { code: "refused" } });
+      const message = outcome.ok ? "" : outcome.error.message;
+      expect(message).toContain(words);
+      expect(message).not.toContain("rt setup apply");
+      expect(message).not.toMatch(/reservation|res-1|retry/i);
+      expect(freeFolder(h)).toBe(true);
+      expect(data(await sessions.launch(request({ mode: "headless" }))).attachment).toEqual({ mode: "headless" });
+    }
+  });
+
+  test("an initialization turn Codex refuses to start settles the launch too", async () => {
     let turns = 0;
     const h = await harness({
       "turn/start": (s, m) => {
-        const id = `U${turns++}`;
-        s.push({ id: m.id, result: { turn: { id, items: [], status: "inProgress" } } });
-        s.push(turn("turn/completed", m.params.threadId, id, turns === 1 ? "failed" : "completed"));
+        if (turns++ === 0) return s.push({ id: m.id, error: { code: -32603, message: "internal error" } });
+        DEFAULTS["turn/start"]!(s, m);
       },
     });
     const sessions = h.sessions();
     const outcome = await sessions.launch(request());
-    expect(outcome).toMatchObject({ ok: false, error: { code: "not-ready" } });
-    expect(outcome.ok || outcome.error.message).toContain("T1");
-    expect(h.panes).toEqual([]);
-    expect(h.control.reserveLaunch("/work/a").ok).toBe(false);
-    expect(await sessions.launch(request({ reservationId: "res-2" }))).toMatchObject({ ok: false, error: { code: "refused" } });
-
-    expect(data(await sessions.launch(request())).native.value).toBe("T1");
-    expect(h.requests("thread/start")).toHaveLength(1);
-    expect(h.requests("turn/start")).toHaveLength(2);
-    expect(h.panes).toHaveLength(1);
-    expect(h.control.reserveLaunch("/work/a").ok).toBe(true);
+    expect(outcome).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect(outcome.ok || outcome.error.message).not.toMatch(/reservation|res-1|retry/i);
+    expect(freeFolder(h)).toBe(true);
+    expect(data(await sessions.launch(request({ reservationId: "res-2" }))).native.value).toBe("T1");
   });
 
   test("an initialization turn that outlasts the wait is ambiguous; a same-id retry waits on the same turn", async () => {
@@ -340,6 +390,7 @@ describe("codex session launch", () => {
     const outcome = await pending;
     expect(outcome).toMatchObject({ ok: false, error: { code: "ambiguous" } });
     expect(outcome.ok || outcome.error.message).toContain("T1");
+    expect(outcome.ok || outcome.error.message).not.toMatch(/reservation|res-1|retry/i);
     expect(h.panes).toEqual([]);
     expect(h.control.reserveLaunch("/work/a").ok).toBe(false);
 
@@ -358,6 +409,7 @@ describe("codex session launch", () => {
     expect(outcome).toMatchObject({ ok: false, error: { code: "not-ready" } });
     expect(outcome.ok || outcome.error.message).toContain("T1");
     expect(outcome.ok || outcome.error.message).toContain("p1");
+    expect(outcome.ok || outcome.error.message).not.toMatch(/reservation|res-1|retry/i);
     expect(h.control.reserveLaunch("/work/a").ok).toBe(false);
 
     h.blockAttach({ ok: true, data: undefined });

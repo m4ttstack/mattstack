@@ -26,6 +26,8 @@ export type ThreadView = {
 type Thread = ThreadView & {
   activeTurn: string | undefined;
   completed: Map<string, TurnStatus>;
+  /** Codex's reason, for each completed turn it gave one for. */
+  errors: Map<string, string>;
   pending: Set<string>;
 };
 
@@ -104,6 +106,11 @@ export class CodexEventHub {
     return undefined;
   }
 
+  /** Codex's reason a completed turn ended as it did, when it gave one. */
+  turnError(threadId: string, turnId: string): string | undefined {
+    return this.threads.get(threadId)?.errors.get(turnId);
+  }
+
   /** Resolves with the turn's native end, or undefined when `ms` passes first. */
   waitTurn(threadId: string, turnId: string, clock: CodexClock, ms: number): Promise<TurnStatus | undefined> {
     const done = this.threads.get(threadId)?.completed.get(turnId);
@@ -127,7 +134,7 @@ export class CodexEventHub {
     if (!thread) {
       thread = {
         connectivity: "unknown", execution: "unknown", source,
-        activeTurn: undefined, completed: new Map(), pending: new Set(),
+        activeTurn: undefined, completed: new Map(), errors: new Map(), pending: new Set(),
       };
       this.threads.set(threadId, thread);
     }
@@ -185,6 +192,7 @@ export class CodexEventHub {
         thread.execution = thread.pending.size > 0 ? "blocked" : "working";
         return;
       case "turn/completed":
+        if (event.error !== undefined) thread.errors.set(event.turnId, event.error);
         this.complete(thread, event.threadId, event.turnId, event.status);
         return;
       case "item/tool/requestUserInput":
@@ -200,7 +208,11 @@ export class CodexEventHub {
 
   private complete(thread: Thread, threadId: string, turnId: string, status: TurnStatus): void {
     thread.completed.set(turnId, status);
-    if (thread.completed.size > COMPLETED_TURNS_KEPT) thread.completed.delete(thread.completed.keys().next().value!);
+    if (thread.completed.size > COMPLETED_TURNS_KEPT) {
+      const oldest = thread.completed.keys().next().value!;
+      thread.completed.delete(oldest);
+      thread.errors.delete(oldest);
+    }
     thread.connectivity = "connected";
     if (thread.activeTurn === undefined || thread.activeTurn === turnId) {
       thread.activeTurn = undefined;

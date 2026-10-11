@@ -14,8 +14,11 @@ import { readReservation } from "../session-store.ts";
 
 type Message = Record<string, any>;
 
-/** The answers each test needs: one thread, an initialization turn that completes at once. */
-function answer(push: (m: Message) => void, m: Message): void {
+/** How one initialization turn ends; `hang` never ends. */
+export type FakeTurnEnd = { status: "completed" | "failed" | "interrupted"; error?: string } | "hang";
+
+/** The answers each test needs: one thread, an initialization turn that ends as `end` says. */
+function answer(push: (m: Message) => void, m: Message, end: FakeTurnEnd = { status: "completed" }): void {
   switch (m.method) {
     case "initialize":
       push({ id: m.id, result: { codexHome: "/redacted/.codex", platformFamily: "unix", platformOs: "macos", userAgent: "t" } });
@@ -27,10 +30,20 @@ function answer(push: (m: Message) => void, m: Message): void {
     case "turn/start":
       push({ id: m.id, result: { turn: { id: "U0", items: [], status: "inProgress" } } });
       push({ method: "turn/started", params: { threadId: m.params.threadId, turn: { id: "U0", items: [], status: "inProgress" } } });
-      push({ method: "turn/completed", params: { threadId: m.params.threadId, turn: { id: "U0", items: [], status: "completed" } } });
+      if (end === "hang") return;
+      push({
+        method: "turn/completed",
+        params: { threadId: m.params.threadId, turn: { id: "U0", items: [], status: end.status, error: end.error === undefined ? null : { message: end.error } } },
+      });
       return;
   }
 }
+
+export type FakeCodexOptions = {
+  /** How each initialization turn ends, in order; the last repeats. Every one completes by default. */
+  initTurns?: FakeTurnEnd[];
+  initTurnTimeoutMs?: number;
+};
 
 export type FakeCodex = {
   integration: HarnessIntegration;
@@ -41,9 +54,11 @@ export type FakeCodex = {
 };
 
 /** `config` is where the fake profile's Codex records folder trust. */
-export async function fakeCodex(db: Database, config: string): Promise<FakeCodex> {
+export async function fakeCodex(db: Database, config: string, options: FakeCodexOptions = {}): Promise<FakeCodex> {
   const ops: string[] = [];
   const panes: PaneLaunch[] = [];
+  const ends = options.initTurns ?? [];
+  let turns = 0;
   const openSocket = (_path: string, h: CodexSocketHandlers): CodexSocket => {
     const push = (m: Message) => h.message(JSON.stringify(m));
     queueMicrotask(() => h.open());
@@ -51,7 +66,7 @@ export async function fakeCodex(db: Database, config: string): Promise<FakeCodex
       send(text) {
         const m = JSON.parse(text) as Message;
         if (m.method !== "initialize" && m.method !== "initialized" && m.method !== undefined) ops.push(m.method);
-        answer(push, m);
+        answer(push, m, m.method === "turn/start" && ends.length > 0 ? ends[Math.min(turns++, ends.length - 1)] : undefined);
       },
       close() {},
     };
@@ -64,6 +79,7 @@ export async function fakeCodex(db: Database, config: string): Promise<FakeCodex
     endpoint: { socketPath: "/run/codex/control.sock" },
     unresolved: new Map(),
     inFlight: new Set(),
+    ...(options.initTurnTimeoutMs !== undefined && { initTurnTimeoutMs: options.initTurnTimeoutMs }),
     trustConfig: () => config,
     reservationSettled: (id) => {
       const state = readReservation(db, id)?.state;

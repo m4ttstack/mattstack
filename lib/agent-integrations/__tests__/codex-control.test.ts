@@ -585,6 +585,7 @@ describe("codex protocol", () => {
     expect(CODEX_STATUS_ENUMS.turn).toEqual(fixture.types.TurnStatus);
     expect(CODEX_STATUS_ENUMS.hookEvent).toEqual(fixture.types.HookEventName);
     expect(CODEX_STATUS_ENUMS.hookRun).toEqual(fixture.types.HookRunStatus);
+    expect(fixture.types.Turn.properties).toContain("error");
     expect(fixture.types.userMessage.properties).toContain("clientId");
     expect(fixture.types.agentMessage.properties).toEqual(expect.arrayContaining(["delivery", "questions"]));
     expect(fixture.serverRequests["item/tool/requestUserInput"].response.answer.required).toEqual(["answers"]);

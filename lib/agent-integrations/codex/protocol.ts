@@ -184,7 +184,11 @@ export type CodexEvent =
   | CodexQuestionRequest
   | Notification<"thread/started" | "thread/status/changed", { status: CodexThreadStatus }>
   | Notification<"thread/closed" | "thread/queue/changed", {}>
-  | Notification<"turn/started" | "turn/completed", { turnId: string; status: Enum<"turn"> }>
+  | Notification<"turn/started" | "turn/completed", {
+    turnId: string; status: Enum<"turn">;
+    /** Codex's own reason a turn ended unfinished (`turn.error.message`); absent when it gave none. */
+    error?: string;
+  }>
   | Notification<"item/started" | "item/completed", { turnId: string; item: CodexItem }>
   | Notification<"serverRequest/resolved", { requestId: CodexRequestId }>
   | Notification<"hook/started" | "hook/completed", {
@@ -313,9 +317,11 @@ function parse(message: Fields, connection: string): CodexEvent | undefined {
     case "turn/started":
     case "turn/completed": {
       const turn = record(params.turn, "turn");
+      const error = isRecord(turn.error) && typeof turn.error.message === "string" && turn.error.message.trim() !== "" ? turn.error.message : undefined;
       return {
         method, ...base, threadId: text(params, "threadId"), turnId: text(turn, "id"),
         status: oneOf(turn.status, CODEX_STATUS_ENUMS.turn, "turn.status"),
+        ...(method === "turn/completed" && error !== undefined && { error }),
       };
     }
     case "item/started":
