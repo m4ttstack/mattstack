@@ -41,32 +41,20 @@ function looksFor(roomMembers: string[], speakers?: string[]) {
   return renderHook(() => useBuddies()!, { wrapper }).result.current;
 }
 
-test("the open room's members take the first hues, in order of sign-in", () => {
+test('everyone goes by sign-in and the human keeps accent', () => {
   const palette = themePalette(6);
-  const ctx = looksFor(['remy', 'ghost', 'kai']);
-  expect(ctx.lookOf('kai')!.hue).toEqual(palette[0]);
-  expect(ctx.lookOf('remy')!.hue).toEqual(palette[1]);
-  expect(ctx.lookOf('ghost')!.hue).toEqual(palette[2]);
-  expect(ctx.lookOf('old-1')!.hue).toEqual(palette[3]);
-});
-
-test('with no room open, everyone goes by sign-in and the human keeps accent', () => {
-  const palette = themePalette(5);
-  const ctx = looksFor([]);
+  const ctx = looksFor(['remy', 'kai']);
   expect(ctx.lookOf('old-1')!.hue).toEqual(palette[0]);
   expect(ctx.lookOf('remy')!.hue).toEqual(palette[3]);
   expect(ctx.lookOf('matt')!.hue).toBe(ACCENT_LOOK);
   expect(ctx.lookOf('stranger')).toBeUndefined();
 });
 
-test('people talking in the room come before its quiet members', () => {
+test('off-roster ids in the room come after the roster', () => {
+  const ctx = looksFor(['kai', 'ghost'], ['left-room']);
   const palette = themePalette(6);
-  const ctx = looksFor(['kai', 'remy', 'old-2'], ['remy', 'left-room']);
-  expect(ctx.lookOf('remy')!.hue).toEqual(palette[0]);
-  expect(ctx.lookOf('left-room')!.hue).toEqual(palette[1]);
-  expect(ctx.lookOf('old-2')!.hue).toEqual(palette[2]);
-  expect(ctx.lookOf('kai')!.hue).toEqual(palette[3]);
-  expect(ctx.lookOf('old-1')!.hue).toEqual(palette[4]);
+  expect(ctx.lookOf('ghost')!.hue).toEqual(palette[4]);
+  expect(ctx.lookOf('left-room')!.hue).toEqual(palette[5]);
 });
 
 interface RoomProps {
@@ -81,7 +69,6 @@ function renderRoom(initial: RoomProps) {
     wrapper: ({ children }: { children: ReactNode }) => (
       <BuddiesProvider
         buddies={buddies}
-        room={props.room}
         roomMembers={props.roomMembers}
         speakers={props.speakers}
         now={10}
@@ -100,39 +87,16 @@ function renderRoom(initial: RoomProps) {
   };
 }
 
-test('once a room has loaded, a newcomer never moves anyone already on screen', () => {
-  const { result, update } = renderRoom({
-    room: 'rt',
-    roomMembers: ['kai', 'remy'],
-    speakers: ['remy'],
-  });
-  const kai = result.current.lookOf('kai');
-  const remy = result.current.lookOf('remy');
-  // old-1 signed in before both, so a fresh order would put it ahead of kai.
-  update({
-    room: 'rt',
-    roomMembers: ['old-1', 'kai', 'remy'],
-    speakers: ['remy'],
-  });
-  expect(result.current.lookOf('kai')).toEqual(kai);
-  expect(result.current.lookOf('remy')).toEqual(remy);
-});
-
-test('until the first page loads, the order is still free to settle', () => {
-  const { result, update } = renderRoom({
-    room: 'rt',
-    roomMembers: ['kai', 'remy'],
-  });
-  update({ room: 'rt', roomMembers: ['kai', 'remy'], speakers: ['remy'] });
-  expect(result.current.lookOf('remy')!.hue).toEqual(themePalette(6)[0]);
-});
-
-test('switching rooms hands the new room the first hues', () => {
+test("switching rooms never changes anyone's look", () => {
   const { result, update } = renderRoom({
     room: 'rt',
     roomMembers: ['kai'],
     speakers: ['kai'],
   });
-  update({ room: 'board', roomMembers: ['remy'], speakers: ['remy'] });
-  expect(result.current.lookOf('remy')!.hue).toEqual(themePalette(6)[0]);
+  const before = ['kai', 'remy', 'old-1'].map(h => result.current.lookOf(h));
+  update({ room: 'board', roomMembers: ['remy'], speakers: ['remy', 'new'] });
+  expect(['kai', 'remy', 'old-1'].map(h => result.current.lookOf(h))).toEqual(
+    before
+  );
+  expect(result.current.lookOf('new')).toBeDefined();
 });

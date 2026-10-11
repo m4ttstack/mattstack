@@ -2,7 +2,11 @@ import { createContext, useContext, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
 
 import { HUMAN_HANDLE } from './human';
-import { assignMemberLooks, type MemberLook } from './member-looks';
+import {
+  assignMemberLooks,
+  settleRoomLooks,
+  type MemberLook,
+} from './member-looks';
 import type { RosterBuddy } from './roster-types';
 
 export interface BuddyActions {
@@ -42,70 +46,46 @@ export function BuddiesProvider({
   reachable,
   actions,
   humanHandle = HUMAN_HANDLE,
-  room,
   speakers,
   children,
 }: Omit<BuddiesContextValue, 'byHandle' | 'nameOf' | 'lookOf'> & {
   buddies: RosterBuddy[];
   memberNames?: ReadonlyMap<string, string>;
   humanHandle?: string;
-  /** The open room; looks settle per room. */
-  room?: string;
-  /** Who posted in the open room's first page of messages, first in line for
-      a distinct look even after leaving the room. Unset until that page has
-      loaded. */
+  /** Who posted in the open room's first page of messages, so an
+      off-roster poster still gets a look. */
   speakers?: readonly string[];
   children: ReactNode;
 }) {
-  // Looks follow what is on screen, so the people talking in the open room
-  // get the most distinct hues first, then its quiet members, then everyone
-  // else: the human, then each tier's roster entries in order of sign-in and
-  // its off-roster ids alphabetically. Once the room's members and first page
-  // have both loaded the order settles: anyone new is appended, so nobody's
-  // look changes on screen while the room stays open. Joined to a string so a
-  // poll with the same people keeps the memo.
-  const order = useRef<{ room?: string; ids: string[]; settled: boolean }>({
-    ids: [],
-    settled: false,
-  });
+  // One look per person for the whole session, whatever room is open: the
+  // human, then the roster by sign-in, then off-roster ids alphabetically.
+  // The order only ever grows, so nobody's look changes once it is shown.
+  // Joined to a string so a poll with the same people keeps the memo.
+  const order = useRef<string[]>([]);
   const lookIds = useMemo(() => {
     const bySignIn = [...buddies]
       .sort((a, b) => a.signedInAt - b.signedInAt)
       .map(b => b.handle);
     const known = new Set(bySignIn);
-    const tier = (ids: Iterable<string>) => {
-      const set = new Set(ids);
-      return [
-        ...bySignIn.filter(h => set.has(h)),
-        ...[...set].filter(h => !known.has(h)).sort(),
-      ];
-    };
-    const fresh = [
-      ...new Set([
-        humanHandle,
-        ...tier(speakers ?? []),
-        ...tier(roomMembers),
-        ...bySignIn,
-      ]),
-    ];
-    const held = order.current;
-    if (held.room !== room || !held.settled) {
-      order.current = {
-        room,
-        ids: fresh,
-        settled:
-          room === undefined ||
-          (speakers !== undefined && roomMembers.length > 0),
-      };
-    } else {
-      const have = new Set(held.ids);
-      held.ids = [...held.ids, ...fresh.filter(h => !have.has(h))];
-    }
-    return order.current.ids.join('\n');
-  }, [buddies, roomMembers, speakers, humanHandle, room]);
+    const extras = [...new Set([...(speakers ?? []), ...roomMembers])]
+      .filter(h => !known.has(h))
+      .sort();
+    const have = new Set(order.current);
+    for (const h of [humanHandle, ...bySignIn, ...extras])
+      if (!have.has(h)) {
+        have.add(h);
+        order.current.push(h);
+      }
+    return order.current.join('\n');
+  }, [buddies, roomMembers, speakers, humanHandle]);
   const looks = useMemo(
-    () => assignMemberLooks(lookIds.split('\n'), humanHandle),
-    [lookIds, humanHandle]
+    () =>
+      settleRoomLooks(assignMemberLooks(lookIds.split('\n'), humanHandle), [
+        humanHandle,
+        ...(speakers ?? []),
+        ...roomMembers,
+      ]),
+    [lookIds, humanHandle, speakers, roomMembers]
   );
   const value = useMemo<BuddiesContextValue>(() => {
     const byHandle = new Map(buddies.map(b => [b.handle, b]));
