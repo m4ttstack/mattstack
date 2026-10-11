@@ -10,14 +10,14 @@ import { serializeIdentity } from "../../settings/identity.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
 import { ORG_LAYOUT } from "../../team/org-marker.ts";
-import type { ApplyContext } from "../apply.ts";
+import type { ApplyContext, StepOutcome } from "../apply.ts";
 import { MIGRATIONS } from "../migrations/index.ts";
 import { importLegacySettingsMigration, legacyHooksValue, parsePreferencesStyle } from "../migrations/import-legacy-settings.ts";
 
 const REPO = "gitlab.example.com/acme/widgets";
 const OFF = JSON.stringify({ enabled: false, hooks: { "pre-push": false } });
 const OLD_SHIM = '#!/bin/bash\nHOOKS_CONFIG="/x/hooks.json"\ngrep -o \'"enabled"\' "$HOOKS_CONFIG"\n';
-const NOTHING = { state: "skipped", detail: "There were no old settings to copy" };
+const NOTHING: StepOutcome = { state: "skipped", detail: "There were no old settings to copy" };
 
 describe("2026-10-10-import-legacy-settings", () => {
   const origHome = process.env.HOME;
@@ -99,19 +99,47 @@ describe("2026-10-10-import-legacy-settings", () => {
     expect(hookState("pre-commit", clone)).toBe("on");
   });
 
-  test.skipIf(process.getuid?.() === 0)("a repo whose shims cannot be rewritten keeps its old shim and its hooks.json, and the run fails so it retries", async () => {
+  test.skipIf(process.getuid?.() === 0)("a repo whose shims cannot all be rewritten keeps its hooks.json, every shim still reads the old choice, and the retry finishes", async () => {
     const file = writeHooks(remoteDir(REPO), OFF);
     const shim = writeOldShim(remoteDir(REPO), "pre-push");
+    const preCommit = join(dirname(shim), "pre-commit");
     chmodSync(shim, 0o444);
     try {
       const result = await run();
       expect(result.state).toBe("failed");
       expect(readFileSync(shim, "utf8")).toBe(OLD_SHIM);
       expect(readFileSync(file, "utf8")).toBe(OFF);
-      expect(getSetting("rt.hooks", { repoIdentity: REPO }).provenance.every((p) => p.scope === "default")).toBe(true);
+      expect(getSetting("rt.hooks", { repoIdentity: REPO }).provenance.map((p) => p.scope)).toContain("user.repo");
+      const clone = join(home, "widgets");
+      execFileSync("git", ["init", "-q", clone]);
+      execFileSync("git", ["-C", clone, "remote", "add", "origin", `https://${REPO}.git`]);
+      const preCommitOld = existsSync(preCommit) && readFileSync(preCommit, "utf8") === OLD_SHIM;
+      expect(preCommitOld || hookState("pre-commit", clone) === "off").toBe(true);
     } finally {
       chmodSync(shim, 0o755);
     }
+    expect(await run()).toEqual({ state: "done", detail: "Copied your hook choices for 1 repo into your settings. Updated rt's hook scripts in 1 repo" });
+    expect(readFileSync(shim, "utf8")).toContain("hooks enabled");
+    expect(existsSync(file)).toBe(false);
+    expect(readFileSync(`${file}.imported`, "utf8")).toBe(OFF);
+  });
+
+  test.skipIf(process.getuid?.() === 0)("a repo whose choices cannot be copied keeps its old shims and its hooks.json, and the run fails so it retries", async () => {
+    const file = writeHooks(remoteDir(REPO), OFF);
+    const shim = writeOldShim(remoteDir(REPO), "pre-push");
+    const storeDir = dirname(userSettingsPath());
+    mkdirSync(storeDir, { recursive: true });
+    chmodSync(storeDir, 0o555);
+    try {
+      const result = await run();
+      expect(result.state).toBe("failed");
+    } finally {
+      chmodSync(storeDir, 0o755);
+    }
+    expect(readFileSync(shim, "utf8")).toBe(OLD_SHIM);
+    expect(existsSync(join(dirname(shim), "pre-commit"))).toBe(false);
+    expect(readFileSync(file, "utf8")).toBe(OFF);
+    expect(getSetting("rt.hooks", { repoIdentity: REPO }).provenance.every((p) => p.scope === "default")).toBe(true);
   });
 
   test("a remote-less repo's shims are rewritten, and its hooks.json is left where it is", async () => {

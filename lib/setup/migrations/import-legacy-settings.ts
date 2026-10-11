@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, renameSync } from "fs";
 import { join } from "path";
+import { isDeepStrictEqual } from "util";
 import { generateShims } from "../../git-hooks/shims.ts";
 import { mattstackHome, reposDir } from "../../rt-paths.ts";
 import { parseIdentity } from "../../settings/identity.ts";
@@ -50,53 +51,78 @@ function repoDirs(): string[] {
   return existsSync(reposDir()) ? readdirSync(reposDir()) : [];
 }
 
-/** Today's shims grep hooks.json; the rewrite makes each ask rt. Returns the folders whose shims could not be rewritten. */
-function replaceShims(t: Tally): Set<string> {
-  const stuck = new Set<string>();
-  for (const dir of repoDirs()) {
-    const shimsDir = join(reposDir(), dir, "hooks");
-    if (!existsSync(shimsDir)) continue;
-    try {
-      generateShims(join(reposDir(), dir), readdirSync(shimsDir).filter((name) => !name.startsWith(".")));
-      t.shims++;
-    } catch (err) {
-      t.failed.push(`${dir}: ${(err as Error).message.split("\n")[0]}`);
-      stuck.add(dir);
-    }
-  }
-  return stuck;
+type HooksImport = "imported" | "held" | "unreadable" | "failed";
+
+/**
+ * A failed run already wrote the copy before its rewrite failed, so a user
+ * value that matches the file exactly counts as this migration's own copy.
+ */
+function ownCopy(value: unknown, opts: ResolveOpts): boolean {
+  const row = listSettings(opts).find((s) => s.key === HOOKS_KEY);
+  if (!row || (row.invalid?.length ?? 0) > 0) return false;
+  const scopes = row.provenance.map((p) => p.scope).filter((scope) => scope !== "default");
+  return scopes.length === 1 && scopes[0] === "user.repo" && isDeepStrictEqual(row.value, value);
 }
 
-/** Only remote repos have a settings section, so a path-kind or pre-identity folder has nowhere to go. */
-function importHooks(t: Tally, stuck: Set<string>): void {
-  for (const dir of repoDirs()) {
-    const identity = parseIdentity(dir);
-    if (identity?.kind !== "remote" || stuck.has(dir)) continue;
-    const file = join(reposDir(), dir, "hooks.json");
-    const opts = { repoIdentity: identity.id };
-    if (!existsSync(file) || storeHolds(HOOKS_KEY, opts)) continue;
-    let value: ReturnType<typeof legacyHooksValue>;
-    try {
-      value = legacyHooksValue(JSON.parse(readFileSync(file, "utf8")));
-    } catch {
-      value = null;
-    }
-    if (value === null) {
-      t.unreadable++;
-      continue;
-    }
-    try {
-      setSetting(HOOKS_KEY, value, "user", opts);
-    } catch (err) {
-      t.failed.push(`${identity.id}: ${(err as Error).message.split("\n")[0]}`);
-      continue;
-    }
-    if (!storeHolds(HOOKS_KEY, opts)) {
-      t.failed.push(`${identity.id}: the copy did not read back`);
-      continue;
-    }
-    renameSync(file, `${file}.imported`);
+function importHooksFile(repo: string, file: string, t: Tally): HooksImport {
+  const opts = { repoIdentity: repo };
+  let value: ReturnType<typeof legacyHooksValue>;
+  try {
+    value = legacyHooksValue(JSON.parse(readFileSync(file, "utf8")));
+  } catch {
+    value = null;
+  }
+  if (storeHolds(HOOKS_KEY, opts)) {
+    if (value === null || !ownCopy(value, opts)) return "held";
     t.hooks++;
+    return "imported";
+  }
+  if (value === null) {
+    t.unreadable++;
+    return "unreadable";
+  }
+  try {
+    setSetting(HOOKS_KEY, value, "user", opts);
+  } catch (err) {
+    t.failed.push(`${repo}: ${(err as Error).message.split("\n")[0]}`);
+    return "failed";
+  }
+  if (!storeHolds(HOOKS_KEY, opts)) {
+    t.failed.push(`${repo}: the copy did not read back`);
+    return "failed";
+  }
+  t.hooks++;
+  return "imported";
+}
+
+/** Today's shims grep hooks.json; the rewrite makes each ask rt. */
+function rewriteShims(dir: string, t: Tally): boolean {
+  const shimsDir = join(reposDir(), dir, "hooks");
+  if (!existsSync(shimsDir)) return true;
+  try {
+    generateShims(join(reposDir(), dir), readdirSync(shimsDir).filter((name) => !name.startsWith(".")));
+  } catch (err) {
+    t.failed.push(`${dir}: ${(err as Error).message.split("\n")[0]}`);
+    return false;
+  }
+  t.shims++;
+  return true;
+}
+
+/**
+ * The value goes into the store before any shim asks rt for it, and
+ * hooks.json moves aside only once every shim asks rt. Only remote repos have
+ * a settings section, so a path-kind or pre-identity folder has nowhere to go.
+ */
+function migrateFolder(dir: string, t: Tally): void {
+  const identity = parseIdentity(dir);
+  const file = join(reposDir(), dir, "hooks.json");
+  const imported = identity?.kind === "remote" && existsSync(file) ? importHooksFile(identity.id, file, t) : null;
+  if (imported === "failed" || !rewriteShims(dir, t) || imported !== "imported") return;
+  try {
+    renameSync(file, `${file}.imported`);
+  } catch (err) {
+    t.failed.push(`${dir}: ${(err as Error).message.split("\n")[0]}`);
   }
 }
 
@@ -145,7 +171,7 @@ export const importLegacySettingsMigration: MigrationDef = {
   title: "Copy your old hook choices and writing style into your settings",
   async run() {
     const tally: Tally = { hooks: 0, shims: 0, style: false, unreadable: 0, failed: [] };
-    importHooks(tally, replaceShims(tally));
+    for (const dir of repoDirs()) migrateFolder(dir, tally);
     importWritingStyle(tally);
     return outcome(tally);
   },
