@@ -235,32 +235,20 @@ const ROWS: readonly SettingDef[] = [
     description: "Template used to generate a repo's Doppler secrets config.",
   },
 
-  // --- wave 2 (ownership-latch ports, RT-53) ------------------------------
-  // These rows carry NO `default`: the ownership latch is `getSetting(key)
-  // .value === undefined`, and a registry default materializes as a present
-  // value — adding one flips the key store-authoritative on every install
-  // (same invariant as the board.* block above).
-  {
-    key: "rt.sdmEnrichment",
-    type: "object",
-    scopes: ["team"],
-    merge: "replace",
-    migrated: true,
-    description: "Deprecated: replaced by sdm.resources, which the 2026-10-07-sdm-resources-key migration moves it to. Team-declared StrongDM resource enrichment (resource name -> label/tier/db/reasonSuggestion); team-ONLY by design, enrichment names employer resources and must never be settable in a user or machine store. Ownership-latch port of ~/.mattstack/rt/sdm/enrichment.jsonc, store wins wholesale (a name-keyed map, not a field-bag).",
-  },
-  // The sdm.* rows carry NO `default`: loadEnrichment's latch reads
-  // `value === undefined` as "fall back to rt.sdmEnrichment, then the file".
+  // --- wave 2 (ports from rt's own files, RT-53) ---------------------------
   {
     key: "sdm.resources",
     type: "object",
     scopes: ["team"],
+    default: {},
     merge: "replace",
-    description: "Per-resource overrides for the rt sdm picker: resource name -> label/tier/production/reasonSuggestion/db. Team-only, since it names employer resources. Replaces rt.sdmEnrichment; the store value wins wholesale.",
+    description: "Per-resource overrides for the rt sdm picker: resource name -> label/tier/production/reasonSuggestion/db. Team-only, since it names employer resources.",
   },
   {
     key: "sdm.carriers",
     type: "object",
     scopes: ["team"],
+    default: {},
     merge: "replace",
     description: "Display names for StrongDM tenant tags in the rt sdm picker: tenant tag -> { label }. A tag with no entry shows capitalised. Team-only, since it names employer customers.",
   },

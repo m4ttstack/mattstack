@@ -102,7 +102,6 @@ const UNANNOTATED_YET: readonly string[] = [
   "rt.repoTracking",
   "rt.roles",
   "rt.runaway",
-  "rt.sdmEnrichment",
   "rt.sync",
   "rt.teamSnapshot",
   "rt.variations",
@@ -138,7 +137,7 @@ const PENDING_DEFAULT: readonly string[] = [
   "board.title", "board.triage", "board.triage.doctorSkill", "board.triageMaxConcurrent",
   "board.workspaces", "deck.access",
   "deck.apps", "deck.platform", "gitq.forges", "gitq.workSlots", "mattstack.roster",
-  "rt.branchNaming", "rt.sdmEnrichment", "sdm.carriers", "sdm.resources",
+  "rt.branchNaming",
 ];
 
 describe("every setting says what it is when nothing is set", () => {

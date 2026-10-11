@@ -86,7 +86,7 @@ export const GROUPS: Group[] = [
     tier: 'rt',
     blurb:
       'Carrier names and per-resource overrides for the rt sdm connection picker.',
-    match: key => key.startsWith('sdm.') || key === 'rt.sdmEnrichment',
+    match: key => key.startsWith('sdm.'),
   },
   {
     id: 'board',

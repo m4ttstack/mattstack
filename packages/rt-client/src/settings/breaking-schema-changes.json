@@ -1,5 +1,6 @@
 {
   "rt.picker.show": "Replaced by rt.picker.hidden before any release shipped it.",
   "rt.picker.hide": "Replaced by rt.picker.hidden before any release shipped it.",
-  "board.members": "Retired: the org roster (mattstack.roster) is the one member list."
+  "board.members": "Retired: the org roster (mattstack.roster) is the one member list.",
+  "rt.sdmEnrichment": "Retired: sdm.resources replaced it, and the 2026-10-07-sdm-resources-key migration moved stored values."
 }

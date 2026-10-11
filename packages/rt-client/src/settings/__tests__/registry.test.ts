@@ -57,7 +57,7 @@ describe("settings/registry", () => {
       }
     });
 
-    test("exactly 27 keys are migrated:true", () => {
+    test("exactly 26 keys are migrated:true", () => {
       const migrated = allDefs().filter((d) => d.migrated);
 
       expect(migrated.map((d) => d.key).sort()).toEqual(
@@ -65,7 +65,7 @@ describe("settings/registry", () => {
           "rt.intercepts", "rt.ignoredMrs", "rt.repoIdentityOverrides", "rt.repoRoots", "rt.roles", "rt.worktrees", "rt.worktreeReadyApproval",
           "rt.notifications", "rt.cron", "rt.repoTracking", "rt.runsPruneDays", "rt.runaway", "rt.workspacePrefs",
           "rt.sync", "rt.branchNaming", "rt.variations", "rt.presets", "rt.dopplerTemplate",
-          "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.sdmEnrichment", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations",
+          "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations",
           "rt.apiPort",
         ].sort(),
       );
@@ -143,23 +143,19 @@ describe("settings/registry", () => {
       expect(def?.default).toEqual({ enabled: false, killProcesses: true });
     });
 
-    test("rt.sdmEnrichment is a TEAM-ONLY map with no default (ownership latch, employer-resource invariant)", () => {
-      const def = getDef("rt.sdmEnrichment");
-
-      expect(def?.scopes).toEqual(["team", "org"]);
-      expect(def?.type).toBe("object");
-      expect(def?.merge).toBe("replace");
-      expect(def?.default).toBeUndefined();
+    test("rt.sdmEnrichment is retired: gone from the registry, still removable from a store", () => {
+      expect(getDef("rt.sdmEnrichment")).toBeUndefined();
+      expect(isRetiredKey("rt.sdmEnrichment")).toBe(true);
     });
 
-    test("sdm.resources and sdm.carriers are team maps with no default (ownership latch)", () => {
+    test("sdm.resources and sdm.carriers are team maps that default to empty", () => {
       for (const key of ["sdm.resources", "sdm.carriers"]) {
         const def = getDef(key);
 
         expect(def?.scopes).toEqual(["team", "org"]);
         expect(def?.type).toBe("object");
         expect(def?.merge).toBe("replace");
-        expect(def?.default).toBeUndefined();
+        expect(def?.default).toEqual({});
       }
     });
 
@@ -308,13 +304,13 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 27 migrated:true keys and the 51 suite keys", () => {
+    test("has exactly the 26 migrated:true keys and the 51 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
         "rt.notifications", "rt.cron", "rt.repoTracking", "rt.runsPruneDays", "rt.runaway", "rt.workspacePrefs",
         "rt.sync", "rt.branchNaming", "rt.variations", "rt.presets", "rt.dopplerTemplate",
-        "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.sdmEnrichment", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations",
+        "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations",
         "rt.apiPort",
       ];
       const suiteKeys = [

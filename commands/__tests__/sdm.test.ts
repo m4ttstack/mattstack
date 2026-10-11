@@ -260,16 +260,14 @@ describe("sdm blocks", () => {
     expect(renderPlain(__test__.refreshBlocks(1, "timed out"))).toBe("[warning] The scan had a problem  timed out\n[ok] Found 1 StrongDM connection\n");
   });
 
-  test("enrichment shows the file and how many connections have a label", () => {
-    expect(renderPlain(__test__.enrichmentBlocks("/x/enrichment.jsonc", 0, 2))).toBe(
-      "labels file: /x/enrichment.jsonc\n[not yet] Labels on 0 of 2 connections  the rest show their StrongDM names\n",
-    );
-    expect(renderPlain(__test__.enrichmentBlocks("/x/enrichment.jsonc", 2, 2))).toBe("labels file: /x/enrichment.jsonc\n[ok] Labels on all 2 connections\n");
-    expect(renderPlain(__test__.enrichmentBlocks("/x/enrichment.jsonc", 0, 0))).toBe("labels file: /x/enrichment.jsonc\n[skipped] StrongDM shows no connections to label\n");
+  test("enrichment shows how many connections have a label", () => {
+    expect(renderPlain(__test__.enrichmentBlocks(0, 2))).toBe("[not yet] Labels on 0 of 2 connections  the rest show their StrongDM names\n");
+    expect(renderPlain(__test__.enrichmentBlocks(2, 2))).toBe("[ok] Labels on all 2 connections\n");
+    expect(renderPlain(__test__.enrichmentBlocks(0, 0))).toBe("[skipped] StrongDM shows no connections to label\n");
   });
 
   test("the label count reads right for every count", () => {
-    const line = (e: number, t: number) => renderPlain(__test__.enrichmentBlocks("/x/labels.json", e, t)).split("\n")[1];
+    const line = (e: number, t: number) => renderPlain(__test__.enrichmentBlocks(e, t)).split("\n")[0];
     expect(line(0, 1)).toBe("[not yet] Labels on 0 of 1 connection  the rest show their StrongDM names");
     expect(line(1, 3)).toBe("[not yet] Labels on 1 of 3 connections  the rest show their StrongDM names");
     expect(line(3, 3)).toBe("[ok] Labels on all 3 connections");

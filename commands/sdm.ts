@@ -6,14 +6,12 @@
  *   rt sdm status                   CLI health + connected tunnels
  *   rt sdm login [--manual] [--visible]   log in (default: browser popup flow)
  *   rt sdm refresh                  re-scan StrongDM, bust the cache
- *   rt sdm enrichment [init]        show, or scaffold, the declarative label/tier map
+ *   rt sdm enrichment               how many connections your team has labelled
  *
  * The daemon serves the resource scan when running (10-minute cache);
  * everything falls back to in-process execution when it is not.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import {
@@ -31,7 +29,7 @@ import {
 } from "../lib/sdm/core.ts";
 import { scanSdmResources, type SdmResource } from "../lib/sdm/scan.ts";
 import { buildSdmConnections, type SdmConnection } from "../lib/sdm/browse.ts";
-import { loadCarriers, loadEnrichment, probeEnrichmentStore } from "../lib/sdm/enrichment.ts";
+import { loadCarriers, loadEnrichment } from "../lib/sdm/enrichment.ts";
 import { buildConnectionsJson, buildConnectionsRefusal, buildConnectJson, buildProductionRefusal, buildStatusJson, shouldRefuseProduction } from "../lib/sdm/agent-json.ts";
 import { loadSdmState, recordRecent, type RecentEntry } from "../lib/sdm/state.ts";
 import { runGuidedConnect, type GuidedResult, type GuidedTarget } from "../lib/sdm/flow.ts";
@@ -251,11 +249,11 @@ function refreshBlocks(count: number, error?: string): Block[] {
   return blocks;
 }
 
-function enrichmentBlocks(path: string, enriched: number, total: number): Block[] {
-  if (total === 0) return [out.kv("labels file", path), out.line("skipped", "StrongDM shows no connections to label")];
+function enrichmentBlocks(enriched: number, total: number): Block[] {
+  if (total === 0) return [out.line("skipped", "StrongDM shows no connections to label")];
   const noun = total === 1 ? "connection" : "connections";
-  if (enriched === total) return [out.kv("labels file", path), out.line("done", total === 1 ? "Labels on the 1 connection" : `Labels on all ${total} ${noun}`)];
-  return [out.kv("labels file", path), out.line("pending", `Labels on ${enriched} of ${total} ${noun}`, "the rest show their StrongDM names")];
+  if (enriched === total) return [out.line("done", total === 1 ? "Labels on the 1 connection" : `Labels on all ${total} ${noun}`)];
+  return [out.line("pending", `Labels on ${enriched} of ${total} ${noun}`, "the rest show their StrongDM names")];
 }
 
 // ── Guided flow wiring (real prompts, real sdm) ──────────────────────────────
@@ -611,56 +609,17 @@ export async function refreshCmd(): Promise<void> {
   out.print(...refreshBlocks(resources.length, error));
 }
 
-/**
- * Pure formatter for `rt sdm enrichment init`: a JSONC skeleton with one
- * entry per scanned resource name, ready to fill in labels/tiers. No console
- * writes, so this is unit-testable without a terminal.
- */
-export function enrichmentSkeleton(names: string[]): string {
-  const lines = [
-    "{",
-    "  // rt sdm enrichment: map a StrongDM resource name to a nicer label/tier/db.",
-    "  // Fill in labels; delete resources you do not care about. Unmapped -> raw name.",
-  ];
-  names.forEach((name, i) => lines.push(`  ${JSON.stringify(name)}: { "label": "", "tier": "" }${i === names.length - 1 ? "" : ","}`));
-  lines.push("}", "");
-  return lines.join("\n");
-}
-
-/**
- * `rt sdm enrichment`: show how much of the scanned catalog is enriched.
- * `rt sdm enrichment init`: scaffold ~/.mattstack/rt/sdm/enrichment.jsonc with one
- * entry per scanned resource, refusing to clobber an existing file, or once
- * the team store owns `sdm.resources` (the ownership latch), refusing to
- * scaffold the file at all, since the store is authoritative from here on.
- */
+/** `rt sdm enrichment`: how many scanned connections your team's labels cover. */
 export async function enrichmentCmd(rest: string[]): Promise<void> {
-  const { enrichmentPath, loadEnrichment } = await import("../lib/sdm/enrichment.ts");
-  const path = enrichmentPath();
-  if (rest[0] === "init") {
-    if (probeEnrichmentStore() !== undefined) {
-      out.print(out.line("skipped", "Your team's settings already label these connections", "rt did not create a labels file"), out.kv("file", path));
-      return;
-    }
-    if (existsSync(path)) {
-      out.note(out.line("refused", "Your labels file already exists"), out.kv("file", path));
-      process.exitCode = 1;
-      return;
-    }
-    const { resources } = await getScan(true);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, enrichmentSkeleton(resources.map(r => r.name)));
-    out.print(
-      out.line("done", "Created your labels file", `${resources.length} connection${resources.length === 1 ? "" : "s"}`),
-      out.kv("file", path),
-      out.callout("next", "Give a label to each connection you use"),
-    );
+  if (rest.length > 0) {
+    out.note(out.line("refused", "rt no longer makes a labels file", "your team's labels live in your team's settings"));
+    process.exitCode = 1;
     return;
   }
-  const enr = loadEnrichment(path);
+  const enr = loadEnrichment();
   const { resources } = await getScan();
   const enriched = resources.filter(r => enr[r.name]).length;
-  out.print(...enrichmentBlocks(path, enriched, resources.length));
+  out.print(...enrichmentBlocks(enriched, resources.length));
 }
 
 export const __test__ = {
