@@ -1,3 +1,5 @@
+import '../../icons';
+
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, screen, waitFor, within } from '@testing-library/react';
@@ -566,6 +568,42 @@ describe('HealthTab: installed caches bar', () => {
     expect(screen.getByTestId('installed-caches-restart')).toHaveTextContent(
       'run /reload-plugins in running sessions to apply'
     );
+  });
+
+  it('shows the progress card while sync runs, then swaps it for the report', async () => {
+    let finish: (value: unknown) => void = () => {};
+    syncPost.mockReturnValue(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+    const user = userEvent.setup();
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, LAG_CHECK);
+
+    await user.click(await screen.findByTestId('installed-caches-sync'));
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: 'Run sync',
+      })
+    );
+
+    const card = await screen.findByTestId('sync-progress-card');
+    expect(card).toHaveTextContent('Syncing demo');
+    const button = screen.getByTestId('installed-caches-sync');
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent('Syncing');
+    expect(
+      screen.queryByTestId('installed-caches-steps')
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      finish(ok(SYNC_REPORT));
+    });
+
+    expect(
+      await screen.findByTestId('installed-caches-steps')
+    ).toHaveTextContent('update-pack');
+    expect(screen.queryByTestId('sync-progress-card')).not.toBeInTheDocument();
   });
 
   it('a no-op sync (versions unchanged) says "matches source", never "x installed to x"', async () => {
