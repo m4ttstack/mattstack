@@ -1696,49 +1696,6 @@
       "additionalProperties": {}
     }
   },
-  "rt.sdmEnrichment": {
-    "storeVersion": 1,
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "object",
-      "propertyNames": {
-        "type": "string"
-      },
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "label": {
-            "type": "string"
-          },
-          "tier": {
-            "type": "string"
-          },
-          "production": {
-            "type": "boolean"
-          },
-          "reasonSuggestion": {
-            "type": "string"
-          },
-          "db": {
-            "type": "object",
-            "properties": {
-              "database": {
-                "type": "string"
-              },
-              "schema": {
-                "type": "string"
-              },
-              "user": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": {}
-          }
-        },
-        "additionalProperties": {}
-      }
-    }
-  },
   "rt.sync": {
     "storeVersion": 1,
     "schema": {

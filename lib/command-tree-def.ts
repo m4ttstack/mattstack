@@ -1013,6 +1013,15 @@ export const TREE: Record<string, CommandNode> = {
     ],
   },
 
+  "hook-state": {
+    description: "Says whether a git hook runs in this repo",
+    module: "./commands/hooks.ts",
+    fn: "hookStateCommand",
+    hidden: true,
+    omitBehavior: { exempt: "called by rt's git hook scripts with the hook's name; never interactive" },
+    args: [{ name: "Hook", type: "text", placeholder: "pre-push", hint: "The git hook about to run" }],
+  },
+
   run: {
     description: "Repo package runner",
     module: "./commands/run.ts",
@@ -1118,13 +1127,10 @@ export const TREE: Record<string, CommandNode> = {
         args: [],
       },
       enrichment: {
-        description: "Show or create the labels for your connections",
+        description: "See how many of your connections have labels",
         module: "./commands/sdm.ts",
         fn: "enrichmentCmd",
-        omitBehavior: "list",
-        args: [
-          { name: "Subcommand", type: "select", hint: "Omit to show enrichment coverage; 'init' scaffolds the enrichment file", options: [{ value: "init", label: "init", hint: "Scaffold ~/.mattstack/rt/sdm/enrichment.jsonc from the scanned catalog" }] },
-        ],
+        args: [],
       },
       "set-email": {
         description: "Save your StrongDM email",

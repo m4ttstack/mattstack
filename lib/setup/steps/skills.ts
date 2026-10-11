@@ -130,10 +130,6 @@ function writable(ctx: ApplyContext, key: string, stepId: StepId = "board.keys")
   return true;
 }
 
-function isUnset(key: string): boolean {
-  return getSetting(key).value === undefined;
-}
-
 /**
  * The joiner's own forge handle, which is both who their board runs as and
  * who agents address in chat. Neither key has a writer anywhere else, and
@@ -174,7 +170,7 @@ async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
   // Both keys are written once and never topped up, so they wait until every tracked repo is registered.
   const waiting = missing.length > 0 ? `waiting on ${missing.join(", ")} (not registered yet), left unset; written on the next run once repos.clone lands them` : null;
 
-  if (writable(ctx, "board.cwds") && isUnset("board.cwds")) {
+  if (writable(ctx, "board.cwds") && unwritten("board.cwds")) {
     const cwd = found[0]?.path;
     if (waiting) ctx.log("board.keys", `board.cwds: ${waiting}`);
     else if (!cwd) ctx.log("board.keys", "board.cwds: the team tracks no repos, left unset");
@@ -184,7 +180,7 @@ async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
     }
   }
 
-  if (writable(ctx, "gitq.board") && isUnset("gitq.board")) {
+  if (writable(ctx, "gitq.board") && unwritten("gitq.board")) {
     if (waiting) ctx.log("board.keys", `gitq.board: ${waiting}`);
     else {
       setSetting("gitq.board", { repos: found.map((r) => r.name), port: 11008 }, "machine");
@@ -192,7 +188,7 @@ async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
     }
   }
 
-  if (writable(ctx, "gitq.workSlots") && isUnset("gitq.workSlots")) {
+  if (writable(ctx, "gitq.workSlots") && unwritten("gitq.workSlots")) {
     if (root) {
       setSetting("gitq.workSlots", { workSlotLocation: join(root, ".gitq-slots"), maxWorkSlots: 3 }, "machine");
       written.push("gitq.workSlots");

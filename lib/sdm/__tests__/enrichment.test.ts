@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { loadCarriers, loadEnrichment, stripJsonc } from "../enrichment.ts";
+import { loadCarriers, loadEnrichment } from "../enrichment.ts";
 import { mkdtempSync, writeFileSync, mkdirSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
@@ -13,65 +13,72 @@ function writeStore(file: string, obj: unknown): void {
   writeFileSync(file, JSON.stringify(obj, null, 2));
 }
 
-describe("stripJsonc", () => {
-  test("removes line + block comments and trailing commas", () => {
-    const out = stripJsonc(`{
-      // a comment
-      "a": 1, /* inline */
-      "b": 2,   // trailing comma below
-    }`);
-    expect(JSON.parse(out)).toEqual({ a: 1, b: 2 });
-  });
-});
-
 describe("loadEnrichment", () => {
-  // rt.sdmEnrichment reads through the settings resolver now (ownership
-  // latch), so every case here needs an isolated HOME — a real ~/.mattstack
-  // must never leak into these reads.
+  let logged: string[];
+  let io: ReturnType<typeof captureOut>;
+  const legacyFile = () => join(process.env.HOME!, ".mattstack", "rt", "sdm", "enrichment.jsonc");
+
   beforeEach(() => {
     process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "enr-home-")));
+    warnings.reset();
+    logged = [];
+    setWarningLog((_module, message) => logged.push(message));
+    io = captureOut();
+    out.__test__.setHuman(() => false);
+  });
+  afterEach(() => {
+    io.restore();
+    warnings.reset();
   });
 
-  const write = (s: string) => { const p = join(mkdtempSync(join(tmpdir(), "enr-")), "e.jsonc"); writeFileSync(p, s); return p; };
-
-  test("store unowned: reads a JSONC map from the file", () => {
-    const p = write(`{ "acme-db-qa": { "label": "acme qa", "db": { "schema": "acme" } } }`);
-    expect(loadEnrichment(p)).toEqual({ "acme-db-qa": { label: "acme qa", db: { schema: "acme" } } });
-  });
-  test("store unowned, missing file -> {}", () => { expect(loadEnrichment(join(tmpdir(), "nope-x.jsonc"))).toEqual({}); });
-  test("store unowned, corrupt file -> {} (never throws)", () => { expect(loadEnrichment(write("{ not json"))).toEqual({}); });
-
-  test("store-owned: store wins wholesale, the file is never consulted", () => {
-    const p = write(`{ "file-only": { "label": "from file" } }`);
-    writeStore(sharedStorePath("acme"), {
-      "rt.sdmEnrichment": { "acme-db-qa": { label: "from store", tier: "gold" } },
-    });
-
-    expect(loadEnrichment(p)).toEqual({ "acme-db-qa": { label: "from store", tier: "gold" } });
+  test("nothing set: no labels, and no word about it", () => {
+    expect(loadEnrichment()).toEqual({});
+    expect(io.stderr()).toBe("");
   });
 
-  test("store shape validation: a non-object store value is refused, falling back to the file", () => {
-    const p = write(`{ "acme-db-qa": { "label": "from file" } }`);
-    writeStore(sharedStorePath("acme"), { "rt.sdmEnrichment": ["nope"] });
-
-    expect(loadEnrichment(p)).toEqual({ "acme-db-qa": { label: "from file" } });
+  test("reads your team's sdm.resources", () => {
+    writeStore(sharedStorePath("acme"), { "sdm.resources": { "acme-db-qa": { label: "Acme QA", tier: "gold" } } });
+    expect(loadEnrichment()).toEqual({ "acme-db-qa": { label: "Acme QA", tier: "gold" } });
   });
 
-  test("sdm.resources wins over rt.sdmEnrichment and the file", () => {
-    const p = write(`{ "file-only": { "label": "from file" } }`);
-    writeStore(sharedStorePath("acme"), {
-      "sdm.resources": { "acme-db-qa": { label: "new key" } },
-      "rt.sdmEnrichment": { "acme-db-qa": { label: "old key" } },
-    });
-
-    expect(loadEnrichment(p)).toEqual({ "acme-db-qa": { label: "new key" } });
-  });
-
-  test("rt.sdmEnrichment still wins over the file when sdm.resources is unset", () => {
-    const p = write(`{ "file-only": { "label": "from file" } }`);
+  test("the retired rt.sdmEnrichment is not read, and says nothing", () => {
     writeStore(sharedStorePath("acme"), { "rt.sdmEnrichment": { "acme-db-qa": { label: "old key" } } });
+    expect(loadEnrichment()).toEqual({});
+    expect(io.stderr()).toBe("");
+  });
 
-    expect(loadEnrichment(p)).toEqual({ "acme-db-qa": { label: "old key" } });
+  test("an old labels file is not read: rt says once how your team's owner can move it", () => {
+    mkdirSync(dirname(legacyFile()), { recursive: true });
+    writeFileSync(legacyFile(), '{\n  // mine\n  "acme-db-qa": { "label": "It\'s QA" },\n}\n');
+    expect(loadEnrichment()).toEqual({});
+    expect(loadEnrichment()).toEqual({});
+    expect(io.stderr()).toBe(
+      "[warning] Your old StrongDM labels file is no longer read  your team's owner can copy it into your team's settings\n" +
+        `  next: rt settings set sdm.resources '{"acme-db-qa":{"label":"It'\\''s QA"}}' --scope team\n`,
+    );
+    expect(logged[0]).toBe(`the old labels file ${legacyFile()} is no longer read`);
+  });
+
+  test("an old labels file says nothing once your team has labels", () => {
+    mkdirSync(dirname(legacyFile()), { recursive: true });
+    writeFileSync(legacyFile(), '{ "acme-db-qa": { "label": "x" } }');
+    writeStore(sharedStorePath("acme"), { "sdm.resources": { "acme-db-qa": { label: "Acme QA" } } });
+    expect(loadEnrichment()).toEqual({ "acme-db-qa": { label: "Acme QA" } });
+    expect(io.stderr()).toBe("");
+  });
+
+  test("an old labels file that is not a map of labels is named without a command", () => {
+    mkdirSync(dirname(legacyFile()), { recursive: true });
+    writeFileSync(legacyFile(), '["acme-db-qa"]');
+    expect(loadEnrichment()).toEqual({});
+    expect(io.stderr()).toBe("[warning] Your old StrongDM labels file is no longer read  rt could not read it either\n");
+  });
+
+  test("an old labels file rt cannot read is named without a command", () => {
+    mkdirSync(dirname(legacyFile()), { recursive: true });
+    writeFileSync(legacyFile(), "{ not json");
+    expect(loadEnrichment()).toEqual({});
+    expect(io.stderr()).toBe("[warning] Your old StrongDM labels file is no longer read  rt could not read it either\n");
   });
 });
 
@@ -124,39 +131,17 @@ describe("enrichment warnings", () => {
     warnings.reset();
   });
 
-  test("a file that will not parse is logged with its path and shown once, without the path", () => {
-    const dir = mkdtempSync(join(tmpdir(), "enr-warn-"));
-    const p = join(dir, "e.jsonc");
-    writeFileSync(p, "{ not json");
-
-    expect(loadEnrichment(p)).toEqual({});
-    expect(loadEnrichment(p)).toEqual({});
-
-    expect(logged).toHaveLength(2);
-    expect(logged[0]!.module).toBe("sdm");
-    expect(logged[0]!.message.startsWith(`failed to parse ${p}, ignoring enrichment file: `)).toBe(true);
-    expect(logged[0]!.context).toMatchObject({ path: p });
-    expect(io.stderr()).toBe("[warning] Your sdm enrichment file could not be read  rt is ignoring it\n");
-    expect(io.stdout()).toBe("");
-  });
-
   test("a setting the store cannot resolve is logged and shown with the command that finds it", () => {
-    writeStore(sharedStorePath("acme"), { "rt.sdmEnrichment": { "acme-db-qa": { label: "${team:../x}" } } });
+    writeStore(sharedStorePath("acme"), { "sdm.resources": { "acme-db-qa": { label: "${team:../x}" } } });
 
-    expect(loadEnrichment(join(tmpdir(), "no-such-enrichment.jsonc"))).toEqual({});
+    expect(loadEnrichment()).toEqual({});
 
     expect(logged[0]!.module).toBe("sdm");
-    expect(logged[0]!.message.startsWith('ignoring "rt.sdmEnrichment" -- ')).toBe(true);
+    expect(logged[0]!.message.startsWith('ignoring "sdm.resources" -- ')).toBe(true);
     const shown = io.stderr();
     expect(shown.startsWith("[warning] Your sdm enrichment setting is being ignored  ")).toBe(true);
     expect(shown.endsWith("\n  next: rt settings check\n")).toBe(true);
     expect(shown.split("\n")).toHaveLength(3);
     expect(io.stdout()).toBe("");
-  });
-
-  test("a missing file is no warning at all", () => {
-    expect(loadEnrichment(join(tmpdir(), "no-such-enrichment.jsonc"))).toEqual({});
-    expect(logged).toEqual([]);
-    expect(io.stderr()).toBe("");
   });
 });

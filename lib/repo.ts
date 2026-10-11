@@ -9,6 +9,7 @@ import { execSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, mkdirSync, realpathSync } from "fs";
 import { basename, join, resolve } from "path";
 import { shellQuote } from "./herdr-launch.ts";
+import { readOriginRemoteForIdentity } from "./git-origin.ts";
 import { repoDataDir } from "./rt-paths.ts";
 import { identityFromRemote, serializeIdentity } from "./settings/identity.ts";
 
@@ -94,23 +95,6 @@ function deriveBaseUrl(remoteUrl: string): string {
     .replace(/^git@([^:]+):(.*)/, "https://$1/$2");
 }
 
-/**
- * Reads the origin remote the same way rt-client's async `deriveRepoIdentity`
- * does (`git config --get remote.origin.url`), not `git remote get-url origin`
- * — under an `insteadOf` rewrite the two spellings diverge and would mint two
- * identities for one repo. This is the single origin-URL read on the identity
- * path; its raw value feeds the identity, the name, and the display URLs.
- */
-function readOriginRemoteForIdentity(repoRoot: string): string | null {
-  try {
-    const text = execSync("git config --get remote.origin.url", {
-      cwd: repoRoot, encoding: "utf8", stdio: "pipe",
-    }).trim();
-    return text || null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Main-worktree realpath, computed the same way rt-client's async

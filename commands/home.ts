@@ -89,7 +89,7 @@ import { runCapture } from "../lib/subprocess.ts";
 import { loadRepoIndex } from "../lib/daemon/repo-index.ts";
 import { loadMachineRepoTracking } from "../lib/repo-tracking.ts";
 import { isDaemonInstalled } from "../lib/daemon-config.ts";
-import { getSetting } from "../lib/settings/resolve.ts";
+import { unwritten } from "../lib/settings/presence.ts";
 import { readIntent as readIntentFromDisk, type SetupIntent } from "../lib/setup/intent.ts";
 import { deckHelperLabel } from "../lib/setup/need.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
@@ -598,16 +598,16 @@ async function runRefreshSteps(steps: MaterializeStep[], exec: MaterializeExecSe
 
 /**
  * `claude.marketplaces`/`claude.plugins` replay is the installer's job, not
- * init's. This only points at it when either resolves to a value, so a
- * machine with nothing configured stays silent.
+ * init's. This points at it only when a store sets either key, so a machine
+ * with nothing configured stays silent.
  */
-export function claudePluginsPointerMessage(marketplaces: unknown, plugins: unknown): string | null {
-  if (marketplaces === undefined && plugins === undefined) return null;
+export function claudePluginsPointerMessage(marketplacesSet: boolean, pluginsSet: boolean): string | null {
+  if (!marketplacesSet && !pluginsSet) return null;
   return "Your Claude plugin and marketplace settings are applied by the mattstack installer, not by rt home init. Run the installer again if this Mac needs them.";
 }
 
 function printClaudePluginsPointer(): void {
-  const message = claudePluginsPointerMessage(getSetting<unknown>("claude.marketplaces").value, getSetting<unknown>("claude.plugins").value);
+  const message = claudePluginsPointerMessage(!unwritten("claude.marketplaces"), !unwritten("claude.plugins"));
   if (message) out.print(out.paragraph(message));
 }
 

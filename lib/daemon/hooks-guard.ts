@@ -37,11 +37,10 @@ export function createHooksGuard(
 
   async function checkAndRepairHooksPath(repoName: string, repoPath: string): Promise<boolean> {
     const dataDir = repoDataDir(repoName);
-    const hooksJson = join(dataDir, "hooks.json");
     const shimsDir = join(dataDir, "hooks");
 
-    // Only guard repos that have hooks managed by rt
-    if (!existsSync(hooksJson) || !existsSync(shimsDir)) return false;
+    // The shim dir is what rt installed; it carries the on-deck guard, which applies even with every hook on.
+    if (!existsSync(shimsDir)) return false;
 
     const current = await runCapture(["git", "config", "core.hooksPath"], { cwd: repoPath, timeoutMs: 5000 });
     if (current.exitCode === 0) {

@@ -57,15 +57,15 @@ describe("settings/registry", () => {
       }
     });
 
-    test("exactly 28 keys are migrated:true", () => {
+    test("exactly 25 keys are migrated:true", () => {
       const migrated = allDefs().filter((d) => d.migrated);
 
       expect(migrated.map((d) => d.key).sort()).toEqual(
         [
           "rt.intercepts", "rt.ignoredMrs", "rt.repoIdentityOverrides", "rt.repoRoots", "rt.roles", "rt.worktrees", "rt.worktreeReadyApproval",
           "rt.notifications", "rt.cron", "rt.repoTracking", "rt.runsPruneDays", "rt.runaway", "rt.workspacePrefs",
-          "rt.sync", "rt.branchNaming", "rt.variations", "rt.presets", "rt.dopplerTemplate",
-          "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.sdmEnrichment", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations", "rt.hooks",
+          "rt.sync", "rt.variations", "rt.presets", "rt.dopplerTemplate",
+          "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations",
           "rt.apiPort",
         ].sort(),
       );
@@ -105,13 +105,13 @@ describe("settings/registry", () => {
       expect(def!.default).toBe(10);
     });
 
-    test("skills.writingStyle is a user, team and org string with no default (unset is what makes the setup row ask)", () => {
+    test("skills.writingStyle is a user, team and org string that defaults to conversational", () => {
       const def = getDef("skills.writingStyle");
       expect(def).toBeDefined();
       expect(def!.type).toBe("string");
       expect(def!.scopes).toEqual(["user", "team", "org"]);
       expect(def!.merge).toBe("replace");
-      expect(def!.default).toBeUndefined();
+      expect(def!.default).toBe("mattstack:writing-style-conversational");
     });
 
     test.each([
@@ -143,23 +143,19 @@ describe("settings/registry", () => {
       expect(def?.default).toEqual({ enabled: false, killProcesses: true });
     });
 
-    test("rt.sdmEnrichment is a TEAM-ONLY map with no default (ownership latch, employer-resource invariant)", () => {
-      const def = getDef("rt.sdmEnrichment");
-
-      expect(def?.scopes).toEqual(["team", "org"]);
-      expect(def?.type).toBe("object");
-      expect(def?.merge).toBe("replace");
-      expect(def?.default).toBeUndefined();
+    test("rt.sdmEnrichment is retired: gone from the registry, still removable from a store", () => {
+      expect(getDef("rt.sdmEnrichment")).toBeUndefined();
+      expect(isRetiredKey("rt.sdmEnrichment")).toBe(true);
     });
 
-    test("sdm.resources and sdm.carriers are team maps with no default (ownership latch)", () => {
+    test("sdm.resources and sdm.carriers are team maps that default to empty", () => {
       for (const key of ["sdm.resources", "sdm.carriers"]) {
         const def = getDef(key);
 
         expect(def?.scopes).toEqual(["team", "org"]);
         expect(def?.type).toBe("object");
         expect(def?.merge).toBe("replace");
-        expect(def?.default).toBeUndefined();
+        expect(def?.default).toEqual({});
       }
     });
 
@@ -284,18 +280,18 @@ describe("settings/registry", () => {
       }
     });
 
-    test("rt.hooks is a repo-scoped field-bag object with no default (ownership latch, per-hook-name fields too)", () => {
+    test("rt.hooks is a repo-scoped field-bag object that defaults to every hook on", () => {
       const def = getDef("rt.hooks");
       expect(def?.repoScoped, "rt.hooks should be repoScoped:true").toBe(true);
       expect([...def!.scopes].sort()).toEqual(["machine", "org", "team", "user"]);
       expect(def?.type).toBe("object");
       expect(def?.merge).toBe("deep");
-      expect(def?.default).toBeUndefined();
+      expect(def?.default).toEqual({ enabled: true });
       expect(def?.legacyFile).toBeUndefined();
     });
 
     test("the five newly migrated repo-scoped keys carry repoScoped:true and no legacyFile", () => {
-      for (const key of ["rt.sync", "rt.branchNaming", "rt.variations", "rt.presets", "rt.dopplerTemplate"]) {
+      for (const key of ["rt.sync", "rt.variations", "rt.presets", "rt.dopplerTemplate"]) {
         const def = getDef(key);
         expect(def?.repoScoped, `${key} should be repoScoped:true`).toBe(true);
         expect(def?.legacyFile, `${key} should carry no legacyFile`).toBeUndefined();
@@ -308,13 +304,13 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 28 migrated:true keys and the 51 suite keys", () => {
+    test("has exactly the 25 migrated:true keys and the 52 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
         "rt.notifications", "rt.cron", "rt.repoTracking", "rt.runsPruneDays", "rt.runaway", "rt.workspacePrefs",
-        "rt.sync", "rt.branchNaming", "rt.variations", "rt.presets", "rt.dopplerTemplate",
-        "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.sdmEnrichment", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations", "rt.hooks",
+        "rt.sync", "rt.variations", "rt.presets", "rt.dopplerTemplate",
+        "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations",
         "rt.apiPort",
       ];
       const suiteKeys = [
@@ -405,8 +401,10 @@ describe("settings/registry", () => {
         "panes.relocationAutoAccept",
         "sdm.carriers",
         "sdm.resources",
+        "rt.hooks",
+        "rt.branchNaming",
       ];
-      expect(suiteKeys).toHaveLength(87);
+      expect(suiteKeys).toHaveLength(89);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

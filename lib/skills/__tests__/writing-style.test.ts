@@ -1,24 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { getDef } from "../../settings/registry.ts";
 import type { Resolved } from "../../settings/resolve.ts";
-import {
-  FALLBACK_WRITING_STYLE, isPresetId, isValidSkillId, parsePreferencesStyle, preferencesPath, resolveWritingStyle,
-} from "../writing-style.ts";
-
-let home: string;
-beforeEach(() => { home = mkdtempSync(join(tmpdir(), "rt-writing-style-")); });
-afterEach(() => { rmSync(home, { recursive: true, force: true }); });
+import { FALLBACK_WRITING_STYLE, isPresetId, isValidSkillId, resolveWritingStyle } from "../writing-style.ts";
 
 const unset = (): Resolved<unknown> => ({ value: undefined, provenance: [] });
+const onDefault = (): Resolved<unknown> => ({ value: FALLBACK_WRITING_STYLE, provenance: [{ scope: "default", file: null }] });
 const at = (value: unknown, scope: "user" | "team" | "org"): Resolved<unknown> => ({ value, provenance: [{ scope, file: `/x/${scope}.jsonc` }] });
-
-function writePrefs(text: string) {
-  const path = preferencesPath(home);
-  mkdirSync(join(path, ".."), { recursive: true });
-  writeFileSync(path, text);
-}
 
 describe("isValidSkillId", () => {
   test("accepts plugin:name and bare names; refuses flags and paths", () => {
@@ -27,46 +17,46 @@ describe("isValidSkillId", () => {
   });
 });
 
-describe("parsePreferencesStyle", () => {
-  test("reads the backticked value on the keyed line", () => {
-    expect(parsePreferencesStyle("## Writing style\n\nwriting-style: `acme:team-writing-style`\n\nLoad it first.\n")).toBe("acme:team-writing-style");
+describe("resolveWritingStyle", () => {
+  test("a user value is yours", () => {
+    expect(resolveWritingStyle({ read: () => at("mattstack:writing-style-sparse", "user") })).toEqual({ skill: "mattstack:writing-style-sparse", source: "user" });
   });
-  test("reads an unquoted value", () => {
-    expect(parsePreferencesStyle("## Writing style\nwriting-style: team-voice\n")).toBe("team-voice");
+  test("a team or org value reads as the team default", () => {
+    expect(resolveWritingStyle({ read: () => at("mattstack:writing-style-structured", "team") }).source).toBe("team");
+    expect(resolveWritingStyle({ read: () => at("mattstack:writing-style-conversational", "org") }).source).toBe("team");
   });
-  test("no keyed line, no section, or a keyed line in another section reads nothing", () => {
-    expect(parsePreferencesStyle("## Writing style\nLoad `x:y` before drafting.\n")).toBeNull();
-    expect(parsePreferencesStyle("## Dev process runner\nwriting-style: `x:y`\n")).toBeNull();
-    expect(parsePreferencesStyle("## Writing style\n\n## Other\nwriting-style: `x:y`\n")).toBeNull();
+  test("the registry default, or nothing at all, reads as not chosen", () => {
+    expect(resolveWritingStyle({ read: onDefault })).toEqual({ skill: FALLBACK_WRITING_STYLE, source: "fallback" });
+    expect(resolveWritingStyle({ read: unset })).toEqual({ skill: FALLBACK_WRITING_STYLE, source: "fallback" });
   });
-  test("an invalid id reads nothing", () => {
-    expect(parsePreferencesStyle("## Writing style\nwriting-style: `-rf`\n")).toBeNull();
+  test("choosing conversational on purpose reads as chosen", () => {
+    expect(resolveWritingStyle({ read: () => at(FALLBACK_WRITING_STYLE, "user") })).toEqual({ skill: FALLBACK_WRITING_STYLE, source: "user" });
   });
-  test("an indented next heading still ends the section", () => {
-    expect(parsePreferencesStyle("## Writing style\n\n  ## Other\nwriting-style: `x:y`\n")).toBeNull();
+  test("an invalid stored value is skipped, not returned", () => {
+    expect(resolveWritingStyle({ read: () => at("-rf", "user") }).source).toBe("fallback");
+  });
+  test("the fallback is the registry default and a preset", () => {
+    expect(FALLBACK_WRITING_STYLE).toBe(getDef("skills.writingStyle")!.default as string);
+    expect(isPresetId(FALLBACK_WRITING_STYLE)).toBe(true);
   });
 });
 
-describe("resolveWritingStyle", () => {
-  test("a user value wins over preferences.md", () => {
-    writePrefs("## Writing style\nwriting-style: `x:from-prefs`\n");
-    expect(resolveWritingStyle({ home, read: () => at("mattstack:writing-style-sparse", "user") })).toEqual({ skill: "mattstack:writing-style-sparse", source: "user" });
+describe("preferences.md", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-writing-style-")));
+    process.env.HOME = home;
   });
-  test("a team value reads as the team default", () => {
-    expect(resolveWritingStyle({ home, read: () => at("mattstack:writing-style-structured", "team") })).toEqual({ skill: "mattstack:writing-style-structured", source: "team" });
+  afterEach(() => {
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
   });
-  test("an org value reads as the team default too", () => {
-    expect(resolveWritingStyle({ home, read: () => at("mattstack:writing-style-conversational", "org") })).toEqual({ skill: "mattstack:writing-style-conversational", source: "team" });
-  });
-  test("preferences.md is the second rung", () => {
-    writePrefs("## Writing style\nwriting-style: `acme:team-writing-style`\n");
-    expect(resolveWritingStyle({ home, read: unset })).toEqual({ skill: "acme:team-writing-style", source: "preferences" });
-  });
-  test("nothing anywhere falls back to conversational", () => {
-    expect(resolveWritingStyle({ home, read: unset })).toEqual({ skill: FALLBACK_WRITING_STYLE, source: "fallback" });
-    expect(isPresetId(FALLBACK_WRITING_STYLE)).toBe(true);
-  });
-  test("an invalid stored value is skipped, not returned", () => {
-    expect(resolveWritingStyle({ home, read: () => at("-rf", "user") }).source).toBe("fallback");
+
+  test("its writing-style line is no longer read", () => {
+    const dir = join(home, ".mattstack", "user", "skills");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "preferences.md"), "## Writing style\nwriting-style: `mattstack:writing-style-sparse`\n");
+    expect(resolveWritingStyle()).toEqual({ skill: FALLBACK_WRITING_STYLE, source: "fallback" });
   });
 });

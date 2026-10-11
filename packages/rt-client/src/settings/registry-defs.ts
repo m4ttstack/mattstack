@@ -197,9 +197,9 @@ const ROWS: readonly SettingDef[] = [
     scopes: ALL_SCOPES,
     merge: "deep",
     repoScoped: true,
+    default: { template: "${identifier}-${titleSlug}" },
     repoOnly: true,
-    migrated: true,
-    description: "Branch-naming templates, repoScoped. Read by the VS Code extension (extensions/vscode/rt-context), which lazily imports the legacy repos/<repo>/branch-naming.json into this key on first read; rt itself has no CLI-side reader.",
+    description: "Branch-naming template for a repo, read by the VS Code extension (extensions/vscode/rt-context). rt itself has no CLI-side reader.",
   },
   {
     key: "rt.variations",
@@ -235,32 +235,20 @@ const ROWS: readonly SettingDef[] = [
     description: "Template used to generate a repo's Doppler secrets config.",
   },
 
-  // --- wave 2 (ownership-latch ports, RT-53) ------------------------------
-  // These rows carry NO `default`: the ownership latch is `getSetting(key)
-  // .value === undefined`, and a registry default materializes as a present
-  // value — adding one flips the key store-authoritative on every install
-  // (same invariant as the board.* block above).
-  {
-    key: "rt.sdmEnrichment",
-    type: "object",
-    scopes: ["team"],
-    merge: "replace",
-    migrated: true,
-    description: "Deprecated: replaced by sdm.resources, which the 2026-10-07-sdm-resources-key migration moves it to. Team-declared StrongDM resource enrichment (resource name -> label/tier/db/reasonSuggestion); team-ONLY by design, enrichment names employer resources and must never be settable in a user or machine store. Ownership-latch port of ~/.mattstack/rt/sdm/enrichment.jsonc, store wins wholesale (a name-keyed map, not a field-bag).",
-  },
-  // The sdm.* rows carry NO `default`: loadEnrichment's latch reads
-  // `value === undefined` as "fall back to rt.sdmEnrichment, then the file".
+  // --- wave 2 (ports from rt's own files, RT-53) ---------------------------
   {
     key: "sdm.resources",
     type: "object",
     scopes: ["team"],
+    default: {},
     merge: "replace",
-    description: "Per-resource overrides for the rt sdm picker: resource name -> label/tier/production/reasonSuggestion/db. Team-only, since it names employer resources. Replaces rt.sdmEnrichment; the store value wins wholesale.",
+    description: "Per-resource overrides for the rt sdm picker: resource name -> label/tier/production/reasonSuggestion/db. Team-only, since it names employer resources.",
   },
   {
     key: "sdm.carriers",
     type: "object",
     scopes: ["team"],
+    default: {},
     merge: "replace",
     description: "Display names for StrongDM tenant tags in the rt sdm picker: tenant tag -> { label }. A tag with no entry shows capitalised. Team-only, since it names employer customers.",
   },
@@ -305,11 +293,11 @@ const ROWS: readonly SettingDef[] = [
     key: "rt.hooks",
     type: "object",
     scopes: ALL_SCOPES,
+    default: { enabled: true },
     merge: "deep",
     repoScoped: true,
     repoOnly: true,
-    migrated: true,
-    description: "Per-repo git hook enable/disable state ({enabled, hooks: {<hookName>: boolean}}); ownership-latch port of repos/<repo>/hooks.json, store wins per field once it owns the key — including per-hook-name entries inside the nested hooks map, each defaulting to enabled when absent. The installed git-hook shim still greps repos/<repo>/hooks.json with zero process spawns (a hook fires on every git operation); that file is now a DERIVED CACHE this key writes through, kept current by commands/hooks.ts's regenerateHooksCache at every write seam.",
+    description: "Per-repo git hook switches ({enabled, hooks: {<hookName>: boolean}}); a hook the map does not name runs. rt hooks writes your user settings, so a repo's choices follow you to every Mac. rt's git hook shim asks rt for this value before each hook and runs the hook unless it is off.",
   },
   {
     key: "rt.daemonPath",
@@ -441,6 +429,7 @@ const ROWS: readonly SettingDef[] = [
     key: "claude.marketplaces",
     type: "array",
     scopes: ["user", "team"],
+    default: [],
     merge: "add",
     description: "Claude Code plugin marketplaces to add, in order. The org's, the team's and your own lists add up.",
   },
@@ -448,6 +437,7 @@ const ROWS: readonly SettingDef[] = [
     key: "claude.plugins",
     type: "array",
     scopes: ["user", "team"],
+    default: [],
     merge: "add",
     description: "Claude Code plugins to install, in order. The org's, the team's and your own lists add up; a plugin from the org or a team is installed but left for you to enable.",
   },
@@ -1010,12 +1000,11 @@ const ROWS: readonly SettingDef[] = [
   },
 
   // --- skills (writing style) ----------------------------------------------
-  // No `default`: an unset key is what makes the setup row read needs-you.
-  // The conversational fallback lives in the resolver, never in this row.
   {
     key: "skills.writingStyle",
     type: "string",
     scopes: ["user", "team"],
+    default: "mattstack:writing-style-conversational",
     merge: "replace",
     description: "Skill id that sets the voice for prose posted under your name (reviews, replies, PR descriptions). A team value is the default a member's user value overrides.",
   },
