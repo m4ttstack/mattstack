@@ -1,25 +1,13 @@
 /**
- * Branch naming template resolver — VSCode extension copy.
+ * Branch naming template resolver, VSCode extension copy.
  *
  * Synchronous-only: supports ${identifier}, ${teamPrefix}, ${ticketNumber},
  * ${titleSlug}. ${llmSlug:N} falls back to a mechanical slug (LLM is CLI-only).
- *
- * `loadBranchNamingConfig` resolves `rt.branchNaming` through rt-client's
- * settings resolver (ownership latch, docs/settings-architecture.md): the
- * store wins once it holds a value for this repo identity; otherwise the
- * legacy `<dataDir>/branch-naming.json` file stays authoritative and is
- * lazily imported into the store on read, then renamed (never deleted) so a
- * second read never re-imports it. Imports write to the org.repo rung
- * (docs/superpowers/specs/2026-08-20-suite-settings-migration.md's key
- * disposition table: a branch template is a repo convention, not a personal
- * preference, same reasoning as `rt.sync`/`rt.variations`). A machine with no
- * org clone or an org write role keeps reading the legacy file without
- * importing it. Other import failures warn and leave the legacy file in place.
  */
 
-import { existsSync, readFileSync, renameSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { currentOrg, currentRole, getSetting, mayWritePath, setSetting } from "@mattstack/rt-client";
+import { getDef, getSetting } from "@mattstack/rt-client";
 
 export interface BranchNamingConfig {
   template: string;
@@ -33,94 +21,39 @@ function asConfig(raw: unknown): BranchNamingConfig | null {
   return { template: template.trim() };
 }
 
-/**
- * `value === undefined` is the ownership-latch signal (docs/settings-
- * architecture.md#porting-an-apps-config): the store has nothing for this
- * repo identity. A resolver throw (e.g. a hand-authored value using an
- * unexpandable closed-set variable like `${worktree}`) counts as unowned
- * too, per the same doc — it must degrade to the legacy file, not surface.
- */
-function probeStore(repoIdentity: string | null): { owned: boolean; value: BranchNamingConfig | null } {
-  try {
-    const { value } = getSetting<unknown>(SETTING_KEY, { repoIdentity });
-    if (value === undefined) return { owned: false, value: null };
-    return { owned: true, value: asConfig(value) };
-  } catch {
-    return { owned: false, value: null };
-  }
+export function defaultBranchNaming(): BranchNamingConfig {
+  return asConfig(getDef(SETTING_KEY)?.default) as BranchNamingConfig;
 }
 
-/**
- * Imports the legacy file's template into the org.repo store rung, then
- * verifies the import actually landed (a fresh `getSetting` read — the
- * resolver never memoizes) before renaming the file. Never unlinks: a write
- * that silently failed to persist must leave the only copy of the template
- * on disk. A Mac that cannot write the org store leaves the legacy file
- * untouched and keeps reading it.
- */
-function migrateLegacyFile(legacyPath: string, repoIdentity: string, config: BranchNamingConfig): void {
-  const org = currentOrg();
-  if (org === null || !mayWritePath(currentRole(org), "mattstack/org")) return;
+const noticed = new Set<string>();
+
+/** The pre-store file is no longer read. Only an org admin can move it, so say how, once per file. */
+function noticeLegacyFile(dataDir: string, repoIdentity: string | null): void {
+  const legacyPath = join(dataDir, "branch-naming.json");
+  if (noticed.has(legacyPath) || !existsSync(legacyPath)) return;
+  noticed.add(legacyPath);
+  let config: BranchNamingConfig | null;
   try {
-    setSetting(SETTING_KEY, { template: config.template }, "org", { repoIdentity });
-  } catch (err) {
-    console.warn(`rt-context: could not import ${legacyPath} into the settings store: ${(err as Error).message}`);
+    config = asConfig(JSON.parse(readFileSync(legacyPath, "utf8")));
+  } catch {
+    config = null;
+  }
+  if (config === null || repoIdentity === null) {
+    console.warn(`rt-context: ${legacyPath} is no longer read`);
     return;
   }
-
-  let verified: BranchNamingConfig | null;
-  try {
-    verified = asConfig(getSetting<unknown>(SETTING_KEY, { repoIdentity }).value);
-  } catch (err) {
-    console.warn(`rt-context: imported ${legacyPath} but could not verify the write: ${(err as Error).message}`);
-    return;
-  }
-
-  if (!verified || verified.template !== config.template) {
-    console.warn(`rt-context: imported ${legacyPath} but the store did not read back the same value — leaving the file in place`);
-    return;
-  }
-
-  try {
-    renameSync(legacyPath, `${legacyPath}.migrated`);
-  } catch (err) {
-    console.warn(`rt-context: imported ${legacyPath} but could not rename it to .migrated: ${(err as Error).message}`);
-  }
+  const value = JSON.stringify(config).replaceAll("'", "'\\''");
+  console.warn(`rt-context: ${legacyPath} is no longer read. An org admin can move it with: rt settings set rt.branchNaming '${value}' --scope org --repo ${repoIdentity}`);
 }
 
-/**
- * `dataDir` locates the legacy file; `repoIdentity` (identity.ts's
- * normalized `host/path`, or null when it can't be derived for this repo)
- * keys the store's repo-scoped rung. Never throws — a resolution failure
- * returns null exactly like a missing/corrupt file always has.
- */
-export function loadBranchNamingConfig(
-  dataDir: string,
-  repoIdentity: string | null,
-): BranchNamingConfig | null {
+/** Never throws: a store rt cannot read gives the default template. */
+export function loadBranchNamingConfig(dataDir: string, repoIdentity: string | null): BranchNamingConfig {
   try {
-    const probe = probeStore(repoIdentity);
-    if (probe.owned) return probe.value;
-
-    const legacyPath = join(dataDir, "branch-naming.json");
-    if (!existsSync(legacyPath)) return null;
-
-    let raw: unknown;
-    try {
-      raw = JSON.parse(readFileSync(legacyPath, "utf8"));
-    } catch (err) {
-      console.warn(`rt-context: legacy branch-naming file ${legacyPath} is corrupt JSON, leaving in place: ${(err as Error).message}`);
-      return null;
-    }
-
-    const config = asConfig(raw);
-    if (!config) return null;
-
-    if (repoIdentity !== null) migrateLegacyFile(legacyPath, repoIdentity, config);
-
-    return config;
+    const resolved = getSetting<unknown>(SETTING_KEY, { repoIdentity });
+    if (resolved.provenance.every((p) => p.scope === "default")) noticeLegacyFile(dataDir, repoIdentity);
+    return asConfig(resolved.value) ?? defaultBranchNaming();
   } catch {
-    return null;
+    return defaultBranchNaming();
   }
 }
 
@@ -137,7 +70,7 @@ export function resolveBranchName(
   ticket: { identifier: string; title: string },
   config: BranchNamingConfig | null,
 ): string {
-  const template = config?.template ?? "${identifier}-${titleSlug}";
+  const template = (config ?? defaultBranchNaming()).template;
 
   let result = "";
   let lastIndex = 0;

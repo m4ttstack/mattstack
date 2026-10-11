@@ -57,14 +57,14 @@ describe("settings/registry", () => {
       }
     });
 
-    test("exactly 26 keys are migrated:true", () => {
+    test("exactly 25 keys are migrated:true", () => {
       const migrated = allDefs().filter((d) => d.migrated);
 
       expect(migrated.map((d) => d.key).sort()).toEqual(
         [
           "rt.intercepts", "rt.ignoredMrs", "rt.repoIdentityOverrides", "rt.repoRoots", "rt.roles", "rt.worktrees", "rt.worktreeReadyApproval",
           "rt.notifications", "rt.cron", "rt.repoTracking", "rt.runsPruneDays", "rt.runaway", "rt.workspacePrefs",
-          "rt.sync", "rt.branchNaming", "rt.variations", "rt.presets", "rt.dopplerTemplate",
+          "rt.sync", "rt.variations", "rt.presets", "rt.dopplerTemplate",
           "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations",
           "rt.apiPort",
         ].sort(),
@@ -291,7 +291,7 @@ describe("settings/registry", () => {
     });
 
     test("the five newly migrated repo-scoped keys carry repoScoped:true and no legacyFile", () => {
-      for (const key of ["rt.sync", "rt.branchNaming", "rt.variations", "rt.presets", "rt.dopplerTemplate"]) {
+      for (const key of ["rt.sync", "rt.variations", "rt.presets", "rt.dopplerTemplate"]) {
         const def = getDef(key);
         expect(def?.repoScoped, `${key} should be repoScoped:true`).toBe(true);
         expect(def?.legacyFile, `${key} should carry no legacyFile`).toBeUndefined();
@@ -304,12 +304,12 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 26 migrated:true keys and the 51 suite keys", () => {
+    test("has exactly the 25 migrated:true keys and the 52 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
         "rt.notifications", "rt.cron", "rt.repoTracking", "rt.runsPruneDays", "rt.runaway", "rt.workspacePrefs",
-        "rt.sync", "rt.branchNaming", "rt.variations", "rt.presets", "rt.dopplerTemplate",
+        "rt.sync", "rt.variations", "rt.presets", "rt.dopplerTemplate",
         "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations",
         "rt.apiPort",
       ];
@@ -402,8 +402,9 @@ describe("settings/registry", () => {
         "sdm.carriers",
         "sdm.resources",
         "rt.hooks",
+        "rt.branchNaming",
       ];
-      expect(suiteKeys).toHaveLength(88);
+      expect(suiteKeys).toHaveLength(89);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

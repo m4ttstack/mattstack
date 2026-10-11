@@ -137,7 +137,6 @@ const PENDING_DEFAULT: readonly string[] = [
   "board.title", "board.triage", "board.triage.doctorSkill", "board.triageMaxConcurrent",
   "board.workspaces", "deck.access",
   "deck.apps", "deck.platform", "gitq.forges", "gitq.workSlots", "mattstack.roster",
-  "rt.branchNaming",
 ];
 
 describe("every setting says what it is when nothing is set", () => {

@@ -197,9 +197,9 @@ const ROWS: readonly SettingDef[] = [
     scopes: ALL_SCOPES,
     merge: "deep",
     repoScoped: true,
+    default: { template: "${identifier}-${titleSlug}" },
     repoOnly: true,
-    migrated: true,
-    description: "Branch-naming templates, repoScoped. Read by the VS Code extension (extensions/vscode/rt-context), which lazily imports the legacy repos/<repo>/branch-naming.json into this key on first read; rt itself has no CLI-side reader.",
+    description: "Branch-naming template for a repo, read by the VS Code extension (extensions/vscode/rt-context). rt itself has no CLI-side reader.",
   },
   {
     key: "rt.variations",
