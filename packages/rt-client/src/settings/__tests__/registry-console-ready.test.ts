@@ -132,11 +132,7 @@ describe("every setting is console-ready", () => {
 /** Keys held for a legacy file or a presence check: each gets its default in
     the PR that retires the hold. Shrink only. */
 const PENDING_DEFAULT: readonly string[] = [
-  "board.botUsernames", "board.cwds", "board.defaultMember", "board.doctorSkill",
-  "board.gateGraceMinutes", "board.hiddenMembers", "board.slack", "board.tabs",
-  "board.title", "board.triage", "board.triage.doctorSkill", "board.triageMaxConcurrent",
-  "board.workspaces", "deck.access",
-  "deck.apps", "deck.platform", "gitq.forges", "gitq.workSlots", "mattstack.roster",
+  "deck.access", "deck.apps", "deck.platform", "gitq.forges", "gitq.workSlots",
 ];
 
 describe("every setting says what it is when nothing is set", () => {

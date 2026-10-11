@@ -2,15 +2,9 @@ import { describe, expect, test } from 'bun:test';
 
 import type { getSetting } from '@mattstack/rt-client';
 import { loadReReviewConfig } from '../triage/config.ts';
+import { fakeResolve } from './fake-resolve.ts';
 
 type GetSettingFn = typeof getSetting;
-
-function fakeResolve(values: Record<string, unknown>): GetSettingFn {
-  return (<T>(key: string) => ({
-    value: values[key] as T,
-    provenance: [],
-  })) as GetSettingFn;
-}
 
 function throwingResolve(): GetSettingFn {
   return (() => {
@@ -39,7 +33,7 @@ describe('loadReReviewConfig', () => {
     expect(loadReReviewConfig(throwingResolve())).toEqual({ enabled: true });
   });
 
-  test('a malformed value names the settings key, not config.json', () => {
+  test('a malformed value names the settings key', () => {
     expect(() =>
       loadReReviewConfig(fakeResolve({ 'board.reReview': { enabled: 'yes' } }))
     ).toThrow(/settings key "board.reReview".*enabled.*boolean/);

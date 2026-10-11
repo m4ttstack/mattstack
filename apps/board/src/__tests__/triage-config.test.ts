@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { getSetting } from '@mattstack/rt-client';
-import { loadPeerAsksAlwaysAllow, parseTriageBlock } from '../triage/config.ts';
+import {
+  loadPeerAsksAlwaysAllow,
+  loadTriageConfig,
+  parseTriageBlock,
+} from '../triage/config.ts';
+import { fakeResolve } from './fake-resolve.ts';
 
 describe('loadPeerAsksAlwaysAllow', () => {
   const resolve = (v: unknown) =>
@@ -75,4 +80,26 @@ test('tier defaults to api, accepts checkout, rejects junk', () => {
   expect(() => parseTriageBlock({ enabled: true, tier: 'yolo' })).toThrow(
     /triage.tier/
   );
+});
+
+describe('loadTriageConfig', () => {
+  test('nothing set reads the disabled defaults', () => {
+    expect(loadTriageConfig(fakeResolve({}))).toEqual(parseTriageBlock(undefined));
+  });
+  test('the two sibling keys win independently of board.triage', () => {
+    const cfg = loadTriageConfig(
+      fakeResolve({
+        'board.triage': { enabled: true },
+        'board.triage.doctorSkill': 'acme:doctor',
+        'board.triageMaxConcurrent': 4,
+      })
+    );
+    expect(cfg).toMatchObject({ enabled: true, doctorSkill: 'acme:doctor', maxConcurrent: 4 });
+  });
+  test('a non-positive maxConcurrent keeps the default', () => {
+    expect(loadTriageConfig(fakeResolve({ 'board.triageMaxConcurrent': 0 })).maxConcurrent).toBe(2);
+  });
+  test('a malformed board.triage names the settings key', () => {
+    expect(() => loadTriageConfig(fakeResolve({ 'board.triage': { enabled: 'yes' } }))).toThrow('settings key "board.triage"');
+  });
 });

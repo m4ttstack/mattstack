@@ -5,7 +5,6 @@ import {
   daemonRepoField,
   parseConfig,
   repoIdentityField,
-  setHiddenInRaw,
 } from '../config.ts';
 
 const base = {
@@ -183,18 +182,12 @@ describe('parseConfig', () => {
     ).toThrow(/reviewCwd/);
   });
 
-  test('rtRepos derives one identity per project from gitlabHost; explicit config.json entries are kept as overrides', () => {
+  test('rtRepos derives one identity per project from gitlabHost; rtRepos in the input is ignored', () => {
     const cfg = parseConfig(
       JSON.stringify({ ...base, rtRepos: { 'group/proj': 'proj-repo' } })
     );
-    expect(cfg.rtRepos).toEqual({
-      'org/repo': 'gitlab.com/org/repo',
-      'group/proj': 'proj-repo',
-    });
-    expect(cfg.rtRepoOverrides).toEqual({ 'group/proj': 'proj-repo' });
-    expect(parseConfig(JSON.stringify(base)).rtRepos).toEqual({
-      'org/repo': 'gitlab.com/org/repo',
-    });
+    expect(cfg.rtRepos).toEqual({ 'org/repo': 'gitlab.com/org/repo' });
+    expect(cfg.rtRepos['group/proj']).toBeUndefined();
   });
 
   test('config without tabs gets the implicit authors tab', () => {
@@ -365,34 +358,6 @@ describe('switchboard config', () => {
         parseConfig(JSON.stringify({ ...base, switchboard })).switchboard.url
       ).toBe(switchboardUrl());
     }
-  });
-});
-
-describe('setHiddenInRaw', () => {
-  const raw = JSON.stringify(
-    { members: [{ username: 'alice', name: 'Alice' }, { username: 'bob' }] },
-    null,
-    2
-  );
-
-  test('sets the hidden flag on the named member', () => {
-    const parsed = JSON.parse(setHiddenInRaw(raw, 'bob', true));
-    expect(parsed.members.find((m: any) => m.username === 'bob').hidden).toBe(
-      true
-    );
-    expect(
-      parsed.members.find((m: any) => m.username === 'alice').hidden
-    ).toBeUndefined();
-  });
-
-  test('removes the flag entirely when set to false, keeping the file clean', () => {
-    const hidden = setHiddenInRaw(raw, 'alice', true);
-    const shown = JSON.parse(setHiddenInRaw(hidden, 'alice', false));
-    expect('hidden' in shown.members[0]).toBe(false);
-  });
-
-  test('throws for an unknown member', () => {
-    expect(() => setHiddenInRaw(raw, 'carol', true)).toThrow(/unknown member/);
   });
 });
 

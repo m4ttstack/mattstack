@@ -17,7 +17,6 @@ const EXCLUDED_PREFIXES = ["packages/rt-client/src/settings/"];
 const PRESENCE = /\b(?:getSetting|resolve)\s*(?:<[^>()]*>)?\(\s*[^()]*\)\s*\.value\s*[!=]==?\s*undefined/g;
 
 const ALLOWLIST: Record<string, { count: number; reason: string }> = {
-  "apps/board/src/config.ts": { count: 1, reason: "board.hiddenMembers ownership latch; the board retirement deletes it" },
   "apps/deck/core/settings.ts": { count: 1, reason: "deck.apps ownership latch; the deck retirement deletes it" },
   "apps/deck/src/api/platform-settings.ts": { count: 1, reason: "deck.platform ownership latch; the deck retirement deletes it" },
   "apps/deck/src/edge/oauth.ts": { count: 1, reason: "deck.access ownership latch; the deck retirement deletes it" },

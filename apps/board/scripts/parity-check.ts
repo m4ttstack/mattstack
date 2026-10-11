@@ -3,7 +3,7 @@
 // normalizations. Also counts legacy ops for one refresh cycle (E6 input).
 //
 // Usage: bun run scripts/parity-check.ts
-// Requires: config.json with rtRepos mapped, rt daemon running with the
+// Requires: a board configured in the settings stores, rt daemon running with the
 // project-mrs grant on the mapped repos, GitLab token available (legacy path).
 import { GitLabProvider, type PullRequest } from '@mattstack/glance';
 import { readProjectMRs } from '@mattstack/rt-client';

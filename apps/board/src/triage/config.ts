@@ -1,7 +1,5 @@
-import { readFileSync } from 'fs';
-
 import { getSetting } from '@mattstack/rt-client';
-import { CONFIG_PATH } from '../config.ts';
+import { boardSetting } from '../config.ts';
 import { canonicalUsername } from '../peer/envelope.ts';
 
 export interface FixClasses {
@@ -163,32 +161,11 @@ export function parseTriageBlock(
 
 type GetSettingFn = typeof getSetting;
 
-/** Read one board.triage* key, degrading to "not owned" on a resolver throw
-    (an unregistered key, or an unreadable/malformed store file -- getSetting
-    never touches the daemon) rather than letting that brick triage config
-    load (same fail-open contract as config.ts's storeValue). Warns once per
-    call. */
-function storeValue<T>(
-  key: string,
-  resolve: GetSettingFn,
-  fallback = 'falling back to config.json'
-): T | undefined {
-  try {
-    return resolve<T>(key).value;
-  } catch (err) {
-    console.warn(`board: ${key} unavailable, ${fallback}`, err);
-    return undefined;
-  }
-}
-
+/** A resolver throw reads the key's default, which is empty. */
 export function loadPeerAsksAlwaysAllow(
   resolve: GetSettingFn = getSetting
 ): Set<string> {
-  const raw = storeValue<unknown>(
-    'board.peerAsksAlwaysAllow',
-    resolve,
-    'treating as empty'
-  );
+  const raw = boardSetting<unknown>('board.peerAsksAlwaysAllow', resolve);
   if (!Array.isArray(raw)) return new Set();
   return new Set(
     raw
@@ -197,67 +174,27 @@ export function loadPeerAsksAlwaysAllow(
   );
 }
 
-function isEnoent(err: unknown): boolean {
-  return (err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
-}
-
-/** The block lives in the board's config.json, but parsing stays here so the
-    board server never needs to know the block exists (hard boundary).
-    BOARD-14 split across three independently latched store keys once
-    migrated: `board.triage` (user) carries every field here except
-    doctorSkill/maxConcurrent — those two are sibling flat keys
-    (`board.triage.doctorSkill` team, never manifest-resolved;
-    `board.triageMaxConcurrent` machine), not nested inside `board.triage`,
-    so each is layered back on individually after the block wins or falls
-    back to config.json's triage block as a whole. A missing config.json (RULING:
-    file-authority is meaningless with no file) degrades to an absent triage
-    block rather than throwing, mirroring config.ts's loadConfigFrom store-boot
-    mode -- board.triage/board.triage.doctorSkill/board.triageMaxConcurrent can
-    carry the whole config on their own once the store owns them. Any other
-    read failure (a genuinely malformed config.json) still surfaces loudly. */
+/** The triage config, from three sibling keys: board.triage (user) carries
+    every field but doctorSkill and maxConcurrent, which are
+    board.triage.doctorSkill (team, never manifest-resolved) and
+    board.triageMaxConcurrent (machine). */
 export function loadTriageConfig(
-  configPath: string = CONFIG_PATH,
   resolve: GetSettingFn = getSetting
 ): TriageConfig {
-  let triageRaw: unknown;
-  try {
-    triageRaw = (
-      JSON.parse(readFileSync(configPath, 'utf8')) as { triage?: unknown }
-    ).triage;
-  } catch (err) {
-    if (!isEnoent(err)) throw err;
-    triageRaw = undefined;
-  }
-  const fileConfig = parseTriageBlock(triageRaw);
-
-  const storeRaw = storeValue<unknown>('board.triage', resolve);
-  const merged =
-    storeRaw !== undefined
-      ? {
-          // No `...fileConfig` here: parseTriageBlock always returns every
-          // TriageConfig field (defaulted, never partial), so spreading it
-          // first would only be immediately overwritten below -- doctorSkill/
-          // maxConcurrent are re-pinned to the file's values on the next two
-          // lines regardless, since those two never live inside board.triage.
-          ...parseTriageBlock(storeRaw, `settings key "board.triage"`),
-          doctorSkill: fileConfig.doctorSkill,
-          maxConcurrent: fileConfig.maxConcurrent,
-        }
-      : fileConfig;
-
-  const doctorSkill = storeValue<string>('board.triage.doctorSkill', resolve);
-  const maxConcurrent = storeValue<number>(
-    'board.triageMaxConcurrent',
-    resolve
+  const triage = parseTriageBlock(
+    boardSetting<unknown>('board.triage', resolve),
+    'settings key "board.triage"'
   );
-  merged.doctorSkill =
-    typeof doctorSkill === 'string' ? doctorSkill : merged.doctorSkill;
-  merged.maxConcurrent =
-    typeof maxConcurrent === 'number' && maxConcurrent > 0
-      ? maxConcurrent
-      : merged.maxConcurrent;
-
-  return merged;
+  const doctorSkill = boardSetting<unknown>('board.triage.doctorSkill', resolve);
+  const maxConcurrent = boardSetting<unknown>('board.triageMaxConcurrent', resolve);
+  return {
+    ...triage,
+    doctorSkill: typeof doctorSkill === 'string' ? doctorSkill : triage.doctorSkill,
+    maxConcurrent:
+      typeof maxConcurrent === 'number' && maxConcurrent > 0
+        ? maxConcurrent
+        : triage.maxConcurrent,
+  };
 }
 
 export interface ReReviewConfig {
@@ -268,14 +205,13 @@ export interface PeerAsksConfig {
   enabled: boolean;
 }
 
-/** Both switches are store-only and ship enabled; a resolver throw degrades
-    to that default rather than silently switching the feature off. */
+/** Both switches ship enabled; a resolver throw reads the key's default
+    rather than silently switching the feature off. */
 function loadEnabledFlag(
   key: 'board.reReview' | 'board.peerAsks',
   resolve: GetSettingFn
 ): { enabled: boolean } {
-  const raw = storeValue<unknown>(key, resolve, 'defaulting to enabled');
-  if (raw === undefined || raw === null) return { enabled: true };
+  const raw = boardSetting<unknown>(key, resolve);
   const source = `settings key "${key}"`;
   if (typeof raw !== 'object' || Array.isArray(raw))
     throw new Error(`${source} must be an object`);
@@ -286,12 +222,9 @@ function loadEnabledFlag(
   return { enabled: (enabled as boolean | undefined) ?? true };
 }
 
-/** `board.reReview` is store-only (no config.json block) and ships enabled:
-    the re-review latch is basic board behavior, not a per-developer sweep
-    like board.triage, so a fresh teammate gets it without opting in. A
-    resolver throw (the key not yet registered in this rt-client, or an
-    unreadable store) degrades to that same default rather than silently
-    turning the latch off. */
+/** `board.reReview` ships enabled: the re-review latch is basic board
+    behavior, not a per-developer sweep like board.triage, so a fresh teammate
+    gets it without opting in. A resolver throw reads the key's default. */
 export function loadReReviewConfig(
   resolve: GetSettingFn = getSetting
 ): ReReviewConfig {

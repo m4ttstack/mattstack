@@ -1046,7 +1046,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const { ctx: before, logs } = makeCtx(fakeProbes({ home }), { snapshot });
       await boardKeysStep.run(before);
-      expect(getSetting("board.cwds").value).toBeUndefined();
+      expect(unwritten("board.cwds")).toBe(true);
       expect(getSetting("gitq.board").value).toBeUndefined();
       expect(logs.some((l) => l.line.includes("gitq.board"))).toBe(true);
 
@@ -1071,7 +1071,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const { ctx, logs } = makeCtx(fakeProbes({ home }), { snapshot });
       await boardKeysStep.run(ctx);
-      expect(getSetting("board.cwds").value).toBeUndefined();
+      expect(unwritten("board.cwds")).toBe(true);
       expect(getSetting("gitq.board").value).toBeUndefined();
       expect(logs.some((l) => l.line.includes("two"))).toBe(true);
 
@@ -1125,7 +1125,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const outcome = await boardKeysStep.run(ctx);
       expect(outcome).toEqual({ state: "done", detail: "Wrote gitq.board" });
       expect(getSetting("gitq.board").value).toEqual({ repos: [], port: 11008 });
-      expect(getSetting("board.cwds").value).toBeUndefined();
+      expect(unwritten("board.cwds")).toBe(true);
       expect(getSetting("gitq.workSlots").value).toBeUndefined();
       expect(logs.some((l) => l.line.includes("board.cwds"))).toBe(true);
       expect(logs.some((l) => l.line.includes("gitq.workSlots"))).toBe(true);
@@ -1191,7 +1191,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const outcome = await boardKeysStep.run(ctx);
       expect(outcome.state).toBe("done");
-      expect(getSetting("board.defaultMember").value).toBeUndefined();
+      expect(unwritten("board.defaultMember")).toBe(true);
       expect(logs.some((l) => l.line.includes("no forge connected"))).toBe(true);
       expect(p.calls.exec).toEqual([]);
     });
@@ -1202,7 +1202,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const outcome = await boardKeysStep.run(ctx);
       expect(outcome.state).toBe("done");
-      expect(getSetting("board.defaultMember").value).toBeUndefined();
+      expect(unwritten("board.defaultMember")).toBe(true);
       expect(logs.some((l) => l.line.includes("forge login unavailable"))).toBe(true);
     });
   });

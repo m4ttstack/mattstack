@@ -4,12 +4,8 @@
  * shared internal app), and writes .env plus this developer's user/machine
  * settings (defaultMember, reviewCwd, switchboard peering).
  *
- * The team-owned fields (gitlabHost, projects, members, title, ...) are no
- * longer setup's job -- they live in the team settings store (seeded once,
- * shared via the team repo), not rebuilt per-clone from config.team.json.
- * `config.example.json` / `config.team.example.json` still exist for anyone
- * who wants to see the board render against a demo roster without a team
- * store at all (see README) -- that path is a manual copy, not this script.
+ * The team-owned fields (gitlabHost, projects, members, title, ...) live in
+ * the team settings store, not in anything setup writes.
  *
  * Re-runnable: existing values are shown as defaults, blank input keeps them.
  */
@@ -209,10 +205,7 @@ function installSkills(): void {
   }
 }
 
-/** The board's current merged config (store + config.json's transition
-    fallback), or null when neither has anything yet -- a config.json-less
-    team-store-only clone still counts as "existing" here as long as it
-    resolves, which loadConfig() already handles (see config.ts). */
+/** The board's current config, or null when the stores do not hold enough for it yet. */
 function loadExistingConfig(): BoardConfig | null {
   try {
     return loadConfig();
