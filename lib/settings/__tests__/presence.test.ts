@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { onlyDefault, registryDefault, unwritten } from "../presence.ts";
+import { onlyDefault, registryDefault, storedValue, unwritten } from "../presence.ts";
 import { setSetting, setSettingsNoticeSink } from "../write.ts";
 
 const REPO = "gitlab.example.com/acme/widgets";
@@ -22,6 +22,13 @@ describe("presence", () => {
     setSettingsNoticeSink(previousSink);
     process.env.HOME = origHome;
     rmSync(home, { recursive: true, force: true });
+  });
+
+  test("storedValue reads a store's value and treats the registry default as nobody's choice", () => {
+    expect(storedValue("rt.cron")).toBeUndefined();
+    setSetting("rt.cron", { triggers: [] }, "machine");
+    expect(storedValue("rt.cron")).toEqual({ triggers: [] });
+    expect(storedValue("no.such.key")).toBeUndefined();
   });
 
   test("onlyDefault reads provenance, never the value", () => {

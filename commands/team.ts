@@ -35,6 +35,7 @@ import { promptSecret } from "../lib/prompt-secret.ts";
 import { orgDirUnder, orgSettingsPath } from "../lib/rt-paths.ts";
 import { createRealTeamSecretsSeams } from "../lib/secrets/team-store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
+import { storedValue } from "../lib/settings/presence.ts";
 import { listOrgs, parseStoreText, readStore, TEAM_NAME_RE } from "../lib/settings/stores.ts";
 import type { ApplyContext } from "../lib/setup/apply.ts";
 import { envelope } from "../lib/setup/contract.ts";
@@ -818,13 +819,7 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
 }
 
 function defaultStatusRead(): SettingsReader {
-  return <T>(key: string): T | undefined => {
-    try {
-      return getSetting<T>(key).value;
-    } catch {
-      return undefined;
-    }
-  };
+  return storedValue;
 }
 
 /**

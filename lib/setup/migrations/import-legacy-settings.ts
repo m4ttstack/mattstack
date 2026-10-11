@@ -23,7 +23,7 @@ export interface Tally {
 }
 
 /** A value the resolver refused still sits in a store, and the import must never overwrite it. */
-function storeHolds(key: string, opts: ResolveOpts = {}): boolean {
+export function storeHolds(key: string, opts: ResolveOpts = {}): boolean {
   const row = listSettings(opts).find((s) => s.key === key);
   return row !== undefined && (!onlyDefault(row) || (row.invalid?.length ?? 0) > 0);
 }

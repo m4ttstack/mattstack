@@ -26,7 +26,7 @@ import { UserActionableError } from "../errors.ts";
 import { INVITE_POINTER_VERSION, type InvitePointer } from "../setup/intent.ts";
 import type { Probes } from "../setup/probes.ts";
 import { forgeFromRemote, readTeamSnapshot, type SettingsReader } from "../setup/team-settings.ts";
-import { getSetting } from "../settings/resolve.ts";
+import { storedValue } from "../settings/presence.ts";
 import { setSetting } from "../settings/write.ts";
 import { forgeLogin, grantRead, membershipSteps, type ForgeAccess } from "./forge.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
@@ -138,15 +138,9 @@ export interface MintInviteSeams {
   warn: (message: string, shown?: ShownWarning) => void;
 }
 
-/** Degrades to `undefined` on a resolver-layer throw rather than taking the mint down with it, as does team-settings.ts's own default reader. */
+/** A team's own values only, so a team with no title of its own is named by its slug. */
 function defaultRead(): SettingsReader {
-  return <T>(key: string): T | undefined => {
-    try {
-      return getSetting<T>(key).value;
-    } catch {
-      return undefined;
-    }
-  };
+  return storedValue;
 }
 
 function defaultReadTeamStore(slug: string): Record<string, unknown> {
