@@ -25,16 +25,6 @@
   );
 }
 
-/* Not set has no store, so it takes the default layer's gray, the same fill
-   as the default badge. */
-.block[data-scope='unset'] {
-  background: var(--mantine-color-gray-light);
-}
-
-.block[data-scope='unset'] .head {
-  background: var(--mantine-color-gray-light-hover);
-}
-
 /* On the light heading's own wash a light badge almost vanishes, so it
    lifts to a near-white tint of its hue and stands out against the wash.
    Mantine sets the badge's fill variable inline, so this sets the

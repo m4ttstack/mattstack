@@ -35,11 +35,12 @@ function ScopeBlock({
     <Box
       className={classes.block}
       data-scope={scope}
-      __vars={
-        scope === 'unset'
-          ? undefined
-          : { '--block-hue': `var(--tk-fill-${SCOPE_COLOR[scope]})` }
-      }
+      __vars={{
+        '--block-hue':
+          scope === 'unset'
+            ? 'var(--mantine-color-gray-filled)'
+            : `var(--tk-fill-${SCOPE_COLOR[scope]})`,
+      }}
     >
       <Group gap={8} wrap="nowrap" className={classes.head}>
         {scope === 'unset' ? (
