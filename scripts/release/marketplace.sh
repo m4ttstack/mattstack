@@ -230,7 +230,7 @@ if git -C "$STAGE" fetch -q --depth 1 origin main 2>/dev/null; then
         python3 - "$STAGED_VER" "$PUBLISHED_VER" <<'PY' || CMP=$?
 import re, sys
 def key(v):
-    m = re.fullmatch(r"(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.]+))?", v)
+    m = re.fullmatch(r"(\d+(?:\.\d+)*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?", v)
     if not m:
         sys.exit(2)
     core = [int(x) for x in m.group(1).split(".")]
@@ -247,6 +247,8 @@ PY
             echo "✗ cannot order mattstack $STAGED_VER against the published $PUBLISHED_VER, refusing to publish it" >&2
             exit 1
         fi
+    elif [ -n "$PUBLISHED_VER$STAGED_VER" ]; then
+        echo "! could not read the mattstack version on both sides (staged '${STAGED_VER}', published '${PUBLISHED_VER}'), so the check against a lower mattstack version was skipped" >&2
     fi
 else
     echo "! could not read the published catalog, so the check against a lower mattstack version was skipped" >&2

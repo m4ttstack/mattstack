@@ -323,6 +323,28 @@ describe("marketplace.sh publish", () => {
     expect(r.out).toContain("cannot order");
   });
 
+  test("a prerelease identifier may carry a hyphen", () => {
+    const bare = bareRepo();
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.31.0") }).code).toBe(0);
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.32.0-rc-1") }).code).toBe(0);
+  });
+
+  test("an empty prerelease identifier is refused", () => {
+    const bare = bareRepo();
+    expect(run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.31.0") }).code).toBe(0);
+    const r = run([packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.32.0-rc..1") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("cannot order");
+  });
+
+  test("a published catalog with no mattstack version says it skipped the check", () => {
+    const bare = bareRepo();
+    expect(run([sourceDir([urlPlugin("fast-browser")])], { RT_MARKETPLACE_REPO: bare }).code).toBe(0);
+    const r = run(["--dry-run", packSource()], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: packTree("0.31.0") });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("could not read the mattstack version");
+  });
+
   test("a dry run that cannot read the published catalog says it skipped the check", () => {
     const r = run(["--dry-run", packSource()], { RT_TREE_ROOT: packTree("0.31.0") });
     expect(r.code).toBe(0);
