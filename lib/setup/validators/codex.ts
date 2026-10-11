@@ -61,14 +61,44 @@ export async function codexToolRow(p: Probes): Promise<Row> {
   if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run Codex (exit ${versionRes.code})` });
   const named = `Codex ${versionOf(versionRes.stdout)}`;
 
-  const authRes = await exec(p, ["codex", "login", "status"]);
-  if (authRes.code === 124) return row({ ...base, status: "error", detail: "Codex's sign-in check did not answer in time" });
-  if (authRes.code === 0) return row({ ...base, status: "ready", detail: `${named}, signed in` });
-  // codex-cli 0.160 prints "Not logged in" and exits 1 when signed out; any other failure says nothing about the sign-in.
-  if (/not logged in/i.test(`${authRes.stdout}\n${authRes.stderr}`)) {
+  const signIn = await probeCodexSignIn(p);
+  if (signIn === "timeout") return row({ ...base, status: "error", detail: "Codex's sign-in check did not answer in time" });
+  if (signIn === "signed-in") return row({ ...base, status: "ready", detail: `${named}, signed in` });
+  if (signIn === "signed-out") {
     return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "Not signed in yet. Run codex login and sign in", action: CODEX_SIGNIN_STEPS });
   }
   return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: `${named} is installed, but the sign-in could not be checked. Confirm you are signed in`, action: CODEX_SIGNIN_STEPS });
+}
+
+export type CodexSignIn = "signed-in" | "signed-out" | "timeout" | "unknown";
+
+/** Reads `codex login status`. */
+export async function probeCodexSignIn(p: Probes): Promise<CodexSignIn> {
+  const res = await exec(p, ["codex", "login", "status"]);
+  if (res.code === 124) return "timeout";
+  if (res.code === 0) return "signed-in";
+  // codex-cli 0.160 prints "Not logged in" and exits 1 when signed out; any other failure says nothing about the sign-in.
+  return /not logged in/i.test(`${res.stdout}\n${res.stderr}`) ? "signed-out" : "unknown";
+}
+
+/**
+ * Whether the running app server started before the last sign-in, so it
+ * never picked that sign-in up. auth.json is only stat'd, never opened. Any
+ * read problem answers false: a running server is never restarted on a guess.
+ */
+export function codexServerPredatesSignIn(p: Probes): boolean {
+  const home = codexHomeOf(p);
+  if (home === null) return false;
+  const signedInMs = p.fileMtimeMs(join(home, "auth.json"));
+  const pid = p.readFile(join(home, "app-server-daemon", "daemon.pid"));
+  if (signedInMs === null || pid === null) return false;
+  let startSeconds: unknown;
+  try {
+    startSeconds = (JSON.parse(pid) as { processIdentity?: { startSeconds?: unknown } } | null)?.processIdentity?.startSeconds;
+  } catch {
+    return false;
+  }
+  return typeof startSeconds === "number" && Number.isFinite(startSeconds) && signedInMs / 1000 > startSeconds;
 }
 
 export function codexMcpRow(p: Probes): Row {
@@ -124,7 +154,7 @@ export async function probeCodexAppServer(p: Probes): Promise<CodexAppServerStat
   }
 }
 
-/** The app server rt reaches Codex through: Install starts it, and the app's launch-time update brings it back after a restart. */
+/** The app server rt reaches Codex through: Install starts it once Codex is signed in, and the app's launch-time update brings it back after a restart. */
 export async function codexAppServerRow(p: Probes): Promise<Row> {
   const base = {
     id: "tool.codex-app-server",
@@ -135,10 +165,26 @@ export async function codexAppServerRow(p: Probes): Promise<Row> {
     recheck: "on-activate" as const,
   };
   const state = await probeCodexAppServer(p);
-  if (state === "running") return row({ ...base, status: "ready", detail: "Running" });
   if (state === "no-codex") return row({ ...base, status: "skipped", detail: "Codex is not installed yet" });
   if (state === "unpackaged") return row({ ...base, status: "needs-you", detail: CODEX_UNPACKAGED_DETAIL });
   if (state === "timeout") return row({ ...base, status: "error", detail: "Codex did not say in time whether its app server is running" });
+  const signIn = await probeCodexSignIn(p);
+  if (signIn === "signed-out") {
+    return row({ ...base, status: "needs-you", detail: "Sign in to Codex first. Its app server can only use your account once you have", action: CODEX_SIGNIN_STEPS });
+  }
+  if (signIn !== "signed-in") {
+    return row({ ...base, status: "needs-you", detail: "rt could not check your Codex sign-in. Confirm you are signed in", action: CODEX_SIGNIN_STEPS });
+  }
+  if (state === "running" && codexServerPredatesSignIn(p)) {
+    return row({
+      ...base,
+      status: "missing",
+      detail: "Running, but it started before you signed in, so it cannot use your account",
+      optionalNote: "Restarted by Install (codex.app-server).",
+      action: applyStepAction("Restart", "codex.app-server"),
+    });
+  }
+  if (state === "running") return row({ ...base, status: "ready", detail: "Running" });
   return row({
     ...base,
     status: "missing",

@@ -14,19 +14,40 @@ const STOPPED = ok(JSON.stringify({ status: "stopped" }));
 const UNPACKAGED: ExecResult = { code: 1, stdout: "", stderr: "Error: this CLI has no complete local package; install a packaged Codex CLI or use the standalone installer\n" };
 const UNPACKAGED_COPY = "This Codex cannot run its app server. Uninstall it, then reinstall it with setup's Install, which uses OpenAI's installer";
 
-/** `versions` answers each `version` probe in turn; the last answer repeats. */
-function codexMac(versions: ExecResult[], bootstrap: ExecResult = ok(JSON.stringify({ status: "bootstrapped", backend: "pid" }))) {
+const LOGIN = "codex login status";
+const RESTART = "codex app-server daemon restart";
+const SIGNED_IN = ok("Logged in using ChatGPT\n");
+const SIGNED_OUT: ExecResult = { code: 1, stdout: "Not logged in\n", stderr: "" };
+const PID_FILE = "/Users/member/.codex/app-server-daemon/daemon.pid";
+const AUTH_FILE = "/Users/member/.codex/auth.json";
+/** The live shape (S9b): the server's start, in Unix seconds, sits under processIdentity. */
+const pidFile = (startSeconds: unknown) =>
+  JSON.stringify({ pid: 4646, processStartTime: "Sun Oct 11 02:21:42 2026", processIdentity: { bootId: "b", uniqueId: 4646, startSeconds } });
+const STARTED_AT = 1_791_685_302;
+
+type MacOpts = { signIn?: ExecResult; pid?: string; authMtimeMs?: number; restart?: ExecResult };
+
+/** `versions` answers each `version` probe in turn; the last answer repeats. Signed in, with no sign-in or server times, unless `opts` says otherwise. */
+function codexMac(versions: ExecResult[], bootstrap: ExecResult = ok(JSON.stringify({ status: "bootstrapped", backend: "pid" })), opts: MacOpts = {}) {
   let probe = 0;
   return fakeProbes({
     home: "/Users/member",
+    files: opts.pid === undefined ? {} : { [PID_FILE]: opts.pid },
+    mtimes: opts.authMtimeMs === undefined ? {} : { [AUTH_FILE]: opts.authMtimeMs },
     exec: (argv) => {
       const cmd = argv.join(" ");
       if (cmd === VERSION) return versions[Math.min(probe++, versions.length - 1)]!;
+      if (cmd === LOGIN) return opts.signIn ?? SIGNED_IN;
       if (cmd === BOOTSTRAP) return bootstrap;
+      if (cmd === RESTART) return opts.restart ?? ok(JSON.stringify({ status: "restarted" }));
       return missing(argv[0] ?? "");
     },
   });
 }
+
+/** Signed in a minute after the running server started: `codex login` while the server was up. */
+const signedInAfterStart = (versions: ExecResult[], opts: MacOpts = {}) =>
+  codexMac(versions, undefined, { pid: pidFile(STARTED_AT), authMtimeMs: (STARTED_AT + 60) * 1000, ...opts });
 
 function ctxFor(p: ReturnType<typeof fakeProbes>, extra: Partial<ApplyContext> = {}) {
   const logs: string[] = [];
@@ -80,10 +101,42 @@ describe("the Codex app server row", () => {
     }
   });
 
+  test("signed out: asks for the sign-in first, never offering a start", async () => {
+    for (const versions of [[STOPPED], [RUNNING]]) {
+      const row = await codexAppServerRow(codexMac(versions, undefined, { signIn: SIGNED_OUT }));
+      expect(row).toMatchObject({ status: "needs-you", detail: "Sign in to Codex first. Its app server can only use your account once you have" });
+      expect(row.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Open a terminal", "Run: codex login", "Follow the sign-in prompt"] });
+    }
+  });
+
+  test("a sign-in that cannot be checked starts nothing either", async () => {
+    for (const signIn of [{ code: 2, stdout: "", stderr: "error: unrecognized subcommand" }, { code: 124, stdout: "", stderr: "" }]) {
+      const row = await codexAppServerRow(codexMac([STOPPED], undefined, { signIn }));
+      expect(row).toMatchObject({ status: "needs-you", detail: "rt could not check your Codex sign-in. Confirm you are signed in" });
+      expect(row.action?.type).toBe("steps");
+    }
+  });
+
+  test("running since before the sign-in offers a restart", async () => {
+    const row = await codexAppServerRow(signedInAfterStart([RUNNING]));
+    expect(row).toMatchObject({ status: "missing", detail: "Running, but it started before you signed in, so it cannot use your account" });
+    expect(row.action).toEqual({ type: "run", label: "Restart", verb: ["setup", "apply", "--only", "codex.app-server"] });
+  });
+
+  test("running since after the sign-in, or with times rt cannot read, reads ready", async () => {
+    for (const p of [
+      codexMac([RUNNING], undefined, { pid: pidFile(STARTED_AT), authMtimeMs: (STARTED_AT - 60) * 1000 }),
+      signedInAfterStart([RUNNING], { pid: "not json" }),
+      codexMac([RUNNING], undefined, { authMtimeMs: (STARTED_AT + 60) * 1000 }),
+    ]) {
+      expect(await codexAppServerRow(p)).toMatchObject({ status: "ready", detail: "Running" });
+    }
+  });
+
   test("the row only reads: it never bootstraps", async () => {
     const p = codexMac([STOPPED]);
     await codexAppServerRow(p);
-    expect(ran(p)).toEqual([VERSION]);
+    expect(ran(p)).toEqual([VERSION, LOGIN]);
   });
 });
 
@@ -97,7 +150,7 @@ describe("codex.app-server", () => {
   test("a server still coming up right after the bootstrap is read again until it runs", async () => {
     const p = codexMac([STOPPED, STOPPED, STOPPED, RUNNING]);
     expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "done", detail: "Started Codex's app server" });
-    expect(ran(p)).toEqual([VERSION, BOOTSTRAP, VERSION, VERSION, VERSION]);
+    expect(ran(p)).toEqual([VERSION, LOGIN, BOOTSTRAP, VERSION, VERSION, VERSION]);
     expect(waits).toHaveLength(2);
   });
 
@@ -127,21 +180,21 @@ describe("codex.app-server", () => {
   test("already running: nothing is started", async () => {
     const p = codexMac([RUNNING]);
     expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "skipped", detail: "Already running" });
-    expect(ran(p)).toEqual([VERSION]);
+    expect(ran(p)).toEqual([VERSION, LOGIN]);
   });
 
   test("not running: bootstraps it, then reads it running", async () => {
     const p = codexMac([STOPPED, RUNNING]);
     const { ctx, logs } = ctxFor(p);
     expect(await step.run(ctx)).toEqual({ state: "done", detail: "Started Codex's app server" });
-    expect(ran(p)).toEqual([VERSION, BOOTSTRAP, VERSION]);
+    expect(ran(p)).toEqual([VERSION, LOGIN, BOOTSTRAP, VERSION]);
     expect(logs).toEqual(["started Codex's app server"]);
   });
 
   test("an update run brings a stopped server back, the way a reboot leaves it", async () => {
     const p = codexMac([STOPPED, RUNNING]);
     expect(await step.run(ctxFor(p, { update: true }).ctx)).toEqual({ state: "done", detail: "Started Codex's app server" });
-    expect(ran(p)).toEqual([VERSION, BOOTSTRAP, VERSION]);
+    expect(ran(p)).toEqual([VERSION, LOGIN, BOOTSTRAP, VERSION]);
   });
 
   test("a bootstrap that holds its output open past the deadline still counts once the server reads running", async () => {
@@ -171,7 +224,7 @@ describe("codex.app-server", () => {
 
     const atBootstrap = codexMac([STOPPED], UNPACKAGED);
     expect(await step.run(ctxFor(atBootstrap).ctx)).toEqual({ state: "needs-you", detail: UNPACKAGED_COPY });
-    expect(ran(atBootstrap)).toEqual([VERSION, BOOTSTRAP]);
+    expect(ran(atBootstrap)).toEqual([VERSION, LOGIN, BOOTSTRAP]);
   });
 
   test("no Codex: skipped, and nothing is started", async () => {
@@ -186,10 +239,95 @@ describe("codex.app-server", () => {
     expect(ran(p)).toEqual([VERSION]);
   });
 
+  test("signed out: starts nothing and asks for the sign-in first", async () => {
+    for (const versions of [[STOPPED], [RUNNING]]) {
+      const p = codexMac(versions, undefined, { signIn: SIGNED_OUT });
+      expect(await step.run(ctxFor(p).ctx)).toEqual({
+        state: "needs-you", detail: "Codex is not signed in, so rt did not start its app server. Sign in to Codex first",
+      });
+      expect(ran(p)).toEqual([VERSION, LOGIN]);
+    }
+  });
+
+  test("a sign-in that cannot be checked starts nothing", async () => {
+    for (const signIn of [{ code: 2, stdout: "", stderr: "error: unrecognized subcommand" }, { code: 124, stdout: "", stderr: "" }]) {
+      const p = codexMac([STOPPED], undefined, { signIn });
+      expect(await step.run(ctxFor(p).ctx)).toEqual({
+        state: "needs-you", detail: "rt could not check your Codex sign-in, so it did not start Codex's app server. Confirm you are signed in",
+      });
+      expect(ran(p)).toEqual([VERSION, LOGIN]);
+    }
+  });
+
+  test("a server that started before the sign-in is restarted once, then read running", async () => {
+    const p = signedInAfterStart([RUNNING]);
+    const { ctx, logs } = ctxFor(p, { update: true });
+    expect(await step.run(ctx)).toEqual({ state: "done", detail: "Restarted Codex's app server so it uses your sign-in" });
+    expect(ran(p)).toEqual([VERSION, LOGIN, RESTART, VERSION]);
+    expect(logs).toEqual(["restarted Codex's app server, which started before the sign-in"]);
+  });
+
+  test("a sign-in in the same second the server started still counts as newer", async () => {
+    const p = codexMac([RUNNING], undefined, { pid: pidFile(STARTED_AT), authMtimeMs: STARTED_AT * 1000 + 400 });
+    await step.run(ctxFor(p).ctx);
+    expect(ran(p)).toContain(RESTART);
+  });
+
+  test("a restart that fails, times out or leaves nothing running is a plain needs-you", async () => {
+    const cases: Array<[ExecResult, ExecResult[], string]> = [
+      [{ code: 1, stdout: "", stderr: "Error: busy\nmore" }, [RUNNING, STOPPED], "Codex could not restart its app server (exit 1): Error: busy"],
+      [{ code: 124, stdout: "", stderr: "" }, [RUNNING, STOPPED], "Codex's app server did not restart in time. Restart it again from setup's checklist"],
+      [ok(JSON.stringify({ status: "restarted" })), [RUNNING, STOPPED], "Codex said it restarted its app server, but it is not running"],
+    ];
+    for (const [restart, versions, detail] of cases) {
+      const p = signedInAfterStart(versions, { restart });
+      expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "needs-you", detail });
+      expect(ran(p).filter((c) => c === RESTART)).toHaveLength(1);
+    }
+  });
+
+  test("a server newer than the sign-in is left running", async () => {
+    const p = codexMac([RUNNING], undefined, { pid: pidFile(STARTED_AT), authMtimeMs: (STARTED_AT - 60) * 1000 });
+    expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "skipped", detail: "Already running" });
+    expect(ran(p)).toEqual([VERSION, LOGIN]);
+  });
+
+  test("never restarts on a guess: no pid file, an unreadable one, no start time, or no sign-in file", async () => {
+    for (const p of [
+      codexMac([RUNNING], undefined, { authMtimeMs: (STARTED_AT + 60) * 1000 }),
+      signedInAfterStart([RUNNING], { pid: "{not json" }),
+      signedInAfterStart([RUNNING], { pid: JSON.stringify({ pid: 4646 }) }),
+      signedInAfterStart([RUNNING], { pid: pidFile("1791685302") }),
+      codexMac([RUNNING], undefined, { pid: pidFile(STARTED_AT) }),
+    ]) {
+      expect(await step.run(ctxFor(p).ctx)).toEqual({ state: "skipped", detail: "Already running" });
+      expect(ran(p)).not.toContain(RESTART);
+    }
+  });
+
+  test("reads only when auth.json was written, never what is in it", async () => {
+    const p = signedInAfterStart([RUNNING]);
+    const touched: string[] = [];
+    const watch = <K extends "readFile" | "readPrefix" | "fileSize" | "fileMode" | "fileMtimeMs" | "exists" | "statPath" | "readlink">(name: K) =>
+      ((path: string) => {
+        if (path === AUTH_FILE) touched.push(name);
+        return (p[name] as (path: string) => unknown)(path);
+      }) as (typeof p)[K];
+    const watched = {
+      ...p,
+      readFile: watch("readFile"), readPrefix: watch("readPrefix"), fileSize: watch("fileSize"), fileMode: watch("fileMode"),
+      fileMtimeMs: watch("fileMtimeMs"), exists: watch("exists"), statPath: watch("statPath"), readlink: watch("readlink"),
+    };
+    await step.run(ctxFor(watched as typeof p).ctx);
+    await codexAppServerRow(watched as typeof p);
+    expect(touched.length).toBeGreaterThan(0);
+    expect(new Set(touched)).toEqual(new Set(["fileMtimeMs"]));
+  });
+
   test("never asks for remote control, an update or a stop", async () => {
     const p = codexMac([STOPPED, RUNNING]);
     await step.run(ctxFor(p).ctx);
-    for (const argv of p.calls.exec) {
+    for (const argv of [...p.calls.exec, ...signedInAfterStart([RUNNING]).calls.exec]) {
       expect(argv).not.toContain("--remote-control");
       expect(argv).not.toContain("update");
       expect(argv).not.toContain("stop");

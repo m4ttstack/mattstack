@@ -31,6 +31,8 @@ export interface Probes {
   fileSize(path: string): number | null;
   /** The permission bits (masked to 0o777), following symlinks, only for a REGULAR file (null otherwise). Lets a rewrite carry a file's existing mode across a temp-file-plus-rename instead of the rename silently adopting the temp file's own mode. */
   fileMode(path: string): number | null;
+  /** When a REGULAR file was last written, in epoch ms, following symlinks; null otherwise. A stat only: the file is never opened. */
+  fileMtimeMs(path: string): number | null;
   readFile(path: string): string | null;
   /**
    * A bounded 4096-byte prefix of `path`, following symlinks -- never a
@@ -239,6 +241,15 @@ export function createRealProbes(): Probes {
       try {
         const stat = statSync(path);
         return stat.isFile() ? stat.mode & 0o777 : null;
+      } catch {
+        return null;
+      }
+    },
+
+    fileMtimeMs(path) {
+      try {
+        const stat = statSync(path);
+        return stat.isFile() ? stat.mtimeMs : null;
       } catch {
         return null;
       }

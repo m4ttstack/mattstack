@@ -20,6 +20,8 @@ export interface FakeProbesOpts {
   sizes?: Record<string, number>;
   /** Starting fileMode() for a path seeded via `files`... a fixture that never goes through writeFile/chmod has no other way to carry a non-default mode into a test. */
   modes?: Record<string, number>;
+  /** fileMtimeMs() answers in epoch ms, keyed by path; a path absent here reads as null, as a missing file does. */
+  mtimes?: Record<string, number>;
   /** statPath() answers, keyed by the queried path. A path absent from this map reads as null (cannot be stat'd), same as the real probe for anything missing. */
   statPaths?: Record<string, { isDirectory: boolean; writable: boolean } | null>;
   exec?: ExecScript;
@@ -113,6 +115,10 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
       const resolved = resolveThroughLinks(path);
       if (resolved === null || resolved in dirs) return null;
       return liveModes[resolved] ?? null;
+    },
+
+    fileMtimeMs(path) {
+      return opts.mtimes?.[path] ?? null;
     },
 
     readFile(path) {

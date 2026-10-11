@@ -14,7 +14,8 @@ import { createRealProbes, type Probes } from "../../setup/probes.ts";
 import { readSetupState, updateSetupState } from "../../setup/state.ts";
 import { toFailedOutcome } from "../../setup/steps/step-utils.ts";
 import {
-  CODEX_UNPACKAGED_DETAIL, codexHomeOf, codexMcpRow, codexToolRow, desiredCodexMcpEntry, isUnpackagedCodex, probeCodexAppServer,
+  CODEX_UNPACKAGED_DETAIL, codexHomeOf, codexMcpRow, codexServerPredatesSignIn, codexToolRow, desiredCodexMcpEntry, isUnpackagedCodex,
+  probeCodexAppServer, probeCodexSignIn,
 } from "../../setup/validators/codex.ts";
 import { runAdapterSteps, type HarnessInstall, type InstallAdapter } from "../install.ts";
 import { codexUserHooksPath } from "./hook-manifest.ts";
@@ -123,18 +124,40 @@ async function runningSoon(ctx: ApplyContext, sleep: (ms: number) => Promise<voi
   return false;
 }
 
+/** A server that started before the sign-in had no working session, so restarting it interrupts nothing. */
+async function restartForSignIn(ctx: ApplyContext, sleep: (ms: number) => Promise<void>): Promise<StepOutcome> {
+  const res = await ctx.p.exec(["codex", "app-server", "daemon", "restart"], { timeoutMs: BOOTSTRAP_TIMEOUT_MS });
+  if (isUnpackagedCodex(res)) return { state: "needs-you", detail: CODEX_UNPACKAGED_DETAIL };
+  if (await runningSoon(ctx, sleep)) {
+    ctx.log("codex.app-server", "restarted Codex's app server, which started before the sign-in");
+    return { state: "done", detail: "Restarted Codex's app server so it uses your sign-in" };
+  }
+  if (res.code === 124) return { state: "needs-you", detail: "Codex's app server did not restart in time. Restart it again from setup's checklist" };
+  if (res.code !== 0) return { state: "needs-you", detail: `Codex could not restart its app server (exit ${res.code}): ${firstLine(res.stderr || res.stdout)}` };
+  return { state: "needs-you", detail: "Codex said it restarted its app server, but it is not running" };
+}
+
 /**
- * Bootstraps Codex's app server when it is not running, then reports it
- * started only once `version` reads it running. The server keeps no
- * LaunchAgent, so the app's launch-time update is what brings it back after
- * a restart. It never stops, updates or opens remote control.
+ * Starts Codex's app server only once Codex is signed in, and reports it
+ * started only once `version` reads it running. A server that started before
+ * the sign-in never picks it up, so that one is restarted. The server keeps
+ * no LaunchAgent, so the app's launch-time update is what brings it back
+ * after a restart. It never stops, updates or opens remote control.
  */
 async function codexAppServerRun(ctx: ApplyContext, sleep: (ms: number) => Promise<void>): Promise<StepOutcome> {
   const before = await probeCodexAppServer(ctx.p);
   if (before === "no-codex") return { state: "skipped", detail: "Codex is not installed yet" };
-  if (before === "running") return { state: "skipped", detail: "Already running" };
   if (before === "unpackaged") return { state: "needs-you", detail: CODEX_UNPACKAGED_DETAIL };
   if (before === "timeout") return { state: "needs-you", detail: "Codex did not say in time whether its app server is running. Check again in a moment" };
+
+  const signIn = await probeCodexSignIn(ctx.p);
+  if (signIn === "signed-out") return { state: "needs-you", detail: "Codex is not signed in, so rt did not start its app server. Sign in to Codex first" };
+  if (signIn !== "signed-in") {
+    return { state: "needs-you", detail: "rt could not check your Codex sign-in, so it did not start Codex's app server. Confirm you are signed in" };
+  }
+  if (before === "running") {
+    return codexServerPredatesSignIn(ctx.p) ? restartForSignIn(ctx, sleep) : { state: "skipped", detail: "Already running" };
+  }
 
   const boot = await ctx.p.exec(["codex", "app-server", "daemon", "bootstrap"], { timeoutMs: BOOTSTRAP_TIMEOUT_MS });
   if (isUnpackagedCodex(boot)) return { state: "needs-you", detail: CODEX_UNPACKAGED_DETAIL };
@@ -148,7 +171,7 @@ async function codexAppServerRun(ctx: ApplyContext, sleep: (ms: number) => Promi
   return { state: "needs-you", detail: "Codex said it started its app server, but it is not running" };
 }
 
-/** Update-safe: it only starts a server that is not running, the state a restart leaves, and writes no file. */
+/** Update-safe: it writes no file, starts only a server that is not running, and restarts only one that started before the sign-in. */
 export function createCodexAppServerStep(deps: CodexAppServerStepDeps = {}): StepDef {
   const sleep = deps.sleep ?? ((ms: number) => Bun.sleep(ms));
   return {

@@ -168,6 +168,32 @@ describe("the setup plan's shape and copy", () => {
     });
   }
 
+  for (const [label, versionAnswer, signIn, startedBeforeSignIn] of [
+    ["waits on the Codex sign-in", ok(JSON.stringify({ status: "stopped" })), { code: 1, stdout: "Not logged in\n", stderr: "" }, false],
+    ["started before the sign-in", ok(JSON.stringify({ status: "running" })), ok("Logged in using ChatGPT\n"), true],
+  ] as const) {
+    test(`integrations on, Codex only: the app server ${label}`, async () => {
+      const exec: ExecScript = (argv) => {
+        const cmd = argv.join(" ");
+        if (cmd === "codex app-server daemon version") return versionAnswer;
+        if (cmd === "codex login status") return signIn;
+        return argv[0] === "codex" && argv[1] === "--version" ? ok("codex-cli 0.160.0") : readyExec(argv);
+      };
+      const home = "/Users/member";
+      const probes = fakeProbes({
+        exec, home,
+        ...(startedBeforeSignIn && {
+          files: { [`${home}/.codex/app-server-daemon/daemon.pid`]: JSON.stringify({ pid: 1, processIdentity: { startSeconds: 1_791_685_302 } }) },
+          mtimes: { [`${home}/.codex/auth.json`]: 1_791_685_362_000 },
+        }),
+      });
+      const codexPolicy = async () => ({ ok: false as const, error: { code: "not-ready" as const, message: "x" } });
+      const p = await composePlan({ p: probes, secrets, ci: false, mode: "plan", orgs: [], waived: [], integrations: { switchOn: true, enabled: ["codex"] }, codexPolicy });
+      const only: Plan = { ...p, groups: p.groups.map((g) => ({ ...g, rows: g.rows.filter((r) => r.id === "tool.codex-app-server") })).filter((g) => g.rows.length > 0) };
+      expect(views(only)).toMatchSnapshot();
+    });
+  }
+
   for (const mode of ["plan", "status"] as const) {
     test(`${mode}: the machine view is unchanged`, async () => {
       expect(machineView(await plan(mode))).toMatchSnapshot();
