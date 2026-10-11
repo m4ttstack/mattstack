@@ -11,15 +11,17 @@ const SPINNER_SELECTORS = ["root"] as const;
 
 export const SPINNER_PARTS = { root: "spinner" } as const;
 
-/** Two-value recipe scalar, not the theme's `size` vocabulary axis: a spinner
-    has exactly the sizes its hosts (inline text, Button) need. */
+/** Recipe scalar, not the theme's `size` vocabulary axis: a spinner has
+    exactly the sizes its hosts need. `md` stands in for a 14px Icon, and an
+    open arc reads smaller than a solid glyph of the same box. */
 const SPINNER_SIZES: Record<NonNullable<SpinnerOwnProps["size"]>, string> = {
-  xs: "0.85em",
-  sm: "1em",
+  xs: "calc(0.85em + 4px)",
+  sm: "calc(1em + 4px)",
+  md: "16px",
 };
 
 export interface SpinnerOwnProps {
-  size?: "xs" | "sm";
+  size?: "xs" | "sm" | "md";
 }
 
 type SpinnerProps_ = SpinnerOwnProps & Omit<HTMLAttributes<HTMLSpanElement>, "ref">;
@@ -56,7 +58,17 @@ export const Spinner = defineComponent<
         {...getStyles("root")}
         data-part={SPINNER_PARTS.root}
         data-size={size ?? "sm"}
-      />
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+        >
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+      </span>
     );
   },
 });

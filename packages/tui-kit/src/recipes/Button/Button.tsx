@@ -129,7 +129,7 @@ export const Button = defineComponent<
         data-icon-only={iconOnly || undefined}
         aria-busy={busy || undefined}
       >
-        {busy && <Spinner size="xs" />}
+        {busy && <Spinner size={iconOnly ? "md" : "xs"} />}
         {children}
       </button>
     );
