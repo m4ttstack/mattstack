@@ -366,3 +366,46 @@ test('a file-write failure with no machine value before unsets deck.platform rat
   expect(machineRow?.present).toBe(false);
   expect(getPlatformSettings().publicDomain).toBeNull();
 });
+
+test('an update while deck.platform holds a refused value throws and writes nothing; a reload that reads a valid value clears it', () => {
+  mkdirSync(dirname(machineStorePath()), { recursive: true });
+  const refused = JSON.stringify({ 'deck.platform': 'oops' });
+  writeFileSync(machineStorePath(), refused);
+  reloadPlatformSettings();
+  expect(() =>
+    updatePlatformSettings({ publicDomain: 'over.example.dev' })
+  ).toThrow(/deck\.platform/);
+  expect(readFileSync(machineStorePath(), 'utf8')).toBe(refused);
+  expect(getPlatformSettings().publicDomain).toBeNull();
+
+  writeFileSync(
+    machineStorePath(),
+    JSON.stringify({ 'deck.platform': { publicDomain: 'fixed.example.dev' } })
+  );
+  reloadPlatformSettings();
+  updatePlatformSettings({ legacyPrefixes: ['/after'] });
+  expect(getSetting('deck.platform').value).toMatchObject({
+    publicDomain: 'fixed.example.dev',
+    legacyPrefixes: ['/after'],
+  });
+});
+
+test('an update after deck.platform could not be read at load throws and writes nothing; a reload that reads it clears it', () => {
+  setSetting('deck.platform', { publicDomain: 'real.example.dev' }, 'machine');
+  const before = readFileSync(machineStorePath(), 'utf8');
+  const throwing = (() => {
+    throw new Error('store unreadable');
+  }) as typeof getSetting;
+  reloadPlatformSettings(throwing);
+  expect(getPlatformSettings().publicDomain).toBeNull();
+  expect(() => updatePlatformSettings({ tlds: ['localhost', 'test'] })).toThrow(
+    /deck\.platform/
+  );
+  expect(readFileSync(machineStorePath(), 'utf8')).toBe(before);
+  expect(getPlatformSettings().tlds).toEqual(['localhost']);
+
+  reloadPlatformSettings();
+  updatePlatformSettings({ tlds: ['localhost', 'test'] });
+  expect(getPlatformSettings().publicDomain).toBe('real.example.dev');
+  expect(getPlatformSettings().tlds).toEqual(['localhost', 'test']);
+});

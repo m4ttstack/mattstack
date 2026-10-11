@@ -133,10 +133,18 @@ export function importFileFields(
   }
 }
 
+let storeUnreadable = false;
+
 function readStoredPlatform(resolve: GetSettingFn): StoreFields {
   try {
+    storeUnreadable = heldEntries(STORE_KEY, 'machine', defaultExplain).refused;
+    if (storeUnreadable)
+      console.warn(
+        `deck: ${STORE_KEY} holds a value rt refused, using its defaults`
+      );
     return resolve<StoreFields>(STORE_KEY).value as StoreFields;
   } catch (err) {
+    storeUnreadable = true;
     console.warn(`deck: ${STORE_KEY} unavailable, using its defaults`, err);
     return structuredClone(getDef(STORE_KEY)!.default) as StoreFields;
   }
@@ -181,6 +189,10 @@ export function getPlatformSettings(): PlatformSettings {
  * edit.
  */
 export function updatePlatformSettings(patch: Partial<PlatformSettings>): void {
+  if (storeUnreadable)
+    throw new Error(
+      `deck: ${STORE_KEY} could not be read at the last load; restart deck before changing platform settings`
+    );
   const previous = cache;
   cache = {
     ...cache,
