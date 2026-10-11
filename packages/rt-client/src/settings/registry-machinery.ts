@@ -41,6 +41,8 @@ export interface SettingDef {
   type: "string" | "number" | "boolean" | "object" | "array";
   scopes: SettingScope[];
   default?: unknown;
+  /** What a reader gets with nothing set, for a key with no `default`. */
+  defaultNote?: string;
   merge: "replace" | "deep" | "add";
   teamLocked?: boolean;
   secret?: boolean;
