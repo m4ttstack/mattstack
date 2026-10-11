@@ -6,7 +6,7 @@
 .split {
   display: flex;
   align-items: stretch;
-  min-height: 100%;
+  height: max(420px, calc(100dvh - 200px));
 }
 
 .stages {
@@ -15,7 +15,7 @@
   flex-direction: column;
   width: 280px;
   min-width: 0;
-  overflow: hidden;
+  overflow-y: auto;
   gap: 2px;
   padding: 8px;
   border-right: 1px solid var(--tk-line-1);
@@ -25,5 +25,6 @@
 .pane {
   flex: 1;
   min-width: 0;
+  overflow-y: auto;
   padding: 18px 24px 22px;
 }
