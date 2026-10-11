@@ -105,13 +105,13 @@ describe("settings/registry", () => {
       expect(def!.default).toBe(10);
     });
 
-    test("skills.writingStyle is a user, team and org string with no default (unset is what makes the setup row ask)", () => {
+    test("skills.writingStyle is a user, team and org string that defaults to conversational", () => {
       const def = getDef("skills.writingStyle");
       expect(def).toBeDefined();
       expect(def!.type).toBe("string");
       expect(def!.scopes).toEqual(["user", "team", "org"]);
       expect(def!.merge).toBe("replace");
-      expect(def!.default).toBeUndefined();
+      expect(def!.default).toBe("mattstack:writing-style-conversational");
     });
 
     test.each([

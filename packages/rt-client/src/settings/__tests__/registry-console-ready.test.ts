@@ -139,7 +139,6 @@ const PENDING_DEFAULT: readonly string[] = [
   "board.workspaces", "deck.access",
   "deck.apps", "deck.platform", "gitq.forges", "gitq.workSlots", "mattstack.roster",
   "rt.branchNaming", "rt.sdmEnrichment", "sdm.carriers", "sdm.resources",
-  "skills.writingStyle",
 ];
 
 describe("every setting says what it is when nothing is set", () => {

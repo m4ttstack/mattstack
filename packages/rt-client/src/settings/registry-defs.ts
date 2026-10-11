@@ -1012,12 +1012,11 @@ const ROWS: readonly SettingDef[] = [
   },
 
   // --- skills (writing style) ----------------------------------------------
-  // No `default`: an unset key is what makes the setup row read needs-you.
-  // The conversational fallback lives in the resolver, never in this row.
   {
     key: "skills.writingStyle",
     type: "string",
     scopes: ["user", "team"],
+    default: "mattstack:writing-style-conversational",
     merge: "replace",
     description: "Skill id that sets the voice for prose posted under your name (reviews, replies, PR descriptions). A team value is the default a member's user value overrides.",
   },

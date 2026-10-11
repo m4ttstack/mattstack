@@ -61,7 +61,7 @@ export function writingStyleRow(input: { homeReady: boolean; resolved: ResolvedW
 export function writingStyleRowFor(p: Pick<Probes, "home" | "exists">, pluginList: ExecResult): Row {
   try {
     const inventory = readSkillInventory(p.home, pluginList.code === 0 ? parsePluginEntries(pluginList.stdout) : null);
-    const resolved = resolveWritingStyle({ home: p.home });
+    const resolved = resolveWritingStyle();
     return writingStyleRow({ homeReady: p.exists(homeGitDir(p.home)), resolved, inventory, options: listWritingStyles(inventory, resolved).options });
   } catch (err) {
     return row({ ...BASE, finishGated: false, status: "error", detail: `Could not read the writing style: ${err instanceof Error ? err.message : String(err)}` });

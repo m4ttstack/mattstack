@@ -21,7 +21,7 @@ The preset sets the voice; a shared floor binds all three. Among other things, a
 
 ## Choose one
 
-Which style applies is resolved in this order: the `skills.writingStyle` setting (your user scope beats the team's), then a `writing-style:` line in `~/.mattstack/user/skills/preferences.md`, then `mattstack:writing-style-conversational`.
+Which style applies: the `skills.writingStyle` setting, where your user scope beats the team's. With neither set, it is `mattstack:writing-style-conversational`.
 
 ```bash
 rt skills writing-style show                                # the style in use, and where it comes from
