@@ -1,5 +1,5 @@
 import { Badge, Button, Icon, ICONS, Spinner } from '@mattstack/tui-kit';
-import { CHEVRON_DOWN, GIT_BRANCH, RADIO } from '../icons.ts';
+import { CHEVRON_DOWN, GIT_BRANCH, PLAY, RADIO } from '../icons.ts';
 import type { Row, StatusData } from '../logic.ts';
 import { Tooltip } from '../Tooltip.tsx';
 import { liveCell } from './live-logic.ts';
@@ -29,7 +29,7 @@ export function LiveCell({
           aria-label={`run ${row.name} live`}
           onClick={e => onOpen(row, e.currentTarget)}
         >
-          <Icon d={RADIO} className="live-mark" /> go live
+          <Icon d={PLAY} className="live-go-mark" /> go live
         </Button>
       );
       return cell.kind === 'blocked' ? (
@@ -73,11 +73,13 @@ export function LiveCell({
       const button = (
         <Button
           size="sm"
+          variant="filled"
+          intent="ok"
           className="live-source"
           aria-label={`${row.name} is live from ${cell.label}`}
           onClick={e => onOpen(row, e.currentTarget)}
         >
-          <Icon d={RADIO} className="live-mark" />
+          <Icon d={RADIO} />
           {cell.worktree && <Icon d={GIT_BRANCH} />}
           <span className="live-source-name">{cell.label}</span>
           {cell.movedFrom && (

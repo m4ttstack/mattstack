@@ -41,6 +41,8 @@ export const TRASH =
 export const RADIO =
   'M14 12a2 2 0 1 0-4 0a2 2 0 1 0 4 0M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14';
 
+export const PLAY = 'M8.5 7 17 12 8.5 17z';
+
 export const GIT_BRANCH =
   'M6 3v12M15 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M18 9a9 9 0 0 1-9 9';
 

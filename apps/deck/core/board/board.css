@@ -158,9 +158,9 @@ body {
   font-family: var(--font-mono);
 }
 .live-mark {
-  color: var(--text-accent);
+  color: var(--text-ok-vivid);
 }
-.live-source [data-part='icon']:not(.live-mark) {
+.live-go-mark {
   color: var(--text-2);
 }
 .live-failed {
