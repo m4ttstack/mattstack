@@ -42,7 +42,7 @@ digraph respond_launch_and_resume {
     "rt_verb {args: [skills, writing-style, show]} (respond)" [shape=plaintext];
     "rt_verb named a style skill (respond)?" [shape=diamond];
     "Load the named writing-style skill (respond)" [shape=box];
-    "Load the preferences.md style, else conversational (respond)" [shape=box];
+    "Load conversational (respond)" [shape=box];
     "Which entry (respond writing style)?" [shape=diamond];
     "Record the resumed Gate 1 or Gate 2 answer in --report" [shape=box];
     "Record the resumed escalation's marks in --report" [shape=box];
@@ -114,9 +114,9 @@ digraph respond_launch_and_resume {
     "Domain skill resolved (respond resume)?" -> "rt_verb {args: [skills, writing-style, show]} (respond)" [label="no"];
     "rt_verb {args: [skills, writing-style, show]} (respond)" -> "rt_verb named a style skill (respond)?";
     "rt_verb named a style skill (respond)?" -> "Load the named writing-style skill (respond)" [label="yes"];
-    "rt_verb named a style skill (respond)?" -> "Load the preferences.md style, else conversational (respond)" [label="no: refused, failed or unavailable"];
+    "rt_verb named a style skill (respond)?" -> "Load conversational (respond)" [label="no: refused, failed or unavailable"];
     "Load the named writing-style skill (respond)" -> "Which entry (respond writing style)?";
-    "Load the preferences.md style, else conversational (respond)" -> "Which entry (respond writing style)?";
+    "Load conversational (respond)" -> "Which entry (respond writing style)?";
     "Which entry (respond writing style)?" -> "Fresh generic run, style loaded: continue at Triage and Gate 1" [label="fresh run"];
     "Which entry (respond writing style)?" -> "Record the resumed Gate 1 or Gate 2 answer in --report" [label="resumed respond-plan or respond-post"];
     "Which entry (respond writing style)?" -> "Mark the threads that already carry this run's reply" [label="resumed escalation, a take at the Posted already read: its note names the threads"];
@@ -234,15 +234,12 @@ Load that skill before drafting anything: compose in its voice from the
 first word, never as a pass over a finished draft. It governs every reply
 this pane drafts, reply overrides and finalized fix replies included.
 
-### Load the preferences.md style, else conversational (respond)
+### Load conversational (respond)
 
-`rt_verb` is unavailable, refused, or failed. Read
-`~/.mattstack/user/skills/preferences.md` with the Read tool and load the
-skill its `writing-style:` line names, if it has one. If the line is
-missing, or that skill will not load, load
+`rt_verb` is unavailable, refused, or failed. Load
 `mattstack:writing-style-conversational`. The load still comes before the
-first drafted word. This fallback chain is the defined path, not an
-off-script origin.
+first drafted word. This fallback is the defined path, not an off-script
+origin.
 
 ### Record the resumed Gate 1 or Gate 2 answer in --report
 

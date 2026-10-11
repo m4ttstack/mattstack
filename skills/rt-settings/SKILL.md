@@ -25,11 +25,11 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    as empty.
 2. Every key is DECLARED: a registry row in
    `packages/rt-client/src/settings/registry-defs.ts` (type, allowed scopes,
-   merge, description — add a `default` only after clearing line 5; a
-   ported `board.*` row never has one). Before the console can edit it, a
-   new key also needs a zod schema in `registry-schemas.ts` (every key,
-   scalars too), examples in `schema-examples.ts`, a title or
-   description (`.meta`) on every object property, a console group in
+   merge, description, and a `default` or `defaultNote` per line 5).
+   Before the console can edit it, a new key also needs a zod schema in
+   `registry-schemas.ts` (every key, scalars too), examples in
+   `schema-examples.ts`, a title or description (`.meta`) on every object
+   property, a console group in
    `apps/console/src/app/settings/groups.ts` and a regenerated lock
    (`bun run cli.ts settings schema lock`), enforced by
    `registry-console-ready.test.ts`, `schema-examples.test.ts` and the
@@ -105,17 +105,18 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    owner writes that team's store, and a member writes neither. A refused
    team write names that team's owners, then the org's admins; a refused
    org write names the admins.
-5. A registry `default` is the sharpest field on a row: it materializes as
-   a present value on every install. A `board.*` row ported from the
-   board's legacy config never carries `default:`: the fallback lives in
-   the app-side read (`getSetting(k).value ?? fallback`), never in the
-   row, and writing both is still the bug. A fresh `board.*` key that was
-   never in that file may carry one (`board.reReview`, `board.peerAsks`
-   do), and its row says so. Keys ported from an app's legacy config file omit
-   defaults for a second reason: the ownership latch —
-   `getSetting(key).value === undefined` means the legacy file still owns
-   it, and a default flips the key store-authoritative. Any registry
-   block's own comment binds every row added under it.
+5. A key's default lives in its registry row and nowhere else: `default:`
+   for a key whose app falls back to a fixed value or to an empty `[]`/`{}`,
+   and `defaultNote:` (one short plain sentence the console shows) for a key
+   with none, such as an identity, a trust grant, a required value or one
+   computed from the machine. `registry-console-ready.test.ts` fails a row
+   with neither. A reader takes `getSetting(k).value`, which carries the
+   default, and adds no `?? fallback` of its own. Whether anyone set a key
+   is a provenance question: `unwritten(key)` or `onlyDefault(resolved)`
+   (`lib/settings/presence.ts`; in an app, `resolved.provenance`), never
+   `.value === undefined`, which a default makes always false
+   (`lib/__tests__/no-presence-by-undefined.test.ts`). Any registry block's
+   own comment binds every row added under it.
 6. A secret is never a setting: tokens and keys live in the sops-encrypted
    secrets store, read env-first, then the daemon's token-gated
    `secrets:read`.
@@ -243,7 +244,7 @@ minor goes the same way.
 
 | Need | Read |
 |---|---|
-| Full architecture: three-layer rule, store files on disk, resolver semantics, the add-a-key checklist, porting + ownership latch, the marker's layout version, footguns (call-time HOME, stale copies, sops cwd) | `docs/settings-architecture.md` in the mattstack checkout (on a dev Mac the one `rt dev setup` recorded, else `~/Documents/GitHub/mattstack`; the app bundle's skills folder carries no docs) |
+| Full architecture: three-layer rule, store files on disk, resolver semantics, the add-a-key checklist, defaults and default notes, the porting history, the marker's layout version, footguns (call-time HOME, stale copies, sops cwd) | `docs/settings-architecture.md` in the mattstack checkout (on a dev Mac the one `rt dev setup` recorded, else `~/Documents/GitHub/mattstack`; the app bundle's skills folder carries no docs) |
 | Which identity form keys what — raw vs serialized | `docs/repo-identity.md`, same checkout |
 | Per-app key tables (which key, which scope, what shape) | `docs/superpowers/specs/2026-08-20-suite-settings-migration.md`, same checkout |
 | Resolver API | `packages/rt-client/README.md`, same checkout (every consumer links the workspace package; nothing is published) |
