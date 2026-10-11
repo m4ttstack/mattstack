@@ -108,6 +108,12 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
             name: { type: 'string', minLength: 1 },
             event: { type: 'string', minLength: 1 },
             run: { minItems: 1, type: 'array', items: { type: 'string' } },
+            tool: {
+              description:
+                'The name of a bundled tool. When set, the daemon runs that tool from the app that is running, and run holds its arguments.',
+              type: 'string',
+              minLength: 1,
+            },
             repoName: { type: 'string' },
             debounceMs: { type: 'number', exclusiveMinimum: 0 },
           },

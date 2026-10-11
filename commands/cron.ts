@@ -7,8 +7,7 @@
 
 import type { CommandContext } from "../lib/command-tree.ts";
 import { resolveTool } from "../lib/deps/resolve.ts";
-import { getKnownRepos } from "../lib/repo-index.ts";
-import { installCronTrigger, removeCronTrigger, resolveBoardTriage, triageTrigger } from "../lib/setup/cron-install.ts";
+import { installCronTrigger, removeCronTrigger, triageTrigger } from "../lib/setup/cron-install.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
@@ -54,11 +53,7 @@ export async function cronInstall(args: string[], _ctx: CommandContext = {}): Pr
   const json = args.includes("--json");
   await requireKnownTrigger(args, json, "install");
 
-  const p = createRealProbes();
-  const board = resolveTool(p, "board");
-  const resolution = resolveBoardTriage(p, getKnownRepos(), board.exec);
-
-  if (resolution.kind === "missing") {
+  if (resolveTool(createRealProbes(), "board").exec === null) {
     exitUserError(
       new UserActionableError(
         "board-missing",
@@ -70,7 +65,7 @@ export async function cronInstall(args: string[], _ctx: CommandContext = {}): Pr
     );
   }
 
-  const trigger = triageTrigger(resolution.run);
+  const trigger = triageTrigger();
   installCronTrigger(trigger);
 
   if (json) {

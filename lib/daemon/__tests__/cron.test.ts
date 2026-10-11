@@ -34,6 +34,16 @@ describe("parseCronConfig", () => {
     ).toThrow('rt.cron has two triggers named "t"');
   });
 
+  test("carries an optional tool through", () => {
+    const cfg = parseCronConfig({ triggers: [{ name: "t", event: "x", tool: "board", run: ["triage"] }] });
+    expect(cfg.triggers[0]).toEqual({ name: "t", event: "x", tool: "board", run: ["triage"], repoName: undefined, debounceMs: undefined });
+  });
+
+  test("rejects an empty or non-string tool", () => {
+    expect(() => parseCronConfig({ triggers: [{ name: "t", event: "x", tool: "", run: ["a"] }] })).toThrow('"tool" must be a non-empty string');
+    expect(() => parseCronConfig({ triggers: [{ name: "t", event: "x", tool: 1, run: ["a"] }] })).toThrow('"tool" must be a non-empty string');
+  });
+
   test("undefined/empty input degrades to no triggers", () => {
     expect(parseCronConfig(undefined)).toEqual({ triggers: [] });
     expect(parseCronConfig({})).toEqual({ triggers: [] });
@@ -241,6 +251,79 @@ describe("startCron", () => {
     cron.onBroadcast("tick", null);
     await sleep(20);
     expect(runs).toHaveLength(1);
+    cron.dispose();
+  });
+
+  test("a tool trigger runs the tool the running app resolves, with run as its arguments", async () => {
+    const runs: string[][] = [];
+    const asked: string[] = [];
+    const cron = startCron(
+      { triggers: [{ name: "t", event: "tick", tool: "board", run: ["triage", "--peer"], debounceMs: 5 }] },
+      {
+        log,
+        runCommand: (argv) => runs.push(argv),
+        resolveTool: (tool) => {
+          asked.push(tool);
+          return ["/Applications/mattstack.app/Contents/Helpers/board"];
+        },
+      },
+    );
+    cron.onBroadcast("tick", null);
+    await sleep(20);
+    expect(asked).toEqual(["board"]);
+    expect(runs).toEqual([["/Applications/mattstack.app/Contents/Helpers/board", "triage", "--peer"]]);
+    cron.dispose();
+  });
+
+  test("a tool the running app cannot find warns and skips the run", async () => {
+    const runs: string[][] = [];
+    const warnings: string[] = [];
+    const cron = startCron(
+      { triggers: [{ name: "t", event: "tick", tool: "board", run: ["triage"], debounceMs: 5 }] },
+      { log: { info: () => {}, warn: (m) => warnings.push(m) }, runCommand: (argv) => runs.push(argv), resolveTool: () => null },
+    );
+    cron.onBroadcast("tick", null);
+    await sleep(20);
+    expect(runs).toEqual([]);
+    expect(warnings).toEqual(['cron t: tool "board" was not found in the running app, so this run was skipped']);
+    cron.dispose();
+  });
+
+  test("a tool lookup that throws warns and skips instead of throwing from the timer", async () => {
+    const runs: string[][] = [];
+    const warnings: string[] = [];
+    const cron = startCron(
+      { triggers: [{ name: "t", event: "tick", tool: "board", run: ["triage"], debounceMs: 5 }] },
+      {
+        log: { info: () => {}, warn: (m) => warnings.push(m) },
+        runCommand: (argv) => runs.push(argv),
+        resolveTool: () => {
+          throw new Error("boom");
+        },
+      },
+    );
+    cron.onBroadcast("tick", null);
+    await sleep(20);
+    expect(runs).toEqual([]);
+    expect(warnings).toEqual(['cron t: could not look up tool "board", so this run was skipped: boom']);
+    cron.dispose();
+  });
+
+  test("a trigger without a tool never asks for one", async () => {
+    const runs: string[][] = [];
+    const cron = startCron(
+      { triggers: [{ name: "t", event: "tick", run: ["x", "y"], debounceMs: 5 }] },
+      {
+        log,
+        runCommand: (argv) => runs.push(argv),
+        resolveTool: () => {
+          throw new Error("asked for a tool");
+        },
+      },
+    );
+    cron.onBroadcast("tick", null);
+    await sleep(20);
+    expect(runs).toEqual([["x", "y"]]);
     cron.dispose();
   });
 
