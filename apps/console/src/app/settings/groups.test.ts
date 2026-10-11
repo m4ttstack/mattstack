@@ -25,10 +25,10 @@ describe('GROUPS', () => {
     });
   });
 
-  it('puts the sdm keys and rt.sdmEnrichment in the StrongDM group', () => {
+  it('puts the sdm keys in the StrongDM group', () => {
     const strongdm = GROUPS.find(g => g.id === 'strongdm');
     expect(strongdm?.label).toBe('StrongDM');
-    for (const key of ['sdm.resources', 'sdm.carriers', 'rt.sdmEnrichment'])
+    for (const key of ['sdm.resources', 'sdm.carriers'])
       expect(GROUPS.filter(g => g.match(key)).map(g => g.id)).toEqual([
         'strongdm',
       ]);

@@ -355,9 +355,16 @@ describe("settings/resolve", () => {
       expect(got.items).toEqual([]);
     });
 
-    test("nothing set anywhere resolves to undefined with no items", () => {
+    test("nothing set anywhere resolves to the empty default", () => {
       const got = getSetting<string[]>("claude.plugins");
+      expect(got.value).toEqual([]);
+      expect(got.provenance.map((p) => p.scope)).toEqual(["default"]);
+    });
+
+    test("a key with no default and nothing set resolves to undefined with no items", () => {
+      const got = getSetting<unknown>("gitq.workSlots");
       expect(got.value).toBeUndefined();
+      expect(got.provenance).toEqual([]);
       expect(got.items).toBeUndefined();
     });
 

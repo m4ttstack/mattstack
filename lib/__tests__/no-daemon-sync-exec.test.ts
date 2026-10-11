@@ -14,6 +14,7 @@ const ALLOWLIST = new Set<string>([
   "lib/repo-index.ts",              // Phase 5.3 dedup (heal/derive execSync)
   "lib/repo.ts",                    // R050 / Phase 5.4 (via handlers/system-processes.ts)
   "lib/git.ts",                     // R050 / Phase 5.4 (via repo.ts)
+  "lib/git-origin.ts",              // R050 / Phase 5.4 (moved out of repo.ts; via repo.ts)
   "lib/herdr-launch.ts",            // launchFallback's Bun.spawnSync (reachable via handlers/pane.ts's shellQuote import)
   "lib/rt-render.ts",              // R050 / Phase 5.4 (daemon carries the TUI)
   "lib/ui/out.ts",                 // rt-ui render's Bun.spawnSync (reachable via lib/team/*.ts's UserActionableError import; the daemon never draws a failure)

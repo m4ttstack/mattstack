@@ -158,10 +158,6 @@ export const EXAMPLES: Record<string, Example> = {
     bad: [{ value: { enabled: "true" }, path: ["enabled"] }],
     layer: [{ killProcesses: false }],
   },
-  "rt.sdmEnrichment": {
-    good: [{}, { "acme-staging-db": { label: "Staging DB", tier: "staging", production: false, reasonSuggestion: "debugging", db: { database: "app", schema: "public", user: "readonly" } } }],
-    bad: [{ value: { "acme-staging-db": { production: "no" } }, path: ["acme-staging-db", "production"] }],
-  },
   "sdm.resources": {
     good: [{}, { "acme-staging-db": { label: "Staging DB", tier: "staging", production: false, reasonSuggestion: "debugging", db: { database: "app", schema: "public", user: "readonly" } } }],
     bad: [{ value: { "acme-staging-db": { production: "no" } }, path: ["acme-staging-db", "production"] }],

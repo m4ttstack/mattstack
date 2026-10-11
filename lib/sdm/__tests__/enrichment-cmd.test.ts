@@ -1,81 +1,29 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { enrichmentCmd, enrichmentSkeleton } from "../../../commands/sdm.ts";
-import { enrichmentPath, stripJsonc } from "../enrichment.ts";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from "fs";
+import { enrichmentCmd } from "../../../commands/sdm.ts";
+import { existsSync, mkdtempSync, realpathSync } from "fs";
 import { tmpdir } from "os";
-import { join, dirname } from "path";
+import { join } from "path";
 import * as out from "../../ui/out.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
-import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
-function writeStore(file: string, obj: unknown): void {
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(obj, null, 2));
-}
-
-describe("enrichmentSkeleton", () => {
-  test("contains every resource name as a JSON key", () => {
-    const names = ["acme-alpha-staging", "acme-beta-qa-prod"];
-    const skeleton = enrichmentSkeleton(names);
-    for (const name of names) {
-      expect(skeleton).toContain(JSON.stringify(name));
-    }
-  });
-
-  test("parses as valid JSON after stripping JSONC comments", () => {
-    const names = ["acme-alpha-staging", "acme-beta-qa-prod"];
-    const parsed = JSON.parse(stripJsonc(enrichmentSkeleton(names)));
-    expect(Object.keys(parsed)).toEqual(names);
-    for (const name of names) {
-      expect(parsed[name]).toEqual({ label: "", tier: "" });
-    }
-  });
-
-  test("empty resource list still produces a valid, parseable object", () => {
-    const parsed = JSON.parse(stripJsonc(enrichmentSkeleton([])));
-    expect(parsed).toEqual({});
-  });
-});
-
-describe("enrichmentCmd init: scaffold refusal when the team store owns rt.sdmEnrichment", () => {
+describe("enrichmentCmd", () => {
   let io: ReturnType<typeof captureOut>;
 
   beforeEach(() => {
-    // Store-owned returns before ever reaching the network scan, so this
-    // needs no daemon or StrongDM stubbing, just an isolated HOME.
     process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "enr-cmd-home-")));
     io = captureOut();
-    io.reset();
     out.__test__.setHuman(() => false);
   });
-
   afterEach(() => {
     io.restore();
+    process.exitCode = 0;
   });
 
-  test("says the team already labels them, names the file it would otherwise write, and never scaffolds it", async () => {
-    writeStore(sharedStorePath("acme"), { "rt.sdmEnrichment": { "res-a": { label: "A" } } });
-    const path = enrichmentPath();
-
+  test("an argument is refused, and no labels file is made", async () => {
     await enrichmentCmd(["init"]);
-
-    expect(existsSync(path)).toBe(false);
-    expect(io.stdout()).toBe(`[skipped] Your team's settings already label these connections  rt did not create a labels file\nfile: ${path}\n`);
-    expect(io.stderr()).toBe("");
-  });
-
-  test("an existing labels file is a refusal on stderr, never a failure, and the file is left alone", async () => {
-    const path = enrichmentPath();
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, "{ \"mine\": {} }\n");
-    try {
-      await enrichmentCmd(["init"]);
-      expect(io.stdout()).toBe("");
-      expect(io.stderr()).toBe(`[refused] Your labels file already exists\nfile: ${path}\n`);
-      expect(process.exitCode).toBe(1);
-      expect(readFileSync(path, "utf8")).toBe("{ \"mine\": {} }\n");
-    } finally {
-      process.exitCode = 0;
-    }
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toBe("[refused] rt no longer makes a labels file  your team's labels live in your team's settings\n");
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(join(process.env.HOME!, ".mattstack", "rt", "sdm", "enrichment.jsonc"))).toBe(false);
   });
 });

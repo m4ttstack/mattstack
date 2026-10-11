@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
 import { createHooksHandlers } from "../handlers/hooks.ts";
 import type { HandlerContext } from "../handlers/types.ts";
 
@@ -51,5 +55,33 @@ describe("hooks handlers — identity-only guard", () => {
     // Cast: TS narrows watchedName to null (its initializer) because the
     // mutating assignment lives in a closure it can't prove ran.
     expect(watchedName as string | null).toBe("path:%2Frepo");
+  });
+});
+
+describe("hooks:status reads the setting", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+  let previousSink: ReturnType<typeof setSettingsNoticeSink>;
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-hooks-status-")));
+    process.env.HOME = home;
+    previousSink = setSettingsNoticeSink(() => {});
+  });
+  afterEach(() => {
+    setSettingsNoticeSink(previousSink);
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("hooks:status answers with the repo's resolved rt.hooks setting", async () => {
+    setSetting("rt.hooks", { hooks: { "pre-push": false } }, "user", { repoIdentity: "example.com/org/repo" });
+    const h = createHooksHandlers(fakeCtx());
+    const res = (await h["hooks:status"]!({ repo: "remote:example.com%2Forg%2Frepo" })) as { ok: boolean; data: unknown };
+    expect(res).toEqual({ ok: true, data: { enabled: true, hooks: { "pre-push": false } } });
+  });
+
+  test("hooks:status for a repo with no remote is null: it has no settings section", async () => {
+    const h = createHooksHandlers(fakeCtx());
+    expect(await h["hooks:status"]!({ repo: "path:%2Fsrc%2Frepo" })).toEqual({ ok: true, data: null });
   });
 });

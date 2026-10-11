@@ -29,7 +29,6 @@ import type { CellInput, FailureInput } from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
 import { loadRepoIndex } from "../lib/repo-index.ts";
 import { resolveRepoArg } from "../lib/repo-arg.ts";
-import { repoDataDir } from "../lib/rt-paths.ts";
 import { deriveRepoIdentity } from "../lib/settings/identity.ts";
 import {
   explainSetting,
@@ -330,7 +329,7 @@ export async function settingsSet(args: string[]): Promise<void> {
   out.print(
     out.line("done", `Saved ${key}`, whereText(scope, team, target.repoName)),
     ...notices.flatMap(noticeBlocks),
-    ...(await regenBlocks(key, target)),
+    ...(await regenBlocks(key)),
   );
 }
 
@@ -371,32 +370,18 @@ export async function settingsUnset(args: string[]): Promise<void> {
   out.print(
     out.line("done", `Removed ${key}`, `from ${where}`),
     ...removed.notices.flatMap(noticeBlocks),
-    ...(await regenBlocks(key, target)),
+    ...(await regenBlocks(key)),
   );
 }
 
-/**
- * The derived caches a write may have invalidated, as lines under the
- * confirmation. hooks.json is rebuilt only for a `--repo` write: a global
- * write can change the resolved value for every other repo too, and
- * deriving every repo's identity (a git spawn each) on one `set` is out of
- * scope; `rt hooks status` in an affected repo refreshes its cache.
- */
-async function regenBlocks(key: string, target: { repoName?: string; repoPath?: string; repoIdentity?: string; repoKey?: string }): Promise<Block[]> {
+/** The derived caches a write may have invalidated, as lines under the confirmation. */
+async function regenBlocks(key: string): Promise<Block[]> {
   const blocks: Block[] = [];
   const regen = await regenerateInterceptsCache(key);
   if (regen.regenerated) {
     blocks.push(out.line("done", "Intercepts updated", `${regen.rules} rule${regen.rules === 1 ? "" : "s"}`));
   } else if (regen.error) {
     blocks.push(out.line("warn", "Intercepts not updated", regen.error), out.callout("next", out.cmd("rt intercept install")));
-  }
-  if (key === "rt.hooks" && target.repoPath && target.repoIdentity && target.repoKey) {
-    const { regenerateHooksCache } = await import("./hooks.ts");
-    if (regenerateHooksCache(target.repoPath, repoDataDir(target.repoKey), target.repoIdentity)) {
-      blocks.push(out.line("done", "Hooks updated", target.repoName));
-    } else {
-      blocks.push(out.line("warn", `Hooks not updated for ${target.repoName}`), out.callout("next", [out.cmd("rt hooks status"), " in that repo"]));
-    }
   }
   return blocks;
 }

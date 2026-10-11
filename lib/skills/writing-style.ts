@@ -1,9 +1,8 @@
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { onlyDefault, registryDefault } from "../settings/presence.ts";
 import { getSetting, isSharedScope, type Resolved } from "../settings/resolve.ts";
 
 export const WRITING_STYLE_KEY = "skills.writingStyle";
-export const FALLBACK_WRITING_STYLE = "mattstack:writing-style-conversational";
+export const FALLBACK_WRITING_STYLE = registryDefault<string>(WRITING_STYLE_KEY);
 
 export interface WritingStylePreset {
   id: string;
@@ -33,7 +32,7 @@ export const WRITING_STYLE_PRESETS: readonly WritingStylePreset[] = [
   },
 ];
 
-export type WritingStyleSource = "user" | "team" | "preferences" | "fallback";
+export type WritingStyleSource = "user" | "team" | "fallback";
 
 export interface ResolvedWritingStyle {
   skill: string;
@@ -44,7 +43,6 @@ export interface ResolvedWritingStyle {
 export const WRITING_STYLE_SOURCE_LABEL: Record<WritingStyleSource, string> = {
   user: "yours",
   team: "team default",
-  preferences: "from preferences.md",
   fallback: "not chosen; conversational fallback",
 };
 
@@ -62,35 +60,13 @@ export function isPresetId(id: string): boolean {
   return presetById(id) !== undefined;
 }
 
-export function preferencesPath(home: string): string {
-  return join(home, ".mattstack", "user", "skills", "preferences.md");
-}
-
-export function parsePreferencesStyle(text: string): string | null {
-  const lines = text.split("\n");
-  const start = lines.findIndex((l) => l.trim().toLowerCase() === "## writing style");
-  if (start === -1) return null;
-  for (const line of lines.slice(start + 1)) {
-    if (line.trim().startsWith("## ")) return null;
-    const m = /^\s*writing-style:\s*`?([^`\s]+)`?\s*$/.exec(line);
-    if (m) return isValidSkillId(m[1]!) ? m[1]! : null;
-  }
-  return null;
-}
-
-export function resolveWritingStyle(opts: { home?: string; read?: (key: string) => Resolved<unknown> } = {}): ResolvedWritingStyle {
-  const home = opts.home ?? process.env.HOME ?? "";
+/** Not chosen means no store sets the key, so a value equal to the default still reads as someone's choice. */
+export function resolveWritingStyle(opts: { read?: (key: string) => Resolved<unknown> } = {}): ResolvedWritingStyle {
   const read = opts.read ?? ((key: string) => getSetting<unknown>(key));
-
   const configured = read(WRITING_STYLE_KEY);
-  if (typeof configured.value === "string" && isValidSkillId(configured.value)) {
-    const scope = configured.provenance.at(-1)?.scope;
-    return { skill: configured.value, source: scope !== undefined && isSharedScope(scope) ? "team" : "user" };
+  const scope = configured.provenance.at(-1)?.scope;
+  if (!onlyDefault(configured) && scope !== undefined && typeof configured.value === "string" && isValidSkillId(configured.value)) {
+    return { skill: configured.value, source: isSharedScope(scope) ? "team" : "user" };
   }
-
-  const path = preferencesPath(home);
-  const fromPreferences = existsSync(path) ? parsePreferencesStyle(readFileSync(path, "utf8")) : null;
-  if (fromPreferences) return { skill: fromPreferences, source: "preferences" };
-
   return { skill: FALLBACK_WRITING_STYLE, source: "fallback" };
 }

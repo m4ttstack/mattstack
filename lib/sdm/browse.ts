@@ -1,6 +1,6 @@
 /**
  * Connection builder: joins the scanner's real StrongDM resources
- * (lib/sdm/scan.ts) with the user-maintained enrichment overlay
+ * (lib/sdm/scan.ts) with the team's enrichment overlay
  * (lib/sdm/enrichment.ts) into the display rows the picker renders. A
  * resource with no enrichment entry still gets a row, with its tier,
  * carrier and label from its StrongDM tags, so browse never hides a real

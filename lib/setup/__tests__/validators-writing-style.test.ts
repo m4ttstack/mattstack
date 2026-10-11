@@ -58,9 +58,14 @@ describe("writingStyleRow", () => {
     expect(d.detail).toContain("in the disabled plugin x@m. Enable it");
   });
 
-  test("preferences.md and personal choices read ready with their source", () => {
-    expect(writingStyleRow({ homeReady: true, resolved: { skill: "acme:team-writing-style", source: "preferences" }, inventory: inv(["acme:team-writing-style"]), options: opts }).detail).toBe("acme:team-writing-style (from preferences.md)");
+  test("a personal choice reads ready as yours", () => {
     expect(writingStyleRow({ homeReady: true, resolved: { skill: "team-voice", source: "user" }, inventory: inv(["team-voice"]), options: opts }).detail).toBe("team-voice (yours)");
+  });
+
+  test("conversational chosen on purpose is ready, not asked again", () => {
+    const r = writingStyleRow({ homeReady: true, resolved: { skill: "mattstack:writing-style-conversational", source: "user" }, inventory: inv(["mattstack:writing-style-conversational"]), options: opts });
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("Conversational (yours)");
   });
 
   test("every action this row can carry is one the Done screen handles", () => {

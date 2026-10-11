@@ -1,7 +1,7 @@
 /**
- * `rt settings set rt.hooks ... --repo <name>` regenerates that repo's
- * hooks.json derived cache (commands/settings-keys.ts's regen seam,
- * mirroring the intercepts one — see lib/endpoint/__tests__/settings-regen.test.ts).
+ * `rt settings set rt.hooks ... --repo <name>` only writes the store: rt's
+ * git hook shim asks rt for the setting itself, so there is no cache to
+ * regenerate.
  *
  * Exercises `settingsSet` directly rather than through a spawned CLI: its
  * happy path never calls `process.exit` (only argument-error branches do),
@@ -10,19 +10,18 @@
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { execSync } from "child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { repoDataDir } from "../../lib/rt-paths.ts";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
-import { hooksConfigPath } from "../hooks.ts";
 import { settingsSet } from "../settings-keys.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 const REMOTE = "git@gitlab.com:fake/hooks-regen-repo.git";
 
-describe("rt settings set rt.hooks --repo -> hooks.json regeneration seam", () => {
+describe("rt settings set rt.hooks --repo", () => {
   const origHome = process.env.HOME;
   let home: string;
   let repoPath: string;
@@ -46,21 +45,19 @@ describe("rt settings set rt.hooks --repo -> hooks.json regeneration seam", () =
     rmSync(repoPath, { recursive: true, force: true });
   });
 
-  test("regenerates the target repo's hooks.json cache to match the just-written value", async () => {
-    await settingsSet([
-      "rt.hooks",
-      '{"enabled":false,"hooks":{}}',
-      "--scope",
-      "machine",
-      "--repo",
-      "hooks-regen-repo",
-    ]);
-
-    const cache = JSON.parse(readFileSync(hooksConfigPath(repoDataDir("hooks-regen-repo")), "utf8"));
-    expect(cache).toEqual({ enabled: false, hooks: { "pre-commit": true } });
+  test("a --repo write lands in the store and writes no hooks.json", async () => {
+    const cap = captureOut();
+    out.__test__.setHuman(() => false);
+    try {
+      await settingsSet(["rt.hooks", '{"enabled":false,"hooks":{}}', "--scope", "machine", "--repo", "hooks-regen-repo"]);
+      expect(cap.stdout()).not.toContain("Hooks updated");
+    } finally {
+      cap.restore();
+    }
+    expect(existsSync(join(repoDataDir("hooks-regen-repo"), "hooks.json"))).toBe(false);
   });
 
-  test("a write with no --repo is refused: rt.hooks is repo-only, so nothing is written or regenerated", async () => {
+  test("a write with no --repo is refused: rt.hooks is repo-only, so nothing is written", async () => {
     const exitSpy = spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit sentinel");
     });
@@ -75,12 +72,6 @@ describe("rt settings set rt.hooks --repo -> hooks.json regeneration seam", () =
       exitSpy.mockRestore();
       cap.restore();
     }
-    expect(() => readFileSync(hooksConfigPath(repoDataDir("hooks-regen-repo")), "utf8")).toThrow();
-  });
-
-  test("a set of an unrelated key does not touch hooks.json", async () => {
-    await settingsSet(["rt.worktrees", '{"onDeck":1}', "--scope", "machine", "--repo", "hooks-regen-repo"]);
-
-    expect(() => readFileSync(hooksConfigPath(repoDataDir("hooks-regen-repo")), "utf8")).toThrow();
+    expect(existsSync(join(repoDataDir("hooks-regen-repo"), "hooks.json"))).toBe(false);
   });
 });

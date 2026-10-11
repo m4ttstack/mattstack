@@ -10,7 +10,7 @@ rt sdm connections        # list the tunnels you currently have open
 rt sdm login              # log in (browser popup, terminal fallback)
 rt sdm set-email <email>  # set the email rt logs in with
 rt sdm refresh            # re-scan the catalog
-rt sdm enrichment [init]  # show or scaffold the enrichment map
+rt sdm enrichment         # see how many connections have labels
 ```
 
 rt reads your resources straight from the StrongDM CLI (`sdm access catalog`
@@ -51,4 +51,4 @@ rt settings set sdm.carriers '{"acme":{"label":"Acme Insurance"}}' --scope team
 
 A tag with no entry shows capitalised, so `acme` appears as `Acme`. A resource missing from `sdm.resources` shows the name built from its tags (its raw name when it has none) and connects with Postgres defaults.
 
-rt reads overrides from `sdm.resources` first, then the deprecated `rt.sdmEnrichment` key, then the old local file at `~/.mattstack/rt/sdm/enrichment.jsonc` (`rt sdm enrichment` shows or scaffolds it). `rt setup update` moves an existing `rt.sdmEnrichment` to `sdm.resources` on the Mac of the team's owner, so there is nothing to do by hand.
+rt reads overrides only from `sdm.resources` in your team's settings. `rt setup update` moved the older `rt.sdmEnrichment` key there on the Mac of the team's owner, and rt no longer reads it. rt no longer reads the local file `~/.mattstack/rt/sdm/enrichment.jsonc` either. If one is still there and your team has no overrides, rt prints the `rt settings set` command your team's owner can run to move it. `rt sdm enrichment` shows how many of your connections have labels.

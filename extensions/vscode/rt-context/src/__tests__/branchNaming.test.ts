@@ -1,16 +1,14 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { getSetting, setSetting } from '@mattstack/rt-client';
+import { getDef, getSetting } from '@mattstack/rt-client';
 import { loadBranchNamingConfig } from '../branchNaming';
 
 // @mattstack/rt-client does not export its store-path helpers (paths.ts is
 // an internal detail); these are the documented layout from
 // docs/settings-architecture.md's store table.
 const userSettingsPath = (home: string) => join(home, '.mattstack', 'user', 'settings.user.jsonc');
-const teamSettingsPath = (home: string, team: string) =>
-  join(home, '.mattstack', 'orgs', team, 'mattstack', 'org', 'settings.org.jsonc');
 
 // Every test repoints HOME at a fresh temp dir (call-time HOME resolution,
 // same convention as rt-client's own settings tests) so the settings store
@@ -45,141 +43,47 @@ describe('loadBranchNamingConfig', () => {
   const legacyPath = () => join(dataDir, 'branch-naming.json');
   const writeLegacy = (contents: string) => writeFileSync(legacyPath(), contents);
 
-  /** An org clone, so `setSetting(..., "org", ...)` has a store to write. */
-  function seedTeamStore(team: string, username: string | null = 'dev1'): void {
-    const path = teamSettingsPath(home, team);
-    mkdirSync(join(home, '.mattstack', 'orgs', team, 'mattstack', 'org'), { recursive: true });
-    writeFileSync(path, JSON.stringify({ 'mattstack.org': { admins: ['dev1'], teams: { widgets: { owners: ['dev2'] } } } }));
-    if (username !== null) {
-      const localDir = join(home, '.mattstack', 'rt', 'teams');
-      mkdirSync(localDir, { recursive: true });
-      writeFileSync(join(localDir, `${team}.json`), JSON.stringify({ forgeUsername: username }));
-    }
-  }
+  const DEFAULT = { template: '${identifier}-${titleSlug}' };
+  const writeStore = (value: unknown) => {
+    mkdirSync(join(home, '.mattstack', 'user'), { recursive: true });
+    writeFileSync(userSettingsPath(home), JSON.stringify({ repos: { [IDENTITY]: { 'rt.branchNaming': value } } }));
+  };
 
-  test('no store value, no legacy file -> null', () => {
-    expect(loadBranchNamingConfig(dataDir, IDENTITY)).toBeNull();
+  test('nothing set -> the registry default', () => {
+    expect(getDef('rt.branchNaming')!.default).toEqual(DEFAULT);
+    expect(loadBranchNamingConfig(dataDir, IDENTITY)).toEqual(DEFAULT);
+    expect(loadBranchNamingConfig(dataDir, null)).toEqual(DEFAULT);
   });
 
-  test('no store value, valid legacy file, an org clone -> imports into the org.repo rung, renames the file, and returns the template', () => {
-    seedTeamStore('acme');
-    writeLegacy(JSON.stringify({ template: '${teamPrefix}-${ticketNumber}' }));
-
-    const result = loadBranchNamingConfig(dataDir, IDENTITY);
-
-    expect(result).toEqual({ template: '${teamPrefix}-${ticketNumber}' });
-    expect(existsSync(legacyPath())).toBe(false);
-    expect(existsSync(`${legacyPath()}.migrated`)).toBe(true);
-
-    const persisted = getSetting<{ template: string }>('rt.branchNaming', { repoIdentity: IDENTITY }).value;
-    expect(persisted).toEqual({ template: '${teamPrefix}-${ticketNumber}' });
-
-    const teamStoreRaw = JSON.parse(readFileSync(teamSettingsPath(home, 'acme'), 'utf8'));
-    expect(teamStoreRaw.repos[IDENTITY]['rt.branchNaming']).toEqual({ template: '${teamPrefix}-${ticketNumber}' });
+  test('a store value wins', () => {
+    writeStore({ template: 'feature/${identifier}' });
+    expect(loadBranchNamingConfig(dataDir, IDENTITY)).toEqual({ template: 'feature/${identifier}' });
   });
 
-  test('no store value, valid legacy file, no org clone -> returns the template from the file, leaves it in place quietly', () => {
-    writeLegacy(JSON.stringify({ template: '${identifier}-legacy' }));
-
-    const result = loadBranchNamingConfig(dataDir, IDENTITY);
-
-    expect(result).toEqual({ template: '${identifier}-legacy' });
+  test('an old branch-naming.json is not read or moved, and the warning names the command once', () => {
+    writeLegacy(JSON.stringify({ template: 'legacy/${identifier}' }));
+    expect(loadBranchNamingConfig(dataDir, IDENTITY)).toEqual(DEFAULT);
+    expect(loadBranchNamingConfig(dataDir, IDENTITY)).toEqual(DEFAULT);
     expect(existsSync(legacyPath())).toBe(true);
-    expect(existsSync(`${legacyPath()}.migrated`)).toBe(false);
+    expect(getSetting('rt.branchNaming', { repoIdentity: IDENTITY }).provenance.every((p) => p.scope === 'default')).toBe(true);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0]![0])).toContain(`rt settings set rt.branchNaming '{"template":"legacy/\${identifier}"}' --scope org --repo ${IDENTITY}`);
+  });
+
+  test('an old file says nothing once the store sets the key', () => {
+    writeStore({ template: 'feature/${identifier}' });
+    writeLegacy(JSON.stringify({ template: 'legacy/${identifier}' }));
+    loadBranchNamingConfig(dataDir, IDENTITY);
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  for (const username of ['dev2', 'dev4', null]) {
-    test(`a Mac without org write permission (${username ?? 'unknown'}) keeps the legacy file quietly`, () => {
-      seedTeamStore('acme', username);
-      const legacy = JSON.stringify({ template: '${identifier}-legacy' });
-      writeLegacy(legacy);
-      const storeBefore = readFileSync(teamSettingsPath(home, 'acme'), 'utf8');
-      for (let activation = 0; activation < 2; activation++) {
-        expect(loadBranchNamingConfig(dataDir, IDENTITY)).toEqual({ template: '${identifier}-legacy' });
-      }
-      expect(readFileSync(legacyPath(), 'utf8')).toBe(legacy);
-      expect(existsSync(`${legacyPath()}.migrated`)).toBe(false);
-      expect(readFileSync(teamSettingsPath(home, 'acme'), 'utf8')).toBe(storeBefore);
-      expect(warnSpy).not.toHaveBeenCalled();
-    });
-  }
-
-  test('store already owns the key -> store wins, legacy file (even if present) is left untouched', () => {
-    // Ownership doesn't care WHICH scope owns the key; hand-authoring straight
-    // into the user store is the simplest fixture for "the store already has
-    // a value" regardless of which rung a real import would target.
-    setSetting('rt.branchNaming', { template: '${identifier}-store' }, 'user', { repoIdentity: IDENTITY });
-    writeLegacy(JSON.stringify({ template: '${identifier}-legacy' }));
-
-    const result = loadBranchNamingConfig(dataDir, IDENTITY);
-
-    expect(result).toEqual({ template: '${identifier}-store' });
-    expect(existsSync(legacyPath())).toBe(true);
-    expect(existsSync(`${legacyPath()}.migrated`)).toBe(false);
+  test('a malformed store value -> the default', () => {
+    writeStore({ template: '' });
+    expect(loadBranchNamingConfig(dataDir, IDENTITY)).toEqual(DEFAULT);
   });
 
-  test('store owns the key but the value is malformed -> null, no fallback to the legacy file', () => {
-    // Hand-author a store value that fails the same `{template: string}`
-    // validation a file value would fail — the ownership latch means the
-    // store already won, so this must not fall through to the legacy file.
-    mkdirSync(join(home, '.mattstack', 'user'), { recursive: true });
-    writeFileSync(
-      userSettingsPath(home),
-      JSON.stringify({ repos: { [IDENTITY]: { 'rt.branchNaming': { template: 42 } } } }),
-    );
-    writeLegacy(JSON.stringify({ template: '${identifier}-legacy' }));
-
-    const result = loadBranchNamingConfig(dataDir, IDENTITY);
-
-    expect(result).toBeNull();
-    expect(existsSync(legacyPath())).toBe(true);
-  });
-
-  test('resolver probe failure (an unexpandable authored variable) counts as unowned -> falls back to the legacy file', () => {
-    // ${worktree} is one of the resolver's own closed-set variables; resolving
-    // it with no worktree context throws, which must degrade to "unowned"
-    // rather than propagate.
-    setSetting('rt.branchNaming', { template: '${worktree}' }, 'user', { repoIdentity: IDENTITY });
-    writeLegacy(JSON.stringify({ template: '${identifier}-legacy' }));
-
-    const result = loadBranchNamingConfig(dataDir, IDENTITY);
-
-    expect(result).toEqual({ template: '${identifier}-legacy' });
-  });
-
-  test('legacy file is corrupt JSON -> warns, returns null, leaves the file in place', () => {
-    writeLegacy('{ not json');
-
-    const result = loadBranchNamingConfig(dataDir, IDENTITY);
-
-    expect(result).toBeNull();
-    expect(existsSync(legacyPath())).toBe(true);
-    expect(warnSpy).toHaveBeenCalled();
-  });
-
-  test('legacy file parses but has no usable template -> null, no migration attempted', () => {
-    writeLegacy(JSON.stringify({ template: '   ' }));
-
-    const result = loadBranchNamingConfig(dataDir, IDENTITY);
-
-    expect(result).toBeNull();
-    expect(existsSync(legacyPath())).toBe(true);
-  });
-
-  test('null repo identity with a valid legacy file -> returns the template, never attempts migration', () => {
-    seedTeamStore('acme');
-    writeLegacy(JSON.stringify({ template: '${identifier}-legacy' }));
-
-    const result = loadBranchNamingConfig(dataDir, null);
-
-    expect(result).toEqual({ template: '${identifier}-legacy' });
-    expect(existsSync(legacyPath())).toBe(true);
-    expect(existsSync(`${legacyPath()}.migrated`)).toBe(false);
-  });
-
-  test('never throws: dataDir itself does not exist', () => {
-    expect(() => loadBranchNamingConfig(join(home, 'nonexistent'), IDENTITY)).not.toThrow();
-    expect(loadBranchNamingConfig(join(home, 'nonexistent'), IDENTITY)).toBeNull();
+  test('never throws: an unexpandable stored variable -> the default', () => {
+    writeStore({ template: '${worktree}/x' });
+    expect(loadBranchNamingConfig(join(home, 'missing'), IDENTITY)).toEqual(DEFAULT);
   });
 });

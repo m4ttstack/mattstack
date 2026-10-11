@@ -1,6 +1,6 @@
 import { describe, test, expect, afterAll } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync } from "fs";
-import { join } from "path";
+import { mkdirSync, writeFileSync, chmodSync } from "fs";
+import { dirname, join } from "path";
 import { createTestHome, rt } from "../harness.ts";
 
 /**
@@ -38,19 +38,19 @@ describe("sdm enrichment", () => {
   const enrichmentPath = join(home, ".mattstack", "rt", "sdm", "enrichment.jsonc");
   afterAll(() => cleanup());
 
-  test("no-arg audit prints the enrichment path and an enriched/raw count", async () => {
+  test("the count says how many connections have labels, with no file path", async () => {
     const res = await rt(["sdm", "enrichment"], { home, env: { RT_SDM_BIN: fakeSdm } });
     expect(res.exitCode).toBe(0);
-    expect(res.stdout).toContain(enrichmentPath);
     expect(res.stdout).toContain("Labels on 0 of 2 connections");
+    expect(res.stdout).not.toContain("enrichment.jsonc");
   });
 
-  test("init scaffolds the enrichment file with one key per scanned resource", async () => {
-    const res = await rt(["sdm", "enrichment", "init"], { home, env: { RT_SDM_BIN: fakeSdm } });
-    expect(res.exitCode).toBe(0);
-    expect(existsSync(enrichmentPath)).toBe(true);
-    const contents = readFileSync(enrichmentPath, "utf8");
-    expect(contents).toContain('"acme-alpha-staging"');
-    expect(contents).toContain('"acme-beta-qa-prod"');
+  test("an old labels file is not read, and rt says how to move it", async () => {
+    mkdirSync(dirname(enrichmentPath), { recursive: true });
+    writeFileSync(enrichmentPath, '{ "acme-alpha-staging": { "label": "Alpha" } }');
+    const res = await rt(["sdm", "enrichment"], { home, env: { RT_SDM_BIN: fakeSdm } });
+    expect(res.stdout).toContain("Labels on 0 of 2 connections");
+    expect(res.stderr).toContain("Your old StrongDM labels file is no longer read");
+    expect(res.stderr).toContain(`rt settings set sdm.resources '{"acme-alpha-staging":{"label":"Alpha"}}' --scope team`);
   });
 });

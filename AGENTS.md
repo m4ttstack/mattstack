@@ -797,9 +797,13 @@ that made this a rule.
 
 Every review or reply an agent drafts composes in one writing style, resolved
 by `resolveWritingStyle` in `lib/skills/writing-style.ts`: the
-`skills.writingStyle` setting (user scope beats team), else the
-`writing-style:` line in `~/.mattstack/user/skills/preferences.md`, else
-`mattstack:writing-style-conversational`. `rt skills writing-style show`
+`skills.writingStyle` setting (user scope beats team), else its registry
+default, `mattstack:writing-style-conversational`. A Mac where no store sets
+the key reads as not chosen yet (`source: "fallback"`), which is what the
+setup row asks about. rt no longer reads `~/.mattstack/user/skills/preferences.md`;
+the `2026-10-10-import-legacy-settings` migration copied its `writing-style:`
+line into the user store.
+`rt skills writing-style show`
 prints the resolved skill and its source with the one wording the setup row
 also uses (`WRITING_STYLE_SOURCE_LABEL`), so never restate it elsewhere.
 `use` refuses a skill id that is not installed and `new` copies a preset into
