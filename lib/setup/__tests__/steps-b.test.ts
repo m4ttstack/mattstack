@@ -1234,17 +1234,18 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(outcome).toEqual({ state: "done", detail: "Installed the board triage skill" });
     });
 
-    test("enabled, board only bundled (no checkout) -> installs the trigger against the bundled binary's triage subcommand", async () => {
+    test("enabled, board resolves -> installs both triggers in tool form", async () => {
       setSetting("board.reReview", { enabled: true }, "user");
       const p = bundledProbes({ tools: ["board"] });
       const { ctx } = makeCtx(p);
 
       const outcome = await cronTriageStep.run(ctx);
       expect(outcome).toEqual({ state: "done", detail: "Installed the board triage skill" });
-      const triggers = getSetting<{ triggers: { name: string; run: string[]; event?: string; debounceMs?: number }[] }>("rt.cron").value?.triggers ?? [];
-      expect(triggers).toHaveLength(2);
-      expect(triggers[0]!.run).toEqual([join(appRoot, HELPERS_DIR, "board"), "triage"]);
-      expect(triggers[1]).toEqual({ name: "board-peer", event: "peer-inbox", run: [join(appRoot, HELPERS_DIR, "board"), "triage", "--peer"], debounceMs: 300 });
+      const triggers = getSetting<{ triggers: unknown[] }>("rt.cron").value?.triggers ?? [];
+      expect(triggers).toEqual([
+        { name: "board-triage", event: "project-mrs", tool: "board", run: ["triage"], debounceMs: 5000 },
+        { name: "board-peer", event: "peer-inbox", tool: "board", run: ["triage", "--peer"], debounceMs: 300 },
+      ]);
     });
 
     test("enabled, board not resolvable at all -> skipped, board-missing wording", async () => {
@@ -1256,36 +1257,22 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(outcome).toEqual({ state: "skipped", detail: "The board binary was not found. Run rt deps resolve board first" });
     });
 
-    test("enabled, a registered board checkout carrying bin/triage.ts -> done, installs the trigger", async () => {
+    test("a registered board checkout no longer wins over the running app's board", async () => {
       setSetting("board.reReview", { enabled: true }, "user");
       const boardCheckout = mkdtempSync(join(home, "board-"));
       mkdirSync(join(boardCheckout, "bin"), { recursive: true });
       writeFileSync(join(boardCheckout, "bin", "triage.ts"), "// triage");
       updateRepoIndex("board", boardCheckout);
+      const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(boardCheckout, "bin", "triage.ts")]: "// triage" } } });
 
-      // resolveBoardTriage's existence check runs through ctx.p, not real fs —
-      // the fake must know about the script too, not just the real disk write above.
-      const p = fakeProbes({ home, files: { [join(boardCheckout, "bin", "triage.ts")]: "// triage" } });
-      const { ctx } = makeCtx(p);
-
-      const outcome = await cronTriageStep.run(ctx);
-      expect(outcome).toEqual({ state: "done", detail: "Installed the board triage skill" });
-      const triggers = getSetting<{ triggers: { name: string; run: string[] }[] }>("rt.cron").value?.triggers ?? [];
-      expect(triggers).toHaveLength(2);
-      expect(triggers[0]!.run).toEqual(["bun", "run", join(boardCheckout, "bin", "triage.ts")]);
-      expect(triggers[1]!.run).toEqual(["bun", "run", join(boardCheckout, "bin", "triage.ts"), "--peer"]);
+      await cronTriageStep.run(makeCtx(p).ctx);
+      const triggers = getSetting<{ triggers: { tool?: string; run: string[] }[] }>("rt.cron").value?.triggers ?? [];
+      expect(triggers.map((t) => [t.tool, t.run])).toEqual([["board", ["triage"]], ["board", ["triage", "--peer"]]]);
     });
 
     test("idempotent re-run: installing the same trigger twice still leaves exactly one", async () => {
       setSetting("board.reReview", { enabled: true }, "user");
-      const boardCheckout = mkdtempSync(join(home, "board-"));
-      mkdirSync(join(boardCheckout, "bin"), { recursive: true });
-      writeFileSync(join(boardCheckout, "bin", "triage.ts"), "// triage");
-      updateRepoIndex("board", boardCheckout);
-
-      // resolveBoardTriage's existence check runs through ctx.p, not real fs —
-      // the fake must know about the script too, not just the real disk write above.
-      const p = fakeProbes({ home, files: { [join(boardCheckout, "bin", "triage.ts")]: "// triage" } });
+      const p = bundledProbes({ tools: ["board"] });
       await cronTriageStep.run(makeCtx(p).ctx);
       await cronTriageStep.run(makeCtx(p).ctx);
 

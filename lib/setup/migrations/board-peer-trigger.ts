@@ -1,7 +1,6 @@
 import { resolveTool } from "../../deps/resolve.ts";
-import { getKnownRepos } from "../../repo-index.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { installCronTrigger, peerTrigger, resolveBoardTriage } from "../cron-install.ts";
+import { installCronTrigger, peerTrigger } from "../cron-install.ts";
 import type { MigrationDef } from "./index.ts";
 
 export const boardPeerTriggerMigration: MigrationDef = {
@@ -11,9 +10,8 @@ export const boardPeerTriggerMigration: MigrationDef = {
     if (getSetting<{ enabled?: boolean }>("board.peerAsks").value?.enabled !== true) {
       return { state: "skipped", detail: "Automatic peer asks are off" };
     }
-    const resolution = resolveBoardTriage(ctx.p, getKnownRepos(), resolveTool(ctx.p, "board").exec);
-    if (resolution.kind === "missing") return { state: "skipped", detail: "Board isn't installed on this Mac" };
-    installCronTrigger(peerTrigger(resolution.run));
+    if (resolveTool(ctx.p, "board").exec === null) return { state: "skipped", detail: "Board isn't installed on this Mac" };
+    installCronTrigger(peerTrigger());
     return { state: "done", detail: "Peer asks now start as soon as they arrive" };
   },
 };

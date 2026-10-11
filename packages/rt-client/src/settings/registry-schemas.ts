@@ -32,6 +32,9 @@ const cronTrigger = z.looseObject({
   name: z.string().min(1),
   event: z.string().min(1),
   run: z.array(z.string()).min(1),
+  tool: z.string().min(1).optional().meta({
+    description: "The name of a bundled tool. When set, the daemon runs that tool from the app that is running, and run holds its arguments.",
+  }),
   repoName: z.string().optional(),
   debounceMs: z.number().positive().optional(),
 });
