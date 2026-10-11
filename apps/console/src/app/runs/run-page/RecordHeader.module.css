@@ -15,3 +15,19 @@
 .abandoned {
   padding: 0 24px;
 }
+
+.item {
+  border-bottom: 0;
+}
+
+.control {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0 4px 0 8px;
+  border-radius: 6px;
+}
+
+.content {
+  padding-inline: 0;
+  padding-bottom: 0;
+}

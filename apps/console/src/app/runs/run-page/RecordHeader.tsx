@@ -1,7 +1,15 @@
 import { Fragment } from 'react';
-import { Divider, Group, Paper, Stack, Text } from '@mattstack/app-kit/core';
+import {
+  Accordion,
+  Divider,
+  Group,
+  Paper,
+  Stack,
+  Text,
+} from '@mattstack/app-kit/core';
 import type { RunOutcome } from '@mattstack/rt-client';
 
+import accordion from '../accordion.module.css';
 import type { RecordStat, RecordStatId } from '../derive/record';
 import { Stat } from '../Stat';
 import { OutcomeBadge } from './OutcomeBadge';
@@ -52,41 +60,61 @@ export function RecordHeader({
       data-testid="record-header"
       data-parity="Hero"
     >
-      <Stack gap={14}>
-        <Group gap={16} wrap="nowrap" align="flex-start">
-          <HeroTitle
-            ticket={ticket}
-            ticketUrl={ticketUrl}
-            meta={meta}
-            title={title}
-          />
-          {outcome ? <OutcomeBadge outcome={outcome} /> : null}
-        </Group>
-        <Divider />
-        <div className={classes.stats} data-parity="Key numbers">
-          {/* The first cell draws no rule, so the boards key its text
-              straight through it. */}
-          {stats.map((s, i) => (
-            <Fragment key={s.id}>
-              {i > 0 ? <Divider orientation="vertical" /> : null}
-              <Stat
-                value={s.value}
-                label={s.label}
-                size="h2"
-                className={classes.stat}
-                data-stat={s.id}
-                data-parity={i > 0 ? STAT_LAYER[s.id] : undefined}
-              />
-            </Fragment>
-          ))}
-        </div>
-        {facts.length ? (
-          <>
-            <Divider />
-            <FactsStrip facts={facts} />
-          </>
-        ) : null}
-      </Stack>
+      <Accordion
+        chevronPosition="right"
+        classNames={{
+          item: classes.item,
+          control: classes.control,
+          content: `${accordion.content} ${classes.content}`,
+        }}
+      >
+        <Accordion.Item value="details">
+          {/* The title links out, so it sits beside the control rather
+              than inside its button. */}
+          <Group gap={16} wrap="nowrap" align="flex-start">
+            <HeroTitle
+              ticket={ticket}
+              ticketUrl={ticketUrl}
+              meta={meta}
+              title={title}
+            />
+            {outcome ? <OutcomeBadge outcome={outcome} /> : null}
+            <Accordion.Control aria-label="Run details">
+              <Text span fz="sm" c="dimmed">
+                Details
+              </Text>
+            </Accordion.Control>
+          </Group>
+          <Accordion.Panel>
+            <Stack gap={14}>
+              <Divider />
+              <div className={classes.stats} data-parity="Key numbers">
+                {/* The first cell draws no rule, so the boards key its text
+                    straight through it. */}
+                {stats.map((s, i) => (
+                  <Fragment key={s.id}>
+                    {i > 0 ? <Divider orientation="vertical" /> : null}
+                    <Stat
+                      value={s.value}
+                      label={s.label}
+                      size="h2"
+                      className={classes.stat}
+                      data-stat={s.id}
+                      data-parity={i > 0 ? STAT_LAYER[s.id] : undefined}
+                    />
+                  </Fragment>
+                ))}
+              </div>
+              {facts.length ? (
+                <>
+                  <Divider />
+                  <FactsStrip facts={facts} />
+                </>
+              ) : null}
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
+      </Accordion>
     </Paper>
   );
   if (!abandoned) return hero;

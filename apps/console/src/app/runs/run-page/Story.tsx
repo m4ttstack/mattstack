@@ -56,7 +56,22 @@ const useFitToWindow = (split: boolean) => {
     };
     fit();
     window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
+    // Anything above the split that grows or shrinks (the run header
+    // opening, say) moves its top, so every earlier sibling on the way up
+    // to the scroller is watched.
+    const watcher = new ResizeObserver(fit);
+    const { scroller } = frameOf(el);
+    for (let n: Element | null = el; n && n !== scroller; n = n.parentElement)
+      for (
+        let sib = n.previousElementSibling;
+        sib;
+        sib = sib.previousElementSibling
+      )
+        watcher.observe(sib);
+    return () => {
+      window.removeEventListener('resize', fit);
+      watcher.disconnect();
+    };
   }, [split]);
   return { ref, height };
 };
