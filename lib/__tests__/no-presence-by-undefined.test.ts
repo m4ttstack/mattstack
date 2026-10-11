@@ -1,8 +1,7 @@
 /**
  * Source guard: whether a setting is set is asked with provenance
  * (lib/settings/presence.ts), never by comparing its value with undefined,
- * which a registry default makes always false. Each allowlisted file is an
- * ownership latch a later settings-defaults PR retires; its count pins it.
+ * which a registry default makes always false.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -15,8 +14,6 @@ const SKIP_DIRS = new Set(["node_modules", "dist", "dist-bin", "build", ".turbo"
 const SOURCE_EXT = new Set([".ts", ".tsx", ".mts", ".js", ".mjs"]);
 const EXCLUDED_PREFIXES = ["packages/rt-client/src/settings/"];
 const PRESENCE = /\b(?:getSetting|resolve)\s*(?:<[^>()]*>)?\(\s*[^()]*\)\s*\.value\s*[!=]==?\s*undefined/g;
-
-const ALLOWLIST: Record<string, { count: number; reason: string }> = {};
 
 function* sourceFiles(path: string): Generator<string> {
   if (!existsSync(path)) return;
@@ -48,6 +45,6 @@ describe("presence checks", () => {
         if (hits > 0) counts[rel] = hits;
       }
     }
-    expect(counts).toEqual(Object.fromEntries(Object.entries(ALLOWLIST).map(([file, a]) => [file, a.count])));
+    expect(counts).toEqual({});
   });
 });

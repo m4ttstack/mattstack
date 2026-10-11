@@ -115,7 +115,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["user"],
     default: [],
     merge: "replace",
-    description: "Event-bus glob rules that raise a desktop notification: [{pattern, category, title, message, subjectPrefix?, url?, owner?, surface?}]. pattern is matched against the events-bus topic (Bun.Glob semantics); title/message may interpolate `{field}` from the event payload, plus the computed `{question}` field (the event payload's first question label, `payload.questions[0].label`, empty string when absent); `{headline}` and `{summary}` read the payload's own field when present, else a non-empty `payload.meta.headline` / `payload.meta.summary`, else `label` / the first question label, so a gate opener can supply its own notification copy; optional subjectPrefix matches the event payload's subject as a prefix. The optional url is interpolated the same way as title/message and becomes the notification's Open target; a gate rule should set it. The optional owner field (only literal \"human\" is valid) suppresses events whose payload.owner starts with \"herd:\", allowing gate rules to skip herd-owned events. The optional surface field (a string) matches only events whose payload.origin.surface equals the given value, allowing a rule to fire only for gates opened by a specific surface (e.g. surface: \"board\" matches only board-originated gates). A typical setup pairs a gate/opened rule with owner: \"human\" (human-owned gates notify) and a herd/gates-waiting/* rule with title \"{headline}\", message \"{summary}\" and no url (one summary per herd of worker gates its shepherd has left waiting past rt.gates.escalationTtlMinutes; the click focuses the shepherd pane). gate/escalated/<id> fires per gate and is not meant for a notification rule. A board-specific rule can combine surface: \"board\" with a board URL to open the decision queue directly. A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Event-bus glob rules that raise a desktop notification: [{pattern, category, title, message, subjectPrefix?, url?, owner?, surface?}]. pattern is matched against the events-bus topic (Bun.Glob semantics); title/message may interpolate `{field}` from the event payload, plus the computed `{question}` field (the event payload's first question label, `payload.questions[0].label`, empty string when absent); `{headline}` and `{summary}` read the payload's own field when present, else a non-empty `payload.meta.headline` / `payload.meta.summary`, else `label` / the first question label, so a gate opener can supply its own notification copy; optional subjectPrefix matches the event payload's subject as a prefix. The optional url is interpolated the same way as title/message and becomes the notification's Open target; a gate rule should set it. The optional owner field (only literal \"human\" is valid) suppresses events whose payload.owner starts with \"herd:\", allowing gate rules to skip herd-owned events. The optional surface field (a string) matches only events whose payload.origin.surface equals the given value, allowing a rule to fire only for gates opened by a specific surface (e.g. surface: \"board\" matches only board-originated gates). A typical setup pairs a gate/opened rule with owner: \"human\" (human-owned gates notify) and a herd/gates-waiting/* rule with title \"{headline}\", message \"{summary}\" and no url (one summary per herd of worker gates its shepherd has left waiting past rt.gates.escalationTtlMinutes; the click focuses the shepherd pane). gate/escalated/<id> fires per gate and is not meant for a notification rule. A board-specific rule can combine surface: \"board\" with a board URL to open the decision queue directly.",
   },
   {
     key: "rt.cron",
@@ -259,7 +259,7 @@ const ROWS: readonly SettingDef[] = [
     default: 14,
     merge: "replace",
     migrated: true,
-    description: "Age floor in days for the log janitor pruning every surface's rotated log files under ~/.mattstack/rt/logs (default 14). A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Age floor in days for the log janitor pruning every surface's rotated log files under ~/.mattstack/rt/logs (default 14).",
   },
   {
     key: "rt.gitStatus",
@@ -278,7 +278,7 @@ const ROWS: readonly SettingDef[] = [
     default: "info",
     merge: "replace",
     migrated: true,
-    description: "Daemon log level (trace|debug|info|warn|error). RT_LOG_LEVEL env wins, then this setting, then info (lib/daemon-logger.ts resolveDaemonLogLevel). A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Daemon log level (trace|debug|info|warn|error). RT_LOG_LEVEL env wins, then this setting, then info (lib/daemon-logger.ts resolveDaemonLogLevel).",
   },
   {
     key: "rt.apiPort",
@@ -322,7 +322,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["machine"],
     default: [],
     merge: "replace",
-    description: "Absolute directories the mr_upload MCP tool may read files from, beside its built-in roots (the target repo's worktrees and this user's Claude Code temp root). Machine-only: path literals never travel. A non-absolute entry is ignored with a warning. A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Absolute directories the mr_upload MCP tool may read files from, beside its built-in roots (the target repo's worktrees and this user's Claude Code temp root). Machine-only: path literals never travel. A non-absolute entry is ignored with a warning.",
   },
   {
     key: "rt.picker.hidden",
@@ -341,7 +341,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["user"],
     default: "auto",
     merge: "replace",
-    description: "Whether rt's output uses its colors for a dark or a light terminal: auto, dark or light. Auto reads COLORFGBG and Ghostty's config, then asks the terminal for its background, and uses the light-terminal colors when none of them answers. Set dark or light when auto picks wrong, or to keep rt from asking the terminal. A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Whether rt's output uses its colors for a dark or a light terminal: auto, dark or light. Auto reads COLORFGBG and Ghostty's config, then asks the terminal for its background, and uses the light-terminal colors when none of them answers. Set dark or light when auto picks wrong, or to keep rt from asking the terminal.",
   },
 
   // --- mattstack (installer-lane) -----------------------------------------
@@ -607,7 +607,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["user", "team"],
     merge: "deep",
     default: { enabled: true },
-    description: "Gate for the board's automatic re-review sweep ({enabled}); rt's cron.triage step installs the board-triage trigger only while this is on. A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Gate for the board's automatic re-review sweep ({enabled}); rt's cron.triage step installs the board-triage trigger only while this is on.",
   },
   {
     key: "board.peerAsks",
@@ -921,7 +921,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["user"],
     default: 10,
     merge: "replace",
-    description: "Minutes an open herd-owned gate waits before the escalation sweep marks it escalated (topic gate/escalated/<id>) and counts it toward the herd/gates-waiting/<herd> summary, at most one per herd per herd.watchdog.notifyQuietMins. Fires on either trigger: the TTL elapses (reason \"ttl\"), or the owning herd's shepherd subscription is gone or dead before the TTL (reason \"owner-dead\"). 0 escalates any eligible gate on the first sweep after it opens. A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Minutes an open herd-owned gate waits before the escalation sweep marks it escalated (topic gate/escalated/<id>) and counts it toward the herd/gates-waiting/<herd> summary, at most one per herd per herd.watchdog.notifyQuietMins. Fires on either trigger: the TTL elapses (reason \"ttl\"), or the owning herd's shepherd subscription is gone or dead before the TTL (reason \"owner-dead\"). 0 escalates any eligible gate on the first sweep after it opens.",
   },
   {
     key: "ci.watch.budgetMinutes",
@@ -929,7 +929,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ALL_SCOPES,
     default: 75,
     merge: "replace",
-    description: "Minutes a CI attendant watches one GitLab pipeline through ci_watch before it stops and asks (default 75), measured from the pipeline's own creation time; ci_watch reports budget.spent once it passes. The GitHub poll keeps its own fixed limit. A team sets the convention; a user or machine may override it. A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Minutes a CI attendant watches one GitLab pipeline through ci_watch before it stops and asks (default 75), measured from the pipeline's own creation time; ci_watch reports budget.spent once it passes. The GitHub poll keeps its own fixed limit. A team sets the convention; a user or machine may override it.",
   },
 
   // --- herd (watchdog) ---------------------------------------------------
