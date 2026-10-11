@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { basename, join } from "path";
+import { join } from "path";
 import { updateRepoIndex } from "../../repo-index.ts";
+import { serializeIdentity } from "../../settings/identity.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -137,18 +138,56 @@ describe("2026-10-11-import-app-settings", () => {
     expect(getSetting("gitq.board").value).toBeUndefined();
   });
 
+  const remoteRow = (name: string) => serializeIdentity({ kind: "remote", id: `gitlab.example.com/acme/${name}` });
+  function registerRepo(key: string, name: string): string {
+    const dir = join(home, "checkouts", `${key}-${name}`);
+    mkdirSync(dir, { recursive: true });
+    updateRepoIndex(key, dir);
+    return dir;
+  }
+
   test("a gitq.board saved as repo names gets each repo's folder from the repo index", async () => {
-    const repoDir = mkdtempSync(join(home, "widgets-"));
-    updateRepoIndex(basename(repoDir), repoDir);
-    setSetting("gitq.board", { repos: [basename(repoDir)], port: 11008 }, "machine");
+    const dir = registerRepo(remoteRow("widgets"), "widgets");
+    setSetting("gitq.board", { repos: ["widgets"], port: 11008 }, "machine");
     expect(await run().outcome).toEqual({ state: "done", detail: "Gave each repo on your gitq board its folder" });
-    expect(getSetting("gitq.board").value).toEqual({ repos: [{ path: repoDir, name: basename(repoDir) }], port: 11008 });
+    expect(getSetting("gitq.board").value).toEqual({ repos: [{ path: realpathSync(dir), name: "widgets" }], port: 11008 });
+  });
+
+  test("a repo the index keys by its bare name still counts", async () => {
+    const dir = registerRepo("gadgets", "gadgets");
+    setSetting("gitq.board", { repos: ["gadgets"] }, "machine");
+    expect((await run().outcome).state).toBe("done");
+    expect(getSetting("gitq.board").value).toEqual({ repos: [{ path: realpathSync(dir), name: "gadgets" }] });
+  });
+
+  test("two repos sharing a name are never guessed between", async () => {
+    registerRepo(remoteRow("widgets"), "widgets");
+    registerRepo(serializeIdentity({ kind: "remote", id: "gitlab.example.com/other/widgets" }), "widgets-2");
+    setSetting("gitq.board", { repos: ["widgets"] }, "machine");
+    expect((await run().outcome).detail).toContain("not on this Mac");
+    expect(getSetting("gitq.board").value).toEqual({ repos: ["widgets"] });
   });
 
   test("a gitq.board naming a repo this Mac does not have is left as it was", async () => {
     setSetting("gitq.board", { repos: ["nowhere"], port: 11008 }, "machine");
     expect(await run().outcome).toEqual({ state: "skipped", detail: "There were no old board or gitq settings to copy. Some repos on your gitq board are not on this Mac, so rt left that setting as it was" });
     expect(getSetting("gitq.board").value).toEqual({ repos: ["nowhere"], port: 11008 });
+  });
+
+  test("a bare name the index lacks is resolved from gitq's own config file, which then moves aside", async () => {
+    setSetting("gitq.board", { repos: ["nowhere"], port: 11008 }, "machine");
+    const { p, outcome } = run({ [gitqFile("config.json")]: { repos: [{ path: "/work/nowhere", name: "nowhere" }] } });
+    expect((await outcome).state).toBe("done");
+    expect(getSetting("gitq.board").value).toEqual({ repos: [{ path: "/work/nowhere", name: "nowhere" }], port: 11008 });
+    expect(p.calls.renames).toContainEqual([gitqFile("config.json"), `${gitqFile("config.json")}.imported`]);
+  });
+
+  test("a bare name nothing resolves keeps gitq's config file where it is", async () => {
+    setSetting("gitq.board", { repos: ["nowhere", "elsewhere"] }, "machine");
+    const { p, outcome } = run({ [gitqFile("config.json")]: { repos: [{ path: "/work/nowhere", name: "nowhere" }] } });
+    expect((await outcome).detail).toBe("There were no old board or gitq settings to copy. Some repos on your gitq board are not on this Mac, so rt left that setting and your old gitq file as it was");
+    expect(getSetting("gitq.board").value).toEqual({ repos: ["nowhere", "elsewhere"] });
+    expect(p.calls.renames).toEqual([]);
   });
 
   test("boardCopies maps only fields that have a user or machine key", () => {

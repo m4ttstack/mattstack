@@ -1,7 +1,8 @@
-import { join, resolve } from "path";
+import { basename, join, resolve } from "path";
 import { validateWrite } from "../../../packages/rt-client/src/settings/validate-write.ts";
 import { getKnownRepos } from "../../repo-index.ts";
 import { onlyDefault } from "../../settings/presence.ts";
+import { parseIdentity } from "../../settings/identity.ts";
 import { getDef } from "../../settings/registry.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
@@ -22,6 +23,7 @@ interface Tally {
   copied: number;
   repaired: boolean;
   unrepaired: boolean;
+  gitqFileKept: boolean;
   teamFields: boolean;
   leftInPlace: number;
   failed: string[];
@@ -136,28 +138,59 @@ function importFile(p: FileProbes, file: string, read: Reader, t: Tally): Record
   return parsed;
 }
 
-/** rt setup used to seed gitq.board with bare repo names, which gitq refuses. */
-function repairGitqBoard(t: Tally): void {
+/** The registered repos by the name gitq's board would give them; a name two repos share resolves to nothing. */
+function pathsByName(): Map<string, string | null> {
+  const byName = new Map<string, Set<string>>();
+  for (const row of getKnownRepos()) {
+    const first = row.registered !== false ? row.worktrees[0] : undefined;
+    if (!first) continue;
+    const parsed = parseIdentity(row.repoName);
+    const name = parsed ? repoBasename(parsed.id) : row.repoName;
+    byName.set(name, (byName.get(name) ?? new Set()).add(first.path));
+  }
+  return new Map([...byName].map(([name, paths]) => [name, paths.size === 1 ? [...paths][0]! : null]));
+}
+
+/** A repo gitq's own config.json already names with a folder. */
+function pathFromFile(fileRepos: unknown, name: string): string | null {
+  if (!Array.isArray(fileRepos)) return null;
+  const entry = fileRepos.find((r) => isObject(r) && typeof r.path === "string" && r.path !== "" && (typeof r.name === "string" ? r.name : basename(r.path)) === name);
+  return entry ? (entry as { path: string }).path : null;
+}
+
+function readRepos(p: FileProbes, file: string): unknown {
+  try {
+    const raw = p.readFile(file);
+    const parsed: unknown = raw === null ? null : JSON.parse(raw);
+    return isObject(parsed) ? parsed.repos : null;
+  } catch {
+    return null;
+  }
+}
+
+/** rt setup used to seed gitq.board with bare repo names, which gitq refuses. Returns true when one is still bare afterwards. */
+function repairGitqBoard(t: Tally, fileRepos: unknown): boolean {
   const resolved = getSetting<{ repos?: unknown }>("gitq.board");
   const repos = resolved.value?.repos;
-  if (onlyDefault(resolved) || !Array.isArray(repos) || !repos.some((r) => typeof r === "string")) return;
-  const known = getKnownRepos().filter((row) => row.registered !== false && row.worktrees[0]);
+  if (onlyDefault(resolved) || !Array.isArray(repos) || !repos.some((r) => typeof r === "string")) return false;
+  const index = pathsByName();
   const fixed = repos.map((r) => {
     if (typeof r !== "string") return r;
-    const row = known.find((k) => repoBasename(k.repoName) === r);
-    return row ? { path: row.worktrees[0]!.path, name: r } : null;
+    const path = index.get(r) ?? pathFromFile(fileRepos, r);
+    return path ? { path, name: r } : null;
   });
   if (fixed.includes(null)) {
     t.unrepaired = true;
-    return;
+    return true;
   }
   try {
     setSetting("gitq.board", { ...(resolved.value as Record<string, unknown>), repos: fixed }, "machine");
   } catch (err) {
     t.failed.push(`gitq.board: ${firstLine(err)}`);
-    return;
+    return false;
   }
   t.repaired = true;
+  return false;
 }
 
 function outcome(t: Tally): StepOutcome {
@@ -171,7 +204,7 @@ function outcome(t: Tally): StepOutcome {
   }
   const notes = [
     t.repaired ? "Gave each repo on your gitq board its folder" : null,
-    t.unrepaired ? "Some repos on your gitq board are not on this Mac, so rt left that setting as it was" : null,
+    t.unrepaired ? `Some repos on your gitq board are not on this Mac, so rt left that setting${t.gitqFileKept ? " and your old gitq file" : ""} as it was` : null,
     t.teamFields ? "Your old board file also holds team settings, which a team admin sets" : null,
     t.leftInPlace > 0
       ? `${t.leftInPlace} old ${plural(t.leftInPlace, "file has", "files have")} a value rt could not read, so rt left ${plural(t.leftInPlace, "it", "them")} where ${plural(t.leftInPlace, "it is", "they are")}`
@@ -187,7 +220,7 @@ export const importAppSettingsMigration: MigrationDef = {
   title: "Copy your old board and gitq settings into your settings",
   async run(ctx) {
     const p = ctx.p;
-    const t: Tally = { copied: 0, repaired: false, unrepaired: false, teamFields: false, leftInPlace: 0, failed: [] };
+    const t: Tally = { copied: 0, repaired: false, unrepaired: false, gitqFileKept: false, teamFields: false, leftInPlace: 0, failed: [] };
     const board = [...new Set(boardRoots(p, sourceBoardRoots()))].map((root) => join(root, "config.json")).find((file) => p.exists(file));
     if (board) {
       const parsed = importFile(p, board, boardCopies, t);
@@ -195,8 +228,10 @@ export const importAppSettingsMigration: MigrationDef = {
     }
     const gitq = p.env.GITQ_APP_ROOT ? resolve(p.env.GITQ_APP_ROOT) : join(p.home, ".mattstack", "gitq");
     importFile(p, join(gitq, "settings.json"), gitqSettingsCopies, t);
-    importFile(p, join(gitq, "config.json"), gitqBoardCopies, t);
-    repairGitqBoard(t);
+    const boardFile = join(gitq, "config.json");
+    const stillBare = repairGitqBoard(t, readRepos(p, boardFile));
+    if (stillBare) t.gitqFileKept = p.exists(boardFile);
+    else importFile(p, boardFile, gitqBoardCopies, t);
     return outcome(t);
   },
 };
