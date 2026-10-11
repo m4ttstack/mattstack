@@ -62,16 +62,6 @@ const GREY: LookHue = {
   fill: 'var(--tk-text-2)',
 };
 
-function mix(a: LookHue, b: LookHue): LookHue {
-  const m = (x: string, y: string) => `color-mix(in oklch, ${x}, ${y})`;
-  return {
-    avatar: m(a.avatar, b.avatar),
-    small: m(a.small, b.small),
-    body: m(a.body, b.body),
-    fill: m(a.fill, b.fill),
-  };
-}
-
 /** `items` reordered by stepping a stride of about two fifths of the way
     round, so consecutive entries sit far apart on the wheel: people listed
     next to each other never get neighbouring hues. A stride of one either
@@ -88,26 +78,13 @@ function spread<T>(items: readonly T[]): T[] {
   ];
 }
 
-/** At least `n` distinct hues derived from the theme: the wheel's hues and
-    a grey, then the midpoints between neighbouring hues, then the quarter
-    points, each pass halving the gap, so the hues handed out first are the
-    most distinct. Every entry is built from the theme's own tokens, so it
-    follows the colour scheme like the base hues do. */
+/** `n` hues from the theme: the wheel's hues spread apart, then a grey,
+    repeating once those run out. Blends between neighbours read as their
+    parents at avatar size, so a repeat hue is told apart by its creature
+    instead. */
 export function themePalette(n: number): LookHue[] {
-  const out = [...spread(WHEEL), GREY];
-  let ring = WHEEL;
-  while (out.length < n) {
-    const next: LookHue[] = [ring[0]!];
-    const mids: LookHue[] = [];
-    for (let i = 1; i < ring.length; i++) {
-      const mid = mix(ring[i - 1]!, ring[i]!);
-      next.push(mid, ring[i]!);
-      mids.push(mid);
-    }
-    out.push(...spread(mids));
-    ring = next;
-  }
-  return out;
+  const base = [...spread(WHEEL), GREY];
+  return Array.from({ length: n }, (_, i) => base[i % base.length]!);
 }
 
 /** A person's avatar creature and the hue their avatar and name chip share. */
@@ -140,6 +117,32 @@ export function assignMemberLooks(
     }
     const look = id === humanHandle ? ACCENT_LOOK : palette[next++]!;
     out.set(id, { sprite, hue: look });
+  }
+  return out;
+}
+
+/** `looks` with clashes inside one room settled: walking `present` in the
+    order their looks were assigned, anyone whose hue someone earlier in the
+    room already shows takes the first palette hue nobody here shows yet.
+    People outside the room, and anyone with no clash, keep their look. */
+export function settleRoomLooks(
+  looks: ReadonlyMap<string, MemberLook>,
+  present: Iterable<string>
+): Map<string, MemberLook> {
+  const out = new Map(looks);
+  const order = [...looks.keys()];
+  const here = [...new Set(present)]
+    .filter(id => looks.has(id))
+    .sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const palette = themePalette(7);
+  const shown = new Set<string>();
+  for (const id of here) {
+    const look = looks.get(id)!;
+    if (shown.has(look.hue.body)) {
+      const free = palette.find(h => !shown.has(h.body));
+      if (free) out.set(id, { ...look, hue: free });
+    }
+    shown.add(out.get(id)!.hue.body);
   }
   return out;
 }

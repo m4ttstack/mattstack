@@ -1429,7 +1429,6 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
     <BuddiesProvider
       buddies={buddies}
       roomMembers={roomMembers}
-      room={activeRoom}
       speakers={speakers}
       memberNames={roomMemberNames}
       now={Date.now()}
