@@ -21,17 +21,18 @@ export interface StoryProps {
   ticket?: string | null;
 }
 
-const BOTTOM_GAP = 24;
 const MIN_HEIGHT = 420;
 
-const scrolledAbove = (el: HTMLElement) => {
-  let total = 0;
-  for (let p = el.parentElement; p; p = p.parentElement) total += p.scrollTop;
-  return total;
+const scrollerOf = (el: HTMLElement): HTMLElement => {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const { overflowY } = getComputedStyle(p);
+    if (overflowY === 'auto' || overflowY === 'scroll') return p;
+  }
+  return document.scrollingElement as HTMLElement;
 };
 
-/** Fits the split to the window below everything above it, measured as if
-    the page were scrolled to the top, so scrolling never resizes it. */
+/** Fits the split to its scroller: whatever the page puts above and below
+    it stays, and the split takes the rest, so the page itself never scrolls. */
 const useFitToWindow = (split: boolean) => {
   const ref = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number>();
@@ -39,8 +40,10 @@ const useFitToWindow = (split: boolean) => {
     const el = ref.current;
     if (!el) return;
     const fit = () => {
-      const top = el.getBoundingClientRect().top + scrolledAbove(el);
-      setHeight(Math.max(MIN_HEIGHT, window.innerHeight - top - BOTTOM_GAP));
+      const scroller = scrollerOf(el);
+      const overflow = scroller.scrollHeight - scroller.clientHeight;
+      const current = el.getBoundingClientRect().height;
+      setHeight(Math.max(MIN_HEIGHT, Math.floor(current - overflow)));
     };
     fit();
     window.addEventListener('resize', fit);
