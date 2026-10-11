@@ -203,11 +203,11 @@ describe("settings/resolve", () => {
       }
     });
 
-    test("a replace key with nothing set anywhere resolves to undefined with empty provenance", () => {
+    test("a replace key with nothing set anywhere resolves to its registry default", () => {
       const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
 
-      expect(got.value).toBeUndefined();
-      expect(got.provenance).toEqual([]);
+      expect(got.value).toEqual([]);
+      expect(got.provenance).toEqual([{ scope: "default", file: null }]);
     });
 
     test("the registry default is the weakest rung and carries a null file", () => {
@@ -840,7 +840,7 @@ describe("settings/resolve", () => {
     test("an omitted repoIdentity behaves like a null one", () => {
       writeUser({ repos: { [IDENTITY]: { "rt.intercepts": [{ id: "user-repo" }] } } });
 
-      expect(getSetting("rt.intercepts").value).toBeUndefined();
+      expect(getSetting("rt.intercepts").value).toEqual([]);
     });
 
     test("a non-repoScoped key ignores repo sections entirely", () => {

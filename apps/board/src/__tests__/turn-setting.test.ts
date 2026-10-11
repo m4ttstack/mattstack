@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 
+import { getDef } from '@mattstack/rt-client';
+
 import { readTurnConfig, resetTurnWarning } from '../turn-setting.ts';
 import { ALL_TURN } from '../turn.ts';
 
@@ -44,4 +46,8 @@ describe('readTurnConfig', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
+});
+
+test("board.turn's registry default is every signal", () => {
+  expect(getDef('board.turn')!.default).toEqual(ALL_TURN);
 });

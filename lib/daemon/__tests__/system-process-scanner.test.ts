@@ -3,7 +3,12 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 import { setSetting } from "../../settings/write.ts";
-import { SystemProcessScanner, loadRunawayConfig } from "../system-process-scanner.ts";
+import { getDef } from "../../settings/registry.ts";
+import { SystemProcessScanner, loadRunawayConfig, RUNAWAY_DEFAULTS } from "../system-process-scanner.ts";
+
+test("rt.runaway's registry default is the scanner's own", () => {
+  expect(getDef("rt.runaway")!.default).toEqual({ ...RUNAWAY_DEFAULTS });
+});
 
 describe("loadRunawayConfig through the settings resolver", () => {
   const origHome = process.env.HOME;
@@ -19,14 +24,14 @@ describe("loadRunawayConfig through the settings resolver", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  test("empty store → {} (today's defaults apply downstream)", () => {
-    expect(loadRunawayConfig()).toEqual({});
+  test("empty store → the registry default", () => {
+    expect(loadRunawayConfig()).toEqual({ ...RUNAWAY_DEFAULTS });
   });
 
-  test("a store-seeded value resolves through the loader", () => {
+  test("a store-seeded value resolves through the loader over the default", () => {
     setSetting("rt.runaway", { cpuThreshold: 90, sustainMs: 60_000 }, "machine");
 
-    expect(loadRunawayConfig()).toEqual({ cpuThreshold: 90, sustainMs: 60_000 });
+    expect(loadRunawayConfig()).toEqual({ ...RUNAWAY_DEFAULTS, cpuThreshold: 90, sustainMs: 60_000 });
   });
 
   test("an unexpandable ${repoRoot} in a stored value degrades to {} instead of throwing", () => {
