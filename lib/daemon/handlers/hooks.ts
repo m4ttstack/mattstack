@@ -27,7 +27,11 @@ export function createHooksHandlers(
       if (!decoded.ok) return { ok: true, data: null };
       const identity = parseIdentity(decoded.repo);
       if (identity?.kind !== "remote") return { ok: true, data: null };
-      return { ok: true, data: getSetting<unknown>("rt.hooks", { repoIdentity: identity.id }).value };
+      try {
+        return { ok: true, data: getSetting<unknown>("rt.hooks", { repoIdentity: identity.id }).value };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message.split("\n")[0] };
+      }
     },
 
     "hooks:repair": async (payload) => {

@@ -112,12 +112,14 @@ function rewriteShims(dir: string, t: Tally): boolean {
 /**
  * The value goes into the store before any shim asks rt for it, and
  * hooks.json moves aside only once every shim asks rt. Only remote repos have
- * a settings section, so a path-kind or pre-identity folder has nowhere to go.
+ * a settings section, so a path-kind or pre-identity folder keeps its old shims,
+ * which still read its hooks.json; a new shim would run hooks it turned off.
  */
 function migrateFolder(dir: string, t: Tally): void {
   const identity = parseIdentity(dir);
+  if (identity?.kind !== "remote") return;
   const file = join(reposDir(), dir, "hooks.json");
-  const imported = identity?.kind === "remote" && existsSync(file) ? importHooksFile(identity.id, file, t) : null;
+  const imported = existsSync(file) ? importHooksFile(identity.id, file, t) : null;
   if (imported === "failed" || !rewriteShims(dir, t) || imported !== "imported") return;
   try {
     renameSync(file, `${file}.imported`);

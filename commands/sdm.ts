@@ -618,7 +618,7 @@ export async function enrichmentCmd(rest: string[]): Promise<void> {
   }
   const enr = loadEnrichment();
   const { resources } = await getScan();
-  const enriched = resources.filter(r => enr[r.name]).length;
+  const enriched = resources.filter(r => enr[r.name]?.label).length;
   out.print(...enrichmentBlocks(enriched, resources.length));
 }
 

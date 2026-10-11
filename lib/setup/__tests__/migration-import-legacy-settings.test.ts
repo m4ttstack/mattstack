@@ -151,12 +151,12 @@ describe("2026-10-10-import-legacy-settings", () => {
     expect(getSetting("rt.hooks", { repoIdentity: REPO }).provenance.every((p) => p.scope === "default")).toBe(true);
   });
 
-  test("a remote-less repo's shims are rewritten, and its hooks.json is left where it is", async () => {
+  test("a remote-less repo keeps its old shims and its hooks.json", async () => {
     const pathDir = serializeIdentity({ kind: "path", id: "/src/widgets" });
     const file = writeHooks(pathDir, OFF);
     const shim = writeOldShim(pathDir, "pre-push");
-    expect(await run()).toEqual({ state: "done", detail: "Updated rt's hook scripts in 1 repo" });
-    expect(readFileSync(shim, "utf8")).toContain("hook-state");
+    expect(await run()).toEqual(NOTHING);
+    expect(readFileSync(shim, "utf8")).toBe(OLD_SHIM);
     expect(readFileSync(file, "utf8")).toBe(OFF);
   });
 

@@ -171,7 +171,6 @@ function importLegacyHooks(dataFolder: string): void {
 
 export async function toggleHooks(args: string[], ctx: CommandContext): Promise<void> {
   const { repoName, repoRoot, dataDir, remoteUrl } = ctx.identity!;
-  importLegacyHooks(ctx.identity!.identity);
   const discoveredHooks = discoverHooks(repoRoot);
 
   if (discoveredHooks.length === 0) {
@@ -185,6 +184,7 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
     out.note(out.line("refused", "This repo has no remote, so rt has nowhere to keep its hook choices"));
     process.exit(1);
   }
+  importLegacyHooks(ctx.identity!.identity);
   const config = loadHooksConfig(discoveredHooks, repoIdentity);
 
   // Always regenerate shims and ensure hooksPath is set
