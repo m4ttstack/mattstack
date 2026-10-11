@@ -597,7 +597,7 @@ describe('KeyPanel', () => {
     }
 
     it('draws each repo section’s set rungs as read-only layer lines', async () => {
-      const d = def('rt.worktreePool', {
+      const d = def('rt.worktrees', {
         type: 'object',
         merge: 'deep',
         repoScoped: true,
@@ -646,7 +646,7 @@ describe('KeyPanel', () => {
     });
 
     it('a warmed repo section draws its line on the first render', async () => {
-      const d = def('rt.worktreePool', {
+      const d = def('rt.worktrees', {
         type: 'object',
         merge: 'deep',
         repoScoped: true,
