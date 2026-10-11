@@ -12,7 +12,7 @@ import { machineSettingsPath, userSettingsPath } from "../paths.ts";
 import { getDef } from "../registry-machinery.ts";
 import { setSettingsWarnSink } from "../resolve.ts";
 import { validateWrite } from "../validate-write.ts";
-import { withSchema } from "./with-schema.ts";
+import { withSchema, withoutDefault } from "./with-schema.ts";
 import { suspendRepoOnly } from "./without-repo-only.ts";
 import { seedOrg, sharedStorePath } from "../../../test/org-fixture.ts";
 
@@ -99,9 +99,10 @@ describe("settings/validate-write", () => {
   });
 
   test("the merged result is refused only when it fails where it passed before", () => {
-    // rt.roles: deep, no registry default, allowed in every store; the layer schema
-    // makes `a` optional, so a layer of `{ b }` passes on its own.
-    withSchema("rt.roles", ROLES, () => {
+    // rt.roles: deep, allowed in every store; the layer schema makes `a`
+    // optional, so a layer of `{ b }` passes on its own. Its registry default
+    // is cleared so the merge starts from nothing.
+    withoutDefault("rt.roles", () => withSchema("rt.roles", ROLES, () => {
       const def = getDef("rt.roles")!;
       const first = validateWrite(def, { b: 1 }, { scope: "machine" });
       expect(first.ok).toBe(false);
@@ -111,7 +112,7 @@ describe("settings/validate-write", () => {
       writeUser({ "rt.roles": { b: 2 } });
       // The merge already fails on the user layer; an unrelated machine edit still lands.
       expect(validateWrite(def, { b: 3 }, { scope: "machine" })).toEqual({ ok: true });
-    });
+    }));
   });
 
   test("a global write of a repo-scoped key checks every repo section's merge", () => {
@@ -141,12 +142,12 @@ describe("settings/validate-write", () => {
     const warnings: string[] = [];
     setSettingsWarnSink((msg) => warnings.push(msg));
     try {
-      withSchema("rt.roles", ROLES, () => {
+      withoutDefault("rt.roles", () => withSchema("rt.roles", ROLES, () => {
         write(machineSettingsPath(), { "rt.roles": "nope" });
         const r = validateWrite(getDef("rt.roles")!, { b: 1 }, { scope: "user" });
         expect(r.ok).toBe(false);
         expect(warnings).toEqual([]);
-      });
+      }));
     } finally {
       setSettingsWarnSink(null);
     }
@@ -160,7 +161,7 @@ describe("settings/validate-write", () => {
   });
 
   test("a repo section write is checked against that repo's own merge, not another repo's", () => {
-    withSchema("rt.roles", ROLES, () => {
+    withoutDefault("rt.roles", () => withSchema("rt.roles", ROLES, () => {
       const def = getDef("rt.roles")!;
       writeTeam(TEAM, { repos: { [IDENTITY2]: { "rt.roles": { a: "x" } } } });
       // IDENTITY has nothing supplying "a" anywhere; the layer `{ b: 1 }`
@@ -171,7 +172,7 @@ describe("settings/validate-write", () => {
       if (!refused.ok) expect(refused.reason).toBe(`merged value for ${IDENTITY} would fail: a: required property "a" is missing`);
       // IDENTITY2's team layer already supplies "a"; the same write there merges cleanly.
       expect(validateWrite(def, { b: 1 }, { scope: "user", repoIdentity: IDENTITY2 })).toEqual({ ok: true });
-    });
+    }));
   });
 
   test("a named team write is judged in that team's view, not the active team's", () => {

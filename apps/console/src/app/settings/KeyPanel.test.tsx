@@ -801,6 +801,22 @@ describe('a composite layer value', () => {
       effective: { scope: 'user', file: '/stores/user.jsonc', value },
     });
 
+  it('shows the default note on an empty default line', async () => {
+    const d = {
+      ...pool('replace', undefined),
+      hasDefault: false,
+      defaultValue: null,
+      defaultNote: 'Push alerts are off.',
+    };
+    renderPanel(d, [
+      { scope: 'default', file: null, present: false },
+      { scope: 'user', file: '/stores/user.jsonc', present: false },
+    ]);
+    expect(await screen.findByTestId('layer-value-default')).toHaveTextContent(
+      'Push alerts are off.'
+    );
+  });
+
   it('opens the Value tab from the layer in effect', async () => {
     const { onTab } = renderPanel(pool('replace', { enabled: true }), [
       { scope: 'default', file: null, present: false },

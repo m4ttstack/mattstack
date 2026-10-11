@@ -285,8 +285,15 @@ function LayerValue({
   const { text } = useSchemeColors();
   if (!row.present)
     return (
-      <Text fz={13} lh="17px" c={text.muted}>
-        not set
+      <Text
+        fz={13}
+        lh="17px"
+        c={text.muted}
+        data-testid={`layer-value-${row.scope}`}
+      >
+        {row.scope === 'default' && def.defaultNote
+          ? def.defaultNote
+          : 'not set'}
       </Text>
     );
   if (def.secret)

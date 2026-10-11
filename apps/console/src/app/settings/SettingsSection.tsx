@@ -20,7 +20,7 @@ import {
   providerOf,
   type Provider,
   type Section,
-  type StoreScope,
+  type SubheadScope,
 } from './view';
 
 /** One scope's rows on a wash of the scope's colour, led by its badge. */
@@ -28,17 +28,27 @@ function ScopeBlock({
   scope,
   children,
 }: {
-  scope: StoreScope;
+  scope: SubheadScope;
   children: ReactNode;
 }) {
   return (
     <Box
       className={classes.block}
       data-scope={scope}
-      __vars={{ '--block-hue': `var(--tk-fill-${SCOPE_COLOR[scope]})` }}
+      __vars={
+        scope === 'unset'
+          ? undefined
+          : { '--block-hue': `var(--tk-fill-${SCOPE_COLOR[scope]})` }
+      }
     >
       <Group gap={8} wrap="nowrap" className={classes.head}>
-        <ScopeBadge scope={scope} />
+        {scope === 'unset' ? (
+          <Text fz={13} fw={600} c="var(--tk-text-1)">
+            Not set
+          </Text>
+        ) : (
+          <ScopeBadge scope={scope} />
+        )}
       </Group>
       {children}
     </Box>
@@ -155,7 +165,7 @@ function AgentsSection({
   const shown = section.subsections.reduce((n, s) => n + s.defs.length, 0);
   const row = (
     def: Section['subsections'][number]['defs'][number],
-    scope: StoreScope
+    scope: SubheadScope
   ) => {
     const run = agentRun(def.key);
     return (
@@ -163,7 +173,7 @@ function AgentsSection({
         key={def.key}
         def={def}
         store={store}
-        subhead={scope}
+        subhead={scope === 'unset' ? null : scope}
         query={query}
         suggestions={
           run && def.key.endsWith('.model') ? suggestions[run] : undefined
@@ -261,7 +271,7 @@ export function SettingsSection({
               key={def.key}
               def={def}
               store={store}
-              subhead={sub.scope}
+              subhead={sub.scope === 'unset' ? null : sub.scope}
               query={query}
               onFix={onFix}
               open={rowOpen(def.key, open)}
