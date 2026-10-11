@@ -4,7 +4,7 @@
  * rt hooks: turn husky git hooks on and off for a repo.
  *
  * core.hooksPath points at shim scripts in ~/.mattstack/rt/repos/<repo>/hooks/
- * (lib/git-hooks/shims.ts). Before each hook a shim asks `rt hooks enabled
+ * (lib/git-hooks/shims.ts). Before each hook a shim asks `rt hook-state
  * <hook>`, which resolves `rt.hooks` for the repo in-process, and runs the real
  * .husky/ script unless the answer is "off". Your choices live in your user
  * settings, keyed by the repo's remote.
@@ -27,6 +27,7 @@ import { execSync } from "child_process";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { generateShims } from "../lib/git-hooks/shims.ts";
+import { importRepoFolder } from "../lib/setup/migrations/import-legacy-settings.ts";
 import { readOriginRemoteForIdentity } from "../lib/git-origin.ts";
 import { identityFromRemote } from "../lib/settings/identity.ts";
 import { registryDefault } from "../lib/settings/presence.ts";
@@ -115,8 +116,8 @@ export function hookState(hook: string | undefined, cwd: string = process.cwd())
   return hookRuns(readHooksSetting(identity?.kind === "remote" ? identity.id : null), hook) ? "on" : "off";
 }
 
-/** `rt hooks enabled <hook>`: the question rt's git hook shim asks before every hook. */
-export async function hooksEnabled(args: string[]): Promise<void> {
+/** `rt hook-state <hook>`: the question rt's git hook shim asks before every hook. */
+export async function hookStateCommand(args: string[]): Promise<void> {
   out.payloadOnStdout();
   out.payload(`${hookState(args[0])}\n`);
 }
@@ -155,8 +156,22 @@ export function selectionBlocks(off: string[], total: number): Block[] {
 
 // ─── Entry ───────────────────────────────────────────────────────────────────
 
+/**
+ * A pulled checkout can run this before the app's next launch runs the
+ * migration, and any choice saved here would make the migration skip the
+ * repo's old hooks.json for good, so the file is copied in first. A failed
+ * copy stops here rather than saving over it.
+ */
+function importLegacyHooks(dataFolder: string): void {
+  const { failed } = importRepoFolder(dataFolder);
+  if (failed.length > 0) {
+    throw new UserActionableError("hooks-not-imported", "Your old hook choices for this repo could not be copied into your settings", {}, { why: failed[0], next: "rt settings check" });
+  }
+}
+
 export async function toggleHooks(args: string[], ctx: CommandContext): Promise<void> {
   const { repoName, repoRoot, dataDir, remoteUrl } = ctx.identity!;
+  importLegacyHooks(ctx.identity!.identity);
   const discoveredHooks = discoverHooks(repoRoot);
 
   if (discoveredHooks.length === 0) {

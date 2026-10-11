@@ -10,6 +10,15 @@ export interface ShimOptions {
 
 const DEFAULT_TIMEOUT_SECS = 5;
 
+/** The hook names git runs (githooks(5)); any other file in a hooks folder is never a hook. */
+export const GIT_HOOK_NAMES: ReadonlySet<string> = new Set([
+  "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit", "prepare-commit-msg",
+  "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push", "pre-receive", "update",
+  "proc-receive", "post-receive", "post-update", "reference-transaction", "push-to-checkout", "pre-auto-gc",
+  "post-rewrite", "sendemail-validate", "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist",
+  "p4-post-changelist", "p4-pre-submit", "post-index-change",
+]);
+
 function shellQuote(s: string): string {
   return `'${s.replaceAll("'", "'\\''")}'`;
 }
@@ -37,15 +46,19 @@ ${onDeckGuard}
 RT=(${rt})
 HOOK_NAME=${shellQuote(hookName)}
 
-# Job control puts rt in its own process group, so the watchdog kills any
-# child rt left holding this substitution's pipe open too.
+# hook-state is a top-level verb because an older rt rejects it as an unknown
+# command with nothing on stdout, where a \`hooks\` subcommand would reach its
+# toggle and rewrite these shims. Job control puts rt in its own process group,
+# so the watchdog, and the kill once rt exits, reach any child rt left holding
+# this substitution's pipe open.
 ask_rt() {
   set -m
-  RT_BATCH=1 "\${RT[@]}" hooks enabled "$HOOK_NAME" </dev/null 2>/dev/null &
+  RT_BATCH=1 "\${RT[@]}" hook-state "$HOOK_NAME" </dev/null 2>/dev/null &
   local pid=$!
   ( sleep ${timeout}; kill -- "-$pid" 2>/dev/null ) >/dev/null 2>&1 &
   local watchdog=$!
   wait "$pid" 2>/dev/null
+  kill -- "-$pid" 2>/dev/null
   kill -- "-$watchdog" 2>/dev/null
 }
 

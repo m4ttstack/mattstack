@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, renameSync } from "fs";
 import { join } from "path";
 import { isDeepStrictEqual } from "util";
-import { generateShims } from "../../git-hooks/shims.ts";
+import { GIT_HOOK_NAMES, generateShims } from "../../git-hooks/shims.ts";
 import { mattstackHome, reposDir } from "../../rt-paths.ts";
 import { parseIdentity } from "../../settings/identity.ts";
 import { onlyDefault } from "../../settings/presence.ts";
@@ -14,7 +14,7 @@ import type { MigrationDef } from "./index.ts";
 const HOOKS_KEY = "rt.hooks";
 const STYLE_KEY = "skills.writingStyle";
 
-interface Tally {
+export interface Tally {
   hooks: number;
   shims: number;
   style: boolean;
@@ -100,7 +100,7 @@ function rewriteShims(dir: string, t: Tally): boolean {
   const shimsDir = join(reposDir(), dir, "hooks");
   if (!existsSync(shimsDir)) return true;
   try {
-    generateShims(join(reposDir(), dir), readdirSync(shimsDir).filter((name) => !name.startsWith(".")));
+    generateShims(join(reposDir(), dir), readdirSync(shimsDir).filter((name) => GIT_HOOK_NAMES.has(name)));
   } catch (err) {
     t.failed.push(`${dir}: ${(err as Error).message.split("\n")[0]}`);
     return false;
@@ -124,6 +124,13 @@ function migrateFolder(dir: string, t: Tally): void {
   } catch (err) {
     t.failed.push(`${dir}: ${(err as Error).message.split("\n")[0]}`);
   }
+}
+
+/** One repo's folder, on its own: `rt hooks` runs it before reading, so a choice saved before the migration never hides the file's. */
+export function importRepoFolder(dir: string): Tally {
+  const tally: Tally = { hooks: 0, shims: 0, style: false, unreadable: 0, failed: [] };
+  migrateFolder(dir, tally);
+  return tally;
 }
 
 function importWritingStyle(t: Tally): void {

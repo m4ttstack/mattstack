@@ -33,7 +33,7 @@ describe("git hook shims", () => {
   }
 
   test("rt answers off: the hook is skipped with a note", () => {
-    generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt('[ "$1 $2 $3" = "hooks enabled pre-push" ] && echo off')] });
+    generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt('[ "$1 $2" = "hook-state pre-push" ] && echo off')] });
     const res = runShim("pre-push");
     expect(res.code).toBe(0);
     expect(res.stderr).toContain("rt: pre-push skipped (turned off with rt hooks)");
@@ -65,6 +65,13 @@ describe("git hook shims", () => {
     expect(res.ms).toBeLessThan(4000);
   });
 
+  test("a child rt leaves holding stdout does not keep the shim waiting", () => {
+    generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("sleep 8 & echo off")], timeoutSecs: 10 });
+    const res = runShim("pre-push");
+    expect(res.stderr).toContain("skipped");
+    expect(res.ms).toBeLessThan(4000);
+  }, 20000);
+
   test("an rt path with spaces and a quote still reaches rt", () => {
     generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("echo off", join(dir, "it's here", "rt"))] });
     expect(runShim("pre-push").stderr).toContain("skipped");
@@ -73,7 +80,7 @@ describe("git hook shims", () => {
   test("a shim reads no file of rt's, and pre-commit keeps the on-deck guard", () => {
     generateShims(dataDir, [], { rtArgv: ["/x/rt"] });
     const shim = readFileSync(join(dataDir, "hooks", "pre-commit"), "utf8");
-    expect(shim).toContain("hooks enabled");
+    expect(shim).toContain("hook-state");
     expect(shim).not.toContain("hooks.json");
     expect(shim).toContain("on-deck/*");
     expect(shim).toContain("commits are not allowed on on-deck branches");

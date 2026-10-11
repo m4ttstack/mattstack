@@ -1011,16 +1011,15 @@ export const TREE: Record<string, CommandNode> = {
       { name: "Target", type: "text", placeholder: "off | on | status | pre-push", hint: "Global action (off, on, status) or a specific hook name to target; omit for the interactive picker" },
       { name: "State", type: "select", hint: "on/off state to apply when Target is a specific hook name", options: [{ value: "on", label: "on" }, { value: "off", label: "off" }] },
     ],
-    subcommands: {
-      enabled: {
-        description: "Hidden verb rt's git hook scripts call to ask whether a hook runs; never call directly",
-        module: "./commands/hooks.ts",
-        fn: "hooksEnabled",
-        hidden: true,
-        omitBehavior: { exempt: "called by rt's git hook scripts with the hook's name; never interactive" },
-        args: [{ name: "Hook", type: "text", placeholder: "pre-push", hint: "The git hook about to run" }],
-      },
-    },
+  },
+
+  "hook-state": {
+    description: "Says whether a git hook runs in this repo",
+    module: "./commands/hooks.ts",
+    fn: "hookStateCommand",
+    hidden: true,
+    omitBehavior: { exempt: "called by rt's git hook scripts with the hook's name; never interactive" },
+    args: [{ name: "Hook", type: "text", placeholder: "pre-push", hint: "The git hook about to run" }],
   },
 
   run: {

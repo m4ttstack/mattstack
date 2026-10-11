@@ -1,6 +1,6 @@
 /**
  * commands/hooks.ts: the git-hook on/off machinery. `rt.hooks` is the only
- * record of your choices; the installed shim asks `rt hooks enabled <hook>`,
+ * record of your choices; the installed shim asks `rt hook-state <hook>`,
  * which resolves it in-process (lib/git-hooks/__tests__/shims.test.ts covers
  * the shim itself).
  *
@@ -17,7 +17,7 @@ import {
   applyHookSelection,
   discoverHooks,
   hookState,
-  hooksEnabled,
+  hookStateCommand,
   runningHooks,
   hooksStatusBlocks,
   loadHooksConfig,
@@ -28,6 +28,7 @@ import {
 } from "../hooks.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
 import { repoDataDir, userSettingsPath } from "../../lib/rt-paths.ts";
+import { serializeIdentity } from "../../lib/settings/identity.ts";
 import { getDef } from "../../lib/settings/registry.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
 import * as settingsResolve from "../../lib/settings/resolve.ts";
@@ -139,7 +140,7 @@ describe("commands/hooks", () => {
       const cwd = process.cwd();
       process.chdir(repoRoot);
       try {
-        await hooksEnabled(["pre-push"]);
+        await hookStateCommand(["pre-push"]);
         expect(io.stdout()).toBe("off\n");
         expect(io.stderr()).toBe("");
       } finally {
@@ -318,8 +319,21 @@ describe("commands/hooks", () => {
 
       test("off installs shims that ask rt, and writes no hooks.json", async () => {
         await toggleHooks(["off"], ctx());
-        expect(readFileSync(join(dataDir, "hooks", "pre-push"), "utf8")).toContain("hooks enabled");
+        expect(readFileSync(join(dataDir, "hooks", "pre-push"), "utf8")).toContain("hook-state");
         expect(existsSync(join(dataDir, "hooks.json"))).toBe(false);
+      });
+
+      test("a hooks.json the migration has not copied yet is copied before a choice is saved", async () => {
+        const folder = serializeIdentity({ kind: "remote", id: IDENTITY });
+        const remoteData = repoDataDir(folder);
+        mkdirSync(remoteData, { recursive: true });
+        const file = join(remoteData, "hooks.json");
+        writeFileSync(file, JSON.stringify({ enabled: true, hooks: { "pre-push": false } }));
+        const remoteCtx: CommandContext = { identity: { repoName: "repo", identity: folder, repoRoot, dataDir: remoteData, remoteUrl: "git@example.com:org/repo.git", baseUrl: "" } };
+        await toggleHooks(["pre-commit", "off"], remoteCtx);
+        expect(getSetting("rt.hooks", { repoIdentity: IDENTITY }).value).toEqual({ enabled: true, hooks: { "pre-commit": false, "pre-push": false } });
+        expect(existsSync(file)).toBe(false);
+        expect(existsSync(`${file}.imported`)).toBe(true);
       });
 
       test("a repo with no remote is refused, and nothing is installed", async () => {

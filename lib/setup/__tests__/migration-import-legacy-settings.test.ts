@@ -83,9 +83,18 @@ describe("2026-10-10-import-legacy-settings", () => {
     const shim = writeOldShim(remoteDir(REPO), "pre-push");
     expect(await run()).toEqual({ state: "done", detail: "Copied your hook choices for 1 repo into your settings. Updated rt's hook scripts in 1 repo" });
     const text = readFileSync(shim, "utf8");
-    expect(text).toContain("hooks enabled");
+    expect(text).toContain("hook-state");
     expect(text).not.toContain("hooks.json");
     expect(existsSync(join(dirname(shim), "pre-commit"))).toBe(true);
+  });
+
+  test("only files named for a git hook get a shim; any other file in the folder is left as it is", async () => {
+    writeHooks(remoteDir(REPO), OFF);
+    writeOldShim(remoteDir(REPO), "pre-push");
+    const stale = writeOldShim(remoteDir(REPO), "pre-commit-user");
+    await run();
+    expect(readFileSync(stale, "utf8")).toBe(OLD_SHIM);
+    expect(readFileSync(join(dirname(stale), "pre-push"), "utf8")).toContain("hook-state");
   });
 
   test("pre-push stays off through the import and the shim swap", async () => {
@@ -119,7 +128,7 @@ describe("2026-10-10-import-legacy-settings", () => {
       chmodSync(shim, 0o755);
     }
     expect(await run()).toEqual({ state: "done", detail: "Copied your hook choices for 1 repo into your settings. Updated rt's hook scripts in 1 repo" });
-    expect(readFileSync(shim, "utf8")).toContain("hooks enabled");
+    expect(readFileSync(shim, "utf8")).toContain("hook-state");
     expect(existsSync(file)).toBe(false);
     expect(readFileSync(`${file}.imported`, "utf8")).toBe(OFF);
   });
@@ -147,7 +156,7 @@ describe("2026-10-10-import-legacy-settings", () => {
     const file = writeHooks(pathDir, OFF);
     const shim = writeOldShim(pathDir, "pre-push");
     expect(await run()).toEqual({ state: "done", detail: "Updated rt's hook scripts in 1 repo" });
-    expect(readFileSync(shim, "utf8")).toContain("hooks enabled");
+    expect(readFileSync(shim, "utf8")).toContain("hook-state");
     expect(readFileSync(file, "utf8")).toBe(OFF);
   });
 
