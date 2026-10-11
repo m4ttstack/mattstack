@@ -10,7 +10,7 @@ rt sdm connections        # list the tunnels you currently have open
 rt sdm login              # log in (browser popup, terminal fallback)
 rt sdm set-email <email>  # set the email rt logs in with
 rt sdm refresh            # re-scan the catalog
-rt sdm enrichment [init]  # show or scaffold the enrichment map
+rt sdm enrichment         # see how many connections have labels
 ```
 
 rt reads your resources straight from the StrongDM CLI (`sdm access catalog`

@@ -36,7 +36,9 @@ function noticeLegacyFile(): void {
   if (!existsSync(path)) return;
   let value: string | null;
   try {
-    value = JSON.stringify(JSON.parse(stripJsonc(readFileSync(path, "utf8"))));
+    const parsed: unknown = JSON.parse(stripJsonc(readFileSync(path, "utf8")));
+    const plainObject = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+    value = plainObject ? JSON.stringify(parsed) : null;
   } catch {
     value = null;
   }

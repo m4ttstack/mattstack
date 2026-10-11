@@ -67,6 +67,13 @@ describe("loadEnrichment", () => {
     expect(io.stderr()).toBe("");
   });
 
+  test("an old labels file that is not a map of labels is named without a command", () => {
+    mkdirSync(dirname(legacyFile()), { recursive: true });
+    writeFileSync(legacyFile(), '["acme-db-qa"]');
+    expect(loadEnrichment()).toEqual({});
+    expect(io.stderr()).toBe("[warning] Your old StrongDM labels file is no longer read  rt could not read it either\n");
+  });
+
   test("an old labels file rt cannot read is named without a command", () => {
     mkdirSync(dirname(legacyFile()), { recursive: true });
     writeFileSync(legacyFile(), "{ not json");
