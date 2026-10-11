@@ -1,14 +1,13 @@
 /**
  * Hooks-guard IPC handlers.
  *
- *   hooks:status  — return the rt hooks.json config for a repo (if any)
+ *   hooks:status  -- the repo's resolved rt.hooks setting (null for a repo with no remote)
  *   hooks:repair  — re-apply core.hooksPath for a repo right now
  *   hooks:watch   — ensure the daemon is watching the repo's .git/config
  */
 
-import { join } from "path";
-import { repoDataDir } from "../../rt-paths.ts";
-import { readJson } from "../../json-store.ts";
+import { parseIdentity } from "../../settings/identity.ts";
+import { getSetting } from "../../settings/resolve.ts";
 import { decodeRepo } from "../identity-decoder.ts";
 import type { HandlerContext, HandlerMap } from "./types.ts";
 
@@ -26,9 +25,9 @@ export function createHooksHandlers(
       // The index is identity-keyed now — a bare legacy name resolves nothing.
       const decoded = decodeRepo(payload);
       if (!decoded.ok) return { ok: true, data: null };
-      const repoName = decoded.repo;
-      const hooksJson = join(repoDataDir(repoName), "hooks.json");
-      return { ok: true, data: readJson<unknown>(hooksJson, null) };
+      const identity = parseIdentity(decoded.repo);
+      if (identity?.kind !== "remote") return { ok: true, data: null };
+      return { ok: true, data: getSetting<unknown>("rt.hooks", { repoIdentity: identity.id }).value };
     },
 
     "hooks:repair": async (payload) => {

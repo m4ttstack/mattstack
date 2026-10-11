@@ -305,11 +305,11 @@ const ROWS: readonly SettingDef[] = [
     key: "rt.hooks",
     type: "object",
     scopes: ALL_SCOPES,
+    default: { enabled: true },
     merge: "deep",
     repoScoped: true,
     repoOnly: true,
-    migrated: true,
-    description: "Per-repo git hook enable/disable state ({enabled, hooks: {<hookName>: boolean}}); ownership-latch port of repos/<repo>/hooks.json, store wins per field once it owns the key — including per-hook-name entries inside the nested hooks map, each defaulting to enabled when absent. The installed git-hook shim still greps repos/<repo>/hooks.json with zero process spawns (a hook fires on every git operation); that file is now a DERIVED CACHE this key writes through, kept current by commands/hooks.ts's regenerateHooksCache at every write seam.",
+    description: "Per-repo git hook switches ({enabled, hooks: {<hookName>: boolean}}); a hook the map does not name runs. rt hooks writes your user settings, so a repo's choices follow you to every Mac. rt's git hook shim asks rt for this value before each hook and runs the hook unless it is off.",
   },
   {
     key: "rt.daemonPath",

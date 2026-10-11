@@ -63,15 +63,22 @@ function makeGitRepo(name: string): string {
   return repoPath;
 }
 
-/** Sets up rt's own hooks.json + shims dir so a repo is rt-guarded. */
+/** Sets up rt's own shims dir so a repo is rt-guarded. */
 function makeRtManagedRepo(name: string): { repoPath: string; shimsDir: string } {
   const repoPath = makeGitRepo(name);
   const dataDir = repoDataDir(name);
   const shimsDir = join(dataDir, "hooks");
   mkdirSync(shimsDir, { recursive: true });
-  writeFileSync(join(dataDir, "hooks.json"), "{}");
   return { repoPath, shimsDir };
 }
+
+test("a repo with an old hooks.json but no shims dir is not guarded", async () => {
+  const repoPath = makeGitRepo("unmanaged");
+  mkdirSync(repoDataDir("unmanaged"), { recursive: true });
+  writeFileSync(join(repoDataDir("unmanaged"), "hooks.json"), "{}");
+  const guard = createHooksGuard(log);
+  expect(await guard.checkAndRepairHooksPath("unmanaged", repoPath)).toBe(false);
+});
 
 test("an emitted 'error' event on the watcher does not throw, and self-heals the bookkeeping", async () => {
   const repoPath = makeRepo("a");

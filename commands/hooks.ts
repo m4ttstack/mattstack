@@ -1,26 +1,13 @@
 #!/usr/bin/env bun
 
 /**
- * rt hooks — Toggle husky git hooks on/off.
+ * rt hooks: turn husky git hooks on and off for a repo.
  *
- * Uses core.hooksPath to redirect git hooks to shim scripts in ~/.mattstack/rt/repos/<repo>/hooks/.
- * Shims grep ~/.mattstack/rt/repos/<repo>/hooks.json and delegate to the real .husky/ scripts —
- * that file must stay a zero-spawn `grep` target because a git hook runs on
- * EVERY git operation and cannot pay a second process's startup cost, so it
- * can never read the jsonc settings resolver directly.
- *
- * The settings key `rt.hooks` is nonetheless the AUTHORITATIVE human intent
- * (ownership latch: unowned repos still read/write hooks.json as before;
- * once anything lands in the store for a repo, the store wins). hooks.json
- * is then a DERIVED CACHE of whatever the store currently resolves to for
- * that repo — regenerated at every seam that can change the resolved value
- * (`rt hooks on/off/<name>`), at the `rt settings set rt.hooks ... --repo`
- * seam (commands/settings-keys.ts), AND on `rt hooks status` (including the
- * non-TTY fallback) — status is the natural place a human notices the cache
- * disagrees with the store, so it self-heals on inspect rather than just
- * reporting the mismatch. Mirrors lib/repo-index.ts's `writeRepoIndexCompat`
- * pattern throughout: independent try/catch, best-effort, and the file is
- * never renamed or unlinked out from under the shim.
+ * core.hooksPath points at shim scripts in ~/.mattstack/rt/repos/<repo>/hooks/
+ * (lib/git-hooks/shims.ts). Before each hook a shim asks `rt hooks enabled
+ * <hook>`, which resolves `rt.hooks` for the repo in-process, and runs the real
+ * .husky/ script unless the answer is "off". Your choices live in your user
+ * settings, keyed by the repo's remote.
  *
  * Works with ALL git clients (Cursor, VS Code, GitHub Desktop, terminal).
  * Cross-worktree (all worktrees share the same git config).
@@ -34,13 +21,17 @@
  *   rt hooks status        show current state
  */
 
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, chmodSync, statSync } from "fs";
+import { existsSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
 import type { CommandContext } from "../lib/command-tree.ts";
+import { UserActionableError } from "../lib/errors.ts";
+import { generateShims } from "../lib/git-hooks/shims.ts";
+import { readOriginRemoteForIdentity } from "../lib/git-origin.ts";
 import { identityFromRemote } from "../lib/settings/identity.ts";
+import { registryDefault } from "../lib/settings/presence.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
-import { setSetting } from "../lib/settings/write.ts";
+import { setSetting, unsetSetting } from "../lib/settings/write.ts";
 import type { SettingScope } from "../lib/settings/registry.ts";
 import type { Value } from "../lib/settings/registry-schemas.ts";
 import * as out from "../lib/ui/out.ts";
@@ -74,21 +65,11 @@ function discoverHooks(repoRoot: string): string[] {
 
 const SETTING_KEY = "rt.hooks";
 
-/** The scope `rt hooks on/off/<name> on|off` writes into once the store owns the key: enablement is a per-checkout toggle, not something to sync across machines by default. */
-const HOOKS_WRITE_SCOPE: SettingScope = "machine";
+/** Your hook choices for a repo follow you to every Mac. */
+const HOOKS_WRITE_SCOPE: SettingScope = "user";
 
-function hooksConfigPath(dataDir: string): string {
-  return join(dataDir, "hooks.json");
-}
-
-/**
- * Ownership-latch probe: `undefined` means the store does not own `rt.hooks`
- * for this repo, so the caller falls back to the legacy file. A probe failure
- * (thrown by getSetting) counts as unowned too, with a warning that never
- * echoes the store's value.
- */
-function probeHooksStore(repoIdentity: string | null): Value<"rt.hooks"> | undefined {
-  if (!repoIdentity) return undefined;
+/** A store rt cannot read falls back to the registry default, with a warning that never echoes the store's value. */
+function readHooksSetting(repoIdentity: string | null): Value<"rt.hooks"> {
   try {
     return getSetting<Value<"rt.hooks">>(SETTING_KEY, { repoIdentity }).value;
   } catch (err) {
@@ -96,187 +77,48 @@ function probeHooksStore(repoIdentity: string | null): Value<"rt.hooks"> | undef
     warn("hooks", `ignoring "${SETTING_KEY}" -- ${message}`, {
       show: { title: "Your hooks setting is being ignored", hint: message.split("\n")[0], next: out.cmd("rt settings check") },
     });
-    return undefined;
+    return registryDefault<Value<"rt.hooks">>(SETTING_KEY);
   }
 }
 
-/** Raw legacy hooks.json, or null when missing/unreadable/malformed — never throws. */
-function readLegacyRaw(dataDir: string): { enabled?: boolean; hooks?: Record<string, boolean> } | null {
-  try {
-    return JSON.parse(readFileSync(hooksConfigPath(dataDir), "utf8"));
-  } catch {
-    return null;
-  }
+function hookRuns(declared: Value<"rt.hooks">, hook: string): boolean {
+  return declared.enabled !== false && declared.hooks?.[hook] !== false;
 }
 
-/**
- * The resolved config, store-owned winning per field (including per-hook-name
- * entries inside the nested `hooks` map — each defaults to enabled when the
- * store carries no entry for it, same default the legacy file always used)
- * over the legacy file when the store doesn't own the key yet. This is BOTH
- * the read path for the interactive toggle UI AND the value written into
- * hooks.json as its derived-cache content.
- */
-function loadHooksConfig(dataDir: string, discoveredHooks: string[], repoIdentity: string | null): HooksConfig {
-  const declared = probeHooksStore(repoIdentity);
-  if (declared !== undefined) {
-    const hooks: Record<string, boolean> = {};
-    for (const hook of discoveredHooks) hooks[hook] = declared.hooks?.[hook] !== false;
-    return { enabled: declared.enabled !== false, hooks };
-  }
-
-  const raw = readLegacyRaw(dataDir);
+/** The resolved config the toggle UI starts from, with a hook the setting does not name turned on. */
+function loadHooksConfig(discoveredHooks: string[], repoIdentity: string | null): HooksConfig {
+  const declared = readHooksSetting(repoIdentity);
   const hooks: Record<string, boolean> = {};
-  for (const hook of discoveredHooks) hooks[hook] = raw?.hooks?.[hook] ?? true;
-  return { enabled: raw?.enabled ?? true, hooks };
+  for (const hook of discoveredHooks) hooks[hook] = declared.hooks?.[hook] !== false;
+  return { enabled: declared.enabled !== false, hooks };
 }
 
 /**
- * Rewrites hooks.json to match whatever `rt.hooks` currently resolves to for
- * this repo — the derived-cache refresh. Independent try/catch, best-effort:
- * a cache write failing must never fail the store write that triggered it
- * (mirrors `writeRepoIndexCompat`). No-ops (returns false) when the repo has
- * no `.husky/` at all — nothing to cache. Never deletes or renames
- * hooks.json; a repo that never declares hooks just never gets one. Returns
- * whether it actually wrote, so a caller reporting to a human (the
- * `rt settings set --repo` seam) never claims success it didn't verify.
+ * Writes your user settings, then drops this repo's machine value: an older
+ * rt wrote there, and machine.repo outranks user.repo, so it would hide this
+ * choice on this Mac.
  */
-export function regenerateHooksCache(repoRoot: string, dataDir: string, repoIdentity: string | null): boolean {
+function saveHooksConfig(config: HooksConfig, repoIdentity: string): void {
   try {
-    const discoveredHooks = discoverHooks(repoRoot);
-    if (discoveredHooks.length === 0) return false;
-    const config = loadHooksConfig(dataDir, discoveredHooks, repoIdentity);
-    mkdirSync(dataDir, { recursive: true }); // a settings-set --repo seam can reach this before toggleHooks ever has
-    writeFileSync(hooksConfigPath(dataDir), JSON.stringify(config, null, 2));
-    return true;
-  } catch {
-    // best-effort — see module doc
-    return false;
+    setSetting(SETTING_KEY, config, HOOKS_WRITE_SCOPE, { repoIdentity });
+    unsetSetting(SETTING_KEY, "machine", { repoIdentity });
+  } catch (err) {
+    throw new UserActionableError("hooks-not-saved", "Your hooks choice was not saved", {}, { why: (err as Error).message.split("\n")[0], next: "rt settings check" });
   }
 }
 
-/**
- * `rt hooks status` looks read-only but must still self-heal a stale cache —
- * it's the natural place a human notices the git shim disagrees with what
- * this command just told them, and the guidance in commands/settings-keys.ts
- * points a failed `rt settings set --repo` write here to "fix" it. Wrapped in
- * its own try/catch (on top of regenerateHooksCache's own) because a
- * status-display command must never throw or change its exit code over a
- * cache write it wasn't asked to perform.
- */
-function refreshHooksCacheBestEffort(repoRoot: string, dataDir: string, repoIdentity: string | null): void {
-  try {
-    regenerateHooksCache(repoRoot, dataDir, repoIdentity);
-  } catch {
-    // best-effort — see module doc
-  }
+/** A repo with no remote has no settings section, so its hooks run. */
+export function hookState(hook: string | undefined, cwd: string = process.cwd()): "on" | "off" {
+  if (!hook) return "on";
+  const remote = readOriginRemoteForIdentity(cwd);
+  const identity = remote ? identityFromRemote(remote) : null;
+  return hookRuns(readHooksSetting(identity?.kind === "remote" ? identity.id : null), hook) ? "on" : "off";
 }
 
-/**
- * Where a write lands: the legacy file stays authoritative only while BOTH
- * it already exists AND the store doesn't own the key yet — once anything
- * lands in a store rung for this repo, hooks.json is a cache and every write
- * must go through the store (checking `existsSync` alone would be wrong the
- * moment the file exists purely as a regenerated cache). ENOENT with an
- * unowned key also routes to the store: file-authority is meaningless with
- * no file, so there's nothing to bootstrap a fresh legacy file from.
- *
- * `repoRoot` is needed only to regenerate the cache after a store write —
- * `discoverHooks` reads `.husky/` there.
- */
-function saveHooksConfig(repoRoot: string, dataDir: string, config: HooksConfig, repoIdentity: string | null): void {
-  const legacyPath = hooksConfigPath(dataDir);
-  const storeOwnsIt = probeHooksStore(repoIdentity) !== undefined;
-
-  if (existsSync(legacyPath) && !storeOwnsIt) {
-    writeFileSync(legacyPath, JSON.stringify(config, null, 2));
-    return;
-  }
-
-  if (repoIdentity) {
-    try {
-      setSetting(SETTING_KEY, config, HOOKS_WRITE_SCOPE, { repoIdentity });
-      regenerateHooksCache(repoRoot, dataDir, repoIdentity);
-      return;
-    } catch (err) {
-      warn("hooks", `could not write "${SETTING_KEY}" to the settings store -- ${(err as Error).message}`, {
-        show: { title: "Your hooks choice could not be saved to your settings", hint: "it was saved for this repo only" },
-      });
-    }
-  }
-
-  // No repoIdentity reachable (local-only remote) — the store is unreachable
-  // regardless of ownership, so the legacy file is the only option.
-  writeFileSync(legacyPath, JSON.stringify(config, null, 2));
-}
-
-// ─── Shim generation ─────────────────────────────────────────────────────────
-
-/**
- * Generate shim scripts in ~/.mattstack/rt/repos/<repo>/hooks/ that:
- * 1. Check hooks.json for enabled/disabled state
- * 2. If disabled → exit 0 (skip)
- * 3. If enabled or config missing → delegate to the real .husky/ hook (fail-safe)
- */
-function generateShims(dataDir: string, discoveredHooks: string[]): void {
-  const hooksDir = join(dataDir, "hooks");
-  mkdirSync(hooksDir, { recursive: true });
-
-  const configFile = hooksConfigPath(dataDir);
-
-  // Always include pre-commit so the on-deck guard runs even if the repo
-  // has no .husky/pre-commit of its own.
-  const hookNames = [...new Set(["pre-commit", ...discoveredHooks])];
-
-  for (const hookName of hookNames) {
-    const shimPath = join(hooksDir, hookName);
-
-    const onDeckGuard = hookName === "pre-commit" ? `
-# On-deck guard: block commits on on-deck/* branches.
-CURRENT_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
-if [[ "$CURRENT_BRANCH" == on-deck/* ]]; then
-  echo "rt: commits are not allowed on on-deck branches (on \\"$CURRENT_BRANCH\\")"
-  echo "rt: switch to a feature branch before committing"
-  exit 1
-fi
-` : "";
-
-    const shim = `#!/bin/bash
-# rt hook shim — checks ~/.mattstack/rt config before running the real hook
-# Fail-safe: if config is missing or unreadable, the real hook runs
-${onDeckGuard}
-HOOKS_CONFIG="${configFile}"
-HOOK_NAME="${hookName}"
-
-if [ -f "$HOOKS_CONFIG" ]; then
-  # Check global kill switch
-  global_enabled=$(grep -o '"enabled"[[:space:]]*:[[:space:]]*[a-z]*' "$HOOKS_CONFIG" 2>/dev/null | head -1 | grep -o '[a-z]*$')
-  if [ "$global_enabled" = "false" ]; then
-    echo "rt: $HOOK_NAME skipped (turned off with rt hooks)" >&2
-    exit 0
-  fi
-
-  # Check per-hook toggle
-  hook_enabled=$(grep -o "\\"$HOOK_NAME\\"[[:space:]]*:[[:space:]]*[a-z]*" "$HOOKS_CONFIG" 2>/dev/null | head -1 | grep -o '[a-z]*$')
-  if [ "$hook_enabled" = "false" ]; then
-    echo "rt: $HOOK_NAME skipped (turned off with rt hooks)" >&2
-    exit 0
-  fi
-fi
-
-# Delegate to the real hook (fail-safe: always run if we get here)
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-REAL_HOOK="$REPO_ROOT/.husky/$HOOK_NAME"
-
-if [ -x "$REAL_HOOK" ]; then
-  exec "$REAL_HOOK" "$@"
-fi
-`;
-    writeFileSync(shimPath, shim, { mode: 0o755 });
-  }
-
-  // Also copy the husky helper directory if it exists
-  // (some hooks source .husky/_/husky.sh)
+/** `rt hooks enabled <hook>`: the question rt's git hook shim asks before every hook. */
+export async function hooksEnabled(args: string[]): Promise<void> {
+  out.payloadOnStdout();
+  out.payload(`${hookState(args[0])}\n`);
 }
 
 /**
@@ -324,7 +166,11 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
 
   const derivedIdentity = remoteUrl ? identityFromRemote(remoteUrl) : null;
   const repoIdentity = derivedIdentity && derivedIdentity.kind === "remote" ? derivedIdentity.id : null;
-  const config = loadHooksConfig(dataDir, discoveredHooks, repoIdentity);
+  if (repoIdentity === null) {
+    out.note(out.line("refused", "This repo has no remote, so rt has nowhere to keep its hook choices"));
+    process.exit(1);
+  }
+  const config = loadHooksConfig(discoveredHooks, repoIdentity);
 
   // Always regenerate shims and ensure hooksPath is set
   generateShims(dataDir, discoveredHooks);
@@ -342,7 +188,7 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
 
   if (sub === "off") {
     config.enabled = false;
-    saveHooksConfig(repoRoot, dataDir, config, repoIdentity);
+    saveHooksConfig(config, repoIdentity);
     out.print(out.line("off", "All hooks are off", repoName), out.callout("note", "This applies in every git app: the terminal, Cursor, GitHub Desktop."));
     return;
   }
@@ -355,7 +201,7 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
     for (const hook of discoveredHooks) {
       config.hooks[hook] = true;
     }
-    saveHooksConfig(repoRoot, dataDir, config, repoIdentity);
+    saveHooksConfig(config, repoIdentity);
     out.print(out.line("done", "All hooks are back on", repoName));
     return;
   }
@@ -363,7 +209,6 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
   // ── rt hooks status ───────────────────────────────────────────────────────
 
   if (sub === "status") {
-    refreshHooksCacheBestEffort(repoRoot, dataDir, repoIdentity);
     out.print(...hooksStatusBlocks(config));
     return;
   }
@@ -380,7 +225,7 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
     }
 
     config.hooks[hookName] = action === "on";
-    saveHooksConfig(repoRoot, dataDir, config, repoIdentity);
+    saveHooksConfig(config, repoIdentity);
 
     out.print(action === "off" ? out.line("off", `${hookName} is off`, repoName) : out.line("done", `${hookName} is on`, repoName));
     return;
@@ -389,7 +234,6 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
   // ── rt hooks (interactive) ────────────────────────────────────────────────
 
   if (!process.stdin.isTTY) {
-    refreshHooksCacheBestEffort(repoRoot, dataDir, repoIdentity);
     out.print(...hooksStatusBlocks(config));
     return;
   }
@@ -404,7 +248,7 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
   });
 
   const next = applyHookSelection(config, discoveredHooks, selected);
-  saveHooksConfig(repoRoot, dataDir, next, repoIdentity);
+  saveHooksConfig(next, repoIdentity);
 
   out.print(
     ...selectionBlocks(
@@ -431,4 +275,4 @@ function applyHookSelection(config: HooksConfig, discoveredHooks: string[], sele
 
 // ─── Exported for tests ──────────────────────────────────────────────────────
 
-export { applyHookSelection, discoverHooks, loadHooksConfig, runningHooks, saveHooksConfig, generateShims, hooksConfigPath, type HooksConfig };
+export { applyHookSelection, discoverHooks, loadHooksConfig, runningHooks, saveHooksConfig, type HooksConfig };

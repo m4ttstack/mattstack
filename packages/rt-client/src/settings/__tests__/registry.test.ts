@@ -57,7 +57,7 @@ describe("settings/registry", () => {
       }
     });
 
-    test("exactly 28 keys are migrated:true", () => {
+    test("exactly 27 keys are migrated:true", () => {
       const migrated = allDefs().filter((d) => d.migrated);
 
       expect(migrated.map((d) => d.key).sort()).toEqual(
@@ -65,7 +65,7 @@ describe("settings/registry", () => {
           "rt.intercepts", "rt.ignoredMrs", "rt.repoIdentityOverrides", "rt.repoRoots", "rt.roles", "rt.worktrees", "rt.worktreeReadyApproval",
           "rt.notifications", "rt.cron", "rt.repoTracking", "rt.runsPruneDays", "rt.runaway", "rt.workspacePrefs",
           "rt.sync", "rt.branchNaming", "rt.variations", "rt.presets", "rt.dopplerTemplate",
-          "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.sdmEnrichment", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations", "rt.hooks",
+          "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.sdmEnrichment", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations",
           "rt.apiPort",
         ].sort(),
       );
@@ -284,13 +284,13 @@ describe("settings/registry", () => {
       }
     });
 
-    test("rt.hooks is a repo-scoped field-bag object with no default (ownership latch, per-hook-name fields too)", () => {
+    test("rt.hooks is a repo-scoped field-bag object that defaults to every hook on", () => {
       const def = getDef("rt.hooks");
       expect(def?.repoScoped, "rt.hooks should be repoScoped:true").toBe(true);
       expect([...def!.scopes].sort()).toEqual(["machine", "org", "team", "user"]);
       expect(def?.type).toBe("object");
       expect(def?.merge).toBe("deep");
-      expect(def?.default).toBeUndefined();
+      expect(def?.default).toEqual({ enabled: true });
       expect(def?.legacyFile).toBeUndefined();
     });
 
@@ -308,13 +308,13 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 28 migrated:true keys and the 51 suite keys", () => {
+    test("has exactly the 27 migrated:true keys and the 51 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
         "rt.notifications", "rt.cron", "rt.repoTracking", "rt.runsPruneDays", "rt.runaway", "rt.workspacePrefs",
         "rt.sync", "rt.branchNaming", "rt.variations", "rt.presets", "rt.dopplerTemplate",
-        "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.sdmEnrichment", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations", "rt.hooks",
+        "rt.homeSnapshot", "rt.teamSnapshot", "rt.worktreeApp", "rt.sdmEnrichment", "rt.logRetentionDays", "rt.logLevel", "rt.gitStatus", "rt.integrations",
         "rt.apiPort",
       ];
       const suiteKeys = [
@@ -405,8 +405,9 @@ describe("settings/registry", () => {
         "panes.relocationAutoAccept",
         "sdm.carriers",
         "sdm.resources",
+        "rt.hooks",
       ];
-      expect(suiteKeys).toHaveLength(87);
+      expect(suiteKeys).toHaveLength(88);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

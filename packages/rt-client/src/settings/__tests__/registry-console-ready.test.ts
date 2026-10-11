@@ -138,7 +138,7 @@ const PENDING_DEFAULT: readonly string[] = [
   "board.title", "board.triage", "board.triage.doctorSkill", "board.triageMaxConcurrent",
   "board.workspaces", "deck.access",
   "deck.apps", "deck.platform", "gitq.forges", "gitq.workSlots", "mattstack.roster",
-  "rt.branchNaming", "rt.hooks", "rt.sdmEnrichment", "sdm.carriers", "sdm.resources",
+  "rt.branchNaming", "rt.sdmEnrichment", "sdm.carriers", "sdm.resources",
   "skills.writingStyle",
 ];
 
