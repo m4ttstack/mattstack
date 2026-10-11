@@ -13,6 +13,7 @@ import { modals } from '@mattstack/app-kit/modals';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { SOFT_RULE } from './softRule';
+import { SyncProgressCard, SyncSpinner } from './SyncProgressCard';
 import {
   guardedWrite,
   syncRefusal,
@@ -176,7 +177,7 @@ export function InstalledCachesBar({
                   guardedWrite(queryClient, pack, () => sync.mutate()),
               })
             }
-            disabled={writing}
+            disabled={writing || sync.isPending}
             data-testid="installed-caches-sync"
             style={{
               display: 'inline-flex',
@@ -191,14 +192,24 @@ export function InstalledCachesBar({
               fontSize: 11,
               fontWeight: 600,
               flex: 'none',
-              opacity: writing ? 0.5 : 1,
+              opacity: writing || sync.isPending ? 0.5 : 1,
             }}
           >
-            <Icons.refresh size={13} aria-hidden />
+            {sync.isPending ? (
+              <span aria-hidden style={{ display: 'inline-flex' }}>
+                <SyncSpinner size={13} />
+              </span>
+            ) : (
+              <Icons.refresh size={13} aria-hidden />
+            )}
             {sync.isPending ? 'Syncing' : 'Sync'}
           </UnstyledButton>
         )}
       </Group>
+
+      {sync.isPending && (
+        <SyncProgressCard pack={pack} startedAt={sync.submittedAt} />
+      )}
 
       {refusal && (
         <Paper

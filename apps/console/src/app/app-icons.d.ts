@@ -31,6 +31,8 @@ declare module '@mattstack/app-kit/icons' {
     gitBranch: true;
     gitPullRequest: true;
     loader: true;
+    loaderCircle: true;
+    hourglass: true;
     hand: true;
     bot: true;
     image: true;

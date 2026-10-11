@@ -1,0 +1,83 @@
+.card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  margin-top: 12px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  outline: 1px solid var(--tk-fill-accent);
+  outline-offset: -0.5px;
+  background: var(--tk-card);
+}
+
+.card[data-tone='warn'] {
+  outline-color: var(--tk-fill-warn);
+  background: var(--mantine-color-warn-light);
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.glyph {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--tk-text-accent);
+}
+
+.card[data-tone='warn'] .glyph {
+  color: var(--tk-text-warn);
+}
+
+.title,
+.sub,
+.elapsed {
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.title {
+  flex-shrink: 0;
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sub {
+  overflow: hidden;
+  color: var(--tk-text-2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.elapsed {
+  flex-shrink: 0;
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+}
+
+.card[data-tone='warn'] .elapsed {
+  color: var(--tk-text-warn);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
