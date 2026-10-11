@@ -185,11 +185,18 @@ export function loadTriageConfig(
     boardSetting<unknown>('board.triage', resolve),
     'settings key "board.triage"'
   );
-  const doctorSkill = boardSetting<unknown>('board.triage.doctorSkill', resolve);
-  const maxConcurrent = boardSetting<unknown>('board.triageMaxConcurrent', resolve);
+  const doctorSkill = boardSetting<unknown>(
+    'board.triage.doctorSkill',
+    resolve
+  );
+  const maxConcurrent = boardSetting<unknown>(
+    'board.triageMaxConcurrent',
+    resolve
+  );
   return {
     ...triage,
-    doctorSkill: typeof doctorSkill === 'string' ? doctorSkill : triage.doctorSkill,
+    doctorSkill:
+      typeof doctorSkill === 'string' ? doctorSkill : triage.doctorSkill,
     maxConcurrent:
       typeof maxConcurrent === 'number' && maxConcurrent > 0
         ? maxConcurrent

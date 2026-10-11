@@ -132,13 +132,21 @@ describe('loadConfig: the store and the registry defaults', () => {
     const cfg = loadConfig(
       fakeResolve({ ...TEAM, 'board.workspaces': { reviews: 'rev' } })
     );
-    expect([cfg.reviewsWorkspace, cfg.respondsWorkspace, cfg.doctorsWorkspace]).toEqual(['rev', 'responses', 'doctors']);
+    expect([
+      cfg.reviewsWorkspace,
+      cfg.respondsWorkspace,
+      cfg.doctorsWorkspace,
+    ]).toEqual(['rev', 'responses', 'doctors']);
   });
 
   test('a board with no team keys, or an empty roster, is not configured', () => {
-    expect(() => loadConfig(fakeResolve({}))).toThrow('missing required field "gitlabHost"');
+    expect(() => loadConfig(fakeResolve({}))).toThrow(
+      'missing required field "gitlabHost"'
+    );
     expect(boardConfigured(fakeResolve({}))).toBe(false);
-    expect(boardConfigured(fakeResolve({ ...TEAM, 'mattstack.roster': [] }))).toBe(false);
+    expect(
+      boardConfigured(fakeResolve({ ...TEAM, 'mattstack.roster': [] }))
+    ).toBe(false);
     expect(boardConfigured(fakeResolve(TEAM))).toBe(true);
   });
 
@@ -152,24 +160,34 @@ describe('loadConfig: the store and the registry defaults', () => {
       if (key === 'board.tabs') throw new Error('store unreadable');
       return r<T>(key, opts as never);
     }) as typeof r;
-    expect(loadConfig(flaky).tabs).toEqual(getDef('board.tabs')!.default as TabConfig[]);
+    expect(loadConfig(flaky).tabs).toEqual(
+      getDef('board.tabs')!.default as TabConfig[]
+    );
   });
 
   test('hidden state comes from board.hiddenMembers alone; an inline roster flag is ignored', () => {
     const cfg = loadConfig(
       fakeResolve({
         ...TEAM,
-        'mattstack.roster': [{ username: 'dev1', hidden: true }, { username: 'dev2' }],
+        'mattstack.roster': [
+          { username: 'dev1', hidden: true },
+          { username: 'dev2' },
+        ],
         'board.hiddenMembers': ['dev2'],
       })
     );
-    expect(cfg.members).toEqual([{ username: 'dev1' }, { username: 'dev2', hidden: true }]);
+    expect(cfg.members).toEqual([
+      { username: 'dev1' },
+      { username: 'dev2', hidden: true },
+    ]);
   });
 
   test('hiding a member when nobody has hidden anyone writes just that member at user scope', () => {
     const calls: Array<{ key: string; value: unknown; scope: string }> = [];
     saveMemberHidden('dev2', true, fakeResolve(TEAM), fakeWrite(calls));
-    expect(calls).toEqual([{ key: 'board.hiddenMembers', value: ['dev2'], scope: 'user' }]);
+    expect(calls).toEqual([
+      { key: 'board.hiddenMembers', value: ['dev2'], scope: 'user' },
+    ]);
   });
 });
 
@@ -948,7 +966,9 @@ describe('loadConfig: mattstack.directory', () => {
       fakeResolve({
         ...TEAM,
         'mattstack.directory': {
-          teams: { widgets: { slack: { codeOwnersChannel: 'widgets-review' } } },
+          teams: {
+            widgets: { slack: { codeOwnersChannel: 'widgets-review' } },
+          },
         },
       })
     );
@@ -982,13 +1002,18 @@ describe('loadConfig: mattstack.directory', () => {
       fakeResolve({
         ...TEAM,
         'mattstack.directory': {
-          teams: { widgets: { slack: { codeOwnersChannel: '#Widgets-Review' } } },
+          teams: {
+            widgets: { slack: { codeOwnersChannel: '#Widgets-Review' } },
+          },
         },
         'board.tabs': [
           {
             id: 'a',
             label: 'a',
-            source: { kind: 'codeowners', section: 'Widgets - #widgets-review' },
+            source: {
+              kind: 'codeowners',
+              section: 'Widgets - #widgets-review',
+            },
           },
         ],
       })

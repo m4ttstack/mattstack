@@ -45,8 +45,9 @@ describe('parseConfig', () => {
 
   test('ticketPrefixes are uppercased and trimmed; rejects non-string entries', () => {
     expect(
-      parseConfig(JSON.stringify({ ...base, ticketPrefixes: ['acme', ' int '] }))
-        .ticketPrefixes
+      parseConfig(
+        JSON.stringify({ ...base, ticketPrefixes: ['acme', ' int '] })
+      ).ticketPrefixes
     ).toEqual(['ACME', 'INT']);
     expect(() =>
       parseConfig(JSON.stringify({ ...base, ticketPrefixes: 'ACME' }))
@@ -395,8 +396,12 @@ describe('boardSetting', () => {
     try {
       expect(boardSetting<number>('board.gateGraceMinutes', throwing)).toBe(90);
       expect(boardSetting<number>('board.gateGraceMinutes', throwing)).toBe(90);
-      expect(boardSetting<string | undefined>('board.agent.model', throwing)).toBeUndefined();
-      expect(boardSetting<string | undefined>('board.agent.model', throwing)).toBeUndefined();
+      expect(
+        boardSetting<string | undefined>('board.agent.model', throwing)
+      ).toBeUndefined();
+      expect(
+        boardSetting<string | undefined>('board.agent.model', throwing)
+      ).toBeUndefined();
       expect(warn).toHaveBeenCalledTimes(2);
     } finally {
       warn.mockRestore();

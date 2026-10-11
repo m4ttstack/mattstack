@@ -11,7 +11,11 @@ import { isDeepStrictEqual } from 'util';
 
 import { getSetting, setSetting } from '@mattstack/rt-client';
 import { stateDir } from '../src/api/state.ts';
-import { defaultExplain, heldEntries, type ExplainFn } from '../src/api/store-import.ts';
+import {
+  defaultExplain,
+  heldEntries,
+  type ExplainFn,
+} from '../src/api/store-import.ts';
 
 export interface PortOverride {
   devPort: number;
@@ -165,7 +169,10 @@ export function importFileFields(
 }
 
 /** Null when the store cannot be read or holds a value the resolver refused, which makes every app read unpublished. */
-function readStoredApps(resolve: GetSettingFn, explain: ExplainFn): StoreApps | null {
+function readStoredApps(
+  resolve: GetSettingFn,
+  explain: ExplainFn
+): StoreApps | null {
   try {
     if (heldEntries(STORE_KEY, 'user', explain).refused) {
       console.warn(

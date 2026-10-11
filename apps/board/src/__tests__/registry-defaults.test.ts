@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { getDef } from '@mattstack/rt-client';
 import { parseConfig } from '../config.ts';
 import { parseTriageBlock } from '../triage/config.ts';
@@ -34,7 +35,8 @@ describe('the registry defaults are what the board parsers fill in', () => {
   });
 
   test('triage and its two sibling keys', () => {
-    const { doctorSkill, maxConcurrent, ...block } = parseTriageBlock(undefined);
+    const { doctorSkill, maxConcurrent, ...block } =
+      parseTriageBlock(undefined);
     expect(def('board.triage')).toEqual(block);
     expect(def('board.triage.doctorSkill')).toBe(doctorSkill);
     expect(def('board.triageMaxConcurrent')).toBe(maxConcurrent);

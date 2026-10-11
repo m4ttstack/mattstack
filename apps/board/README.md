@@ -133,14 +133,14 @@ hostname) the agent actions.
 
 The board reads everything from the mattstack settings stores. The essentials:
 
-| setting             | meaning                                                                                 |
-| ------------------- | --------------------------------------------------------------------------------------- |
-| `board.gitlabHost`  | your GitLab instance, e.g. `https://gitlab.com`                                         |
-| `board.projects`    | project paths whose MRs are eligible                                                    |
-| `mattstack.roster`  | the org roster, whose entries for your team are the teammates whose MRs the board shows |
-| `board.defaultMember` | member username the board opens to, or `"all"`                                        |
-| `board.title`       | page heading and tab title                                                              |
-| `board.slack`       | review channel, post templates, and signal emoji                                        |
+| setting               | meaning                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| `board.gitlabHost`    | your GitLab instance, e.g. `https://gitlab.com`                                         |
+| `board.projects`      | project paths whose MRs are eligible                                                    |
+| `mattstack.roster`    | the org roster, whose entries for your team are the teammates whose MRs the board shows |
+| `board.defaultMember` | member username the board opens to, or `"all"`                                          |
+| `board.title`         | page heading and tab title                                                              |
+| `board.slack`         | review channel, post templates, and signal emoji                                        |
 
 The listen port is `$PORT`, default `7930`, and the server always binds
 `127.0.0.1`.

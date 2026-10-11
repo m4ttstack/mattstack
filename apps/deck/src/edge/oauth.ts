@@ -7,7 +7,11 @@ import { join } from 'path';
 
 import { getSetting, setSetting } from '@mattstack/rt-client';
 import { stateDir } from '../api/state.ts';
-import { defaultExplain, heldEntries, type ExplainFn } from '../api/store-import.ts';
+import {
+  defaultExplain,
+  heldEntries,
+  type ExplainFn,
+} from '../api/store-import.ts';
 
 export type OAuth =
   | { mode: 'off' }

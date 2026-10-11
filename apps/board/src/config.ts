@@ -668,9 +668,7 @@ export function loadConfig(resolve: GetSettingFn = getSetting): BoardConfig {
     channel: _retired,
     ...slackFields
   } = read<Partial<SlackConfig> & { reviewKind: string }>('board.slack');
-  const reviewChannel = mine
-    ? (channelsOfKind(mine, reviewKind)[0] ?? '')
-    : '';
+  const reviewChannel = mine ? (channelsOfKind(mine, reviewKind)[0] ?? '') : '';
   const ownersChannel = mine?.slack?.codeOwnersChannel;
   const codeOwnersChannel = ownersChannel && normalizeChannel(ownersChannel);
   const tabs = read<TabConfig[]>('board.tabs').map(t =>

@@ -747,7 +747,9 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
-      errors.push(`${projectPath}: could not derive its rt repo identity from board.gitlabHost`);
+      errors.push(
+        `${projectPath}: could not derive its rt repo identity from board.gitlabHost`
+      );
       continue;
     }
     const res = await readProjectMRs(repoId, force ? 0 : undefined, {}, demand);
@@ -959,9 +961,12 @@ async function ownersPostPlan(
   }
   const repoName = daemonRepoField(config, projectPath);
   if (!repoName) {
-    return new Response(`${projectPath}: could not derive its rt repo identity from board.gitlabHost`, {
-      status: 400,
-    });
+    return new Response(
+      `${projectPath}: could not derive its rt repo identity from board.gitlabHost`,
+      {
+        status: 400,
+      }
+    );
   }
   const res = await rtCommand<ForgeGetData>(
     'forge:get',
@@ -1429,7 +1434,9 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
-      errors.push(`${projectPath}: could not derive its rt repo identity from board.gitlabHost`);
+      errors.push(
+        `${projectPath}: could not derive its rt repo identity from board.gitlabHost`
+      );
       continue;
     }
     const res = await readProjectMRs(repoId, 20_000);

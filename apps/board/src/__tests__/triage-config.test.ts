@@ -84,7 +84,9 @@ test('tier defaults to api, accepts checkout, rejects junk', () => {
 
 describe('loadTriageConfig', () => {
   test('nothing set reads the disabled defaults', () => {
-    expect(loadTriageConfig(fakeResolve({}))).toEqual(parseTriageBlock(undefined));
+    expect(loadTriageConfig(fakeResolve({}))).toEqual(
+      parseTriageBlock(undefined)
+    );
   });
   test('the two sibling keys win independently of board.triage', () => {
     const cfg = loadTriageConfig(
@@ -94,12 +96,21 @@ describe('loadTriageConfig', () => {
         'board.triageMaxConcurrent': 4,
       })
     );
-    expect(cfg).toMatchObject({ enabled: true, doctorSkill: 'acme:doctor', maxConcurrent: 4 });
+    expect(cfg).toMatchObject({
+      enabled: true,
+      doctorSkill: 'acme:doctor',
+      maxConcurrent: 4,
+    });
   });
   test('a non-positive maxConcurrent keeps the default', () => {
-    expect(loadTriageConfig(fakeResolve({ 'board.triageMaxConcurrent': 0 })).maxConcurrent).toBe(2);
+    expect(
+      loadTriageConfig(fakeResolve({ 'board.triageMaxConcurrent': 0 }))
+        .maxConcurrent
+    ).toBe(2);
   });
   test('a malformed board.triage names the settings key', () => {
-    expect(() => loadTriageConfig(fakeResolve({ 'board.triage': { enabled: 'yes' } }))).toThrow('settings key "board.triage"');
+    expect(() =>
+      loadTriageConfig(fakeResolve({ 'board.triage': { enabled: 'yes' } }))
+    ).toThrow('settings key "board.triage"');
   });
 });
