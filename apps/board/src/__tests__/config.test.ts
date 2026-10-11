@@ -1,10 +1,12 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 
 import { switchboardUrl } from '@mattstack/rt-client';
 import {
+  boardSetting,
   daemonRepoField,
   parseConfig,
   repoIdentityField,
+  resetBoardSettingWarnings,
 } from '../config.ts';
 
 const base = {
@@ -378,5 +380,26 @@ describe('daemonRepoField', () => {
     expect(repoIdentityField('GitLab.com/Group/Repo')).toBe(
       'remote:gitlab.com%2FGroup%2FRepo'
     );
+  });
+});
+
+describe('boardSetting', () => {
+  const throwing = (() => {
+    throw new Error('store unreadable');
+  }) as unknown as Parameters<typeof boardSetting>[1];
+  beforeEach(resetBoardSettingWarnings);
+  afterEach(resetBoardSettingWarnings);
+
+  test('a resolver throw reads the default and warns once per key', () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(boardSetting('board.gateGraceMinutes', throwing)).toBe(90);
+      expect(boardSetting('board.gateGraceMinutes', throwing)).toBe(90);
+      expect(boardSetting('board.agent.model', throwing)).toBeUndefined();
+      expect(boardSetting('board.agent.model', throwing)).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

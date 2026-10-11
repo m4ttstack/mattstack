@@ -539,9 +539,19 @@ export function boardSetting<T>(
   try {
     return resolve<T>(key).value as T;
   } catch (err) {
-    console.warn(`board: ${key} unavailable, using its default`, err);
+    if (!warnedSettingKeys.has(key)) {
+      warnedSettingKeys.add(key);
+      console.warn(`board: ${key} unavailable, using its default`, err);
+    }
     return structuredClone(getDef(key)?.default) as T;
   }
+}
+
+/** Every pane launch reads these settings, so a broken store warns once per key, not once per launch. */
+const warnedSettingKeys = new Set<string>();
+
+export function resetBoardSettingWarnings(): void {
+  warnedSettingKeys.clear();
 }
 
 /** The three `board.agent.*` settings, as read off the store. */
