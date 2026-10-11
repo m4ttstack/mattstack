@@ -9,7 +9,7 @@ import {
   SearchSelect,
   Spinner,
 } from '@mattstack/tui-kit';
-import { GIT_BRANCH, HOUSE, RADIO, SQUARE } from '../icons.ts';
+import { GIT_BRANCH, HOUSE, PLAY, RADIO, SQUARE } from '../icons.ts';
 import type { SourceRow } from './live-api.ts';
 import { lastUsed } from './live-logic.ts';
 import { rowSource, type LiveState } from './useLive.ts';
@@ -17,8 +17,8 @@ import { rowSource, type LiveState } from './useLive.ts';
 function exception(s: SourceRow) {
   if (s.liveApps.length)
     return (
-      <span className="t-accent live-detail">
-        <Icon d={RADIO} />
+      <span className="live-detail">
+        <Icon d={RADIO} className="live-mark" />
         {s.liveApps.join(', ')} {s.liveApps.length > 1 ? 'are' : 'is'} live here
       </span>
     );
@@ -162,7 +162,7 @@ export function GoLiveModal({ live }: { live: LiveState }) {
             busy={m.busy}
             disabled={blocked}
           >
-            {isLive ? ICONS['refresh-cw'] : <Icon d={RADIO} />}
+            {isLive ? ICONS['refresh-cw'] : <Icon d={PLAY} />}
             {isLive ? 'Switch' : 'Go Live'}
           </Button>
         </footer>

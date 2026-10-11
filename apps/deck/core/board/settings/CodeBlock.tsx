@@ -97,7 +97,7 @@ export function CodeBlock({ row, data, board, blocks }: BlockProps) {
         <dl className="settings-facts">
           <dt>Source</dt>
           <dd className="settings-live-source">
-            <Icon d={RADIO} className="t-accent" />
+            <Icon d={RADIO} className="live-mark" />
             {!row.live.main && <Icon d={GIT_BRANCH} />}
             <span className="settings-mono">
               {row.live.main ? 'main' : row.live.branch}
