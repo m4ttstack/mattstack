@@ -58,6 +58,12 @@ describe("2026-10-10-board-cron-by-tool", () => {
     expect(getSetting<{ triggers: unknown[] }>("rt.cron", { expand: false }).value?.triggers).toEqual([variable, triageTrigger()]);
   });
 
+  test("keeps a board trigger's repoName", async () => {
+    seed([{ name: "board-peer", event: "peer-inbox", repoName: "app", run: ["/opt/board", "triage", "--peer"], debounceMs: 300 }]);
+    await boardCronByToolMigration.run(ctx());
+    expect(triggers()).toEqual([{ ...peerTrigger(), repoName: "app" }]);
+  });
+
   test("rewrites the one board trigger a Mac has", async () => {
     seed([{ name: "board-triage", event: "project-mrs", run: ["/opt/board", "triage"], debounceMs: 5000 }]);
     expect((await boardCronByToolMigration.run(ctx())).state).toBe("done");
