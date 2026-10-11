@@ -6,6 +6,7 @@
 
 import { boardCronByToolMigration } from "./board-cron-by-tool.ts";
 import { boardPeerTriggerMigration } from "./board-peer-trigger.ts";
+import { importLegacySettingsMigration } from "./import-legacy-settings.ts";
 import { retireSwitchboardUrlMigration } from "./retire-switchboard-url.ts";
 import { sdmResourcesKeyMigration } from "./sdm-resources-key.ts";
 import { unsetSetting } from "../../settings/write.ts";
@@ -40,6 +41,7 @@ export const MIGRATIONS: MigrationDef[] = [
   retireSwitchboardUrlMigration,
   sdmResourcesKeyMigration,
   boardCronByToolMigration,
+  importLegacySettingsMigration,
 ];
 
 export function migrationEventId(id: string): MigrationEventId {
