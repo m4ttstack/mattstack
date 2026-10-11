@@ -1,5 +1,6 @@
-import { describe, test, expect, spyOn, afterEach } from 'bun:test';
-import { getSetting, setSetting, unsetSetting } from '@mattstack/rt-client';
+import { describe, test, expect, spyOn } from 'bun:test';
+import { getSetting, setSetting } from '@mattstack/rt-client';
+import { useOwnHome } from './own-home.ts';
 import { readForgeOverrides, resolveForge, type ForgeOverrides } from '../src/core/forges.ts';
 import { resetStoreFallbackWarnings } from '../src/core/settings-fallback-warn.ts';
 
@@ -16,9 +17,7 @@ function throwingResolve(message = 'rt daemon unreachable'): GetSettingFn {
   }) as GetSettingFn;
 }
 
-afterEach(() => {
-  unsetSetting('gitq.forges', 'user');
-});
+useOwnHome();
 
 describe('readForgeOverrides (fake resolver, no real store IO)', () => {
   test('a resolver throw degrades to the empty map, never crashes', async () => {
