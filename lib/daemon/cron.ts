@@ -7,6 +7,8 @@
  * program. Ships with rt's installation (tray-app precedent); dormant when
  * the rt.cron machine-store setting is absent or empty.
  */
+import { resolveTool } from "../deps/resolve.ts";
+import { createRealProbes } from "../setup/probes.ts";
 import { getSetting } from "../settings/resolve.ts";
 import type { Value } from "../settings/registry-schemas.ts";
 
@@ -40,7 +42,12 @@ export function parseCronConfig(value: unknown): CronConfig {
     if (o.debounceMs !== undefined && (typeof o.debounceMs !== "number" || o.debounceMs <= 0)) {
       throw new Error(`rt.cron trigger "${o.name}": "debounceMs" must be a positive number`);
     }
-    return { name: o.name, event: o.event, repoName: o.repoName as string | undefined, run: o.run as string[], debounceMs: o.debounceMs as number | undefined };
+    if (o.tool !== undefined && (typeof o.tool !== "string" || !o.tool)) {
+      throw new Error(`rt.cron trigger "${o.name}": "tool" must be a non-empty string`);
+    }
+    const trigger: CronTrigger = { name: o.name, event: o.event, repoName: o.repoName as string | undefined, run: o.run as string[], debounceMs: o.debounceMs as number | undefined };
+    if (o.tool !== undefined) trigger.tool = o.tool as string;
+    return trigger;
   });
   // Debounce timers and the fire-time lookup are keyed by name alone.
   const seen = new Set<string>();
@@ -96,17 +103,24 @@ export const CRON_RELOAD_AFTER_MS = 30_000;
 
 export type CronLoader = (log: CronLog) => CronConfig;
 
+/** The argv prefix that runs a bundled tool from the running app, or null when it does not resolve. */
+export type CronToolResolver = (tool: string) => string[] | null;
+
+const defaultResolveTool: CronToolResolver = (tool) => resolveTool(createRealProbes(), tool).exec;
+
 export function startCron(
   source: CronConfig | CronLoader,
   opts: {
     log: CronLog;
     runCommand?: (argv: string[], trigger: CronTrigger) => void;
+    resolveTool?: CronToolResolver;
     now?: () => number;
   },
 ): { onBroadcast(type: string, data: unknown): void; dispose(): void } {
   const { log } = opts;
   const now = opts.now ?? Date.now;
   const runCommand = opts.runCommand ?? ((argv: string[], trigger: CronTrigger) => defaultRunCommand(argv, trigger, log));
+  const resolveToolExec = opts.resolveTool ?? defaultResolveTool;
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   let disposed = false;
   let triggers: CronTrigger[] = [];
@@ -151,6 +165,23 @@ export function startCron(
     arm(config);
   }
 
+  // A tool resolves at fire time, so the run follows whichever app is running now.
+  function fire(trigger: CronTrigger): void {
+    if (trigger.tool === undefined) return runCommand(trigger.run, trigger);
+    let exec: string[] | null;
+    try {
+      exec = resolveToolExec(trigger.tool);
+    } catch (err) {
+      log.warn(`cron ${trigger.name}: could not look up tool "${trigger.tool}", so this run was skipped: ${err instanceof Error ? err.message : err}`);
+      return;
+    }
+    if (!exec) {
+      log.warn(`cron ${trigger.name}: tool "${trigger.tool}" was not found in the running app, so this run was skipped`);
+      return;
+    }
+    runCommand([...exec, ...trigger.run], trigger);
+  }
+
   load();
 
   return {
@@ -167,7 +198,7 @@ export function startCron(
           setTimeout(() => {
             timers.delete(trigger.name);
             const current = triggers.find((t) => t.name === trigger.name);
-            if (current) runCommand(current.run, current);
+            if (current) fire(current);
           }, trigger.debounceMs ?? DEFAULT_DEBOUNCE_MS),
         );
       }
