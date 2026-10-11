@@ -104,8 +104,14 @@ describe('buildSections', () => {
     const [board] = buildSections(
       [
         def('board.mine', { scopes: ['user', 'machine'] }),
-        def('board.model', { scopes: ['user', 'team', 'machine'] }),
-        def('board.title', { scopes: ['team', 'org'] }),
+        def('board.model', {
+          scopes: ['user', 'team', 'machine'],
+          effective: { scope: 'team', file: '/t', value: 'x' },
+        }),
+        def('board.title', {
+          scopes: ['team', 'org'],
+          effective: { scope: 'team', file: '/t', value: 'x' },
+        }),
       ],
       NO_FILTER,
       null,
@@ -133,13 +139,22 @@ describe('buildSections', () => {
   it('splits a section into team, user, machine subsections', () => {
     const boards = [
       ...Array.from({ length: 6 }, (_, i) =>
-        def(`board.t${i}`, { scopes: ['team'] })
+        def(`board.t${i}`, {
+          scopes: ['team'],
+          effective: { scope: 'team', file: '/t', value: 'x' },
+        })
       ),
       ...Array.from({ length: 5 }, (_, i) =>
-        def(`board.u${i}`, { scopes: ['user', 'machine'] })
+        def(`board.u${i}`, {
+          scopes: ['user', 'machine'],
+          effective: { scope: 'user', file: '/u', value: 'x' },
+        })
       ),
       ...Array.from({ length: 2 }, (_, i) =>
-        def(`board.m${i}`, { scopes: ['machine'] })
+        def(`board.m${i}`, {
+          scopes: ['machine'],
+          effective: { scope: 'machine', file: '/m', value: 'x' },
+        })
       ),
     ];
     const [board] = buildSections(boards, NO_FILTER);
@@ -161,7 +176,10 @@ describe('buildSections', () => {
       shared('board.repoHost', 'org.repo'),
       shared('board.title', 'team'),
       shared('board.tabs', null),
-      def('board.roster', { scopes: ['org'] }),
+      def('board.roster', {
+        scopes: ['org'],
+        effective: { scope: 'org', file: '/o', value: 'x' },
+      }),
       ...Array.from({ length: 4 }, (_, i) =>
         def(`board.u${i}`, {
           scopes: ['user', 'machine'],
@@ -169,7 +187,10 @@ describe('buildSections', () => {
         })
       ),
       ...Array.from({ length: 4 }, (_, i) =>
-        def(`board.m${i}`, { scopes: ['machine'] })
+        def(`board.m${i}`, {
+          scopes: ['machine'],
+          effective: { scope: 'machine', file: '/m', value: 'x' },
+        })
       ),
     ];
     const [board] = buildSections(boards, NO_FILTER);
@@ -177,7 +198,7 @@ describe('buildSections', () => {
       board!.subsections.map(x => [x.scope, x.defs.map(d => d.key).sort()])
     ).toEqual([
       ['org', ['board.gitlabHost', 'board.repoHost', 'board.roster']],
-      ['team', ['board.tabs', 'board.title']],
+      ['team', ['board.title']],
       // Set on machine, so they sit with machine whatever their first scope.
       [
         'machine',
@@ -192,6 +213,8 @@ describe('buildSections', () => {
           'board.u3',
         ],
       ],
+      // No store sets it, so it is Not set rather than under its first scope.
+      ['unset', ['board.tabs']],
     ]);
   });
 
@@ -216,10 +239,51 @@ describe('buildSections', () => {
       })[0]!.subsections.find(x => x.defs.some(d => d.key === key))?.scope;
     expect(where(false, 'board.intercepts')).toBe('org');
     expect(where(false, 'board.mixed')).toBe('user');
-    expect(where(false, 'board.none')).toBe('user');
+    expect(where(false, 'board.none')).toBe('unset');
     // Another team's view counts only the shared stores.
     expect(where(true, 'board.intercepts')).toBe('org');
     expect(where(true, 'board.mixed')).toBe('org');
+  });
+
+  it('files a key no store sets under Not set', () => {
+    const defs = [
+      def('board.onDefault', {
+        scopes: ['user', 'team'],
+        effective: { scope: 'default', file: null, value: [] },
+      }),
+      def('board.nothing', {
+        scopes: ['user'],
+        effective: { scope: null, file: null, value: undefined },
+      }),
+      def('board.mine', {
+        scopes: ['user'],
+        effective: { scope: 'user', file: '/u', value: 1 },
+      }),
+      def('board.stray', {
+        scopes: ['user'],
+        effective: { scope: 'machine', file: '/m', value: 1 },
+      }),
+    ];
+    const board = buildSections(defs, NO_FILTER)[0]!;
+    expect(
+      board.subsections.map(s => [s.scope, s.defs.map(d => d.key).sort()])
+    ).toEqual([
+      ['user', ['board.mine', 'board.stray']],
+      ['unset', ['board.nothing', 'board.onDefault']],
+    ]);
+  });
+
+  it('keeps a key set only in repo sections with its store', () => {
+    const d = def('board.perRepo', {
+      type: 'object',
+      scopes: ['user', 'team'],
+      repoScoped: true,
+      effective: { scope: 'default', file: null, value: {} },
+      repos: [{ identity: 'h/r0', scopes: ['team'] }],
+    });
+    expect(
+      buildSections([d], NO_FILTER)[0]!.subsections.map(s => s.scope)
+    ).toEqual(['team']);
   });
 
   it('a store filter keeps a per-project key any of whose repo sections live there', () => {
@@ -299,7 +363,14 @@ describe('buildSections', () => {
   });
 
   it('splits even a one-key section by scope', () => {
-    const [agents] = buildSections([def('agent.provider')], NO_FILTER);
+    const [agents] = buildSections(
+      [
+        def('agent.provider', {
+          effective: { scope: 'user', file: '/u', value: 'x' },
+        }),
+      ],
+      NO_FILTER
+    );
     expect(agents!.subsections).toEqual([
       {
         scope: 'user',

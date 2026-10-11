@@ -65,7 +65,10 @@ const BOARD = [
     })
   ),
   ...Array.from({ length: 5 }, (_, i) =>
-    def(`board.u${i}`, { scopes: ['user', 'machine'] })
+    def(`board.u${i}`, {
+      scopes: ['user', 'machine'],
+      effective: { scope: 'user', file: '/u', value: 'x' },
+    })
   ),
   def('board.agent.model', {
     scopes: ['user', 'machine'],
