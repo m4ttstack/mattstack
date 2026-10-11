@@ -18,7 +18,7 @@ import { detectEditors, type DetectedEditor } from "../editors.ts";
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "./probes.ts";
 import type { PackRequirements } from "./requirements.ts";
-import { readSetupState, updateSetupState } from "./state.ts";
+import { updateSetupState } from "./state.ts";
 
 /**
  * URLs only — never a shell command. R-T21-a: nothing in this file ever
@@ -39,31 +39,36 @@ const VENDOR_ALLOWED_HOSTS = new Set(["herdr.dev", "claude.ai", "bun.sh"]);
 
 export const BREW_FORMULAE: Record<string, string> = { herdr: "herdr", claude: "claude-code" };
 
-export interface ReleaseBinary {
+export interface ReleaseInstaller {
+  /** The release the installer is told to install, and the version `--version` must then report. */
   version: string;
   url: string;
   sha256: string;
-  /** The one archive entry rt extracts; nothing else in the archive is written. */
-  member: string;
+  /** The tool's name as a person reads it. */
+  name: string;
+  /** Extra environment for the run, so the installer never stops to ask. */
+  env: Record<string, string>;
 }
 
 /**
- * Prebuilt binaries rt installs itself into ~/.local/bin, under the same
- * trust boundary as VENDOR_INSTALLERS: rt's own hardcoded list, never a
+ * Vendor installers rt pins to one release and checks by checksum, under the
+ * same trust boundary as VENDOR_INSTALLERS: rt's own hardcoded list, never a
  * team-declared value. Codex is pinned to the release the acceptance matrix
- * tested (scripts/acceptance/tested-versions.json); a test fails when they drift.
+ * tested (scripts/acceptance/tested-versions.json); a test fails when they
+ * drift. It is OpenAI's installer, not the bare release binary, because only
+ * the packaged CLI can run Codex's app server.
  */
-export const RELEASE_BINARIES: Record<string, ReleaseBinary> = {
+export const RELEASE_INSTALLERS: Record<string, ReleaseInstaller> = {
   codex: {
     version: "0.160.0",
-    url: "https://github.com/openai/codex/releases/download/rust-v0.160.0/codex-aarch64-apple-darwin.tar.gz",
-    sha256: "07c3c7ca376a8f791115342f53138dda37e97cfa29b8125d0652d93784894b5d",
-    member: "codex-aarch64-apple-darwin",
+    url: "https://github.com/openai/codex/releases/download/rust-v0.160.0/install.sh",
+    sha256: "150e3cf675682efeaac115aa3747add3f27887896d04ce6d0b56478d8b428bf6",
+    name: "Codex",
+    env: { CODEX_NON_INTERACTIVE: "true" },
   },
 };
 
 const RELEASE_ALLOWED_HOSTS = new Set(["github.com"]);
-const RELEASE_TOOL_NAMES: Record<string, string> = { codex: "Codex" };
 
 /**
  * A team-declared `install.brew` runs as `brew install <formula>` — tap
@@ -198,11 +203,11 @@ function linkOutcomeDetail(outcome: LinkOutcome): string {
   return outcome.ok ? (outcome.state === "already" ? `already linked at ${outcome.path}` : `linked at ${outcome.path}`) : outcome.detail;
 }
 
-/** RELEASE_BINARIES are only reached with `releases: true` (the integrations switch on), so the switch-off path is what it was before they existed. */
+/** RELEASE_INSTALLERS are only reached with `releases: true` (the integrations switch on), so the switch-off path is what it was before they existed. */
 export async function installTool(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS, opts: { releases?: boolean } = {}): Promise<InstallResult> {
   if (tool === "apple-clt") return installAppleClt(p);
-  const release = opts.releases === true ? RELEASE_BINARIES[tool] : undefined;
-  if (release) return installReleaseBinary(p, tool, release);
+  const release = opts.releases === true ? RELEASE_INSTALLERS[tool] : undefined;
+  if (release) return runPinnedInstaller(p, tool, release);
 
   const bundled = seams.bundledToolExec(p, tool);
   if (bundled) {
@@ -303,7 +308,7 @@ async function runInstallerAndVerify(
   return { via, ok: true, detail: successDetail };
 }
 
-/** Rejects anything but https on one of the known vendor hosts — a hardcoded VENDOR_INSTALLERS or RELEASE_BINARIES entry only, never a team-declared URL (see installTool). */
+/** Rejects anything but https on one of the known vendor hosts — a hardcoded VENDOR_INSTALLERS or RELEASE_INSTALLERS entry only, never a team-declared URL (see installTool). */
 function validateVendorUrl(url: string, allowedHosts: ReadonlySet<string> = VENDOR_ALLOWED_HOSTS): { ok: true } | { ok: false; detail: string } {
   let parsed: URL;
   try {
@@ -348,80 +353,54 @@ async function sha256Of(p: Probes, path: string): Promise<string | null> {
   return res.code === 0 ? (res.stdout.match(/^([0-9a-f]{64})\b/)?.[1] ?? null) : null;
 }
 
-/** rt's only when setup state recorded this path and the file still has the bytes rt wrote; a symlink or anything unrecorded is the member's. */
-async function isOwnReleaseInstall(p: Probes, dest: string): Promise<boolean> {
-  const recorded = readSetupState(p).releaseInstalls?.[dest];
-  if (!recorded || p.readlink(dest) !== null) return false;
-  return (await sha256Of(p, dest)) === recorded;
+/** True when `reported` names `version` as a whole version, so 0.160.0 never matches 0.160.01 or 10.160.0. */
+function reportsVersion(reported: string, version: string): boolean {
+  return reported.split(/[^\d.]+/).includes(version);
 }
 
 /**
- * Installs a RELEASE_BINARIES entry at ~/.local/bin/<tool>. The archive's
- * sha256 is checked before anything else reads it, and only the named
- * member is extracted. Reports `via: "vendor"`, the value the app already
- * decodes for a download rt makes itself.
+ * Runs a RELEASE_INSTALLERS entry pinned to its release. The script's
+ * sha256 is checked before it runs, and it runs as its own argv step, never
+ * through a shell string. The installer owns what it writes (for Codex,
+ * ~/.local/bin/codex and ~/.codex/packages), so rt records nothing. Reports
+ * `via: "vendor"`, the value the app already decodes.
  */
-async function installReleaseBinary(p: Probes, tool: string, release: ReleaseBinary): Promise<InstallResult> {
-  const name = RELEASE_TOOL_NAMES[tool] ?? tool;
-  const fail = (detail: string, extra: Partial<InstallResult> = {}): InstallResult => ({ via: "vendor", ok: false, detail, ...extra });
+async function runPinnedInstaller(p: Probes, tool: string, release: ReleaseInstaller): Promise<InstallResult> {
+  const { name } = release;
+  const fail = (detail: string): InstallResult => ({ via: "vendor", ok: false, detail });
 
   const arch = await p.exec(["uname", "-m"], { timeoutMs: PROBE_TIMEOUT_MS });
   const archName = arch.stdout.trim();
   if (arch.code !== 0 || !archName) return fail("rt could not read this Mac's processor type");
-  if (archName !== "arm64") return fail(`${name}'s release build runs only on Apple silicon, and this Mac is ${archName}`);
+  if (archName !== "arm64") return fail(`rt installs ${name} only on Apple silicon, and this Mac is ${archName}`);
 
   const validated = validateVendorUrl(release.url, RELEASE_ALLOWED_HOSTS);
   if (!validated.ok) return fail(validated.detail);
 
-  const binDir = join(p.home, ".local", "bin");
-  const dest = join(binDir, tool);
-  const occupied = async () => (p.exists(dest) || p.readlink(dest) !== null) && !(await isOwnReleaseInstall(p, dest));
-  const leftAlone = () => fail(`Something that rt did not put there is already at ${dest}`, { reason: "occupied" });
-  if (await occupied()) return leftAlone();
-
   const work = join(p.env.TMPDIR ?? "/tmp", "rt-vendor-install", `${tool}-release`);
-  const archive = join(work, `${tool}.tar.gz`);
+  const script = join(work, "install.sh");
   p.removeDir(work);
   p.mkdirp(work);
   try {
-    const fetchRes = await p.exec(["curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", release.url, "-o", archive], { timeoutMs: INSTALL_TIMEOUT_MS });
-    if (fetchRes.code === 124) return fail(`Downloading ${name} did not finish in time`);
-    if (fetchRes.code !== 0) return fail(`Downloading ${name} failed (exit ${fetchRes.code}): ${firstLine(fetchRes.stderr || fetchRes.stdout)}`);
+    const fetchRes = await p.exec(["curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", release.url, "-o", script], { timeoutMs: INSTALL_TIMEOUT_MS });
+    if (fetchRes.code === 124) return fail(`Downloading ${name}'s installer did not finish in time`);
+    if (fetchRes.code !== 0) return fail(`Downloading ${name}'s installer failed (exit ${fetchRes.code}): ${firstLine(fetchRes.stderr || fetchRes.stdout)}`);
 
-    if ((await sha256Of(p, archive)) !== release.sha256) {
-      p.removeFile(archive);
-      return fail(`The ${name} download did not match its expected checksum, so rt deleted it`);
+    if ((await sha256Of(p, script)) !== release.sha256) {
+      p.removeFile(script);
+      return fail(`${name}'s installer did not match its expected checksum, so rt deleted it`);
     }
 
-    const untar = await p.exec(["tar", "-xzf", archive, "-C", work, release.member], { timeoutMs: INSTALL_TIMEOUT_MS });
-    if (untar.code !== 0) return fail(`Unpacking ${name} failed (exit ${untar.code}): ${firstLine(untar.stderr || untar.stdout)}`);
-    const extracted = join(work, release.member);
-    const digest = await sha256Of(p, extracted);
-    if (digest === null) return fail(`rt could not read the ${name} it unpacked`);
+    const run = await p.exec(["sh", script, "--release", release.version], { env: release.env, timeoutMs: INSTALL_TIMEOUT_MS });
+    if (run.code === 124) return fail(`${name}'s installer did not finish in time`);
+    if (run.code !== 0) return fail(`${name}'s installer failed (exit ${run.code}): ${firstLine(run.stderr || run.stdout)}`);
 
-    p.mkdirp(binDir);
-    const staged = `${dest}.rt-new`;
-    const put = await p.exec(["install", "-m", "755", extracted, staged], { timeoutMs: PROBE_TIMEOUT_MS * 6 });
-    if (put.code !== 0) {
-      p.removeFile(staged);
-      return fail(`Putting ${name} in ${binDir} failed (exit ${put.code}): ${firstLine(put.stderr || put.stdout)}`);
-    }
-    // The download can take minutes; a codex the member put there meanwhile is still theirs.
-    if (await occupied()) {
-      p.removeFile(staged);
-      return leftAlone();
-    }
-    try {
-      p.rename(staged, dest);
-    } catch (err) {
-      p.removeFile(staged);
-      return fail(`Putting ${name} in ${binDir} failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    updateSetupState(p, (s) => ({ ...s, releaseInstalls: { ...(s.releaseInstalls ?? {}), [dest]: digest } }));
-
+    const dest = join(p.home, ".local", "bin", tool);
     const verify = await p.exec([dest, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
-    if (verify.code !== 0) return fail(`${name} was put at ${dest}, but it does not run (exit ${verify.code})`);
-    return { via: "vendor", ok: true, detail: `Installed ${name} ${release.version} at ${dest}` };
+    if (verify.code !== 0) return fail(`${name}'s installer finished, but ${dest} does not run (exit ${verify.code})`);
+    const reported = firstLine(verify.stdout);
+    if (!reportsVersion(reported, release.version)) return fail(`${name}'s installer finished, but ${dest} reports ${reported}, not ${release.version}`);
+    return { via: "vendor", ok: true, detail: `Installed ${name} ${release.version} with OpenAI's installer` };
   } finally {
     p.removeDir(work);
   }

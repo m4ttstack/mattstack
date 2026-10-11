@@ -325,7 +325,7 @@ describe("setup for the enabled harnesses", () => {
       expect(row.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Open a terminal", "Run: codex login", "Follow the sign-in prompt"] });
     });
 
-    test("Codex missing is required and offers rt's own install of OpenAI's release binary", async () => {
+    test("Codex missing is required and offers rt's own run of OpenAI's pinned installer", async () => {
       const row = await codexToolRow(codexMac(home, { exec: (argv) => (argv[0] === "codex" ? { code: 127, stdout: "", stderr: "ENOENT: codex" } : undefined) as never }).p);
       expect(row.status).toBe("missing");
       expect(row.required).toBe(true);

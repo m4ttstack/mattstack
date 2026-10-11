@@ -18,7 +18,7 @@ import { usageFailure } from "../lib/ui/usage.ts";
 import { readIntent, orgRefFromIntent } from "../lib/setup/intent.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { readPackRequirements, type PackRequirements } from "../lib/setup/requirements.ts";
-import { BREW_FORMULAE, RELEASE_BINARIES, VENDOR_INSTALLERS, installTool, setupTool } from "../lib/setup/tools-install.ts";
+import { BREW_FORMULAE, RELEASE_INSTALLERS, VENDOR_INSTALLERS, installTool, setupTool } from "../lib/setup/tools-install.ts";
 import { hostSetupFor, readIntegrationSelection } from "../lib/setup/integration-selection.ts";
 import { bundledToolExec } from "../lib/deps/resolve.ts";
 import { DEFAULT_EXPOSED } from "../lib/deps/links.ts";
@@ -35,9 +35,9 @@ function resolveTeamReqs(p: Probes): PackRequirements[] {
   return ref.slug ? readPackRequirements(p, ref.slug) : [];
 }
 
-/** What installTool can act on here, mirroring its branch order: apple-clt, rt's bundled tools that resolve in this environment, its hardcoded brew/vendor formulae, its release binaries while the integrations switch is on, and the joined team's declared tools. */
+/** What installTool can act on here, mirroring its branch order: apple-clt, rt's bundled tools that resolve in this environment, its hardcoded brew/vendor formulae, its pinned release installers while the integrations switch is on, and the joined team's declared tools. */
 function installableTools(p: Probes, reqs: PackRequirements[], releases: boolean): string[] {
-  const names = new Set<string>(["apple-clt", ...Object.keys(BREW_FORMULAE), ...Object.keys(VENDOR_INSTALLERS), ...(releases ? Object.keys(RELEASE_BINARIES) : [])]);
+  const names = new Set<string>(["apple-clt", ...Object.keys(BREW_FORMULAE), ...Object.keys(VENDOR_INSTALLERS), ...(releases ? Object.keys(RELEASE_INSTALLERS) : [])]);
   for (const name of DEFAULT_EXPOSED) if (name !== "rt" && bundledToolExec(p, name)) names.add(name);
   for (const r of reqs) for (const t of r.tools) names.add(t.name);
   return [...names].sort();

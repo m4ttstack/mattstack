@@ -39,16 +39,17 @@ for (const reason of ["user-copy", "dev-mode-owns-rt", "occupied", "no-bundle"] 
   });
 }
 
-test("rt tools install codex reaches the release install and reports via vendor", async () => {
-  const { RELEASE_BINARIES } = toolsInstallModule;
+test("rt tools install codex runs OpenAI's pinned installer and reports via vendor", async () => {
+  const { RELEASE_INSTALLERS } = toolsInstallModule;
   const dest = "/home/x/.local/bin/codex";
   const p = fakeProbes({
     home: "/home/x",
     env: { TMPDIR: "/tmp/t" },
     exec: (argv) => {
       if (argv[0] === "uname") return { code: 0, stdout: "arm64\n", stderr: "" };
-      if (argv[0] === "shasum") return { code: 0, stdout: `${argv.at(-1)!.endsWith(".tar.gz") ? RELEASE_BINARIES.codex!.sha256 : "b".repeat(64)}  x\n`, stderr: "" };
-      if (["curl", "tar", "install", dest].includes(argv[0]!)) return { code: 0, stdout: "", stderr: "" };
+      if (argv[0] === "shasum") return { code: 0, stdout: `${RELEASE_INSTALLERS.codex!.sha256}  x\n`, stderr: "" };
+      if (argv[0] === dest) return { code: 0, stdout: "codex-cli 0.160.0\n", stderr: "" };
+      if (["curl", "sh"].includes(argv[0]!)) return { code: 0, stdout: "", stderr: "" };
       return { code: 127, stdout: "", stderr: `ENOENT: ${argv[0]}` };
     },
   });
@@ -57,7 +58,7 @@ test("rt tools install codex reaches the release install and reports via vendor"
   out.__test__.setHuman(() => false);
   try {
     await toolsInstall(["codex", "--json"], {}, p);
-    expect(JSON.parse(io.stdout())).toMatchObject({ via: "vendor", ok: true, detail: `Installed Codex 0.160.0 at ${dest}` });
+    expect(JSON.parse(io.stdout())).toMatchObject({ via: "vendor", ok: true, detail: "Installed Codex 0.160.0 with OpenAI's installer" });
     expect(p.calls.exec.some((argv) => argv[0] === "brew")).toBe(false);
   } finally {
     io.restore();
