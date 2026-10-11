@@ -31,8 +31,9 @@ const scrollerOf = (el: HTMLElement): HTMLElement => {
   return document.scrollingElement as HTMLElement;
 };
 
-/** Fits the split to its scroller: whatever the page puts above and below
-    it stays, and the split takes the rest, so the page itself never scrolls. */
+/** Fits the split to the window: whatever the page puts above and below it
+    stays, and the split takes the rest, so the page itself never scrolls.
+    The page's scroller may size to its content, so the window is the bound. */
 const useFitToWindow = (split: boolean) => {
   const ref = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number>();
@@ -41,9 +42,14 @@ const useFitToWindow = (split: boolean) => {
     if (!el) return;
     const fit = () => {
       const scroller = scrollerOf(el);
-      const overflow = scroller.scrollHeight - scroller.clientHeight;
-      const current = el.getBoundingClientRect().height;
-      setHeight(Math.max(MIN_HEIGHT, Math.floor(current - overflow)));
+      const rect = el.getBoundingClientRect();
+      const offset =
+        rect.top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+      const below = scroller.scrollHeight - offset - rect.height;
+      const top = rect.top + scroller.scrollTop;
+      setHeight(
+        Math.max(MIN_HEIGHT, Math.floor(window.innerHeight - top - below))
+      );
     };
     fit();
     window.addEventListener('resize', fit);
