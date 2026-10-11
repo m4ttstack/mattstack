@@ -1,15 +1,13 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import type { getSetting } from '@mattstack/rt-client';
 import {
   composeAgentCommand,
   loadAgentSettings,
-  loadConfigFrom,
+  loadConfig,
   teamView,
 } from '../config.ts';
+import { fakeResolve } from './fake-resolve.ts';
 
 type GetSettingFn = typeof getSetting;
 
@@ -22,13 +20,6 @@ afterEach(() => {
   Object.assign(teamView, realView);
 });
 
-function fakeResolve(values: Record<string, unknown>): GetSettingFn {
-  return (<T>(key: string) => ({
-    value: values[key] as T,
-    provenance: [],
-  })) as GetSettingFn;
-}
-
 /** The retired-key shape: getSetting throws for anything not in the registry. */
 function registryOf(values: Record<string, unknown>): GetSettingFn {
   return (<T>(key: string) => {
@@ -37,21 +28,15 @@ function registryOf(values: Record<string, unknown>): GetSettingFn {
   }) as GetSettingFn;
 }
 
-/** The required fields, so these tests exercise the agent keys and nothing else. */
-const base = {
-  gitlabHost: 'https://gitlab.com',
-  projects: ['org/repo'],
-  members: [{ username: 'alice' }],
+/** The required keys, so these tests exercise the agent keys and nothing else. */
+const TEAM = {
+  'board.gitlabHost': 'gitlab.example.com',
+  'board.projects': ['acme/widgets'],
+  'mattstack.roster': [{ username: 'dev1' }, { username: 'dev2' }],
 };
 
-function tmpConfig(body: Record<string, unknown> = base): string {
-  const path = join(mkdtempSync(join(tmpdir(), 'board-agent-')), 'config.json');
-  writeFileSync(path, JSON.stringify(body, null, 2) + '\n');
-  return path;
-}
-
 function configWith(values: Record<string, unknown>) {
-  return loadConfigFrom(tmpConfig(), registryOf(values));
+  return loadConfig(fakeResolve({ ...TEAM, ...values }));
 }
 
 describe('composeAgentCommand', () => {
@@ -167,30 +152,6 @@ describe('loadConfig reads the board.agent.* keys', () => {
     expect(cfg.claudeCommand).toBe('');
   });
 
-  test('a file-config claudeCommand still wins as the verbatim escape hatch', () => {
-    const path = tmpConfig({ ...base, claudeCommand: 'my-wrapper --' });
-    expect(loadConfigFrom(path, registryOf({})).claudeCommand).toBe(
-      'my-wrapper --'
-    );
-  });
-
-  test('the store beats the file when both are set', () => {
-    const path = tmpConfig({ ...base, claudeCommand: 'my-wrapper --' });
-    const cfg = loadConfigFrom(
-      path,
-      registryOf({ 'board.agent.account': 'a@b.c' })
-    );
-    expect(cfg.claudeCommand).toBe("cswap run 'a@b.c' --share-history --");
-  });
-
-  test('a resolver that throws on every key degrades to the file, not a crash', () => {
-    const path = tmpConfig({ ...base, claudeCommand: 'my-wrapper --' });
-    const throwing = (() => {
-      throw new Error('rt daemon unreachable');
-    }) as GetSettingFn;
-    expect(loadConfigFrom(path, throwing).claudeCommand).toBe('my-wrapper --');
-  });
-
   test('unrelated keys still resolve through the same fake shape', () => {
     const cfg = configWith({
       'board.title': 'The Board',
@@ -199,7 +160,7 @@ describe('loadConfig reads the board.agent.* keys', () => {
     expect(cfg.title).toBe('The Board');
   });
 
-  test("fakeResolve's absent-key-is-undefined shape composes to empty too", () => {
-    expect(loadConfigFrom(tmpConfig(), fakeResolve({})).claudeCommand).toBe('');
+  test('nothing set composes to empty', () => {
+    expect(loadConfig(fakeResolve(TEAM)).claudeCommand).toBe('');
   });
 });

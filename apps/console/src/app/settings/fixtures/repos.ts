@@ -8,7 +8,7 @@ const TEAM = '~/.mattstack/orgs/acme/settings.team.jsonc';
 const STOREFRONT = 'gitlab.example.com/acme/storefront';
 const BILLING = 'gitlab.example.com/acme/billing';
 
-export const POOL_KEY = 'rt.worktreePool';
+export const POOL_KEY = 'rt.worktrees';
 
 export const POOL_DEF: SettingDefWire = {
   key: POOL_KEY,

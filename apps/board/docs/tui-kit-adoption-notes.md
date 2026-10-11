@@ -11,9 +11,7 @@ bun run serve            # http://localhost:7930 (or $PORT if set)
 PORT=8080 bun run serve  # pin a different port
 ```
 
-Needs a `config.json` (copy `config.team.example.json` for a fake demo roster
-— `ada`/`grace`/`linus` — if you just want to see the layout without wiring a
-real GitLab project). The client is bundled in-memory at startup; restart to
+Needs a board configured in the settings stores, or the inert fixture board (`BOARD_FIXTURE=$(pwd)/tests/fixture`) to see the layout without a real GitLab project. The client is bundled in-memory at startup; restart to
 pick up changes.
 
 **Fixture mode** (what the capture harness uses, and a fast way to see the

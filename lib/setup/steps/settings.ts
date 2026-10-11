@@ -10,10 +10,9 @@
  * or creates. By step 8 the home repo exists, so a staged answer can safely
  * be written to the machine store; see `lib/setup/repo-root.ts`.
  *
- * Never seeds a key with an empty placeholder value: T16's High finding —
- * scaffolding `board.projects: []` broke a running mr-board by flipping its
- * store-ownership latch — is exactly the failure mode this step must not
- * repeat. Every write here carries a real, non-empty value or doesn't happen.
+ * Never seeds a key with an empty placeholder value: an empty list claims
+ * nothing and hides the setup row that asks for the real one. Every write
+ * here carries a real, non-empty value or doesn't happen.
  */
 
 import { getSetting } from "../../settings/resolve.ts";

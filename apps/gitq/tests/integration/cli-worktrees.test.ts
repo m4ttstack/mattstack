@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { rm, writeFile } from 'node:fs/promises';
+import { setSetting, unsetSetting } from '@mattstack/rt-client';
 import { execFileSync } from 'node:child_process';
 import { createSandboxRepoWithRemote, addNamedWorktree } from './helpers.ts';
 
@@ -16,6 +17,7 @@ function freshConfigDir(): void {
 }
 
 afterEach(async () => {
+  unsetSetting('gitq.workSlots', 'machine');
   while (cleanups.length > 0) await rm(cleanups.pop()!, { recursive: true, force: true });
 });
 
@@ -100,7 +102,7 @@ describe('CLI in a worktree pool', () => {
   test('two stacks cascade on two slots; a third is refused at the cap', async () => {
     freshConfigDir();
     // Cap the pool at 2 for this test.
-    await writeFile(join(configDir, 'settings.json'), JSON.stringify({ maxWorkSlots: 2 }));
+    setSetting('gitq.workSlots', { maxWorkSlots: 2 }, 'machine');
     const repo = await createSandboxRepoWithRemote();
     cleanups.push(repo.dir, repo.remoteDir);
     const { dir, git } = repo;

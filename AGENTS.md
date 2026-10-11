@@ -13,8 +13,8 @@ glance, gitq, or the acme skills, read `docs/architecture.md` for the links.
 Every key any mattstack app reads lives in the suite settings stores behind
 the resolver in `packages/rt-client`. Before adding a key, porting config, or
 touching `~/.mattstack`, read `docs/settings-architecture.md` (scope model,
-registry checklist, ownership latch, the call-time HOME and sops footguns).
-The working rules for `getSetting`/`setSetting`, scope choice and latches are
+registry checklist, defaults and default notes, the call-time HOME and sops footguns).
+The working rules for `getSetting`/`setSetting`, scope choice and defaults are
 the `rt-settings` skill (`skills/rt-settings/SKILL.md`); this file does not
 repeat them.
 
@@ -772,8 +772,7 @@ board registration and `rt team status --json` reports `peered` per member.
 The board's own roster only shows a read-only peered badge; it no longer
 invites, removes or joins.
 The `account.board-peering` row applies on a Mac in a team (created or
-joined) that runs a board (the team's `board.projects`, or the board's
-legacy `config.json`, tracks projects). It never shows on a Just Me Mac,
+joined) that runs a board (the team's `board.projects` tracks projects). It never shows on a Just Me Mac,
 nor on a creator's Mac that lacks the switchboard admin token (in rt's
 secrets, the environment or the board's `.env`) and joined no other team,
 since nothing there can peer it. It reads `needs-you` when neither the

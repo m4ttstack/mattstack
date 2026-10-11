@@ -26,3 +26,6 @@ tests/fixture/state.db*
 
 # compiled binary + build-time client bundle (bun run build)
 dist/
+
+# a setup migration moves an imported file aside as <name>.imported
+*.imported

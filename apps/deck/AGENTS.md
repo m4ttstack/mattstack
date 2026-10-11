@@ -136,13 +136,19 @@ sweep (a bundled deck's boot, or `POST /api/v1/apps/managed/reresolve`).
 
 - Settings: `getSetting`/`setSetting` from `@mattstack/rt-client` (bundled into
   the compiled binary), or `rt settings` from a shell. Deck's config lives in
-  the `deck.platform` key (machine scope): `publicDomain`, `tunnel {name,uuid}`,
-  `railway {projectId,environmentId}`, `legacyPrefixes`. It is store-migrated
-  with a `platform.json` fallback (see `src/api/platform-settings.ts`); add a
-  new migrated field to EVERY seam `railway` uses (interface, DEFAULTS,
-  MigratedFields Pick, withPlatformStoreFallback, both `setSetting` calls
-  including the error-revert, and the file-strip). Never hand-edit a settings
-  jsonc or read `~/.mattstack/deck/*.json` for config that belongs in settings.
+  three keys: `deck.platform` (machine: `publicDomain`, `tunnel {name,uuid}`,
+  `railway {projectId,environmentId}`, `legacyPrefixes`), `deck.apps` (user:
+  each app's `published` and `publicFollowsOverride`) and `deck.access`
+  (user: each app's sign-in rule). Their defaults live in the registry. A
+  deck that still finds those fields in `platform.json`, `settings.json` or
+  `access.json` copies them into the store once, at boot, before its first
+  read (`importFileFields`, `importAccessFile`). The files keep only what is
+  file-only by design: the secret, password hashes, port overrides and live
+  state in `settings.json`, `tlds` and `secrets` in `platform.json`. A new
+  store field goes in the registry default and schema, the module's store
+  field list, its store write and revert, and its file writer's exclusion.
+  Never hand-edit a settings jsonc or read `~/.mattstack/deck/*.json` for
+  config that belongs in settings.
 - Secrets: `rt secrets set deck <key>`; read env-first then the rt daemon's
   token-gated `secrets:read` (deck scope allowlist in repo-tools
   `lib/daemon/handlers/secrets.ts`: `cfApiToken`, `cfZoneId`, `cfDnsToken`,

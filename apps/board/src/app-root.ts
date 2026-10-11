@@ -9,7 +9,7 @@ import { join, resolve } from 'path';
 export const IS_COMPILED = import.meta.dir.includes('$bunfs');
 
 /**
- * Where the board's mutable companions live: config.json and .env only.
+ * Where the board's mutable companion lives: .env only.
  * All other state lives in state.db (see src/state/db.ts), rooted at
  * BOARD_STATE_DB or its own ~/.mattstack/board default, independent of
  * this root.
@@ -18,7 +18,7 @@ export const IS_COMPILED = import.meta.dir.includes('$bunfs');
  * plain files under ~/.mattstack/<app>/ -- rather than the process's cwd: a
  * launcher that forgets to set a working directory would otherwise point the
  * board at "/" and every write would fail. From a checkout it stays the
- * repo root, so a dev checkout keeps its existing config.json in place.
+ * repo root.
  * BOARD_APP_ROOT overrides both (the bundle can pin an explicit home)
  * and only has to be set where the server runs: a launched pane derives the
  * board's root from the state path it is handed, not from its own environment.

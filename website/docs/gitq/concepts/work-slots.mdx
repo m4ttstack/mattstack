@@ -31,7 +31,7 @@ Slots live in one of two places:
 | The repo is a **pool**: the primary worktree has at least one sibling worktree of its own in the same parent directory | Alongside them, in that same parent directory. A pool at `~/repos/myrepo/{main,feature-a}` gets `~/repos/myrepo/gitq-1`. |
 | Anything else, including a plain single-worktree clone | `<work-slot root>/<hash>/gitq-1`, where `<hash>` is the first 16 hex characters of the SHA-256 of the repo's git common dir. The root is `~/.mattstack/gitq/work` by default. |
 
-That is the `auto` placement, and `workSlotLocation` in `settings.json` turns it off: set it to `root` and the pool branch never runs, so every slot gitq creates goes to the work-slot root, pool or not. See [`workSlotLocation`](#workslotlocation) below.
+That is the `auto` placement, and the `workSlotLocation` field of `gitq.workSlots` turns it off: set it to `root` and the pool branch never runs, so every slot gitq creates goes to the work-slot root, pool or not. See [`workSlotLocation`](#workslotlocation) below.
 
 The work-slot root follows gitq's config directory with no carve-out: it is always `<config dir>/work/`, so slots land under `~/.mattstack/gitq/work/<hash>/` by default, and under `$GITQ_CONFIG_DIR/work/<hash>/` when that variable moves the config directory (`getWorkSlotRoot`, `src/core/config-paths.ts`).
 
@@ -57,10 +57,10 @@ Your own checkouts keep their hooks exactly as they were. Inside a slot, nothing
 
 ## `workSlotLocation`
 
-Where new slots are created, read from `workSlotLocation` in the same `settings.json`. `auto` is the default and is the two-row table above. `root` forces every slot gitq creates under the work-slot root, even in a pool. Anything else, or no file at all, is `auto`.
+Where new slots are created, read from `gitq.workSlots`. `auto` is the default and is the two-row table above. `root` forces every slot gitq creates under the work-slot root, even in a pool. Anything else is `auto`.
 
-```json
-{ "workSlotLocation": "root" }
+```bash
+rt settings set gitq.workSlots '{"workSlotLocation":"root"}' --scope machine
 ```
 
 The pool test is a plain directory comparison: *does any other worktree of this repo live in the primary's parent directory*. That is exactly right for a parent directory that holds nothing but worktrees of one repo. It is wrong for a clone sitting directly in a directory of unrelated repos. There, the "pool" is your whole repos folder and `gitq-1` lands in the middle of it. The `root` value is the opt-out for the second shape.
@@ -69,12 +69,12 @@ It governs creation only. A slot that already exists is still found and reused w
 
 ## `maxWorkSlots`
 
-The cap on slots per repo. It is read from `maxWorkSlots` in the `gitq.workSlots` machine-scoped [rt settings store](/gitq/reference/configuration#the-settings-store) key when the store owns that field, falling back field by field to `maxWorkSlots` in `settings.json` in gitq's config directory otherwise (`~/.mattstack/gitq/settings.json`, unless `GITQ_APP_ROOT` or `GITQ_CONFIG_DIR` says otherwise). The file is not created for you; make it if you want to change the value without the store. It must be a number of at least 1, and it is floored. Anything else, or nothing in either place, gives the default of **3**.
+The cap on slots per repo, read from `maxWorkSlots` in the `gitq.workSlots` machine-scoped [rt settings store](/gitq/reference/configuration#the-settings-store) key. It must be a number of at least 1, and it is floored. Anything else gives the default of **3**.
 
 The cap is checked when a cascade needs a slot and none is free. gitq refuses only when both conditions hold: the repo has already reached the cap, *and* every existing slot is leased. You get:
 
 ```
-gitq: all 3 work slots are busy (max 3); finish or abort a cascade, or raise maxWorkSlots -- rt settings explain gitq.workSlots first, then rt settings set gitq.workSlots '{"maxWorkSlots":N,...}' --scope machine (it replaces the whole value, so keep any workSlotLocation you already have) (or, until gitq.workSlots is imported, edit maxWorkSlots in settings.json)
+gitq: all 3 work slots are busy (max 3); finish or abort a cascade, or raise maxWorkSlots -- rt settings explain gitq.workSlots first, then rt settings set gitq.workSlots '{"maxWorkSlots":N,...}' --scope machine (it replaces the whole value, so keep any workSlotLocation you already have)
 ```
 
 The usual cause is not three simultaneous cascades. It is one parked cascade you forgot about, sitting on its slot until you `gitq continue` or `gitq abort` it.

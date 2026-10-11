@@ -3,6 +3,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 
+import { setSetting } from '@mattstack/rt-client';
+
 // Same isolation harness as commands.test.ts: a scratch state dir, a faked HOME
 // so rt-client never touches the real ~/.mattstack, and a fake API server the
 // CLI talks to over 127.0.0.1. This file owns the `url` verb.
@@ -14,11 +16,18 @@ process.env.LOCAL_APPS_SETTINGS_PATH = join(dir, 'settings.json');
 process.env.LOCAL_PLATFORM_SETTINGS_PATH = join(dir, 'platform.json');
 process.env.HOME = dir;
 writeFileSync(process.env.LOCAL_APPS_ROUTES_PATH, '[]');
-// publicDomain must be set before importing platform-settings (it caches at
-// import), so a published app's row carries a non-null publicUrl to print.
-writeFileSync(
-  process.env.LOCAL_PLATFORM_SETTINGS_PATH,
-  JSON.stringify({ publicDomain: 'm4tthew.dev' })
+// A published app's row needs a publicDomain in the store to carry a non-null
+// publicUrl to print.
+writeFileSync(process.env.LOCAL_PLATFORM_SETTINGS_PATH, '{}');
+setSetting(
+  'deck.platform',
+  {
+    publicDomain: 'm4tthew.dev',
+    legacyPrefixes: [],
+    railway: null,
+    tunnel: null,
+  },
+  'machine'
 );
 
 const { startApi } = await import('../api/server.ts');
@@ -35,7 +44,7 @@ let server: ReturnType<typeof startApi>;
 beforeAll(() => {
   // Bun shares module state across files in one run; an earlier CLI test file
   // has already cached platform settings with a null publicDomain, so refresh
-  // the cache against this file's platform.json before serving requests.
+  // the cache against this file's store before serving requests.
   reloadPlatformSettings();
   server = startApi({
     manager: new FakeServiceManager(),

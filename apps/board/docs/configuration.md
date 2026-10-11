@@ -1,53 +1,42 @@
 # Configuration reference
 
-Board reads its configuration from two places, in this order:
-
-1. **The mattstack settings stores** (`~/.mattstack/`), through the resolver in
-   `@mattstack/rt-client`. Team-shared keys live on the `team` scope; personal
-   ones on `user` or `machine`.
-2. **`config.json`** in the repo root (gitignored), as the fallback for any key
-   the store does not own yet.
-
-Ownership is a one-way latch decided fresh on every load: `config.json` stays
-authoritative for a key until something writes that key to a store, and from
-then on the store wins. Copy `config.example.json` to `config.json` for a solo
-install, or seed the team store once and point everyone at it.
+Board reads its configuration from the mattstack settings stores
+(`~/.mattstack/`), through the resolver in `@mattstack/rt-client`. Team-shared
+keys live on the `team` scope (the roster on `org`); personal ones on `user`
+or `machine`. A key nobody set reads its registry default, which
+`rt settings explain <key>` shows.
 
 ## Reload behavior
 
-- `config.json` edits hot-reload. The server watches the file.
-- Edits made through the board's own settings modal reload too. The write goes
-  through `/api/settings/*`, which reloads the in-memory config on success.
+- Edits made through the board's own settings modal, or the console, reload
+  the board: the write goes through `/api/settings/*` or
+  `/api/config/reload`, which reloads the in-memory config on success.
 - An out-of-band store edit (`rt settings set board.<key> ...` by hand, or
   another tool writing the store directly) does **not** reload. Restart the
   board (`bun run serve`) to pick it up.
 
 ## Fields
 
-| field | meaning |
+| Setting | Meaning |
 |---|---|
-| `gitlabHost` | your GitLab instance, e.g. `https://gitlab.com` |
-| `projects` | GitLab project paths whose MRs are eligible, e.g. `["group/project"]` |
-| `rtRepos` | maps each `projects` entry to the rt repo identity that holds its MR store, e.g. `{"group/project": "gitlab.com/group/project"}`. An unmapped project surfaces as a fetch error on the board |
-| `members` | array of `{ "username", "name"?, "hidden"? }`: the teammates whose authored MRs the board shows, in sidebar order. From the store it is your active team's entries in the org roster (`mattstack.roster`), or the whole roster when this Mac has no team or nobody is listed on it |
-| `defaultMember` | member username the board opens to by default, or `"all"`. The URL and remembered state override it |
-| `title` | page heading and tab title |
-| `staleAfterDays` | hide MRs with no activity in more than this many days (default: each project's rt MR sync window; 30 when rt has not reported one) |
-| `ticketPrefixes` | when non-empty, show only MRs whose ticket key starts with one of these prefixes, e.g. `["ACME"]`. Case-insensitive; MRs with no detectable key are hidden. Empty shows all |
-| `botUsernames` | extra bot accounts whose general MR comments to hide, on top of the built-in heuristic |
-| `reviewCwd` | absolute path the review agent's pane starts in (a repo checkout). Empty disables the review launch |
-| `respondCwd` | same, for respond panes. Falls back to `reviewCwd` when empty |
-| `doctorCwd` | same, for doctor panes. Falls back to `reviewCwd` when empty |
-| `reviewsWorkspace` | herdr workspace label reviews are grouped under (default `reviews`) |
-| `respondsWorkspace` | herdr workspace label responses are grouped under (default `responses`) |
-| `doctorsWorkspace` | herdr workspace label doctor sessions are grouped under (default `doctors`) |
-| `doctorSkill` | domain skill the doctor wrapper delegates to, e.g. `acme:doctor`. Empty means the wrapper repairs generically. The launch pack's `board:doctor` binding for the MR's repo overrides it when present. See [skill bindings](agent-actions.md#skill-bindings-per-pack-skillsjsonc) |
-| `claudeCommand` | verbatim override for the command that starts Claude in every pane, with the prompt or resume flags appended after it. Normally unset: the board composes this from the `board.agent.*` settings. See below |
-| `slack` | review channel, post templates, sweep interval, and signal emoji. See [Slack integration](slack.md) |
-| `triage` | reviewer-side automation block. See [agent actions](agent-actions.md#reviewer-side-automation) |
-| `tabs` | board tabs, in display order. See below |
+| `board.gitlabHost` | your GitLab instance, e.g. `https://gitlab.com`. Each project's rt repo identity is this host plus the project path |
+| `board.projects` | GitLab project paths whose MRs are eligible, e.g. `["group/project"]` |
+| `mattstack.roster` | the org roster; the board shows your active team's entries, or everyone when this Mac has no team or nobody is listed on it |
+| `board.hiddenMembers` | usernames you hide from the authors tab, for you only |
+| `board.defaultMember` | member username the board opens to, or `"all"` (the default). The URL and remembered state override it |
+| `board.title` | page heading and tab title (default "MRs ready for review") |
+| `board.staleAfterDays` | hide MRs with no activity in more than this many days (default: each project's rt MR sync window; 30 when rt has not reported one) |
+| `board.ticketPrefixes` | when non-empty, show only MRs whose ticket key starts with one of these prefixes, e.g. `["ACME"]`. Case-insensitive. With nothing set, your team's Linear key |
+| `board.botUsernames` | extra bot accounts whose general MR comments to hide, on top of the built-in heuristic |
+| `board.cwds` | `{ review, respond, doctor }`: absolute paths the agent panes start in. An empty review path disables the review launch; respond and doctor fall back to it |
+| `board.workspaces` | `{ reviews, responds, doctors }`: herdr workspace labels (defaults `reviews`, `responses`, `doctors`) |
+| `board.doctorSkill` | domain skill the doctor wrapper delegates to, e.g. `acme:doctor`. Empty means the wrapper repairs generically. The launch pack's `board:doctor` binding for the MR's repo overrides it when present. See [skill bindings](agent-actions.md#skill-bindings-per-pack-skillsjsonc) |
+| `board.agent.account`, `board.agent.model`, `board.agent.effort` | how the panes start Claude. See below |
+| `board.slack` | post templates, sweep interval, signal emoji and the channel kind to post to. See [Slack integration](slack.md) |
+| `board.triage`, `board.triage.doctorSkill`, `board.triageMaxConcurrent` | reviewer-side automation. See [agent actions](agent-actions.md#reviewer-side-automation) |
+| `board.tabs` | board tabs, in display order. See below |
 
-### `claudeCommand`
+### How panes start Claude
 
 Normally you do not set this. The board composes the launch command from three
 settings, each of which the board reads from the rt settings store:
@@ -71,10 +60,6 @@ itself, so everything after its `--` is read as Claude's own arguments and the
 word `claude` never appears there. `--share-history` is not cosmetic: without
 it a resumed pane cannot find the transcript the review session wrote.
 
-A `claudeCommand` in `config.json` overrides all three and is inserted
-verbatim. Keep it for a wrapper the three settings cannot express; it must
-obey the same two rules above.
-
 Before rt-client 0.14.0 this was a single `board.claudeCommand` setting holding
 the whole command. That key is retired. A store that still carries it is
 ignored, so move the value into the three keys above or the panes fall back to
@@ -83,7 +68,7 @@ plain `claude`.
 ## Tabs
 
 Each tab is a filtered view of MRs with a unique id, a sidebar label, and
-optional overrides. With no `tabs` config the board creates one implicit
+optional overrides. With nothing set, `board.tabs` is one
 "Team" tab sourced from team members.
 
 Two source kinds:

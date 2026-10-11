@@ -418,7 +418,7 @@ describe("createTeam", () => {
 });
 
 describe("createTeam (real fs + real git, fake age key only) — R-T16-a / finding 9b", () => {
-  test("a pre-existing board config's ownership latch is not flipped, and the on-disk .sops.yaml carries the creator's real key", async () => {
+  test("a created team's store holds its title and no projects, and the on-disk .sops.yaml carries the creator's real key", async () => {
     const origHome = process.env.HOME;
     const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-create-e2e-")));
     process.env.HOME = home;

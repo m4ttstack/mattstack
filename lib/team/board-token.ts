@@ -49,28 +49,13 @@ export async function readBoardSwitchboardToken(
   return boardEnvValue(p, "SWITCHBOARD_TOKEN", extraRoots) ?? (await readSecretToken());
 }
 
-/** The board falls back to its legacy config.json's projects when the team declares none, so a board configured there runs too. */
-function legacyConfigTracksProjects(p: Pick<Probes, "home" | "env" | "readFile">, extraRoots: string[]): boolean {
-  return boardRoots(p, extraRoots).some((root) => {
-    const raw = p.readFile(join(root, "config.json"));
-    if (raw === null) return false;
-    try {
-      const projects = (JSON.parse(raw) as { projects?: unknown }).projects;
-      return Array.isArray(projects) && projects.length > 0;
-    } catch {
-      return false;
-    }
-  });
-}
-
 /** Asks only whether a secret exists, the way the setup plan's presence check does; it may throw when the store cannot answer. */
 export type SecretPresenceCheck = (domain: string, key: string) => Promise<string | null>;
 
 export type BoardPeering = { kind: "not-applicable" } | { kind: "peered" } | { kind: "unpeered"; teams: string[] } | { kind: "unreadable"; error: string };
 
 /**
- * Whether this Mac is in a team (created or joined) and runs a board (the
- * team or the board's legacy config tracks projects) while neither token
+ * Whether this Mac is in a team (created or joined) and runs a board (the team tracks projects) while neither token
  * source holds a token.
  * Only presence is asked of the secrets store, and a store that cannot
  * answer is reported as such, never read as no token.
@@ -78,7 +63,7 @@ export type BoardPeering = { kind: "not-applicable" } | { kind: "peered" } | { k
 export async function boardPeering(p: Probes, has: SecretPresenceCheck, teamTracksProjects: boolean, extraRoots: string[] = sourceBoardRoots()): Promise<BoardPeering> {
   const orgs = discoverOrgs(p);
   if (orgs.length === 0) return { kind: "not-applicable" };
-  if (!teamTracksProjects && !legacyConfigTracksProjects(p, extraRoots)) return { kind: "not-applicable" };
+  if (!teamTracksProjects) return { kind: "not-applicable" };
   if (boardEnvHas(p, "SWITCHBOARD_TOKEN", extraRoots)) return { kind: "peered" };
   try {
     return (await has("rt", "switchboardToken")) === null ? { kind: "unpeered", teams: orgs } : { kind: "peered" };

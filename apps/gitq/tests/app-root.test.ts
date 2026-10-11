@@ -36,10 +36,8 @@ describe('app root', () => {
     expect(readAppRootWith('/tmp/pinned-gitq/./').appRoot).toBe('/tmp/pinned-gitq');
   });
 
-  test('the board config and job dir both hang off it', async () => {
-    const { CONFIG_PATH } = await import('../src/server/config.ts');
+  test('the board job dir hangs off it', async () => {
     const { JOBS_DIR } = await import('../src/server/job-state.ts');
-    expect(CONFIG_PATH).toBe(join(APP_ROOT, 'config.json'));
     expect(JOBS_DIR).toBe(join(APP_ROOT, 'state', 'jobs'));
   });
 

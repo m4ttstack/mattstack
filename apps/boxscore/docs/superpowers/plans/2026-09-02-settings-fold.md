@@ -218,7 +218,7 @@ describe("readSettings", () => {
     expect(s.users).toEqual(["ada", "bob"]);
     expect(s.roster).toHaveLength(3);
     expect(s.projects).toEqual(["g/p"]);
-    expect(s.linearTeam).toBe("CV");
+    expect(s.linearTeam).toBe("ACME");
     expect(s.doneStates).toEqual(["Done"]);
     expect(s.sizeBand).toEqual({ tooSmall: 5, tooLarge: 300 });
     expect(s.excludeFilePatterns).toEqual(["**/*.json"]);

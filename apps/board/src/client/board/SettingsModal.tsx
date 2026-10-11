@@ -6,7 +6,7 @@ import type { ConfigMember } from '../types.ts';
 import { MemberInvadr } from './MemberInvadr.tsx';
 
 /** Check members in/out, and show which teammates have a board on the
-    switchboard. Toggling persists the hidden flag to config.json, so it is
+    switchboard. Toggling persists the hidden flag to your board.hiddenMembers setting, so it is
     offered only to a local viewer. Inviting and removing teammates belong to
     `rt team invite` and `rt team members remove`, not this modal. */
 function SettingsModal({

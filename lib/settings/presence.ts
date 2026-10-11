@@ -14,6 +14,20 @@ export function unwritten(key: string, opts: ResolveOpts = {}): boolean {
   return onlyDefault(getSetting(key, opts));
 }
 
+/**
+ * For code that describes what a team or person chose: a registry default is
+ * nobody's choice, so it reads as unset, and so does a key the resolver
+ * cannot read.
+ */
+export function storedValue<T>(key: string, opts: ResolveOpts = {}): T | undefined {
+  try {
+    const resolved = getSetting<T>(key, opts);
+    return onlyDefault(resolved) ? undefined : resolved.value;
+  } catch {
+    return undefined;
+  }
+}
+
 /** A copy, so a caller may change it without changing the registry. */
 export function registryDefault<T>(key: string): T {
   const def = getDef(key);

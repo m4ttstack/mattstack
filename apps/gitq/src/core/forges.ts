@@ -1,6 +1,4 @@
-import { getSetting } from '@mattstack/rt-client';
-import { readJson } from './json-store.ts';
-import { getSettingsFilePath } from './config-paths.ts';
+import { getDef, getSetting } from '@mattstack/rt-client';
 import { warnStoreFallback } from './settings-fallback-warn.ts';
 
 type GetSettingFn = typeof getSetting;
@@ -18,7 +16,7 @@ type GetSettingFn = typeof getSetting;
 export const FORGE_SLUGS = ['gitlab', 'github'] as const;
 export type ForgeSlug = (typeof FORGE_SLUGS)[number];
 
-/** A `forges` entry in settings.json, keyed by remote host. */
+/** A `gitq.forges` entry, keyed by remote host. */
 export interface ForgeOverride {
   provider: ForgeSlug;
   /** Where the instance lives. Defaults to `https://<host>`. */
@@ -88,22 +86,15 @@ function isForgeSlug(value: unknown): value is ForgeSlug {
 }
 
 /**
- * The `forges` map, from `gitq.forges` in the settings store once owned,
- * settings.json otherwise. Ownership is wholesale, not per-host: the map is
- * one value, so a store owner replaces the file's map entirely rather than
- * merging by host. A resolver throw (unreadable/malformed store file, never
- * the daemon) degrades to the file after one warning. Every entry, from
- * either source, is validated the same way -- lazily, in resolveForge, which
- * doesn't know or care which source produced the map it was handed.
+ * The `gitq.forges` map. Every entry is validated lazily, in resolveForge. A
+ * resolver throw (an unreadable store file, never the daemon) reads the empty
+ * default after one warning.
  */
 export async function readForgeOverrides(resolve: GetSettingFn = getSetting): Promise<ForgeOverrides> {
-  let store: ForgeOverrides | undefined;
   try {
-    store = resolve<ForgeOverrides>('gitq.forges').value;
+    return resolve<ForgeOverrides>('gitq.forges').value as ForgeOverrides;
   } catch (err) {
-    warnStoreFallback('gitq.forges', 'settings.json', err);
+    warnStoreFallback('gitq.forges', 'no overrides', err);
+    return structuredClone(getDef('gitq.forges')!.default) as ForgeOverrides;
   }
-  if (store !== undefined) return store;
-  const settings = await readJson<{ forges?: ForgeOverrides }>(getSettingsFilePath(), {});
-  return settings.forges ?? {};
 }

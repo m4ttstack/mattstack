@@ -32,13 +32,13 @@ if (await runSubcommand(Bun.argv)) {
 // server below refuses to boot without them, and deck serves this app on every
 // install, so answer with a setup page until the settings exist.
 {
-  const { CONFIG_PATH, boardConfiguredAt } = await import('./config.ts');
-  if (!boardConfiguredAt(CONFIG_PATH)) {
+  const { boardConfigured } = await import('./config.ts');
+  if (!boardConfigured()) {
     const { serveUnconfigured } = await import('./unconfigured.ts');
     serveUnconfigured({
       port: Number(process.env.PORT) || 7930,
       pollMs: 5_000,
-      isConfigured: () => boardConfiguredAt(CONFIG_PATH),
+      isConfigured: () => boardConfigured(),
       exit: code => process.exit(code),
     });
     await new Promise(() => {});

@@ -166,7 +166,6 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
 async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
   const written: string[] = [];
   const { found, missing } = trackedRepos(ctx);
-  const root = getSetting<string[]>("rt.repoRoots").value?.[0];
   // Both keys are written once and never topped up, so they wait until every tracked repo is registered.
   const waiting = missing.length > 0 ? `waiting on ${missing.join(", ")} (not registered yet), left unset; written on the next run once repos.clone lands them` : null;
 
@@ -182,18 +181,10 @@ async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   if (writable(ctx, "gitq.board") && unwritten("gitq.board")) {
     if (waiting) ctx.log("board.keys", `gitq.board: ${waiting}`);
+    else if (found.length === 0) ctx.log("board.keys", "gitq.board: the team tracks no repos, left unset");
     else {
-      setSetting("gitq.board", { repos: found.map((r) => r.name), port: 11008 }, "machine");
+      setSetting("gitq.board", { repos: found.map((r) => ({ path: r.path, name: r.name })), port: 11008 }, "machine");
       written.push("gitq.board");
-    }
-  }
-
-  if (writable(ctx, "gitq.workSlots") && unwritten("gitq.workSlots")) {
-    if (root) {
-      setSetting("gitq.workSlots", { workSlotLocation: join(root, ".gitq-slots"), maxWorkSlots: 3 }, "machine");
-      written.push("gitq.workSlots");
-    } else {
-      ctx.log("board.keys", "gitq.workSlots: no repo root yet, so it is left unset");
     }
   }
 

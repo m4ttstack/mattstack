@@ -230,7 +230,7 @@ gitq keeps almost nothing in your repository.
 
 | Location | What it holds |
 | --- | --- |
-| `~/.mattstack/gitq/` | The app root: stack stores (one JSON file per repo under `stacks/`, keyed by a hash of the repo path), `settings.json`, the global `operation-log.json`, the work slots gitq creates under `work/`, and the board's `config.json` and `state/jobs/`. |
+| `~/.mattstack/gitq/` | The app root: stack stores (one JSON file per repo under `stacks/`, keyed by a hash of the repo path), the global `operation-log.json`, the work slots gitq creates under `work/`, and the board's `state/jobs/`. |
 | `<commonDir>/gitq/leases.json` | Per-repo work-slot lease registry: which stack holds which work slot. |
 | `<gitdir>/gitq-pause.json` | Present only while a cascade is paused on a conflict. Keyed off the git dir rather than the worktree root, so it is worktree safe. During a cascade this lives in the work slot's git dir, not your checkout's. |
 
@@ -254,13 +254,13 @@ An entry may also carry `baseUrl` (defaults to `https://<host>`, and is required
 
 ### Settings
 
-gitq reads three settings from the [rt](https://github.com/m4ttstack/mattstack) settings store when it is available, each falling back to a local file when the store does not own the key yet.
+gitq reads three settings from the [rt](https://github.com/m4ttstack/mattstack) settings store.
 
-| Key | Scope | Shape | File fallback |
+| Key | Scope | Shape | With nothing set |
 | --- | --- | --- | --- |
-| `gitq.workSlots` | machine | `{ maxWorkSlots?, workSlotLocation? }` | `~/.mattstack/gitq/settings.json` |
-| `gitq.forges` | user | host-keyed map, naming `tokenEnv` variables only, never a live token | `~/.mattstack/gitq/settings.json` |
-| `gitq.board` | machine | `{ repos, port, herdrWorkspace }` | `<app root>/config.json` |
+| `gitq.workSlots` | machine | `{ maxWorkSlots?, workSlotLocation? }` | `{ "workSlotLocation": "auto", "maxWorkSlots": 3 }` |
+| `gitq.forges` | user | host-keyed map, naming `tokenEnv` variables only, never a live token | `{}` |
+| `gitq.board` | machine | `{ repos, port, herdrWorkspace }` | none: `rt setup` writes it with the repos your team tracks |
 
 Set one with the rt CLI:
 
@@ -268,9 +268,9 @@ Set one with the rt CLI:
 rt settings set gitq.workSlots '{"maxWorkSlots":4}' --scope machine
 ```
 
-`rt settings set <key> <json-value> --scope user|team|machine` **replaces the whole value stored at that key and scope**. It is not a merge, so a value with more than one field needs every field you want to keep in the JSON you send, not just the one you are changing. Check what is there first with `rt settings explain gitq.workSlots`.
+`rt settings set <key> <json-value> --scope user|team|machine` **replaces the whole value stored at that key and scope**, so a value with more than one field needs every field you want to keep. A field you leave out reads its default. Check what is there first with `rt settings explain gitq.workSlots`.
 
-Precedence differs by key. `gitq.forges` and `gitq.board` are wholesale, meaning an owning store value replaces the file's entirely. `gitq.workSlots` is per field: `maxWorkSlots` and `workSlotLocation` each fall back to the file independently when the store does not have that particular field. Either way, until a key (or, for `workSlots`, a field) is imported into the store, its file remains the only place to edit it. The transition is opt-in, not a flag day.
+Older gitq read `settings.json` and the board's `config.json` from the app root; `rt setup update` copied their values into these keys and renamed each file `<name>.imported`.
 
 ## The board
 
@@ -279,9 +279,8 @@ A local web board showing every configured repo's stacks: per branch status badg
 Right-clicking a stack offers four actions. Each one spawns a herdr tab running `claude` with the matching `gitq:*` skill, so the badge updates live while the agent works. Relaunching a live action refocuses its tab instead of double-spawning.
 
 ```bash
-mkdir -p ~/.mattstack/gitq
-cp config.example.json ~/.mattstack/gitq/config.json   # edit: repos to show, port (default 11008), herdrWorkspace
-bun run serve                                          # http://localhost:11008
+rt settings set gitq.board '{"repos":[{"path":"/path/to/repo"}]}' --scope machine   # rt setup writes this for you
+bun run serve                                                                      # http://localhost:11008
 ```
 
 `$PORT` wins over the configured port, so a launcher can pin it independently. Config changes need a restart, and so do client changes, since the client bundle is built in memory at startup. `style.css` edits are live.

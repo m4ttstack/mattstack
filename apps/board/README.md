@@ -44,9 +44,7 @@ the MR actually sits in review.
 
 There is no screenshot in this README. The ones taken so far were captured
 against a real team's merge requests, branch names, and reviewer identities. To
-see the layout yourself without wiring up a real GitLab project, copy
-`config.team.example.json` to `config.json`. It is a filled-in demo roster
-(`ada`, `grace`, `linus`), each with their own deterministic avatar.
+see the layout without wiring up a real GitLab project, boot the inert fixture board: `PORT=7941 BOARD_FIXTURE=$(pwd)/tests/fixture bun run src/server.ts` (port 7941, invented data; see `tests/fixture/README.md`).
 
 ## Features
 
@@ -90,14 +88,11 @@ cd apps/board
 ## Quickstart
 
 ```sh
-cp config.example.json config.json   # fill in gitlabHost, projects, rtRepos, members
-bun run setup                        # prompts for tokens and your defaults
-bun run serve                        # http://localhost:7930
+bun run setup   # prompts for tokens and your defaults
+bun run serve   # http://localhost:7930
 ```
 
-`config.json` carries the team-shared fields (`gitlabHost`, `projects`,
-`rtRepos`, `members`, `title`, and so on). Copy it once per team, or point
-everyone at a shared mattstack team settings store instead.
+The team-shared settings (`board.gitlabHost`, `board.projects`, the roster, `board.title`, and so on) live in your mattstack team's settings, so a teammate who joins the team has them already.
 
 `bun run setup` only handles what is yours, and is idempotent: re-run it any
 time to rotate a token or change your default view. It prompts for:
@@ -136,24 +131,22 @@ hostname) the agent actions.
 
 ## Configuration
 
-`config.json` in the repo root is gitignored and drives everything, with the
-mattstack settings stores layered over it per key. The essentials:
+The board reads everything from the mattstack settings stores. The essentials:
 
-| field           | meaning                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------ |
-| `gitlabHost`    | your GitLab instance, e.g. `https://gitlab.com`                                                        |
-| `projects`      | project paths whose MRs are eligible                                                                   |
-| `rtRepos`       | maps each project path to the rt repo identity holding its MR store                                    |
-| `members`       | array of `{ "username", "name"? }`, the teammates whose authored MRs the board shows, in sidebar order |
-| `defaultMember` | member username the board opens to, or `"all"`                                                         |
-| `title`         | page heading and tab title                                                                             |
-| `slack`         | review channel, post templates, and signal emoji                                                       |
+| setting               | meaning                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| `board.gitlabHost`    | your GitLab instance, e.g. `https://gitlab.com`                                         |
+| `board.projects`      | project paths whose MRs are eligible                                                    |
+| `mattstack.roster`    | the org roster, whose entries for your team are the teammates whose MRs the board shows |
+| `board.defaultMember` | member username the board opens to, or `"all"`                                          |
+| `board.title`         | page heading and tab title                                                              |
+| `board.slack`         | review channel, post templates, and signal emoji                                        |
 
 The listen port is `$PORT`, default `7930`, and the server always binds
 `127.0.0.1`.
 
-**[Full configuration reference](docs/configuration.md)** covers every field,
-tabs, the settings-store ownership latch and its reload rules, and all the
+**[Full configuration reference](docs/configuration.md)** covers every setting,
+tabs, the reload rules, and all the
 tokens and secrets.
 
 ## State
@@ -162,7 +155,7 @@ Everything the board writes at runtime (review/respond/doctor lifecycle
 rows, drafts, nudges, the outbox, Slack refs, triage memory, the
 agent-status cursor) lives in one SQLite file, `state.db`, opened lazily on
 first use and shared by the server and every CLI it launches. Its location
-is independent of `config.json`'s: `BOARD_STATE_DB` pins an exact file path
+is independent of the app root: `BOARD_STATE_DB` pins an exact file path
 when set, otherwise it defaults to `~/.mattstack/board/state.db` regardless
 of which checkout or `BOARD_APP_ROOT` is running the server. That path must
 still be named `state.db` (a launched pane's status CLI always derives
@@ -311,8 +304,8 @@ Issues and pull requests are welcome. Before opening one:
 - Run `bun test` and `bun run typecheck`.
 - Keep the TypeScript strict, and keep new configuration in
   [`docs/configuration.md`](docs/configuration.md) rather than only in code.
-- Never commit `config.json` or `.env`. They are gitignored for a reason:
-  they carry real names, tokens, and MR URLs. `state.db` lives outside the
+- Never commit `.env`. It is gitignored for a reason:
+  it carries real tokens. `state.db` lives outside the
   repo entirely (`~/.mattstack/board/state.db` by default), so it never
   shows up here to begin with.
 

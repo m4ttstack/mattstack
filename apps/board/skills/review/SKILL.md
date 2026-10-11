@@ -15,12 +15,12 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.30.25"
+  compiled: "mattstack:gate-protocol@0.31.2"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2098 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2095 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -95,7 +95,7 @@ digraph review_flow {
     "rt_verb {args: [skills, writing-style, show]} (review)" [shape=plaintext];
     "rt_verb named a style skill (review)?" [shape=diamond];
     "Load the named writing-style skill (review)" [shape=box];
-    "Load the preferences.md style, else conversational (review)" [shape=box];
+    "Load conversational (review)" [shape=box];
     "Which entry (review writing style)?" [shape=diamond];
     "mr_view {mrUrl} (review)" [shape=plaintext];
     "mr_view result (review)?" [shape=diamond];
@@ -246,9 +246,9 @@ digraph review_flow {
     "Domain review result?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed: bad MR, mismatched ticket, fetch failure"];
     "rt_verb {args: [skills, writing-style, show]} (review)" -> "rt_verb named a style skill (review)?";
     "rt_verb named a style skill (review)?" -> "Load the named writing-style skill (review)" [label="yes"];
-    "rt_verb named a style skill (review)?" -> "Load the preferences.md style, else conversational (review)" [label="no: refused, failed or unavailable"];
+    "rt_verb named a style skill (review)?" -> "Load conversational (review)" [label="no: refused, failed or unavailable"];
     "Load the named writing-style skill (review)" -> "Which entry (review writing style)?";
-    "Load the preferences.md style, else conversational (review)" -> "Which entry (review writing style)?";
+    "Load conversational (review)" -> "Which entry (review writing style)?";
     "Which entry (review writing style)?" -> "mr_view {mrUrl} (review)" [label="fresh review"];
     "Which entry (review writing style)?" -> "Resumed pane (review posting)?" [label="posting the answer, not a resumed take"];
     "Which entry (review writing style)?" -> "Record the resumed take's mark in --report (review)" [label="posting the answer, a resumed take at a posting origin or the Posted already read"];
@@ -740,15 +740,12 @@ Load that skill before drafting anything: compose in its voice from the
 first word, never as a pass over a finished draft. It governs every
 finding and comment this pane writes.
 
-### Load the preferences.md style, else conversational (review)
+### Load conversational (review)
 
-`rt_verb` is unavailable, refused, or failed. Read
-`~/.mattstack/user/skills/preferences.md` with the Read tool and load the
-skill its `writing-style:` line names, if it has one. If the line is
-missing, or that skill will not load, load
+`rt_verb` is unavailable, refused, or failed. Load
 `mattstack:writing-style-conversational`. The load still comes before the
-first drafted word. This fallback chain is the defined path, not an
-off-script origin.
+first drafted word. This fallback is the defined path, not an off-script
+origin.
 
 ### Review the MR yourself
 
@@ -2099,7 +2096,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.25 path=attachments/gate-protocol/SKILL.md lines=7-466 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.2 path=attachments/gate-protocol/SKILL.md lines=7-466 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
