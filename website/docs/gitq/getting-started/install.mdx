@@ -67,7 +67,7 @@ gitq keeps almost nothing in your repository. At a glance:
 
 | Location | What it holds |
 | --- | --- |
-| `~/.mattstack/gitq/` | gitq's app root: the stack stores (one JSON file per repo under `stacks/`), `settings.json`, the global `operation-log.json`, the work slots it creates under `work/`, and the board's `config.json` and `state/jobs/`. Move the whole root with `GITQ_APP_ROOT`, or just the CLI's subset with `GITQ_CONFIG_DIR`. |
+| `~/.mattstack/gitq/` | gitq's app root: the stack stores (one JSON file per repo under `stacks/`), the global `operation-log.json`, the work slots it creates under `work/`, and the board's `state/jobs/`. Move the whole root with `GITQ_APP_ROOT`, or just the CLI's subset with `GITQ_CONFIG_DIR`. |
 | `<commonDir>/gitq/leases.json` | The per-repo work-slot lease registry: which stack currently holds which work worktree. |
 | `<gitdir>/gitq-pause.json` | Present only while a cascade is paused on a conflict. During a normal cascade that `<gitdir>` is the leased work slot's, not your checkout's. See [Pause protocol](/gitq/concepts/pause-protocol). |
 
