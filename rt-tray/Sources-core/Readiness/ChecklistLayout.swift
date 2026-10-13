@@ -25,6 +25,12 @@ public struct ChecklistLayout: Equatable, Sendable {
         public let text: String
     }
 
+    public struct FilterGroup: Equatable, Identifiable, Sendable {
+        public let id: String
+        public let title: String
+        public let rows: [PlanRow]
+    }
+
     public let attention: [Attention]
     public let sections: [Section]
     public let finishBlockedBy: Set<String>
@@ -86,11 +92,32 @@ public struct ChecklistLayout: Equatable, Sendable {
 
     /// A row Install will set (not ready, nothing to press) is in no count:
     /// it is neither ready nor anything the user owes.
+    private func rows(_ kind: SummaryKind, in section: Section) -> [PlanRow] {
+        switch kind {
+        case .needsYou: return section.needsYou
+        case .ready: return section.noAction.filter { $0.status == .ready }
+        case .optional: return section.optional
+        case .notNeeded: return section.noAction.filter { $0.status == .skipped }
+        }
+    }
+
+    /// The rows a count stands for, under the group each came from.
+    public func filtered(_ kind: SummaryKind) -> [FilterGroup] {
+        sections.compactMap { section in
+            let matching = rows(kind, in: section)
+            return matching.isEmpty ? nil : FilterGroup(id: section.id, title: section.title, rows: matching)
+        }
+    }
+
+    /// The filter to show: the user's pick while it still has rows. Needs you is a sidebar entry, never a filter.
+    public func activeFilter(_ preferred: SummaryKind?) -> SummaryKind? {
+        guard let preferred, preferred != .needsYou, !filtered(preferred).isEmpty else { return nil }
+        return preferred
+    }
+
     public var summary: [SummaryPart] {
-        let settled = sections.flatMap(\.noAction)
-        let ready = settled.filter { $0.status == .ready }.count
-        let notNeeded = settled.filter { $0.status == .skipped }.count
-        let optional = sections.reduce(0) { $0 + $1.optional.count }
+        let count = { (kind: SummaryKind) in filtered(kind).reduce(0) { $0 + $1.rows.count } }
+        let ready = count(.ready), optional = count(.optional), notNeeded = count(.notNeeded)
         var parts: [SummaryPart] = []
         if !attention.isEmpty {
             parts.append(SummaryPart(kind: .needsYou, text: attention.count == 1 ? "1 needs you" : "\(attention.count) need you"))

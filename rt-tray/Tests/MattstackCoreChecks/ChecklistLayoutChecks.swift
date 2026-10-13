@@ -90,4 +90,51 @@ let checklistLayoutChecks: [Check] = [
         c.expectEqual(clean.selection(preferred: ChecklistLayout.overviewID, overview: false), "x", "Setup status has no Overview")
         c.expectEqual(ChecklistLayout.make([]).selection(preferred: nil, overview: false), nil)
     },
+    Check("ChecklistLayout.filtered: a count's rows under their groups, in plan order, with no empty group") { c in
+        let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"])
+        let ready = layout.filtered(.ready)
+        c.expectEqual(ready.map(\.id), ["mac", "accounts"])
+        c.expectEqual(ready.map(\.title), ["Your Mac", "Accounts"])
+        c.expectEqual(ready.map { $0.rows.map(\.id) }, [["a"], ["d"]])
+        let optional = layout.filtered(.optional)
+        c.expectEqual(optional.map(\.id), ["accounts", "agents"])
+        c.expectEqual(optional.map { $0.rows.map(\.id) }, [["e"], ["h"]])
+        let notNeeded = layout.filtered(.notNeeded)
+        c.expectEqual(notNeeded.map(\.id), ["mac"])
+        c.expectEqual(notNeeded.map { $0.rows.map(\.id) }, [["c"]])
+        let needsYou = layout.filtered(.needsYou)
+        c.expectEqual(needsYou.map(\.title), ["Your Mac", "Agents and editors"])
+        c.expectEqual(needsYou.map { $0.rows.map(\.id) }, [["b"], ["style"]])
+        let after = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"], afterInstall: true)
+        c.expectEqual(after.filtered(.optional).map { $0.rows.map(\.id) }, [["e"], ["f", "h"]])
+        c.expectEqual(ChecklistLayout.make([]).filtered(.ready), [])
+    },
+    Check("ChecklistLayout.filtered: a count's list holds as many rows as the count shows") { c in
+        for afterInstall in [false, true] {
+            let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"], afterInstall: afterInstall)
+            for kind in [ChecklistLayout.SummaryKind.needsYou, .ready, .optional, .notNeeded] {
+                let shown = layout.summary.first { $0.kind == kind }.flatMap { Int($0.text.prefix { $0.isNumber }) }
+                c.expectEqual(layout.filtered(kind).reduce(0) { $0 + $1.rows.count }, shown ?? 0, "\(kind), afterInstall \(afterInstall)")
+            }
+        }
+    },
+    Check("ChecklistLayout.filtered: a row Install will set is in no filter") { c in
+        let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"])
+        c.expectEqual(layout.sections[2].noAction.map(\.id), ["f"])
+        for kind in [ChecklistLayout.SummaryKind.needsYou, .ready, .optional, .notNeeded] {
+            c.expect(!layout.filtered(kind).flatMap { $0.rows }.contains { $0.id == "f" }, "\(kind) lists f")
+        }
+    },
+    Check("ChecklistLayout.activeFilter: a filter lasts while it has rows, and Needs you is never one") { c in
+        let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"])
+        c.expectEqual(layout.activeFilter(.optional), .optional)
+        c.expectEqual(layout.activeFilter(.ready), .ready)
+        c.expectEqual(layout.activeFilter(.notNeeded), .notNeeded)
+        c.expectEqual(layout.activeFilter(.needsYou), nil, "Needs you is a sidebar entry")
+        c.expectEqual(layout.activeFilter(nil), nil)
+        let clean = ChecklistLayout.make([PlanGroup(id: "x", title: "X", rows: [row("a", .ready)])])
+        c.expectEqual(clean.activeFilter(.optional), nil)
+        c.expectEqual(clean.activeFilter(.notNeeded), nil)
+        c.expectEqual(clean.activeFilter(.ready), .ready)
+    },
 ]
