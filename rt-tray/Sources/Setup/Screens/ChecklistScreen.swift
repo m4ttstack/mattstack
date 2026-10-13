@@ -126,7 +126,8 @@ struct ChecklistScreen: View {
 
     private func sidebarBody(overview: AnyView?, onSkip: ((PlanRow) -> Void)?) -> some View {
         let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy, afterInstall: true)
-        let entries = layout.entries(overview: overview != nil, running: model.checkingRowIds, failed: Set(actionErrors.keys))
+        let failed = Set(model.allRows.filter { actionErrors[$0.id] != nil && $0.status != .ready }.map(\.id))
+        let entries = layout.entries(overview: overview != nil, running: model.checkingRowIds, failed: failed)
         let current = layout.selection(preferred: selected, overview: overview != nil)
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {

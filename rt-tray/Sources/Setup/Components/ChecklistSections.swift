@@ -100,8 +100,19 @@ struct ChecklistSectionsView: View {
                     if noActionShown {
                         ForEach(section.noAction) { row in
                             Divider()
-                            SettledRow(row: row, isChecking: activity.checking.contains(row.id))
+                            SettledRow(row: row, isChecking: activity.checking.contains(row.id), perform: perform)
                         }
+                    } else {
+                        // The walkthrough reads every row's status by id, folded or not.
+                        HStack(spacing: 0) {
+                            ForEach(section.noAction) { row in
+                                ZStack { RowStatusProbe(status: activity.checking.contains(row.id) ? .checking : row.status,
+                                                        id: AXID.checklistRowStatus(row.id)) }
+                                    .accessibilityElement(children: .contain)
+                                    .accessibilityIdentifier(AXID.checklistRow(row.id))
+                            }
+                        }
+                        .frame(height: 0)
                     }
                 }
                 .accessibilityElement(children: .contain)
@@ -190,12 +201,17 @@ struct SectionRow: View {
 struct SettledRow: View {
     let row: PlanRow
     let isChecking: Bool
+    let perform: (PlanRow) -> Void
     var body: some View {
         HStack(spacing: 8) {
             Text(row.title).font(.callout)
             Spacer(minLength: 8)
             if let d = row.detail, !d.isEmpty {
                 Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+            }
+            if let action = row.action, action.type != .unknown {
+                Button(action.label) { perform(row) }.controlSize(.small).disabled(isChecking)
+                    .accessibilityIdentifier(AXID.checklistRowAction(row.id))
             }
             RowStatusProbe(status: isChecking ? .checking : row.status, id: AXID.checklistRowStatus(row.id))
         }
