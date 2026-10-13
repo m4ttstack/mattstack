@@ -8,8 +8,9 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { dirname, join, relative } from "path";
+import { dirname, join, relative, resolve } from "path";
 
+const ROOT = resolve(import.meta.dir, "..", "..");
 const MAX_LINES = 200;
 const ALWAYS_LOADED = ["AGENTS.md"];
 const RULES_DIR = ".claude/rules";
@@ -87,6 +88,10 @@ function repo(files: Record<string, string>): string {
 
 const rule = (glob: string) => `---\npaths:\n  - "${glob}"\n---\n\n# Example\n\nA rule.\n`;
 const indexRow = (file: string) => `| \`${file}\` | example | \`lib/**\` |\n`;
+
+test("this repo's agent instruction files are within the caps and every rule can load", () => {
+  expect(problems(ROOT)).toEqual([]);
+});
 
 describe("problems", () => {
   test("a small root, one indexed rule and a matching glob pass", () => {
