@@ -349,8 +349,9 @@ func renderUndoStrip(lc LastCommit, hovered bool, width int) string {
 // renderKeybar is the bottom full-width legend for mode ("changes",
 // "history", or "stash"), key glyphs in KeybarKey (bold) and their labels in
 // KeybarLabel, separated by a Dim middle dot -- the same grammar the picker
-// and board keybars use.
-func renderKeybar(width int, mode string) string {
+// and board keybars use. action is the top bar segment's kind: the f key
+// runs whatever that segment shows, so its label names it.
+func renderKeybar(width int, mode, action string) string {
 	on := lipgloss.NewStyle().Background(theme.BgSubtle)
 	dot := on.Foreground(theme.Dim).Render(" · ")
 	key := func(k, label string) string {
@@ -374,12 +375,36 @@ func renderKeybar(width int, mode string) string {
 			{"b", "branch"}, {"w", "worktree"}, {"W", "main"}, {"r", "repo"},
 		}
 	}
-	parts := make([]string, len(pairs))
-	for i, p := range pairs {
-		parts[i] = key(p[0], p[1])
+	parts := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		label := p[1]
+		if p[0] == "f" {
+			if label = keybarActionLabel(action); label == "" {
+				continue
+			}
+		}
+		parts = append(parts, key(p[0], label))
 	}
 	left := strings.Join(parts, dot)
 	return justify(on, width, left, key("q", "quit"))
+}
+
+// keybarActionLabel names what f does for an action kind, "" while it does
+// nothing (a busy segment, a detached HEAD).
+func keybarActionLabel(kind string) string {
+	switch kind {
+	case "fetch":
+		return "fetch"
+	case "pull", "pull-rebase":
+		return "pull"
+	case "push":
+		return "push"
+	case "force-push":
+		return "force push"
+	case "publish-branch", "publish-repo":
+		return "publish"
+	}
+	return ""
 }
 
 // justify lays left flush and right flush across width on style on,

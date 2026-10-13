@@ -253,9 +253,41 @@ func TestASwitchToTheMainWorktreeFromTheFoldoutStaysQuiet(t *testing.T) {
 	}
 }
 
+func TestKeybarNamesWhatTheActionKeyWillDo(t *testing.T) {
+	for kind, want := range map[string]string{
+		"fetch":          "f fetch",
+		"pull":           "f pull",
+		"pull-rebase":    "f pull",
+		"push":           "f push",
+		"force-push":     "f force push",
+		"publish-branch": "f publish",
+		"publish-repo":   "f publish",
+	} {
+		for _, mode := range []string{"changes", "history"} {
+			if out := ansi.Strip(renderKeybar(200, mode, kind)); !strings.Contains(out, want+" ·") {
+				t.Fatalf("%s keybar for %s missing %q: %q", mode, kind, want, out)
+			}
+		}
+	}
+	for _, kind := range []string{"busy", "detached"} {
+		if out := ansi.Strip(renderKeybar(200, "changes", kind)); strings.Contains(out, " f ") {
+			t.Fatalf("the action key does nothing while %s, so the keybar must not list it: %q", kind, out)
+		}
+	}
+}
+
+func TestKeybarFollowsTheModelsAction(t *testing.T) {
+	m := newTestMission()
+	m.model.Action.Kind = "push"
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	if keybar := lines[len(lines)-1]; !strings.Contains(keybar, "f push") {
+		t.Fatalf("keybar should name the segment's action: %q", keybar)
+	}
+}
+
 func TestKeybarListsTheMainWorktreeKeyInEveryMode(t *testing.T) {
 	for _, mode := range []string{"changes", "history", "stash"} {
-		if out := ansi.Strip(renderKeybar(200, mode)); !strings.Contains(out, "w worktree · W main") {
+		if out := ansi.Strip(renderKeybar(200, mode, "fetch")); !strings.Contains(out, "w worktree · W main") {
 			t.Fatalf("%s keybar missing W main: %q", mode, out)
 		}
 	}

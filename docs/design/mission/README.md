@@ -479,8 +479,10 @@ pre-ratification drawing:
 - The undo strip is one line ("Committed <when> · <summary>" clipped to the
   sidebar, Undo chip right) instead of the boards' two-line strip.
 - The main keybar lists the built action set (adds "enter diff",
-  "u undo", "S stash", and "h show stash", names the adaptive segment key
-  "f action", omits "? help"). The stash keys sit last, so a narrow
+  "u undo", "S stash", and "h show stash", omits "? help"). The adaptive
+  segment key is labelled with what it will do ("f fetch", "f pull",
+  "f push", "f force push", "f publish") and is left out while the segment
+  is busy or HEAD is detached, when it only refuses. The stash keys sit last, so a narrow
   terminal clips them first.
   Both tabs also add "⌃k menu" right after the tab-switch key, so it
   survives a narrow terminal.
