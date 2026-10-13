@@ -66,6 +66,18 @@ using terms from application "System Events"
 end using terms from
 '
 
+# A status element's value is the raw status. Its description is the label
+# VoiceOver reads, "<row title>: <status>", so a read that falls back to the
+# description keeps only what follows the last ": ".
+AX_STATUS_AS="
+on statusOf(d)
+  set AppleScript's text item delimiters to \": \"
+  set s to last text item of d
+  set AppleScript's text item delimiters to \"\"
+  return s
+end statusOf
+"
+
 # Host-side capture handshake: the host watches in/ for *.req files, and only runs the watcher
 # loop when --graphics is on (walkthrough.sh) -- read that flag instead of always waiting it out.
 ax_graphics() {
@@ -416,14 +428,14 @@ ax_bare_rt_version() {  # stdin: rt --version output → X.Y.Z
 ax_status() {  # <rowId> → status string (the app exposes it as the row status element's value)
   ax_reveal_row "setup.checklist.row.$1.status" || true
   local id; id=$(ax_esc "$1")
-  ax_osa "$AX_WALK_AS
+  ax_osa "$AX_WALK_AS$AX_STATUS_AS
     tell application \"System Events\" to tell process \"$AX_APP\"
       set r to my walk(window 1, \"setup.checklist.row.$id.status\")
       if r is missing value then error \"axid not found: setup.checklist.row.$id.status\"
       try
         return value of r as text
       on error
-        return description of r as text
+        return my statusOf(description of r as text)
       end try
     end tell" 2>/dev/null
 }
@@ -431,7 +443,7 @@ ax_status() {  # <rowId> → status string (the app exposes it as the row status
 # "<rowId>=<status>" for every checklist row on screen, one per line, in one
 # walk of the window: ax_status costs a walk per row.
 ax_row_statuses() {
-  ax_osa "
+  ax_osa "$AX_STATUS_AS
 using terms from application \"System Events\"
   on walkStatuses(el, acc)
     try
@@ -440,7 +452,7 @@ using terms from application \"System Events\"
         try
           set v to value of el as text
         on error
-          set v to description of el as text
+          set v to my statusOf(description of el as text)
         end try
         set end of acc to ((text 21 thru -8 of i) & \"=\" & v)
       end if

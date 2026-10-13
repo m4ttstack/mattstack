@@ -422,11 +422,11 @@ enum PageLead {
 
 struct SummaryGlyph: View {
     let kind: ChecklistLayout.SummaryKind
-    /// A count that is on has a solid accent fill, which a glyph's own colour does not read against.
+    /// A count that is on has a solid selection fill, which a glyph's own colour does not read against.
     var isOn = false
     var body: some View {
         if isOn {
-            Image(systemName: symbol).symbolRenderingMode(.monochrome).foregroundStyle(.white)
+            Image(systemName: symbol).symbolRenderingMode(.monochrome).foregroundStyle(SummaryCount.onText)
         } else {
             switch kind {
             case .needsYou: Image(systemName: symbol).symbolRenderingMode(.multicolor)
@@ -452,6 +452,9 @@ struct SummaryCount: View {
     let text: String
     let isOn: Bool
     let onPick: () -> Void
+    /// The system's own selection pair: white on `Color.accentColor` does not read when the user's accent is a pale one.
+    static let onFill = Color(nsColor: .selectedContentBackgroundColor)
+    static let onText = Color(nsColor: .alternateSelectedControlTextColor)
     var body: some View {
         Button(action: onPick) {
             HStack(spacing: 4) {
@@ -460,11 +463,11 @@ struct SummaryCount: View {
                 Text(text).font(.callout).fontWeight(.semibold).hidden()
                     .overlay(alignment: .leading) {
                         Text(text).font(.callout).fontWeight(isOn ? .semibold : .regular)
-                            .foregroundStyle(isOn ? Color.white : Color.primary)
+                            .foregroundStyle(isOn ? Self.onText : Color.primary)
                     }
             }
             .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(Capsule().fill(isOn ? Color.accentColor : Color.primary.opacity(0.06)))
+            .background(Capsule().fill(isOn ? Self.onFill : Color.primary.opacity(0.06)))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

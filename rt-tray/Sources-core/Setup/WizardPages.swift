@@ -5,10 +5,16 @@ public struct WizardPages: Equatable, Sendable {
     public let titles: [String: String]
 
     public init(groups: [PlanGroup] = []) {
-        let shown = groups.filter { !$0.rows.isEmpty }
+        let shown = Self.shown(groups)
         ids = shown.map(\.id)
-        // rt's plan is not trusted to keep group ids unique, and `uniqueKeysWithValues` traps on a repeat.
         titles = Dictionary(shown.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// rt's plan is not trusted to keep group ids unique: a repeated id would
+    /// be a page Continue returns to and never leaves.
+    private static func shown(_ groups: [PlanGroup]) -> [PlanGroup] {
+        var seen = Set<String>()
+        return groups.filter { !$0.rows.isEmpty && seen.insert($0.id).inserted }
     }
 
     public func index(of id: String) -> Int? { ids.firstIndex(of: id) }
@@ -33,7 +39,7 @@ public struct WizardPages: Equatable, Sendable {
 
     /// Where a relaunched setup reopens.
     public static func landing(groups: [PlanGroup]) -> String? {
-        let shown = groups.filter { !$0.rows.isEmpty }
+        let shown = shown(groups)
         return shown.first { !PageGate.blockers(in: $0).isEmpty }?.id ?? shown.last?.id
     }
 }

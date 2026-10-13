@@ -26,6 +26,14 @@ let wizardPagesChecks: [Check] = [
                                      PlanGroup(id: "mac", title: "Second", rows: [row("b", .ready)])])
         c.expectEqual(p.titles["mac"], "First")
     },
+    Check("WizardPages: a repeated group id is one page, so Continue still reaches the last page") { c in
+        let groups = [group("mac", [row("a", .ready)]), group("mac", [row("b", .missing, required: true)]), group("rt", [row("c", .ready)])]
+        let p = WizardPages(groups: groups)
+        c.expectEqual(p.ids, ["mac", "rt"])
+        c.expectEqual(p.next(after: "mac"), "rt")
+        c.expect(!p.isLast("mac"))
+        c.expectEqual(WizardPages.landing(groups: groups), "rt", "the repeat's rows are on no page, so it is never where setup reopens")
+    },
     Check("WizardPages.current: keeps the page by id, else the page now at its old position, else the first") { c in
         let p = WizardPages(groups: three)
         c.expectEqual(p.current(preferred: nil, lastIndex: nil), "mac")
