@@ -10,10 +10,9 @@ public enum SetupStep: Int, CaseIterable, Sendable {
         case .team: return "Your team"
         case .checklist: return "Before we begin"
         case .install: return "Installing"
-        case .done: return "Installed"
+        case .done: return "All set"
         }
     }
-    public var indicator: String { "Step \(rawValue + 1) of \(SetupStep.allCases.count)" }
 }
 
 /// Distinguishes onboarding from re-entering setup to upgrade an existing
@@ -49,10 +48,38 @@ public final class SetupFlowModel: ObservableObject {
     /// into, so Back is off there even though the step itself allows it on
     /// first run.
     @Published public var entry: SetupEntry = .firstRun
+    /// The checklist page on screen: a plan group's id. nil until a plan lands.
+    @Published public var page: String?
+    @Published public private(set) var pages = WizardPages()
+    private var lastPageIndex: Int?
+    private var landsOnBlocker = false
     public init(readOnly: Bool = false) { self.readOnly = readOnly }
 
-    public var headerTitle: String { readOnly ? "Setup status" : step.title }
-    public var headerIndicator: String? { readOnly ? nil : step.indicator }
+    public var headerTitle: String {
+        if readOnly { return "Setup status" }
+        if step == .checklist, let page, let title = pages.titles[page] { return title }
+        return step.title
+    }
+
+    /// Welcome and Your team, then every page, then Install and the summary.
+    /// Before a plan lands the checklist counts as one page.
+    public var progress: (current: Int, total: Int)? {
+        guard !readOnly else { return nil }
+        let pageCount = max(pages.ids.count, 1)
+        let current: Int
+        switch step {
+        case .welcome: current = 1
+        case .team: current = 2
+        case .checklist: current = 3 + (page.flatMap { pages.index(of: $0) } ?? 0)
+        case .install: current = 3 + pageCount
+        case .done: current = 4 + pageCount
+        }
+        return (current, 4 + pageCount)
+    }
+
+    public var headerIndicator: String? { progress.map { "Step \($0.current) of \($0.total)" } }
+
+    public var isLastPage: Bool { page.map { pages.isLast($0) } ?? true }
 
     public var showsBack: Bool { !readOnly }
     public var primaryClosesWindow: Bool { readOnly }
@@ -70,14 +97,44 @@ public final class SetupFlowModel: ObservableObject {
     public var continueTitle: String {
         if readOnly { return "Close" }
         switch step {
-        case .checklist: return "Install"
+        case .checklist: return isLastPage ? "Install" : "Continue"
         case .done: return "Finish"
         default: return "Continue"
         }
     }
     public var windowMayClose: Bool { step == .done && finishGateOpen }
 
-    public func next() { if let n = SetupStep(rawValue: step.rawValue + 1) { step = n } }
-    public func back() { guard canGoBack, let p = SetupStep(rawValue: step.rawValue - 1) else { return }; step = p }
-    public func jump(to s: SetupStep) { step = s }
+    public func setPages(_ groups: [PlanGroup]) {
+        pages = WizardPages(groups: groups)
+        if landsOnBlocker, !pages.ids.isEmpty {
+            landsOnBlocker = false
+            page = WizardPages.landing(groups: groups)
+        } else {
+            page = pages.current(preferred: page, lastIndex: lastPageIndex)
+        }
+        lastPageIndex = page.flatMap { pages.index(of: $0) }
+    }
+
+    public func next() {
+        if step == .checklist, let page, let following = pages.next(after: page) { show(page: following); return }
+        if let n = SetupStep(rawValue: step.rawValue + 1) { step = n }
+    }
+
+    public func back() {
+        guard canGoBack else { return }
+        if step == .checklist, let page, let previous = pages.previous(before: page) { show(page: previous); return }
+        if let p = SetupStep(rawValue: step.rawValue - 1) { step = p }
+    }
+
+    /// `landing` is for a relaunch back into setup: the next plan to land
+    /// picks the page, since the old page index did not survive the relaunch.
+    public func jump(to s: SetupStep, landing: Bool = false) {
+        step = s
+        if landing { landsOnBlocker = true }
+    }
+
+    private func show(page id: String) {
+        page = id
+        lastPageIndex = pages.index(of: id)
+    }
 }
