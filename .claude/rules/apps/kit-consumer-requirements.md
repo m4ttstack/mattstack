@@ -65,8 +65,7 @@ missing any of them breaks in a way that does not announce itself as
    `mantine-tokyo`) in its own `package.json`. `workspace:*` resolves
    through this repo's single `bun install`, so peers (`react`, `vite`,
    `wouter`) resolve once, the same as a registry install would. The
-   packed-tarball mechanism (`bun pm pack`, `docs/release-and-distribution.md`'s
-   "Adding a served app" list) is for a consumer OUTSIDE this workspace only -- an
+   packed-tarball mechanism (`bun pm pack`) is for a consumer OUTSIDE this workspace only -- an
    app that has not folded in yet. A bare `file:../packages/ui` dependency
    from outside the workspace still hits Bun 1.3's symlink-into-source
    behavior (contents symlink rather than copy, so peers resolve twice:

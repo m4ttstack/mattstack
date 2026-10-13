@@ -78,13 +78,11 @@ Light / Dark). `Rail` and `RailBottom` are compound statics attached with
 </MattstackShell>
 ```
 
-A one-page app passes `rail={false}`: the kit renders no rail, the
-page takes the full width, and the colour-scheme control moves to the
-right end of the app bar. The page context goes in the app bar through
-`MattstackShell.Header` (`children` for the breadcrumb, `actions` for
-the rest), written as a direct child of `MattstackShell`. Rail and
-RailBottom children are dropped under `rail={false}` (a development
-build warns). `docs/apps/ui-authoring.md` says when each mode applies.
+A one-page app passes `rail={false}`; `docs/apps/ui-authoring.md` says
+when each mode applies and what the kit draws in each.
+`MattstackShell.Header` is written as a direct child of `MattstackShell`.
+Rail and RailBottom children are dropped under `rail={false}` (a
+development build warns).
 
 ```tsx
 <MattstackShell name="boxscore" mark={<AppMark size={30} />} rail={false}>

@@ -25,7 +25,7 @@ anything Mantine-shaped enters the app. This wall ships AS the
 `@mattstack/app-kit/eslint`) -- a consumer spreads it into its own
 `eslint.config.js`, taking the default `src/**/*.{ts,tsx}` app glob.
 `apps/chat/eslint.config.js` does exactly that; it is the reference
-wiring a new app copies. The root `eslint.config.js` carries no app-level
+wiring a new app copies. The root `eslint.config.mjs` carries no app-level
 glob and does not lint app code at all: each app is linted through its
 own config via its own `<app>:lint` root script, not the root `lint`
 script (which only points `eslint` at `packages .storybook`).
@@ -70,7 +70,7 @@ contract and `apps/chat/src/app/icons.ts` for the reference wiring.
 **Inside `packages/ui/src/**` itself**, a second, stricter rule applies --
 this one is NOT shipped in the `@mattstack/app-kit/eslint` preset (a
 consumer never sees it); it lives only in this repo's own root
-`eslint.config.js`, scoped to `packages/ui/src/**`:
+`eslint.config.mjs`, scoped to `packages/ui/src/**`:
 
 ```js
 {
@@ -124,4 +124,4 @@ login/signup/profile fields.
 and outline properties, `--fill-*` never in `color`, and the numeric
 ramp steps `--surface-N` / `--line-N` never outside the tokens package.
 An app that uses `mattstackEslint()` gets the first rule; add the CSS
-block from the root `eslint.config.js` to lint its stylesheets.
+block from the root `eslint.config.mjs` to lint its stylesheets.

@@ -17,13 +17,8 @@ which the Timings workflow regenerates) and runs the non-Mac gates on
 ubuntu. `scripts/ci/test-scope.ts` decides a PR's scope from its diff, for
 the shards and for every path-gated job (`go`, `deck-macos`, `e2e-tests`,
 `glitter-pty`, `website`, the plugin jobs); `docs/ci.md` has the table.
-Files in trees the shards never run (docs, `website/`, `rt-tray/`, apps
-and `plugins/` trees, other workflows, `e2e/`) drop out of the diff unless a
-unit test reads them by quoted path; nothing left skips the shards, a
-TypeScript remainder runs `--changed=HEAD^1` on one to three shards sized
-from `test-timings.json`, and anything else runs the full suite (a
-non-TypeScript file such as `bun.lock`, a fixture, the preload or its
-imports, `checks.yml`, anything under `scripts/ci/`). Whenever the shards
+Its "The unit shards' modes" section says which diffs skip the shards,
+which run `--changed=HEAD^1` and which run the full suite. Whenever the shards
 do not run in full, the ubuntu `guards` job runs every `no-*.test.ts`
 guard in the unit directories.
 Any other test that spawns
