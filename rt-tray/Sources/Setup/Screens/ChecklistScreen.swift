@@ -188,7 +188,7 @@ struct ChecklistScreen: View {
                 ScrollView {
                     Group {
                         if let shownFilter {
-                            ChecklistFilterView(kind: shownFilter, groups: layout.filtered(shownFilter), activity: activity) { perform($0) }
+                            ChecklistFilterView(kind: shownFilter, layout: layout, activity: activity) { perform($0) }
                         } else if current == ChecklistLayout.overviewID, let overview {
                             ChecklistCard { overview }
                         } else if current == ChecklistLayout.needsYouID {
@@ -209,6 +209,8 @@ struct ChecklistScreen: View {
         .padding(.horizontal, 20).padding(.vertical, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.primary.opacity(0.035))
+        // A filter left set after its rows went would come back on, with no click, when a later re-read gave it rows again.
+        .onChange(of: layout.activeFilter(filter)) { _, active in if active == nil { filter = nil } }
     }
 
     @ViewBuilder
@@ -427,7 +429,6 @@ struct SummaryGlyph: View {
     }
 }
 
-/// One count of the summary line: a button that lists the rows it counts.
 struct SummaryCount: View {
     let part: ChecklistLayout.SummaryPart
     let isOn: Bool
@@ -435,16 +436,30 @@ struct SummaryCount: View {
     var body: some View {
         Button(action: onPick) {
             HStack(spacing: 4) {
-                SummaryGlyph(kind: part.kind)
-                Text(part.text).font(.callout).fontWeight(isOn ? .semibold : .regular)
+                SummaryGlyph(kind: part.kind).accessibilityHidden(true)
+                // The hidden copy holds the semibold width, so turning a filter on moves no other count.
+                Text(part.text).font(.callout).fontWeight(.semibold).hidden()
+                    .overlay(alignment: .leading) { Text(part.text).font(.callout).fontWeight(isOn ? .semibold : .regular) }
             }
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(Capsule().fill(isOn ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06)))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(AXID.checklistFilter(String(describing: part.kind)))
+        .accessibilityIdentifier(AXID.checklistFilter(idName))
+        .accessibilityLabel(Text(part.text))
+        .accessibilityValue(Text(isOn ? "on" : "off"))
         .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    /// Spelled out, not read off the case: the UI tests click these ids, and a renamed case must not rename one.
+    private var idName: String {
+        switch part.kind {
+        case .needsYou: return "needsYou"
+        case .ready: return "ready"
+        case .optional: return "optional"
+        case .notNeeded: return "notNeeded"
+        }
     }
 }
 

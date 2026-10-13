@@ -101,7 +101,6 @@ public struct ChecklistLayout: Equatable, Sendable {
         }
     }
 
-    /// The rows a count stands for, under the group each came from.
     public func filtered(_ kind: SummaryKind) -> [FilterGroup] {
         sections.compactMap { section in
             let matching = rows(kind, in: section)
@@ -109,7 +108,7 @@ public struct ChecklistLayout: Equatable, Sendable {
         }
     }
 
-    /// The filter to show: the user's pick while it still has rows. Needs you is a sidebar entry, never a filter.
+    /// Needs you is a sidebar entry, never a filter.
     public func activeFilter(_ preferred: SummaryKind?) -> SummaryKind? {
         guard let preferred, preferred != .needsYou, !filtered(preferred).isEmpty else { return nil }
         return preferred

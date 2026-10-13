@@ -140,12 +140,23 @@ struct ChecklistCardHeader: View {
     }
 }
 
-/// Every row one count of the summary stands for, under the group each came from.
 struct ChecklistFilterView: View {
-    let kind: ChecklistLayout.SummaryKind
+    /// How a filter's rows are drawn. There is no case for Needs you rows: their badge and Skip are drawn by their own pane only.
+    enum Rows { case optional, settled }
+
+    let rows: Rows
     let groups: [ChecklistLayout.FilterGroup]
     let activity: RowActivity
     let perform: (PlanRow) -> Void
+
+    init?(kind: ChecklistLayout.SummaryKind, layout: ChecklistLayout, activity: RowActivity, perform: @escaping (PlanRow) -> Void) {
+        switch kind {
+        case .needsYou: return nil
+        case .optional: rows = .optional
+        case .ready, .notNeeded: rows = .settled
+        }
+        groups = layout.filtered(kind); self.activity = activity; self.perform = perform
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -154,10 +165,10 @@ struct ChecklistFilterView: View {
                     ChecklistCardHeader(title: group.title)
                     ForEach(group.rows) { row in
                         Divider()
-                        switch kind {
-                        case .needsYou, .optional:
+                        switch rows {
+                        case .optional:
                             SectionRow(row: row, badge: nil, context: nil, activity: activity, ids: .checklist, onSkip: nil, perform: perform)
-                        case .ready, .notNeeded:
+                        case .settled:
                             SettledRow(row: row, isChecking: activity.checking.contains(row.id), error: activity.errors[row.id], perform: perform)
                         }
                     }
