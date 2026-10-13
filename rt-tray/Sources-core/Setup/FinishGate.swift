@@ -34,7 +34,7 @@ public extension PlanRow {
 
 /// Runs the two waiver verbs. It never re-reads the plan itself: the row's
 /// shape on screen must come from rt, and the caller owns that re-read
-/// through its own bounded path (the Done model's check, or the Settings
+/// through its own bounded path (`DoneModel`'s check, or the Settings
 /// pane's refresh), so a hung or failed re-read is reported there and not
 /// swallowed here.
 @MainActor
@@ -60,8 +60,8 @@ public final class WaiverClient {
     }
 }
 
-/// Runs a choose row's verb for the Done screen and Settings, which have no
-/// verb runner of their own, so a refusal can be shown inside the sheet.
+/// Runs a choose row's verb and hands back its refusal, so the sheet that
+/// asked can show it.
 @MainActor
 public final class ChoiceClient {
     private let rt: RtRunning
@@ -92,8 +92,9 @@ public enum DoneRoute: Equatable, Sendable {
     case choose
 }
 
-/// The Done screen's only routing; the types it routes are pinned to
-/// DONE_ACTION_TYPES in lib/setup/contract.ts.
+/// The types this routes are pinned to DONE_ACTION_TYPES in
+/// lib/setup/contract.ts. No screen routes through it: the summary's rows
+/// run through the checklist's own dispatcher.
 public enum DoneActions {
     public static func route(_ action: RowAction) -> DoneRoute? {
         switch action.type {
@@ -102,7 +103,7 @@ public enum DoneActions {
             guard let raw = action.url, let url = URL(string: raw), url.scheme?.hasPrefix("http") == true else { return nil }
             return .openURL(url)
         case .steps: return .steps(action.steps ?? [])
-        // The only run verb a Done row carries is a re-check; Done re-reads the plan itself.
+        // The only run verb a finish-gated row carries is a re-check.
         case .run: return .recheck
         case .choose: return .choose
         case .openSettings, .requestPermission, .connect, .form, .oauth, .install, .ownerOnce, .linkBundled, .chooseFolder, .unknown:
@@ -111,8 +112,8 @@ public enum DoneActions {
     }
 }
 
-/// The Done screen's state: which rows block Finish, which are merely still
-/// to do, and the Skip for now sheet. Nothing is listed until the
+/// The summary's gate: which rows block Finish, which optional ones are
+/// still outstanding, and the Skip for now sheet. Nothing is listed until the
 /// post-install re-check lands, since the model still holds the pre-Install
 /// plan before then; the gate reads closed while that check is in flight.
 /// A check that fails reads open with the failure shown: a gate that could
@@ -136,7 +137,7 @@ public final class DoneModel: ObservableObject {
     @Published public private(set) var isSkipping = false
     /// A re-read the user asked for from a screen already showing a
     /// confirmed plan keeps those rows up while the gate closes; an arrival
-    /// at Done shows nothing until its own check lands.
+    /// at the summary shows nothing until its own check lands.
     @Published private var showsConfirmedRowsWhileChecking = false
 
     private let readiness: ReadinessModel
@@ -186,14 +187,15 @@ public final class DoneModel: ObservableObject {
         return outstanding == 0 ? "Everything's working" : "Installed, with \(outstanding) step\(outstanding == 1 ? "" : "s") left for you"
     }
 
-    /// Every arrival at Done checks from scratch: the previous run's rows are
-    /// never presented as fresh.
+    /// Every arrival at the summary checks from scratch: the previous run's
+    /// rows are never presented as fresh.
     public func checkPostInstall() async { await runCheck(keepingConfirmedRows: false) }
 
-    /// The one re-read path for everything that happens on Done after the
-    /// first check (Try again, a dismissed steps sheet, an opened URL, a
-    /// confirmed skip): bounded by the same watchdog, and a confirmed plan
-    /// stays on screen while it is re-read.
+    /// The summary's re-read after the first check (Try again, Re-check, a
+    /// dismissed steps sheet, a confirmed skip): bounded by the same
+    /// watchdog, and a confirmed plan stays on screen while it is re-read.
+    /// A row's own action re-reads through `ReadinessModel.afterAction`
+    /// instead, which no watchdog bounds.
     public func retryCheck() async { await runCheck(keepingConfirmedRows: checkState == .checked) }
 
     /// A failed refresh leaves `readiness` holding the last plan, which is
@@ -223,7 +225,7 @@ public final class DoneModel: ObservableObject {
 
     /// A verb failure keeps the sheet up with the message and the gate
     /// closed. Success closes the sheet and re-reads the plan through the
-    /// bounded path, so the row moves to Still to do, or a failed re-read
+    /// bounded path, so the row leaves Needs you, or a failed re-read
     /// shows its error with Try again and fails open.
     public func confirmSkip() async {
         guard let row = skipTarget else { return }

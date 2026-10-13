@@ -12,12 +12,13 @@ struct ChecklistScreen: View {
         case page(String?)
         /// Setup status, and the wizard's last step when `overview` is set.
         /// `rowsConfirmed` is false while the model still holds the pre-install rows: the summary then shows its Overview alone.
-        case sidebar(overview: AnyView?, onSkip: ((PlanRow) -> Void)?, rowsConfirmed: Bool = true)
+        /// `recheck` replaces the model's own re-read: the summary's gate must see every re-read, or a second fetch would let its check confirm rows it never read.
+        case sidebar(overview: AnyView?, onSkip: ((PlanRow) -> Void)?, rowsConfirmed: Bool = true, recheck: (() async -> Void)? = nil)
     }
     var presentation: Presentation = .sidebar(overview: nil, onSkip: nil)
     private var scope: ReadinessModel.Scope { if case .accounts = presentation { return .accounts } else { return .all } }
-    private var isSummary: Bool { if case .sidebar(.some, _, _) = presentation { return true } else { return false } }
-    private var showsOverviewOnly: Bool { if case .sidebar(.some, _, false) = presentation { return true } else { return false } }
+    private var showsOverviewOnly: Bool { if case .sidebar(.some, _, false, _) = presentation { return true } else { return false } }
+    private var presentationRecheck: (() async -> Void)? { if case .sidebar(_, _, _, let recheck) = presentation { return recheck } else { return nil } }
     @State private var connect: (row: PlanRow, fields: [ActionField], alternatives: [ActionAlternative], create: ActionLink?)?
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
@@ -52,7 +53,7 @@ struct ChecklistScreen: View {
                 switch presentation {
                 case .accounts: flatList
                 case .page(let id): pageBody(id)
-                case .sidebar(let overview, let onSkip, let rowsConfirmed):
+                case .sidebar(let overview, let onSkip, let rowsConfirmed, _):
                     sidebarBody(overview: overview, onSkip: onSkip, rowsConfirmed: rowsConfirmed || overview == nil)
                 }
             }
@@ -79,7 +80,7 @@ struct ChecklistScreen: View {
             guard !presented else { return }
             steps = nil
             // A finish-gated row changes outside the app (Chrome, a download): only the sheet's dismissal says to look again.
-            if isSummary { Task { await model.refreshUnlessLoading() } }
+            if let recheck = presentationRecheck { Task { await recheck() } }
         })) {
             if let s = steps { StepsSheet(title: s.title, steps: s.steps) }
         }
@@ -221,7 +222,7 @@ struct ChecklistScreen: View {
             let group = model.groups.first { $0.id == id }
             let isLast = WizardPages(groups: model.groups).ids.last == id
             status = PageGate.footer(blockers: group.map { PageGate.blockers(in: $0).count } ?? 0, isLast: isLast, canInstall: model.canInstall)
-        case .sidebar(let overview, _, _):
+        case .sidebar(let overview, _, _, _):
             status = overview == nil ? ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
                                                             owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows)) : nil
         }
@@ -240,7 +241,8 @@ struct ChecklistScreen: View {
 
     private func recheck() {
         actionErrors = [:]
-        Task { await model.recheckAll() }
+        let recheck = presentationRecheck
+        Task { if let recheck { await recheck() } else { await model.recheckAll() } }
     }
 
     private func perform(_ row: PlanRow) {

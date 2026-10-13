@@ -37,7 +37,8 @@ struct SetupView: View {
                                 onInvite: { NotificationCenter.default.post(name: .rtShowSettingsTeam, object: nil) },
                                 onRetry: { id in install.retry(from: id); flow.jump(to: .install) })),
                             onSkip: { done.requestSkip($0) },
-                            rowsConfirmed: done.hasConfirmedRows))
+                            rowsConfirmed: done.hasConfirmedRows,
+                            recheck: { await done.retryCheck() }))
                         .task { await done.checkPostInstall() }
                         .sheet(item: $done.skipTarget) { _ in SkipConfirmSheet(model: done) }
                         .accessibilityElement(children: .contain)
@@ -71,7 +72,7 @@ struct SetupView: View {
                 flow.readinessIsVisible = false
                 readiness.becameHidden()
             }
-            // A retry started from the Done screen is already running; entering Install must not restart the whole run over it.
+            // A retry started from the summary's Overview is already running; entering Install must not restart the whole run over it.
             if flow.step == .install, flow.mayStartInstall, !install.isRunning { flow.isInstalling = true; install.start() }
         }
         .onChange(of: install.phase) { _, phase in
