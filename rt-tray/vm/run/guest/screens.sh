@@ -252,8 +252,9 @@ screen_readiness() {
     case "$wording" in
       Continue) ;;
       Install)
-        # A wizard reopened from Settings > Team is still on the page its
-        # first run ended on, the last one, under the plan of that run.
+        # The wizard opens on its first page, and a relaunch that landed
+        # further on was turned back above, so Install on the first pass means
+        # the pages before it went unwalked.
         [ "$turned" = 1 ] || ax_fail "the wizard is on its last page before any page was walked: it could not be turned back to its first"
         case "$SCREEN_ROWS_DONE" in *" tool.proxy "*) ;; *) ax_fail "tool.proxy row is not on the checklist" ;; esac
         case "$SCREEN_ROWS_DONE" in *" account.$FORGE "*) ;; *) ax_log "account.$FORGE row is on no page of the checklist" ;; esac
