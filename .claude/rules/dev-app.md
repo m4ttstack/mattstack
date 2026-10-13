@@ -32,8 +32,8 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   run; `api.json`'s `runMode` says which is serving. A pin older than
   `runMode` (deck 1.0.6 today) reads as `standalone`; the last
   `deck-dev-shim:` line in `~/.mattstack/deck/logs/deck.err.log` says
-  whether the shim fell back. gitq is not in that re-register list: it
-  ships only as the `Contents/Helpers/gitq` CLI, built by
+  whether the shim fell back. gitq is not in that re-register list: the
+  app bundle carries it only as the `Contents/Helpers/gitq` CLI, built by
   `scripts/build-apps.ts` from `apps/gitq/mattstack.deck.json`'s
   `bundle.build` recipe, and deck never serves it (root `AGENTS.md`,
   "Monorepo layout"), so its changes ship at the next release.

@@ -185,7 +185,7 @@ The same PR corrects two moved sentences against the code: `dev-app.md`
 deploys a served app with `deck cmd <app> deploy`, and `setup.md` says
 `org.pull` leaves the clone on its checked-out branch. With Matt's
 go-ahead it also repoints one citation in the `rt:release` skill at
-`.claude/rules/setup.md`.
+`.claude/rules/setup.md`, the one exception to "no skill is edited".
 
 ## The guard
 
