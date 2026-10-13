@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { describe, expect, test } from 'bun:test';
 
 import {
   attachOwnerTeams,

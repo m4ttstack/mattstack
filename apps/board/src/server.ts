@@ -55,6 +55,7 @@ import {
   NO_REVIEW_CHANNEL,
   ownerRulesFromApprovalState,
   planOwnersPost,
+  type OwnerRule,
   type OwnersPostPlan,
 } from './codeowner-posts.ts';
 import {
@@ -197,6 +198,7 @@ import {
   parseMrActionBody,
   runMrAction,
 } from './mr-action.ts';
+import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
 import {
   acceptAsk,
   declineAsk,
@@ -937,6 +939,78 @@ function mrPostText(mrs: BoardMR[], header: string | null = null): string {
   );
 }
 
+/** The MR's Code Owner rules from GitLab's live approval state, or why they
+    could not be read. */
+async function readOwnerRules(
+  mr: BoardMR
+): Promise<
+  | { ok: true; rules: OwnerRule[] }
+  | { ok: false; status: number; message: string }
+> {
+  const projectPath = mr.webUrl
+    ? projectPathFromWebUrl(mr.webUrl, config.gitlabHost)
+    : null;
+  const repoName = projectPath ? daemonRepoField(config, projectPath) : null;
+  if (!repoName) {
+    return {
+      ok: false,
+      status: 400,
+      message: `${projectPath ?? mr.webUrl}: could not derive its rt repo identity from board.gitlabHost`,
+    };
+  }
+  const res = await rtCommand<ForgeGetData>(
+    'forge:get',
+    {
+      repoName,
+      path: `projects/:id/merge_requests/${mr.iid}/approval_state`,
+    },
+    { timeoutMs: 30_000 }
+  );
+  if (!res.ok || !res.data || res.data.status !== 200) {
+    return {
+      ok: false,
+      status: 502,
+      message: `could not read approvals from GitLab: ${res.error ?? `status ${res.data?.status ?? 'unknown'}`}`,
+    };
+  }
+  if (res.data.truncated) {
+    return {
+      ok: false,
+      status: 502,
+      message: "GitLab's approval answer for this MR is too large to read",
+    };
+  }
+  return { ok: true, rules: ownerRulesFromApprovalState(res.data.body) };
+}
+
+let ownerTeamsRefreshing = false;
+
+/** Keeps each of the seat's own MRs' owning teams current for the ask
+    picker. Off the request path, one pass at a time, and only while this
+    board peers: without peers there is nobody on another team to ask. */
+function refreshOwnerTeamsInBackground(mrs: BoardMR[]): void {
+  if (ownerTeamsRefreshing || !peering.current()) return;
+  const own = mrs.filter(ownedHere);
+  if (own.length === 0) return;
+  ownerTeamsRefreshing = true;
+  void refreshOwnerTeams(own, {
+    readRules: async mr => {
+      const read = await readOwnerRules(mr);
+      return read.ok ? read.rules : null;
+    },
+    directory: config.directory,
+    ownTeam: config.ownTeam ?? null,
+  })
+    .catch(err =>
+      console.error(
+        `owner teams refresh failed: ${err instanceof Error ? err.message : err}`
+      )
+    )
+    .finally(() => {
+      ownerTeamsRefreshing = false;
+    });
+}
+
 /** Which Code Owner channels this MR would post to right now, from GitLab's
     live approval state, plus the id of every channel Slack lists. A Response
     is the refusal to send back. */
@@ -959,35 +1033,8 @@ async function ownersPostPlan(
       status: 400,
     });
   }
-  const repoName = daemonRepoField(config, projectPath);
-  if (!repoName) {
-    return new Response(
-      `${projectPath}: could not derive its rt repo identity from board.gitlabHost`,
-      {
-        status: 400,
-      }
-    );
-  }
-  const res = await rtCommand<ForgeGetData>(
-    'forge:get',
-    {
-      repoName,
-      path: `projects/:id/merge_requests/${mr.iid}/approval_state`,
-    },
-    { timeoutMs: 30_000 }
-  );
-  if (!res.ok || !res.data || res.data.status !== 200) {
-    return new Response(
-      `could not read approvals from GitLab: ${res.error ?? `status ${res.data?.status ?? 'unknown'}`}`,
-      { status: 502 }
-    );
-  }
-  if (res.data.truncated) {
-    return new Response(
-      "GitLab's approval answer for this MR is too large to read",
-      { status: 502 }
-    );
-  }
+  const read = await readOwnerRules(mr);
+  if (!read.ok) return new Response(read.message, { status: read.status });
   let channels: Map<string, ListedChannel>;
   try {
     channels = await listChannels(slackToken);
@@ -997,7 +1044,7 @@ async function ownersPostPlan(
       { status: 502 }
     );
   }
-  const rules = ownerRulesFromApprovalState(res.data.body);
+  const rules = read.rules;
   const posted = Object.fromEntries(
     Object.entries(readOwnerPosts(mr.webUrl!)).map(([channel, post]) => [
       channel,
@@ -1830,6 +1877,7 @@ const httpServer = Bun.serve({
           pruneFinishedSentNudges();
           pruneNudges(onBoard);
         }
+        if (!snapshot.fetchError) refreshOwnerTeamsInBackground(snapshot.mrs);
         const doctorTabsMemo = new Map<string, string[]>();
         const reviews = readReviewStates();
         const responds = readRespondStates();
@@ -1850,14 +1898,16 @@ const httpServer = Bun.serve({
         );
         const mrsWithGates = attachStandDown(
           attachPeerState(
-            attachNotes(
-              attachDrafts(
-                attachOwnerPostsLeft(
-                  attachSlack(withSlackChannel(decision.mrs), slackRefs)
+            attachOwnerTeams(
+              attachNotes(
+                attachDrafts(
+                  attachOwnerPostsLeft(
+                    attachSlack(withSlackChannel(decision.mrs), slackRefs)
+                  ),
+                  heldDraftsByMr(readDrafts())
                 ),
-                heldDraftsByMr(readDrafts())
-              ),
-              readNotes()
+                readNotes()
+              )
             )
           ),
           readMemory()
@@ -1897,6 +1947,8 @@ const httpServer = Bun.serve({
             // Enrolled peer usernames from the relay, when peering knows them.
             // Absent means unknown, and the pickers fall back to the roster.
             peers: peering.current()?.peers() ?? undefined,
+            teams: config.orgTeams ?? [],
+            ownTeam: config.ownTeam ?? null,
             asks: asksPayload(snapshot),
             local: isLocalRequest(req, server),
             canInvite: isLocalRequest(req, server) && !!switchboardAdminToken,

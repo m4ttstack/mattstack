@@ -2,7 +2,6 @@ import type { Database } from 'bun:sqlite';
 
 import { channelFromCodeownerSection } from '@mattstack/glance';
 import { teamForChannel, type TeamDirectory } from '@mattstack/rt-client';
-
 import type { OwnerRule } from './codeowner-posts.ts';
 import { getKvValue, getStateDb, setKvValue } from './state/index.ts';
 
