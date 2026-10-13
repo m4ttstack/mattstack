@@ -94,8 +94,13 @@ shadows, no radii).
   inset rule and another blank row before the linked worktrees. It stays
   first while a filter matches it. `W` switches to it from any tab without
   opening the foldout, and the keybars list "W main" after "w worktree".
-  Once that switch lands, the notice strip confirms it in the info tone
-  ("Switched back to the main worktree") until the next key or click.
+  Once that switch lands, a toast confirms it ("Switched back to the main
+  worktree").
+- Confirmations show as a toast: a Mint-bordered box with a check, floated
+  over the bottom right corner on the row above the keybar, gone after 3
+  seconds or on the next key or click. It takes no layout row. GitHub
+  Desktop has no equivalent at this size; the notice strip stays for
+  refusals and driver notices.
 - `1` and `2` switch between Changes and History. GitHub Desktop binds
   ⌘1 and ⌘2, which a terminal cannot receive.
 - `e` toggles the History commit header's expanded state. GitHub
