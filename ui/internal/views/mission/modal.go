@@ -383,6 +383,7 @@ func (m *Mission) switchToMainWorktree() (tea.Model, tea.Cmd) {
 			m.localNotice = "Already in the main worktree"
 			return m, nil
 		}
+		m.awaitingMain = w.Path
 		return m, m.em.Emit(protocol.Intent{Name: "mission:worktree", Payload: mustPayload(worktreePayload{Path: w.Path})})
 	}
 	m.localNotice = "This repository has no main worktree"

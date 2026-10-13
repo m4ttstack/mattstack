@@ -94,6 +94,8 @@ shadows, no radii).
   inset rule and another blank row before the linked worktrees. It stays
   first while a filter matches it. `W` switches to it from any tab without
   opening the foldout, and the keybars list "W main" after "w worktree".
+  Once that switch lands, the notice strip confirms it in the info tone
+  ("Switched back to the main worktree") until the next key or click.
 - `1` and `2` switch between Changes and History. GitHub Desktop binds
   ⌘1 and ⌘2, which a terminal cannot receive.
 - `e` toggles the History commit header's expanded state. GitHub
