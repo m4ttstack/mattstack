@@ -3,6 +3,12 @@
 # against a model of the wizard: no app, no System Events, no VM. It proves
 # the order of the presses and that every loop ends. What the real
 # accessibility tree holds is outside it: only a VM walkthrough shows that.
+#
+# The model replaces ax_page_step and ax_click_reading with its own. Their
+# real guards (no Back on the first page, Continue only while it reads
+# Continue, a press only on the wording asked for) live inside AppleScript,
+# and here that script is only compiled and searched for the guard's text.
+# Nothing in this file runs those guards.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 GUEST_RUN="$(mktemp -d)"; export GUEST_RUN
@@ -26,11 +32,16 @@ OUT=title; ax_title x || true
 OUT=progress; ax_progress || true
 OUT=statuses; ax_row_statuses || true
 OUT=click; ax_click_raw x || true
-for OUT in step-back step-continue title progress statuses click; do
+OUT=press; ax_click_reading x Install || true
+for OUT in step-back step-continue title progress statuses click press; do
   check "$OUT AppleScript compiles" 'osacompile -o "$S/$OUT.scpt" "$S/$OUT.applescript" 2>/dev/null'
 done
 check "the Back script holds on the first page" 'grep -q "starts with \"3 of \"" "$S/step-back.applescript"'
 check "the Continue script presses only a button that reads Continue" 'grep -q "is not \"Continue\" then error" "$S/step-continue.applescript"'
+check "the press script holds on any other wording, and on a disabled button" \
+  'grep -q "is not \"Install\" then error" "$S/press.applescript" && grep -q "if not (enabled of r) then error" "$S/press.applescript"'
+check "every script that clicks brings the app to the front first" \
+  '( for f in step-back step-continue click press; do grep -q "set frontmost to true" "$S/$f.applescript" || exit 1; done )'
 
 sleep() { :; }
 ax_osa() { printf '3 of 9'; }
@@ -73,7 +84,7 @@ rows_on() {  # <page or pane>
 model() {  # <wizard|noplan|summary> <page index> [<rowId>=<status>...]; every other row is ready
   local p r kv
   printf '%s' "$1" > "$M/mode"; printf '%s' "$2" > "$M/cur"; printf 0 > "$M/open"; printf overview > "$M/pane"
-  : > "$M/calls"; : > "$M/status"; rm -f "$M/stuck-once"; shift 2
+  : > "$M/calls"; : > "$M/status"; rm -f "$M/stuck-once" "$M/stale-once"; shift 2
   for p in $PAGES; do for r in $(rows_on "$p"); do printf '%s ready\n' "$r" >> "$M/status"; done; done
   for kv in "$@"; do set_status "${kv%%=*}" "${kv#*=}"; done
 }
@@ -221,7 +232,22 @@ ax_wait_status() { [ "$(ax_status "$1" || true)" = "$2" ]; }
 ax_wait_status_not() { [ "$(ax_status "$1" || true)" != "$2" ]; }
 ax_enabled() { if [ "$1" = setup.checklist.continue ] && page_blocked; then echo false; else echo true; fi; }
 ax_wait_enabled() { [ "$(ax_enabled "$1")" = true ]; }
-ax_title() { if page_last; then echo Install; else echo Continue; fi; }
+wording_now() { if page_last; then echo Install; else echo Continue; fi; }
+# blank: the wording does not read. stale: the last page's button is read as
+# Continue once, the way a read just before a plan lands would see it.
+TITLE_MODE=truth
+ax_title() {
+  case "$TITLE_MODE" in
+    blank) return 0 ;;
+    stale) if page_last && [ ! -e "$M/stale-once" ]; then : > "$M/stale-once"; echo Continue; return 0; fi ;;
+  esac
+  wording_now
+}
+ax_click_reading() {
+  [ "$(wording_now)" = "$2" ] || { note "held:reads-$(wording_now)"; return 1; }
+  if page_blocked; then note held:disabled; return 1; fi
+  ax_click_raw "$1"
+}
 ax_row_statuses() { local r; for r in $(rows_on "$(where_now)"); do echo "$r=$(status_of "$r")"; done; }
 ax_shot() { :; }
 ax_allow_notifications() { :; }
@@ -260,6 +286,26 @@ model wizard 0
 readiness
 check "nothing is pressed after a button that read Install" '[ "$rc" -eq 0 ] && [ "$(count "continue@team")" -eq 1 ]'
 SLOW_INSTALL=0
+
+TITLE_MODE=blank
+model wizard 0
+readiness
+check "a primary button whose wording does not read is never pressed" \
+  '[ "$rc" -ne 0 ] && [ "$(page_now)" = mac ] && [ "$(count "^click:")" -eq 0 ] && [ "$(count "^held:")" -eq 1 ] && grep -q "FAIL: setup.checklist.continue reads .. on page .mac., neither Continue nor Install: nothing was pressed" "$AX_LOG"'
+
+TITLE_MODE=stale
+model wizard 0
+readiness
+check "a wording read before the page became the last one presses nothing, and Install is pressed once on the next read" \
+  '[ "$rc" -eq 0 ] && [ "$(cat "$M/mode")" = install ] && [ "$(count "^held:reads-Install$")" -eq 1 ] && [ "$(count "continue@team")" -eq 1 ]'
+
+HIDE_PROXY=1
+model wizard 0
+readiness
+check "Install's checks still run when the page became the last one after the read" \
+  '[ "$rc" -ne 0 ] && [ "$(cat "$M/mode")" = wizard ] && [ "$(count "^held:reads-Install$")" -eq 1 ] && [ "$(count "continue@team")" -eq 0 ]'
+HIDE_PROXY=0
+TITLE_MODE=truth
 
 STICKY_PAGE=rt
 screen_proxy_row() { note proxy-row; }

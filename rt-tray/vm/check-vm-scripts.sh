@@ -169,7 +169,11 @@ t "screens.sh probes the skipped row in its group by its .status id, not the bar
 # grep exits 2 on a missing directory, so only 1 (no match) passes.
 t "nothing under vm reads an id the summary dropped" bash -c \
   'grep -rqE "setup\.done\.stillToDo|ax_find setup\.done\.beforeYouFinish( |$)|setup\.checklist\.continueLimited" run golden lib; [ $? -eq 1 ]'
-t "ax page helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_click_raw ax_title ax_progress ax_page_step ax_page_rewind ax_row_statuses ax_reveal_row >/dev/null && ! ax_page_step continue && ! ax_title x >/dev/null 2>&1 && ! ax_reveal_row setup.checklist.row.x.status && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
+t "ax page helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_click_raw ax_click_reading ax_title ax_progress ax_page_step ax_page_rewind ax_row_statuses ax_reveal_row >/dev/null && ! ax_page_step continue && ! ax_title x >/dev/null 2>&1 && ! ax_click_reading x Install && ! ax_reveal_row setup.checklist.row.x.status && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
+# The wizard's primary button is Install on the last page: screens.sh presses
+# it only through the script that checks its wording in the same breath.
+t "screens.sh never presses the wizard's primary button unread" bash -c \
+  'grep -q "ax_click_reading setup.checklist.continue \"\$wording\"" run/guest/screens.sh; read=$?; grep -qE "ax_click(_raw)? setup\.checklist\.continue" run/guest/screens.sh; plain=$?; [ "$read" -eq 0 ] && [ "$plain" -eq 1 ]'
 t "screens.sh records the finish-gate outcome"      bash -c 'grep -q "finish-gate.txt" run/guest/screens.sh && grep -q "finish-gate.txt" run/guest/assert-installed.sh'
 t "screens.sh waits for the Done gate to settle before branching" bash -c 'grep -q "ax_wait_done_gate 60" run/guest/screens.sh && grep -q "^ax_wait_done_gate()" run/guest/ax.sh'
 # Every finish-gated row is probed and handled by its own .action id; neither
@@ -247,7 +251,7 @@ t "screens.sh drives the proxy row button, Cancel first, before Continue" bash -
   && grep -q "ax_admin_cancel_once" run/guest/screens.sh \
   && grep -q "setup.checklist.row.tool.proxy.error" run/guest/screens.sh \
   && call=$(grep -n "^ *screen_proxy_row$" run/guest/screens.sh | head -1 | cut -d: -f1) \
-  && cont=$(grep -n "ax_click setup.checklist.continue" run/guest/screens.sh | head -1 | cut -d: -f1) \
+  && cont=$(grep -n "ax_click_reading setup.checklist.continue" run/guest/screens.sh | head -1 | cut -d: -f1) \
   && [ -n "$call" ] && [ -n "$cont" ] && [ "$call" -lt "$cont" ]'
 t "screens.sh proxy row: Cancel is asserted before the credentialed try" bash -c '
   cancel=$(grep -n "ax_admin_cancel_once ||" run/guest/screens.sh | head -1 | cut -d: -f1)

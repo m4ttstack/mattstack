@@ -172,7 +172,7 @@ screen_row_notifications() {
   fi
 }
 
-# Apple CLT row: the clean room has none; the app's Install… triggers Apple's dialog — a real network install (~minutes).
+# Apple CLT row: the clean room has none; the row's Install button triggers Apple's dialog, a real network install (minutes).
 screen_row_clt() {
   if [ "$(ax_status tool.clt || true)" != ready ]; then
     ax_click setup.checklist.row.tool.clt.action
@@ -221,7 +221,7 @@ screen_row_repo_root() {
 # answers that are on it, then its primary button, which is Install on the
 # last page.
 screen_readiness() {
-  local n=12 ids page wording tool
+  local n=12 turned=0 ids page wording tool
   SCREEN_ROWS_DONE=" "
   ax_shot 03-readiness-initial
   screen_wait_plan 60 || ax_fail "the checklist drew no row within 60s"
@@ -254,17 +254,25 @@ screen_readiness() {
       Install)
         # A wizard reopened from Settings > Team is still on the page its
         # first run ended on, the last one, under the plan of that run.
-        [ "$n" -lt 12 ] || ax_fail "the wizard is on its last page before any page was walked: it could not be turned back to its first"
+        [ "$turned" = 1 ] || ax_fail "the wizard is on its last page before any page was walked: it could not be turned back to its first"
         case "$SCREEN_ROWS_DONE" in *" tool.proxy "*) ;; *) ax_fail "tool.proxy row is not on the checklist" ;; esac
         case "$SCREEN_ROWS_DONE" in *" account.$FORGE "*) ;; *) ax_log "account.$FORGE row is on no page of the checklist" ;; esac
         ;;
-      *) ax_log "FINDING: setup.checklist.continue reads '$wording' on page '${page:-?}', neither Continue nor Install" ;;
+      # A button whose wording did not read may be Install: it is never pressed.
+      *) ax_fail "setup.checklist.continue reads '$wording' on page '${page:-?}', neither Continue nor Install: nothing was pressed" ;;
     esac
-    ax_click setup.checklist.continue
-    if [ "$wording" = Install ]; then return 0; fi
+    # A plan that lands after the read above can make this the last page. The
+    # press then finds another wording and holds, and the next pass reads it
+    # again with Install's checks in front.
+    if ax_click_reading setup.checklist.continue "$wording"; then
+      if [ "$wording" = Install ]; then return 0; fi
+      turned=1
+    else
+      ax_log "setup.checklist.continue no longer reads '$wording', or is disabled, on page '${page:-?}'; nothing was pressed"
+    fi
     sleep 1; n=$((n-1))
   done
-  ax_fail "the wizard did not reach Install in 12 presses of its primary button"
+  ax_fail "the wizard did not reach Install in 12 tries at its primary button"
 }
 
 # The Local proxy row's own button, not Install's proxy step: it has to raise

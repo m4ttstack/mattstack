@@ -202,6 +202,7 @@ ax_page_step() {  # back|continue → exit 0 when the page changed
   case "$1" in back|continue) ;; *) return 1 ;; esac
   before=$(ax_osa "$AX_WALK_AS$AX_WORDING_AS
     tell application \"System Events\" to tell process \"$AX_APP\"
+      set frontmost to true
       set p to my walk(window 1, \"setup.window.progress\")
       if p is missing value then error \"axid not found: setup.window.progress\"
       set v to value of p as text
@@ -312,6 +313,23 @@ ax_title() {  # <axid> → the wording on a button
       if r is missing value then error \"axid not found: $id\"
       return my wording(r)
     end tell" 2>/dev/null
+}
+
+# Presses a button only while it reads the wording the caller acted on and is
+# enabled. The read and the click are one script: a plan that lands after an
+# earlier read can change which press this is.
+ax_click_reading() {  # <axid> <wording> -- returns 1 when nothing was pressed; callers decide
+  local id want; id=$(ax_esc "$1"); want=$(ax_esc "$2")
+  ax_osa "$AX_WALK_AS$AX_WORDING_AS
+    tell application \"System Events\" to tell process \"$AX_APP\"
+      set frontmost to true
+      set r to my walk(window 1, \"$id\")
+      if r is missing value then error \"axid not found: $id\"
+      if (my wording(r)) is not \"$want\" then error (\"press held: $id reads \" & (my wording(r)) & \", wanted $want\")
+      if not (enabled of r) then error \"press held: $id is disabled\"
+      click r
+    end tell" >/dev/null || return 1
+  ax_log "clicked $1 ($2)"
 }
 
 # The status item's menu exists only while it is open, and an osascript run
