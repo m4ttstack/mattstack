@@ -54,7 +54,7 @@ built from the kit piece named, whatever the board draws:
 
 | job | build it from |
 |---|---|
-| app frame, rail, rail entries and their tooltips | `MattstackShell` with `RailLink` (`apps/AGENTS.md` §8); a one-page app passes `rail={false}` |
+| app frame, rail, rail entries and their tooltips | `MattstackShell` with `RailLink` (`.claude/rules/apps/kit-app-layer.md`, §8); a one-page app passes `rail={false}` |
 | app mark | the app's own brand mark, passed as `mark` |
 | colour-scheme control | the System / Light / Dark control `MattstackShell` pins to the rail, or to the app bar's right end with `rail={false}` |
 | app switcher | nothing: the mattstack viewer owns it, so pass no `appName` and render no launcher |
@@ -215,7 +215,7 @@ The five rules that prevent 90% of improvisation:
 Muted text on a kit component is `c="dimmed"`: the theme points
 `--mantine-color-dimmed` at slate 11, the same step as `--tk-text-3` and
 the scheme-colors hook's muted role, so it is safe at every Mantine size
-including `xs` (`apps/AGENTS.md`, "Text slots and sizes"). In CSS, muted
+including `xs` (`.claude/rules/apps/kit-recipes.md`, "Text slots and sizes"). In CSS, muted
 text is `--tk-text-3` / `--tk-text-4`. The stock gray scale does not
 track these ramps and stays off-system.
 
@@ -261,6 +261,7 @@ not an app-level override.
 
 - Spec: `docs/superpowers/specs/2026-09-20-text-and-surface-ramps-design.md`
   (why the ramps are what they are).
-- `AGENTS.md` (repo root): the import walls and theme extension points
+- `.claude/rules/apps/kit-import-walls.md` and `kit-theme.md`: the import
+  walls and theme extension points
   for `packages/ui` -- the component-level contract this guide's colour
   rules sit inside.
