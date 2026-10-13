@@ -162,6 +162,7 @@
     "publishPrompt": null,
     "pushNeedsPullPrompt": null,
     "localChangesPrompt": null,
+    "toast": null,
     "canStash": false
   }
 }

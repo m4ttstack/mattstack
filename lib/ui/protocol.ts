@@ -320,6 +320,12 @@ export interface MissionSwitchPrompt {
 }
 
 /** One-shot, like MissionSwitchPrompt: the view opens GitHub Desktop's Publish Repository dialog with `name` filled in. */
+/** A confirmation the view floats briefly. `seq` rises with each new one, so a model re-sent with the same toast shows it once. */
+export interface MissionToast {
+  seq: number;
+  text: string;
+}
+
 export interface MissionPublishPrompt {
   seq: number;
   name: string;
@@ -407,6 +413,7 @@ export interface MissionModel {
   publishPrompt: MissionPublishPrompt | null;
   pushNeedsPullPrompt: MissionPushNeedsPullPrompt | null;
   localChangesPrompt: MissionLocalChangesPrompt | null;
+  toast: MissionToast | null;
   /** GHD's Stash All Changes enablement. */
   canStash: boolean;
 }

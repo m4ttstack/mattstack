@@ -214,6 +214,15 @@ const DISCARD_CONFIRM_WINDOW_MS = 5000;
 const PROVISION_TIMEOUT_MS = 6 * 60_000;
 
 /** The daemon's typed refusals, in the words a board reader can act on. */
+const ACTION_TOASTS: Partial<Record<ActionKind, string>> = {
+  fetch: "Fetched",
+  pull: "Pulled",
+  "pull-rebase": "Pulled",
+  push: "Pushed",
+  "force-push": "Force pushed",
+  "publish-branch": "Published branch",
+};
+
 const PROVISION_REFUSALS: Record<string, string> = {
   "repo-unknown": "this repo is not registered with rt",
   busy: "another worktree operation is running; try again in a moment",
@@ -325,6 +334,7 @@ export class MissionDriver {
   private publishSeq = 0;
   private pushNeedsPullSeq = 0;
   private localChangesSeq = 0;
+  private toastSeq = 0;
   /** GHD's retryAction: the pull the local changes dialog's Stash Changes and Continue reruns. */
   private localChangesRetry: RunnableAction | null = null;
   /** Count, not a boolean: two syncHistory() calls can overlap (a tab-open racing a concurrent badge sync), and one completing/discarding itself must not clear the indicator while the other is still genuinely in flight. */
@@ -608,6 +618,16 @@ export class MissionDriver {
     this.state.noticeTone = tone;
   }
 
+  /** Confirms something that just worked. It stays in state across pushes; the view shows each seq once. */
+  private toast(text: string): void {
+    this.state.toast = { seq: ++this.toastSeq, text };
+  }
+
+  /** A confirmation never talks over a notice the same action raised. */
+  private toastUnlessNoticed(text: string): void {
+    if (this.state.notice === "") this.toast(text);
+  }
+
   private async guardBranch(branch: string, opts: { stack: boolean }): Promise<BranchGuardVerdict> {
     const cwd = this.state.currentWorktree;
     return this.deps.guard({
@@ -787,7 +807,10 @@ export class MissionDriver {
         await this.handleStashAndRetry();
         break;
       case "mission:fetch":
-        await this.runBusy(() => this.deps.runAction(this.state.currentWorktree, "fetch", { remote: this.remoteName ?? undefined, branch: this.snapshot.branch }));
+        await this.runBusy(
+          () => this.deps.runAction(this.state.currentWorktree, "fetch", { remote: this.remoteName ?? undefined, branch: this.snapshot.branch }),
+          () => this.toast(ACTION_TOASTS.fetch!),
+        );
         break;
       case "mission:publish":
         await this.handlePublish(intent.payload as PublishPayload | undefined);
@@ -898,6 +921,8 @@ export class MissionDriver {
       () => this.deps.runAction(this.state.currentWorktree, kind, { remote: this.remoteName ?? undefined, branch: this.snapshot.branch }),
       () => {
         if (kind === "push" || kind === "force-push") this.state.forcePushRecommended = false;
+        const done = ACTION_TOASTS[kind];
+        if (done) this.toast(done);
       },
       kind,
     );
@@ -906,7 +931,10 @@ export class MissionDriver {
   private async handlePublish(payload: PublishPayload | undefined): Promise<void> {
     const name = typeof payload?.name === "string" ? payload.name.trim() : "";
     if (name === "") return;
-    await this.runBusy(() => this.deps.publishRepo(this.state.currentWorktree, { name, private: payload?.private !== false }));
+    await this.runBusy(
+      () => this.deps.publishRepo(this.state.currentWorktree, { name, private: payload?.private !== false }),
+      () => this.toast("Published repository"),
+    );
   }
 
   /**
@@ -1251,6 +1279,7 @@ export class MissionDriver {
     if (switched) {
       this.stash.hide();
       this.state.selections = new Map();
+      this.toastUnlessNoticed(`Switched to ${payload.branch}`);
     }
     await this.refresh();
     this.push();
@@ -1259,6 +1288,7 @@ export class MissionDriver {
   private async handleStash(): Promise<void> {
     const client = this.deps.client(this.state.currentWorktree);
     this.snapshot = await client.snapshot();
+    const before = this.stash.entry?.stashSha;
     if (canStash(this.snapshot)) {
       try {
         this.notify(await createStashAndDropPreviousEntry(client, this.snapshot.branch!, untrackedPaths(this.snapshot)), "info");
@@ -1267,6 +1297,8 @@ export class MissionDriver {
       }
     }
     await this.refresh();
+    // git stash can exit clean having stashed nothing, so the new entry is the proof.
+    if (this.stash.entry && this.stash.entry.stashSha !== before) this.toastUnlessNoticed("Stashed changes");
     this.push();
   }
 
@@ -1276,6 +1308,7 @@ export class MissionDriver {
     try {
       if (action === "restore") await client.popStashEntry(payload.sha);
       else await client.dropDesktopStashEntry(payload.sha);
+      this.toast(action === "restore" ? "Restored stash" : "Discarded stash");
     } catch (err) {
       this.notify(err instanceof Error ? err.message : String(err));
     }
@@ -1304,6 +1337,7 @@ export class MissionDriver {
       return;
     }
     this.notify("");
+    this.toast(`Created branch ${name}`);
     this.state.selections = new Map();
     await this.refresh();
     this.push();
@@ -1336,6 +1370,7 @@ export class MissionDriver {
     this.state.selections = new Map();
     await this.refresh();
     this.rememberRepo();
+    this.toast(`Switched to ${this.worktreeRows().find((row) => row.path === payload.path)?.name || basename(payload.path)}`);
     this.push();
   }
 
@@ -1380,7 +1415,7 @@ export class MissionDriver {
       return;
     }
 
-    const data = res.data as { path?: string; readyPending?: boolean; readyHeld?: boolean } | undefined;
+    const data = res.data as { tree?: string; path?: string; readyPending?: boolean; readyHeld?: boolean } | undefined;
     if (typeof data?.path !== "string") {
       this.notify("the daemon provisioned a tree but returned no path");
       this.push();
@@ -1401,6 +1436,7 @@ export class MissionDriver {
       : cachedOk === false
         ? "a ready step failed; dependencies in this tree may be stale"
         : "");
+    this.toastUnlessNoticed(`Provisioned ${data.tree || basename(data.path)}`);
     this.setCurrentWorktree(data.path, data.readyPending === true && cachedOk === undefined);
     this.state.selections = new Map();
     await this.refresh();
@@ -1449,6 +1485,7 @@ export class MissionDriver {
     this.state.selections = new Map();
     await this.refresh();
     this.rememberRepo();
+    this.toast(`Switched to ${repoLabel(payload.repo)}`);
     this.push();
   }
 
@@ -1572,7 +1609,8 @@ export class MissionDriver {
 
   private copy(text: string): void {
     const copied = this.deps.fileActions.copy(text);
-    this.notify(copied ? "Copied" : "Could not copy", copied ? "info" : "error");
+    if (copied) this.toast("Copied");
+    else this.notify("Could not copy");
   }
 
   /** Never awaited: an editor CLI that waits for its window must not hold up the intent loop. */

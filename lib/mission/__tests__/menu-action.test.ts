@@ -254,19 +254,22 @@ describe("mission:menu-action: clipboard", () => {
   test("copy-path copies the absolute path and says so", async () => {
     const { effects, last } = await run([menu({ action: "copy-path", path: "src/a b.ts" })]);
     expect(effects.copy).toEqual([`${ROOT}/src/a b.ts`]);
-    expect(last.notice).toBe("Copied");
+    expect(last.toast?.text).toBe("Copied");
+    expect(last.notice).toBe("");
   });
 
   test("copy-relative-path copies the normalized repo-relative path", async () => {
     const { effects, last } = await run([menu({ action: "copy-relative-path", path: "src/./a.ts" })]);
     expect(effects.copy).toEqual(["src/a.ts"]);
-    expect(last.notice).toBe("Copied");
+    expect(last.toast?.text).toBe("Copied");
+    expect(last.notice).toBe("");
   });
 
   test("copy-sha copies the full sha", async () => {
     const { effects, last } = await run([menu({ action: "copy-sha", sha: "abc123" })]);
     expect(effects.copy).toEqual(["abc123"]);
-    expect(last.notice).toBe("Copied");
+    expect(last.toast?.text).toBe("Copied");
+    expect(last.notice).toBe("");
   });
 
   test("a clipboard failure never claims Copied", async () => {

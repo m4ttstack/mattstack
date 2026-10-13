@@ -170,6 +170,39 @@ func TestToastFloatsAboveTheKeybarAtTheRightEdge(t *testing.T) {
 	}
 }
 
+func TestADriverToastShowsOncePerSeq(t *testing.T) {
+	m := newTestMission()
+	next := m.model
+	next.Toast = &Toast{Seq: 1, Text: "Copied"}
+	pushModel(t, m, next)
+	if m.toast != "Copied" {
+		t.Fatalf("toast = %q, want the driver's", m.toast)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	pushModel(t, m, next)
+	if m.toast != "" {
+		t.Fatalf("a model re-sent with the same toast must not show it again, got %q", m.toast)
+	}
+	next.Toast = &Toast{Seq: 2, Text: "Fetched"}
+	pushModel(t, m, next)
+	if m.toast != "Fetched" {
+		t.Fatalf("toast = %q, want the next seq's", m.toast)
+	}
+}
+
+func TestShiftWKeepsItsOwnWordingOverTheDriversSwitchToast(t *testing.T) {
+	m := mainWorktreeMission()
+	m.model.Current.Worktree = "/w/gandalf"
+	m.Update(tea.KeyPressMsg{Code: 'W', Text: "W"})
+	next := m.model
+	next.Current.Worktree = "/repo"
+	next.Toast = &Toast{Seq: 1, Text: "Switched to repo-tools"}
+	pushModel(t, m, next)
+	if m.toast != "Switched back to the main worktree" {
+		t.Fatalf("toast = %q, want W's own confirmation", m.toast)
+	}
+}
+
 func TestToastExpiresOnItsOwnTimerOnly(t *testing.T) {
 	m := newTestMission()
 	m.setToast("first")

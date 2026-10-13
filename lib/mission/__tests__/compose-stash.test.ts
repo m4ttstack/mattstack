@@ -54,6 +54,7 @@ describe("mission compose: stash against a real repo", () => {
 
       let m = await session.step({ t: "intent", name: "mission:stash", payload: {} });
       expect(m.stash?.branch).toBe("main");
+      expect(m.toast?.text).toBe("Stashed changes");
       expect(m.changes).toEqual([]);
       expect(existsSync(join(sandbox.dir, "u.txt"))).toBe(false);
       expect(await desktopStashes(sandbox)).toEqual(["On main: !!GitHub_Desktop<main>"]);
@@ -67,6 +68,7 @@ describe("mission compose: stash against a real repo", () => {
 
       m = await session.step({ t: "intent", name: "mission:stash-restore", payload: { sha: m.stash!.sha } });
       expect(m.stash).toBeNull();
+      expect(m.toast?.text).toBe("Restored stash");
       expect(readFileSync(join(sandbox.dir, "a.txt"), "utf8")).toBe("1\n2\n3\n4\nfive\n");
       expect(existsSync(join(sandbox.dir, "u.txt"))).toBe(true);
       expect(await desktopStashes(sandbox)).toEqual([]);
@@ -140,6 +142,7 @@ describe("mission compose: stash against a real repo", () => {
       m = await session.step({ t: "intent", name: "mission:checkout", payload: { branch: "main" } });
       expect(m.switchPrompt).toBeNull();
       expect(m.current.branch).toBe("main");
+      expect(m.toast?.text).toBe("Switched to main");
       expect(m.stash?.branch).toBe("main");
       await stop();
     } finally {
