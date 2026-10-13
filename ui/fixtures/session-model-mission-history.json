@@ -53,7 +53,8 @@
           "lastFetchedAt": ""
         },
         "current": true,
-        "onDeck": false
+        "onDeck": false,
+        "main": true
       }
     ],
     "branches": [],

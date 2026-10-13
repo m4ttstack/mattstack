@@ -28,10 +28,10 @@
   "worktrees": [
     { "path": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-rt/gandalf", "name": "gandalf", "branch": "mission-tui",
       "badge": { "ahead": 3, "behind": 2, "staged": 1, "unstaged": 2, "untracked": 1, "conflicted": 0, "clean": false, "lastFetchedAt": "2026-09-18T12:00:00Z" },
-      "current": true, "onDeck": false },
+      "current": true, "onDeck": false, "main": false },
     { "path": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-rt/frodo", "name": "frodo", "branch": "picker-polish",
       "badge": { "ahead": 0, "behind": 1, "staged": 0, "unstaged": 0, "untracked": 0, "conflicted": 0, "clean": true, "lastFetchedAt": "" },
-      "current": false, "onDeck": true }
+      "current": false, "onDeck": true, "main": false }
   ],
   "branches": [
     { "name": "main", "current": false, "ahead": 0, "behind": 5, "guardedBy": "", "group": "default branch", "default": true, "when": "2 days ago" },

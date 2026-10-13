@@ -360,18 +360,18 @@ func renderKeybar(width int, mode string) string {
 	// survive a narrow terminal.
 	pairs := [][2]string{
 		{"space", "stage"}, {"enter", "diff"}, {"2", "history"}, {"⌃k", "menu"}, {"c", "commit"}, {"f", "action"},
-		{"b", "branch"}, {"w", "worktree"}, {"r", "repo"}, {"/", "filter"}, {"u", "undo"}, {"S", "stash"}, {"h", "show stash"},
+		{"b", "branch"}, {"w", "worktree"}, {"W", "main"}, {"r", "repo"}, {"/", "filter"}, {"u", "undo"}, {"S", "stash"}, {"h", "show stash"},
 	}
 	switch mode {
 	case "history":
 		pairs = [][2]string{
 			{"↑↓", "commits"}, {"⇧↑↓", "range"}, {"enter", "files"}, {"/", "filter"}, {"e", "expand"},
-			{"1", "changes"}, {"⌃k", "menu"}, {"f", "action"}, {"b", "branch"}, {"w", "worktree"}, {"r", "repo"},
+			{"1", "changes"}, {"⌃k", "menu"}, {"f", "action"}, {"b", "branch"}, {"w", "worktree"}, {"W", "main"}, {"r", "repo"},
 		}
 	case "stash":
 		pairs = [][2]string{
 			{"↑↓", "files"}, {"enter", "diff"}, {"R", "restore"}, {"D", "discard"}, {"h", "hide"}, {"⌃k", "menu"},
-			{"b", "branch"}, {"w", "worktree"}, {"r", "repo"},
+			{"b", "branch"}, {"w", "worktree"}, {"W", "main"}, {"r", "repo"},
 		}
 	}
 	parts := make([]string, len(pairs))
