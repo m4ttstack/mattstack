@@ -11,6 +11,7 @@
 import type { DaemonResponse } from "../daemon-client.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, NoAgeKeyError, readSecret, type SecretsSeams } from "../secrets/store.ts";
+import { regroupTools } from "./regroup.ts";
 import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type OrgRef } from "./contract.ts";
 import { UserActionableError } from "../errors.ts";
 import { applyFinishGate, readWaived } from "./finish-gate.ts";
@@ -191,7 +192,7 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
   ]);
 
   const waived = i.waived ?? readWaived();
-  return finalizePlan(team, applyFinishGate(applyInstallSatisfiedFlip(groups, i.mode), i.mode, waived), i.p.now(), waived);
+  return finalizePlan(team, regroupTools(applyFinishGate(applyInstallSatisfiedFlip(groups, i.mode), i.mode, waived)), i.p.now(), waived);
 }
 
 /**

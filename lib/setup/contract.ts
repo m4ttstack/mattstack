@@ -3,7 +3,7 @@ export const CONTRACT_VERSION = 1 as const;
 export type RowStatus = "ready" | "missing" | "invalid" | "needs-you" | "checking" | "skipped" | "error";
 export type RowKind = "permission" | "tool" | "account" | "access" | "info";
 export type Recheck = "on-activate" | "on-change" | "manual";
-export type GroupId = "mac" | "accounts" | "access" | "tools";
+export type GroupId = "mac" | "accounts" | "access" | "tools" | "agents" | "browser" | "rt" | "team";
 export type Integration = "github" | "gitlab" | "linear" | "slack" | "sdm" | "doppler" | "ldcli";
 
 export interface ConnectField {
@@ -100,7 +100,16 @@ export interface Plan {
   finishBlockedBy: string[];
 }
 
-export const GROUP_TITLES: Record<GroupId, string> = { mac: "Your Mac", accounts: "Accounts", access: "Access", tools: "Tools" };
+export const GROUP_TITLES: Record<GroupId, string> = {
+  mac: "Your Mac",
+  accounts: "Accounts",
+  access: "Access",
+  tools: "Tools",
+  agents: "Agents and editors",
+  browser: "Browser",
+  rt: "rt on this Mac",
+  team: "Team and backup",
+};
 
 /** The rows that gate Finish. Enumerated here so `rt setup waive` can refuse anything else and offer a picker over the set. */
 export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-extension", "skills.writing-style"];
