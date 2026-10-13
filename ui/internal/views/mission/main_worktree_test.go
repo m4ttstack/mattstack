@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"rt-ui/internal/session"
 	"rt-ui/internal/theme"
 )
 
@@ -128,16 +130,79 @@ func TestShiftWConfirmsOnceTheMainWorktreeLands(t *testing.T) {
 	m := mainWorktreeMission()
 	m.model.Current.Worktree = "/w/gandalf"
 	m.Update(tea.KeyPressMsg{Code: 'W', Text: "W"})
-	if text, _ := m.notice(); text != "" {
-		t.Fatalf("nothing to confirm until the switch lands, got %q", text)
+	if m.toast != "" {
+		t.Fatalf("nothing to confirm until the switch lands, got %q", m.toast)
 	}
 	landOnMainWorktree(t, m)
-	if text, tone := m.notice(); text != "Switched back to the main worktree" || tone != noticeInfo {
-		t.Fatalf("notice = %q (%s), want the info confirmation", text, tone)
+	if m.toast != "Switched back to the main worktree" {
+		t.Fatalf("toast = %q, want the confirmation", m.toast)
+	}
+	if text, _ := m.notice(); text != "" {
+		t.Fatalf("the confirmation is a toast, not a notice strip row, got %q", text)
 	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	if text, _ := m.notice(); text != "" {
-		t.Fatalf("the confirmation should clear on the next key, got %q", text)
+	if m.toast != "" {
+		t.Fatalf("the toast should clear on the next key, got %q", m.toast)
+	}
+}
+
+func TestToastFloatsAboveTheKeybarAtTheRightEdge(t *testing.T) {
+	m := newTestMission()
+	before := strings.Split(ansi.Strip(m.View().Content), "\n")
+	m.setToast("Switched back to the main worktree")
+	after := strings.Split(ansi.Strip(m.View().Content), "\n")
+	if len(after) != len(before) {
+		t.Fatalf("a toast must not change the frame height: %d rows, was %d", len(after), len(before))
+	}
+	keybar := len(after) - 1
+	if after[keybar] != before[keybar] {
+		t.Fatalf("the toast must leave the keybar alone:\n%q\n%q", before[keybar], after[keybar])
+	}
+	row := after[keybar-2]
+	if !strings.HasSuffix(row, theme.GlyphDone+" Switched back to the main worktree │ ") {
+		t.Fatalf("toast text should sit two rows above the keybar, flush right: %q", row)
+	}
+	if !strings.HasSuffix(after[keybar-1], "╯ ") || !strings.HasSuffix(after[keybar-3], "╮ ") {
+		t.Fatalf("toast should be a bordered box ending on the row above the keybar:\n%q\n%q", after[keybar-3], after[keybar-1])
+	}
+}
+
+func TestToastExpiresOnItsOwnTimerOnly(t *testing.T) {
+	m := newTestMission()
+	m.setToast("first")
+	stale := m.toastGen
+	m.setToast("second")
+	m.Update(toastExpiredMsg{generation: stale})
+	if m.toast != "second" {
+		t.Fatalf("an older toast's timer must not end a newer one, got %q", m.toast)
+	}
+	m.Update(toastExpiredMsg{generation: m.toastGen})
+	if m.toast != "" {
+		t.Fatalf("the toast should end when its own timer fires, got %q", m.toast)
+	}
+}
+
+func TestAModelThatRaisesAToastStartsItsTimer(t *testing.T) {
+	var scheduled time.Duration
+	orig := toastTick
+	toastTick = func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
+		scheduled = d
+		return func() tea.Msg { return fn(time.Time{}) }
+	}
+	t.Cleanup(func() { toastTick = orig })
+
+	m := mainWorktreeMission()
+	m.model.Current.Worktree = "/w/gandalf"
+	m.awaitingMain = "/repo"
+	next := m.model
+	next.Current.Worktree = "/repo"
+	raw, err := json.Marshal(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Update(session.ModelUpdate{Raw: raw})
+	if scheduled != toastLifetime {
+		t.Fatalf("toast timer = %v, want %v", scheduled, toastLifetime)
 	}
 }
 
@@ -145,8 +210,8 @@ func TestASwitchToTheMainWorktreeFromTheFoldoutStaysQuiet(t *testing.T) {
 	m := mainWorktreeMission()
 	m.model.Current.Worktree = "/w/gandalf"
 	landOnMainWorktree(t, m)
-	if text, _ := m.notice(); text != "" {
-		t.Fatalf("only W confirms the switch, got %q", text)
+	if m.toast != "" {
+		t.Fatalf("only W confirms the switch, got %q", m.toast)
 	}
 }
 

@@ -114,11 +114,15 @@ type Mission struct {
 	// that triggers a fresh refusal, so it shows for exactly one render.
 	// Both share the one notice strip; notice picks the winner.
 	localNotice string
-	// localNoticeInfo paints localNotice as a confirmation, not a refusal.
-	localNoticeInfo bool
 	// awaitingMain is the main worktree's path between W and the model that
 	// lands the switch, which is when the confirmation can truthfully show.
 	awaitingMain string
+	// toast is the floating confirmation (toast.go), "" when none shows.
+	// toastGen stops an older toast's timer from ending a newer one, and
+	// toastUnarmed marks a toast whose timer has not started yet.
+	toast        string
+	toastGen     int
+	toastUnarmed bool
 
 	// hoverZone is the top-bar segment under the pointer, zoneNone when it
 	// is over neither segment nor anything else.
@@ -287,14 +291,7 @@ func (m *Mission) notice() (text, tone string) {
 	if m.model.Notice != "" {
 		return m.model.Notice, m.model.NoticeTone
 	}
-	if m.localNoticeInfo {
-		return m.localNotice, noticeInfo
-	}
 	return m.localNotice, noticeError
-}
-
-func (m *Mission) clearLocalNotice() {
-	m.localNotice, m.localNoticeInfo = "", false
 }
 
 // commitEnabled is the view-side commit gate: the wire CanCommit (something
@@ -337,7 +334,7 @@ func (m *Mission) SetModel(raw json.RawMessage) error {
 	// opens at its top, and the other tab's stashed position goes too.
 	if decoded.Current.Worktree != m.model.Current.Worktree {
 		if m.awaitingMain != "" && decoded.Current.Worktree == m.awaitingMain {
-			m.localNotice, m.localNoticeInfo = "Switched back to the main worktree", true
+			m.setToast("Switched back to the main worktree")
 		}
 		m.awaitingMain = ""
 		m.diffCursor, m.diffTop, m.diffPath, m.diffFreeScroll = 0, 0, "", false
@@ -462,7 +459,7 @@ func (m *Mission) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := m.SetModel(v.Raw); err != nil {
 			return m, nil
 		}
-		spin := m.spin.Start(m.busy())
+		spin := tea.Batch(m.spin.Start(m.busy()), m.armToast())
 		if m.historyTab() && m.historyFilter != "" {
 			return m, tea.Batch(m.historyReHome(), spin)
 		}
@@ -490,8 +487,13 @@ func (m *Mission) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.mouseMotion(v)
 	case tea.MouseWheelMsg:
 		return m.mouseWheel(v)
+	case toastExpiredMsg:
+		if v.generation == m.toastGen {
+			m.clearToast()
+		}
 	case tea.KeyPressMsg:
-		m.clearLocalNotice()
+		m.localNotice = ""
+		m.clearToast()
 		if v.String() == "ctrl+c" {
 			return m.quit()
 		}
@@ -973,6 +975,9 @@ func (m *Mission) View() tea.View {
 	if text, tone := m.notice(); text != "" {
 		out = lipgloss.JoinVertical(lipgloss.Left, out, renderNoticeStrip(text, tone, m.width))
 	}
+	if m.toast != "" {
+		out = renderToast(out, m.toast, m.width, l.keybarH+l.noticeH)
+	}
 	if m.modal != nil {
 		out = renderMissionModal(out, m.modal, m.width, m.height, lipgloss.Height(top))
 	}
@@ -1344,7 +1349,8 @@ func (m *Mission) mouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// The notice strip shortens the body, so the hit resolves against the
 	// frame that painted it before clearing it changes the geometry.
 	h := m.hitTest(mouse.X, mouse.Y)
-	m.clearLocalNotice()
+	m.localNotice = ""
+	m.clearToast()
 	if mouse.Button == tea.MouseRight {
 		return m.rightClick(h, &picker.MenuAnchor{X: mouse.X, Y: mouse.Y})
 	}
