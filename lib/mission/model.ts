@@ -39,6 +39,7 @@ import type {
   MissionPushNeedsPullPrompt,
   MissionLocalChangesPrompt,
   MissionSwitchPrompt,
+  MissionToast,
   MissionWorktreeRow,
 } from "../ui/protocol.ts";
 
@@ -89,6 +90,7 @@ export interface MissionState {
   publishPrompt: MissionPublishPrompt | null;
   pushNeedsPullPrompt: MissionPushNeedsPullPrompt | null;
   localChangesPrompt: MissionLocalChangesPrompt | null;
+  toast?: MissionToast | null;
 }
 
 /** No `rt worktree list` row shape carries a pre-joined git badge; the driver joins one before calling buildModel. */
@@ -667,6 +669,7 @@ export function buildModel(input: {
     publishPrompt: state.publishPrompt ?? null,
     pushNeedsPullPrompt: state.pushNeedsPullPrompt ?? null,
     localChangesPrompt: state.localChangesPrompt ?? null,
+    toast: state.toast ?? null,
     canStash: input.canStash ?? false,
   };
 }

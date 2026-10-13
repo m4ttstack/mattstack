@@ -802,6 +802,7 @@ describe("MissionDriver: real remote name, pull.rebase, and guards", () => {
     expect(models.map((m) => m.pushNeedsPullPrompt).filter((p) => p !== null)).toEqual([{ seq: 1 }]);
     expect(models.at(-1)!.pushNeedsPullPrompt).toBeNull();
     expect(models.some((m) => m.notice.includes("fast-forwards"))).toBe(false);
+    expect(models.every((m) => m.toast === null)).toBe(true);
   });
 
   test("the dialog's Fetch runs a fetch whatever the action segment says", async () => {
@@ -821,6 +822,7 @@ describe("MissionDriver: real remote name, pull.rebase, and guards", () => {
     await new MissionDriver(deps, START).run();
 
     expect(kinds).toEqual(["fetch"]);
+    expect((session.pushed.at(-1) as MissionModel).toast).toEqual({ seq: 1, text: "Fetched" });
   });
 
   const dirtyBehind = (): RepoSnapshot =>
@@ -1150,6 +1152,7 @@ describe("MissionDriver: repo switch", () => {
     const last = session.pushed.at(-1) as MissionModel;
     expect(last.current.repo).toBe("other-repo");
     expect(last.current.worktree).toBe("/other/tree");
+    expect(last.toast?.text).toBe("Switched to other-repo");
   });
 
   test("refuses a repo with no known worktree and does not half-switch", async () => {
@@ -1859,6 +1862,7 @@ describe("MissionDriver: worktree list unions git truth with the registry", () =
 
     const last = session.pushed.at(-1) as MissionModel;
     expect(last.current.worktree).toBe("/trees/frodo");
+    expect(last.toast?.text).toBe("Switched to frodo");
   });
 });
 
@@ -1887,6 +1891,7 @@ describe("MissionDriver: provisioning a worktree", () => {
     expect(provision?.payload).toMatchObject({ branch: "my-feature", owner: "glitter" });
     const last = session.pushed.at(-1) as MissionModel;
     expect(last.current.worktree).toBe("/trees/rohan");
+    expect(last.toast?.text).toBe("Provisioned rohan");
   });
 
   test("a refusal surfaces as a notice and leaves the board where it was", async () => {

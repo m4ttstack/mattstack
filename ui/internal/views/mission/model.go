@@ -176,6 +176,13 @@ type SwitchPrompt struct {
 
 // PublishPrompt is one-shot like SwitchPrompt: the Publish Repository dialog
 // opens for a Seq the view has not seen, with Name filled in.
+// Toast is a confirmation from the driver. It rides every model after the
+// action that raised it, so the view shows each Seq once.
+type Toast struct {
+	Seq  int    `json:"seq"`
+	Text string `json:"text"`
+}
+
 type PublishPrompt struct {
 	Seq  int    `json:"seq"`
 	Name string `json:"name"`
@@ -218,6 +225,7 @@ type Model struct {
 	PublishPrompt       *PublishPrompt       `json:"publishPrompt"`
 	PushNeedsPullPrompt *PushNeedsPullPrompt `json:"pushNeedsPullPrompt"`
 	LocalChangesPrompt  *LocalChangesPrompt  `json:"localChangesPrompt"`
+	Toast               *Toast               `json:"toast"`
 	CanStash            bool                 `json:"canStash"` // GHD's Stash All Changes enablement
 }
 

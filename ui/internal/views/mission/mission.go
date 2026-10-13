@@ -123,6 +123,8 @@ type Mission struct {
 	toast        string
 	toastGen     int
 	toastUnarmed bool
+	// wireToastSeq is the last driver toast shown (Model.Toast.Seq).
+	wireToastSeq int
 
 	// hoverZone is the top-bar segment under the pointer, zoneNone when it
 	// is over neither segment nor anything else.
@@ -332,6 +334,12 @@ func (m *Mission) SetModel(raw json.RawMessage) error {
 	// The driver keeps the selection across a worktree switch when the new
 	// tree changed the same path, but that diff is another tree's, so it
 	// opens at its top, and the other tab's stashed position goes too.
+	// The driver confirms every worktree switch by name; W's own wording
+	// replaces that one, since "back to main" is what the key promised.
+	if p := decoded.Toast; p != nil && p.Seq > m.wireToastSeq {
+		m.wireToastSeq = p.Seq
+		m.setToast(p.Text)
+	}
 	if decoded.Current.Worktree != m.model.Current.Worktree {
 		if m.awaitingMain != "" && decoded.Current.Worktree == m.awaitingMain {
 			m.setToast("Switched back to the main worktree")
