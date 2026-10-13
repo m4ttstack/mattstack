@@ -159,6 +159,23 @@ final class SetupFlowUITests: XCTestCase {
         waitFor("setup.checklist.group.tools")
         XCTAssertFalse(el("setup.checklist.group.needs-you").exists, "join-happy's plan gates nothing")
         XCTAssertTrue(el("setup.done.overview").exists, "with nothing gated the summary stays on Overview")
+        el("setup.checklist.group.tools").click()
+        waitFor("setup.checklist.row.tool.chrome.status")
+        XCTAssertTrue(el("setup.checklist.group.tools").isSelected)
+        XCTAssertFalse(el("setup.checklist.row.perm.fda.status").exists, "the Tools pane holds no Your Mac row")
+        el("setup.checklist.filter.ready").click()
+        waitFor("setup.checklist.row.perm.fda.status")
+        XCTAssertEqual(el("setup.checklist.row.perm.fda.status").value as? String, "ready", "the count lists ready rows from groups other than Tools")
+        XCTAssertTrue(el("setup.checklist.row.tool.herdr.status").exists, "and the ready rows of Tools")
+        XCTAssertFalse(el("setup.checklist.row.tool.chrome.status").exists, "a row that is not ready is not listed")
+        XCTAssertTrue(el("setup.checklist.filter.ready").isSelected)
+        for group in ["overview", "mac", "accounts", "access", "tools"] {
+            XCTAssertFalse(el("setup.checklist.group.\(group)").isSelected, "no sidebar entry is selected under a filter (\(group))")
+        }
+        el("setup.checklist.filter.ready").click()
+        waitFor("setup.checklist.row.tool.chrome.status")
+        XCTAssertFalse(el("setup.checklist.row.perm.fda.status").exists, "the second click turned the filter off")
+        XCTAssertTrue(el("setup.checklist.group.tools").isSelected, "and the pane it left is back")
         el("setup.done.continue").click()
         waitUntilGone("setup.done.screen")
     }

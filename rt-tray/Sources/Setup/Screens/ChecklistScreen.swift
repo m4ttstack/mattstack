@@ -29,6 +29,7 @@ struct ChecklistScreen: View {
     }
     @State private var actionErrors: [String: RowFailure] = [:]
     @State private var selected: String?
+    @State private var filter: ChecklistLayout.SummaryKind?
     @State private var waitingOnYou: [String: String] = [:]
 
     var body: some View {
@@ -153,18 +154,23 @@ struct ChecklistScreen: View {
         let entries = layout.entries(overview: overview != nil, running: model.checkingRowIds, failed: Set(liveErrors.keys))
             .filter { rowsConfirmed || $0.id == ChecklistLayout.overviewID }
         let current = rowsConfirmed ? layout.selection(preferred: selected, overview: overview != nil) : ChecklistLayout.overviewID
+        let shownFilter = rowsConfirmed ? layout.activeFilter(filter) : nil
         return VStack(alignment: .leading, spacing: 12) {
             if rowsConfirmed {
-                HStack(spacing: 14) {
-                    ForEach(layout.summary, id: \.text) { part in
-                        HStack(spacing: 4) {
-                            SummaryGlyph(kind: part.kind)
-                            Text(part.text).font(.callout)
+                HStack(spacing: 6) {
+                    ForEach(layout.summary, id: \.kind) { part in
+                        SummaryCount(part: part, isOn: part.kind == shownFilter) {
+                            if part.kind == .needsYou {
+                                filter = nil
+                                selected = ChecklistLayout.needsYouID
+                            } else {
+                                filter = part.kind == shownFilter ? nil : part.kind
+                            }
                         }
                     }
                     Spacer()
                 }
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(AXID.checklistSummary)
             }
             if model.fdaNeedsRelaunch { relaunchBanner }
@@ -173,13 +179,17 @@ struct ChecklistScreen: View {
                     ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                         if index > 0 { Divider() }
                         // A pick made before the rows are confirmed would keep the summary off Needs you once they are.
-                        ChecklistSidebarEntry(entry: entry, isSelected: entry.id == current) { if rowsConfirmed { selected = entry.id } }
+                        ChecklistSidebarEntry(entry: entry, isSelected: shownFilter == nil && entry.id == current) {
+                            if rowsConfirmed { filter = nil; selected = entry.id }
+                        }
                     }
                 }
                 .frame(width: 220)
                 ScrollView {
                     Group {
-                        if current == ChecklistLayout.overviewID, let overview {
+                        if let shownFilter {
+                            ChecklistFilterView(kind: shownFilter, groups: layout.filtered(shownFilter), activity: activity) { perform($0) }
+                        } else if current == ChecklistLayout.overviewID, let overview {
                             ChecklistCard { overview }
                         } else if current == ChecklistLayout.needsYouID {
                             ChecklistSectionsView(
@@ -414,6 +424,27 @@ struct SummaryGlyph: View {
         case .optional: Image(systemName: "circle").foregroundStyle(.secondary)
         case .notNeeded: Image(systemName: "circle.dashed").foregroundStyle(.secondary)
         }
+    }
+}
+
+/// One count of the summary line: a button that lists the rows it counts.
+struct SummaryCount: View {
+    let part: ChecklistLayout.SummaryPart
+    let isOn: Bool
+    let onPick: () -> Void
+    var body: some View {
+        Button(action: onPick) {
+            HStack(spacing: 4) {
+                SummaryGlyph(kind: part.kind)
+                Text(part.text).font(.callout).fontWeight(isOn ? .semibold : .regular)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(Capsule().fill(isOn ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(AXID.checklistFilter(String(describing: part.kind)))
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
 

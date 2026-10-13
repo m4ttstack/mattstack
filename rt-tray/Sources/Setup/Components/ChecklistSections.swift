@@ -60,7 +60,7 @@ struct ChecklistSectionsView: View {
         VStack(alignment: .leading, spacing: 12) {
             if !section.needsYou.isEmpty {
                 ChecklistCard {
-                    header("Needs you", symbol: "exclamationmark.triangle.fill", multicolor: true)
+                    ChecklistCardHeader(title: "Needs you", symbol: "exclamationmark.triangle.fill", multicolor: true)
                     ForEach(section.needsYou) { row in
                         Divider()
                         SectionRow(row: row, badge: ChecklistSorting.badge(for: row, finishBlockedBy: finishBlockedBy),
@@ -73,7 +73,7 @@ struct ChecklistSectionsView: View {
             }
             if !section.optional.isEmpty {
                 ChecklistCard {
-                    header("Optional", symbol: nil, multicolor: false)
+                    ChecklistCardHeader(title: "Optional")
                     ForEach(section.optional) { row in
                         Divider()
                         SectionRow(row: row, badge: nil, context: nil, activity: activity, ids: .checklist, onSkip: nil, perform: perform)
@@ -123,8 +123,13 @@ struct ChecklistSectionsView: View {
             }
         }
     }
+}
 
-    private func header(_ title: String, symbol: String?, multicolor: Bool) -> some View {
+struct ChecklistCardHeader: View {
+    let title: String
+    var symbol: String?
+    var multicolor = false
+    var body: some View {
         HStack(spacing: 8) {
             if let symbol { Image(systemName: symbol).symbolRenderingMode(multicolor ? .multicolor : .monochrome) }
             Text(title).font(.callout.weight(.semibold))
@@ -132,6 +137,35 @@ struct ChecklistSectionsView: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .background(Color.primary.opacity(0.03))
+    }
+}
+
+/// Every row one count of the summary stands for, under the group each came from.
+struct ChecklistFilterView: View {
+    let kind: ChecklistLayout.SummaryKind
+    let groups: [ChecklistLayout.FilterGroup]
+    let activity: RowActivity
+    let perform: (PlanRow) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(groups) { group in
+                ChecklistCard {
+                    ChecklistCardHeader(title: group.title)
+                    ForEach(group.rows) { row in
+                        Divider()
+                        switch kind {
+                        case .needsYou, .optional:
+                            SectionRow(row: row, badge: nil, context: nil, activity: activity, ids: .checklist, onSkip: nil, perform: perform)
+                        case .ready, .notNeeded:
+                            SettledRow(row: row, isChecking: activity.checking.contains(row.id), error: activity.errors[row.id], perform: perform)
+                        }
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(AXID.checklistSection("filter.\(group.id)"))
+            }
+        }
     }
 }
 
