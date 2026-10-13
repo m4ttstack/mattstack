@@ -21,6 +21,11 @@ let wizardPagesChecks: [Check] = [
         c.expect(p.isLast("rt")); c.expect(!p.isLast("mac"))
         c.expectEqual(p.index(of: "accounts"), 1)
     },
+    Check("WizardPages: two groups sharing an id keep the first title") { c in
+        let p = WizardPages(groups: [PlanGroup(id: "mac", title: "First", rows: [row("a", .ready)]),
+                                     PlanGroup(id: "mac", title: "Second", rows: [row("b", .ready)])])
+        c.expectEqual(p.titles["mac"], "First")
+    },
     Check("WizardPages.current: keeps the page by id, else the page now at its old position, else the first") { c in
         let p = WizardPages(groups: three)
         c.expectEqual(p.current(preferred: nil, lastIndex: nil), "mac")

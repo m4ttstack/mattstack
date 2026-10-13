@@ -191,6 +191,40 @@ let doneModelChecks: [Check] = [
             c.expectEqual(m.headline, "Everything's working")
         }
     },
+    Check("a required row still not ready after Install is a step left for you, never Everything's working") { c in
+        let (m, _, _, _) = await doneFixture(plans: [makeManualPlan(extensionStatus: .ready, requiredNotReady: true)])
+        await MainActor.run { c.expectEqual(m.requiredLeftRows.map(\.id), [], "the pre-Install rows are not evidence") }
+        await m.checkPostInstall()
+        await MainActor.run {
+            c.expectEqual(m.blockedRows.map(\.id), [])
+            c.expectEqual(m.requiredLeftRows.map(\.id), ["tool.required-manual"])
+            c.expectEqual(m.headline, "Installed, with 1 step left for you")
+            c.expectEqual(m.finishEnabled, true, "Finish waits on finishBlockedBy alone")
+        }
+    },
+    Check("a required row left beside an optional one counts both; one that also blocks Finish is counted once, as a blocker") { c in
+        let steps = RowAction(type: .steps, label: "Show steps...", steps: ["Do the thing"])
+        let rows = [
+            PlanRow(id: "tool.required-manual", kind: .tool, title: "Required manual tool", why: "w", required: true, status: .needsYou,
+                    action: steps, recheck: .onActivate),
+            PlanRow(id: "tool.optional-manual", kind: .tool, title: "Optional manual tool", why: "w", required: false, status: .needsYou,
+                    action: steps, recheck: .onActivate),
+        ]
+        let plan = { (blocked: [String]) in
+            Plan(at: "t", team: TeamInfo(slug: "acme", name: "Acme", mode: .join),
+                 groups: [PlanGroup(id: "tools", title: "Tools", rows: rows)],
+                 canInstall: false, requiredMissing: ["tool.required-manual"], finishBlockedBy: blocked)
+        }
+        let (m, _, _, _) = await doneFixture(plans: [plan([]), plan(["tool.required-manual"])])
+        await m.checkPostInstall()
+        await MainActor.run { c.expectEqual(m.headline, "Installed, with 2 steps left for you") }
+        await m.retryCheck()
+        await MainActor.run {
+            c.expectEqual(m.blockedRows.map(\.id), ["tool.required-manual"])
+            c.expectEqual(m.requiredLeftRows.map(\.id), [])
+            c.expectEqual(m.headline, "One step left before you finish")
+        }
+    },
     Check("confirming Skip for now runs rt setup waive <id> --json, re-checks, and the row moves to Still to do with Finish enabled") { c in
         let (m, _, rt, plans) = await doneFixture(
             plans: [makeManualPlan(extensionStatus: .needsYou), makeManualPlan(extensionStatus: .needsYou, waived: true)],
@@ -288,6 +322,31 @@ let doneModelChecks: [Check] = [
         }
         held.release(makeManualPlan(extensionStatus: .needsYou, waived: true))
         await retry.value
+        await MainActor.run {
+            c.expectEqual(m.blockedRows.map(\.id), [])
+            c.expectEqual(m.finishEnabled, true)
+        }
+    },
+    Check("a second re-check started while one is in flight keeps the confirmed rows on screen") { c in
+        let held = HeldPlans()
+        let readiness = await MainActor.run { ReadinessModel(plans: held, permissions: FakePermissions(), ticker: FakeTicker()) }
+        let m = await MainActor.run { DoneModel(readiness: readiness, waivers: WaiverClient(rt: ScriptedRt()), choices: ChoiceClient(rt: ScriptedRt())) }
+        let first = Task { await m.checkPostInstall() }
+        try c.require(await waitUntil { held.fetches == 1 }, "the first check never asked for a plan")
+        held.release(makeManualPlan(extensionStatus: .needsYou))
+        await first.value
+        let retry = Task { await m.retryCheck() }
+        try c.require(await waitUntil { held.fetches == 2 }, "the re-check never asked for a plan")
+        let again = Task { await m.retryCheck() }
+        try c.require(await waitUntil { held.fetches == 3 }, "the second re-check never asked for a plan")
+        await MainActor.run {
+            c.expectEqual(m.hasConfirmedRows, true)
+            c.expectEqual(m.blockedRows.map(\.id), ["tool.fast-browser-extension"], "the rows the first re-check kept up stay up under the second")
+            c.expectEqual(m.finishEnabled, false)
+        }
+        held.release(makeManualPlan(extensionStatus: .needsYou, waived: true))
+        await retry.value
+        await again.value
         await MainActor.run {
             c.expectEqual(m.blockedRows.map(\.id), [])
             c.expectEqual(m.finishEnabled, true)

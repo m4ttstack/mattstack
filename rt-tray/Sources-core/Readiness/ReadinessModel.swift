@@ -224,7 +224,7 @@ public final class ReadinessModel: ObservableObject {
     /// its own plan.canInstall is a hard veto — never enable Install just
     /// because every visible row happens to look ready.
     private func recomputeEnablement() {
-        requiredMissing = allRows.filter { $0.required && $0.status != .ready }.map(\.id)
+        requiredMissing = allRows.filter(ChecklistSorting.blocksInstall).map(\.id)
         canInstall = planCanInstall && requiredMissing.isEmpty
     }
 }

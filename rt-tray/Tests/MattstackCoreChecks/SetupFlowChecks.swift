@@ -86,6 +86,52 @@ let setupFlowChecks: [Check] = [
             f.back(); c.expectEqual(f.page, "mac", "the landing applies once, not on every re-read")
         }
     },
+    Check("flow: a page that vanishes mid-list hands over to the page now at its position") { c in
+        await MainActor.run {
+            let f = SetupFlowModel()
+            let last = PlanGroup(id: "tools", title: "Tools", rows: flowGroups[2].rows)
+            f.jump(to: .checklist); f.setPages(flowGroups + [last]); f.next()
+            c.expectEqual(f.page, "accounts")
+            f.setPages([flowGroups[0], flowGroups[2], last])
+            c.expectEqual(f.page, "rt")
+            c.expectEqual(f.continueTitle, "Continue", "the page that took over is not the last")
+            f.next(); c.expectEqual(f.page, "tools")
+            f.back(); f.back(); c.expectEqual(f.page, "mac")
+        }
+    },
+    Check("flow: the step after Install is the summary") { c in
+        await MainActor.run {
+            let f = SetupFlowModel()
+            f.jump(to: .install)
+            f.next()
+            c.expectEqual(f.step, .done)
+            c.expectEqual(f.headerIndicator, "Step 5 of 5")
+        }
+    },
+    Check("flow: setup entered again in the same session opens the checklist on its first page") { c in
+        await MainActor.run {
+            let f = SetupFlowModel()
+            f.next(); f.next(); f.setPages(flowGroups)
+            f.next(); f.next(); f.next(); f.next()
+            c.expectEqual(f.step, .done)
+            f.jump(to: .team); f.next()
+            c.expectEqual(f.step, .checklist)
+            c.expectEqual(f.page, "mac")
+            c.expectEqual(f.continueTitle, "Continue")
+            f.setPages(flowGroups)
+            c.expectEqual(f.page, "mac", "a re-read does not hand the page back to the last run's position")
+        }
+    },
+    Check("flow: a landing asked of a wizard that already has its pages moves nobody") { c in
+        await MainActor.run {
+            let f = SetupFlowModel()
+            f.jump(to: .checklist); f.setPages(flowGroups)
+            c.expectEqual(f.page, "mac")
+            f.jump(to: .checklist, landing: true)
+            f.setPages(flowGroups)
+            c.expectEqual(f.page, "mac", "the next re-read must not move a person who is already on a page")
+        }
+    },
     Check("flow: a plan with one group installs from its only page") { c in
         await MainActor.run {
             let f = SetupFlowModel()

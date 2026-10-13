@@ -162,6 +162,13 @@ public final class DoneModel: ObservableObject {
     public var hasConfirmedRows: Bool { showsRows }
     public var blockedRows: [PlanRow] { showsRows ? readiness.finishBlockedRows : [] }
     public var stillToDoRows: [PlanRow] { showsRows ? readiness.outstandingManualRows : [] }
+    /// Required rows Install left not ready. They sit under the sidebar's
+    /// Needs you without closing Finish, so the headline has to count them.
+    /// A row that also blocks Finish is in `blockedRows` only.
+    public var requiredLeftRows: [PlanRow] {
+        guard showsRows else { return [] }
+        return readiness.allRows.filter { ChecklistSorting.blocksInstall($0) && !readiness.finishBlockedBy.contains($0.id) }
+    }
     /// True after a post-install check failed or timed out and no later one succeeded.
     public var refreshFailed: Bool { refreshError != nil }
     public var refreshError: String? {
@@ -183,7 +190,7 @@ public final class DoneModel: ObservableObject {
         guard hasConfirmedRows else { return "Checking…" }
         let blocked = blockedRows.count
         if blocked > 0 { return FinishGate.headline(blocked: blocked) }
-        let outstanding = stillToDoRows.count
+        let outstanding = stillToDoRows.count + requiredLeftRows.count
         return outstanding == 0 ? "Everything's working" : "Installed, with \(outstanding) step\(outstanding == 1 ? "" : "s") left for you"
     }
 
@@ -196,7 +203,7 @@ public final class DoneModel: ObservableObject {
     /// watchdog, and a confirmed plan stays on screen while it is re-read.
     /// A row's own action re-reads through `ReadinessModel.afterAction`
     /// instead, which no watchdog bounds.
-    public func retryCheck() async { await runCheck(keepingConfirmedRows: checkState == .checked) }
+    public func retryCheck() async { await runCheck(keepingConfirmedRows: hasConfirmedRows) }
 
     /// A failed refresh leaves `readiness` holding the last plan, which is
     /// never presented as confirmed: the rows stay hidden and the failure is

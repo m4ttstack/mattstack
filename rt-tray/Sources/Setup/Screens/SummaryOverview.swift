@@ -86,7 +86,7 @@ struct SummaryOverview: View {
     }
 
     private var isBlocked: Bool { !model.blockedRows.isEmpty }
-    private var allDone: Bool { model.stillToDoRows.isEmpty && install.partialSteps.isEmpty }
+    private var allDone: Bool { model.stillToDoRows.isEmpty && model.requiredLeftRows.isEmpty && install.partialSteps.isEmpty }
     private var headline: String {
         guard model.hasConfirmedRows, !isBlocked, !install.partialSteps.isEmpty else { return model.headline }
         return FinishGate.retryHeadline(partial: install.partialSteps.count)

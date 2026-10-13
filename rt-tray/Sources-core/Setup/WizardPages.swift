@@ -8,7 +8,8 @@ public struct WizardPages: Equatable, Sendable {
     public init(groups: [PlanGroup] = []) {
         let shown = groups.filter { !$0.rows.isEmpty }
         ids = shown.map(\.id)
-        titles = Dictionary(uniqueKeysWithValues: shown.map { ($0.id, $0.title) })
+        // rt's plan is not trusted to keep group ids unique, and `uniqueKeysWithValues` traps on a repeat.
+        titles = Dictionary(shown.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
     }
 
     public func index(of id: String) -> Int? { ids.firstIndex(of: id) }

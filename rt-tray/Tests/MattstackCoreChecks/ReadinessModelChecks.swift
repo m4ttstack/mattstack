@@ -310,6 +310,19 @@ let readinessModelChecks: [Check] = [
             c.expectEqual(m.canInstall, false, "rt gated canInstall on something not expressed as a row")
         }
     },
+    Check("a required row that is finish-gated is not required-missing and does not hold Install") { c in
+        let gated = PlanRow(id: "skills.writing-style", kind: .tool, title: "Writing style", why: "w", required: true, status: .needsYou,
+                            recheck: .onActivate, finishGated: true)
+        let plan = Plan(at: "t", team: TeamInfo(slug: "acme", name: "Acme", mode: .join),
+                        groups: [PlanGroup(id: "tools", title: "Tools", rows: [gated])],
+                        canInstall: true, requiredMissing: [], finishBlockedBy: ["skills.writing-style"])
+        let m = await MainActor.run { ReadinessModel(plans: FakePlans([plan]), permissions: FakePermissions(), ticker: FakeTicker()) }
+        await m.load()
+        await MainActor.run {
+            c.expectEqual(m.requiredMissing, [], "Finish waits on it, Install does not")
+            c.expectEqual(m.canInstall, true)
+        }
+    },
     Check("PermissionRowOverlay maps contract statuses to row statuses") { c in
         let s = PermissionSnapshot(fda: .init(status: "denied", detail: "EPERM"), notifications: .init(status: "denied"),
                                    loginItems: .init(status: "notRegistered"))

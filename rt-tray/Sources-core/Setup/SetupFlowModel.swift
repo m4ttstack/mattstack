@@ -117,7 +117,10 @@ public final class SetupFlowModel: ObservableObject {
 
     public func next() {
         if step == .checklist, let page, let following = pages.next(after: page) { show(page: following); return }
-        if let n = SetupStep(rawValue: step.rawValue + 1) { step = n }
+        guard let n = SetupStep(rawValue: step.rawValue + 1) else { return }
+        // The window outlives a finished run, so the page it ended on is still set when setup is entered again.
+        if n == .checklist { page = pages.ids.first; lastPageIndex = page == nil ? nil : 0 }
+        step = n
     }
 
     public func back() {
@@ -128,9 +131,12 @@ public final class SetupFlowModel: ObservableObject {
 
     /// `landing` is for a relaunch back into setup: the next plan to land
     /// picks the page, since the old page index did not survive the relaunch.
+    /// A wizard that already has its pages keeps the one it is on: a latch
+    /// set there would move the person at the next re-read, right after they
+    /// pressed a row's button.
     public func jump(to s: SetupStep, landing: Bool = false) {
         step = s
-        if landing { landsOnBlocker = true }
+        if landing, pages.ids.isEmpty { landsOnBlocker = true }
     }
 
     private func show(page id: String) {
