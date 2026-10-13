@@ -172,6 +172,9 @@ export type BoardMRWithReview = BoardMR & {
   /** Channels the last "post to slack" offered and did not post to. Absent
       when the MR was never posted through the dialog. */
   ownerPostsLeft?: string[];
+  /** The other teams that own a Code Owner section on this MR, on the seat's
+      own MRs once the server has read its approval rules. */
+  ownerTeams?: OwnerTeam[];
   drafts?: DraftInfo[];
   /** The seat's own note on this MR (B10), kept in the board's state db and
       shown as the row's last line. */
@@ -213,6 +216,18 @@ export interface AskCardData {
   };
 }
 
+/** A team that owns a Code Owner section on an MR. */
+export interface OwnerTeam {
+  team: string;
+  approved: boolean;
+}
+
+/** One team of the org roster with its members. */
+export interface OrgTeam {
+  name: string;
+  members: Array<{ username: string; name?: string }>;
+}
+
 export interface BoardData {
   title: string;
   defaultMember: string;
@@ -226,6 +241,10 @@ export interface BoardData {
       or the relay hasn't answered yet, and the ask pickers then fall back to
       the whole roster. */
   peers?: string[];
+  /** Every team in the org roster with its members; absent on older servers. */
+  teams?: OrgTeam[];
+  /** The seat's active team; null on no team, absent on older servers. */
+  ownTeam?: string | null;
   fetchedAt: number;
   fetchError: string | null;
   local: boolean;
