@@ -1,16 +1,14 @@
 import { basename, join, resolve } from "path";
 import { validateWrite } from "../../../packages/rt-client/src/settings/validate-write.ts";
 import { restartAppWithDeck } from "../../deps/resolve.ts";
-import { getKnownRepos } from "../../repo-index.ts";
 import { onlyDefault } from "../../settings/presence.ts";
-import { parseIdentity } from "../../settings/identity.ts";
 import { getDef } from "../../settings/registry.ts";
-import { getSetting, listSettings } from "../../settings/resolve.ts";
+import { listSettings } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { boardRoots, sourceBoardRoots } from "../../team/board-token.ts";
 import type { StepOutcome } from "../apply.ts";
+import { repairGitqBoard } from "../gitq-board-repair.ts";
 import type { Probes } from "../probes.ts";
-import { repoBasename } from "../steps/repos.ts";
 import { storeHolds } from "./import-legacy-settings.ts";
 import type { MigrationDef } from "./index.ts";
 
@@ -152,19 +150,6 @@ function importFile(p: FileProbes, file: string, read: Reader, t: Tally): Record
   return parsed;
 }
 
-/** The registered repos by the name gitq's board would give them; a name two repos share resolves to nothing. */
-function pathsByName(): Map<string, string | null> {
-  const byName = new Map<string, Set<string>>();
-  for (const row of getKnownRepos()) {
-    const first = row.registered !== false ? row.worktrees[0] : undefined;
-    if (!first) continue;
-    const parsed = parseIdentity(row.repoName);
-    const name = parsed ? repoBasename(parsed.id) : row.repoName;
-    byName.set(name, (byName.get(name) ?? new Set()).add(first.path));
-  }
-  return new Map([...byName].map(([name, paths]) => [name, paths.size === 1 ? [...paths][0]! : null]));
-}
-
 /** A repo gitq's own config.json already names with a folder. */
 function pathFromFile(fileRepos: unknown, name: string): string | null {
   if (!Array.isArray(fileRepos)) return null;
@@ -182,29 +167,17 @@ function readRepos(p: FileProbes, file: string): unknown {
   }
 }
 
-/** rt setup used to seed gitq.board with bare repo names, which gitq refuses. Returns true when gitq's own file must stay: a name is still bare, or the fixed value could not be written. */
-function repairGitqBoard(t: Tally, fileRepos: unknown): boolean {
-  const resolved = getSetting<{ repos?: unknown }>("gitq.board");
-  const repos = resolved.value?.repos;
-  if (onlyDefault(resolved) || !Array.isArray(repos) || !repos.some((r) => typeof r === "string")) return false;
-  const index = pathsByName();
-  const fixed = repos.map((r) => {
-    if (typeof r !== "string") return r;
-    const path = index.get(r) ?? pathFromFile(fileRepos, r);
-    return path ? { path, name: r } : null;
-  });
-  if (fixed.includes(null)) {
-    t.unrepaired = true;
-    return true;
+/** Returns true when gitq's own file must stay: a name is still bare, or the fixed value could not be written. */
+function repairBoardSetting(t: Tally, fileRepos: unknown): boolean {
+  const repair = repairGitqBoard((name) => pathFromFile(fileRepos, name));
+  if (repair.state === "none") return false;
+  if (repair.state === "repaired") {
+    t.repaired = true;
+    return false;
   }
-  try {
-    setSetting("gitq.board", { ...(resolved.value as Record<string, unknown>), repos: fixed }, "machine");
-  } catch (err) {
-    t.failed.push(`gitq.board: ${firstLine(err)}`);
-    return true;
-  }
-  t.repaired = true;
-  return false;
+  if (repair.state === "failed") t.failed.push(`gitq.board: ${firstLine(repair.error)}`);
+  else t.unrepaired = true;
+  return true;
 }
 
 const BOARD_NOT_RESTARTED = "rt could not restart your board, so restart it to pick up these settings";
@@ -258,7 +231,7 @@ export function makeImportAppSettingsMigration(seams: ImportAppSettingsSeams = r
       const gitq = p.env.GITQ_APP_ROOT ? resolve(p.env.GITQ_APP_ROOT) : join(p.home, ".mattstack", "gitq");
       importFile(p, join(gitq, "settings.json"), gitqSettingsCopies, t);
       const boardFile = join(gitq, "config.json");
-      const keepFile = repairGitqBoard(t, readRepos(p, boardFile));
+      const keepFile = repairBoardSetting(t, readRepos(p, boardFile));
       if (keepFile) t.gitqFileKept = p.exists(boardFile);
       else importFile(p, boardFile, gitqBoardCopies, t);
       const result = outcome(t);
