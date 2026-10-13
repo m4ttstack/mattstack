@@ -51,7 +51,10 @@ struct ChecklistSectionsView: View {
         self.needsYouIDs = needsYouIDs; self.onSkip = onSkip; self.perform = perform
     }
 
-    private var noActionShown: Bool { noActionOpen || (section.needsYou.isEmpty && section.optional.isEmpty) }
+    private var noActionShown: Bool {
+        noActionOpen || (section.needsYou.isEmpty && section.optional.isEmpty)
+            || section.noAction.contains { activity.errors[$0.id] != nil }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

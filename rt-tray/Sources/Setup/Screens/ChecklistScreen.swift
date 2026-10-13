@@ -214,6 +214,10 @@ struct ChecklistScreen: View {
         return [note, status].compactMap { $0 }.joined(separator: " · ")
     }
 
+    private func recordFailure(_ message: String, for row: PlanRow) {
+        actionErrors[row.id] = RowFailure(message: message, status: model.row(row.id)?.status ?? row.status)
+    }
+
     private func recheck() {
         actionErrors = [:]
         Task { await model.recheckAll() }
@@ -250,7 +254,7 @@ struct ChecklistScreen: View {
                         await MainActor.run { waitingOnYou[rowId] = copy }
                     }) {
                         TrayLog.warn("row action failed", ["row": row.id, "err": failure])
-                        actionErrors[row.id] = RowFailure(message: failure, status: row.status)
+                        recordFailure(failure, for: row)
                     }
                     await model.afterAction(rowId: row.id)
                     return
@@ -259,16 +263,16 @@ struct ChecklistScreen: View {
                     let result = try await rt.run(args, stdin: stdin)
                     if let e = result.userError(redactStderr: redactStderr) {
                         TrayLog.warn("row action failed", ["row": row.id, "err": e.message])
-                        actionErrors[row.id] = RowFailure(message: e.message, status: row.status)
+                        recordFailure(e.message, for: row)
                     } else if result.exitCode != 0 {
                         let copy = result.failureCopy(verb: verb, redactStderr: redactStderr)
                         TrayLog.warn("row action failed", ["row": row.id, "err": copy])
-                        actionErrors[row.id] = RowFailure(message: copy, status: row.status)
+                        recordFailure(copy, for: row)
                     }
                 } catch {
                     let copy = (error as? RtClientError)?.copy ?? "rt \(verb) failed to start."
                     TrayLog.warn("row action failed", ["row": row.id, "err": copy])
-                    actionErrors[row.id] = RowFailure(message: copy, status: row.status)
+                    recordFailure(copy, for: row)
                 }
                 await model.afterAction(rowId: row.id)
             }
