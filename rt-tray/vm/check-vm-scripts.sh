@@ -8,6 +8,11 @@ for f in lib/common.sh golden/*.sh run/*.sh run/guest/*.sh run/host/*.sh ../../s
   t "bash -n $f" bash -n "$f"
 done
 t "common.test.sh"               bash lib/__tests__/common.test.sh
+# The walkthrough's paging against a model of the wizard: the order of its
+# presses, that Install is pressed once and last, that every loop ends. No VM
+# runs here, so this and a VM walkthrough are the only two checks of it.
+# /bin/bash, not the PATH's: the guest has only the system bash.
+t "wizard-pages.test.sh"         /bin/bash run/helpers/__tests__/wizard-pages.test.sh
 t "appcast-server.test.ts"       bun test run/helpers/__tests__/appcast-server.test.ts
 t "launchctl-print.test.ts"      bun test run/helpers/__tests__/launchctl-print.test.ts
 t "catalog.test.ts"              bun test run/helpers/__tests__/catalog.test.ts
@@ -159,8 +164,12 @@ t "ax_admin_auth_once returns fast with no SecurityAgent" env GUEST_RUN=/tmp/vmc
 t "ax_set_field escapes an embedded quote/backslash" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh; ( ax_set_field setup.team.create.name "weird\"value\\here" ) 2>/dev/null; [ $? -eq 1 ] && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
 t "ax finish-gate helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_enabled ax_wait_enabled ax_wait_text ax_click_sheet_button ax_find_sheet_id ax_click_sheet_id >/dev/null && ! ax_enabled x >/dev/null 2>&1 && ! ax_wait_enabled x 1 && ! ax_wait_text "Skip the Fast Browser extension?" 1 && ! ax_click_sheet_button "Skip for now" && ! ax_find_sheet_id x >/dev/null 2>&1 && ! ax_click_sheet_id x >/dev/null 2>&1 && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
 t "screens.sh drives Skip for now by its wording"   bash -c 'grep -q "ax_click_sheet_button \"Skip for now\"" run/guest/screens.sh && grep -q "Skip the Fast Browser extension?" run/guest/screens.sh'
-t "screens.sh probes the Still to do row by its .status id, not the bare row id" bash -c \
-  'grep -q "setup.done.stillToDo.tool.fast-browser-extension.status" run/guest/screens.sh'
+t "screens.sh probes the skipped row in its group by its .status id, not the bare row id" bash -c \
+  'grep -q "setup.checklist.row.tool.fast-browser-extension.status" run/guest/screens.sh'
+# grep exits 2 on a missing directory, so only 1 (no match) passes.
+t "nothing under vm reads an id the summary dropped" bash -c \
+  'grep -rqE "setup\.done\.stillToDo|ax_find setup\.done\.beforeYouFinish( |$)|setup\.checklist\.continueLimited" run golden lib; [ $? -eq 1 ]'
+t "ax page helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_click_raw ax_title ax_progress ax_page_step ax_page_rewind ax_row_statuses ax_reveal_row >/dev/null && ! ax_page_step continue && ! ax_title x >/dev/null 2>&1 && ! ax_reveal_row setup.checklist.row.x.status && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
 t "screens.sh records the finish-gate outcome"      bash -c 'grep -q "finish-gate.txt" run/guest/screens.sh && grep -q "finish-gate.txt" run/guest/assert-installed.sh'
 t "screens.sh waits for the Done gate to settle before branching" bash -c 'grep -q "ax_wait_done_gate 60" run/guest/screens.sh && grep -q "^ax_wait_done_gate()" run/guest/ax.sh'
 # Every finish-gated row is probed and handled by its own .action id; neither
@@ -237,7 +246,7 @@ t "screens.sh drives the proxy row button, Cancel first, before Continue" bash -
   && grep -q "ax_click setup.checklist.row.tool.proxy.action" run/guest/screens.sh \
   && grep -q "ax_admin_cancel_once" run/guest/screens.sh \
   && grep -q "setup.checklist.row.tool.proxy.error" run/guest/screens.sh \
-  && call=$(grep -n "^  screen_proxy_row$" run/guest/screens.sh | head -1 | cut -d: -f1) \
+  && call=$(grep -n "^ *screen_proxy_row$" run/guest/screens.sh | head -1 | cut -d: -f1) \
   && cont=$(grep -n "ax_click setup.checklist.continue" run/guest/screens.sh | head -1 | cut -d: -f1) \
   && [ -n "$call" ] && [ -n "$cont" ] && [ "$call" -lt "$cont" ]'
 t "screens.sh proxy row: Cancel is asserted before the credentialed try" bash -c '

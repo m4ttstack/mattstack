@@ -77,29 +77,46 @@ screen_team() {
   ax_wait_screen checklist 60 || ax_fail "setup.checklist.screen did not appear after team Continue"
 }
 
-screen_readiness() {
-  ax_shot 03-readiness-initial
-  # Accounts → the forge token (the guest has no gh/glab; the PAT is typed, never logged, masked on screen).
-  if ax_find "setup.checklist.row.account.$FORGE" >/dev/null 2>&1; then
-    if [ "$(ax_status "account.$FORGE" || true)" = ready ]; then
-      # A later pass (solo's team upgrade) finds the token it connected earlier; the row has no action.
-      ax_log "account.$FORGE row is already ready; nothing to connect"
-    elif [ "$SCENARIO" = solo ] && [ -z "$PAT" ]; then
-      # solo marks this row required: false; the walkthrough runs without a token.
-      ax_log "account.$FORGE row is optional on solo and no token is set on the host; leaving it unconnected"
-    else
-      [ -n "$PAT" ] || ax_fail "account.$FORGE row present but \$$PAT_ENV is empty on the host"
-      ax_click "setup.checklist.row.account.$FORGE.action"
-      ax_set_field setup.checklist.connect.field.token "$PAT"
-      ax_click setup.checklist.connect.submit
-      ax_wait_status "account.$FORGE" ready 60 || ax_fail "$FORGE row not ready"
-    fi
+# The checklist opens before its first plan lands: no row, no page, and a
+# primary button that reads Install.
+screen_wait_plan() {  # <timeout-s>
+  local deadline=$((SECONDS + ${1:-60})) ids
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    ids=$(ax_dump_ids || true)
+    case "$ids" in *setup.checklist.row.*) return 0 ;; esac
+    sleep 1
+  done
+  return 1
+}
+
+# True the first time a row is on the page a dump was taken from. A row's
+# status is in the tree whenever its page is, folded away or not. Once only:
+# a press that did not turn the page must not drive the page's rows again.
+screen_row_due() {  # <ax_dump_ids output> <rowId>
+  case "$SCREEN_ROWS_DONE" in *" $2 "*) return 1 ;; esac
+  ax_ids_have "$1" "setup.checklist.row.$2.status" || return 1
+  SCREEN_ROWS_DONE="$SCREEN_ROWS_DONE$2 "
+}
+
+# Accounts → the forge token (the guest has no gh/glab; the PAT is typed, never logged, masked on screen).
+screen_row_account() {
+  if [ "$(ax_status "account.$FORGE" || true)" = ready ]; then
+    # A later pass (solo's team upgrade) finds the token it connected earlier; the row has no action.
+    ax_log "account.$FORGE row is already ready; nothing to connect"
+  elif [ "$SCENARIO" = solo ] && [ -z "$PAT" ]; then
+    # solo marks this row required: false; the walkthrough runs without a token.
+    ax_log "account.$FORGE row is optional on solo and no token is set on the host; leaving it unconnected"
   else
-    # Name what's actually there instead of letting a wrong row guess surface
-    # only as a much later checklist-continue timeout.
-    ax_log "account.$FORGE row not found; checklist rows present: $(ax_dump_ids | grep -o 'setup\.checklist\.row\.[A-Za-z0-9._-]*' | sed -E 's/\.(action|status|error)$//' | sort -u | tr '\n' ' ')"
+    [ -n "$PAT" ] || ax_fail "account.$FORGE row present but \$$PAT_ENV is empty on the host"
+    ax_click "setup.checklist.row.account.$FORGE.action"
+    ax_set_field setup.checklist.connect.field.token "$PAT"
+    ax_click setup.checklist.connect.submit
+    ax_wait_status "account.$FORGE" ready 60 || ax_fail "$FORGE row not ready"
   fi
-  # Full Disk Access: button → System Settings → toggle (admin auth for a standard user) → Relaunch.
+}
+
+# Full Disk Access: button → System Settings → toggle (admin auth for a standard user) → Relaunch.
+screen_row_fda() {
   if [ "$(ax_status perm.fda || true)" != ready ]; then
     ax_click setup.checklist.row.perm.fda.action
     ax_toggle_in_system_settings mattstack "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" || ax_fail "could not toggle FDA in System Settings"
@@ -128,9 +145,15 @@ screen_readiness() {
       ax_wait_window "mattstack" 60 || ax_fail "app did not come back after FDA relaunch"
     fi
     ax_wait_screen checklist 30 || ax_fail "checklist did not return after FDA relaunch"
+    # The wizard reopens on the first page that still holds a required row,
+    # which need not be this one; the status wait turns back to it.
+    screen_wait_plan 60 || ax_fail "the checklist drew no row after the FDA relaunch"
     ax_wait_status perm.fda ready 30 || ax_fail "FDA not applied after relaunch"
   fi
-  # Background services (Login Items): register → if requiresApproval, open pane and toggle.
+}
+
+# Background services (Login Items): register → if requiresApproval, open pane and toggle.
+screen_row_login_items() {
   if [ "$(ax_status perm.login-items || true)" != ready ]; then
     ax_click setup.checklist.row.perm.login-items.action
     sleep 2
@@ -140,11 +163,17 @@ screen_readiness() {
     ax_wait_status perm.login-items ready 60 || ax_fail "login items row not ready"
   fi
   ax_log "note: the 'Background Items Added' banner is not asserted; row status comes from SMAppService"
-  # Notifications (optional): Allow the system prompt if the row asks.
-  if ax_find setup.checklist.row.perm.notifications >/dev/null 2>&1 && [ "$(ax_status perm.notifications || true)" != ready ]; then
+}
+
+# Notifications (optional): Allow the system prompt if the row asks.
+screen_row_notifications() {
+  if [ "$(ax_status perm.notifications || true)" != ready ]; then
     ax_click setup.checklist.row.perm.notifications.action; sleep 2; ax_allow_notifications
   fi
-  # Apple CLT row: the clean room has none; the app's Install… triggers Apple's dialog — a real network install (~minutes).
+}
+
+# Apple CLT row: the clean room has none; the app's Install… triggers Apple's dialog — a real network install (~minutes).
+screen_row_clt() {
   if [ "$(ax_status tool.clt || true)" != ready ]; then
     ax_click setup.checklist.row.tool.clt.action
     ax_osa 'tell application "System Events" to tell process "Install Command Line Developer Tools" to click (first button of window 1 whose name is "Install")' >/dev/null 2>&1 || true
@@ -152,42 +181,90 @@ screen_readiness() {
     ax_wait_status tool.clt ready 1200 || ax_fail "CLT install did not finish in 20 min"
     ax_shot 03-clt-installed
   fi
-  # Rows the checklist expects the user to act on before Install: rt itself
-  # links from the bundle; herdr and Claude Code install from their vendors
-  # (real network installs, minutes each).
+}
+
+# Rows the checklist expects the user to act on before Install: rt itself
+# links from the bundle; herdr and Claude Code install from their vendors
+# (real network installs, minutes each).
+screen_row_rt() {
   if [ "$(ax_status tool.rt || true)" != ready ]; then
     ax_click setup.checklist.row.tool.rt.action
     ax_wait_status tool.rt ready 60 || ax_fail "tool.rt not ready after Use mattstack's"
   fi
-  # Installed is enough here: herdr's integration and Claude's sign-in are
-  # optional follow-ups the row reports as needs-you.
-  for tool in herdr claude; do
-    if [ "$(ax_status "tool.$tool" || true)" = missing ]; then
-      ax_click "setup.checklist.row.tool.$tool.action"
-      ax_wait_status_not "tool.$tool" missing 600 || ax_fail "tool.$tool install did not finish in 10 min"
-      ax_shot "03-$tool-installed"
-    fi
-  done
-  screen_proxy_row
-  ax_shot 03-readiness-final
-  # Every row's status, before Install: the one record that explains a
-  # Continue that does not advance.
-  ax_log "checklist rows: $(for id in $(ax_dump_ids | grep -o 'setup\.checklist\.row\.[A-Za-z0-9._-]*' | sed -E 's/\.(action|status|error)$//' | sed 's/^setup\.checklist\.row\.//' | sort -u); do printf '%s=%s ' "$id" "$(ax_status "$id" 2>/dev/null || echo '?')"; done)"
-  # repos.root is required and its only GUI affordance is a native folder panel,
-  # which an unattended run cannot answer. The harness is playing the user here,
-  # not working around a defect. The recheck is not optional: the app's plan is
-  # composed before this write, so Continue stays disabled without it.
-  # Presence-gated like account.$FORGE above: the row renders only for join
-  # mode or a repo-tracking team, so an unconditional wait would time out and,
-  # under set -e, kill every create run before Continue.
-  if ax_find setup.checklist.row.repos.root >/dev/null 2>&1; then
-    mkdir -p "$HOME/code"
-    rt setup repo-root set "$HOME/code" --json
-    ax_click setup.checklist.recheck
-    ax_wait_status repos.root ready 30 || ax_fail "repos.root never reached ready after the verb answered it"
+}
+
+# Installed is enough here: herdr's integration and Claude's sign-in are
+# optional follow-ups the row reports as needs-you.
+screen_row_tool() {  # <herdr|claude>
+  if [ "$(ax_status "tool.$1" || true)" = missing ]; then
+    ax_click "setup.checklist.row.tool.$1.action"
+    ax_wait_status_not "tool.$1" missing 600 || ax_fail "tool.$1 install did not finish in 10 min"
+    ax_shot "03-$1-installed"
   fi
-  ax_find setup.checklist.continue >/dev/null || ax_fail "setup.checklist.continue axid missing"
-  ax_click setup.checklist.continue
+}
+
+# repos.root is required and its only GUI affordance is a native folder panel,
+# which an unattended run cannot answer. The harness is playing the user here,
+# not working around a defect. The recheck is not optional: the app's plan is
+# composed before this write, so Continue stays disabled without it.
+# The row renders only for join mode or a repo-tracking team.
+screen_row_repo_root() {
+  mkdir -p "$HOME/code"
+  rt setup repo-root set "$HOME/code" --json
+  ax_click setup.checklist.recheck
+  ax_wait_status repos.root ready 30 || ax_fail "repos.root never reached ready after the verb answered it"
+}
+
+# One wizard page at a time, in the wizard's own order: a page's Continue
+# stays off until its required rows are ready, so a row on a later page
+# cannot be reached before them. Each page gets the rows the walkthrough
+# answers that are on it, then its primary button, which is Install on the
+# last page.
+screen_readiness() {
+  local n=12 ids page wording tool
+  SCREEN_ROWS_DONE=" "
+  ax_shot 03-readiness-initial
+  screen_wait_plan 60 || ax_fail "the checklist drew no row within 60s"
+  ax_page_rewind || true
+  while [ "$n" -gt 0 ]; do
+    ids=$(ax_dump_ids || true)
+    if ax_ids_have "$ids" setup.install.screen; then return 0; fi
+    page=$(ax_page "$ids" || true)
+    if screen_row_due "$ids" perm.fda; then screen_row_fda; fi
+    if screen_row_due "$ids" perm.login-items; then screen_row_login_items; fi
+    if screen_row_due "$ids" perm.notifications; then screen_row_notifications; fi
+    if screen_row_due "$ids" tool.clt; then screen_row_clt; fi
+    if screen_row_due "$ids" "account.$FORGE"; then screen_row_account; fi
+    if screen_row_due "$ids" tool.rt; then screen_row_rt; fi
+    for tool in herdr claude; do
+      if screen_row_due "$ids" "tool.$tool"; then screen_row_tool "$tool"; fi
+    done
+    if screen_row_due "$ids" tool.proxy; then
+      screen_proxy_row
+    fi
+    if screen_row_due "$ids" repos.root; then screen_row_repo_root; fi
+    # Every row's status on the page, before its button: the one record that
+    # explains a page that does not advance.
+    ax_log "checklist page ${page:-?}: $(ax_row_statuses | tr '\n' ' ')"
+    ax_shot "03-readiness-${page:-page$((13 - n))}"
+    ax_wait_enabled setup.checklist.continue 60 || ax_fail "the wizard is stuck on page '${page:-?}': its primary button never enabled"
+    wording=$(ax_title setup.checklist.continue || true)
+    case "$wording" in
+      Continue) ;;
+      Install)
+        # A wizard reopened from Settings > Team is still on the page its
+        # first run ended on, the last one, under the plan of that run.
+        [ "$n" -lt 12 ] || ax_fail "the wizard is on its last page before any page was walked: it could not be turned back to its first"
+        case "$SCREEN_ROWS_DONE" in *" tool.proxy "*) ;; *) ax_fail "tool.proxy row is not on the checklist" ;; esac
+        case "$SCREEN_ROWS_DONE" in *" account.$FORGE "*) ;; *) ax_log "account.$FORGE row is on no page of the checklist" ;; esac
+        ;;
+      *) ax_log "FINDING: setup.checklist.continue reads '$wording' on page '${page:-?}', neither Continue nor Install" ;;
+    esac
+    ax_click setup.checklist.continue
+    if [ "$wording" = Install ]; then return 0; fi
+    sleep 1; n=$((n-1))
+  done
+  ax_fail "the wizard did not reach Install in 12 presses of its primary button"
 }
 
 # The Local proxy row's own button, not Install's proxy step: it has to raise
@@ -256,15 +333,19 @@ screen_install() {
 
 screen_done() {
   ax_wait_screen done 10 || ax_fail "setup.done.screen did not appear"
+  # The summary shows its Overview alone until the post-install check has
+  # confirmed the rows, then opens on Needs you when a row blocks Finish.
+  # The Overview's own button stands in where its container id does not surface.
+  ax_find setup.done.overview >/dev/null 2>&1 || ax_find setup.done.openBoard >/dev/null 2>&1 || ax_find setup.checklist.group.needs-you >/dev/null 2>&1 \
+    || ax_fail "the summary drew neither Overview nor Needs you"
   ax_shot 05-done
-  # Neither the section showing, nor one gated row's presence, says anything
-  # about another: this guest may carry the Fast Browser row (gated when
-  # Chrome is missing), the writing-style row, both, or neither, and each is
-  # handled on its own. A row's own container id never surfaces (confirmed by
-  # a host-side XCUITest run, 2026-09-23) -- only its .action/.status children
-  # do -- so presence is always probed by the .action id, never by the bare
-  # row id or by "the section is showing".
-  ax_wait_done_gate 60 || ax_fail "Done never settled: no Before you finish section and Finish still disabled (or a refresh error is up)"
+  # Neither the Needs you pane showing, nor one gated row's presence, says
+  # anything about another: this guest may carry the Fast Browser row (gated
+  # when Chrome is missing), the writing-style row, both, or neither, and each
+  # is handled on its own. A row's container id may not surface where its
+  # .action/.status children do, so presence is always probed by the .action
+  # id, never by the bare row id or by "the pane is showing".
+  ax_wait_done_gate 60 || ax_fail "the summary never settled: no Needs you entry and Finish still disabled (or a refresh error is up)"
   : > "$GUEST_RUN/logs/finish-gate.txt"
 
   if ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1; then
@@ -275,13 +356,16 @@ screen_done() {
     ax_click_sheet_button "Skip for now" || ax_fail "could not click Skip for now in the sheet"
     local n=30
     while [ "$n" -gt 0 ] && ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1; do sleep 1; n=$((n-1)); done
-    ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1 && ax_fail "the Fast Browser row is still under Before you finish after Skip for now"
-    # The bare row id can be absent from the tree the same way a row's own
-    # container id can (see the beforeYouFinish finding above); its .status
-    # child always surfaces.
-    ax_find setup.done.stillToDo.tool.fast-browser-extension.status >/dev/null 2>&1 || ax_fail "the skipped row did not move to Still to do"
+    ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1 && ax_fail "the Fast Browser row is still under Needs you after Skip for now"
+    # A skipped row is back in its own group's pane, under the checklist's row
+    # ids; ax_find turns the sidebar to it. Probed by its .status child, which
+    # surfaces where a row's container id may not.
+    ax_find setup.checklist.row.tool.fast-browser-extension.status >/dev/null 2>&1 || ax_fail "the skipped row is not in its group's pane on the summary"
     ax_shot 05-skipped
     echo "fast-browser-extension=skipped" >> "$GUEST_RUN/logs/finish-gate.txt"
+    # The sidebar keeps the pane that probe picked, and the next row is looked
+    # for under Needs you.
+    if ax_find setup.checklist.group.needs-you >/dev/null 2>&1; then ax_click setup.checklist.group.needs-you; fi
   fi
 
   if ax_find setup.done.beforeYouFinish.skills.writing-style.action >/dev/null 2>&1; then
@@ -294,13 +378,13 @@ screen_done() {
     ax_click_sheet_id setup.choose.submit || ax_fail "could not click Use this style in the choose sheet"
     local n=30
     while [ "$n" -gt 0 ] && ax_find setup.done.beforeYouFinish.skills.writing-style.action >/dev/null 2>&1; do sleep 1; n=$((n-1)); done
-    ax_find setup.done.beforeYouFinish.skills.writing-style.action >/dev/null 2>&1 && ax_fail "the writing-style row is still under Before you finish after Use this style"
+    ax_find setup.done.beforeYouFinish.skills.writing-style.action >/dev/null 2>&1 && ax_fail "the writing-style row is still under Needs you after Use this style"
     ax_shot 05-writing-style-chosen
     echo "writing-style=$style" >> "$GUEST_RUN/logs/finish-gate.txt"
   fi
 
-  ax_wait_enabled setup.done.continue 30 || ax_fail "Finish did not enable after resolving the Before you finish rows"
-  ax_find setup.done.refreshError >/dev/null 2>&1 && ax_fail "Done fell open on a failed re-check: $(ax_texts | grep -F "Couldn't confirm the checklist" | head -1)"
+  ax_wait_enabled setup.done.continue 30 || ax_fail "Finish did not enable after resolving the Needs you rows"
+  ax_find setup.done.refreshError >/dev/null 2>&1 && ax_fail "the summary fell open on a failed re-check: $(ax_value setup.done.refreshError || true)"
   [ -s "$GUEST_RUN/logs/finish-gate.txt" ] || echo open > "$GUEST_RUN/logs/finish-gate.txt"
   ax_click setup.done.continue
 }

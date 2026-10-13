@@ -42,6 +42,30 @@ using terms from application "System Events"
 end using terms from
 '
 
+# A button's wording is its name, its title or its description, depending on
+# how the control exposes its label.
+AX_WORDING_AS='
+using terms from application "System Events"
+  on wording(el)
+    set t to ""
+    try
+      set t to name of el as text
+    end try
+    if t is "" or t is "missing value" then
+      try
+        set t to title of el as text
+      end try
+    end if
+    if t is "" or t is "missing value" then
+      try
+        set t to description of el as text
+      end try
+    end if
+    return t
+  end wording
+end using terms from
+'
+
 # Host-side capture handshake: the host watches in/ for *.req files, and only runs the watcher
 # loop when --graphics is on (walkthrough.sh) -- read that flag instead of always waiting it out.
 ax_graphics() {
@@ -130,23 +154,142 @@ ax_find_raw() {  # <axid>
     end tell" 2>/dev/null
 }
 
-# The checklist shows one group's rows at a time. Before a row's element is
-# read or clicked, select the sidebar entry whose pane holds it: a row that
-# turns ready leaves "Needs you" and is then only in its own group.
+# The click itself: nothing is revealed first, and a miss is the caller's to
+# report.
+ax_click_raw() {  # <axid>
+  local id; id=$(ax_esc "$1")
+  ax_osa "$AX_WALK_AS
+    tell application \"System Events\" to tell process \"$AX_APP\"
+      set frontmost to true
+      set r to my walk(window 1, \"$id\")
+      if r is missing value then error \"axid not found: $id\"
+      click r
+    end tell" || return 1
+  ax_log "clicked $1"
+}
+
+ax_ids_have() {  # <ax_dump_ids output> <axid>
+  case $'\n'"$1"$'\n' in *$'\n'"$2"$'\n'*) return 0 ;; esac
+  return 1
+}
+
+# The group id of the wizard page in a dump; empty until a plan has landed.
+ax_page() {  # <ax_dump_ids output>
+  local rest
+  case "$1" in *setup.checklist.page.*) ;; *) return 1 ;; esac
+  rest="${1#*setup.checklist.page.}"
+  printf '%s' "${rest%%$'\n'*}"
+}
+
+# The wizard's place among its steps, as "N of M".
+ax_progress() {
+  ax_osa "$AX_WALK_AS
+    tell application \"System Events\" to tell process \"$AX_APP\"
+      set p to my walk(window 1, \"setup.window.progress\")
+      if p is missing value then error \"axid not found: setup.window.progress\"
+      return value of p as text
+    end tell" 2>/dev/null
+}
+
+# Moves the wizard one page, and only ever between pages. Continue is pressed
+# only while it reads "Continue": on the last page, and until a plan has
+# landed, the same button reads "Install". Back is never pressed on the first
+# page (step 3, after Welcome and Your team), where it leaves the checklist.
+# The check and the click are one script, so a plan that lands between them
+# cannot turn the press into Install.
+ax_page_step() {  # back|continue → exit 0 when the page changed
+  local before after n=5
+  case "$1" in back|continue) ;; *) return 1 ;; esac
+  before=$(ax_osa "$AX_WALK_AS$AX_WORDING_AS
+    tell application \"System Events\" to tell process \"$AX_APP\"
+      set p to my walk(window 1, \"setup.window.progress\")
+      if p is missing value then error \"axid not found: setup.window.progress\"
+      set v to value of p as text
+      if v does not contain \" of \" then error (\"page step held: the wizard's progress reads \" & v)
+      if \"$1\" is \"back\" and v starts with \"3 of \" then error \"page step held: no page before the first\"
+      set r to my walk(window 1, \"setup.checklist.$1\")
+      if r is missing value then error \"axid not found: setup.checklist.$1\"
+      if \"$1\" is \"continue\" and (my wording(r)) is not \"Continue\" then error (\"page step held: the button reads \" & (my wording(r)))
+      if not (enabled of r) then error \"page step held: setup.checklist.$1 is disabled\"
+      click r
+      return v
+    end tell" 2>/dev/null) || return 1
+  while [ "$n" -gt 0 ]; do
+    after=$(ax_progress || true)
+    case "$after" in
+      ""|"$before") ;;
+      *) ax_log "wizard page $before, then $after ($1)"; return 0 ;;
+    esac
+    sleep 1; n=$((n-1))
+  done
+  ax_log "wizard page still $before after $1"; return 1
+}
+
+ax_page_rewind() {  # → exit 0 when the wizard moved back at least one page
+  local n=12 moved=1
+  while [ "$n" -gt 0 ] && ax_page_step back; do moved=0; n=$((n-1)); done
+  return "$moved"
+}
+
+# Where a row is, by its status: that id is in the tree whenever the row's
+# page or pane is on screen, under a folded "No action needed" as well. Only a
+# row's button can be folded away, since a failed row opens the line and a
+# folded row is never the one waiting on a dialog. The line may be open
+# already, so the press is followed by a second look.
+ax_row_on_screen() {  # <axid> <row's status axid> → 0 in the tree, 1 row here without it, 2 row elsewhere
+  ax_find_raw "$1" >/dev/null 2>&1 && return 0
+  [ "$1" = "$2" ] && return 2
+  ax_find_raw "$2" >/dev/null 2>&1 || return 2
+  case "$1" in *.action) ;; *) return 1 ;; esac
+  ax_click_raw setup.checklist.noAction.toggle >/dev/null 2>&1 || return 1
+  ax_find_raw "$1" >/dev/null 2>&1
+}
+
+ax_pages_ahead() {  # <axid> <row's status axid> → as ax_row_on_screen, for the pages after this one
+  local n=12 rc
+  while [ "$n" -gt 0 ] && ax_page_step continue; do
+    rc=0; ax_row_on_screen "$1" "$2" || rc=$?
+    [ "$rc" -eq 2 ] || return "$rc"
+    n=$((n-1))
+  done
+  return 2
+}
+
+# The walkthrough works forward, so the pages ahead are tried before the ones
+# behind. Continue stops at a page that still holds a required row: a row past
+# it cannot be reached yet.
+ax_reveal_on_pages() {  # <axid> <row's status axid>
+  local rc=0
+  ax_pages_ahead "$1" "$2" || rc=$?
+  [ "$rc" -eq 2 ] || return "$rc"
+  ax_page_rewind || return 1
+  rc=0; ax_row_on_screen "$1" "$2" || rc=$?
+  [ "$rc" -eq 2 ] || return "$rc"
+  rc=0; ax_pages_ahead "$1" "$2" || rc=$?
+  [ "$rc" -eq 0 ]
+}
+
+# A row is in the tree only while its group is on screen: one page of the
+# wizard, or one sidebar pane on the summary and in Setup status. Before a
+# row's element is read or clicked, bring its group up.
 ax_reveal_row() {  # <axid>; a no-op for anything outside setup.checklist.row.
   case "$1" in setup.checklist.row.*) ;; *) return 0 ;; esac
-  local row="${1%.action}" g gid
+  local row="${1%.action}" want="$1" ids g rc=0
   row="${row%.status}"; row="${row%.error}"; row="${row%.waiting}"
-  ax_find_raw "$row" >/dev/null 2>&1 && return 0
-  for g in $(ax_dump_ids | grep -o 'setup\.checklist\.group\.[A-Za-z0-9._-]*' | sort -u); do
-    gid=$(ax_esc "$g")
-    ax_osa "$AX_WALK_AS
-      tell application \"System Events\" to tell process \"$AX_APP\"
-        set r to my walk(window 1, \"$gid\")
-        if r is missing value then error \"axid not found: $gid\"
-        click r
-      end tell" >/dev/null 2>&1 || continue
-    ax_find_raw "$row" >/dev/null 2>&1 && return 0
+  # A row's own container id may never surface; its status always does.
+  [ "$want" = "$row" ] && want="$row.status"
+  ax_row_on_screen "$want" "$row.status" || rc=$?
+  [ "$rc" -eq 2 ] || return "$rc"
+  ids=$(ax_dump_ids || true)
+  if ax_ids_have "$ids" setup.checklist.continue; then
+    ax_reveal_on_pages "$want" "$row.status"
+    return
+  fi
+  for g in $(printf '%s\n' "$ids" | grep -o 'setup\.checklist\.group\.[A-Za-z0-9._-]*' | sort -u); do
+    [ "$g" = setup.checklist.group.overview ] && continue
+    ax_click_raw "$g" >/dev/null 2>&1 || continue
+    rc=0; ax_row_on_screen "$want" "$row.status" || rc=$?
+    [ "$rc" -eq 2 ] || return "$rc"
   done
   return 1
 }
@@ -158,15 +301,17 @@ ax_find() {  # <axid>
 
 ax_click() {  # <axid>
   ax_reveal_row "$1" || true
+  ax_click_raw "$1" || ax_fail "click $1"
+}
+
+ax_title() {  # <axid> → the wording on a button
   local id; id=$(ax_esc "$1")
-  ax_osa "$AX_WALK_AS
+  ax_osa "$AX_WALK_AS$AX_WORDING_AS
     tell application \"System Events\" to tell process \"$AX_APP\"
-      set frontmost to true
       set r to my walk(window 1, \"$id\")
       if r is missing value then error \"axid not found: $id\"
-      click r
-    end tell" || ax_fail "click $1"
-  ax_log "clicked $1"
+      return my wording(r)
+    end tell" 2>/dev/null
 }
 
 # The status item's menu exists only while it is open, and an osascript run
@@ -251,7 +396,7 @@ ax_bare_rt_version() {  # stdin: rt --version output → X.Y.Z
 }
 
 ax_status() {  # <rowId> → status string (the app exposes it as the row status element's value)
-  ax_reveal_row "setup.checklist.row.$1" || true
+  ax_reveal_row "setup.checklist.row.$1.status" || true
   local id; id=$(ax_esc "$1")
   ax_osa "$AX_WALK_AS
     tell application \"System Events\" to tell process \"$AX_APP\"
@@ -263,6 +408,38 @@ ax_status() {  # <rowId> → status string (the app exposes it as the row status
         return description of r as text
       end try
     end tell" 2>/dev/null
+}
+
+# "<rowId>=<status>" for every checklist row on screen, one per line, in one
+# walk of the window: ax_status costs a walk per row.
+ax_row_statuses() {
+  ax_osa "
+using terms from application \"System Events\"
+  on walkStatuses(el, acc)
+    try
+      set i to (value of attribute \"AXIdentifier\" of el) as text
+      if i starts with \"setup.checklist.row.\" and i ends with \".status\" then
+        try
+          set v to value of el as text
+        on error
+          set v to description of el as text
+        end try
+        set end of acc to ((text 21 thru -8 of i) & \"=\" & v)
+      end if
+    end try
+    try
+      repeat with c in UI elements of el
+        my walkStatuses(c, acc)
+      end repeat
+    end try
+  end walkStatuses
+end using terms from
+tell application \"System Events\" to tell process \"$AX_APP\"
+  set acc to {}
+  if exists window 1 then my walkStatuses(window 1, acc)
+  set AppleScript's text item delimiters to linefeed
+  return acc as text
+end tell" 2>/dev/null
 }
 
 # Each ax_status is an osascript round trip of a few seconds, so the bound
@@ -348,16 +525,14 @@ ax_enabled_or_fail() {  # <axid> -> true|false
   printf '%s' "$s"
 }
 
-# The Done screen's gate settles only once its post-install re-check lands:
-# until then Finish is disabled and no section is shown, which is neither of
-# the two states a driver can act on. Waits for any of: the section, either
-# finish-gated row's own .action id (the section container id likely never
-# surfaces either, the same way a row's own container id does not -- confirmed
-# by a host-side XCUITest run, 2026-09-23), or Finish enabled.
+# The summary's gate settles only once its post-install re-check lands: until
+# then Finish is disabled and the Overview is the only pane, which is neither
+# of the two states a driver can act on. Waits for any of: the sidebar's Needs
+# you entry, either finish-gated row's own .action id, or Finish enabled.
 ax_wait_done_gate() {  # <timeout-s>
   local deadline=$((SECONDS + ${1:-60}))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    ax_find setup.done.beforeYouFinish >/dev/null 2>&1 && { ax_log "done gate: Before you finish shown"; return 0; }
+    ax_find setup.checklist.group.needs-you >/dev/null 2>&1 && { ax_log "done gate: Needs you shown"; return 0; }
     ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1 && { ax_log "done gate: Fast Browser row present"; return 0; }
     ax_find setup.done.beforeYouFinish.skills.writing-style.action >/dev/null 2>&1 && { ax_log "done gate: writing-style row present"; return 0; }
     [ "$(ax_enabled setup.done.continue || true)" = true ] && { ax_log "done gate: Finish enabled"; return 0; }
