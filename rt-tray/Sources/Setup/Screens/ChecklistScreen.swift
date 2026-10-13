@@ -97,6 +97,7 @@ struct ChecklistScreen: View {
             .padding(.horizontal, 20).padding(.top, 12)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier(AXID.checklistSummary)
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if !layout.attention.isEmpty || model.fdaNeedsRelaunch {
@@ -121,7 +122,11 @@ struct ChecklistScreen: View {
                         ChecklistCard(title: "Everything checked") {
                             ForEach(Array(layout.groups.enumerated()), id: \.element.id) { index, group in
                                 if index > 0 { Divider() }
-                                FoldedGroupHeader(group: group, isOpen: openGroups.contains(group.id)) { toggle(group.id, in: &openGroups) }
+                                FoldedGroupHeader(group: group, isOpen: openGroups.contains(group.id)) {
+                                    toggle(group.id, in: &openGroups)
+                                    if openGroups.contains(group.id) { reveal(Self.groupAnchor(group.id), at: .top, with: proxy) }
+                                }
+                                .id(Self.groupAnchor(group.id))
                                 if openGroups.contains(group.id) {
                                     ForEach(group.rows) { row in
                                         Divider()
@@ -130,8 +135,13 @@ struct ChecklistScreen: View {
                                                 .padding(.leading, 36).padding(.trailing, 14).padding(.vertical, 6)
                                                 .contentShape(Rectangle())
                                                 .onTapGesture { toggle(row.id, in: &openRows) }
+                                                .id(Self.rowAnchor(row.id))
                                         } else {
-                                            FoldedRow(row: row) { toggle(row.id, in: &openRows) }
+                                            FoldedRow(row: row) {
+                                                toggle(row.id, in: &openRows)
+                                                reveal(Self.rowAnchor(row.id), at: nil, with: proxy)
+                                            }
+                                            .id(Self.rowAnchor(row.id))
                                         }
                                     }
                                 }
@@ -141,8 +151,19 @@ struct ChecklistScreen: View {
                 }
                 .padding(.horizontal, 20).padding(.vertical, 14)
             }
+            }
         }
         .background(Color.primary.opacity(0.035))
+    }
+
+    private static func groupAnchor(_ id: String) -> String { "group." + id }
+    private static func rowAnchor(_ id: String) -> String { "row." + id }
+
+    /// Deferred a turn: the expanded rows do not exist until the state change has laid out.
+    private func reveal(_ anchor: String, at point: UnitPoint?, with proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(anchor, anchor: point) }
+        }
     }
 
     /// A row mid-action or showing a failure must not fold away under the user.
