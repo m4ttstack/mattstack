@@ -83,6 +83,22 @@ final class SetupFlowUITests: XCTestCase {
         waitForExpectations(timeout: timeout)
     }
 
+    /// Presses the wizard's primary button until it has pressed Install.
+    /// Each press must be enabled: a page that blocks is a test failure here,
+    /// since every stub scenario that calls this is installable.
+    private func pageThroughChecklist(file: StaticString = #filePath, line: UInt = #line) {
+        // Every stub plan opens on Your Mac. Until the first page is up the
+        // button can read "Install" for a plan with no pages yet.
+        waitFor("setup.checklist.page.mac")
+        for _ in 0..<12 {
+            waitUntilEnabled("setup.checklist.continue")
+            let isLast = el("setup.checklist.continue").label == "Install"
+            el("setup.checklist.continue").click()
+            if isLast { return }
+        }
+        XCTFail("the checklist never reached Install", file: file, line: line)
+    }
+
     private func shoot(_ name: String) {
         let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         a.name = name
@@ -99,7 +115,7 @@ final class SetupFlowUITests: XCTestCase {
     }
 
     /// Welcome through Install for a join scenario whose plan is installable
-    /// out of the box, leaving the Done screen on screen.
+    /// out of the box, leaving the summary on screen.
     private func joinThroughInstall(_ scenario: String, appearance: String? = nil) {
         prepare(scenario)
         if let appearance { app.launchEnvironment["RT_STUB_APPEARANCE"] = appearance }
@@ -112,10 +128,11 @@ final class SetupFlowUITests: XCTestCase {
         el("setup.team.join.code").typeText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ-2345-6789-ABCD-EFGH")
         el("setup.team.continue").click()
         waitFor("setup.checklist.screen")
-        waitFor("setup.checklist.summary")
-        XCTAssertTrue(el("setup.checklist.continue").waitForExistence(timeout: 20))
-        XCTAssertTrue(el("setup.checklist.continue").isEnabled, "\(scenario) plan is installable")
-        el("setup.checklist.continue").click()
+        waitFor("setup.checklist.page.mac")
+        XCTAssertTrue(el("setup.checklist.row.perm.fda").waitForExistence(timeout: 20), "the first page drew its rows")
+        XCTAssertEqual(el("setup.checklist.row.perm.fda.status").value as? String, "ready")
+        XCTAssertEqual(el("setup.window.progress").value as? String, "3 of 8", "four pages sit between Your team and Install")
+        pageThroughChecklist()
         waitFor("setup.install.screen")
         // Not waited on individually: the stub's apply() finishes all 11
         // steps in under 2s and flow.next() fires the instant the last one
@@ -127,38 +144,48 @@ final class SetupFlowUITests: XCTestCase {
 
     func testJoinHappyWalksAllFiveScreens() {
         joinThroughInstall("join-happy")
-        // Not clicked: DoneScreen.openBoard() logs instead of opening a real
-        // browser tab under stub mode, but there's nothing to assert on from
-        // here besides existence/enablement, so leave the real click unfired.
+        waitFor("setup.done.overview")
+        // Not clicked: SummaryOverview.openHomeApp() logs instead of opening a
+        // real browser tab under stub mode, but there's nothing to assert on
+        // from here besides existence/enablement, so leave the real click unfired.
         waitFor("setup.done.openBoard")
         XCTAssertTrue(el("setup.done.openBoard").isEnabled)
-        // Finish stays disabled until the Done screen's own post-install
+        // Finish stays disabled until the summary's own post-install
         // re-check lands; a click before that is a no-op the test would not
         // notice.
         waitUntilEnabled("setup.done.continue")
-        XCTAssertFalse(el("setup.done.beforeYouFinish").exists, "join-happy's plan gates nothing")
+        // The group entries only draw once that check confirmed the rows, so
+        // a missing Needs you entry after this is the plan's answer.
+        waitFor("setup.checklist.group.tools")
+        XCTAssertFalse(el("setup.checklist.group.needs-you").exists, "join-happy's plan gates nothing")
+        XCTAssertTrue(el("setup.done.overview").exists, "with nothing gated the summary stays on Overview")
         el("setup.done.continue").click()
         waitUntilGone("setup.done.screen")
     }
 
     /// The finish gate end to end: a plan that names the extension row in
     /// finishBlockedBy holds Finish shut, Skip for now confirms with the
-    /// pinned copy, and the waived plan re-opens Finish with the row under
-    /// Still to do.
+    /// pinned copy, and the waived plan re-opens Finish with the row back in
+    /// its group's pane.
     func testFinishGateSkipForNowEnablesFinish() {
         joinThroughInstall("finish-gate")
         waitFor("setup.done.beforeYouFinish.tool.fast-browser-extension", 30)
+        XCTAssertTrue(el("setup.checklist.group.needs-you").exists, "the summary opens on Needs you")
+        XCTAssertFalse(el("setup.done.overview").exists, "Needs you is the open pane, not Overview")
         XCTAssertFalse(el("setup.done.continue").isEnabled, "Finish waits on the extension")
-        XCTAssertFalse(el("setup.done.stillToDo.tool.fast-browser-extension").exists, "a blocked row is not listed twice")
         el("setup.done.skip.tool.fast-browser-extension").click()
         waitFor("setup.done.skipConfirm")
         XCTAssertTrue(app.staticTexts["Skip the Fast Browser extension?"].exists)
         XCTAssertTrue(app.staticTexts["Without the Fast Browser extension, agents cannot capture screenshots or annotate evidence from your browser. You can load it later from Settings."].exists)
         el("setup.done.skipConfirm.skip").click()
         waitUntilEnabled("setup.done.continue", 30)
-        waitFor("setup.done.stillToDo.tool.fast-browser-extension")
-        XCTAssertFalse(el("setup.done.beforeYouFinish").exists, "the skipped row left Before you finish")
+        XCTAssertFalse(el("setup.checklist.group.needs-you").exists, "the skipped row left Needs you")
+        XCTAssertFalse(el("setup.done.beforeYouFinish.tool.fast-browser-extension").exists, "its Needs you pane went with it")
         XCTAssertFalse(el("setup.done.skipConfirm").exists, "the sheet closed on success")
+        el("setup.checklist.group.tools").click()
+        waitFor("setup.checklist.row.tool.fast-browser-extension")
+        XCTAssertEqual(el("setup.checklist.row.tool.fast-browser-extension.status").value as? String, "needs-you", "a skip waives the row, it does not fix it")
+        XCTAssertFalse(el("setup.done.skip.tool.fast-browser-extension").exists, "a skipped row offers no second Skip")
         el("setup.done.continue").click()
         waitUntilGone("setup.done.screen")
     }
@@ -191,7 +218,17 @@ final class SetupFlowUITests: XCTestCase {
         XCTAssertTrue(el("setup.team.continue").isEnabled, "Just me needs no fields")
         el("setup.team.continue").click()
         waitFor("setup.checklist.screen")
-        XCTAssertFalse(app.staticTexts["Team repo reachable"].exists, "a solo plan carries no access rows")
+        // The stub's solo plan has rows in three groups; its Access group is empty.
+        let pages = ["mac", "accounts", "tools"]
+        for (index, page) in pages.enumerated() {
+            waitFor("setup.checklist.page.\(page)")
+            XCTAssertEqual(el("setup.window.progress").value as? String, "\(index + 3) of 7", "an empty group is not a page")
+            XCTAssertFalse(el("setup.checklist.row.access.team-repo").exists, "a solo plan has no team repo row (\(page))")
+            XCTAssertFalse(app.staticTexts["Team repo reachable"].exists, "a solo plan has no team repo row (\(page))")
+            waitUntilEnabled("setup.checklist.continue")
+            XCTAssertEqual(el("setup.checklist.continue").label, page == pages.last ? "Install" : "Continue")
+            if page != pages.last { el("setup.checklist.continue").click() }
+        }
     }
 
     func testJustMeScreensLightAndDark() {
@@ -202,8 +239,12 @@ final class SetupFlowUITests: XCTestCase {
             waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
             waitFor("setup.team.screen"); el("setup.team.card.solo").click(); shoot("team-\(scheme)")
             el("setup.team.continue").click(); waitFor("setup.checklist.screen")
-            el("setup.checklist.continue").click(); waitFor("setup.done.screen", 60); shoot("done-\(scheme)")
-            // Settings opens with the Command-comma shortcut only while a window is key, and the Done screen is; Finish closes it.
+            waitFor("setup.checklist.page.mac"); shoot("page-mac-\(scheme)")
+            pageThroughChecklist()
+            waitFor("setup.done.screen", 60); waitFor("setup.done.overview")
+            // Until the post-install check lands the summary is a spinner over an empty sidebar.
+            waitFor("setup.checklist.group.tools"); shoot("summary-\(scheme)")
+            // Settings opens with the Command-comma shortcut only while a window is key, and the summary is; Finish closes it.
             app.typeKey(",", modifierFlags: .command)
             waitFor("settings.tab.apps"); el("settings.tab.apps").click(); waitFor("settings.apps.toggle.board"); shoot("settings-apps-\(scheme)")
             el("settings.tab.team").click(); waitFor("settings.team.create"); shoot("settings-team-\(scheme)")
@@ -222,7 +263,7 @@ final class SetupFlowUITests: XCTestCase {
             waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
             waitFor("setup.team.screen"); el("setup.team.card.solo").click()
             el("setup.team.continue").click(); waitFor("setup.checklist.screen")
-            el("setup.checklist.continue").click(); waitFor("setup.done.screen", 60)
+            pageThroughChecklist(); waitFor("setup.done.screen", 60)
             app.typeKey(",", modifierFlags: .command)
             let tab = app.toolbars.buttons["Dev logins"]
             XCTAssertTrue(tab.waitForExistence(timeout: 20), "missing the Dev logins tab")
@@ -299,6 +340,7 @@ final class SetupFlowUITests: XCTestCase {
         for scheme in ["Light", "Dark"] {
             joinThroughInstall("finish-gate", appearance: scheme.lowercased())
             waitFor("setup.done.beforeYouFinish.tool.fast-browser-extension.action", 30)
+            shootWindow("summary-needs-you-\(scheme)")
             el("setup.done.beforeYouFinish.tool.fast-browser-extension.action").click()
             waitFor("setup.checklist.steps.done")
             let store = NSPredicate(format: "label CONTAINS[c] 'Chrome Web Store' OR value CONTAINS[c] 'Chrome Web Store'")
@@ -320,6 +362,8 @@ final class SetupFlowUITests: XCTestCase {
         el("setup.team.join.code").click(); el("setup.team.join.code").typeText("ABCD")
         el("setup.team.continue").click()
         waitFor("setup.checklist.screen")
+        // Continue is also off while the plan loads, so wait for the blocked row itself.
+        waitFor("setup.checklist.row.perm.fda.action")
         XCTAssertFalse(el("setup.checklist.continue").isEnabled)
         el("setup.checklist.recheck").click()
         Thread.sleep(forTimeInterval: 1)
@@ -338,7 +382,7 @@ final class SetupFlowUITests: XCTestCase {
         el("setup.team.join.code").click(); el("setup.team.join.code").typeText("ABCD")
         el("setup.team.continue").click()
         waitFor("setup.checklist.screen")
-        el("setup.checklist.continue").click()
+        pageThroughChecklist()
         waitFor("setup.install.retry", 30)
         XCTAssertTrue(app.staticTexts["Open Claude Code once so it finishes first-run, then Retry."].exists)
         el("setup.install.retry").click()
