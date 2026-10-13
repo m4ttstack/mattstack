@@ -59,7 +59,7 @@ func renderToastBox(text string, maxWidth int) string {
 }
 
 // toastGap is the clear rows between the toast and the keybar under it.
-const toastGap = 3
+const toastGap = 2
 
 // renderToast composites the toast over parent, toastGap rows clear of
 // bottomRows (the keybar and any notice strip).
