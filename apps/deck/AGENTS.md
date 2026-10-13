@@ -147,6 +147,11 @@ sweep (a bundled deck's boot, or `POST /api/v1/apps/managed/reresolve`).
   state in `settings.json`, `tlds` and `secrets` in `platform.json`. A new
   store field goes in the registry default and schema, the module's store
   field list, its store write and revert, and its file writer's exclusion.
+  While `deck.apps` could not be read at the last load, every app reads
+  unpublished and `save()` writes only file-only changes (live state, port
+  overrides, passwords); a publish change or a rename refuses until a
+  reload reads a good value, and a new setter passes `fileOnly` only when
+  it touches no store field.
   Never hand-edit a settings jsonc or read `~/.mattstack/deck/*.json` for
   config that belongs in settings.
 - Secrets: `rt secrets set deck <key>`; read env-first then the rt daemon's

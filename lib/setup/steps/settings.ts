@@ -3,7 +3,9 @@
  * seeds automatically: `mattstack.appPath` (from `ctx.appPath`, already
  * resolved through bundleRootFromExec/installedTrayAppPath by
  * createApplyContext... no path regex of our own here), and promotes a
- * staged repo root into `rt.repoRoots`.
+ * staged repo root into `rt.repoRoots`. It also gives a `gitq.board` still
+ * saved as bare repo names each repo's folder, on every update, since a repo
+ * can reach this Mac after the migration that first tried.
  *
  * The repo root is the user's own choice, made through the `repos.root`
  * checklist row (`rt setup repo-root set`), not something this step detects
@@ -17,6 +19,7 @@
 
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
+import { repairGitqBoard } from "../gitq-board-repair.ts";
 import { promoteStagedRepoRoot } from "../repo-root.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
@@ -48,6 +51,10 @@ async function settingsSeedRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   if (promoteStagedRepoRoot(ctx.p)) written.push("rt.repoRoots");
+
+  const repair = repairGitqBoard();
+  if (repair.state === "failed") throw repair.error;
+  if (repair.state === "repaired") written.push("gitq.board");
 
   return { state: "done", detail: written.length > 0 ? `Wrote ${written.join(", ")}` : "Nothing to write" };
 }
