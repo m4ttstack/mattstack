@@ -56,8 +56,11 @@ func renderTabsRow(changedTotal int, activeTab string, hoverInactive bool, width
 		return on.Foreground(restColor).Render(strings.Repeat(rest, w))
 	}
 
-	changesLabel := label(changesOn, "Changes", !historyActive) + changesOn.Foreground(theme.PinkSoft).Render(fmt.Sprintf(" %d", changedTotal))
-	historyLabel := label(historyOn, "History", historyActive)
+	tabKey := func(style lipgloss.Style, key string) string {
+		return style.Foreground(theme.KeybarKey).Bold(true).Render(key) + style.Render(" ")
+	}
+	changesLabel := tabKey(changesOn, "1") + label(changesOn, "Changes", !historyActive) + changesOn.Foreground(theme.PinkSoft).Render(fmt.Sprintf(" %d", changedTotal))
+	historyLabel := tabKey(historyOn, "2") + label(historyOn, "History", historyActive)
 	top := changesOn.Width(half).Align(lipgloss.Center).Render(changesLabel) +
 		historyOn.Width(otherHalf).Align(lipgloss.Center).Render(historyLabel)
 
@@ -349,62 +352,39 @@ func renderUndoStrip(lc LastCommit, hovered bool, width int) string {
 // renderKeybar is the bottom full-width legend for mode ("changes",
 // "history", or "stash"), key glyphs in KeybarKey (bold) and their labels in
 // KeybarLabel, separated by a Dim middle dot -- the same grammar the picker
-// and board keybars use. action is the top bar segment's kind: the f key
-// runs whatever that segment shows, so its label names it.
-func renderKeybar(width int, mode, action string) string {
+// and board keybars use. It lists what acts on the list in front of the
+// reader: the keys for the top bar's segments (r, w, b, f) and the tabs (1,
+// 2) are chips on those controls instead.
+func renderKeybar(width int, mode string) string {
 	on := lipgloss.NewStyle().Background(theme.BgSubtle)
 	dot := on.Foreground(theme.Dim).Render(" · ")
 	key := func(k, label string) string {
 		return on.Foreground(theme.KeybarKey).Bold(true).Render(k) + on.Foreground(theme.KeybarLabel).Render(" "+label)
 	}
-	// justify clips from the right, so the tab switch sits early enough to
-	// survive a narrow terminal.
+	// justify clips from the right, so the stash hint goes first on a narrow
+	// terminal and the menu, which reaches everything, survives.
 	pairs := [][2]string{
-		{"space", "stage"}, {"enter", "diff"}, {"2", "history"}, {"⌃k", "menu"}, {"c", "commit"}, {"f", "action"},
-		{"b", "branch"}, {"w", "worktree"}, {"W", "main"}, {"r", "repo"}, {"/", "filter"}, {"u", "undo"}, {"S", "stash"}, {"h", "show stash"},
+		{"space", "stage"}, {"enter", "diff"}, {"c", "commit"}, {"/", "filter"}, {"u", "undo"}, {"S", "stash"},
+		{"W", "main"}, {"⌃k", "menu"}, {"h", "show stash"},
 	}
 	switch mode {
 	case "history":
 		pairs = [][2]string{
 			{"↑↓", "commits"}, {"⇧↑↓", "range"}, {"enter", "files"}, {"/", "filter"}, {"e", "expand"},
-			{"1", "changes"}, {"⌃k", "menu"}, {"f", "action"}, {"b", "branch"}, {"w", "worktree"}, {"W", "main"}, {"r", "repo"},
+			{"W", "main"}, {"⌃k", "menu"},
 		}
 	case "stash":
 		pairs = [][2]string{
-			{"↑↓", "files"}, {"enter", "diff"}, {"R", "restore"}, {"D", "discard"}, {"h", "hide"}, {"⌃k", "menu"},
-			{"b", "branch"}, {"w", "worktree"}, {"W", "main"}, {"r", "repo"},
+			{"↑↓", "files"}, {"enter", "diff"}, {"R", "restore"}, {"D", "discard"}, {"h", "hide"},
+			{"W", "main"}, {"⌃k", "menu"},
 		}
 	}
-	parts := make([]string, 0, len(pairs))
-	for _, p := range pairs {
-		label := p[1]
-		if p[0] == "f" {
-			if label = keybarActionLabel(action); label == "" {
-				continue
-			}
-		}
-		parts = append(parts, key(p[0], label))
+	parts := make([]string, len(pairs))
+	for i, p := range pairs {
+		parts[i] = key(p[0], p[1])
 	}
 	left := strings.Join(parts, dot)
 	return justify(on, width, left, key("q", "quit"))
-}
-
-// keybarActionLabel names what f does for an action kind, "" while it does
-// nothing (a busy segment, a detached HEAD).
-func keybarActionLabel(kind string) string {
-	switch kind {
-	case "fetch":
-		return "fetch"
-	case "pull", "pull-rebase":
-		return "pull"
-	case "push":
-		return "push"
-	case "force-push":
-		return "force push"
-	case "publish-branch", "publish-repo":
-		return "publish"
-	}
-	return ""
 }
 
 // justify lays left flush and right flush across width on style on,

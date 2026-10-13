@@ -112,6 +112,19 @@ type segmentSpec struct {
 	// trailingCap is the columns of the closing half-row whose lower half
 	// is HoverBg instead of Bg (renderTopBarCapped).
 	trailingCap colSpan
+	// key is the key that activates the segment, drawn as a chip at the
+	// right end of the label row; "" for a segment no key acts on right now.
+	key string
+}
+
+// keyChipMinLabel is the label cells a segment must keep for its key chip to
+// show: the longest foldout label, "Current Repository". Narrower than that
+// the chip is dropped, and since the worktree, branch and action segments
+// share a width, they drop theirs together instead of one clipping its label.
+const keyChipMinLabel = 18
+
+func keyChip(key string) string {
+	return lipgloss.NewStyle().Foreground(theme.KeybarKey).Background(theme.Panel).Bold(true).Padding(0, 1).Render(key)
 }
 
 // chevronTrailingPad is the foldout segments' own trailingPad value.
@@ -133,6 +146,7 @@ func renderRepoSegment(m Model, width int, hovered, isOpen bool, tabCap colSpan)
 		trailing:    segmentBase(hovered, isOpen).Foreground(theme.Dimmer).Render(theme.GlyphChevron),
 		trailingPad: chevronTrailingPad,
 		trailingCap: tabCap,
+		key:         "r",
 	}, hovered, isOpen)
 }
 
@@ -190,6 +204,7 @@ func renderWorktreeSegment(m Model, spin string, width int, hovered, isOpen bool
 		bottomBold:  true,
 		trailing:    trailing,
 		trailingPad: chevronTrailingPad,
+		key:         "w",
 	}, hovered, isOpen)
 }
 
@@ -218,7 +233,18 @@ func renderBranchSegment(m Model, width int, hovered, isOpen bool) string {
 		bottomBold:  true,
 		trailing:    segmentBase(hovered, isOpen).Foreground(theme.Dimmer).Render(theme.GlyphChevron),
 		trailingPad: chevronTrailingPad,
+		key:         "b",
 	}, hovered, isOpen)
+}
+
+// actionKey is the action segment's key, "" while the key only refuses (a
+// busy segment, a detached HEAD).
+func actionKey(kind string) string {
+	switch kind {
+	case "fetch", "pull", "pull-rebase", "push", "force-push", "publish-branch", "publish-repo":
+		return "f"
+	}
+	return ""
 }
 
 // renderActionSegment renders the adaptive action segment: an icon keyed off
@@ -247,6 +273,7 @@ func renderActionSegment(a ActionModel, spin string, width int, hovered, isOpen 
 		// separator between them needs the segment's own band so it doesn't
 		// leave a bare, unstyled gap.
 		trailing: strings.Join(pills, segmentBase(hovered, isOpen).Render(" ")),
+		key:      actionKey(a.Kind),
 	}, hovered, isOpen)
 }
 
@@ -356,8 +383,23 @@ func renderSegment(width int, spec segmentSpec, hovered, isOpen bool) string {
 	if topAvail < 0 {
 		topAvail = 0
 	}
+	// The chip sits one cell in from the right edge at least, and lines up
+	// with a foldout's chevron where the segment pads one.
+	chip, chipPad := "", max(spec.trailingPad, 1)
+	if spec.key != "" {
+		chip = keyChip(spec.key)
+		if reserved := lipgloss.Width(chip) + 1 + chipPad; topAvail-reserved >= keyChipMinLabel {
+			topAvail -= reserved
+		} else {
+			chip = ""
+		}
+	}
 	top := base.Foreground(spec.topColor).Bold(spec.topBold).Render(clip(spec.top, topAvail))
 	row1 := base.Render(" "+strings.Repeat(" ", iconW)+"  ") + top
+	if chip != "" {
+		gap := width - chipPad - lipgloss.Width(row1) - lipgloss.Width(chip)
+		row1 += base.Render(strings.Repeat(" ", max(gap, 0))) + chip
+	}
 	row1 = base.Width(width).Render(row1)
 
 	bottomAvail := segmentBottomAvail(width, spec.icon, spec.trailing, spec.trailingPad)

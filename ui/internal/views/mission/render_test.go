@@ -550,7 +550,7 @@ func TestRenderMasterRowWithNoChangesHasNoCheckbox(t *testing.T) {
 }
 
 func TestRenderKeybarContainsSpaceStage(t *testing.T) {
-	out := ansi.Strip(renderKeybar(100, "changes", "fetch"))
+	out := ansi.Strip(renderKeybar(100, "changes"))
 	if !strings.Contains(out, "space stage") {
 		t.Fatalf("keybar missing \"space stage\":\n%s", out)
 	}
@@ -3416,7 +3416,7 @@ func TestHalfBlockGlyphsMeasureAsOneCell(t *testing.T) {
 // own trailing pad (after "q quit," the last thing justify places) still
 // wears BgSubtle, not just the text ahead of it.
 func TestRenderKeybarRestPaintsBgSubtleBandFullWidth(t *testing.T) {
-	out := renderKeybar(120, "changes", "fetch")
+	out := renderKeybar(120, "changes")
 	if !strings.Contains(out, bgSGR(theme.BgSubtle)) {
 		t.Fatalf("keybar should wear the BgSubtle band: %q", out)
 	}

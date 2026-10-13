@@ -97,15 +97,16 @@ shadows, no radii).
   Once that switch lands, a toast confirms it ("Switched back to the main
   worktree").
 - Confirmations show as a toast: a Mint-bordered box with a check, floated
-  over the bottom right corner three clear rows above the keybar, gone after 3
+  over the bottom right corner one clear row above the keybar, gone after 3
   seconds or on the next key or click. It takes no layout row. GitHub
   Desktop has no equivalent at this size; the notice strip stays for
   refusals and driver notices.
 - These confirm with a toast where GitHub Desktop says nothing: "Copied",
   "Stashed changes", "Restored stash", "Discarded stash", "Provisioned
   `<tree>`", "Switched to `<worktree, repo or branch>`", "Created branch
-  `<name>`", "Fetched", "Pulled", "Pushed", "Force pushed", "Published
-  branch" and "Published repository". The driver sends them as the model's
+  `<name>`", and the action segment's own title in the past tense ("Fetched
+  origin", "Pulled origin", "Pulled origin with rebase", "Pushed origin",
+  "Force pushed origin", "Published branch", "Published repository"). The driver sends them as the model's
   `toast` (a seq and a text); a toast is skipped when the same action raised
   a notice.
 - `1` and `2` switch between Changes and History. GitHub Desktop binds
@@ -478,18 +479,21 @@ pre-ratification drawing:
   iconography. An unpatched font shows fallback boxes there; accepted.
 - The undo strip is one line ("Committed <when> · <summary>" clipped to the
   sidebar, Undo chip right) instead of the boards' two-line strip.
-- The main keybar lists the built action set (adds "enter diff",
-  "u undo", "S stash", and "h show stash", omits "? help"). The adaptive
-  segment key is labelled with what it will do ("f fetch", "f pull",
-  "f push", "f force push", "f publish") and is left out while the segment
-  is busy or HEAD is detached, when it only refuses. The stash keys sit last, so a narrow
-  terminal clips them first.
-  Both tabs also add "⌃k menu" right after the tab-switch key, so it
-  survives a narrow terminal.
+- Keys live on the control they act on. Each top bar segment carries its
+  key as a chip at the right of its label row (`r`, `w`, `b`, and `f` on the
+  action segment), and the tabs lead with `1` and `2`. A chip is left out
+  while its key only refuses (a detached branch segment, a busy or detached
+  action segment) and on a segment too narrow to show "Current Repository"
+  beside it, so the equal-width segments drop theirs together.
+- The keybar lists only what acts on the list in view, and omits "? help":
+  Changes shows "space stage · enter diff · c commit · / filter · u undo ·
+  S stash · W main · ⌃k menu · h show stash"; History shows "↑↓ commits ·
+  ⇧↑↓ range · enter files · / filter · e expand · W main · ⌃k menu". The
+  stash hint sits last, so a narrow terminal clips it first.
 - The stash view is a third keybar mode, replacing the Changes keybar
   outright while showing: "↑↓ files · enter diff · R restore · D discard ·
-  h hide · ⌃k menu · b branch · w worktree · W main · r repo · q quit". `Stash.png`
-  shows it in place.
+  h hide · W main · ⌃k menu · q quit". `Stash.png` shows the earlier,
+  longer bar.
 - The commit button renders the disabled treatment whenever the wire says
   it cannot commit (empty summary); the boards draw the enabled pink for
   visual reference.
