@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { ContextMenu } from '@mattstack/tui-kit';
+import { ContextMenu, LabeledSeg } from '@mattstack/tui-kit';
 import type { AskGroup, AskPerson, AskPickerModel } from './ask-picker.ts';
 
 type View = AskPickerModel['opensOn'];
 
-const VIEWS: ReadonlyArray<[View, string]> = [
-  ['owners', 'code owners'],
-  ['all', 'all teams'],
-];
+const VIEWS: readonly View[] = ['owners', 'all'];
+const VIEW_LABELS: Record<View, string> = {
+  owners: 'code owners',
+  all: 'all teams',
+};
 
 /** The groups a search keeps: a team whose name matches keeps everyone, any
     other team keeps the people whose name or username matches. */
@@ -125,17 +126,15 @@ export function AskPicker({
       className="tui-menu-asking"
     >
       <ContextMenu.Label>request review from</ContextMenu.Label>
-      <ContextMenu.Row aria-label="who to list">
-        {VIEWS.map(([value, label]) => (
-          <ContextMenu.Item
-            key={value}
-            label={label}
-            className="tui-menu-ask-view"
-            aria-current={view === value || undefined}
-            onClick={() => setView(value)}
-          />
-        ))}
-      </ContextMenu.Row>
+      <LabeledSeg
+        soft
+        className="tui-menu-ask-views"
+        legend="who to list"
+        options={VIEWS}
+        labels={VIEW_LABELS}
+        value={view}
+        onChange={setView}
+      />
       {view === 'all' && (
         <input
           ref={searchRef}

@@ -43,6 +43,20 @@ const search = () =>
   picker()?.querySelector<HTMLInputElement>('input.tui-menu-ask-search') ??
   null;
 
+const views = () => [
+  ...(picker()?.querySelectorAll<HTMLElement>(
+    '[data-part="segmented-option"]'
+  ) ?? []),
+];
+
+async function showView(label: string): Promise<void> {
+  const option = views().find(el => el.textContent === label);
+  if (!option) throw new Error(`no view "${label}"`);
+  await act(() => {
+    option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+}
+
 async function typeSearch(text: string): Promise<void> {
   const input = search();
   if (!input) throw new Error('no search box');
@@ -60,13 +74,11 @@ test('an MR another team owns opens on code owners, each owning team under its h
   await openMenu(owned, env);
   await clickItem('request review from…');
   expect(search()).toBeNull();
-  expect(itemTexts()).toEqual([
-    'code owners',
-    'all teams',
-    'kim',
-    'Nia Okoro',
-    'Sam Whitlow',
+  expect(views().map(el => [el.textContent, el.dataset.active])).toEqual([
+    ['code owners', 'true'],
+    ['all teams', undefined],
   ]);
+  expect(itemTexts()).toEqual(['kim', 'Nia Okoro', 'Sam Whitlow']);
   const text = picker()!.textContent!;
   expect(text).toContain('gadgets');
   expect(text).toContain('needs approval');
@@ -78,22 +90,15 @@ test('an MR another team owns opens on code owners, each owning team under its h
 test('all teams lists every team with someone to ask and narrows as you type', async () => {
   await openMenu(owned, env);
   await clickItem('request review from…');
-  await clickItem('all teams');
+  await showView('all teams');
   expect(itemTexts()).toEqual([
-    'code owners',
-    'all teams',
     'kim',
     'Ines Duarte',
     'Nia Okoro',
     'Sam Whitlow',
   ]);
   await typeSearch('gad');
-  expect(itemTexts()).toEqual([
-    'code owners',
-    'all teams',
-    'Nia Okoro',
-    'Sam Whitlow',
-  ]);
+  expect(itemTexts()).toEqual(['Nia Okoro', 'Sam Whitlow']);
   await clickItem('Sam Whitlow');
   expect(harness.effects).toEqual([{ effect: 'ask:review:sam', iid: 1418 }]);
 });
