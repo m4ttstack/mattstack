@@ -12,6 +12,8 @@ struct ChecklistScreen: View {
     @State private var choose: PlanRow?
     @State private var actionError: (rowId: String, message: String)?
     @State private var waitingOnYou: [String: String] = [:]
+    @State private var openGroups: Set<String> = []
+    @State private var openRows: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,27 +33,7 @@ struct ChecklistScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20).padding(.top, 12)
                 }
-                Form {
-                    ForEach(model.groups(for: scope)) { group in
-                        Section(group.title) {
-                            ForEach(group.rows) { row in
-                                RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id]) { perform(row) }
-                                if let actionError, actionError.rowId == row.id {
-                                    Text(actionError.message).font(.caption).foregroundStyle(.red)
-                                        .accessibilityIdentifier(AXID.checklistRowError(row.id))
-                                }
-                            }
-                            if group.id == "mac", model.fdaNeedsRelaunch {
-                                HStack {
-                                    Text("Full Disk Access was granted. Relaunch mattstack to apply it.").font(.caption)
-                                    Spacer()
-                                    Button("Relaunch mattstack") { AppRelaunch.relaunchInPlace(resumeAt: .checklist) }.accessibilityIdentifier(AXID.checklistRelaunch)
-                                }
-                            }
-                        }
-                    }
-                }
-                .formStyle(.grouped)
+                if scope == .all { foldedList } else { flatList }
             }
             HStack(spacing: 6) {
                 if isRefreshing { ProgressView().controlSize(.small) }
@@ -87,6 +69,87 @@ struct ChecklistScreen: View {
         // -- same fix as InstallScreen's stepRow.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(scope == .all ? AXID.checklistScreen : AXID.settingsAccountsScreen)
+    }
+
+    private var flatList: some View {
+        Form {
+            ForEach(model.groups(for: scope)) { group in
+                Section(group.title) {
+                    ForEach(group.rows) { row in fullRow(row) }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var foldedList: some View {
+        let layout = ChecklistLayout.make(model.groups)
+        return VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                ForEach(layout.summary, id: \.text) { part in
+                    HStack(spacing: 4) {
+                        StatusBadge(status: part.status)
+                        Text(part.text).font(.callout)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20).padding(.top, 12)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(AXID.checklistSummary)
+            Form {
+                if !layout.attention.isEmpty || model.fdaNeedsRelaunch {
+                    Section("Needs you") {
+                        ForEach(layout.attention) { item in fullRow(item.row, context: item.groupTitle) }
+                        if model.fdaNeedsRelaunch {
+                            HStack {
+                                Text("Full Disk Access was granted. Relaunch mattstack to apply it.").font(.caption)
+                                Spacer()
+                                Button("Relaunch mattstack") { AppRelaunch.relaunchInPlace(resumeAt: .checklist) }.accessibilityIdentifier(AXID.checklistRelaunch)
+                            }
+                        }
+                    }
+                }
+                if !layout.groups.isEmpty {
+                    Section("Everything checked") {
+                        ForEach(layout.groups) { group in
+                            FoldedGroupHeader(group: group, isOpen: openGroups.contains(group.id)) { toggle(group.id, in: &openGroups) }
+                            if openGroups.contains(group.id) {
+                                ForEach(group.rows) { row in
+                                    if staysOpen(row) {
+                                        fullRow(row)
+                                            .padding(.leading, 22)
+                                            .contentShape(Rectangle())
+                                            .onTapGesture { toggle(row.id, in: &openRows) }
+                                    } else {
+                                        FoldedRow(row: row) { toggle(row.id, in: &openRows) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+        }
+    }
+
+    /// A row mid-action or showing a failure must not fold away under the user.
+    private func staysOpen(_ row: PlanRow) -> Bool {
+        openRows.contains(row.id) || model.checkingRowIds.contains(row.id) || waitingOnYou[row.id] != nil || actionError?.rowId == row.id
+    }
+
+    private func toggle(_ id: String, in set: inout Set<String>) {
+        if set.contains(id) { set.remove(id) } else { set.insert(id) }
+    }
+
+    @ViewBuilder
+    private func fullRow(_ row: PlanRow, context: String? = nil) -> some View {
+        RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id], context: context) { perform(row) }
+        if let actionError, actionError.rowId == row.id {
+            Text(actionError.message).font(.caption).foregroundStyle(.red)
+                .accessibilityIdentifier(AXID.checklistRowError(row.id))
+        }
     }
 
     private var isRefreshing: Bool { model.loadState == .loaded && model.isLoading }
@@ -182,6 +245,54 @@ struct ChecklistScreen: View {
         }
     }
 
+}
+
+struct FoldedGroupHeader: View {
+    let group: ChecklistLayout.FoldedGroup
+    let isOpen: Bool
+    let onToggle: () -> Void
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 8) {
+                Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(width: 14)
+                Text(group.title).fontWeight(.medium)
+                Spacer(minLength: 8)
+                if group.attentionCount > 0 {
+                    HStack(spacing: 2) {
+                        StatusBadge(status: .needsYou)
+                        Text("\(group.attentionCount)").font(.callout)
+                    }
+                }
+                Text(group.countText).font(.callout).foregroundStyle(.secondary)
+                if group.attentionCount == 0 { StatusBadge(status: .ready) }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(AXID.checklistGroup(group.id))
+    }
+}
+
+struct FoldedRow: View {
+    let row: PlanRow
+    let onOpen: () -> Void
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 8) {
+                Text(row.title).font(.callout)
+                Spacer(minLength: 8)
+                if let d = row.detail, !d.isEmpty {
+                    Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                }
+                StatusBadge(status: row.status, id: AXID.checklistRowStatus(row.id))
+            }
+            .padding(.leading, 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(AXID.checklistRow(row.id))
+    }
 }
 
 /// Fills the rows' area until the first plan arrives, so the window never opens blank.

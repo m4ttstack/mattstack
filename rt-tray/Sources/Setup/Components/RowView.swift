@@ -9,6 +9,8 @@ struct RowView: View {
     var statusID: String? = nil
     /// What the row's running action is waiting on the user for.
     var waiting: String? = nil
+    /// The group a row was lifted out of, shown beside its title.
+    var context: String? = nil
     let onAction: () -> Void
 
     var body: some View {
@@ -17,6 +19,7 @@ struct RowView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(row.title).fontWeight(.medium)
+                    if let context { Text(context).font(.caption).foregroundStyle(.secondary) }
                     if let badge = row.badge {
                         Text(badge.rawValue).font(.caption2).padding(.horizontal, 5).padding(.vertical, 1)
                             .background(Capsule().fill(Color.secondary.opacity(0.15)))
