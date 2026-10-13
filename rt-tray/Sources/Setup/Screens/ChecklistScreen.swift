@@ -139,6 +139,7 @@ struct ChecklistScreen: View {
                                                 .padding(.horizontal, 14).padding(.vertical, 6)
                                                 .contentShape(Rectangle())
                                                 .onTapGesture { toggle(row.id, in: &openRows) }
+                                                .accessibilityAction(named: "Collapse") { toggle(row.id, in: &openRows) }
                                                 .id(Self.rowAnchor(row.id))
                                         } else {
                                             FoldedRow(row: row) {
