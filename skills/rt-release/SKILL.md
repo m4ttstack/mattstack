@@ -285,7 +285,7 @@ into a held-pins line.
 An app update never re-runs Install. A Mac that is already set up gets only what
 `rt setup update` runs at its first launch on the new version: `org.folder` and `org.pull`,
 then pending migrations, then `team.identity` and the other steps flagged `updateSafe`, then
-`verify` (AGENTS.md, "Setup after an update"). Anything else
+`verify` (`.claude/rules/setup.md`, "Setup after an update"). Anything else
 this release changes about setup reaches new installs and nobody else, with no error anywhere.
 Preflight does not see this: it reads pins and settings schemas.
 

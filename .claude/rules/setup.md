@@ -64,7 +64,7 @@ one reports `skipped: "running"`. A run is `org.folder` and `org.pull`, then
 pending migrations, then `team.identity` and the other `StepDef`s with
 `updateSafe: true`, then `verify`, through `runUpdateWith` in
 `lib/setup/apply.ts`, so a migration that reads the org sees the clone at
-`orgs/<org>` holding what `main` holds now. No failed outcome stops it, and a migration that
+`orgs/<org>` holding what its checked-out branch holds on origin now. No failed outcome stops it, and a migration that
 throws is one more failed item; only a step that throws a plain error
 ends the run, as a bug (exit 1, no stamp). Otherwise the version is
 stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. Two
