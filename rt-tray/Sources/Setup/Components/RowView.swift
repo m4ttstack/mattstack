@@ -11,11 +11,17 @@ struct RowView: View {
     var waiting: String? = nil
     /// The group a row was lifted out of, shown beside its title.
     var context: String? = nil
+    /// Draws the status where the kind icon sits and drops the trailing one.
+    var statusLeads: Bool = false
     let onAction: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbol(for: row.kind)).frame(width: 22).foregroundStyle(.secondary).padding(.top, 2)
+            if statusLeads {
+                statusBadge.frame(width: 22)
+            } else {
+                Image(systemName: symbol(for: row.kind)).frame(width: 22).foregroundStyle(.secondary).padding(.top, 2)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(row.title).fontWeight(.medium)
@@ -38,12 +44,15 @@ struct RowView: View {
                     .accessibilityIdentifier(actionID ?? AXID.checklistRowAction(row.id))
             }
             // Last, so every row's status lines up in one column whether or not it has a button.
-            StatusBadge(status: isChecking ? .checking : row.status, id: statusID ?? AXID.checklistRowStatus(row.id))
-                .padding(.top, 1)
+            if !statusLeads { statusBadge.padding(.top, 1) }
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(rowID ?? AXID.checklistRow(row.id))
+    }
+
+    private var statusBadge: some View {
+        StatusBadge(status: isChecking ? .checking : row.status, id: statusID ?? AXID.checklistRowStatus(row.id))
     }
 
     private func symbol(for kind: RowKind) -> String {
