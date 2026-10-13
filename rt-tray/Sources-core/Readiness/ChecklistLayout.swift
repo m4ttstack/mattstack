@@ -29,6 +29,44 @@ public struct ChecklistLayout: Equatable, Sendable {
     public let sections: [Section]
     public let finishBlockedBy: Set<String>
 
+    public enum EntryMark: Equatable, Sendable { case overview, failed, running, needsYou, settled }
+
+    public struct Entry: Equatable, Identifiable, Sendable {
+        public let id: String
+        public let title: String
+        /// nil for an entry that is not a list of rows.
+        public let count: Int?
+        public let mark: EntryMark
+    }
+
+    /// No plan group can take these ids: rt's group ids never carry a hyphen,
+    /// and no group is named "overview".
+    public static let needsYouID = "needs-you"
+    public static let overviewID = "overview"
+
+    public func entries(overview: Bool, running: Set<String>, failed: Set<String>) -> [Entry] {
+        var out: [Entry] = []
+        if !attention.isEmpty {
+            out.append(Entry(id: Self.needsYouID, title: "Needs you", count: attention.count, mark: .needsYou))
+        }
+        if overview { out.append(Entry(id: Self.overviewID, title: "Overview", count: nil, mark: .overview)) }
+        out += sections.map { section in
+            let ids = Set((section.needsYou + section.optional + section.noAction).map(\.id))
+            let mark: EntryMark = !ids.isDisjoint(with: failed) ? .failed
+                : !ids.isDisjoint(with: running) ? .running
+                : section.needsYou.isEmpty ? .settled : .needsYou
+            return Entry(id: section.id, title: section.title, count: section.count, mark: mark)
+        }
+        return out
+    }
+
+    /// The entry to show: the user's pick while it still exists, else the first.
+    public func selection(preferred: String?, overview: Bool) -> String? {
+        let ids = entries(overview: overview, running: [], failed: []).map(\.id)
+        if let preferred, ids.contains(preferred) { return preferred }
+        return ids.first
+    }
+
     public static func make(_ groups: [PlanGroup], finishBlockedBy: [String] = []) -> ChecklistLayout {
         let blocked = Set(finishBlockedBy)
         var attention: [Attention] = []
