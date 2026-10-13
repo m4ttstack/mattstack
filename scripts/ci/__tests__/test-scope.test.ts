@@ -61,6 +61,10 @@ describe("decide", () => {
     expect(decide(pr(["docs/architecture.md", "AGENTS.md"])).mode).toBe("skip");
   });
 
+  test("a PR that only moves agent rules skips the unit shards", () => {
+    expect(decide(pr([".claude/rules/output-layer.md", "AGENTS.md"])).mode).toBe("skip");
+  });
+
   test("swift nothing reads skips", () => {
     expect(decide(pr(["rt-tray/Sources-core/Tray/Menu.swift"])).mode).toBe("skip");
   });
