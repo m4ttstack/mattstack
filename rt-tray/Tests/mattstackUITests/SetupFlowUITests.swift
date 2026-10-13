@@ -93,10 +93,19 @@ final class SetupFlowUITests: XCTestCase {
         for _ in 0..<12 {
             waitUntilEnabled("setup.checklist.continue")
             let isLast = el("setup.checklist.continue").label == "Install"
+            let before = el("setup.window.progress").value as? String ?? ""
             el("setup.checklist.continue").click()
             if isLast { return }
+            waitForPageTurn(from: before)
         }
         XCTFail("the checklist never reached Install", file: file, line: line)
+    }
+
+    /// The primary button keeps its id from page to page, so a read made right
+    /// after a click can still be the page that was left.
+    private func waitForPageTurn(from before: String, _ timeout: TimeInterval = 20) {
+        expectation(for: NSPredicate(format: "value != %@", before), evaluatedWith: el("setup.window.progress"))
+        waitForExpectations(timeout: timeout)
     }
 
     private func shoot(_ name: String) {
@@ -129,8 +138,9 @@ final class SetupFlowUITests: XCTestCase {
         el("setup.team.continue").click()
         waitFor("setup.checklist.screen")
         waitFor("setup.checklist.page.mac")
-        XCTAssertTrue(el("setup.checklist.row.perm.fda").waitForExistence(timeout: 20), "the first page drew its rows")
-        XCTAssertEqual(el("setup.checklist.row.perm.fda.status").value as? String, "ready")
+        // Asserted on a row the page draws: the ready rows sit folded under No action needed.
+        XCTAssertTrue(el("setup.checklist.row.perm.notifications.status").waitForExistence(timeout: 20), "the first page drew its rows")
+        XCTAssertEqual(el("setup.checklist.row.perm.notifications.status").value as? String, "skipped")
         XCTAssertEqual(el("setup.window.progress").value as? String, "3 of 8", "four pages sit between Your team and Install")
         pageThroughChecklist()
         waitFor("setup.install.screen")
@@ -197,7 +207,7 @@ final class SetupFlowUITests: XCTestCase {
         XCTAssertFalse(el("setup.done.beforeYouFinish.tool.fast-browser-extension").exists, "its Needs you pane went with it")
         XCTAssertFalse(el("setup.done.skipConfirm").exists, "the sheet closed on success")
         el("setup.checklist.group.tools").click()
-        waitFor("setup.checklist.row.tool.fast-browser-extension")
+        waitFor("setup.checklist.row.tool.fast-browser-extension.status")
         XCTAssertEqual(el("setup.checklist.row.tool.fast-browser-extension.status").value as? String, "needs-you", "a skip waives the row, it does not fix it")
         XCTAssertFalse(el("setup.done.skip.tool.fast-browser-extension").exists, "a skipped row offers no second Skip")
         el("setup.done.continue").click()
