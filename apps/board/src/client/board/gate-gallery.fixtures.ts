@@ -845,6 +845,7 @@ const RADAR_FINDINGS = [
     body: '"can land after a step navigation tore this map down" isn\'t accurate after ACME-588: a step navigation no longer tears the map down, the provider teardown does (the same wording is in the test comment at useRadarMap.test.tsx:997). That\'s the exact distinction the render() comment warns about, and this wording invites someone to swap in isDetached, which would silently drop stations on the step showing the map.',
     file: 'packages/radar-map/src/layers/hooks/useRadarMap.ts:119',
     fix: 'reword to "can land after the provider tore this map down" (here and at useRadarMap.test.tsx:997)',
+    kind: 'suggestion',
   },
   {
     id: 'f2',
@@ -853,6 +854,7 @@ const RADAR_FINDINGS = [
     body: "Every test in the file still passes if the guard is changed to isDetached.current, so the one plausible regression of this fix goes uncaught. Mirror \"keeps rendering the 3d layer after the step that built the map unmounts\": hold model loads, render tree('legend') and settle, rerender(tree('tracks')), release the held loads, then expect layers.add called once and dispatchLayerAction to get storeLayerObject.",
     file: 'packages/radar-map/src/layers/hooks/useRadarMap.test.tsx:1001',
     fix: 'add a test where the building step unmounts with the provider alive and the late model is still added',
+    kind: 'suggestion',
   },
   {
     id: 'f3',
@@ -861,6 +863,7 @@ const RADAR_FINDINGS = [
     body: 'Without the map.removed assertion, expect(layers.add).not.toHaveBeenCalled() still fails when the guard is missing; only the not.toThrow half (the tracker repro) would go vacuous.',
     file: 'packages/radar-map/src/layers/hooks/useRadarMap.test.tsx:1013',
     fix: 'say that the not.toThrow half would go vacuous',
+    kind: 'nitpick',
   },
   {
     id: 'f4',
@@ -868,6 +871,7 @@ const RADAR_FINDINGS = [
     title: 'Flag checklist item is ticked with no flag',
     body: 'Both the flag item and "Every flag state was exercised locally" are ticked in the MR description, but the change adds no flag.',
     fix: 'mark the flag item N/A with a one-line reason',
+    kind: 'nitpick',
   },
 ];
 

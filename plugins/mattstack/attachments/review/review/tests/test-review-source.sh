@@ -54,9 +54,10 @@ check "a long title is middle-truncated to the 200-byte label cap" '200|[Minor] 
   "$(q '.questions[1].options[0].label | "\(utf8bytelength)|\(.)"')"
 
 # the structured view: full text, severity lowercased, anchors only when real
-check "entry carries body, evidence, disposition and a file:line" \
-  '{"id":"f2","severity":"important","title":"retry fix is parity wiring, not a live fix","body":"the guard only runs on the parity path; the live path still re-enqueues a permanently failed job.","file":"queue/enqueue.ts:81","fix":"move the retryable check ahead of the parity branch","evidence":"FAIL queue/enqueue.test.ts > live path drops permanent failures\n  expected enqueue calls: 0\n  received enqueue calls: 1","disposition":"still-open"}' \
+check "entry carries body, evidence, disposition, kind and a file:line" \
+  '{"id":"f2","severity":"important","title":"retry fix is parity wiring, not a live fix","body":"the guard only runs on the parity path; the live path still re-enqueues a permanently failed job.","file":"queue/enqueue.ts:81","fix":"move the retryable check ahead of the parity branch","evidence":"FAIL queue/enqueue.test.ts > live path drops permanent failures\n  expected enqueue calls: 0\n  received enqueue calls: 1","disposition":"still-open","kind":"suggestion"}' \
   "$(q '.questions[0].context.findings[1] | tojson')"
+check "an entry with no kind omits the key" false "$(q '.questions[0].context.findings[0] | has("kind")')"
 check "a fileLabel is not a file" false "$(q '.questions[0].context.findings[3] | has("file")')"
 check "a file without a line stays bare" queue/worker.ts "$(q '.questions[0].context.findings[0].file')"
 check "titles are never truncated in the context" true \
@@ -70,6 +71,7 @@ check "an over-long fix is shortened to the 1024-byte description cap, anchor an
   "$(q '.questions[0].options[2].description | "\(utf8bytelength <= 1024)|\(startswith("queue/enqueue.test.ts:132 · xxx"))|\(endswith("x… · kind:nitpick"))"')"
 M=$(mutate '.findings[0].kind = " Needs_Work!"' "$V2"); run "$M" "$X"; rm -f "$M"
 check "kind normalizes to lowercase and hyphens" 'queue/enqueue.test.ts:132 · assert set membership · kind:needs-work' "$(q '.questions[0].options[2].description')"
+check "the entry's kind is the same normalized word" needs-work "$(q '.questions[0].context.findings[2].kind')"
 M=$(mutate 'del(.findings[0].fix)' "$V2"); run "$M" "$X"; rm -f "$M"
 check "no fix: anchor and kind only" 'queue/enqueue.test.ts:132 · kind:nitpick' "$(q '.questions[0].options[2].description')"
 M=$(mutate 'del(.findings[2].fileLabel, .findings[2].fix)' "$V2"); run "$M" "$X"; rm -f "$M"

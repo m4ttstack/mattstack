@@ -86,6 +86,7 @@ const FINDING = {
   fix: 'note it is parity wiring in the doc comment',
   evidence: 'enqueue.test.ts: 4 pass, 0 fail',
   disposition: 'new',
+  kind: 'suggestion',
 } as const;
 
 const FINDINGS = {

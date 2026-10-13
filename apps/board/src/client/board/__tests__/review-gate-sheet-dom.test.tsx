@@ -635,7 +635,7 @@ const RE_REVIEW_GATE: GateRow = {
       label: 'Post which findings to !31?',
       multi: true,
       context: findingsCtx(
-        { ...E.f2, disposition: 'still-open' },
+        { ...E.f2, disposition: 'still-open', kind: 'follow-up' },
         { ...E.f4, disposition: 'new' },
         entry('f7', 'minor', 'Changelog entry missing', undefined, undefined, {
           disposition: 'addressed-check',
@@ -765,6 +765,16 @@ test('a disposition renders as a small state pill on its row', async () => {
     new: ['new', 'accent'],
     'addressed-check': ['author says fixed', 'green'],
   });
+});
+
+test('a kind renders as a grey pill on its row, and a row without one has none', async () => {
+  await render(RE_REVIEW_GATE);
+  const rows = [...container.querySelectorAll('.tui-review-finding-row')];
+  const pills = rows.map(r => {
+    const p = r.querySelector('.tui-respond-pill[data-kind]');
+    return p && [p.textContent, p.getAttribute('data-hue')];
+  });
+  expect(pills).toEqual([['follow-up', null], null, null]);
 });
 
 test('the decision card reads readiness, summary, counts, and the re-review line from review@1', async () => {
