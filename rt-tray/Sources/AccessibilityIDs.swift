@@ -87,11 +87,7 @@ enum AXID {
     // Done
     static let doneOpenBoard = "setup.done.openBoard"
     static let doneInvite = "setup.done.invite"
-    static let doneStillToDo = "setup.done.stillToDo"
-    static func doneStillToDoRow(_ id: String) -> String { "setup.done.stillToDo.\(id)" }
-    static func doneStillToDoRowStatus(_ id: String) -> String { "setup.done.stillToDo.\(id).status" }
-    static func doneStillToDoRowAction(_ id: String) -> String { "setup.done.stillToDo.\(id).action" }
-    static let doneBeforeYouFinish = "setup.done.beforeYouFinish"
+    static let doneOverview = "setup.done.overview"
     static func doneBeforeYouFinishRow(_ id: String) -> String { "setup.done.beforeYouFinish.\(id)" }
     static func doneBeforeYouFinishRowStatus(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).status" }
     static func doneBeforeYouFinishRowAction(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).action" }

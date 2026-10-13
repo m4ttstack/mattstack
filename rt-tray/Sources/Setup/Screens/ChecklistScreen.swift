@@ -11,10 +11,13 @@ struct ChecklistScreen: View {
         /// A wizard page: one group. nil while no plan has landed.
         case page(String?)
         /// Setup status, and the wizard's last step when `overview` is set.
-        case sidebar(overview: AnyView?, onSkip: ((PlanRow) -> Void)?)
+        /// `rowsConfirmed` is false while the model still holds the pre-install rows: the summary then shows its Overview alone.
+        case sidebar(overview: AnyView?, onSkip: ((PlanRow) -> Void)?, rowsConfirmed: Bool = true)
     }
     var presentation: Presentation = .sidebar(overview: nil, onSkip: nil)
     private var scope: ReadinessModel.Scope { if case .accounts = presentation { return .accounts } else { return .all } }
+    private var isSummary: Bool { if case .sidebar(.some, _, _) = presentation { return true } else { return false } }
+    private var showsOverviewOnly: Bool { if case .sidebar(.some, _, false) = presentation { return true } else { return false } }
     @State private var connect: (row: PlanRow, fields: [ActionField], alternatives: [ActionAlternative], create: ActionLink?)?
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
@@ -29,14 +32,15 @@ struct ChecklistScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            switch model.loadState {
+            // The Overview carries its own spinner and failure, so it never waits behind the load states.
+            switch showsOverviewOnly ? .loaded : model.loadState {
             case .loading:
                 ChecklistLoadingView(title: scope == .all ? "Checking your setup…" : "Checking your accounts…")
             case .failed(let message):
                 ChecklistLoadFailedView(title: scope == .all ? "Couldn't check your setup" : "Couldn't load your accounts",
                                         message: message) { recheck() }
             case .loaded:
-                if model.lastRefreshFailed {
+                if model.lastRefreshFailed, !showsOverviewOnly {
                     // A failed refresh keeps the last loaded plan on screen, and Install may still be enabled under it.
                     Label(scope == .all ? "Couldn't refresh the checklist. Re-check to try again."
                                         : "Couldn't refresh your accounts. Re-check to try again.",
@@ -48,7 +52,8 @@ struct ChecklistScreen: View {
                 switch presentation {
                 case .accounts: flatList
                 case .page(let id): pageBody(id)
-                case .sidebar(let overview, let onSkip): sidebarBody(overview: overview, onSkip: onSkip)
+                case .sidebar(let overview, let onSkip, let rowsConfirmed):
+                    sidebarBody(overview: overview, onSkip: onSkip, rowsConfirmed: rowsConfirmed || overview == nil)
                 }
             }
             HStack(spacing: 6) {
@@ -70,7 +75,12 @@ struct ChecklistScreen: View {
                 }
             }
         }
-        .sheet(isPresented: Binding(get: { steps != nil }, set: { if !$0 { steps = nil } })) {
+        .sheet(isPresented: Binding(get: { steps != nil }, set: { presented in
+            guard !presented else { return }
+            steps = nil
+            // A finish-gated row changes outside the app (Chrome, a download): only the sheet's dismissal says to look again.
+            if isSummary { Task { await model.refreshUnlessLoading() } }
+        })) {
             if let s = steps { StepsSheet(title: s.title, steps: s.steps) }
         }
         .sheet(item: $choose) { row in
@@ -137,28 +147,32 @@ struct ChecklistScreen: View {
         .accessibilityIdentifier(AXID.checklistPage(id ?? ""))
     }
 
-    private func sidebarBody(overview: AnyView?, onSkip: ((PlanRow) -> Void)?) -> some View {
+    private func sidebarBody(overview: AnyView?, onSkip: ((PlanRow) -> Void)?, rowsConfirmed: Bool) -> some View {
         let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy, afterInstall: true)
         let entries = layout.entries(overview: overview != nil, running: model.checkingRowIds, failed: Set(liveErrors.keys))
-        let current = layout.selection(preferred: selected, overview: overview != nil)
+            .filter { rowsConfirmed || $0.id == ChecklistLayout.overviewID }
+        let current = rowsConfirmed ? layout.selection(preferred: selected, overview: overview != nil) : ChecklistLayout.overviewID
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 14) {
-                ForEach(layout.summary, id: \.text) { part in
-                    HStack(spacing: 4) {
-                        SummaryGlyph(kind: part.kind)
-                        Text(part.text).font(.callout)
+            if rowsConfirmed {
+                HStack(spacing: 14) {
+                    ForEach(layout.summary, id: \.text) { part in
+                        HStack(spacing: 4) {
+                            SummaryGlyph(kind: part.kind)
+                            Text(part.text).font(.callout)
+                        }
                     }
+                    Spacer()
                 }
-                Spacer()
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(AXID.checklistSummary)
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier(AXID.checklistSummary)
             if model.fdaNeedsRelaunch { relaunchBanner }
             HStack(alignment: .top, spacing: 12) {
                 ChecklistCard {
                     ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                         if index > 0 { Divider() }
-                        ChecklistSidebarEntry(entry: entry, isSelected: entry.id == current) { selected = entry.id }
+                        // A pick made before the rows are confirmed would keep the summary off Needs you once they are.
+                        ChecklistSidebarEntry(entry: entry, isSelected: entry.id == current) { if rowsConfirmed { selected = entry.id } }
                     }
                 }
                 .frame(width: 220)
@@ -207,7 +221,7 @@ struct ChecklistScreen: View {
             let group = model.groups.first { $0.id == id }
             let isLast = WizardPages(groups: model.groups).ids.last == id
             status = PageGate.footer(blockers: group.map { PageGate.blockers(in: $0).count } ?? 0, isLast: isLast, canInstall: model.canInstall)
-        case .sidebar(let overview, _):
+        case .sidebar(let overview, _, _):
             status = overview == nil ? ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
                                                             owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows)) : nil
         }

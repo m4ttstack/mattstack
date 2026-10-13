@@ -26,7 +26,23 @@ struct SetupView: View {
                                     presentation: flow.readOnly ? .sidebar(overview: nil, onSkip: nil) : .page(flow.page))
                         .transition(pushTransition)
                 case .install: InstallScreen(model: install).transition(pushTransition)
-                case .done: DoneScreen(model: done, install: install, readiness: readiness, isOwner: DoneRole.owner(planTeam: readiness.team, choice: team.choice), solo: DoneRole.solo(planTeam: readiness.team, choice: team.choice), onInvite: { NotificationCenter.default.post(name: .rtShowSettingsTeam, object: nil) }, onRetry: { id in install.retry(from: id); flow.jump(to: .install) }).transition(pushTransition)
+                case .done:
+                    ChecklistScreen(
+                        model: readiness, permissions: permissions, rt: env.rt, needs: env.needs,
+                        presentation: .sidebar(
+                            overview: AnyView(SummaryOverview(
+                                model: done, install: install,
+                                isOwner: DoneRole.owner(planTeam: readiness.team, choice: team.choice),
+                                solo: DoneRole.solo(planTeam: readiness.team, choice: team.choice),
+                                onInvite: { NotificationCenter.default.post(name: .rtShowSettingsTeam, object: nil) },
+                                onRetry: { id in install.retry(from: id); flow.jump(to: .install) })),
+                            onSkip: { done.requestSkip($0) },
+                            rowsConfirmed: done.hasConfirmedRows))
+                        .task { await done.checkPostInstall() }
+                        .sheet(item: $done.skipTarget) { _ in SkipConfirmSheet(model: done) }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier(AXID.doneScreen)
+                        .transition(pushTransition)
                 }
             }
             .animation(.easeInOut(duration: 0.22), value: flow.step)
@@ -48,9 +64,9 @@ struct SetupView: View {
         // deep link that opens straight into .checklist or .install still
         // loads/starts — onChange alone would silently no-op on first appear.
         .task(id: flow.step) {
-            if flow.step == .checklist {
+            if flow.step == .checklist || flow.step == .done {
                 if !flow.readinessIsVisible { flow.readinessIsVisible = true; readiness.becameVisible() }
-                await readiness.load()
+                if flow.step == .checklist { await readiness.load() }
             } else if flow.readinessIsVisible {
                 flow.readinessIsVisible = false
                 readiness.becameHidden()
