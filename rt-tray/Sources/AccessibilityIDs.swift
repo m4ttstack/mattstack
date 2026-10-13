@@ -9,7 +9,6 @@ enum AXID {
     static func `continue`(_ screen: String) -> String { "setup.\(screen).continue" }
     static func back(_ screen: String) -> String { "setup.\(screen).back" }
     static func error(_ screen: String) -> String { "setup.\(screen).error" }
-    static let continueLimited = "setup.checklist.continueLimited"
     /// The read-only "Setup status…" window's primary button, in place of
     /// `setup.<screen>.continue`: a walkthrough must be able to tell a health
     /// view's Close from a wizard's Install.
@@ -40,6 +39,10 @@ enum AXID {
     static let teamRestoreKey = "setup.team.restore.key"
 
     // Checklist
+    static func checklistPage(_ id: String) -> String { "setup.checklist.page.\(id)" }
+    static func checklistSection(_ name: String) -> String { "setup.checklist.section.\(name)" }
+    static let checklistNoActionToggle = "setup.checklist.noAction.toggle"
+    static let progress = "setup.window.progress"
     static func checklistRow(_ id: String) -> String { "setup.checklist.row.\(id)" }
     static func checklistRowAction(_ id: String) -> String { "setup.checklist.row.\(id).action" }
     static func checklistRowStatus(_ id: String) -> String { "setup.checklist.row.\(id).status" }

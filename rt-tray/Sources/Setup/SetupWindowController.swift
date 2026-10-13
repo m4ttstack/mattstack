@@ -61,7 +61,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
 
     func show(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun, choice: TeamChoice? = nil) {
         flow.entry = entry
-        if let step { flow.jump(to: step) }
+        if let step { flow.jump(to: step, landing: step == .checklist && !flow.readOnly) }
         team.enter(entry, choice: choice, joinCode: joinCode)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)

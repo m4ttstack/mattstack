@@ -87,12 +87,6 @@ public final class ReadinessModel: ObservableObject {
         .resolve(hasLoadedPlan: hasLoadedPlan, isLoading: isLoading, lastError: lastError)
     }
 
-    /// Every required row ready, at least one optional row (permission or
-    /// otherwise) not ready — a denied optional permission counts.
-    public var limitedModeAvailable: Bool {
-        canInstall && allRows.contains { !$0.required && $0.status != .ready }
-    }
-
     /// The rows Finish waits on, in plan order.
     public var finishBlockedRows: [PlanRow] { finishBlockedBy.compactMap { row($0) } }
 

@@ -6,11 +6,20 @@ struct ChecklistScreen: View {
     let permissions: PermissionsService
     let rt: RtRunning
     let needs: NeedBroker
-    var scope: ReadinessModel.Scope = .all
+    enum Presentation {
+        case accounts
+        /// A wizard page: one group. nil while no plan has landed.
+        case page(String?)
+        /// Setup status, and the wizard's last step when `overview` is set.
+        case sidebar(overview: AnyView?, onSkip: ((PlanRow) -> Void)?)
+    }
+    var presentation: Presentation = .sidebar(overview: nil, onSkip: nil)
+    private var scope: ReadinessModel.Scope { if case .accounts = presentation { return .accounts } else { return .all } }
     @State private var connect: (row: PlanRow, fields: [ActionField], alternatives: [ActionAlternative], create: ActionLink?)?
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
-    @State private var actionError: (rowId: String, message: String)?
+    @State private var actionErrors: [String: String] = [:]
+    @State private var selected: String?
     @State private var waitingOnYou: [String: String] = [:]
 
     var body: some View {
@@ -31,7 +40,11 @@ struct ChecklistScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20).padding(.top, 12)
                 }
-                if scope == .all { foldedList } else { flatList }
+                switch presentation {
+                case .accounts: flatList
+                case .page(let id): pageBody(id)
+                case .sidebar(let overview, let onSkip): sidebarBody(overview: overview, onSkip: onSkip)
+                }
             }
             HStack(spacing: 6) {
                 if isRefreshing { ProgressView().controlSize(.small) }
@@ -47,7 +60,7 @@ struct ChecklistScreen: View {
             if let c = connect {
                 ConnectSheet(title: c.row.title, fields: c.fields, alternatives: c.alternatives, create: c.create) { values, alt in
                     guard let action = c.row.action else { return }
-                    actionError = nil
+                    actionErrors[c.row.id] = nil
                     run(RowActionDispatcher.dispatch(action, fieldValues: values, alternative: alt), for: c.row)
                 }
             }
@@ -80,15 +93,91 @@ struct ChecklistScreen: View {
         .formStyle(.grouped)
     }
 
-    private var foldedList: some View { EmptyView() }
+    private var activity: RowActivity {
+        RowActivity(checking: model.checkingRowIds, waiting: waitingOnYou, errors: actionErrors)
+    }
+
+    private var relaunchBanner: some View {
+        HStack {
+            Text("Full Disk Access was granted. Relaunch mattstack to apply it.").font(.caption)
+            Spacer()
+            Button("Relaunch mattstack") { AppRelaunch.relaunchInPlace(resumeAt: .checklist) }.accessibilityIdentifier(AXID.checklistRelaunch)
+        }
+    }
+
+    private func pageBody(_ id: String?) -> some View {
+        let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if model.fdaNeedsRelaunch { relaunchBanner }
+                if let section = layout.sections.first(where: { $0.id == id }) {
+                    Text(PageLead.text(for: section)).font(.callout).foregroundStyle(.secondary)
+                    ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity) { perform($0) }
+                        .id(section.id)
+                }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .background(Color.primary.opacity(0.035))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AXID.checklistPage(id ?? ""))
+    }
+
+    private func sidebarBody(overview: AnyView?, onSkip: ((PlanRow) -> Void)?) -> some View {
+        let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy, afterInstall: true)
+        let entries = layout.entries(overview: overview != nil, running: model.checkingRowIds, failed: Set(actionErrors.keys))
+        let current = layout.selection(preferred: selected, overview: overview != nil)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                ForEach(layout.summary, id: \.text) { part in
+                    HStack(spacing: 4) {
+                        SummaryGlyph(kind: part.kind)
+                        Text(part.text).font(.callout)
+                    }
+                }
+                Spacer()
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(AXID.checklistSummary)
+            if model.fdaNeedsRelaunch { relaunchBanner }
+            HStack(alignment: .top, spacing: 12) {
+                ChecklistCard {
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                        if index > 0 { Divider() }
+                        ChecklistSidebarEntry(entry: entry, isSelected: entry.id == current) { selected = entry.id }
+                    }
+                }
+                .frame(width: 220)
+                ScrollView {
+                    Group {
+                        if current == ChecklistLayout.overviewID, let overview {
+                            ChecklistCard { overview }
+                        } else if current == ChecklistLayout.needsYouID {
+                            ChecklistSectionsView(
+                                needsYou: layout.attention.map(\.row), finishBlockedBy: layout.finishBlockedBy, activity: activity,
+                                contexts: Dictionary(uniqueKeysWithValues: layout.attention.map { ($0.row.id, $0.groupTitle) }),
+                                needsYouIDs: overview != nil ? .beforeYouFinish : .checklist, onSkip: onSkip) { perform($0) }
+                        } else if let section = layout.sections.first(where: { $0.id == current }) {
+                            ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity,
+                                                  onSkip: onSkip) { perform($0) }
+                                .id(section.id)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color.primary.opacity(0.035))
+    }
 
     @ViewBuilder
-    private func fullRow(_ row: PlanRow, context: String? = nil, statusLeads: Bool = false) -> some View {
-        RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id], context: context,
-                statusLeads: statusLeads) { perform(row) }
-        if let actionError, actionError.rowId == row.id {
-            Text(actionError.message).font(.caption).foregroundStyle(.red)
-                .accessibilityIdentifier(AXID.checklistRowError(row.id))
+    private func fullRow(_ row: PlanRow) -> some View {
+        RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id]) { perform(row) }
+        if let message = actionErrors[row.id] {
+            Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier(AXID.checklistRowError(row.id))
         }
     }
 
@@ -97,20 +186,29 @@ struct ChecklistScreen: View {
     private func footerText(now: Date) -> String {
         guard model.loadState == .loaded else { return "" }
         let note = ChecklistFooter.refreshNote(isRefreshing: isRefreshing, lastCheckedAt: model.lastCheckedAt, now: now)
-        guard scope == .all, !isRefreshing else { return note ?? "" }
-        let status = ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
-                                          owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows))
+        guard !isRefreshing else { return note ?? "" }
+        let status: String?
+        switch presentation {
+        case .accounts: status = nil
+        case .page(let id):
+            let group = model.groups.first { $0.id == id }
+            let isLast = WizardPages(groups: model.groups).ids.last == id
+            status = PageGate.footer(blockers: group.map { PageGate.blockers(in: $0).count } ?? 0, isLast: isLast, canInstall: model.canInstall)
+        case .sidebar(let overview, _):
+            status = overview == nil ? ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
+                                                            owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows)) : nil
+        }
         return [note, status].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func recheck() {
-        actionError = nil
+        actionErrors = [:]
         Task { await model.recheckAll() }
     }
 
     private func perform(_ row: PlanRow) {
         guard let action = row.action else { return }
-        actionError = nil
+        actionErrors[row.id] = nil
         run(RowActionDispatcher.dispatch(action, fieldValues: nil, alternative: nil), for: row)
     }
 
@@ -139,7 +237,7 @@ struct ChecklistScreen: View {
                         await MainActor.run { waitingOnYou[rowId] = copy }
                     }) {
                         TrayLog.warn("row action failed", ["row": row.id, "err": failure])
-                        actionError = (row.id, failure)
+                        actionErrors[row.id] = failure
                     }
                     await model.afterAction(rowId: row.id)
                     return
@@ -148,16 +246,16 @@ struct ChecklistScreen: View {
                     let result = try await rt.run(args, stdin: stdin)
                     if let e = result.userError(redactStderr: redactStderr) {
                         TrayLog.warn("row action failed", ["row": row.id, "err": e.message])
-                        actionError = (row.id, e.message)
+                        actionErrors[row.id] = e.message
                     } else if result.exitCode != 0 {
                         let copy = result.failureCopy(verb: verb, redactStderr: redactStderr)
                         TrayLog.warn("row action failed", ["row": row.id, "err": copy])
-                        actionError = (row.id, copy)
+                        actionErrors[row.id] = copy
                     }
                 } catch {
                     let copy = (error as? RtClientError)?.copy ?? "rt \(verb) failed to start."
                     TrayLog.warn("row action failed", ["row": row.id, "err": copy])
-                    actionError = (row.id, copy)
+                    actionErrors[row.id] = copy
                 }
                 await model.afterAction(rowId: row.id)
             }
@@ -250,5 +348,60 @@ struct RowWaitingCaption: View {
         }
         .font(.caption)
         .accessibilityIdentifier(AXID.checklistRowWaiting(rowId))
+    }
+}
+
+enum PageLead {
+    static func text(for section: ChecklistLayout.Section) -> String {
+        let required = section.needsYou.filter(ChecklistSorting.blocksInstall).count
+        if required == 1 { return "One thing here needs you before Install can run." }
+        if required > 1 { return "\(required) things here need you before Install can run." }
+        if !section.needsYou.isEmpty { return "Nothing here blocks Install. One thing is needed before you finish." }
+        return section.optional.isEmpty ? "Nothing here needs you." : "Nothing here blocks Install."
+    }
+}
+
+struct SummaryGlyph: View {
+    let kind: ChecklistLayout.SummaryKind
+    var body: some View {
+        switch kind {
+        case .needsYou: Image(systemName: "exclamationmark.triangle.fill").symbolRenderingMode(.multicolor)
+        case .ready: Image(systemName: "checkmark.circle").foregroundStyle(.green)
+        case .optional: Image(systemName: "circle").foregroundStyle(.secondary)
+        case .notNeeded: Image(systemName: "circle.dashed").foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct ChecklistSidebarEntry: View {
+    let entry: ChecklistLayout.Entry
+    let isSelected: Bool
+    let onSelect: () -> Void
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 6) {
+                mark.frame(width: 20, height: 20)
+                Text(entry.title).font(.callout).fontWeight(isSelected ? .semibold : .regular).lineLimit(1)
+                Spacer(minLength: 6)
+                if let count = entry.count { Text("\(count)").font(.caption).foregroundStyle(.secondary) }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(AXID.checklistGroup(entry.id))
+        .accessibilityValue(Text(String(describing: entry.mark)))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder private var mark: some View {
+        switch entry.mark {
+        case .overview: Image(systemName: "house").foregroundStyle(.secondary)
+        case .failed: Image(systemName: "xmark.circle").foregroundStyle(.red)
+        case .running: ProgressView().controlSize(.small)
+        case .needsYou: Image(systemName: "exclamationmark.triangle.fill").symbolRenderingMode(.multicolor)
+        case .settled: Image(systemName: "checkmark.circle").foregroundStyle(.green)
+        }
     }
 }

@@ -141,21 +141,13 @@ let readinessModelChecks: [Check] = [
             c.expectEqual(m.team?.mode, .join)
             c.expectEqual(m.canInstall, false)
             c.expectEqual(m.requiredMissing, ["perm.fda", "account.gitlab"])
-            c.expectEqual(m.limitedModeAvailable, false)
         }
     },
-    Check("limited mode only when every required row is ready and some optional row is not, including a non-ready optional permission") { c in
+    Check("Install is open when every required row is ready and an optional permission is not") { c in
         let plans = FakePlans([makePlan(fda: .ready, gitlab: .ready, chrome: .ready, notifications: .skipped)])
         let m = await MainActor.run { ReadinessModel(plans: plans, permissions: FakePermissions(), ticker: FakeTicker()) }
         await m.load()
-        await MainActor.run {
-            c.expectEqual(m.canInstall, true)
-            c.expectEqual(m.limitedModeAvailable, true, "notifications is optional, permission-kind, and not ready → still limited")
-        }
-        let plans2 = FakePlans([makePlan(fda: .ready, gitlab: .ready, chrome: .ready, notifications: .ready)])
-        let m2 = await MainActor.run { ReadinessModel(plans: plans2, permissions: FakePermissions(), ticker: FakeTicker()) }
-        await m2.load()
-        await MainActor.run { c.expectEqual(m2.limitedModeAvailable, false, "every row ready → not limited") }
+        await MainActor.run { c.expectEqual(m.canInstall, true) }
     },
     Check("visible → 1s ticker probes permissions and overlays permission rows; hidden cancels") { c in
         let plans = FakePlans([makePlan()])
