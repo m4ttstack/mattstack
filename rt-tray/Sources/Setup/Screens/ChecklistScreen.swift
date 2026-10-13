@@ -41,7 +41,7 @@ struct ChecklistScreen: View {
                     Text(footerText(now: context.date)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(isRefreshing ? "Checking…" : "Re-check") { recheck() }.controlSize(.small).disabled(model.isLoading).accessibilityIdentifier(scope == .all ? AXID.checklistRecheck : AXID.settingsAccountsRecheck)
+                Button("Re-check") { recheck() }.controlSize(.small).disabled(model.loadState == .loading).accessibilityIdentifier(scope == .all ? AXID.checklistRecheck : AXID.settingsAccountsRecheck)
             }
             .padding(.horizontal, 20).padding(.vertical, 6)
         }
@@ -321,20 +321,22 @@ struct FoldedRow: View {
     let row: PlanRow
     let onOpen: () -> Void
     var body: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 8) {
-                Text(row.title).font(.callout)
-                Spacer(minLength: 8)
-                if let d = row.detail, !d.isEmpty {
-                    Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
-                }
-                StatusBadge(status: row.status, id: AXID.checklistRowStatus(row.id))
+        HStack(spacing: 8) {
+            Text(row.title).font(.callout)
+            Spacer(minLength: 8)
+            if let d = row.detail, !d.isEmpty {
+                Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
             }
-            .padding(.horizontal, 14).padding(.vertical, 6)
-            .contentShape(Rectangle())
+            StatusBadge(status: row.status, id: AXID.checklistRowStatus(row.id))
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 14).padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpen)
+        // A Button would merge its label into one element and hide the status
+        // badge's own identifier, which the VM walkthrough reads per row.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.checklistRow(row.id))
+        .accessibilityAction(.default, onOpen)
     }
 }
 

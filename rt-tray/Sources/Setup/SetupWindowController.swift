@@ -17,8 +17,9 @@ struct SetupEnvironment {
     var readOnly = false
 }
 
-/// One dedicated NSWindow hosting SwiftUI (AppKit lifecycle stays). ~560 pt
-/// wide, fixed; close/minimize appear only once setup is done.
+/// One dedicated NSWindow hosting SwiftUI (AppKit lifecycle stays). Opens
+/// at `width` and resizes no smaller; close/minimize appear only once setup
+/// is done.
 final class SetupWindowController: NSWindowController, NSWindowDelegate {
     static let width: CGFloat = 720
     static let minHeight: CGFloat = 560
