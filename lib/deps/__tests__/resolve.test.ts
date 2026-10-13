@@ -6,7 +6,7 @@ import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../..
 import { setSetting } from "../../settings/write.ts";
 import { fakeProbes, type FakeProbesOpts } from "../../setup/__tests__/fakes.ts";
 import {
-  appBundlePath, bundledToolExec, bundledToolPath, isOurLink, LINK_TAG, linkPath, resolveTool, userCopyOnPath,
+  appBundlePath, bundledToolExec, bundledToolPath, DECK_RESTART_TIMEOUT_MS, isOurLink, LINK_TAG, linkPath, resolveTool, restartAppWithDeck, userCopyOnPath,
 } from "../resolve.ts";
 
 const LOCK = {
@@ -193,5 +193,26 @@ describe("bundled-tool resolution", () => {
     const path = linkPath(home, "gh");
     const p = { ...bundleProbe(), readlink: (candidate: string) => (candidate === path ? join(appRoot, "Contents", "Resources", "gh") : null) };
     expect(isOurLink(p, "gh")).toBe(true);
+  });
+});
+
+describe("restartAppWithDeck", () => {
+  test("a restart that outlasts its timeout reads as a failed one", async () => {
+    const seen: Array<number | undefined> = [];
+    const p = fakeProbes({
+      exec: (_argv, opts) => {
+        seen.push(opts?.timeoutMs);
+        return { code: 124, stdout: "", stderr: "" };
+      },
+    });
+    expect(await restartAppWithDeck(p, "board", "/opt/deck")).toBe(false);
+    expect(seen).toEqual([DECK_RESTART_TIMEOUT_MS]);
+    expect(DECK_RESTART_TIMEOUT_MS).toBe(60_000);
+    expect(p.calls.exec).toEqual([["/opt/deck", "restart", "board"]]);
+  });
+
+  test("a restart that exits clean is true", async () => {
+    const p = fakeProbes({ exec: () => ({ code: 0, stdout: "", stderr: "" }) });
+    expect(await restartAppWithDeck(p, "board", "/opt/deck")).toBe(true);
   });
 });
