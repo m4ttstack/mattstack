@@ -1,6 +1,7 @@
 package mission
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -107,6 +108,45 @@ func TestMainWorktreeSeparatorIsNotAClickTarget(t *testing.T) {
 		if lines[i].isRow() != wantRow {
 			t.Fatalf("display line %d: isRow = %v, want %v", i, lines[i].isRow(), wantRow)
 		}
+	}
+}
+
+func landOnMainWorktree(t *testing.T, m *Mission) {
+	t.Helper()
+	next := m.model
+	next.Current.Worktree = "/repo"
+	raw, err := json.Marshal(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetModel(raw); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestShiftWConfirmsOnceTheMainWorktreeLands(t *testing.T) {
+	m := mainWorktreeMission()
+	m.model.Current.Worktree = "/w/gandalf"
+	m.Update(tea.KeyPressMsg{Code: 'W', Text: "W"})
+	if text, _ := m.notice(); text != "" {
+		t.Fatalf("nothing to confirm until the switch lands, got %q", text)
+	}
+	landOnMainWorktree(t, m)
+	if text, tone := m.notice(); text != "Switched back to the main worktree" || tone != noticeInfo {
+		t.Fatalf("notice = %q (%s), want the info confirmation", text, tone)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if text, _ := m.notice(); text != "" {
+		t.Fatalf("the confirmation should clear on the next key, got %q", text)
+	}
+}
+
+func TestASwitchToTheMainWorktreeFromTheFoldoutStaysQuiet(t *testing.T) {
+	m := mainWorktreeMission()
+	m.model.Current.Worktree = "/w/gandalf"
+	landOnMainWorktree(t, m)
+	if text, _ := m.notice(); text != "" {
+		t.Fatalf("only W confirms the switch, got %q", text)
 	}
 }
 

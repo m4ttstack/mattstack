@@ -114,6 +114,11 @@ type Mission struct {
 	// that triggers a fresh refusal, so it shows for exactly one render.
 	// Both share the one notice strip; notice picks the winner.
 	localNotice string
+	// localNoticeInfo paints localNotice as a confirmation, not a refusal.
+	localNoticeInfo bool
+	// awaitingMain is the main worktree's path between W and the model that
+	// lands the switch, which is when the confirmation can truthfully show.
+	awaitingMain string
 
 	// hoverZone is the top-bar segment under the pointer, zoneNone when it
 	// is over neither segment nor anything else.
@@ -282,7 +287,14 @@ func (m *Mission) notice() (text, tone string) {
 	if m.model.Notice != "" {
 		return m.model.Notice, m.model.NoticeTone
 	}
+	if m.localNoticeInfo {
+		return m.localNotice, noticeInfo
+	}
 	return m.localNotice, noticeError
+}
+
+func (m *Mission) clearLocalNotice() {
+	m.localNotice, m.localNoticeInfo = "", false
 }
 
 // commitEnabled is the view-side commit gate: the wire CanCommit (something
@@ -324,6 +336,10 @@ func (m *Mission) SetModel(raw json.RawMessage) error {
 	// tree changed the same path, but that diff is another tree's, so it
 	// opens at its top, and the other tab's stashed position goes too.
 	if decoded.Current.Worktree != m.model.Current.Worktree {
+		if m.awaitingMain != "" && decoded.Current.Worktree == m.awaitingMain {
+			m.localNotice, m.localNoticeInfo = "Switched back to the main worktree", true
+		}
+		m.awaitingMain = ""
 		m.diffCursor, m.diffTop, m.diffPath, m.diffFreeScroll = 0, 0, "", false
 		m.changesTop, m.changesFreeScroll = 0, false
 		m.tabDiff = map[string]diffScroll{}
@@ -475,7 +491,7 @@ func (m *Mission) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		return m.mouseWheel(v)
 	case tea.KeyPressMsg:
-		m.localNotice = ""
+		m.clearLocalNotice()
 		if v.String() == "ctrl+c" {
 			return m.quit()
 		}
@@ -1328,7 +1344,7 @@ func (m *Mission) mouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// The notice strip shortens the body, so the hit resolves against the
 	// frame that painted it before clearing it changes the geometry.
 	h := m.hitTest(mouse.X, mouse.Y)
-	m.localNotice = ""
+	m.clearLocalNotice()
 	if mouse.Button == tea.MouseRight {
 		return m.rightClick(h, &picker.MenuAnchor{X: mouse.X, Y: mouse.Y})
 	}
