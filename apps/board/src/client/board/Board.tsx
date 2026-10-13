@@ -1489,6 +1489,8 @@ export function Board() {
     roster: data.members.map(m => m.username),
     names: rosterNames,
     peers: data.peers,
+    teams: data.teams,
+    ownTeam: data.ownTeam,
     allMrs: data.mrs,
   };
   // A remote board has no bulk actions (each needs the local server), so a

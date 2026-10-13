@@ -365,6 +365,19 @@ test('merge arms before it fires; a slack mark stays open and knows its state', 
   });
 });
 
+test('with another team to ask, request review carries the two-view picker even once no teammate is left', () => {
+  const env = {
+    ...actionEnvOf({ self: 'pat', roster: ['pat'] }, ownIdle),
+    teams: [{ name: 'gadgets', members: [{ username: 'lea' }] }],
+    ownTeam: 'widgets',
+  };
+  const ask = rowActions(ownIdle, env).find(a => a.key === 'request-review')!;
+  expect(ask.blocked).toBeUndefined();
+  expect(ask.section).toBe('agent');
+  expect(ask.pick).toBeUndefined();
+  expect(ask.askPicker?.all.map(g => g.team)).toEqual(['gadgets']);
+});
+
 test('request review from… carries its picker; asks name their reviewer', () => {
   const actions = rowActions(failedLanes, actionEnvOf(failedEnv, failedLanes));
   expect(actions.find(a => a.key === 'request-review')).toMatchObject({
