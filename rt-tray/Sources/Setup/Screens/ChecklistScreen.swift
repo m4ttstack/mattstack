@@ -53,10 +53,13 @@ struct ChecklistScreen: View {
                 }
                 .formStyle(.grouped)
             }
-            HStack {
-                Text(footerText).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                if isRefreshing { ProgressView().controlSize(.small) }
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    Text(footerText(now: context.date)).font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
-                Button("Re-check") { recheck() }.controlSize(.small).disabled(model.loadState == .loading).accessibilityIdentifier(scope == .all ? AXID.checklistRecheck : AXID.settingsAccountsRecheck)
+                Button(isRefreshing ? "Checking…" : "Re-check") { recheck() }.controlSize(.small).disabled(model.isLoading).accessibilityIdentifier(scope == .all ? AXID.checklistRecheck : AXID.settingsAccountsRecheck)
             }
             .padding(.horizontal, 20).padding(.vertical, 6)
         }
@@ -86,11 +89,15 @@ struct ChecklistScreen: View {
         .accessibilityIdentifier(scope == .all ? AXID.checklistScreen : AXID.settingsAccountsScreen)
     }
 
-    private var footerText: String {
+    private var isRefreshing: Bool { model.loadState == .loaded && model.isLoading }
+
+    private func footerText(now: Date) -> String {
         guard model.loadState == .loaded else { return "" }
-        guard scope == .all else { return "" }
-        return ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
-                                    owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows))
+        let note = ChecklistFooter.refreshNote(isRefreshing: isRefreshing, lastCheckedAt: model.lastCheckedAt, now: now)
+        guard scope == .all, !isRefreshing else { return note ?? "" }
+        let status = ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
+                                          owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows))
+        return [note, status].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func recheck() {
