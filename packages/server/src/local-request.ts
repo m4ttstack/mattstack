@@ -41,7 +41,9 @@ function isLocalHost(host: string): boolean {
 function isLoopbackIP(address: string): boolean {
   const a = address.trim().toLowerCase();
   const v4 = a.startsWith('::ffff:') ? a.slice(7) : a;
-  return a === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(v4);
+  if (a === '::1') return true;
+  const octets = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(v4);
+  return octets !== null && octets.slice(1).every(o => Number(o) <= 255);
 }
 
 const list = (value: string | null): string[] =>
