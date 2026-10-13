@@ -218,6 +218,12 @@ struct ChecklistScreen: View {
         actionErrors[row.id] = RowFailure(message: message, status: model.row(row.id)?.status ?? row.status)
     }
 
+    /// For after the plan re-read an action triggers: that re-read may move the row's status, and must not erase the failure the action just produced.
+    private func restampFailure(_ message: String?, for row: PlanRow) {
+        guard let message, actionErrors[row.id]?.message == message else { return }
+        recordFailure(message, for: row)
+    }
+
     private func recheck() {
         actionErrors = [:]
         Task { await model.recheckAll() }
@@ -250,31 +256,36 @@ struct ChecklistScreen: View {
                 let verb = args.joined(separator: " ")
                 if RowVerbRun.streamsApplyEvents(args) {
                     let rowId = row.id
-                    if let failure = await RowVerbRun.apply(args, rt: rt, needs: needs, waiting: { copy in
+                    let failure = await RowVerbRun.apply(args, rt: rt, needs: needs, waiting: { copy in
                         await MainActor.run { waitingOnYou[rowId] = copy }
-                    }) {
+                    })
+                    if let failure {
                         TrayLog.warn("row action failed", ["row": row.id, "err": failure])
                         recordFailure(failure, for: row)
                     }
                     await model.afterAction(rowId: row.id)
+                    restampFailure(failure, for: row)
                     return
                 }
+                var failure: String?
                 do {
                     let result = try await rt.run(args, stdin: stdin)
                     if let e = result.userError(redactStderr: redactStderr) {
                         TrayLog.warn("row action failed", ["row": row.id, "err": e.message])
-                        recordFailure(e.message, for: row)
+                        failure = e.message
                     } else if result.exitCode != 0 {
                         let copy = result.failureCopy(verb: verb, redactStderr: redactStderr)
                         TrayLog.warn("row action failed", ["row": row.id, "err": copy])
-                        recordFailure(copy, for: row)
+                        failure = copy
                     }
                 } catch {
                     let copy = (error as? RtClientError)?.copy ?? "rt \(verb) failed to start."
                     TrayLog.warn("row action failed", ["row": row.id, "err": copy])
-                    recordFailure(copy, for: row)
+                    failure = copy
                 }
+                if let failure { recordFailure(failure, for: row) }
                 await model.afterAction(rowId: row.id)
+                restampFailure(failure, for: row)
             }
         case .chooseFolder(let startAt):
             guard let action = row.action else { return }
