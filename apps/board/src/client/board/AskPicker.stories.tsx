@@ -1,0 +1,123 @@
+import type { ReactNode } from 'react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
+
+import { registerTheme, SoribashiProvider } from '@mattstack/tui-kit/provider';
+import { tuiTheme } from '@mattstack/tui-kit/theme';
+
+import '@mattstack/tui-kit/theme.css';
+import '@mattstack/tui-kit/canvas.css';
+import '../../style.css';
+
+import type { BoardMRWithReview, OrgTeam } from '../types.ts';
+import { askPickerModel } from './ask-picker.ts';
+import { AskPicker } from './AskPicker.tsx';
+
+const stage = (
+  Story: () => ReactNode,
+  context: { globals: { scheme?: string } }
+) => (
+  <div
+    className={context.globals.scheme === 'dark' ? 'dark' : undefined}
+    style={{
+      background: 'var(--page)',
+      color: 'var(--text-1)',
+      minHeight: '100vh',
+    }}
+  >
+    <SoribashiProvider theme={tuiTheme}>
+      <Story />
+    </SoribashiProvider>
+  </div>
+);
+
+const meta = {
+  title: 'Board/AskPicker',
+  decorators: [stage],
+  parameters: { layout: 'fullscreen' },
+} satisfies Meta;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+registerTheme(tuiTheme);
+
+const people = (names: string[]) =>
+  names.map(name => ({
+    username: name.toLowerCase().replace(' ', '.'),
+    name,
+  }));
+
+const teams: OrgTeam[] = [
+  { name: 'billing', members: people(['Ines Duarte', 'Petra Novak']) },
+  {
+    name: 'checkout',
+    members: people(['Mira Fixture', 'Rae Marlow', 'Jun Okafor', 'Anika Bose']),
+  },
+  {
+    name: 'identity',
+    members: people(['Marta Quill', 'Deshawn Ito', 'Greta Lindqvist']),
+  },
+  {
+    name: 'sprockets',
+    members: people([
+      'Nia Okoro',
+      'Sam Whitlow',
+      'Odile Varga',
+      'Tomas Reyne',
+      'Priya Castellan',
+      'Hugo Brandt',
+      'Mirela Stoica',
+      'Callum Aird',
+      'Yuki Tanabe',
+      'Noor Halabi',
+      'Elias Fontaine',
+      'Wren Adeyemi',
+      'Dara Kowalczyk',
+      'Bastien Lu',
+    ]),
+  },
+  { name: 'ledger', members: people(['Kofi Mensah']) },
+  { name: 'search', members: people(['Aline Roux', 'Otto Brask']) },
+];
+
+const everyone = teams.flatMap(t => t.members.map(m => m.username));
+
+const env = {
+  roster: teams[1]!.members.map(m => m.username),
+  peers: everyone.filter(u => u !== 'kofi.mensah'),
+  teams,
+  ownTeam: 'checkout',
+};
+
+const mr = (ownerTeams: BoardMRWithReview['ownerTeams']) =>
+  ({ author: { username: 'mira.fixture' }, ownerTeams }) as BoardMRWithReview;
+
+const picker = (ownerTeams: BoardMRWithReview['ownerTeams']) => (
+  <AskPicker
+    x={24}
+    y={24}
+    subject="!1418"
+    model={askPickerModel(mr(ownerTeams), env)!}
+    personLabel={name => name}
+    onPick={() => {}}
+    onClose={() => {}}
+  />
+);
+
+/** Opens on code owners: two teams still needed, two approved, one with no
+    board to ask. */
+export const CodeOwners: Story = {
+  render: () =>
+    picker([
+      { team: 'sprockets', approved: false },
+      { team: 'identity', approved: false },
+      { team: 'billing', approved: true },
+      { team: 'search', approved: true },
+      { team: 'ledger', approved: false },
+    ]),
+};
+
+/** No other team owns a section, so it opens on all teams with the search. */
+export const AllTeams: Story = {
+  render: () => picker(undefined),
+};

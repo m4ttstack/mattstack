@@ -15,6 +15,16 @@ What it adds:
   member not already engaged with it and asks their board for a first look.
   A peer board running a version without this ask drops it silently; the chip
   self-expires to "no-response" after 48 hours.
+- **Asking another team.** When someone on another team has a board that
+  takes asks, "request review from…" opens a picker with two views. **Code
+  owners** lists your teammates, then the teams that own a Code Owner section
+  on the MR, each with its members and whether its section still needs
+  approval; a team that owns a section but has no board connected is named at
+  the bottom. **All teams** searches every team by name or person. The picker
+  opens on code owners when one of the owning teams has someone to ask, and
+  on all teams otherwise. A section reaches its team through the Slack
+  channel in its name and the team directory, the same way the Code Owner
+  posts do. Selecting several rows keeps the teammates-only list.
 - **Request response.** The reverse direction: once your review of a
   teammate's MR finishes with comments, "ask `<author>`'s agent to respond"
   asks the author's board to answer the feedback. Their board reports the

@@ -130,6 +130,10 @@ export const Segmented = defineGenericComponent<
 
 /** LabeledSeg's own props; `LabeledSegProps` below is the full public surface. */
 export interface LabeledSegOwnProps<T extends string> {
+  /** A recessed track with the active option as a tile in the ink colour,
+      for a switch inside a surface where the accent fill would shout. The
+      options share the control's width equally. */
+  soft?: boolean;
   legend: string;
   options: readonly T[];
   labels: Record<T, string>;
@@ -160,6 +164,7 @@ export const LabeledSeg = defineGenericComponent<
   vars: (_theme, _props) => ({ root: { ...SEGMENTED_VARS } }),
   render: ({ props, getStyles, ref }) => {
     const {
+      soft,
       legend,
       options,
       labels,
@@ -183,6 +188,7 @@ export const LabeledSeg = defineGenericComponent<
         data-part={SEGMENTED_PARTS.root}
         // `.tui-seg-text`, the board's second class on this same span.
         data-text
+        data-soft={soft || undefined}
       >
         {options.map((o) => {
           const active = o === value;

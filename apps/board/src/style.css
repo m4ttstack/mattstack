@@ -2958,6 +2958,94 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-4);
   padding: 6px 3px 2px;
 }
+/* Ask picker: the menu swaps to the people an author can ask, behind a
+   two-view switch. The list scrolls inside the menu so a large team never
+   runs it off the screen. */
+.tui-menu-asking {
+  width: 300px;
+}
+.tui-menu-ask-views {
+  margin: 4px 0;
+  font-family: var(--font-sans);
+}
+.tui-menu-ask-search {
+  display: block;
+  width: 100%;
+  margin: 4px 0;
+  padding: 6px 9px;
+  font: inherit;
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.tui-menu-ask-search:focus {
+  outline: none;
+  border-color: var(--fill-accent);
+}
+.tui-menu-ask-search::placeholder {
+  color: var(--text-3);
+}
+.tui-menu-ask-list {
+  max-height: min(24rem, 55vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.tui-menu-ask-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 4px;
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+.tui-menu-ask-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+.tui-menu-ask-team {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 8px 3px;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-1);
+}
+.tui-menu-ask-state {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--text-4);
+}
+.tui-menu-ask-member {
+  padding-left: 24px;
+}
+.tui-menu-ask-empty {
+  padding: 8px;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  color: var(--text-4);
+}
+.tui-menu-ask-foot {
+  margin: 4px -4px -4px;
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--text-4);
+  background: var(--panel);
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
 /* Item labels: every item leads with one icon that says where the click
    lands; an agent action wears the bot mark in its lane's color, the same
    grammar as the status line's verbs. */
