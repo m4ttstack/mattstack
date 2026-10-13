@@ -107,7 +107,8 @@ the only way an unattended pane asks a human anything. The
 form gate this pane asked under its own session, and never counts
 pane-attention gates. Before changing gate ownership, the hook, or the
 fork-check rules, read the gate-seam spec named in `docs/architecture.md` and
-the `rt-chat` and gate skills under `skills/`.
+the `rt-chat` skill under `skills/` and the gate protocol under
+`plugins/mattstack/attachments/gate-protocol/`.
 
 ## Baseline Claude permissions are provisional, and never git
 
