@@ -2188,7 +2188,8 @@ body {
   margin-top: 6px;
 }
 /* The small uppercase tags: a thread's severity, a reply's verb, a
-   finding's disposition. Grey unless a hue names what needs the eye. */
+   finding's kind and disposition. Grey unless a hue names what needs
+   the eye. */
 .tui-respond-pill {
   flex-shrink: 0;
   display: inline-flex;

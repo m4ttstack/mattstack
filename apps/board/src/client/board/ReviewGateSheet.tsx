@@ -582,6 +582,14 @@ function ReviewGateSheet({
                                 >
                                   {f.title}
                                 </span>
+                                {f.kind && (
+                                  <span
+                                    className="tui-respond-pill"
+                                    data-kind={f.kind}
+                                  >
+                                    {f.kind}
+                                  </span>
+                                )}
                                 {f.disposition &&
                                   !(
                                     f.disposition === 'new' &&

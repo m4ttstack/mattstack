@@ -11,7 +11,7 @@ metadata:
   slots: "doctor,doctor-api"
   slot-doctor: "required mr-doctor@2 -- owns the checkout-tier repair playbook: locating or provisioning the worktree, rebasing, triaging and fixing CI, watching for green. When a fix would otherwise dead-end in error but the decision is enumerable, it reports the decision back to this wrapper instead of guessing or terminating -- it never opens or waits on the escalation gate itself."
   slot-doctor-api: "required mr-doctor-api@2 -- owns the api-tier repair playbook: no checkout, pipeline retries, server-side rebase, held drafts only. Same escalation-reporting contract as the checkout-tier slot -- it never opens or waits on the escalation gate itself."
-  compiled: "mattstack:gate-protocol@0.31.2"
+  compiled: "mattstack:gate-protocol@0.31.3"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
@@ -568,7 +568,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Escalation step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.2 path=attachments/gate-protocol/SKILL.md lines=7-466 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.3 path=attachments/gate-protocol/SKILL.md lines=7-468 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -937,7 +937,7 @@ path. The key is both the discriminant and the version:
 | `reply@1` | a respond-post thread question's `context` | `thread`, `file`, `verb`, `text` | `sha` |
 | `replies@1` | a replies question's `context` (the retired respond-post shape; renderers still read gates opened with it) | `replies[]`, each `thread`, `file`, `verb`, `text` | `sha` per entry |
 | `review@1` | a review-post gate's `context` | `readiness`, `summary`, `findings` (counts by severity) | `reviewer`, `round`, `re_review` (absent reads false), `prior` (`{addressed, still_open}`, both required) |
-| `findings@1` | each `findings-*` question's `context` | `findings[]`, each `id`, `severity`, `title`, `body` | `file`, `fix`, `evidence`, `disposition` per entry |
+| `findings@1` | each `findings-*` question's `context` | `findings[]`, each `id`, `severity`, `title`, `body` | `file`, `fix`, `evidence`, `disposition`, `kind` per entry |
 | `carryover@1` | a review-post gate's `thread-<n>` question's `context`, one question per earlier thread, each its own question and never a chunk of one. The question is `multi` with exactly two options, `post:<thread>` and `resolve:<thread>`; an option label ending ` (recommended)` is a default. An answer is the picked values, or `{value: [...], text}` when the human edited the reply, and `text` replaces `reply` | `thread`, `round`, `call` (`fixed`, `not-fixed`, `pushback-accepted` or `pushback-rejected`), `original`, `reply` | `file` (the thread's anchor), `authorReply`, `note` |
 | `skipped@1` | a review-post gate's `skipped-<n>` questions' `context`, chunked at four after the findings questions. Each question is `multi` with one option per entry, its value `restore:<id>`, joined one to one like `findings@1`. Nothing is recommended: a skipped finding comes back only when the human ticks it. Answers read back as one union across the chunks | `skipped[]`, each `id`, `round`, `severity`, `title`, `changed` (boolean: the code it pointed at moved since that round) | `file` per entry (the finding's `path:line` anchor) |
 
@@ -965,8 +965,10 @@ path. The key is both the discriminant and the version:
   view. The options keep the degraded recipe older renderers parse:
   label `[Tier] title`, description `anchor · fix · kind:<word>`. `file`
   is a real `path:line` anchor, never the label of an unanchored
-  finding. A `review@1` gate is structured only when EVERY `findings-*`
-  question carries a `findings@1` context; otherwise it opens as prose.
+  finding. `kind` is the description's `kind:<word>` word, lowercase
+  and hyphenated, and absent when the finding has none. A `review@1`
+  gate is structured only when EVERY `findings-*` question carries a
+  `findings@1` context; otherwise it opens as prose.
 - Unknown keys are ignored, and a new field never bumps the version; a
   changed meaning or type does. A missing or wrong-typed required field
   fails the WHOLE context, which then shows as raw JSON through the prose

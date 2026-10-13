@@ -113,7 +113,8 @@ def opt_description:
 def option: {value: .id, label: opt_label} + (opt_description as $d | if $d then {description: $d} else {} end);
 def entry: {id, severity: (.tier | ascii_downcase), title, body}
   + (if has("file") then {file: (if has("line") then "\(.file):\(.line)" else .file end)} else {} end)
-  + with_entries(select(.key == "fix" or .key == "evidence" or .key == "disposition"));
+  + with_entries(select(.key == "fix" or .key == "evidence" or .key == "disposition"))
+  + (kind_word | if . == "" then {} else {kind: .} end);
 def rank: {"Critical": 0, "Important": 1, "Minor": 2}[.tier];
 def thread_anchor: if has("file") and has("line") then "\(.file):\(.line)" elif has("file") then .file else null end;
 def settled: .call == "fixed" or .call == "pushback-accepted";
