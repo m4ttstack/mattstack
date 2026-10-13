@@ -4,7 +4,6 @@ import Combine
 /// Copy and rules for the finish gate: finish-gated rows block the wizard's
 /// Finish until ready, skipped, or waived on this Mac by `rt setup waive`.
 public enum FinishGate {
-    public static let beforeYouFinishTitle = "Before you finish"
     public static let skipSheetTitle = "Skip the Fast Browser extension?"
     public static let skipSheetBody = "Without the Fast Browser extension, agents cannot capture screenshots or annotate evidence from your browser. You can load it later from Settings."
     public static let skipSheetConfirm = "Skip for now"
@@ -142,13 +141,12 @@ public final class DoneModel: ObservableObject {
 
     private let readiness: ReadinessModel
     private let waivers: WaiverClient
-    public let choices: ChoiceClient
     private let checkTimeout: TimeInterval
     private var checkGeneration = 0
     private var forward: AnyCancellable?
 
-    public init(readiness: ReadinessModel, waivers: WaiverClient, choices: ChoiceClient, checkTimeout: TimeInterval = DoneModel.defaultCheckTimeout) {
-        self.readiness = readiness; self.waivers = waivers; self.choices = choices; self.checkTimeout = checkTimeout
+    public init(readiness: ReadinessModel, waivers: WaiverClient, checkTimeout: TimeInterval = DoneModel.defaultCheckTimeout) {
+        self.readiness = readiness; self.waivers = waivers; self.checkTimeout = checkTimeout
         forward = readiness.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 

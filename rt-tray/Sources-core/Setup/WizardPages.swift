@@ -1,6 +1,5 @@
 import Foundation
 
-/// The first-run checklist as pages: one per plan group that has rows.
 public struct WizardPages: Equatable, Sendable {
     public let ids: [String]
     public let titles: [String: String]

@@ -97,7 +97,7 @@ public final class ReadinessModel: ObservableObject {
     /// `optionalNote` opens with "works without" is a supported end state
     /// rather than an obligation, so it is excluded even when its status and
     /// action otherwise qualify. A row currently blocking Finish is excluded
-    /// too: the Done screen lists it in its own section, not twice.
+    /// too: the summary's headline counts it as a blocker, not twice.
     public var outstandingManualRows: [PlanRow] {
         allRows.filter { row in
             guard !row.required, row.status != .ready, row.status != .skipped, !finishBlockedBy.contains(row.id) else { return false }

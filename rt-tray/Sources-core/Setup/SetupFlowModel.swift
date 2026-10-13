@@ -39,7 +39,7 @@ public final class SetupFlowModel: ObservableObject {
     /// and start a real `rt setup apply` — whose next `start()` SIGTERMs the
     /// previous process, killing a live install the onboarding window owns.
     public let readOnly: Bool
-    /// The Done model's `finishEnabled`, mirrored in by the setup view: the
+    /// `DoneModel.finishEnabled`, mirrored in by the setup view: the
     /// window controller observes only the flow, and restyles the titlebar's
     /// close and minimize buttons off `windowMayClose` whenever this moves.
     /// One boolean for both, so the buttons can never disagree with Finish.

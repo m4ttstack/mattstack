@@ -140,8 +140,8 @@ struct SetupView: View {
         case .welcome: return true
         case .team: return team.canContinue
         case .checklist:
-            let group = readiness.groups.first { $0.id == flow.page }
-            return PageGate.continueEnabled(blockers: group.map { PageGate.blockers(in: $0).count } ?? 0,
+            guard let page = flow.page, let group = readiness.groups.first(where: { $0.id == page }) else { return false }
+            return PageGate.continueEnabled(blockers: PageGate.blockers(in: group).count,
                                             isLast: flow.isLastPage, canInstall: readiness.canInstall)
         case .install: return install.phase == .succeeded
         case .done: return done.finishEnabled

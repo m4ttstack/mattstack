@@ -19,7 +19,7 @@ Every run's deliverable is `artifacts/<run-id>/` (screenshots, logs,
 on GitHub (run `20260901-232641`) and GitLab (run `20260902-110714`):
 every setup screen, the FDA dance with the app's own relaunch, the Apple
 CLT install, the herdr and Claude Code vendor installs, the full Install
-pipeline, and the Done screen. `--scenario join` is green unattended on a
+pipeline, and the summary. `--scenario join` is green unattended on a
 second guest (run `20260902-114519`, `--forge gitlab`), and the team-level
 pass is green too: an owner guest loads `fixtures/team-minimal` through
 `run/host/team-load.sh` (one tracked repo, one team plugin, one team

@@ -194,7 +194,7 @@ struct ChecklistScreen: View {
                         } else if current == ChecklistLayout.needsYouID {
                             ChecklistSectionsView(
                                 needsYou: layout.attention.map(\.row), finishBlockedBy: layout.finishBlockedBy, activity: activity,
-                                contexts: Dictionary(uniqueKeysWithValues: layout.attention.map { ($0.row.id, $0.groupTitle) }),
+                                contexts: Dictionary(layout.attention.map { ($0.row.id, $0.groupTitle) }, uniquingKeysWith: { first, _ in first }),
                                 needsYouIDs: overview != nil ? .beforeYouFinish : .checklist, onSkip: onSkip) { perform($0) }
                         } else if let section = layout.sections.first(where: { $0.id == current }) {
                             ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity,

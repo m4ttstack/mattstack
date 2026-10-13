@@ -215,7 +215,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(handleSystemSessionEnding), name: NSWorkspace.willPowerOffNotification, object: nil)
 
-        // Setup / Settings surfaces, posted by the tray menu and the Done screen
+        // Setup / Settings surfaces, posted by the tray menu and the setup summary
         NotificationCenter.default.addObserver(self, selector: #selector(showSetupStatus), name: .rtShowSetupStatus, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resumeSetup), name: .rtResumeSetup, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showSettings), name: .rtShowSettings, object: nil)

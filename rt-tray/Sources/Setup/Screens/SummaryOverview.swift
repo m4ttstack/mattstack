@@ -1,7 +1,6 @@
 import SwiftUI
 import MattstackCore
 
-/// The summary's Overview pane: what the Installed screen carried.
 struct SummaryOverview: View {
     @ObservedObject var model: DoneModel
     @ObservedObject var install: InstallRunModel
@@ -56,7 +55,8 @@ struct SummaryOverview: View {
                                     .controlSize(.small)
                                     .disabled(install.isRunning)
                                     .accessibilityIdentifier(AXID.donePartialStepRetry(step.id))
-                                RowStatusProbe(status: .missing, id: AXID.donePartialStepStatus(step.id))
+                                RowStatusProbe(status: .missing, label: "\(step.info.title): \(RowStatus.missing.rawValue)",
+                                               id: AXID.donePartialStepStatus(step.id))
                             }
                             if let r = step.remedy {
                                 Text(r).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

@@ -27,7 +27,7 @@ let samplePlanJSON = """
 """
 
 let planModelsChecks: [Check] = [
-    Check("the org rows decode, and only team.none routes to the Done screen") { c in
+    Check("the org rows decode, and only team.none carries an action DoneActions routes") { c in
         let json = Data(#"""
         { "contract": 1, "at": "2026-10-01T00:00:00Z", "team": { "slug": "acme", "name": "Acme", "mode": "none" },
           "groups": [ { "id": "accounts", "title": "Accounts", "rows": [

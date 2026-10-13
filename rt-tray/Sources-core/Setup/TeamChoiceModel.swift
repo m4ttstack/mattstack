@@ -3,7 +3,7 @@ import Combine
 
 public enum TeamChoice: Equatable, Sendable { case create, join, restore, solo }
 
-/// Derives the Done screen's solo/owner framing from the plan the checklist
+/// Derives the summary's solo/owner framing from the plan the checklist
 /// loaded rather than from `TeamChoiceModel`, since a Full Disk Access
 /// relaunch (`AppRelaunch.swift`) resumes the wizard at the checklist with a
 /// fresh, default-`.create` choice model — the plan survives the relaunch.

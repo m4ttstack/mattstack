@@ -402,7 +402,7 @@ let readinessModelChecks: [Check] = [
         await MainActor.run { c.expectEqual(m.outstandingManualRows.map(\.id), ["team.none"]) }
     },
     // The extension row is waived in these two fixtures: unwaived it blocks
-    // Finish and belongs to the Done screen's own section instead.
+    // Finish, and the summary counts it as a blocker instead.
     Check("outstandingManualRows lists only optional, not-ready rows whose action a person can act on") { c in
         let m = await MainActor.run { ReadinessModel(plans: FakePlans([makeManualPlan(extensionStatus: .needsYou, waived: true)]), permissions: FakePermissions(), ticker: FakeTicker()) }
         await m.load()
@@ -462,7 +462,7 @@ let readinessModelChecks: [Check] = [
         await MainActor.run {
             c.expectEqual(m.finishBlockedBy, [])
             c.expectEqual(m.row("tool.fast-browser-extension")?.isWaived, true)
-            c.expect(m.outstandingManualRows.map(\.id).contains("tool.fast-browser-extension"), "the Done screen still lists a skipped row under Still to do")
+            c.expect(m.outstandingManualRows.map(\.id).contains("tool.fast-browser-extension"), "the summary still counts a skipped row as a step left for you")
         }
     },
     Check("an unwaived extension row is not waived, even when ready, and the field is what decides it, never the note") { c in

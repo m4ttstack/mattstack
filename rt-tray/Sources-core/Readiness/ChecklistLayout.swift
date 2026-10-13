@@ -1,7 +1,5 @@
 import Foundation
 
-/// How the checklist lays a plan out: each group's rows split into the ones
-/// that need the user, the optional ones, and the rest.
 public struct ChecklistLayout: Equatable, Sendable {
     public struct Attention: Equatable, Identifiable, Sendable {
         public let row: PlanRow

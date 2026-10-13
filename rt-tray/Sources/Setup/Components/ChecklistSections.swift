@@ -10,14 +10,12 @@ struct RowIDs {
                                         status: AXID.doneBeforeYouFinishRowStatus)
 }
 
-/// What a row is doing right now, beyond what the plan says about it.
 struct RowActivity {
     var checking: Set<String> = []
     var waiting: [String: String] = [:]
     var errors: [String: String] = [:]
 }
 
-/// One group's rows as Needs you, Optional, No action needed.
 struct ChecklistSectionsView: View {
     private struct Rows {
         let needsYou: [PlanRow]
@@ -109,7 +107,7 @@ struct ChecklistSectionsView: View {
                         // The walkthrough reads every row's status by id, folded or not.
                         HStack(spacing: 0) {
                             ForEach(section.noAction) { row in
-                                ZStack { RowStatusProbe(status: activity.checking.contains(row.id) ? .checking : row.status,
+                                ZStack { RowStatusProbe(row: row, isChecking: activity.checking.contains(row.id),
                                                         id: AXID.checklistRowStatus(row.id)) }
                                     .accessibilityElement(children: .contain)
                                     .accessibilityIdentifier(AXID.checklistRow(row.id))
@@ -141,7 +139,7 @@ struct ChecklistCardHeader: View {
 }
 
 struct ChecklistFilterView: View {
-    /// How a filter's rows are drawn. There is no case for Needs you rows: their badge and Skip are drawn by their own pane only.
+    /// There is no case for Needs you rows: their badge and Skip are drawn by their own pane only.
     enum Rows { case optional, settled }
 
     let rows: Rows
@@ -180,16 +178,29 @@ struct ChecklistFilterView: View {
     }
 }
 
-/// An invisible element that keeps a row's status readable by id: the VM
-/// walkthrough and the UI tests read `setup.checklist.row.<id>.status`, and
-/// rows no longer draw a status icon.
+/// An invisible element that keeps a row's status readable by id, since rows
+/// draw no status icon. The VM walkthrough and the UI tests compare the value
+/// of `setup.checklist.row.<id>.status`, so the value is the bare status; the
+/// label names the row, since VoiceOver reaches a folded row's probe with
+/// nothing beside it.
 struct RowStatusProbe: View {
     let status: RowStatus
+    let label: String
     let id: String
+
+    init(status: RowStatus, label: String, id: String) {
+        self.status = status; self.label = label; self.id = id
+    }
+
+    init(row: PlanRow, isChecking: Bool, id: String) {
+        let status: RowStatus = isChecking ? .checking : row.status
+        self.init(status: status, label: "\(row.title): \(status.rawValue)", id: id)
+    }
+
     var body: some View {
         Color.clear.frame(width: 1, height: 1)
             .accessibilityElement()
-            .accessibilityLabel(Text(status.rawValue))
+            .accessibilityLabel(Text(label))
             .accessibilityValue(Text(status.rawValue))
             .accessibilityIdentifier(id)
     }
@@ -238,7 +249,7 @@ struct SectionRow: View {
                 Button(action.label) { perform(row) }.controlSize(.regular).disabled(isChecking)
                     .accessibilityIdentifier(ids.action(row.id))
             }
-            RowStatusProbe(status: isChecking ? .checking : row.status, id: ids.status(row.id))
+            RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id))
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .accessibilityElement(children: .contain)
@@ -263,7 +274,7 @@ struct SettledRow: View {
                     Button(action.label) { perform(row) }.controlSize(.small).disabled(isChecking)
                         .accessibilityIdentifier(AXID.checklistRowAction(row.id))
                 }
-                RowStatusProbe(status: isChecking ? .checking : row.status, id: AXID.checklistRowStatus(row.id))
+                RowStatusProbe(row: row, isChecking: isChecking, id: AXID.checklistRowStatus(row.id))
             }
             if let error {
                 Text(error).font(.caption).foregroundStyle(.red).accessibilityIdentifier(AXID.checklistRowError(row.id))
