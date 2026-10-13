@@ -35,7 +35,7 @@ const PATTERNS = [
   /teams\/(\$\{[^}]*\}|<[^>]*>|[a-z0-9-]+)\/packs\//,
 ];
 
-const DOC_SCAN = ["docs", "website/docs", "plugins/mattstack", "skills", "AGENTS.md", ".claude/rules"];
+const DOC_SCAN = ["docs", "website/docs", "plugins/mattstack", "skills", "AGENTS.md", "apps/AGENTS.md", ".claude/rules"];
 const DOC_SKIP = new Set(["node_modules", "superpowers", "CERTIFICATION.md"]);
 const DOC_PATTERNS = [/teams\/[^/\s`]+\/packs\//, /\bpacks\/<team>\b/];
 

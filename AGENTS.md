@@ -37,6 +37,14 @@ there? Read its rule file first.
 | `.claude/rules/dev-app.md` | How a change reaches the dev app: served apps, manifests, tray rebuilds | `rt-tray/**`, `apps/deck/**`, `apps/*/mattstack.deck.json`, more in the file |
 | `.claude/rules/ci-and-tests.md` | How CI shards and scopes the unit suite, `no-*` naming, timings | `scripts/ci/**`, `.github/workflows/checks.yml`, `test-timings.json`, more in the file |
 | `.claude/rules/workspace-packages.md` | Private packages, stale `dist/` in rt-client and glance | `packages/rt-client/**`, `packages/glance/**`, `packages/settings-kit/**`, more in the file |
+| `.claude/rules/apps/apps-ci-and-publishing.md` | Turborepo gates and cache, the bun pin, which packages publish | `turbo.json`, `scripts/turbo.sh`, `scripts/set-platform-version.ts`, more in the file |
+| `.claude/rules/apps/kit-import-walls.md` | §1: the Mantine import walls and token namespace lint | `apps/{chat,console,boxscore}/src/**`, `packages/ui/src/**`, `packages/ui/presets/**`, more in the file |
+| `.claude/rules/apps/kit-components.md` | §2 and §3: kit vs app components, tree-shaking, the icon registry | `packages/ui/src/core/**`, `packages/ui/src/icons/**`, `packages/ui/scripts/**` |
+| `.claude/rules/apps/kit-theme.md` | §4: theme files, overrides, surface slots, where raw hex lives | `packages/ui/src/design-system/**`, `packages/ui/src/styles/**`, `packages/tokyo/**`, more in the file |
+| `.claude/rules/apps/kit-recipes.md` | §5 and §6: shells, modals, notifications, forms, storage and scheme hooks, text slots | `apps/{chat,console,boxscore}/src/**`, `packages/ui/src/hooks/**` |
+| `.claude/rules/apps/kit-app-layer.md` | §7 and §8: the boot family, `mountMattstackApp`, `MattstackShell`, router, app icons | `packages/ui/src/app/**`, `packages/ui/src/router/**`, `packages/ui/src/boot/**`, more in the file |
+| `.claude/rules/apps/app-server.md` | §9: `@mattstack/app-server` subpaths, `/ws`, the error envelope | `packages/server/**`, `apps/*/src/server/**` |
+| `.claude/rules/apps/kit-consumer-requirements.md` | §10: traps for an app consuming the kit | `apps/{chat,console,boxscore}/package.json`, `apps/{chat,console,boxscore}/vite.config.ts`, `apps/{chat,console,boxscore}/src/app/**`, more in the file |
 
 ## Repo identity
 
