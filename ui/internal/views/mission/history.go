@@ -410,6 +410,8 @@ func (m *Mission) historyTabKey(v tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openBranchModal()
 	case "w":
 		return m.openWorktreeModal()
+	case "W":
+		return m.switchToMainWorktree()
 	case "r":
 		return m.openRepoModal()
 	case "q":

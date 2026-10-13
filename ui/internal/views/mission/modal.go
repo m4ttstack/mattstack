@@ -31,6 +31,7 @@ type modalRow struct {
 	when       string // branch modal only: a non-current row's relative date, right-aligned in the badge's own slot instead of ahead/behind pills
 	group      string
 	current    bool
+	main       bool // worktree modal only: the repo's main checkout, pinned first and set off from the linked trees
 	selectable bool
 	guarded    bool
 	value      string // emitted verbatim on enter
@@ -187,7 +188,7 @@ func newWorktreeModal(m Model) *modalState {
 		}
 		rows[i] = modalRow{
 			text: label, label: label, meta: meta, badgeData: w.Badge,
-			current: w.Current, selectable: true, value: w.Path,
+			current: w.Current, main: w.Main, selectable: true, value: w.Path,
 		}
 	}
 	var action *modalActionRow
@@ -319,6 +320,13 @@ func (ms *modalState) refilter() {
 	}
 	matches := picker.Rank(ms.query, targets, false)
 	ms.matches = picker.GroupContiguous(matches, groups)
+	for i, match := range ms.matches {
+		if ms.rows[match.Index].main {
+			copy(ms.matches[1:i+1], ms.matches[:i])
+			ms.matches[0] = match
+			break
+		}
+	}
 	ms.cursor = ms.firstSelectableMatch()
 	ms.freeScroll = false
 }
@@ -360,6 +368,24 @@ func (m *Mission) openRepoModal() (tea.Model, tea.Cmd) {
 func (m *Mission) openWorktreeModal() (tea.Model, tea.Cmd) {
 	m.modal = newWorktreeModal(m.model)
 	m.focus = focusModal
+	return m, nil
+}
+
+// switchToMainWorktree is the worktree foldout's main row without the
+// foldout: the same intent enter on that row emits. A bare repo has no main
+// checkout to switch to.
+func (m *Mission) switchToMainWorktree() (tea.Model, tea.Cmd) {
+	for _, w := range m.model.Worktrees {
+		if !w.Main {
+			continue
+		}
+		if w.Current {
+			m.localNotice = "Already in the main worktree"
+			return m, nil
+		}
+		return m, m.em.Emit(protocol.Intent{Name: "mission:worktree", Payload: mustPayload(worktreePayload{Path: w.Path})})
+	}
+	m.localNotice = "This repository has no main worktree"
 	return m, nil
 }
 
@@ -668,6 +694,14 @@ func modalRowLine(r modalRow, width int, cursor, hover bool) string {
 	if r.guarded {
 		textColor = theme.Dimmer
 	}
+	// The status column is one cell, so the main checkout's home glyph
+	// replaces the current dot there and takes its Mint to say "current".
+	if r.main {
+		status, textColor = theme.GlyphHome, theme.Lav
+		if !r.current {
+			statusColor = theme.Lav
+		}
+	}
 
 	meta := ""
 	if r.meta != "" {
@@ -689,7 +723,7 @@ func modalRowLine(r modalRow, width int, cursor, hover bool) string {
 	if labelW < 1 {
 		labelW = 1
 	}
-	label := bg.Foreground(textColor).Render(clip(r.label, labelW))
+	label := bg.Foreground(textColor).Bold(r.main).Render(clip(r.label, labelW))
 
 	left := bg.Foreground(barColor).Render(bar) + bg.Foreground(statusColor).Render(status) + bg.Render(" ") + label + meta
 	return modalJustify(bg, width, left, badge)
@@ -873,11 +907,40 @@ func (ms *modalState) scroll(delta, boxInnerHeight int) {
 	ms.scrollTop, _ = picker.FreeWindow(ms.scrollTop+delta, len(modalDisplayLines(ms)), modalRowRegionHeight(ms, boxInnerHeight))
 }
 
-// modalDisplayLine is one line of the scrollable row region: either a group
-// header (display-only, never a cursor target) or a match row.
+// modalDisplayLine is one line of the scrollable row region: a group header
+// or a separator line (both display-only, never a cursor target), or a match
+// row.
 type modalDisplayLine struct {
 	header   string
+	sep      modalSep
 	matchIdx int
+}
+
+type modalSep int
+
+const (
+	sepNone modalSep = iota
+	sepGap
+	sepRule
+)
+
+func (l modalDisplayLine) isRow() bool {
+	return l.header == "" && l.sep == sepNone
+}
+
+// modalMainSeparator is what sets the main checkout off from the linked
+// worktrees under it: a rule with a blank row above and below.
+var modalMainSeparator = []modalDisplayLine{{sep: sepGap}, {sep: sepRule}, {sep: sepGap}}
+
+// modalSepLine paints a separator line. The rule is inset one cell each side
+// so it reads as a divider inside the list, not as one of the box's own
+// full-width rules.
+func modalSepLine(sep modalSep, width int) string {
+	bg := lipgloss.NewStyle().Background(theme.Surface)
+	if sep != sepRule || width < 3 {
+		return bg.Width(width).Render("")
+	}
+	return bg.Render(" ") + bg.Foreground(theme.Rule).Render(strings.Repeat("─", width-2)) + bg.Render(" ")
 }
 
 // modalDisplayLines flattens matches and their group headers into the
@@ -894,6 +957,9 @@ func modalDisplayLines(ms *modalState) []modalDisplayLine {
 			lines = append(lines, modalDisplayLine{header: text})
 		}
 		lines = append(lines, modalDisplayLine{matchIdx: i})
+		if i == 0 && len(ms.matches) > 1 && ms.rows[ms.matches[0].Index].main {
+			lines = append(lines, modalMainSeparator...)
+		}
 	}
 	return lines
 }
@@ -907,7 +973,7 @@ func modalRowViewport(ms *modalState, lines []modalDisplayLine, rowRegionH, prev
 	}
 	cursorLine := 0
 	for i, l := range lines {
-		if l.header == "" && l.matchIdx == ms.cursor {
+		if l.isRow() && l.matchIdx == ms.cursor {
 			cursorLine = i
 			break
 		}
@@ -963,9 +1029,12 @@ func modalBoxLines(ms *modalState, width, boxInnerHeight int) []string {
 		for i := top; i < top+h; i++ {
 			dl := displayLines[i]
 			var row string
-			if dl.header != "" {
+			switch {
+			case dl.header != "":
 				row = modalGroupHeaderLine(dl.header, rowWidth)
-			} else {
+			case dl.sep != sepNone:
+				row = modalSepLine(dl.sep, rowWidth)
+			default:
 				row = modalRowLine(ms.rows[ms.matches[dl.matchIdx].Index], rowWidth, dl.matchIdx == ms.cursor && !ms.naming, dl.matchIdx == ms.hoverRow)
 			}
 			if scrolling {

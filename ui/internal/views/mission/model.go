@@ -30,6 +30,7 @@ type WorktreeRow struct {
 	Badge   Badge  `json:"badge"`
 	Current bool   `json:"current"`
 	OnDeck  bool   `json:"onDeck"`
+	Main    bool   `json:"main"` // the repo's main checkout, not a linked worktree
 }
 
 type BranchRow struct {

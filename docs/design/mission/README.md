@@ -88,6 +88,12 @@ shadows, no radii).
   bare arrows.
 - A worktree segment and foldout exist; GitHub Desktop has no worktree
   surface.
+- The worktree foldout pins the repo's main checkout first: a home glyph
+  (nf-oct-home, U+F46D) in the status column, Mint when it is the current
+  tree and Lav otherwise, its name bold Lav, and under it a blank row, an
+  inset rule and another blank row before the linked worktrees. It stays
+  first while a filter matches it. `W` switches to it from any tab without
+  opening the foldout, and the keybars list "W main" after "w worktree".
 - `1` and `2` switch between Changes and History. GitHub Desktop binds
   ⌘1 and ⌘2, which a terminal cannot receive.
 - `e` toggles the History commit header's expanded state. GitHub
@@ -466,7 +472,7 @@ pre-ratification drawing:
   survives a narrow terminal.
 - The stash view is a third keybar mode, replacing the Changes keybar
   outright while showing: "↑↓ files · enter diff · R restore · D discard ·
-  h hide · ⌃k menu · b branch · w worktree · r repo · q quit". `Stash.png`
+  h hide · ⌃k menu · b branch · w worktree · W main · r repo · q quit". `Stash.png`
   shows it in place.
 - The commit button renders the disabled treatment whenever the wire says
   it cannot commit (empty summary); the boards draw the enabled pink for

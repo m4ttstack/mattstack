@@ -97,6 +97,7 @@ export interface WorktreeRow {
   name: string;
   branch: string;
   onDeck: boolean;
+  main: boolean;
   badge: GitWorktreeBadge;
 }
 
@@ -197,6 +198,10 @@ function toMissionBadge(badge: GitWorktreeBadge): MissionBadge {
  * itself (as opposed to an rt-assigned name) already reads as different. A
  * null `gitWorktrees` (git's own listing failed) degrades to the registry
  * rows alone, never to an empty list.
+ *
+ * Git lists the main working tree first, so a git-only row in that slot is
+ * the main checkout; a bare repo's first entry is the bare container and it
+ * has none.
  */
 export function mergeWorktreeTrees(
   trees: WorktreeTreeRow[],
@@ -210,13 +215,13 @@ export function mergeWorktreeTrees(
   const seen = new Set<string>();
   const merged: WorktreeTreeRow[] = [];
 
-  for (const entry of gitWorktrees) {
+  for (const [index, entry] of gitWorktrees.entries()) {
     if (entry.isBare) continue;
     seen.add(entry.path);
     merged.push(
       byPath.get(entry.path) ?? {
         name: basename(entry.path),
-        kind: "external",
+        kind: index === 0 ? "main" : "external",
         state: "unmanaged",
         path: entry.path,
         branch: entry.branch,
@@ -236,15 +241,17 @@ export function mergeWorktreeTrees(
   return merged;
 }
 
-/** Joins `worktree:list` trees to `repos:status` badges by path -- no wire shape carries both. */
+/** Joins `worktree:list` trees to `repos:status` badges by path -- no wire shape carries both. The main checkout leads the list. */
 export function joinWorktreeRows(trees: WorktreeTreeRow[], badges: GitWorktreeBadge[]): WorktreeRow[] {
-  return trees.map((tree) => ({
+  const rows = trees.map((tree) => ({
     path: tree.path,
     name: tree.name,
     branch: tree.branch ?? "",
     onDeck: tree.state === "on-deck",
+    main: tree.kind === "main",
     badge: badges.find((b) => b.worktree === tree.path) ?? EMPTY_GIT_BADGE,
   }));
+  return [...rows.filter((row) => row.main), ...rows.filter((row) => !row.main)];
 }
 
 /** How many of the freshest (non-default, non-current) branches by commit date get the "recent" group, GitHub-Desktop-style. */
@@ -523,6 +530,7 @@ export function buildModel(input: {
       badge: toMissionBadge(current ? currentBadge : worktree.badge),
       current,
       onDeck: worktree.onDeck,
+      main: worktree.main,
     };
   });
 

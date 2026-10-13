@@ -469,7 +469,7 @@ func TestLeavingASubFocusReturnsToTheStashFiles(t *testing.T) {
 }
 
 func TestChangesKeybarHintsTheStashKeys(t *testing.T) {
-	out := ansi.Strip(renderKeybar(160, "changes"))
+	out := ansi.Strip(renderKeybar(170, "changes"))
 	for _, want := range []string{"S stash", "h show stash", "q quit"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("changes keybar missing %q: %s", want, out)
