@@ -78,10 +78,9 @@ clone's folder follows it: the `org.folder` step converges the folder, the
 marketplace on every `rt setup update` and full `rt setup apply`, and never
 writes into the clone. `rt team rename <name>` (admins only) commits and
 publishes the new marker and converges this Mac at once; a member's Mac
-follows at its next update. A store value names the org clone as `${org}`;
-`${team:<name>}` is a deprecated alias for the same path that ignores the
-name and warns once per process for each name. Shared stores keep the alias until every
-member runs an rt that knows `${org}`, because an older rt passes `${org}`
-through verbatim. Read
+follows at its next update. The `${org}` placeholder and its deprecated
+`${team:<name>}` alias are described in `docs/settings-architecture.md` and
+the `rt-settings` skill; shared stores keep the alias until every member
+runs an rt that knows `${org}`. Read
 `docs/superpowers/specs/2026-10-06-orgs-root-design.md` before touching
 converge, rename or either placeholder.
