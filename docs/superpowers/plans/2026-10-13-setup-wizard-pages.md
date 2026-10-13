@@ -706,15 +706,19 @@ git commit -m "tray: page the setup checklist by group in the flow model"
 
 ---
 
-### Task 3: Sidebar entries, marks and selection
+### Task 3: Sidebar entries, marks and selection; faulty rows after Install
 
 **Files:**
 - Modify: `rt-tray/Sources-core/Readiness/ChecklistLayout.swift`
+- Modify: `rt-tray/Sources-core/Readiness/ChecklistSorting.swift`
 - Modify: `rt-tray/Tests/MattstackCoreChecks/ChecklistLayoutChecks.swift`
+- Modify: `rt-tray/Tests/MattstackCoreChecks/ChecklistSortingChecks.swift`
 
 **Interfaces:**
-- Consumes: `ChecklistLayout`, `layoutSample` from Task 1.
+- Consumes: `ChecklistLayout`, `ChecklistSorting`, `layoutSample` from Task 1.
 - Produces:
+  - `ChecklistSorting.section(for row: PlanRow, finishBlockedBy: Set<String>, afterInstall: Bool = false) -> RowSection`
+  - `ChecklistLayout.make(_ groups: [PlanGroup], finishBlockedBy: [String] = [], afterInstall: Bool = false) -> ChecklistLayout`
   - `ChecklistLayout.needsYouID = "needs-you"`, `ChecklistLayout.overviewID = "overview"`
   - `enum EntryMark { case overview, failed, running, needsYou, settled }`
   - `struct Entry { id: String; title: String; count: Int?; mark: EntryMark }`
@@ -824,6 +828,69 @@ Expected: PASS.
 ```bash
 git add rt-tray/Sources-core/Readiness/ChecklistLayout.swift rt-tray/Tests/MattstackCoreChecks/ChecklistLayoutChecks.swift
 git commit -m "tray: sidebar entries carry failed and running marks"
+```
+
+- [ ] **Step 6: Write the failing checks for a faulty row after Install**
+
+Spec ruling 12: once Install has run (the summary and Setup status), an optional row that is not ready, not skipped and has no button shows under Optional. Before Install it stays under No action needed.
+
+Append to `checklistSortingChecks` in `ChecklistSortingChecks.swift`:
+
+```swift
+    Check("ChecklistSorting: after Install, a row that is not ready and has nothing to press is Optional") { c in
+        c.expectEqual(ChecklistSorting.section(for: row("a", .needsYou), finishBlockedBy: [], afterInstall: true), .optional)
+        c.expectEqual(ChecklistSorting.section(for: row("b", .missing), finishBlockedBy: [], afterInstall: true), .optional)
+        c.expectEqual(ChecklistSorting.section(for: row("c", .skipped), finishBlockedBy: [], afterInstall: true), .noAction,
+                      "not needed here stays settled")
+        c.expectEqual(ChecklistSorting.section(for: row("d", .ready), finishBlockedBy: [], afterInstall: true), .noAction)
+        c.expectEqual(ChecklistSorting.section(for: row("e", .missing, required: true), finishBlockedBy: [], afterInstall: true), .needsYou)
+        c.expectEqual(ChecklistSorting.section(for: row("a", .needsYou), finishBlockedBy: []), .noAction,
+                      "before Install it is Install's to set")
+    },
+```
+
+Append to `checklistLayoutChecks` in `ChecklistLayoutChecks.swift`:
+
+```swift
+    Check("ChecklistLayout: after Install a faulty row with no action is listed and counted as optional") { c in
+        let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"], afterInstall: true)
+        c.expectEqual(layout.sections[2].optional.map(\.id), ["f", "h"])
+        c.expectEqual(layout.sections[2].noAction.map(\.id), [])
+        c.expectEqual(layout.summary.map(\.text), ["2 need you", "2 ready", "3 optional", "1 not needed here"])
+    },
+```
+
+- [ ] **Step 7: Run to verify it fails**
+
+Run: `swift build --target MattstackCoreChecks`
+Expected: FAIL, `extra argument 'afterInstall' in call`.
+
+- [ ] **Step 8: Add `afterInstall`**
+
+In `ChecklistSorting.swift`, replace `section(for:finishBlockedBy:)` with:
+
+```swift
+    public static func section(for row: PlanRow, finishBlockedBy: Set<String>, afterInstall: Bool = false) -> RowSection {
+        if blocksInstall(row) || finishBlockedBy.contains(row.id) { return .needsYou }
+        if row.status == .ready { return .noAction }
+        if hasUsableAction(row) || row.status == .error || row.status == .invalid { return .optional }
+        if afterInstall && row.status != .skipped { return .optional }
+        return .noAction
+    }
+```
+
+In `ChecklistLayout.swift`, change `make` to take `afterInstall: Bool = false` as its last parameter and pass it to `ChecklistSorting.section(for:finishBlockedBy:afterInstall:)`.
+
+- [ ] **Step 9: Run the checks**
+
+Run: `swift run mattstack-checks`
+Expected: PASS.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add rt-tray/Sources-core/Readiness rt-tray/Tests/MattstackCoreChecks
+git commit -m "tray: after Install a faulty row with no action is optional"
 ```
 
 ---
@@ -1125,7 +1192,7 @@ Replace `foldedList` (the `EmptyView` stub from Task 1) with:
     }
 
     private func sidebarBody(overview: AnyView?, onSkip: ((PlanRow) -> Void)?) -> some View {
-        let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy)
+        let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy, afterInstall: true)
         let entries = layout.entries(overview: overview != nil, running: model.checkingRowIds, failed: Set(actionErrors.keys))
         let current = layout.selection(preferred: selected, overview: overview != nil)
         return VStack(alignment: .leading, spacing: 12) {

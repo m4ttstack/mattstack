@@ -38,6 +38,11 @@ Install with no input, and six are optional.
     and the two UI test assertions weakened by PR #812.
 11. **No further boards** for Access, Browser, Team and backup: they follow
     the pattern.
+12. **Once Install has run, a faulty optional row with no button shows under
+    Optional** with its detail and no warning mark, on the summary and in
+    Setup status. On a wizard page before Install it stays under No action
+    needed, since Install sets it. (PATH precedence reading "on your PATH but
+    not first" on a Mac that is already set up.)
 
 Set aside: pages on both sides of Install. Install blockers sit in four
 groups (Your Mac, Accounts, Agents and editors, rt on this Mac), so a split
@@ -75,7 +80,7 @@ rt does not change.
 | Section | A row lands here when |
 |---|---|
 | Needs you | it blocks Install (`required`, not `finishGated`, not `ready`) or it is in `finishBlockedBy` |
-| Optional | not in Needs you, not `ready`, and it offers an action or is `error` or `invalid` |
+| Optional | not in Needs you, not `ready`, and it offers an action or is `error` or `invalid`; once Install has run (the summary and Setup status), also any row that is neither `ready` nor `skipped` |
 | No action needed | everything else: `ready`, or any other status with no action (`skipped`, or a row Install handles) |
 
 A skipped row that still offers an action stays under Optional, as it stayed
