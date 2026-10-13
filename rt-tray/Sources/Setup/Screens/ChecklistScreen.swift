@@ -18,7 +18,12 @@ struct ChecklistScreen: View {
     @State private var connect: (row: PlanRow, fields: [ActionField], alternatives: [ActionAlternative], create: ActionLink?)?
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
-    @State private var actionErrors: [String: String] = [:]
+    private struct RowFailure {
+        let message: String
+        /// The row's status when its action failed: the failure is shown until that changes.
+        let status: RowStatus
+    }
+    @State private var actionErrors: [String: RowFailure] = [:]
     @State private var selected: String?
     @State private var waitingOnYou: [String: String] = [:]
 
@@ -94,7 +99,15 @@ struct ChecklistScreen: View {
     }
 
     private var activity: RowActivity {
-        RowActivity(checking: model.checkingRowIds, waiting: waitingOnYou, errors: actionErrors)
+        RowActivity(checking: model.checkingRowIds, waiting: waitingOnYou, errors: liveErrors)
+    }
+
+    private var liveErrors: [String: String] {
+        var live: [String: String] = [:]
+        for row in model.allRows {
+            if let failure = actionErrors[row.id], failure.status == row.status { live[row.id] = failure.message }
+        }
+        return live
     }
 
     private var relaunchBanner: some View {
@@ -126,8 +139,7 @@ struct ChecklistScreen: View {
 
     private func sidebarBody(overview: AnyView?, onSkip: ((PlanRow) -> Void)?) -> some View {
         let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy, afterInstall: true)
-        let failed = Set(model.allRows.filter { actionErrors[$0.id] != nil && $0.status != .ready }.map(\.id))
-        let entries = layout.entries(overview: overview != nil, running: model.checkingRowIds, failed: failed)
+        let entries = layout.entries(overview: overview != nil, running: model.checkingRowIds, failed: Set(liveErrors.keys))
         let current = layout.selection(preferred: selected, overview: overview != nil)
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
@@ -177,7 +189,7 @@ struct ChecklistScreen: View {
     @ViewBuilder
     private func fullRow(_ row: PlanRow) -> some View {
         RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id]) { perform(row) }
-        if let message = actionErrors[row.id] {
+        if let message = liveErrors[row.id] {
             Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier(AXID.checklistRowError(row.id))
         }
     }
@@ -238,7 +250,7 @@ struct ChecklistScreen: View {
                         await MainActor.run { waitingOnYou[rowId] = copy }
                     }) {
                         TrayLog.warn("row action failed", ["row": row.id, "err": failure])
-                        actionErrors[row.id] = failure
+                        actionErrors[row.id] = RowFailure(message: failure, status: row.status)
                     }
                     await model.afterAction(rowId: row.id)
                     return
@@ -247,16 +259,16 @@ struct ChecklistScreen: View {
                     let result = try await rt.run(args, stdin: stdin)
                     if let e = result.userError(redactStderr: redactStderr) {
                         TrayLog.warn("row action failed", ["row": row.id, "err": e.message])
-                        actionErrors[row.id] = e.message
+                        actionErrors[row.id] = RowFailure(message: e.message, status: row.status)
                     } else if result.exitCode != 0 {
                         let copy = result.failureCopy(verb: verb, redactStderr: redactStderr)
                         TrayLog.warn("row action failed", ["row": row.id, "err": copy])
-                        actionErrors[row.id] = copy
+                        actionErrors[row.id] = RowFailure(message: copy, status: row.status)
                     }
                 } catch {
                     let copy = (error as? RtClientError)?.copy ?? "rt \(verb) failed to start."
                     TrayLog.warn("row action failed", ["row": row.id, "err": copy])
-                    actionErrors[row.id] = copy
+                    actionErrors[row.id] = RowFailure(message: copy, status: row.status)
                 }
                 await model.afterAction(rowId: row.id)
             }
