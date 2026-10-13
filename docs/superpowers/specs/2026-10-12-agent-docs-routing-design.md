@@ -173,6 +173,20 @@ against `rt:build-dev-app`; `command-tree.md` against `rt:ui-copy`;
 `chat.md` against `rt:chat`; `build-and-plugin.md` against
 `mattstack:editing-skills`.
 
+### Result
+
+The comparison found two duplicated passages, because the rules already
+point at the skills and docs: the gitq serving sentence in `dev-app.md`
+(root `AGENTS.md`, "Monorepo layout") and the `${org}` alias description in
+`settings.md` (`docs/settings-architecture.md`, the `rt-settings` skill).
+`command-tree.md`, `chat.md` and `build-and-plugin.md` repeat nothing.
+
+The same PR corrects two moved sentences against the code: `dev-app.md`
+deploys a served app with `deck cmd <app> deploy`, and `setup.md` says
+`org.pull` leaves the clone on its checked-out branch. With Matt's
+go-ahead it also repoints one citation in the `rt:release` skill at
+`.claude/rules/setup.md`.
+
 ## The guard
 
 `lib/__tests__/no-agent-docs-bloat.test.ts`, named `no-*` so the `guards`

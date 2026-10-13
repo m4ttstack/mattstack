@@ -20,7 +20,10 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   source** in the shared `~/Documents/GitHub/mattstack` checkout (or the older
   `~/Documents/GitHub/repo-tools` folder on a machine that has not moved it). To deploy:
   merge, check `git branch --show-current` is `main`, pull, then
-  `deck restart <app>` (or the deck row's deploy button for deck itself);
+  `deck cmd <app> deploy` (`deck cmd deck deploy`, or the deck row's deploy
+  button, for deck itself). That runs the manifest's `dev.deploy`, which
+  builds and then restarts; `deck restart <app>` alone restarts the server
+  and keeps the old browser bundle.
   `rt release update-machine` also re-registers and restarts them, as its
   `checkout-sync` (labelled "shared checkout sync") and served-suite legs
   (`REGISTERED_APPS` in `lib/release/update-machine.ts` is exactly this
@@ -32,9 +35,8 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   whether the shim fell back. gitq is not in that re-register list: it
   ships only as the `Contents/Helpers/gitq` CLI, built by
   `scripts/build-apps.ts` from `apps/gitq/mattstack.deck.json`'s
-  `bundle.build` recipe. Deck neither registers nor serves gitq, so a
-  merge and pull change nothing running; the CLI only picks up the change
-  at the next release.
+  `bundle.build` recipe, and deck never serves it (root `AGENTS.md`,
+  "Monorepo layout"), so its changes ship at the next release.
 - **Manifest keys in `mattstack.deck.json` are read only at register or
   adopt.** After a manifest change, run `deck register --dir <absolute path>`.
 - **Tray and shim changes need a dev app rebuild**: in a scratch tree at the
