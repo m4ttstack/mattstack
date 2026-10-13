@@ -291,17 +291,26 @@ function revertedAppsStoreDict(previous: SettingsFile): StoreApps {
  * `cache` to `previous` and rethrows; a file failure after a store write
  * un-writes the store too, so a renamed app never keeps a store entry whose
  * password hash never reached disk.
+ *
+ * `fileOnly` marks a change to fields settings.json alone holds. While the
+ * store could not be read, only those save, and the store is never written:
+ * the cache then holds no app's real published value, so any store write
+ * could turn a private app public. A rename is never file-only, because the
+ * old name's store entry would stay behind and the new name read as public.
  */
-function save(previous: SettingsFile): void {
-  let storeChanged: boolean;
+function save(previous: SettingsFile, fileOnly = false): void {
+  let storeChanged = false;
   try {
-    if (storeUnreadable)
-      throw new Error(
-        `deck: ${STORE_KEY} could not be read at the last load; restart deck before changing app settings`
-      );
-    const next = nextAppsStoreDict(previous);
-    storeChanged = !isDeepStrictEqual(next, currentRawAppsStore());
-    if (storeChanged) setSetting(STORE_KEY, next, 'user');
+    if (storeUnreadable) {
+      if (!fileOnly)
+        throw new Error(
+          `deck: ${STORE_KEY} could not be read at the last load; restart deck before changing app settings`
+        );
+    } else {
+      const next = nextAppsStoreDict(previous);
+      storeChanged = !isDeepStrictEqual(next, currentRawAppsStore());
+      if (storeChanged) setSetting(STORE_KEY, next, 'user');
+    }
   } catch (err) {
     cache = previous;
     throw err;
@@ -363,7 +372,7 @@ export async function setPassword(
   const entry = ensure(app);
   entry.passwordHash = await Bun.password.hash(password);
   entry.passwordVersion = (entry.passwordVersion ?? 0) + 1;
-  save(previous);
+  save(previous, true);
 }
 
 export async function clearPassword(app: string): Promise<void> {
@@ -371,7 +380,7 @@ export async function clearPassword(app: string): Promise<void> {
   const entry = ensure(app);
   delete entry.passwordHash;
   entry.passwordVersion = (entry.passwordVersion ?? 0) + 1;
-  save(previous);
+  save(previous, true);
 }
 
 /**
@@ -402,7 +411,7 @@ export function getOverride(app: string): PortOverride | undefined {
 export function setOverride(app: string, override: PortOverride): void {
   const previous = structuredClone(cache);
   ensure(app).override = override;
-  save(previous);
+  save(previous, true);
 }
 
 export function clearOverride(app: string): void {
@@ -410,7 +419,7 @@ export function clearOverride(app: string): void {
   if (entry?.override) {
     const previous = structuredClone(cache);
     delete entry.override;
-    save(previous);
+    save(previous, true);
   }
 }
 
@@ -443,7 +452,7 @@ export function getLive(app: string): LiveState | undefined {
 export function setLive(app: string, live: LiveState): void {
   const previous = structuredClone(cache);
   ensure(app).live = live;
-  save(previous);
+  save(previous, true);
 }
 
 export function clearLive(app: string): void {
@@ -451,7 +460,7 @@ export function clearLive(app: string): void {
   if (entry?.live) {
     const previous = structuredClone(cache);
     delete entry.live;
-    save(previous);
+    save(previous, true);
   }
 }
 

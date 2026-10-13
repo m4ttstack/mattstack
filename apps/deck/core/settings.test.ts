@@ -629,16 +629,76 @@ test('a deck.apps value the resolver refused is never overwritten; the file stay
   expect(getAppSettings('widgets').published).toBe(false);
 });
 
-test('a store read that throws during a save reverts the change instead of half-applying it', () => {
+test('a publish change while deck.apps cannot be read is refused and leaves the store as it was', async () => {
   const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
   seedUserStore('deck.apps', { poison: '${repoRoot}' });
+  const before = readFileSync(userStorePath(), 'utf8');
   reloadSettings();
   warnSpy.mockRestore();
-  expect(() => setLive('chat', LIVE)).toThrow();
-  expect(getLive('chat')).toBeUndefined();
+  await expect(setPublished('chat', true)).rejects.toThrow();
+  expect(() => setPublicFollowsOverride('chat', true)).toThrow();
+  expect(getPublicFollowsOverride('chat')).toBe(false);
+  expect(readFileSync(userStorePath(), 'utf8')).toBe(before);
 });
 
-test('a deck.apps the resolver refuses fails closed like an unreadable store, until a reload reads a valid one', () => {
+test('live state, port overrides and passwords save while deck.apps cannot be read, and never touch the store', async () => {
+  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+  seedUserStore('deck.apps', { poison: '${repoRoot}' });
+  const before = readFileSync(userStorePath(), 'utf8');
+  reloadSettings();
+
+  setLive('chat', LIVE);
+  setOverride('chat', { devPort: 5173, basePort: 4100 });
+  await setPassword('chat', 'hunter2');
+  expect(getAppSettings('chat').published).toBe(false);
+
+  reloadSettings();
+  warnSpy.mockRestore();
+  expect(getLive('chat')).toEqual(LIVE);
+  expect(getOverride('chat')).toEqual({ devPort: 5173, basePort: 4100 });
+  expect(getAppSettings('chat').passwordVersion).toBe(1);
+  expect(readFileSync(userStorePath(), 'utf8')).toBe(before);
+
+  clearLive('chat');
+  clearOverride('chat');
+  await clearPassword('chat');
+  expect(getLive('chat')).toBeUndefined();
+  expect(getOverride('chat')).toBeUndefined();
+  expect(getAppSettings('chat').passwordHash).toBeUndefined();
+  expect(readFileSync(userStorePath(), 'utf8')).toBe(before);
+});
+
+test('a private app stays private through a live change made while deck.apps could not be read', () => {
+  setSetting('deck.apps', { widgets: { published: false } }, 'user');
+  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+  reloadSettings(() => {
+    throw new Error('rt daemon unreachable');
+  });
+  setLive('widgets', LIVE);
+  setLive('gadgets', LIVE);
+  warnSpy.mockRestore();
+  expect(getSetting('deck.apps').value).toEqual({
+    widgets: { published: false },
+  });
+
+  reloadSettings();
+  expect(getAppSettings('widgets').published).toBe(false);
+  expect(getLive('widgets')).toEqual(LIVE);
+});
+
+test('a rename while deck.apps cannot be read is refused, since the old name may be private in the store', () => {
+  writeLegacyFile({ version: 1, apps: { widgets: { passwordVersion: 2 } } });
+  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+  reloadSettings(() => {
+    throw new Error('rt daemon unreachable');
+  });
+  warnSpy.mockRestore();
+  expect(() => renameAppSettings('widgets', 'gadgets')).toThrow();
+  expect(getAppSettings('widgets').passwordVersion).toBe(2);
+  expect(getAppSettings('gadgets').passwordVersion).toBe(0);
+});
+
+test('a deck.apps the resolver refuses fails closed like an unreadable store, until a reload reads a valid one', async () => {
   writeLegacyFile({ version: 1, apps: { widgets: { passwordVersion: 0 } } });
   seedUserStore('deck.apps', ['not', 'an', 'object']);
   const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
@@ -646,10 +706,7 @@ test('a deck.apps the resolver refuses fails closed like an unreadable store, un
   warnSpy.mockRestore();
   expect(getAppSettings('widgets').published).toBe(false);
   expect(getAppSettings('never-seen').published).toBe(false);
-  expect(() =>
-    setOverride('widgets', { devPort: 5173, basePort: 4100 })
-  ).toThrow();
-  expect(getOverride('widgets')).toBeUndefined();
+  await expect(setPublished('widgets', true)).rejects.toThrow();
 
   seedUserStore('deck.apps', { widgets: { published: true } });
   reloadSettings();
@@ -657,7 +714,7 @@ test('a deck.apps the resolver refuses fails closed like an unreadable store, un
   expect(getAppSettings('never-seen').published).toBe(true);
 });
 
-test('a save after a boot that could not read deck.apps refuses, even once the store reads again', () => {
+test('a publish change after a boot that could not read deck.apps refuses, even once the store reads again', async () => {
   writeLegacyFile({ version: 1, apps: { widgets: { passwordVersion: 0 } } });
   const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
   reloadSettings(() => {
@@ -666,11 +723,8 @@ test('a save after a boot that could not read deck.apps refuses, even once the s
   warnSpy.mockRestore();
   setSetting('deck.apps', { widgets: { published: false } }, 'user');
 
-  expect(() =>
-    setOverride('widgets', { devPort: 5173, basePort: 4100 })
-  ).toThrow();
+  await expect(setPublished('widgets', true)).rejects.toThrow();
   expect(getSetting('deck.apps').value).toEqual({
     widgets: { published: false },
   });
-  expect(getOverride('widgets')).toBeUndefined();
 });

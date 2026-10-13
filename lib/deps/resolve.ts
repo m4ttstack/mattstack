@@ -61,9 +61,11 @@ export function bundledToolPath(p: Pick<Probes, "exists" | "home">, tool: string
   }
 }
 
-/** Restarts a served app through deck; false when deck is missing or the restart fails. */
+export const DECK_RESTART_TIMEOUT_MS = 60_000;
+
+/** Restarts a served app through deck; false when deck is missing, the restart fails, or it outlasts DECK_RESTART_TIMEOUT_MS. */
 export async function restartAppWithDeck(p: Pick<Probes, "exists" | "home" | "exec">, app: string, deck: string | null = bundledToolPath(p, "deck")): Promise<boolean> {
-  return deck !== null && (await p.exec([deck, "restart", app])).code === 0;
+  return deck !== null && (await p.exec([deck, "restart", app], { timeoutMs: DECK_RESTART_TIMEOUT_MS })).code === 0;
 }
 
 /** Absolute argv prefix that runs a bundled tool, only if every entry exists. */
