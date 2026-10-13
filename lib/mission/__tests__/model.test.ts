@@ -9,7 +9,7 @@ import { serializeIdentity } from "../../settings/identity.ts";
 import type { ActionState } from "../git-actions.ts";
 import { buildHistoryModel } from "../history-model.ts";
 import { HistoryStore } from "../history.ts";
-import { buildBranchRows, buildModel, joinWorktreeRows, reconcileSelectedPath, type MissionModel, type MissionState, type WorktreeRow } from "../model.ts";
+import { buildBranchRows, buildModel, joinWorktreeRows, mergeWorktreeTrees, reconcileSelectedPath, type MissionModel, type MissionState, type WorktreeRow } from "../model.ts";
 
 const FIXTURES = resolve(import.meta.dir, "..", "..", "..", "ui", "fixtures");
 
@@ -113,7 +113,7 @@ function baseRows(): RepoStatusRow[] {
 }
 
 function baseWorktrees(): WorktreeRow[] {
-  return [{ path: "/repo", name: "repo", branch: "main", onDeck: false, badge: badge() }];
+  return [{ path: "/repo", name: "repo", branch: "main", onDeck: false, main: true, badge: badge() }];
 }
 
 function baseInput(overrides: {
@@ -208,6 +208,7 @@ describe("buildModel golden fixture handshake", () => {
         name: "gandalf",
         branch: "mission-tui",
         onDeck: false,
+        main: false,
         badge: rows[0]!.worktrees[0]!,
       },
       {
@@ -215,6 +216,7 @@ describe("buildModel golden fixture handshake", () => {
         name: "frodo",
         branch: "picker-polish",
         onDeck: true,
+        main: false,
         badge: badge({
           worktree: "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-rt/frodo",
           branch: "picker-polish",
@@ -401,8 +403,8 @@ describe("reconcileSelectedPath", () => {
 describe("joinWorktreeRows", () => {
   test("joins each tree to its badge by path, not by list position", () => {
     const trees: WorktreeTreeRow[] = [
-      treeRow({ path: "/a", name: "gandalf", branch: "main", state: "claimed" }),
-      treeRow({ path: "/b", name: "frodo", branch: "feature", state: "on-deck" }),
+      treeRow({ path: "/a", name: "gandalf", branch: "main", state: "claimed", kind: "pool" }),
+      treeRow({ path: "/b", name: "frodo", branch: "feature", state: "on-deck", kind: "pool" }),
     ];
     // Badges deliberately out of tree order -- a positional zip would cross-wire them.
     const badges = [badge({ worktree: "/b", ahead: 2 }), badge({ worktree: "/a", ahead: 5 })];
@@ -410,8 +412,8 @@ describe("joinWorktreeRows", () => {
     const rows = joinWorktreeRows(trees, badges);
 
     expect(rows).toEqual([
-      { path: "/a", name: "gandalf", branch: "main", onDeck: false, badge: badges[1]! },
-      { path: "/b", name: "frodo", branch: "feature", onDeck: true, badge: badges[0]! },
+      { path: "/a", name: "gandalf", branch: "main", onDeck: false, main: false, badge: badges[1]! },
+      { path: "/b", name: "frodo", branch: "feature", onDeck: true, main: false, badge: badges[0]! },
     ]);
   });
 
@@ -436,6 +438,34 @@ describe("joinWorktreeRows", () => {
 
     expect(rows.map((r) => r.onDeck)).toEqual([false, true, false]);
   });
+
+  test("the main checkout is flagged and listed first, the rest keeping their order", () => {
+    const trees: WorktreeTreeRow[] = [
+      treeRow({ path: "/b", name: "aragorn", kind: "pool" }),
+      treeRow({ path: "/repo", name: "repo-tools", kind: "main" }),
+      treeRow({ path: "/c", name: "frodo", kind: "pool" }),
+    ];
+
+    const rows = joinWorktreeRows(trees, []);
+
+    expect(rows.map((r) => [r.name, r.main])).toEqual([["repo-tools", true], ["aragorn", false], ["frodo", false]]);
+  });
+});
+
+describe("mergeWorktreeTrees", () => {
+  const entry = (path: string, isBare = false) => ({ path, branch: "main", headSha: "abc", isBare });
+
+  test("git's first worktree is the main checkout when the registry has no row for it", () => {
+    const merged = mergeWorktreeTrees([], [entry("/repo"), entry("/repo-wt")], "repo");
+
+    expect(merged.map((t) => [t.path, t.kind])).toEqual([["/repo", "main"], ["/repo-wt", "external"]]);
+  });
+
+  test("a bare repo has no main checkout", () => {
+    const merged = mergeWorktreeTrees([], [entry("/repo.git", true), entry("/repo-wt")], "repo");
+
+    expect(merged.map((t) => [t.path, t.kind])).toEqual([["/repo-wt", "external"]]);
+  });
 });
 
 // A plain (non-rt-managed) repo's worktree:list has no rt worktree name for
@@ -448,7 +478,7 @@ describe("current.worktreeName falls back to the checkout directory's basename",
     const model = buildModel(
       baseInput({
         state: { currentWorktree: "/Users/matt/Documents/glitter-demo" },
-        worktrees: [{ path: "/Users/matt/Documents/glitter-demo", name: "", branch: "main", onDeck: false, badge: badge() }],
+        worktrees: [{ path: "/Users/matt/Documents/glitter-demo", name: "", branch: "main", onDeck: false, main: true, badge: badge() }],
       }),
     );
     expect(model.current.worktreeName).toBe("glitter-demo");
@@ -488,8 +518,8 @@ describe("rows describing the current worktree show its live badge", () => {
     const model = buildModel(
       baseInput({
         worktrees: [
-          { path: "/repo", name: "gandalf", branch: "main", onDeck: false, badge: cached },
-          { path: "/repo2", name: "frodo", branch: "feature", onDeck: false, badge: badge({ worktree: "/repo2", ahead: 4 }) },
+          { path: "/repo", name: "gandalf", branch: "main", onDeck: false, main: true, badge: cached },
+          { path: "/repo2", name: "frodo", branch: "feature", onDeck: false, main: false, badge: badge({ worktree: "/repo2", ahead: 4 }) },
         ],
         currentBadge: live,
       }),

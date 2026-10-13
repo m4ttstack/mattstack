@@ -198,6 +198,8 @@ export interface MissionWorktreeRow {
   badge: MissionBadge;
   current: boolean;
   onDeck: boolean;
+  /** The repo's main checkout, as opposed to a linked worktree. */
+  main: boolean;
 }
 
 export interface MissionBranchRow {

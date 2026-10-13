@@ -107,6 +107,7 @@ const (
 	GlyphBranch   = ""
 	GlyphStash    = "" // nf-oct-stack: the Stashed Changes strip
 	GlyphPadlock  = "" // nf-oct-lock: the guarded branch group header
+	GlyphHome     = "" // nf-oct-home: the worktree foldout's main checkout row
 )
 
 var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠣", "⠏"}

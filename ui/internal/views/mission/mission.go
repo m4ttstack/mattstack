@@ -537,6 +537,8 @@ func (m *Mission) listKey(v tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openBranchModal()
 	case "w":
 		return m.openWorktreeModal()
+	case "W":
+		return m.switchToMainWorktree()
 	case "r":
 		return m.openRepoModal()
 	case "2":
@@ -1269,10 +1271,10 @@ func (m *Mission) modalHitTest(x, y int) hit {
 	if rowLocal >= 0 && rowLocal < rowRegionH {
 		displayLines := modalDisplayLines(ms)
 		idx := ms.scrollTop + rowLocal
-		if idx < len(displayLines) && displayLines[idx].header == "" {
+		if idx < len(displayLines) && displayLines[idx].isRow() {
 			return hit{kind: hitModalRow, idx: displayLines[idx].matchIdx}
 		}
-		return hit{} // a header row or filler past the list: no click target
+		return hit{} // a header, a separator or filler past the list: no click target
 	}
 
 	afterRegion := li - above - rowRegionH
