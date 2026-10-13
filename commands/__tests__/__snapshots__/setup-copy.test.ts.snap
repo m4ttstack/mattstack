@@ -104,6 +104,17 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "required": false,
           "status": "missing",
         },
+        {
+          "action": {
+            "target": "keyboard",
+            "type": "open-settings",
+          },
+          "id": "tool.mission-control",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "needs-you",
+        },
       ],
     },
     {
@@ -124,7 +135,7 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
       "rows": [],
     },
     {
-      "id": "tools",
+      "id": "agents",
       "rows": [
         {
           "action": {
@@ -147,80 +158,12 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "status": "error",
         },
         {
-          "action": {
-            "tool": "fast-browser",
-            "type": "link-bundled",
-          },
-          "id": "tool.fast-browser",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "missing",
-        },
-        {
-          "action": null,
-          "finishGated": false,
-          "id": "tool.fast-browser-extension",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "skipped",
-        },
-        {
           "action": null,
           "id": "tool.editor",
           "kind": "tool",
           "recheck": "on-activate",
           "required": false,
           "status": "<read from this Mac>",
-        },
-        {
-          "action": {
-            "type": "open-url",
-            "url": "https://www.google.com/chrome/",
-          },
-          "id": "tool.chrome",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "missing",
-        },
-        {
-          "action": {
-            "target": "keyboard",
-            "type": "open-settings",
-          },
-          "id": "tool.mission-control",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "needs-you",
-        },
-        {
-          "action": {
-            "type": "run",
-            "verb": [
-              "setup",
-              "apply",
-              "--only",
-              "proxy.install",
-            ],
-          },
-          "id": "tool.proxy",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "missing",
-        },
-        {
-          "action": {
-            "type": "steps",
-          },
-          "id": "tool.state-backup",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "needs-you",
         },
         {
           "action": null,
@@ -256,6 +199,79 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "recheck": "on-change",
           "required": false,
           "status": "needs-you",
+        },
+        {
+          "action": null,
+          "id": "tool.vsix",
+          "kind": "tool",
+          "recheck": "on-change",
+          "required": false,
+          "status": "skipped",
+        },
+        {
+          "action": null,
+          "id": "tool.extension",
+          "kind": "tool",
+          "recheck": "on-change",
+          "required": false,
+          "status": "skipped",
+        },
+      ],
+    },
+    {
+      "id": "browser",
+      "rows": [
+        {
+          "action": {
+            "tool": "fast-browser",
+            "type": "link-bundled",
+          },
+          "id": "tool.fast-browser",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "missing",
+        },
+        {
+          "action": null,
+          "finishGated": false,
+          "id": "tool.fast-browser-extension",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "skipped",
+        },
+        {
+          "action": {
+            "type": "open-url",
+            "url": "https://www.google.com/chrome/",
+          },
+          "id": "tool.chrome",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "missing",
+        },
+      ],
+    },
+    {
+      "id": "rt",
+      "rows": [
+        {
+          "action": {
+            "type": "run",
+            "verb": [
+              "setup",
+              "apply",
+              "--only",
+              "proxy.install",
+            ],
+          },
+          "id": "tool.proxy",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "missing",
         },
         {
           "action": null,
@@ -299,22 +315,6 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
         },
         {
           "action": null,
-          "id": "tool.vsix",
-          "kind": "tool",
-          "recheck": "on-change",
-          "required": false,
-          "status": "skipped",
-        },
-        {
-          "action": null,
-          "id": "tool.extension",
-          "kind": "tool",
-          "recheck": "on-change",
-          "required": false,
-          "status": "skipped",
-        },
-        {
-          "action": null,
           "id": "tool.shell",
           "kind": "tool",
           "recheck": "on-change",
@@ -344,6 +344,21 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "recheck": "on-activate",
           "required": true,
           "status": "ready",
+        },
+      ],
+    },
+    {
+      "id": "team",
+      "rows": [
+        {
+          "action": {
+            "type": "steps",
+          },
+          "id": "tool.state-backup",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "needs-you",
         },
         {
           "action": {
@@ -387,6 +402,8 @@ exports[`the setup plan's shape and copy plan: the copy is what the copy table s
   "account.github.title": "GitHub",
   "account.github.why": "Lets rt open PRs, check CI status, and read repo metadata on GitHub.",
   "accounts.title": "Accounts",
+  "agents.title": "Agents and editors",
+  "browser.title": "Browser",
   "home.backup.action.label": "Create home repo",
   "home.backup.detail": "No home repo yet, so nothing is backed up",
   "home.backup.optionalNote": "Works without this; local-only just means this machine is the only copy of your settings.",
@@ -407,10 +424,12 @@ exports[`the setup plan's shape and copy plan: the copy is what the copy table s
   "perm.notifications.optionalNote": "Works without this; you'll see menu-bar badges instead.",
   "perm.notifications.title": "Notifications",
   "perm.notifications.why": "Shows menu-bar notifications when something needs your attention.",
+  "rt.title": "rt on this Mac",
   "skills.writing-style.detail": "You choose this after Install",
   "skills.writing-style.optionalNote": null,
   "skills.writing-style.title": "Writing style",
   "skills.writing-style.why": "How the reviews, replies and PR descriptions agents post under your name read. Without one they read like an AI assistant.",
+  "team.title": "Team and backup",
   "tool.app.detail": "mattstack.app is not in /Applications or ~/Applications",
   "tool.app.optionalNote": null,
   "tool.app.title": "mattstack.app",
@@ -527,7 +546,6 @@ exports[`the setup plan's shape and copy plan: the copy is what the copy table s
   "tool.vsix.optionalNote": "Works without this; the rt-context editor extension just won't be pre-installed for you.",
   "tool.vsix.title": "Bundled extension",
   "tool.vsix.why": "mattstack.app can carry the rt-context editor extension pre-bundled.",
-  "tools.title": "Tools",
 }
 `;
 
@@ -618,6 +636,17 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
           "required": false,
           "status": "missing",
         },
+        {
+          "action": {
+            "target": "keyboard",
+            "type": "open-settings",
+          },
+          "id": "tool.mission-control",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "needs-you",
+        },
       ],
     },
     {
@@ -638,7 +667,7 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
       "rows": [],
     },
     {
-      "id": "tools",
+      "id": "agents",
       "rows": [
         {
           "action": {
@@ -661,80 +690,12 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
           "status": "error",
         },
         {
-          "action": {
-            "tool": "fast-browser",
-            "type": "link-bundled",
-          },
-          "id": "tool.fast-browser",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "missing",
-        },
-        {
-          "action": null,
-          "finishGated": false,
-          "id": "tool.fast-browser-extension",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "skipped",
-        },
-        {
           "action": null,
           "id": "tool.editor",
           "kind": "tool",
           "recheck": "on-activate",
           "required": false,
           "status": "<read from this Mac>",
-        },
-        {
-          "action": {
-            "type": "open-url",
-            "url": "https://www.google.com/chrome/",
-          },
-          "id": "tool.chrome",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "missing",
-        },
-        {
-          "action": {
-            "target": "keyboard",
-            "type": "open-settings",
-          },
-          "id": "tool.mission-control",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "needs-you",
-        },
-        {
-          "action": {
-            "type": "run",
-            "verb": [
-              "setup",
-              "apply",
-              "--only",
-              "proxy.install",
-            ],
-          },
-          "id": "tool.proxy",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "missing",
-        },
-        {
-          "action": {
-            "type": "steps",
-          },
-          "id": "tool.state-backup",
-          "kind": "tool",
-          "recheck": "on-activate",
-          "required": false,
-          "status": "needs-you",
         },
         {
           "action": null,
@@ -770,6 +731,79 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
           "recheck": "on-change",
           "required": false,
           "status": "needs-you",
+        },
+        {
+          "action": null,
+          "id": "tool.vsix",
+          "kind": "tool",
+          "recheck": "on-change",
+          "required": false,
+          "status": "skipped",
+        },
+        {
+          "action": null,
+          "id": "tool.extension",
+          "kind": "tool",
+          "recheck": "on-change",
+          "required": false,
+          "status": "skipped",
+        },
+      ],
+    },
+    {
+      "id": "browser",
+      "rows": [
+        {
+          "action": {
+            "tool": "fast-browser",
+            "type": "link-bundled",
+          },
+          "id": "tool.fast-browser",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "missing",
+        },
+        {
+          "action": null,
+          "finishGated": false,
+          "id": "tool.fast-browser-extension",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "skipped",
+        },
+        {
+          "action": {
+            "type": "open-url",
+            "url": "https://www.google.com/chrome/",
+          },
+          "id": "tool.chrome",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "missing",
+        },
+      ],
+    },
+    {
+      "id": "rt",
+      "rows": [
+        {
+          "action": {
+            "type": "run",
+            "verb": [
+              "setup",
+              "apply",
+              "--only",
+              "proxy.install",
+            ],
+          },
+          "id": "tool.proxy",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "missing",
         },
         {
           "action": null,
@@ -813,22 +847,6 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
         },
         {
           "action": null,
-          "id": "tool.vsix",
-          "kind": "tool",
-          "recheck": "on-change",
-          "required": false,
-          "status": "skipped",
-        },
-        {
-          "action": null,
-          "id": "tool.extension",
-          "kind": "tool",
-          "recheck": "on-change",
-          "required": false,
-          "status": "skipped",
-        },
-        {
-          "action": null,
           "id": "tool.shell",
           "kind": "tool",
           "recheck": "on-change",
@@ -858,6 +876,21 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
           "recheck": "on-activate",
           "required": true,
           "status": "ready",
+        },
+      ],
+    },
+    {
+      "id": "team",
+      "rows": [
+        {
+          "action": {
+            "type": "steps",
+          },
+          "id": "tool.state-backup",
+          "kind": "tool",
+          "recheck": "on-activate",
+          "required": false,
+          "status": "needs-you",
         },
         {
           "action": {
@@ -904,6 +937,8 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "account.github.title": "GitHub",
   "account.github.why": "Lets rt open PRs, check CI status, and read repo metadata on GitHub.",
   "accounts.title": "Accounts",
+  "agents.title": "Agents and editors",
+  "browser.title": "Browser",
   "home.backup.action.label": "Create home repo",
   "home.backup.detail": "No home repo yet, so nothing is backed up",
   "home.backup.optionalNote": "Works without this; local-only just means this machine is the only copy of your settings.",
@@ -924,10 +959,12 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "perm.notifications.optionalNote": "Works without this; you'll see menu-bar badges instead.",
   "perm.notifications.title": "Notifications",
   "perm.notifications.why": "Shows menu-bar notifications when something needs your attention.",
+  "rt.title": "rt on this Mac",
   "skills.writing-style.detail": "You choose this after Install",
   "skills.writing-style.optionalNote": null,
   "skills.writing-style.title": "Writing style",
   "skills.writing-style.why": "How the reviews, replies and PR descriptions agents post under your name read. Without one they read like an AI assistant.",
+  "team.title": "Team and backup",
   "tool.app.detail": "mattstack.app is not in /Applications or ~/Applications",
   "tool.app.optionalNote": null,
   "tool.app.title": "mattstack.app",
@@ -1044,6 +1081,5 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tool.vsix.optionalNote": "Works without this; the rt-context editor extension just won't be pre-installed for you.",
   "tool.vsix.title": "Bundled extension",
   "tool.vsix.why": "mattstack.app can carry the rt-context editor extension pre-bundled.",
-  "tools.title": "Tools",
 }
 `;
