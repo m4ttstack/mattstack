@@ -190,6 +190,12 @@ export interface BoardConfig {
   ticketPrefixes: string[];
   /** My team's channels from mattstack.directory, normalized; a code owners section naming one is my team's. */
   ownChannels?: string[];
+  /** mattstack.directory as stored: which team answers in which channel. */
+  directory?: TeamDirectory;
+  /** This Mac's active team; null on no team. */
+  ownTeam?: string | null;
+  /** Every team in the org roster with its members, by team name. The roster above is one team's slice of it. */
+  orgTeams?: OrgTeam[];
   title: string;
   /** Absolute path the review agent's herdr pane starts in (a repo checkout). Empty disables review launch. */
   reviewCwd: string;
@@ -615,6 +621,29 @@ export const teamView: {
 
 type StoredMember = Member & { teams?: string[] };
 
+export interface OrgTeam {
+  name: string;
+  members: Array<{ username: string; name?: string }>;
+}
+
+function orgTeamsFromStore(resolve: GetSettingFn): OrgTeam[] {
+  const byTeam = new Map<string, OrgTeam['members']>();
+  for (const m of boardSetting<StoredMember[]>('mattstack.roster', resolve)) {
+    for (const team of m.teams ?? []) {
+      const members = byTeam.get(team) ?? [];
+      members.push(
+        m.name
+          ? { username: m.username, name: m.name }
+          : { username: m.username }
+      );
+      byTeam.set(team, members);
+    }
+  }
+  return [...byTeam]
+    .map(([name, members]) => ({ name, members }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /** The org roster narrowed to the active team. A Mac on no team, and a team
     nobody is listed on, see everyone. */
 function rosterFromStore(resolve: GetSettingFn): {
@@ -659,10 +688,8 @@ export function loadConfig(resolve: GetSettingFn = getSetting): BoardConfig {
     ({ hidden: _inline, ...m }) =>
       hidden.has(m.username) ? { ...m, hidden: true } : m
   );
-  const mine = directoryEntry(
-    read<TeamDirectory>('mattstack.directory'),
-    teamView.team()
-  );
+  const directory = read<TeamDirectory>('mattstack.directory');
+  const mine = directoryEntry(directory, teamView.team());
   const {
     reviewKind,
     channel: _retired,
@@ -708,6 +735,9 @@ export function loadConfig(resolve: GetSettingFn = getSetting): BoardConfig {
     slack: { ...parsed.slack, channel: reviewChannel },
     teamPack: teamView.pack() ?? '',
     ownChannels: mine ? teamChannels(mine) : [],
+    directory,
+    ownTeam: teamView.team(),
+    orgTeams: orgTeamsFromStore(resolve),
   };
 }
 

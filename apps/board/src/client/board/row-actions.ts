@@ -6,7 +6,8 @@ import { mergeBlockedReason } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
 import { hasStackDescendants, isOwnMr, stackParents } from '../../view.ts';
-import type { BoardMRWithReview } from '../types.ts';
+import type { BoardMRWithReview, OrgTeam } from '../types.ts';
+import { askPickerModel, type AskPickerModel } from './ask-picker.ts';
 import {
   askOutstanding,
   DOCTOR_ACTIVE,
@@ -98,6 +99,9 @@ export interface MenuEntry {
     aria: string;
     options: Array<{ value: string; label?: string; hint?: string }>;
   };
+  /** A row menu opens this two-view picker in place of the pick submenu.
+      The bulk menu keeps `pick`: owning teams differ per MR. */
+  askPicker?: AskPickerModel;
 }
 
 export interface RowAction extends MenuEntry {
@@ -132,6 +136,10 @@ export interface ActionEnv {
   names?: ReadonlyMap<string, string>;
   /** Enrolled peer usernames when the relay has said; undefined = unknown. */
   peers?: string[];
+  /** Every team of the org roster; absent on older servers. */
+  teams?: OrgTeam[];
+  /** The seat's active team. */
+  ownTeam?: string | null;
   /** Every MR on the board, for the stack checks. */
   allMrs: BoardMR[];
 }
@@ -400,21 +408,36 @@ export function rowActions(
         )
       );
     const askTargets = firstReviewTargets(mrx, env.roster, env.peers);
-    (askTargets.length ? agent : sessions).push(
+    const askPicker = env.teams
+      ? askPickerModel(mrx, {
+          roster: env.roster,
+          peers: env.peers,
+          teams: env.teams,
+          ownTeam: env.ownTeam ?? null,
+          names: env.names,
+        })
+      : null;
+    const canAsk = askTargets.length > 0 || askPicker !== null;
+    (canAsk ? agent : sessions).push(
       item(
-        askTargets.length ? 'agent' : 'sessions',
+        canAsk ? 'agent' : 'sessions',
         'request-review',
         'request review from…',
         AGENT_CLOUD,
         { kind: 'ask', ask: 'review' },
-        askTargets.length
+        canAsk
           ? {
-              pick: {
-                title: 'request review from',
-                aria: 'request review',
-                options: askTargets.map(value => peerOption(env, value)),
-              },
-              bulk: 'request review from…',
+              ...(askTargets.length
+                ? {
+                    pick: {
+                      title: 'request review from',
+                      aria: 'request review',
+                      options: askTargets.map(value => peerOption(env, value)),
+                    },
+                    bulk: 'request review from…',
+                  }
+                : {}),
+              ...(askPicker ? { askPicker } : {}),
             }
           : {
               blocked: askOutstanding(mrx)

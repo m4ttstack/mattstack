@@ -239,6 +239,37 @@ describe("LabeledSeg (browser)", () => {
     expect(getComputedStyle(active).color).toBe("rgb(255, 255, 255)");
   });
 
+  it("soft: the active option is an ink-coloured tile on a recessed track, not the accent fill", async () => {
+    const solid = await renderWithTheme(
+      <LabeledSeg
+        legend="view mode"
+        options={TAB_OPTIONS}
+        labels={TAB_LABELS}
+        value="grid"
+        onChange={() => {}}
+      />,
+    );
+    const accent = getComputedStyle(options(solid.container)[1] as HTMLElement).backgroundColor;
+    const soft = await renderWithTheme(
+      <LabeledSeg
+        soft
+        legend="view mode, soft"
+        options={TAB_OPTIONS}
+        labels={TAB_LABELS}
+        value="grid"
+        onChange={() => {}}
+      />,
+    );
+    const [off, on] = options(soft.container) as HTMLElement[];
+    const tile = getComputedStyle(on as HTMLElement).backgroundColor;
+    expect(tile).not.toBe(accent);
+    const track = getComputedStyle(segmentedRootOf(soft.container)).backgroundColor;
+    expect(track).not.toBe("rgba(0, 0, 0, 0)");
+    expect(tile).not.toBe(track);
+    expect(getComputedStyle(on as HTMLElement).color).not.toBe("rgb(255, 255, 255)");
+    expect(getComputedStyle(off as HTMLElement).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  });
+
   it("renders at the board's smaller relative text size, distinct from Segmented's icon buttons", async () => {
     const iconScreen = await renderWithTheme(
       <Segmented options={TAB_OPTIONS} value="rows" onChange={() => {}} label="view" />,

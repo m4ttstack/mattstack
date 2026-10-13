@@ -327,6 +327,25 @@ describe('loadConfig: store values get the normalization and validation parseCon
     expect(cfg.members.map(m => m.username)).toEqual(['dev1']);
   });
 
+  test("every team's members ride along whatever the active team is", () => {
+    teamView.team = () => 'widgets';
+    const cfg = loadConfig(
+      withRoster([
+        { username: 'dev1', name: 'Dev One', teams: ['widgets'] },
+        { username: 'dev3', teams: ['gadgets', 'widgets'] },
+        { username: 'dev5' },
+      ])
+    );
+    expect(cfg.ownTeam).toBe('widgets');
+    expect(cfg.orgTeams).toEqual([
+      { name: 'gadgets', members: [{ username: 'dev3' }] },
+      {
+        name: 'widgets',
+        members: [{ username: 'dev1', name: 'Dev One' }, { username: 'dev3' }],
+      },
+    ]);
+  });
+
   test('a Mac on no team, and a team nobody is listed on, see the whole roster instead of failing to load', () => {
     const everyone = loadConfig(withRoster(twoTeams));
     expect(everyone.members.map(m => m.username)).toEqual(['dev1', 'dev3']);

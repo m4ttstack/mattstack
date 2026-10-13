@@ -52,8 +52,6 @@ const RETIRED_ALIAS_WAIVER =
   'pre-migration alias kept in the public CSS contract; every recipe moved to the ramp name, so nothing in this repo reads it any more.';
 
 const WAIVED_TUI: Record<string, string> = {
-  '--shadow-card':
-    "card lift read by apps/board's header, roster and MR cards; no kit recipe reads it.",
   ...Object.fromEntries(
     ['--accent-text', '--green', '--red', '--surface-wash-accent-fg-70'].map(
       name => [name, RETIRED_ALIAS_WAIVER]
@@ -82,8 +80,6 @@ const WAIVED_TUI: Record<string, string> = {
     "modal/overlay chrome role read by apps/board's decision-queue modal (its --gate-modal-ground alias); no kit recipe reads it yet.",
   '--text-muted-on-card':
     "on-card contrast role read by apps/deck's .apps-grid panel (it remaps --muted to it); no kit recipe reads it.",
-  '--surface-inset':
-    "inset-ground role read by apps/board's gate key chips (its --gate-key-bg alias); no kit recipe reads it yet.",
   '--spacing-rem95':
     "spacing rung read by apps/board's gate column gap (its --gate-gap alias); no kit recipe reads this rung yet.",
   '--type-display':

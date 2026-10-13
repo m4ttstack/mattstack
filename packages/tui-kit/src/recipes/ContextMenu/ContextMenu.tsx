@@ -157,7 +157,7 @@ export interface ContextMenuOwnProps {
   y: number;
   /** The menu's accessible name (`aria-label` on the root). */
   ariaLabel: string;
-  /** Called on Escape, on a mousedown outside, on scroll, and on resize. NOT
+  /** Called on Escape, on a mousedown or a scroll outside, and on resize. NOT
       called when an item is clicked: closing after an action is the caller's
       decision (mr-board's Slack-mark items deliberately stay open). */
   onClose: () => void;
@@ -316,16 +316,22 @@ export const ContextMenu = defineCompound({
         // `mousedown` (not click) so the menu is gone before the underlying
         // element's own click handler runs; `scroll` in the CAPTURE phase,
         // because scroll does not bubble from a scrolling descendant to window.
+        // A list scrolling inside the menu is the menu's own, and keeps it.
         useEffect(() => {
+          const outside = (e: Event) =>
+            !(e.target instanceof Node && wrapper?.contains(e.target));
           const onDown = (e: MouseEvent) => {
-            if (!wrapper?.contains(e.target as Node)) onClose();
+            if (outside(e)) onClose();
+          };
+          const onScroll = (e: Event) => {
+            if (outside(e)) onClose();
           };
           document.addEventListener("mousedown", onDown);
-          window.addEventListener("scroll", onClose, true);
+          window.addEventListener("scroll", onScroll, true);
           window.addEventListener("resize", onClose);
           return () => {
             document.removeEventListener("mousedown", onDown);
-            window.removeEventListener("scroll", onClose, true);
+            window.removeEventListener("scroll", onScroll, true);
             window.removeEventListener("resize", onClose);
           };
         }, [onClose, wrapper]);

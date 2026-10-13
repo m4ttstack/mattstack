@@ -451,6 +451,22 @@ describe("ContextMenu (browser)", () => {
     expect(onResizeClose).toHaveBeenCalledTimes(1);
   });
 
+  it("stays open while a list inside it scrolls", async () => {
+    const onClose = vi.fn();
+    const screen = await renderWithTheme(
+      <ContextMenu x={40} y={40} ariaLabel="m" onClose={onClose}>
+        <div data-testid="list" style={{ maxHeight: 40, overflowY: "auto" }}>
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <ContextMenu.Item key={n} label={`item ${n}`} onClick={noop} />
+          ))}
+        </div>
+      </ContextMenu>,
+    );
+    await settledBox(rootOf(screen.container));
+    screen.container.querySelector('[data-testid="list"]')!.dispatchEvent(new Event("scroll"));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("tears its listeners down on unmount", async () => {
     const onClose = vi.fn();
     const screen = await renderWithTheme(
