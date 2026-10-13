@@ -75,23 +75,32 @@ describe('host', () => {
 });
 
 describe('socket peer', () => {
-  test.each(['127.0.0.1', '127.8.9.10', '::1', '::ffff:127.0.0.1'])(
-    'a %s peer is local',
-    address => {
-      expect(isLocalRequest(req({ host: 'localhost' }), peer(address))).toBe(
-        true
-      );
-    }
-  );
+  test.each([
+    '127.0.0.1',
+    '127.8.9.10',
+    '127.255.255.255',
+    '::1',
+    '::ffff:127.0.0.1',
+  ])('a %s peer is local', address => {
+    expect(isLocalRequest(req({ host: 'localhost' }), peer(address))).toBe(
+      true
+    );
+  });
 
-  test.each(['192.168.1.20', '100.64.0.7', '::ffff:10.0.0.1', 'fe80::1'])(
-    'a %s peer is not local',
-    address => {
-      expect(isLocalRequest(req({ host: 'localhost' }), peer(address))).toBe(
-        false
-      );
-    }
-  );
+  test.each([
+    '192.168.1.20',
+    '100.64.0.7',
+    '::ffff:10.0.0.1',
+    'fe80::1',
+    '127.999.1.1',
+    '127.256.0.1',
+    '127.0.0.300',
+    '::ffff:127.0.0.256',
+  ])('a %s peer is not local', address => {
+    expect(isLocalRequest(req({ host: 'localhost' }), peer(address))).toBe(
+      false
+    );
+  });
 
   test('an unknown peer is not local', () => {
     expect(isLocalRequest(req({ host: 'localhost' }), peer(null))).toBe(false);
@@ -114,6 +123,14 @@ describe('x-forwarded-for', () => {
           host: 'board.localhost',
           'x-forwarded-for': '203.0.113.9, 127.0.0.1',
         })
+      )
+    ).toBe(false);
+  });
+
+  test('a hop with an octet above 255 is not local', () => {
+    expect(
+      isLocalRequest(
+        req({ host: 'board.localhost', 'x-forwarded-for': '127.999.1.1' })
       )
     ).toBe(false);
   });
