@@ -1,5 +1,6 @@
 ---
 paths:
+  - ".github/workflows/checks.yml"
   - "turbo.json"
   - "scripts/turbo.sh"
   - "scripts/set-platform-version.ts"
