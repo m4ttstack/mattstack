@@ -95,7 +95,8 @@ layer rules" still resolves by search.
 
 | Rule file | Source | `paths` |
 |---|---|---|
-| `output-layer.md` | Output layer: the opening, the five rules, the plain-output and callout-row rules, the failure shape, the raw-output guard, `out.note` and `warn`, breadcrumb, transient step, usage errors, wrapping and tables, report builders, steps, print seams, warn sinks. Also "The TypeScript CLI is UI-free" | `cli.ts`, `commands/**`, `lib/**` |
+| `output-layer.md` | Output layer: the opening, the five rules, the plain-output and callout-row rules, the failure shape, the raw-output guard, `out.note` and `warn`, usage errors, report builders, print seams, warn sinks, fix commands and failure lists. Also "The TypeScript CLI is UI-free" | `cli.ts`, `commands/**`, `lib/**` |
+| `output-rendering.md` | Output layer: breadcrumb, transient step, bidi and wrapping, `lib/ui/steps.ts`, the secret prompt, stacked tables, multiline `why` | `lib/ui/**`, `ui/**`, `lib/command-tree.ts` |
 | `output-git-verbs.md` | Output layer: the git verb, `rt sync` and `rt git rebase` paragraphs | `commands/git/**`, `commands/sync.ts`, `lib/mcp/git-tools.ts` |
 | `output-agent-verbs.md` | Output layer: `rt chat`, the agent-only verbs, `rt herd`/`rt pane`/`rt agent`, `rt cd`/`rt nav` | `commands/chat.ts`, `commands/herd*`, `commands/pane*`, `commands/agent*`, `commands/gate*`, `commands/events*`, `commands/ci*`, `commands/mcp*`, `commands/cd*`, `commands/nav*` |
 | `output-setup-and-services.md` | Output layer: the setup emitter, `home init` steps, sdm, release rows, `rt daemon`, the service verbs | `lib/setup/**`, `commands/setup*`, `commands/sdm*`, `commands/daemon*`, `commands/services*`, `commands/apps*`, `commands/bg*`, `commands/cron*`, `commands/home*`, `lib/release/**` |
@@ -103,7 +104,7 @@ layer rules" still resolves by search.
 | `glitter.md` | "GitHub Desktop is the authority", "Mission adopts GitHub Desktop's staging model" | `lib/mission/**`, `ui/internal/views/mission/**`, `docs/design/mission/**` |
 | `settings.md` | Settings architecture | `packages/rt-client/src/settings/**`, `lib/team/**`, `packages/settings-kit/**`, `scripts/move-*.ts` |
 | `team-switchboard.md` | Switchboard and `rt team join` | `lib/team/**`, `packages/rt-client/src/switchboard.ts`, `lib/setup/validators/accounts.ts`, `commands/team*` |
-| `setup.md` | Setup checklist rows, Setup after an update, Writing-style presets | `lib/setup/**`, `lib/skills/writing-style.ts`, `commands/setup*`, `rt-tray/Sources/PlanModels.swift` |
+| `setup.md` | Setup checklist rows, Setup after an update, Writing-style presets | `lib/setup/**`, `lib/skills/writing-style.ts`, `commands/setup*`, `rt-tray/Sources-core/Contract/PlanModels.swift` |
 | `mcp-and-gates.md` | Gates and the `rt_verb` MCP tool, Baseline Claude permissions | `lib/mcp/**`, `commands/mcp*`, `commands/gate*`, `lib/setup/base-permissions.ts`, `lib/setup/claude-permissions.ts`, `lib/daemon/forge-reads.ts`, `lib/daemon/upload-guard.ts` |
 | `command-tree.md` | Command descriptions are plain language, "A required-positional leaf must declare `omitBehavior`", Module registry | `lib/command-tree*.ts`, `lib/module-registry.ts`, `scripts/lib/picker-conformance.ts`, `cli.ts` |
 | `daemon.md` | Logging architecture, the relocation prompt parser | `lib/daemon/**`, `lib/daemon.ts`, `lib/daemon-logger.ts`, `rt-tray/Sources/TrayLog.swift`, `rt-tray/Sources/TrayServer.swift` |
