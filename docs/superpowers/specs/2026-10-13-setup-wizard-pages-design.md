@@ -75,8 +75,11 @@ rt does not change.
 | Section | A row lands here when |
 |---|---|
 | Needs you | it blocks Install (`required`, not `finishGated`, not `ready`) or it is in `finishBlockedBy` |
-| Optional | not in Needs you, not `ready` or `skipped`, and it offers an action or is `error` or `invalid` |
-| No action needed | everything else: `ready`, `skipped`, or `missing`, `needs-you` or `checking` with no action (Install handles it) |
+| Optional | not in Needs you, not `ready`, and it offers an action or is `error` or `invalid` |
+| No action needed | everything else: `ready`, or any other status with no action (`skipped`, or a row Install handles) |
+
+A skipped row that still offers an action stays under Optional, as it stayed
+at full height in PR #812.
 
 A broken optional row with no button (a team marketplace that failed to
 load) shows under Optional with its detail in red, and still no warning
