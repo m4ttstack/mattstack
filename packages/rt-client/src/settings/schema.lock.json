@@ -876,8 +876,8 @@
                 "properties": {
                   "team": {
                     "title": "Linear team key",
-                    "description": "The team's own Linear key, e.g. CV.",
-                    "placeholder": "CV",
+                    "description": "The team's own Linear key, e.g. ACME.",
+                    "placeholder": "ACME",
                     "type": "string",
                     "minLength": 1
                   }

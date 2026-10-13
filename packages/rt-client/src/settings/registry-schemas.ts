@@ -197,7 +197,7 @@ export const SCHEMAS = {
         z.looseObject({
           linear: z
             .looseObject({
-              team: z.string().min(1).optional().meta({ title: "Linear team key", description: "The team's own Linear key, e.g. CV.", placeholder: "CV" }),
+              team: z.string().min(1).optional().meta({ title: "Linear team key", description: "The team's own Linear key, e.g. ACME.", placeholder: "ACME" }),
             })
             .optional()
             .meta({ title: "Linear", description: "The team's Linear team." }),
