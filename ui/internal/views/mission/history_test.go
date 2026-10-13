@@ -928,7 +928,7 @@ func TestLongTagKeepsSummaryReadable(t *testing.T) {
 }
 
 func TestChangesKeybarKeepsTabKeyAtNarrowWidth(t *testing.T) {
-	out := ansi.Strip(renderKeybar(100, "changes"))
+	out := ansi.Strip(renderKeybar(100, "changes", "fetch"))
 	if !strings.Contains(out, "2 history") {
 		t.Fatalf("at 100 columns the Changes keybar must still show \"2 history\":\n%s", out)
 	}
@@ -939,7 +939,7 @@ func TestChangesKeybarKeepsTabKeyAtNarrowWidth(t *testing.T) {
 // left no cells for right's own PlaceHorizontal to pad with -- the ellipsis
 // ran straight into "q quit" with no separating space.
 func TestJustifyClippedLeftLeavesGapBeforeRight(t *testing.T) {
-	out := ansi.Strip(renderKeybar(100, "changes"))
+	out := ansi.Strip(renderKeybar(100, "changes", "fetch"))
 	idx := strings.Index(out, "…")
 	if idx == -1 {
 		t.Fatalf("setup: expected the left side clipped with an ellipsis at 100 columns:\n%s", out)
@@ -1237,7 +1237,7 @@ func TestKeyClickAndReloadEndFreeScroll(t *testing.T) {
 }
 
 func TestKeybarPerTab(t *testing.T) {
-	history := ansi.Strip(renderKeybar(130, "history"))
+	history := ansi.Strip(renderKeybar(130, "history", "fetch"))
 	for _, want := range []string{"1 changes", "⇧↑↓ range", "↑↓ commits", "enter files", "/ filter", "e expand", "q quit"} {
 		if !strings.Contains(history, want) {
 			t.Fatalf("History keybar missing %q:\n%s", want, history)
@@ -1246,13 +1246,13 @@ func TestKeybarPerTab(t *testing.T) {
 	if !strings.Contains(history, "enter files · / filter · e expand") {
 		t.Fatalf("\"/ filter\" sits right after \"enter files\" so it survives a narrow terminal:\n%s", history)
 	}
-	if narrow := ansi.Strip(renderKeybar(80, "history")); !strings.Contains(narrow, "/ filter") || !strings.HasSuffix(strings.TrimRight(narrow, " "), "q quit") {
+	if narrow := ansi.Strip(renderKeybar(80, "history", "fetch")); !strings.Contains(narrow, "/ filter") || !strings.HasSuffix(strings.TrimRight(narrow, " "), "q quit") {
 		t.Fatalf("at 80 columns the History keybar keeps \"/ filter\" and \"q quit\" flush right:\n%s", narrow)
 	}
 	if strings.Contains(history, "space stage") {
 		t.Fatalf("History keybar must not offer staging:\n%s", history)
 	}
-	if changes := ansi.Strip(renderKeybar(130, "changes")); !strings.Contains(changes, "2 history") {
+	if changes := ansi.Strip(renderKeybar(130, "changes", "fetch")); !strings.Contains(changes, "2 history") {
 		t.Fatalf("Changes keybar missing \"2 history\":\n%s", changes)
 	}
 }
