@@ -44,6 +44,13 @@ Install with no input, and six are optional.
     needed, since Install sets it. (PATH precedence reading "on your PATH but
     not first" on a Mac that is already set up.)
 
+13. **The counts above the sidebar are buttons that filter.** Clicking
+    "40 ready", "2 optional" or "3 not needed here" lists every row with
+    that status in the right pane, from all groups, under its group's
+    title. Clicking the count again, or any sidebar entry, goes back.
+    (Asked while looking at Setup status in the dev app; built without a
+    board, judged in the dev app.)
+
 Set aside: pages on both sides of Install. Install blockers sit in four
 groups (Your Mac, Accounts, Agents and editors, rt on this Mac), so a split
 would visit Agents and editors twice.

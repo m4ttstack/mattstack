@@ -1919,6 +1919,82 @@ git commit -m "tray vm: walkthrough pages through the setup wizard"
 
 ---
 
+### Task 9: The counts above the sidebar filter the list
+
+Added 2026-10-13 after Matt looked at Setup status (spec ruling 13). Runs
+before Task 8's remaining steps.
+
+**Files:**
+- Modify: `rt-tray/Sources-core/Readiness/ChecklistLayout.swift`
+- Modify: `rt-tray/Tests/MattstackCoreChecks/ChecklistLayoutChecks.swift`
+- Modify: `rt-tray/Sources/AccessibilityIDs.swift`
+- Modify: `rt-tray/Sources/Setup/Screens/ChecklistScreen.swift` (`sidebarBody`, `SummaryGlyph`)
+- Modify: `rt-tray/Sources/Setup/Components/ChecklistSections.swift` only if the filter pane needs a view from it
+- Modify: the UI test file that covers the sidebar (`SetupFlowUITests.swift`)
+
+**Interfaces:**
+- Consumes: `ChecklistLayout.sections`, `ChecklistLayout.summary`, `SummaryKind`, `SectionRow`, `SettledRow`, `ChecklistCard`, `ChecklistSidebarEntry`.
+- Produces, on `ChecklistLayout`:
+  - `public struct FilterGroup: Equatable, Identifiable, Sendable { public let id: String; public let title: String; public let rows: [PlanRow] }`
+  - `public func filtered(_ kind: SummaryKind) -> [FilterGroup]`: the rows a count stands for, one `FilterGroup` per plan group in plan order, a group with no matching row left out.
+  - `public func activeFilter(_ preferred: SummaryKind?) -> SummaryKind?`: `preferred` while it still has rows, else nil. Never `.needsYou`.
+- Produces, on `AXID`: `static func checklistFilter(_ kind: String) -> String { "setup.checklist.filter.\(kind)" }`, with kinds `needsYou`, `ready`, `optional`, `notNeeded`.
+
+**Behaviour (Matt's ruling):** clicking a count lists every row with that
+status in the right pane, from all groups, under its group's title. Clicking
+the count again, or any sidebar entry, goes back.
+
+**What each count stands for** (it must equal the number the count shows):
+- `ready`: the `noAction` rows whose status is `ready`.
+- `optional`: every section's `optional` rows.
+- `notNeeded`: the `noAction` rows whose status is `skipped`.
+- A row Install will set (in `noAction`, neither `ready` nor `skipped`) is in no filter, as it is in no count.
+- `needsYou`: `filtered(.needsYou)` returns the attention rows by group, but the view never uses it as a filter: clicking "N need you" selects the Needs you sidebar entry.
+
+- [ ] **Step 1: Write the failing checks** in `ChecklistLayoutChecks.swift`, on `layoutSample`:
+  - `filtered(.ready)`, `filtered(.optional)`, `filtered(.notNeeded)` each return the expected row ids per group, in plan order, with no empty group;
+  - for each of the three kinds, the total of `filtered(kind)` rows equals the number at the start of that kind's `summary` text, with `afterInstall` both false and true;
+  - a row Install will set is in no filter;
+  - `activeFilter(.optional)` is `.optional` while an optional row exists and nil on a layout with none; `activeFilter(.needsYou)` and `activeFilter(nil)` are nil.
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `swift run --package-path rt-tray mattstack-checks`
+Expected: the build fails on `filtered` / `activeFilter`.
+
+- [ ] **Step 3: Add `FilterGroup`, `filtered`, `activeFilter`** to `ChecklistLayout`. `summary` and `filtered` read the same rows through one private helper, so a count and its list cannot disagree.
+
+- [ ] **Step 4: Run the checks**
+
+Run: `swift run --package-path rt-tray mattstack-checks`
+Expected: all checks pass.
+
+- [ ] **Step 5: Commit** the core change.
+
+- [ ] **Step 6: Make the counts buttons** in `sidebarBody`:
+  - a `@State private var filter: ChecklistLayout.SummaryKind?` beside `selected`; the pane's filter is `layout.activeFilter(filter)`;
+  - each summary part is a `Button`: glyph, then text. A part reads as a control at rest (a faint capsule fill) and as selected (the sidebar's selected tint, `Color.accentColor.opacity(0.16)`, text semibold) while its filter is on. The glyphs keep their colours;
+  - clicking a part whose filter is on clears `filter`; clicking another sets it; clicking `needsYou` clears `filter` and selects `ChecklistLayout.needsYouID`;
+  - clicking a sidebar entry clears `filter` and selects the entry, as today;
+  - while a filter is on, no sidebar entry draws as selected, and the previous `selected` is kept so clearing the filter returns to it;
+  - the summary container keeps the id `AXID.checklistSummary` and changes to `.accessibilityElement(children: .contain)` so the buttons are reachable; each button carries `AXID.checklistFilter(<kind>)` and the `.isSelected` trait while on.
+
+- [ ] **Step 7: Draw the filter pane**: one `ChecklistCard` per `FilterGroup`, the group's title as its header, then its rows, never folded. An `optional` row is a `SectionRow` (no badge, its action kept); a `ready` or `notNeeded` row is a `SettledRow` (it keeps its action button when it has one, and its failure message). Each card carries `AXID.checklistSection("filter.<group id>")`. Row and status ids are the ones the rows carry everywhere else.
+
+- [ ] **Step 8: UI test.** In the test that opens the sidebar (Setup status, or the summary after Install): click `setup.checklist.filter.ready`, assert a ready row from a group other than the selected one exists, assert no sidebar entry is selected, click the count again, assert the earlier pane is back. Build the test target; do not run the suite.
+
+Run: from `rt-tray/`, the `xcodebuild build-for-testing` command Task 6 used.
+Expected: `** TEST BUILD SUCCEEDED **`.
+
+- [ ] **Step 9: Build and run the checks**
+
+Run: `swift build --package-path rt-tray` then `swift run --package-path rt-tray mattstack-checks`
+Expected: the build succeeds with no new warnings and all checks pass.
+
+- [ ] **Step 10: Commit.**
+
+---
+
 ### Task 8: Look at it, then open the PR
 
 **Files:** none new.
