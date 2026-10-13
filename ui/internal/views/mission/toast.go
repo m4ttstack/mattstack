@@ -1,5 +1,5 @@
 // The toast: a short confirmation floated over the frame's bottom right
-// corner, one clear row above the keybar. It is glitter's own surface (GitHub Desktop
+// corner, a few clear rows above the keybar. It is glitter's own surface (GitHub Desktop
 // confirms in banners a terminal has no room for) and it never takes a row
 // from the layout, so showing or dropping one moves nothing under the mouse.
 package mission
@@ -59,7 +59,7 @@ func renderToastBox(text string, maxWidth int) string {
 }
 
 // toastGap is the clear rows between the toast and the keybar under it.
-const toastGap = 1
+const toastGap = 3
 
 // renderToast composites the toast over parent, toastGap rows clear of
 // bottomRows (the keybar and any notice strip).
