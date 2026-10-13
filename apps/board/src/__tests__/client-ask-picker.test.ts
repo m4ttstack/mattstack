@@ -12,10 +12,10 @@ const teams = [
     members: [{ username: 'ada' }, { username: 'rae', name: 'Rae Marlow' }],
   },
   {
-    name: 'ingestion',
+    name: 'sprockets',
     members: [
       { username: 'sam', name: 'Sam Whitlow' },
-      { username: 'lea', name: 'Lea Thorne' },
+      { username: 'nia', name: 'Nia Okoro' },
       { username: 'odile' },
     ],
   },
@@ -24,7 +24,7 @@ const teams = [
 
 const env = {
   roster: ['ada', 'rae'],
-  peers: ['rae', 'sam', 'lea', 'ines'],
+  peers: ['rae', 'sam', 'nia', 'ines'],
   teams,
   ownTeam: 'checkout',
 };
@@ -41,7 +41,7 @@ describe('askPickerModel', () => {
       mine({
         ownerTeams: [
           { team: 'billing', approved: true },
-          { team: 'ingestion', approved: false },
+          { team: 'sprockets', approved: false },
         ],
       }),
       env
@@ -50,7 +50,7 @@ describe('askPickerModel', () => {
     expect(
       model.owners.map(g => [g.team, g.note, usernames(g.people)])
     ).toEqual([
-      ['ingestion', 'needs approval', ['lea', 'sam']],
+      ['sprockets', 'needs approval', ['nia', 'sam']],
       ['billing', 'approved', ['ines']],
     ]);
     expect(model.opensOn).toBe('owners');
@@ -71,7 +71,7 @@ describe('askPickerModel', () => {
     expect(model.all.map(g => [g.team, g.note, usernames(g.people)])).toEqual([
       ['checkout', 'your team', ['rae']],
       ['billing', undefined, ['ines']],
-      ['ingestion', undefined, ['lea', 'sam']],
+      ['sprockets', undefined, ['nia', 'sam']],
     ]);
     expect(model.opensOn).toBe('all');
   });
@@ -79,7 +79,7 @@ describe('askPickerModel', () => {
   test('a person is shown by their roster name, else their username', () => {
     const model = askPickerModel(mine(), env)!;
     expect(model.all[2]!.people).toEqual([
-      { username: 'lea', name: 'Lea Thorne' },
+      { username: 'nia', name: 'Nia Okoro' },
       { username: 'sam', name: 'Sam Whitlow' },
     ]);
   });
@@ -92,8 +92,8 @@ describe('askPickerModel', () => {
   test('someone already engaged with the MR is offered nowhere', () => {
     const model = askPickerModel(
       mine({
-        ownerTeams: [{ team: 'ingestion', approved: false }],
-        peerReviews: [{ reviewer: 'lea', status: 'reviewing', updatedAt: 1 }],
+        ownerTeams: [{ team: 'sprockets', approved: false }],
+        peerReviews: [{ reviewer: 'nia', status: 'reviewing', updatedAt: 1 }],
       }),
       env
     )!;
@@ -103,7 +103,7 @@ describe('askPickerModel', () => {
 
   test('before the relay has said who is enrolled, every member counts', () => {
     const model = askPickerModel(mine(), { ...env, peers: undefined })!;
-    expect(usernames(model.all[2]!.people)).toEqual(['lea', 'odile', 'sam']);
+    expect(usernames(model.all[2]!.people)).toEqual(['nia', 'odile', 'sam']);
   });
 
   test('with nobody on another team to ask there is no picker', () => {

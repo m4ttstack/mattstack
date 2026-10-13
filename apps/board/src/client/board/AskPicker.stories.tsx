@@ -58,9 +58,9 @@ const teams: OrgTeam[] = [
     members: people(['Marta Quill', 'Deshawn Ito', 'Greta Lindqvist']),
   },
   {
-    name: 'ingestion',
+    name: 'sprockets',
     members: people([
-      'Lea Thorne',
+      'Nia Okoro',
       'Sam Whitlow',
       'Odile Varga',
       'Tomas Reyne',
@@ -109,7 +109,7 @@ const picker = (ownerTeams: BoardMRWithReview['ownerTeams']) => (
 export const CodeOwners: Story = {
   render: () =>
     picker([
-      { team: 'ingestion', approved: false },
+      { team: 'sprockets', approved: false },
       { team: 'identity', approved: false },
       { team: 'billing', approved: true },
       { team: 'search', approved: true },

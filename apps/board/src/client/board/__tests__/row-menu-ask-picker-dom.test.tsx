@@ -15,14 +15,14 @@ useMenuHarness();
 const env = {
   self: 'pat',
   roster: ['pat', 'kim'],
-  peers: ['kim', 'lea', 'sam', 'ines'],
+  peers: ['kim', 'nia', 'sam', 'ines'],
   ownTeam: 'widgets',
   teams: [
     { name: 'billing', members: [{ username: 'ines', name: 'Ines Duarte' }] },
     {
       name: 'gadgets',
       members: [
-        { username: 'lea', name: 'Lea Thorne' },
+        { username: 'nia', name: 'Nia Okoro' },
         { username: 'sam', name: 'Sam Whitlow' },
       ],
     },
@@ -64,15 +64,15 @@ test('an MR another team owns opens on code owners, each owning team under its h
     'code owners',
     'all teams',
     'kim',
-    'Lea Thorne',
+    'Nia Okoro',
     'Sam Whitlow',
   ]);
   const text = picker()!.textContent!;
   expect(text).toContain('gadgets');
   expect(text).toContain('needs approval');
   expect(text).toContain('ledger owns a section here but has no board');
-  await clickItem('Lea Thorne');
-  expect(harness.effects).toEqual([{ effect: 'ask:review:lea', iid: 1418 }]);
+  await clickItem('Nia Okoro');
+  expect(harness.effects).toEqual([{ effect: 'ask:review:nia', iid: 1418 }]);
 });
 
 test('all teams lists every team with someone to ask and narrows as you type', async () => {
@@ -84,14 +84,14 @@ test('all teams lists every team with someone to ask and narrows as you type', a
     'all teams',
     'kim',
     'Ines Duarte',
-    'Lea Thorne',
+    'Nia Okoro',
     'Sam Whitlow',
   ]);
   await typeSearch('gad');
   expect(itemTexts()).toEqual([
     'code owners',
     'all teams',
-    'Lea Thorne',
+    'Nia Okoro',
     'Sam Whitlow',
   ]);
   await clickItem('Sam Whitlow');

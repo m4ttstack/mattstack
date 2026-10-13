@@ -13,7 +13,7 @@ import { openStateDb } from '../state/db.ts';
 const directory = {
   teams: {
     checkout: { slack: { codeOwnersChannel: '#pod-checkout' } },
-    ingestion: { slack: { codeOwnersChannel: 'pod-ingestion' } },
+    sprockets: { slack: { codeOwnersChannel: 'pod-sprockets' } },
     billing: { slack: { codeOwnersChannel: '#pod-billing' } },
   },
 };
@@ -21,22 +21,22 @@ const directory = {
 describe('ownerTeamsFromRules', () => {
   test('maps each owning section to its team through the directory channel', () => {
     const rules = [
-      { section: 'Ingestion - #pod-ingestion', approved: false },
+      { section: 'Sprockets - #pod-sprockets', approved: false },
       { section: 'Billing - #pod-billing', approved: true },
     ];
     expect(ownerTeamsFromRules(rules, directory, null)).toEqual([
-      { team: 'ingestion', approved: false },
+      { team: 'sprockets', approved: false },
       { team: 'billing', approved: true },
     ]);
   });
 
   test('a team is approved only when every rule of its sections is', () => {
     const rules = [
-      { section: 'Ingestion - #pod-ingestion', approved: true },
-      { section: 'Ingestion - #pod-ingestion', approved: false },
+      { section: 'Sprockets - #pod-sprockets', approved: true },
+      { section: 'Sprockets - #pod-sprockets', approved: false },
     ];
     expect(ownerTeamsFromRules(rules, directory, null)).toEqual([
-      { team: 'ingestion', approved: false },
+      { team: 'sprockets', approved: false },
     ]);
   });
 
@@ -69,7 +69,7 @@ describe('refreshOwnerTeams', () => {
       ownTeam: 'checkout',
       readRules: async (m: { iid: number }) => {
         reads.push(m.iid);
-        return [{ section: 'Ingestion - #pod-ingestion', approved: false }];
+        return [{ section: 'Sprockets - #pod-sprockets', approved: false }];
       },
     };
     await refreshOwnerTeams([mr(7, 't1')], deps);
@@ -78,7 +78,7 @@ describe('refreshOwnerTeams', () => {
     await refreshOwnerTeams([mr(7, 't2')], deps);
     expect(reads).toEqual([7, 7]);
     expect(attachOwnerTeams([mr(7, 't2'), mr(8, 't1')], db)).toEqual([
-      { ...mr(7, 't2'), ownerTeams: [{ team: 'ingestion', approved: false }] },
+      { ...mr(7, 't2'), ownerTeams: [{ team: 'sprockets', approved: false }] },
       mr(8, 't1'),
     ]);
   });
