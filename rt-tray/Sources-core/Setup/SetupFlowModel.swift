@@ -51,6 +51,9 @@ public final class SetupFlowModel: ObservableObject {
     @Published public var entry: SetupEntry = .firstRun
     public init(readOnly: Bool = false) { self.readOnly = readOnly }
 
+    public var headerTitle: String { readOnly ? "Setup status" : step.title }
+    public var headerIndicator: String? { readOnly ? nil : step.indicator }
+
     public var showsBack: Bool { !readOnly }
     public var primaryClosesWindow: Bool { readOnly }
     public var mayStartInstall: Bool { !readOnly }

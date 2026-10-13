@@ -259,6 +259,26 @@ let readinessModelChecks: [Check] = [
             c.expect(m.lastRefreshFailed, "a caller gating UI on freshness must see this refresh as failed")
         }
     },
+    Check("lastCheckedAt stamps each successful fetch and a failed refresh keeps the older stamp") { c in
+        final class SucceedsTwiceThenFails: PlanSource, @unchecked Sendable {
+            var n = 0
+            func fetchPlan() async throws -> Plan { n += 1; if n <= 2 { return makePlan() }; throw FakePlansExhausted() }
+        }
+        final class Clock: @unchecked Sendable { var t = Date(timeIntervalSince1970: 1_000) }
+        let clock = Clock()
+        let m = await MainActor.run {
+            ReadinessModel(plans: SucceedsTwiceThenFails(), permissions: FakePermissions(), ticker: FakeTicker(), now: { clock.t })
+        }
+        await MainActor.run { c.expectEqual(m.lastCheckedAt, nil, "nothing checked before the first fetch") }
+        await m.load()
+        await MainActor.run { c.expectEqual(m.lastCheckedAt, Date(timeIntervalSince1970: 1_000)) }
+        clock.t = Date(timeIntervalSince1970: 2_000)
+        await m.recheckAll()
+        await MainActor.run { c.expectEqual(m.lastCheckedAt, Date(timeIntervalSince1970: 2_000), "a re-check that lands moves the stamp") }
+        clock.t = Date(timeIntervalSince1970: 3_000)
+        await m.recheckAll()
+        await MainActor.run { c.expectEqual(m.lastCheckedAt, Date(timeIntervalSince1970: 2_000), "a failed re-check confirmed nothing") }
+    },
     Check("a failing plan fetch keeps the last rows and records the error") { c in
         final class Boom: PlanSource, @unchecked Sendable {
             var n = 0

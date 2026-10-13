@@ -112,7 +112,7 @@ final class SetupFlowUITests: XCTestCase {
         el("setup.team.join.code").typeText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ-2345-6789-ABCD-EFGH")
         el("setup.team.continue").click()
         waitFor("setup.checklist.screen")
-        waitFor("setup.checklist.row.perm.fda")
+        waitFor("setup.checklist.summary")
         XCTAssertTrue(el("setup.checklist.continue").waitForExistence(timeout: 20))
         XCTAssertTrue(el("setup.checklist.continue").isEnabled, "\(scenario) plan is installable")
         el("setup.checklist.continue").click()
