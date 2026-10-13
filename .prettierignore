@@ -44,5 +44,6 @@ scripts/parity/*.js
 /packages/git-core
 /.github
 /*.md
+/.claude
 # Imported plugins keep their own style
 /plugins
