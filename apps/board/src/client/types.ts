@@ -216,10 +216,11 @@ export interface AskCardData {
   };
 }
 
-/** A team that owns a Code Owner section on an MR. */
+/** A team that owns a Code Owner section on an MR; `approved` is null while
+    the server has not re-read the MR since it last changed. */
 export interface OwnerTeam {
   team: string;
-  approved: boolean;
+  approved: boolean | null;
 }
 
 /** One team of the org roster with its members. */

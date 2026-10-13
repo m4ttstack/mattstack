@@ -56,6 +56,22 @@ describe('askPickerModel', () => {
     expect(model.opensOn).toBe('owners');
   });
 
+  test('a team whose approval is not known yet carries no note and sorts with the needed ones', () => {
+    const model = askPickerModel(
+      mine({
+        ownerTeams: [
+          { team: 'billing', approved: true },
+          { team: 'sprockets', approved: null },
+        ],
+      }),
+      env
+    )!;
+    expect(model.owners.map(g => [g.team, g.note])).toEqual([
+      ['sprockets', undefined],
+      ['billing', 'approved'],
+    ]);
+  });
+
   test('an owning team with no board to ask is named, not listed', () => {
     const model = askPickerModel(
       mine({ ownerTeams: [{ team: 'ledger', approved: false }] }),

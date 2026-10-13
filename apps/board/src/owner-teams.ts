@@ -6,10 +6,10 @@ import type { OwnerRule } from './codeowner-posts.ts';
 import { getKvValue, getStateDb, setKvValue } from './state/index.ts';
 
 /** A team that owns a Code Owner section on an MR, and whether every rule of
-    its sections is approved. */
+    its sections is approved; null while the MR has changed since the read. */
 export interface OwnerTeam {
   team: string;
-  approved: boolean;
+  approved: boolean | null;
 }
 
 const NS = 'owner-rules';
@@ -81,8 +81,10 @@ export async function refreshOwnerTeams<T extends OwnMr>(
 }
 
 /** Each MR with its owning teams, from the stored rules and the directory
-    and active team as they are now. An MR never read is left as it is. */
-export function attachOwnerTeams<T extends { webUrl?: string | null }>(
+    and active team as they are now. An MR never read is left as it is. One
+    that changed since its read keeps its teams, which rarely move, but not
+    their approval, which the change may have flipped. */
+export function attachOwnerTeams<T extends OwnMr>(
   mrs: T[],
   config: { directory?: TeamDirectory; ownTeam?: string | null },
   db: Database = getStateDb()
@@ -91,15 +93,18 @@ export function attachOwnerTeams<T extends { webUrl?: string | null }>(
     const stored = mr.webUrl
       ? getKvValue<Stored | null>(NS, mr.webUrl, null, db)
       : null;
-    return stored
-      ? {
-          ...mr,
-          ownerTeams: ownerTeamsFromRules(
-            stored.rules,
-            config.directory,
-            config.ownTeam ?? null
-          ),
-        }
-      : mr;
+    if (!stored) return mr;
+    const teams = ownerTeamsFromRules(
+      stored.rules,
+      config.directory,
+      config.ownTeam ?? null
+    );
+    return {
+      ...mr,
+      ownerTeams:
+        stored.seen === seenKey(mr)
+          ? teams
+          : teams.map(t => ({ ...t, approved: null })),
+    };
   });
 }

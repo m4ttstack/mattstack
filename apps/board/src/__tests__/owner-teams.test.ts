@@ -100,6 +100,17 @@ describe('refreshOwnerTeams', () => {
     expect(reads).toBe(2);
   });
 
+  test('once the MR has changed, the teams stay but their approval is unknown until the next read', async () => {
+    const db = memoryDb();
+    await refreshOwnerTeams([mr(7, 't1')], {
+      db,
+      readRules: async () => needed,
+    });
+    expect(
+      attachOwnerTeams([mr(7, 't1', ['sam'])], config, db)[0]!.ownerTeams
+    ).toEqual([{ team: 'sprockets', approved: null }]);
+  });
+
   test('the owning teams follow the directory as it is now, not as it was at the read', async () => {
     const db = memoryDb();
     await refreshOwnerTeams([mr(7, 't1')], {

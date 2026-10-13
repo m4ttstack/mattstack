@@ -80,7 +80,9 @@ export function askPickerModel(
     else
       owners.push({
         team: owner.team,
-        note: owner.approved ? 'approved' : 'needs approval',
+        ...(owner.approved === null
+          ? {}
+          : { note: owner.approved ? 'approved' : 'needs approval' }),
         people,
       });
   }
