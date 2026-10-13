@@ -158,8 +158,11 @@ struct ChecklistScreen: View {
         return VStack(alignment: .leading, spacing: 12) {
             if rowsConfirmed {
                 HStack(spacing: 6) {
+                    if layout.summary.contains(where: { $0.kind != .needsYou }) {
+                        SummaryCount(kind: nil, text: "All", isOn: shownFilter == nil) { filter = nil }
+                    }
                     ForEach(layout.summary, id: \.kind) { part in
-                        SummaryCount(part: part, isOn: part.kind == shownFilter) {
+                        SummaryCount(kind: part.kind, text: part.text, isOn: part.kind == shownFilter) {
                             if part.kind == .needsYou {
                                 filter = nil
                                 selected = ChecklistLayout.needsYouID
@@ -419,46 +422,66 @@ enum PageLead {
 
 struct SummaryGlyph: View {
     let kind: ChecklistLayout.SummaryKind
+    /// A count that is on has a solid accent fill, which a glyph's own colour does not read against.
+    var isOn = false
     var body: some View {
+        if isOn {
+            Image(systemName: symbol).symbolRenderingMode(.monochrome).foregroundStyle(.white)
+        } else {
+            switch kind {
+            case .needsYou: Image(systemName: symbol).symbolRenderingMode(.multicolor)
+            case .ready: Image(systemName: symbol).foregroundStyle(.green)
+            case .optional, .notNeeded: Image(systemName: symbol).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var symbol: String {
         switch kind {
-        case .needsYou: Image(systemName: "exclamationmark.triangle.fill").symbolRenderingMode(.multicolor)
-        case .ready: Image(systemName: "checkmark.circle").foregroundStyle(.green)
-        case .optional: Image(systemName: "circle").foregroundStyle(.secondary)
-        case .notNeeded: Image(systemName: "circle.dashed").foregroundStyle(.secondary)
+        case .needsYou: return "exclamationmark.triangle.fill"
+        case .ready: return "checkmark.circle"
+        case .optional: return "circle"
+        case .notNeeded: return "circle.dashed"
         }
     }
 }
 
 struct SummaryCount: View {
-    let part: ChecklistLayout.SummaryPart
+    /// nil is All. It shows every row and is no filter, so `SummaryKind` has no case for it.
+    let kind: ChecklistLayout.SummaryKind?
+    let text: String
     let isOn: Bool
     let onPick: () -> Void
     var body: some View {
         Button(action: onPick) {
             HStack(spacing: 4) {
-                SummaryGlyph(kind: part.kind).accessibilityHidden(true)
+                if let kind { SummaryGlyph(kind: kind, isOn: isOn).accessibilityHidden(true) }
                 // The hidden copy holds the semibold width, so turning a filter on moves no other count.
-                Text(part.text).font(.callout).fontWeight(.semibold).hidden()
-                    .overlay(alignment: .leading) { Text(part.text).font(.callout).fontWeight(isOn ? .semibold : .regular) }
+                Text(text).font(.callout).fontWeight(.semibold).hidden()
+                    .overlay(alignment: .leading) {
+                        Text(text).font(.callout).fontWeight(isOn ? .semibold : .regular)
+                            .foregroundStyle(isOn ? Color.white : Color.primary)
+                    }
             }
             .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(Capsule().fill(isOn ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06)))
+            .background(Capsule().fill(isOn ? Color.accentColor : Color.primary.opacity(0.06)))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(AXID.checklistFilter(idName))
-        .accessibilityLabel(Text(part.text))
+        .accessibilityLabel(Text(text))
         .accessibilityValue(Text(isOn ? "on" : "off"))
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
     /// Spelled out, not read off the case: the UI tests click these ids, and a renamed case must not rename one.
     private var idName: String {
-        switch part.kind {
-        case .needsYou: return "needsYou"
-        case .ready: return "ready"
-        case .optional: return "optional"
-        case .notNeeded: return "notNeeded"
+        switch kind {
+        case nil: return "all"
+        case .needsYou?: return "needsYou"
+        case .ready?: return "ready"
+        case .optional?: return "optional"
+        case .notNeeded?: return "notNeeded"
         }
     }
 }
