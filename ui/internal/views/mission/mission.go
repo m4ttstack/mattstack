@@ -900,7 +900,7 @@ type frameLayout struct {
 func (m *Mission) layout() frameLayout {
 	l := frameLayout{
 		topH:    lipgloss.Height(renderTopBar(m.model, m.spin.View(), m.width, m.hoverZone, m.openZone())),
-		keybarH: lipgloss.Height(renderKeybar(m.width, m.keybarMode(), m.model.Action.Kind)),
+		keybarH: lipgloss.Height(renderKeybar(m.width, m.keybarMode())),
 	}
 	if text, _ := m.notice(); text != "" {
 		l.noticeH = 1
@@ -954,7 +954,7 @@ func (m *Mission) tabCap() colSpan {
 func (m *Mission) View() tea.View {
 	top := renderTopBarCapped(m.model, m.spin.View(), m.width, m.hoverZone, m.openZone(), m.tabCap())
 	diffW := m.diffWidth()
-	keybar := renderKeybar(m.width, m.keybarMode(), m.model.Action.Kind)
+	keybar := renderKeybar(m.width, m.keybarMode())
 	l := m.layout()
 	bodyHeight := l.bodyH
 

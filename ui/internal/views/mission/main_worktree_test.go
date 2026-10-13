@@ -253,42 +253,76 @@ func TestASwitchToTheMainWorktreeFromTheFoldoutStaysQuiet(t *testing.T) {
 	}
 }
 
-func TestKeybarNamesWhatTheActionKeyWillDo(t *testing.T) {
-	for kind, want := range map[string]string{
-		"fetch":          "f fetch",
-		"pull":           "f pull",
-		"pull-rebase":    "f pull",
-		"push":           "f push",
-		"force-push":     "f force push",
-		"publish-branch": "f publish",
-		"publish-repo":   "f publish",
+// labelRow is a rendered segment's label row: the pad half-row comes first.
+func labelRow(segment string) string {
+	return strings.Split(ansi.Strip(segment), "\n")[1]
+}
+
+func TestTopBarSegmentsCarryTheirKeyChips(t *testing.T) {
+	m := modalFixtureModel()
+	for key, row := range map[string]string{
+		"r": labelRow(renderRepoSegment(m, 40, false, false, colSpan{})),
+		"w": labelRow(renderWorktreeSegment(m, "", 40, false, false)),
+		"b": labelRow(renderBranchSegment(m, 40, false, false)),
 	} {
-		for _, mode := range []string{"changes", "history"} {
-			if out := ansi.Strip(renderKeybar(200, mode, kind)); !strings.Contains(out, want+" ·") {
-				t.Fatalf("%s keybar for %s missing %q: %q", mode, kind, want, out)
-			}
+		if want := " " + key + "   "; !strings.HasSuffix(row, want) {
+			t.Fatalf("segment label row should end with the %q chip, two cells in from the edge: %q", key, row)
+		}
+	}
+}
+
+func TestActionSegmentShowsItsKeyOnlyWhileItActs(t *testing.T) {
+	for _, kind := range []string{"fetch", "pull", "pull-rebase", "push", "force-push", "publish-branch", "publish-repo"} {
+		row := labelRow(renderActionSegment(ActionModel{Kind: kind, Title: "Title"}, "", 40, false, false))
+		if !strings.HasSuffix(row, " f  ") {
+			t.Fatalf("%s segment should carry the f chip: %q", kind, row)
 		}
 	}
 	for _, kind := range []string{"busy", "detached"} {
-		if out := ansi.Strip(renderKeybar(200, "changes", kind)); strings.Contains(out, " f ") {
-			t.Fatalf("the action key does nothing while %s, so the keybar must not list it: %q", kind, out)
+		row := labelRow(renderActionSegment(ActionModel{Kind: kind, Title: "Title"}, "", 40, false, false))
+		if strings.Contains(row, " f ") {
+			t.Fatalf("f only refuses while %s, so the segment must not offer it: %q", kind, row)
 		}
 	}
 }
 
-func TestKeybarFollowsTheModelsAction(t *testing.T) {
-	m := newTestMission()
-	m.model.Action.Kind = "push"
-	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
-	if keybar := lines[len(lines)-1]; !strings.Contains(keybar, "f push") {
-		t.Fatalf("keybar should name the segment's action: %q", keybar)
+func TestDetachedBranchSegmentHasNoKeyChip(t *testing.T) {
+	m := modalFixtureModel()
+	m.Current.Detached = true
+	if row := labelRow(renderBranchSegment(m, 40, false, false)); strings.Contains(row, " b ") {
+		t.Fatalf("b refuses on a detached HEAD, so the segment must not offer it: %q", row)
 	}
 }
 
-func TestKeybarListsTheMainWorktreeKeyInEveryMode(t *testing.T) {
+func TestANarrowSegmentKeepsItsLabelOverItsChip(t *testing.T) {
+	m := modalFixtureModel()
+	for label, row := range map[string]string{
+		"Current Worktree": labelRow(renderWorktreeSegment(m, "", 24, false, false)),
+		"Current Branch":   labelRow(renderBranchSegment(m, 24, false, false)),
+	} {
+		if strings.TrimSpace(row) != label {
+			t.Fatalf("a segment too narrow for label and chip shows the whole label and no chip: %q", row)
+		}
+	}
+}
+
+func TestTabsCarryTheirKeys(t *testing.T) {
+	row := strings.Split(ansi.Strip(renderTabsRow(3, "changes", false, 46)), "\n")[0]
+	if !strings.Contains(row, "1 Changes 3") || !strings.Contains(row, "2 History") {
+		t.Fatalf("tabs should lead with their keys: %q", row)
+	}
+}
+
+func TestKeybarLeavesSegmentAndTabKeysToTheirControls(t *testing.T) {
 	for _, mode := range []string{"changes", "history", "stash"} {
-		if out := ansi.Strip(renderKeybar(200, mode, "fetch")); !strings.Contains(out, "w worktree · W main") {
-			t.Fatalf("%s keybar missing W main: %q", mode, out)
+		out := ansi.Strip(renderKeybar(200, mode))
+		if !strings.Contains(out, "W main · ⌃k menu") {
+			t.Fatalf("%s keybar should list W main and the menu: %q", mode, out)
+		}
+		for _, gone := range []string{"b branch", "w worktree", "r repo", "2 history", "1 changes", "· f "} {
+			if strings.Contains(out, gone) {
+				t.Fatalf("%s keybar still lists %q, which now lives on its control: %q", mode, gone, out)
+			}
 		}
 	}
 }
