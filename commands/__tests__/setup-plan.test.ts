@@ -51,7 +51,7 @@ describe("setupPlan", () => {
     expect(deps.lines).toHaveLength(1);
     const plan = JSON.parse(deps.lines[0]!) as Plan;
     expect(plan.contract).toBe(1);
-    expect(plan.groups.map((g) => g.id)).toEqual(["mac", "accounts", "access", "tools"]);
+    expect(plan.groups.map((g) => g.id)).toEqual(["mac", "accounts", "access", "agents", "browser", "rt", "team"]);
   });
 
   test("human mode prints the mac group's section title", async () => {

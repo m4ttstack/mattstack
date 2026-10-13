@@ -85,13 +85,16 @@ function restoreIntent(): SetupIntent {
   return { v: 1, at: "2026-08-21T00:00:00.000Z", mode: "restore", restore: { homeRepo: "acme/home" } };
 }
 
+/** The tools rows are split across several groups, so a test that wants one looks through them all. */
+const everyRow = (plan: { groups: Group[] }) => ({ rows: plan.groups.flatMap((g) => g.rows) });
+
 describe("composePlan", () => {
-  test("no intent, no teams -> 4 groups in contract order, team.mode none, perm.fda ready", async () => {
+  test("no intent, no teams -> the groups in contract order, team.mode none, perm.fda ready", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
     const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: [] });
 
     expect(plan.contract).toBe(1);
-    expect(plan.groups.map((g) => g.id)).toEqual(["mac", "accounts", "access", "tools"]);
+    expect(plan.groups.map((g) => g.id)).toEqual(["mac", "accounts", "access", "agents", "browser", "rt", "team"]);
     expect(plan.team).toEqual({ slug: "", name: "", mode: "none" });
 
     const mac = plan.groups.find((g) => g.id === "mac")!;
@@ -171,7 +174,7 @@ describe("composePlan", () => {
       expect(plan.groups.find((g) => g.id === "access")!.rows).toEqual([]);
       const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
       expect(accounts.map((r) => [r.id, r.required])).toEqual([["account.github", false]]);
-      const tools = plan.groups.find((g) => g.id === "tools")!.rows;
+      const tools = everyRow(plan).rows;
       expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(false);
       expect(tools.some((r) => r.id.startsWith("team."))).toBe(false);
       expect(plan.requiredMissing).toEqual([]);
@@ -196,7 +199,7 @@ describe("composePlan", () => {
       writeIntent(p, intent);
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
       expect(plan.groups.find((g) => g.id === "access")!.rows.length).toBeGreaterThan(0);
-      const tools = plan.groups.find((g) => g.id === "tools")!.rows;
+      const tools = everyRow(plan).rows;
       expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(true);
       expect(tools.find((r) => r.id === "tool.fast-browser-extension")!.finishGated).toBe(true);
       const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
@@ -238,7 +241,7 @@ describe("composePlan", () => {
     const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: [] });
 
     const mac = plan.groups.find((g) => g.id === "mac")!;
-    expect(mac.rows).toHaveLength(1);
+    expect(mac.rows.map((r) => r.id)).toEqual(["mac.group-error", "tool.mission-control"]);
     const errorRow = mac.rows[0]!;
     expect(errorRow.status).toBe("error");
     expect(errorRow.detail).toContain("boom");
@@ -262,7 +265,7 @@ describe("composePlan — install-satisfied flip", () => {
     expect(loginItems.required).toBe(false);
     expect(loginItems.optionalNote).not.toBeNull();
 
-    const tools = plan.groups.find((g) => g.id === "tools")!;
+    const tools = everyRow(plan);
     const daemon = tools.rows.find((r) => r.id === "tool.daemon")!;
     expect(daemon.required).toBe(false);
     expect(daemon.optionalNote).not.toBeNull();
@@ -277,7 +280,7 @@ describe("composePlan — install-satisfied flip", () => {
     expect(loginItems.required).toBe(true);
     expect(loginItems.optionalNote).toBeNull();
 
-    const tools = plan.groups.find((g) => g.id === "tools")!;
+    const tools = everyRow(plan);
     const daemon = tools.rows.find((r) => r.id === "tool.daemon")!;
     expect(daemon.required).toBe(true);
     expect(daemon.optionalNote).toBeNull();
@@ -286,12 +289,12 @@ describe("composePlan — install-satisfied flip", () => {
   test("tool.plugins flips required across plan and status mode", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
     const planned = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
-    const plannedRow = planned.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.plugins")!;
+    const plannedRow = everyRow(planned).rows.find((r) => r.id === "tool.plugins")!;
     expect(plannedRow.required).toBe(false);
     expect(plannedRow.optionalNote).not.toBeNull();
 
     const status = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: [] });
-    const statusRow = status.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.plugins")!;
+    const statusRow = everyRow(status).rows.find((r) => r.id === "tool.plugins")!;
     expect(statusRow.required).toBe(true);
     expect(statusRow.optionalNote).toBeNull();
   });
@@ -308,11 +311,11 @@ describe("composePlan — install-satisfied flip", () => {
     // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated here.
     for (const mode of ["plan", "status"] as const) {
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode, orgs: ["acme"] });
-      const r = plan.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.fast-browser-extension")!;
+      const r = everyRow(plan).rows.find((r) => r.id === "tool.fast-browser-extension")!;
       expect(r.status).toBe("needs-you");
       expect(r.required).toBe(mode === "status");
       // The fake home has no home repo, so skills.writing-style also blocks Finish here.
-      expect(plan.finishBlockedBy).toEqual(["tool.fast-browser-extension", "skills.writing-style"]);
+      expect(plan.finishBlockedBy).toEqual(["skills.writing-style", "tool.fast-browser-extension"]);
       expect(plan.requiredMissing).not.toContain("tool.fast-browser-extension");
     }
   });
@@ -447,7 +450,7 @@ describe("finish gate", () => {
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
       // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
-      const r = plan.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.fast-browser-extension")!;
+      const r = everyRow(plan).rows.find((r) => r.id === "tool.fast-browser-extension")!;
       expect(r.optionalNote).toBe(WAIVED_NOTE);
       // skills.writing-style is finish-gated but not waivable, so it still blocks Finish.
       expect(plan.finishBlockedBy).toEqual(["skills.writing-style"]);
@@ -463,7 +466,7 @@ describe("finish gate", () => {
     process.env.HOME = home;
     try {
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-      const extension = (plan: Awaited<ReturnType<typeof composePlan>>) => plan.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.fast-browser-extension")!;
+      const extension = (plan: Awaited<ReturnType<typeof composePlan>>) => everyRow(plan).rows.find((r) => r.id === "tool.fast-browser-extension")!;
 
       setSetting("setup.waived", [], "machine");
       // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
