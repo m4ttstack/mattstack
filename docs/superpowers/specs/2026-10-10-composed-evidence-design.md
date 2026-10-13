@@ -1,11 +1,10 @@
 # Composed evidence: capture, compose, and the agent that drives them
 
-Status: milestone 1 is shipped (fast-browser `main` at `a2ba811`, PR #23).
-Milestones 2 and 3 start from this spec as separate jobs running in parallel;
-the layout follow-up runs once both are on `main`, and milestone 4 follows
-them. Sections 1 to 4 describe what is shipped and mark what each later
-milestone adds; section 5 describes the layout engine as milestone 3 leaves
-it.
+Status: milestones 1, 2 and 3 are merged on fast-browser `main` (milestone 1
+at `a2ba811`, PR #23; milestones 2 and 3 on 2026-10-13). The layout follow-up
+comes next, and milestone 4 follows it. Sections 1 to 4 describe the design
+and mark what each milestone added; section 5 describes the layout engine as
+milestone 3 leaves it.
 
 Spans three codebases: fast-browser (the compose command, the capture macro
 and the skill), the Playwright fork (the capture tool, milestone 2), and the
@@ -234,7 +233,7 @@ A CLI command that turns a spec and its capture sidecars into one PNG.
   `state` or `tag` outside its list, a missing `title` or `out`, a layout or
   mark kind this version does not draw, a key that is not text, a key the
   capture did not measure, a redact key the capture reported as missed, and
-  a capture whose `scale` is not 1. A sidecar that is unreadable, malformed
+  a capture whose `scale` is not 1 or 2 (milestone 1 accepted only 1). A sidecar that is unreadable, malformed
   or does not match its image stops compose before the spec is checked.
 - **Warnings** name layout compromises. The shipped list: a frame edge cuts
   through content; a lift edge cuts through content; a lift was scaled down
@@ -1130,6 +1129,6 @@ Parked in milestone 1 and dropped, each with its reason.
   renderer for both) is not part of milestones 2 to 4.
 - **Theme pairs.** Capturing light then dark means toggling the app's theme
   between calls; whether the capture tool owns that or the driver does is
-  milestone 3's plan to settle, with the pair layout.
+  left open after milestone 3; the layout follow-up or milestone 4 settles it.
 - **Platforms.** The renderer is pinned for macOS only (`mac-arm64`,
   `mac-x64`). Compose on another platform is not in any milestone.

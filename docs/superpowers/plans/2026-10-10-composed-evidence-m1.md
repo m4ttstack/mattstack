@@ -2472,4 +2472,3 @@ Build one HTML page (light and dark scheme) showing each board beside its pen mo
 - [ ] **Step 5: Decide**
 
 If the bar is met: milestone 1 is done; write the milestone 2 plan. If not: file what failed against the task that owns it, fix, and rerun Steps 2 to 4.
-```
