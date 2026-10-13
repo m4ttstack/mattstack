@@ -822,7 +822,7 @@ describe("MissionDriver: real remote name, pull.rebase, and guards", () => {
     await new MissionDriver(deps, START).run();
 
     expect(kinds).toEqual(["fetch"]);
-    expect((session.pushed.at(-1) as MissionModel).toast).toEqual({ seq: 1, text: "Fetched" });
+    expect((session.pushed.at(-1) as MissionModel).toast).toEqual({ seq: 1, text: "Fetched origin" });
   });
 
   const dirtyBehind = (): RepoSnapshot =>

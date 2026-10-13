@@ -214,12 +214,13 @@ const DISCARD_CONFIRM_WINDOW_MS = 5000;
 const PROVISION_TIMEOUT_MS = 6 * 60_000;
 
 /** The daemon's typed refusals, in the words a board reader can act on. */
+/** Each is its segment title (deriveAction) in the past tense, so the toast names the button just pressed. */
 const ACTION_TOASTS: Partial<Record<ActionKind, string>> = {
-  fetch: "Fetched",
-  pull: "Pulled",
-  "pull-rebase": "Pulled",
-  push: "Pushed",
-  "force-push": "Force pushed",
+  fetch: "Fetched origin",
+  pull: "Pulled origin",
+  "pull-rebase": "Pulled origin with rebase",
+  push: "Pushed origin",
+  "force-push": "Force pushed origin",
   "publish-branch": "Published branch",
 };
 

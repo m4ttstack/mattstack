@@ -104,8 +104,9 @@ shadows, no radii).
 - These confirm with a toast where GitHub Desktop says nothing: "Copied",
   "Stashed changes", "Restored stash", "Discarded stash", "Provisioned
   `<tree>`", "Switched to `<worktree, repo or branch>`", "Created branch
-  `<name>`", "Fetched", "Pulled", "Pushed", "Force pushed", "Published
-  branch" and "Published repository". The driver sends them as the model's
+  `<name>`", and the action segment's own title in the past tense ("Fetched
+  origin", "Pulled origin", "Pulled origin with rebase", "Pushed origin",
+  "Force pushed origin", "Published branch", "Published repository"). The driver sends them as the model's
   `toast` (a seq and a text); a toast is skipped when the same action raised
   a notice.
 - `1` and `2` switch between Changes and History. GitHub Desktop binds
