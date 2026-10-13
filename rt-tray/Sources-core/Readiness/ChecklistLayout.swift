@@ -1,7 +1,8 @@
 import Foundation
 
-/// How the checklist lays a plan out: rows that need something lead at full
-/// height, and everything already settled folds into its group.
+/// How the checklist lays a plan out: a sidebar entry per group, led by
+/// everything that needs the user, and each group's rows split into the ones
+/// drawn at full height and the ones already settled.
 public struct ChecklistLayout: Equatable, Sendable {
     public struct Attention: Equatable, Identifiable, Sendable {
         public let row: PlanRow
@@ -9,23 +10,32 @@ public struct ChecklistLayout: Equatable, Sendable {
         public var id: String { row.id }
     }
 
-    public struct FoldedGroup: Equatable, Identifiable, Sendable {
+    public struct Section: Equatable, Identifiable, Sendable {
         public let id: String
         public let title: String
-        public let rows: [PlanRow]
-        public let readyCount: Int
-        public let totalCount: Int
-        public let attentionCount: Int
-
-        public var countText: String {
-            readyCount == totalCount ? "\(readyCount) ready" : "\(readyCount) of \(totalCount) ready"
-        }
+        public let needing: [PlanRow]
+        public let settled: [PlanRow]
     }
 
+    /// `status` picks the glyph the entry is drawn with.
+    public struct Entry: Equatable, Identifiable, Sendable {
+        public let id: String
+        public let title: String
+        public let count: Int
+        public let status: RowStatus
+    }
+
+    /// `status` picks the glyph the part is drawn with.
+    public struct SummaryPart: Equatable, Sendable {
+        public let status: RowStatus
+        public let text: String
+    }
+
+    /// No plan group can take this id: rt's group ids never carry a hyphen.
+    public static let needsYouID = "needs-you"
+
     public let attention: [Attention]
-    public let groups: [FoldedGroup]
-    public let readyCount: Int
-    public let notNeededCount: Int
+    public let sections: [Section]
 
     /// A skipped row that still offers an action is something the user can
     /// do, so it stays at full height.
@@ -35,35 +45,44 @@ public struct ChecklistLayout: Equatable, Sendable {
 
     public static func make(_ groups: [PlanGroup]) -> ChecklistLayout {
         var attention: [Attention] = []
-        var folded: [FoldedGroup] = []
-        for group in groups {
-            let settled = group.rows.filter(folds)
+        var sections: [Section] = []
+        for group in groups where !group.rows.isEmpty {
             let needing = group.rows.filter { !folds($0) }
             attention += needing.map { Attention(row: $0, groupTitle: group.title) }
-            guard !settled.isEmpty else { continue }
-            folded.append(FoldedGroup(id: group.id, title: group.title, rows: settled,
-                                      readyCount: settled.filter { $0.status == .ready }.count,
-                                      totalCount: group.rows.count, attentionCount: needing.count))
+            sections.append(Section(id: group.id, title: group.title, needing: needing, settled: group.rows.filter(folds)))
         }
-        let settledRows = folded.flatMap(\.rows)
-        return ChecklistLayout(attention: attention, groups: folded,
-                               readyCount: settledRows.filter { $0.status == .ready }.count,
-                               notNeededCount: settledRows.filter { $0.status == .skipped }.count)
+        return ChecklistLayout(attention: attention, sections: sections)
     }
 
-    /// `status` picks the glyph the part is drawn with.
-    public struct SummaryPart: Equatable, Sendable {
-        public let status: RowStatus
-        public let text: String
+    public var entries: [Entry] {
+        var out: [Entry] = []
+        if !attention.isEmpty {
+            out.append(Entry(id: Self.needsYouID, title: "Needs you", count: attention.count, status: .needsYou))
+        }
+        out += sections.map {
+            Entry(id: $0.id, title: $0.title, count: $0.needing.count + $0.settled.count,
+                  status: $0.needing.isEmpty ? .ready : .needsYou)
+        }
+        return out
+    }
+
+    /// The entry to show: the user's pick while it still exists, else the first.
+    public func selection(preferred: String?) -> String? {
+        let ids = entries.map(\.id)
+        if let preferred, ids.contains(preferred) { return preferred }
+        return ids.first
     }
 
     public var summary: [SummaryPart] {
+        let settled = sections.flatMap(\.settled)
+        let ready = settled.filter { $0.status == .ready }.count
+        let notNeeded = settled.filter { $0.status == .skipped }.count
         var parts: [SummaryPart] = []
         if !attention.isEmpty {
             parts.append(SummaryPart(status: .needsYou, text: attention.count == 1 ? "1 needs you" : "\(attention.count) need you"))
         }
-        if readyCount > 0 { parts.append(SummaryPart(status: .ready, text: "\(readyCount) ready")) }
-        if notNeededCount > 0 { parts.append(SummaryPart(status: .skipped, text: "\(notNeededCount) not needed here")) }
+        if ready > 0 { parts.append(SummaryPart(status: .ready, text: "\(ready) ready")) }
+        if notNeeded > 0 { parts.append(SummaryPart(status: .skipped, text: "\(notNeeded) not needed here")) }
         return parts
     }
 }

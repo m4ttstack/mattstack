@@ -12,7 +12,7 @@ struct ChecklistScreen: View {
     @State private var choose: PlanRow?
     @State private var actionError: (rowId: String, message: String)?
     @State private var waitingOnYou: [String: String] = [:]
-    @State private var openGroups: Set<String> = []
+    @State private var selected: String?
     @State private var openRows: Set<String> = []
 
     var body: some View {
@@ -84,7 +84,8 @@ struct ChecklistScreen: View {
 
     private var foldedList: some View {
         let layout = ChecklistLayout.make(model.groups)
-        return VStack(spacing: 0) {
+        let current = layout.selection(preferred: selected)
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
                 ForEach(layout.summary, id: \.text) { part in
                     HStack(spacing: 4) {
@@ -94,52 +95,55 @@ struct ChecklistScreen: View {
                 }
                 Spacer()
             }
-            .padding(.horizontal, 20).padding(.top, 12)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier(AXID.checklistSummary)
-            ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if !layout.attention.isEmpty || model.fdaNeedsRelaunch {
-                        ChecklistCard(title: "Needs you") {
-                            ForEach(Array(layout.attention.enumerated()), id: \.element.id) { index, item in
-                                if index > 0 { Divider() }
-                                fullRow(item.row, context: item.groupTitle, statusLeads: true)
-                                    .padding(.horizontal, 14).padding(.vertical, 6)
-                            }
-                            if model.fdaNeedsRelaunch {
-                                if !layout.attention.isEmpty { Divider() }
-                                HStack {
-                                    Text("Full Disk Access was granted. Relaunch mattstack to apply it.").font(.caption)
-                                    Spacer()
-                                    Button("Relaunch mattstack") { AppRelaunch.relaunchInPlace(resumeAt: .checklist) }.accessibilityIdentifier(AXID.checklistRelaunch)
-                                }
-                                .padding(.horizontal, 14).padding(.vertical, 10)
-                            }
-                        }
+            if model.fdaNeedsRelaunch {
+                HStack {
+                    Text("Full Disk Access was granted. Relaunch mattstack to apply it.").font(.caption)
+                    Spacer()
+                    Button("Relaunch mattstack") { AppRelaunch.relaunchInPlace(resumeAt: .checklist) }.accessibilityIdentifier(AXID.checklistRelaunch)
+                }
+            }
+            HStack(alignment: .top, spacing: 12) {
+                ChecklistCard {
+                    ForEach(Array(layout.entries.enumerated()), id: \.element.id) { index, entry in
+                        if index > 0 { Divider() }
+                        ChecklistSidebarEntry(entry: entry, isSelected: entry.id == current) { selected = entry.id }
                     }
-                    if !layout.groups.isEmpty {
-                        ChecklistCard(title: "Everything checked") {
-                            ForEach(Array(layout.groups.enumerated()), id: \.element.id) { index, group in
-                                if index > 0 { Divider() }
-                                FoldedGroupHeader(group: group, isOpen: openGroups.contains(group.id)) {
-                                    toggle(group.id, in: &openGroups)
-                                    if openGroups.contains(group.id) { reveal(Self.groupAnchor(group.id), at: .top, with: proxy) }
-                                }
-                                .id(Self.groupAnchor(group.id))
-                                if openGroups.contains(group.id) {
-                                    ForEach(group.rows) { row in
+                }
+                .frame(width: 220)
+                ChecklistCard {
+                    Text(layout.entries.first { $0.id == current }?.title ?? "").fontWeight(.semibold)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(Color.primary.opacity(0.03))
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 0) {
+                                if current == ChecklistLayout.needsYouID {
+                                    ForEach(layout.attention) { item in
+                                        Divider()
+                                        fullRow(item.row, context: item.groupTitle, statusLeads: true)
+                                            .padding(.horizontal, 14).padding(.vertical, 6)
+                                    }
+                                } else if let section = layout.sections.first(where: { $0.id == current }) {
+                                    ForEach(section.needing) { row in
+                                        Divider()
+                                        fullRow(row, statusLeads: true)
+                                            .padding(.horizontal, 14).padding(.vertical, 6)
+                                    }
+                                    ForEach(section.settled) { row in
                                         Divider()
                                         if staysOpen(row) {
                                             fullRow(row)
-                                                .padding(.leading, 36).padding(.trailing, 14).padding(.vertical, 6)
+                                                .padding(.horizontal, 14).padding(.vertical, 6)
                                                 .contentShape(Rectangle())
                                                 .onTapGesture { toggle(row.id, in: &openRows) }
                                                 .id(Self.rowAnchor(row.id))
                                         } else {
                                             FoldedRow(row: row) {
                                                 toggle(row.id, in: &openRows)
-                                                reveal(Self.rowAnchor(row.id), at: nil, with: proxy)
+                                                reveal(Self.rowAnchor(row.id), with: proxy)
                                             }
                                             .id(Self.rowAnchor(row.id))
                                         }
@@ -149,20 +153,20 @@ struct ChecklistScreen: View {
                         }
                     }
                 }
-                .padding(.horizontal, 20).padding(.vertical, 14)
-            }
+                .frame(maxHeight: .infinity, alignment: .top)
             }
         }
+        .padding(.horizontal, 20).padding(.vertical, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.primary.opacity(0.035))
     }
 
-    private static func groupAnchor(_ id: String) -> String { "group." + id }
     private static func rowAnchor(_ id: String) -> String { "row." + id }
 
-    /// Deferred a turn: the expanded rows do not exist until the state change has laid out.
-    private func reveal(_ anchor: String, at point: UnitPoint?, with proxy: ScrollViewProxy) {
+    /// Deferred a turn: the expanded row does not exist until the state change has laid out.
+    private func reveal(_ anchor: String, with proxy: ScrollViewProxy) {
         DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(anchor, anchor: point) }
+            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(anchor, anchor: nil) }
         }
     }
 
@@ -280,40 +284,36 @@ struct ChecklistScreen: View {
 
 }
 
-/// A titled card of divided rows; the grouped Form it replaces spends too much height between sections.
+/// A bordered card of divided rows; a grouped Form spends too much height between sections.
 struct ChecklistCard<Content: View>: View {
-    let title: String
     @ViewBuilder let content: Content
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 0) { content }
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(nsColor: .separatorColor)))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-        }
+        VStack(alignment: .leading, spacing: 0) { content }
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(nsColor: .separatorColor)))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
-struct FoldedGroupHeader: View {
-    let group: ChecklistLayout.FoldedGroup
-    let isOpen: Bool
-    let onToggle: () -> Void
+struct ChecklistSidebarEntry: View {
+    let entry: ChecklistLayout.Entry
+    let isSelected: Bool
+    let onSelect: () -> Void
     var body: some View {
-        Button(action: onToggle) {
-            HStack(spacing: 8) {
-                Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(width: 14)
-                Text(group.title).fontWeight(.medium)
-                Spacer(minLength: 8)
-                Text(group.countText).font(.callout).foregroundStyle(.secondary)
-                StatusBadge(status: group.attentionCount == 0 ? .ready : .needsYou)
+        Button(action: onSelect) {
+            HStack(spacing: 6) {
+                StatusBadge(status: entry.status)
+                Text(entry.title).font(.callout).fontWeight(isSelected ? .semibold : .regular).lineLimit(1)
+                Spacer(minLength: 6)
+                Text("\(entry.count)").font(.caption).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(AXID.checklistGroup(group.id))
+        .accessibilityIdentifier(AXID.checklistGroup(entry.id))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -330,7 +330,7 @@ struct FoldedRow: View {
                 }
                 StatusBadge(status: row.status, id: AXID.checklistRowStatus(row.id))
             }
-            .padding(.leading, 36).padding(.trailing, 14).padding(.vertical, 6)
+            .padding(.horizontal, 14).padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
