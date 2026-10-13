@@ -7,6 +7,7 @@ paths:
   - "lib/setup/claude-permissions.ts"
   - "lib/daemon/forge-reads.ts"
   - "lib/daemon/upload-guard.ts"
+  - "scripts/hooks/gate-fork.sh"
 ---
 
 # MCP tools and gates

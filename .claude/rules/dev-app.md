@@ -2,6 +2,10 @@
 paths:
   - "rt-tray/**"
   - "apps/deck/**"
+  - "apps/board/**"
+  - "apps/console/**"
+  - "apps/chat/**"
+  - "apps/boxscore/**"
   - "apps/*/mattstack.deck.json"
   - "lib/release/update-machine.ts"
 ---

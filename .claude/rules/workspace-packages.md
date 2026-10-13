@@ -8,7 +8,7 @@ paths:
 
 # Workspace packages
 
-### `rt-client`, `settings-kit` and `tui-kit` are private workspace packages
+## `rt-client`, `settings-kit` and `tui-kit` are private workspace packages
 
 `packages/rt-client`, `packages/settings-kit` and `packages/tui-kit` publish
 nowhere; every consumer inside this monorepo (rt itself, board, console,
@@ -22,7 +22,7 @@ not private: it publishes to npm on its own schedule via `bun publish`
 (`packages/glance/docs/releasing.md`), never through the shared
 `scripts/set-platform-version.ts` bump.
 
-### `packages/rt-client/dist/` goes stale without warning
+## `packages/rt-client/dist/` goes stale without warning
 
 `dist/` is gitignored. Inside this monorepo, consumers link the workspace
 package, and `dist/` is what their `import` condition resolves; the root

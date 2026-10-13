@@ -5,6 +5,8 @@ paths:
   - "lib/daemon-logger.ts"
   - "rt-tray/Sources/TrayLog.swift"
   - "rt-tray/Sources/TrayServer.swift"
+  - "commands/worktree-hook.ts"
+  - "plugins/mattstack/hooks/relocation-announce.sh"
 ---
 
 # Daemon

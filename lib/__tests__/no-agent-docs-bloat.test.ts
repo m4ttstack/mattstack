@@ -65,8 +65,10 @@ function problems(root: string): string[] {
       if (!matchesAFile(root, glob)) found.push(`${file}: the glob "${glob}" matches no file, so the rule can never load for it. Fix or remove the glob.`);
     }
   }
-  const index = existsSync(join(root, "AGENTS.md")) ? readFileSync(join(root, "AGENTS.md"), "utf8") : "";
-  const indexed = new Set([...index.matchAll(/`(\.claude\/rules\/[^`]+\.md)`/g)].map((m) => m[1]!));
+  const hasRoot = existsSync(join(root, "AGENTS.md"));
+  if (!hasRoot) found.push("AGENTS.md is missing. It is the one instruction file every session loads; restore it.");
+  const index = hasRoot ? readFileSync(join(root, "AGENTS.md"), "utf8") : "";
+  const indexed = new Set([...index.matchAll(/^\| `(\.claude\/rules\/[^`]+\.md)` \|/gm)].map((m) => m[1]!));
   const present = new Set(ruleFiles(root));
   for (const file of present) {
     if (!indexed.has(file)) found.push(`${file} is not in the index in AGENTS.md ("Rules that load with the code"). Add a row for it.`);
@@ -138,6 +140,22 @@ describe("problems", () => {
   test("a rule in a subdirectory is found and must be indexed by its full path", () => {
     const root = repo({ "AGENTS.md": "# rt\n", ".claude/rules/apps/kit.md": rule("lib/**"), "lib/a.ts": "" });
     expect(problems(root)).toEqual([`.claude/rules/apps/kit.md is not in the index in AGENTS.md ("Rules that load with the code"). Add a row for it.`]);
+    rmSync(root, { recursive: true });
+  });
+
+  test("a rule named only in prose is not indexed", () => {
+    const root = repo({
+      "AGENTS.md": "# rt\n\nSee `.claude/rules/example.md` for an example.\n",
+      ".claude/rules/example.md": rule("lib/**"),
+      "lib/a.ts": "",
+    });
+    expect(problems(root)).toEqual([`.claude/rules/example.md is not in the index in AGENTS.md ("Rules that load with the code"). Add a row for it.`]);
+    rmSync(root, { recursive: true });
+  });
+
+  test("a repo without its root instruction file is refused", () => {
+    const root = repo({ "lib/a.ts": "" });
+    expect(problems(root)).toEqual(["AGENTS.md is missing. It is the one instruction file every session loads; restore it."]);
     rmSync(root, { recursive: true });
   });
 

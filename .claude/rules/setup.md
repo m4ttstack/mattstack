@@ -5,6 +5,10 @@ paths:
   - "commands/setup.ts"
   - "commands/skills-writing-style.ts"
   - "rt-tray/Sources-core/Contract/PlanModels.swift"
+  - "rt-tray/Sources/AppDelegate.swift"
+  - "rt-tray/Sources/NotificationManager.swift"
+  - "rt-tray/Sources/Setup/**"
+  - "rt-tray/Sources-core/Launch/NotificationClick.swift"
 ---
 
 # Setup

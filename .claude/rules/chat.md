@@ -4,6 +4,7 @@ paths:
   - "lib/state/chat-store.ts"
   - "lib/chat-viewer-url.ts"
   - "lib/daemon/handlers/chat.ts"
+  - "skills/rt-chat/**"
 ---
 
 # rt chat

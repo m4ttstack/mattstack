@@ -8,7 +8,7 @@ paths:
 
 # Glitter
 
-### GitHub Desktop is the authority for glitter's behavior
+## GitHub Desktop is the authority for glitter's behavior
 
 `rt glitter` (`lib/mission/`, `ui/internal/views/mission/`) is a port of
 GitHub Desktop. Before designing or fixing any glitter behavior (an action,
@@ -22,7 +22,7 @@ or where glitter has a surface Desktop lacks (worktrees), and record each
 departure in `docs/design/mission/README.md`'s "Ratified deviations from
 GitHub Desktop". Cite the Desktop file a port came from in its doc comment.
 
-### Mission adopts GitHub Desktop's staging model
+## Mission adopts GitHub Desktop's staging model
 
 `rt glitter`'s checkboxes (line, hunk, or whole file) are commit
 INTENT, not index state -- toggling one never touches git. The real
