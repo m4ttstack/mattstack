@@ -642,7 +642,12 @@ const RE_REVIEW_GATE: GateRow = {
         })
       ),
       options: [
-        GATE.questions[0]!.options[1]!,
+        {
+          value: 'f2',
+          label: '[Important] Missing null check on response',
+          description:
+            'lib/api/client.ts:88 · guard before dereferencing · kind:follow-up',
+        },
         GATE.questions[0]!.options[3]!,
         {
           value: 'f7',
