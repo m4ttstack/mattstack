@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 
 import { ContextMenu } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
+import { AskPicker } from './AskPicker.tsx';
 import {
   AgentCloudGlyph,
   AgentGlyph,
@@ -98,7 +99,7 @@ function entryLabel(e: MenuEntry, text: string) {
     as a short top level (agent actions) with the rest in flyouts,
     or every section inline when `flat`, plus the stages any entry can ask
     for: a second-click confirm, a picker (bulk menu only; a row menu nests its
-    picks in a submenu), and the alt-click note box. */
+    picks in a submenu), the two-view ask picker, and the alt-click note box. */
 function ActionMenu({
   x,
   y,
@@ -125,6 +126,7 @@ function ActionMenu({
   const [armed, setArmed] = useState<string | null>(null);
   const [pending, setPending] = useState<string[]>([]);
   const [picking, setPicking] = useState<MenuEntry | null>(null);
+  const [asking, setAsking] = useState<MenuEntry | null>(null);
   const [noteFor, setNoteFor] = useState<MenuEntry | null>(null);
   const [noteText, setNoteText] = useState('');
   const noteRef = useAutoGrowTextarea([noteFor, noteText]);
@@ -151,6 +153,22 @@ function ActionMenu({
     void onRun(e.key, opts);
     onClose();
   };
+
+  if (asking?.askPicker) {
+    return (
+      <AskPicker
+        x={x}
+        y={y}
+        subject={subject}
+        model={asking.askPicker}
+        personLabel={name =>
+          iconLabel(asking.glyph ? glyphNode(asking.glyph) : null, name)
+        }
+        onPick={username => fire(asking, { pick: username })}
+        onClose={onClose}
+      />
+    );
+  }
 
   if (picking?.pick) {
     const pick = picking.pick;
@@ -234,6 +252,10 @@ function ActionMenu({
   const armKey = (e: MenuEntry) => `${e.key}|${e.confirm}`;
   const click = (e: MenuEntry) => (ev: React.MouseEvent) => {
     if (e.blocked) return;
+    if (e.askPicker && !flat) {
+      setAsking(e);
+      return;
+    }
     if (e.pick) {
       setPicking(e);
       return;
@@ -273,7 +295,7 @@ function ActionMenu({
     ) : undefined;
 
   const renderItem = (e: MenuEntry) =>
-    e.pick && !flat && !e.blocked ? (
+    e.pick && !e.askPicker && !flat && !e.blocked ? (
       <ContextMenu.Sub
         key={e.key}
         label={entryLabel(e, e.label)}
