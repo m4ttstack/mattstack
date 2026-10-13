@@ -50,8 +50,7 @@ describe("rt setup verbs (e2e, no live app/daemon)", () => {
 
     const plan = JSON.parse(lines[0]!);
     expect(plan.contract).toBe(1);
-    // Fixed group order from lib/setup/plan.ts's composePlan — GroupId's own
-    // declared order, not alphabetical.
+    // Fixed group order: composePlan's first three, then regroupTools' split of the tools rows.
     expect(plan.groups.map((g: any) => g.id)).toEqual(["mac", "accounts", "access", "agents", "browser", "rt", "team"]);
 
     const fda = plan.groups.find((g: any) => g.id === "mac").rows.find((r: any) => r.id === "perm.fda");
