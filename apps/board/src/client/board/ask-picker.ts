@@ -48,15 +48,20 @@ export function askPickerModel(
   const enrolled = env.peers ? new Set(env.peers) : null;
   const askable = (username: string) =>
     !engaged.has(username) && (!enrolled || enrolled.has(username));
-  const person = (username: string, name?: string): AskPerson => ({
+  const teamNames = new Map(
+    env.teams.flatMap(t =>
+      t.members.flatMap(m => (m.name ? [[m.username, m.name] as const] : []))
+    )
+  );
+  const person = (username: string): AskPerson => ({
     username,
-    name: env.names?.get(username) ?? name ?? username,
+    name: env.names?.get(username) ?? teamNames.get(username) ?? username,
   });
   const byName = (a: AskPerson, b: AskPerson) => a.name.localeCompare(b.name);
   const peopleOf = (team: OrgTeam) =>
     team.members
       .filter(m => askable(m.username))
-      .map(m => person(m.username, m.name))
+      .map(m => person(m.username))
       .sort(byName);
 
   const others = env.teams

@@ -84,6 +84,11 @@ describe('askPickerModel', () => {
     ]);
   });
 
+  test('a teammate takes the name their team entry carries', () => {
+    const model = askPickerModel(mine(), env)!;
+    expect(model.teammates).toEqual([{ username: 'rae', name: 'Rae Marlow' }]);
+  });
+
   test('someone already engaged with the MR is offered nowhere', () => {
     const model = askPickerModel(
       mine({
