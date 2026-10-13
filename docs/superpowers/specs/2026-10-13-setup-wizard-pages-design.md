@@ -1,7 +1,7 @@
 # Setup wizard: one page per group, summary last
 
-Status: design, for Matt's review. Rulings below were made in forms on
-2026-10-13. Everything under "Proposed" is mine and not yet ruled.
+Status: design, approved by Matt on 2026-10-13. The rulings were made in
+forms that day; the sections marked "proposed" were approved with the spec.
 
 ## Goal
 
@@ -45,8 +45,9 @@ would visit Agents and editors twice.
 
 ## Boards
 
-Pencil boards G0 to G2 and H1 to H6, in the same document as the A to F
-boards for the shipped sidebar. G3 is a first draft, replaced by H3 and H4.
+`docs/apps/design/setup/setup.pen`: boards G0 to G2 and H1 to H6, beside
+the A to F boards for the shipped sidebar. G3 is a first draft, replaced by
+H3 and H4.
 
 | Board | Shows |
 |---|---|
@@ -74,8 +75,12 @@ rt does not change.
 | Section | A row lands here when |
 |---|---|
 | Needs you | it blocks Install (`required`, not `finishGated`, not `ready`) or it is in `finishBlockedBy` |
-| Optional | not in Needs you, not `ready` or `skipped`, and it offers an action |
-| No action needed | everything else: `ready`, `skipped`, or not ready with no action (Install handles it) |
+| Optional | not in Needs you, not `ready` or `skipped`, and it offers an action or is `error` or `invalid` |
+| No action needed | everything else: `ready`, `skipped`, or `missing`, `needs-you` or `checking` with no action (Install handles it) |
+
+A broken optional row with no button (a team marketplace that failed to
+load) shows under Optional with its detail in red, and still no warning
+mark (ruled 2026-10-13).
 
 A Needs you row shows a badge: "Required" when it blocks Install, "Before
 you finish" when it only blocks Finish.
@@ -178,9 +183,3 @@ First run cannot be seen on a Mac that is already set up, so:
 - Setup status in the dev app on a real Mac;
 - one VM walkthrough per scenario (solo, create, join) before release.
 
-## Open questions
-
-1. An optional row in `error` or `invalid` with no action (a team
-   marketplace that failed to load) falls into No action needed under the
-   table above. Should it show under Optional with its error text instead?
-2. Should the boards be copied into the repo next to this spec?
