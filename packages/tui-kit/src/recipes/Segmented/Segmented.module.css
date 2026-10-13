@@ -59,4 +59,30 @@
     padding: var(--spacing-xs) var(--spacing-rem55);
     font-size: var(--sb-segmented-text-size);
   }
+
+  /* LabeledSeg's soft look. The track is the inset step and the active tile
+     the card step, so the tile reads as raised in both schemes; its label is
+     ink, never the on-fill white. */
+  .root[data-soft] {
+    display: flex;
+    gap: var(--spacing-px2);
+    padding: var(--spacing-px2);
+    border: none;
+    background: var(--surface-inset);
+  }
+
+  .root[data-soft] .option {
+    flex: 1;
+    border-radius: var(--radius-px5);
+  }
+
+  .root[data-soft] .option + .option {
+    border-left: none;
+  }
+
+  .root[data-soft] .option[data-active] {
+    background: var(--card);
+    color: var(--text-1);
+    box-shadow: var(--shadow-card);
+  }
 }
