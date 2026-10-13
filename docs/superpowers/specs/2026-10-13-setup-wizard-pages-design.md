@@ -49,7 +49,9 @@ Install with no input, and six are optional.
     that status in the right pane, from all groups, under its group's
     title. Clicking the count again, or any sidebar entry, goes back.
     (Asked while looking at Setup status in the dev app; built without a
-    board, judged in the dev app.)
+    board, judged in the dev app.) After the first look: an **All** count
+    comes first and shows everything, and the active count's look is
+    stronger.
 
 Set aside: pages on both sides of Install. Install blockers sit in four
 groups (Your Mac, Accounts, Agents and editors, rt on this Mac), so a split

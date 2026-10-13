@@ -17,7 +17,7 @@ rt ships inside **mattstack.app**, the mattstack menu bar app. Installing the ap
 
 1. Download the `.dmg` from the [latest release](https://github.com/m4ttstack/mattstack/releases/latest).
 2. Drag **mattstack.app** to `/Applications` and open it.
-3. The setup window opens and walks you through five steps.
+3. The setup window opens and walks you through setup, one step at a time.
 
 ### Welcome
 
@@ -36,7 +36,7 @@ See [Teams and invites](/start/teams) for how teams, invites, and team packs wor
 
 ### The checklist
 
-The checklist of everything setup needs, one page for each group: Your Mac, Accounts, Access, Tools, Agents and editors, Browser, rt on this Mac, and Team and backup. A group with no rows has no page.
+The checklist of everything setup needs, one page for each group: Your Mac, Accounts, Access, Agents and editors, Browser, rt on this Mac, and Team and backup. A group with no rows has no page.
 
 Each page sorts its rows into up to three sections:
 
@@ -74,16 +74,16 @@ The last screen checks the checklist again and shows it with a sidebar: **Overvi
 
 **Overview** says whether anything is left and shows where things live: the **m** icon in the menu bar, `rt` in a new terminal window, and the board at `board.mattstack`. A step that needs another try is listed there with **Retry from here**. Owners also get **Invite teammates…**.
 
-**Needs you** holds the two rows that gate **Finish**:
+**Needs you** holds any required row that is still not ready, and the two rows that gate **Finish**:
 
 - **Writing style**: the voice agents use for the reviews, replies, and PR descriptions they post under your name. **Choose style…** offers the mattstack presets or any skill of your own.
-- **Fast Browser extension**: Fast Browser drives your real Chrome session through a Chrome extension that you load yourself. **Show steps…** walks through it. Open `chrome://extensions` and turn on Developer mode. Use **Load unpacked** on `~/.fast-browser/extension/current/unpacked`. Then pair it and confirm with `fast-browser doctor`. **Skip for now** skips it on this Mac; Settings → Fast Browser shows **Un-skip** to bring it back. Without Chrome installed, this row is skipped.
+- **Fast Browser extension**: Fast Browser drives your real Chrome session through a Chrome extension. **Show steps…** walks through it. Install Fast Browser from the Chrome Web Store. Click its icon in Chrome and copy the reconnect token. Run `fast-browser configure --connection auto` and paste the token, then confirm with `fast-browser doctor`. **Skip for now** skips it on this Mac; Settings → Fast Browser shows **Un-skip** to bring it back. Without Chrome installed, this row is skipped.
 
 Optional rows left open sit under **Optional** in their group.
 
 ## After setup
 
-**Setup status…**, just under **Settings…** in the menu bar menu, reopens the checklist at any time, with the same sidebar and no Overview. Click a count above the sidebar, such as **2 optional**, to list those rows from every group. Click it again to go back. Until setup is finished, **Resume setup…** right below it reopens the wizard where you left off. Use it to connect an account, rotate a token, or fix a row that slipped. It also warns when a token is close to expiring.
+**Setup status…**, just under **Settings…** in the menu bar menu, reopens the checklist at any time, with the same sidebar and no Overview. Click a count above the sidebar, such as **2 optional**, to list those rows from every group. Click **All** to go back. Until setup is finished, **Resume setup…** right below it reopens the wizard at the step you left. On the checklist, it opens the first page that still has a required row, or the last page when none does. Use it to connect an account, rotate a token, or fix a row that slipped. It also warns when a token is close to expiring.
 
 **Settings…** covers the rest: your writing style, startup and updates, team invites, permissions, Fast Browser, and Uninstall. See [The menu bar app](/start/menu-bar-app).
 
