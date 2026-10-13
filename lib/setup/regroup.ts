@@ -29,6 +29,7 @@ const HOME: Record<string, GroupId> = {
   "home.backup": "team",
   "team.sync": "team",
   "team.marketplace": "team",
+  "team.one-per-machine": "team",
   "org.folder": "team",
   "org.layout": "team",
   "tool.mission-control": "mac",
@@ -48,8 +49,12 @@ function homeOf(row: Row): GroupId {
 export function regroupTools(groups: Group[]): Group[] {
   const tools = groups.find((g) => g.id === "tools");
   if (!tools) return groups;
+  const hasMac = groups.some((g) => g.id === "mac");
   const byHome = new Map<GroupId, Row[]>();
-  for (const row of tools.rows) byHome.set(homeOf(row), [...(byHome.get(homeOf(row)) ?? []), row]);
+  for (const row of tools.rows) {
+    const home = homeOf(row) === "mac" && !hasMac ? "tools" : homeOf(row);
+    byHome.set(home, [...(byHome.get(home) ?? []), row]);
+  }
   const out: Group[] = [];
   for (const group of groups) {
     if (group.id === "tools") continue;
