@@ -37,6 +37,20 @@ let checklistSortingChecks: [Check] = [
         c.expectEqual(ChecklistSorting.section(for: row("a", .error), finishBlockedBy: []), .optional)
         c.expectEqual(ChecklistSorting.section(for: row("b", .invalid), finishBlockedBy: []), .optional)
     },
+    Check("ChecklistSorting: after Install, a row that is not ready and has nothing to press is Optional") { c in
+        c.expectEqual(ChecklistSorting.section(for: row("a", .needsYou), finishBlockedBy: [], afterInstall: true), .optional)
+        c.expectEqual(ChecklistSorting.section(for: row("b", .missing), finishBlockedBy: [], afterInstall: true), .optional)
+        c.expectEqual(ChecklistSorting.section(for: row("c", .skipped), finishBlockedBy: [], afterInstall: true), .noAction,
+                      "not needed here stays settled")
+        c.expectEqual(ChecklistSorting.section(for: row("d", .ready), finishBlockedBy: [], afterInstall: true), .noAction)
+        c.expectEqual(ChecklistSorting.section(for: row("e", .missing, required: true), finishBlockedBy: [], afterInstall: true), .needsYou)
+        c.expectEqual(ChecklistSorting.section(for: row("a", .needsYou), finishBlockedBy: []), .noAction,
+                      "before Install it is Install's to set")
+    },
+    Check("ChecklistSorting: a ready row never blocks Install, and one Finish waits on still needs you") { c in
+        c.expect(!ChecklistSorting.blocksInstall(row("a", .ready, required: true)))
+        c.expectEqual(ChecklistSorting.section(for: row("b", .ready), finishBlockedBy: ["b"]), .needsYou)
+    },
     Check("ChecklistSorting: ready, skipped, and rows Install handles need no action") { c in
         c.expectEqual(ChecklistSorting.section(for: row("a", .ready, action: .run), finishBlockedBy: []), .noAction,
                       "a ready row is settled even when it keeps an action")

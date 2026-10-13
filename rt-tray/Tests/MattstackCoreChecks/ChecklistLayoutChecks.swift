@@ -47,6 +47,12 @@ let checklistLayoutChecks: [Check] = [
         c.expectEqual(one.summary.map(\.text), ["1 needs you"])
         c.expectEqual(ChecklistLayout.make([]).summary.map(\.text), [])
     },
+    Check("ChecklistLayout: after Install a faulty row with no action is listed and counted as optional") { c in
+        let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"], afterInstall: true)
+        c.expectEqual(layout.sections[2].optional.map(\.id), ["f", "h"])
+        c.expectEqual(layout.sections[2].noAction.map(\.id), [])
+        c.expectEqual(layout.summary.map(\.text), ["2 need you", "2 ready", "3 optional", "1 not needed here"])
+    },
     Check("ChecklistLayout.entries: Needs you leads when anything does, then Overview when asked, then the groups") { c in
         let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"])
         let wizard = layout.entries(overview: true, running: [], failed: [])

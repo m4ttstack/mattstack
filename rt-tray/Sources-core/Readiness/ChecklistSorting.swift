@@ -16,10 +16,11 @@ public enum ChecklistSorting {
         row.required && !row.finishGated && row.status != .ready
     }
 
-    public static func section(for row: PlanRow, finishBlockedBy: Set<String>) -> RowSection {
+    public static func section(for row: PlanRow, finishBlockedBy: Set<String>, afterInstall: Bool = false) -> RowSection {
         if blocksInstall(row) || finishBlockedBy.contains(row.id) { return .needsYou }
         if row.status == .ready { return .noAction }
         if hasUsableAction(row) || row.status == .error || row.status == .invalid { return .optional }
+        if afterInstall && row.status != .skipped { return .optional }
         return .noAction
     }
 

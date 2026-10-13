@@ -67,13 +67,15 @@ public struct ChecklistLayout: Equatable, Sendable {
         return ids.first
     }
 
-    public static func make(_ groups: [PlanGroup], finishBlockedBy: [String] = []) -> ChecklistLayout {
+    public static func make(_ groups: [PlanGroup], finishBlockedBy: [String] = [], afterInstall: Bool = false) -> ChecklistLayout {
         let blocked = Set(finishBlockedBy)
         var attention: [Attention] = []
         var sections: [Section] = []
         for group in groups where !group.rows.isEmpty {
             var buckets: [RowSection: [PlanRow]] = [:]
-            for row in group.rows { buckets[ChecklistSorting.section(for: row, finishBlockedBy: blocked), default: []].append(row) }
+            for row in group.rows {
+                buckets[ChecklistSorting.section(for: row, finishBlockedBy: blocked, afterInstall: afterInstall), default: []].append(row)
+            }
             let needing = buckets[.needsYou] ?? []
             attention += needing.map { Attention(row: $0, groupTitle: group.title) }
             sections.append(Section(id: group.id, title: group.title, needsYou: needing,
