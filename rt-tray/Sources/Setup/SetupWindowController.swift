@@ -17,10 +17,12 @@ struct SetupEnvironment {
     var readOnly = false
 }
 
-/// One dedicated NSWindow hosting SwiftUI (AppKit lifecycle stays). ~560 pt
-/// wide, fixed; close/minimize appear only once setup is done.
+/// One dedicated NSWindow hosting SwiftUI (AppKit lifecycle stays). Opens
+/// at `width` and resizes no smaller; close/minimize appear only once setup
+/// is done.
 final class SetupWindowController: NSWindowController, NSWindowDelegate {
-    static let width: CGFloat = 560
+    static let width: CGFloat = 720
+    static let minHeight: CGFloat = 560
     let flow: SetupFlowModel
     let team: TeamChoiceModel
     let done: DoneModel
@@ -40,7 +42,8 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         self.team = TeamChoiceModel(rt: environment.rt, pasteboard: SystemPasteboard())
         self.done = DoneModel(readiness: environment.readiness, waivers: WaiverClient(rt: environment.rt), choices: ChoiceClient(rt: environment.rt))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 620),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.contentMinSize = NSSize(width: Self.width, height: Self.minHeight)
         window.title = "mattstack Setup"
         window.isReleasedWhenClosed = false
         window.center()
@@ -75,7 +78,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
 
     private func applyStyle() {
         guard let window else { return }
-        var mask: NSWindow.StyleMask = [.titled]
+        var mask: NSWindow.StyleMask = [.titled, .resizable]
         if flow.windowMayClose || allowsCloseAlways { mask.insert([.closable, .miniaturizable]) }
         window.styleMask = mask
         // Ground truth, not "we just showed it": a late write to flow after

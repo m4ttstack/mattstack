@@ -25,6 +25,21 @@ let checklistFooterChecks: [Check] = [
         c.expectEqual(ChecklistFooter.text(canInstall: true, requiredMissingCount: 0, owedBeforeFinish: ["Writing style", "Fast Browser extension"]),
                       "Ready to install. Still needed before you finish: Writing style, Fast Browser extension.")
     },
+    Check("ChecklistFooter.refreshNote: a refresh in flight reads as checking, whatever was checked before") { c in
+        let now = Date(timeIntervalSince1970: 10_000)
+        c.expectEqual(ChecklistFooter.refreshNote(isRefreshing: true, lastCheckedAt: nil, now: now), "Checking…")
+        c.expectEqual(ChecklistFooter.refreshNote(isRefreshing: true, lastCheckedAt: now.addingTimeInterval(-300), now: now), "Checking…")
+    },
+    Check("ChecklistFooter.refreshNote: idle says how long ago the last successful check landed") { c in
+        let now = Date(timeIntervalSince1970: 100_000)
+        c.expectEqual(ChecklistFooter.refreshNote(isRefreshing: false, lastCheckedAt: nil, now: now), nil,
+                      "nothing has been checked yet, so there is nothing to say")
+        c.expectEqual(ChecklistFooter.refreshNote(isRefreshing: false, lastCheckedAt: now, now: now), "Checked just now")
+        c.expectEqual(ChecklistFooter.refreshNote(isRefreshing: false, lastCheckedAt: now.addingTimeInterval(-59), now: now), "Checked just now")
+        c.expectEqual(ChecklistFooter.refreshNote(isRefreshing: false, lastCheckedAt: now.addingTimeInterval(-60), now: now), "Checked 1 min ago")
+        c.expectEqual(ChecklistFooter.refreshNote(isRefreshing: false, lastCheckedAt: now.addingTimeInterval(-59 * 60), now: now), "Checked 59 min ago")
+        c.expectEqual(ChecklistFooter.refreshNote(isRefreshing: false, lastCheckedAt: now.addingTimeInterval(-3 * 3600), now: now), "Checked 3h ago")
+    },
     Check("ChecklistFooter.owedBeforeFinish: only badge==.required rows not ready or skipped, in plan order") { c in
         let rows = [
             row(id: "a", title: "A", finishGated: true, waivable: false, status: .needsYou),

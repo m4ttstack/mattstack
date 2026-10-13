@@ -120,7 +120,7 @@ ax_wait_screen() {  # <welcome|team|checklist|install|done> <timeout-s> — wait
 
 # Find a UI element by AXIdentifier anywhere under window 1; prints its AX class. A UI element
 # reference cannot be coerced to text (-1700), so callers get existence + class, never a path.
-ax_find() {  # <axid>
+ax_find_raw() {  # <axid>
   local id; id=$(ax_esc "$1")
   ax_osa "$AX_WALK_AS
     tell application \"System Events\" to tell process \"$AX_APP\"
@@ -130,7 +130,34 @@ ax_find() {  # <axid>
     end tell" 2>/dev/null
 }
 
+# The checklist shows one group's rows at a time. Before a row's element is
+# read or clicked, select the sidebar entry whose pane holds it: a row that
+# turns ready leaves "Needs you" and is then only in its own group.
+ax_reveal_row() {  # <axid>; a no-op for anything outside setup.checklist.row.
+  case "$1" in setup.checklist.row.*) ;; *) return 0 ;; esac
+  local row="${1%.action}" g gid
+  row="${row%.status}"; row="${row%.error}"; row="${row%.waiting}"
+  ax_find_raw "$row" >/dev/null 2>&1 && return 0
+  for g in $(ax_dump_ids | grep -o 'setup\.checklist\.group\.[A-Za-z0-9._-]*' | sort -u); do
+    gid=$(ax_esc "$g")
+    ax_osa "$AX_WALK_AS
+      tell application \"System Events\" to tell process \"$AX_APP\"
+        set r to my walk(window 1, \"$gid\")
+        if r is missing value then error \"axid not found: $gid\"
+        click r
+      end tell" >/dev/null 2>&1 || continue
+    ax_find_raw "$row" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
+ax_find() {  # <axid>
+  ax_reveal_row "$1" || true
+  ax_find_raw "$1"
+}
+
 ax_click() {  # <axid>
+  ax_reveal_row "$1" || true
   local id; id=$(ax_esc "$1")
   ax_osa "$AX_WALK_AS
     tell application \"System Events\" to tell process \"$AX_APP\"
@@ -224,6 +251,7 @@ ax_bare_rt_version() {  # stdin: rt --version output → X.Y.Z
 }
 
 ax_status() {  # <rowId> → status string (the app exposes it as the row status element's value)
+  ax_reveal_row "setup.checklist.row.$1" || true
   local id; id=$(ax_esc "$1")
   ax_osa "$AX_WALK_AS
     tell application \"System Events\" to tell process \"$AX_APP\"
@@ -261,6 +289,7 @@ ax_wait_status_not() {  # <rowId> <status-to-leave> <timeout-s>
 
 # The text an element shows: its value, else its name, else its description.
 ax_value() {  # <axid>
+  ax_reveal_row "$1" || true
   local id; id=$(ax_esc "$1")
   ax_osa "$AX_WALK_AS
     tell application \"System Events\" to tell process \"$AX_APP\"

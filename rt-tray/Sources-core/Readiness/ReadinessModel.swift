@@ -28,6 +28,8 @@ public final class ReadinessModel: ObservableObject {
     @Published public private(set) var isLoading = false
     @Published public private(set) var lastError: String?
     @Published public private(set) var hasLoadedPlan = false
+    /// When the plan on screen was last confirmed by a fetch that succeeded.
+    @Published public private(set) var lastCheckedAt: Date?
     @Published public private(set) var checkingRowIds: Set<String> = []
     @Published public private(set) var fdaNeedsRelaunch = false
     /// The last local probe — Settings > Permissions reads this instead of
@@ -39,6 +41,7 @@ public final class ReadinessModel: ObservableObject {
     private let plans: PlanSource
     private let permissions: PermissionProbing
     private let ticker: TickerScheduling
+    private let now: @Sendable () -> Date
     private var tick: TickerHandle?
     private var hasProbedPermissions = false
     private var planCanInstall = false
@@ -48,8 +51,9 @@ public final class ReadinessModel: ObservableObject {
     /// either one hiding while the other is still up leaves the tick running.
     private var visibilityDepth = 0
 
-    public init(plans: PlanSource, permissions: PermissionProbing, ticker: TickerScheduling) {
-        self.plans = plans; self.permissions = permissions; self.ticker = ticker
+    public init(plans: PlanSource, permissions: PermissionProbing, ticker: TickerScheduling,
+                now: @escaping @Sendable () -> Date = { Date() }) {
+        self.plans = plans; self.permissions = permissions; self.ticker = ticker; self.now = now
     }
 
     public var allRows: [PlanRow] { groups.flatMap(\.rows) }
@@ -189,6 +193,7 @@ public final class ReadinessModel: ObservableObject {
             planCanInstall = plan.canInstall
             lastError = nil
             hasLoadedPlan = true
+            lastCheckedAt = now()
             // Only re-overlay once a local probe has actually run; before
             // that, rt's own permission status in the plan is the freshest
             // thing we have, and .unknown must not clobber it.

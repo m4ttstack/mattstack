@@ -45,6 +45,8 @@ enum AXID {
     static func checklistRowStatus(_ id: String) -> String { "setup.checklist.row.\(id).status" }
     static func checklistRowError(_ id: String) -> String { "setup.checklist.row.\(id).error" }
     static func checklistRowWaiting(_ id: String) -> String { "setup.checklist.row.\(id).waiting" }
+    static func checklistGroup(_ id: String) -> String { "setup.checklist.group.\(id)" }
+    static let checklistSummary = "setup.checklist.summary"
     static let checklistRecheck = "setup.checklist.recheck"
     static let checklistRelaunch = "setup.checklist.relaunch"
     static let checklistLoading = "setup.checklist.loading"

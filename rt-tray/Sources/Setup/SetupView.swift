@@ -39,8 +39,7 @@ struct SetupView: View {
             Divider()
             footer
         }
-        .frame(width: SetupWindowController.width)
-        .frame(minHeight: 560)
+        .frame(minWidth: SetupWindowController.width, maxWidth: .infinity, minHeight: SetupWindowController.minHeight, maxHeight: .infinity)
         .controlSize(.large)
         // .task(id:) reruns on the *initial* value too (unlike onChange), so a
         // deep link that opens straight into .checklist or .install still
@@ -71,10 +70,12 @@ struct SetupView: View {
 
     private var header: some View {
         HStack {
-            Text(flow.step.title).font(.title2.weight(.semibold))
+            Text(flow.headerTitle).font(.title2.weight(.semibold))
             Spacer()
-            Text(flow.step.indicator).font(.caption).foregroundStyle(.secondary)
-                .accessibilityIdentifier(AXID.stepIndicator)
+            if let indicator = flow.headerIndicator {
+                Text(indicator).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier(AXID.stepIndicator)
+            }
         }
         .padding(.horizontal, 20).padding(.vertical, 14)
     }

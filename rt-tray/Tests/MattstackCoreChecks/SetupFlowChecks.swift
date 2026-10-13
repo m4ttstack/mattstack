@@ -8,6 +8,18 @@ let setupFlowChecks: [Check] = [
         c.expectEqual(SetupStep.team.title, "Your team")
         c.expectEqual(SetupStep.checklist.title, "Before we begin")
     },
+    Check("flow header: the wizard names its step and position, the status window neither") { c in
+        await MainActor.run {
+            let wizard = SetupFlowModel()
+            wizard.jump(to: .checklist)
+            c.expectEqual(wizard.headerTitle, "Before we begin")
+            c.expectEqual(wizard.headerIndicator, "Step 3 of 5")
+            let status = SetupFlowModel(readOnly: true)
+            status.jump(to: .checklist)
+            c.expectEqual(status.headerTitle, "Setup status", "nothing is about to begin on a Mac that is already set up")
+            c.expectEqual(status.headerIndicator, nil, "the status window is not a step of anything")
+        }
+    },
     Check("flow: next/back bounds, continue titles, back disabled on welcome/install-running/done, close only on done") { c in
         await MainActor.run {
             let f = SetupFlowModel()
