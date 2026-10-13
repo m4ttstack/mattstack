@@ -81,6 +81,7 @@ export interface FindingEntry {
   fix?: string;
   evidence?: string;
   disposition?: Disposition;
+  kind?: string;
 }
 
 export interface FindingsCtx {
@@ -317,6 +318,7 @@ function readFinding(v: unknown): FindingEntry {
   const file = optStr(e.file);
   const fix = optStr(e.fix);
   const evidence = optStr(e.evidence);
+  const kind = optStr(e.kind);
   const disposition =
     e.disposition === undefined
       ? undefined
@@ -330,6 +332,7 @@ function readFinding(v: unknown): FindingEntry {
     ...(fix !== undefined ? { fix } : {}),
     ...(evidence !== undefined ? { evidence } : {}),
     ...(disposition !== undefined ? { disposition } : {}),
+    ...(kind !== undefined ? { kind } : {}),
   };
 }
 
