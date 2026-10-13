@@ -285,14 +285,8 @@ struct FoldedGroupHeader: View {
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(width: 14)
                 Text(group.title).fontWeight(.medium)
                 Spacer(minLength: 8)
-                if group.attentionCount > 0 {
-                    HStack(spacing: 2) {
-                        StatusBadge(status: .needsYou)
-                        Text("\(group.attentionCount)").font(.callout)
-                    }
-                }
                 Text(group.countText).font(.callout).foregroundStyle(.secondary)
-                if group.attentionCount == 0 { StatusBadge(status: .ready) } else { Color.clear.frame(width: 20, height: 20) }
+                StatusBadge(status: group.attentionCount == 0 ? .ready : .needsYou)
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
             .contentShape(Rectangle())
