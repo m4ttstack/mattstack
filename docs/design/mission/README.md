@@ -97,7 +97,7 @@ shadows, no radii).
   Once that switch lands, a toast confirms it ("Switched back to the main
   worktree").
 - Confirmations show as a toast: a Mint-bordered box with a check, floated
-  over the bottom right corner on the row above the keybar, gone after 3
+  over the bottom right corner one clear row above the keybar, gone after 3
   seconds or on the next key or click. It takes no layout row. GitHub
   Desktop has no equivalent at this size; the notice strip stays for
   refusals and driver notices.

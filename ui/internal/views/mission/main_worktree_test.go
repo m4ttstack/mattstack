@@ -158,12 +158,15 @@ func TestToastFloatsAboveTheKeybarAtTheRightEdge(t *testing.T) {
 	if after[keybar] != before[keybar] {
 		t.Fatalf("the toast must leave the keybar alone:\n%q\n%q", before[keybar], after[keybar])
 	}
-	row := after[keybar-2]
-	if !strings.HasSuffix(row, theme.GlyphDone+" Switched back to the main worktree │ ") {
-		t.Fatalf("toast text should sit two rows above the keybar, flush right: %q", row)
+	if after[keybar-1] != before[keybar-1] {
+		t.Fatalf("the toast keeps one clear row above the keybar:\n%q\n%q", before[keybar-1], after[keybar-1])
 	}
-	if !strings.HasSuffix(after[keybar-1], "╯ ") || !strings.HasSuffix(after[keybar-3], "╮ ") {
-		t.Fatalf("toast should be a bordered box ending on the row above the keybar:\n%q\n%q", after[keybar-3], after[keybar-1])
+	row := after[keybar-3]
+	if !strings.HasSuffix(row, theme.GlyphDone+" Switched back to the main worktree │ ") {
+		t.Fatalf("toast text should sit three rows above the keybar, flush right: %q", row)
+	}
+	if !strings.HasSuffix(after[keybar-2], "╯ ") || !strings.HasSuffix(after[keybar-4], "╮ ") {
+		t.Fatalf("toast should be a bordered box:\n%q\n%q", after[keybar-4], after[keybar-2])
 	}
 }
 
