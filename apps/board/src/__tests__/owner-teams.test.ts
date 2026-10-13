@@ -53,23 +53,25 @@ describe('ownerTeamsFromRules', () => {
 const memoryDb = () =>
   openStateDb(join(mkdtempSync(join(tmpdir(), 'board-owners-')), 'state.db'));
 
-const mr = (iid: number, updatedAt: string) => ({
+const mr = (iid: number, updatedAt: string, approvedBy: string[] = []) => ({
   iid,
   webUrl: `https://gitlab.example.com/acme/shop/-/merge_requests/${iid}`,
   updatedAt,
+  reviews: { approvedBy: approvedBy.map(username => ({ username })) },
 });
 
+const config = { directory, ownTeam: 'checkout' };
+const needed = [{ section: 'Sprockets - #pod-sprockets', approved: false }];
+
 describe('refreshOwnerTeams', () => {
-  test('reads each MR once per updatedAt and attaches what it stored', async () => {
+  test('reads each MR once until it changes, and attaches the owning teams', async () => {
     const db = memoryDb();
     const reads: number[] = [];
     const deps = {
       db,
-      directory,
-      ownTeam: 'checkout',
       readRules: async (m: { iid: number }) => {
         reads.push(m.iid);
-        return [{ section: 'Sprockets - #pod-sprockets', approved: false }];
+        return needed;
       },
     };
     await refreshOwnerTeams([mr(7, 't1')], deps);
@@ -77,10 +79,50 @@ describe('refreshOwnerTeams', () => {
     expect(reads).toEqual([7]);
     await refreshOwnerTeams([mr(7, 't2')], deps);
     expect(reads).toEqual([7, 7]);
-    expect(attachOwnerTeams([mr(7, 't2'), mr(8, 't1')], db)).toEqual([
+    expect(attachOwnerTeams([mr(7, 't2'), mr(8, 't1')], config, db)).toEqual([
       { ...mr(7, 't2'), ownerTeams: [{ team: 'sprockets', approved: false }] },
       mr(8, 't1'),
     ]);
+  });
+
+  test('a new approval is read again though updatedAt stands still', async () => {
+    const db = memoryDb();
+    let reads = 0;
+    const deps = {
+      db,
+      readRules: async () => {
+        reads += 1;
+        return needed;
+      },
+    };
+    await refreshOwnerTeams([mr(7, 't1')], deps);
+    await refreshOwnerTeams([mr(7, 't1', ['sam'])], deps);
+    expect(reads).toBe(2);
+  });
+
+  test('the owning teams follow the directory as it is now, not as it was at the read', async () => {
+    const db = memoryDb();
+    await refreshOwnerTeams([mr(7, 't1')], {
+      db,
+      readRules: async () => [
+        { section: 'Ledger - #pod-ledger', approved: false },
+      ],
+    });
+    expect(attachOwnerTeams([mr(7, 't1')], config, db)[0]!.ownerTeams).toEqual(
+      []
+    );
+    const withLedger = {
+      ownTeam: 'checkout',
+      directory: {
+        teams: {
+          ...directory.teams,
+          ledger: { slack: { codeOwnersChannel: 'pod-ledger' } },
+        },
+      },
+    };
+    expect(
+      attachOwnerTeams([mr(7, 't1')], withLedger, db)[0]!.ownerTeams
+    ).toEqual([{ team: 'ledger', approved: false }]);
   });
 
   test('a failed read stores nothing, so the next pass tries again', async () => {
@@ -88,8 +130,6 @@ describe('refreshOwnerTeams', () => {
     let calls = 0;
     const deps = {
       db,
-      directory,
-      ownTeam: null,
       readRules: async () => {
         calls += 1;
         return null;
@@ -98,6 +138,6 @@ describe('refreshOwnerTeams', () => {
     await refreshOwnerTeams([mr(7, 't1')], deps);
     await refreshOwnerTeams([mr(7, 't1')], deps);
     expect(calls).toBe(2);
-    expect(attachOwnerTeams([mr(7, 't1')], db)).toEqual([mr(7, 't1')]);
+    expect(attachOwnerTeams([mr(7, 't1')], config, db)).toEqual([mr(7, 't1')]);
   });
 });

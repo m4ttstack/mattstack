@@ -998,8 +998,6 @@ function refreshOwnerTeamsInBackground(mrs: BoardMR[]): void {
       const read = await readOwnerRules(mr);
       return read.ok ? read.rules : null;
     },
-    directory: config.directory,
-    ownTeam: config.ownTeam ?? null,
   })
     .catch(err =>
       console.error(
@@ -1907,7 +1905,8 @@ const httpServer = Bun.serve({
                   heldDraftsByMr(readDrafts())
                 ),
                 readNotes()
-              )
+              ),
+              config
             )
           ),
           readMemory()
