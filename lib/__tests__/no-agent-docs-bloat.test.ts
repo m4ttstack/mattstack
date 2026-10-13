@@ -12,7 +12,7 @@ import { dirname, join, relative, resolve } from "path";
 
 const ROOT = resolve(import.meta.dir, "..", "..");
 const MAX_LINES = 200;
-const ALWAYS_LOADED = ["AGENTS.md"];
+const ALWAYS_LOADED = ["AGENTS.md", "apps/AGENTS.md"];
 const RULES_DIR = ".claude/rules";
 const FRONTMATTER_FORM = '---\npaths:\n  - "lib/example/**"\n---';
 
