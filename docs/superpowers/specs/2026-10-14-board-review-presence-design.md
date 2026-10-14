@@ -83,10 +83,15 @@ reviewer is the envelope's sender.
   "<reviewer> is reviewing" in tone `quiet`, led by a cloud spinner, and the
   existing `view-peer` verb. The cloud spinner is `AgentCloudGlyph`
   (`src/client/board/icons.tsx`, the peer-agent mark in the row menu) with
-  its own colours (grey cloud, accent bot), animated: a short dash travels
-  around the cloud's outline (an animated `stroke-dashoffset`) while the
-  bot holds still. It is a new `spin: 'cloud'` style on the candidate,
-  independent of tone, and it stops under `prefers-reduced-motion`. `quiet`, not `work`: `needs-me.ts` `lineNeed` reads a
+  its accent bot unchanged, animated two ways at once: the cloud's inside,
+  clipped to the cloud path, pulses between two close skeleton greys over
+  1.8s (ease-in-out), while a short darker dash (30% of the path length)
+  runs clockwise round a light grey outline every 1.6s (an animated
+  `stroke-dashoffset`). The bot holds still. It is a new `spin: 'cloud'`
+  style on the candidate, independent of tone. Under
+  `prefers-reduced-motion` both animations stop and the glyph rests with a
+  plain outline and a mid-grey fill. The approved motion reference is
+  option F in the preview built during design (light and dark). `quiet`, not `work`: `needs-me.ts` `lineNeed` reads a
   `work` line as busy, which would drop the MR from this member's Needs me
   tab even when they are the assigned reviewer. Needs me is unchanged.
   `done`, `error` and stale states render no line, so the row falls back to
