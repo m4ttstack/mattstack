@@ -264,6 +264,72 @@ export function AgentCloudGlyph() {
   );
 }
 
+const CLOUD_D = 'M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z';
+const CLOUD_T = 'translate(5.9 0) scale(0.5833)';
+
+/** AgentCloudGlyph animated for a peer's review in flight: the cloud's
+    inside pulses and a dash runs its outline; the bot never moves. */
+export function CloudSpinner() {
+  const maskId = useId();
+  const clipId = useId();
+  return (
+    <svg
+      className="tui-cloud-spin"
+      width={19.5}
+      height={15}
+      viewBox="0 0 19.5 15"
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <defs>
+        <mask
+          id={maskId}
+          maskUnits="userSpaceOnUse"
+          x="0"
+          y="0"
+          width="19.5"
+          height="15"
+        >
+          <rect width="19.5" height="15" fill="white" />
+          <rect x="0" y="6.3" width="11.1" height="8.7" rx="2.6" fill="black" />
+        </mask>
+        <clipPath id={clipId}>
+          <path transform={CLOUD_T} d={CLOUD_D} />
+        </clipPath>
+      </defs>
+      <g mask={`url(#${maskId})`}>
+        <g clipPath={`url(#${clipId})`}>
+          <rect className="tui-cloud-fill" x="6" y="2" width="14" height="10" />
+        </g>
+        <path
+          className="tui-cloud-outline"
+          transform={CLOUD_T}
+          d={CLOUD_D}
+          strokeWidth={2.6}
+        />
+        <path
+          className="tui-cloud-dash"
+          pathLength={100}
+          transform={CLOUD_T}
+          d={CLOUD_D}
+          strokeWidth={2.8}
+        />
+      </g>
+      <g
+        transform="translate(0 4) scale(0.4583)"
+        stroke="var(--text-accent)"
+        strokeWidth={3.3}
+      >
+        <path d="M12 8V4H8" />
+        <rect width="16" height="12" x="4" y="8" rx="2" />
+        <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+      </g>
+    </svg>
+  );
+}
+
 /** The review sheet's record-cluster row icons (DEPTH/EVIDENCE/NOTES):
     lucide-react 1.34.0 path data (ISC licensed, https://lucide.dev), drawn
     inline rather than adding lucide as a dependency. */

@@ -20,6 +20,8 @@ export interface PeerReviewState {
   status: string;
   outcome?: string;
   updatedAt: number;
+  /** The relay's clock when this state arrived; freshness is judged on it. */
+  receivedAt?: number;
 }
 
 export const PEER_REVIEW_NS = 'peer-review';

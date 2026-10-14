@@ -210,3 +210,26 @@ describe('makeSwitchboardClient.peers askable', () => {
     expect(await mk(500).setAsksEnabled(false)).toBe('failed');
   });
 });
+
+describe('makeSwitchboardClient.enrolled', () => {
+  const clientFor = (body: unknown, status = 200) =>
+    makeSwitchboardClient(
+      'https://relay.example',
+      'tok-1',
+      (async () =>
+        new Response(JSON.stringify(body), {
+          status,
+        })) as unknown as typeof fetch
+    );
+
+  test('reads peers, never askable', async () => {
+    expect(
+      await clientFor({ peers: ['ada', 'grace'], askable: ['ada'] }).enrolled()
+    ).toEqual(['ada', 'grace']);
+  });
+
+  test('null on a bad body or a failed call', async () => {
+    expect(await clientFor({}).enrolled()).toBeNull();
+    expect(await clientFor({ peers: ['ada'] }, 404).enrolled()).toBeNull();
+  });
+});

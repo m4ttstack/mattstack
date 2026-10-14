@@ -34,6 +34,7 @@ function fakeClient(
     inbox: async () => inboxResult(),
     ack: async () => true,
     peers: async () => null,
+    enrolled: async () => null,
     setAsksEnabled: async () => 'ok',
   };
 }
@@ -70,6 +71,7 @@ describe('makePeering', () => {
       publish: async () => 201,
       ack: async () => true,
       peers: async () => null,
+      enrolled: async () => null,
       setAsksEnabled: async () => 'ok',
       inbox: async () => {
         inFlight++;
@@ -124,6 +126,34 @@ describe('makePeering', () => {
   });
 });
 
+describe('makePeering: enrolled boards cache', () => {
+  test('a tick caches the enrolled list; a null fetch keeps the last good one', async () => {
+    let answer: string[] | null = ['ada', 'grace', 'kim'];
+    const client: SwitchboardClient = {
+      publish: async () => 201,
+      inbox: async () => [],
+      ack: async () => true,
+      peers: async () => null,
+      enrolled: async () => answer,
+      setAsksEnabled: async () => 'ok',
+    };
+    const peering = makePeering({
+      makeClient: () => client,
+      deps: noDeps,
+      tickMs: 999_999,
+      outboxDb: freshDb(),
+    });
+    const rt = peering.start('https://sb', 'tok');
+    expect(rt.enrolled()).toBeNull();
+    await peering.tickNow();
+    expect(rt.enrolled()).toEqual(['ada', 'grace', 'kim']);
+    answer = null;
+    await peering.tickNow();
+    expect(rt.enrolled()).toEqual(['ada', 'grace', 'kim']);
+    peering.stop();
+  });
+});
+
 describe('makePeering: enrolled peers cache', () => {
   test('a tick caches the relay peers list; a null fetch keeps the last good one', async () => {
     let answer: string[] | null = ['ada', 'grace'];
@@ -132,6 +162,7 @@ describe('makePeering: enrolled peers cache', () => {
       inbox: async () => [],
       ack: async () => true,
       peers: async () => answer,
+      enrolled: async () => null,
       setAsksEnabled: async () => 'ok',
     };
     const peering = makePeering({

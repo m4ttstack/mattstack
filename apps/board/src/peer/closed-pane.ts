@@ -5,13 +5,10 @@ import { getStateDb, persistOrWarn } from '../state/index.ts';
 import { deleteKvValue, listKvValues, setKvValue } from '../state/kv-blob.ts';
 import { askIdForRun } from './ask-echo.ts';
 import type { SwitchboardClient } from './client.ts';
-import {
-  canonicalUsername,
-  makeEnvelope,
-  type ReviewStatePayload,
-} from './envelope.ts';
+import { canonicalUsername, type ReviewStatePayload } from './envelope.ts';
 import type { NudgeState } from './nudges.ts';
 import { enqueueOutbox } from './outbox.ts';
+import { presenceEnvelopes } from './presence.ts';
 
 /** mrUrl -> the runStartedAt (0 when unknown) already reported closed, so
     each run is reported once however many sweeps see the gone pane. */
@@ -103,6 +100,8 @@ interface ClosedPaneIO {
   fetchAuthors: () => Promise<ReadonlyMap<string, string>>;
   readNudges: () => readonly NudgeState[];
   kickOutbox: (client: SwitchboardClient) => void;
+  /** Who hears about this author's MR, author first. */
+  recipients: (author: string) => string[];
 }
 
 export async function clearClosedPeerReviews(
@@ -223,10 +222,12 @@ function persistClosedPaneReports(
   });
   for (const report of reports) {
     stateDb.transaction(() => {
-      enqueueOutbox(
-        makeEnvelope(report.to, 'review-state', report.payload),
-        stateDb
-      );
+      for (const envelope of presenceEnvelopes(
+        io.recipients(report.to),
+        report.to,
+        report.payload
+      ))
+        enqueueOutbox(envelope, stateDb);
       setKvValue(
         CLOSED_REPORTED_NS,
         report.mrUrl,

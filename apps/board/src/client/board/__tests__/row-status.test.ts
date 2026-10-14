@@ -1134,7 +1134,7 @@ describe('rowStatus: social lanes', () => {
     ];
     const words = (display: 'pending' | 'requested') =>
       candidateLines(
-        mr({
+        own({
           peerReviews,
           sentNudge: { display, reviewer: 'mira', sentAt: NOW },
         }),
@@ -1193,12 +1193,12 @@ describe('rowStatus: social lanes', () => {
 
   test('a live peer review is a working line with the view verb', () => {
     const [line] = candidateLines(
-      mr({
+      own({
         peerReviews: [
           {
             mrUrl: 'u',
             iid: 1,
-            reviewer: 'pat',
+            reviewer: 'mira',
             status: 'reviewing',
             updatedAt: NOW,
           },
@@ -1210,7 +1210,7 @@ describe('rowStatus: social lanes', () => {
     );
     expect(line).toMatchObject({
       tone: 'work',
-      word: 'pat is reviewing…',
+      word: 'mira is reviewing…',
       spin: true,
     });
     expect(line!.verbs[0]).toEqual({ kind: 'view-peer', label: 'view ↗' });
@@ -1218,17 +1218,17 @@ describe('rowStatus: social lanes', () => {
 
   test('a peer review my own ask started is left to the ask band', () => {
     const lines = candidateLines(
-      mr({
+      own({
         sentNudge: {
           display: 'confirmed',
-          reviewer: 'pat',
+          reviewer: 'mira',
           sentAt: NOW,
         },
         peerReviews: [
           {
             mrUrl: 'u',
             iid: 1,
-            reviewer: 'pat',
+            reviewer: 'mira',
             status: 'reviewing',
             updatedAt: NOW,
           },
@@ -1238,17 +1238,17 @@ describe('rowStatus: social lanes', () => {
       NONE,
       ME
     );
-    expect(lines.some(l => l.word === 'pat is reviewing…')).toBe(false);
+    expect(lines.some(l => l.word === 'mira is reviewing…')).toBe(false);
   });
 
   test('a finished peer review is a go line naming the outcome', () => {
     const [line] = candidateLines(
-      mr({
+      own({
         peerReviews: [
           {
             mrUrl: 'u',
             iid: 1,
-            reviewer: 'pat',
+            reviewer: 'mira',
             status: 'done',
             outcome: 'approve',
             updatedAt: NOW,
@@ -1259,7 +1259,86 @@ describe('rowStatus: social lanes', () => {
       NONE,
       ME
     );
-    expect(line).toMatchObject({ tone: 'go', word: 'pat approved' });
+    expect(line).toMatchObject({ tone: 'go', word: 'mira approved' });
+  });
+
+  describe('on a board that is not the author', () => {
+    const peer = (status: string, receivedAt = NOW) => ({
+      mrUrl: 'u',
+      iid: 1,
+      reviewer: 'mira',
+      status,
+      updatedAt: receivedAt,
+      receivedAt,
+    });
+
+    test('a fresh peer review is a quiet line with the cloud spinner', () => {
+      const [line] = candidateLines(
+        mr({ peerReviews: [peer('reviewing')] }),
+        NOW,
+        NONE,
+        ME
+      );
+      expect(line).toMatchObject({
+        tone: 'quiet',
+        word: 'mira is reviewing',
+        spin: 'cloud',
+      });
+      expect(line!.verbs[0]).toEqual({ kind: 'view-peer', label: 'view ↗' });
+    });
+
+    test('done, error and stale states fall through to the reviewer line', () => {
+      const base = candidateLines(mr({}), NOW, NONE, ME);
+      for (const p of [
+        peer('done'),
+        peer('error'),
+        peer('reviewing', NOW - 2 * 60 * 60 * 1000 - 1),
+      ])
+        expect(candidateLines(mr({ peerReviews: [p] }), NOW, NONE, ME)).toEqual(
+          base
+        );
+    });
+
+    test('two peers reviewing show one line each', () => {
+      const lines = candidateLines(
+        mr({
+          peerReviews: [
+            peer('reviewing'),
+            { ...peer('queued'), reviewer: 'ada' },
+          ],
+        }),
+        NOW,
+        NONE,
+        ME
+      );
+      expect(lines.map(l => l.word)).toEqual([
+        'mira is reviewing',
+        'ada is reviewing',
+      ]);
+    });
+
+    test('an all board (no seat) follows the non-author rule', () => {
+      const [line] = candidateLines(
+        own({ peerReviews: [peer('reviewing')] }),
+        NOW,
+        NONE,
+        null
+      );
+      expect(line).toMatchObject({ tone: 'quiet', spin: 'cloud' });
+    });
+  });
+
+  test('on the author board a stale reviewing state shows no line', () => {
+    const stale = {
+      mrUrl: 'u',
+      iid: 1,
+      reviewer: 'mira',
+      status: 'reviewing',
+      updatedAt: NOW - 3 * 60 * 60 * 1000,
+    };
+    expect(
+      candidateLines(own({ peerReviews: [stale] }), NOW, NONE, ME)
+    ).toEqual(candidateLines(own({}), NOW, NONE, ME));
   });
 
   test('a human reviewing right now is a quiet line', () => {

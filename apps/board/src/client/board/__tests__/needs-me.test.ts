@@ -217,3 +217,21 @@ describe('needOf: driven by board.turn', () => {
     expect(needOf(reviewing('UNREVIEWED'), ME, NOW, NONE, cfg)).toBeNull();
   });
 });
+
+test('an MR waiting on my review stays in needs me while a peer reviews it', () => {
+  const base = reviewing('UNREVIEWED');
+  const withPeer = reviewing('UNREVIEWED', {
+    peerReviews: [
+      {
+        mrUrl: 'u',
+        iid: 1,
+        reviewer: 'mira',
+        status: 'reviewing',
+        updatedAt: NOW,
+        receivedAt: NOW,
+      },
+    ],
+  });
+  expect(need(base)).not.toBeNull();
+  expect(need(withPeer)).toBe(need(base));
+});

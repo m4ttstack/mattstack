@@ -58,7 +58,7 @@ export function materializeEnvelope(
     const p = parseReviewStatePayload(e.payload);
     if (!p)
       return deps.log(`peer: malformed review-state from ${e.from} (${e.id})`);
-    deps.writePeerReview({ ...p, reviewer: e.from });
+    deps.writePeerReview({ ...p, reviewer: e.from, receivedAt: e.receivedAt });
     // A reviewing transition confirms any pending sent nudge for this MR: the
     // re-review actually started, whichever of state/outcome lands first.
     if (p.status === 'queued' || p.status === 'reviewing') {

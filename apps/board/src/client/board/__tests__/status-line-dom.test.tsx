@@ -430,3 +430,26 @@ test('a line from a launch with no pack shows the quiet no-pack badge with its t
   await render(status(), ctx());
   expect(container.querySelector('[data-part="badge"]')).toBeNull();
 });
+
+test('a cloud-spin line leads with the cloud spinner and no ring', async () => {
+  await render(
+    {
+      line: {
+        tone: 'quiet',
+        word: 'mira is reviewing',
+        spin: 'cloud',
+        verbs: [{ kind: 'view-peer', label: 'view ↗' }],
+      },
+      more: [],
+      bar: null,
+    },
+    ctx()
+  );
+  const status = container.querySelector('.tui-status')!;
+  expect(status.querySelector('.tui-status-ring')).toBeNull();
+  const spinner = status.querySelector('.tui-cloud-spin');
+  expect(spinner).not.toBeNull();
+  expect(status.firstElementChild).toBe(spinner);
+  expect(spinner!.querySelector('.tui-cloud-fill')).not.toBeNull();
+  expect(spinner!.querySelector('.tui-cloud-dash')).not.toBeNull();
+});

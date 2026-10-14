@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Badge, Tooltip } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { clauseOf } from './clause.ts';
-import { AgentGlyph, Sun } from './icons.tsx';
+import { AgentGlyph, CloudSpinner, Sun } from './icons.tsx';
 import type { RowStatus, Verb, VerbKind } from './row-status.ts';
 
 type Lane = 'review' | 'respond' | 'doctor';
@@ -133,10 +133,11 @@ export function StatusLine({
   const detail = line.detail ? clauseOf(line.detail) : null;
   return (
     <div className="tui-status" data-tone={line.tone}>
+      {line.spin === 'cloud' && <CloudSpinner />}
       <span className="tui-status-word" title={line.word}>
         {line.word}
       </span>
-      {line.spin && <span className="tui-status-ring" aria-hidden />}
+      {line.spin === true && <span className="tui-status-ring" aria-hidden />}
       {line.tone === 'clear' && (
         <span className="tui-status-sun" aria-hidden>
           <Sun />

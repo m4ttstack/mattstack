@@ -124,6 +124,7 @@ export interface PeerReviewInfo {
   status: string;
   outcome?: string;
   updatedAt: number;
+  receivedAt?: number;
 }
 /** The re-review this board asked a peer for, and where that ask now stands.
     `reason` only comes with a rejection (the peer's own words for the refusal). */
