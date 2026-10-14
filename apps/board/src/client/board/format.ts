@@ -1,6 +1,7 @@
 import { getReviewDisplayState } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import { stripDraftPrefix } from '../../data.ts';
+import type { ReviewerLatch } from '../../latch/discussions.ts';
 import type { RespondStatus } from '../../respond-outcome.ts';
 import { DEFAULT_SLACK_EMOJI } from '../../slack-emoji.ts';
 import {
@@ -131,6 +132,19 @@ function nudgeTargets(
       p.status === 'done' &&
       p.outcome === 'comment' &&
       (!peers || peers.includes(p.reviewer))
+  );
+}
+
+/** Reviewers to ask through their latch thread: an armed latch on the MR
+    from someone the switchboard has said nothing about. A reviewer it has
+    heard from is either a switchboard ask already or mid-review. */
+function latchTargets(mrx: BoardMRWithReview): ReviewerLatch[] {
+  if (askOutstanding(mrx)) return [];
+  const known = new Set(
+    (mrx.peerReviews ?? []).map(p => p.reviewer.toLowerCase())
+  );
+  return (mrx.reviewerLatches ?? []).filter(
+    l => !known.has(l.reviewer.toLowerCase())
   );
 }
 
@@ -413,6 +427,7 @@ export {
   laneInterrupted,
   doctorInterrupted,
   type SlackMark,
+  latchTargets,
   nudgeTargets,
   askOutstanding,
   respondAskBlock,
