@@ -1896,6 +1896,7 @@ test('reresolve: a specFor throw for one app does not block a healthy app in the
     {
       ...healthySpec.environment,
       MATTSTACK_CANONICAL_HOST: 'healthy.mattstack',
+      MATTSTACK_FLAVOR: 'prod',
     }
   );
   putRecord({
