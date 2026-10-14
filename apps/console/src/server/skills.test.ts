@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { Hono } from 'hono';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RtNotFoundError, WRITE_TIMEOUT_MS } from './rt-bin';
 import { mountSkills, type ReadPackFile } from './skills';
@@ -13,6 +13,44 @@ const fakeRt = (result: { code: number; stdout: string; stderr: string }) => {
   });
   return { run, calls };
 };
+
+describe('skills packs route: packs no team owns', () => {
+  const PACKS = {
+    packs: [
+      { name: 'claimview', dir: '/c', layout: 'flat', team: 'claimview' },
+      { name: 'mattstack', dir: '/m', layout: 'grouped', team: null },
+    ],
+  };
+  const names = async (res: Response) =>
+    ((await res.json()) as typeof PACKS).packs.map(p => p.name);
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('shows them only to the dev app', async () => {
+    vi.stubEnv('MATTSTACK_FLAVOR', 'dev');
+    const rt = fakeRt({ code: 0, stdout: JSON.stringify(PACKS), stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    expect(await names(await app.request('/api/skills/packs'))).toEqual([
+      'claimview',
+      'mattstack',
+    ]);
+  });
+
+  it('hides them from the prod app and from an unlabelled process', async () => {
+    for (const flavor of ['prod', '']) {
+      vi.stubEnv('MATTSTACK_FLAVOR', flavor);
+      const rt = fakeRt({ code: 0, stdout: JSON.stringify(PACKS), stderr: '' });
+      const app = mountSkills(new Hono(), rt.run);
+
+      expect(await names(await app.request('/api/skills/packs'))).toEqual([
+        'claimview',
+      ]);
+    }
+  });
+});
 
 describe('skills routes', () => {
   it('passes --json and the pack through to rt', async () => {

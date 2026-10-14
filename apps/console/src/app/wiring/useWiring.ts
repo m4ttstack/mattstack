@@ -521,7 +521,8 @@ const RAIL_QUERY_OPTIONS: SharedQueryOptions = {
  */
 export function useAttentionCount(): number {
   const packsQuery = usePacks(RAIL_QUERY_OPTIONS);
-  const pack = packsQuery.data?.packs[0]?.name ?? null;
+  const packs = packsQuery.data?.packs ?? [];
+  const pack = packs.find(p => p.team !== null)?.name ?? packs[0]?.name ?? null;
   const compositionQuery = useCompositionSnapshot(pack, RAIL_QUERY_OPTIONS);
   const checkQuery = useSkillsCheck(pack, RAIL_QUERY_OPTIONS);
 

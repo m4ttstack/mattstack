@@ -422,7 +422,7 @@ describe('WiringMap: the pack picker', () => {
   });
 });
 
-describe('WiringMap: plugin packs beside the team packs', () => {
+describe('WiringMap: dev packs apart from the team packs', () => {
   function teamsAndPlugin() {
     mockHappyPath();
     packsGet.mockResolvedValue(
@@ -442,7 +442,7 @@ describe('WiringMap: plugin packs beside the team packs', () => {
     onTestFinished(restore);
   }
 
-  it('keeps a plugin pack out of the team menu', async () => {
+  it('keeps a dev pack out of the team menu', async () => {
     teamsAndPlugin();
     renderWiring();
 
@@ -457,27 +457,46 @@ describe('WiringMap: plugin packs beside the team packs', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('opens a plugin pack from its own picker', async () => {
+  it('opens a dev pack from its toggle and toggles back to a team', async () => {
     teamsAndPlugin();
     renderWiring();
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: /switch plugin/ })
-    );
-    await userEvent.click(
-      await screen.findByRole('menuitem', { name: /mattstack/ })
-    );
+    const toggle = await screen.findByRole('button', {
+      name: 'dev pack: mattstack',
+    });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(toggle);
 
     await waitFor(() =>
       expect(compositionGet).toHaveBeenCalledWith(
         expect.objectContaining({ query: { pack: 'mattstack' } })
       )
     );
-    expect(
-      screen.getByRole('button', { name: 'plugin: mattstack, switch plugin' })
-    ).toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
     expect(
       screen.getByRole('button', { name: 'pick a team' })
     ).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    await screen.findByRole('button', { name: 'team: claimview, switch team' });
+  });
+
+  it('opens on a team pack when the URL names none', async () => {
+    mockHappyPath();
+    packsGet.mockResolvedValue(
+      ok({
+        packs: [
+          { name: 'aaa-dev', dir: '/d', layout: 'grouped', team: null },
+          { name: 'claimview', dir: '/c', layout: 'flat', team: 'claimview' },
+        ],
+      })
+    );
+    renderWiring();
+
+    await waitFor(() =>
+      expect(compositionGet).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { pack: 'claimview' } })
+      )
+    );
   });
 });
