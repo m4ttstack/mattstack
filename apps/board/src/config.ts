@@ -196,6 +196,8 @@ export interface BoardConfig {
   ownTeam?: string | null;
   /** Every team in the org roster with its members, by team name. The roster above is one team's slice of it. */
   orgTeams?: OrgTeam[];
+  /** Every roster member's canonical username, teamless ones included. */
+  orgMembers?: string[];
   title: string;
   /** Absolute path the review agent's herdr pane starts in (a repo checkout). Empty disables review launch. */
   reviewCwd: string;
@@ -626,6 +628,12 @@ export interface OrgTeam {
   members: Array<{ username: string; name?: string }>;
 }
 
+function orgMembersFromStore(resolve: GetSettingFn): string[] {
+  return boardSetting<StoredMember[]>('mattstack.roster', resolve).flatMap(m =>
+    typeof m?.username === 'string' ? [m.username.trim().toLowerCase()] : []
+  );
+}
+
 function orgTeamsFromStore(resolve: GetSettingFn): OrgTeam[] {
   const byTeam = new Map<string, OrgTeam['members']>();
   for (const m of boardSetting<StoredMember[]>('mattstack.roster', resolve)) {
@@ -738,6 +746,7 @@ export function loadConfig(resolve: GetSettingFn = getSetting): BoardConfig {
     directory,
     ownTeam: teamView.team(),
     orgTeams: orgTeamsFromStore(resolve),
+    orgMembers: orgMembersFromStore(resolve),
   };
 }
 

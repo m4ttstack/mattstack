@@ -117,8 +117,25 @@ describe('materializeEnvelope', () => {
           status: 'reviewing',
           updatedAt: 500,
           reviewer: 'grace',
+          receivedAt: 200,
         },
       ]);
+    });
+
+    test('a non-author peer review leaves sent nudges alone', () => {
+      const deps = fakeDeps();
+      materializeEnvelope(
+        envelope({
+          from: 'mira',
+          payload: { mrUrl: URL_A, iid: 4821, status: 'done', updatedAt: 500 },
+        }),
+        deps,
+        1000
+      );
+      expect(deps.peerReviews).toHaveLength(1);
+      expect(deps.nudges).toEqual([]);
+      expect(deps.froms.length).toBeGreaterThan(0);
+      expect(deps.froms.every(f => f === 'mira')).toBe(true);
     });
 
     test("status 'reviewing' also confirms any pending sent nudge for the MR", () => {

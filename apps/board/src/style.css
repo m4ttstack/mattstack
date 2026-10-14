@@ -833,6 +833,45 @@ body {
     transform: rotate(360deg);
   }
 }
+.tui-cloud-spin {
+  flex-shrink: 0;
+  margin-right: 6px;
+  align-self: center;
+}
+.tui-cloud-fill {
+  fill: color-mix(in srgb, var(--text-3) 22%, transparent);
+  animation: tui-cloud-pulse 1.8s ease-in-out infinite;
+}
+.tui-cloud-outline {
+  stroke: var(--border);
+}
+.tui-cloud-dash {
+  stroke: var(--text-2);
+  stroke-dasharray: 30 70;
+  animation: tui-cloud-dash 1.6s linear infinite;
+}
+@keyframes tui-cloud-pulse {
+  50% {
+    fill: color-mix(in srgb, var(--text-3) 8%, transparent);
+  }
+}
+@keyframes tui-cloud-dash {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-cloud-fill,
+  .tui-cloud-dash {
+    animation: none;
+  }
+  .tui-cloud-dash {
+    stroke: none;
+  }
+}
 .tui-status-nopack {
   margin-left: 8px;
   flex-shrink: 0;

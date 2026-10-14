@@ -9,6 +9,7 @@
 import { domainForKind, unwrapGateAnswer } from '@mattstack/gate-kit';
 import type { BoardMR } from '../../data.ts';
 import { hasChangesRequested } from '../../data.ts';
+import { isFreshPeerReview } from '../../peer/presence.ts';
 import { respondOutcome } from '../../respond-outcome.ts';
 import { approvalSlots, isOwnMr, statusBucket } from '../../view.ts';
 import type {
@@ -64,7 +65,7 @@ export interface Candidate {
   tone: Tone;
   word: string;
   detail?: string;
-  spin?: boolean;
+  spin?: boolean | 'cloud';
   /** The lane's launch ran the generic skill because no pack was chosen. */
   noPack?: true;
   verbs: Verb[];
@@ -615,8 +616,13 @@ function draftLines(mr: BoardMRWithReview, resolved: Resolved): Candidate[] {
 
 /** Peers and humans: re-review asks in both directions, peer boards'
     reviews of this MR, and GitLab reviewers with a review open right now. */
-function peerLines(mr: BoardMRWithReview, now: number): Candidate[] {
+function peerLines(
+  mr: BoardMRWithReview,
+  now: number,
+  self: string | null
+): Candidate[] {
   const out: Candidate[] = [];
+  const mine = isOwnMr(mr, self);
   const asked = mr.sentNudge;
   const askInFlight =
     asked?.display === 'requested' ||
@@ -626,7 +632,19 @@ function peerLines(mr: BoardMRWithReview, now: number): Candidate[] {
       ? asked.reviewer
       : undefined;
   for (const p of mr.peerReviews ?? []) {
-    if (p.status === 'queued' || p.status === 'reviewing') {
+    const live = p.status === 'queued' || p.status === 'reviewing';
+    if (live && !isFreshPeerReview(p, now)) continue;
+    if (!mine) {
+      if (live)
+        out.push({
+          tone: 'quiet',
+          word: `${p.reviewer} is reviewing`,
+          spin: 'cloud',
+          verbs: [{ kind: 'view-peer', label: 'view ↗' }],
+        });
+      continue;
+    }
+    if (live) {
       if (p.reviewer === askInFlight) continue;
       out.push({
         tone: 'work',
@@ -855,7 +873,7 @@ export function candidateLines(
       ? doctorLine(mr, now)
       : packless(doctorLine(mr, now), mr.doctor),
     ...draftLines(mr, draftResolved),
-    ...peerLines(mr, now),
+    ...peerLines(mr, now, self),
   ].filter((l): l is Candidate => l !== null);
   const mine = isOwnMr(mr, self);
   if (lines.length > 0) return mine ? lines : lines.map(withoutAuthorVerbs);

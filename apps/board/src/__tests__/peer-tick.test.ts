@@ -57,6 +57,7 @@ function fakeClient(
     calls,
     acked,
     peers: async () => null,
+    enrolled: async () => null,
     setAsksEnabled: async () => 'ok' as const,
     async publish(d) {
       calls.push(`publish:${d.id}`);
@@ -214,6 +215,7 @@ describe('runPeerTick', () => {
       inbox: async () => 'unauthorized' as const,
       ack: async () => (events.push('ack'), true),
       peers: async () => null,
+      enrolled: async () => null,
       setAsksEnabled: async () => 'ok' as const,
     };
     await runPeerTick(
@@ -232,6 +234,7 @@ describe('runPeerTick', () => {
       inbox: async () => [],
       ack: async () => true,
       peers: async () => null,
+      enrolled: async () => null,
       setAsksEnabled: async () => 'ok' as const,
     };
     await runPeerTick(

@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 import { canonicalHostRedirect } from '@mattstack/app-server/canonical-host';
@@ -125,6 +125,7 @@ import {
   writeDraft,
 } from './draft-state.ts';
 import faviconSvg from './favicon.svg' with { type: 'text' };
+import { shiftPeerReviews } from './fixture-peer-reviews.ts';
 import { focusPane } from './focus-pane.ts';
 import { answerGate } from './gates/answer.ts';
 import {
@@ -252,6 +253,10 @@ import {
   type PeerReviewState,
 } from './peer/peer-reviews.ts';
 import {
+  reviewPresenceRecipients,
+  reviewSyncEnvelopes,
+} from './peer/presence.ts';
+import {
   makePeering,
   startPeeringWhenTokenLoads,
   switchboardTokenBanner,
@@ -367,6 +372,23 @@ import {
     The seed of the permanent screenshot harness (see tests/capture.ts). */
 const FIXTURE_DIR = process.env.BOARD_FIXTURE || null;
 const fixtureFile = (name: string) => join(FIXTURE_DIR!, name);
+
+/** The fixture's peer review states are pinned to meta.json's `now`, which a
+    board served in real time would judge stale. Shift each to the same age
+    from the wall clock; the capture harness freezes the browser clock to
+    `now`, where a shifted state still reads fresh. */
+function fixtureDataJson(): string {
+  const metaFile = fixtureFile('meta.json');
+  const shift = existsSync(metaFile)
+    ? Date.now() -
+      (JSON.parse(readFileSync(metaFile, 'utf8')) as { now: number }).now
+    : 0;
+  const data = JSON.parse(readFileSync(fixtureFile('data.json'), 'utf8')) as {
+    mrs: Array<{ peerReviews?: PeerReviewState[] }>;
+  };
+  shiftPeerReviews(data, shift);
+  return JSON.stringify(data);
+}
 
 // Containment must be structural, not route-enumeration-dependent: pin
 // state.db inside the fixture dir (alongside BOARD_APP_ROOT below) before
@@ -1607,7 +1629,7 @@ const httpServer = Bun.serve({
         return new Response('fixture mode is read-only', { status: 501 });
       switch (pathname) {
         case '/data.json':
-          return new Response(readFileSync(fixtureFile('data.json'), 'utf8'), {
+          return new Response(fixtureDataJson(), {
             headers: { 'content-type': 'application/json' },
           });
         case '/discussions':
@@ -1631,9 +1653,7 @@ const httpServer = Bun.serve({
           });
         case '/member': {
           const u = new URL(req.url).searchParams.get('u');
-          const data = JSON.parse(
-            readFileSync(fixtureFile('data.json'), 'utf8')
-          ) as {
+          const data = JSON.parse(fixtureDataJson()) as {
             mrs: Array<{ author: { username: string } }>;
             fetchedAt: number;
           };
@@ -4517,14 +4537,8 @@ async function handleAgentSignal(
     getGitlabToken(),
     getSlackToken(),
   ]);
-  // Peer sync: tell the MR author's board where this review stands. Runs
-  // before the emoji early-return below, so transitions that map to no
-  // emoji still sync. Own policy (slack reactions) continues after; this
-  // is pure relay traffic.
-  // `defaultMember: "all"` is a view setting, not an identity, so there is
-  // no way to tell this board's own MRs from a peer's. Without that, the
-  // own-MR guard below can never match and the board would relay a
-  // review-state for every MR on it, including publishing to itself.
+  // Runs before the emoji early-return below, so transitions that map to no
+  // emoji still sync.
   const pc = peering.current()?.client;
   // Respond sync: tell whoever asked for this respond how it is going, so
   // their chip confirms and retires. Addressed per asker from the nudge rows,
@@ -4554,35 +4568,39 @@ async function handleAgentSignal(
     }
     if (latestByAsker.size) kickOutbox(pc);
   }
+  // The org's boards are told, the author's included; never this board's own MR.
   if (pc && signal.kind === 'review' && config.defaultMember !== 'all') {
     const snapshotForPeer = await cache.get();
     const authorUsername = snapshotForPeer.mrs.find(
       m => m.webUrl === signal.mrUrl
     )?.author.username;
-    // Never relay a review of this board's own MR: the author is right
-    // here, and the peer state files are for other people's boards.
-    if (
-      authorUsername &&
-      canonicalUsername(authorUsername) !==
-        canonicalUsername(config.defaultMember)
-    ) {
-      const askId = askIdForRun(
-        readNudges(),
-        signal.mrUrl,
-        authorUsername,
-        readReviewStates().get(signal.mrUrl)?.runStartedAt,
-        emittedAt
-      );
-      enqueueOutbox(
-        makeEnvelope(authorUsername, 'review-state', {
-          mrUrl: signal.mrUrl,
-          iid: signal.iid,
-          status: signal.status,
-          outcome: signal.outcome,
-          updatedAt: emittedAt,
-          ...(askId ? { nudgeId: askId } : {}),
-        } satisfies ReviewStatePayload)
-      );
+    const askId = authorUsername
+      ? askIdForRun(
+          readNudges(),
+          signal.mrUrl,
+          authorUsername,
+          readReviewStates().get(signal.mrUrl)?.runStartedAt,
+          emittedAt
+        )
+      : null;
+    const envelopes = reviewSyncEnvelopes({
+      author: authorUsername,
+      self: config.defaultMember,
+      recipients: presenceRecipientsFor,
+      askId,
+      payload: {
+        mrUrl: signal.mrUrl,
+        iid: signal.iid,
+        status: signal.status,
+        outcome: signal.outcome,
+        updatedAt: emittedAt,
+      },
+    });
+    if (envelopes.length) {
+      const stateDb = getStateDb();
+      stateDb.transaction(() => {
+        for (const envelope of envelopes) enqueueOutbox(envelope, stateDb);
+      })();
       kickOutbox(pc);
     }
   }
@@ -4693,6 +4711,15 @@ async function reportClosedPeerReviews(): Promise<void> {
   await sweepClosedPeerReviews(closedPeerReviewIO());
 }
 
+function presenceRecipientsFor(author: string): string[] {
+  return reviewPresenceRecipients({
+    orgMembers: config.orgMembers ?? [],
+    self: config.defaultMember,
+    author,
+    enrolled: peering.current()?.enrolled() ?? null,
+  });
+}
+
 function closedPeerReviewIO() {
   return {
     current: () => {
@@ -4711,6 +4738,7 @@ function closedPeerReviewIO() {
       ),
     readNudges,
     kickOutbox,
+    recipients: presenceRecipientsFor,
   };
 }
 

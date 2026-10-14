@@ -321,6 +321,18 @@ describe('loadConfig: store values get the normalization and validation parseCon
     expect(cfg.teamPack).toBe('widgets');
   });
 
+  test('orgMembers lists every roster entry, teamed or not', () => {
+    teamView.team = () => 'widgets';
+    const cfg = loadConfig(
+      withRoster([
+        { username: 'Dev1', name: 'Dev One', teams: ['widgets'] },
+        { username: 'dev3', teams: ['gadgets'] },
+        { username: 'dev5' },
+      ])
+    );
+    expect(cfg.orgMembers).toEqual(['dev1', 'dev3', 'dev5']);
+  });
+
   test("the roster is the active team's members", () => {
     teamView.team = () => 'widgets';
     const cfg = loadConfig(withRoster(twoTeams));
