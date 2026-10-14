@@ -10,7 +10,7 @@ final class ServicesRegistrar: ServicesProviding, @unchecked Sendable {
     /// isn't shipped is excluded here on purpose — it would sit at
     /// `notRegistered` forever, and every consumer of these statuses takes the
     /// worst one (login-items permission → requiredMissing → Install disabled,
-    /// limited mode unreachable, the version-change record never written).
+    /// the version-change record never written).
     let agents: [AgentPlist]
     /// Every plist scanned, filtered or not: `POST /services/register` answers
     /// about whatever plists rt names, and its reply has to say why a skipped

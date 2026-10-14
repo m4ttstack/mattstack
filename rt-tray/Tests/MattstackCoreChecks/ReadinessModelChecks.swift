@@ -141,21 +141,13 @@ let readinessModelChecks: [Check] = [
             c.expectEqual(m.team?.mode, .join)
             c.expectEqual(m.canInstall, false)
             c.expectEqual(m.requiredMissing, ["perm.fda", "account.gitlab"])
-            c.expectEqual(m.limitedModeAvailable, false)
         }
     },
-    Check("limited mode only when every required row is ready and some optional row is not, including a non-ready optional permission") { c in
+    Check("Install is open when every required row is ready and an optional permission is not") { c in
         let plans = FakePlans([makePlan(fda: .ready, gitlab: .ready, chrome: .ready, notifications: .skipped)])
         let m = await MainActor.run { ReadinessModel(plans: plans, permissions: FakePermissions(), ticker: FakeTicker()) }
         await m.load()
-        await MainActor.run {
-            c.expectEqual(m.canInstall, true)
-            c.expectEqual(m.limitedModeAvailable, true, "notifications is optional, permission-kind, and not ready → still limited")
-        }
-        let plans2 = FakePlans([makePlan(fda: .ready, gitlab: .ready, chrome: .ready, notifications: .ready)])
-        let m2 = await MainActor.run { ReadinessModel(plans: plans2, permissions: FakePermissions(), ticker: FakeTicker()) }
-        await m2.load()
-        await MainActor.run { c.expectEqual(m2.limitedModeAvailable, false, "every row ready → not limited") }
+        await MainActor.run { c.expectEqual(m.canInstall, true) }
     },
     Check("visible → 1s ticker probes permissions and overlays permission rows; hidden cancels") { c in
         let plans = FakePlans([makePlan()])
@@ -318,6 +310,19 @@ let readinessModelChecks: [Check] = [
             c.expectEqual(m.canInstall, false, "rt gated canInstall on something not expressed as a row")
         }
     },
+    Check("a required row that is finish-gated is not required-missing and does not hold Install") { c in
+        let gated = PlanRow(id: "skills.writing-style", kind: .tool, title: "Writing style", why: "w", required: true, status: .needsYou,
+                            recheck: .onActivate, finishGated: true)
+        let plan = Plan(at: "t", team: TeamInfo(slug: "acme", name: "Acme", mode: .join),
+                        groups: [PlanGroup(id: "tools", title: "Tools", rows: [gated])],
+                        canInstall: true, requiredMissing: [], finishBlockedBy: ["skills.writing-style"])
+        let m = await MainActor.run { ReadinessModel(plans: FakePlans([plan]), permissions: FakePermissions(), ticker: FakeTicker()) }
+        await m.load()
+        await MainActor.run {
+            c.expectEqual(m.requiredMissing, [], "Finish waits on it, Install does not")
+            c.expectEqual(m.canInstall, true)
+        }
+    },
     Check("PermissionRowOverlay maps contract statuses to row statuses") { c in
         let s = PermissionSnapshot(fda: .init(status: "denied", detail: "EPERM"), notifications: .init(status: "denied"),
                                    loginItems: .init(status: "notRegistered"))
@@ -397,7 +402,7 @@ let readinessModelChecks: [Check] = [
         await MainActor.run { c.expectEqual(m.outstandingManualRows.map(\.id), ["team.none"]) }
     },
     // The extension row is waived in these two fixtures: unwaived it blocks
-    // Finish and belongs to the Done screen's own section instead.
+    // Finish, and the summary counts it as a blocker instead.
     Check("outstandingManualRows lists only optional, not-ready rows whose action a person can act on") { c in
         let m = await MainActor.run { ReadinessModel(plans: FakePlans([makeManualPlan(extensionStatus: .needsYou, waived: true)]), permissions: FakePermissions(), ticker: FakeTicker()) }
         await m.load()
@@ -457,7 +462,7 @@ let readinessModelChecks: [Check] = [
         await MainActor.run {
             c.expectEqual(m.finishBlockedBy, [])
             c.expectEqual(m.row("tool.fast-browser-extension")?.isWaived, true)
-            c.expect(m.outstandingManualRows.map(\.id).contains("tool.fast-browser-extension"), "the Done screen still lists a skipped row under Still to do")
+            c.expect(m.outstandingManualRows.map(\.id).contains("tool.fast-browser-extension"), "the summary still counts a skipped row as a step left for you")
         }
     },
     Check("an unwaived extension row is not waived, even when ready, and the field is what decides it, never the note") { c in

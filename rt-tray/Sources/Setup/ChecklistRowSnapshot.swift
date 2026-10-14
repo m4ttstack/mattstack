@@ -2,10 +2,10 @@ import AppKit
 import SwiftUI
 import MattstackCore
 
-/// `rt-tray --render-checklist-row-snapshots <out-dir>` renders the checklist
-/// row states the row actions produce (waiting on the admin dialog, the
-/// per-step buttons), light and dark, then exits before any window, status
-/// item, socket or daemon work exists. DEBUG builds only.
+/// `rt-tray --render-checklist-row-snapshots <out-dir>` renders the checklist's
+/// three sections and the row states the row actions produce (waiting on the
+/// admin dialog, the per-step buttons), light and dark, then exits before any
+/// window, status item, socket or daemon work exists. DEBUG builds only.
 enum ChecklistRowSnapshot {
     @MainActor
     static func runIfRequested() -> Bool {
@@ -34,50 +34,64 @@ enum ChecklistRowSnapshot {
         RowAction(type: .run, label: label, verb: ["setup", "apply", "--only", id])
     }
 
+    private static let extensionID = "tool.browser-extension"
+
+    private static let tools: [PlanRow] = [
+        PlanRow(id: "tool.daemon", kind: .tool, title: "Daemon",
+                why: "The daemon watches your repos and backs MRs and notifications.", required: true,
+                status: .missing, detail: "not registered yet", action: step("Register services", "services.register"),
+                recheck: .onActivate),
+        PlanRow(id: extensionID, kind: .tool, title: "Browser extension",
+                why: "Agents drive your browser through this extension.", required: false,
+                optionalNote: "You load this into your browser yourself; Install cannot do it for you.",
+                status: .needsYou, detail: "not loaded yet",
+                action: RowAction(type: .steps, label: "Show steps…", steps: ["Open the extension store", "Add the extension"]),
+                recheck: .onActivate, finishGated: true),
+        PlanRow(id: "tool.proxy", kind: .tool, title: "Local proxy",
+                why: "Serves apps on .localhost/.mattstack domains instead of raw ports.", required: false,
+                optionalNote: "Works without this; apps serve on their ports meanwhile.",
+                status: .missing, detail: "not installed", action: step("Install proxy", "proxy.install"),
+                recheck: .onActivate),
+        PlanRow(id: "tool.shell", kind: .tool, title: "Shell integration",
+                why: "The rtcd alias and PATH precedence come from your shell rc file.", required: false,
+                status: .needsYou, detail: "shell integration not added yet", action: step("Add to shell", "path.link"),
+                recheck: .onChange),
+        PlanRow(id: "pack.acme", kind: .tool, title: "acme pack",
+                why: "Installed by Install for the acme pack.", required: false,
+                status: .error, detail: "plugin install exited 1", action: step("Install plugins", "plugins.install"),
+                recheck: .onChange),
+        PlanRow(id: "tool.git", kind: .tool, title: "Command line tools",
+                why: "git and python3 come from here.", required: true, status: .ready, detail: "git 2.50.1", recheck: .onChange),
+        PlanRow(id: "tool.agents", kind: .tool, title: "Agent runner",
+                why: "Runs the agents that do the work.", required: true, status: .ready, detail: "0.9.2", recheck: .onChange),
+        PlanRow(id: "tool.intercepts", kind: .tool, title: "Intercept shims",
+                why: "Team command intercepts (git, gh, …) only fire once their PATH shims are installed and current.",
+                required: false, status: .ready, detail: "Not needed: your team declares no intercepts", recheck: .onChange),
+    ]
+
+    private static let mac: [PlanRow] = [
+        PlanRow(id: "perm.login-items", kind: .permission, title: "Login Items",
+                why: "Lets mattstack.app start automatically and stay running in the background.",
+                required: true, status: .ready, detail: "Enabled", recheck: .onActivate),
+        PlanRow(id: "perm.disk", kind: .permission, title: "Full Disk Access",
+                why: "Reads your repositories' git state.", required: true, status: .ready, detail: "Granted",
+                action: RowAction(type: .openSettings, label: "Open Settings…", target: "fda"), recheck: .onActivate),
+    ]
+
     private struct Rows: View {
         var body: some View {
-            Form {
-                Section("Your Mac") {
-                    RowView(row: PlanRow(id: "perm.login-items", kind: .permission, title: "Login Items",
-                                         why: "Lets mattstack.app start automatically and stay running in the background.",
-                                         required: true, status: .missing, detail: "Not registered yet",
-                                         action: step("Register services", "services.register"), recheck: .onActivate), isChecking: false) {}
-                }
-                Section("Tools") {
-                    RowView(row: PlanRow(id: "tool.proxy", kind: .tool, title: "Local proxy",
-                                         why: "Serves apps on .localhost/.mattstack domains instead of raw ports.", required: false,
-                                         optionalNote: "Works without this; apps serve on their ports meanwhile.",
-                                         status: .missing, detail: "not installed", action: step("Install proxy", "proxy.install"),
-                                         recheck: .onActivate), isChecking: true,
-                            waiting: NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install").waitingCopy) {}
-                    RowView(row: PlanRow(id: "tool.daemon", kind: .tool, title: "Daemon",
-                                         why: "The daemon watches your repos and backs MRs and notifications.", required: true,
-                                         status: .missing, detail: "not registered yet", action: step("Register services", "services.register"),
-                                         recheck: .onActivate), isChecking: false) {}
-                    RowView(row: PlanRow(id: "tool.shell", kind: .tool, title: "Shell integration",
-                                         why: "The rtcd alias and PATH precedence come from your shell rc file.", required: false,
-                                         status: .needsYou, detail: "shell integration not added yet", action: step("Add to shell", "path.link"),
-                                         recheck: .onChange), isChecking: false) {}
-                    RowView(row: PlanRow(id: "tool.linear-mcp", kind: .tool, title: "Linear MCP",
-                                         why: "Skills that read and update Linear tickets reach them through this MCP server.", required: false,
-                                         optionalNote: "Works without this; only the skills that read Linear tickets need it.",
-                                         status: .missing, detail: "Linear is connected but not added to Claude Code yet",
-                                         action: step("Add to Claude", "linear.mcp"), recheck: .onChange), isChecking: false) {}
-                    RowView(row: PlanRow(id: "pack.acme", kind: .tool, title: "acme pack",
-                                         why: "Installed by Install for the acme pack.", required: false,
-                                         status: .missing, detail: "not installed yet", action: step("Install plugins", "plugins.install"),
-                                         recheck: .onChange), isChecking: false) {}
-                    RowView(row: PlanRow(id: "home.backup", kind: .tool, title: "Home repo backup",
-                                         why: "Confirms whether your settings are backed up anywhere.", required: false,
-                                         status: .needsYou, detail: "no home repo found yet... nothing to back up",
-                                         action: step("Create home repo", "home.init"), recheck: .onActivate), isChecking: false) {}
-                    RowView(row: PlanRow(id: "tool.intercepts", kind: .tool, title: "Intercept shims",
-                                         why: "Team command intercepts (git, gh, …) only fire once their PATH shims are installed and current.",
-                                         required: false, status: .ready, detail: "Not needed: your team declares no intercepts",
-                                         recheck: .onChange), isChecking: false) {}
+            let layout = ChecklistLayout.make([PlanGroup(id: "tools", title: "Tools", rows: tools),
+                                               PlanGroup(id: "mac", title: "Your Mac", rows: mac)],
+                                              finishBlockedBy: [extensionID])
+            let activity = RowActivity(checking: ["tool.proxy"],
+                                       waiting: ["tool.proxy": NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install").waitingCopy])
+            // The second group has settled rows only, so its No action needed card draws open.
+            return VStack(alignment: .leading, spacing: 20) {
+                ForEach(layout.sections) { section in
+                    ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity) { _ in }
                 }
             }
-            .formStyle(.grouped)
+            .padding(20)
             .controlSize(.large)
             .frame(width: SetupWindowController.width)
         }

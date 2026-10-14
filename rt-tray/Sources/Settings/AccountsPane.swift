@@ -7,7 +7,7 @@ struct AccountsPane: View {
     let env: SettingsEnvironment
 
     var body: some View {
-        ChecklistScreen(model: env.readiness, permissions: env.permissions, rt: env.rt, needs: env.needs, scope: .accounts)
+        ChecklistScreen(model: env.readiness, permissions: env.permissions, rt: env.rt, needs: env.needs, presentation: .accounts)
             .task { await env.readiness.refreshUnlessLoading() }
     }
 }

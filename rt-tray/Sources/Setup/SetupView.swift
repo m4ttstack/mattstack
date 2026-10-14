@@ -21,9 +21,29 @@ struct SetupView: View {
                 switch flow.step {
                 case .welcome: WelcomeScreen().transition(pushTransition)
                 case .team: TeamScreen(model: team, showsSolo: flow.entry == .firstRun).transition(pushTransition)
-                case .checklist: ChecklistScreen(model: readiness, permissions: permissions, rt: env.rt, needs: env.needs).transition(pushTransition)
+                case .checklist:
+                    ChecklistScreen(model: readiness, permissions: permissions, rt: env.rt, needs: env.needs,
+                                    presentation: flow.readOnly ? .sidebar(overview: nil, onSkip: nil) : .page(flow.page))
+                        .transition(pushTransition)
                 case .install: InstallScreen(model: install).transition(pushTransition)
-                case .done: DoneScreen(model: done, install: install, readiness: readiness, isOwner: DoneRole.owner(planTeam: readiness.team, choice: team.choice), solo: DoneRole.solo(planTeam: readiness.team, choice: team.choice), onInvite: { NotificationCenter.default.post(name: .rtShowSettingsTeam, object: nil) }, onRetry: { id in install.retry(from: id); flow.jump(to: .install) }).transition(pushTransition)
+                case .done:
+                    ChecklistScreen(
+                        model: readiness, permissions: permissions, rt: env.rt, needs: env.needs,
+                        presentation: .sidebar(
+                            overview: AnyView(SummaryOverview(
+                                model: done, install: install,
+                                isOwner: DoneRole.owner(planTeam: readiness.team, choice: team.choice),
+                                solo: DoneRole.solo(planTeam: readiness.team, choice: team.choice),
+                                onInvite: { NotificationCenter.default.post(name: .rtShowSettingsTeam, object: nil) },
+                                onRetry: { id in install.retry(from: id); flow.jump(to: .install) })),
+                            onSkip: { done.requestSkip($0) },
+                            rowsConfirmed: done.hasConfirmedRows,
+                            recheck: { await done.retryCheck() }))
+                        .task { await done.checkPostInstall() }
+                        .sheet(item: $done.skipTarget) { _ in SkipConfirmSheet(model: done) }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier(AXID.doneScreen)
+                        .transition(pushTransition)
                 }
             }
             .animation(.easeInOut(duration: 0.22), value: flow.step)
@@ -45,14 +65,14 @@ struct SetupView: View {
         // deep link that opens straight into .checklist or .install still
         // loads/starts — onChange alone would silently no-op on first appear.
         .task(id: flow.step) {
-            if flow.step == .checklist {
+            if flow.step == .checklist || flow.step == .done {
                 if !flow.readinessIsVisible { flow.readinessIsVisible = true; readiness.becameVisible() }
-                await readiness.load()
+                if flow.step == .checklist { await readiness.load() }
             } else if flow.readinessIsVisible {
                 flow.readinessIsVisible = false
                 readiness.becameHidden()
             }
-            // A retry started from the Done screen is already running; entering Install must not restart the whole run over it.
+            // A retry started from the summary's Overview is already running; entering Install must not restart the whole run over it.
             if flow.step == .install, flow.mayStartInstall, !install.isRunning { flow.isInstalling = true; install.start() }
         }
         .onChange(of: install.phase) { _, phase in
@@ -62,6 +82,7 @@ struct SetupView: View {
         // The window controller observes only the flow, so the gate is
         // mirrored there for the titlebar's close and minimize buttons.
         .onChange(of: done.finishEnabled, initial: true) { _, open in flow.finishGateOpen = open }
+        .onChange(of: readiness.groups, initial: true) { _, groups in flow.setPages(groups) }
     }
 
     private var pushTransition: AnyTransition {
@@ -69,12 +90,27 @@ struct SetupView: View {
     }
 
     private var header: some View {
-        HStack {
-            Text(flow.headerTitle).font(.title2.weight(.semibold))
-            Spacer()
-            if let indicator = flow.headerIndicator {
-                Text(indicator).font(.caption).foregroundStyle(.secondary)
-                    .accessibilityIdentifier(AXID.stepIndicator)
+        VStack(spacing: 10) {
+            HStack {
+                Text(flow.headerTitle).font(.title2.weight(.semibold))
+                Spacer()
+                if let indicator = flow.headerIndicator {
+                    Text(indicator).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier(AXID.stepIndicator)
+                }
+            }
+            if let progress = flow.progress {
+                HStack(spacing: 4) {
+                    ForEach(1...progress.total, id: \.self) { i in
+                        Capsule().fill(i < progress.current ? Color.green : i == progress.current ? Color.accentColor : Color.primary.opacity(0.12))
+                            .frame(height: 4)
+                    }
+                }
+                .accessibilityElement()
+                // Without the static-text trait macOS reports this element with an empty value.
+                .accessibilityAddTraits(.isStaticText)
+                .accessibilityIdentifier(AXID.progress)
+                .accessibilityValue(Text("\(progress.current) of \(progress.total)"))
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 14)
@@ -89,9 +125,6 @@ struct SetupView: View {
                 Button("Back") { flow.back() }
                     .disabled(!flow.canGoBack)
                     .accessibilityIdentifier(AXID.back(screenName))
-            }
-            if flow.step == .checklist, flow.mayStartInstall, readiness.limitedModeAvailable {
-                Button("Continue in limited mode") { flow.next() }.accessibilityIdentifier(AXID.continueLimited)
             }
             Button(flow.continueTitle) { Task { await advance() } }
                 .keyboardShortcut(.defaultAction)
@@ -108,7 +141,10 @@ struct SetupView: View {
         switch flow.step {
         case .welcome: return true
         case .team: return team.canContinue
-        case .checklist: return readiness.canInstall
+        case .checklist:
+            guard let page = flow.page, let group = readiness.groups.first(where: { $0.id == page }) else { return false }
+            return PageGate.continueEnabled(blockers: PageGate.blockers(in: group).count,
+                                            isLast: flow.isLastPage, canInstall: readiness.canInstall)
         case .install: return install.phase == .succeeded
         case .done: return done.finishEnabled
         }

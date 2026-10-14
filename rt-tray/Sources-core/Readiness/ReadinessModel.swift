@@ -87,12 +87,6 @@ public final class ReadinessModel: ObservableObject {
         .resolve(hasLoadedPlan: hasLoadedPlan, isLoading: isLoading, lastError: lastError)
     }
 
-    /// Every required row ready, at least one optional row (permission or
-    /// otherwise) not ready — a denied optional permission counts.
-    public var limitedModeAvailable: Bool {
-        canInstall && allRows.contains { !$0.required && $0.status != .ready }
-    }
-
     /// The rows Finish waits on, in plan order.
     public var finishBlockedRows: [PlanRow] { finishBlockedBy.compactMap { row($0) } }
 
@@ -103,7 +97,7 @@ public final class ReadinessModel: ObservableObject {
     /// `optionalNote` opens with "works without" is a supported end state
     /// rather than an obligation, so it is excluded even when its status and
     /// action otherwise qualify. A row currently blocking Finish is excluded
-    /// too: the Done screen lists it in its own section, not twice.
+    /// too: the summary's headline counts it as a blocker, not twice.
     public var outstandingManualRows: [PlanRow] {
         allRows.filter { row in
             guard !row.required, row.status != .ready, row.status != .skipped, !finishBlockedBy.contains(row.id) else { return false }
@@ -230,7 +224,7 @@ public final class ReadinessModel: ObservableObject {
     /// its own plan.canInstall is a hard veto — never enable Install just
     /// because every visible row happens to look ready.
     private func recomputeEnablement() {
-        requiredMissing = allRows.filter { $0.required && $0.status != .ready }.map(\.id)
+        requiredMissing = allRows.filter(ChecklistSorting.blocksInstall).map(\.id)
         canInstall = planCanInstall && requiredMissing.isEmpty
     }
 }
