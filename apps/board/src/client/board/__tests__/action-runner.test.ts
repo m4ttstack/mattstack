@@ -179,6 +179,33 @@ test("runOne ask prefers the server's refusal text, and says when it queued", as
   );
 });
 
+test("runOne resolve-latch resolves the reviewer's latch thread and reloads fresh", async () => {
+  const target = {
+    ...mr(7),
+    rtRepo: 'gitlab.example.com/acme/webapp',
+    author: { username: 'rae' },
+  } as BoardMR;
+  const req = {
+    kind: 'resolve-latch',
+    reviewer: 'kim',
+    discussionId: 'd1',
+  } as const;
+  const a = fakeDeps();
+  await runOne(req, target, a.deps);
+  expect(a.events).toEqual([
+    "toast asking kim's agent to re-review !7 through the MR thread…",
+    'post /discussions/resolve {"repo":"gitlab.example.com/acme/webapp","iid":7,"discussionId":"d1","author":"rae","resolved":true}',
+    "done asked kim's agent to re-review !7 through the MR thread",
+    'reload true',
+  ]);
+  const b = fakeDeps(() => fail(403, 'not your thread'));
+  await runOne(req, target, b.deps);
+  expect(b.events.slice(-2)).toEqual([
+    "fail couldn't resolve kim's latch on !7: not your thread",
+    'reload true',
+  ]);
+});
+
 test('a delivered ask settles its pending toast as asked', async () => {
   const { deps, events } = fakeDeps(() => ok({}));
   await runOne({ kind: 'ask', ask: 'review', reviewer: 'kim' }, mr(7), deps);

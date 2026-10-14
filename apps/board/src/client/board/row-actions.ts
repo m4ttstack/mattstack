@@ -64,6 +64,7 @@ export type ActionRequest =
       reviewer?: string;
       note?: string;
     }
+  | { kind: 'resolve-latch'; reviewer: string; discussionId: string }
   | { kind: 'post-slack' }
   | { kind: 'copy' }
   | { kind: 'note' }
