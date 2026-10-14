@@ -79,9 +79,20 @@ reviewer is the envelope's sender.
 
 - **Author's board:** as today (reviewing line, then the done verdict line).
 - **Any other board:** only a fresh `queued`/`reviewing` state renders, as
-  "<reviewer> is reviewing…". `done`, `error` and stale states render no
-  line, so the row falls back to its normal reviewer line (launch verb,
-  "author answered you", "changes requested" and the rest).
+  "<reviewer> is reviewing…" in tone `quiet` (no spinner), with the existing
+  `view-peer` verb. `quiet`, not `work`: `needs-me.ts` `lineNeed` reads a
+  `work` line as busy, which would drop the MR from this member's Needs me
+  tab even when they are the assigned reviewer. Needs me is unchanged.
+  `done`, `error` and stale states render no line, so the row falls back to
+  its normal reviewer line (launch verb, "author answered you", "changes
+  requested" and the rest).
+
+"The author's board" is `isOwnMr(mr, seat)`. The seat is null on an `all`
+board or when the GitLab token user does not match the seat; those boards
+follow the non-author rule, accepted since an `all` board relays nothing.
+
+The client's `PeerReviewInfo` (`src/client/types.ts`) gains the same
+optional `receivedAt`.
 
 ### 3. Staleness
 
@@ -103,7 +114,7 @@ from a reviewer other than this board's member.
 |---|---|
 | Interactive `review` / `re-review` launch through `launch()` in `Board.tsx` | Confirm first |
 | `resume-review`, `intent: 'focus'`, redo (`handleRedo`) | Launch as today, no confirm (it is this board's own run) |
-| Bulk launch (`action-runner.ts` `bulkPlan` → `runMany`) | Drop the MR at target selection, before `runMany`; it counts as skipped, not failed, and the summary toast names it: "skipped !N, <reviewer> is reviewing" |
+| Bulk launch (`action-runner.ts` `bulkPlan` → `runMany`) | Drop the MR at target selection, before `runMany`, tracked as its own `presenceSkipped` list, separate from the existing "N didn't need it" count. The summary toast names each one ("skipped !N, <reviewer> is reviewing"), and still shows when every selected MR was dropped (the empty-`targets` early return in `runMany` must not swallow it) |
 | Accepting an ask (`acceptAsk`, `src/peer/ask-actions.ts`) and triage auto-dispatch (`src/triage/nudge.ts`) | Launch as today; the author asked this person directly |
 
 The confirm reads "<reviewer> is already reviewing this. Review anyway?" and
@@ -139,12 +150,16 @@ fans out, and both reviewers show.
 - Inbox: a `review-state` from a non-author peer stores `receivedAt` and
   leaves this board's sent nudges untouched.
 - `peerLines`: author board unchanged; non-author board shows fresh
-  reviewing only, and done/error/stale fall through to the reviewer line.
+  reviewing only, in tone `quiet`, and done/error/stale fall through to the
+  reviewer line.
+- Needs me: an MR where this member is the assigned reviewer stays in Needs
+  me while a peer is reviewing it.
 - Staleness: fresh vs. 2h-old `receivedAt`; a legacy state without
   `receivedAt`.
 - Launch: interactive review prompts; resume, focus and redo do not; bulk
-  drops the MR and reports it as skipped; no peer review launches straight
-  through.
+  drops the MR into `presenceSkipped`, apart from "didn't need it", and the
+  toast shows even when every target was dropped; no peer review launches
+  straight through.
 - UI: a fixture board with a peer review in `reviewing`, checked in Fast
   Browser in light and dark, including the confirm and the bulk toast.
 
