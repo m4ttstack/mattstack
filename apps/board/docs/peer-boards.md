@@ -9,8 +9,12 @@ What it adds:
 
 - **Live peer badges.** When a peer's board reports a review going into or out
   of flight on one of your MRs, your row picks up the badge.
-- **Request re-review.** A row action on your own MR ("request re-review from
-  `<reviewer>`") asks that reviewer's board directly.
+- **Request re-review.** A row action on your own MR ("ask `<reviewer>`'s
+  agent to re-review") asks that reviewer's board directly. When the
+  switchboard has heard nothing from that reviewer but their re-review latch
+  is open on the MR, the same action resolves the latch thread instead, and
+  their board picks it up on its next triage pass. It then shows "asked in the
+  MR thread" until their board answers in the thread.
 - **Request review.** "request review from…" on your own MR opens a picker of
   everyone not already engaged with it whose board takes asks, behind one
   search over names and teams. Picking someone opens the ask confirm, with an
