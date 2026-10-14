@@ -66,4 +66,5 @@ like any other repo.
 
 CI runs the tests and checks on every pull request. This repo is public, so
 use neutral placeholders such as `acme`, `ACME-1234` and `gitlab.example.com`
-instead of real company, customer or internal names.
+instead of any real company, customer or internal names that may be associated with your work data.
+
