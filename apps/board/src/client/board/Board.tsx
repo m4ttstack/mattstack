@@ -1024,6 +1024,8 @@ export function Board() {
     () => ({
       post: (path, payload) => postAction(path, payload),
       launch: guardedLaunch,
+      presence: (flow, mr) =>
+        presenceConfirmFor(flow, {}, mr, seatRef.current, Date.now()),
       addToast,
       startToast,
       reload: fresh => void load(fresh),
@@ -1966,7 +1968,12 @@ export function Board() {
                     lane,
                     count: entry.targets.length,
                     prior: entry.redoCount ?? entry.targets.length,
-                    run: () => void runBulk(entry, opts, runner),
+                    run: () =>
+                      void runBulk(entry, opts, {
+                        ...runner,
+                        launch,
+                        presence: () => null,
+                      }),
                   });
                   return undefined;
                 }

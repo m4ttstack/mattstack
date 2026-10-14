@@ -43,6 +43,7 @@ function fakeDeps(
       events.push(`launch ${flow} !${m.iid} ${JSON.stringify(opts)}`);
       return ok();
     },
+    presence: () => null,
     addToast: t => events.push(`toast ${t}`),
     startToast: t => {
       events.push(`toast ${t}`);
@@ -267,6 +268,7 @@ test('runMany keeps at most four requests in flight', async () => {
       return ok();
     },
     launch: async () => ok(),
+    presence: () => null,
     addToast: () => {},
     startToast: () => ({ done: () => {}, fail: () => {} }),
     reload: () => {},
@@ -403,4 +405,70 @@ test('an ask carries its note to /nudge', async () => {
   expect(events).toContain(
     `post /nudge {"mrUrl":"${mr(7).webUrl}","iid":7,"reviewer":"mira","kind":"review","note":"mostly the retry path"}`
   );
+});
+
+test('a bulk review skips MRs a peer is reviewing and names them', async () => {
+  const { deps, events } = fakeDeps();
+  deps.presence = (_flow, m) => (m.iid === 2 ? 'mira' : null);
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'review' },
+      targets: [mr(1), mr(2)],
+      selected: 2,
+    },
+    {},
+    deps
+  );
+  expect(events).toEqual([
+    'launch review !1 {"quiet":true}',
+    'toast review started on !1 · skipped !2, mira is reviewing',
+    'reload false',
+  ]);
+});
+
+test('the toast still shows when every selected MR was skipped for presence', async () => {
+  const { deps, events } = fakeDeps();
+  deps.presence = () => 'mira';
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'review' },
+      targets: [mr(1)],
+      selected: 1,
+    },
+    {},
+    deps
+  );
+  expect(events).toEqual(['toast skipped !1, mira is reviewing']);
+});
+
+test("presence skips stay out of the didn't-need-it count", async () => {
+  const { deps, events } = fakeDeps();
+  deps.presence = (_flow, m) => (m.iid === 2 ? 'mira' : null);
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'review' },
+      targets: [mr(1), mr(2)],
+      selected: 3,
+    },
+    {},
+    deps
+  );
+  expect(events[1]).toBe(
+    "toast review started on !1 · 1 didn't need it · skipped !2, mira is reviewing"
+  );
+});
+
+test('presence never filters a respond bulk run', async () => {
+  const { deps, events } = fakeDeps();
+  deps.presence = () => 'mira';
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'respond' },
+      targets: [mr(1)],
+      selected: 1,
+    },
+    {},
+    deps
+  );
+  expect(events[0]).toBe('launch respond !1 {"quiet":true}');
 });

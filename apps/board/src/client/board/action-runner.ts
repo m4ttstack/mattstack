@@ -30,6 +30,8 @@ export interface RunnerDeps {
     mr: BoardMR,
     opts: LaunchOpts
   ) => Promise<ActionResult | undefined>;
+  /** The peer already reviewing this MR, for flows that would double it. */
+  presence: (flow: LaunchFlow, mr: BoardMR) => string | null;
   addToast: (text: string) => void;
   startToast: (text: string) => ToastHandle;
   reload: (fresh: boolean) => void;
@@ -316,11 +318,19 @@ export async function runMany(
   req: RunnableRequest,
   targets: readonly BoardMR[],
   deps: RunnerDeps,
-  skipped = 0
+  skipped = 0,
+  presenceSkipped: ReadonlyArray<{ mr: BoardMR; reviewer: string }> = []
 ): Promise<void> {
+  const presenceNote = presenceSkipped
+    .map(s => `skipped !${s.mr.iid}, ${s.reviewer} is reviewing`)
+    .join(', ');
   // A stale picker snapshot (runBulk's pickTargets.get(pick) ?? []) can reach
-  // here empty; an empty run has nothing to toast or reload.
-  if (targets.length === 0) return;
+  // here empty; an empty run has nothing to reload, but its presence note
+  // still has to be said.
+  if (targets.length === 0) {
+    if (presenceNote) deps.addToast(presenceNote);
+    return;
+  }
   const plan = bulkPlan(req);
   const results = await mapLimit(targets, BULK_CONCURRENCY, mr =>
     plan.run(mr, deps)
@@ -342,6 +352,7 @@ export async function runMany(
     );
   }
   if (skipped > 0) parts.push(`${skipped} didn't need it`);
+  if (presenceNote) parts.push(presenceNote);
   deps.addToast(parts.join(' · '));
   deps.reload(plan.fresh);
 }
@@ -370,6 +381,18 @@ export function runBulk(
       deps,
       skipped(targets)
     );
+  }
+  if (req.kind === 'launch') {
+    const presenceSkipped: Array<{ mr: BoardMR; reviewer: string }> = [];
+    const targets = entry.targets.filter(m => {
+      const reviewer =
+        req.flow === 'review' || req.flow === 're-review'
+          ? deps.presence(req.flow, m)
+          : null;
+      if (reviewer) presenceSkipped.push({ mr: m, reviewer });
+      return !reviewer;
+    });
+    return runMany(req, targets, deps, skipped(entry.targets), presenceSkipped);
   }
   return runMany(req, entry.targets, deps, skipped(entry.targets));
 }
