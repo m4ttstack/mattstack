@@ -36,74 +36,117 @@ a second review asks for confirmation first. Nothing leaves the org.
 
 ### 1. Addressing: every org member, one envelope each
 
-A new helper, `reviewPresenceRecipients(orgTeams, self, author, peers)`, in
-`src/peer/`, returns the canonical usernames to notify:
+**Recipient source.** A new config field, `orgMembers: string[]`, holds the
+canonical usernames of every entry in `mattstack.roster`, whatever its
+`teams` (teamless members and orgs with no teams included). `config.orgTeams`
+is not used: `orgTeamsFromStore` drops members with no team.
 
-- the union of every `orgTeams` member, plus the author (so an author outside
-  the roster still gets today's envelope);
-- minus this board's own `defaultMember`;
-- intersected with the switchboard's `peers()` list when it answers, so
-  un-peered members are not sent envelopes the relay would 4xx and the outbox
-  would drop and log. When `peers()` answers null, no intersection.
+**Enrolled list.** `SwitchboardClient` gains `enrolled(): Promise<string[] |
+null>`, returning the relay's `/peers` `peers` field (every enrolled board).
+`peers()` is unchanged; it returns `askable`, which drops anyone with asks
+off and must not be used here. No relay change.
 
-The review sync and the closed-pane report each enqueue one `review-state` per
-recipient with the same payload. Only the author's copy carries `nudgeId`
-(the ask echo is the author's contract). `'*'` is never used.
+**Helper.** `reviewPresenceRecipients({ orgMembers, self, author, enrolled })`
+in a new pure module `src/peer/presence.ts` (no `bun:sqlite`, `fs` or node
+imports, so the client can import it too) returns:
 
-The own-MR guard and `config.defaultMember === 'all'` guard stay as they are:
-neither relays anything.
+- the author, always and unfiltered (today's envelope, unchanged);
+- plus every `orgMembers` entry other than `self` and the author,
+  intersected with `enrolled` when it answers; when `enrolled` is null, no
+  intersection (un-enrolled members cost one logged outbox drop each).
 
-### 2. Receiving
+**Senders.** The review sync in `src/server.ts` enqueues one `review-state`
+per recipient with the same payload; only the author's copy carries
+`nudgeId` (the ask echo is the author's contract). The closed-pane report
+gets a new `ClosedPaneIO` dependency, `recipients(author)`, fetched alongside
+executors and authors, and fans out the same way. All of one MR's envelopes
+and its run marker commit in one transaction. `'*'` is never used.
 
-No inbox change. A non-author board stores the state as a `PeerReviewState`
-and the existing prune drops it when the MR is not on that board. The sent
-nudge calls are no-ops there, since a non-author board's sent nudges on a
-teammate's MR are respond asks whose reviewer is the author, not the sender.
+The own-MR guard and the `config.defaultMember === 'all'` guard stay as they
+are: neither relays anything.
+
+### 2. Receiving and rendering
+
+Storage is unchanged except that `PeerReviewState` gains `receivedAt` (the
+envelope's relay clock, which `inbox.ts` already has); a state written
+before this field exists reads `receivedAt` as `updatedAt`. The existing
+prune drops states for MRs not on the board. The sent-nudge calls are no-ops
+on a non-author board: its sent nudges on a teammate's MR are respond asks
+whose reviewer is the author, and the inbox only resolves a nudge whose
+reviewer is the envelope's sender.
+
+`peerLines` renders by whether this board is the MR author's:
+
+- **Author's board:** as today (reviewing line, then the done verdict line).
+- **Any other board:** only a fresh `queued`/`reviewing` state renders, as
+  "<reviewer> is reviewing…". `done`, `error` and stale states render no
+  line, so the row falls back to its normal reviewer line (launch verb,
+  "author answered you", "changes requested" and the rest).
 
 ### 3. Staleness
 
-A `queued`/`reviewing` peer state whose `updatedAt` is more than 2 hours old
-is stale: `peerLines` does not show it as reviewing, and it does not trigger
-the launch warning. The cutoff is one exported constant,
-`PEER_REVIEW_STALE_MS`, shared by server and client. This covers a reviewer
-board that goes offline mid-review, which no closed-pane report reaches.
+A `queued`/`reviewing` state whose `receivedAt` is more than 2 hours old is
+stale: it renders no line on any board (the author's included, which today
+shows it forever) and does not trigger the launch warning.
+`PEER_REVIEW_STALE_MS` lives in `src/peer/presence.ts` with an
+`isFreshPeerReview(state, now)` predicate; only the client uses it. Judging
+on `receivedAt` keeps the rule that freshness is judged on the relay's
+clock. This covers a reviewer board that goes offline mid-review, which no
+closed-pane report reaches.
 
 ### 4. Launch warning
 
-`Board.tsx`'s review launch checks the MR for a fresh `queued`/`reviewing`
-peer state from someone other than this board's member. If one exists:
+A peer is "reviewing" an MR when it has a fresh `queued`/`reviewing` state
+from a reviewer other than this board's member.
 
-- an interactive launch opens a confirm, "<reviewer> is already reviewing
-  this. Review anyway?", built on the existing confirm dialog pattern
-  (`AskConfirmDialog`); confirming launches as today, cancelling does nothing;
-- a quiet launch skips that MR and does not prompt.
+| Path | Behaviour when a peer is reviewing |
+|---|---|
+| Interactive `review` / `re-review` launch through `launch()` in `Board.tsx` | Confirm first |
+| `resume-review`, `intent: 'focus'`, redo (`handleRedo`) | Launch as today, no confirm (it is this board's own run) |
+| Bulk launch (`action-runner.ts` `bulkPlan` → `runMany`) | Drop the MR at target selection, before `runMany`; it counts as skipped, not failed, and the summary toast names it: "skipped !N, <reviewer> is reviewing" |
+| Accepting an ask (`acceptAsk`, `src/peer/ask-actions.ts`) and triage auto-dispatch (`src/triage/nudge.ts`) | Launch as today; the author asked this person directly |
 
+The confirm reads "<reviewer> is already reviewing this. Review anyway?" and
+follows `RedoConfirmDialog`'s shape (a pending run, confirm or cancel, no
+note field). Confirming launches as today; cancelling does nothing.
 Launching anyway needs no extra signal: the new review's own `review-state`
-broadcasts, and both reviewers show.
+fans out, and both reviewers show.
 
 ### 5. Compatibility
 
 - An older receiving board already handles `review-state`, so it shows the
-  line from an updated sender.
+  line from an updated sender. It has no stale cutoff or author-only done
+  rule, so a dead reviewer's line or a done verdict stays on it until it
+  updates.
 - An older sender still addresses only the author, so its reviews stay
   invisible to third parties until it updates.
+- A board from before the sender gate on nudge resolution (#653) could have
+  a third party's `review-state` confirm or finish its respond ask. Accepted:
+  every board in the org runs a newer build.
 - The relay is unchanged.
 
 ## Testing
 
-- `reviewPresenceRecipients`: union across teams, author included when off
-  roster, self excluded, peers intersection, null peers.
+- `reviewPresenceRecipients`: teamless members included, self excluded,
+  author always included even when absent from `enrolled`, members with asks
+  off still included, null `enrolled`.
+- `orgMembers` built from a roster with teamed, teamless and no-team entries.
+- `enrolled()` reads `peers`, not `askable`.
 - Review sync enqueues one envelope per recipient; only the author's carries
   `nudgeId`; own-MR and `defaultMember: "all"` still enqueue nothing.
-- Closed-pane report fans out the same way and still reports once per run.
-- Inbox: a `review-state` from a non-author peer leaves this board's sent
-  nudges untouched.
-- Staleness: fresh vs. 2h-old `reviewing` in `peerLines` and the warn
-  predicate.
-- Launch: interactive launch with a fresh peer review prompts; quiet launch
-  skips; no peer review launches straight through.
+- Closed-pane report fans out through `recipients(author)`, commits envelopes
+  and marker together, and still reports once per run.
+- Inbox: a `review-state` from a non-author peer stores `receivedAt` and
+  leaves this board's sent nudges untouched.
+- `peerLines`: author board unchanged; non-author board shows fresh
+  reviewing only, and done/error/stale fall through to the reviewer line.
+- Staleness: fresh vs. 2h-old `receivedAt`; a legacy state without
+  `receivedAt`.
+- Launch: interactive review prompts; resume, focus and redo do not; bulk
+  drops the MR and reports it as skipped; no peer review launches straight
+  through.
 - UI: a fixture board with a peer review in `reviewing`, checked in Fast
-  Browser in light and dark, including the confirm.
+  Browser in light and dark, including the confirm and the bulk toast.
 
 ## Out of scope
 
