@@ -4,6 +4,7 @@
  * at call time; a passing file goes up as one multipart POST with the same
  * token and base URL the other GitLab verbs use.
  */
+import { createHash } from "crypto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -162,6 +163,31 @@ describe("mr:upload", () => {
     if (!res.ok) expect(res.error).toContain("markdown");
   });
 
+  test("an imported raw capture uploads nothing without a runId", async () => {
+    writeFileSync(join(repoPath, "shot.c1.capture.json"), JSON.stringify({ source: "import" }));
+    const h = harness({ repoPath });
+    const res = await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "shot.c1.png") });
+    expect(res).toEqual({ ok: false, error: "shot.c1.png is the unredacted original of an imported ticket image; upload the composed board instead" });
+    expect(h.calls.length).toBe(0);
+  });
+
+  test("an unconfirmed gated board is refused before any request", async () => {
+    writeFileSync(join(repoPath, "board.spec.json"), JSON.stringify({ panels: [{ capture: "board.c1.capture.json", marks: [{ redact: "email" }] }] }));
+    writeFileSync(join(repoPath, "board.c1.capture.json"), JSON.stringify({ source: "import" }));
+    const board = png(repoPath, "board.png");
+    const hex = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
+    const crop = new Uint8Array([4, 5]);
+    writeFileSync(join(repoPath, "board.redact-1.png"), crop);
+    writeFileSync(join(repoPath, "board.redactions.json"), JSON.stringify({
+      schemaVersion: "compose-redactions/1", board: "board.png", boardSha256: hex(PNG),
+      redactions: [{ crop: "board.redact-1.png", sha256: hex(crop), panel: 0, confirmed: false }],
+    }));
+    const h = harness({ repoPath });
+    const res = await h.handlers["mr:upload"]({ repoName: REPO, path: board });
+    expect(res).toEqual({ ok: false, error: "board.png has a redaction not yet confirmed; show each crop at the redaction gate, run fast-browser compose --confirm after a yes, and copy the confirmed record beside the board" });
+    expect(h.calls.length).toBe(0);
+  });
+
   describe("with runId", () => {
     function record(value: object | string | null) {
       return { runEvidence: (id: string) => (id === "run-1" ? { found: true as const, evidence: value === null || typeof value === "string" ? value : JSON.stringify(value) } : { found: false as const }) };
@@ -228,6 +254,25 @@ describe("mr:upload", () => {
       const h = harness({ repoPath, ...record(value) });
       expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "ba.png"), runId: "run-1" })).ok).toBe(true);
       expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "b.png"), runId: "run-1" })).ok).toBe(false);
+    });
+
+    test("a pair board uploads and both raw captures are refused", async () => {
+      const value = {
+        v: 2,
+        cases: [{
+          id: "c", label: "C",
+          before: { path: join(repoPath, "before.c1.png"), annotated: join(repoPath, "pair.png"), caption: "before" },
+          after: { path: join(repoPath, "after.c1.png"), annotated: join(repoPath, "pair.png"), caption: "after" },
+        }],
+      };
+      const h = harness({ repoPath, ...record(value) });
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "pair.png"), runId: "run-1" })).ok).toBe(true);
+      expect(h.calls.length).toBe(1);
+      for (const [raw, side] of [["before.c1.png", "before"], ["after.c1.png", "after"]] as const) {
+        const res = await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, raw), runId: "run-1" });
+        expect(res).toEqual({ ok: false, error: `${raw} is the raw capture for case "c" ${side}; upload its annotated image pair.png instead` });
+      }
+      expect(h.calls.length).toBe(1);
     });
 
     test("without runId the record is never read", async () => {

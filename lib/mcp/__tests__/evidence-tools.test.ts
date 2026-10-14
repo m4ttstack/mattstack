@@ -729,6 +729,18 @@ describe("evidence_attach", () => {
     expect((await run()).ups).toBe(1);
   });
 
+  test("reuse: a board the redaction check would refuse is sent to the daemon, never reused", async () => {
+    const { board, evidence } = boardRecord();
+    const dir = evidenceDir("retry-badge");
+    put("badge.spec.json", JSON.stringify({ panels: [{ capture: "badge.c1.capture.json", marks: [{ redact: {} }] }] }), dir);
+    put("badge.c1.capture.json", JSON.stringify({ source: "import" }), dir);
+    const prior = serializeUploads({ [realpathSync(board)]: { sha256: sha256Of(board), project: IDENT, url: "https://gitlab.com/acme/web/uploads/old/badge.png", markdown: "![badge](/uploads/old/badge.png)", at: 1 } });
+    const { deps, calls } = makeDeps({ fields: { evidence, "evidence-uploads": prior } });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(uploads(calls).map((c) => c.payload.path)).toEqual([board]);
+    expect(body.uploaded.every((u) => !u.reused)).toBe(true);
+  });
+
   test("a FIFO or an oversize file in the record is never read: it goes to the daemon unhashed and is not remembered", async () => {
     const dir = evidenceDir("retry-badge");
     mkdirSync(dir, { recursive: true });

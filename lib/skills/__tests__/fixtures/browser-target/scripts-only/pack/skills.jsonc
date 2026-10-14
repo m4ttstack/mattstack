@@ -1,0 +1,7 @@
+{
+  "bindings": {
+    "mattstack:stage-evidence": { "domain": "acme:acme-scripts" },
+    "mattstack:stage-ship": { "domain": "acme:acme-scripts-ship" },
+    "mattstack:ship": { "domain": "acme:acme-scripts-ship" }
+  }
+}

@@ -19,15 +19,18 @@ the evidence section by hand. A `<slug> spent?` diamond is yes when the
   (`^[a-z0-9][a-z0-9-]{0,63}$`), `label` what a reader sees. A case has a
   before, an after, or both: one image each, or a `{light, dark}` pair
   (`theme` on each) when the plan or the domain says the theme matters.
-- Every image is annotated (a board plus a caption naming the marks) or
-  waived (its own reason, or its case's, which covers only the images the
-  case holds when written).
+- Every image is annotated (a composed board plus a caption, the claim the
+  board proves) or waived (its own reason, or its case's, which covers only
+  the images the case holds when written). One board may be the
+  `annotated` of several images: a pair board covers its case's before and
+  after.
 - `transcript` (a text file, never uploaded or waived) and `url` (where
   the ticket shows the broken state) are run-level; a run with no image
   is recorded the same way.
-- Captures stay where they were written. `evidence_record` copies each
-  into `~/.mattstack/work/<run id>/evidence/`: draw on and name files by
-  the paths in its returned `value`, never the source.
+- Captures stay where they were written. `evidence_record` copies each,
+  with its board's whole bundle, into `~/.mattstack/work/<run id>/evidence/`:
+  brief, compose and name files by the paths in its returned `value`,
+  never the source.
 - A file in the run folder is never rewritten: a recapture lands in a
   content folder beside it.
 
@@ -57,7 +60,7 @@ digraph record_evidence {
     cover_rounds_spent -> annotate_or_waive [label="no"];
     annotate_or_waive -> annotate_outcome;
     annotate_outcome -> evidence_record [label="Ready: each image `uncovered` lists, by its path there, with its cover and a new case's label"];
-    annotate_outcome -> record_held [label="Waiver held"];
+    annotate_outcome -> record_held [label="Waiver held, or Redaction held"];
     annotate_outcome -> record_failed [label="Waiver openings spent"];
     run_budget_retries -> record_retries_spent;
     record_retries_spent -> evidence_record [label="no: the same call again"];
@@ -79,15 +82,16 @@ failed fails the verb, naming the images or quoting the error.
 
 For each image `evidence_record` lists in `uncovered` (`{case, slot,
 theme?, path, why}`); images that need the gate in one pass share one
-opening. Waiver held is the verb's hold path; Waiver openings spent fails
-the verb, naming the images.
+opening. Waiver held and Redaction held are the verb's hold path; Waiver
+openings spent fails the verb, naming the images.
 
 ```dot
 digraph annotate_or_waive {
     image_needs_cover [label="Image needs cover" shape=ellipse];
-    nothing_to_mark [label="Nothing selected, a video, or nothing worth marking?" shape=diamond];
-    draw_marks [label="Draw the marks beside the value copy" shape=box];
-    drawn [label="Drawn?" shape=diamond];
+    nothing_to_mark [label="Nothing selected, a video, nothing worth marking, or the domain says it goes up as shot?" shape=diamond];
+    compose_board [label="Compose the board (browser-evidence)" shape=box];
+    drawn [label="Compose outcome?" shape=diamond];
+    redaction_held [label="Redaction held" shape=doublecircle];
     run_budget_draw [label="run_budget {runDb, key: evidence:draw-failures:<case>/<slot>[/<theme>], limit: 1, stage}" shape=plaintext];
     draw_failures_spent [label="draw-failures spent?" shape=diamond];
     write_caption [label="Write the caption" shape=box];
@@ -101,15 +105,16 @@ digraph annotate_or_waive {
     ready [label="Ready" shape=doublecircle style=filled fillcolor=lightgreen];
 
     image_needs_cover -> nothing_to_mark;
-    nothing_to_mark -> draw_marks [label="no"];
+    nothing_to_mark -> compose_board [label="no"];
     nothing_to_mark -> stop_self_waive [label="tempted to keep the base unmarked"];
     stop_self_waive -> run_budget_waiver;
-    draw_marks -> drawn;
-    drawn -> write_caption [label="yes"];
-    drawn -> run_budget_draw [label="no"];
-    drawn -> run_budget_waiver [label="no, after Annotate it after all"];
+    compose_board -> drawn;
+    drawn -> write_caption [label="Board ready"];
+    drawn -> run_budget_draw [label="Not drawn"];
+    drawn -> run_budget_waiver [label="Not drawn, after Annotate it after all"];
+    drawn -> redaction_held [label="Held at evidence-redaction"];
     run_budget_draw -> draw_failures_spent;
-    draw_failures_spent -> draw_marks [label="no: one retry"];
+    draw_failures_spent -> compose_board [label="no: one retry"];
     {nothing_to_mark draw_failures_spent} -> run_budget_waiver [label="yes"];
     write_caption -> ready;
     run_budget_waiver -> waiver_openings_spent;
@@ -117,23 +122,31 @@ digraph annotate_or_waive {
     waiver_openings_spent -> waiver_openings_exhausted [label="yes"];
     gate_evidence_waiver -> waiver_answer;
     waiver_answer -> ready [label="proceed: a reason"];
-    waiver_answer -> draw_marks [label="proceed: Annotate it after all"];
+    waiver_answer -> compose_board [label="proceed: Annotate it after all"];
     waiver_answer -> run_budget_waiver [label="proceed with neither"];
     waiver_answer -> waiver_held [label="hold"];
 }
 ```
 
-### Draw the marks beside the value copy
+### Compose the board (browser-evidence)
 
-The domain's method, else the `annotating-screenshots` skill. Mark what a
-reviewer must see (the changed value, the control, the missing element)
-in `<name>-annotated.<ext>` beside the image's `value` path. A gate that
-asked which marks to draw decides them; else draw the ones you propose.
+Every board comes from browser-evidence's `Draw the boards`: an image
+taken by another method (a script capture, a screenshot the user
+provides) is an `import:` brief of its `value` path. A gate that asked
+which marks to draw (`evidence-attach`, a domain form) decides the brief's
+`point at` lines; else browser-evidence's Labels rule proposes them. The
+board is `<stem>.png` in `~/.fast-browser/screenshots/`, never a
+`-annotated` copy, and it goes on the image as `annotated`. An image the
+domain says goes up as shot takes the yes edge to the waiver question,
+with the domain's reason as the recommended reason.
+
+`Not drawn` is a draw failure, whatever its reason; `Held at
+evidence-redaction` is Redaction held.
 
 ### Write the caption
 
-One line naming what each mark points at ("Red box: the badge reads 3"),
-on the image as `caption`.
+The brief's `claim` is the `caption` of every image the board shows; no
+other caption is written.
 
 ### Gate evidence-waiver (below)
 
@@ -176,6 +189,10 @@ digraph attach_evidence {
     needs_rerecord [label="Iterate needs a re-record?" shape=diamond];
     rerecord_images [label="Re-record the images through Record the evidence" shape=box];
     rerecord_outcome [label="Re-record outcome?" shape=diamond];
+    run_budget_repair [label="run_budget {runDb, key: evidence:redaction-repairs:<stem>, limit: 1, stage}" shape=plaintext];
+    repairs_spent [label="redaction-repairs spent?" shape=diamond];
+    repair_board [label="Repair the board's redaction record (browser-evidence)" shape=box];
+    repair_outcome [label="Repair outcome?" shape=diamond];
     gh_pr_view [label="gh pr view <n> --json body" shape=plaintext];
     evidence_attach_body [label="evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, description: <the body>}" shape=plaintext];
     description_returned [label="description returned?" shape=diamond];
@@ -190,7 +207,15 @@ digraph attach_evidence {
     forge_host -> gh_pr_view [label="GitHub"];
     evidence_attach -> attach_result;
     attach_result -> attached [label="descriptionWritten, or notWritten: unchanged"];
-    attach_result -> stop_move_refused_file [label="any refused bucket, or timedOutTwice"];
+    attach_result -> run_budget_repair [label="refused: redaction, per board"];
+    attach_result -> stop_move_refused_file [label="any other refused bucket, or timedOutTwice"];
+    run_budget_repair -> repairs_spent;
+    repairs_spent -> repair_board [label="no"];
+    repairs_spent -> stop_move_refused_file [label="yes: refused again after a repair"];
+    repair_board -> repair_outcome;
+    repair_outcome -> evidence_attach [label="Repaired"];
+    repair_outcome -> attach_held [label="Held at evidence-redaction"];
+    repair_outcome -> stop_move_refused_file [label="Not repaired, the output quoted"];
     attach_result -> stop_move_refused_file [label="tempted to copy the file or upload another way"];
     attach_result -> attach_failed [label="writeErrors, or the call errored"];
     stop_move_refused_file -> gate_upload_refused -> upload_answer;
@@ -223,6 +248,19 @@ Scope `off-script:<stage>:<n>`, `n` shared with the verb's other
 off-script gates; `context` quotes each refusal and its path. Only the
 human moves or copies a file.
 
+### Repair the board's redaction record (browser-evidence)
+
+A `redaction` refusal names a board whose redaction record is missing,
+unconfirmed, stale or malformed, or whose crop changed: its redaction gate
+was skipped, or the board changed after it. Walk browser-evidence's Revise
+a board steps 1 to 6 on that board with no wording change: they re-render
+it, pass Gate evidence-redaction, confirm after a yes and record the new
+bundle. Recorded is Repaired; a Hold at the gate is Held at
+evidence-redaction, with nothing uploaded; no spec beside the board, a
+compose error, a refused confirm, or spent redaction rounds is Not
+repaired. An `import` refusal (an imported original is in the record as
+uploadable) goes to the off-script gate with every other bucket.
+
 ### Re-record the images through Record the evidence
 
 Run `Record the evidence` with the new file at its new path, or the last recorded images
@@ -231,5 +269,6 @@ by their `value` paths with covers.
 ## Domain precedence
 
 A domain rule that keeps a base capture with no waiver, uploads outside
-`evidence_attach`, or writes the record outside `evidence_record` is
-overridden by this page.
+`evidence_attach`, writes the record outside `evidence_record`, or draws,
+annotates or places marks itself is overridden by this page:
+browser-evidence composes every board.

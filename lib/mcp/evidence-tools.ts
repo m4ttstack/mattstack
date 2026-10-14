@@ -4,15 +4,17 @@
  * Run fields go through the run tools' handlers, never sqlite, so fieldSet's
  * validateEvidence and the runDb confinement apply. Every upload goes
  * through the daemon's mr:upload, so its path guard and record check run on
- * each file sent; the only skip is a reuse whose bytes match a prior upload.
+ * each file sent; the only skip is a reuse whose bytes match a prior upload
+ * and that the redaction check would still pass.
  */
-import { existsSync, realpathSync } from "fs";
+import { existsSync, readFileSync, realpathSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join } from "path";
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
 import { waitForAnswers } from "../endpoint/readiness.ts";
+import { redactionUploadRefusal } from "../daemon/redaction-record-check.ts";
 import { allowedSourceRoots, bundleStem, copyIntoRun, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
 import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
@@ -463,7 +465,8 @@ function reusable(entry: UploadEntry | undefined, real: string, project: string)
   const stem = bundleStem(basename(real));
   if (stem !== null && existsSync(join(dirname(real), `${stem}.redactions.json`))) return null;
   try {
-    return sha256Of(real) === entry.sha256 ? entry : null;
+    if (sha256Of(real) !== entry.sha256) return null;
+    return redactionUploadRefusal({ realpath: real, filename: basename(real), bytes: readFileSync(real) }) === null ? entry : null;
   } catch {
     return null;
   }

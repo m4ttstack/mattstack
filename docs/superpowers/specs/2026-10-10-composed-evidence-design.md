@@ -708,9 +708,10 @@ runs the stage.
   broken state" branch imports an embedded ticket image as the before (§6),
   and `{"plan": "ticket"}` narrows to tickets with no image. The waiver
   rules from the evidence skills spec are unchanged.
-- **Team packs that bind stage-evidence (milestone 4):** their domain
-  capture section (logins, dev servers, where evidence lives) is unchanged;
-  their "draw with annotating-screenshots" step points at the new flow.
+- **Team packs that bind stage-evidence (milestone 4):** a pack keeps only
+  what mattstack cannot know, in a browser target section of its evidence
+  fill (milestone 4, "Who owns what"). Its own capture, draw and check
+  procedure is deleted.
 
 ## Testing as we build
 
@@ -1091,6 +1092,58 @@ label.
 - A **description** that asserts the outcome: what was added that was not
   there before, or which bug is fixed that was previously not working, and
   whether verification is complete.
+
+On a `steps` board the tag and description sit on each step (the panel's
+`tag` and `note`), and a mark inside a step may carry no text. On `single`
+and `pair` boards they sit on each mark.
+
+**Who owns what.** Browser evidence has three layers, and each owns only its
+own part.
+
+| Layer | Owns |
+|---|---|
+| Fast Browser (public, any agent) | capture, compose and the composing-evidence skill: framing, marks, redaction fills, layout |
+| mattstack (evidence inside a run) | when to capture (befores at stage-evidence, afters at ship), the board brief and its tag and description rule, delegating to the driver, reading the board back, the redaction gate, revise, copying bundles into the evidence folder, recording, upload and dedupe, closing the run's tabs |
+| Team pack (its app) | the browser target section of its evidence fill |
+
+mattstack never teaches drawing: the driver follows Fast Browser's
+composing-evidence skill. The mattstack layer is one shared text, written
+once and included by stage-evidence, stage-ship and ship. It runs only when
+the pack's fill picks a browser screenshot for a case. A pack that never
+takes browser screenshots does not change. Evidence that is not a browser
+screenshot (backend data, script output) stays the pack's own method.
+
+The **browser target section** holds four blocks and no procedure:
+
+1. **Reach the view:** which dev servers must run and how to start them, how
+   to sign in (a saved login, or ask the developer), how to build the URL,
+   and how to put the record into the state the evidence needs.
+2. **What proves a change:** per kind of change the team ships, which view
+   and which elements show it, and any intake question asked before capture.
+3. **Captions:** the domain's wording rules, such as using the page's own
+   field names.
+4. **Personal data:** which fields are always hidden, and which test data may
+   show. The brief passes this list to the driver.
+
+A team's own pipeline step cannot include the shared text (includes are
+mattstack-only). If one ever needs it, the shared text is promoted to an
+engine with its own slot; the four blocks stay what the pack fills.
+
+**Rollout order.** Team packs go live as soon as they are committed, so the
+pack edits follow the mattstack release: merge the mattstack PR, cut the
+release, then edit the pack (Matt approves the edit; no mattstack ticket ids
+or internal references on a pack), recompile, and run it. Until that edit,
+a pack keeps working on its own text, since the shared text runs only
+when a fill points at it.
+
+**Tests for this part.** A RED and GREEN run for every changed skill. Every
+pack compiles; an opted-in pack's compiled stage-evidence holds the shared
+text and its four blocks; a pack with no browser evidence compiles unchanged
+apart from shared text it never reaches. A fresh Sonnet driver following an opted-in
+pack's compiled text against a fixture page produces a board with a tag and a
+description on every label, and a steps board does the same once Fast
+Browser ships the panel `tag` and `note`. One real run of an opted-in
+pack's compiled stage-evidence on Matt's Chrome against a real case, asked first.
 
 Exit: one real pipeline run produces composed evidence on an MR, including
 one before/after board whose before came from the ticket and whose

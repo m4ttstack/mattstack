@@ -1,0 +1,10 @@
+{
+  "verbs": {
+    "stage-evidence": { "engine": "stage-evidence", "description": "Capture evidence for a run" },
+    "stage-ship": { "engine": "stage-ship", "description": "Publish a run for review" },
+    "ship": { "engine": "ship", "description": "Ship the current branch" },
+    "review": { "engine": "review", "description": "Review a teammate's MR" },
+    "self-review": { "engine": "self-review", "description": "Self-review the current branch" },
+    "receive-review": { "engine": "receive-review", "description": "Act on review feedback on your MR" }
+  }
+}
