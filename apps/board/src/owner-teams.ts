@@ -5,11 +5,17 @@ import { teamForChannel, type TeamDirectory } from '@mattstack/rt-client';
 import type { OwnerRule } from './codeowner-posts.ts';
 import { getKvValue, getStateDb, setKvValue } from './state/index.ts';
 
-/** A team that owns a Code Owner section on an MR, and whether every rule of
-    its sections is approved; null while the MR has changed since the read.
-    `posted` links the MR's review request in one of the team's channels. */
+/** An owner of Code Owner sections on an MR, and whether every rule of its
+    sections is approved; null while the MR has changed since the read. A
+    directory team owns the sections whose channel it claims (`mine` when it
+    is the active team); a channel no team claims stands alone, and so does a
+    section naming no channel. `posted` links the MR's review request in the
+    owner's channel. */
 export interface OwnerTeam {
-  team: string;
+  team?: string;
+  channel?: string;
+  section?: string;
+  mine?: true;
   approved: boolean | null;
   posted?: string;
 }
@@ -40,10 +46,9 @@ function seenKey(mr: OwnMr): string {
 }
 
 /**
- * The other teams that own a section on an MR. A section reaches its team
- * through the Slack channel in its name, the same join the Code Owner posts
- * use, so a section with no channel or a channel no directory team claims
- * has no team to offer.
+ * The owners of an MR's sections, in CODEOWNERS order. A section reaches its
+ * team through the Slack channel in its name, the same join the Code Owner
+ * posts use.
  */
 export function ownerTeamsFromRules(
   rules: OwnerRule[],
@@ -51,20 +56,29 @@ export function ownerTeamsFromRules(
   ownTeam: string | null,
   posts: Record<string, { permalink?: string | null }> = {}
 ): OwnerTeam[] {
-  const byTeam = new Map<string, OwnerTeam>();
+  const byKey = new Map<string, OwnerTeam>();
   for (const rule of rules) {
-    const channel = channelFromCodeownerSection(rule.section);
-    const team = channel ? teamForChannel(directory, channel)?.name : null;
-    if (!channel || !team || team === ownTeam) continue;
-    const prior = byTeam.get(team);
-    const posted = prior?.posted ?? posts[channel]?.permalink ?? undefined;
-    byTeam.set(team, {
-      team,
+    const channel = channelFromCodeownerSection(rule.section) ?? undefined;
+    const team = channel ? teamForChannel(directory, channel)?.name : undefined;
+    const key = team
+      ? `team:${team}`
+      : channel
+        ? `channel:${channel}`
+        : `section:${rule.section}`;
+    const prior = byKey.get(key);
+    const posted =
+      prior?.posted ?? (channel ? posts[channel]?.permalink : undefined);
+    byKey.set(key, {
+      ...(team ? { team } : {}),
+      ...(prior?.channel || channel
+        ? { channel: prior?.channel ?? channel }
+        : { section: rule.section }),
+      ...(team && team === ownTeam ? { mine: true as const } : {}),
       approved: (prior?.approved ?? true) && rule.approved,
       ...(posted ? { posted } : {}),
     });
   }
-  return [...byTeam.values()];
+  return [...byKey.values()];
 }
 
 /**

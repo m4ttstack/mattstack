@@ -25,8 +25,8 @@ describe('ownerTeamsFromRules', () => {
       { section: 'Billing - #pod-billing', approved: true },
     ];
     expect(ownerTeamsFromRules(rules, directory, null)).toEqual([
-      { team: 'sprockets', approved: false },
-      { team: 'billing', approved: true },
+      { team: 'sprockets', channel: 'pod-sprockets', approved: false },
+      { team: 'billing', channel: 'pod-billing', approved: true },
     ]);
   });
 
@@ -36,17 +36,48 @@ describe('ownerTeamsFromRules', () => {
       { section: 'Sprockets - #pod-sprockets', approved: false },
     ];
     expect(ownerTeamsFromRules(rules, directory, null)).toEqual([
-      { team: 'sprockets', approved: false },
+      { team: 'sprockets', channel: 'pod-sprockets', approved: false },
     ]);
   });
 
-  test('leaves out my own team, sections with no channel and channels no team claims', () => {
+  test('marks my own team instead of leaving it out', () => {
+    const rules = [{ section: 'Checkout - #pod-checkout', approved: false }];
+    expect(ownerTeamsFromRules(rules, directory, 'checkout')).toEqual([
+      { team: 'checkout', channel: 'pod-checkout', approved: false, mine: true },
+    ]);
+  });
+
+  test('a channel no team claims stands as its own owner', () => {
     const rules = [
-      { section: 'Checkout - #pod-checkout', approved: false },
-      { section: 'Docs', approved: false },
-      { section: 'Ledger - #pod-ledger', approved: false },
+      { section: 'Intake - #intake-auto', approved: true },
+      { section: 'FirstStop - #intake-auto', approved: false },
     ];
-    expect(ownerTeamsFromRules(rules, directory, 'checkout')).toEqual([]);
+    expect(ownerTeamsFromRules(rules, directory, null)).toEqual([
+      { channel: 'intake-auto', approved: false },
+    ]);
+  });
+
+  test('a section naming no channel stands as its own owner', () => {
+    const rules = [
+      { section: 'SpareParts', approved: false },
+      { section: 'SpareParts', approved: false },
+    ];
+    expect(ownerTeamsFromRules(rules, directory, null)).toEqual([
+      { section: 'SpareParts', approved: false },
+    ]);
+  });
+
+  test('keeps CODEOWNERS order across teams, channels and bare sections', () => {
+    const rules = [
+      { section: 'SpareParts', approved: false },
+      { section: 'Ledger - #pod-ledger', approved: false },
+      { section: 'Sprockets - #pod-sprockets', approved: false },
+    ];
+    expect(
+      ownerTeamsFromRules(rules, directory, null).map(
+        o => o.team ?? o.channel ?? o.section
+      )
+    ).toEqual(['SpareParts', 'pod-ledger', 'sprockets']);
   });
 });
 
@@ -62,6 +93,11 @@ const mr = (iid: number, updatedAt: string, approvedBy: string[] = []) => ({
 
 const config = { directory, ownTeam: 'checkout' };
 const needed = [{ section: 'Sprockets - #pod-sprockets', approved: false }];
+const sprocketsNeeded = {
+  team: 'sprockets',
+  channel: 'pod-sprockets',
+  approved: false,
+};
 
 describe('refreshOwnerTeams', () => {
   test('reads each MR once until it changes, and attaches the owning teams', async () => {
@@ -80,7 +116,7 @@ describe('refreshOwnerTeams', () => {
     await refreshOwnerTeams([mr(7, 't2')], deps);
     expect(reads).toEqual([7, 7]);
     expect(attachOwnerTeams([mr(7, 't2'), mr(8, 't1')], config, db)).toEqual([
-      { ...mr(7, 't2'), ownerTeams: [{ team: 'sprockets', approved: false }] },
+      { ...mr(7, 't2'), ownerTeams: [sprocketsNeeded] },
       mr(8, 't1'),
     ]);
   });
@@ -108,7 +144,7 @@ describe('refreshOwnerTeams', () => {
     });
     expect(
       attachOwnerTeams([mr(7, 't1', ['sam'])], config, db)[0]!.ownerTeams
-    ).toEqual([{ team: 'sprockets', approved: null }]);
+    ).toEqual([{ ...sprocketsNeeded, approved: null }]);
   });
 
   test('the owning teams follow the directory as it is now, not as it was at the read', async () => {
@@ -120,7 +156,7 @@ describe('refreshOwnerTeams', () => {
       ],
     });
     expect(attachOwnerTeams([mr(7, 't1')], config, db)[0]!.ownerTeams).toEqual(
-      []
+      [{ channel: 'pod-ledger', approved: false }]
     );
     const withLedger = {
       ownTeam: 'checkout',
@@ -133,7 +169,7 @@ describe('refreshOwnerTeams', () => {
     };
     expect(
       attachOwnerTeams([mr(7, 't1')], withLedger, db)[0]!.ownerTeams
-    ).toEqual([{ team: 'ledger', approved: false }]);
+    ).toEqual([{ team: 'ledger', channel: 'pod-ledger', approved: false }]);
   });
 
   test("an owning team carries the link to the MR's post in its channel", async () => {
@@ -152,12 +188,8 @@ describe('refreshOwnerTeams', () => {
     expect(
       attachOwnerTeams([mr(7, 't1')], { ...config, posts }, db)[0]!.ownerTeams
     ).toEqual([
-      {
-        team: 'sprockets',
-        approved: false,
-        posted: 'https://slack.example/p1',
-      },
-      { team: 'billing', approved: false },
+      { ...sprocketsNeeded, posted: 'https://slack.example/p1' },
+      { team: 'billing', channel: 'pod-billing', approved: false },
     ]);
   });
 
