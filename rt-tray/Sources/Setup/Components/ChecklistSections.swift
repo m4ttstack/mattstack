@@ -200,6 +200,8 @@ struct RowStatusProbe: View {
     var body: some View {
         Color.clear.frame(width: 1, height: 1)
             .accessibilityElement()
+            // Without the static-text trait macOS reports this element's label and an empty value.
+            .accessibilityAddTraits(.isStaticText)
             .accessibilityLabel(Text(label))
             .accessibilityValue(Text(status.rawValue))
             .accessibilityIdentifier(id)
@@ -221,14 +223,7 @@ struct SectionRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(row.title).fontWeight(.medium)
-                    if let context { Text(context).font(.caption).foregroundStyle(.secondary) }
-                    if let badge {
-                        Text(badge.rawValue).font(.caption2).padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().fill(Color.orange.opacity(0.18)))
-                    }
-                }
+                heading
                 Text(row.why).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if let d = row.detail, !d.isEmpty {
                     Text(d).font(.caption).foregroundStyle(isBroken ? Color.red : Color.secondary)
@@ -254,6 +249,29 @@ struct SectionRow: View {
         .padding(.horizontal, 14).padding(.vertical, 9)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(ids.row(row.id))
+    }
+
+    /// The summary's pane is narrow and its row holds two buttons: the group
+    /// and the badge drop under the title there instead of wrapping beside it.
+    @ViewBuilder private var heading: some View {
+        if context == nil && badge == nil {
+            title
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { title.lineLimit(1); tags }
+                VStack(alignment: .leading, spacing: 3) { title; HStack(spacing: 6) { tags } }
+            }
+        }
+    }
+
+    private var title: some View { Text(row.title).fontWeight(.medium) }
+
+    @ViewBuilder private var tags: some View {
+        if let context { Text(context).font(.caption).foregroundStyle(.secondary).fixedSize() }
+        if let badge {
+            Text(badge.rawValue).font(.caption2).padding(.horizontal, 6).padding(.vertical, 1)
+                .background(Capsule().fill(Color.orange.opacity(0.18))).fixedSize()
+        }
     }
 }
 

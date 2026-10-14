@@ -108,6 +108,13 @@ final class SetupFlowUITests: XCTestCase {
         waitForExpectations(timeout: timeout)
     }
 
+    /// By title: a toolbar tab's `settings.tab.<pane>` identifier does not reach the accessibility tree.
+    private func selectSettingsTab(_ title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let tab = app.toolbars.buttons[title]
+        XCTAssertTrue(tab.waitForExistence(timeout: 20), "missing the \(title) tab", file: file, line: line)
+        tab.click()
+    }
+
     private func shoot(_ name: String) {
         let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         a.name = name
@@ -208,7 +215,9 @@ final class SetupFlowUITests: XCTestCase {
         el("setup.done.skip.tool.fast-browser-extension").click()
         waitFor("setup.done.skipConfirm")
         XCTAssertTrue(app.staticTexts["Skip the Fast Browser extension?"].exists)
-        XCTAssertTrue(app.staticTexts["Without the Fast Browser extension, agents cannot capture screenshots or annotate evidence from your browser. You can load it later from Settings."].exists)
+        // A subscript query refuses an identifier past 128 characters.
+        let skipBody = "Without the Fast Browser extension, agents cannot capture screenshots or annotate evidence from your browser. You can load it later from Settings."
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value == %@ OR label == %@", skipBody, skipBody)).firstMatch.exists)
         el("setup.done.skipConfirm.skip").click()
         waitUntilEnabled("setup.done.continue", 30)
         XCTAssertFalse(el("setup.checklist.group.needs-you").exists, "the skipped row left Needs you")
@@ -278,8 +287,8 @@ final class SetupFlowUITests: XCTestCase {
             waitFor("setup.checklist.group.tools"); shoot("summary-\(scheme)")
             // Settings opens with the Command-comma shortcut only while a window is key, and the summary is; Finish closes it.
             app.typeKey(",", modifierFlags: .command)
-            waitFor("settings.tab.apps"); el("settings.tab.apps").click(); waitFor("settings.apps.toggle.board"); shoot("settings-apps-\(scheme)")
-            el("settings.tab.team").click(); waitFor("settings.team.create"); shoot("settings-team-\(scheme)")
+            selectSettingsTab("Apps"); waitFor("settings.apps.toggle.board"); shoot("settings-apps-\(scheme)")
+            selectSettingsTab("Team"); waitFor("settings.team.create"); shoot("settings-team-\(scheme)")
             app.typeKey("w", modifierFlags: .command)
             waitUntilEnabled("setup.done.continue"); el("setup.done.continue").click()
             waitUntilGone("setup.done.screen")
@@ -429,8 +438,7 @@ final class SetupFlowUITests: XCTestCase {
         // Settings opens on whichever tab was last selected (persisted in
         // UserDefaults) and defaults to General on a clean run, so the
         // Uninstall tab has to be selected explicitly before its button exists.
-        waitFor("settings.tab.uninstall")
-        el("settings.tab.uninstall").click()
+        selectSettingsTab("Uninstall")
         waitFor("settings.uninstall.button")
         el("settings.uninstall.button").click()
         waitFor("settings.uninstall.confirm")

@@ -107,6 +107,8 @@ struct SetupView: View {
                     }
                 }
                 .accessibilityElement()
+                // Without the static-text trait macOS reports this element with an empty value.
+                .accessibilityAddTraits(.isStaticText)
                 .accessibilityIdentifier(AXID.progress)
                 .accessibilityValue(Text("\(progress.current) of \(progress.total)"))
             }
