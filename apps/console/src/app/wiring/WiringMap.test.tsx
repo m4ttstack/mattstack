@@ -428,7 +428,7 @@ describe('WiringMap: dev packs apart from the team packs', () => {
     packsGet.mockResolvedValue(
       ok({
         packs: [
-          { name: 'acme', dir: '/c', layout: 'flat', team: 'acme' },
+          { name: 'widgets', dir: '/c', layout: 'flat', team: 'widgets' },
           { name: 'ingest', dir: '/i', layout: 'flat', team: 'ingest' },
           { name: 'mattstack', dir: '/m', layout: 'grouped', team: null },
         ],
@@ -448,7 +448,7 @@ describe('WiringMap: dev packs apart from the team packs', () => {
 
     await userEvent.click(
       await screen.findByRole('button', {
-        name: 'team: acme, switch team',
+        name: 'team: widgets, switch team',
       })
     );
     await screen.findByRole('menuitem', { name: /ingest/ });
@@ -478,7 +478,7 @@ describe('WiringMap: dev packs apart from the team packs', () => {
     ).toBeInTheDocument();
 
     await userEvent.click(toggle);
-    await screen.findByRole('button', { name: 'team: acme, switch team' });
+    await screen.findByRole('button', { name: 'team: widgets, switch team' });
   });
 
   it('opens on a team pack when the URL names none', async () => {
@@ -487,7 +487,7 @@ describe('WiringMap: dev packs apart from the team packs', () => {
       ok({
         packs: [
           { name: 'aaa-dev', dir: '/d', layout: 'grouped', team: null },
-          { name: 'acme', dir: '/c', layout: 'flat', team: 'acme' },
+          { name: 'widgets', dir: '/c', layout: 'flat', team: 'widgets' },
         ],
       })
     );
@@ -495,7 +495,7 @@ describe('WiringMap: dev packs apart from the team packs', () => {
 
     await waitFor(() =>
       expect(compositionGet).toHaveBeenCalledWith(
-        expect.objectContaining({ query: { pack: 'acme' } })
+        expect.objectContaining({ query: { pack: 'widgets' } })
       )
     );
   });
