@@ -62,16 +62,8 @@ like any other repo.
 
 [`docs/development.md`](docs/development.md) has more on how dev mode works.
 
-## Before you open a pull request
+## Pull requests
 
-- Run `bun run test:all`, `bunx tsc --noEmit`, and `bun run picker:check`.
-  `test:all` runs the unit, e2e, and pty suites; `bun run test` alone skips
-  the last two.
-- Run `scripts/repo-purity.sh`. This repo is public, and the gate keeps
-  employer, customer, and internal-system references out of the tracked tree.
-  Use neutral placeholders such as `acme`, `ACME-1234`, and
-  `gitlab.example.com`.
-- Add a new command to `lib/command-tree-def.ts`, register its module in
-  `lib/module-registry.ts`, and run `bun run docs:gen` so the reference page
-  exists.
-- Keep the commit message short and imperative.
+CI runs the tests and checks on every pull request. This repo is public, so
+use neutral placeholders such as `acme`, `ACME-1234` and `gitlab.example.com`
+instead of real company, customer or internal names.

@@ -98,7 +98,7 @@ More detail:
 Issues and pull requests are welcome at
 [github.com/m4ttstack/mattstack](https://github.com/m4ttstack/mattstack).
 [CONTRIBUTING.md](CONTRIBUTING.md) covers setting up the dev app with
-`rt dev setup` and what to run before you open a pull request.
+`rt dev setup`.
 
 ## License
 
