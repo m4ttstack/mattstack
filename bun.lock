@@ -74,7 +74,7 @@
         "@mattstack/rt-client": "workspace:*",
         "@mattstack/settings-kit": "workspace:*",
         "@mattstack/tui-kit": "workspace:*",
-        "invadrs": "^1.3.0",
+        "invadrs": "^1.3.1",
         "pngjs": "^7.0.0",
         "react": "catalog:",
         "react-dom": "catalog:",
@@ -152,7 +152,7 @@
         "@mattstack/settings-kit": "workspace:*",
         "@tanstack/react-query": "catalog:",
         "hono": "catalog:",
-        "invadrs": "^1.3.0",
+        "invadrs": "^1.3.1",
         "lucide-react": "^1.25.0",
         "react": "catalog:",
         "react-dom": "catalog:",
@@ -2240,7 +2240,7 @@
 
     "internmap": ["internmap@2.0.3", "", {}, "sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg=="],
 
-    "invadrs": ["invadrs@1.3.0", "", { "peerDependencies": { "react": ">=18" }, "optionalPeers": ["react"] }, "sha512-Gmxiag7D97la2GO432fIBGVr3JeidVG9Z9f/BzY7lWcoEMfSdOc9ilZAUU6o64LElyhGv1jD05/pyb/oDV0Zwg=="],
+    "invadrs": ["invadrs@1.3.1", "", { "peerDependencies": { "react": ">=18" }, "optionalPeers": ["react"] }, "sha512-ngyw4ymGuEiFfO02zIIpVyDOKkLJBixvCYVnE6jK4Y4d6DWU399vcOy5n4V/5AI1KqXWh7ylk4jZhadGPTKEwQ=="],
 
     "ip-address": ["ip-address@10.7.1", "", {}, "sha512-4OUAqU9Z1i3vCnS05hzGiFnEMDpQ+62pAD/MVQOp83fYyNC8GleCqaS0QikQBmcWCrKFiUs/B8ztRRiYOAXuCA=="],
 
