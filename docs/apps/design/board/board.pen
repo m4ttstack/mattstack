@@ -1,5 +1,5 @@
 {
-  "version": "2.20",
+  "version": "2.21",
   "children": [
     {
       "type": "frame",
@@ -522359,6 +522359,1039 @@
                   "fill": "#60646C",
                   "width": 12.999932127160719,
                   "height": 13.000228881835938
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "gYyi6",
+      "x": 4560,
+      "y": 13560,
+      "name": "B12 · Someone's already reviewing · light",
+      "theme": {
+        "mode": "light"
+      },
+      "width": 1440,
+      "fill": "$bg",
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 40,
+      "children": [
+        {
+          "type": "text",
+          "id": "bh3Kf",
+          "name": "B12 · Someone's already reviewing",
+          "fill": "$fg",
+          "content": "B12 · Someone's already reviewing",
+          "fontFamily": "$font-sans",
+          "fontSize": 20,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "p7p2y",
+          "name": "When Pat starts a board review of a team",
+          "fill": "$muted",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "When Pat starts a board review of a teammate's MR, every other board in the org hears about it. On your board the row says so quietly: muted text and a dim, slow spinner in place of the purple one, and the MR stays in Needs me if you're the assigned reviewer. If you go to review it anyway, the board asks first. A bulk launch skips it and says why. When Pat's review ends, or goes 2 hours without word, the line clears and the row's normal line comes back.",
+          "fontFamily": "$font-sans",
+          "fontSize": 13,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "ApJyP",
+          "name": "columns",
+          "width": "fill_container",
+          "gap": 32,
+          "children": [
+            {
+              "type": "frame",
+              "id": "bFzVg",
+              "name": "ON YOUR BOARD",
+              "width": 664,
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "sYx05",
+                  "name": "ON YOUR BOARD",
+                  "fill": "$dim",
+                  "content": "ON YOUR BOARD",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 10,
+                  "fontWeight": "600",
+                  "letterSpacing": 0.6
+                },
+                {
+                  "type": "frame",
+                  "id": "gT89F",
+                  "name": "list",
+                  "clip": true,
+                  "width": "fill_container",
+                  "fill": "$inset",
+                  "cornerRadius": 8,
+                  "stroke": "$border-soft",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "PnFCt",
+                      "name": "row · Pat reviewing",
+                      "clip": true,
+                      "width": "fill_container",
+                      "height": 114,
+                      "stroke": "$border-soft",
+                      "strokeWidth": {
+                        "top": 1
+                      },
+                      "padding": [
+                        12,
+                        16,
+                        12,
+                        0
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "mBQi8",
+                          "layoutPosition": "absolute",
+                          "x": 0,
+                          "y": 34,
+                          "name": "gutter",
+                          "width": 40,
+                          "height": 20,
+                          "padding": [
+                            0,
+                            16,
+                            0,
+                            0
+                          ],
+                          "justifyContent": "end",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "CacDU",
+                              "name": "dot",
+                              "fill": "$dot-ok",
+                              "width": 8,
+                              "height": 8
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Uvt3P",
+                          "name": "gutter space",
+                          "width": 40,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "P7dxw1",
+                          "name": "body",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "gCodB",
+                              "name": "line0",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 20,
+                              "gap": 10,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "rq4ZC",
+                                  "name": "lead",
+                                  "clip": true,
+                                  "width": "fill_container",
+                                  "gap": 10,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "vIzmT",
+                                      "name": "author",
+                                      "gap": 5,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "rectangle",
+                                          "cornerRadius": 3,
+                                          "id": "bEdRE",
+                                          "name": "avatar",
+                                          "fill": "$amber",
+                                          "width": 12,
+                                          "height": 12
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "rGcxK",
+                                          "name": "Joel Vasquez",
+                                          "fill": "$muted",
+                                          "content": "Joel Vasquez",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 11.5,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "lDYSf",
+                                  "name": "slack marks",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "i6oztP",
+                                      "name": "eye",
+                                      "width": 13,
+                                      "height": 13,
+                                      "icon": "eye",
+                                      "library": "lucide",
+                                      "fill": "$dim"
+                                    },
+                                    {
+                                      "type": "icon",
+                                      "id": "rfRqw",
+                                      "name": "slack",
+                                      "width": 13,
+                                      "height": 13,
+                                      "icon": "slack",
+                                      "library": "lucide",
+                                      "fill": "$accent"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "M3k09",
+                                  "name": "pill",
+                                  "fill": "$amber-soft",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    2,
+                                    6
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "xXdZE",
+                                      "name": "APPROVED",
+                                      "fill": "$amber",
+                                      "content": "NEEDS REVIEW",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 10,
+                                      "fontWeight": "700",
+                                      "letterSpacing": 0.4
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "pvXEz",
+                              "name": "line1",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 20,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "W4Vm6",
+                                  "name": "ACME-1288 add a temperature factor to the highlights panel",
+                                  "fill": "$fg",
+                                  "content": "ACME-1288 add a temperature factor to the highlights panel",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13.5,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "SesOV",
+                              "name": "line2",
+                              "width": "fill_container",
+                              "height": 20,
+                              "gap": 10,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "na0Oo",
+                                  "name": "!1235",
+                                  "fill": "$fg",
+                                  "content": "!1235",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "500"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "jPAdx",
+                                  "name": "branch wrap",
+                                  "clip": true,
+                                  "height": 16,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "pL8y1",
+                                      "name": "feature/acme-1288-highlights-temperature",
+                                      "fill": "$muted",
+                                      "content": "feature/acme-1288-highlights-temperature",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "U8QvtJ",
+                                  "name": "diff",
+                                  "gap": 4,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "SHBrD",
+                                      "name": "+585",
+                                      "fill": "$green",
+                                      "content": "+585",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "NX2Lr",
+                                      "name": "−2",
+                                      "fill": "$red",
+                                      "content": "−2",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "eOC3R",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "JSHck",
+                                  "name": "threads",
+                                  "gap": 5,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "w4s59F",
+                                      "name": "message-square",
+                                      "width": 12,
+                                      "height": 12,
+                                      "icon": "message-square",
+                                      "library": "lucide",
+                                      "fill": "$muted"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "euEaF",
+                                      "name": "5 threads",
+                                      "fill": "$fg",
+                                      "content": "5 threads",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "500"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "IhdWg",
+                                  "name": "3h",
+                                  "fill": "$dim",
+                                  "content": "3h",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "FxBeh",
+                              "name": "line3",
+                              "width": "fill_container",
+                              "height": 24,
+                              "gap": 8,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "id": "ul5Vb",
+                                  "type": "ref",
+                                  "ref": "yFHDy",
+                                  "name": "cloud spinner",
+                                  "width": 19,
+                                  "height": 15,
+                                  "descendants": {
+                                    "NpLVy": {
+                                      "fill": "$muted"
+                                    },
+                                    "DigMI": {
+                                      "fill": "$inset"
+                                    },
+                                    "ahEbq": {
+                                      "fill": "$accent-text"
+                                    }
+                                  }
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "k8bff1",
+                                  "name": "Pat is reviewing…",
+                                  "fill": "$muted",
+                                  "content": "Pat is reviewing",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "zp8tU",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "QoYFs",
+                                  "name": "view ↗",
+                                  "fill": "$muted",
+                                  "content": "view ↗",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "VNvWH",
+                      "name": "row · after Pat finishes",
+                      "clip": true,
+                      "width": "fill_container",
+                      "height": 114,
+                      "stroke": "$border-soft",
+                      "strokeWidth": {
+                        "top": 1
+                      },
+                      "padding": [
+                        12,
+                        16,
+                        12,
+                        0
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "ozMle",
+                          "layoutPosition": "absolute",
+                          "x": 0,
+                          "y": 34,
+                          "name": "gutter",
+                          "width": 40,
+                          "height": 20,
+                          "padding": [
+                            0,
+                            16,
+                            0,
+                            0
+                          ],
+                          "justifyContent": "end",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "l6ue7",
+                              "name": "dot",
+                              "fill": "$dot-ok",
+                              "width": 8,
+                              "height": 8
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "OZul6",
+                          "name": "gutter space",
+                          "width": 40,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "lVZaR",
+                          "name": "body",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "JdCia",
+                              "name": "line0",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 20,
+                              "gap": 10,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "UQcFY",
+                                  "name": "lead",
+                                  "clip": true,
+                                  "width": "fill_container",
+                                  "gap": 10,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "vTetB",
+                                      "name": "author",
+                                      "gap": 5,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "rectangle",
+                                          "cornerRadius": 3,
+                                          "id": "Kmkri",
+                                          "name": "avatar",
+                                          "fill": "$amber",
+                                          "width": 12,
+                                          "height": 12
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "AAVvU",
+                                          "name": "Joel Vasquez",
+                                          "fill": "$muted",
+                                          "content": "Joel Vasquez",
+                                          "fontFamily": "$font-sans",
+                                          "fontSize": 11.5,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "xXhF0",
+                                  "name": "slack marks",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "Kyc7k",
+                                      "name": "eye",
+                                      "width": 13,
+                                      "height": 13,
+                                      "icon": "eye",
+                                      "library": "lucide",
+                                      "fill": "$dim"
+                                    },
+                                    {
+                                      "type": "icon",
+                                      "id": "u9Sd5",
+                                      "name": "slack",
+                                      "width": 13,
+                                      "height": 13,
+                                      "icon": "slack",
+                                      "library": "lucide",
+                                      "fill": "$accent"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "fb2NS",
+                                  "name": "pill",
+                                  "fill": "$amber-soft",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    2,
+                                    6
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "by2m4",
+                                      "name": "APPROVED",
+                                      "fill": "$amber",
+                                      "content": "NEEDS REVIEW",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 10,
+                                      "fontWeight": "700",
+                                      "letterSpacing": 0.4
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "hfVTA",
+                              "name": "line1",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 20,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "KtMnQ",
+                                  "name": "ACME-1288 add a temperature factor to the highlights panel",
+                                  "fill": "$fg",
+                                  "content": "ACME-1288 add a temperature factor to the highlights panel",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13.5,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "b0i16m",
+                              "name": "line2",
+                              "width": "fill_container",
+                              "height": 20,
+                              "gap": 10,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "t0xom",
+                                  "name": "!1235",
+                                  "fill": "$fg",
+                                  "content": "!1235",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "500"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "A0ztHC",
+                                  "name": "branch wrap",
+                                  "clip": true,
+                                  "height": 16,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "MFdra",
+                                      "name": "feature/acme-1288-highlights-temperature",
+                                      "fill": "$muted",
+                                      "content": "feature/acme-1288-highlights-temperature",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "vPjaU",
+                                  "name": "diff",
+                                  "gap": 4,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "GEnoV",
+                                      "name": "+585",
+                                      "fill": "$green",
+                                      "content": "+585",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "Q1IvR",
+                                      "name": "−2",
+                                      "fill": "$red",
+                                      "content": "−2",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "MLjxC",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "SJuQY",
+                                  "name": "threads",
+                                  "gap": 5,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "VdqZe",
+                                      "name": "message-square",
+                                      "width": 12,
+                                      "height": 12,
+                                      "icon": "message-square",
+                                      "library": "lucide",
+                                      "fill": "$muted"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "FXon4",
+                                      "name": "5 threads",
+                                      "fill": "$fg",
+                                      "content": "5 threads",
+                                      "fontFamily": "$font-sans",
+                                      "fontSize": 12,
+                                      "fontWeight": "500"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "OnuyC",
+                                  "name": "3h",
+                                  "fill": "$dim",
+                                  "content": "3h",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "bL61C",
+                              "name": "line3",
+                              "width": "fill_container",
+                              "height": 24,
+                              "gap": 8,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "qTIGW",
+                                  "x": 0,
+                                  "y": 6,
+                                  "name": "loader-circle",
+                                  "enabled": false,
+                                  "width": 12,
+                                  "height": 12,
+                                  "icon": "loader-circle",
+                                  "library": "lucide",
+                                  "fill": "$purple"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "O9ic2q",
+                                  "name": "Pat is reviewing…",
+                                  "fill": "$muted",
+                                  "content": "no approvals yet",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "PytQd",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "wuBz0",
+                                  "name": "view ↗",
+                                  "fill": "$accent-text",
+                                  "content": "✦ review",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "NKv0h",
+                  "name": "Top: Pat's review is running. Bottom: th",
+                  "fill": "$dim",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Top: Pat's review is running. The spinner is the peer-agent glyph from the row menu, colours unchanged: the cloud's grey outline animates (a short lit dash travels around it) while the accent bot holds still. Bottom: the same row once it ends; Pat's done verdict shows only on the author's board.",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "hReOO",
+              "name": "YOU START A REVIEW ANYWAY",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Abjzd",
+                  "name": "YOU START A REVIEW ANYWAY",
+                  "fill": "$dim",
+                  "content": "YOU START A REVIEW ANYWAY",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 10,
+                  "fontWeight": "600",
+                  "letterSpacing": 0.6
+                },
+                {
+                  "type": "frame",
+                  "id": "ggsl9",
+                  "name": "confirm",
+                  "width": "fill_container",
+                  "fill": "$card",
+                  "cornerRadius": 10,
+                  "stroke": "$border-soft",
+                  "strokeWidth": 1,
+                  "effect": {
+                    "type": "shadow",
+                    "shadowType": "outer",
+                    "color": "#0000001f",
+                    "offset": {
+                      "x": 0,
+                      "y": 4
+                    },
+                    "blur": 16
+                  },
+                  "layout": "vertical",
+                  "gap": 12,
+                  "padding": 20,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "hGfzc",
+                      "name": "Pat is already reviewing this",
+                      "fill": "$fg",
+                      "content": "Pat is already reviewing this",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 15,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "Ph1XK",
+                      "name": "Pat started a review of !1235 12 minutes",
+                      "fill": "$muted",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Pat started a review of !1235 12 minutes ago. Review it anyway?",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "lftvI",
+                      "name": "buttons",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "justifyContent": "end",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "p3fjT",
+                          "name": "Cancel",
+                          "cornerRadius": 6,
+                          "stroke": "$border",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            12
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "BnkWD",
+                              "name": "Cancel",
+                              "fill": "$fg",
+                              "content": "Cancel",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Nu7iu",
+                          "name": "Review anyway",
+                          "fill": "$accent",
+                          "cornerRadius": 6,
+                          "padding": [
+                            6,
+                            12
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "jFFPI",
+                              "name": "Review anyway",
+                              "fill": "#ffffff",
+                              "content": "Review anyway",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "l5KYJj",
+                  "name": "Only when you start a review yourself. R",
+                  "fill": "$dim",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Only when you start a review yourself. Resuming or redoing your own review, accepting an ask, and triage launches go straight through.",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "VtOWM",
+              "name": "BULK LAUNCH",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "AAfyQ",
+                  "name": "BULK LAUNCH",
+                  "fill": "$dim",
+                  "content": "BULK LAUNCH",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 10,
+                  "fontWeight": "600",
+                  "letterSpacing": 0.6
+                },
+                {
+                  "type": "frame",
+                  "id": "XhwxS",
+                  "name": "toast",
+                  "width": "fill_container",
+                  "fill": "$card",
+                  "cornerRadius": 8,
+                  "stroke": "$accent",
+                  "strokeWidth": {
+                    "left": 3
+                  },
+                  "effect": {
+                    "type": "shadow",
+                    "shadowType": "outer",
+                    "color": "#0000001f",
+                    "offset": {
+                      "x": 0,
+                      "y": 4
+                    },
+                    "blur": 16
+                  },
+                  "layout": "vertical",
+                  "gap": 4,
+                  "padding": [
+                    12,
+                    16
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "e1jGZ",
+                      "name": "Launched 2 reviews",
+                      "fill": "$fg",
+                      "content": "Launched 2 reviews",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "UkeMF",
+                      "name": "Skipped !1235, Pat is reviewing",
+                      "fill": "$muted",
+                      "content": "Skipped !1235, Pat is reviewing",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "w9cOx",
+                  "name": "Skipped MRs are named, separately from \"",
+                  "fill": "$dim",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Skipped MRs are named, separately from \"didn't need it\". The toast still shows when every selected MR was skipped.",
+                  "fontFamily": "$font-sans",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
                 }
               ]
             }
