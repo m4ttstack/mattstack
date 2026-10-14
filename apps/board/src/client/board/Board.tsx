@@ -123,6 +123,11 @@ import { mrRef, onGitHub } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
 import { OwnersPostModal, type SlackPostPreview } from './OwnersPostModal.tsx';
+import { presenceConfirmFor } from './presence-guard.ts';
+import {
+  PresenceConfirmDialog,
+  type PendingPresence,
+} from './PresenceConfirmDialog.tsx';
 import { RedoConfirmDialog, type PendingRedo } from './RedoConfirmDialog.tsx';
 import { RespondModal, ReviewModal } from './ReviewModal.tsx';
 import {
@@ -444,6 +449,11 @@ export function Board() {
   } | null>(null);
   // A redo waiting on its confirm dialog; run fires it.
   const [pendingRedo, setPendingRedo] = useState<PendingRedo | null>(null);
+  const [pendingPresence, setPendingPresence] =
+    useState<PendingPresence | null>(null);
+  // The seat is computed below the early returns, after the callbacks that
+  // read it, so they read it through this ref.
+  const seatRef = useRef<string | null>(null);
   // The MR whose saved review is open in the modal, if any.
   const [reviewModal, setReviewModal] = useState<BoardMRWithReview | null>(
     null
@@ -677,14 +687,30 @@ export function Board() {
       state.tab,
     ]
   );
-  const handleLaunch = useCallback(
-    (mr: BoardMR, note?: string, intent?: 'launch' | 'focus') =>
-      void launch('review', mr, { note, intent }),
+  const guardedLaunch = useCallback(
+    (flow: LaunchFlow, mr: BoardMR, opts: LaunchOpts = {}) => {
+      const reviewer = presenceConfirmFor(
+        flow,
+        opts,
+        mr,
+        seatRef.current,
+        Date.now()
+      );
+      if (!reviewer) return launch(flow, mr, opts);
+      setPendingPresence({ reviewer, run: () => void launch(flow, mr, opts) });
+      return Promise.resolve(undefined);
+    },
     [launch]
   );
+  const handleLaunch = useCallback(
+    (mr: BoardMR, note?: string, intent?: 'launch' | 'focus') =>
+      void guardedLaunch('review', mr, { note, intent }),
+    [guardedLaunch]
+  );
   const handleReReview = useCallback(
-    (mr: BoardMR, note?: string) => void launch('re-review', mr, { note }),
-    [launch]
+    (mr: BoardMR, note?: string) =>
+      void guardedLaunch('re-review', mr, { note }),
+    [guardedLaunch]
   );
   const handleRespond = useCallback(
     (mr: BoardMR, note?: string, intent?: 'launch' | 'focus') =>
@@ -997,13 +1023,13 @@ export function Board() {
   const runner: RunnerDeps = useMemo(
     () => ({
       post: (path, payload) => postAction(path, payload),
-      launch,
+      launch: guardedLaunch,
       addToast,
       startToast,
       reload: fresh => void load(fresh),
       merging: { start: merging.start, fail: merging.fail },
     }),
-    [launch, addToast, startToast, load, merging.start, merging.fail]
+    [guardedLaunch, addToast, startToast, load, merging.start, merging.fail]
   );
   const rowHandlers: RowHandlers = useMemo(
     () => ({
@@ -1043,7 +1069,14 @@ export function Board() {
           lane,
           count: 1,
           prior: 1,
-          run: () => void dispatchRowAction(req, mr, opts, runner, rowHandlers),
+          run: () =>
+            void dispatchRowAction(
+              req,
+              mr,
+              opts,
+              { ...runner, launch },
+              rowHandlers
+            ),
         });
         return undefined;
       }
@@ -1065,7 +1098,7 @@ export function Board() {
       });
       return undefined;
     },
-    [runner, rowHandlers]
+    [runner, launch, rowHandlers]
   );
 
   // Poll faster while a review, response, or doctor run is active, or a fired
@@ -1444,6 +1477,7 @@ export function Board() {
   // member filters.
   const selectedMrs = selectionOf(mrs, selected);
   const seat = effectiveSeat(data.defaultMember, data.tokenUser);
+  seatRef.current = seat;
   const postableMrs = postableOf(flatMrs, seat);
   const postableSelected = postableOf(selectedMrs, seat);
   const rowCtx: RowContext = {
@@ -1968,6 +2002,12 @@ export function Board() {
         <RedoConfirmDialog
           pending={pendingRedo}
           onDone={() => setPendingRedo(null)}
+        />
+
+        <PresenceConfirmDialog
+          pending={pendingPresence}
+          nameOf={u => firstName(rosterNames.get(u), u)}
+          onDone={() => setPendingPresence(null)}
         />
 
         <AskConfirmDialog
