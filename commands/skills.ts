@@ -1595,7 +1595,7 @@ export async function skillsPacks(args: string[]): Promise<void> {
   // ~/.claude/settings.json.
   const settingsPath = skillsFlagValue(args, "--settings-path");
   const packs = discoverPacks(settingsPath ? { settingsPath } : {});
-  const rows = packs.map((p) => ({ name: p.name, dir: p.dir, layout: p.layout }));
+  const rows = packs.map((p) => ({ name: p.name, dir: p.dir, layout: p.layout, team: teamOfPackDir(p.dir) }));
 
   if (json) {
     out.json({ packs: rows });
