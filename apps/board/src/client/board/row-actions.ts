@@ -400,12 +400,12 @@ export function rowActions(
   if (env.local && own) {
     const peers = nudgeTargets(mrx, env.peers);
     for (const peer of peers)
-      sessions.push(
+      agent.push(
         item(
-          'sessions',
+          'agent',
           `nudge-${peer.reviewer}`,
           `ask ${peer.reviewer}'s agent to re-review`,
-          PEOPLE,
+          AGENT_CLOUD,
           { kind: 'ask', ask: 're-review', reviewer: peer.reviewer }
         )
       );
@@ -464,7 +464,7 @@ export function rowActions(
         'agent',
         'ask-respond',
         `ask ${who}'s agent to respond`,
-        PEOPLE,
+        AGENT_CLOUD,
         { kind: 'ask', ask: 'respond', reviewer: who },
         target ? {} : { blocked: respondAskBlock(mrx) }
       )

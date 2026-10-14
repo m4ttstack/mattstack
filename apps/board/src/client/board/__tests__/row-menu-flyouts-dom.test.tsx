@@ -26,6 +26,7 @@ test('an own MR shows the short top level, flyouts last', async () => {
     '# agent actions',
     'respond',
     'rebase locally',
+    '---',
     'request review from…',
     '---',
     '> all agent actions',

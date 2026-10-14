@@ -368,6 +368,9 @@ function ActionMenu({
 
   const top = entries.filter(e => e.section === 'top');
   const agentItems = entries.filter(e => e.section === 'agent');
+  const isPeerAsk = (e: MenuEntry) => e.glyph?.kind === 'agent-cloud';
+  const ownAgent = agentItems.filter(e => !isPeerAsk(e));
+  const peerAsks = agentItems.filter(isPeerAsk);
   // A remote board's lone hint row already reads "agent actions".
   const agentHeading = !(
     agentItems.length === 1 && agentItems[0]!.key === 'local-hint'
@@ -413,7 +416,11 @@ function ActionMenu({
         <>
           {top.length > 0 && <ContextMenu.Separator />}
           {agentHeading && <ContextMenu.Label>agent actions</ContextMenu.Label>}
-          {agentItems.map(renderItem)}
+          {ownAgent.map(renderItem)}
+          {ownAgent.length > 0 && peerAsks.length > 0 && (
+            <ContextMenu.Separator />
+          )}
+          {peerAsks.map(renderItem)}
         </>
       )}
       {flyouts.length > 0 && (top.length > 0 || agentItems.length > 0) && (
