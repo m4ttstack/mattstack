@@ -3062,9 +3062,10 @@ a.tui-id-card-ref:focus-visible {
   font-weight: 400;
   color: var(--text-4);
 }
+/* The sprite is a 20-unit pixel grid: any other size drops pixels. */
 .tui-menu-ask-avatar {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
 }
 .tui-menu-ask-empty {
