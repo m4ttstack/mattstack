@@ -90,7 +90,9 @@ reviewer is the envelope's sender.
 
 "The author's board" is `isOwnMr(mr, seat)`. The seat is null on an `all`
 board or when the GitLab token user does not match the seat; those boards
-follow the non-author rule, accepted since an `all` board relays nothing.
+follow the non-author rule, so they hide done verdicts even on the real
+author's own MRs. Accepted: an `all` board is a view of everyone, and a
+mismatched token is already a misconfiguration.
 
 The client's `PeerReviewInfo` (`src/client/types.ts`) gains the same
 optional `receivedAt`.
