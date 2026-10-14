@@ -30,7 +30,8 @@ a second review asks for confirmation first. Nothing leaves the org.
   "<reviewer> is reviewing…" for any stored `queued`/`reviewing` state.
 - The switchboard has no notion of org or team: boards are keyed by username,
   and `to: '*'` reaches every board on the relay, other orgs included.
-- `config.orgTeams` holds every team in the org roster with its members.
+- `config.orgTeams` holds every team in the org roster with its members;
+  roster members with no team are not in it.
 
 ## Design
 
