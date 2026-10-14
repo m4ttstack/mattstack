@@ -306,15 +306,14 @@ function ActionMenu({
         <ContextMenu.Label>{e.pick.title}</ContextMenu.Label>
         {e.pick.options.map(o => {
           const pickKey = `${e.key}|${o.value}`;
-          const name = o.label ?? o.value;
           return (
             <ContextMenu.Item
               key={`ask-${o.value}`}
               label={iconLabel(
                 e.glyph ? glyphNode(e.glyph) : null,
-                armedPick === pickKey ? `really ask ${name}?` : name
+                o.label ?? o.value
               )}
-              hint={o.hint}
+              hint={armedPick === pickKey ? 'click to send' : o.hint}
               onClick={() =>
                 armedPick === pickKey
                   ? fire(e, { pick: o.value })

@@ -85,8 +85,8 @@ test('an MR another team owns opens on code owners, each owning team under its h
   expect(text).toContain('ledger owns a section here but has no board');
   await clickItem('Nia Okoro');
   expect(harness.effects).toEqual([]);
-  expect(itemTexts()).toEqual(['kim', 'really ask Nia Okoro?', 'Sam Whitlow']);
-  await clickItem('really ask Nia Okoro?');
+  expect(itemTexts()).toEqual(['kim', 'Nia Okoroclick to send', 'Sam Whitlow']);
+  await clickItem('Nia Okoro');
   expect(harness.effects).toEqual([{ effect: 'ask:review:nia', iid: 1418 }]);
 });
 
@@ -104,7 +104,7 @@ test('all teams lists every team with someone to ask and narrows as you type', a
   expect(itemTexts()).toEqual(['Nia Okoro', 'Sam Whitlow']);
   await clickItem('Sam Whitlow');
   expect(harness.effects).toEqual([]);
-  await clickItem('really ask Sam Whitlow?');
+  await clickItem('Sam Whitlow');
   expect(harness.effects).toEqual([{ effect: 'ask:review:sam', iid: 1418 }]);
 });
 
