@@ -522752,23 +522752,57 @@
                               "alignItems": "center",
                               "children": [
                                 {
-                                  "id": "ul5Vb",
-                                  "type": "ref",
-                                  "ref": "yFHDy",
+                                  "type": "frame",
+                                  "id": "SezAT",
                                   "name": "cloud spinner",
-                                  "width": 19,
+                                  "width": 19.5,
                                   "height": 15,
-                                  "descendants": {
-                                    "NpLVy": {
-                                      "fill": "$muted"
+                                  "layout": "none",
+                                  "children": [
+                                    {
+                                      "type": "path",
+                                      "id": "I9c0cd",
+                                      "x": 5.9,
+                                      "y": 0,
+                                      "name": "cloud",
+                                      "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                      "viewBox": [
+                                        0,
+                                        0,
+                                        24,
+                                        24
+                                      ],
+                                      "width": 14,
+                                      "height": 14,
+                                      "stroke": "$muted",
+                                      "strokeWidth": 1.5,
+                                      "strokeLinejoin": "round",
+                                      "strokeLinecap": "round"
                                     },
-                                    "DigMI": {
-                                      "fill": "$inset"
+                                    {
+                                      "type": "rectangle",
+                                      "cornerRadius": 2.6,
+                                      "id": "iYlZa",
+                                      "x": 0,
+                                      "y": 6.3,
+                                      "name": "knockout",
+                                      "fill": "$inset",
+                                      "width": 11.1,
+                                      "height": 8.7
                                     },
-                                    "ahEbq": {
+                                    {
+                                      "type": "icon",
+                                      "id": "GIreb",
+                                      "x": 0,
+                                      "y": 4,
+                                      "name": "bot",
+                                      "width": 11,
+                                      "height": 11,
+                                      "icon": "bot",
+                                      "library": "lucide",
                                       "fill": "$accent-text"
                                     }
-                                  }
+                                  ]
                                 },
                                 {
                                   "type": "text",
@@ -523168,10 +523202,1391 @@
                   "fill": "$dim",
                   "textGrowth": "fixed-width",
                   "width": "fill_container",
-                  "content": "Top: Pat's review is running. The spinner is the peer-agent glyph from the row menu, colours unchanged: the cloud's grey outline animates (a short lit dash travels around it) while the accent bot holds still. Bottom: the same row once it ends; Pat's done verdict shows only on the author's board.",
+                  "content": "Top: Pat's review is running. The spinner is the peer-agent glyph (option F): the cloud's inside pulses between two skeleton greys while a short dash runs round its outline; the accent bot holds still. Live motion: docs/apps/design/board/cloud-spinners.html. Bottom: the same row once it ends; Pat's done verdict shows only on the author's board.",
                   "fontFamily": "$font-sans",
                   "fontSize": 12,
                   "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "A4Gs1",
+                  "name": "cloud spinner frames",
+                  "width": "fill_container",
+                  "fill": "$inset",
+                  "cornerRadius": 8,
+                  "stroke": "$border-soft",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 10,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "kQpYZ",
+                      "name": "CLOUD SPINNER · 4 FRAMES, 1.6s",
+                      "fill": "$dim",
+                      "content": "A · DASH ROUND THE OUTLINE · 4 FRAMES, 1.6s LOOP (shown at 3×)",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 10,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.6
+                    },
+                    {
+                      "type": "frame",
+                      "id": "s0een",
+                      "name": "frames",
+                      "gap": 28,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "xcKsH",
+                          "name": "frame 1",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "LQWvS",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "aWg2M",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$border",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "clcvo",
+                                  "x": 20,
+                                  "y": 4,
+                                  "name": "dash window",
+                                  "clip": true,
+                                  "width": 16,
+                                  "height": 16,
+                                  "layout": "none",
+                                  "children": [
+                                    {
+                                      "type": "path",
+                                      "id": "nKTyP",
+                                      "x": -6,
+                                      "y": -4,
+                                      "name": "cloud lit",
+                                      "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                      "viewBox": [
+                                        0,
+                                        0,
+                                        24,
+                                        24
+                                      ],
+                                      "width": 48,
+                                      "height": 48,
+                                      "stroke": "$fg",
+                                      "strokeWidth": 3,
+                                      "strokeLinejoin": "round",
+                                      "strokeLinecap": "round"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "amIuh",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "jGNM6",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "o7Rqcs",
+                              "name": "1",
+                              "fill": "$dim",
+                              "content": "1",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "OwgJb",
+                          "name": "frame 2",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "noQdN",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "tyN15",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$border",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "w7vTTd",
+                                  "x": 28,
+                                  "y": 4,
+                                  "name": "dash window",
+                                  "clip": true,
+                                  "width": 16,
+                                  "height": 16,
+                                  "layout": "none",
+                                  "children": [
+                                    {
+                                      "type": "path",
+                                      "id": "U4Lcd",
+                                      "x": -14,
+                                      "y": -4,
+                                      "name": "cloud lit",
+                                      "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                      "viewBox": [
+                                        0,
+                                        0,
+                                        24,
+                                        24
+                                      ],
+                                      "width": 48,
+                                      "height": 48,
+                                      "stroke": "$fg",
+                                      "strokeWidth": 3,
+                                      "strokeLinejoin": "round",
+                                      "strokeLinecap": "round"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "Z8FB4",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "Rs20A",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "x4qQs",
+                              "name": "2",
+                              "fill": "$dim",
+                              "content": "2",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "qv87z",
+                          "name": "frame 3",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "N9dAI",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "rPwAE",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$border",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "c7YDyj",
+                                  "x": 44,
+                                  "y": 8,
+                                  "name": "dash window",
+                                  "clip": true,
+                                  "width": 16,
+                                  "height": 16,
+                                  "layout": "none",
+                                  "children": [
+                                    {
+                                      "type": "path",
+                                      "id": "rdgX3",
+                                      "x": -30,
+                                      "y": -8,
+                                      "name": "cloud lit",
+                                      "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                      "viewBox": [
+                                        0,
+                                        0,
+                                        24,
+                                        24
+                                      ],
+                                      "width": 48,
+                                      "height": 48,
+                                      "stroke": "$fg",
+                                      "strokeWidth": 3,
+                                      "strokeLinejoin": "round",
+                                      "strokeLinecap": "round"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "HWzDN",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "kvk0K",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "ljYPO",
+                              "name": "3",
+                              "fill": "$dim",
+                              "content": "3",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "bFvqj",
+                          "name": "frame 4",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "H1ZyR",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "hjakb",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$border",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "puEn3",
+                                  "x": 36,
+                                  "y": 26,
+                                  "name": "dash window",
+                                  "clip": true,
+                                  "width": 16,
+                                  "height": 16,
+                                  "layout": "none",
+                                  "children": [
+                                    {
+                                      "type": "path",
+                                      "id": "n9xX9",
+                                      "x": -22,
+                                      "y": -26,
+                                      "name": "cloud lit",
+                                      "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                      "viewBox": [
+                                        0,
+                                        0,
+                                        24,
+                                        24
+                                      ],
+                                      "width": 48,
+                                      "height": 48,
+                                      "stroke": "$fg",
+                                      "strokeWidth": 3,
+                                      "strokeLinejoin": "round",
+                                      "strokeLinecap": "round"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "hKSdE",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "ghfyt",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "UdqjQ",
+                              "name": "4",
+                              "fill": "$dim",
+                              "content": "4",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "kLrBB",
+                      "name": "The cloud stays grey; a short ",
+                      "fill": "$dim",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "The cloud stays grey; a short darker dash travels its outline clockwise. The bot never moves. Reduced motion: a still glyph.",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "yBt3R",
+                  "name": "cloud shimmer frames",
+                  "width": "fill_container",
+                  "fill": "$inset",
+                  "cornerRadius": 8,
+                  "stroke": "$border-soft",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 10,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "vwgWu",
+                      "name": "B · SKELETON SHIMMER INSIDE TH",
+                      "fill": "$dim",
+                      "content": "B · SKELETON SHIMMER INSIDE THE CLOUD · 4 FRAMES, 1.4s LOOP (shown at 3×)",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 10,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.6
+                    },
+                    {
+                      "type": "frame",
+                      "id": "xDyPf",
+                      "name": "frames",
+                      "gap": 28,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "k6Ejn",
+                          "name": "frame 1",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "H9gHnE",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "Kjpvk",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "fill": {
+                                    "type": "gradient",
+                                    "gradientType": "linear",
+                                    "enabled": true,
+                                    "rotation": 270,
+                                    "size": {
+                                      "height": 1
+                                    },
+                                    "colors": [
+                                      {
+                                        "color": "$border",
+                                        "position": 0
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 0.26
+                                      },
+                                      {
+                                        "color": "$card",
+                                        "position": 0.38
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 0.5
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 1
+                                      }
+                                    ]
+                                  },
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$muted",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "zIpm5",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "Pto3T",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "rf8pS",
+                              "name": "1",
+                              "fill": "$dim",
+                              "content": "1",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "DL0ZH",
+                          "name": "frame 2",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "DomLp",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "AAAfe",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "fill": {
+                                    "type": "gradient",
+                                    "gradientType": "linear",
+                                    "enabled": true,
+                                    "rotation": 270,
+                                    "size": {
+                                      "height": 1
+                                    },
+                                    "colors": [
+                                      {
+                                        "color": "$border",
+                                        "position": 0
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 0.44000000000000006
+                                      },
+                                      {
+                                        "color": "$card",
+                                        "position": 0.56
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 0.68
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 1
+                                      }
+                                    ]
+                                  },
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$muted",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "qs9FV",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "p0RSo",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "BoDmv",
+                              "name": "2",
+                              "fill": "$dim",
+                              "content": "2",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "NbfhC",
+                          "name": "frame 3",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "RhSU0",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "Hnp6Y",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "fill": {
+                                    "type": "gradient",
+                                    "gradientType": "linear",
+                                    "enabled": true,
+                                    "rotation": 270,
+                                    "size": {
+                                      "height": 1
+                                    },
+                                    "colors": [
+                                      {
+                                        "color": "$border",
+                                        "position": 0
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 0.62
+                                      },
+                                      {
+                                        "color": "$card",
+                                        "position": 0.74
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 0.86
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 1
+                                      }
+                                    ]
+                                  },
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$muted",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "u651wu",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "ABgvE",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "uPYPV",
+                              "name": "3",
+                              "fill": "$dim",
+                              "content": "3",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "eMSLW",
+                          "name": "frame 4",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "I1DEYk",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "cKyJL",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "fill": {
+                                    "type": "gradient",
+                                    "gradientType": "linear",
+                                    "enabled": true,
+                                    "rotation": 270,
+                                    "size": {
+                                      "height": 1
+                                    },
+                                    "colors": [
+                                      {
+                                        "color": "$border",
+                                        "position": 0
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 0.8
+                                      },
+                                      {
+                                        "color": "$card",
+                                        "position": 0.92
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 1
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 1
+                                      }
+                                    ]
+                                  },
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$muted",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "hEkBp",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "eoogL",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "eSNs2",
+                              "name": "4",
+                              "fill": "$dim",
+                              "content": "4",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "eU7Bw",
+                      "name": "The cloud fills with a pale sk",
+                      "fill": "$dim",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "The cloud fills with a pale skeleton grey and a soft light band sweeps through it left to right, like a loading placeholder. Outline and bot stay still. Reduced motion: a still, filled glyph.",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "hzfmd",
+                  "name": "cloud progress frames",
+                  "width": "fill_container",
+                  "fill": "$inset",
+                  "cornerRadius": 8,
+                  "stroke": "$border-soft",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 10,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Qzyyr",
+                      "name": "C · BACK-AND-FORTH BAR INSIDE ",
+                      "fill": "$dim",
+                      "content": "C · CLOUD-SHAPED PROGRESS BAR · 4 FRAMES, 2.4s LOOP, EASED (shown at 3×)",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 10,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.6
+                    },
+                    {
+                      "type": "frame",
+                      "id": "w879Zf",
+                      "name": "frames",
+                      "gap": 28,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "ZU907",
+                          "name": "frame 1",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "j9GeS",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "VH9GH",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "fill": {
+                                    "type": "gradient",
+                                    "gradientType": "linear",
+                                    "enabled": true,
+                                    "rotation": 270,
+                                    "size": {
+                                      "height": 1
+                                    },
+                                    "colors": [
+                                      {
+                                        "color": "$border",
+                                        "position": 0
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 0.48
+                                      },
+                                      {
+                                        "color": "#00000000",
+                                        "position": 0.481
+                                      },
+                                      {
+                                        "color": "#00000000",
+                                        "position": 1
+                                      }
+                                    ]
+                                  },
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$muted",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "NqwUW",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "iG88k",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "Qsgpo",
+                              "name": "1 · left",
+                              "fill": "$dim",
+                              "content": "1 · filling",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "bughX",
+                          "name": "frame 2",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "Altwe",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "CeIQJ",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "fill": {
+                                    "type": "gradient",
+                                    "gradientType": "linear",
+                                    "enabled": true,
+                                    "rotation": 270,
+                                    "size": {
+                                      "height": 1
+                                    },
+                                    "colors": [
+                                      {
+                                        "color": "$border",
+                                        "position": 0
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 0.72
+                                      },
+                                      {
+                                        "color": "#00000000",
+                                        "position": 0.721
+                                      },
+                                      {
+                                        "color": "#00000000",
+                                        "position": 1
+                                      }
+                                    ]
+                                  },
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$muted",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "ZGZ46",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "l7BE9",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "y6Dvn",
+                              "name": "2 · →",
+                              "fill": "$dim",
+                              "content": "2 · →",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "pGwcc",
+                          "name": "frame 3",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "ZReDs",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "w6Okw",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "fill": {
+                                    "type": "gradient",
+                                    "gradientType": "linear",
+                                    "enabled": true,
+                                    "rotation": 270,
+                                    "size": {
+                                      "height": 1
+                                    },
+                                    "colors": [
+                                      {
+                                        "color": "$border",
+                                        "position": 0
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 1
+                                      },
+                                      {
+                                        "color": "#00000000",
+                                        "position": 1
+                                      },
+                                      {
+                                        "color": "#00000000",
+                                        "position": 1
+                                      }
+                                    ]
+                                  },
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$muted",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "DhGmV",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "u3nre",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "E2fCsS",
+                              "name": "3 · right",
+                              "fill": "$dim",
+                              "content": "3 · full",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "IL10A",
+                          "name": "frame 4",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "nDB6f",
+                              "name": "glyph",
+                              "width": 58,
+                              "height": 45,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "dfTaj",
+                                  "x": 14,
+                                  "y": 0,
+                                  "name": "cloud",
+                                  "geometry": "M17.5 19h-8.5a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "fill": {
+                                    "type": "gradient",
+                                    "gradientType": "linear",
+                                    "enabled": true,
+                                    "rotation": 270,
+                                    "size": {
+                                      "height": 1
+                                    },
+                                    "colors": [
+                                      {
+                                        "color": "$border",
+                                        "position": 0
+                                      },
+                                      {
+                                        "color": "$border",
+                                        "position": 0.72
+                                      },
+                                      {
+                                        "color": "#00000000",
+                                        "position": 0.721
+                                      },
+                                      {
+                                        "color": "#00000000",
+                                        "position": 1
+                                      }
+                                    ]
+                                  },
+                                  "width": 48,
+                                  "height": 48,
+                                  "stroke": "$muted",
+                                  "strokeWidth": 2.4,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 7,
+                                  "id": "R227W",
+                                  "x": 0,
+                                  "y": 17,
+                                  "name": "knockout",
+                                  "fill": "$inset",
+                                  "width": 33,
+                                  "height": 27
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "TPt4W",
+                                  "x": 2,
+                                  "y": 16,
+                                  "name": "bot",
+                                  "width": 30,
+                                  "height": 30,
+                                  "icon": "bot",
+                                  "library": "lucide",
+                                  "fill": "$accent-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "Ho5wU",
+                              "name": "4 · ←",
+                              "fill": "$dim",
+                              "content": "4 · ← emptying",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "vyKpP",
+                      "name": "A short grey bar glides left t",
+                      "fill": "$dim",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "The cloud is the bar: a soft grey fill grows left to right until the cloud is full, then recedes back, easing at each end so it never flashes. Outline and bot stay still. Reduced motion: the cloud rests half full.",
+                      "fontFamily": "$font-sans",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
                 }
               ]
             },
