@@ -33,6 +33,14 @@ interface SkillsPacksResponse {
   packs: SkillsPackRow[];
 }
 
+/** A pack no team owns is the mattstack plugin's own source, seen on its
+    developer's machine, so only the dev app lists it. Deck sets the flavor;
+    a process nobody labelled reads as prod. */
+function devPacksOnlyInDev(payload: SkillsPacksResponse): SkillsPacksResponse {
+  if (process.env.MATTSTACK_FLAVOR === 'dev') return payload;
+  return { ...payload, packs: payload.packs.filter(p => p.team !== null) };
+}
+
 interface SkillsCompositionSlot {
   name: string;
   contract: string;
@@ -867,7 +875,7 @@ export function mountSkills(
             502
           );
         }
-        return c.json(payload as SkillsPacksResponse, 200);
+        return c.json(devPacksOnlyInDev(payload as SkillsPacksResponse), 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);

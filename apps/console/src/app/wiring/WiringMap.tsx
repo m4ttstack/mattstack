@@ -22,13 +22,13 @@ import { Icons } from '@mattstack/app-kit/icons';
 import { PAGE_ROW_HEIGHT } from '../chrome';
 import { useEditorHref } from '../editorHref';
 import { CommandProvenance } from '../runs/CommandProvenance';
+import { DevPackSwitch } from './DevPackSwitch';
 import { GraphSidebar } from './graph/FocusList';
 import { GraphTab } from './graph/GraphTab';
 import { MissingPackNotice } from './graph/MissingPackNotice';
 import { UnsyncedBanner, useUnsyncedBanner } from './graph/UnsyncedBanner';
 import { useWiringUrl, type WiringTab } from './graph/useWiringUrl';
 import { HealthTab, HealthTabSkeleton } from './HealthTab';
-import { PluginMenu } from './PluginMenu';
 import { SurfaceGridSkeleton, SurfaceTab } from './SurfaceTab';
 import {
   useAttentionCount,
@@ -48,11 +48,11 @@ export function WiringMap() {
   // a pack change, which would drop a deep link's focus.
   const pack = packs.some(p => p.name === url.pack)
     ? url.pack
-    : (packs[0]?.name ?? null);
+    : (packs.find(p => p.team !== null)?.name ?? packs[0]?.name ?? null);
   const packDir = packs.find(p => p.name === pack)?.dir ?? null;
   // An rt without the team field leaves it undefined: every pack is a team's.
   const teamPacks = packs.filter(p => p.team !== null).map(p => p.name);
-  const pluginPacks = packs.filter(p => p.team === null).map(p => p.name);
+  const devPacks = packs.filter(p => p.team === null).map(p => p.name);
   const missing =
     url.pack !== null && pack !== null && pack !== url.pack ? url.pack : null;
 
@@ -150,13 +150,6 @@ export function WiringMap() {
           }
         />
       )}
-      {packs.length > 1 && pack && pluginPacks.length > 0 && (
-        <PluginMenu
-          plugins={pluginPacks}
-          pack={pack}
-          onPick={plugin => patch({ pack: plugin })}
-        />
-      )}
       {packs.length === 1 && pack && (
         <Group gap={7} wrap="nowrap" data-testid="pack-name">
           <Icons.package size={14} />
@@ -175,6 +168,20 @@ export function WiringMap() {
           {`extends ${base.name}`}
         </Badge>
       )}
+    </MattstackShell.AppBar>
+  );
+
+  const devSwitch = packs.length > 1 && devPacks.length > 0 && (
+    <MattstackShell.AppBar side="end">
+      <DevPackSwitch
+        packs={devPacks}
+        pack={pack}
+        onPick={dev =>
+          patch({
+            pack: dev ?? viewer?.team ?? teamPacks[0] ?? pack,
+          })
+        }
+      />
     </MattstackShell.AppBar>
   );
 
@@ -204,9 +211,10 @@ export function WiringMap() {
   return (
     <>
       {packScope}
+      {devSwitch}
       <PageShell
         tabBarHeight={PAGE_ROW_HEIGHT}
-        sidebarWidth={216}
+        sidebarWidth={256}
         drawerStateKey="console-wiring-focus"
         tabs={tabs}
         tabBar={{ title: 'Wiring', actions }}
