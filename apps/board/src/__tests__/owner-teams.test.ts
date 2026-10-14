@@ -43,7 +43,12 @@ describe('ownerTeamsFromRules', () => {
   test('marks my own team instead of leaving it out', () => {
     const rules = [{ section: 'Checkout - #pod-checkout', approved: false }];
     expect(ownerTeamsFromRules(rules, directory, 'checkout')).toEqual([
-      { team: 'checkout', channel: 'pod-checkout', approved: false, mine: true },
+      {
+        team: 'checkout',
+        channel: 'pod-checkout',
+        approved: false,
+        mine: true,
+      },
     ]);
   });
 
@@ -155,9 +160,9 @@ describe('refreshOwnerTeams', () => {
         { section: 'Ledger - #pod-ledger', approved: false },
       ],
     });
-    expect(attachOwnerTeams([mr(7, 't1')], config, db)[0]!.ownerTeams).toEqual(
-      [{ channel: 'pod-ledger', approved: false }]
-    );
+    expect(attachOwnerTeams([mr(7, 't1')], config, db)[0]!.ownerTeams).toEqual([
+      { channel: 'pod-ledger', approved: false },
+    ]);
     const withLedger = {
       ownTeam: 'checkout',
       directory: {

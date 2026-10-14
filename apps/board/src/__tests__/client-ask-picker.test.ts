@@ -90,7 +90,13 @@ describe('askPickerModel', () => {
       rows(
         askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true })
       )
-    ).toContainEqual(['ledger', 'owner', 'needs', [], { channel: 'pod-ledger' }]);
+    ).toContainEqual([
+      'ledger',
+      'owner',
+      'needs',
+      [],
+      { channel: 'pod-ledger' },
+    ]);
   });
 
   test("once the team's channel has the post, its Slack row links there", () => {
@@ -157,7 +163,12 @@ describe('askPickerModel', () => {
         askPickerModel(
           mine({
             ownerTeams: [
-              { team: 'checkout', channel: 'pod-checkout', mine: true, approved },
+              {
+                team: 'checkout',
+                channel: 'pod-checkout',
+                mine: true,
+                approved,
+              },
             ],
           }),
           env
