@@ -113,6 +113,14 @@ describe('writePeerReview', () => {
     expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
   });
 
+  test('an older redelivery keeps the newer state and its receivedAt', () => {
+    writePeerReview(base({ updatedAt: 500, receivedAt: 900 }), db);
+    writePeerReview(base({ updatedAt: 400, receivedAt: 1000 }), db);
+    const stored = readPeerReviews(db).get(URL_A)?.[0];
+    expect(stored?.updatedAt).toBe(500);
+    expect(stored?.receivedAt).toBe(900);
+  });
+
   test('a busy commit returns false and rolls back the write', () => {
     db.exec('PRAGMA journal_mode = DELETE; PRAGMA busy_timeout = 0');
     const reader = new Database(join(dir, 'state.db'));
