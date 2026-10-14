@@ -91,7 +91,7 @@ label "review from scratch". Both keys stay.
 | view agent response | sessions | own (always shown when its report is ready, as today) | report not ready: omitted |
 | dismiss review line | sessions | local | lane not in error or already dismissed: omitted |
 | dismiss respond line / dismiss doctor line | sessions | local, own | lane not in error or already dismissed: omitted |
-| ask X's agent to re-review (`nudge-<reviewer>`) | sessions | local, own | no placeholder when no reviewer qualifies |
+| ask X's agent to re-review (`nudge-<reviewer>`) | agent, just above request review from... (the switchboard asks close the top level together, all with the cloud robot glyph) | local, own | no placeholder when no reviewer qualifies |
 | request review from... | agent when someone can be asked (a hover submenu of reviewers), else sessions | local, own | no roster member left: "everyone engaged"; an ask outstanding: "ask already sent" |
 | ask {author}'s agent to respond | agent | local, seat, not own | "no finished review with comments", "author not enrolled" or "ask already sent" |
 | seat-hint (author actions) | agent | local, no seat | always blocked, as today |

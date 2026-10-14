@@ -409,6 +409,29 @@ test('an owning team with no board offers the Slack post only where the repo pos
   ).toEqual({});
 });
 
+test('switchboard asks close the top level together, under the cloud robot', () => {
+  const own = rowActions(failedLanes, actionEnvOf(failedEnv, failedLanes));
+  expect(own.filter(a => a.section === 'agent').map(a => a.key)).toEqual([
+    'respond',
+    'doctor',
+    'rebase-local',
+    'nudge-kim',
+    'request-review',
+  ]);
+  const theirs = rowActions(
+    teammateReviewed,
+    actionEnvOf(ownEnv, teammateReviewed)
+  );
+  const glyphs = [...own, ...theirs]
+    .filter(a => a.request?.kind === 'ask')
+    .map(a => [a.key, a.glyph]);
+  expect(glyphs).toEqual([
+    ['nudge-kim', { kind: 'agent-cloud' }],
+    ['request-review', { kind: 'agent-cloud' }],
+    ['ask-respond', { kind: 'agent-cloud' }],
+  ]);
+});
+
 test('request review from… carries its picker; asks name their reviewer', () => {
   const actions = rowActions(failedLanes, actionEnvOf(failedEnv, failedLanes));
   expect(actions.find(a => a.key === 'request-review')).toMatchObject({
