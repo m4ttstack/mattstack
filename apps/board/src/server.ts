@@ -1906,7 +1906,7 @@ const httpServer = Bun.serve({
                 ),
                 readNotes()
               ),
-              config
+              { ...config, posts: mrUrl => readOwnerPosts(mrUrl) }
             )
           ),
           readMemory()

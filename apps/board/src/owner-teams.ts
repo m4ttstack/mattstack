@@ -6,11 +6,18 @@ import type { OwnerRule } from './codeowner-posts.ts';
 import { getKvValue, getStateDb, setKvValue } from './state/index.ts';
 
 /** A team that owns a Code Owner section on an MR, and whether every rule of
-    its sections is approved; null while the MR has changed since the read. */
+    its sections is approved; null while the MR has changed since the read.
+    `posted` links the MR's review request in one of the team's channels. */
 export interface OwnerTeam {
   team: string;
   approved: boolean | null;
+  posted?: string;
 }
+
+/** The MR's Code Owner posts by channel, as the post dialog records them. */
+type PostsByChannel = (
+  mrUrl: string
+) => Record<string, { permalink?: string | null }>;
 
 const NS = 'owner-rules';
 
@@ -41,19 +48,23 @@ function seenKey(mr: OwnMr): string {
 export function ownerTeamsFromRules(
   rules: OwnerRule[],
   directory: TeamDirectory | undefined,
-  ownTeam: string | null
+  ownTeam: string | null,
+  posts: Record<string, { permalink?: string | null }> = {}
 ): OwnerTeam[] {
-  const approvedByTeam = new Map<string, boolean>();
+  const byTeam = new Map<string, OwnerTeam>();
   for (const rule of rules) {
     const channel = channelFromCodeownerSection(rule.section);
     const team = channel ? teamForChannel(directory, channel)?.name : null;
-    if (!team || team === ownTeam) continue;
-    approvedByTeam.set(
+    if (!channel || !team || team === ownTeam) continue;
+    const prior = byTeam.get(team);
+    const posted = prior?.posted ?? posts[channel]?.permalink ?? undefined;
+    byTeam.set(team, {
       team,
-      (approvedByTeam.get(team) ?? true) && rule.approved
-    );
+      approved: (prior?.approved ?? true) && rule.approved,
+      ...(posted ? { posted } : {}),
+    });
   }
-  return [...approvedByTeam].map(([team, approved]) => ({ team, approved }));
+  return [...byTeam.values()];
 }
 
 /**
@@ -86,7 +97,11 @@ export async function refreshOwnerTeams<T extends OwnMr>(
     their approval, which the change may have flipped. */
 export function attachOwnerTeams<T extends OwnMr>(
   mrs: T[],
-  config: { directory?: TeamDirectory; ownTeam?: string | null },
+  config: {
+    directory?: TeamDirectory;
+    ownTeam?: string | null;
+    posts?: PostsByChannel;
+  },
   db: Database = getStateDb()
 ): Array<T & { ownerTeams?: OwnerTeam[] }> {
   return mrs.map(mr => {
@@ -97,7 +112,8 @@ export function attachOwnerTeams<T extends OwnMr>(
     const teams = ownerTeamsFromRules(
       stored.rules,
       config.directory,
-      config.ownTeam ?? null
+      config.ownTeam ?? null,
+      config.posts?.(mr.webUrl!)
     );
     return {
       ...mr,

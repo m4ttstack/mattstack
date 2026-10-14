@@ -136,6 +136,31 @@ describe('refreshOwnerTeams', () => {
     ).toEqual([{ team: 'ledger', approved: false }]);
   });
 
+  test("an owning team carries the link to the MR's post in its channel", async () => {
+    const db = memoryDb();
+    await refreshOwnerTeams([mr(7, 't1')], {
+      db,
+      readRules: async () => [
+        ...needed,
+        { section: 'Billing - #pod-billing', approved: false },
+      ],
+    });
+    const posts = (url: string): Record<string, { permalink: string }> =>
+      url === mr(7, 't1').webUrl
+        ? { 'pod-sprockets': { permalink: 'https://slack.example/p1' } }
+        : {};
+    expect(
+      attachOwnerTeams([mr(7, 't1')], { ...config, posts }, db)[0]!.ownerTeams
+    ).toEqual([
+      {
+        team: 'sprockets',
+        approved: false,
+        posted: 'https://slack.example/p1',
+      },
+      { team: 'billing', approved: false },
+    ]);
+  });
+
   test('a failed read stores nothing, so the next pass tries again', async () => {
     const db = memoryDb();
     let calls = 0;

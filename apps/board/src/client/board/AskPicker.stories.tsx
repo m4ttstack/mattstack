@@ -87,37 +87,63 @@ const env = {
   peers: everyone.filter(u => u !== 'kofi.mensah'),
   teams,
   ownTeam: 'checkout',
+  canPostOwners: true,
 };
 
 const mr = (ownerTeams: BoardMRWithReview['ownerTeams']) =>
   ({ author: { username: 'mira.fixture' }, ownerTeams }) as BoardMRWithReview;
 
-const picker = (ownerTeams: BoardMRWithReview['ownerTeams']) => (
+const picker = (
+  ownerTeams: BoardMRWithReview['ownerTeams'],
+  over: Partial<typeof env> = {}
+) => (
   <AskPicker
     x={24}
     y={24}
     subject="!1418"
-    model={askPickerModel(mr(ownerTeams), env)!}
-    personLabel={name => name}
+    model={askPickerModel(mr(ownerTeams), { ...env, ...over })!}
     onPick={() => {}}
+    onPostSlack={() => {}}
+    onOpen={() => {}}
     onClose={() => {}}
   />
 );
 
-/** Opens on code owners: two teams still needed, two approved, one with no
-    board to ask. */
-export const CodeOwners: Story = {
+const owning: NonNullable<BoardMRWithReview['ownerTeams']> = [
+  { team: 'sprockets', approved: false },
+  { team: 'identity', approved: false },
+  { team: 'billing', approved: true },
+  { team: 'search', approved: true },
+  { team: 'ledger', approved: false },
+];
+
+/** Your team, the owning teams still to approve (ledger has no board, so it
+    offers the Slack post), then the rest with the approved owners marked. */
+export const CodeOwners: Story = { render: () => picker(owning) };
+
+/** ledger's channel already has the post, so its row links there. */
+export const PostedInSlack: Story = {
+  render: () =>
+    picker(
+      owning.map(o =>
+        o.team === 'ledger' ? { ...o, posted: 'https://slack.example/p1' } : o
+      )
+    ),
+};
+
+/** The MR changed since its approvals were read. */
+export const CheckingApproval: Story = {
   render: () =>
     picker([
-      { team: 'sprockets', approved: false },
-      { team: 'identity', approved: false },
-      { team: 'billing', approved: true },
-      { team: 'search', approved: true },
-      { team: 'ledger', approved: false },
+      { team: 'sprockets', approved: null },
+      { team: 'billing', approved: null },
     ]),
 };
 
-/** No other team owns a section, so it opens on all teams with the search. */
-export const AllTeams: Story = {
-  render: () => picker(undefined),
+/** No other team owns a section: your team, then every other team. */
+export const NoOwners: Story = { render: () => picker(undefined) };
+
+/** Nobody on another team has a board: just your own team. */
+export const SingleTeam: Story = {
+  render: () => picker(undefined, { teams: [] }),
 };

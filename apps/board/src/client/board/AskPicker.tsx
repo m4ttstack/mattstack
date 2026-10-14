@@ -1,126 +1,129 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState } from 'react';
 
-import { ContextMenu, LabeledSeg } from '@mattstack/tui-kit';
-import type { AskGroup, AskPerson, AskPickerModel } from './ask-picker.ts';
+import { ContextMenu } from '@mattstack/tui-kit';
+import type { AskPickerModel, AskSection } from './ask-picker.ts';
+import { ArrowOutGlyph, SearchIcon, SlackLogo } from './icons.tsx';
+import { MemberInvadr } from './MemberInvadr.tsx';
 
-type View = AskPickerModel['opensOn'];
-
-const VIEWS: readonly View[] = ['owners', 'all'];
-const VIEW_LABELS: Record<View, string> = {
-  owners: 'code owners',
-  all: 'all teams',
-};
-
-/** The groups a search keeps: a team whose name matches keeps everyone, any
-    other team keeps the people whose name or username matches. */
-function narrowed(groups: AskGroup[], query: string): AskGroup[] {
+/** The sections a search keeps: a team whose name matches keeps everyone,
+    any other keeps the people whose name or username matches. A Slack row
+    has no name of its own, so it stays only on a team match. */
+function narrowed(sections: AskSection[], query: string): AskSection[] {
   const q = query.trim().toLowerCase();
-  if (!q) return groups;
-  return groups
-    .map(g =>
-      g.team.toLowerCase().includes(q)
-        ? g
+  if (!q) return sections;
+  return sections
+    .map(s =>
+      s.team?.toLowerCase().includes(q)
+        ? s
         : {
-            ...g,
-            people: g.people.filter(
+            ...s,
+            slack: undefined,
+            people: s.people.filter(
               p =>
                 p.name.toLowerCase().includes(q) ||
                 p.username.toLowerCase().includes(q)
             ),
           }
     )
-    .filter(g => g.people.length > 0);
+    .filter(s => s.people.length > 0 || s.slack);
 }
 
-function noBoardLine(teams: string[]): string {
-  const names =
-    teams.length > 1
-      ? `${teams.slice(0, -1).join(', ')} and ${teams.at(-1)}`
-      : teams[0];
-  return teams.length > 1
-    ? `${names} own sections here but have no board connected.`
-    : `${names} owns a section here but has no board connected.`;
+function heading(s: AskSection): string {
+  if (s.role === 'mine') return s.team ? `${s.team} · your team` : 'your team';
+  return s.role === 'owner' ? `${s.team} · code owner` : s.team!;
 }
 
-/** The row menu's "request review from…" stage on a board where another
-    team can be asked: the seat's teammates and the MR's owning teams, or
-    every team behind a search. Drawn inside the kit menu, in its place.
-    A person takes a second click, since the ask lands in their inbox. */
+const APPROVAL = {
+  needs: { text: 'needs approval', hue: 'amber' },
+  approved: { text: 'approved', hue: 'green' },
+} as const;
+
+/** The row menu's "request review from…" stage: one list in the Code Owner
+    post's order behind a search over every team. Drawn inside the kit menu,
+    in its place. A pick goes on to the board's ask confirm. */
 export function AskPicker({
   x,
   y,
   subject,
   model,
-  personLabel,
   onPick,
+  onPostSlack,
+  onOpen,
   onClose,
 }: {
   x: number;
   y: number;
   subject: string;
   model: AskPickerModel;
-  /** A person's row label, with the menu's own leading glyph. */
-  personLabel: (name: string) => ReactNode;
   onPick: (username: string) => void;
+  /** Open the Code Owner post dialog. */
+  onPostSlack: () => void;
+  onOpen: (url: string) => void;
   onClose: () => void;
 }) {
-  const [view, setView] = useState<View>(model.opensOn);
   const [query, setQuery] = useState('');
-  const [armed, setArmed] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (view === 'all') searchRef.current?.focus();
-  }, [view]);
 
-  const person = (p: AskPerson, indented: boolean) => (
-    <ContextMenu.Item
-      key={p.username}
-      label={personLabel(p.name)}
-      hint={armed === p.username ? 'click to send' : undefined}
-      className={indented ? 'tui-menu-ask-member' : undefined}
-      onClick={() =>
-        armed === p.username ? onPick(p.username) : setArmed(p.username)
-      }
-    />
-  );
-  const team = (g: AskGroup) => (
-    <div
-      key={g.team}
-      role="group"
-      aria-label={g.note ? `${g.team}, ${g.note}` : g.team}
-    >
-      <div className="tui-menu-ask-team" aria-hidden="true">
-        <span>{g.team}</span>
-        {g.note && <span className="tui-menu-ask-state">{g.note}</span>}
+  const section = (s: AskSection) => {
+    const label = heading(s);
+    const badge =
+      s.approval && s.approval !== 'checking' && APPROVAL[s.approval];
+    return (
+      <div
+        key={`${s.role}:${s.team ?? ''}`}
+        role="group"
+        aria-label={
+          s.approval === 'checking'
+            ? `${label}, checking approval`
+            : badge
+              ? `${label}, ${badge.text}`
+              : label
+        }
+      >
+        <div className="tui-menu-ask-team" aria-hidden="true">
+          <span>{label}</span>
+          {badge ? (
+            <span className="tui-phrase" data-hue={badge.hue}>
+              {badge.text}
+            </span>
+          ) : s.approval === 'checking' ? (
+            <span className="tui-menu-ask-state">checking…</span>
+          ) : null}
+        </div>
+        {s.people.map(p => (
+          <ContextMenu.Item
+            key={p.username}
+            label={
+              <span className="tui-menu-icon-label">
+                <MemberInvadr id={p.username} className="tui-menu-ask-avatar" />
+                {p.name}
+              </span>
+            }
+            onClick={() => onPick(p.username)}
+          />
+        ))}
+        {s.slack && (
+          <ContextMenu.Item
+            label={
+              <span className="tui-menu-icon-label">
+                <SlackLogo />
+                {s.slack.posted
+                  ? 'posted in slack'
+                  : 'post to codeowners in slack…'}
+              </span>
+            }
+            trailing={s.slack.posted ? <ArrowOutGlyph /> : undefined}
+            onClick={() =>
+              s.slack!.posted ? onOpen(s.slack!.posted) : onPostSlack()
+            }
+          />
+        )}
       </div>
-      {g.people.map(p => person(p, true))}
-    </div>
-  );
-
-  const shown = narrowed(model.all, query);
-  const body =
-    view === 'all' ? (
-      shown.length > 0 ? (
-        shown.map(team)
-      ) : (
-        <div className="tui-menu-ask-empty">nobody matches</div>
-      )
-    ) : (
-      <>
-        {model.teammates.map(p => person(p, false))}
-        {model.owners.length > 0 && (
-          <div className="tui-menu-ask-divider" role="separator">
-            <span>code owners</span>
-          </div>
-        )}
-        {model.owners.map(team)}
-        {model.teammates.length === 0 && model.owners.length === 0 && (
-          <div className="tui-menu-ask-empty">nobody left to ask here</div>
-        )}
-      </>
     );
+  };
 
+  const shown = narrowed(model.sections, query);
   return (
     <ContextMenu
       key="asking"
@@ -128,25 +131,17 @@ export function AskPicker({
       y={y}
       ariaLabel={`request review for ${subject}`}
       onClose={onClose}
+      initialFocusRef={searchRef}
       className="tui-menu-asking"
     >
-      <ContextMenu.Label>request review from</ContextMenu.Label>
-      <LabeledSeg
-        soft
-        className="tui-menu-ask-views"
-        legend="who to list"
-        options={VIEWS}
-        labels={VIEW_LABELS}
-        value={view}
-        onChange={setView}
-      />
-      {view === 'all' && (
+      <label className="tui-menu-ask-searchbar">
+        <SearchIcon />
         <input
           ref={searchRef}
           className="tui-menu-ask-search"
           type="search"
           value={query}
-          placeholder="name or team"
+          placeholder="ask someone to review…"
           aria-label="search people and teams"
           onChange={e => setQuery(e.currentTarget.value)}
           onKeyDown={e => {
@@ -161,13 +156,16 @@ export function AskPicker({
             }
           }}
         />
-      )}
+      </label>
       <div ref={listRef} className="tui-menu-ask-list">
-        {body}
+        {shown.length > 0 ? (
+          shown.map(section)
+        ) : (
+          <div className="tui-menu-ask-empty">
+            nobody matches “{query.trim()}”
+          </div>
+        )}
       </div>
-      {view === 'owners' && model.noBoard.length > 0 && (
-        <div className="tui-menu-ask-foot">{noBoardLine(model.noBoard)}</div>
-      )}
     </ContextMenu>
   );
 }

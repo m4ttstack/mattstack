@@ -11,21 +11,22 @@ What it adds:
   of flight on one of your MRs, your row picks up the badge.
 - **Request re-review.** A row action on your own MR ("request re-review from
   `<reviewer>`") asks that reviewer's board directly.
-- **Request review.** "request review from…" on your own MR picks any roster
-  member not already engaged with it and asks their board for a first look.
-  The first click on a person asks "really ask `<name>`?"; the second sends.
-  A peer board running a version without this ask drops it silently; the chip
-  self-expires to "no-response" after 48 hours.
-- **Asking another team.** When someone on another team has a board that
-  takes asks, "request review from…" opens a picker with two views. **Code
-  owners** lists your teammates, then the teams that own a Code Owner section
-  on the MR, each with its members and whether its section still needs
-  approval; a team that owns a section but has no board connected is named at
-  the bottom. **All teams** searches every team by name or person. The picker
-  opens on code owners when one of the owning teams has someone to ask, and
-  on all teams otherwise. A section reaches its team through the Slack
-  channel in its name and the team directory, the same way the Code Owner
-  posts do. Selecting several rows keeps the teammates-only list.
+- **Request review.** "request review from…" on your own MR opens a picker of
+  everyone not already engaged with it whose board takes asks, behind one
+  search over names and teams. Picking someone opens the ask confirm, with an
+  optional note, before their board is asked for a first look. A peer board
+  running a version without this ask drops it silently; the chip self-expires
+  to "no-response" after 48 hours.
+- **Asking another team.** The picker runs in the Code Owner post's order:
+  your team, then each team that owns a Code Owner section on the MR and still
+  has to approve, then every other team. Owning teams carry a needs approval
+  or approved badge ("checking…" while the MR has changed since its approvals
+  were read). An owning team still to approve with nobody on a board offers
+  "post to codeowners in slack…", which opens the Code Owner post dialog, or
+  "posted in slack" once its channel has the post. A section reaches its team
+  through the Slack channel in its name and the team directory, the same way
+  the Code Owner posts do. Selecting several rows keeps the teammates-only
+  list.
 - **Request response.** The reverse direction: once your review of a
   teammate's MR finishes with comments, "ask `<author>`'s agent to respond"
   asks the author's board to answer the feedback. Their board reports the
