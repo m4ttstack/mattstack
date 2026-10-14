@@ -221,6 +221,8 @@ export interface AskCardData {
 export interface OwnerTeam {
   team: string;
   approved: boolean | null;
+  /** The MR's review request in one of the team's channels. */
+  posted?: string;
 }
 
 /** One team of the org roster with its members. */
