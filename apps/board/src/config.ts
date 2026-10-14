@@ -629,8 +629,8 @@ export interface OrgTeam {
 }
 
 function orgMembersFromStore(resolve: GetSettingFn): string[] {
-  return boardSetting<StoredMember[]>('mattstack.roster', resolve).map(m =>
-    m.username.trim().toLowerCase()
+  return boardSetting<StoredMember[]>('mattstack.roster', resolve).flatMap(m =>
+    typeof m?.username === 'string' ? [m.username.trim().toLowerCase()] : []
   );
 }
 
