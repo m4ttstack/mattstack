@@ -85,7 +85,9 @@ describe('askPickerModel', () => {
   test('a needed owning team with no board offers the Slack post where the repo can post to code owners', () => {
     const ownerTeams = [{ team: 'ledger', approved: false }];
     expect(
-      rows(askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true }))
+      rows(
+        askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true })
+      )
     ).toContainEqual(['ledger', 'owner', 'needs', [], {}]);
   });
 
@@ -94,7 +96,9 @@ describe('askPickerModel', () => {
       { team: 'ledger', approved: false, posted: 'https://slack.example/p1' },
     ];
     expect(
-      rows(askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true }))
+      rows(
+        askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true })
+      )
     ).toContainEqual([
       'ledger',
       'owner',

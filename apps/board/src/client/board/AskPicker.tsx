@@ -67,7 +67,8 @@ export function AskPicker({
 
   const section = (s: AskSection) => {
     const label = heading(s);
-    const badge = s.approval && s.approval !== 'checking' && APPROVAL[s.approval];
+    const badge =
+      s.approval && s.approval !== 'checking' && APPROVAL[s.approval];
     return (
       <div
         key={`${s.role}:${s.team ?? ''}`}

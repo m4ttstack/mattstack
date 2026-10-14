@@ -91,7 +91,7 @@ test('a person goes straight on to the ask', async () => {
   expect(harness.effects).toEqual([{ effect: 'ask:review:nia', iid: 1418 }]);
 });
 
-test("an owning team with no board opens the Code Owner post", async () => {
+test('an owning team with no board opens the Code Owner post', async () => {
   await openMenu(owned(), env);
   await clickItem('request review from…');
   await clickItem('post to codeowners in slack…');

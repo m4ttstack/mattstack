@@ -379,10 +379,9 @@ test('with another team to ask, request review carries the picker even once no t
 });
 
 test('a board with no teams still opens the picker on its own team', () => {
-  const ask = rowActions(
-    failedLanes,
-    actionEnvOf(failedEnv, failedLanes)
-  ).find(a => a.key === 'request-review')!;
+  const ask = rowActions(failedLanes, actionEnvOf(failedEnv, failedLanes)).find(
+    a => a.key === 'request-review'
+  )!;
   expect(
     ask.askPicker?.sections.map(g => [g.role, g.people.map(p => p.username)])
   ).toEqual([['mine', ['jo']]]);
