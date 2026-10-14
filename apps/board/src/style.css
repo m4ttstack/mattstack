@@ -2960,9 +2960,11 @@ a.tui-id-card-ref:focus-visible {
 }
 /* Ask picker: the menu swaps to the people an author can ask, behind a
    two-view switch. The list scrolls inside the menu so a large team never
-   runs it off the screen. */
+   runs it off the screen. The floor keeps the menu from jumping in size
+   when the switch changes view. */
 .tui-menu-asking {
   width: 300px;
+  min-height: min(16rem, 55vh);
 }
 .tui-menu-ask-views {
   margin: 4px 0;
