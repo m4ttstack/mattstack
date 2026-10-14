@@ -15,6 +15,9 @@ export interface PeerRuntime {
       one lands (or against a relay without /peers). A failed refresh keeps
       the last good list rather than blanking the pickers. */
   peers(): string[] | null;
+  /** Every enrolled board, asks on or off. Null until a fetch lands; a
+      failed refresh keeps the last good list. */
+  enrolled(): string[] | null;
 }
 
 export interface PeeringHost {
@@ -41,6 +44,7 @@ export function makePeering(host: PeeringHost) {
   let timer: ReturnType<typeof setInterval> | null = null;
   let strikes = 0;
   let peers: string[] | null = null;
+  let enrolled: string[] | null = null;
   let asksSent: boolean | null = null;
   let asksUnsupported = false;
   const deps: MaterializeDeps = {
@@ -59,6 +63,8 @@ export function makePeering(host: PeeringHost) {
       await runPeerTick(runtime.client, deps, host.outboxDb);
       const fetched = await runtime.client.peers();
       if (fetched) peers = fetched;
+      const all = await runtime.client.enrolled();
+      if (all) enrolled = all;
       const want = host.asksEnabled?.();
       if (want !== undefined && !asksUnsupported && want !== asksSent) {
         const r = await runtime.client.setAsksEnabled(want);
@@ -111,6 +117,7 @@ export function makePeering(host: PeeringHost) {
       client,
       health: () => (strikes >= UNAUTHORIZED_AFTER ? 'unauthorized' : 'ok'),
       peers: () => peers,
+      enrolled: () => enrolled,
     };
     // Once now so a restart (or a fresh join) picks up whatever queued while
     // this board was not listening, then on a slow tick -- peer state is
