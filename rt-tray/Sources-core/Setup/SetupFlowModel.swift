@@ -10,7 +10,7 @@ public enum SetupStep: Int, CaseIterable, Sendable {
         case .team: return "Your team"
         case .checklist: return "Before we begin"
         case .install: return "Installing"
-        case .done: return "All set"
+        case .done: return "Summary"
         }
     }
 }

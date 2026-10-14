@@ -210,6 +210,8 @@ final class SetupFlowUITests: XCTestCase {
         joinThroughInstall("finish-gate")
         waitFor("setup.done.beforeYouFinish.tool.fast-browser-extension", 30)
         XCTAssertTrue(el("setup.checklist.group.needs-you").exists, "the summary opens on Needs you")
+        XCTAssertEqual(el("setup.checklist.filter.needsYou").value as? String, "on", "the count for the open pane is the one that is on")
+        XCTAssertEqual(el("setup.checklist.filter.all").value as? String, "off")
         XCTAssertFalse(el("setup.done.overview").exists, "Needs you is the open pane, not Overview")
         XCTAssertFalse(el("setup.done.continue").isEnabled, "Finish waits on the extension")
         el("setup.done.skip.tool.fast-browser-extension").click()

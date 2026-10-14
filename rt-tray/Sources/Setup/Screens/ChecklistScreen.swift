@@ -29,6 +29,7 @@ struct ChecklistScreen: View {
     }
     @State private var actionErrors: [String: RowFailure] = [:]
     @State private var selected: String?
+    @State private var beforeNeedsYou: String?
     @State private var filter: ChecklistLayout.SummaryKind?
     @State private var waitingOnYou: [String: String] = [:]
 
@@ -155,17 +156,21 @@ struct ChecklistScreen: View {
             .filter { rowsConfirmed || $0.id == ChecklistLayout.overviewID }
         let current = rowsConfirmed ? layout.selection(preferred: selected, overview: overview != nil) : ChecklistLayout.overviewID
         let shownFilter = rowsConfirmed ? layout.activeFilter(filter) : nil
+        let onNeedsYou = shownFilter == nil && current == ChecklistLayout.needsYouID
         return VStack(alignment: .leading, spacing: 12) {
             if rowsConfirmed {
                 HStack(spacing: 6) {
                     if layout.summary.contains(where: { $0.kind != .needsYou }) {
-                        SummaryCount(kind: nil, text: "All", isOn: shownFilter == nil) { filter = nil }
+                        SummaryCount(kind: nil, text: "All", isOn: shownFilter == nil && !onNeedsYou) {
+                            filter = nil
+                            if onNeedsYou { selected = layout.entryBehindNeedsYou(previous: beforeNeedsYou, overview: overview != nil) }
+                        }
                     }
                     ForEach(layout.summary, id: \.kind) { part in
-                        SummaryCount(kind: part.kind, text: part.text, isOn: part.kind == shownFilter) {
+                        SummaryCount(kind: part.kind, text: part.text, isOn: part.kind == .needsYou ? onNeedsYou : part.kind == shownFilter) {
                             if part.kind == .needsYou {
                                 filter = nil
-                                selected = ChecklistLayout.needsYouID
+                                pick(ChecklistLayout.needsYouID, from: current)
                             } else {
                                 filter = part.kind == shownFilter ? nil : part.kind
                             }
@@ -183,7 +188,7 @@ struct ChecklistScreen: View {
                         if index > 0 { Divider() }
                         // A pick made before the rows are confirmed would keep the summary off Needs you once they are.
                         ChecklistSidebarEntry(entry: entry, isSelected: shownFilter == nil && entry.id == current) {
-                            if rowsConfirmed { filter = nil; selected = entry.id }
+                            if rowsConfirmed { filter = nil; pick(entry.id, from: current) }
                         }
                     }
                 }
@@ -214,6 +219,11 @@ struct ChecklistScreen: View {
         .background(Color.primary.opacity(0.035))
         // A filter left set after its rows went would come back on, with no click, when a later re-read gave it rows again.
         .onChange(of: layout.activeFilter(filter)) { _, active in if active == nil { filter = nil } }
+    }
+
+    private func pick(_ entry: String, from current: String?) {
+        if entry == ChecklistLayout.needsYouID, current != ChecklistLayout.needsYouID { beforeNeedsYou = current }
+        selected = entry
     }
 
     @ViewBuilder
@@ -425,20 +435,16 @@ struct SummaryGlyph: View {
     /// A count that is on has a solid selection fill, which a glyph's own colour does not read against.
     var isOn = false
     var body: some View {
-        if isOn {
-            Image(systemName: symbol).symbolRenderingMode(.monochrome).foregroundStyle(SummaryCount.onText)
-        } else {
-            switch kind {
-            case .needsYou: Image(systemName: symbol).symbolRenderingMode(.multicolor)
-            case .ready: Image(systemName: symbol).foregroundStyle(.green)
-            case .optional, .notNeeded: Image(systemName: symbol).foregroundStyle(.secondary)
-            }
+        if let symbol {
+            Image(systemName: symbol).symbolRenderingMode(.monochrome)
+                .foregroundStyle(isOn ? SummaryCount.onText : kind == .ready ? Color.green : Color.secondary)
         }
     }
 
-    private var symbol: String {
+    /// Needs you has none: the warning mark belongs to the sidebar entry and the pane's heading.
+    private var symbol: String? {
         switch kind {
-        case .needsYou: return "exclamationmark.triangle.fill"
+        case .needsYou: return nil
         case .ready: return "checkmark.circle"
         case .optional: return "circle"
         case .notNeeded: return "circle.dashed"

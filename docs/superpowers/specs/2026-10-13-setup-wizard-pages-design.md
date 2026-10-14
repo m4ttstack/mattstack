@@ -52,6 +52,12 @@ Install with no input, and six are optional.
     board, judged in the dev app.) After the first look: an **All** count
     comes first and shows everything, and the active count's look is
     stronger.
+14. **After the first screenshots of the summary (2026-10-13):** the last
+    step's header reads "Summary" in every state; the "N need you" count
+    carries no warning mark (the sidebar entries and the pane's heading keep
+    theirs); and while the Needs you entry is selected, "N need you" is the
+    highlighted count and All is not, with All returning to the entry shown
+    before.
 
 Set aside: pages on both sides of Install. Install blockers sit in four
 groups (Your Mac, Accounts, Agents and editors, rt on this Mac), so a split

@@ -63,6 +63,15 @@ let checklistLayoutChecks: [Check] = [
         let status = layout.entries(overview: false, running: [], failed: [])
         c.expectEqual(status.map(\.id), [ChecklistLayout.needsYouID, "mac", "accounts", "agents"])
     },
+    Check("ChecklistLayout.entryBehindNeedsYou: the entry shown before Needs you while it exists, else the first that is not Needs you") { c in
+        let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"])
+        c.expectEqual(layout.entryBehindNeedsYou(previous: "accounts", overview: true), "accounts")
+        c.expectEqual(layout.entryBehindNeedsYou(previous: nil, overview: true), ChecklistLayout.overviewID)
+        c.expectEqual(layout.entryBehindNeedsYou(previous: nil, overview: false), "mac")
+        c.expectEqual(layout.entryBehindNeedsYou(previous: "gone", overview: false), "mac")
+        c.expectEqual(layout.entryBehindNeedsYou(previous: ChecklistLayout.needsYouID, overview: false), "mac")
+        c.expectEqual(ChecklistLayout.make([]).entryBehindNeedsYou(previous: nil, overview: false), nil)
+    },
     Check("ChecklistLayout.entries: an optional row never marks its group as needing you") { c in
         let layout = ChecklistLayout.make(layoutSample)
         c.expectEqual(layout.entries(overview: false, running: [], failed: []).first { $0.id == "accounts" }?.mark, .settled)

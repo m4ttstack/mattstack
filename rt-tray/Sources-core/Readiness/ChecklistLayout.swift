@@ -71,6 +71,13 @@ public struct ChecklistLayout: Equatable, Sendable {
         return ids.first
     }
 
+    /// Where All goes from the Needs you entry: the entry shown before it while that still exists.
+    public func entryBehindNeedsYou(previous: String?, overview: Bool) -> String? {
+        let ids = entries(overview: overview, running: [], failed: []).map(\.id).filter { $0 != Self.needsYouID }
+        if let previous, ids.contains(previous) { return previous }
+        return ids.first
+    }
+
     public static func make(_ groups: [PlanGroup], finishBlockedBy: [String] = [], afterInstall: Bool = false) -> ChecklistLayout {
         let blocked = Set(finishBlockedBy)
         var attention: [Attention] = []

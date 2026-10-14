@@ -15,7 +15,7 @@ let setupFlowChecks: [Check] = [
         c.expectEqual(SetupStep.allCases.map(\.rawValue), [0, 1, 2, 3, 4])
         c.expectEqual(SetupStep.team.title, "Your team")
         c.expectEqual(SetupStep.checklist.title, "Before we begin")
-        c.expectEqual(SetupStep.done.title, "All set")
+        c.expectEqual(SetupStep.done.title, "Summary")
     },
     Check("flow header: a wizard page is named after its group and counted among every page") { c in
         await MainActor.run {
