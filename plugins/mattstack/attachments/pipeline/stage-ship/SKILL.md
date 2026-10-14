@@ -89,6 +89,8 @@ digraph ship {
     "Gate clarify: which forge?" [shape=box];
     "run_field_set {key: mr, value: <url>, stage: ship}" [shape=plaintext];
     "run_field_get {key: evidence}" [shape=plaintext];
+    "Browser screenshot for this case?" [shape=diamond];
+    "Capture the AFTER with the browser (browser-evidence)" [shape=box];
     "Capture the AFTER for the next case the domain names" [shape=box];
     "AFTER captured, or none left to capture?" [shape=diamond];
     "AFTER attempts for this case = 3?" [shape=diamond];
@@ -105,6 +107,9 @@ digraph ship {
     "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [shape=plaintext];
     "mr_upload result?" [shape=diamond];
     "Upload retried with a corrected path?" [shape=diamond];
+    "Redaction record repaired for this file already?" [shape=diamond];
+    "Repair the board's redaction record (browser-evidence)" [shape=box];
+    "Repair outcome?" [shape=diamond];
     "mr_upload {mrUrl, path: <the corrected absolute path>, runId}" [shape=plaintext];
     "STOP: upload only with mr_upload; another route is off-script" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)" [shape=box];
@@ -229,14 +234,20 @@ digraph ship {
     "gh pr create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="already exists: keep the url it prints"];
     "gh pr create result?" -> "run_stage {action: fail, stage: ship, reason}" [label="any other error: quote it as the reason"];
     "run_field_set {key: mr, value: <url>, stage: ship}" -> "run_field_get {key: evidence}";
-    "run_field_get {key: evidence}" -> "Capture the AFTER for the next case the domain names";
+    "run_field_get {key: evidence}" -> "Browser screenshot for this case?";
+    "Browser screenshot for this case?" -> "Capture the AFTER with the browser (browser-evidence)" [label="yes"];
+    "Browser screenshot for this case?" -> "Capture the AFTER for the next case the domain names" [label="no: the domain's own method, or no case named"];
+    "Capture the AFTER with the browser (browser-evidence)" -> "AFTER captured, or none left to capture?";
     "Capture the AFTER for the next case the domain names" -> "AFTER captured, or none left to capture?";
-    "AFTER captured, or none left to capture?" -> "Every named case tried?" [label="captured"];
+    "AFTER captured, or none left to capture?" -> "Every named case tried?" [label="captured, or Board recorded"];
     "AFTER captured, or none left to capture?" -> "A v1 or v2 record with an image, or an AFTER was captured?" [label="none named: there is no AFTER"];
-    "AFTER captured, or none left to capture?" -> "AFTER attempts for this case = 3?" [label="the capture failed"];
-    "AFTER attempts for this case = 3?" -> "Capture the AFTER for the next case the domain names" [label="no: another attempt, same case"];
+    "AFTER captured, or none left to capture?" -> "Every named case tried?" [label="skipped: unbound, this case is not a browser case and has no AFTER"];
+    "AFTER captured, or none left to capture?" -> "AFTER attempts for this case = 3?" [label="the capture failed, or Not drawn: a failed brief or spent re-renders"];
+    "AFTER captured, or none left to capture?" -> "Every named case tried?" [label="not drawn: the developer left it uncaptured, the doctor stayed red, no compose on PATH, sign-in asks spent, no driver to spawn, redaction rounds spent, or confirm refused twice: go on without it; the description names the gap"];
+    "AFTER captured, or none left to capture?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="held at evidence-redaction"];
+    "AFTER attempts for this case = 3?" -> "Browser screenshot for this case?" [label="no: another attempt, same case"];
     "AFTER attempts for this case = 3?" -> "Every named case tried?" [label="yes: go on without it; the description names the gap"];
-    "Every named case tried?" -> "Capture the AFTER for the next case the domain names" [label="no"];
+    "Every named case tried?" -> "Browser screenshot for this case?" [label="no"];
     "Every named case tried?" -> "A v1 or v2 record with an image, or an AFTER was captured?" [label="yes"];
     "A v1 or v2 record with an image, or an AFTER was captured?" -> "Merge into the record (evidence-record)" [label="yes"];
     "A v1 or v2 record with an image, or an AFTER was captured?" -> "Files to attach?" [label="no"];
@@ -244,6 +255,7 @@ digraph ship {
     "Annotate or waive each image the record does not yet cover (evidence-record)" -> "Annotate or waive outcome?";
     "Annotate or waive outcome?" -> "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: ship}" [label="ready"];
     "Annotate or waive outcome?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="held at evidence-waiver"];
+    "Annotate or waive outcome?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="held at evidence-redaction"];
     "Annotate or waive outcome?" -> "run_stage {action: fail, stage: ship, reason}" [label="waiver openings spent: the images named"];
     "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: ship}" -> "evidence write result?";
     "evidence write result?" -> "Files to attach?" [label="ok"];
@@ -261,6 +273,13 @@ digraph ship {
     "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="tempted to copy the file into an allowed root, or upload another way"];
     "mr_upload result?" -> "Record fixed once already?" [label="refused: not in the record, or a raw capture"];
     "Record fixed once already?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no: the named file"];
+    "mr_upload result?" -> "Redaction record repaired for this file already?" [label="refused: a redaction record (unconfirmed, missing, stale, a crop, malformed)"];
+    "Redaction record repaired for this file already?" -> "Repair the board's redaction record (browser-evidence)" [label="no"];
+    "Redaction record repaired for this file already?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes: refused again after a repair"];
+    "Repair the board's redaction record (browser-evidence)" -> "Repair outcome?";
+    "Repair outcome?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="repaired: retry that file"];
+    "Repair outcome?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="held at evidence-redaction"];
+    "Repair outcome?" -> "STOP: upload only with mr_upload; another route is off-script" [label="not repaired: no spec beside the board, a compose error, or a refused confirm"];
     "Record fixed once already?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes"];
     "Upload retried with a corrected path?" -> "mr_upload {mrUrl, path: <the corrected absolute path>, runId}" [label="no: this file's one fix"];
     "Upload retried with a corrected path?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes"];
@@ -329,16 +348,67 @@ push follows: this pass never starts a second rebase. A continue that
 fails with anything but another conflict aborts the rebase, then fails
 the stage with the error quoted.
 
+### Capture the AFTER with the browser (browser-evidence)
+
+`Browser screenshot for this case?` is yes when the domain has a
+`## Browser target` section (in its rules, or in the file they point at
+for it) and either its What proves a change names a view for this case's
+kind of change, or it has no What proves a change block and the plan's
+evidence for the case is a screenshot of a web page. A bound domain with
+no browser target always answers no. Unbound, it is yes when the case's
+BEFORE in the record is a browser board (a `<stem>.spec.json` beside it)
+or the plan's evidence for the case is a screenshot of a web page.
+
+A case already in the record keeps its `id`; a new case gets its `id` and
+`label` first (see the evidence record below): the brief's stem needs the
+id.
+
+Write the case's after brief, stem `<run id>-<case id>-after[-<theme>]`,
+the theme only for an image in a `{light, dark}` slot:
+
+- The case's before has a bundle (a `<stem>.spec.json` beside its board in
+  the evidence folder): the brief is a pair, `state: BEFORE → AFTER`, with
+  `before:` that spec's absolute path. The pair board then covers the
+  before image too (evidence-record, Merge into the record).
+- Before and after are different screens: the after is its own `AFTER`
+  board, with no `before:`.
+- The before is a ticket link or text, or the case is new: there is no
+  bundle, so the after is its own `AFTER` board.
+
+`page:` comes from Reach the view, on the sha you pushed; `show` and
+`point at` from What proves a change, the wording from Captions and `hide`
+from Personal data. Unbound, every block takes its default. Then walk
+browser-evidence's `Draw the boards` graph (Browser evidence below).
+
+Its terminals answer `AFTER captured, or none left to capture?`: `Board
+recorded` is captured, and `Held at evidence-redaction` is the stage's
+hold. `Not drawn` splits by the reason browser-evidence returns. The
+developer answered Leave it uncaptured, the doctor was still red after two
+runs, `fast-browser compose --help` showed no compose, the sign-in asks
+were spent, there was no driver to spawn (a missing `Agent` tool or driver
+type), the redaction rounds were spent, or the confirm was refused twice:
+no retry can fix those, so the case goes on without its AFTER and the
+description names the gap. A failed
+brief (the driver's other failures) or spent re-renders count as a failed
+capture against `AFTER attempts for this case = 3?`.
+
+A yes case follows browser-evidence alone. The domain's own capture steps
+(its AFTER capture text, any preview capture, any draw or annotate step)
+apply only to its other evidence kinds. On a browser case, the domain's
+browser target supplies facts, never steps.
+
 ### Capture the AFTER for the next case the domain names
 
 For each case in the record, the same view as its BEFORE, on the sha
 you pushed; a v1 record's BEFORE counts as the case `case`, so an AFTER
 of that view belongs to it. Any other capture the domain names is a new
-case with its own `id` and `label`. The counter is attempts per case within this pass;
-after the third failure that case goes on without its AFTER and the
-description says what was tried. Unbound, there is no AFTER. Every
-capture goes into the record through the evidence record's merge and
-annotate steps, and is written before anything uploads; a capture is
+case with its own `id` and `label`. The counter is attempts per case
+within this pass; after the third failure that case goes on without its
+AFTER and the description says what was tried. Unbound, a case that is
+not a browser case (above) has no AFTER: it is skipped, and the flow goes
+on to `Every named case tried?`, so a later browser case still runs.
+Every capture goes into the record through the evidence record's merge
+and annotate steps, and is written before anything uploads; a capture is
 never uploaded on its own.
 
 ### Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)
@@ -346,7 +416,8 @@ never uploaded on its own.
 The upload guard refused a file past its one fix; a second timeout on
 the same file reaches this gate too (Iterate retries it once the human
 has checked the daemon), as does a second refusal that the file is not
-in the record or is a raw capture. Scope `off-script:ship:<n>`, sharing
+in the record or is a raw capture, a redaction-record refusal after one
+repair, or a repair that could not run. Scope `off-script:ship:<n>`, sharing
 `n` with the push's off-script gate, `context` quoting the refusal and
 the path. Take writes the description
 with the refused files' local paths linked instead of uploads, while files
@@ -354,6 +425,26 @@ already uploaded keep their upload markdown; Iterate means the human moved
 the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file under
 an allowed root is only ever the human's move: the roots are the boundary
 on what leaves the machine.
+
+### Repair the board's redaction record (browser-evidence)
+
+`mr_upload` refused a board's redaction record: missing, unconfirmed,
+stale, a crop missing or changed, or malformed. The redaction gate was
+skipped, or the board changed after it. The evidence folder is the board's
+own folder. Walk browser-evidence's Revise a board steps 2 to 4 on
+`<evidence folder>/<stem>.spec.json`: re-render it, read it, pass Gate
+evidence-redaction and run `--confirm` after a yes, then copy the board,
+its crops and its record beside it. Then retry that file's `mr_upload`.
+`Redaction record repaired for this file already?` counts repairs per file
+in this pass: a second redaction-record refusal for the same file goes to
+the upload off-script gate. A Hold at the redaction gate is held at
+evidence-redaction, with nothing uploaded. No spec beside the board, a
+compose error, or a refused confirm is not repaired: the upload off-script
+gate, the output quoted.
+A "Widen it" answer, or a re-render that reads wrong, during a repair
+re-renders through the driver and counts against browser-evidence's
+`Redaction rounds for this board = 2?`; when those are spent, the file is
+not repaired and goes to the upload off-script gate.
 
 ### Write the title and description
 
@@ -408,6 +499,11 @@ stage knows.
   they leave the gate, so the skip below never fires inside one pass and a
   resume after either re-asks the gate. The work orchestrator clears it on a redirect that reaches ship and
   on a failure gate Retry of ship.
+- **Revising a board.** A board revision asked at a gate (a note at the
+  ship gate, say) runs browser-evidence's Revise a board steps 1 to 4,
+  step 6 when the claim changed, and step 8. The upload and
+  the description follow this graph's own `mr_upload` and description
+  steps.
 - **Re-entry.** A stage entered again reads `shipTarget` after
   `branch_stack`. An unset key (`run_field_get` errors) or the value `-`
   is no recorded consent: the gate opens. A readable fresh target equal to
@@ -463,12 +559,20 @@ node's edge wins: a shell push fallback opens the push's off-script gate;
 a GitLab CLI read goes through the read tools or `gitlab_get`, and a
 write through the `mr_*` tools. A domain rule that keeps a capture out
 of the record, or keeps a base with no waiver, yields to the evidence
-record.
+record. A ship domain's AFTER uses the browser target section of the
+evidence fill when it points at it; on a browser case that section
+supplies facts, never steps, and browser-evidence below does the capture,
+the board, the gates and the bundle.
 
 {{slot:domain}}
 
 When nothing is inlined above, the graph alone is the flow: no steps
-before the gate, no fast checks, no rebase, no AFTER.
+before the gate, no fast checks, no rebase, and no AFTER beyond a browser
+case's.
+
+## Browser evidence
+
+{{include:browser-evidence}}
 
 ## Evidence record
 

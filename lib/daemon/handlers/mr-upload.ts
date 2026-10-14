@@ -8,7 +8,9 @@
  * uid, and rt.mcp.uploadRoots read through the resolver at call time. The
  * guard adds its own built-in roots (rt's evidence folder, a run's evidence
  * folder) on top of these. With a runId, the file must also be in that run's
- * evidence record (../evidence-record-check.ts).
+ * evidence record (../evidence-record-check.ts). A composed board whose
+ * ticket-image redactions are unconfirmed is refused too
+ * (../redaction-record-check.ts).
  */
 import { isAbsolute } from "path";
 import { decodeRepo } from "../identity-decoder.ts";
@@ -18,6 +20,7 @@ import { getSetting } from "../../settings/resolve.ts";
 import { findRun } from "../../runs/store.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
 import { evidenceUploadRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
+import { redactionUploadRefusal } from "../redaction-record-check.ts";
 import { checkUploadPath, claudeTempRoots } from "../upload-guard.ts";
 import type { CommandResult, HandlerContext, HandlerMap } from "./types.ts";
 
@@ -80,6 +83,8 @@ export function createMrUploadHandlers(
       const roots = [repoPath, ...worktreePathsFn(repoName), ...tempRootsFn(), ...uploadRootsFn()];
       const checked = checkUploadPath(path.trim(), roots);
       if (!checked.ok) return { ok: false, error: checked.error };
+      const unconfirmed = redactionUploadRefusal({ realpath: checked.realpath, filename: checked.filename, bytes: checked.bytes, warn: (message, context) => ctx.log.warn(context, message) });
+      if (unconfirmed) return { ok: false, error: unconfirmed };
       if (p?.runId !== undefined) {
         if (typeof p.runId !== "string" || !p.runId.trim()) return { ok: false, error: "runId must be a non-empty string" };
         const runId = p.runId.trim();

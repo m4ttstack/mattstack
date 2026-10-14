@@ -100,6 +100,8 @@ digraph review {
     "Provisioned review tree at the fetched head?" [shape=diamond];
     "STOP: create a review checkout only with worktree_provision" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Set up for the review depth" [shape=box];
+    "Review repro takes a browser screenshot?" [shape=diamond];
+    "Capture the review repro with the browser (browser-evidence)" [shape=box];
     "Dispatch the fresh reviewer; it forms the findings" [shape=box];
     "Assemble the review draft" [shape=box];
     "Verify each blocking finding against the MR head" [shape=box];
@@ -254,7 +256,10 @@ digraph review {
     "Review head worktree_provision returned a path?" -> "Dispatch the fresh reviewer; it forms the findings" [label="no: refused; the checks are noted as not run"];
     "Provisioned review tree at the fetched head?" -> "Set up for the review depth" [label="yes"];
     "Provisioned review tree at the fetched head?" -> "Dispatch the fresh reviewer; it forms the findings" [label="no: checks noted as not run, both shas quoted"];
-    "Set up for the review depth" -> "Dispatch the fresh reviewer; it forms the findings";
+    "Set up for the review depth" -> "Review repro takes a browser screenshot?";
+    "Review repro takes a browser screenshot?" -> "Capture the review repro with the browser (browser-evidence)" [label="yes"];
+    "Review repro takes a browser screenshot?" -> "Dispatch the fresh reviewer; it forms the findings" [label="no: read or verify depth, or the domain's own method"];
+    "Capture the review repro with the browser (browser-evidence)" -> "Dispatch the fresh reviewer; it forms the findings";
     "Dispatch the fresh reviewer; it forms the findings" -> "Assemble the review draft";
     "Assemble the review draft" -> "Verify each blocking finding against the MR head";
     "Verify each blocking finding against the MR head" -> "Every blocking finding verified?";
@@ -544,6 +549,28 @@ The review flow's "Set up for the depth". The GitLab fetch and diff above
 are two separate commands, `targetBranch` from `mr_view`. Run
 the checks the depth names in the MR-head checkout (the one in hand or
 the one provisioned). Record every command and its result.
+
+### Review repro takes a browser screenshot?
+
+Yes at `repro` depth when EVIDENCE CHECK is `screenshot` and the Criteria
+point at a browser target (a `## Browser target` section, in the criteria
+or in the file they point at for it) whose What proves a change names a
+view for this change, or that has no What proves a change block. Bound
+criteria with no browser target answer no: the repro keeps the domain's
+own method. With nothing bound, yes when the repro's evidence is a
+screenshot of a web page. `read` and `verify` depth answer no.
+
+### Capture the review repro with the browser (browser-evidence)
+
+The review flow's "A browser screenshot at repro" is this step: walk
+browser-evidence's `Draw the boards` graph (Browser evidence below) for
+the repro's views, in the MR-head checkout, one brief per view built from
+the browser target, with the stem and evidence folder that section gives
+(`<mr iid>` is the MR's iid). Every terminal goes on to the dispatch: a
+board kept in the review's evidence folder, or Not drawn with its reason,
+both in the setup observations. After `Reads right?` yes, go straight to Keep the bundle's copy,
+skipping `Crops returned?` and the redaction gate; a review board is never
+recorded or uploaded.
 
 ### Dispatch the fresh reviewer; it forms the findings
 
@@ -959,6 +986,10 @@ If a rule below asks for a move this graph marks STOP, take the off-script edge 
 {{include:review-dispatch-body-after}}
 
 {{include:review-core-body-tail}}
+
+## Browser evidence
+
+{{include:browser-evidence}}
 
 ## Gate protocol
 

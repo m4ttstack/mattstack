@@ -125,6 +125,12 @@ The skill sorts the ask into one of four places:
 | a new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | a roster entry in `pack/stubs.jsonc` |
 | the wording of an existing verb | its `description` in `pack/stubs.jsonc` |
 
+Browser screenshot evidence is a fill on the evidence stage's `domain`
+slot with a `## Browser target` section: four blocks of facts about your
+app and no capture steps, as
+[browser-target.md](../plugin/skills/extending-a-pack/browser-target.md)
+shows.
+
 For the lint example that is a fill on the ship stage's `domain` slot. What
 you will see, in order:
 

@@ -298,6 +298,14 @@ describe("fields", () => {
     db.close();
   });
 
+  test("a field write on a done run succeeds", () => {
+    const db = started();
+    expect(runStatus(db, "done", 9000)).toEqual({ ok: true });
+    expect(fieldSet(db, "evidence", JSON.stringify({ v: 1, before: "/b.png" }), "evidence", 10)).toEqual({ ok: true });
+    expect(fieldGet(db, "evidence")).toEqual({ ok: true, value: JSON.stringify({ v: 1, before: "/b.png" }) });
+    db.close();
+  });
+
   test("field set replaces an existing key", () => {
     const db = started();
     fieldSet(db, "branch", "a", "provision", 10);
