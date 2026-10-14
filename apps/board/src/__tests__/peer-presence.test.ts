@@ -145,7 +145,9 @@ describe('activePeerReviewer', () => {
     expect(activePeerReviewer({}, 'me', NOW)).toBeNull();
     expect(
       activePeerReviewer(
-        { peerReviews: [r('pat', 'reviewing', NOW - PEER_REVIEW_STALE_MS - 1)] },
+        {
+          peerReviews: [r('pat', 'reviewing', NOW - PEER_REVIEW_STALE_MS - 1)],
+        },
         'me',
         NOW
       )

@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 import { canonicalHostRedirect } from '@mattstack/app-server/canonical-host';
@@ -371,6 +371,27 @@ import {
     The seed of the permanent screenshot harness (see tests/capture.ts). */
 const FIXTURE_DIR = process.env.BOARD_FIXTURE || null;
 const fixtureFile = (name: string) => join(FIXTURE_DIR!, name);
+
+/** The fixture's peer review states are pinned to meta.json's `now`, which a
+    board served in real time would judge stale. Shift each to the same age
+    from the wall clock; the capture harness freezes the browser clock to
+    `now`, where a shifted state still reads fresh. */
+function fixtureDataJson(): string {
+  const metaFile = fixtureFile('meta.json');
+  const shift = existsSync(metaFile)
+    ? Date.now() -
+      (JSON.parse(readFileSync(metaFile, 'utf8')) as { now: number }).now
+    : 0;
+  const data = JSON.parse(readFileSync(fixtureFile('data.json'), 'utf8')) as {
+    mrs: Array<{ peerReviews?: PeerReviewState[] }>;
+  };
+  for (const mr of data.mrs)
+    for (const p of mr.peerReviews ?? []) {
+      p.updatedAt += shift;
+      if (p.receivedAt !== undefined) p.receivedAt += shift;
+    }
+  return JSON.stringify(data);
+}
 
 // Containment must be structural, not route-enumeration-dependent: pin
 // state.db inside the fixture dir (alongside BOARD_APP_ROOT below) before
@@ -1611,7 +1632,7 @@ const httpServer = Bun.serve({
         return new Response('fixture mode is read-only', { status: 501 });
       switch (pathname) {
         case '/data.json':
-          return new Response(readFileSync(fixtureFile('data.json'), 'utf8'), {
+          return new Response(fixtureDataJson(), {
             headers: { 'content-type': 'application/json' },
           });
         case '/discussions':
@@ -1635,9 +1656,7 @@ const httpServer = Bun.serve({
           });
         case '/member': {
           const u = new URL(req.url).searchParams.get('u');
-          const data = JSON.parse(
-            readFileSync(fixtureFile('data.json'), 'utf8')
-          ) as {
+          const data = JSON.parse(fixtureDataJson()) as {
             mrs: Array<{ author: { username: string } }>;
             fetchedAt: number;
           };

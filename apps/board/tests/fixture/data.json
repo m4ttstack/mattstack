@@ -876,7 +876,8 @@
           "iid": 1235,
           "reviewer": "pat",
           "status": "reviewing",
-          "updatedAt": 1755603420000
+          "updatedAt": 1755603420000,
+          "receivedAt": 1755603420000
         }
       ],
       "gates": [

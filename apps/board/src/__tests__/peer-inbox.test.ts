@@ -135,7 +135,7 @@ describe('materializeEnvelope', () => {
       expect(deps.peerReviews).toHaveLength(1);
       expect(deps.nudges).toEqual([]);
       expect(deps.froms.length).toBeGreaterThan(0);
-      expect(deps.froms.every((f) => f === 'mira')).toBe(true);
+      expect(deps.froms.every(f => f === 'mira')).toBe(true);
     });
 
     test("status 'reviewing' also confirms any pending sent nudge for the MR", () => {
