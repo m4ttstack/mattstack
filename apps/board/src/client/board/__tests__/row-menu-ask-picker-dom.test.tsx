@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 
 import { mrx } from './menu-fixtures.ts';
 import {
@@ -17,6 +17,8 @@ const env = {
   roster: ['pat', 'kim'],
   peers: ['kim', 'nia', 'sam', 'ines'],
   ownTeam: 'widgets',
+  ownerSlackRepos: ['shop'],
+  slackEnabled: true,
   teams: [
     { name: 'billing', members: [{ username: 'ines', name: 'Ines Duarte' }] },
     {
@@ -31,31 +33,24 @@ const env = {
   ],
 };
 
-const owned = mrx(1418, {
-  ownerTeams: [
-    { team: 'gadgets', approved: false },
-    { team: 'ledger', approved: false },
-  ],
-});
+const owned = (ledger: { posted?: string } = {}) =>
+  mrx(1418, {
+    rtRepo: 'shop',
+    ownerTeams: [
+      { team: 'billing', approved: true },
+      { team: 'gadgets', approved: false },
+      { team: 'ledger', approved: false, ...ledger },
+    ],
+  });
 
 const picker = () => document.querySelector('[data-part="contextmenu"]');
 const search = () =>
   picker()?.querySelector<HTMLInputElement>('input.tui-menu-ask-search') ??
   null;
-
-const views = () => [
-  ...(picker()?.querySelectorAll<HTMLElement>(
-    '[data-part="segmented-option"]'
-  ) ?? []),
-];
-
-async function showView(label: string): Promise<void> {
-  const option = views().find(el => el.textContent === label);
-  if (!option) throw new Error(`no view "${label}"`);
-  await act(() => {
-    option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  });
-}
+const headings = () =>
+  [...(picker()?.querySelectorAll('.tui-menu-ask-team') ?? [])].map(
+    h => h.textContent
+  );
 
 async function typeSearch(text: string): Promise<void> {
   const input = search();
@@ -70,53 +65,69 @@ async function typeSearch(text: string): Promise<void> {
   });
 }
 
-test('an MR another team owns opens on code owners, each owning team under its heading', async () => {
-  await openMenu(owned, env);
+test('one list: your team, the owning teams still to approve, then the rest', async () => {
+  await openMenu(owned(), env);
   await clickItem('request review from…');
-  expect(search()).toBeNull();
-  expect(views().map(el => [el.textContent, el.dataset.active])).toEqual([
-    ['code owners', 'true'],
-    ['all teams', undefined],
+  expect(search()).not.toBeNull();
+  expect(headings()).toEqual([
+    'widgets · your team',
+    'gadgets · code ownerneeds approval',
+    'ledger · code ownerneeds approval',
+    'billing · code ownerapproved',
   ]);
-  expect(itemTexts()).toEqual(['kim', 'Nia Okoro', 'Sam Whitlow']);
-  const text = picker()!.textContent!;
-  expect(text).toContain('gadgets');
-  expect(text).toContain('needs approval');
-  expect(text).toContain('ledger owns a section here but has no board');
-  await clickItem('Nia Okoro');
-  expect(harness.effects).toEqual([]);
-  expect(itemTexts()).toEqual(['kim', 'Nia Okoroclick to send', 'Sam Whitlow']);
+  expect(itemTexts()).toEqual([
+    'kim',
+    'Nia Okoro',
+    'Sam Whitlow',
+    'post to codeowners in slack…',
+    'Ines Duarte',
+  ]);
+});
+
+test('a person goes straight on to the ask', async () => {
+  await openMenu(owned(), env);
+  await clickItem('request review from…');
   await clickItem('Nia Okoro');
   expect(harness.effects).toEqual([{ effect: 'ask:review:nia', iid: 1418 }]);
 });
 
-test('all teams lists every team with someone to ask and narrows as you type', async () => {
-  await openMenu(owned, env);
+test("an owning team with no board opens the Code Owner post", async () => {
+  await openMenu(owned(), env);
   await clickItem('request review from…');
-  await showView('all teams');
-  expect(itemTexts()).toEqual([
-    'kim',
-    'Ines Duarte',
-    'Nia Okoro',
-    'Sam Whitlow',
-  ]);
-  await typeSearch('gad');
-  expect(itemTexts()).toEqual(['Nia Okoro', 'Sam Whitlow']);
-  await clickItem('Sam Whitlow');
-  expect(harness.effects).toEqual([]);
-  await clickItem('Sam Whitlow');
-  expect(harness.effects).toEqual([{ effect: 'ask:review:sam', iid: 1418 }]);
+  await clickItem('post to codeowners in slack…');
+  expect(harness.effects).toEqual([{ effect: 'post-slack', iid: 1418 }]);
 });
 
-test('an MR no other team owns opens on all teams', async () => {
-  await openMenu(mrx(1418), env);
+test("once posted, the team's row opens the Slack thread", async () => {
+  const open = spyOn(window, 'open').mockImplementation(() => null);
+  try {
+    await openMenu(owned({ posted: 'https://slack.example/p1' }), env);
+    await clickItem('request review from…');
+    await clickItem('posted in slack');
+    expect(open).toHaveBeenCalledWith(
+      'https://slack.example/p1',
+      '_blank',
+      'noopener'
+    );
+    expect(harness.effects).toEqual([]);
+  } finally {
+    open.mockRestore();
+  }
+});
+
+test('the search narrows every section and keeps their headings', async () => {
+  await openMenu(owned(), env);
   await clickItem('request review from…');
-  expect(search()).not.toBeNull();
+  await typeSearch('sa');
+  expect(headings()).toEqual(['gadgets · code ownerneeds approval']);
+  expect(itemTexts()).toEqual(['Sam Whitlow']);
+  await typeSearch('ledger');
+  expect(itemTexts()).toEqual(['post to codeowners in slack…']);
 });
 
 test('a search that matches nobody says so', async () => {
-  await openMenu(mrx(1418), env);
+  await openMenu(owned(), env);
   await clickItem('request review from…');
   await typeSearch('zzz');
-  expect(picker()!.textContent).toContain('nobody matches');
+  expect(picker()!.textContent).toContain('nobody matches “zzz”');
 });
