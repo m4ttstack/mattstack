@@ -68,11 +68,11 @@ public struct ChecklistLayout: Equatable, Sendable {
 
     /// The user's pick while it still exists, else Needs you, else Overview, else All.
     public func selection(preferred: String?, overview: Bool) -> String? {
-        guard !sections.isEmpty else { return nil }
         let ids = entries(overview: overview, running: [], failed: []).map(\.id)
-        if let preferred, preferred == Self.allID || ids.contains(preferred) { return preferred }
+        if let preferred, ids.contains(preferred) || (preferred == Self.allID && !sections.isEmpty) { return preferred }
         if !attention.isEmpty { return Self.needsYouID }
-        return overview ? Self.overviewID : Self.allID
+        if overview { return Self.overviewID }
+        return sections.isEmpty ? nil : Self.allID
     }
 
     public static func make(_ groups: [PlanGroup], finishBlockedBy: [String] = [], afterInstall: Bool = false) -> ChecklistLayout {

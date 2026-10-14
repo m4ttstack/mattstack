@@ -91,6 +91,8 @@ let checklistLayoutChecks: [Check] = [
         c.expectEqual(clean.selection(preferred: ChecklistLayout.overviewID, overview: false), ChecklistLayout.allID, "Setup status has no Overview")
         c.expectEqual(ChecklistLayout.make([]).selection(preferred: nil, overview: false), nil)
         c.expectEqual(ChecklistLayout.make([]).selection(preferred: ChecklistLayout.allID, overview: false), nil, "All with no groups shows nothing")
+        c.expectEqual(ChecklistLayout.make([]).selection(preferred: nil, overview: true), ChecklistLayout.overviewID, "the summary keeps its Overview with no groups")
+        c.expectEqual(ChecklistLayout.make([]).selection(preferred: ChecklistLayout.allID, overview: true), ChecklistLayout.overviewID)
     },
     Check("ChecklistLayout.filtered: a count's rows under their groups, in plan order, with no empty group") { c in
         let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"])
