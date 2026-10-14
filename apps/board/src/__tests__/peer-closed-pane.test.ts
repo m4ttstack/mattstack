@@ -174,7 +174,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function runtime() {
+function runtime(extraRecipients: string[] = []) {
   const db = freshDb();
   const client: SwitchboardClient = {
     publish: async () => 201,
@@ -201,6 +201,7 @@ function runtime() {
         [URL_B, 'pat'],
       ]),
     readNudges: () => initial.nudges,
+    recipients: (author: string) => [author, ...extraRecipients],
     kickOutbox: (target: SwitchboardClient) => {
       expect(target).toBe(client);
       kicks++;
@@ -220,6 +221,20 @@ function runtime() {
 }
 
 describe('sweepClosedPeerReviews', () => {
+  test('a closed pane reports to every recipient in one commit, nudgeId only to the author', async () => {
+    const { io, db } = runtime(['mira']);
+    await sweepClosedPeerReviews(io, db);
+    const sent = readOutbox(db).map(e => ({
+      to: e.envelope.to,
+      nudgeId: (e.envelope.payload as { nudgeId?: string }).nudgeId,
+    }));
+    expect(sent).toEqual([
+      { to: 'kim', nudgeId: 'ask-1' },
+      { to: 'mira', nudgeId: undefined },
+    ]);
+    expect(listKvValues(CLOSED_REPORTED_NS, db).get(URL_A)).toBe(500);
+  });
+
   test('queues the report and persists its run marker, so repeated sweeps send once', async () => {
     const r = runtime();
     await sweepClosedPeerReviews(r.io, r.db);

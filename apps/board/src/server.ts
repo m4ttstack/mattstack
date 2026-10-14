@@ -4720,6 +4720,13 @@ function closedPeerReviewIO() {
       ),
     readNudges,
     kickOutbox,
+    recipients: (author: string) =>
+      reviewPresenceRecipients({
+        orgMembers: config.orgMembers ?? [],
+        self: config.defaultMember,
+        author,
+        enrolled: peering.current()?.enrolled() ?? null,
+      }),
   };
 }
 
