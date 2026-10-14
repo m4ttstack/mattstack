@@ -3478,6 +3478,36 @@ describe("skillsPacks --json", () => {
 
     expect(() => JSON.parse(io.lines().join("\n"))).not.toThrow();
   });
+
+  test("names the team for an org team pack and null for a marketplace plugin", async () => {
+    const savedHome = process.env.HOME;
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-packs-team-")));
+    try {
+      process.env.HOME = home;
+      const orgRoot = join(home, ".mattstack", "orgs", "acme", "mattstack");
+      mkdirSync(join(orgRoot, "teams", "web", "plugin"), { recursive: true });
+      writeFileSync(join(orgRoot, "mattstack.jsonc"), '{"role":"org"}');
+      writeFileSync(join(orgRoot, "teams", "web", "plugin", "surface.jsonc"), "{}");
+      const market = join(home, "market");
+      mkdirSync(join(market, ".claude-plugin"), { recursive: true });
+      mkdirSync(join(market, "tools"), { recursive: true });
+      writeFileSync(join(market, "tools", "surface.jsonc"), "{}");
+      writeFileSync(join(market, ".claude-plugin", "marketplace.json"), JSON.stringify({ plugins: [{ name: "tools", source: "./tools" }] }));
+      const settings = join(home, "settings.json");
+      writeFileSync(settings, JSON.stringify({ extraKnownMarketplaces: { dev: { source: { source: "directory", path: market } } } }));
+
+      await skillsPacks(["--settings-path", settings, "--json"]);
+
+      const { packs } = JSON.parse(io.lines().join("\n")) as { packs: { name: string; team: string | null }[] };
+      expect(packs.map((p) => [p.name, p.team])).toEqual([
+        ["tools", null],
+        ["web", "web"],
+      ]);
+    } finally {
+      process.env.HOME = savedHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("skillsMaterialize --dir exit codes", () => {
