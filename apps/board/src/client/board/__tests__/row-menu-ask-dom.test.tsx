@@ -22,7 +22,8 @@ test('own MR with free roster members offers the picker and fires the ask', asyn
   expect(itemTexts().some(t => t.includes('pat'))).toBe(false);
   await clickItem('kim');
   expect(harness.effects).toEqual([]);
-  await clickItem('really ask kim?');
+  expect(itemTexts()).toContain('kimclick to send');
+  await clickItem('kim');
   expect(harness.effects).toEqual([{ effect: 'ask:review:kim', iid: 1418 }]);
 });
 
@@ -32,7 +33,7 @@ test('picking another person moves the confirm to them', async () => {
   await clickItem('kim');
   await clickItem('jo');
   expect(itemTexts()).toContain('kim');
-  expect(itemTexts()).toContain('really ask jo?');
+  expect(itemTexts()).toContain('joclick to send');
   expect(harness.effects).toEqual([]);
 });
 

@@ -76,9 +76,8 @@ export function AskPicker({
   const person = (p: AskPerson, indented: boolean) => (
     <ContextMenu.Item
       key={p.username}
-      label={personLabel(
-        armed === p.username ? `really ask ${p.name}?` : p.name
-      )}
+      label={personLabel(p.name)}
+      hint={armed === p.username ? 'click to send' : undefined}
       className={indented ? 'tui-menu-ask-member' : undefined}
       onClick={() =>
         armed === p.username ? onPick(p.username) : setArmed(p.username)
