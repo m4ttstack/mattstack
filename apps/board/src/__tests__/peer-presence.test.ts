@@ -6,6 +6,7 @@ import {
   PEER_REVIEW_STALE_MS,
   presenceEnvelopes,
   reviewPresenceRecipients,
+  reviewSyncEnvelopes,
 } from '../peer/presence.ts';
 
 const URL_A = 'https://gitlab.com/acme/webapp/-/merge_requests/4821';
@@ -152,5 +153,62 @@ describe('activePeerReviewer', () => {
         NOW
       )
     ).toBeNull();
+  });
+});
+
+describe('reviewPresenceRecipients roster', () => {
+  test("a literal '*' roster entry is never a recipient", () => {
+    expect(
+      reviewPresenceRecipients({
+        orgMembers: ['*', 'pat'],
+        self: 'me',
+        author: 'kim',
+        enrolled: null,
+      })
+    ).toEqual(['kim', 'pat']);
+  });
+});
+
+describe('reviewSyncEnvelopes', () => {
+  const payload = {
+    mrUrl: URL_A,
+    iid: 4821,
+    status: 'reviewing' as const,
+    updatedAt: 5,
+  };
+  const base = {
+    author: 'kim',
+    self: 'me',
+    payload,
+    askId: 'ask-1',
+    now: 9,
+    recipients: (author: string) =>
+      reviewPresenceRecipients({
+        orgMembers: ['me', 'pat', 'ada'],
+        self: 'me',
+        author,
+        enrolled: ['kim', 'pat', 'me'],
+      }),
+  };
+
+  test('own MR sends nothing', () => {
+    expect(reviewSyncEnvelopes({ ...base, author: 'Me' })).toEqual([]);
+  });
+
+  test("self 'all' sends nothing", () => {
+    expect(reviewSyncEnvelopes({ ...base, self: 'all' })).toEqual([]);
+  });
+
+  test('no author sends nothing', () => {
+    expect(reviewSyncEnvelopes({ ...base, author: undefined })).toEqual([]);
+  });
+
+  test('author and third party each get one, only the author a nudgeId; un-enrolled dropped', () => {
+    const out = reviewSyncEnvelopes(base);
+    expect(out.map(e => e.to)).toEqual(['kim', 'pat']);
+    expect(out.map(e => 'nudgeId' in (e.payload as object))).toEqual([
+      true,
+      false,
+    ]);
   });
 });

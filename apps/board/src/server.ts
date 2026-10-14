@@ -253,8 +253,8 @@ import {
   type PeerReviewState,
 } from './peer/peer-reviews.ts';
 import {
-  presenceEnvelopes,
   reviewPresenceRecipients,
+  reviewSyncEnvelopes,
 } from './peer/presence.ts';
 import {
   makePeering,
@@ -4537,14 +4537,8 @@ async function handleAgentSignal(
     getGitlabToken(),
     getSlackToken(),
   ]);
-  // Peer sync: tell the MR author's board where this review stands. Runs
-  // before the emoji early-return below, so transitions that map to no
-  // emoji still sync. Own policy (slack reactions) continues after; this
-  // is pure relay traffic.
-  // `defaultMember: "all"` is a view setting, not an identity, so there is
-  // no way to tell this board's own MRs from a peer's. Without that, the
-  // own-MR guard below can never match and the board would relay a
-  // review-state for every MR on it, including publishing to itself.
+  // Runs before the emoji early-return below, so transitions that map to no
+  // emoji still sync.
   const pc = peering.current()?.client;
   // Respond sync: tell whoever asked for this respond how it is going, so
   // their chip confirms and retires. Addressed per asker from the nudge rows,
@@ -4574,40 +4568,39 @@ async function handleAgentSignal(
     }
     if (latestByAsker.size) kickOutbox(pc);
   }
+  // The org's boards are told, the author's included; never this board's own MR.
   if (pc && signal.kind === 'review' && config.defaultMember !== 'all') {
     const snapshotForPeer = await cache.get();
     const authorUsername = snapshotForPeer.mrs.find(
       m => m.webUrl === signal.mrUrl
     )?.author.username;
-    // Tell the org's boards, the author's included. Never relay a review of this board's own MR: the author is right
-    // here, and the peer state files are for other people's boards.
-    if (
-      authorUsername &&
-      canonicalUsername(authorUsername) !==
-        canonicalUsername(config.defaultMember)
-    ) {
-      const askId = askIdForRun(
-        readNudges(),
-        signal.mrUrl,
-        authorUsername,
-        readReviewStates().get(signal.mrUrl)?.runStartedAt,
-        emittedAt
-      );
-      const recipients = reviewPresenceRecipients({
-        orgMembers: config.orgMembers ?? [],
-        self: config.defaultMember,
-        author: authorUsername,
-        enrolled: peering.current()?.enrolled() ?? null,
-      });
-      for (const envelope of presenceEnvelopes(recipients, authorUsername, {
+    const askId = authorUsername
+      ? askIdForRun(
+          readNudges(),
+          signal.mrUrl,
+          authorUsername,
+          readReviewStates().get(signal.mrUrl)?.runStartedAt,
+          emittedAt
+        )
+      : null;
+    const envelopes = reviewSyncEnvelopes({
+      author: authorUsername,
+      self: config.defaultMember,
+      recipients: presenceRecipientsFor,
+      askId,
+      payload: {
         mrUrl: signal.mrUrl,
         iid: signal.iid,
         status: signal.status,
         outcome: signal.outcome,
         updatedAt: emittedAt,
-        ...(askId ? { nudgeId: askId } : {}),
-      }))
-        enqueueOutbox(envelope);
+      },
+    });
+    if (envelopes.length) {
+      const stateDb = getStateDb();
+      stateDb.transaction(() => {
+        for (const envelope of envelopes) enqueueOutbox(envelope, stateDb);
+      })();
       kickOutbox(pc);
     }
   }
@@ -4718,6 +4711,15 @@ async function reportClosedPeerReviews(): Promise<void> {
   await sweepClosedPeerReviews(closedPeerReviewIO());
 }
 
+function presenceRecipientsFor(author: string): string[] {
+  return reviewPresenceRecipients({
+    orgMembers: config.orgMembers ?? [],
+    self: config.defaultMember,
+    author,
+    enrolled: peering.current()?.enrolled() ?? null,
+  });
+}
+
 function closedPeerReviewIO() {
   return {
     current: () => {
@@ -4736,13 +4738,7 @@ function closedPeerReviewIO() {
       ),
     readNudges,
     kickOutbox,
-    recipients: (author: string) =>
-      reviewPresenceRecipients({
-        orgMembers: config.orgMembers ?? [],
-        self: config.defaultMember,
-        author,
-        enrolled: peering.current()?.enrolled() ?? null,
-      }),
+    recipients: presenceRecipientsFor,
   };
 }
 

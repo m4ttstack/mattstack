@@ -23,7 +23,7 @@ export function reviewPresenceRecipients(input: {
   const out = [author];
   for (const raw of input.orgMembers) {
     const u = canonicalUsername(raw);
-    if (!u || u === self || out.includes(u)) continue;
+    if (!u || u === '*' || u === self || out.includes(u)) continue;
     if (enrolled && !enrolled.has(u)) continue;
     out.push(u);
   }
@@ -47,6 +47,27 @@ export function presenceEnvelopes(
         : rest,
       now
     )
+  );
+}
+
+/** Envelopes for one review transition: none for this board's own MR or when
+    `self` is the "all" view setting, which is no identity. */
+export function reviewSyncEnvelopes(input: {
+  author: string | undefined;
+  self: string;
+  recipients: (author: string) => string[];
+  payload: ReviewStatePayload;
+  askId?: string | null;
+  now?: number;
+}): DraftEnvelope[] {
+  if (!input.author || input.self === 'all') return [];
+  if (canonicalUsername(input.author) === canonicalUsername(input.self))
+    return [];
+  return presenceEnvelopes(
+    input.recipients(input.author),
+    input.author,
+    input.askId ? { ...input.payload, nudgeId: input.askId } : input.payload,
+    input.now
   );
 }
 
