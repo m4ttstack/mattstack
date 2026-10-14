@@ -29,7 +29,6 @@ struct ChecklistScreen: View {
     }
     @State private var actionErrors: [String: RowFailure] = [:]
     @State private var selected: String?
-    @State private var beforeNeedsYou: String?
     @State private var filter: ChecklistLayout.SummaryKind?
     @State private var waitingOnYou: [String: String] = [:]
 
@@ -160,17 +159,17 @@ struct ChecklistScreen: View {
         return VStack(alignment: .leading, spacing: 12) {
             if rowsConfirmed {
                 HStack(spacing: 6) {
-                    if layout.summary.contains(where: { $0.kind != .needsYou }) {
-                        SummaryCount(kind: nil, text: "All", isOn: shownFilter == nil && !onNeedsYou) {
+                    if !layout.sections.isEmpty {
+                        SummaryCount(kind: nil, text: "All", isOn: shownFilter == nil && current == ChecklistLayout.allID) {
                             filter = nil
-                            if onNeedsYou { selected = layout.entryBehindNeedsYou(previous: beforeNeedsYou, overview: overview != nil) }
+                            selected = ChecklistLayout.allID
                         }
                     }
                     ForEach(layout.summary, id: \.kind) { part in
                         SummaryCount(kind: part.kind, text: part.text, isOn: part.kind == .needsYou ? onNeedsYou : part.kind == shownFilter) {
                             if part.kind == .needsYou {
                                 filter = nil
-                                pick(ChecklistLayout.needsYouID, from: current)
+                                selected = ChecklistLayout.needsYouID
                             } else {
                                 filter = part.kind == shownFilter ? nil : part.kind
                             }
@@ -188,7 +187,10 @@ struct ChecklistScreen: View {
                         if index > 0 { Divider() }
                         // A pick made before the rows are confirmed would keep the summary off Needs you once they are.
                         ChecklistSidebarEntry(entry: entry, isSelected: shownFilter == nil && entry.id == current) {
-                            if rowsConfirmed { filter = nil; pick(entry.id, from: current) }
+                            guard rowsConfirmed else { return }
+                            // A second click on the entry on screen unselects it, back to All.
+                            selected = shownFilter == nil && entry.id == current ? ChecklistLayout.allID : entry.id
+                            filter = nil
                         }
                     }
                 }
@@ -204,6 +206,19 @@ struct ChecklistScreen: View {
                                 needsYou: layout.attention.map(\.row), finishBlockedBy: layout.finishBlockedBy, activity: activity,
                                 contexts: Dictionary(layout.attention.map { ($0.row.id, $0.groupTitle) }, uniquingKeysWith: { first, _ in first }),
                                 needsYouIDs: overview != nil ? .beforeYouFinish : .checklist, onSkip: onSkip) { perform($0) }
+                        } else if current == ChecklistLayout.allID {
+                            VStack(alignment: .leading, spacing: 18) {
+                                ForEach(layout.sections) { section in
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(section.title).font(.headline)
+                                        ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity,
+                                                              onSkip: onSkip) { perform($0) }
+                                    }
+                                    .id(section.id)
+                                }
+                            }
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier(AXID.checklistAll)
                         } else if let section = layout.sections.first(where: { $0.id == current }) {
                             ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity,
                                                   onSkip: onSkip) { perform($0) }
@@ -219,11 +234,6 @@ struct ChecklistScreen: View {
         .background(Color.primary.opacity(0.035))
         // A filter left set after its rows went would come back on, with no click, when a later re-read gave it rows again.
         .onChange(of: layout.activeFilter(filter)) { _, active in if active == nil { filter = nil } }
-    }
-
-    private func pick(_ entry: String, from current: String?) {
-        if entry == ChecklistLayout.needsYouID, current != ChecklistLayout.needsYouID { beforeNeedsYou = current }
-        selected = entry
     }
 
     @ViewBuilder

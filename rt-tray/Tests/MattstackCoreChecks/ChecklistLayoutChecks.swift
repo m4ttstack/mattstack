@@ -63,15 +63,6 @@ let checklistLayoutChecks: [Check] = [
         let status = layout.entries(overview: false, running: [], failed: [])
         c.expectEqual(status.map(\.id), [ChecklistLayout.needsYouID, "mac", "accounts", "agents"])
     },
-    Check("ChecklistLayout.entryBehindNeedsYou: the entry shown before Needs you while it exists, else the first that is not Needs you") { c in
-        let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"])
-        c.expectEqual(layout.entryBehindNeedsYou(previous: "accounts", overview: true), "accounts")
-        c.expectEqual(layout.entryBehindNeedsYou(previous: nil, overview: true), ChecklistLayout.overviewID)
-        c.expectEqual(layout.entryBehindNeedsYou(previous: nil, overview: false), "mac")
-        c.expectEqual(layout.entryBehindNeedsYou(previous: "gone", overview: false), "mac")
-        c.expectEqual(layout.entryBehindNeedsYou(previous: ChecklistLayout.needsYouID, overview: false), "mac")
-        c.expectEqual(ChecklistLayout.make([]).entryBehindNeedsYou(previous: nil, overview: false), nil)
-    },
     Check("ChecklistLayout.entries: an optional row never marks its group as needing you") { c in
         let layout = ChecklistLayout.make(layoutSample)
         c.expectEqual(layout.entries(overview: false, running: [], failed: []).first { $0.id == "accounts" }?.mark, .settled)
@@ -87,17 +78,19 @@ let checklistLayoutChecks: [Check] = [
         c.expectEqual(marks(["zzz"], ["zzz"])["mac"], .needsYou, "a row id from another plan marks nothing")
         c.expectEqual(marks(["b"], [])[ChecklistLayout.needsYouID], .needsYou, "the Needs you entry keeps its own mark")
     },
-    Check("ChecklistLayout.selection: Needs you, else Overview when offered, else the first group; a pick that exists is kept") { c in
+    Check("ChecklistLayout.selection: Needs you, else Overview when offered, else All; a pick that exists is kept, All included") { c in
         let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"])
         c.expectEqual(layout.selection(preferred: nil, overview: true), ChecklistLayout.needsYouID)
         c.expectEqual(layout.selection(preferred: "accounts", overview: true), "accounts")
         c.expectEqual(layout.selection(preferred: "gone", overview: false), ChecklistLayout.needsYouID)
+        c.expectEqual(layout.selection(preferred: ChecklistLayout.allID, overview: true), ChecklistLayout.allID)
         let clean = ChecklistLayout.make([PlanGroup(id: "x", title: "X", rows: [layoutSample[0].rows[0]])])
         c.expectEqual(clean.selection(preferred: nil, overview: true), ChecklistLayout.overviewID)
-        c.expectEqual(clean.selection(preferred: nil, overview: false), "x")
-        c.expectEqual(clean.selection(preferred: ChecklistLayout.needsYouID, overview: false), "x", "Needs you empties once everything is fixed")
-        c.expectEqual(clean.selection(preferred: ChecklistLayout.overviewID, overview: false), "x", "Setup status has no Overview")
+        c.expectEqual(clean.selection(preferred: nil, overview: false), ChecklistLayout.allID, "Setup status opens on All when nothing needs you")
+        c.expectEqual(clean.selection(preferred: ChecklistLayout.needsYouID, overview: false), ChecklistLayout.allID, "Needs you empties once everything is fixed")
+        c.expectEqual(clean.selection(preferred: ChecklistLayout.overviewID, overview: false), ChecklistLayout.allID, "Setup status has no Overview")
         c.expectEqual(ChecklistLayout.make([]).selection(preferred: nil, overview: false), nil)
+        c.expectEqual(ChecklistLayout.make([]).selection(preferred: ChecklistLayout.allID, overview: false), nil, "All with no groups shows nothing")
     },
     Check("ChecklistLayout.filtered: a count's rows under their groups, in plan order, with no empty group") { c in
         let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: ["style"])

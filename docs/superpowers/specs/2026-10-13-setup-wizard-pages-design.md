@@ -56,8 +56,12 @@ Install with no input, and six are optional.
     step's header reads "Summary" in every state; the "N need you" count
     carries no warning mark (the sidebar entries and the pane's heading keep
     theirs); and while the Needs you entry is selected, "N need you" is the
-    highlighted count and All is not, with All returning to the entry shown
-    before.
+    highlighted count and All is not.
+15. **All is a view of its own (2026-10-14):** with nothing selected in the
+    sidebar the pane stacks every group (its title, then its sections).
+    Clicking All, or the selected sidebar entry again, shows it. Setup
+    status opens on Needs you when a row needs you, else on All; the
+    summary still opens on Needs you or Overview and gets the same All.
 
 Set aside: pages on both sides of Install. Install blockers sit in four
 groups (Your Mac, Accounts, Agents and editors, rt on this Mac), so a split

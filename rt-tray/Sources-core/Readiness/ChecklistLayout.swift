@@ -47,6 +47,8 @@ public struct ChecklistLayout: Equatable, Sendable {
     /// and no group is named "overview".
     public static let needsYouID = "needs-you"
     public static let overviewID = "overview"
+    /// Every group at once. It is not a sidebar entry: it is what shows while none is selected.
+    public static let allID = "all-groups"
 
     public func entries(overview: Bool, running: Set<String>, failed: Set<String>) -> [Entry] {
         var out: [Entry] = []
@@ -64,18 +66,13 @@ public struct ChecklistLayout: Equatable, Sendable {
         return out
     }
 
-    /// The entry to show: the user's pick while it still exists, else the first.
+    /// The user's pick while it still exists, else Needs you, else Overview, else All.
     public func selection(preferred: String?, overview: Bool) -> String? {
+        guard !sections.isEmpty else { return nil }
         let ids = entries(overview: overview, running: [], failed: []).map(\.id)
-        if let preferred, ids.contains(preferred) { return preferred }
-        return ids.first
-    }
-
-    /// Where All goes from the Needs you entry: the entry shown before it while that still exists.
-    public func entryBehindNeedsYou(previous: String?, overview: Bool) -> String? {
-        let ids = entries(overview: overview, running: [], failed: []).map(\.id).filter { $0 != Self.needsYouID }
-        if let previous, ids.contains(previous) { return previous }
-        return ids.first
+        if let preferred, preferred == Self.allID || ids.contains(preferred) { return preferred }
+        if !attention.isEmpty { return Self.needsYouID }
+        return overview ? Self.overviewID : Self.allID
     }
 
     public static func make(_ groups: [PlanGroup], finishBlockedBy: [String] = [], afterInstall: Bool = false) -> ChecklistLayout {
