@@ -244,6 +244,7 @@ import {
 } from './peer/nudges.ts';
 import { listPeerBoards } from './peer/onboard.ts';
 import { classifySend, drainOutbox, enqueueOutbox } from './peer/outbox.ts';
+import { presenceEnvelopes, reviewPresenceRecipients } from './peer/presence.ts';
 import {
   attachPeerReviews,
   importPeerReviewFiles,
@@ -4559,7 +4560,7 @@ async function handleAgentSignal(
     const authorUsername = snapshotForPeer.mrs.find(
       m => m.webUrl === signal.mrUrl
     )?.author.username;
-    // Never relay a review of this board's own MR: the author is right
+    // Tell the org's boards, the author's included. Never relay a review of this board's own MR: the author is right
     // here, and the peer state files are for other people's boards.
     if (
       authorUsername &&
@@ -4573,16 +4574,21 @@ async function handleAgentSignal(
         readReviewStates().get(signal.mrUrl)?.runStartedAt,
         emittedAt
       );
-      enqueueOutbox(
-        makeEnvelope(authorUsername, 'review-state', {
-          mrUrl: signal.mrUrl,
-          iid: signal.iid,
-          status: signal.status,
-          outcome: signal.outcome,
-          updatedAt: emittedAt,
-          ...(askId ? { nudgeId: askId } : {}),
-        } satisfies ReviewStatePayload)
-      );
+      const recipients = reviewPresenceRecipients({
+        orgMembers: config.orgMembers ?? [],
+        self: config.defaultMember,
+        author: authorUsername,
+        enrolled: peering.current()?.enrolled() ?? null,
+      });
+      for (const envelope of presenceEnvelopes(recipients, authorUsername, {
+        mrUrl: signal.mrUrl,
+        iid: signal.iid,
+        status: signal.status,
+        outcome: signal.outcome,
+        updatedAt: emittedAt,
+        ...(askId ? { nudgeId: askId } : {}),
+      }))
+        enqueueOutbox(envelope);
       kickOutbox(pc);
     }
   }
