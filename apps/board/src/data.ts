@@ -12,6 +12,7 @@ import type {
 } from '@mattstack/rt-client';
 import type { ExecutorState, ExecutorView } from './client/types.ts';
 import type { BoardConfig, Member } from './config.ts';
+import type { ReviewerLatch } from './latch/discussions.ts';
 import { extractTicketId } from './ticket.ts';
 
 /** The board-wide sync failure: the failing project with the longest
@@ -46,6 +47,10 @@ export type BoardMR = MRDashboardProps & {
   /** A roster member other than the author left a plain note, or any
       reviewer's latch is armed and not resolved. Set by the discussions fetch. */
   quietReview?: boolean;
+  /** Each reviewer's armed re-review latch on an MR this board owns, so the
+      author can ask for a re-review through the MR when the switchboard
+      can't reach that reviewer. Set by the discussions fetch. */
+  reviewerLatches?: ReviewerLatch[];
   pipelineState: PipelineState;
   /** Draft (unfinished) MR. Only your own drafts reach the board, so this also
       means "yours, and not marked ready yet" -- see buildBoard. */

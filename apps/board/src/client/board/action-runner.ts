@@ -42,7 +42,10 @@ export interface RunnerDeps {
 
 export type RunnableRequest = Extract<
   ActionRequest,
-  { kind: 'launch' | 'mr' | 'draft' | 'react' | 'ask' | 'refresh' }
+  {
+    kind:
+      'launch' | 'mr' | 'draft' | 'react' | 'ask' | 'refresh' | 'resolve-latch';
+  }
 >;
 type PostRequest = Exclude<RunnableRequest, { kind: 'launch' }>;
 
@@ -53,6 +56,7 @@ const RUNNABLE = new Set<ActionRequest['kind']>([
   'react',
   'ask',
   'refresh',
+  'resolve-latch',
 ]);
 
 export function isRunnable(req: ActionRequest): req is RunnableRequest {
@@ -212,6 +216,29 @@ function postSpec(req: PostRequest): PostSpec {
         manyDone: done => `refreshed ${on(done)}`,
         manyFail: list => `couldn't refresh ${list}`,
       };
+    case 'resolve-latch': {
+      const what = (mr: BoardMR) =>
+        `${req.reviewer}'s agent to re-review ${mrRef(mr)} through the MR thread`;
+      return {
+        path: '/discussions/resolve',
+        payload: mr => ({
+          repo: mr.rtRepo,
+          iid: mr.iid,
+          discussionId: req.discussionId,
+          author: mr.author.username,
+          resolved: true,
+        }),
+        pending: mr => `asking ${what(mr)}…`,
+        done: mr => `asked ${what(mr)}`,
+        fail: (mr, r) =>
+          `couldn't resolve ${req.reviewer}'s latch on ${mrRef(mr)}: ${
+            (r.body as { error?: string } | null)?.error ?? (r.text || r.status)
+          }`,
+        fresh: true,
+        manyDone: done => `asked for re-reviews on ${on(done)}`,
+        manyFail: list => `couldn't ask for re-reviews on ${list}`,
+      };
+    }
     case 'ask': {
       const reviewer = req.reviewer ?? '';
       return {

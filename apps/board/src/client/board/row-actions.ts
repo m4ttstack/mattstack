@@ -16,6 +16,7 @@ import {
   firstReviewTargets,
   getSlackMarks,
   laneInterrupted,
+  latchTargets,
   nudgeTargets,
   respondAskBlock,
   respondAskTarget,
@@ -64,6 +65,7 @@ export type ActionRequest =
       reviewer?: string;
       note?: string;
     }
+  | { kind: 'resolve-latch'; reviewer: string; discussionId: string }
   | { kind: 'post-slack' }
   | { kind: 'copy' }
   | { kind: 'note' }
@@ -407,6 +409,21 @@ export function rowActions(
           `ask ${peer.reviewer}'s agent to re-review`,
           AGENT_CLOUD,
           { kind: 'ask', ask: 're-review', reviewer: peer.reviewer }
+        )
+      );
+    for (const latch of latchTargets(mrx))
+      agent.push(
+        item(
+          'agent',
+          `latch-${latch.reviewer}`,
+          `ask ${latch.reviewer}'s agent to re-review`,
+          AGENT_CLOUD,
+          {
+            kind: 'resolve-latch',
+            reviewer: latch.reviewer,
+            discussionId: latch.discussionId,
+          },
+          block(latch.requested && 'asked in the MR thread')
         )
       );
     const askTargets = firstReviewTargets(mrx, env.roster, env.peers);

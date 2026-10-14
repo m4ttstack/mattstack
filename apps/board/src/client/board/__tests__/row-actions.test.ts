@@ -432,6 +432,50 @@ test('switchboard asks close the top level together, under the cloud robot', () 
   ]);
 });
 
+test("a latch from a reviewer the switchboard hasn't heard from offers the re-review through the MR thread", () => {
+  const latched = {
+    ...ownIdle,
+    reviewerLatches: [{ reviewer: 'jo', discussionId: 'd9', requested: false }],
+  };
+  const agent = rowActions(latched, actionEnvOf(ownEnv, latched)).filter(
+    a => a.section === 'agent'
+  );
+  expect(agent.map(a => a.key)).toEqual([
+    'respond',
+    'rebase-local',
+    'latch-jo',
+    'request-review',
+  ]);
+  expect(agent.find(a => a.key === 'latch-jo')).toMatchObject({
+    label: "ask jo's agent to re-review",
+    glyph: { kind: 'agent-cloud' },
+    request: { kind: 'resolve-latch', reviewer: 'jo', discussionId: 'd9' },
+  });
+});
+
+test('a latch already resolved waits greyed out instead of asking twice', () => {
+  const asked = {
+    ...ownIdle,
+    reviewerLatches: [{ reviewer: 'jo', discussionId: 'd9', requested: true }],
+  };
+  const item = rowActions(asked, actionEnvOf(ownEnv, asked)).find(
+    a => a.key === 'latch-jo'
+  );
+  expect(item?.blocked).toBe('asked in the MR thread');
+});
+
+test('a reviewer the switchboard reaches keeps the switchboard ask, not the latch', () => {
+  const both = {
+    ...failedLanes,
+    reviewerLatches: [
+      { reviewer: 'kim', discussionId: 'd9', requested: false },
+    ],
+  };
+  const keys = rowActions(both, actionEnvOf(failedEnv, both)).map(a => a.key);
+  expect(keys).toContain('nudge-kim');
+  expect(keys).not.toContain('latch-kim');
+});
+
 test('request review from… carries its picker; asks name their reviewer', () => {
   const actions = rowActions(failedLanes, actionEnvOf(failedEnv, failedLanes));
   expect(actions.find(a => a.key === 'request-review')).toMatchObject({

@@ -7,6 +7,7 @@ import {
   hasArmedLatch,
   hasRequest,
   requestCarriers,
+  reviewerLatches,
 } from '../latch/discussions.ts';
 import { armedLatchBody, spentLatchBody } from '../latch/markers.ts';
 
@@ -230,5 +231,32 @@ describe('hasArmedLatch', () => {
     );
     expect(canonicalLatch(latches)).not.toBeNull();
     expect(hasArmedLatch(latches)).toBe(false);
+  });
+});
+
+describe('reviewerLatches', () => {
+  test("one row per reviewer with an armed latch, skipping the author's and spent ones", () => {
+    const d = detail(
+      disc('a', armedLatchBody(IMG), '2026-01-01T00:00:00Z', false, 'kim'),
+      disc('b', armedLatchBody(IMG), '2026-01-02T00:00:00Z', false, 'kim'),
+      disc('c', spentLatchBody(IMG), '2026-01-03T00:00:00Z', true, 'jo'),
+      disc('d', armedLatchBody(IMG), '2026-01-01T00:00:00Z', true, 'tom'),
+      disc('e', armedLatchBody(IMG), '2026-01-01T00:00:00Z', false, 'matt'),
+      disc('f', 'just a comment', '2026-01-01T00:00:00Z', false, 'pia')
+    );
+    expect(reviewerLatches(d, 'Matt')).toEqual([
+      { reviewer: 'kim', discussionId: 'b', requested: false },
+      { reviewer: 'tom', discussionId: 'd', requested: true },
+    ]);
+  });
+
+  test('a resolved extra marks the request even while the newest stays open', () => {
+    const d = detail(
+      disc('old', armedLatchBody(IMG), '2026-01-01T00:00:00Z', true, 'kim'),
+      disc('new', armedLatchBody(IMG), '2026-01-02T00:00:00Z', false, 'kim')
+    );
+    expect(reviewerLatches(d, 'matt')).toEqual([
+      { reviewer: 'kim', discussionId: 'new', requested: true },
+    ]);
   });
 });

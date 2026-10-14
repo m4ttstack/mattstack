@@ -52,6 +52,43 @@ export function findLatches(detail: MRDetail, owner: string): LatchRef[] {
   );
 }
 
+/** An armed latch a reviewer's board posted on the MR, as the author's board
+    sees it: the thread to resolve when asking for a re-review, and whether
+    one of that reviewer's armed latches is already resolved (asked, not yet
+    picked up). */
+export interface ReviewerLatch {
+  reviewer: string;
+  discussionId: string;
+  requested: boolean;
+}
+
+/** One entry per reviewer, other than the MR's author, holding an armed
+    latch. The thread is that reviewer's newest armed latch, the one their
+    board treats as canonical. */
+export function reviewerLatches(
+  detail: MRDetail,
+  author: string
+): ReviewerLatch[] {
+  const self = author.toLowerCase();
+  const reviewers = new Set<string>();
+  for (const d of detail.discussions) {
+    const root = d.notes[0];
+    const who = root?.author?.username;
+    if (!who || who.toLowerCase() === self) continue;
+    if (latchKindOf(root.body ?? '') === 'armed') reviewers.add(who);
+  }
+  const out: ReviewerLatch[] = [];
+  for (const reviewer of reviewers) {
+    const armed = findLatches(detail, reviewer).filter(l => l.kind === 'armed');
+    out.push({
+      reviewer,
+      discussionId: armed[0]!.discussionId,
+      requested: hasRequest(armed),
+    });
+  }
+  return out.sort((a, b) => a.reviewer.localeCompare(b.reviewer));
+}
+
 export function canonicalLatch(latches: LatchRef[]): LatchRef | null {
   return latches[0] ?? null;
 }

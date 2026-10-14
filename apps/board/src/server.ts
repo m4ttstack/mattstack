@@ -175,6 +175,7 @@ import {
   sendPaneText,
   statusBinPath,
 } from './herdr.ts';
+import { reviewerLatches } from './latch/discussions.ts';
 import { latchGateway } from './latch/gateway.ts';
 import { applyReviewLatch } from './latch/review-step.ts';
 import {
@@ -892,6 +893,8 @@ async function enrichReviewerComments(mrs: BoardMR[]): Promise<void> {
             m.author.username,
             roster
           );
+          if (ownedHere(m))
+            m.reviewerLatches = reviewerLatches(detail, m.author.username);
         } catch {
           // Keep the coarse fallback (unresolvedThreads) for this MR.
         }
