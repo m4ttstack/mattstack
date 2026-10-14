@@ -80,10 +80,13 @@ reviewer is the envelope's sender.
 
 - **Author's board:** as today (reviewing line, then the done verdict line).
 - **Any other board:** only a fresh `queued`/`reviewing` state renders, as
-  "<reviewer> is reviewing" in tone `quiet` with a muted spinner (the
-  `loader-circle` in the dim colour at reduced opacity, slower than the
-  purple work spinner) and the existing `view-peer` verb. The spinner is a
-  new `spin` style on the candidate, independent of tone. `quiet`, not `work`: `needs-me.ts` `lineNeed` reads a
+  "<reviewer> is reviewing" in tone `quiet`, led by a cloud spinner, and the
+  existing `view-peer` verb. The cloud spinner is `AgentCloudGlyph`
+  (`src/client/board/icons.tsx`, the peer-agent mark in the row menu)
+  drawn in the dim colour, bot included, with a short dash travelling
+  around the cloud's outline (an animated `stroke-dashoffset`) while the
+  bot holds still. It is a new `spin: 'cloud'` style on the candidate,
+  independent of tone, and it stops under `prefers-reduced-motion`. `quiet`, not `work`: `needs-me.ts` `lineNeed` reads a
   `work` line as busy, which would drop the MR from this member's Needs me
   tab even when they are the assigned reviewer. Needs me is unchanged.
   `done`, `error` and stale states render no line, so the row falls back to
@@ -155,7 +158,7 @@ fans out, and both reviewers show.
 - Inbox: a `review-state` from a non-author peer stores `receivedAt` and
   leaves this board's sent nudges untouched.
 - `peerLines`: author board unchanged; non-author board shows fresh
-  reviewing only, in tone `quiet` with the muted spinner, and done/error/stale fall through to the
+  reviewing only, in tone `quiet` with the cloud spinner, and done/error/stale fall through to the
   reviewer line.
 - Needs me: an MR where this member is the assigned reviewer stays in Needs
   me while a peer is reviewing it.
