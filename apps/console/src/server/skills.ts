@@ -25,6 +25,9 @@ interface SkillsPackRow {
   name: string;
   dir: string;
   layout: 'flat' | 'grouped';
+  /** The team whose folder holds the pack; null for a plugin or base pack.
+      Absent from an rt that predates the field. */
+  team?: string | null;
 }
 interface SkillsPacksResponse {
   packs: SkillsPackRow[];

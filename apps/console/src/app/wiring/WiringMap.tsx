@@ -28,6 +28,7 @@ import { MissingPackNotice } from './graph/MissingPackNotice';
 import { UnsyncedBanner, useUnsyncedBanner } from './graph/UnsyncedBanner';
 import { useWiringUrl, type WiringTab } from './graph/useWiringUrl';
 import { HealthTab, HealthTabSkeleton } from './HealthTab';
+import { PluginMenu } from './PluginMenu';
 import { SurfaceGridSkeleton, SurfaceTab } from './SurfaceTab';
 import {
   useAttentionCount,
@@ -49,6 +50,9 @@ export function WiringMap() {
     ? url.pack
     : (packs[0]?.name ?? null);
   const packDir = packs.find(p => p.name === pack)?.dir ?? null;
+  // An rt without the team field leaves it undefined: every pack is a team's.
+  const teamPacks = packs.filter(p => p.team !== null).map(p => p.name);
+  const pluginPacks = packs.filter(p => p.team === null).map(p => p.name);
   const missing =
     url.pack !== null && pack !== null && pack !== url.pack ? url.pack : null;
 
@@ -133,15 +137,24 @@ export function WiringMap() {
           {pack && <ScopeSlash />}
         </>
       )}
-      {packs.length > 1 && pack && (
+      {packs.length > 1 && pack && teamPacks.length > 0 && (
         // A team's pack carries the team's name, so this is settings' own
-        // team menu over the packs: picking your team (null) reads yours.
+        // team menu over the team packs: picking your team (null) reads yours.
         <TeamMenu
-          teams={packs.map(p => p.name)}
+          teams={teamPacks}
           owners={viewer?.owners ?? {}}
           ownTeam={viewer?.team ?? null}
-          team={pack}
-          onPick={team => patch({ pack: team ?? viewer?.team ?? pack })}
+          team={teamPacks.includes(pack) ? pack : null}
+          onPick={team =>
+            patch({ pack: team ?? viewer?.team ?? teamPacks[0] ?? pack })
+          }
+        />
+      )}
+      {packs.length > 1 && pack && pluginPacks.length > 0 && (
+        <PluginMenu
+          plugins={pluginPacks}
+          pack={pack}
+          onPick={plugin => patch({ pack: plugin })}
         />
       )}
       {packs.length === 1 && pack && (
