@@ -365,7 +365,7 @@ test('merge arms before it fires; a slack mark stays open and knows its state', 
   });
 });
 
-test('with another team to ask, request review carries the two-view picker even once no teammate is left', () => {
+test('with another team to ask, request review carries the picker even once no teammate is left', () => {
   const env = {
     ...actionEnvOf({ self: 'pat', roster: ['pat'] }, ownIdle),
     teams: [{ name: 'gadgets', members: [{ username: 'lea' }] }],
@@ -375,7 +375,38 @@ test('with another team to ask, request review carries the two-view picker even 
   expect(ask.blocked).toBeUndefined();
   expect(ask.section).toBe('agent');
   expect(ask.pick).toBeUndefined();
-  expect(ask.askPicker?.all.map(g => g.team)).toEqual(['gadgets']);
+  expect(ask.askPicker?.sections.map(g => g.team)).toEqual(['gadgets']);
+});
+
+test('a board with no teams still opens the picker on its own team', () => {
+  const ask = rowActions(failedLanes, actionEnvOf(failedEnv, failedLanes)).find(
+    a => a.key === 'request-review'
+  )!;
+  expect(
+    ask.askPicker?.sections.map(g => [g.role, g.people.map(p => p.username)])
+  ).toEqual([['mine', ['jo']]]);
+});
+
+test('an owning team with no board offers the Slack post only where the repo posts to code owners', () => {
+  const mrx = {
+    ...ownIdle,
+    rtRepo: 'shop',
+    ownerTeams: [{ team: 'ledger', approved: false }],
+  };
+  const env = {
+    ...actionEnvOf({ self: 'pat', roster: ['pat', 'jo'], peers: ['jo'] }, mrx),
+    teams: [{ name: 'ledger', members: [{ username: 'kofi' }] }],
+    ownTeam: 'widgets',
+  };
+  const slackOf = (e: typeof env) =>
+    rowActions(mrx, e)
+      .find(a => a.key === 'request-review')!
+      .askPicker?.sections.find(s => s.team === 'ledger')?.slack;
+  expect(slackOf(env)).toBeUndefined();
+  expect(slackOf({ ...env, ownerSlackRepos: ['shop'] })).toBeUndefined();
+  expect(
+    slackOf({ ...env, ownerSlackRepos: ['shop'], slackEnabled: true })
+  ).toEqual({});
 });
 
 test('request review from… carries its picker; asks name their reviewer', () => {

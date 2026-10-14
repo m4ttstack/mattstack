@@ -408,15 +408,17 @@ export function rowActions(
         )
       );
     const askTargets = firstReviewTargets(mrx, env.roster, env.peers);
-    const askPicker = env.teams
-      ? askPickerModel(mrx, {
-          roster: env.roster,
-          peers: env.peers,
-          teams: env.teams,
-          ownTeam: env.ownTeam ?? null,
-          names: env.names,
-        })
-      : null;
+    const askPicker = askPickerModel(mrx, {
+      roster: env.roster,
+      peers: env.peers,
+      teams: env.teams ?? [],
+      ownTeam: env.ownTeam ?? null,
+      names: env.names,
+      canPostOwners:
+        env.slackEnabled &&
+        !!mrx.rtRepo &&
+        !!env.ownerSlackRepos?.includes(mrx.rtRepo),
+    });
     const canAsk = askTargets.length > 0 || askPicker !== null;
     (canAsk ? agent : sessions).push(
       item(

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 
-import { askPickerModel } from '../client/board/ask-picker.ts';
+import {
+  askPickerModel,
+  type AskPickerModel,
+} from '../client/board/ask-picker.ts';
 
 const teams = [
   {
@@ -35,8 +38,17 @@ const mine = (extra: object = {}) =>
 const usernames = (people: Array<{ username: string }>) =>
   people.map(p => p.username);
 
+const rows = (model: AskPickerModel | null) =>
+  model!.sections.map(g => [
+    g.team,
+    g.role,
+    g.approval ?? null,
+    g.people.map(p => p.username),
+    g.slack ?? null,
+  ]);
+
 describe('askPickerModel', () => {
-  test('code owners lists the peered members of each owning team, the teams still needed first', () => {
+  test('your team, then each owning team still to approve, then the rest with approved owners marked', () => {
     const model = askPickerModel(
       mine({
         ownerTeams: [
@@ -45,18 +57,15 @@ describe('askPickerModel', () => {
         ],
       }),
       env
-    )!;
-    expect(usernames(model.teammates)).toEqual(['rae']);
-    expect(
-      model.owners.map(g => [g.team, g.note, usernames(g.people)])
-    ).toEqual([
-      ['sprockets', 'needs approval', ['nia', 'sam']],
-      ['billing', 'approved', ['ines']],
+    );
+    expect(rows(model)).toEqual([
+      ['checkout', 'mine', null, ['rae'], null],
+      ['sprockets', 'owner', 'needs', ['nia', 'sam'], null],
+      ['billing', 'owner', 'approved', ['ines'], null],
     ]);
-    expect(model.opensOn).toBe('owners');
   });
 
-  test('a team whose approval is not known yet carries no note and sorts with the needed ones', () => {
+  test('an owning team whose approval is not read yet keeps its place among the needed ones', () => {
     const model = askPickerModel(
       mine({
         ownerTeams: [
@@ -65,36 +74,73 @@ describe('askPickerModel', () => {
         ],
       }),
       env
-    )!;
-    expect(model.owners.map(g => [g.team, g.note])).toEqual([
-      ['sprockets', undefined],
-      ['billing', 'approved'],
+    );
+    expect(rows(model).map(r => r.slice(0, 3))).toEqual([
+      ['checkout', 'mine', null],
+      ['sprockets', 'owner', 'checking'],
+      ['billing', 'owner', 'approved'],
     ]);
   });
 
-  test('an owning team with no board to ask is named, not listed', () => {
+  test('a needed owning team with no board offers the Slack post where the repo can post to code owners', () => {
+    const ownerTeams = [{ team: 'ledger', approved: false }];
+    expect(
+      rows(
+        askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true })
+      )
+    ).toContainEqual(['ledger', 'owner', 'needs', [], {}]);
+  });
+
+  test("once the team's channel has the post, its Slack row links there", () => {
+    const ownerTeams = [
+      { team: 'ledger', approved: false, posted: 'https://slack.example/p1' },
+    ];
+    expect(
+      rows(
+        askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true })
+      )
+    ).toContainEqual([
+      'ledger',
+      'owner',
+      'needs',
+      [],
+      { posted: 'https://slack.example/p1' },
+    ]);
+  });
+
+  test('an owning team with nobody to ask leaves the list when nothing can be offered instead', () => {
     const model = askPickerModel(
-      mine({ ownerTeams: [{ team: 'ledger', approved: false }] }),
+      mine({
+        ownerTeams: [
+          { team: 'ledger', approved: false },
+          { team: 'kiosk', approved: true },
+        ],
+      }),
       env
-    )!;
-    expect(model.owners).toEqual([]);
-    expect(model.noBoard).toEqual(['ledger']);
-    expect(model.opensOn).toBe('all');
+    );
+    expect(rows(model).map(r => r[0])).toEqual([
+      'checkout',
+      'billing',
+      'sprockets',
+    ]);
+    const approved = askPickerModel(
+      mine({ ownerTeams: [{ team: 'ledger', approved: true }] }),
+      { ...env, canPostOwners: true }
+    );
+    expect(rows(approved).map(r => r[0])).not.toContain('ledger');
   });
 
-  test('all teams groups every askable person by team, mine first', () => {
-    const model = askPickerModel(mine(), env)!;
-    expect(model.all.map(g => [g.team, g.note, usernames(g.people)])).toEqual([
-      ['checkout', 'your team', ['rae']],
-      ['billing', undefined, ['ines']],
-      ['sprockets', undefined, ['nia', 'sam']],
+  test('every other team with someone to ask follows, in directory order', () => {
+    expect(rows(askPickerModel(mine(), env))).toEqual([
+      ['checkout', 'mine', null, ['rae'], null],
+      ['billing', 'other', null, ['ines'], null],
+      ['sprockets', 'other', null, ['nia', 'sam'], null],
     ]);
-    expect(model.opensOn).toBe('all');
   });
 
   test('a person is shown by their roster name, else their username', () => {
     const model = askPickerModel(mine(), env)!;
-    expect(model.all[2]!.people).toEqual([
+    expect(model.sections[2]!.people).toEqual([
       { username: 'nia', name: 'Nia Okoro' },
       { username: 'sam', name: 'Sam Whitlow' },
     ]);
@@ -102,7 +148,9 @@ describe('askPickerModel', () => {
 
   test('a teammate takes the name their team entry carries', () => {
     const model = askPickerModel(mine(), env)!;
-    expect(model.teammates).toEqual([{ username: 'rae', name: 'Rae Marlow' }]);
+    expect(model.sections[0]!.people).toEqual([
+      { username: 'rae', name: 'Rae Marlow' },
+    ]);
   });
 
   test('someone already engaged with the MR is offered nowhere', () => {
@@ -112,19 +160,36 @@ describe('askPickerModel', () => {
         peerReviews: [{ reviewer: 'nia', status: 'reviewing', updatedAt: 1 }],
       }),
       env
-    )!;
-    expect(usernames(model.owners[0]!.people)).toEqual(['sam']);
-    expect(usernames(model.all[2]!.people)).toEqual(['sam']);
+    );
+    expect(rows(model)[1]).toEqual([
+      'sprockets',
+      'owner',
+      'needs',
+      ['sam'],
+      null,
+    ]);
   });
 
   test('before the relay has said who is enrolled, every member counts', () => {
-    const model = askPickerModel(mine(), { ...env, peers: undefined })!;
-    expect(usernames(model.all[2]!.people)).toEqual(['nia', 'odile', 'sam']);
+    const model = askPickerModel(mine(), { ...env, peers: undefined });
+    expect(rows(model)[2]![3]).toEqual(['nia', 'odile', 'sam']);
   });
 
-  test('with nobody on another team to ask there is no picker', () => {
-    expect(askPickerModel(mine(), { ...env, peers: ['rae'] })).toBeNull();
-    expect(askPickerModel(mine(), { ...env, teams: [] })).toBeNull();
+  test('with no teammate to ask, the list starts at the other teams', () => {
+    const model = askPickerModel(mine(), { ...env, roster: ['ada'] });
+    expect(rows(model).map(r => r[0])).toEqual(['billing', 'sprockets']);
+  });
+
+  test('a board with no other team still gets the list, with just its own team', () => {
+    expect(rows(askPickerModel(mine(), { ...env, teams: [] }))).toEqual([
+      ['checkout', 'mine', null, ['rae'], null],
+    ]);
+  });
+
+  test('nobody to ask anywhere leaves no picker', () => {
+    expect(
+      askPickerModel(mine(), { ...env, roster: ['ada'], peers: [] })
+    ).toBeNull();
   });
 
   test('an ask still outstanding on the MR leaves no picker', () => {

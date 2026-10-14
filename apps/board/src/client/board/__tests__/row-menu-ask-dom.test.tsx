@@ -17,24 +17,11 @@ const URL = MR_URL(1418);
 
 test('own MR with free roster members offers the picker and fires the ask', async () => {
   await openMenu(mrx(1418), { self: 'pat', roster: ['pat', 'kim', 'jo'] });
-  await openSub('request review from…');
-  // The submenu lists only the free members -- never the author.
-  expect(itemTexts().some(t => t.includes('pat'))).toBe(false);
-  await clickItem('kim');
-  expect(harness.effects).toEqual([]);
-  expect(itemTexts()).toContain('kimclick to send');
+  await clickItem('request review from…');
+  // The picker lists only the free members -- never the author.
+  expect(itemTexts()).toEqual(['jo', 'kim']);
   await clickItem('kim');
   expect(harness.effects).toEqual([{ effect: 'ask:review:kim', iid: 1418 }]);
-});
-
-test('picking another person moves the confirm to them', async () => {
-  await openMenu(mrx(1418), { self: 'pat', roster: ['pat', 'kim', 'jo'] });
-  await openSub('request review from…');
-  await clickItem('kim');
-  await clickItem('jo');
-  expect(itemTexts()).toContain('kim');
-  expect(itemTexts()).toContain('joclick to send');
-  expect(harness.effects).toEqual([]);
 });
 
 test('engaged peers block the item with a reason', async () => {
@@ -107,7 +94,7 @@ test('a known enrollment list narrows the picker to enrolled members', async () 
     roster: ['pat', 'kim', 'jo'],
     peers: ['kim'],
   });
-  await openSub('request review from…');
+  await clickItem('request review from…');
   expect(itemTexts().some(t => t.includes('kim'))).toBe(true);
   expect(itemTexts().some(t => t.includes('jo'))).toBe(false);
 });
