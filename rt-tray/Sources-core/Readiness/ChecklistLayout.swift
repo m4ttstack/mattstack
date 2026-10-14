@@ -1,8 +1,5 @@
 import Foundation
 
-/// How the checklist lays a plan out: a sidebar entry per group, led by
-/// everything that needs the user, and each group's rows split into the ones
-/// drawn at full height and the ones already settled.
 public struct ChecklistLayout: Equatable, Sendable {
     public struct Attention: Equatable, Identifiable, Sendable {
         public let row: PlanRow
@@ -13,76 +10,122 @@ public struct ChecklistLayout: Equatable, Sendable {
     public struct Section: Equatable, Identifiable, Sendable {
         public let id: String
         public let title: String
-        public let needing: [PlanRow]
-        public let settled: [PlanRow]
+        public let needsYou: [PlanRow]
+        public let optional: [PlanRow]
+        public let noAction: [PlanRow]
+        public var count: Int { needsYou.count + optional.count + noAction.count }
     }
 
-    /// `status` picks the glyph the entry is drawn with.
-    public struct Entry: Equatable, Identifiable, Sendable {
-        public let id: String
-        public let title: String
-        public let count: Int
-        public let status: RowStatus
-    }
+    public enum SummaryKind: Equatable, Sendable { case needsYou, ready, optional, notNeeded }
 
-    /// `status` picks the glyph the part is drawn with.
     public struct SummaryPart: Equatable, Sendable {
-        public let status: RowStatus
+        public let kind: SummaryKind
         public let text: String
     }
 
-    /// No plan group can take this id: rt's group ids never carry a hyphen.
-    public static let needsYouID = "needs-you"
+    public struct FilterGroup: Equatable, Identifiable, Sendable {
+        public let id: String
+        public let title: String
+        public let rows: [PlanRow]
+    }
 
     public let attention: [Attention]
     public let sections: [Section]
+    public let finishBlockedBy: Set<String>
 
-    /// A skipped row that still offers an action is something the user can
-    /// do, so it stays at full height.
-    public static func folds(_ row: PlanRow) -> Bool {
-        row.status == .ready || (row.status == .skipped && row.action == nil)
+    public enum EntryMark: Equatable, Sendable { case overview, failed, running, needsYou, settled }
+
+    public struct Entry: Equatable, Identifiable, Sendable {
+        public let id: String
+        public let title: String
+        /// nil for an entry that is not a list of rows.
+        public let count: Int?
+        public let mark: EntryMark
     }
 
-    public static func make(_ groups: [PlanGroup]) -> ChecklistLayout {
-        var attention: [Attention] = []
-        var sections: [Section] = []
-        for group in groups where !group.rows.isEmpty {
-            let needing = group.rows.filter { !folds($0) }
-            attention += needing.map { Attention(row: $0, groupTitle: group.title) }
-            sections.append(Section(id: group.id, title: group.title, needing: needing, settled: group.rows.filter(folds)))
-        }
-        return ChecklistLayout(attention: attention, sections: sections)
-    }
+    /// No plan group can take these ids: rt's group ids never carry a hyphen,
+    /// and no group is named "overview".
+    public static let needsYouID = "needs-you"
+    public static let overviewID = "overview"
+    /// Every group at once. It is not a sidebar entry: it is what shows while none is selected.
+    public static let allID = "all-groups"
 
-    public var entries: [Entry] {
+    public func entries(overview: Bool, running: Set<String>, failed: Set<String>) -> [Entry] {
         var out: [Entry] = []
         if !attention.isEmpty {
-            out.append(Entry(id: Self.needsYouID, title: "Needs you", count: attention.count, status: .needsYou))
+            out.append(Entry(id: Self.needsYouID, title: "Needs you", count: attention.count, mark: .needsYou))
         }
-        out += sections.map {
-            Entry(id: $0.id, title: $0.title, count: $0.needing.count + $0.settled.count,
-                  status: $0.needing.isEmpty ? .ready : .needsYou)
+        if overview { out.append(Entry(id: Self.overviewID, title: "Overview", count: nil, mark: .overview)) }
+        out += sections.map { section in
+            let ids = Set((section.needsYou + section.optional + section.noAction).map(\.id))
+            let mark: EntryMark = !ids.isDisjoint(with: failed) ? .failed
+                : !ids.isDisjoint(with: running) ? .running
+                : section.needsYou.isEmpty ? .settled : .needsYou
+            return Entry(id: section.id, title: section.title, count: section.count, mark: mark)
         }
         return out
     }
 
-    /// The entry to show: the user's pick while it still exists, else the first.
-    public func selection(preferred: String?) -> String? {
-        let ids = entries.map(\.id)
-        if let preferred, ids.contains(preferred) { return preferred }
-        return ids.first
+    /// The user's pick while it still exists, else Needs you, else Overview, else All.
+    public func selection(preferred: String?, overview: Bool) -> String? {
+        let ids = entries(overview: overview, running: [], failed: []).map(\.id)
+        if let preferred, ids.contains(preferred) || (preferred == Self.allID && !sections.isEmpty) { return preferred }
+        if !attention.isEmpty { return Self.needsYouID }
+        if overview { return Self.overviewID }
+        return sections.isEmpty ? nil : Self.allID
+    }
+
+    public static func make(_ groups: [PlanGroup], finishBlockedBy: [String] = [], afterInstall: Bool = false) -> ChecklistLayout {
+        let blocked = Set(finishBlockedBy)
+        var attention: [Attention] = []
+        var sections: [Section] = []
+        for group in groups where !group.rows.isEmpty {
+            var buckets: [RowSection: [PlanRow]] = [:]
+            for row in group.rows {
+                buckets[ChecklistSorting.section(for: row, finishBlockedBy: blocked, afterInstall: afterInstall), default: []].append(row)
+            }
+            let needing = buckets[.needsYou] ?? []
+            attention += needing.map { Attention(row: $0, groupTitle: group.title) }
+            sections.append(Section(id: group.id, title: group.title, needsYou: needing,
+                                    optional: buckets[.optional] ?? [], noAction: buckets[.noAction] ?? []))
+        }
+        return ChecklistLayout(attention: attention, sections: sections, finishBlockedBy: blocked)
+    }
+
+    /// A row Install will set (not ready, nothing to press) is in no count:
+    /// it is neither ready nor anything the user owes.
+    private func rows(_ kind: SummaryKind, in section: Section) -> [PlanRow] {
+        switch kind {
+        case .needsYou: return section.needsYou
+        case .ready: return section.noAction.filter { $0.status == .ready }
+        case .optional: return section.optional
+        case .notNeeded: return section.noAction.filter { $0.status == .skipped }
+        }
+    }
+
+    public func filtered(_ kind: SummaryKind) -> [FilterGroup] {
+        sections.compactMap { section in
+            let matching = rows(kind, in: section)
+            return matching.isEmpty ? nil : FilterGroup(id: section.id, title: section.title, rows: matching)
+        }
+    }
+
+    /// Needs you is a sidebar entry, never a filter.
+    public func activeFilter(_ preferred: SummaryKind?) -> SummaryKind? {
+        guard let preferred, preferred != .needsYou, !filtered(preferred).isEmpty else { return nil }
+        return preferred
     }
 
     public var summary: [SummaryPart] {
-        let settled = sections.flatMap(\.settled)
-        let ready = settled.filter { $0.status == .ready }.count
-        let notNeeded = settled.filter { $0.status == .skipped }.count
+        let count = { (kind: SummaryKind) in filtered(kind).reduce(0) { $0 + $1.rows.count } }
+        let ready = count(.ready), optional = count(.optional), notNeeded = count(.notNeeded)
         var parts: [SummaryPart] = []
         if !attention.isEmpty {
-            parts.append(SummaryPart(status: .needsYou, text: attention.count == 1 ? "1 needs you" : "\(attention.count) need you"))
+            parts.append(SummaryPart(kind: .needsYou, text: attention.count == 1 ? "1 needs you" : "\(attention.count) need you"))
         }
-        if ready > 0 { parts.append(SummaryPart(status: .ready, text: "\(ready) ready")) }
-        if notNeeded > 0 { parts.append(SummaryPart(status: .skipped, text: "\(notNeeded) not needed here")) }
+        if ready > 0 { parts.append(SummaryPart(kind: .ready, text: "\(ready) ready")) }
+        if optional > 0 { parts.append(SummaryPart(kind: .optional, text: "\(optional) optional")) }
+        if notNeeded > 0 { parts.append(SummaryPart(kind: .notNeeded, text: "\(notNeeded) not needed here")) }
         return parts
     }
 }

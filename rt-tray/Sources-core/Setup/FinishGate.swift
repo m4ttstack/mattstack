@@ -4,7 +4,6 @@ import Combine
 /// Copy and rules for the finish gate: finish-gated rows block the wizard's
 /// Finish until ready, skipped, or waived on this Mac by `rt setup waive`.
 public enum FinishGate {
-    public static let beforeYouFinishTitle = "Before you finish"
     public static let skipSheetTitle = "Skip the Fast Browser extension?"
     public static let skipSheetBody = "Without the Fast Browser extension, agents cannot capture screenshots or annotate evidence from your browser. You can load it later from Settings."
     public static let skipSheetConfirm = "Skip for now"
@@ -34,7 +33,7 @@ public extension PlanRow {
 
 /// Runs the two waiver verbs. It never re-reads the plan itself: the row's
 /// shape on screen must come from rt, and the caller owns that re-read
-/// through its own bounded path (the Done model's check, or the Settings
+/// through its own bounded path (`DoneModel`'s check, or the Settings
 /// pane's refresh), so a hung or failed re-read is reported there and not
 /// swallowed here.
 @MainActor
@@ -60,8 +59,8 @@ public final class WaiverClient {
     }
 }
 
-/// Runs a choose row's verb for the Done screen and Settings, which have no
-/// verb runner of their own, so a refusal can be shown inside the sheet.
+/// Runs a choose row's verb and hands back its refusal, so the sheet that
+/// asked can show it.
 @MainActor
 public final class ChoiceClient {
     private let rt: RtRunning
@@ -92,8 +91,9 @@ public enum DoneRoute: Equatable, Sendable {
     case choose
 }
 
-/// The Done screen's only routing; the types it routes are pinned to
-/// DONE_ACTION_TYPES in lib/setup/contract.ts.
+/// The types this routes are pinned to DONE_ACTION_TYPES in
+/// lib/setup/contract.ts. No screen routes through it: the summary's rows
+/// run through the checklist's own dispatcher.
 public enum DoneActions {
     public static func route(_ action: RowAction) -> DoneRoute? {
         switch action.type {
@@ -102,7 +102,7 @@ public enum DoneActions {
             guard let raw = action.url, let url = URL(string: raw), url.scheme?.hasPrefix("http") == true else { return nil }
             return .openURL(url)
         case .steps: return .steps(action.steps ?? [])
-        // The only run verb a Done row carries is a re-check; Done re-reads the plan itself.
+        // The only run verb a finish-gated row carries is a re-check.
         case .run: return .recheck
         case .choose: return .choose
         case .openSettings, .requestPermission, .connect, .form, .oauth, .install, .ownerOnce, .linkBundled, .chooseFolder, .unknown:
@@ -111,8 +111,8 @@ public enum DoneActions {
     }
 }
 
-/// The Done screen's state: which rows block Finish, which are merely still
-/// to do, and the Skip for now sheet. Nothing is listed until the
+/// The summary's gate: which rows block Finish, which optional ones are
+/// still outstanding, and the Skip for now sheet. Nothing is listed until the
 /// post-install re-check lands, since the model still holds the pre-Install
 /// plan before then; the gate reads closed while that check is in flight.
 /// A check that fails reads open with the failure shown: a gate that could
@@ -136,18 +136,17 @@ public final class DoneModel: ObservableObject {
     @Published public private(set) var isSkipping = false
     /// A re-read the user asked for from a screen already showing a
     /// confirmed plan keeps those rows up while the gate closes; an arrival
-    /// at Done shows nothing until its own check lands.
+    /// at the summary shows nothing until its own check lands.
     @Published private var showsConfirmedRowsWhileChecking = false
 
     private let readiness: ReadinessModel
     private let waivers: WaiverClient
-    public let choices: ChoiceClient
     private let checkTimeout: TimeInterval
     private var checkGeneration = 0
     private var forward: AnyCancellable?
 
-    public init(readiness: ReadinessModel, waivers: WaiverClient, choices: ChoiceClient, checkTimeout: TimeInterval = DoneModel.defaultCheckTimeout) {
-        self.readiness = readiness; self.waivers = waivers; self.choices = choices; self.checkTimeout = checkTimeout
+    public init(readiness: ReadinessModel, waivers: WaiverClient, checkTimeout: TimeInterval = DoneModel.defaultCheckTimeout) {
+        self.readiness = readiness; self.waivers = waivers; self.checkTimeout = checkTimeout
         forward = readiness.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
@@ -161,6 +160,13 @@ public final class DoneModel: ObservableObject {
     public var hasConfirmedRows: Bool { showsRows }
     public var blockedRows: [PlanRow] { showsRows ? readiness.finishBlockedRows : [] }
     public var stillToDoRows: [PlanRow] { showsRows ? readiness.outstandingManualRows : [] }
+    /// Required rows Install left not ready. They sit under the sidebar's
+    /// Needs you without closing Finish, so the headline has to count them.
+    /// A row that also blocks Finish is in `blockedRows` only.
+    public var requiredLeftRows: [PlanRow] {
+        guard showsRows else { return [] }
+        return readiness.allRows.filter { ChecklistSorting.blocksInstall($0) && !readiness.finishBlockedBy.contains($0.id) }
+    }
     /// True after a post-install check failed or timed out and no later one succeeded.
     public var refreshFailed: Bool { refreshError != nil }
     public var refreshError: String? {
@@ -182,19 +188,20 @@ public final class DoneModel: ObservableObject {
         guard hasConfirmedRows else { return "Checking…" }
         let blocked = blockedRows.count
         if blocked > 0 { return FinishGate.headline(blocked: blocked) }
-        let outstanding = stillToDoRows.count
+        let outstanding = stillToDoRows.count + requiredLeftRows.count
         return outstanding == 0 ? "Everything's working" : "Installed, with \(outstanding) step\(outstanding == 1 ? "" : "s") left for you"
     }
 
-    /// Every arrival at Done checks from scratch: the previous run's rows are
-    /// never presented as fresh.
+    /// Every arrival at the summary checks from scratch: the previous run's
+    /// rows are never presented as fresh.
     public func checkPostInstall() async { await runCheck(keepingConfirmedRows: false) }
 
-    /// The one re-read path for everything that happens on Done after the
-    /// first check (Try again, a dismissed steps sheet, an opened URL, a
-    /// confirmed skip): bounded by the same watchdog, and a confirmed plan
-    /// stays on screen while it is re-read.
-    public func retryCheck() async { await runCheck(keepingConfirmedRows: checkState == .checked) }
+    /// The summary's re-read after the first check (Try again, Re-check, a
+    /// dismissed steps sheet, a confirmed skip): bounded by the same
+    /// watchdog, and a confirmed plan stays on screen while it is re-read.
+    /// A row's own action re-reads through `ReadinessModel.afterAction`
+    /// instead, which no watchdog bounds.
+    public func retryCheck() async { await runCheck(keepingConfirmedRows: hasConfirmedRows) }
 
     /// A failed refresh leaves `readiness` holding the last plan, which is
     /// never presented as confirmed: the rows stay hidden and the failure is
@@ -223,7 +230,7 @@ public final class DoneModel: ObservableObject {
 
     /// A verb failure keeps the sheet up with the message and the gate
     /// closed. Success closes the sheet and re-reads the plan through the
-    /// bounded path, so the row moves to Still to do, or a failed re-read
+    /// bounded path, so the row leaves Needs you, or a failed re-read
     /// shows its error with Try again and fails open.
     public func confirmSkip() async {
         guard let row = skipTarget else { return }

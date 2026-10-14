@@ -40,7 +40,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         self.environment = environment
         self.flow = SetupFlowModel(readOnly: environment.readOnly)
         self.team = TeamChoiceModel(rt: environment.rt, pasteboard: SystemPasteboard())
-        self.done = DoneModel(readiness: environment.readiness, waivers: WaiverClient(rt: environment.rt), choices: ChoiceClient(rt: environment.rt))
+        self.done = DoneModel(readiness: environment.readiness, waivers: WaiverClient(rt: environment.rt))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 620),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.contentMinSize = NSSize(width: Self.width, height: Self.minHeight)
@@ -61,7 +61,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
 
     func show(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun, choice: TeamChoice? = nil) {
         flow.entry = entry
-        if let step { flow.jump(to: step) }
+        if let step { flow.jump(to: step, landing: step == .checklist && !flow.readOnly) }
         team.enter(entry, choice: choice, joinCode: joinCode)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)

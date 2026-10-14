@@ -17,7 +17,7 @@ rt ships inside **mattstack.app**, the mattstack menu bar app. Installing the ap
 
 1. Download the `.dmg` from the [latest release](https://github.com/m4ttstack/mattstack/releases/latest).
 2. Drag **mattstack.app** to `/Applications` and open it.
-3. The setup window opens and walks you through five steps.
+3. The setup window opens and walks you through setup, one step at a time.
 
 ### Welcome
 
@@ -34,9 +34,17 @@ Pick one:
 
 See [Teams and invites](/start/teams) for how teams, invites, and team packs work.
 
-### Before we begin
+### The checklist
 
-The checklist of everything setup needs, grouped into Your Mac, Accounts, Access, and Tools. A row that needs you carries its own button. The button grants a permission, chooses a folder, connects an account, or shows the steps to take. Click **Re-check** to refresh every row. Once every required row is ready, **Install** unlocks. To go ahead while optional rows are still outstanding, click **Continue in limited mode**.
+The checklist of everything setup needs, one page for each group: Your Mac, Accounts, Access, Agents and editors, Browser, rt on this Mac, and Team and backup. A group with no rows has no page.
+
+Each page sorts its rows into up to three sections:
+
+- **Needs you**: the rows that hold up Install or Finish. Each has a **Required** or **Before you finish** badge and its own button. The button grants a permission, chooses a folder, connects an account, or shows the steps to take.
+- **Optional**: rows you can act on now or leave for later.
+- **No action needed**: the rows that are ready, and the ones Install sets up. It folds to one line that names them. Click the line to open it.
+
+**Continue** unlocks once no row on the page holds up Install. A row that only holds up Finish does not hold Continue. The last page's button is **Install**. Click **Re-check** to refresh every row.
 
 **Your Mac** covers macOS, the Command Line Tools, PATH precedence, and three permissions: Full Disk Access, Login Items, and Notifications. Each permission row asks for it or opens the matching pane in System Settings.
 
@@ -60,20 +68,22 @@ Install runs each step and streams its progress:
 - installs the mattstack Claude Code plugins and seeds Claude Code's permissions (see [Claude Code setup](#claude-code-setup))
 - installs the `rt-context` editor extension into every editor it finds
 
-### Installed
+### Summary
 
-The last screen confirms the checklist again and shows where things live: the **m** icon in the menu bar, `rt` in a new terminal window, and the board at `board.mattstack`.
+The last screen checks the checklist again and shows it with a sidebar: **Overview**, then one entry for each group. A **Needs you** entry comes first when a row still needs you.
 
-**Before you finish** holds the two rows that gate **Finish**:
+**Overview** says whether anything is left and shows where things live: the **m** icon in the menu bar, `rt` in a new terminal window, and the board at `board.mattstack`. A step that needs another try is listed there with **Retry from here**. Owners also get **Invite teammates…**.
+
+**Needs you** holds any required row that is still not ready, and the two rows that gate **Finish**:
 
 - **Writing style**: the voice agents use for the reviews, replies, and PR descriptions they post under your name. **Choose style…** offers the mattstack presets or any skill of your own.
-- **Fast Browser extension**: Fast Browser drives your real Chrome session through a Chrome extension that you load yourself. **Show steps…** walks through it. Open `chrome://extensions` and turn on Developer mode. Use **Load unpacked** on `~/.fast-browser/extension/current/unpacked`. Then pair it and confirm with `fast-browser doctor`. **Skip for now** skips it on this Mac; Settings → Fast Browser shows **Un-skip** to bring it back. Without Chrome installed, this row is skipped.
+- **Fast Browser extension**: Fast Browser drives your real Chrome session through a Chrome extension. **Show steps…** walks through it. Install Fast Browser from the Chrome Web Store. Click its icon in Chrome and copy the reconnect token. Run `fast-browser configure --connection auto` and paste the token, then confirm with `fast-browser doctor`. **Skip for now** skips it on this Mac; Settings → Fast Browser shows **Un-skip** to bring it back. Without Chrome installed, this row is skipped.
 
-**Still to do** lists any optional rows left open. Owners also get **Invite teammates…**.
+Optional rows left open sit under **Optional** in their group.
 
 ## After setup
 
-**Setup status…**, just under **Settings…** in the menu bar menu, reopens the checklist at any time. Until setup is finished, **Resume setup…** right below it reopens the wizard where you left off. Use it to connect an account, rotate a token, or fix a row that slipped. It also warns when a token is close to expiring.
+**Setup status…**, just under **Settings…** in the menu bar menu, reopens the checklist at any time, with the same sidebar and no Overview. It opens on **Needs you** when a row needs you, else on **All**, which lists every group. Click a group to see only its rows; click it again, or **All**, to go back. Click a count above the sidebar, such as **2 optional**, to list those rows from every group. Until setup is finished, **Resume setup…** right below it reopens the wizard at the step you left. On the checklist, it opens the first page that still has a required row, or the last page when none does. Use it to connect an account, rotate a token, or fix a row that slipped. It also warns when a token is close to expiring.
 
 **Settings…** covers the rest: your writing style, startup and updates, team invites, permissions, Fast Browser, and Uninstall. See [The menu bar app](/start/menu-bar-app).
 

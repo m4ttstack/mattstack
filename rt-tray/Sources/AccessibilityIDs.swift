@@ -9,7 +9,6 @@ enum AXID {
     static func `continue`(_ screen: String) -> String { "setup.\(screen).continue" }
     static func back(_ screen: String) -> String { "setup.\(screen).back" }
     static func error(_ screen: String) -> String { "setup.\(screen).error" }
-    static let continueLimited = "setup.checklist.continueLimited"
     /// The read-only "Setup status…" window's primary button, in place of
     /// `setup.<screen>.continue`: a walkthrough must be able to tell a health
     /// view's Close from a wizard's Install.
@@ -40,6 +39,10 @@ enum AXID {
     static let teamRestoreKey = "setup.team.restore.key"
 
     // Checklist
+    static func checklistPage(_ id: String) -> String { "setup.checklist.page.\(id)" }
+    static func checklistSection(_ name: String) -> String { "setup.checklist.section.\(name)" }
+    static let checklistNoActionToggle = "setup.checklist.noAction.toggle"
+    static let progress = "setup.window.progress"
     static func checklistRow(_ id: String) -> String { "setup.checklist.row.\(id)" }
     static func checklistRowAction(_ id: String) -> String { "setup.checklist.row.\(id).action" }
     static func checklistRowStatus(_ id: String) -> String { "setup.checklist.row.\(id).status" }
@@ -47,6 +50,8 @@ enum AXID {
     static func checklistRowWaiting(_ id: String) -> String { "setup.checklist.row.\(id).waiting" }
     static func checklistGroup(_ id: String) -> String { "setup.checklist.group.\(id)" }
     static let checklistSummary = "setup.checklist.summary"
+    static let checklistAll = "setup.checklist.all"
+    static func checklistFilter(_ kind: String) -> String { "setup.checklist.filter.\(kind)" }
     static let checklistRecheck = "setup.checklist.recheck"
     static let checklistRelaunch = "setup.checklist.relaunch"
     static let checklistLoading = "setup.checklist.loading"
@@ -84,11 +89,7 @@ enum AXID {
     // Done
     static let doneOpenBoard = "setup.done.openBoard"
     static let doneInvite = "setup.done.invite"
-    static let doneStillToDo = "setup.done.stillToDo"
-    static func doneStillToDoRow(_ id: String) -> String { "setup.done.stillToDo.\(id)" }
-    static func doneStillToDoRowStatus(_ id: String) -> String { "setup.done.stillToDo.\(id).status" }
-    static func doneStillToDoRowAction(_ id: String) -> String { "setup.done.stillToDo.\(id).action" }
-    static let doneBeforeYouFinish = "setup.done.beforeYouFinish"
+    static let doneOverview = "setup.done.overview"
     static func doneBeforeYouFinishRow(_ id: String) -> String { "setup.done.beforeYouFinish.\(id)" }
     static func doneBeforeYouFinishRowStatus(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).status" }
     static func doneBeforeYouFinishRowAction(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).action" }
