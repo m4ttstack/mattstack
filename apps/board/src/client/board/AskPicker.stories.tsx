@@ -114,7 +114,7 @@ const owning: NonNullable<BoardMRWithReview['ownerTeams']> = [
   { team: 'identity', approved: false },
   { team: 'billing', approved: true },
   { team: 'search', approved: true },
-  { team: 'ledger', approved: false },
+  { team: 'ledger', channel: 'pod-ledger', approved: false },
 ];
 
 /** Your team, the owning teams still to approve (ledger has no board, so it
@@ -129,6 +129,19 @@ export const PostedInSlack: Story = {
         o.team === 'ledger' ? { ...o, posted: 'https://slack.example/p1' } : o
       )
     ),
+};
+
+/** Your team owns a section too; ledger has no board; #intake-auto is a
+    channel no team claims; SpareParts names no channel at all. */
+export const EveryOwnerKind: Story = {
+  render: () =>
+    picker([
+      { team: 'checkout', channel: 'pod-checkout', mine: true, approved: false },
+      { team: 'ledger', channel: 'pod-ledger', approved: false },
+      { channel: 'intake-auto', approved: false },
+      { section: 'SpareParts', approved: false },
+      { team: 'billing', approved: true },
+    ]),
 };
 
 /** The MR changed since its approvals were read. */

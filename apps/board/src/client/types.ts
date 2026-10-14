@@ -216,10 +216,15 @@ export interface AskCardData {
   };
 }
 
-/** A team that owns a Code Owner section on an MR; `approved` is null while
-    the server has not re-read the MR since it last changed. */
+/** An owner of Code Owner sections on an MR: a directory team (`mine` for
+    the active one), else a channel no team claims, else a section naming no
+    channel. `approved` is null while the server has not re-read the MR since
+    it last changed. */
 export interface OwnerTeam {
-  team: string;
+  team?: string;
+  channel?: string;
+  section?: string;
+  mine?: true;
   approved: boolean | null;
   /** The MR's review request in one of the team's channels. */
   posted?: string;

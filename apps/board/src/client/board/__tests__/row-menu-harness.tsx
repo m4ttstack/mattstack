@@ -74,6 +74,8 @@ function effectOf(req: ActionRequest, opts: RunOpts): string {
       return `dismiss:${req.lane}`;
     case 'stand-down':
       return `stand-down:${req.on}`;
+    case 'post-slack':
+      return opts.channel ? `post-slack:${opts.channel}` : 'post-slack';
     default:
       return req.kind;
   }

@@ -82,18 +82,25 @@ describe('askPickerModel', () => {
     ]);
   });
 
-  test('a needed owning team with no board offers the Slack post where the repo can post to code owners', () => {
-    const ownerTeams = [{ team: 'ledger', approved: false }];
+  test('a needed owning team with no board offers the Slack post in its channel where the repo can post to code owners', () => {
+    const ownerTeams = [
+      { team: 'ledger', channel: 'pod-ledger', approved: false },
+    ];
     expect(
       rows(
         askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true })
       )
-    ).toContainEqual(['ledger', 'owner', 'needs', [], {}]);
+    ).toContainEqual(['ledger', 'owner', 'needs', [], { channel: 'pod-ledger' }]);
   });
 
   test("once the team's channel has the post, its Slack row links there", () => {
     const ownerTeams = [
-      { team: 'ledger', approved: false, posted: 'https://slack.example/p1' },
+      {
+        team: 'ledger',
+        channel: 'pod-ledger',
+        approved: false,
+        posted: 'https://slack.example/p1',
+      },
     ];
     expect(
       rows(
@@ -104,8 +111,64 @@ describe('askPickerModel', () => {
       'owner',
       'needs',
       [],
-      { posted: 'https://slack.example/p1' },
+      { channel: 'pod-ledger', posted: 'https://slack.example/p1' },
     ]);
+  });
+
+  test('a needed channel no team claims is headed by the channel, with its Slack post', () => {
+    const ownerTeams = [{ channel: 'intake-auto', approved: false }];
+    expect(
+      rows(
+        askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true })
+      )
+    ).toContainEqual([
+      '#intake-auto',
+      'owner',
+      'needs',
+      [],
+      { channel: 'intake-auto' },
+    ]);
+  });
+
+  test('a needed section naming no channel is headed by the section, with no channel to post in', () => {
+    const ownerTeams = [{ section: 'SpareParts', approved: false }];
+    expect(
+      rows(
+        askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true })
+      )
+    ).toContainEqual(['SpareParts', 'owner', 'needs', [], {}]);
+  });
+
+  test('an approved owner with no team leaves the list', () => {
+    const ownerTeams = [
+      { channel: 'intake-auto', approved: true },
+      { section: 'SpareParts', approved: true },
+    ];
+    expect(
+      rows(
+        askPickerModel(mine({ ownerTeams }), { ...env, canPostOwners: true })
+      ).map(r => r[0])
+    ).toEqual(['checkout', 'billing', 'sprockets']);
+  });
+
+  test('my own team owning a section badges the your-team heading', () => {
+    const own = (approved: boolean | null) =>
+      rows(
+        askPickerModel(
+          mine({
+            ownerTeams: [
+              { team: 'checkout', channel: 'pod-checkout', mine: true, approved },
+            ],
+          }),
+          env
+        )
+      ).slice(0, 2);
+    expect(own(false)).toEqual([
+      ['checkout', 'mine', 'needs', ['rae'], null],
+      ['billing', 'other', null, ['ines'], null],
+    ]);
+    expect(own(true)[0]![2]).toBe('approved');
+    expect(own(null)[0]![2]).toBe('checking');
   });
 
   test('an owning team with nobody to ask leaves the list when nothing can be offered instead', () => {

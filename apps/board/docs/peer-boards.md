@@ -18,15 +18,18 @@ What it adds:
   running a version without this ask drops it silently; the chip self-expires
   to "no-response" after 48 hours.
 - **Asking another team.** The picker runs in the Code Owner post's order:
-  your team, then each team that owns a Code Owner section on the MR and still
-  has to approve, then every other team. Owning teams carry a needs approval
-  or approved badge ("checking…" while the MR has changed since its approvals
-  were read). An owning team still to approve with nobody on a board offers
-  "post to codeowners in slack…", which opens the Code Owner post dialog, or
-  "posted in slack" once its channel has the post. A section reaches its team
-  through the Slack channel in its name and the team directory, the same way
-  the Code Owner posts do. Selecting several rows keeps the teammates-only
-  list.
+  your team, then each owner of a Code Owner section on the MR that still has
+  to approve, in CODEOWNERS order, then every other team. Owners carry a
+  needs approval or approved badge ("checking…" while the MR has changed
+  since its approvals were read), and your team carries one too when it owns
+  a section. A section reaches its team through the Slack channel in its name
+  and the team directory, the same way the Code Owner posts do; a channel no
+  team claims is listed by its channel, and a section naming no channel by
+  its section. An owner still to approve with nobody on a board offers
+  "post in #channel…", which opens the Code Owner post dialog with only that
+  channel ticked, or "posted in slack" once its channel has the post. A
+  section naming no channel shows "slack channel not known". Selecting
+  several rows keeps the teammates-only list.
 - **Request response.** The reverse direction: once your review of a
   teammate's MR finishes with comments, "ask `<author>`'s agent to respond"
   asks the author's board to answer the feedback. Their board reports the

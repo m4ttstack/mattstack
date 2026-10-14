@@ -56,6 +56,7 @@ function skipReason(skip: OwnerSkip) {
 function OwnersPostModal({
   mr,
   initial,
+  only,
   post = postAction,
   onPosted,
   onClose,
@@ -63,6 +64,8 @@ function OwnersPostModal({
   mr: BoardMR;
   /** A preview already read, so opening does not ask again. */
   initial?: SlackPostPreview;
+  /** Start with only this Code Owner channel ticked. */
+  only?: string;
   post?: (path: string, payload: unknown) => Promise<ActionResult>;
   /** Every confirmed channel was posted to. */
   onPosted: (channels: string[]) => void;
@@ -71,7 +74,18 @@ function OwnersPostModal({
   const [preview, setPreview] = useState<SlackPostPreview | null>(
     initial ?? null
   );
-  const [off, setOff] = useState<ReadonlySet<string>>(new Set());
+  const [off, setOff] = useState<ReadonlySet<string>>(() =>
+    only && initial
+      ? new Set(
+          [
+            initial.team.posted ? [] : [initial.team.channel],
+            initial.channels.map(c => c.channel),
+          ]
+            .flat()
+            .filter(c => c !== only)
+        )
+      : new Set()
+  );
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<PostOutcome | null>(null);
   const [posting, setPosting] = useState(false);

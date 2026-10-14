@@ -461,6 +461,7 @@ export function Board() {
   const [ownersPost, setOwnersPost] = useState<{
     mr: BoardMR;
     preview: SlackPostPreview;
+    only?: string;
   } | null>(null);
   const [draftResolved, setDraftResolved] = useState<
     ReadonlyMap<string, 'posted' | 'dismissed'>
@@ -914,14 +915,19 @@ export function Board() {
   const [postingSummary, setPostingSummary] = useState(false);
 
   const handlePostSlack = useCallback(
-    (mr: BoardMR) =>
-      void startSlackPost(mr, {
-        post: postAction,
-        ownerRepos: data?.ownerSlackRepos ?? [],
-        startToast,
-        openDialog: (target, preview) => setOwnersPost({ mr: target, preview }),
-        reload: load,
-      }),
+    (mr: BoardMR, channel?: string) =>
+      void startSlackPost(
+        mr,
+        {
+          post: postAction,
+          ownerRepos: data?.ownerSlackRepos ?? [],
+          startToast,
+          openDialog: (target, preview, only) =>
+            setOwnersPost({ mr: target, preview, only }),
+          reload: load,
+        },
+        channel
+      ),
     [startToast, load, data?.ownerSlackRepos]
   );
 
@@ -2051,6 +2057,7 @@ export function Board() {
           <OwnersPostModal
             mr={ownersPost.mr}
             initial={ownersPost.preview}
+            only={ownersPost.only}
             onPosted={channels => {
               addToast(
                 `posted !${ownersPost.mr.iid} to ${channels.map(c => `#${c}`).join(', ')}`
