@@ -17,7 +17,7 @@ const fakeRt = (result: { code: number; stdout: string; stderr: string }) => {
 describe('skills packs route: packs no team owns', () => {
   const PACKS = {
     packs: [
-      { name: 'claimview', dir: '/c', layout: 'flat', team: 'claimview' },
+      { name: 'widgets', dir: '/c', layout: 'flat', team: 'widgets' },
       { name: 'mattstack', dir: '/m', layout: 'grouped', team: null },
     ],
   };
@@ -34,7 +34,7 @@ describe('skills packs route: packs no team owns', () => {
     const app = mountSkills(new Hono(), rt.run);
 
     expect(await names(await app.request('/api/skills/packs'))).toEqual([
-      'claimview',
+      'widgets',
       'mattstack',
     ]);
   });
@@ -46,7 +46,7 @@ describe('skills packs route: packs no team owns', () => {
       const app = mountSkills(new Hono(), rt.run);
 
       expect(await names(await app.request('/api/skills/packs'))).toEqual([
-        'claimview',
+        'widgets',
       ]);
     }
   });
