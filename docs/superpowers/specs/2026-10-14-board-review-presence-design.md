@@ -91,8 +91,9 @@ reviewer is the envelope's sender.
   style on the candidate, independent of tone. Under
   `prefers-reduced-motion` both animations stop and the glyph rests with a
   plain outline and a mid-grey fill. The approved motion reference is
-  option F in the preview built during design (light and dark). `quiet`, not `work`: `needs-me.ts` `lineNeed` reads a
-  `work` line as busy, which would drop the MR from this member's Needs me
+  option F in `docs/apps/design/board/cloud-spinners.html` (light and
+  dark). `quiet`, not `work`: `needs-me.ts` `lineNeed` reads a `work` line
+  as busy, which would drop the MR from this member's Needs me
   tab even when they are the assigned reviewer. Needs me is unchanged.
   `done`, `error` and stale states render no line, so the row falls back to
   its normal reviewer line (launch verb, "author answered you", "changes

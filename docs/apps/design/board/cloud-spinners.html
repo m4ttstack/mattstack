@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloud spinners</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --inset: #ffffff; --fg: #1f2330; --muted: #6b7080; --dim: #9096a3;
+    --border: #d3d7df; --border-soft: #e6e8ee; --card: #ffffff; --accent-text: #2f5bd8; --shine: #ffffff; --sk-base: #e2e5eb; --sk-hi: #f5f6f9;
+  }
+  .dark {
+    --bg: #15171c; --inset: #1c1f26; --fg: #e6e8ee; --muted: #9096a3; --dim: #6b7080;
+    --border: #3a3f4b; --border-soft: #2a2e37; --card: #5a6070; --accent-text: #8aa8ff; --shine: #7d8494; --sk-base: #2b2f38; --sk-hi: #3d424e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.4 Inter, system-ui, sans-serif; background: #e9ebef; color: #1f2330; }
+  h1 { font-size: 18px; margin: 24px 16px 4px; }
+  p.lede { margin: 0 16px 16px; color: #6b7080; max-width: 760px; }
+  .themes { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; padding: 0 16px 24px; }
+  .theme { background: var(--bg); color: var(--fg); border-radius: 10px; padding: 16px; }
+  .theme h2 { font-size: 10px; letter-spacing: .6px; font-weight: 600; color: var(--dim); margin: 0 0 12px; }
+  .opt { background: var(--inset); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
+  .opt h3 { font-size: 12px; margin: 0 0 10px; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 500; }
+  .row .spacer { flex: 1; }
+  .big { display: flex; gap: 24px; align-items: center; margin-top: 12px; }
+  .big svg { width: 78px; height: 60px; }
+  .note { color: var(--dim); font-size: 12px; }
+
+  .lit { stroke-dasharray: 30 70; animation: dash 1.6s linear infinite; }
+  @keyframes dash { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+  .shine { animation: shine 2s cubic-bezier(.4, 0, .2, 1) infinite; }
+  @keyframes shine {
+    0% { transform: translateX(-12px) skewX(-20deg); }
+    70%, 100% { transform: translateX(16px) skewX(-20deg); }
+  }
+  .pulse { animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { fill: var(--sk-base); } 50% { fill: var(--sk-hi); } }
+  .fillbar { transform-box: fill-box; transform-origin: 0 50%; animation: fill 1.2s ease-in-out infinite alternate; }
+  @keyframes fill { from { transform: scaleX(.45); } to { transform: scaleX(1); } }
+  @media (prefers-reduced-motion: reduce) {
+    .lit, .shine, .fillbar, .pulse { animation: none; }
+    .pulse { animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { fill: var(--sk-base); } 50% { fill: var(--sk-hi); } }
+  .fillbar { transform: scaleX(.72); }
+  }
+</style>
+</head>
+<body>
+<h1>Cloud spinners</h1>
+<p class="lede">The row-menu peer-agent glyph (<code>AgentCloudGlyph</code> geometry), animated several ways. Each option shows the real 19.5×15 size in a row line, then 4× size. Light and dark side by side.</p>
+<div class="themes" id="themes"></div>
+<script>
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const CLOUD = 'M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z';
+let n = 0;
+function glyph(kind) {
+  const id = 'g' + (n++);
+  const cloudT = 'translate(5.9 0) scale(0.5833)';
+  let inner = '';
+  if (kind === 'A') {
+    inner = `<path transform="${cloudT}" d="${CLOUD}" stroke="var(--border)" stroke-width="2.6"/>
+      <path class="lit" pathLength="100" transform="${cloudT}" d="${CLOUD}" stroke="var(--fg)" stroke-width="2.8"/>`;
+  } else if (kind === 'E') {
+    inner = `<g clip-path="url(#${id}c)"><rect x="6" y="2" width="14" height="10" fill="url(#${id}w)"/></g>
+      <path transform="${cloudT}" d="${CLOUD}" stroke="var(--border)" stroke-width="2.6"/>
+      <path class="lit" pathLength="100" transform="${cloudT}" d="${CLOUD}" stroke="var(--fg)" stroke-width="2.8"/>`;
+  } else if (kind === 'F') {
+    inner = `<g clip-path="url(#${id}c)"><rect class="pulse" x="6" y="2" width="14" height="10" fill="var(--sk-hi)"/></g>
+      <path transform="${cloudT}" d="${CLOUD}" stroke="var(--border)" stroke-width="2.6"/>
+      <path class="lit" pathLength="100" transform="${cloudT}" d="${CLOUD}" stroke="var(--fg)" stroke-width="2.8"/>`;
+  } else if (kind === 'D') {
+    inner = `<g clip-path="url(#${id}c)"><rect class="fillbar" x="6.4" y="2" width="13" height="10" fill="var(--border)"/></g>
+      <path transform="${cloudT}" d="${CLOUD}" stroke="var(--border)" stroke-width="2.6"/>
+      <path class="lit" pathLength="100" transform="${cloudT}" d="${CLOUD}" stroke="var(--fg)" stroke-width="2.8"/>`;
+  } else {
+    const body = kind === 'B'
+      ? `<rect x="6" y="2" width="14" height="10" fill="url(#${id}w)"/>`
+      : `<rect class="fillbar" x="6.4" y="2" width="13" height="10" fill="var(--border)"/>`;
+    inner = `<g clip-path="url(#${id}c)">${body}</g>
+      <path transform="${cloudT}" d="${CLOUD}" stroke="var(--muted)" stroke-width="2.6"/>`;
+  }
+  return `<svg viewBox="0 0 19.5 15" width="19.5" height="15" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <defs>
+      <mask id="${id}m" maskUnits="userSpaceOnUse" x="0" y="0" width="19.5" height="15">
+        <rect width="19.5" height="15" fill="white"/>
+        <rect x="0" y="6.3" width="11.1" height="8.7" rx="2.6" fill="black"/>
+      </mask>
+      <clipPath id="${id}c"><path transform="${cloudT}" d="${CLOUD}"/></clipPath>
+      <linearGradient id="${id}w" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="14" y2="5" spreadMethod="repeat">
+        <stop offset="0" stop-color="var(--sk-base)"/>
+        <stop offset=".3" stop-color="var(--sk-base)"/>
+        <stop offset=".5" stop-color="var(--sk-hi)"/>
+        <stop offset=".7" stop-color="var(--sk-base)"/>
+        <stop offset="1" stop-color="var(--sk-base)"/>
+        ${REDUCED ? '' : '<animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="14 0" dur="1.8s" repeatCount="indefinite"/>'}
+      </linearGradient>
+      <linearGradient id="${id}s" x1="0" x2="1">
+        <stop offset="0" stop-color="var(--shine)" stop-opacity="0"/>
+        <stop offset=".3" stop-color="var(--shine)" stop-opacity=".25"/>
+        <stop offset=".5" stop-color="var(--shine)" stop-opacity=".6"/>
+        <stop offset=".7" stop-color="var(--shine)" stop-opacity=".25"/>
+        <stop offset="1" stop-color="var(--shine)" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <g mask="url(#${id}m)">${inner}</g>
+    <g transform="translate(0 4) scale(0.4583)" stroke="var(--accent-text)" stroke-width="3.3">
+      <path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>
+    </g>
+  </svg>`;
+}
+const OPTS = [
+  ['A', 'A · Dash round the outline', 'A short dark dash travels clockwise round the cloud.'],
+  ['B', 'B · Skeleton wave inside', 'A soft, low-contrast wave drifts continuously through the fill, no pauses.'],
+  ['C', 'C · Cloud-shaped progress bar', 'The fill grows to full and drains back, eased.'],
+  ['D', 'D · C + A: fill and dash together', 'The fill breathes in and out while the dash runs the outline.'],
+  ['E', 'E · A + B: skeleton wave and dash', 'The skeleton wave drifts through the fill while the dash runs the outline.'],
+  ['F', 'F · A + pulse: skeleton pulse and dash', 'The fill gently breathes lighter and darker while the dash runs the outline.'],
+];
+const html = ['light', 'dark'].map(t => `<section class="theme ${t}">
+  <h2>${t.toUpperCase()}</h2>
+  ${OPTS.map(([k, title, note]) => `<div class="opt">
+    <h3>${title}</h3>
+    <div class="row">${glyph(k)}<span>Pat is reviewing</span><span class="spacer"></span><span>view ↗</span></div>
+    <div class="big">${glyph(k)}<span class="note">${note}</span></div>
+  </div>`).join('')}
+</section>`).join('');
+document.getElementById('themes').innerHTML = html;
+document.querySelectorAll('.big svg').forEach(s => { s.setAttribute('width', 78); s.setAttribute('height', 60); });
+</script>
+</body>
+</html>
