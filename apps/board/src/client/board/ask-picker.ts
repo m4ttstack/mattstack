@@ -1,4 +1,4 @@
-import type { BoardMRWithReview, OrgTeam } from '../types.ts';
+import type { BoardMRWithReview, OrgTeam, OwnerTeam } from '../types.ts';
 import { askOutstanding, firstReviewTargets } from './format.ts';
 
 export interface AskPerson {
@@ -6,17 +6,18 @@ export interface AskPerson {
   name: string;
 }
 
-/** One team's block in the picker. `mine` is the seat's own team; `owner`
-    a team that owns a Code Owner section, with its approval (`checking`
-    while the MR changed since the read); `other` any other team. `slack`
-    stands in for people on an owning team with nobody to ask: the Code
-    Owner post, or `posted` once its channel has it. */
+/** One block in the picker. `mine` is the seat's own team; `owner` an owner
+    of a Code Owner section (a team, a channel no team claims, or a section
+    naming no channel), with its approval (`checking` while the MR changed
+    since the read); `other` any other team. `slack` stands in for people on
+    an owner with nobody to ask: the Code Owner post in `channel`, `posted`
+    once that channel has it, or no channel to post in at all. */
 export interface AskSection {
   team: string | null;
   role: 'mine' | 'owner' | 'other';
   approval?: 'needs' | 'approved' | 'checking';
   people: AskPerson[];
-  slack?: { posted?: string };
+  slack?: { channel?: string; posted?: string };
 }
 
 export interface AskPickerModel {
@@ -65,33 +66,51 @@ export function askPickerModel(
       .map(m => person(m.username))
       .sort(byName);
 
+  const approvalOf = (owner: OwnerTeam) =>
+    owner.approved === true
+      ? 'approved'
+      : owner.approved === null
+        ? 'checking'
+        : 'needs';
+  const owners = mrx.ownerTeams ?? [];
   const sections: AskSection[] = [];
   const teammates = firstReviewTargets(mrx, env.roster, env.peers)
     .map(u => person(u))
     .sort(byName);
+  const myOwner = owners.find(o => o.mine);
   if (teammates.length > 0)
-    sections.push({ team: env.ownTeam, role: 'mine', people: teammates });
+    sections.push({
+      team: env.ownTeam,
+      role: 'mine',
+      ...(myOwner ? { approval: approvalOf(myOwner) } : {}),
+      people: teammates,
+    });
 
-  const owners = new Map((mrx.ownerTeams ?? []).map(o => [o.team, o]));
-  for (const owner of owners.values()) {
-    if (owner.approved === true) continue;
-    const approval = owner.approved === null ? 'checking' : 'needs';
-    const people = peopleOf(owner.team);
+  for (const owner of owners) {
+    if (owner.mine || owner.approved === true) continue;
+    const approval = approvalOf(owner);
+    const people = owner.team ? peopleOf(owner.team) : [];
+    const team =
+      owner.team ?? (owner.channel ? `#${owner.channel}` : owner.section!);
     if (people.length > 0)
-      sections.push({ team: owner.team, role: 'owner', approval, people });
+      sections.push({ team, role: 'owner', approval, people });
     else if (env.canPostOwners)
       sections.push({
-        team: owner.team,
+        team,
         role: 'owner',
         approval,
         people,
-        slack: owner.posted ? { posted: owner.posted } : {},
+        slack: {
+          ...(owner.channel ? { channel: owner.channel } : {}),
+          ...(owner.posted ? { posted: owner.posted } : {}),
+        },
       });
   }
 
+  const byTeam = new Map(owners.flatMap(o => (o.team ? [[o.team, o]] : [])));
   for (const team of env.teams) {
     if (team.name === env.ownTeam) continue;
-    const owner = owners.get(team.name);
+    const owner = byTeam.get(team.name);
     if (owner && owner.approved !== true) continue;
     const people = peopleOf(team.name);
     if (people.length === 0) continue;

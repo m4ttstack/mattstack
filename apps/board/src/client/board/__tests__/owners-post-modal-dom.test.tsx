@@ -95,6 +95,7 @@ async function open(
     onPosted?: (channels: string[]) => void;
     onClose?: () => void;
     initial?: SlackPostPreview;
+    only?: string;
   } = {}
 ): Promise<Call[]> {
   const calls: Call[] = [];
@@ -109,6 +110,7 @@ async function open(
         onPosted={handlers.onPosted ?? (() => {})}
         onClose={handlers.onClose ?? (() => {})}
         initial={handlers.initial}
+        only={handlers.only}
       />
     );
   });
@@ -274,6 +276,13 @@ test('a preview handed in is shown without asking again', async () => {
   const calls = await open({}, { initial: PREVIEW });
   expect(calls).toEqual([]);
   expect(toggle('pod-acme').checked).toBe(true);
+});
+
+test('opened for one channel, only that channel starts checked', async () => {
+  await open({}, { initial: PREVIEW, only: 'pod-docs' });
+  expect(toggle('code-review').checked).toBe(false);
+  expect(toggle('pod-acme').checked).toBe(false);
+  expect(toggle('pod-docs').checked).toBe(true);
 });
 
 test('a failed preview shows the reason and offers no confirm', async () => {

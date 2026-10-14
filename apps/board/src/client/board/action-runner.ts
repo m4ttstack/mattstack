@@ -382,7 +382,7 @@ export interface RowHandlers {
   viewReport: (mr: BoardMR, lane: 'review' | 'respond') => void;
   dismiss: (mr: BoardMR, lane: Lane) => void;
   standDown: (mr: BoardMR, on: boolean) => void;
-  postSlack: (mr: BoardMR) => void;
+  postSlack: (mr: BoardMR, channel?: string) => void;
 }
 
 export function dispatchRowAction(
@@ -412,7 +412,7 @@ export function dispatchRowAction(
       h.standDown(mr, req.on);
       return undefined;
     case 'post-slack':
-      h.postSlack(mr);
+      h.postSlack(mr, opts.channel);
       return undefined;
     case 'ask':
       return runOne({ ...req, reviewer: opts.pick ?? req.reviewer }, mr, deps);

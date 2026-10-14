@@ -33,14 +33,18 @@ const env = {
   ],
 };
 
-const owned = (ledger: { posted?: string } = {}) =>
+const owned = (
+  ledger: { posted?: string } = {},
+  more: Array<Record<string, unknown>> = []
+) =>
   mrx(1418, {
     rtRepo: 'shop',
     ownerTeams: [
-      { team: 'billing', approved: true },
-      { team: 'gadgets', approved: false },
-      { team: 'ledger', approved: false, ...ledger },
-    ],
+      { team: 'billing', channel: 'pod-billing', approved: true },
+      { team: 'gadgets', channel: 'pod-gadgets', approved: false },
+      { team: 'ledger', channel: 'pod-ledger', approved: false, ...ledger },
+      ...more,
+    ] as never,
   });
 
 const picker = () => document.querySelector('[data-part="contextmenu"]');
@@ -79,9 +83,43 @@ test('one list: your team, the owning teams still to approve, then the rest', as
     'kim',
     'Nia Okoro',
     'Sam Whitlow',
-    'post to codeowners in slack…',
+    'post in #pod-ledger…',
     'Ines Duarte',
   ]);
+});
+
+test('owners with no team follow in order: a channel by its name, a section with no channel to post in', async () => {
+  await openMenu(
+    owned({}, [
+      { channel: 'intake-auto', approved: false },
+      { section: 'SpareParts', approved: false },
+    ]),
+    env
+  );
+  await clickItem('request review from…');
+  expect(headings().slice(2, 5)).toEqual([
+    'ledger · code ownerneeds approval',
+    '#intake-auto · code ownerneeds approval',
+    'SpareParts · code ownerneeds approval',
+  ]);
+  expect(itemTexts().slice(3, 6)).toEqual([
+    'post in #pod-ledger…',
+    'post in #intake-auto…',
+    'slack channel not known',
+  ]);
+  await clickItem('slack channel not known');
+  expect(harness.effects).toEqual([]);
+});
+
+test('my team owning a section badges the your-team heading', async () => {
+  await openMenu(
+    owned({}, [
+      { team: 'widgets', channel: 'pod-widgets', mine: true, approved: false },
+    ]),
+    env
+  );
+  await clickItem('request review from…');
+  expect(headings()[0]).toBe('widgets · your teamneeds approval');
 });
 
 test('a person goes straight on to the ask', async () => {
@@ -91,11 +129,13 @@ test('a person goes straight on to the ask', async () => {
   expect(harness.effects).toEqual([{ effect: 'ask:review:nia', iid: 1418 }]);
 });
 
-test('an owning team with no board opens the Code Owner post', async () => {
+test('an owning team with no board opens the Code Owner post on its channel', async () => {
   await openMenu(owned(), env);
   await clickItem('request review from…');
-  await clickItem('post to codeowners in slack…');
-  expect(harness.effects).toEqual([{ effect: 'post-slack', iid: 1418 }]);
+  await clickItem('post in #pod-ledger…');
+  expect(harness.effects).toEqual([
+    { effect: 'post-slack:pod-ledger', iid: 1418 },
+  ]);
 });
 
 test("once posted, the team's row opens the Slack thread", async () => {
@@ -122,7 +162,7 @@ test('the search narrows every section and keeps their headings', async () => {
   expect(headings()).toEqual(['gadgets · code ownerneeds approval']);
   expect(itemTexts()).toEqual(['Sam Whitlow']);
   await typeSearch('ledger');
-  expect(itemTexts()).toEqual(['post to codeowners in slack…']);
+  expect(itemTexts()).toEqual(['post in #pod-ledger…']);
 });
 
 test('a search that matches nobody says so', async () => {

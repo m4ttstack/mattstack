@@ -9,7 +9,7 @@ export interface SlackPostDeps {
   /** Repos whose code owner sections name Slack channels. */
   ownerRepos: string[];
   startToast: (text: string) => ToastHandle;
-  openDialog: (mr: BoardMR, preview: SlackPostPreview) => void;
+  openDialog: (mr: BoardMR, preview: SlackPostPreview, only?: string) => void;
   reload: () => void;
 }
 
@@ -59,10 +59,12 @@ interface PostOutcome {
     first reads which of them still need asking: with only the team channel
     left it posts there at once, and otherwise opens the dialog. When that
     read fails the team request still goes out, as it always could, unless
-    the team has no review channel to send it to. */
+    the team has no review channel to send it to. `only` opens the dialog
+    with just that Code Owner channel ticked. */
 export async function startSlackPost(
   mr: BoardMR,
-  deps: SlackPostDeps
+  deps: SlackPostDeps,
+  only?: string
 ): Promise<void> {
   if (!mr.webUrl) return;
   if (!mr.rtRepo || !deps.ownerRepos.includes(mr.rtRepo)) {
@@ -88,7 +90,7 @@ export async function startSlackPost(
   }
   if (!preview.direct) {
     toast.done(`!${mr.iid} needs code owners too, pick channels`);
-    deps.openDialog(mr, preview);
+    deps.openDialog(mr, preview, only);
     return;
   }
   const sent = await deps.post('/slack/owners/post', {

@@ -147,6 +147,8 @@ export interface ActionEnv {
 export interface RunOpts {
   note?: string;
   pick?: string;
+  /** The one Code Owner channel a Slack post starts with ticked. */
+  channel?: string;
 }
 
 const FILE: ActionGlyph = { kind: 'menu', name: 'file' };

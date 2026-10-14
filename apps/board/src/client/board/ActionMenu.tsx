@@ -162,8 +162,8 @@ function ActionMenu({
         subject={subject}
         model={asking.askPicker}
         onPick={username => fire(asking, { pick: username })}
-        onPostSlack={() => {
-          void onRun('post-slack', {});
+        onPostSlack={channel => {
+          void onRun('post-slack', { channel });
           onClose();
         }}
         onOpen={url => {

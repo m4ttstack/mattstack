@@ -56,14 +56,48 @@ export function AskPicker({
   subject: string;
   model: AskPickerModel;
   onPick: (username: string) => void;
-  /** Open the Code Owner post dialog. */
-  onPostSlack: () => void;
+  /** Open the Code Owner post dialog with only `channel` ticked. */
+  onPostSlack: (channel: string) => void;
   onOpen: (url: string) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  const slackRow = ({ channel, posted }: NonNullable<AskSection['slack']>) =>
+    posted ? (
+      <ContextMenu.Item
+        label={
+          <span className="tui-menu-icon-label">
+            <SlackLogo />
+            posted in slack
+          </span>
+        }
+        trailing={<ArrowOutGlyph />}
+        onClick={() => onOpen(posted)}
+      />
+    ) : channel ? (
+      <ContextMenu.Item
+        label={
+          <span className="tui-menu-icon-label">
+            <SlackLogo />
+            post in #{channel}…
+          </span>
+        }
+        onClick={() => onPostSlack(channel)}
+      />
+    ) : (
+      <ContextMenu.Item
+        disabled
+        label={
+          <span className="tui-menu-icon-label">
+            <SlackLogo />
+            slack channel not known
+          </span>
+        }
+      />
+    );
 
   const section = (s: AskSection) => {
     const label = heading(s);
@@ -103,22 +137,7 @@ export function AskPicker({
             onClick={() => onPick(p.username)}
           />
         ))}
-        {s.slack && (
-          <ContextMenu.Item
-            label={
-              <span className="tui-menu-icon-label">
-                <SlackLogo />
-                {s.slack.posted
-                  ? 'posted in slack'
-                  : 'post to codeowners in slack…'}
-              </span>
-            }
-            trailing={s.slack.posted ? <ArrowOutGlyph /> : undefined}
-            onClick={() =>
-              s.slack!.posted ? onOpen(s.slack!.posted) : onPostSlack()
-            }
-          />
-        )}
+        {s.slack && slackRow(s.slack)}
       </div>
     );
   };
