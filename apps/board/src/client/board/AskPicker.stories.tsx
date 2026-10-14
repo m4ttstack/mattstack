@@ -136,7 +136,12 @@ export const PostedInSlack: Story = {
 export const EveryOwnerKind: Story = {
   render: () =>
     picker([
-      { team: 'checkout', channel: 'pod-checkout', mine: true, approved: false },
+      {
+        team: 'checkout',
+        channel: 'pod-checkout',
+        mine: true,
+        approved: false,
+      },
       { team: 'ledger', channel: 'pod-ledger', approved: false },
       { channel: 'intake-auto', approved: false },
       { section: 'SpareParts', approved: false },

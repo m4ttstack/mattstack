@@ -2962,7 +2962,7 @@ a.tui-id-card-ref:focus-visible {
    under a search that doubles as its title. The list scrolls inside the
    menu so a large team never runs it off the screen. */
 .tui-menu-asking {
-  width: 300px;
+  width: 340px;
 }
 .tui-menu-ask-searchbar {
   display: flex;
@@ -3006,6 +3006,18 @@ a.tui-id-card-ref:focus-visible {
   font-size: 0.6875rem;
   font-weight: 500;
   color: var(--text-3);
+}
+.tui-menu-ask-team > :first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tui-menu-ask-team > :not(:first-child) {
+  flex-shrink: 0;
+}
+.tui-menu-asking [data-disabled] svg {
+  opacity: 0.4;
 }
 .tui-menu-ask-state {
   font-weight: 400;

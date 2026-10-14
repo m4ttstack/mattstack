@@ -116,7 +116,7 @@ export function AskPicker({
         }
       >
         <div className="tui-menu-ask-team" aria-hidden="true">
-          <span>{label}</span>
+          <span title={label}>{label}</span>
           {badge ? (
             <span className="tui-phrase" data-hue={badge.hue}>
               {badge.text}
