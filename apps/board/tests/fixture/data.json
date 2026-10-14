@@ -1961,6 +1961,16 @@
       "pipelineState": "passed",
       "repositoryId": "gitlab:1000042",
       "rtRepo": "webapp",
+      "peerReviews": [
+        {
+          "mrUrl": "https://gitlab.example.com/acme/webapp/-/merge_requests/1273",
+          "iid": 1273,
+          "reviewer": "kim",
+          "status": "reviewing",
+          "updatedAt": 1755603540000,
+          "receivedAt": 1755603540000
+        }
+      ],
       "codeownerSections": [],
       "threadSummary": {
         "awaiting": 0,

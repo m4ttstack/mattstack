@@ -125,6 +125,7 @@ import {
   writeDraft,
 } from './draft-state.ts';
 import faviconSvg from './favicon.svg' with { type: 'text' };
+import { shiftPeerReviews } from './fixture-peer-reviews.ts';
 import { focusPane } from './focus-pane.ts';
 import { answerGate } from './gates/answer.ts';
 import {
@@ -385,11 +386,7 @@ function fixtureDataJson(): string {
   const data = JSON.parse(readFileSync(fixtureFile('data.json'), 'utf8')) as {
     mrs: Array<{ peerReviews?: PeerReviewState[] }>;
   };
-  for (const mr of data.mrs)
-    for (const p of mr.peerReviews ?? []) {
-      p.updatedAt += shift;
-      if (p.receivedAt !== undefined) p.receivedAt += shift;
-    }
+  shiftPeerReviews(data, shift);
   return JSON.stringify(data);
 }
 
