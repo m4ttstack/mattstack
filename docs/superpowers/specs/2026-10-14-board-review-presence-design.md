@@ -82,8 +82,8 @@ reviewer is the envelope's sender.
 - **Any other board:** only a fresh `queued`/`reviewing` state renders, as
   "<reviewer> is reviewing" in tone `quiet`, led by a cloud spinner, and the
   existing `view-peer` verb. The cloud spinner is `AgentCloudGlyph`
-  (`src/client/board/icons.tsx`, the peer-agent mark in the row menu)
-  drawn in the dim colour, bot included, with a short dash travelling
+  (`src/client/board/icons.tsx`, the peer-agent mark in the row menu) with
+  its own colours (grey cloud, accent bot), animated: a short dash travels
   around the cloud's outline (an animated `stroke-dashoffset`) while the
   bot holds still. It is a new `spin: 'cloud'` style on the candidate,
   independent of tone, and it stops under `prefers-reduced-motion`. `quiet`, not `work`: `needs-me.ts` `lineNeed` reads a
