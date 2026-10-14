@@ -13,6 +13,7 @@ What it adds:
   `<reviewer>`") asks that reviewer's board directly.
 - **Request review.** "request review from…" on your own MR picks any roster
   member not already engaged with it and asks their board for a first look.
+  The first click on a person asks "really ask `<name>`?"; the second sends.
   A peer board running a version without this ask drops it silently; the chip
   self-expires to "no-response" after 48 hours.
 - **Asking another team.** When someone on another team has a board that

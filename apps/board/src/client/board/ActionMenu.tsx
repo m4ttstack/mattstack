@@ -99,7 +99,8 @@ function entryLabel(e: MenuEntry, text: string) {
     as a short top level (agent actions) with the rest in flyouts,
     or every section inline when `flat`, plus the stages any entry can ask
     for: a second-click confirm, a picker (bulk menu only; a row menu nests its
-    picks in a submenu), the two-view ask picker, and the alt-click note box. */
+    picks in a submenu, where a person also takes a second click), the
+    two-view ask picker, and the alt-click note box. */
 function ActionMenu({
   x,
   y,
@@ -124,6 +125,7 @@ function ActionMenu({
 }) {
   const [altHeld, setAltHeld] = useState(false);
   const [armed, setArmed] = useState<string | null>(null);
+  const [armedPick, setArmedPick] = useState<string | null>(null);
   const [pending, setPending] = useState<string[]>([]);
   const [picking, setPicking] = useState<MenuEntry | null>(null);
   const [asking, setAsking] = useState<MenuEntry | null>(null);
@@ -302,17 +304,25 @@ function ActionMenu({
         ariaLabel={`${e.pick.aria} for ${subject}`}
       >
         <ContextMenu.Label>{e.pick.title}</ContextMenu.Label>
-        {e.pick.options.map(o => (
-          <ContextMenu.Item
-            key={`ask-${o.value}`}
-            label={iconLabel(
-              e.glyph ? glyphNode(e.glyph) : null,
-              o.label ?? o.value
-            )}
-            hint={o.hint}
-            onClick={() => fire(e, { pick: o.value })}
-          />
-        ))}
+        {e.pick.options.map(o => {
+          const pickKey = `${e.key}|${o.value}`;
+          const name = o.label ?? o.value;
+          return (
+            <ContextMenu.Item
+              key={`ask-${o.value}`}
+              label={iconLabel(
+                e.glyph ? glyphNode(e.glyph) : null,
+                armedPick === pickKey ? `really ask ${name}?` : name
+              )}
+              hint={o.hint}
+              onClick={() =>
+                armedPick === pickKey
+                  ? fire(e, { pick: o.value })
+                  : setArmedPick(pickKey)
+              }
+            />
+          );
+        })}
       </ContextMenu.Sub>
     ) : (
       <ContextMenu.Item

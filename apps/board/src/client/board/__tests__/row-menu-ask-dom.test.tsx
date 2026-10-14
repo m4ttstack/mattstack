@@ -21,7 +21,19 @@ test('own MR with free roster members offers the picker and fires the ask', asyn
   // The submenu lists only the free members -- never the author.
   expect(itemTexts().some(t => t.includes('pat'))).toBe(false);
   await clickItem('kim');
+  expect(harness.effects).toEqual([]);
+  await clickItem('really ask kim?');
   expect(harness.effects).toEqual([{ effect: 'ask:review:kim', iid: 1418 }]);
+});
+
+test('picking another person moves the confirm to them', async () => {
+  await openMenu(mrx(1418), { self: 'pat', roster: ['pat', 'kim', 'jo'] });
+  await openSub('request review from…');
+  await clickItem('kim');
+  await clickItem('jo');
+  expect(itemTexts()).toContain('kim');
+  expect(itemTexts()).toContain('really ask jo?');
+  expect(harness.effects).toEqual([]);
 });
 
 test('engaged peers block the item with a reason', async () => {

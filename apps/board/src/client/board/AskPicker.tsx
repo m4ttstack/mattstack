@@ -44,7 +44,8 @@ function noBoardLine(teams: string[]): string {
 
 /** The row menu's "request review from…" stage on a board where another
     team can be asked: the seat's teammates and the MR's owning teams, or
-    every team behind a search. Drawn inside the kit menu, in its place. */
+    every team behind a search. Drawn inside the kit menu, in its place.
+    A person takes a second click, since the ask lands in their inbox. */
 export function AskPicker({
   x,
   y,
@@ -65,6 +66,7 @@ export function AskPicker({
 }) {
   const [view, setView] = useState<View>(model.opensOn);
   const [query, setQuery] = useState('');
+  const [armed, setArmed] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -74,9 +76,13 @@ export function AskPicker({
   const person = (p: AskPerson, indented: boolean) => (
     <ContextMenu.Item
       key={p.username}
-      label={personLabel(p.name)}
+      label={personLabel(
+        armed === p.username ? `really ask ${p.name}?` : p.name
+      )}
       className={indented ? 'tui-menu-ask-member' : undefined}
-      onClick={() => onPick(p.username)}
+      onClick={() =>
+        armed === p.username ? onPick(p.username) : setArmed(p.username)
+      }
     />
   );
   const team = (g: AskGroup) => (
