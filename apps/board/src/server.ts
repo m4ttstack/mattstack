@@ -244,7 +244,6 @@ import {
 } from './peer/nudges.ts';
 import { listPeerBoards } from './peer/onboard.ts';
 import { classifySend, drainOutbox, enqueueOutbox } from './peer/outbox.ts';
-import { presenceEnvelopes, reviewPresenceRecipients } from './peer/presence.ts';
 import {
   attachPeerReviews,
   importPeerReviewFiles,
@@ -252,6 +251,10 @@ import {
   readPeerReviews,
   type PeerReviewState,
 } from './peer/peer-reviews.ts';
+import {
+  presenceEnvelopes,
+  reviewPresenceRecipients,
+} from './peer/presence.ts';
 import {
   makePeering,
   startPeeringWhenTokenLoads,
