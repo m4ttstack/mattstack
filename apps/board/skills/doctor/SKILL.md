@@ -568,7 +568,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Escalation step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.4 path=attachments/gate-protocol/SKILL.md lines=7-512 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.4 path=attachments/gate-protocol/SKILL.md lines=7-520 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -626,6 +626,7 @@ digraph gate_protocol {
     "Under a run: record the gate decision?" [shape=diamond];
     "run_decision {contract: gate@1, scope, selection, decidedBy}" [shape=plaintext];
     "Any answer a write-in?" [shape=diamond];
+    "Hold or Go back on next beside the write-in?" [shape=diamond];
     "Act on a write-in" [shape=box];
     "STOP: never invent an answer or re-ask a closed gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Gate stage failed" [shape=doublecircle];
@@ -633,7 +634,7 @@ digraph gate_protocol {
     "No run: held at the open gate, turn ends" [shape=doublecircle];
     "Late gate signal discarded" [shape=doublecircle];
     "Gate path ended per the verb's policy" [shape=doublecircle];
-    "Write-in carried: a new gate at the site, or its Hold or Go back" [shape=doublecircle];
+    "Write-in acted on: a new gate opens at the site" [shape=doublecircle];
     "Act on the gate answer at the site" [shape=doublecircle style=filled fillcolor=lightgreen];
 
     "Trigger: a site reaches its gate" -> "Build the gate's questions and context";
@@ -703,9 +704,11 @@ digraph gate_protocol {
     "Under a run: record the gate decision?" -> "run_decision {contract: gate@1, scope, selection, decidedBy}" [label="yes"];
     "Under a run: record the gate decision?" -> "Any answer a write-in?" [label="no"];
     "run_decision {contract: gate@1, scope, selection, decidedBy}" -> "Any answer a write-in?";
-    "Any answer a write-in?" -> "Act on a write-in" [label="yes"];
+    "Any answer a write-in?" -> "Hold or Go back on next beside the write-in?" [label="yes"];
+    "Hold or Go back on next beside the write-in?" -> "Act on the gate answer at the site" [label="yes: the write-in rides as that move's note"];
+    "Hold or Go back on next beside the write-in?" -> "Act on a write-in" [label="no"];
     "Any answer a write-in?" -> "Act on the gate answer at the site" [label="no"];
-    "Act on a write-in" -> "Write-in carried: a new gate at the site, or its Hold or Go back";
+    "Act on a write-in" -> "Write-in acted on: a new gate opens at the site";
 }
 ```
 
@@ -884,22 +887,19 @@ record's `decidedBy` is a surface (`pane`, `board`, `console`,
 
 ### Act on a write-in
 
-When any question came back `{"writeIn": ...}`, the gate is handled like
-Iterate here, whatever else was picked:
+A question came back `{"writeIn": ...}` and `next` is not Hold or Go
+back (those are deliberate: the site takes that move as usual, with the
+write-in as the move's note, and never reaches this step). The gate is
+handled like Iterate here, whatever else was picked:
 
 1. Skip the site's own branch for this gate. A Proceed on `next` beside a
-   write-in is ignored (the form preselects it); a Hold or Go back is
-   deliberate and wins, carrying the write-in as that move's note, and
-   steps 2 and 3 do not run.
+   write-in is ignored: the form preselects it.
 2. Read the whole answer set with the write-in as the instruction and do
    the work it asks for.
 3. Then open a NEW gate at the same site (never reuse the old one) so the
    human sees the result before anything advances, closes or ships. A
    write-in too unclear to act on skips step 2 and the new gate asks
    about it; with no run, a prose question is fine instead.
-
-Under a run, `run_decision` records it in that question's slot as an
-object: `"<id>": {"writeIn": "<text>"}`.
 
 ## Attendance
 
@@ -940,6 +940,14 @@ A site's own lines for the graph's run nodes are those nodes, not extra
 steps: its `run_field_set` with `key` `gate` is the bracket node, and its
 `run_decision` line is the `run_decision` node, filled with the site's
 selection, never a second record.
+
+A write-in answer records under the selection's `writeIn` key, an object
+keyed by question id: `"writeIn": {"<question id>": "<their words>"}`. No
+site uses `writeIn` for anything else, so it never collides. The site's
+own slot for that question, when it has one, is `null`; every other slot
+keeps what the site defines. Where a site folds the question into `next`
+(watch-ci's `action`), `next` records `iterate`, or the Hold or Go back
+that won.
 
 ## Off-script gate
 
