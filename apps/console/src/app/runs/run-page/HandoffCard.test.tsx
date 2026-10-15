@@ -41,16 +41,16 @@ describe('HandoffCard', () => {
     expect(getByText('opened 2m ago')).toBeInTheDocument();
   });
 
-  it('shows the question with its options as numbered read-only chips', () => {
+  it('shows the question with its options as read-only chips with no number keys', () => {
     const { getByText, container, getAllByText } = card();
     expect(getByText('What should the review post?')).toBeInTheDocument();
     const chips = [
       ...container.querySelectorAll<HTMLElement>('[data-option]'),
     ].map(c => c.textContent);
     expect(chips).toEqual([
-      '1Approve',
-      '2Request changesrecommended',
-      '3Comment only',
+      'Approve',
+      'Request changesrecommended',
+      'Comment only',
     ]);
     expect(getAllByText('recommended')).toHaveLength(1);
   });
