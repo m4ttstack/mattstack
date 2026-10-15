@@ -2,8 +2,8 @@ import { useShellRail } from '@mattstack/app-kit/app';
 import { Indicator } from '@mattstack/app-kit/core';
 import { Link, RailLink } from '@mattstack/app-kit/router';
 
-import { countsForConsoleBadge } from '../../shared/gate-waiting';
 import { nowOf } from './derive/clock';
+import { waitingOnMe } from './derive/lanes';
 import { useLinkedGates } from './runs-page/useLinkedGates';
 import { runsHomeHref } from './runs-page/useRunsUrl';
 import classes from './RunsRailEntry.module.css';
@@ -11,10 +11,12 @@ import { useRunList } from './useRuns';
 
 const WAITING_HREF = '/?filter=waiting';
 
-/** The gates waiting on me: the same count as the deck tab's badge. */
+/** The gates waiting on me on a listed run: the deck tab's badge
+    (`/api/badge`) and the runs page's waiting stat count the same way. */
 function useWaitingCount(): number {
-  const now = nowOf(useRunList().data);
-  return useLinkedGates().all.filter(g => countsForConsoleBadge(g, now)).length;
+  const runs = useRunList().data;
+  const gates = useLinkedGates().all;
+  return waitingOnMe(runs?.runs ?? [], gates, nowOf(runs)).length;
 }
 
 /**
