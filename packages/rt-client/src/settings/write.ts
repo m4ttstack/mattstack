@@ -55,7 +55,7 @@
  * needs a commit and push to reach anyone, so conjuring one here would
  * produce an uncommitted, unshared file masquerading as shared state.
  * A shared store is written only by a role that owns it (see org-roles.ts);
- * the refusal names who can. A write to the org store by a plain admin or a
+ * the refusal names who can. A write or removal in the org store by a plain admin or a
  * team owner is decided by org-store-guard.ts instead, which compares the
  * store before and after. User and machine writes are never guarded.
  *
@@ -378,10 +378,11 @@ export function unsetSetting(key: string, scope: SettingScope, opts: SetSettingO
 }
 
 function removeKeyFromScope(key: string, scope: SettingScope, opts: SetSettingOpts, planPaths: (root: Record<string, unknown>) => JSONPath[]): boolean {
-  const storePath = resolveStorePathForUnset(scope, opts);
-  if (storePath === null || !existsSync(storePath)) return false;
+  const target = resolveRemovalTarget(scope, opts);
+  if (target === null || !existsSync(target.path)) return false;
+  const storePath = target.path;
 
-  const removed = removeFromStore(storePath, planPaths);
+  const removed = removeFromStore(storePath, planPaths, target.check);
 
   if (removed) shareTip("removed", key, scope, storePath);
   return removed;
@@ -464,16 +465,17 @@ function resolveStoreTarget(scope: SettingScope, opts: SetSettingOpts): { path: 
   return { path };
 }
 
-/** `resolveStoreTarget` for removal: no store to target answers null (nothing to remove) instead of refusing. */
-function resolveStorePathForUnset(scope: SettingScope, opts: SetSettingOpts): string | null {
-  if (scope === "user") return userSettingsPath();
-  if (scope === "machine") return machineSettingsPath();
+/** `resolveStoreTarget` for removal and pruning: no store to target answers null (nothing to remove) instead of refusing. */
+function resolveRemovalTarget(scope: SettingScope, opts: SetSettingOpts): { path: string; check?: StoreCheck } | null {
+  if (scope === "user") return { path: userSettingsPath() };
+  if (scope === "machine") return { path: machineSettingsPath() };
   if (currentOrg() === null) return null;
   if (scope === "team" && opts.team === undefined && activeTeam().team === null) return null;
   const { org, path } = sharedStoreTarget(scope, opts);
   if (!existsSync(path)) return null;
+  if (scope === "org") return { path, check: orgStoreCheck(org, path) };
   refuseUnlessOwned(org, path);
-  return path;
+  return { path };
 }
 
 /** `// header comment\n{}\n` — see module doc for why the object must be seeded before the first `modify`. */
@@ -584,7 +586,7 @@ function writeIntoStore(storePath: string, planEdits: (root: Record<string, unkn
  * `modify`-by-offset against a duplicate-key document is as wrong for
  * removal as it is for writes.
  */
-function removeFromStore(storePath: string, planPaths: (root: Record<string, unknown>) => JSONPath[]): boolean {
+function removeFromStore(storePath: string, planPaths: (root: Record<string, unknown>) => JSONPath[], check?: StoreCheck): boolean {
   assertNotRealStoreInTest(storePath);
   const content = readFileSync(storePath, "utf8");
   if (content.trim() === "") return false;
@@ -597,7 +599,9 @@ function removeFromStore(storePath: string, planPaths: (root: Record<string, unk
   next = dropEmptyMigrated(next, paths);
   if (next === content) return false;
 
-  writeTempThenRename(storePath, next.endsWith("\n") ? next : `${next}\n`);
+  const finalText = next.endsWith("\n") ? next : `${next}\n`;
+  check?.(finalText);
+  writeTempThenRename(storePath, finalText);
   return true;
 }
 
@@ -651,8 +655,9 @@ export function pruneStoreName(key: string, storeName: string, scope: SettingSco
   if (!opts.repoIdentity && def.repoOnly === true) refuse(`"${key}" is repo-only: name the repo (--repo)`);
   if (!olderStoreNames(def).some((o) => o.name === storeName)) refuse(`"${storeName}" is not an older store name of "${key}"`);
 
-  const storePath = resolveStorePathForUnset(scope, opts);
-  if (storePath === null || !existsSync(storePath)) return { removed: false };
+  const target = resolveRemovalTarget(scope, opts);
+  if (target === null || !existsSync(target.path)) return { removed: false };
+  const storePath = target.path;
   const sectionPath = sectionPathOf(opts.repoIdentity);
   let authored: unknown;
   const removed = removeFromStore(storePath, (root) => {
@@ -668,7 +673,7 @@ export function pruneStoreName(key: string, storeName: string, scope: SettingSco
     }
     authored = older.authored;
     return [[...sectionPath, storeName], ...(baselinesOf(section)[storeName] !== undefined ? [[...sectionPath, MIGRATED_PROP, storeName]] : [])];
-  });
+  }, target.check);
   if (!removed) return { removed };
   shareTip("removed", storeName, scope, storePath);
   return { removed, authored };

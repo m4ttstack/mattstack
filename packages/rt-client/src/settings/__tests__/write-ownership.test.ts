@@ -5,7 +5,7 @@ import { join } from "path";
 import { readOrgRoles, readOrgRoster } from "../active-team.ts";
 import { orgSettingsPath } from "../paths.ts";
 import { readStore } from "../stores.ts";
-import { setSetting, SettingsOwnershipRefusal } from "../write.ts";
+import { setSetting, SettingsOwnershipRefusal, unsetSetting } from "../write.ts";
 import { seedOrg } from "../../../test/org-fixture.ts";
 
 describe("settings/write: the org store guard", () => {
@@ -82,6 +82,35 @@ describe("settings/write: the org store guard", () => {
     setSetting("board.gitlabHost", "gitlab.acme.test", "org");
     expect(readOrgRoles("acme").admins).toEqual(["dev1", "dev3"]);
     expect(readStore(orgSettingsPath("acme")).global["board.gitlabHost"]).toBe("gitlab.acme.test");
+  });
+
+  test("an admin may not unset the org's roles, since that drops the owners list", () => {
+    seedAs("dev1");
+    const before = readFileSync(orgSettingsPath("acme"), "utf8");
+    expect(() => unsetSetting("mattstack.org", "org")).toThrow(
+      "rt: Only an org owner can change who the org owners are. Ask dev0 (an org owner) to make this change.",
+    );
+    expect(readFileSync(orgSettingsPath("acme"), "utf8")).toBe(before);
+  });
+
+  test("an admin still unsets an unrelated org key", () => {
+    seedAs("dev1");
+    expect(unsetSetting("board.gitlabHost", "org")).toBe(true);
+    expect(readStore(orgSettingsPath("acme")).global["board.gitlabHost"]).toBeUndefined();
+  });
+
+  test("an org owner may unset the org's roles", () => {
+    seedAs("dev0");
+    expect(unsetSetting("mattstack.org", "org")).toBe(true);
+    expect(readStore(orgSettingsPath("acme")).global["mattstack.org"]).toBeUndefined();
+  });
+
+  test("a team owner may not unset any org key", () => {
+    seedAs("dev2");
+    const before = readFileSync(orgSettingsPath("acme"), "utf8");
+    expect(() => unsetSetting("board.gitlabHost", "org")).toThrow(SettingsOwnershipRefusal);
+    expect(() => unsetSetting("mattstack.roster", "org")).toThrow(SettingsOwnershipRefusal);
+    expect(readFileSync(orgSettingsPath("acme"), "utf8")).toBe(before);
   });
 
   test("an org owner may change the owners list", () => {
