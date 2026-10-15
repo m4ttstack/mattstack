@@ -60,3 +60,32 @@ describe("members and unknown", () => {
     expect(orgStoreChangeRefusal({ kind: "unknown" }, store(), withRoster([]))).not.toBeNull();
   });
 });
+
+describe("roster bypasses", () => {
+  const add = (extra: unknown[]) => withRoster([...roster, ...extra]);
+  test("an owner may not append junk entries", () => {
+    expect(orgStoreChangeRefusal(OWNER, store(), add(["junk", { name: "x" }]))).not.toBeNull();
+  });
+  test("a member may not append a malformed entry", () => {
+    expect(orgStoreChangeRefusal({ kind: "member" }, store(), add([{ username: 7, teams: ["gadgets"] }]))).not.toBeNull();
+  });
+  test("an owner may not use non-string teams", () => {
+    expect(orgStoreChangeRefusal(OWNER, store(), withRoster([{ ...roster[0], teams: ["gadgets", 5, null] }, roster[1]]))).not.toBeNull();
+  });
+  test("duplicate usernames under sameUser are refused", () => {
+    const dup = { ...roster[0], username: "DEV4" };
+    const before = withRoster([roster[0], dup, roster[1]]);
+    const after = withRoster([roster[0], { ...dup, agePublicKey: "age1x", teams: [] }, roster[1]]);
+    expect(orgStoreChangeRefusal(OWNER, before, after)).not.toBeNull();
+  });
+  test("an owner may not change only a username's case", () => {
+    expect(orgStoreChangeRefusal(OWNER, store(), withRoster([{ ...roster[0], username: "DEV4" }, roster[1]]))).not.toBeNull();
+  });
+  test("an owner may reorder entries", () => {
+    expect(orgStoreChangeRefusal(OWNER, store(), withRoster([roster[1], roster[0]]))).toBeNull();
+  });
+  test("the nested spelling works for a valid owner change", () => {
+    const nested = (r: unknown) => parseStoreText("org.jsonc", JSON.stringify({ mattstack: { org, roster: r } }));
+    expect(orgStoreChangeRefusal(OWNER, nested(roster), nested([{ ...roster[0], teams: ["gadgets", "widgets"] }, roster[1]]))).toBeNull();
+  });
+});
