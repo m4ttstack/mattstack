@@ -178,7 +178,9 @@ describe("rt settings set / unset output", () => {
     test("an owner's org write is a refused note", async () => {
       seedAs("dev2");
       await expect(settingsSet(["board.gitlabHost", '"x"', "--scope", "org"])).rejects.toThrow("__exit_1");
-      expect(cap.stderr()).toBe(ORG_REFUSAL);
+      expect(cap.stderr()).toBe(
+        "[refused] A team owner can only change which teams people are on in the org's settings\n  why: Ask dev1 (an org admin) to make this change.\n",
+      );
     });
 
     test("an owner's unset in another team's folder is a refused note", async () => {
