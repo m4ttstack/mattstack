@@ -28,3 +28,8 @@ test("dataBranchOf prefers the marker, else the checked-out branch", async () =>
   const q = { readFile: () => '{"role":"org","org":"acme"}', exec: async () => ({ code: 0, stdout: "trial\n", stderr: "" }) };
   expect(await dataBranchOf(q as never, "/x")).toBe("trial");
 });
+
+test("dataBranchOf ignores an invalid marker and uses the checked-out branch", async () => {
+  const p = { readFile: () => '{"role":"org","org":"acme","dataBranch":"team//data"}', exec: async () => ({ code: 0, stdout: "trial\n", stderr: "" }) };
+  expect(await dataBranchOf(p as never, "/x")).toBe("trial");
+});

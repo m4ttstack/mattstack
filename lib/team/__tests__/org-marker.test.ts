@@ -84,7 +84,10 @@ test("a marker's dataBranch is read, and absent reads as null", () => {
   expect(parseMarker('{"role":"org","org":"acme"}')).toEqual({ kind: "org", org: "acme", layout: 2, dataBranch: null });
 });
 test("a dataBranch that is not a plain branch name makes the marker invalid", () => {
-  for (const bad of ["", "-x", "a..b", "a b", "../x", "/x", "x/", 7]) {
+  for (const bad of ["", "-x", "a..b", "a b", "../x", "/x", "x/", 7, "team//data", "team/.hidden", "team.lock", "team.", "a/b.lock"]) {
     expect(parseMarker(JSON.stringify({ role: "org", org: "acme", dataBranch: bad })).kind).toBe("invalid");
   }
+});
+test("a dataBranch with several plain components is valid", () => {
+  expect(parseMarker('{"role":"org","org":"acme","layout":4,"dataBranch":"trial/layout-4"}')).toMatchObject({ kind: "org", dataBranch: "trial/layout-4" });
 });

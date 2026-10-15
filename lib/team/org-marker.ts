@@ -16,6 +16,9 @@ export type MarkerState = { kind: "none" } | { kind: "invalid"; why: string } | 
 /** A plain branch name: no leading dash or slash, no trailing slash, no "..", no spaces. */
 const BRANCH_RE = /^(?![-/])(?!.*\.\.)(?!.*\/$)[A-Za-z0-9._/-]+$/;
 
+/** Git's per-component rules: non-empty, no leading ".", no trailing "." or ".lock". */
+const validBranch = (name: string): boolean => BRANCH_RE.test(name) && name.split("/").every((c) => c !== "" && !c.startsWith(".") && !c.endsWith(".") && !c.endsWith(".lock"));
+
 /**
  * An old clone may still carry a `role: "team"` marker with an `org` field; a
  * marker of any other role is not an org clone. `layout` is the marker's own
@@ -43,7 +46,7 @@ export function parseMarker(raw: string | null): MarkerState {
   if (layout !== undefined && (typeof layout !== "number" || !Number.isInteger(layout) || layout < 1)) {
     return { kind: "invalid", why: "its layout is not a positive whole number" };
   }
-  if (dataBranch !== undefined && (typeof dataBranch !== "string" || !BRANCH_RE.test(dataBranch))) {
+  if (dataBranch !== undefined && (typeof dataBranch !== "string" || !validBranch(dataBranch))) {
     return { kind: "invalid", why: "its dataBranch is not a plain branch name" };
   }
   return { kind: "org", org, dataBranch: typeof dataBranch === "string" ? dataBranch : null, layout: typeof layout === "number" ? layout : role === "org" ? ORG_LAYOUT_ABSENT_DEFAULT : 1 };
