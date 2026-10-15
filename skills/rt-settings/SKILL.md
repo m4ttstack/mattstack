@@ -195,13 +195,18 @@ marker as a pointer. The two branches share no history: the data branch is
 never merged into `main`, nor `main` into it. `rt team invite` reads
 `main`'s pointer and refuses unless the clone is on the branch it names;
 the invite carries `dataBranch`, and a join clones that branch alone. An
-admin tries a later change on a trial branch with `rt team branch use
-<name>` (org admins and owners): it makes the branch from the data
-branch's published tip when origin has none, switches the clone in place,
-and records the trial so the daemon auto-commits there. It refuses a
-branch that holds no org store, and the switch holds while the clone has
-unsaved changes or unpublished commits. `rt team branch use <data
-branch>` switches back and clears the trial.
+admin tries a change on a trial branch with `rt team branch use
+<name>` (org admins and owners): it switches the clone in place and
+records the trial so the daemon auto-commits there. On a layout 4 clone it
+makes the branch from the data branch's published tip when origin has
+none. On a layout 3 clone it switches only to an existing branch, such as
+one the conversion script made, because there is no data branch yet to
+start from. It refuses a branch that holds no org store, and the switch
+holds while the clone has unsaved changes or unpublished commits. Whether
+a target is a trial is decided by origin `main`'s pointer: the data branch
+is the `dataBranch` it names, or `main` itself when it names none.
+`rt team branch use main` (layout 3) or `rt team branch use <data
+branch>` (layout 4) switches back and clears the trial.
 
 In this order:
 
@@ -270,7 +275,9 @@ marker alone. A run refuses when origin already has either branch. When
 `main` refuses the push, the pointer goes to `<data branch>-pointer` and the
 script says to land it by the repo's own rules, for example a merge
 request. `--no-pointer` pushes only the data branch and leaves `main`
-untouched, so no Mac moves. The script ends by printing the forge-access
+untouched, so no Mac moves. To try the conversion first, run the script
+with `--data-branch <trial> --no-pointer --write`, then `rt team branch
+use <trial>` on the dev app's Mac; nobody else's Mac sees the branch. The script ends by printing the forge-access
 steps (`rt team manage-membership on`, then `rt team forge-access --apply`).
 Once the pointer is on `main`, each layout 3 clone on an updated app moves
 onto the data branch in place: the daemon's pull holds with a "moved"

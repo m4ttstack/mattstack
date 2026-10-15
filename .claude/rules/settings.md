@@ -31,7 +31,12 @@ The org store is guarded by `orgStoreChangeRefusal`
 (`packages/rt-client/src/settings/org-store-guard.ts`) in `setSetting`,
 `publishTeam` and the daemon's auto-commit scope: a team owner may change
 only which of their own teams people are on, and only an org owner may change
-`owners`.
+`owners`. A team owner may append or remove their own team on a member's
+list but never reorder it, since the first team is the start team. For every
+role the guard refuses a pending change whose `mattstack.org` roles block is
+malformed (admins and owners must be lists of usernames, teams an object);
+`hasMalformedOrgBlock` lives beside the guard in `org-store-guard.ts` and
+`lib/team/org-store-scope.ts` reuses it.
 
 A team's pack is its Claude plugin at `mattstack/teams/<team>/plugin/`
 (`teamPackDir`, `lib/team/team-pack-path.ts`). The older layout, with the
@@ -55,9 +60,16 @@ invite` reads `main`'s pointer and refuses unless the clone is on the
 branch it names; the invite seals `dataBranch`, and `rt team join` clones
 that branch alone, then narrows the cone after the redeem.
 `rt team branch use <name>` (`lib/team/trial-branch.ts`; org admins and
-owners) switches the clone in place to a trial branch, made from the data
-branch's published tip when origin has none, and records it in the
-team-local record. The daemon auto-commits only on an approved branch, the
+owners) switches the clone in place to a trial branch and records it in
+the team-local record. On a layout 4 clone a missing branch is made from
+the data branch's published tip; on a layout 3 clone only an existing
+branch holding the org store is accepted (a script `--no-pointer` trial),
+since there is no data branch to start from. A target is a trial unless it
+is the data branch origin `main`'s pointer names, or `main` itself when it
+names none, so `rt team branch use main` (layout 3) or `rt team branch use
+<dataBranch>` (layout 4) returns and clears the trial. The trial flow is
+the script with `--data-branch <trial> --no-pointer --write`, then `rt team
+branch use <trial>` on the dev app's Mac. The daemon auto-commits only on an approved branch, the
 data branch or the recorded trial (`approvedBranches` in
 `lib/team/approved-branch.ts`); the `org.branch` row says when it is paused.
 Each Mac's sparse cone follows its role (`coneFor` in `lib/team/org-cone.ts`):
