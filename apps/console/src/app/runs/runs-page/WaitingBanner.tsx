@@ -6,9 +6,7 @@ import { Link } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
 import { formatDuration } from '../derive/duration';
-import { optionViews } from '../derive/gates';
 import { Glyph } from '../Glyph';
-import { OptionChips } from '../OptionChips';
 import { StatusCard } from '../StatusCard';
 import classes from './WaitingBanner.module.css';
 
@@ -25,9 +23,9 @@ export interface WaitingBannerProps {
 const gateName = (kind: string) =>
   `${kind.split(':')[0]!.replace(/-/g, ' ')} gate`;
 
-/** My oldest waiting gate, read-only: the run, the first question and its
-    numbered options. "Answer gate" and `g` open the run page at the gate;
-    nothing is answered here. */
+/** My oldest waiting gate, read-only: the run and its first question.
+    "Answer gate" and `g` open the run page at the gate; nothing is answered
+    here, so the options stay on the run page. */
 export function WaitingBanner({
   gate,
   ticket,
@@ -79,12 +77,9 @@ export function WaitingBanner({
             </Text>
           </Group>
           {question ? (
-            <>
-              <Text fz="xl" fw={500} lh="normal" data-parity="q">
-                {question.label}
-              </Text>
-              <OptionChips options={optionViews(question)} />
-            </>
+            <Text fz="xl" fw={500} lh="normal" data-parity="q">
+              {question.label}
+            </Text>
           ) : null}
         </Stack>
         <Stack gap={8} align="flex-end" className={classes.right}>
