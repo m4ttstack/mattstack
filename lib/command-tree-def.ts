@@ -2931,12 +2931,22 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       "manage-membership": {
-        description: "Let mattstack add and remove teammates' read access on a team repo it created",
+        description: "Let mattstack manage who can reach your org's repo on the forge",
         module: "./commands/team.ts",
         fn: "teamManageMembership",
         omitBehavior: "list",
         args: [
-          { name: "State", type: "select", optional: true, hint: "Omit to show the current state", options: [{ value: "on", label: "on", hint: "invites grant forge read access" }, { value: "off", label: "off", hint: "invites print manual steps" }] },
+          { name: "State", type: "select", optional: true, hint: "Omit to show the current state", options: [{ value: "on", label: "on", hint: "rt follows the org's roles on the forge" }, { value: "off", label: "off", hint: "you manage forge access yourself" }] },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+          SETUP_JSON_ARG,
+        ],
+      },
+      "forge-access": {
+        description: "See who should reach your org's repo on the forge, and fix it",
+        module: "./commands/team.ts",
+        fn: "teamForgeAccess",
+        args: [
+          { name: "Apply", flag: "--apply", type: "boolean", default: false, hint: "Change the forge to match the org's roles" },
           { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
           SETUP_JSON_ARG,
         ],
