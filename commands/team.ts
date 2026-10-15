@@ -57,7 +57,7 @@ import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
-import { canonicalHandle, readPeeredBoards, realReadLocalSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
+import { canonicalHandle, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDropFromTeam, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
@@ -108,6 +108,8 @@ export interface TeamDeps {
   interactive?: () => boolean;
   /** An rt-scope secret (the switchboard tokens `teamStatus`, `teamPeer` and `members remove` read); real store by default. */
   readLocalSecret?: ReadLocalSecret;
+  /** The org's admin-only secrets reader (`teamStatus`, `teamPeer`, `members remove`); real by default. */
+  readAdminSecret?: ReadAdminSecret;
   /** Overrides `peerOwnBoard`'s seams; real by default, with `readLocalSecret` above as its secret reader. */
   peerSeams?: Partial<PeerSeams>;
   /** Overrides `renameOrg`'s seams; real by default. */
@@ -291,7 +293,12 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
 }
 
 function peerSeamsFor(deps: TeamDeps): PeerSeams {
-  return { ...realPeerSeams(), ...(deps.readLocalSecret ? { readLocalSecret: deps.readLocalSecret } : {}), ...deps.peerSeams };
+  return {
+    ...realPeerSeams(),
+    ...(deps.readLocalSecret ? { readLocalSecret: deps.readLocalSecret } : {}),
+    ...(deps.readAdminSecret ? { readAdminSecret: deps.readAdminSecret } : {}),
+    ...deps.peerSeams,
+  };
 }
 
 /** A creator holding the admin token gets their board connected with the org; anything that goes wrong is a warning, never a failed create. */
@@ -902,6 +909,7 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
     const result = await membersRemove(deps.probes, secrets, slug, handle, key, {
       ...(deps.membersSeams ?? realMembersSeams()),
       ...(deps.readLocalSecret ? { readLocalSecret: deps.readLocalSecret } : {}),
+      ...(deps.readAdminSecret ? { readAdminSecret: deps.readAdminSecret } : {}),
     });
 
     if (json) {
@@ -1026,7 +1034,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
     // null when nothing on this Mac can ask the switchboard, so "not peered"
     // is only ever said when the switchboard said it.
-    const peeredBoards = await readPeeredBoards(deps.probes, deps.readLocalSecret ?? realReadLocalSecret);
+    const peeredBoards = await readPeeredBoards(deps.probes, deps.readLocalSecret ?? realReadLocalSecret, { org: slug, read: deps.readAdminSecret ?? realReadAdminSecret });
     const membersWithPeering = members.map((m) => ({ ...m, peered: peeredBoards ? peeredBoards.has(canonicalHandle(m.username)) : null }));
     const peeredCount = membersWithPeering.filter((m) => m.peered === true).length;
 

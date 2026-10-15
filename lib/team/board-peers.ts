@@ -7,7 +7,9 @@
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
+import { createRealTeamSecretsSeams, readAdminSecret } from "../secrets/team-store.ts";
 import type { Probes } from "../setup/probes.ts";
+import { warn as warnLine } from "../ui/warn.ts";
 import { boardEnvValue, readBoardSwitchboardToken } from "./board-token.ts";
 
 /** Reads one secret from the rt scope, or null when it is not set. */
@@ -16,9 +18,33 @@ export type ReadLocalSecret = (key: string) => Promise<string | null>;
 export const realReadLocalSecret: ReadLocalSecret = (key) =>
   readSecret("rt", key, { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() });
 
-/** The switchboard admin token from wherever this Mac keeps it, in the order the setup row checks: the environment, the board's .env, then rt's secret. */
-export async function readAdminToken(p: Pick<Probes, "home" | "env" | "readFile">, readSecret: ReadLocalSecret): Promise<string | null> {
-  return p.env.SWITCHBOARD_ADMIN_TOKEN || boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN") || (await readSecret("switchboardAdminToken").catch(() => null));
+/** Reads one key of an org's admin-only `rt` secrets, or null when the file, the key or this Mac's access is missing. */
+export type ReadAdminSecret = (org: string, key: string) => Promise<string | null>;
+
+/** Where an org keeps its admin-only secrets, for a reader that should look there. */
+export interface AdminSource {
+  org: string;
+  read: ReadAdminSecret;
+}
+
+/** A failure other than "this Mac cannot open it" goes to the log only: the token still has the local secret to come from. */
+export const realReadAdminSecret: ReadAdminSecret = async (org, key) => {
+  try {
+    return await readAdminSecret(org, "rt", key, createRealTeamSecretsSeams(org));
+  } catch (err) {
+    warnLine("team", `admin-only secrets for ${org} could not be read: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+};
+
+/** The switchboard admin token from wherever this Mac keeps it, in the order the setup row checks: the environment, the board's .env, the org's admin-only file, then rt's secret. */
+export async function readAdminToken(p: Pick<Probes, "home" | "env" | "readFile">, readSecret: ReadLocalSecret, admin: AdminSource | null): Promise<string | null> {
+  return (
+    p.env.SWITCHBOARD_ADMIN_TOKEN ||
+    boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN") ||
+    (admin ? await admin.read(admin.org, "switchboardAdminToken").catch(() => null) : null) ||
+    (await readSecret("switchboardAdminToken").catch(() => null))
+  );
 }
 
 /** Usernames compare the way the relay compares them. */
@@ -32,7 +58,7 @@ export function canonicalHandle(handle: string): string {
  * token lists its peers. A failed or malformed answer is also null, since a
  * wrong "not peered" would read as a removal that never happened.
  */
-export async function readPeeredBoards(p: Probes, readSecret: ReadLocalSecret): Promise<Set<string> | null> {
+export async function readPeeredBoards(p: Probes, readSecret: ReadLocalSecret, adminSource: AdminSource | null): Promise<Set<string> | null> {
   const base = switchboardUrl(p.env);
   const ask = async (path: string, token: string, field: "boards" | "peers"): Promise<Set<string> | null> => {
     try {
@@ -49,7 +75,7 @@ export async function readPeeredBoards(p: Probes, readSecret: ReadLocalSecret): 
     }
   };
 
-  const admin = await readAdminToken(p, readSecret);
+  const admin = await readAdminToken(p, readSecret, adminSource);
   if (admin) return ask("/boards", admin, "boards");
   const board = await readBoardSwitchboardToken(p, () => readSecret("switchboardToken").catch(() => null));
   if (board) return ask("/peers", board, "peers");
@@ -63,8 +89,8 @@ export type BoardRevoke =
   | { kind: "failed"; detail: string };
 
 /** Deletes `handle`'s board registration: its token stops working and anything queued for it is dropped. A 404 means there was nothing to remove. */
-export async function revokeBoard(p: Probes, readSecret: ReadLocalSecret, handle: string): Promise<BoardRevoke> {
-  const admin = await readAdminToken(p, readSecret);
+export async function revokeBoard(p: Probes, readSecret: ReadLocalSecret, handle: string, adminSource: AdminSource | null): Promise<BoardRevoke> {
+  const admin = await readAdminToken(p, readSecret, adminSource);
   if (!admin) return { kind: "no-admin-token" };
   const res = await p.fetch(`${switchboardUrl(p.env)}/boards/${encodeURIComponent(canonicalHandle(handle))}`, {
     method: "DELETE",

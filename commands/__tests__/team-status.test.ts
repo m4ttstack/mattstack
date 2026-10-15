@@ -20,6 +20,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
     probes: fakeProbes({ home: HOME }),
     print: (s: string) => lines.push(s),
     readLocalSecret: async () => null,
+    readAdminSecret: async () => null,
     lines,
     ...overrides,
   };
@@ -179,6 +180,28 @@ describe("teamStatus", () => {
       { username: "dev2", peered: false },
     ]);
     expect(fetched).toEqual([{ url: `${switchboardUrl()}/boards`, auth: "Bearer admin-tok" }]);
+  });
+
+  test("an admin whose token is only in the org's admin-only file still sees who is peered", async () => {
+    const fetched: Array<{ url: string; auth?: string }> = [];
+    const deps = clonedDeps({
+      exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+      fetch: async (url, init) => {
+        fetched.push({ url, auth: (init?.headers as Record<string, string> | undefined)?.Authorization });
+        return { status: 200, body: JSON.stringify({ boards: [{ username: "dev1" }] }), headers: {} };
+      },
+      read: { "mattstack.roster": [{ username: "dev1" }, { username: "dev2" }] },
+    });
+    deps.readLocalSecret = async () => null;
+    deps.readAdminSecret = async (org, key) => (org === SLUG && key === "switchboardAdminToken" ? "admin-file" : null);
+
+    await teamStatus(["--team", SLUG, "--json"], {}, deps);
+
+    expect(JSON.parse(deps.lines[0]!).members).toEqual([
+      { username: "dev1", peered: true },
+      { username: "dev2", peered: false },
+    ]);
+    expect(fetched).toEqual([{ url: `${switchboardUrl()}/boards`, auth: "Bearer admin-file" }]);
   });
 
   test("without the admin token, the board's own token asks /peers, and the human view counts connected boards", async () => {

@@ -38,7 +38,7 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";
-import { canonicalHandle, realReadLocalSecret, revokeBoard, type ReadLocalSecret } from "./board-peers.ts";
+import { canonicalHandle, realReadAdminSecret, realReadLocalSecret, revokeBoard, type ReadAdminSecret, type ReadLocalSecret } from "./board-peers.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
 import { assertMayWrite, roleFor, rolesFor } from "./roles.ts";
@@ -181,6 +181,8 @@ export interface MembersSeams {
   warn: (message: string, shown?: ShownWarning) => void;
   /** An rt-scope secret (the switchboard admin token), seamed like invite.ts's. */
   readLocalSecret: ReadLocalSecret;
+  /** The org's admin-only secrets, where the switchboard admin token is looked for first. */
+  readAdminSecret: ReadAdminSecret;
 }
 
 function defaultReadTeamStore(slug: string): Record<string, unknown> {
@@ -201,6 +203,7 @@ export function realMembersSeams(): MembersSeams {
     forgeToken: storedForgeToken,
     warn: defaultWarn,
     readLocalSecret: realReadLocalSecret,
+    readAdminSecret: realReadAdminSecret,
   };
 }
 
@@ -488,7 +491,7 @@ export async function membersRemove(
   // A removed member's board must not keep receiving the org's peer traffic.
   // Like forge access, this fails open, so a board left connected is said
   // plainly rather than read as removed.
-  const board = await revokeBoard(p, seams.readLocalSecret, handle);
+  const board = await revokeBoard(p, seams.readLocalSecret, handle, { org: slug, read: seams.readAdminSecret });
   const boardPeering: BoardPeeringOutcome =
     board.kind === "revoked" ? "revoked" : board.kind === "not-peered" ? "not-peered" : board.kind === "no-admin-token" ? "left-peered" : "failed";
   const boardSteps =

@@ -214,6 +214,7 @@ function fakeMembersSeams(overrides: Partial<MembersSeams> = {}): { seams: Membe
     forgeToken: async () => null,
     warn: () => {},
     readLocalSecret: async () => null,
+    readAdminSecret: async () => null,
     ...overrides,
   };
   return { seams, writes };
@@ -1074,6 +1075,22 @@ describe("membersRemove: the member's board on the switchboard", () => {
     const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
     return { p, result };
   }
+
+  test("disconnects the board with the token from the org's admin-only file when this Mac holds none of its own", async () => {
+    const p = fakeProbes({ home: HOME, fetch: async () => ({ status: 200, body: "", headers: {} }) });
+    const { execSeam, secrets } = seamsWithClone();
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
+    execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
+    const { seams } = fakeMembersSeams({
+      readTeamStore: () => ({ "mattstack.roster": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }),
+      readAdminSecret: async (org, key) => (org === SLUG && key === "switchboardAdminToken" ? "admin-file" : null),
+    });
+
+    const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
+
+    expect(result.boardPeering).toBe("revoked");
+    expect(p.calls.fetchInits.find((c) => c.url.endsWith("/boards/alice"))?.init?.headers?.Authorization).toBe("Bearer admin-file");
+  });
 
   test("disconnects the board with the admin token", async () => {
     const { p, result } = await removeAlice(async () => ({ status: 200, body: "", headers: {} }), "admin-secret");
