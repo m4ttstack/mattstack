@@ -128,3 +128,40 @@ describe("roster bypasses", () => {
     expect(orgStoreChangeRefusal(OWNER, nested(roster), nested([{ ...roster[0], teams: ["gadgets", "widgets"] }, roster[1]]))).toBeNull();
   });
 });
+
+describe("a malformed roles block in the pending store", () => {
+  const ORG_OWNER: OrgRole = { kind: "org-owner" };
+  const withOrgBlock = (block: unknown) => store({ "mattstack.org": block });
+  const bad: [string, unknown][] = [
+    ["admins as a string", { ...org, admins: "dev1" }],
+    ["owners holding a number", { ...org, owners: [1] }],
+    ["teams as a list", { ...org, teams: [] }],
+    ["a block that is not an object", ["dev1"]],
+  ];
+  for (const [name, block] of bad) {
+    test(`an org owner's change leaving ${name} is refused`, () => {
+      expect(orgStoreChangeRefusal(ORG_OWNER, store(), withOrgBlock(block))).toMatch(/admins and owners must each be a list of usernames/);
+    });
+  }
+  test("every role is refused before its own rules apply", () => {
+    const after = withOrgBlock({ ...org, admins: "dev1" });
+    for (const role of [ORG_OWNER, { kind: "admin" }, OWNER, { kind: "member" }, { kind: "unknown" }] as OrgRole[]) {
+      expect(orgStoreChangeRefusal(role, store(), after)).toMatch(/admins and owners/);
+    }
+  });
+  test("the nested and versioned spellings are checked too", () => {
+    const nested = parseStoreText("org.jsonc", JSON.stringify({ mattstack: { org: { ...org, owners: [1] } } }));
+    const versioned = parseStoreText("org.jsonc", JSON.stringify({ "mattstack.org@2": { ...org, teams: [] } }));
+    expect(orgStoreChangeRefusal(ORG_OWNER, store(), nested)).not.toBeNull();
+    expect(orgStoreChangeRefusal(ORG_OWNER, store(), versioned)).not.toBeNull();
+  });
+  test("a well-formed change, and a store with no roles block, are still accepted", () => {
+    expect(orgStoreChangeRefusal(ORG_OWNER, store(), withOrgBlock({ ...org, owners: ["dev0", "dev7"] }))).toBeNull();
+    expect(orgStoreChangeRefusal(ORG_OWNER, store(), parseStoreText("org.jsonc", JSON.stringify({ "board.tabs": ["a"] })))).toBeNull();
+    expect(orgStoreChangeRefusal(ORG_OWNER, store(), withOrgBlock({ admins: ["dev1"] }))).toBeNull();
+  });
+  test("the refusal uses plain words with no dashes", () => {
+    const message = orgStoreChangeRefusal(ORG_OWNER, store(), withOrgBlock({ ...org, admins: "dev1" }))!;
+    expect(message).not.toMatch(/[–—]/);
+  });
+});

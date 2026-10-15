@@ -115,6 +115,16 @@ describe("orgStoreInScope", () => {
   });
 });
 
+describe("orgStoreInScope with a malformed roles block in the pending store", () => {
+  test("is refused for an org owner, in the working file and in a committed one", async () => {
+    const b = await base(headText);
+    const malformed = withOrg({ admins: "dev1" });
+    write(malformed);
+    expect(await orgStoreInScope(dir, b, { kind: "org-owner" })).toBe("refused");
+    expect(await orgStoreInScope(dir, b, { kind: "org-owner" }, "HEAD", run(withOrg({ owners: [1] })))).toBe("refused");
+  });
+});
+
 describe("orgStoreInScope tells a failed read from a refused change", () => {
   test("a base or committed store that cannot be read is unreadable", async () => {
     write(headText);

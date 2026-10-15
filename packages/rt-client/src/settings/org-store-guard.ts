@@ -11,6 +11,26 @@ import type { StoreFile } from "./stores.ts";
 
 const ROSTER = "mattstack.roster";
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+const isStringArray = (v: unknown): boolean => Array.isArray(v) && v.every((s) => typeof s === "string");
+
+function wellFormedOrgBlock(block: unknown): boolean {
+  if (!isPlainObject(block)) return false;
+  const { admins, owners, teams } = block;
+  return (admins === undefined || isStringArray(admins)) && (owners === undefined || isStringArray(owners)) && (teams === undefined || isPlainObject(teams));
+}
+
+/** Whether a `mattstack.org` block (flat, versioned or nested spelling) is present with admins, owners or teams of the wrong shape. A store with no block is not malformed. */
+export function hasMalformedOrgBlock(store: StoreFile): boolean {
+  const blocks: unknown[] = [];
+  for (const [key, value] of Object.entries(store.global)) {
+    if (key === "mattstack.org" || /^mattstack\.org@[1-9]\d*$/.test(key)) blocks.push(value);
+  }
+  const nested = store.global["mattstack"];
+  if (isPlainObject(nested) && nested["org"] !== undefined) blocks.push(nested["org"]);
+  return !blocks.every(wellFormedOrgBlock);
+}
+
 /** The store with the roster key removed, in both the flat and the nested spelling. */
 function withoutKeys(store: StoreFile, keys: string[]): unknown {
   const global = structuredClone(store.global);
@@ -23,6 +43,7 @@ function withoutKeys(store: StoreFile, keys: string[]): unknown {
   return { global, repos: store.repos };
 }
 
+const ROLES_REFUSAL = "The org's admins and owners must each be a list of usernames, and its teams a group of named teams.";
 const OWNER_REFUSAL = "A team owner can only change which teams people are on in the org's settings.";
 const ORDER_REFUSAL = "A team owner can add or remove their own team on someone's list, but not change its order: the first team is where that person starts.";
 const ADD_REMOVE_REFUSAL = "A team owner can't add people to the org or remove them from it. An org admin does that.";
@@ -93,6 +114,7 @@ function rosterRefusal(ownTeams: string[], before: RawRoster, after: RawRoster):
 }
 
 export function orgStoreChangeRefusal(role: OrgRole, before: StoreFile, after: StoreFile): string | null {
+  if (hasMalformedOrgBlock(after)) return ROLES_REFUSAL;
   if (role.kind === "org-owner") return null;
   // Plain admin test on purpose: isOrgAdmin would include org owners, who returned above.
   if (role.kind === "admin") {
