@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { OrgRoles } from "../active-team.ts";
-import { currentRole, mayWritePath, orgStoreRefusal, ownedRoots, roleOf, writeRefusalFor } from "../org-roles.ts";
+import { currentRole, isOrgAdmin, mayWritePath, orgStoreRefusal, ownedRoots, roleOf, writeRefusalFor } from "../org-roles.ts";
 
-const ROLES: OrgRoles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev2", "dev3"] } } };
+const ROLES: OrgRoles = { owners: ["dev0"], admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev2", "dev3"] } } };
 
 describe("roleOf", () => {
   test("an admin, an owner of one or several teams, a member, and nobody", () => {
@@ -24,26 +24,26 @@ describe("roleOf", () => {
     expect(roleOf("Dev3", ROLES)).toEqual({ kind: "owner", teams: ["gadgets"] });
   });
   test("a stored username and lists that differ only in case are the same person", () => {
-    const mixed: OrgRoles = { admins: ["Dev1"], teams: { widgets: { owners: ["DEV2"] } } };
+    const mixed: OrgRoles = { owners: ["dev0"], admins: ["Dev1"], teams: { widgets: { owners: ["DEV2"] } } };
     expect(roleOf("dev1", mixed)).toEqual({ kind: "admin" });
     expect(roleOf("dev2", mixed)).toEqual({ kind: "owner", teams: ["widgets"] });
     expect(roleOf("Dev2", mixed)).toEqual({ kind: "owner", teams: ["widgets"] });
   });
-  test("an admin who is also an owner is an admin", () => {
-    expect(roleOf("dev1", { admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } })).toEqual({ kind: "admin" });
+  test("with no owners listed, an admin who also owns a team is an org owner", () => {
+    expect(roleOf("dev1", { owners: [], admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } })).toEqual({ kind: "org-owner" });
   });
   test("an org that lists nobody leaves everyone a member", () => {
-    expect(roleOf("dev1", { admins: [], teams: {} })).toEqual({ kind: "member" });
+    expect(roleOf("dev1", { owners: [], admins: [], teams: {} })).toEqual({ kind: "member" });
   });
   test("an owner listed under a key that is not a plain team name is a member and owns nothing", () => {
     for (const key of ["Widgets", "a/b", "../org", "", "-x", "a b"]) {
-      const role = roleOf("dev2", { admins: [], teams: { [key]: { owners: ["dev2"] } } });
+      const role = roleOf("dev2", { owners: [], admins: [], teams: { [key]: { owners: ["dev2"] } } });
       expect(role).toEqual({ kind: "member" });
       expect(ownedRoots(role)).toEqual([]);
     }
   });
   test("only the plain team names count when an owner is listed under several keys", () => {
-    expect(roleOf("dev2", { admins: [], teams: { Widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev2"] } } })).toEqual({ kind: "owner", teams: ["gadgets"] });
+    expect(roleOf("dev2", { owners: [], admins: [], teams: { Widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev2"] } } })).toEqual({ kind: "owner", teams: ["gadgets"] });
   });
 });
 
@@ -115,7 +115,7 @@ describe("writeRefusalFor names the owner", () => {
     });
   });
   test("an org with no admins says so instead of naming nobody", () => {
-    const refusal = writeRefusalFor(roleOf("dev4", { admins: [], teams: {} }), { admins: [], teams: {} }, "mattstack/org/settings.org.jsonc");
+    const refusal = writeRefusalFor(roleOf("dev4", { owners: [], admins: [], teams: {} }), { owners: [], admins: [], teams: {} }, "mattstack/org/settings.org.jsonc");
     expect(refusal?.why).toBe("This org names no admins yet. Its mattstack.org setting has to list one.");
   });
   test("an admin writing outside what rt manages is not told to ask an admin", () => {
@@ -158,7 +158,7 @@ describe("currentRole reads the disk", () => {
     }
   }
 
-  const store = JSON.stringify({ "mattstack.org": { admins: ["Dev1"], teams: { widgets: { owners: ["dev2"] } } } });
+  const store = JSON.stringify({ "mattstack.org": { owners: ["dev0"], admins: ["Dev1"], teams: { widgets: { owners: ["dev2"] } } } });
 
   test("the stored username and the org's lists, case aside", () => {
     seed("acme", store, "dev1");
@@ -187,5 +187,31 @@ describe("currentRole reads the disk", () => {
     expect(orgStoreRefusal("acme")).toBe("The org's shared files belong to its admins. Ask Dev1 (an org admin) to make this change.");
     rmSync(join(home, ".mattstack", "rt", "teams", "acme.json"));
     expect(orgStoreRefusal("acme")).toBe("rt can't tell who you are, so it will not change the org's shared files. Connect your forge account in Setup, then try again.");
+  });
+});
+
+describe("org owners", () => {
+  const roles: OrgRoles = { owners: ["dev0"], admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
+  test("a listed org owner outranks admin and team owner", () => {
+    expect(roleOf("dev0", roles)).toEqual({ kind: "org-owner" });
+    expect(roleOf("DEV0", roles)).toEqual({ kind: "org-owner" });
+    expect(roleOf("dev0", { ...roles, admins: ["dev0"], teams: { widgets: { owners: ["dev0"] } } })).toEqual({ kind: "org-owner" });
+  });
+  test("an admin stays an admin while the owners list names someone", () => {
+    expect(roleOf("dev1", roles)).toEqual({ kind: "admin" });
+  });
+  test("with no owners listed, admins are org owners", () => {
+    expect(roleOf("dev1", { ...roles, owners: [] })).toEqual({ kind: "org-owner" });
+  });
+  test("an org owner owns what an admin owns", () => {
+    expect(ownedRoots({ kind: "org-owner" })).toEqual(ownedRoots({ kind: "admin" }));
+    expect(mayWritePath({ kind: "org-owner" }, "mattstack/org/settings.org.jsonc")).toBe(true);
+  });
+  test("isOrgAdmin is true for admins and org owners only", () => {
+    expect(isOrgAdmin({ kind: "org-owner" })).toBe(true);
+    expect(isOrgAdmin({ kind: "admin" })).toBe(true);
+    expect(isOrgAdmin({ kind: "owner", teams: ["widgets"] })).toBe(false);
+    expect(isOrgAdmin({ kind: "member" })).toBe(false);
+    expect(isOrgAdmin({ kind: "unknown" })).toBe(false);
   });
 });

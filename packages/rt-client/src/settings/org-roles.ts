@@ -10,12 +10,19 @@ import { TEAM_NAME_RE } from "./stores.ts";
 import { orgDir, orgSettingsPath } from "./paths.ts";
 import { readForgeUsername } from "./team-local-read.ts";
 
-export type OrgRole = { kind: "admin" } | { kind: "owner"; teams: string[] } | { kind: "member" } | { kind: "unknown" };
+export type OrgRole = { kind: "org-owner" } | { kind: "admin" } | { kind: "owner"; teams: string[] } | { kind: "member" } | { kind: "unknown" };
 
 export const ORG_MANAGED_ROOTS: readonly string[] = ["mattstack", ".sops.yaml", ".claude-plugin"];
 
+/** Admins and org owners: the roles that run the org. */
+export function isOrgAdmin(role: OrgRole): boolean {
+  return role.kind === "admin" || role.kind === "org-owner";
+}
+
 export function roleOf(username: string | null, roles: OrgRoles): OrgRole {
   if (username === null || username.trim() === "") return { kind: "unknown" };
+  const owners = roles.owners.length > 0 ? roles.owners : roles.admins;
+  if (owners.some((owner) => sameUser(owner, username))) return { kind: "org-owner" };
   if (roles.admins.some((admin) => sameUser(admin, username))) return { kind: "admin" };
   const teams = Object.entries(roles.teams)
     .filter(([name, team]) => TEAM_NAME_RE.test(name) && team.owners.some((owner) => sameUser(owner, username)))
@@ -25,7 +32,7 @@ export function roleOf(username: string | null, roles: OrgRoles): OrgRole {
 }
 
 export function ownedRoots(role: OrgRole): string[] {
-  if (role.kind === "admin") return [...ORG_MANAGED_ROOTS];
+  if (isOrgAdmin(role)) return [...ORG_MANAGED_ROOTS];
   if (role.kind === "owner") return role.teams.filter((team) => TEAM_NAME_RE.test(team)).map((team) => `mattstack/teams/${team}`);
   return [];
 }
@@ -54,7 +61,7 @@ export function writeRefusalFor(role: OrgRole, roles: OrgRoles, relPath: string)
   if (role.kind === "unknown") {
     return { message: "rt can't tell who you are, so it will not change the org's shared files", why: "Connect your forge account in Setup, then try again." };
   }
-  if (role.kind === "admin") {
+  if (isOrgAdmin(role)) {
     return { message: "rt does not change that file", why: "rt only changes the org's mattstack folder, .sops.yaml and .claude-plugin." };
   }
   const team = /^mattstack\/teams\/([^/]+)(\/|$)/.exec(posix.normalize(relPath))?.[1];

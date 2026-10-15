@@ -138,7 +138,7 @@ describe("viewing another team", () => {
 });
 
 describe("viewerFrom", () => {
-  const roles = { admins: ["ada"], teams: { gadgets: { owners: ["sam"] }, sprockets: { owners: [] } } };
+  const roles = { owners: [], admins: ["ada"], teams: { gadgets: { owners: ["sam"] }, sprockets: { owners: [] } } };
   const roster = [{ username: "Sam", name: "Sam Rivera", teams: ["widgets"] }, { username: "ada", name: "Ada" }];
   const folders = ["gadgets", "sprockets", "widgets"];
   const active = { org: "acme", team: "widgets", reason: "first-team" as const, username: "sam", listedOn: ["widgets"] };

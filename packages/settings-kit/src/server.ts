@@ -21,6 +21,7 @@ import {
   hasSchema,
   isMigrated,
   listStoreRepoIdentities,
+  isOrgAdmin,
   listOrgs,
   listTeamFolders,
   listUnregisteredSettings,
@@ -146,17 +147,17 @@ export function viewerFrom(input: { active: ActiveTeam; roles: OrgRoles; roster:
   if (active.org === null) return { username: null, name: null, role: "none", team: null, teams: [], owners: {} };
   const role = roleOf(active.username, roles);
   const own = active.team === null ? [] : [active.team];
-  const reach = role.kind === "admin" ? folders : role.kind === "owner" ? role.teams.filter((t) => folders.includes(t)) : [];
+  const reach = isOrgAdmin(role) ? folders : role.kind === "owner" ? role.teams.filter((t) => folders.includes(t)) : [];
   const name = active.username === null ? null : (roster.find((r) => sameUser(r.username, active.username!))?.name ?? null);
   const teams = [...new Set([...reach, ...own])].sort();
   const display = (u: string) => roster.find((r) => sameUser(r.username, u))?.name ?? u;
   const owners = Object.fromEntries(teams.map((t) => [t, (roles.teams[t]?.owners ?? []).map(display)]));
-  return { username: active.username, name, role: role.kind, team: active.team, teams, owners };
+  return { username: active.username, name, role: role.kind === "org-owner" ? "admin" : role.kind, team: active.team, teams, owners };
 }
 
 function readViewer(rt: Pick<RtSettingsApi, "activeTeam">): ViewerWire {
   const active = rt.activeTeam();
-  if (active.org === null) return viewerFrom({ active, roles: { admins: [], teams: {} }, roster: [], folders: [] });
+  if (active.org === null) return viewerFrom({ active, roles: { owners: [], admins: [], teams: {} }, roster: [], folders: [] });
   return viewerFrom({ active, roles: readOrgRoles(active.org), roster: readOrgRoster(active.org), folders: listTeamFolders(active.org) });
 }
 

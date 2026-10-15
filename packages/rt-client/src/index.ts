@@ -229,7 +229,7 @@ export {
   type TeamDirectory,
 } from "./settings/team-directory.ts";
 export { readForgeUsername } from "./settings/team-local-read.ts";
-export { currentRole, mayWritePath, ORG_MANAGED_ROOTS, orgStoreRefusal, ownedRoots, roleOf, writeRefusalFor } from "./settings/org-roles.ts";
+export { currentRole, isOrgAdmin, mayWritePath, ORG_MANAGED_ROOTS, orgStoreRefusal, ownedRoots, roleOf, writeRefusalFor } from "./settings/org-roles.ts";
 export type { OrgRole } from "./settings/org-roles.ts";
 export type { StoreFile } from "./settings/stores.ts";
 
