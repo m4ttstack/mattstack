@@ -23,6 +23,7 @@ export type HeldMove =
   | { kind: "held"; why: "dirty"; files: string[] }
   | { kind: "held"; why: "uncarried"; commits: number; reason: "outside" | "clash" }
   | { kind: "held"; why: "unpushed"; commits: number; branch: string }
+  | { kind: "held"; why: "stranded"; commits: number; branch: string }
   | { kind: "held"; why: "detached" };
 
 export type MoveResult =
@@ -64,6 +65,13 @@ export function heldCopy(held: HeldMove): { detail: string; remedy: string } {
     return {
       detail: `Your copy of the org has ${held.commits} ${one ? "commit" : "commits"} on ${held.branch} that ${one ? "is" : "are"} not pushed yet, so rt did not switch`,
       remedy: "Push them first, then try again",
+    };
+  }
+  if (held.why === "stranded") {
+    const one = held.commits === 1;
+    return {
+      detail: `Your copy of the org has ${held.commits} ${one ? "commit" : "commits"} on the ${held.branch} branch that origin does not have, so rt did not switch to it`,
+      remedy: `Ask an org admin to help move ${one ? "it" : "them"}`,
     };
   }
   if (held.why === "uncarried") {
@@ -124,9 +132,11 @@ const CLASH_RE = /conflict|could not apply|after resolving|is a merge/i;
 
 /**
  * Checks out `branch` from origin and replays the old branch's unpushed
- * commits onto it, authorship kept. A clash puts everything back: the old
- * branch checked out with its commits, the refspec untouched, and no data
- * branch left behind that was not there before.
+ * commits onto it, authorship kept. A local `branch` holding commits origin
+ * lacks is never reset: the move holds and names them. On a clash the old
+ * branch is checked out again with its commits and the refspec is left
+ * alone; a `branch` the move made is deleted, and one that was already there
+ * stays at origin's tip, which already held every commit it had.
  */
 export async function moveCloneToDataBranch(p: Pick<Probes, "exec">, dir: string, branch: string, token: string | null, remote: string, opts: MoveOptions = {}): Promise<MoveResult> {
   const current = await checkedOutBranch(p, dir);
@@ -138,6 +148,10 @@ export async function moveCloneToDataBranch(p: Pick<Probes, "exec">, dir: string
   const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
   if (fetched.code !== 0) return { kind: "failed", log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) };
   const existed = (await p.exec(["git", "rev-parse", "--verify", "-q", `refs/heads/${branch}`], { cwd: dir, env: ENV })).code === 0;
+  if (existed) {
+    const stranded = await strandedOn(p, dir, branch);
+    if (stranded !== null) return stranded;
+  }
   const checkout = await p.exec(["git", "checkout", "-q", "-B", branch, `refs/remotes/origin/${branch}`], { cwd: dir, env: ENV });
   if (checkout.code !== 0) return { kind: "failed", log: withoutUrls(checkout.stderr) };
   if (ready.commits.length > 0) {
@@ -154,6 +168,18 @@ export async function moveCloneToDataBranch(p: Pick<Probes, "exec">, dir: string
   await p.exec(["git", "branch", "-q", "--set-upstream-to", `origin/${branch}`], { cwd: dir, env: ENV });
   await p.exec(["git", "config", "--replace-all", "remote.origin.fetch", refspec], { cwd: dir, env: ENV });
   return ready.commits.length > 0 ? { kind: "moved", branch, carried: ready.commits.length } : { kind: "moved", branch };
+}
+
+/** What `git checkout -B` would throw away: commits on the local `branch` that its origin copy does not hold. Null when there are none. */
+async function strandedOn(p: Pick<Probes, "exec">, dir: string, branch: string): Promise<HeldMove | { kind: "failed"; log: string } | null> {
+  const local = `refs/heads/${branch}`;
+  const tracking = `refs/remotes/origin/${branch}`;
+  const ancestor = await p.exec(["git", "merge-base", "--is-ancestor", local, tracking], { cwd: dir, env: ENV });
+  if (ancestor.code === 0) return null;
+  if (ancestor.code !== 1) return { kind: "failed", log: withoutUrls(ancestor.stderr) };
+  const counted = await p.exec(["git", "rev-list", "--count", local, "--not", tracking], { cwd: dir, env: ENV });
+  if (counted.code !== 0) return { kind: "failed", log: withoutUrls(counted.stderr) };
+  return { kind: "held", why: "stranded", commits: Number(counted.stdout.trim()), branch };
 }
 
 async function forgeToken(p: Probes, remote: string, readToken: (p: Probes, remote: string) => Promise<string | null>): Promise<string | null> {

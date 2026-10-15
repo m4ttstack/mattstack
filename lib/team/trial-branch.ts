@@ -37,6 +37,7 @@ const HELD_WHY: Record<HeldMove["why"], (held: HeldMove) => string> = {
   detached: () => "Switch it back to a branch, then try again.",
   uncarried: (held) => heldCopy(held).remedy,
   unpushed: (held) => heldCopy(held).remedy,
+  stranded: (held) => heldCopy(held).remedy,
 };
 
 function heldError(held: HeldMove, name: string, slug: string): UserActionableError {

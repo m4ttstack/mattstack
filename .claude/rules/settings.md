@@ -117,9 +117,10 @@ layout 4 only when HEAD holds the org store (`headHoldsOrgStore` in
 for that reason, where only a `moved` verdict holds;
 unpublished org commits are cherry-picked across, and a dirty clone, a
 detached HEAD, or commits outside the data paths or that clash hold the
-move. The `org.layout` row names the first three; a clash shows only when
-the move tries (`moveBlocker` cannot see it), in `rt team pull`, the setup
-update and the daemon log. `team.sync` gives a held clone
+move, as does a local copy of the data branch holding commits origin lacks
+(the move never resets it). The `org.layout` row names the first three; a
+clash or such a branch shows only when the move tries (`moveBlocker` cannot
+see it), in `rt team pull`, the setup update and the daemon log. `team.sync` gives a held clone
 no remedy. After every
 pull that moves a clone the daemon converges (`createOnPulled` in
 `lib/daemon/team-snapshots.ts`), then runs `composePullHooks` over the

@@ -150,6 +150,33 @@ describe("moveCloneToDataBranch", () => {
     expect(() => git(clone, "rev-parse", "--verify", "-q", "refs/heads/mattstack")).toThrow();
   });
 
+  test("a local data branch holding commits origin lacks is never reset: the move holds and names them", async () => {
+    await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    put(clone, TEAM_FILE, '{"stranded":true}');
+    git(clone, "commit", "-aq", "-m", "stranded one");
+    put(clone, "mattstack/org/extra.jsonc", "{}");
+    git(clone, "add", "-A");
+    git(clone, "commit", "-q", "-m", "stranded two");
+    const stranded = git(clone, "rev-parse", "refs/heads/mattstack");
+    git(clone, "checkout", "-q", "main");
+    const r = await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    expect(r).toEqual({ kind: "held", why: "stranded", commits: 2, branch: "mattstack" });
+    expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("main");
+    expect(git(clone, "rev-parse", "refs/heads/mattstack")).toBe(stranded);
+  });
+
+  test("a local data branch origin has moved past is brought up to origin's tip", async () => {
+    await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    git(clone, "checkout", "-q", "main");
+    git(seed, "checkout", "-q", "mattstack");
+    put(seed, TEAM_FILE, '{"data":true}');
+    git(seed, "commit", "-aq", "-m", "data edit");
+    git(seed, "push", "-q", "origin", "mattstack");
+    const r = await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    expect(r).toEqual({ kind: "moved", branch: "mattstack" });
+    expect(git(clone, "log", "-1", "--format=%s")).toBe("data edit");
+  });
+
   test("a clone already on the branch is left alone", async () => {
     await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
     expect(await moveCloneToDataBranch(p, clone, "mattstack", null, origin)).toEqual({ kind: "already", branch: "mattstack" });
@@ -236,6 +263,16 @@ describe("heldCopy", () => {
       detail: "rt could not carry 2 unpublished commits to the org's data branch, because they clash with changes already there",
       remedy: "Ask an org admin to help move them",
     });
+  });
+
+  test("commits only on a local data branch name that branch and an org admin", () => {
+    expect(heldCopy({ kind: "held", why: "stranded", commits: 2, branch: "mattstack" })).toEqual({
+      detail: "Your copy of the org has 2 commits on the mattstack branch that origin does not have, so rt did not switch to it",
+      remedy: "Ask an org admin to help move them",
+    });
+    expect(heldCopy({ kind: "held", why: "stranded", commits: 1, branch: "mattstack" }).detail).toBe(
+      "Your copy of the org has 1 commit on the mattstack branch that origin does not have, so rt did not switch to it",
+    );
   });
 
   test("a detached copy asks for a branch", () => {
