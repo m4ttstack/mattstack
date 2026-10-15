@@ -502,4 +502,16 @@ describe("a pending org store change passes the org store guard", () => {
     await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
     expect(w.pushes).toHaveLength(1);
   }, 15_000);
+
+  test("a team owner who adds themselves to admins in the pending change is refused", async () => {
+    const w = worldWith("dev2", (s) => { (s["mattstack.org"] as { admins: string[] }).admins.push("dev2"); s["board.title"] = "renamed"; });
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an admin who removes themselves from admins while editing another key is accepted", async () => {
+    const w = worldWith("dev1", (s) => { (s["mattstack.org"] as { admins: string[] }).admins = ["dev8"]; s["board.title"] = "renamed"; });
+    await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
+    expect(w.pushes).toHaveLength(1);
+  }, 15_000);
 });

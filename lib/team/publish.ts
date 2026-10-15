@@ -8,6 +8,8 @@
 import { gitWithToken } from "./git-credential.ts";
 import { join } from "path";
 import { orgStoreChangeRefusal } from "../../packages/rt-client/src/settings/org-store-guard.ts";
+import { rolesFrom } from "../../packages/rt-client/src/settings/active-team.ts";
+import { readTeamLocal } from "./team-local.ts";
 import { parseStoreText } from "../../packages/rt-client/src/settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { UserActionableError } from "../errors.ts";
@@ -15,7 +17,7 @@ import type { ExecResult, Probes } from "../setup/probes.ts";
 import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
 import { assertMayWrite, roleFor } from "./roles.ts";
-import { isOrgAdmin, mayWritePath, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { isOrgAdmin, mayWritePath, ownedRoots, roleOf } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { unpublishedPaths } from "./publish-history.ts";
 import { remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { orgBranch } from "./org-branch.ts";
@@ -66,7 +68,16 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     // to a directory outside orgsDir() and run git there.
     throw new UserActionableError("invalid-team-slug", "That is not a team name rt can use", {}, { log: err instanceof Error ? err.message : String(err) });
   }
-  if (ownedRoots(roleFor(p, slug)).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  // A pending org store change may itself remove this Mac's role, so a clone's refusal waits for the guard below, which judges by the remote's roles.
+  let deferredRefusal: unknown = null;
+  if (ownedRoots(roleFor(p, slug)).length === 0) {
+    try {
+      assertMayWrite(p, slug, ORG_STORE_REL);
+    } catch (err) {
+      if (!p.exists(join(orgDirUnder(p.home, slug), ".git"))) throw err;
+      deferredRefusal = err;
+    }
+  }
 
   const dir = orgDirUnder(p.home, slug);
   if (!p.exists(dir)) {
@@ -100,14 +111,18 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   if (pending === null) throw inspectionFailure();
   const cmd = gitWithToken(["push", "-u", "origin", `${ref}:${ref}`], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const current = roleFor(p, slug);
-  if (ownedRoots(current).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  if (deferredRefusal !== null && !pending.includes(ORG_STORE_REL)) throw deferredRefusal;
+  if (deferredRefusal === null && ownedRoots(current).length === 0) assertMayWrite(p, slug, ORG_STORE_REL);
   if (pending.includes(ORG_STORE_REL)) {
     const show = async (rev: string | null) => {
       if (rev === null) return parseStoreText(ORG_STORE_REL, "{}");
       const r = await p.exec(["git", "show", `${rev}:${ORG_STORE_REL}`], { cwd: dir });
       return parseStoreText(ORG_STORE_REL, r.code === 0 ? r.stdout : "{}");
     };
-    const refusal = orgStoreChangeRefusal(current, await show(base.sha), await show(ref));
+    const before = await show(base.sha);
+    // Judged by the roles the remote already holds, so the pending change cannot grant itself the role that approves it.
+    const judge = base.sha === null ? current : roleOf(readTeamLocal(p, slug).forgeUsername ?? null, rolesFrom(before));
+    const refusal = orgStoreChangeRefusal(judge, before, await show(ref));
     if (refusal) throw new UserActionableError("team-pull-only", refusal, {}, {});
   }
   for (const path of pending) {
