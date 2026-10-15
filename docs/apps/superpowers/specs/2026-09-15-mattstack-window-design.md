@@ -2,7 +2,7 @@
 
 Date: 2026-09-15
 Status: approved design, pre-plan
-Mockup: `docs/design/mattstack-window/mattstack-window.pen` (render: `docs/design/mattstack-window/renders/window-dark.png`)
+Mockup: `docs/design/mattstack-window/mattstack-window.pen`
 
 ## What this is
 
@@ -79,8 +79,7 @@ contract moves with the menu items.
 
 (Replaced the original left icon rail on 2026-09-15: rendering apps that
 carry their own left rail, chat and console, inside a shell rail produced a
-double rail. A top bar removes the duplication structurally. Mockup:
-`docs/design/mattstack-window/renders/window-tabs-dark.png`.)
+double rail. A top bar removes the duplication structurally.)
 
 Populated from `GET https://deck.mattstack/api/apps` at window open: name,
 displayName, url, icon per app, rendered in API order. New deck apps appear
