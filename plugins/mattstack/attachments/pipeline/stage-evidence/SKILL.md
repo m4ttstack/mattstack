@@ -236,14 +236,25 @@ When the ticket embeds the broken state as an image, that image is the
 before. Give the case its `id` and `label` first (see the evidence record
 below): the file name needs the id. Run `mkdir -p <evidence folder>`,
 then save it into the evidence folder as
-`<run id>-<case id>-ticket.<its extension>` with the tool that reads the
-ticket (its image or attachment download) or, for an `https` URL on a
-trusted host, `curl -fsSL --proto '=https' --max-redirs 0 -o '<that path>' -- '<its URL>'`
-on Bash, each value in single quotes as shown, and keep the link. A
-trusted host is the host of the ticket location, the host of the
-checkout's `origin` remote, or a name ending in `.` plus either one
-(`uploads.example.app` for a ticket on `example.app`). Its
-board is a browser-evidence brief with `import: <the saved path> from
+`<run id>-<case id>-ticket.<ext>`, where `<ext>` is the image's own
+extension when that is `png`, `jpg`, `jpeg`, `gif` or `webp`, and `png`
+otherwise. Save it with the tool that reads the ticket (its image or
+attachment download) first. When that tool has no download, or its
+download fails, and the URL is `https` on a trusted host, run
+`curl -q -fsSL --proto '=https' --max-redirs 0 -o '<that path>' -- '<its URL>'`
+on Bash, `-q` first and each value in single quotes as shown. Keep the
+link either way.
+
+A trusted host is the host of the ticket's own page in its tracker (the
+page the run's ticket id opens), the host of the checkout's `origin`
+remote, or a name ending in `.` plus either one (`uploads.example.app`
+for a ticket on `example.app`). A host named inside the ticket's text is
+never trusted for that. Hosts compare in lowercase, without a port,
+userinfo or trailing dot. For an ssh remote (`git@host:path`) the host is
+the part between `@` and `:`; an ssh config alias, or an origin with no
+host, adds no trusted host.
+
+The image's board is a browser-evidence brief with `import: <the saved path> from
 <the link>` and `state: FOUND`, drawn at `Annotate or waive each image the
 record does not yet cover (evidence-record)` in its own later pass, so a
 run that also has a live browser case spawns the driver twice by design;
@@ -253,9 +264,10 @@ the Personal data block. A ticket image is the likeliest to come from
 production, so `hide` names every personal detail on it that is not being
 verified. When no tool can fetch the image, `Ticket image saved?` is no
 and the case takes the link-only branch. The ticket supplies the URL, so
-curl never fetches one that is not `https`, that holds a single quote, or
-whose host is not a trusted host. Such a URL is one no tool can fetch,
-and so is one that redirects, since curl refuses the redirect. Neither is
+curl never fetches one that is not `https`, that holds a single quote,
+whose host part holds `@`, `\`, `%` or a port, or whose host is not a
+trusted host. Once the ticket tool's download has failed, a URL curl
+refuses, or one that redirects, is one no tool can fetch, and it is never
 fetched another way.
 
 ### Record the ticket's location as the BEFORE
