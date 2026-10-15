@@ -11,7 +11,10 @@ export const ORG_LAYOUT = 3;
 /** What a `role: "org"` marker without `layout` reads as. Fixed, never ORG_LAYOUT: a bump must not turn an unconverted repo ready. */
 export const ORG_LAYOUT_ABSENT_DEFAULT = 2;
 
-export type MarkerState = { kind: "none" } | { kind: "invalid"; why: string } | { kind: "org"; org: string; layout: number };
+export type MarkerState = { kind: "none" } | { kind: "invalid"; why: string } | { kind: "org"; org: string; layout: number; dataBranch: string | null };
+
+/** A plain branch name: no leading dash or slash, no trailing slash, no "..", no spaces. */
+const BRANCH_RE = /^(?![-/])(?!.*\.\.)(?!.*\/$)[A-Za-z0-9._/-]+$/;
 
 /**
  * An old clone may still carry a `role: "team"` marker with an `org` field; a
@@ -29,7 +32,7 @@ export function parseMarker(raw: string | null): MarkerState {
     return { kind: "invalid", why: "it is not valid JSON" };
   }
   if (!marker || typeof marker !== "object" || Array.isArray(marker)) return { kind: "invalid", why: "it is not a JSON object" };
-  const { role, org, layout } = marker as Record<string, unknown>;
+  const { role, org, layout, dataBranch } = marker as Record<string, unknown>;
   if (role !== "org" && role !== "team") return { kind: "none" };
   if (typeof org !== "string") return { kind: "invalid", why: "it names no org" };
   try {
@@ -40,7 +43,10 @@ export function parseMarker(raw: string | null): MarkerState {
   if (layout !== undefined && (typeof layout !== "number" || !Number.isInteger(layout) || layout < 1)) {
     return { kind: "invalid", why: "its layout is not a positive whole number" };
   }
-  return { kind: "org", org, layout: typeof layout === "number" ? layout : role === "org" ? ORG_LAYOUT_ABSENT_DEFAULT : 1 };
+  if (dataBranch !== undefined && (typeof dataBranch !== "string" || !BRANCH_RE.test(dataBranch))) {
+    return { kind: "invalid", why: "its dataBranch is not a plain branch name" };
+  }
+  return { kind: "org", org, dataBranch: typeof dataBranch === "string" ? dataBranch : null, layout: typeof layout === "number" ? layout : role === "org" ? ORG_LAYOUT_ABSENT_DEFAULT : 1 };
 }
 
 export function markerState(p: Pick<Probes, "readFile">, dir: string): MarkerState {

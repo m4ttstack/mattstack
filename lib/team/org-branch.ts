@@ -5,6 +5,7 @@
  */
 
 import { UserActionableError } from "../errors.ts";
+import { markerState } from "./org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 
 export function shellQuote(s: string): string {
@@ -27,4 +28,11 @@ export async function orgBranch(p: Pick<Probes, "exec">, dir: string): Promise<s
     });
   }
   return branch;
+}
+
+/** The branch that holds the org's data: the marker's `dataBranch` (layout 4 on), else the branch checked out. */
+export async function dataBranchOf(p: Pick<Probes, "exec" | "readFile">, dir: string): Promise<string> {
+  const state = markerState(p, dir);
+  if (state.kind === "org" && state.dataBranch !== null) return state.dataBranch;
+  return orgBranch(p, dir);
 }

@@ -32,18 +32,18 @@ describe("markerState", () => {
     expect(markerState(at("[]"), dir)).toEqual({ kind: "invalid", why: "it is not a JSON object" });
     expect(markerState(at('{ "role": "org" }'), dir)).toEqual({ kind: "invalid", why: "it names no org" });
     expect(markerState(at('{ "role": "org", "org": "Not A Slug" }'), dir)).toEqual({ kind: "invalid", why: '"Not A Slug" is not a valid org name' });
-    expect(markerState(at('{ "role": "org", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: 2 });
+    expect(markerState(at('{ "role": "org", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: 2, dataBranch: null });
   });
 });
 
 describe("layout", () => {
   test("an org marker without the field reads as 2, a one-team marker as 1", () => {
-    expect(markerState(at('{ "role": "org", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: 2 });
-    expect(markerState(at('{ "role": "team", "namespace": "widgets", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: 1 });
+    expect(markerState(at('{ "role": "org", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: 2, dataBranch: null });
+    expect(markerState(at('{ "role": "team", "namespace": "widgets", "org": "acme" }'), dir)).toEqual({ kind: "org", org: "acme", layout: 1, dataBranch: null });
   });
   test("an explicit positive integer wins over the default", () => {
-    expect(parseMarker('{ "role": "org", "org": "acme", "layout": 3 }')).toEqual({ kind: "org", org: "acme", layout: 3 });
-    expect(parseMarker('{ "role": "team", "org": "acme", "layout": 2 }')).toEqual({ kind: "org", org: "acme", layout: 2 });
+    expect(parseMarker('{ "role": "org", "org": "acme", "layout": 3 }')).toEqual({ kind: "org", org: "acme", layout: 3, dataBranch: null });
+    expect(parseMarker('{ "role": "team", "org": "acme", "layout": 2 }')).toEqual({ kind: "org", org: "acme", layout: 2, dataBranch: null });
   });
   test("a layout that is not a positive integer is invalid", () => {
     for (const bad of ['"2"', "0", "-1", "2.5", "null", "[]"]) {
@@ -70,11 +70,21 @@ describe("layout", () => {
       writeFileSync(join(scratch, "org-marker.ts"), bumped);
       const next = (await import(join(scratch, "org-marker.ts"))) as typeof import("../org-marker.ts");
       expect(next.ORG_LAYOUT).toBe(4);
-      expect(next.parseMarker('{ "role": "org", "org": "acme" }')).toEqual({ kind: "org", org: "acme", layout: 2 });
-      expect(next.parseMarker('{ "role": "team", "org": "acme" }')).toEqual({ kind: "org", org: "acme", layout: 1 });
-      expect(next.parseMarker('{ "role": "org", "org": "acme", "layout": 3 }')).toEqual({ kind: "org", org: "acme", layout: 3 });
+      expect(next.parseMarker('{ "role": "org", "org": "acme" }')).toEqual({ kind: "org", org: "acme", layout: 2, dataBranch: null });
+      expect(next.parseMarker('{ "role": "team", "org": "acme" }')).toEqual({ kind: "org", org: "acme", layout: 1, dataBranch: null });
+      expect(next.parseMarker('{ "role": "org", "org": "acme", "layout": 3 }')).toEqual({ kind: "org", org: "acme", layout: 3, dataBranch: null });
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
   });
+});
+
+test("a marker's dataBranch is read, and absent reads as null", () => {
+  expect(parseMarker('{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}')).toEqual({ kind: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+  expect(parseMarker('{"role":"org","org":"acme"}')).toEqual({ kind: "org", org: "acme", layout: 2, dataBranch: null });
+});
+test("a dataBranch that is not a plain branch name makes the marker invalid", () => {
+  for (const bad of ["", "-x", "a..b", "a b", "../x", "/x", "x/", 7]) {
+    expect(parseMarker(JSON.stringify({ role: "org", org: "acme", dataBranch: bad })).kind).toBe("invalid");
+  }
 });
