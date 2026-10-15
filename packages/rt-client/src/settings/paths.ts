@@ -65,8 +65,11 @@ export function orgMarkerPath(org: string): string {
   return join(orgDir(org), "mattstack", "mattstack.jsonc");
 }
 
+/** The org store's path inside an org clone, as git names it. */
+export const ORG_STORE_REL = "mattstack/org/settings.org.jsonc";
+
 export function orgSettingsPath(org: string): string {
-  return join(orgDir(org), "mattstack", "org", "settings.org.jsonc");
+  return join(orgDir(org), ORG_STORE_REL);
 }
 
 export function orgSecretsDir(org: string): string {

@@ -158,6 +158,12 @@ export interface HomeSnapshotDeps {
   db?: Database;
 }
 
+export interface Authorization {
+  scope: (relPath: string) => boolean;
+  pullOnly: boolean;
+  held?: (relPath: string, dirty: readonly string[]) => boolean;
+}
+
 /** What distinguishes one snapshot instance from another. Everything else about a run is identical across instances. */
 export interface SnapshotSpec {
   id: string;
@@ -169,7 +175,7 @@ export interface SnapshotSpec {
   /** Zones claimed for as long as the spec runs, as if written to the owners file; a claim in the file wins over one here. */
   standingZones?: (repoDir: string, log: Logger) => Owners["zones"];
   /** `held` paths are in scope but not staged this round, given the round's dirty paths; they are not reported as unowned. */
-  readAuthorization?: (base?: { ref: string }) => { scope: (relPath: string) => boolean; pullOnly: boolean; held?: (relPath: string, dirty: readonly string[]) => boolean };
+  readAuthorization?: (base?: { ref: string }) => Authorization | Promise<Authorization>;
   /** Every managed path, including paths this Mac may not push. */
   watch?: (relPath: string) => boolean;
   /** Fetch + rebase policy; absent = never pull (the home repo is single-writer). */
@@ -452,7 +458,11 @@ export function teamSnapshotSpec(
 ): SnapshotSpec {
   const readToken = opts.readToken ?? storedForgeToken;
   const owns = (path: string) => opts.ownedRoots.some((root) => path === root || path.startsWith(`${root}/`));
-  const readBase = storeReader(repoDir);
+  const run = async (argv: [string, ...string[]]) => {
+    const r = await opts.probes.exec(argv, { timeoutMs: GIT_TIMEOUT_MS });
+    return { code: r.code, stdout: r.stdout };
+  };
+  const readBase = storeReader(repoDir, run);
   return {
     id: `team:${slug}`,
     repoDir,
@@ -461,17 +471,17 @@ export function teamSnapshotSpec(
     scope: (path) => teamScope(path) && owns(path),
     standingZones: teamStandingZones,
     // Commit time judges by HEAD; the push gate passes the remote-tracking ref so a hand-committed self-grant cannot approve itself.
-    readAuthorization: (pushBase) => {
+    readAuthorization: async (pushBase) => {
       const local = readTeamLocal(opts.probes, slug);
       const username = local.forgeUsername ?? null;
       const working = roleFor(opts.probes, slug);
-      const base = readBase(pushBase?.ref ?? "HEAD");
+      const base = await readBase(pushBase?.ref ?? "HEAD");
       const head = roleFromBase(base, username, working);
       // A path needs the committed roles and the working ones: the first stops a self-granted role, the second a revoked one.
       const headRoots = ownedRoots(head);
       const workingRoots = ownedRoots(working);
       const shares = local.pendingPackShares ?? [];
-      const orgStore = (head.kind === "owner" || isOrgAdmin(head)) && orgStoreInScope(repoDir, base, head, pushBase ? "HEAD" : null);
+      const orgStore = (head.kind === "owner" || isOrgAdmin(head)) && (await orgStoreInScope(repoDir, base, head, pushBase ? "HEAD" : null, run));
       const under = (roots: string[], path: string) => roots.some((root) => path === root || path.startsWith(`${root}/`));
       const inRoots = (path: string) => under(headRoots, path) && under(workingRoots, path);
       return {
@@ -943,7 +953,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (spec.watch) {
       const dirty = await deps.exec(["git", "status", "--porcelain=v1", "-uall", "-z"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
       if (dirty.exitCode === 0) {
-        reportUnowned(parsePorcelainZ(dirty.stdout), authorization().scope);
+        reportUnowned(parsePorcelainZ(dirty.stdout), (await authorization()).scope);
       }
     }
     const counts = await deps.exec(["git", "rev-list", "--left-right", "--count", `refs/remotes/origin/${branch}...HEAD`], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
@@ -1093,8 +1103,15 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
   }
 
-  function authorization(base?: { ref: string }) {
-    return spec.readAuthorization?.(base) ?? { scope: spec.scope, pullOnly: spec.pullOnly === true, held: undefined };
+  type Current = Omit<Authorization, "scope"> & { scope: SnapshotSpec["scope"] };
+  const staticAuthorization = (): Current => ({ scope: spec.scope, pullOnly: spec.pullOnly === true, held: undefined });
+  /** The latest authorization a cycle read; status() reports it because status() cannot wait on git. */
+  let lastAuthorization: Authorization | null = null;
+
+  async function authorization(base?: { ref: string }): Promise<Current> {
+    if (!spec.readAuthorization) return staticAuthorization();
+    lastAuthorization = await spec.readAuthorization(base);
+    return lastAuthorization;
   }
 
   let observedEntries: ReturnType<typeof parsePorcelainZ> = [];
@@ -1107,8 +1124,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       .filter((path) => spec.watch!(path) && !(scope?.(path) ?? true)))].sort();
   }
 
-  function mayWrite(paths: string[], entries: ReturnType<typeof parsePorcelainZ>): boolean {
-    const current = authorization();
+  async function mayWrite(paths: string[], entries: ReturnType<typeof parsePorcelainZ>): Promise<boolean> {
+    const current = await authorization();
     reportUnowned(entries, current.scope);
     return !current.pullOnly && paths.every((path) => current.scope?.(path) ?? true);
   }
@@ -1134,7 +1151,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         : "rt could not check your pending changes";
       return false;
     }
-    const current = authorization({ ref: `refs/remotes/origin/${branch.stdout.trim()}` });
+    const current = await authorization({ ref: `refs/remotes/origin/${branch.stdout.trim()}` });
     if (current.pullOnly || [...paths].some((path) => !(current.scope?.(path) ?? true))) {
       pushPending = true;
       lastPushError = "Your role no longer owns these pending changes. Ask an org admin before publishing them";
@@ -1326,7 +1343,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       stderr: "pipe",
     });
     const rawEntries = parsePorcelainZ(statusResult.stdout);
-    const current = authorization();
+    const current = await authorization();
     reportUnowned(rawEntries, current.scope);
     if (current.pullOnly) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
     const dirtyPaths = [...new Set(rawEntries.flatMap((entry) => (entry.origPath ? [entry.path, entry.origPath] : [entry.path])))];
@@ -1422,7 +1439,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       const outsideClaims = (path: string) => !plan.excludedZones.some((zone) => isUnderZone(path, zone));
       const autoArgs = stageScope ? scopeArgs.filter(outsideClaims) : scopeArgs;
       const autoAddArgs = stageScope ? addScopeArgs.filter(outsideClaims) : addScopeArgs;
-      if (!mayWrite(autoArgs, rawEntries)) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
+      if (!(await mayWrite(autoArgs, rawEntries))) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
       const addResult = autoAddArgs.length > 0
         ? await deps.exec(["git", "add", "-A", "--", ...(stageScope ? literal(autoAddArgs) : [...autoAddArgs, ...excludeArgs])], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
         : { exitCode: 0, stderr: "" };
@@ -1451,7 +1468,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // about an unattended backup commit needs a signature. (Git identity
       // is confirmed once, above, before either commit site runs.)
       const message = reason === "manual" ? plan.message!.replace(/^snapshot:/, "snapshot (manual):") : plan.message!;
-      if (!mayWrite(autoArgs, rawEntries)) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
+      if (!(await mayWrite(autoArgs, rawEntries))) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
       const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...(stageScope ? literal(autoArgs) : autoArgs), ...excludeArgs], {
         cwd: deps.repoDir,
         timeoutMs: GIT_TIMEOUT_MS,
@@ -1482,7 +1499,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         if (commitPaths.length === 0) continue;
         const dirtyHours = Math.floor((deps.now() - jz.dirtySinceMs) / (60 * 60 * 1000));
         const message = `snapshot (janitor): ${jz.zone} dirty >${dirtyHours}h, owner ${jz.owner}`;
-        if (!mayWrite(commitPaths, rawEntries)) continue;
+        if (!(await mayWrite(commitPaths, rawEntries))) continue;
         const addResult = addPaths.length > 0
           ? await deps.exec(["git", "add", "-A", "--", ...(stageScope ? literal(addPaths) : addPaths)], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
           : { exitCode: 0, stderr: "" };
@@ -1491,7 +1508,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
           continue;
         }
         // Same self-contained-commit and unsigned-commit reasoning as the auto commit above.
-        if (!mayWrite(commitPaths, rawEntries)) continue;
+        if (!(await mayWrite(commitPaths, rawEntries))) continue;
         const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...(stageScope ? literal(commitPaths) : commitPaths)], {
           cwd: deps.repoDir,
           timeoutMs: GIT_TIMEOUT_MS,
@@ -1549,7 +1566,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   }
 
   function status(): SnapshotStatus {
-    const current = authorization();
+    const current = spec.readAuthorization ? (lastAuthorization ?? staticAuthorization()) : staticAuthorization();
     reportUnowned(observedEntries, current.scope);
     let claimedZones: string[] = [];
     let ownersError: string | null = null;
