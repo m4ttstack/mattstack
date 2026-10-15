@@ -74,7 +74,11 @@ data branch or the recorded trial (`approvedBranches` in
 `lib/team/approved-branch.ts`); the `org.branch` row says when it is paused.
 Each Mac's sparse cone follows its role (`coneFor` in `lib/team/org-cone.ts`):
 org owners and admins hold `.claude-plugin` and `mattstack`, everyone else
-the org files and their teams. A dropped team folder with changes stays, and
+the org files and their teams. The one shared `.claude-plugin/marketplace.json`
+still lists every team's pack: Claude Code's `plugin marketplace add`,
+`marketplace update` and `plugin install` of a pack the clone holds succeed
+when other entries' folders are missing (checked on Claude Code 2.1.301), so
+no per-Mac marketplace file is written. A dropped team folder with changes stays, and
 the `org.sparse` row names it.
 The org marker carries a layout version (`layout` in `mattstack/mattstack.jsonc`;
 an explicit positive integer wins, and absent reads as 2 for `role: "org"` and 1
@@ -105,7 +109,12 @@ failure other than a missing marker throws, and the engine logs it once and
 lets the pull through. A layout 3 clone whose `main` now holds a pointer is
 held with a `moved` verdict instead: `convergeDataBranch`
 (`lib/team/org-data-branch.ts`) moves it in place onto the data branch when
-it is clean, from the daemon, `rt team pull` and the `org.folder` step;
+it is clean, from the daemon, `rt team pull` and, on a Mac with no daemon
+running, the `org.folder` step. A HEAD marker naming a data branch counts as
+layout 4 only when HEAD holds the org store (`headHoldsOrgStore` in
+`lib/team/org-layout.ts`), so a clone a hand pull or an older rt left on
+`main`'s pointer moves too; the daemon asks the gate on an up-to-date pull
+for that reason, where only a `moved` verdict holds;
 unpublished org commits are cherry-picked across, and a dirty clone, a
 detached HEAD, or commits outside the data paths or that clash hold the
 move. The `org.layout` row names the first three; a clash shows only when
@@ -122,9 +131,10 @@ clone found there.
 An org's name is its marker's `org` (`mattstack/mattstack.jsonc`), and the
 clone's folder follows it: the `org.folder` step converges the folder, the
 `rt/teams` and `rt/invites` records, the repo index and the Claude
-marketplace on every `rt setup update` and full `rt setup apply`, and moves
-a layout 3 clone onto its data branch and narrows its sparse cone
-(`convergeDataBranch`) but writes nothing else into the clone. `rt team rename <name>` (admins only) commits and
+marketplace on every `rt setup update` and full `rt setup apply`, and, with no
+daemon running, moves a layout 3 clone onto its data branch and narrows its
+sparse cone (`convergeDataBranch`; a running daemon makes that move on
+`org.pull`'s round trip) but writes nothing else into the clone. `rt team rename <name>` (admins only) commits and
 publishes the new marker and converges this Mac at once; a member's Mac
 follows at its next update. The `${org}` placeholder and its deprecated
 `${team:<name>}` alias are described in `docs/settings-architecture.md` and

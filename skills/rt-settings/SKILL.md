@@ -284,8 +284,11 @@ pushing a pointer the script prints the forge-access steps (`rt team
 manage-membership on`, then `rt team forge-access --apply`); with
 `--no-pointer` it prints how to try the branch instead. Once the pointer is on `main`, each layout 3 clone on an updated app moves
 onto the data branch in place: the daemon's pull holds with a "moved"
-verdict and runs the move when the clone is clean, and `rt team pull` and
-the `org.folder` step of `rt setup update` run the same move. Unpublished
+verdict and runs the move when the clone is clean, and `rt team pull` runs
+the same move, as does the `org.folder` step of `rt setup update` on a Mac
+with no daemon running. A clone an older rt or a hand `git pull` left on
+`main`'s pointer (its marker names the data branch, but it holds no org
+store) moves the same way. Unpublished
 org commits are carried across; a dirty clone, a detached HEAD, or commits
 that touch paths outside the org's data or clash hold the move. The
 `org.layout` row names the dirty, detached and outside-the-data holds; a
