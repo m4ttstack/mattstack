@@ -61,7 +61,7 @@ describe("team:pull on a clone whose org moved its data", () => {
     const { h, dirs } = handlers(clone("main", { status: " M mattstack/org/settings.org.jsonc\n" }), async () => ({ kind: "failed", log: "raced" }));
     expect(await h["team:pull"]({ slug: "acme" })).toEqual({
       ok: true,
-      data: { outcome: "skipped", detail: "Your copy of the org has unsaved changes: mattstack/org/settings.org.jsonc. Save or discard those changes, then run rt team pull", hold: { moved: "mattstack" } },
+      data: { outcome: "skipped", detail: "Your copy of the org has unsaved changes: mattstack/org/settings.org.jsonc. Save or discard those changes, then run rt team pull", hold: { moved: "mattstack" }, needsYou: true },
     });
     expect(dirs).toEqual([]);
   });

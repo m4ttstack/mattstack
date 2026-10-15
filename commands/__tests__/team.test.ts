@@ -825,6 +825,30 @@ describe("teamPull", () => {
       io.restore();
     }
   });
+  test("a hold waiting on the person reads needs you; one rt clears itself stays skipped; --json keeps its keys", async () => {
+    const held = { outcome: "skipped", detail: "Your copy of the org has unsaved changes: a.jsonc. Save or discard those changes, then run rt team pull", hold: { moved: "mattstack" }, needsYou: true };
+    const update = { outcome: "skipped", detail: "Your org uses layout 5 and this app reads up to 4. Update the app.", hold: { layout: 5, reads: 4 } };
+    const pending = { outcome: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes.", hold: { moved: "mattstack" } };
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      for (const [data, expected] of [
+        [held, `[needs you] The acme team pull is waiting on you  ${held.detail}\n`],
+        [update, `[needs you] The acme team pull is waiting on you  ${update.detail}\n`],
+        [pending, `[skipped] Skipped pulling the acme team  ${pending.detail}\n`],
+      ] as const) {
+        io.clear();
+        await teamPull(["--team", "acme"], {}, depsWithZone({ daemon: async () => ({ ok: true, data }) }));
+        expect(io.stdout()).toBe(expected);
+      }
+    } finally {
+      io.restore();
+    }
+    const deps = depsWithZone({ daemon: async () => ({ ok: true, data: held }) });
+    await teamPull(["--team", "acme", "--json"], {}, deps);
+    const { at: _at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(body).toEqual({ contract: 1, slug: "acme", outcome: "skipped", detail: held.detail, hold: held.hold });
+  });
   test("a daemon failure envelope surfaces its code", async () => {
     const deps = depsWithZone({ daemon: async () => ({ ok: false, error: "team \"acme\" is not cloned locally", failure: { code: "no-team", message: "team \"acme\" is not cloned locally" } }) });
     await runExpectingProcessExit(() => teamPull(["--team", "acme", "--json"], {}, deps));

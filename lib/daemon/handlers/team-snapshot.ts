@@ -31,7 +31,7 @@ async function afterMovedHold(
   const failed = (log: string): PullReply => ({ ok: false, error: `${message}: ${log}`, failure: { code: "data-branch-move-failed", message } });
   const held = (move: HeldMove): PullReply => {
     const { detail, remedy } = heldCopy(move);
-    return { ok: true, data: { outcome: "skipped", detail: `${detail}. ${remedy}`, hold: result.hold } };
+    return { ok: true, data: { outcome: "skipped", detail: `${detail}. ${remedy}`, hold: result.hold, needsYou: true } };
   };
   if ((await checkedOutBranch(probes, dir)) === branch) return { ok: true, data: { outcome: "moved", detail: MOVED_DONE(branch) } };
   const blocker = await moveBlocker(probes, dir);

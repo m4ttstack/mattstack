@@ -361,6 +361,8 @@ const PULL_COPY: Record<string, { status: RenderStatus; title: (slug: string) =>
   moved: { status: "done", title: (slug) => `Moved the ${slug} team to its new branch` },
 };
 
+const HELD_COPY = { status: "needs-you" as RenderStatus, title: (slug: string) => `The ${slug} team pull is waiting on you` };
+
 export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
   try {
@@ -370,7 +372,7 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
     // for status reads) aborts mid-pull and reports an unreachable daemon for
     // a pull that then succeeds.
     const res = (await call("team:pull", { slug }, PULL_TIMEOUT_MS)) as
-      | { ok: boolean; data?: { outcome: string; detail: string | null; hold?: PullHold }; error?: string; failure?: { code: string; message: string } }
+      | { ok: boolean; data?: { outcome: string; detail: string | null; hold?: PullHold; needsYou?: true }; error?: string; failure?: { code: string; message: string } }
       | null;
     if (!res) {
       throw new UserActionableError("daemon-unreachable", "The rt daemon is not running", {}, {
@@ -386,8 +388,9 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
       deps.print(JSON.stringify(envelope({ slug, outcome, detail, ...(hold ? { hold } : {}) })));
       return;
     }
-    const outcome = res.data.outcome;
-    const copy = PULL_COPY[outcome];
+    const { outcome, hold } = res.data;
+    // A newer layout waits on an app update, a held move on the person's own changes; a move rt makes itself stays a skip.
+    const copy = res.data.needsYou === true || (hold !== undefined && "layout" in hold) ? HELD_COPY : PULL_COPY[outcome];
     if (copy) {
       out.print(out.line(copy.status, copy.title(slug), res.data.detail ?? undefined));
     } else {

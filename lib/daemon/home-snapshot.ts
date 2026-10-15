@@ -89,6 +89,8 @@ export interface PullResult {
   detail: string | null;
   /** Set only on a pull the layout gate held; a caller tells a hold from any other skip by this, never by the sentence. */
   hold?: PullHold;
+  /** Set by the `team:pull` handler on a held move only the person can clear (unsaved changes, commits rt cannot carry); the engine never sets it. */
+  needsYou?: true;
 }
 
 export interface SnapshotStatus {
