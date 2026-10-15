@@ -8,6 +8,7 @@ import {
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
+import { useHotkeys } from '@mattstack/app-kit/hooks';
 import type {
   EvidenceCase,
   EvidenceTheme,
@@ -209,6 +210,15 @@ export function EvidenceCompare({
   }, [c.id, shownMode, shownTheme, onShow]);
 
   const several = record.cases.length > 1;
+  const at = record.cases.indexOf(c);
+  const step = (by: number) => {
+    const next = record.cases[at + by];
+    if (next) setCaseId(next.id);
+  };
+  useHotkeys([
+    ['ArrowLeft', () => step(-1)],
+    ['ArrowRight', () => step(1)],
+  ]);
   const title = several
     ? (ticket ?? 'Evidence')
     : evidenceTitle(ticket, headLabel(record, c) ?? undefined);
