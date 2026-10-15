@@ -124,6 +124,7 @@ function baseSeams(overrides: Partial<MintInviteSeams> = {}): { seams: MintInvit
     forgeLogin: async () => "octocat",
     forgeToken: async () => null,
     readLocalSecret: async () => null,
+    readAdminSecret: async () => null,
     warn: (m) => warnings.push(m),
     ...overrides,
   };
@@ -349,6 +350,44 @@ describe("mintInvite", () => {
     const { idHex, key } = decodeCode(result.code);
     const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
     expect(pointer.name).toBe(SLUG);
+  });
+
+  test("the org's admin-only file is read before this Mac's own secret", async () => {
+    const fetchCalls: { url: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }[] = [];
+    const p = fakeProbes({
+      home: HOME,
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
+      fetch: async (url, init) => {
+        fetchCalls.push({ url, init });
+        return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} };
+      },
+    });
+    const { seams } = baseSeams({
+      readAdminSecret: async (org, key) => (org === SLUG && key === "switchboardAdminToken" ? "admin-file" : null),
+      readLocalSecret: async () => "admin-local",
+    });
+
+    const result = await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
+
+    expect(result.peering).toBe("embedded");
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-file");
+  });
+
+  test("a Mac that cannot open the admin-only file still uses its own secret", async () => {
+    const fetchCalls: { url: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }[] = [];
+    const p = fakeProbes({
+      home: HOME,
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
+      fetch: async (url, init) => {
+        fetchCalls.push({ url, init });
+        return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} };
+      },
+    });
+    const { seams } = baseSeams({ readAdminSecret: async () => null, readLocalSecret: async () => "admin-local" });
+
+    await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
+
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-local");
   });
 
   test("an admin token on this Mac: mint registers the member's board on the built-in switchboard and seals only the token", async () => {
