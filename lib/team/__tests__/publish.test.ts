@@ -401,7 +401,7 @@ for (const blocked of ["commits", "paths", "multiple-urls", "missing-main", "mis
     if (blocked === "paths" && argv.includes("diff-tree")) return { code: 0, stdout: Array.from({ length: 10001 }, (_, i) => `mattstack/teams/gadgets/${i}\0`).join(""), stderr: "" };
     return exec(argv, opts);
   };
-  await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+  await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: blocked === "missing-object" ? "org-moved" : "team-pull-only" });
   expect(w.pushes()).toBe(0);
 });
 
@@ -513,5 +513,41 @@ describe("a pending org store change passes the org store guard", () => {
     const w = worldWith("dev1", (s) => { (s["mattstack.org"] as { admins: string[] }).admins = ["dev8"]; s["board.title"] = "renamed"; });
     await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
     expect(w.pushes).toHaveLength(1);
+  }, 15_000);
+
+  test("a refused member's clone keeps its origin when publish is given another remote", async () => {
+    const w = worldWith("dev9", (s) => { s["board.title"] = "renamed"; });
+    const origin = w.git("remote", "get-url", "origin").trim();
+    await expect(publishTeam(w.p, "acme", join(w.home, "elsewhere.git"))).rejects.toMatchObject({ code: "team-pull-only" });
+    expect(w.git("remote", "get-url", "origin").trim()).toBe(origin);
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an admin whose remote moved is told the org moved, not refused by policy", async () => {
+    const w = worldWith("dev1", (s) => { s["board.title"] = "renamed"; });
+    const other = join(w.home, "other");
+    execFileSync("git", ["clone", "-q", "-b", "main", w.remote, other], { env: childEnv() });
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=dev2", "-c", "user.email=dev2@example.test", "-c", "core.hooksPath=/dev/null", ...args], { cwd: other, env: childEnv() });
+    writeFileSync(join(other, "later.txt"), "x\n");
+    git("add", "later.txt");
+    git("commit", "-q", "-m", "later");
+    git("push", "-q", "origin", "main");
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "org-moved", next: "rt team pull --team acme" });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an uncommitted edit adding yourself to admins does not open committed team folders you do not own", async () => {
+    const w = worldWith("dev2", (s) => { s["board.title"] = "unused"; });
+    w.git("reset", "-q", "--hard", "origin/main");
+    mkdirSync(join(w.root, "mattstack", "teams", "gadgets"), { recursive: true });
+    writeFileSync(join(w.root, "mattstack", "teams", "gadgets", "x.txt"), "x\n");
+    w.git("add", "--", "mattstack/teams/gadgets/x.txt");
+    w.git("commit", "-q", "-m", "gadgets file");
+    const file = join(w.root, STORE);
+    const store = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    (store["mattstack.org"] as { admins: string[] }).admins.push("dev2");
+    writeFileSync(file, JSON.stringify(store, null, 2));
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+    expect(w.pushes).toHaveLength(0);
   }, 15_000);
 });

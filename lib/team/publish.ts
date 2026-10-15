@@ -17,9 +17,9 @@ import type { ExecResult, Probes } from "../setup/probes.ts";
 import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
 import { assertMayWrite, roleFor } from "./roles.ts";
-import { isOrgAdmin, mayWritePath, ownedRoots, roleOf } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { isOrgAdmin, mayWritePath, ownedRoots, roleOf, writeRefusalFor } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { unpublishedPaths } from "./publish-history.ts";
-import { remoteHead, remoteMovedPast } from "./remote-head.ts";
+import { containsCommit, remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { orgBranch } from "./org-branch.ts";
 import { orgDirUnder } from "../rt-paths.ts";
 
@@ -69,12 +69,13 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     throw new UserActionableError("invalid-team-slug", "That is not a team name rt can use", {}, { log: err instanceof Error ? err.message : String(err) });
   }
   // A pending org store change may itself remove this Mac's role, so a clone's refusal waits for the guard below, which judges by the remote's roles.
-  let deferredRefusal: unknown = null;
+  let deferredRefusal: UserActionableError | null = null;
   if (ownedRoots(roleFor(p, slug)).length === 0) {
     try {
       assertMayWrite(p, slug, ORG_STORE_REL);
     } catch (err) {
       if (!p.exists(join(orgDirUnder(p.home, slug), ".git"))) throw err;
+      if (!(err instanceof UserActionableError)) throw err;
       deferredRefusal = err;
     }
   }
@@ -87,6 +88,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const branch = await orgBranch(p, dir);
   const ref = `refs/heads/${branch}`;
 
+  if (deferredRefusal !== null && remote) throw deferredRefusal;
   if (remote) {
     const setUrl = await p.exec(["git", "remote", "set-url", "origin", remote], { cwd: dir });
     if (setUrl.code !== 0) {
@@ -108,27 +110,42 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const base = await head();
   if (!base.ok) throw inspectionFailure();
   const pending = await unpublishedPaths((argv) => p.exec(argv, { cwd: dir }), base.sha ? `${base.sha}..${ref}` : ref);
-  if (pending === null) throw inspectionFailure();
+  const orgMoved = () => new UserActionableError("org-moved", "The org repo has changes this Mac does not have yet", {}, {
+    why: "Someone else pushed first, so pull their changes before you publish again.",
+    next: `rt team pull --team ${slug}`,
+    thenRun: `rt team publish --team ${slug}`,
+  });
+  if (pending === null) throw base.sha !== null && !(await containsCommit(p, dir, base.sha, ref)) ? orgMoved() : inspectionFailure();
   const cmd = gitWithToken(["push", "-u", "origin", `${ref}:${ref}`], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const current = roleFor(p, slug);
+  const show = async (rev: string | null) => {
+    if (rev === null) return parseStoreText(ORG_STORE_REL, "{}");
+    const r = await p.exec(["git", "show", `${rev}:${ORG_STORE_REL}`], { cwd: dir });
+    return parseStoreText(ORG_STORE_REL, r.code === 0 ? r.stdout : "{}");
+  };
+  if (base.sha !== null && pending.includes(ORG_STORE_REL) && !(await containsCommit(p, dir, base.sha, ref))) throw orgMoved();
+  // Judged by the roles the remote already holds, so a pending or uncommitted edit cannot grant itself the role that approves it.
+  const before = await show(base.sha);
+  const baseRoles = base.sha === null ? null : rolesFrom(before);
+  const judge = baseRoles === null ? current : roleOf(readTeamLocal(p, slug).forgeUsername ?? null, baseRoles);
+  // A path needs both the remote's roles and this clone's current ones: the first stops a self-granted role, the second a revoked one.
+  const refuse = (path: string) => {
+    if (baseRoles !== null) {
+      const refusal = writeRefusalFor(judge, baseRoles, path);
+      if (refusal) throw new UserActionableError("team-pull-only", refusal.message, {}, { why: refusal.why });
+    }
+    assertMayWrite(p, slug, path);
+  };
+  const mayWrite = (path: string) => [judge, current].every((role) => mayWritePath(role, path) || (isOrgAdmin(role) && path === ".gitignore"));
   if (deferredRefusal !== null && !pending.includes(ORG_STORE_REL)) throw deferredRefusal;
-  if (deferredRefusal === null && ownedRoots(current).length === 0) assertMayWrite(p, slug, ORG_STORE_REL);
+  if ((ownedRoots(judge).length === 0 || ownedRoots(current).length === 0) && !pending.includes(ORG_STORE_REL)) refuse(ORG_STORE_REL);
   if (pending.includes(ORG_STORE_REL)) {
-    const show = async (rev: string | null) => {
-      if (rev === null) return parseStoreText(ORG_STORE_REL, "{}");
-      const r = await p.exec(["git", "show", `${rev}:${ORG_STORE_REL}`], { cwd: dir });
-      return parseStoreText(ORG_STORE_REL, r.code === 0 ? r.stdout : "{}");
-    };
-    const before = await show(base.sha);
-    // Judged by the roles the remote already holds, so the pending change cannot grant itself the role that approves it.
-    const judge = base.sha === null ? current : roleOf(readTeamLocal(p, slug).forgeUsername ?? null, rolesFrom(before));
     const refusal = orgStoreChangeRefusal(judge, before, await show(ref));
     if (refusal) throw new UserActionableError("team-pull-only", refusal, {}, {});
   }
   for (const path of pending) {
     if (path === ORG_STORE_REL) continue;
-    if (isOrgAdmin(current) && path === ".gitignore") continue;
-    if (!mayWritePath(current, path)) assertMayWrite(p, slug, path);
+    if (!mayWrite(path)) refuse(path);
   }
   const push = await p.exec(cmd.argv, { cwd: dir, env: cmd.env });
 
