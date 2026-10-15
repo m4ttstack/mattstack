@@ -14,6 +14,7 @@ import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
  *   rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]
  *   rt team publish [--team <slug>] --remote <url> [--json]
  *   rt team rename <name> [--team <org>] [--json]
+ *   rt team branch use <branch> [--team <org>] [--json]
  *   rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]
  *   rt team join [--dry-run] [--json]   (code on stdin as {"code":"..."}, or a prompt on a TTY)
  *   rt team members sync [--team <slug>] [--json]
@@ -67,6 +68,7 @@ import { createRelayClient } from "../lib/team/relay-client.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { checkedOutBranch } from "../lib/team/org-branch.ts";
+import { useBranch, type BranchUse } from "../lib/team/trial-branch.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
@@ -194,6 +196,9 @@ const REFUSAL_CODES = new Set([
   "org-behind",
   "invite-stale",
   "org-store-malformed",
+  "trial-branch-admin-only",
+  "trial-branch-not-moved",
+  "trial-branch-held",
 ]);
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */
@@ -458,6 +463,28 @@ export async function teamRename(args: string[], _ctx: CommandContext = {}, deps
       return;
     }
     out.print(...renameBlocks(result));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+export function branchUseBlocks(result: BranchUse): Block[] {
+  return [out.line("done", `Your copy of the org is on ${result.branch}`, result.trial ? "auto-commit runs here on this Mac only" : undefined)];
+}
+
+export async function teamBranchUse(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  const name = positional(args, ["--team"])[0];
+  if (!name) usageError(deps, json, "Which branch should your copy of the org be on?", "rt team branch use <branch> [--team <org>] [--json]");
+  try {
+    const slug = resolveTeamSlug(args, "team branch use");
+    const result = await useBranch(deps.probes, slug, name, { readToken: deps.forgeToken ?? storedForgeToken });
+    if (json) {
+      deps.print(JSON.stringify(envelope({ ok: true, slug, ...result })));
+      return;
+    }
+    out.print(...branchUseBlocks(result));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
