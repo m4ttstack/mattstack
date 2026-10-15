@@ -54,7 +54,7 @@ function Fact({
             {...valueType}
             c="accent"
             truncate
-            className={classes.grow}
+            className={classes.value}
             data-parity="value"
           >
             {value}
@@ -63,7 +63,7 @@ function Fact({
           <Text
             {...valueType}
             truncate
-            className={classes.grow}
+            className={classes.value}
             data-parity="value"
           >
             {value ?? empty}
