@@ -44,6 +44,13 @@ describe("forgeAccessRow", () => {
   test("a refused read shows the steps", async () => {
     expect(await rowFor({ kind: "refused", manualSteps: ["Sign in, then run this again: gh auth login"] })).toMatchObject({ status: "needs-you", action: { type: "steps" } });
   });
+  test("a data branch shared with the rest of the repo says rt leaves its rules alone, with no forge step", async () => {
+    expect(await rowFor({ kind: "shared-branch", branch: "main" })).toMatchObject({
+      status: "needs-you",
+      detail: "The org's data is on main, which the rest of the repo uses too, so rt leaves its rules alone. Move the org's data to its own branch first.",
+      action: null,
+    });
+  });
   test("a read that throws is one error row, never a throw", async () => {
     const r = await forgeAccessRow(p, "acme", async () => { throw new Error("timed out"); });
     expect(r).toMatchObject({ status: "error", action: { type: "run", verb: ["setup", "status"] } });

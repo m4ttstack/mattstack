@@ -6,7 +6,7 @@ import { orgStoreFile } from "../lib/team/org-store.ts";
 import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { activeTeamFor } from "../lib/team/active-team.ts";
 import { roleFor, rolesFor } from "../lib/team/roles.ts";
-import { applyForgeAccess, readForgeAccess, realForgeAccessSeams, type ForgeAccessApplied, type ForgeAccessReport, type ForgeAccessSeams } from "../lib/team/forge-access-apply.ts";
+import { applyForgeAccess, readForgeAccess, realForgeAccessSeams, sharedBranchSentence, type ForgeAccessApplied, type ForgeAccessReport, type ForgeAccessSeams } from "../lib/team/forge-access-apply.ts";
 import { diffLines, hasChanges, limitSentence } from "../lib/team/forge-access-plan.ts";
 import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
 /**
@@ -1227,6 +1227,8 @@ export function forgeAccessBlocks(slug: string, report: ForgeAccessReport, appli
         out.line("skipped", `Forge access waits while this Mac is on the trial branch ${report.branch}`),
         out.callout("next", "Go back to the org's data branch with ", out.cmd("rt team branch use <data branch>")),
       ];
+    case "shared-branch":
+      return [out.line("refused", `rt leaves the rules of ${report.branch} alone`), out.callout("fix", sharedBranchSentence(report.branch))];
     case "refused":
       return [out.line("needs-you", "rt could not check forge access"), out.callout("fix", ...report.manualSteps)];
     case "ready": {

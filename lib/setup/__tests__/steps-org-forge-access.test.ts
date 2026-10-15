@@ -53,6 +53,11 @@ describe("org.forge-access", () => {
     forgeAccessStepSeams.run = ran({ done: [], manualSteps: [] }, { reencrypted: [], failure: "sops refused" });
     expect(await orgForgeAccessStep.run(ctx("dev1", true))).toMatchObject({ state: "partial", remedy: "Run rt team admin-secrets" });
   });
+  test("a data branch shared with the rest of the repo needs the admin, and is never called a forge refusal", async () => {
+    forgeAccessStepSeams.run = async () => ({ report: { kind: "shared-branch", branch: "main" }, applied: null, admin: null });
+    const outcome = await orgForgeAccessStep.run(ctx("dev1", true));
+    expect(outcome).toEqual({ state: "needs-you", detail: "acme: The org's data is on main, which the rest of the repo uses too, so rt leaves its rules alone. Move the org's data to its own branch first." });
+  });
   test("a throw is a failed outcome, never a thrown run", async () => {
     forgeAccessStepSeams.run = async () => { throw new Error("boom"); };
     expect((await orgForgeAccessStep.run(ctx("dev1", true))).state).toBe("failed");

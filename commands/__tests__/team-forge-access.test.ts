@@ -42,6 +42,14 @@ describe("forgeAccessBlocks", () => {
     expect(text).toContain("Forge access waits while this Mac is on the trial branch mattstack-trial");
     expect(text).toContain(`rt team branch use`);
   });
+  test("a data branch shared with the rest of the repo is refused by policy, with the move as the fix", () => {
+    const blocks = forgeAccessBlocks("acme", { kind: "shared-branch", branch: "main" }, null);
+    expect(blocks[0]).toMatchObject({ t: "line", status: "refused" });
+    const text = renderPlain(blocks);
+    expect(text).toContain("rt leaves the rules of main alone");
+    expect(text).toContain("The org's data is on main, which the rest of the repo uses too, so rt leaves its rules alone. Move the org's data to its own branch first.");
+    expect(text).not.toContain("could not check");
+  });
   test("a difference lists each change and points at the latch when it is off", () => {
     const text = renderPlain(forgeAccessBlocks("acme", ready(), null));
     expect(text).toContain("Give dev2 write access");

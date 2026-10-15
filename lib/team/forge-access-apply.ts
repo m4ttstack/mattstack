@@ -51,6 +51,7 @@ export type ForgeAccessReport =
   | { kind: "not-yet"; branch: string | null }
   | { kind: "trial"; branch: string }
   | { kind: "refused"; manualSteps: string[] }
+  | { kind: "shared-branch"; branch: string }
   | { kind: "ready"; provider: "github" | "gitlab"; branch: string; pushList: PushList; wanted: Wanted; diff: AccessDiff; managing: boolean; lastManualSteps: string[] };
 
 export interface ForgeAccessApplied {
@@ -71,6 +72,10 @@ export type FollowRosterChange = (p: Pick<Probes, "readFile" | "home">, slug: st
 const followRosterChange: FollowRosterChange = async () => ({ reencrypted: [], failure: null });
 
 const SHARED_BRANCH_NAMES = new Set(["main", "master"]);
+
+export function sharedBranchSentence(branch: string): string {
+  return `The org's data is on ${branch}, which the rest of the repo uses too, so rt leaves its rules alone. Move the org's data to its own branch first.`;
+}
 
 export function orgStoreKeys(p: Pick<Probes, "readFile" | "home">, slug: string): Record<string, unknown> {
   const file = orgStoreFile(p.home, slug);
@@ -118,10 +123,7 @@ async function inspect(p: Probes, slug: string, seams: ForgeAccessSeams): Promis
   const main = await access.defaultBranch();
   if (!main.ok) return { report: { kind: "refused", manualSteps: main.manualSteps }, access };
   if (SHARED_BRANCH_NAMES.has(branch.toLowerCase()) || branch === main.value) {
-    return {
-      report: { kind: "refused", manualSteps: [`The org's data is on ${branch}, which the rest of the repo uses too, so rt leaves its rules alone. Move the org's data to its own branch first.`] },
-      access,
-    };
+    return { report: { kind: "shared-branch", branch }, access };
   }
   const pushList = await access.readPushList(branch);
   if (!pushList.ok) return { report: { kind: "refused", manualSteps: pushList.manualSteps }, access };

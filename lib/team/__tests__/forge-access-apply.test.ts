@@ -57,12 +57,12 @@ for (const provider of ["github", "gitlab"] as const) {
       expect(forge.writes).toEqual([]);
     });
 
-    test("a data branch that is main or the repo's default branch is refused, and nothing is written", async () => {
+    test("a data branch that is main or the repo's default branch is a shared branch rt leaves alone, and nothing is written", async () => {
       for (const [dataBranch, defaultBranch] of [["main", "main"], ["trunk", "trunk"], ["master", "trunk"]] as const) {
         const { p, forge, seams } = setup(provider, { users: USERS, members: MEMBERS, defaultBranch, branches: [dataBranch, defaultBranch] }, { dataBranch });
-        const { report } = await applyForgeAccess(p, "acme", seams);
-        expect(report.kind).toBe("refused");
-        expect(report.kind === "refused" ? report.manualSteps.join(" ") : "").toContain("own branch");
+        const { report, applied } = await applyForgeAccess(p, "acme", seams);
+        expect(report).toEqual({ kind: "shared-branch", branch: dataBranch });
+        expect(applied).toBeNull();
         expect(forge.writes).toEqual([]);
       }
     });

@@ -1,4 +1,4 @@
-import { readForgeAccess, type ForgeAccessReport } from "../../team/forge-access-apply.ts";
+import { readForgeAccess, sharedBranchSentence, type ForgeAccessReport } from "../../team/forge-access-apply.ts";
 import { diffLines, hasChanges, limitSentence } from "../../team/forge-access-plan.ts";
 import { row, type Row } from "../contract.ts";
 import type { Probes } from "../probes.ts";
@@ -46,6 +46,8 @@ export async function forgeAccessRow(
       return null;
     case "trial":
       return row({ ...BASE, status: "skipped", detail: `Forge access waits while this Mac is on the trial branch ${report.branch}` });
+    case "shared-branch":
+      return row({ ...BASE, status: "needs-you", detail: sharedBranchSentence(report.branch) });
     case "refused":
       return row({ ...BASE, status: "needs-you", detail: "rt could not check who has access to the org's repo on the forge", action: { type: "steps", label: "Show steps…", steps: report.manualSteps } });
     case "ready": {
