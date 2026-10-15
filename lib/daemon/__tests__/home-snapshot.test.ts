@@ -2953,12 +2953,80 @@ describe("the layout gate", () => {
     }
   }, 15_000);
 
-  test("nothing to pull runs no gate", async () => {
-    let asked = 0;
-    const { handle } = start(async () => { asked++; return above(5); }, 0);
+  test("a real clone pulled by hand onto main's pointer is held as moved and handed to the move hook", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshot-moved-")));
+    const env = { ...childEnv(), GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env }).toString();
+    const write = (dir: string, rel: string, text: string) => {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    };
+    const origin = join(root, "origin.git");
+    const full = join(root, "full");
+    const clone = join(root, "acme");
+    const db = openStateDb(join(root, "state.db"), "cli");
+    const realExec = async (argv: string[], opts?: { cwd?: string; timeoutMs?: number; env?: Record<string, string> }) => {
+      const r = await runCapture(argv as [string, ...string[]], { cwd: opts?.cwd, timeoutMs: opts?.timeoutMs, stderr: "pipe", env: { ...env, ...opts?.env } });
+      return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
+    };
+    try {
+      git(root, "init", "--bare", "-q", "-b", "main", origin);
+      git(root, "init", "-q", "-b", "main", full);
+      write(full, "mattstack/mattstack.jsonc", `{ "role": "org", "org": "acme", "layout": 3 }\n`);
+      write(full, "mattstack/org/settings.org.jsonc", `{ "mattstack.org": { "admins": ["dev1"] } }\n`);
+      write(full, "mattstack/teams/widgets/settings.team.jsonc", "{}\n");
+      git(full, "add", ".");
+      git(full, "commit", "-q", "-m", "org");
+      git(full, "remote", "add", "origin", origin);
+      git(full, "push", "-q", "-u", "origin", "main");
+      git(root, "clone", "-q", origin, clone);
+      const before = git(clone, "rev-parse", "HEAD").trim();
+
+      git(full, "rm", "-rq", "mattstack/org", "mattstack/teams");
+      write(full, "mattstack/mattstack.jsonc", `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }\n`);
+      git(full, "add", ".");
+      git(full, "commit", "-q", "-m", "pointer");
+      git(full, "push", "-q", "origin", "main");
+
+      git(clone, "pull", "-q", "--ff-only");
+      const pointerHead = git(clone, "rev-parse", "HEAD").trim();
+      const moves: string[] = [];
+      const probes = fakeProbes({ home: "/h", files: { "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }) }, exec: realExec });
+      const handle = startSnapshot(
+        teamSnapshotSpec("acme", clone, { ownedRoots: [], pullIntervalSec: 3600, originUrl: "https://gitlab.example.com/acme/org.git", probes, readToken: async () => null, onMoved: async (b) => { moves.push(b); } }),
+        { log: fakeLog(), broadcast: () => {}, db, readSettings: () => DEFAULT_SETTINGS, readOwners: () => NO_OWNERS },
+      );
+      await handle.ready;
+      const result = await handle.pullNow();
+      await handle.settled();
+      handle.stop();
+
+      expect(result).toEqual({ outcome: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes.", hold: { moved: "mattstack" } });
+      expect(git(clone, "rev-parse", "HEAD").trim()).toBe(pointerHead);
+      expect(pointerHead).not.toBe(before);
+      expect(moves).toEqual(["mattstack"]);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test("nothing to pull: a newer layout already checked out holds nothing", async () => {
+    const { handle } = start(async () => above(5), 0);
     await handle.ready;
     expect((await handle.pullNow()).outcome).toBe("up-to-date");
-    expect(asked).toBe(0);
+    expect(handle.status().layoutHold).toBeNull();
+    handle.stop();
+  });
+
+  test("nothing to pull still moves a clone left on main's pointer", async () => {
+    const moves: string[] = [];
+    const { handle } = start(async () => ({ kind: "moved", dataBranch: "mattstack" }), 0, async (b) => { moves.push(b); });
+    await handle.ready;
+    await handle.settled();
+    moves.length = 0;
+    expect((await handle.pullNow()).hold).toEqual({ moved: "mattstack" });
+    expect(moves).toEqual(["mattstack"]);
     handle.stop();
   });
 });
@@ -2998,6 +3066,18 @@ describe("layoutGate", () => {
   });
   test("a HEAD marker that cannot be read counts as naming no data branch", async () => {
     expect(await layoutGate(byRef(REF, { code: 128, stdout: "", stderr: "fatal: bad object HEAD" }), "/clone", REF, "main")).toEqual({ kind: "moved", dataBranch: "mattstack" });
+  });
+  const POINTER_MARKER = JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+  const withStoreAtHead = (listed: { code: number; stdout: string; stderr: string }) => (async (argv: string[]) => {
+    if (argv.includes("ls-tree")) return listed;
+    return { code: 0, stdout: POINTER_MARKER, stderr: "" };
+  }) as unknown as Probes["exec"];
+  test("a clone sitting on main's pointer, holding no org store, moves to the branch the pointer names", async () => {
+    expect(await layoutGate(withStoreAtHead({ code: 0, stdout: "", stderr: "" }), "/clone", REF, "main")).toEqual({ kind: "moved", dataBranch: "mattstack" });
+  });
+  test("a clone whose HEAD holds the org store is already on a data branch, and a store check git cannot answer counts as holding it", async () => {
+    expect(await layoutGate(withStoreAtHead({ code: 0, stdout: "mattstack/org/settings.org.jsonc\n", stderr: "" }), "/clone", REF, "main")).toBeNull();
+    expect(await layoutGate(withStoreAtHead({ code: 128, stdout: "", stderr: "fatal: bad object HEAD" }), "/clone", REF, "main")).toBeNull();
   });
   test("a trial branch whose own marker names the data branch is never moved", async () => {
     const own = { code: 0, stdout: JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" }), stderr: "" };

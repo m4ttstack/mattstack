@@ -13,7 +13,7 @@ import { warn } from "../ui/warn.ts";
 import { gitWithToken } from "./git-credential.ts";
 import { checkedOutBranch } from "./org-branch.ts";
 import { applyRoleCone } from "./org-cone.ts";
-import { gateVerdict, markerAtRef } from "./org-layout.ts";
+import { gateVerdict, headHoldsOrgStore, markerAtRef } from "./org-layout.ts";
 import { markerState, ORG_MARKER_REL } from "./org-marker.ts";
 import { withoutUrls } from "./redact.ts";
 import { containsCommit } from "./remote-head.ts";
@@ -156,13 +156,24 @@ export async function moveCloneToDataBranch(p: Pick<Probes, "exec">, dir: string
   return ready.commits.length > 0 ? { kind: "moved", branch, carried: ready.commits.length } : { kind: "moved", branch };
 }
 
+async function forgeToken(p: Probes, remote: string, readToken: (p: Probes, remote: string) => Promise<string | null>): Promise<string | null> {
+  try {
+    return await readToken(p, remote);
+  } catch (err) {
+    warn("org-data-branch", `could not read the forge token for ${withoutUrls(remote)}; fetching with git's own credentials`, { context: { err: String(err) } });
+    return null;
+  }
+}
+
 /**
  * Moves a clone whose own marker names no data branch (a layout 3 clone)
  * once origin's copy of its branch points at one, then narrows it to the
- * role's cone. Null when there is nothing to move: a clone whose marker
- * already names a data branch (a trial branch included), a detached HEAD,
- * no origin, or an origin branch that still holds the data. `unchecked`
- * when origin could not be asked: nothing was tried.
+ * role's cone. A clone sitting on `main`'s pointer (its marker names the data
+ * branch, its HEAD holds no org store) moves to the branch the pointer names.
+ * Null when there is nothing to move: a clone on a data or trial branch
+ * (HEAD holds the org store), a detached HEAD, no origin, or an origin branch
+ * that still holds the data. `unchecked` when origin could not be asked:
+ * nothing was tried.
  */
 export async function convergeDataBranch(
   p: Probes,
@@ -170,31 +181,31 @@ export async function convergeDataBranch(
   opts: { readToken?: (p: Probes, remote: string) => Promise<string | null> } = {},
 ): Promise<ConvergeResult | null> {
   const own = markerState(p, dir);
-  if (own.kind !== "org" || own.dataBranch !== null) return null;
+  if (own.kind !== "org") return null;
   const branch = await checkedOutBranch(p, dir);
   if (branch === null) return null;
+  if (own.dataBranch !== null && (branch === own.dataBranch || (await headHoldsOrgStore(p.exec, dir)) !== false)) return null;
   const url = await p.exec(["git", "remote", "get-url", "origin"], { cwd: dir, env: ENV });
   if (url.code !== 0) return null;
   const remote = url.stdout.trim();
-  let token: string | null = null;
-  try {
-    token = await (opts.readToken ?? storedForgeToken)(p, remote);
-  } catch (err) {
-    warn("org-data-branch", `could not read the forge token for ${withoutUrls(remote)}; fetching with git's own credentials`, { context: { err: String(err) } });
+  const token = await forgeToken(p, remote, opts.readToken ?? storedForgeToken);
+  let target = own.dataBranch;
+  if (target === null) {
+    const tracking = `refs/remotes/origin/${branch}`;
+    const fetch = gitWithToken(["fetch", "-q", "origin", `+refs/heads/${branch}:${tracking}`], token, ENV, { remote });
+    const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
+    if (fetched.code !== 0) return { kind: "unchecked", log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) };
+    const shown = await p.exec(["git", "show", markerAtRef(tracking)], { cwd: dir, env: ENV });
+    let verdict;
+    try {
+      verdict = gateVerdict(shown, branch, null);
+    } catch (err) {
+      return { kind: "unchecked", log: withoutUrls(err instanceof Error ? err.message : String(err)) };
+    }
+    if (verdict?.kind !== "moved") return null;
+    target = verdict.dataBranch;
   }
-  const tracking = `refs/remotes/origin/${branch}`;
-  const fetch = gitWithToken(["fetch", "-q", "origin", `+refs/heads/${branch}:${tracking}`], token, ENV, { remote });
-  const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
-  if (fetched.code !== 0) return { kind: "unchecked", log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) };
-  const shown = await p.exec(["git", "show", markerAtRef(tracking)], { cwd: dir, env: ENV });
-  let verdict;
-  try {
-    verdict = gateVerdict(shown, branch, null);
-  } catch (err) {
-    return { kind: "unchecked", log: withoutUrls(err instanceof Error ? err.message : String(err)) };
-  }
-  if (verdict?.kind !== "moved") return null;
-  const result = await moveCloneToDataBranch(p, dir, verdict.dataBranch, token, remote);
+  const result = await moveCloneToDataBranch(p, dir, target, token, remote);
   if (result.kind === "moved") {
     try {
       await applyRoleCone(p, dir, basename(dir));

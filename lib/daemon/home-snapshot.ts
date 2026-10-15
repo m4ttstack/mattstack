@@ -50,7 +50,7 @@ import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
 import { readTeamLocal, type PendingPackShare } from "../team/team-local.ts";
 import { approvedBranches, currentBranchSync } from "../team/approved-branch.ts";
-import { gateVerdict, holdSentence, markerAtRef, shownDataBranch, type GateVerdict, type PullHold } from "../team/org-layout.ts";
+import { gateVerdict, headHoldsOrgStore, holdSentence, markerAtRef, shownDataBranch, type GateVerdict, type PullHold } from "../team/org-layout.ts";
 import { ORG_LAYOUT } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
@@ -449,11 +449,19 @@ function marketplaceOwed(shares: PendingPackShare[], repoDir: string, dirty: rea
   });
 }
 
-/** `gateVerdict` for the marker at `ref` against this clone's checked-out branch and its own HEAD marker. A git failure reading `ref` other than a missing marker throws; an unreadable HEAD marker names no data branch. */
+/**
+ * `gateVerdict` for the marker at `ref` against this clone's checked-out
+ * branch and its own HEAD marker. A git failure reading `ref` other than a
+ * missing marker throws; an unreadable HEAD marker names no data branch, and
+ * neither does `main`'s pointer, which a hand pull or an older rt can leave
+ * checked out: it names a data branch but holds no org store.
+ */
 export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string, checkedOut: string): Promise<GateVerdict | null> {
   const show = (at: string) => exec(["git", "-C", repoDir, "show", markerAtRef(at)], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } });
   const shown = await show(ref);
-  return gateVerdict(shown, checkedOut, shownDataBranch(await show("HEAD")));
+  const named = shownDataBranch(await show("HEAD"));
+  const own = named !== null && (await headHoldsOrgStore(exec, repoDir, GIT_TIMEOUT_MS)) === false ? null : named;
+  return gateVerdict(shown, checkedOut, own);
 }
 
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
@@ -1000,11 +1008,13 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // `rt team publish` after the rebase, or resetting the clone to origin.
     if (conflicted && ahead === 0) clearConflict();
     if (conflicted) return { outcome: "skipped", detail: conflicted.detail };
-    if (spec.pull?.gate && behind !== 0) {
+    // Asked even with nothing to pull: a clone already sitting on main's pointer (a hand pull, an older rt) is moved only from here.
+    if (spec.pull?.gate) {
       let verdict: GateVerdict | null = null;
       let threw = false;
       try {
         verdict = await spec.pull.gate(`refs/remotes/origin/${branch}`, branch);
+        if (behind === 0 && verdict?.kind === "above") verdict = null;
       } catch (err) {
         threw = true;
         if (loggedGateError !== String(err)) {

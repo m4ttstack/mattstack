@@ -9,6 +9,7 @@ import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { orgDirUnder, orgsDirUnder } from "../rt-paths.ts";
 import type { Probes } from "../setup/probes.ts";
+import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
 import { markerState, ORG_LAYOUT, ORG_MARKER_REL, parseMarker, READABLE_LAYOUTS, type MarkerState } from "./org-marker.ts";
 
 export type OrgLayoutState =
@@ -57,6 +58,17 @@ export function shownDataBranch(shown: { code: number; stdout: string; stderr: s
   if (shown.code !== 0) return null;
   const marker = parseMarker(shown.stdout);
   return marker.kind === "org" ? marker.dataBranch : null;
+}
+
+/**
+ * Whether HEAD's tree holds the org store, which tells a data or trial branch
+ * from `main`'s pointer: both carry a marker naming a data branch, only the
+ * first holds the org. Null when git cannot say.
+ */
+export async function headHoldsOrgStore(exec: Probes["exec"], dir: string, timeoutMs?: number): Promise<boolean | null> {
+  const listed = await exec(["git", "-C", dir, "ls-tree", "--name-only", "HEAD", "--", ORG_STORE_REL], { env: { LC_ALL: "C" }, ...(timeoutMs ? { timeoutMs } : {}) });
+  if (listed.code !== 0) return null;
+  return listed.stdout.trim() !== "";
 }
 
 /**

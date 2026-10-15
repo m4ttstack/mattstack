@@ -291,6 +291,25 @@ describe("convergeDataBranch", () => {
     expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("trial");
   });
 
+  test("a layout 3 clone pulled by hand onto main's pointer moves to the branch the pointer names", async () => {
+    pointMain();
+    git(clone, "pull", "-q", "--ff-only");
+    expect(existsSync(join(clone, TEAM_FILE))).toBe(false);
+    expect(await convergeDataBranch(probes(), clone, noToken)).toEqual({ kind: "moved", branch: "mattstack" });
+    expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("mattstack");
+    expect(existsSync(join(clone, TEAM_FILE))).toBe(true);
+  });
+
+  test("a trial branch holding the org store stays put even once main points elsewhere", async () => {
+    pointMain();
+    git(seed, "checkout", "-q", "-b", "trial", "mattstack");
+    git(seed, "push", "-q", "origin", "trial");
+    git(clone, "fetch", "-q", "origin", "trial:refs/remotes/origin/trial");
+    git(clone, "checkout", "-q", "-b", "trial", "refs/remotes/origin/trial");
+    expect(await convergeDataBranch(probes(), clone, noToken)).toBeNull();
+    expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("trial");
+  });
+
   test("an origin it cannot reach is a check that did not happen, never a failed move", async () => {
     pointMain();
     git(clone, "remote", "set-url", "origin", join(root, "nowhere.git"));
