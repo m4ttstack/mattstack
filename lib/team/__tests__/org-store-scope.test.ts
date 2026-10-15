@@ -36,11 +36,12 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+const scoped = async (...args: Parameters<typeof orgStoreInScope>) => (await orgStoreInScope(...args)) === "in-scope";
 const base = (head: string | null | "error"): Promise<BaseStore> => readStoreAt("/unused", "HEAD", run(head));
 /** The commit-time call the daemon makes: base from HEAD, role from it (or the fallback), the working file as the change. */
 const inScope = async (dirPath: string, username: string, fallback: OrgRole, head: string | null | "error") => {
   const b = await base(head);
-  return orgStoreInScope(dirPath, b, roleFromBase(b, username, fallback));
+  return scoped(dirPath, b, roleFromBase(b, username, fallback));
 };
 
 describe("orgStoreInScope", () => {
@@ -94,23 +95,40 @@ describe("orgStoreInScope", () => {
   test("a malformed base is unreadable, never an unclaimed org", async () => {
     write(withOrg({ admins: ["dev1", "dev2"] }));
     expect(roleFromBase(await base("{ not json"), "dev2", { kind: "admin" })).toEqual({ kind: "unknown" });
-    expect(await orgStoreInScope(dir, await base("{ not json"), { kind: "org-owner" })).toBe(false);
+    expect(await scoped(dir, await base("{ not json"), { kind: "org-owner" })).toBe(false);
   });
 
   test("a malformed pending org store is out of scope, not read as everything deleted", async () => {
     write("{ not json");
     expect(await inScope(dir, "dev0", { kind: "member" }, headText)).toBe(false);
     const b = await base(headText);
-    expect(await orgStoreInScope(dir, b, { kind: "org-owner" }, "HEAD", run("{ not json"))).toBe(false);
+    expect(await scoped(dir, b, { kind: "org-owner" }, "HEAD", run("{ not json"))).toBe(false);
   });
 
   test("a push compares the base with the committed file, not the working one", async () => {
     write(headText);
     const b = await base(headText);
     const committed = withOrg({ admins: ["dev1", "dev2"] });
-    expect(await orgStoreInScope(dir, b, roleFromBase(b, "dev2", OWNER), "HEAD", run(committed))).toBe(false);
-    expect(await orgStoreInScope(dir, b, roleFromBase(b, "dev1", OWNER), "HEAD", run(dev4OnWidgets))).toBe(true);
-    expect(await orgStoreInScope(dir, b, roleFromBase(b, "dev1", OWNER), "HEAD", run("error"))).toBe(false);
+    expect(await scoped(dir, b, roleFromBase(b, "dev2", OWNER), "HEAD", run(committed))).toBe(false);
+    expect(await scoped(dir, b, roleFromBase(b, "dev1", OWNER), "HEAD", run(dev4OnWidgets))).toBe(true);
+    expect(await scoped(dir, b, roleFromBase(b, "dev1", OWNER), "HEAD", run("error"))).toBe(false);
+  });
+});
+
+describe("orgStoreInScope tells a failed read from a refused change", () => {
+  test("a base or committed store that cannot be read is unreadable", async () => {
+    write(headText);
+    expect(await orgStoreInScope(dir, await base("error"), { kind: "org-owner" })).toBe("unreadable");
+    const b = await base(headText);
+    expect(await orgStoreInScope(dir, b, OWNER, "HEAD", run("error"))).toBe("unreadable");
+    expect(await orgStoreInScope(dir, b, OWNER, "HEAD", async (argv) => (argv.includes("show") ? { code: 128, stdout: "" } : { code: 0, stdout: `${ORG_STORE_REL}\n` }))).toBe("unreadable");
+  });
+
+  test("a store that was read and whose change is not allowed is refused", async () => {
+    const b = await base(headText);
+    expect(await orgStoreInScope(dir, b, roleFromBase(b, "dev2", OWNER), "HEAD", run(withOrg({ admins: ["dev1", "dev2"] })))).toBe("refused");
+    expect(await orgStoreInScope(dir, b, OWNER, "HEAD", run("{ not json"))).toBe("refused");
+    expect(await orgStoreInScope(dir, b, roleFromBase(b, "dev1", OWNER), "HEAD", run(dev4OnWidgets))).toBe("in-scope");
   });
 });
 

@@ -81,24 +81,27 @@ export function roleFromBase(base: BaseStore, username: string | null, fallback:
   return isUnclaimed(roles) ? fallback : roleOf(username, roles);
 }
 
+/** `unreadable` is a git failure reading the base or the committed store, kept apart from `refused` (read, change not allowed) so the push gate can say which one happened. */
+export type OrgStoreScope = "in-scope" | "refused" | "unreadable";
+
 /** Whether the org store change from `base` to the file at `afterRef` (or the working file when null) passes the guard for `judge`. */
-export async function orgStoreInScope(repoDir: string, base: BaseStore, judge: OrgRole, afterRef: string | null = null, run: Run = realRun): Promise<boolean> {
-  if (base.state === "unreadable") return false;
+export async function orgStoreInScope(repoDir: string, base: BaseStore, judge: OrgRole, afterRef: string | null = null, run: Run = realRun): Promise<OrgStoreScope> {
+  if (base.state === "unreadable") return "unreadable";
   let after: string;
   if (afterRef === null) {
     try {
       after = await readFile(join(repoDir, ORG_STORE_REL), "utf8");
     } catch {
-      return false;
+      return "refused";
     }
   } else {
     const at = await readStoreAt(repoDir, afterRef, run);
-    if (at.state === "unreadable") return false;
+    if (at.state === "unreadable") return "unreadable";
     after = at.state === "text" ? at.text : "{}";
   }
   const before = base.state === "text" ? base.text : "{}";
   const [was, now] = [parseStoreTextStrict(ORG_STORE_REL, before), parseStoreTextStrict(ORG_STORE_REL, after)];
-  if (was === null || now === null) return false;
-  if (before === after) return true;
-  return orgStoreChangeRefusal(judge, was, now) === null;
+  if (was === null || now === null) return "refused";
+  if (before === after) return "in-scope";
+  return orgStoreChangeRefusal(judge, was, now) === null ? "in-scope" : "refused";
 }

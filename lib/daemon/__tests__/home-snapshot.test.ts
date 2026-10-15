@@ -3998,9 +3998,9 @@ describe("current snapshot authorization", () => {
   });
 
   /** A round that commits one team edit, runs `beforePush`, then lets the push timer fire. */
-  async function pushRound(spec: SnapshotSpec, beforePush: () => void) {
+  async function pushRound(spec: SnapshotSpec, beforePush: () => void, pending = ["mattstack/teams/widgets/settings.team.jsonc"]) {
     const exec = makeFakeExec([
-      (argv) => gitVerb(argv) === "rev-list" && !argv.includes("--count") ? { stdout: `${"a".repeat(40)}\n`, stderr: "", exitCode: 0 } : gitVerb(argv) === "diff-tree" ? { stdout: "mattstack/teams/widgets/settings.team.jsonc\0", stderr: "", exitCode: 0 } : undefined,
+      (argv) => gitVerb(argv) === "rev-list" && !argv.includes("--count") ? { stdout: `${"a".repeat(40)}\n`, stderr: "", exitCode: 0 } : gitVerb(argv) === "diff-tree" ? { stdout: pending.map((path) => `${path}\0`).join(""), stderr: "", exitCode: 0 } : undefined,
       ...pullResponders({ behind: 0, ahead: 1 }),
       ...defaultResponders({ statusZ: " M mattstack/teams/widgets/settings.team.jsonc\0" }),
     ]);
@@ -4030,6 +4030,38 @@ describe("current snapshot authorization", () => {
     const { pushes, status } = await pushRound(spec, () => { reading = true; });
     expect(pushes).toEqual([]);
     expect(status).toMatchObject({ pushPending: true, lastPushError: UNREADABLE_SENTENCE });
+  });
+
+  describe("an org store change among the pending paths", () => {
+    const ORG_STORE = "mattstack/org/settings.org.jsonc";
+    const baseStore = JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } });
+    const committedStore = (headRead: "fails" | "grants-admin") => {
+      let reading = false;
+      const { spec } = world((argv) => {
+        const verb = argv[3];
+        if (verb === "rev-parse") return { code: 0, stdout: `${(reading ? "c" : "b").repeat(40)}\n`, stderr: "" };
+        if (!reading) return { code: 0, stdout: "", stderr: "" };
+        const atHead = argv.some((arg) => arg === "HEAD" || arg.startsWith("HEAD:"));
+        if (atHead && headRead === "fails") return { code: 128, stdout: "", stderr: "fatal: timed out" };
+        if (verb === "ls-tree") return { code: 0, stdout: `${ORG_STORE}\n`, stderr: "" };
+        return { code: 0, stdout: atHead ? JSON.stringify({ "mattstack.org": { admins: ["dev1", "dev2"], teams: { widgets: { owners: ["dev2"] } } } }) : baseStore, stderr: "" };
+      });
+      return { spec, arm: () => { reading = true; } };
+    };
+
+    test("a committed org store that cannot be read holds the push with the unreadable sentence", async () => {
+      const { spec, arm } = committedStore("fails");
+      const { pushes, status } = await pushRound(spec, arm, [ORG_STORE]);
+      expect(pushes).toEqual([]);
+      expect(status).toMatchObject({ pushPending: true, lastPushError: UNREADABLE_SENTENCE });
+    });
+
+    test("a committed org store that was read and is refused keeps the role-loss sentence", async () => {
+      const { spec, arm } = committedStore("grants-admin");
+      const { pushes, status } = await pushRound(spec, arm, [ORG_STORE]);
+      expect(pushes).toEqual([]);
+      expect(status).toMatchObject({ pushPending: true, lastPushError: expect.stringContaining("Your role no longer owns") });
+    });
   });
 
   test("an org store that was read but is malformed keeps the role-loss refusal", async () => {

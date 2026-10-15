@@ -497,13 +497,14 @@ export function teamSnapshotSpec(
       const headRoots = ownedRoots(head);
       const workingRoots = ownedRoots(working);
       const shares = local.pendingPackShares ?? [];
-      const orgStore = (head.kind === "owner" || isOrgAdmin(head)) && (await orgStoreInScope(repoDir, base, head, pushBase ? "HEAD" : null, run));
+      const orgStoreScope = head.kind === "owner" || isOrgAdmin(head) ? await orgStoreInScope(repoDir, base, head, pushBase ? "HEAD" : null, run) : "refused";
+      const orgStore = orgStoreScope === "in-scope";
       const under = (roots: string[], path: string) => roots.some((root) => path === root || path.startsWith(`${root}/`));
       const inRoots = (path: string) => under(headRoots, path) && under(workingRoots, path);
       return {
         scope: (path) => teamScope(path) && (path === ORG_STORE_REL ? orgStore : inRoots(path)),
         pullOnly: headRoots.length === 0,
-        refusal: base.state === "unreadable" ? { kind: "unreadable" } : undefined,
+        refusal: base.state === "unreadable" || orgStoreScope === "unreadable" ? { kind: "unreadable" } : undefined,
         held: (path, dirty) => path === MARKETPLACE_PATH && marketplaceOwed(shares, repoDir, dirty),
       };
     },
