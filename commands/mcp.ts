@@ -17,6 +17,18 @@ export async function mcpToolsList(args: string[]): Promise<void> {
   out.payload(payload.tools.map((t) => `${t.name}\n`).join(""));
 }
 
+type ProgressNotification = { method: "notifications/progress"; params: { progressToken: string | number; progress: number } };
+
+/** Claude Code aborts a tool call that sends nothing for its idle timeout
+    (1800 s by default); each notification resets that clock. */
+export function progressReporter(token: string | number | undefined, send: (n: ProgressNotification) => Promise<void>): (() => void) | undefined {
+  if (token === undefined) return undefined;
+  let count = 0;
+  return () => {
+    send({ method: "notifications/progress", params: { progressToken: token, progress: ++count } }).catch(() => {});
+  };
+}
+
 /**
  * McpServer.registerTool in the pinned SDK requires zod schemas, so this
  * uses the low-level Server to serve each tool's raw JSON Schema unchanged.
@@ -48,7 +60,8 @@ export async function mcpServe(_args: string[]): Promise<void> {
       const tool = toolByName.get(request.params.name);
       if (!tool) return { isError: true, content: [{ type: "text" as const, text: `unknown tool: ${request.params.name}` }] };
 
-      return callTool(tool, (request.params.arguments ?? {}) as Record<string, unknown>, process.env, extra.signal);
+      const progress = progressReporter(request.params._meta?.progressToken, (n) => extra.sendNotification(n));
+      return callTool(tool, (request.params.arguments ?? {}) as Record<string, unknown>, process.env, extra.signal, progress);
     })();
     pending.add(call);
     call.finally(() => pending.delete(call));

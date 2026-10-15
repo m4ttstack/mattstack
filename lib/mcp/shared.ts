@@ -20,7 +20,9 @@ export interface McpToolDef {
   description: string;
   inputSchema: Record<string, unknown>;
   shellForms: ShellForms;
-  handler(input: Record<string, unknown>, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<{ ok: boolean; body: unknown; error?: string }>;
+  /** progress is set only when the caller asked for progress; each call resets
+      the client's idle timeout, so a handler that can run past it calls this as it works. */
+  handler(input: Record<string, unknown>, env: NodeJS.ProcessEnv, signal?: AbortSignal, progress?: () => void): Promise<{ ok: boolean; body: unknown; error?: string }>;
 }
 
 export type ToolResult = { ok: boolean; body: unknown; error?: string };
