@@ -105,7 +105,9 @@ allows `org`; `mattstack.roster` (each entry's `teams`) and `mattstack.org`
 (`owners` and `admins`, and `owners` per team) are org only.
 
 Roles, highest first: org owner, admin, team owner, member. `mattstack.org.owners`
-lists the org owners; absent or empty, the admins are the org owners. Only an
+lists the org owners; absent or empty, the admins are the org owners. A Mac
+running an older rt reads only `admins`, so list new owners in `admins` too
+until every Mac has updated. Only an
 org owner renames the org or changes `owners`; a plain admin changes anything
 else in the org store; a team owner changes only the `teams` array of existing
 roster entries, and only for their own teams (`rt team members add|drop`); a
