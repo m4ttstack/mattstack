@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { UserActionableError, failureFor, logFailureDetail } from "../lib/errors.ts";
 import { stripJsonc } from "../lib/jsonc.ts";
+import { shellQuote } from "../lib/team/org-branch.ts";
 import { ORG_MARKER_REL, parseMarker, validBranch } from "../lib/team/org-marker.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import * as out from "../lib/ui/out.ts";
@@ -112,7 +113,7 @@ function fetchOrigin(clone: string): void {
   try {
     gitIn(clone, "fetch", "-q", "origin");
   } catch (err) {
-    throw new UserActionableError("fetch-failed", "Could not fetch origin to check that the clone is current", {}, { next: `git -C ${clone} fetch origin`, log: errorText(err) });
+    throw new UserActionableError("fetch-failed", "Could not fetch origin to check that the clone is current", {}, { next: `git -C ${shellQuote(clone)} fetch origin`, log: errorText(err) });
   }
 }
 
@@ -142,7 +143,7 @@ function check(opts: Options): Checked {
     refuse("Origin has no main branch", "The move reads the org's data from origin's main.");
   }
   if (gitIn(clone, "rev-parse", "HEAD").trim() !== mainSha) {
-    refuse("The clone does not match origin's main", "The move copies what origin's main holds, so commits that exist only here would be left out.", [`git -C ${clone} switch main`, `git -C ${clone} pull --ff-only`]);
+    refuse("The clone does not match origin's main", "The move copies what origin's main holds, so commits that exist only here would be left out.", [`git -C ${shellQuote(clone)} switch main`, `git -C ${shellQuote(clone)} pull --ff-only`]);
   }
   const markerText = show(clone, mainSha, ORG_MARKER_REL);
   const marker = parseMarker(markerText);
@@ -279,7 +280,7 @@ function convert(opts: Options, checked: Checked): { pointer: PointerOutcome | n
       {},
       {
         why: `The ${dataBranch} branch is already on origin, and main has no pointer yet, so nothing has moved. A rerun is refused until that branch is deleted; --no-pointer would stop at the same branch. Cause: ${cause}`,
-        next: `git -C ${clone} push origin --delete ${dataBranch}`,
+        next: `git -C ${shellQuote(clone)} push origin --delete ${shellQuote(dataBranch)}`,
         log: cause,
       },
     );

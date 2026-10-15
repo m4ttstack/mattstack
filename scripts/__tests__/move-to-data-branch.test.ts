@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { orgDir } from "../../lib/rt-paths.ts";
@@ -278,4 +278,20 @@ test("a pointer push that fails after the data branch landed says the branch exi
   expect(err(result)).toContain("--no-pointer");
   expect(branches()).toEqual(["main", "mattstack"]);
   expect(readdirSync(scratch())).toEqual([]);
+});
+
+test("the commands a refusal or a stopped move names quote a clone path with a space", () => {
+  const dir = join(home, "acme org");
+  renameSync(org(), dir);
+  writeFileSync(join(dir, "apps/web/index.ts"), "changed\n");
+  git(dir, "commit", "-qam", "unpushed");
+  const refused = run(dir, "me", "--write");
+  expect(err(refused)).toContain(`git -C '${dir}' switch main`);
+  git(dir, "reset", "-q", "--hard", "origin/main");
+  const hook = join(origin, "hooks", "pre-receive");
+  writeFileSync(hook, '#!/bin/sh\nwhile read old new ref; do case "$ref" in refs/heads/main|refs/heads/mattstack-pointer) echo "closed" >&2; exit 1;; esac; done\nexit 0\n');
+  chmodSync(hook, 0o755);
+  const stopped = run(dir, "me", "--write");
+  expect(stopped.exitCode).toBe(1);
+  expect(err(stopped)).toContain(`git -C '${dir}' push origin --delete mattstack`);
 });
