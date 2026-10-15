@@ -102,7 +102,7 @@ Your handler signature:
 import type { RtCommandContext } from "rt-plugin";
 
 export async function run(args: string[], ctx: RtCommandContext) {
-  const team = await ctx.rt.pick(["cv", "platform"], { label: "team" });
+  const team = await ctx.rt.pick(["acme", "platform"], { label: "team" });
   if (!team) return;
 
   const store = ctx.rt.store<string[]>("history");

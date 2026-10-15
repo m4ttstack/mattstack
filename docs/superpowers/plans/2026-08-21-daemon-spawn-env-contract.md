@@ -770,7 +770,7 @@ Expected: `nextRetryAt=none` for all three — `freshenOne` deletes it on succes
 
 ```bash
 rt worktree provision --repo acme-dev --ticket acme-2899 \
-  --title "Keep Emma Chat in URL when Navigating to Other Vehicles" --json
+  --title "Keep Helper Chat in URL when Navigating to Other Vehicles" --json
 ```
 
 Expected: `{"ok":true, ... "data":{"path":"...","branch":"acme-2899-...","wasOnDeck":true}}`. `wasOnDeck:true` confirms it claimed a pool tree rather than cold-creating.
