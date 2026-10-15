@@ -65,6 +65,7 @@ const details = new Map([
         stage('plan', 'running', at(15, 12), null),
       ],
       decisions: [],
+      fields: [],
     },
   ],
   [
@@ -76,6 +77,7 @@ const details = new Map([
         stage('implement', 'running', at(15, 48), null),
       ],
       decisions: [],
+      fields: [],
     },
   ],
   [
@@ -88,6 +90,7 @@ const details = new Map([
         stage('watch-ci', 'running', at(16, 6), null),
       ],
       decisions: [],
+      fields: [],
     },
   ],
   [
@@ -99,6 +102,7 @@ const details = new Map([
         stage('watch-ci', 'done', at(13, 36), at(14, 12)),
       ],
       decisions: [],
+      fields: [],
     },
   ],
 ]);

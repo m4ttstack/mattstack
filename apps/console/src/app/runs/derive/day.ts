@@ -308,7 +308,7 @@ export function rowBars({
   now,
 }: {
   run: RunSummary;
-  detail: Pick<RunDetail, 'stages' | 'decisions'>;
+  detail: Pick<RunDetail, 'stages' | 'decisions' | 'fields'>;
   gates: GateRow[];
   from: number;
   to: number;
@@ -327,7 +327,7 @@ export function rowBars({
   const segments = timelineSegments({
     attempts,
     myGateSpans: myGateSpans(mine, now),
-    held: heldSpans(detail.stages, detail.decisions),
+    held: heldSpans(detail.stages, detail.decisions, detail.fields),
     runStart: run.started_at,
     runEnd: finished ? run.ended_at! : now,
     dayStart: from,
@@ -606,7 +606,7 @@ export function dayTimeline({
   overnight = false,
 }: {
   runs: RunSummary[];
-  details: Map<string, Pick<RunDetail, 'stages' | 'decisions'>>;
+  details: Map<string, Pick<RunDetail, 'stages' | 'decisions' | 'fields'>>;
   gatesByRun: Map<string, GateRow[]>;
   key: string;
   now: number;

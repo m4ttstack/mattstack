@@ -1,4 +1,8 @@
-import type { RunDecisionRow, RunStageRow } from '@mattstack/rt-client';
+import type {
+  RunDecisionRow,
+  RunFieldRow,
+  RunStageRow,
+} from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
 
 import { fieldKind, heldSpans } from './run';
@@ -22,13 +26,14 @@ describe('fieldKind', () => {
 const st = (
   name: string,
   attempt: number,
-  started_at: number
+  started_at: number,
+  ended_at: number | null = null
 ): RunStageRow => ({
   name,
   status: 'done',
   attempt,
   started_at,
-  ended_at: null,
+  ended_at,
   reason: null,
   detail_path: null,
 });
@@ -38,6 +43,13 @@ const hold = (scope: string, at: number): RunDecisionRow => ({
   selection: 'hold',
   decided_by: 'stage-plan',
   decided_at: at,
+});
+
+const field = (key: string, value: string, at: number): RunFieldRow => ({
+  key,
+  value,
+  produced_by: 'plan',
+  at,
 });
 
 describe('heldSpans', () => {
@@ -53,6 +65,38 @@ describe('heldSpans', () => {
     expect(heldSpans([st('plan', 1, 0)], [hold('hold:plan:1', 100)])).toEqual([
       { stage: 'plan', from: 100, to: null },
     ]);
+  });
+  it('ends when the held attempt ends', () => {
+    expect(
+      heldSpans([st('plan', 1, 0, 900)], [hold('hold:plan:1', 100)])
+    ).toEqual([{ stage: 'plan', from: 100, to: 900 }]);
+  });
+  it('ends when the hold field is cleared', () => {
+    expect(
+      heldSpans(
+        [st('plan', 1, 0, 900)],
+        [hold('hold:plan:1', 100)],
+        [field('hold', '-', 300)]
+      )
+    ).toEqual([{ stage: 'plan', from: 100, to: 300 }]);
+  });
+  it('stays open while the hold field still carries a reason', () => {
+    expect(
+      heldSpans(
+        [st('plan', 1, 0)],
+        [hold('hold:plan:1', 100)],
+        [field('hold', 'waiting on Matt', 110)]
+      )
+    ).toEqual([{ stage: 'plan', from: 100, to: null }]);
+  });
+  it('ignores a clear older than the hold', () => {
+    expect(
+      heldSpans(
+        [st('plan', 1, 0)],
+        [hold('hold:plan:1', 100)],
+        [field('hold', '-', 50)]
+      )
+    ).toEqual([{ stage: 'plan', from: 100, to: null }]);
   });
   it('ignores other scopes', () =>
     expect(heldSpans([], [hold('plan', 1)])).toEqual([]));

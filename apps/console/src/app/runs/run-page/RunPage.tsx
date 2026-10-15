@@ -135,7 +135,7 @@ export function RunPage({
       ? railStages(
           fields.find(f => f.key === 'pipeline-stages')?.value ?? null,
           stageAttempts(stages, run, now),
-          heldSpans(stages, decisions),
+          heldSpans(stages, decisions, fields),
           mine ? gateStage(mine, stages) : null,
           now
         )
@@ -168,6 +168,7 @@ export function RunPage({
         lastEventAt={run.last_event_at}
         now={now}
         fields={story.currentFields}
+        gates={story.currentGates}
         pathHref={pathHref}
       />
     );

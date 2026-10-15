@@ -1,4 +1,8 @@
-import type { RunDecisionRow, RunStageRow } from '@mattstack/rt-client';
+import type {
+  RunDecisionRow,
+  RunFieldRow,
+  RunStageRow,
+} from '@mattstack/rt-client';
 
 export type FieldKind =
   'cleared' | 'url' | 'sha-list' | 'json' | 'gate-ref' | 'path' | 'text';
@@ -30,19 +34,34 @@ export function fieldKind(key: string, value: string): FieldKind {
 
 const HOLD_SCOPE = /^hold:([^:]+):(\d+)$/;
 
-export function heldSpans(stages: RunStageRow[], decisions: RunDecisionRow[]) {
+/** A hold ends at the first sign the run moved on: the hold field cleared
+ * (rt keeps only its latest value), the held attempt ending, or the stage's
+ * next attempt starting. A hold can be lifted inside the same attempt. */
+export function heldSpans(
+  stages: RunStageRow[],
+  decisions: RunDecisionRow[],
+  fields: RunFieldRow[] = []
+) {
+  const holdField = fields.find(f => f.key === 'hold');
+  const clearedAt =
+    holdField && fieldKind('hold', holdField.value) === 'cleared'
+      ? holdField.at
+      : null;
   const spans: { stage: string; from: number; to: number | null }[] = [];
   for (const d of decisions) {
     const m = HOLD_SCOPE.exec(d.scope);
     if (!m) continue;
     const [, stage, attempt] = m;
-    const next = stages.find(
-      s => s.name === stage && s.attempt === Number(attempt) + 1
-    );
+    const n = Number(attempt);
+    const ends = [
+      stages.find(s => s.name === stage && s.attempt === n)?.ended_at,
+      stages.find(s => s.name === stage && s.attempt === n + 1)?.started_at,
+      clearedAt,
+    ].filter((t): t is number => t != null && t >= d.decided_at);
     spans.push({
       stage: stage!,
       from: d.decided_at,
-      to: next?.started_at ?? null,
+      to: ends.length > 0 ? Math.min(...ends) : null,
     });
   }
   return spans;
