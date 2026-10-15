@@ -13,7 +13,7 @@ import type { ExecResult, Probes } from "../setup/probes.ts";
 import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
 import { assertMayWrite, roleFor } from "./roles.ts";
-import { mayWritePath, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { isOrgAdmin, mayWritePath, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { unpublishedPaths } from "./publish-history.ts";
 import { remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { orgBranch } from "./org-branch.ts";
@@ -97,7 +97,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const current = roleFor(p, slug);
   if (ownedRoots(current).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
   for (const path of pending) {
-    if (current.kind === "admin" && path === ".gitignore") continue;
+    if (isOrgAdmin(current) && path === ".gitignore") continue;
     if (!mayWritePath(current, path)) assertMayWrite(p, slug, path);
   }
   const push = await p.exec(cmd.argv, { cwd: dir, env: cmd.env });

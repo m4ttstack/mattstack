@@ -6,6 +6,7 @@ import { orgStoreFile } from "../lib/team/org-store.ts";
 import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { activeTeamFor } from "../lib/team/active-team.ts";
 import { roleFor, rolesFor } from "../lib/team/roles.ts";
+import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
 /**
  * rt team create|publish|rename|invite|join|members|status: the team-repo
  * lifecycle verbs.
@@ -555,7 +556,7 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
     const slug = resolveTeamSlug(args, "team invite");
 
     const local = readTeamLocal(deps.probes, slug);
-    if (roleFor(deps.probes, slug).kind !== "admin") {
+    if (!isOrgAdmin(roleFor(deps.probes, slug))) {
       const admins = rolesFor(deps.probes, slug).admins;
       throw new UserActionableError("team-pull-only", "Only an org admin invites", {}, {
         why: admins.length > 0 ? `Ask ${admins.join(" or ")} to invite ${handle}.` : "This org names no admins yet.",
@@ -953,7 +954,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         out.kv("last push", lastPush ?? "never"),
         out.kv("members", String(members.length), peeredBoards ? `${peeredCount} with a connected board` : undefined),
         out.kv("your team", active.team ?? "none"),
-        out.kv("your role", role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),
+        out.kv("your role", role === "org-owner" ? "org owner" : role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),
         out.kv("sync", syncState, syncNotes.length > 0 ? syncNotes.join("; ") : undefined),
         ...(sync.conflicted !== null ? [out.line("needs-you", "The team has changes that clash with yours", sync.conflicted.detail)] : []),
       ),

@@ -490,14 +490,14 @@ describe("teamInvite", () => {
   describe("who may invite, and to which team", () => {
     const MINTED = { code: "C", expiresAt: "2026-01-08T00:00:00.000Z", pasteBlock: "x", forgeAccess: "skipped", manualSteps: [], link: "l", peering: "none" } as unknown as InviteResult;
 
-    function orgDeps(username: string, minted: MintInviteOpts[]): TeamDeps & { lines: string[]; exitCodes: number[] } {
+    function orgDeps(username: string, minted: MintInviteOpts[], org: Record<string, unknown> = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }): TeamDeps & { lines: string[]; exitCodes: number[] } {
       const probes = fakeProbes({
         home,
         dirs: { [join(teamDir, "mattstack", "teams")]: ["widgets", "gadgets"] },
         files: {
           [join(teamDir, ".git", "config")]: GIT_CONFIG,
           [join(teamDir, "mattstack", "org", "settings.org.jsonc")]: JSON.stringify({
-            "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
+            "mattstack.org": org,
             "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["widgets"] }],
           }),
           [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: username }),
@@ -505,6 +505,13 @@ describe("teamInvite", () => {
       });
       return baseDeps({ probes, mintInvite: async (_p, _relay, opts) => { minted.push(opts); return MINTED; } });
     }
+
+    test("an org owner invites", async () => {
+      const minted: MintInviteOpts[] = [];
+      const deps = orgDeps("dev1", minted, { owners: ["dev1"], admins: ["dev1"] });
+      await teamInvite(["--handle", "dev3", "--team", "acme", "--json"], {}, deps);
+      expect(minted).toHaveLength(1);
+    });
 
     test("only an org admin invites; an owner is told who can", async () => {
       const minted: MintInviteOpts[] = [];

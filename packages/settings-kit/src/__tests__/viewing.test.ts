@@ -154,8 +154,12 @@ describe("viewerFrom", () => {
     });
   });
 
-  test("an admin may view every team folder", () => {
-    expect(viewerFrom({ active: { ...active, username: "ada" }, roles, roster, folders })).toMatchObject({ role: "admin", name: "Ada", teams: folders });
+  test("an org owner may view every team folder", () => {
+    expect(viewerFrom({ active: { ...active, username: "ada" }, roles, roster, folders })).toMatchObject({ role: "org-owner", name: "Ada", teams: folders });
+  });
+
+  test("an admin the owners list does not name may view every team folder", () => {
+    expect(viewerFrom({ active: { ...active, username: "ada" }, roles: { ...roles, owners: ["zed"] }, roster, folders })).toMatchObject({ role: "admin", name: "Ada", teams: folders });
   });
 
   test("a member sees only their own team", () => {

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { rolesInfo } from './boxscore-roles';
 
 const ORG_ROLES: OrgRoles = {
+  owners: [],
   admins: ['dev1'],
   teams: { widgets: { owners: ['Dev2'] }, gadgets: { owners: ['dev3'] } },
 };

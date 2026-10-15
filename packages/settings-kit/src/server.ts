@@ -132,7 +132,7 @@ export interface EffectiveWire {
 export interface ViewerWire {
   username: string | null;
   name: string | null;
-  role: "admin" | "owner" | "member" | "unknown" | "none";
+  role: "org-owner" | "admin" | "owner" | "member" | "unknown" | "none";
   team: string | null;
   teams: string[];
   /** Each reachable team's owners, by roster name (username when the
@@ -152,7 +152,7 @@ export function viewerFrom(input: { active: ActiveTeam; roles: OrgRoles; roster:
   const teams = [...new Set([...reach, ...own])].sort();
   const display = (u: string) => roster.find((r) => sameUser(r.username, u))?.name ?? u;
   const owners = Object.fromEntries(teams.map((t) => [t, (roles.teams[t]?.owners ?? []).map(display)]));
-  return { username: active.username, name, role: role.kind === "org-owner" ? "admin" : role.kind, team: active.team, teams, owners };
+  return { username: active.username, name, role: role.kind, team: active.team, teams, owners };
 }
 
 function readViewer(rt: Pick<RtSettingsApi, "activeTeam">): ViewerWire {
