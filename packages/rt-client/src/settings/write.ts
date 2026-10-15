@@ -55,7 +55,9 @@
  * needs a commit and push to reach anyone, so conjuring one here would
  * produce an uncommitted, unshared file masquerading as shared state.
  * A shared store is written only by a role that owns it (see org-roles.ts);
- * the refusal names who can. User and machine writes are never guarded.
+ * the refusal names who can. A write to the org store by a plain admin or a
+ * team owner is decided by org-store-guard.ts instead, which compares the
+ * store before and after. User and machine writes are never guarded.
  *
  * A successful write or removal prints nothing unless the daemon cannot sync
  * the user or org repo on its own; then one tip line says what to do
@@ -93,9 +95,10 @@ import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderS
 import { activeTeam, readOrgRoles } from "./active-team.ts";
 import { machineSettingsPath, orgDir, orgSettingsPath, orgsDir, teamSettingsPath, userSettingsPath } from "./paths.ts";
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
-import { roleOf, writeRefusalFor, type OrgRole } from "./org-roles.ts";
+import { orgOwnersAsk, roleOf, writeRefusalFor, type OrgRole } from "./org-roles.ts";
+import { orgStoreChangeRefusal } from "./org-store-guard.ts";
 import { getSetting } from "./resolve.ts";
-import { currentOrg, readStore, TEAM_NAME_RE } from "./stores.ts";
+import { currentOrg, parseStoreText, readStore, TEAM_NAME_RE } from "./stores.ts";
 import { readForgeUsername } from "./team-local-read.ts";
 import { directoryIssues } from "./team-directory.ts";
 import { validateWrite } from "./validate-write.ts";
@@ -176,7 +179,7 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
     refuse(`refusing to set "${key}": ${verdict.reason}${hint}`);
   }
 
-  const storePath = resolveStorePath(scope, opts);
+  const { path: storePath, check } = resolveStoreTarget(scope, opts);
   const sectionPath = sectionPathOf(opts.repoIdentity);
   const name = currentStoreName(def);
 
@@ -199,6 +202,7 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
       ];
     },
     /* createIfMissing */ scope === "user" || scope === "machine",
+    check,
   );
 
   if (key === "mattstack.directory") {
@@ -254,7 +258,7 @@ function notify(notice: SettingsNotice): void {
  * prints only when that sync cannot happen: the repo has no origin, or
  * rt.homeSnapshot / rt.teamSnapshot is disabled (a read failure counts as
  * enabled, as the daemon treats it). A role that does not own the store never
- * gets here: resolveStorePath refuses the write. It assumes the daemon is
+ * gets here: resolveStoreTarget refuses the write. It assumes the daemon is
  * running; nothing here checks.
  */
 function shareTip(verb: "saved" | "removed", key: string, scope: SettingScope, storePath: string): void {
@@ -411,6 +415,29 @@ function refuseUnlessOwned(org: string, storePath: string): void {
   if (refusal) throw new SettingsOwnershipRefusal(role, refusal);
 }
 
+/** Refuses the rendered text of a write before it is saved. */
+type StoreCheck = (nextText: string) => void;
+
+/**
+ * The org store is one file, so for a plain admin (who may not change the
+ * owners list) and a team owner (who may change their own team's
+ * membership) path ownership cannot decide: the guard compares the store
+ * before and after the write. Every other role keeps the path refusal.
+ */
+function orgStoreCheck(org: string, storePath: string): StoreCheck | undefined {
+  const { role, refusal } = ownershipRefusal(org, storePath);
+  // Plain admin test on purpose: isOrgAdmin would include org owners, who write the whole store.
+  if (role.kind !== "admin" && role.kind !== "owner") {
+    if (refusal) throw new SettingsOwnershipRefusal(role, refusal);
+    return undefined;
+  }
+  const why = refusal?.why ?? orgOwnersAsk(readOrgRoles(org));
+  return (nextText) => {
+    const message = orgStoreChangeRefusal(role, readStore(storePath), parseStoreText(storePath, nextText));
+    if (message !== null) throw new SettingsOwnershipRefusal(role, { message: message.replace(/\.$/, ""), why });
+  };
+}
+
 function requireOrg(): string {
   const org = currentOrg();
   if (org === null) refuse("this Mac has no org yet, so there are no shared settings to write");
@@ -426,17 +453,18 @@ function sharedStoreTarget(scope: "org" | "team", opts: SetSettingOpts): { org: 
   return { org, path: teamSettingsPath(org, team), label: `the ${team} team` };
 }
 
-/** Resolves which store file a write targets. A shared store is never created here: it lives in a repo that has to be committed and pushed to reach anyone. */
-function resolveStorePath(scope: SettingScope, opts: SetSettingOpts): string {
-  if (scope === "user") return userSettingsPath();
-  if (scope === "machine") return machineSettingsPath();
+/** Resolves which store file a write targets, and the check its new text must pass. A shared store is never created here: it lives in a repo that has to be committed and pushed to reach anyone. */
+function resolveStoreTarget(scope: SettingScope, opts: SetSettingOpts): { path: string; check?: StoreCheck } {
+  if (scope === "user") return { path: userSettingsPath() };
+  if (scope === "machine") return { path: machineSettingsPath() };
   const { org, path, label } = sharedStoreTarget(scope, opts);
   if (!existsSync(path)) refuse(`${label} has no settings file on this Mac (${path}); pull the org before writing to it`);
+  if (scope === "org") return { path, check: orgStoreCheck(org, path) };
   refuseUnlessOwned(org, path);
-  return path;
+  return { path };
 }
 
-/** `resolveStorePath` for removal: no store to target answers null (nothing to remove) instead of refusing. */
+/** `resolveStoreTarget` for removal: no store to target answers null (nothing to remove) instead of refusing. */
 function resolveStorePathForUnset(scope: SettingScope, opts: SetSettingOpts): string | null {
   if (scope === "user") return userSettingsPath();
   if (scope === "machine") return machineSettingsPath();
@@ -509,7 +537,7 @@ function findDuplicateKey(node: Node): string | undefined {
   return undefined;
 }
 
-function writeIntoStore(storePath: string, planEdits: (root: Record<string, unknown>) => StoreEdit[], createIfMissing: boolean): void {
+function writeIntoStore(storePath: string, planEdits: (root: Record<string, unknown>) => StoreEdit[], createIfMissing: boolean, check?: StoreCheck): void {
   assertNotRealStoreInTest(storePath);
   let content: string;
   if (existsSync(storePath)) {
@@ -521,7 +549,7 @@ function writeIntoStore(storePath: string, planEdits: (root: Record<string, unkn
     }
   } else {
     if (!createIfMissing) {
-      // Unreachable via setSetting today: resolveStorePath already refuses
+      // Unreachable via setSetting today: resolveStoreTarget already refuses
       // every shared path that lacks a file before we get here. Kept as a
       // defensive guard against a future caller of writeIntoStore directly.
       refuse(`store file ${storePath} does not exist`);
@@ -536,6 +564,7 @@ function writeIntoStore(storePath: string, planEdits: (root: Record<string, unkn
     next = applyEdits(next, modify(next, edit.path, edit.value, { formattingOptions: FORMAT }));
   }
   const finalText = next.endsWith("\n") ? next : `${next}\n`;
+  check?.(finalText);
 
   // Write-temp-then-rename in the same directory, mirroring
   // lib/json-store.ts's writeJson — stores never tear. All three stores are

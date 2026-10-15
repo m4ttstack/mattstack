@@ -56,6 +56,12 @@ function adminsClause(admins: string[]): string {
   return `${names(admins)} (${admins.length === 1 ? "an org admin" : "org admins"})`;
 }
 
+/** Who to ask for a change only an org owner may make. */
+export function orgOwnersAsk(roles: OrgRoles): string {
+  const owners = roles.owners.length > 0 ? roles.owners : roles.admins;
+  return `Ask ${names(owners)} (${owners.length === 1 ? "an org owner" : "org owners"}) to make this change.`;
+}
+
 export function writeRefusalFor(role: OrgRole, roles: OrgRoles, relPath: string): { message: string; why: string } | null {
   if (mayWritePath(role, relPath)) return null;
   if (role.kind === "unknown") {
