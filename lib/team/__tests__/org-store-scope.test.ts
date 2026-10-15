@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { OrgRole } from "../../../packages/rt-client/src/settings/org-roles.ts";
-import { ORG_STORE_REL, orgStoreInScope, readStoreAt, roleFromBase, type BaseStore } from "../org-store-scope.ts";
+import { ORG_STORE_REL, orgStoreInScope, readStoreAt, roleFromBase, storeReader, type BaseStore } from "../org-store-scope.ts";
 
 const org = { owners: ["dev0"], admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev3"] } } };
 const roster = [
@@ -111,6 +111,45 @@ describe("orgStoreInScope", () => {
     expect(orgStoreInScope(dir, b, roleFromBase(b, "dev2", OWNER), "HEAD", run(committed))).toBe(false);
     expect(orgStoreInScope(dir, b, roleFromBase(b, "dev1", OWNER), "HEAD", run(dev4OnWidgets))).toBe(true);
     expect(orgStoreInScope(dir, b, roleFromBase(b, "dev1", OWNER), "HEAD", run("error"))).toBe(false);
+  });
+});
+
+describe("storeReader", () => {
+  const counting = (sha: { value: string }) => {
+    const calls: string[] = [];
+    const inner = run(headText);
+    const fn = (argv: string[]) => {
+      calls.push(argv[3]!);
+      return argv.includes("rev-parse") ? { code: 0, stdout: `${sha.value}\n` } : inner(argv);
+    };
+    return { fn, calls };
+  };
+
+  test("reads the store once per commit the ref names", () => {
+    const sha = { value: "a".repeat(40) };
+    const { fn, calls } = counting(sha);
+    const read = storeReader("/unused", fn);
+    expect(read("HEAD")).toEqual({ state: "text", text: headText });
+    expect(read("HEAD")).toEqual({ state: "text", text: headText });
+    expect(calls).toEqual(["rev-parse", "ls-tree", "show", "rev-parse"]);
+    sha.value = "b".repeat(40);
+    read("HEAD");
+    expect(calls.slice(4)).toEqual(["rev-parse", "ls-tree", "show"]);
+  });
+
+  test("a ref that does not resolve is unreadable, and a failed read is not remembered", () => {
+    expect(storeReader("/unused", run("error"))("HEAD")).toEqual({ state: "unreadable" });
+    let fail = true;
+    const calls: string[] = [];
+    const read = storeReader("/unused", (argv) => {
+      calls.push(argv[3]!);
+      if (argv.includes("rev-parse")) return { code: 0, stdout: "c".repeat(40) };
+      return fail ? { code: 128, stdout: "" } : run(headText)(argv);
+    });
+    expect(read("HEAD")).toEqual({ state: "unreadable" });
+    fail = false;
+    expect(read("HEAD")).toEqual({ state: "text", text: headText });
+    expect(calls).toEqual(["rev-parse", "ls-tree", "rev-parse", "ls-tree", "show"]);
   });
 });
 

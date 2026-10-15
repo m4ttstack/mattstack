@@ -44,7 +44,7 @@ import {
 import { gitWithToken } from "../team/git-credential.ts";
 import { unpublishedPaths } from "../team/publish-history.ts";
 import { isOrgAdmin, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
-import { ORG_STORE_REL, orgStoreInScope, readStoreAt, roleFromBase } from "../team/org-store-scope.ts";
+import { ORG_STORE_REL, orgStoreInScope, roleFromBase, storeReader } from "../team/org-store-scope.ts";
 import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
@@ -452,6 +452,7 @@ export function teamSnapshotSpec(
 ): SnapshotSpec {
   const readToken = opts.readToken ?? storedForgeToken;
   const owns = (path: string) => opts.ownedRoots.some((root) => path === root || path.startsWith(`${root}/`));
+  const readBase = storeReader(repoDir);
   return {
     id: `team:${slug}`,
     repoDir,
@@ -464,7 +465,7 @@ export function teamSnapshotSpec(
       const local = readTeamLocal(opts.probes, slug);
       const username = local.forgeUsername ?? null;
       const working = roleFor(opts.probes, slug);
-      const base = readStoreAt(repoDir, pushBase?.ref ?? "HEAD");
+      const base = readBase(pushBase?.ref ?? "HEAD");
       const head = roleFromBase(base, username, working);
       // A path needs the committed roles and the working ones: the first stops a self-granted role, the second a revoked one.
       const headRoots = ownedRoots(head);

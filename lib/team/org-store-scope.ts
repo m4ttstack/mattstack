@@ -10,8 +10,8 @@ export const ORG_STORE_REL = "mattstack/org/settings.org.jsonc";
 
 type Run = (argv: string[]) => { code: number; stdout: string };
 
-/** Same budget as the snapshot engine's other git calls; kept here because home-snapshot.ts imports this file. */
-const GIT_TIMEOUT_MS = 15_000;
+/** Short, because these calls block the daemon's event loop. */
+const GIT_TIMEOUT_MS = 5_000;
 
 // Bun.spawnSync because `readAuthorization` is synchronous and the probes exec seam is async.
 const realRun: Run = (argv) => {
@@ -28,6 +28,20 @@ export function readStoreAt(repoDir: string, ref: string, run: Run = realRun): B
   if (listed.stdout.trim() === "") return { state: "absent" };
   const shown = run(["git", "-C", repoDir, "show", `${ref}:${ORG_STORE_REL}`]);
   return shown.code === 0 ? { state: "text", text: shown.stdout } : { state: "unreadable" };
+}
+
+/** `readStoreAt` remembered per commit, so the daemon's status poll spends one git call while the ref stays put. A failed read is not remembered. */
+export function storeReader(repoDir: string, run: Run = realRun): (ref: string) => BaseStore {
+  let memo: { sha: string; store: BaseStore } | null = null;
+  return (ref) => {
+    const resolved = run(["git", "-C", repoDir, "rev-parse", "--verify", "-q", `${ref}^{commit}`]);
+    if (resolved.code !== 0) return { state: "unreadable" };
+    const sha = resolved.stdout.trim();
+    if (memo?.sha === sha) return memo.store;
+    const store = readStoreAt(repoDir, sha, run);
+    if (store.state !== "unreadable") memo = { sha, store };
+    return store;
+  };
 }
 
 /** An org whose store names no admins and no owners is not claimed yet: the creator's first write has no committed role to be judged by. */
