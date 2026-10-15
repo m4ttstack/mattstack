@@ -211,6 +211,21 @@ describe("ci_watch", () => {
     expect(r).toMatchObject({ ok: true, body: { state: "waiting", pipeline: { sha: null, ref: null, mergeRequestEventType: null } } });
     expect((r as any).body.next).toContain("no pipeline for the pushed sha yet");
   });
+  test("maxWaitSeconds caps at 1500, under Claude Code's 1800 s MCP idle timeout", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    expect(await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, maxWaitSeconds: 1500 }, A)).toMatchObject({ ok: true, body: { state: "success" } });
+  });
+  test("reports progress on every poll so a long watch never reads as idle", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    let clock = 0;
+    let ticks = 0;
+    const running = { id: "gitlab:pipeline:10", status: "running", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] };
+    const r = await watchTool({ now: () => clock, sleep: async (ms: number) => { clock += ms; } }, running)
+      .handler({ repoName: "remote:x", iid: 42, sha: SHA, maxWaitSeconds: 90, intervalSeconds: 30 }, A, undefined, () => { ticks++; });
+    expect(r).toMatchObject({ ok: true, body: { state: "running" } });
+    expect((r as any).body.polls).toBeGreaterThan(1);
+    expect(ticks).toBeGreaterThanOrEqual((r as any).body.polls);
+  });
   test("daemon error surfaces", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
     const r = await watchTool({ command: (async () => ({ ok: false, error: "daemon down" })) as any }).handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
@@ -240,7 +255,7 @@ describe("ci_watch", () => {
   test("input bounds", async () => {
     const t = watchTool();
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: "xyz" }, A)).ok).toBe(false);
-    expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, maxWaitSeconds: 1801 }, A)).ok).toBe(false);
+    expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, maxWaitSeconds: 1501 }, A)).ok).toBe(false);
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, intervalSeconds: 5 }, A)).ok).toBe(false);
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, intervalSeconds: 121 }, A)).ok).toBe(false);
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA }, {})).ok).toBe(false);

@@ -104,4 +104,12 @@ describe("callTool", () => {
     await callTool(tool as any, {}, {}, ac.signal);
     expect(seen).toBe(ac.signal);
   });
+
+  test("callTool hands the progress reporter to the handler", async () => {
+    let seen: (() => void) | undefined;
+    const progress = () => {};
+    const tool = { name: "x", description: "", inputSchema: {}, shellForms: { none: "test" }, async handler(_i: Record<string, unknown>, _e: NodeJS.ProcessEnv, _s?: AbortSignal, p?: () => void) { seen = p; return { ok: true, body: {} }; } };
+    await callTool(tool as any, {}, {}, undefined, progress);
+    expect(seen).toBe(progress);
+  });
 });

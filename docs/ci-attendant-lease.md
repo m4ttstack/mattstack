@@ -202,7 +202,9 @@ timeout passes, heartbeating the caller's lease on every poll.
 
 Input: an MR target (`repoName` and `iid`, or `mrUrl`), `sha` (the pushed
 commit, 7 to 40 hex characters, required), `maxWaitSeconds` (default 300,
-capped at 1800), `intervalSeconds` (default 30, 10 to 120; the watch also
+capped at 1500, under Claude Code's 1800 s MCP idle timeout; every poll
+also sends a progress notification when the call carries a progress token,
+which resets that timeout), `intervalSeconds` (default 30, 10 to 120; the watch also
 never polls less often than every half of the lease's `ttlSeconds`, so its
 own heartbeat cannot let the lease go stale), `priorPipelineId` (the numeric
 part of the `gitlab:pipeline:N` head pipeline id read before the push, so a
