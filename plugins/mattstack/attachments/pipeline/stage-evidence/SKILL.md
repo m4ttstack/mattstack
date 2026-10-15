@@ -238,7 +238,7 @@ below): the file name needs the id. Run `mkdir -p <evidence folder>`,
 then save it into the evidence folder as
 `<run id>-<case id>-ticket.<its extension>` with the tool that reads the
 ticket (its image or attachment download) or, for a public URL,
-`curl -fsSL -o <that path> <its URL>` on Bash, and keep the link. Its
+`curl -fsSL --max-redirs 0 -o <that path> <its URL>` on Bash, and keep the link. Its
 board is a browser-evidence brief with `import: <the saved path> from
 <the link>` and `state: FOUND`, drawn at `Annotate or waive each image the
 record does not yet cover (evidence-record)` in its own later pass, so a
@@ -248,7 +248,9 @@ the board sets the record's paths and the run-level `url`. `hide` follows
 the Personal data block. A ticket image is the likeliest to come from
 production, so `hide` names every personal detail on it that is not being
 verified. When no tool can fetch the image, `Ticket image saved?` is no
-and the case takes the link-only branch.
+and the case takes the link-only branch. A public URL that redirects is
+one no tool can fetch: curl refuses the redirect, and it is never retried
+without `--max-redirs 0`.
 
 ### Record the ticket's location as the BEFORE
 
