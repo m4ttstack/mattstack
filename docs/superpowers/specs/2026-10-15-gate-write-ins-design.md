@@ -60,9 +60,15 @@ nothing selected, so it takes a click on Proceed and a click on Next.
 gate-kit's `packages/gate-kit/src/types.ts`) gains an optional
 `writeIn?: true`. Default absent: the question behaves exactly as today.
 
-At gate open the daemon refuses `writeIn` on a question with no options
-(a zero-option question is already free-form):
-`question <id> writeIn needs options`.
+At gate open the daemon refuses a `writeIn` that is present but not `true`
+(`question <id> writeIn must be true when set`), and refuses `writeIn` on a
+question with no options, since a zero-option question is already
+free-form (`question <id> writeIn needs options`). Both are tested in the
+daemon gate handler tests.
+
+Naming: `writeIn: true` on a question is the attribute that allows one;
+`{ "writeIn": "<text>" }` as an answer is the write-in itself. The
+gate-protocol text says this in one sentence for skill authors.
 
 A question's answer gains a third wire shape, alongside the bare value and
 `{ value, note?, text? }`; the `GateAnswer` union in `commands.ts` gets the
@@ -131,10 +137,13 @@ question. Note text is trimmed first, as today.
 | any | yes | text | `{ value, note }` (today) |
 | `writeIn` | no | text | `{ writeIn: text }` |
 | `writeIn` | no | empty | unanswered for a single-select; `[]` skip for a multi (today) |
-| not `writeIn` | no | any | unanswered for a single-select; `[]` skip for a multi, note kept as today |
+| not `writeIn` | no | any | unanswered for a single-select; for a multi, `[]`, or `{ value: [], note }` when the box has text (today) |
 
-`gateItems` keeps a `writeIn` single-select `required`, satisfied by a pick
-or by note text; its docblock is rewritten to say so.
+`gateItems` passes `writeIn` through onto `GateItemDisplay`
+(`packages/gate-kit/src/react/index.ts`), which the console's `isAnswered`,
+`Question` and placeholder logic and the board's shared `Note` all read. It
+keeps a `writeIn` single-select `required`, satisfied by a pick or by note
+text; its docblock is rewritten to say so.
 
 Console (`apps/console/src/app/runs/run-page/GatePanel.tsx`):
 
@@ -153,6 +162,12 @@ Console (`apps/console/src/app/runs/run-page/GatePanel.tsx`):
 
 Board (`apps/board/src/client/board/`):
 
+- The gate cache keeps the attribute: `sanitizeQuestions`
+  (`apps/board/src/gates/cache.ts`, called from `applyOpened` on the live
+  `gate/opened` path) copies `writeIn` alongside `id`, `label`, `multi`,
+  `options` and `context`. Without this a gate opened while the board is
+  running reaches `StageSheet` with the attribute stripped; the boot and
+  reconcile paths already pass questions through.
 - `StageSheet` is the only board body that changes. On `writeIn` questions
   the shared `Note` box (`SheetParts.tsx`) feeds the write-in rule, takes
   the state-following placeholder, and single-selects get click-to-clear.
@@ -178,15 +193,19 @@ branch that shows `wrote in: "<text>"`:
 ### 3. Agents
 
 Which questions set `writeIn`: the pipeline stage sites
-(`plugins/mattstack/attachments/pipeline/*`) set `writeIn: true` on their
-decision questions, the questions where an answer outside the options is
-something the agent can act on. `next` never sets it (Iterate here already
-carries a change request), and neither do review, respond, doctor or
-pane-attention questions. The plan lists each site's questions.
+(`plugins/mattstack/attachments/pipeline/*`) and self-review
+(`attachments/review/self-review`, a stage gate, not one of the excluded
+review-posting gates) set `writeIn: true` on their decision questions, the
+questions where an answer outside the options is something the agent can
+act on. `next` never sets it (Iterate here already carries a change
+request), and neither do the review-post, respond, doctor or
+pane-attention questions. Team packs may set it on their own domain
+questions by the same rule; the plan lists this repo's sites only.
 
 `plugins/mattstack/attachments/gate-protocol/SKILL.md`:
 
-- "Asking": document the attribute and the rule above for when to set it.
+- "Build the gate's questions and context": document the attribute, the
+  naming sentence, and the rule above for when to set it.
 - "Answers are option values" (the section stating the daemon rejects
   anything that is not an option value, and that pane free text replacing
   offered text rides as a note) is rewritten: on a `writeIn` question the
@@ -199,14 +218,21 @@ pane-attention questions. The plan lists each site's questions.
   same rule: words that fit no option become a write-in on a `writeIn`
   question, and keep today's handling elsewhere.
 - A new branch before "Act on the gate answer at the site": when any
-  question came back as a write-in, the verb does not take the site's
-  mechanical branch for that gate. It reads the whole answer set with the
-  write-in as the governing instruction (the other picks may be part of what
-  was meant) and acts on it, as Iterate is handled today. If the next step
-  is still unclear: under a run it opens a new gate (the gate stop hook
-  blocks ending a turn in prose under a running run), and only with no run
-  does it ask in prose. A real decision always opens a new gate, never
-  reuses the old one, matching the existing Hold/Iterate rule.
+  question came back as a write-in, the gate is handled exactly like
+  Iterate here, whatever else was picked:
+  1. The verb does not take the site's mechanical branch for that gate, and
+     ignores that gate's `next` answer. A Proceed beside a write-in is not
+     consent to advance: the form preselects Proceed, so the wire cannot
+     tell a deliberate one from an untouched one.
+  2. It reads the whole answer set with the write-in as the governing
+     instruction (the other picks may be part of what was meant) and does
+     the work the write-in asks for.
+  3. It then always opens a new gate at the same site, never reusing the
+     old one, so the human sees the result before anything advances, closes
+     or ships. If the write-in is too unclear to act on, step 2 is skipped
+     and the new gate asks about it instead (under a run that is the only
+     way to ask, since the gate stop hook blocks ending a turn in prose;
+     with no run, a prose question is fine).
 - Under a run, `run_decision` records the write-in in that question's slot
   as an object, for example `"approach": {"writeIn": "..."}`, never as bare
   text that would read as an option value.
@@ -235,8 +261,9 @@ Build obligations for these edits:
 - rt-client `gate-answers.test.ts`: write-in accepted on single and multi
   `writeIn` questions; refused on a question without the attribute, when
   empty or whitespace, non-string, or combined with value/note/text; the new
-  error strings pinned. Gate open refuses `writeIn` on a zero-option
-  question.
+  error strings pinned.
+- Daemon gate handler tests: gate open refuses `writeIn` on a zero-option
+  question and a `writeIn` that is not `true`, with both strings pinned.
 - gate-kit: the builder table above, `gateItems` required-ness,
   `unwrapGateAnswer`, `answeredGateSummary`.
 - MCP: `gate_ask` accepts `writeIn: true` on a question; `gate_answer`
@@ -247,6 +274,7 @@ Build obligations for these edits:
   leaves Next disabled; Proceed preselected on `next`; a restored draft
   suppresses the preselection; no "Draft saved" on open.
 - Console `derive/gates` tests: `questionAnswer` renders a write-in.
+- Board `gates-cache` test: `writeIn` survives a live `gate/opened` frame.
 - Board: `stage-sheet-dom.test.tsx` gets the console's cases plus the tally
   and `pickChip`; `AnsweredSheet` renders a write-in; stories gain write-in
   states.
