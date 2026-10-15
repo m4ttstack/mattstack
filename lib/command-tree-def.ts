@@ -2949,6 +2949,30 @@ export const TREE: Record<string, CommandNode> = {
               SETUP_JSON_ARG,
             ],
           },
+          add: {
+            description: "Put someone in your org on one of your teams",
+            module: "./commands/team.ts",
+            fn: "teamMembersAdd",
+            omitBehavior: "picker",
+            args: [
+              { name: "Username", type: "text", placeholder: "dev2", hint: "The member's forge username" },
+              { name: "To", flag: "--to", type: "text", placeholder: "widgets", hint: "The team to put them on" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+              SETUP_JSON_ARG,
+            ],
+          },
+          drop: {
+            description: "Take someone off one of your teams",
+            module: "./commands/team.ts",
+            fn: "teamMembersDrop",
+            omitBehavior: "picker",
+            args: [
+              { name: "Username", type: "text", placeholder: "dev2", hint: "The member's forge username" },
+              { name: "From", flag: "--from", type: "text", placeholder: "widgets", hint: "The team to take them off" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+              SETUP_JSON_ARG,
+            ],
+          },
           sync: {
             description: "Collect every outstanding invite's reply key and add it as a sops recipient",
             module: "./commands/team.ts",

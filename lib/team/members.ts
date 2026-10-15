@@ -29,7 +29,9 @@ import { ensureAgeKey, readAgeKey } from "../home/age-key.ts";
 import { orgDirUnder, orgSettingsPath } from "../rt-paths.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { addTeamRecipient, readTeamRecipients, removeTeamRecipient } from "../secrets/team-store.ts";
-import { currentOrg, readStore } from "../settings/stores.ts";
+import { currentOrg, parseStoreText, readStore } from "../settings/stores.ts";
+import { orgStoreChangeRefusal } from "../../packages/rt-client/src/settings/org-store-guard.ts";
+import { SettingsOwnershipRefusal } from "../../packages/rt-client/src/settings/write.ts";
 import { setSetting } from "../settings/write.ts";
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
@@ -38,7 +40,8 @@ import { revokeRead, type RevokeAccess } from "./forge.ts";
 import { canonicalHandle, realReadLocalSecret, revokeBoard, type ReadLocalSecret } from "./board-peers.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
-import { assertMayWrite } from "./roles.ts";
+import { assertMayWrite, roleFor, rolesFor } from "./roles.ts";
+import { orgOwnersAsk, writeRefusalFor } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { assertTeamFolders } from "./team-names.ts";
 import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
@@ -211,8 +214,13 @@ export interface MembersSetResult {
   previous: string[];
 }
 
+const ORG_STORE_REL = "mattstack/org/settings.org.jsonc";
+
+function rosterOnlyStore(roster: unknown) {
+  return parseStoreText("org.jsonc", JSON.stringify({ "mattstack.roster": roster }));
+}
+
 export function membersSetTeams(p: Probes, seams: MembersSeams, slug: string, handle: string, teams: string[]): MembersSetResult {
-  assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
   assertCurrentOrg(slug, seams.currentOrg(), "team members set");
   assertTeamFolders(p, slug, teams);
   const roster = readRoster(seams, slug);
@@ -222,9 +230,35 @@ export function membersSetTeams(p: Probes, seams: MembersSeams, slug: string, ha
   }
   const previous = Array.isArray(entry.teams) ? entry.teams.filter((team): team is string => typeof team === "string") : [];
   const next = [...new Set(teams)];
-  assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
-  seams.writeSetting("mattstack.roster", roster.map((member) => member === entry ? { ...member, teams: next } : member), "org");
+  const nextRoster = roster.map((member) => member === entry ? { ...member, teams: next } : member);
+
+  const role = roleFor(p, slug);
+  const refusal = orgStoreChangeRefusal(role, rosterOnlyStore(roster), rosterOnlyStore(nextRoster));
+  if (refusal !== null) {
+    const roles = rolesFor(p, slug);
+    const why = writeRefusalFor(role, roles, ORG_STORE_REL)?.why ?? orgOwnersAsk(roles);
+    throw new UserActionableError("team-pull-only", refusal.replace(/\.$/, ""), {}, { why });
+  }
+  try {
+    seams.writeSetting("mattstack.roster", nextRoster, "org");
+  } catch (err) {
+    if (err instanceof SettingsOwnershipRefusal) throw new UserActionableError("team-pull-only", err.refusal.message, {}, { why: err.refusal.why });
+    throw err;
+  }
   return { username: entry.username, teams: next, previous };
+}
+
+function teamsOf(seams: MembersSeams, slug: string, handle: string): string[] {
+  const entry = readRoster(seams, slug).find((member) => isMember(member, handle));
+  return Array.isArray(entry?.teams) ? entry.teams.filter((team): team is string => typeof team === "string") : [];
+}
+
+export function membersAddToTeam(p: Probes, seams: MembersSeams, slug: string, handle: string, team: string): MembersSetResult {
+  return membersSetTeams(p, seams, slug, handle, [...teamsOf(seams, slug, handle), team]);
+}
+
+export function membersDropFromTeam(p: Probes, seams: MembersSeams, slug: string, handle: string, team: string): MembersSetResult {
+  return membersSetTeams(p, seams, slug, handle, teamsOf(seams, slug, handle).filter((t) => t !== team));
 }
 
 export interface MembersSyncResult {

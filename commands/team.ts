@@ -57,7 +57,7 @@ import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeam
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { canonicalHandle, readPeeredBoards, realReadLocalSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
-import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDropFromTeam, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { renameOrg, type ConvergeOutcome, type RenameResult, type RenameSeams } from "../lib/team/rename.ts";
@@ -769,6 +769,66 @@ export async function teamMembersSet(args: string[], _ctx: CommandContext = {}, 
     }
     const teams = teamsFlag.split(",").map((team) => team.trim()).filter((team) => team !== "");
     const result = membersSetTeams(deps.probes, deps.membersSeams ?? realMembersSeams(), slug, handle, teams);
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(out.line("done", `${result.username} is on ${result.teams.length > 0 ? result.teams.join(", ") : "no team"}`, result.previous.length > 0 ? `was on ${result.previous.join(", ")}` : undefined));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+export async function teamMembersAdd(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  let handle = positional(args, ["--to", "--team"])[0];
+  const teamFlag = flagValue(args, "--to")?.trim();
+  try {
+    const slug = resolveTeamSlug(args, "team members add");
+    if (!handle && process.stdin.isTTY && !json && !process.env.RT_BATCH) {
+      const candidates = readOrgRosterNames(deps.probes, slug);
+      if (candidates.length > 0) {
+        const { filterableSelect } = await import("../lib/pick-wrappers.ts");
+        const picked = await filterableSelect({ message: "Add which member?", options: candidates.map((name) => ({ value: name, label: name })), stderr: true });
+        if (!picked) process.exit(0);
+        handle = picked;
+      }
+    }
+    if (!handle || !teamFlag) {
+      usageError(deps, json, "Say who, and which team to put them on", "rt team members add <username> --to <team> [--team <org>] [--json]");
+    }
+    const result = membersAddToTeam(deps.probes, deps.membersSeams ?? realMembersSeams(), slug, handle, teamFlag);
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(out.line("done", `${result.username} is on ${result.teams.length > 0 ? result.teams.join(", ") : "no team"}`, result.previous.length > 0 ? `was on ${result.previous.join(", ")}` : undefined));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+export async function teamMembersDrop(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  let handle = positional(args, ["--from", "--team"])[0];
+  const teamFlag = flagValue(args, "--from")?.trim();
+  try {
+    const slug = resolveTeamSlug(args, "team members drop");
+    if (!handle && process.stdin.isTTY && !json && !process.env.RT_BATCH) {
+      const candidates = readOrgRosterNames(deps.probes, slug);
+      if (candidates.length > 0) {
+        const { filterableSelect } = await import("../lib/pick-wrappers.ts");
+        const picked = await filterableSelect({ message: "Take which member off?", options: candidates.map((name) => ({ value: name, label: name })), stderr: true });
+        if (!picked) process.exit(0);
+        handle = picked;
+      }
+    }
+    if (!handle || !teamFlag) {
+      usageError(deps, json, "Say who, and which team to take them off", "rt team members drop <username> --from <team> [--team <org>] [--json]");
+    }
+    const result = membersDropFromTeam(deps.probes, deps.membersSeams ?? realMembersSeams(), slug, handle, teamFlag);
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
