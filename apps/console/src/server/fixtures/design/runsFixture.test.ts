@@ -69,7 +69,9 @@ const picked = (g: GateRow, q = g.questions[0]!) => {
   const raw = g.answer?.answers[q.id];
   const value =
     typeof raw === 'object' && raw !== null && !Array.isArray(raw)
-      ? raw.value
+      ? 'value' in raw
+        ? raw.value
+        : undefined
       : raw;
   const option = q.options.find(
     o => (typeof o === 'string' ? o : o.value) === value
