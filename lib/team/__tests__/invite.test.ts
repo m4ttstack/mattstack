@@ -6,7 +6,7 @@ import { createRealProbes } from "../../setup/probes.ts";
 import { teamLocalPath } from "../team-local.ts";
 import { afterEach, describe, test, expect } from "bun:test";
 import { cleanupOrgWorlds } from "./org-world.ts";
-import { dataBranchWorld } from "./data-branch-world.ts";
+import { dataBranchWorld, layout3World } from "./data-branch-world.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { UserActionableError } from "../../errors.ts";
 import type { Probes } from "../../setup/probes.ts";
@@ -1221,7 +1221,8 @@ describe("real invite seams against main's pointer", () => {
   });
 
   test("an org with no pointer on main keeps the rule: invite only from main", async () => {
-    const w = dataBranchWorld();
+    const w = layout3World();
+    w.git("checkout", "-q", "-b", "mattstack");
     expect(await realMintInviteSeams().pullOrg(w.p, SLUG, w.remote, null).catch((e: unknown) => e)).toMatchObject({
       code: "invite-off-main",
       message: "Your copy of the org is on mattstack, so rt made no invite",
