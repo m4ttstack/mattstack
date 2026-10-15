@@ -32,7 +32,7 @@ function adminsNote(admins: string[]): string {
 export async function orgRows(
   p: Probes,
   org: string,
-  opts: { forge: { provider: ForgeProvider; host: string } | null; readStatus: () => Promise<TeamSnapshotEntry[] | null> },
+  opts: { forge: { provider: ForgeProvider; host: string } | null; readStatus: () => Promise<TeamSnapshotEntry[] | null>; forgeAccess?: () => Promise<Row | null> },
 ): Promise<Row[]> {
   const active = activeTeamFor(p, org);
   const base = { kind: "access" as const, required: false, recheck: "on-activate" as const };
@@ -86,5 +86,7 @@ export async function orgRows(
       }));
     }
   }
+  const forgeAccess = await opts.forgeAccess?.();
+  if (forgeAccess) rows.push(forgeAccess);
   return rows;
 }

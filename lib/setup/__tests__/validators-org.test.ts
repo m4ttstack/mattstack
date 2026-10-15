@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { TeamSnapshotEntry } from "../../daemon/team-snapshots.ts";
 import { teamLocalPath } from "../../team/team-local.ts";
+import { row } from "../contract.ts";
 import { isPushRefusal, orgRows } from "../validators/org.ts";
 import { fakeProbes } from "./fakes.ts";
 
@@ -34,6 +35,16 @@ function status(error: string | null, slug = "acme"): () => Promise<TeamSnapshot
 }
 
 describe("orgRows", () => {
+  test("the forge access row is appended last, and a null one adds nothing", async () => {
+    const p = probes({ username: "dev1" });
+    expect(await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus, forgeAccess: async () => null })).toEqual([]);
+    const access = row({ id: "org.forge-access", kind: "access", title: "Forge access", why: "w", required: false, status: "ready", detail: "d" });
+    const rows = await orgRows(probes(), "acme", { forge: GITHUB, readStatus: noStatus, forgeAccess: async () => access });
+    expect(rows.map((r) => r.id)).toEqual(["team.identity"]);
+    const withAccess = await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus, forgeAccess: async () => access });
+    expect(withAccess.at(-1)?.id).toBe("org.forge-access");
+  });
+
   test("a team member with no access problem gets no rows or writes", async () => {
     const p = probes({ username: "dev1" });
     expect(await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus })).toEqual([]);
