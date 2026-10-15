@@ -1,12 +1,17 @@
-import type { GateQuestion, GateAnswer } from "./commands.ts";
+import type { GateQuestion, GateAnswer, GateWriteIn } from "./commands.ts";
 import { gateOptionValue } from "./gate-options.ts";
 
 export type GateAnswerWire = GateAnswer["answers"][string];
+
+export function isWriteIn(raw: unknown): raw is GateWriteIn {
+  return !!raw && typeof raw === "object" && !Array.isArray(raw) && "writeIn" in (raw as Record<string, unknown>);
+}
 
 /** Both wire shapes carry the same value underneath: bare, or {value,
     note?, text?} when a panel attaches free text or a replacement for text
     the gate offered. Unwrapping keeps only the value. */
 export function unwrapGateAnswerValue(raw: unknown): unknown {
+  if (isWriteIn(raw)) return undefined;
   if (raw && typeof raw === "object" && !Array.isArray(raw) && "value" in (raw as Record<string, unknown>)) {
     return (raw as { value: unknown }).value;
   }
@@ -24,10 +29,20 @@ function wrapperFieldError(qid: string, raw: unknown): string | null {
   return null;
 }
 
+function writeInError(question: GateQuestion, raw: GateWriteIn): string | null {
+  const qid = question.id;
+  if (question.writeIn !== true) return `question ${qid} does not accept a write-in`;
+  if (Object.keys(raw).some((k) => k !== "writeIn")) return `question ${qid} writeIn replaces value, note and text; send it alone`;
+  const text: unknown = raw.writeIn;
+  if (typeof text !== "string" || text.trim() === "") return `question ${qid} writeIn must be a non-empty string`;
+  return null;
+}
+
 /** Option membership is required whenever a question declares options,
     checked against the unwrapped value (every element, for multi); an
     empty options array stays free-form. Every question id must appear as
-    an answers key. Error strings are a wire contract; packages/rt-client/test/gate-answers.test.ts pins them verbatim. */
+    an answers key. A question marked `writeIn` may instead carry `{writeIn}`,
+    checked by `writeInError`. Error strings are a wire contract; packages/rt-client/test/gate-answers.test.ts pins them verbatim. */
 export function validateGateAnswers(
   questions: GateQuestion[],
   answers: Record<string, unknown>,
@@ -36,6 +51,11 @@ export function validateGateAnswers(
   for (const [qid, raw] of Object.entries(answers)) {
     const question = byId.get(qid);
     if (!question) return `unknown question id: ${qid}`;
+    if (isWriteIn(raw)) {
+      const error = writeInError(question, raw);
+      if (error) return error;
+      continue;
+    }
     const wrapperError = wrapperFieldError(qid, raw);
     if (wrapperError) return wrapperError;
     const value = unwrapGateAnswerValue(raw);

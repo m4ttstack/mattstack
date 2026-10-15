@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { unwrapGateAnswerValue, validateGateAnswers } from "../src/gate-answers.ts";
+import { isWriteIn, unwrapGateAnswerValue, validateGateAnswers } from "../src/gate-answers.ts";
 import type { GateQuestion } from "../src/commands.ts";
 
 const single: GateQuestion = { id: "verdict", label: "v", multi: false, options: ["yes", { value: "no", label: "No" }] };
@@ -61,5 +61,42 @@ describe("validateGateAnswers", () => {
   });
   test("note is checked before text", () => {
     expect(validateGateAnswers([single], { verdict: { value: "yes", note: 5, text: 5 } })).toBe("question verdict note must be a string");
+  });
+});
+
+const open: GateQuestion = { id: "approach", label: "a", multi: false, options: ["x", "y"], writeIn: true };
+const openMulti: GateQuestion = { id: "picks", label: "p", multi: true, options: ["a", "b"], writeIn: true };
+
+describe("write-ins", () => {
+  test("isWriteIn spots the shape and nothing else", () => {
+    expect(isWriteIn({ writeIn: "do z" })).toBe(true);
+    expect(isWriteIn({ value: "x" })).toBe(false);
+    expect(isWriteIn("x")).toBe(false);
+    expect(isWriteIn(["x"])).toBe(false);
+  });
+  test("unwrapGateAnswerValue gives undefined for a write-in", () => {
+    expect(unwrapGateAnswerValue({ writeIn: "do z" })).toBeUndefined();
+  });
+  test("accepted on a writeIn single-select and multi", () => {
+    expect(validateGateAnswers([open, openMulti], { approach: { writeIn: "do z" }, picks: { writeIn: "neither" } })).toBeNull();
+  });
+  test("refused on a question without the attribute", () => {
+    expect(validateGateAnswers([single], { verdict: { writeIn: "maybe" } })).toBe("question verdict does not accept a write-in");
+  });
+  test("refused beside value, note or text", () => {
+    const alone = "question approach writeIn replaces value, note and text; send it alone";
+    expect(validateGateAnswers([open], { approach: { writeIn: "z", value: "x" } })).toBe(alone);
+    expect(validateGateAnswers([open], { approach: { writeIn: "z", note: "n" } })).toBe(alone);
+    expect(validateGateAnswers([open], { approach: { writeIn: "z", text: "t" } })).toBe(alone);
+  });
+  test("refused when empty, whitespace or not a string", () => {
+    const empty = "question approach writeIn must be a non-empty string";
+    expect(validateGateAnswers([open], { approach: { writeIn: "" } })).toBe(empty);
+    expect(validateGateAnswers([open], { approach: { writeIn: "   " } })).toBe(empty);
+    expect(validateGateAnswers([open], { approach: { writeIn: 3 } })).toBe(empty);
+  });
+  test("a writeIn question still takes an ordinary pick", () => {
+    expect(validateGateAnswers([open], { approach: "x" })).toBeNull();
+    expect(validateGateAnswers([open], { approach: "nope" })).toBe('answer for "approach" is not one of its options: "nope"');
   });
 });

@@ -6,4 +6,4 @@
 export * from "./gate-answers.ts";
 export * from "./gate-options.ts";
 export * from "./gate-presentation.ts";
-export type { GateOption, GateQuestion, GateAnswer } from "./commands.ts";
+export type { GateOption, GateQuestion, GateAnswer, GateWriteIn } from "./commands.ts";
