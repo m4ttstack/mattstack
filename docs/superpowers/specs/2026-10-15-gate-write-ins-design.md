@@ -211,19 +211,23 @@ questions by the same rule; the plan lists this repo's sites only.
   offered text rides as a note) is rewritten: on a `writeIn` question the
   answer may be `{writeIn}`; everywhere else today's rules hold unchanged.
 - "Map the gate answer to exact option values": on a `writeIn` question,
-  the pane form's "Other" text becomes `{ writeIn: text }`, never coerced
-  into the nearest option. On any other question "Other" keeps today's
-  handling.
+  the pane form's "Other" text with nothing ticked becomes
+  `{ writeIn: text }`, never coerced into the nearest option. "Other" text
+  beside ticked options on a multi becomes `{ value: [ticks], note: text }`,
+  matching the UI builder table. On any other question "Other" keeps
+  today's handling.
 - The words path ("the human answers in words at a held gate") follows the
   same rule: words that fit no option become a write-in on a `writeIn`
   question, and keep today's handling elsewhere.
 - A new branch before "Act on the gate answer at the site": when any
   question came back as a write-in, the gate is handled exactly like
   Iterate here, whatever else was picked:
-  1. The verb does not take the site's mechanical branch for that gate, and
-     ignores that gate's `next` answer. A Proceed beside a write-in is not
-     consent to advance: the form preselects Proceed, so the wire cannot
-     tell a deliberate one from an untouched one.
+  1. The verb does not take the site's mechanical branch for that gate. A
+     Proceed on `next` beside a write-in is ignored: the form preselects
+     Proceed, so the wire cannot tell a deliberate one from an untouched
+     one. A Hold or Go back on `next` is never preselected, so it is
+     deliberate and wins: the verb holds or goes back with the write-in
+     carried as that move's note, and steps 2 and 3 do not run.
   2. It reads the whole answer set with the write-in as the governing
      instruction (the other picks may be part of what was meant) and does
      the work the write-in asks for.
