@@ -557,9 +557,10 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
 
     const local = readTeamLocal(deps.probes, slug);
     if (!isOrgAdmin(roleFor(deps.probes, slug))) {
-      const admins = rolesFor(deps.probes, slug).admins;
+      const roles = rolesFor(deps.probes, slug);
+      const ask = roles.admins.length > 0 ? roles.admins : roles.owners;
       throw new UserActionableError("team-pull-only", "Only an org admin invites", {}, {
-        why: admins.length > 0 ? `Ask ${admins.join(" or ")} to invite ${handle}.` : "This org names no admins yet.",
+        why: ask.length > 0 ? `Ask ${ask.join(" or ")} to invite ${handle}.` : "This org names no admins yet.",
       });
     }
     const named = (flagValue(args, "--teams") ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");

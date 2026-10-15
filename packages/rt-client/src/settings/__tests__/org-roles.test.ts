@@ -118,6 +118,11 @@ describe("writeRefusalFor names the owner", () => {
     const refusal = writeRefusalFor(roleOf("dev4", { owners: [], admins: [], teams: {} }), { owners: [], admins: [], teams: {} }, "mattstack/org/settings.org.jsonc");
     expect(refusal?.why).toBe("This org names no admins yet. Its mattstack.org setting has to list one.");
   });
+  test("an org with owners and no admins names its owners", () => {
+    const roles = { owners: ["dev0"], admins: [], teams: { gadgets: { owners: ["dev2"] } } };
+    expect(writeRefusalFor(roleOf("dev4", roles), roles, "mattstack/org/settings.org.jsonc")?.why).toBe("Ask dev0 (an org owner) to make this change.");
+    expect(writeRefusalFor(roleOf("dev4", roles), roles, "mattstack/teams/gadgets/settings.team.jsonc")?.why).toBe("Ask dev2 (the team's owner) or dev0 (an org owner) to make this change.");
+  });
   test("an admin writing outside what rt manages is not told to ask an admin", () => {
     const refusal = writeRefusalFor(roleOf("dev1", ROLES), ROLES, "src/index.ts");
     expect(refusal).toEqual({

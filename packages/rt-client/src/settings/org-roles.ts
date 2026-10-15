@@ -52,8 +52,11 @@ function names(list: string[]): string {
   return list.length <= 1 ? (list[0] ?? "") : `${list.slice(0, -1).join(", ")} or ${list[list.length - 1]}`;
 }
 
-function adminsClause(admins: string[]): string {
-  return `${names(admins)} (${admins.length === 1 ? "an org admin" : "org admins"})`;
+/** The admins, or the org owners when the org names no admins; null when it names neither. */
+function adminsClause(roles: OrgRoles): string | null {
+  if (roles.admins.length > 0) return `${names(roles.admins)} (${roles.admins.length === 1 ? "an org admin" : "org admins"})`;
+  if (roles.owners.length > 0) return `${names(roles.owners)} (${roles.owners.length === 1 ? "an org owner" : "org owners"})`;
+  return null;
 }
 
 /** Who to ask for a change only an org owner may make. */
@@ -72,11 +75,12 @@ export function writeRefusalFor(role: OrgRole, roles: OrgRoles, relPath: string)
   }
   const team = /^mattstack\/teams\/([^/]+)(\/|$)/.exec(posix.normalize(relPath))?.[1];
   const noAdmins = "This org names no admins yet. Its mattstack.org setting has to list one.";
+  const admins = adminsClause(roles);
   if (team !== undefined && TEAM_NAME_RE.test(team)) {
     const owners = roles.teams[team]?.owners ?? [];
     const ask = [
       ...(owners.length > 0 ? [`${names(owners)} (the team's ${owners.length === 1 ? "owner" : "owners"})`] : []),
-      ...(roles.admins.length > 0 ? [adminsClause(roles.admins)] : []),
+      ...(admins !== null ? [admins] : []),
     ];
     return {
       message: `The ${team} team's files belong to its owners`,
@@ -85,7 +89,7 @@ export function writeRefusalFor(role: OrgRole, roles: OrgRoles, relPath: string)
   }
   return {
     message: "The org's shared files belong to its admins",
-    why: roles.admins.length > 0 ? `Ask ${adminsClause(roles.admins)} to make this change.` : noAdmins,
+    why: admins !== null ? `Ask ${admins} to make this change.` : noAdmins,
   };
 }
 

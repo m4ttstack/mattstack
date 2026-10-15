@@ -547,6 +547,20 @@ describe("teamInvite", () => {
     } finally { io.restore(); }
   });
 
+  test("human mode: an org with owners and no admins names its owners", async () => {
+    const deps = inviteDeps({ record: { forgeUsername: "dev2" } });
+    deps.probes.writeFile(join(teamDir, "mattstack", "org", "settings.org.jsonc"), JSON.stringify({
+      "mattstack.org": { owners: ["dev0"], admins: [], teams: { widgets: { owners: ["dev2"] } } },
+    }));
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "dev3", "--team", "acme"], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toBe("[refused] Only an org admin invites\n  why: Ask dev0 to invite dev3.\n");
+    } finally { io.restore(); }
+  });
+
   test("on a TTY, accepting the offer writes the permission before minting", async () => {
     const deps = inviteDeps({ record: { createdByRt: true } });
     deps.interactive = () => true;
