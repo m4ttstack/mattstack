@@ -185,6 +185,11 @@ const NO_OWNERS: Owners = { zones: {} };
 // the fixture repoDir the whole suite shares must actually exist on disk,
 // not just look plausible as a string.
 const FAKE_REPO_DIR = realpathSync(mkdtempSync(join(tmpdir(), "rt-home-snapshot-fakerepo-")));
+// The team authorization reads the org store at a ref with real git (and fails closed when it cannot), so the
+// directory is a repo whose commit holds no org store and whose origin ref points at it.
+for (const args of [["init", "-q", "-b", "main"], ["-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], ["update-ref", "refs/remotes/origin/main", "HEAD"]]) {
+  execFileSync("git", args, { cwd: FAKE_REPO_DIR, env: childEnv(), stdio: "pipe" });
+}
 afterAll(() => {
   try { rmSync(FAKE_REPO_DIR, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
 });
@@ -2233,14 +2238,13 @@ describe("teamSnapshotSpec", () => {
         await handle.ready;
         await handle.runNow("watch");
         expect(handle.status().heldBack).toEqual([MARKET]);
-        mkdirSync(join(FAKE_REPO_DIR, ".git"), { recursive: true });
         writeFileSync(join(FAKE_REPO_DIR, ".git", "MERGE_HEAD"), "");
         expect((await handle.runNow("watch")).skipped).toBe("merge-in-progress");
         expect(handle.status().heldBack).toEqual([]);
         handle.stop();
       } finally {
         rmSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true, force: true });
-        rmSync(join(FAKE_REPO_DIR, ".git"), { recursive: true, force: true });
+        rmSync(join(FAKE_REPO_DIR, ".git", "MERGE_HEAD"), { force: true });
       }
     });
   });
@@ -3687,6 +3691,28 @@ describe("team snapshot scope follows the org store guard", () => {
     expect(auth.scope("mattstack/teams/gadgets/settings.team.jsonc")).toBe(false);
     expect(auth.scope("mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a hand-committed self-grant is out of push scope, an admin's committed roster change is in", () => {
+    const pushed = (user: string, committed: string, probeOrg: unknown) => {
+      const { dir } = setup(user, body(org), probeOrg);
+      gitIn(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+      writeFileSync(join(dir, STORE), committed);
+      gitIn(dir, "commit", "-q", "-am", "change");
+      const spec = teamSnapshotSpec("acme", dir, { ownedRoots: [], probes: fakeProbes({ home: "/h", files: {
+        "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: user }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": body(probeOrg),
+      } }), originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null });
+      return { auth: spec.readAuthorization!({ ref: "refs/remotes/origin/main" }), dir };
+    };
+    const promoted = { ...org, admins: ["dev1", "dev2"] };
+    const grant = pushed("dev2", body(promoted), promoted);
+    expect(grant.auth.scope(STORE)).toBe(false);
+    expect(grant.auth.scope("mattstack/teams/gadgets/settings.team.jsonc")).toBe(false);
+    const rosterChange = pushed("dev1", body(org, [{ ...roster[0], teams: ["gadgets", "widgets"] }]), org);
+    expect(rosterChange.auth.scope(STORE)).toBe(true);
+    rmSync(grant.dir, { recursive: true, force: true });
+    rmSync(rosterChange.dir, { recursive: true, force: true });
   });
 
   test("an admin who demotes themselves still has the org store change in scope", () => {

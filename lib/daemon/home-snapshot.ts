@@ -44,7 +44,7 @@ import {
 import { gitWithToken } from "../team/git-credential.ts";
 import { unpublishedPaths } from "../team/publish-history.ts";
 import { isOrgAdmin, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
-import { ORG_STORE_REL, orgStoreInScope, roleAtHead } from "../team/org-store-scope.ts";
+import { ORG_STORE_REL, orgStoreInScope, readStoreAt, roleFromBase } from "../team/org-store-scope.ts";
 import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
@@ -169,7 +169,7 @@ export interface SnapshotSpec {
   /** Zones claimed for as long as the spec runs, as if written to the owners file; a claim in the file wins over one here. */
   standingZones?: (repoDir: string, log: Logger) => Owners["zones"];
   /** `held` paths are in scope but not staged this round, given the round's dirty paths; they are not reported as unowned. */
-  readAuthorization?: () => { scope: (relPath: string) => boolean; pullOnly: boolean; held?: (relPath: string, dirty: readonly string[]) => boolean };
+  readAuthorization?: (base?: { ref: string }) => { scope: (relPath: string) => boolean; pullOnly: boolean; held?: (relPath: string, dirty: readonly string[]) => boolean };
   /** Every managed path, including paths this Mac may not push. */
   watch?: (relPath: string) => boolean;
   /** Fetch + rebase policy; absent = never pull (the home repo is single-writer). */
@@ -459,16 +459,18 @@ export function teamSnapshotSpec(
     eventPrefix: "team",
     scope: (path) => teamScope(path) && owns(path),
     standingZones: teamStandingZones,
-    readAuthorization: () => {
+    // Commit time judges by HEAD; the push gate passes the remote-tracking ref so a hand-committed self-grant cannot approve itself.
+    readAuthorization: (pushBase) => {
       const local = readTeamLocal(opts.probes, slug);
       const username = local.forgeUsername ?? null;
       const working = roleFor(opts.probes, slug);
-      const head = roleAtHead(repoDir, username, working);
+      const base = readStoreAt(repoDir, pushBase?.ref ?? "HEAD");
+      const head = roleFromBase(base, username, working);
       // A path needs the committed roles and the working ones: the first stops a self-granted role, the second a revoked one.
       const headRoots = ownedRoots(head);
       const workingRoots = ownedRoots(working);
       const shares = local.pendingPackShares ?? [];
-      const orgStore = (head.kind === "owner" || isOrgAdmin(head)) && orgStoreInScope(repoDir, username, working);
+      const orgStore = (head.kind === "owner" || isOrgAdmin(head)) && orgStoreInScope(repoDir, base, head, pushBase ? "HEAD" : null);
       const under = (roots: string[], path: string) => roots.some((root) => path === root || path.startsWith(`${root}/`));
       const inRoots = (path: string) => under(headRoots, path) && under(workingRoots, path);
       return {
@@ -1090,8 +1092,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
   }
 
-  function authorization() {
-    return spec.readAuthorization?.() ?? { scope: spec.scope, pullOnly: spec.pullOnly === true, held: undefined };
+  function authorization(base?: { ref: string }) {
+    return spec.readAuthorization?.(base) ?? { scope: spec.scope, pullOnly: spec.pullOnly === true, held: undefined };
   }
 
   let observedEntries: ReturnType<typeof parsePorcelainZ> = [];
@@ -1131,7 +1133,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         : "rt could not check your pending changes";
       return false;
     }
-    const current = authorization();
+    const current = authorization({ ref: `refs/remotes/origin/${branch.stdout.trim()}` });
     if (current.pullOnly || [...paths].some((path) => !(current.scope?.(path) ?? true))) {
       pushPending = true;
       lastPushError = "Your role no longer owns these pending changes. Ask an org admin before publishing them";
