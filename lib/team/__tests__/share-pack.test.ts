@@ -175,7 +175,7 @@ describe("sharePack", () => {
       await handle.ready;
       const round = await handle.runNow("manual");
       expect(round.committed).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      for (let i = 0; i < 1000 && handle.status().lastPushAt === 0; i++) await Bun.sleep(10);
     } finally {
       handle.stop();
     }
