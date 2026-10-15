@@ -95,6 +95,7 @@ for (const provider of ["github", "gitlab"] as const) {
       const { p, forge, seams } = setup(provider, { users: USERS, members: MEMBERS, addedDirectly: USERS });
       const { applied } = await applyForgeAccess(p, "acme", seams);
       expect(applied?.manualSteps).toEqual([]);
+      expect(applied?.heldOff).toEqual([]);
       expect(forge.members()).toMatchObject({ dev2: { level: "write" }, dev3: { level: "write" }, dev5: { level: "write" } });
       const after = await readForgeAccess(p, "acme", seams);
       expect(after.kind === "ready" ? [after.pushList, after.diff.grant] : after).toEqual([{ kind: "named", users: expect.arrayContaining(["dev1", "dev2"]) }, []]);
@@ -139,6 +140,7 @@ test("github: someone whose grant is still an invitation stays off the push list
   const { applied } = await applyForgeAccess(p, "acme", seams);
   expect(applied?.done).toContain("Invited dev2 to the repo with write access");
   expect(applied?.manualSteps).toEqual([]);
+  expect(applied?.heldOff).toEqual(["dev2"]);
   const after = await readForgeAccess(p, "acme", seams);
   expect(after.kind === "ready" && after.pushList.kind === "named" ? after.pushList.users : null).toEqual(["dev1"]);
   expect(forge.members().dev3).toMatchObject({ level: "read" });

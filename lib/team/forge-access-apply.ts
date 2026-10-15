@@ -58,6 +58,8 @@ export interface ForgeAccessApplied {
   done: string[];
   manualSteps: string[];
   limit: string | null;
+  /** Kept off the push list this run (an invite not accepted yet, a grant that failed); the sweep comes back for them. */
+  heldOff: string[];
 }
 
 export interface AdminFollow {
@@ -153,14 +155,14 @@ export async function applyForgeAccess(p: Probes, slug: string, seams: ForgeAcce
   let limit: string | null = null;
 
   // Grants come first: a forge only puts someone with write on a push list. They only ever raise a level.
-  const offList = new Set(diff.waiting.map(key));
+  const offList = new Map(diff.waiting.map((u) => [key(u), u]));
   for (const g of diff.grant) {
     const r = await access.grant(g.username, g.level);
     if (!r.ok) {
       manualSteps.push(...r.manualSteps);
-      offList.add(key(g.username));
+      offList.set(key(g.username), g.username);
     } else if (r.value === "invited") {
-      offList.add(key(g.username));
+      offList.set(key(g.username), g.username);
       done.push(`Invited ${g.username} to the repo with ${g.level} access`);
     } else {
       done.push(`Gave ${g.username} ${g.level} access`);
@@ -188,7 +190,7 @@ export async function applyForgeAccess(p: Probes, slug: string, seams: ForgeAcce
   }
 
   editTeamLocal(p, slug, () => ({ forgeAccess: { fingerprint: fingerprintOf(wanted, branch), manualSteps } }));
-  return { report, applied: { done, manualSteps, limit } };
+  return { report, applied: { done, manualSteps, limit, heldOff: [...offList.values()] } };
 }
 
 /**

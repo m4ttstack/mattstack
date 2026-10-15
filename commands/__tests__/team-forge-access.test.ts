@@ -60,7 +60,7 @@ describe("forgeAccessBlocks", () => {
     expect(renderPlain(forgeAccessBlocks("acme", ready({ managing: true }), null))).toContain("rt team forge-access --apply --team acme");
   });
   test("an applied run lists what changed, the limit and the steps by hand", () => {
-    const text = renderPlain(forgeAccessBlocks("acme", ready({ managing: true }), { done: ["Gave dev2 write access"], manualSteps: ["Open https://gitlab.com/acme/widgets/-/settings/repository"], limit: "x. Anyone with write access can push mattstack, and only rt limits what they change there." }));
+    const text = renderPlain(forgeAccessBlocks("acme", ready({ managing: true }), { done: ["Gave dev2 write access"], manualSteps: ["Open https://gitlab.com/acme/widgets/-/settings/repository"], limit: "x. Anyone with write access can push mattstack, and only rt limits what they change there.", heldOff: [] }));
     expect(text).toContain("Gave dev2 write access");
     expect(text).toContain("only rt limits what they change there");
     expect(text).toContain("Open https://gitlab.com/acme/widgets/-/settings/repository");

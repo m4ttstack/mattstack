@@ -11,7 +11,7 @@ const SECRETS = { marker: "team secrets for acme" } as unknown as SecretsSeams;
 const real = forgeAccessStepSeams.run;
 afterEach(() => { forgeAccessStepSeams.run = real; });
 const ran = (applied: { done: string[]; manualSteps: string[] }, admin: { reencrypted: string[]; failure: string | null } | null = null) =>
-  async () => ({ report: { kind: "no-forge" as const }, applied: { ...applied, limit: null }, admin });
+  async () => ({ report: { kind: "no-forge" as const }, applied: { ...applied, limit: null, heldOff: [] }, admin });
 
 function ctx(me: string, latch: boolean): ApplyContext {
   const p = fakeProbes({
@@ -36,7 +36,7 @@ describe("org.forge-access", () => {
     const seen: unknown[] = [];
     forgeAccessStepSeams.run = async (_p, _slug, secrets) => {
       seen.push(secrets);
-      return { report: { kind: "no-forge" }, applied: { done: ["Gave dev2 write access"], manualSteps: [], limit: null }, admin: null };
+      return { report: { kind: "no-forge" }, applied: { done: ["Gave dev2 write access"], manualSteps: [], limit: null, heldOff: [] }, admin: null };
     };
     expect(await orgForgeAccessStep.run(ctx("dev1", true))).toEqual({ state: "done", detail: "acme: Gave dev2 write access" });
     expect(seen).toEqual([SECRETS]);
