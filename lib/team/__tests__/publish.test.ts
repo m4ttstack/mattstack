@@ -588,6 +588,22 @@ describe("a pending org store change passes the org store guard", () => {
     expect(w.pushes).toHaveLength(0);
   }, 15_000);
 
+  for (const [name, block] of [["admins as a string", "dev1"], ["owners as a number", 7], ["admins holding a non-string", ["dev1", 3]]] as const) {
+    test(`a base org store with ${name} is an inspection failure, not an unclaimed org`, async () => {
+      const w = orgWorld("dev2", { roles: ROLES, settings: { "mattstack.roster": ROSTER } });
+      const file = join(w.root, STORE);
+      const good = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+      const key = name.startsWith("owners") ? "owners" : "admins";
+      writeFileSync(file, JSON.stringify({ ...good, "mattstack.org": { admins: [], teams: {}, [key]: block } }, null, 2));
+      w.git("commit", "-q", "-am", "broken roles");
+      w.git("push", "-q", "origin", "main");
+      writeFileSync(file, JSON.stringify({ ...good, "mattstack.org": { admins: ["dev2"], teams: {} } }, null, 2));
+      w.git("commit", "-q", "-am", "self-claim");
+      await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ message: "rt could not check your pending changes" });
+      expect(w.pushes).toHaveLength(0);
+    }, 15_000);
+  }
+
   test("a malformed pending org store is refused, not read as everything deleted", async () => {
     const w = orgWorld("dev1", { roles: ROLES, settings: { "mattstack.roster": ROSTER } });
     const file = join(w.root, STORE);

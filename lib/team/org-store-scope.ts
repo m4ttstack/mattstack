@@ -4,7 +4,7 @@ import { rolesFrom, type OrgRoles } from "../../packages/rt-client/src/settings/
 import { orgStoreChangeRefusal } from "../../packages/rt-client/src/settings/org-store-guard.ts";
 import { roleOf, type OrgRole } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
-import { parseStoreTextStrict } from "../../packages/rt-client/src/settings/stores.ts";
+import { parseStoreTextStrict, type StoreFile } from "../../packages/rt-client/src/settings/stores.ts";
 import { runCapture } from "../subprocess.ts";
 
 export { ORG_STORE_REL };
@@ -49,13 +49,35 @@ export function isUnclaimed(roles: OrgRoles): boolean {
   return roles.admins.length === 0 && roles.owners.length === 0;
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+const isStringArray = (v: unknown): boolean => Array.isArray(v) && v.every((s) => typeof s === "string");
+
+function wellFormedOrgBlock(block: unknown): boolean {
+  if (!isPlainObject(block)) return false;
+  const { admins, owners, teams } = block;
+  return (admins === undefined || isStringArray(admins)) && (owners === undefined || isStringArray(owners)) && (teams === undefined || isPlainObject(teams));
+}
+
+/** The roles a store names, or null when its `mattstack.org` block (flat, versioned or nested spelling) is present but malformed, so a broken block never reads as an unclaimed org. */
+export function orgRolesOf(store: StoreFile): OrgRoles | null {
+  const blocks: unknown[] = [];
+  for (const [key, value] of Object.entries(store.global)) {
+    if (key === "mattstack.org" || /^mattstack\.org@[1-9]\d*$/.test(key)) blocks.push(value);
+  }
+  const nested = store.global["mattstack"];
+  if (isPlainObject(nested) && nested["org"] !== undefined) blocks.push(nested["org"]);
+  if (!blocks.every(wellFormedOrgBlock)) return null;
+  return rolesFrom(store);
+}
+
 /** The role the base org store gives this user, so an uncommitted or unpushed edit cannot grant itself the role that approves it. Absent or unclaimed base: the fallback; unreadable or malformed base: unknown. */
 export function roleFromBase(base: BaseStore, username: string | null, fallback: OrgRole): OrgRole {
   if (base.state === "absent") return fallback;
   if (base.state === "unreadable") return { kind: "unknown" };
   const store = parseStoreTextStrict(ORG_STORE_REL, base.text);
   if (store === null) return { kind: "unknown" };
-  const roles = rolesFrom(store);
+  const roles = orgRolesOf(store);
+  if (roles === null) return { kind: "unknown" };
   return isUnclaimed(roles) ? fallback : roleOf(username, roles);
 }
 

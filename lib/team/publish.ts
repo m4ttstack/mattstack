@@ -8,9 +8,8 @@
 import { gitWithToken } from "./git-credential.ts";
 import { join } from "path";
 import { orgStoreChangeRefusal } from "../../packages/rt-client/src/settings/org-store-guard.ts";
-import { rolesFrom } from "../../packages/rt-client/src/settings/active-team.ts";
 import { readTeamLocal } from "./team-local.ts";
-import { isUnclaimed } from "./org-store-scope.ts";
+import { isUnclaimed, orgRolesOf } from "./org-store-scope.ts";
 import { parseStoreTextStrict, type StoreFile } from "../../packages/rt-client/src/settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { UserActionableError } from "../errors.ts";
@@ -131,7 +130,8 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   // Judged by the roles the remote already holds, so a pending or uncommitted edit cannot grant itself the role that approves it.
   const before = await show(base.sha);
   if (before === null) throw inspectionFailure();
-  const fromBase = base.sha === null ? null : rolesFrom(before);
+  const fromBase = base.sha === null ? null : orgRolesOf(before);
+  if (base.sha !== null && fromBase === null) throw inspectionFailure();
   const baseRoles = fromBase !== null && !isUnclaimed(fromBase) ? fromBase : null;
   const judge = baseRoles === null ? current : roleOf(readTeamLocal(p, slug).forgeUsername ?? null, baseRoles);
   // A path needs both the remote's roles and this clone's current ones: the first stops a self-granted role, the second a revoked one.

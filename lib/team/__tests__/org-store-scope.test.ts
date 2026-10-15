@@ -153,6 +153,29 @@ describe("storeReader", () => {
   });
 });
 
+describe("roleFromBase with a malformed roles block", () => {
+  const bad: Array<[string, Record<string, unknown>]> = [
+    ["admins as a string", { admins: "dev1", teams: {} }],
+    ["owners as a number", { admins: [], owners: 7, teams: {} }],
+    ["admins holding a non-string", { admins: ["dev1", 3], teams: {} }],
+    ["teams as an array", { admins: [], teams: [] }],
+  ];
+  for (const [name, block] of bad) {
+    test(`${name} is unknown, so a self-claim is out of scope`, async () => {
+      const head = JSON.stringify({ "mattstack.org": block });
+      expect(roleFromBase(await base(head), "dev1", { kind: "admin" })).toEqual({ kind: "unknown" });
+      write(JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }));
+      expect(await inScope(dir, "dev1", { kind: "admin" }, head)).toBe(false);
+    });
+  }
+
+  test("a well-formed unclaimed base still lets the creator claim", async () => {
+    const head = JSON.stringify({ "mattstack.org": { admins: [], owners: [], teams: {} } });
+    write(JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }));
+    expect(await inScope(dir, "dev1", { kind: "admin" }, head)).toBe(true);
+  });
+});
+
 describe("roleFromBase", () => {
   test("reads the user's role from the base store and falls back without one", async () => {
     expect(roleFromBase(await base(headText), "dev2", { kind: "member" })).toEqual({ kind: "owner", teams: ["widgets"] });
