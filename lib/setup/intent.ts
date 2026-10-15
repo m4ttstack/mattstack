@@ -27,6 +27,8 @@ export interface InvitePointer {
       Absent when the owner's Mac holds no switchboard admin token or the
       register failed. `url` appears only in a pointer from an older rt. */
   switchboard?: { url?: string; token: string };
+  /** The branch holding the org's data, read from main's pointer at invite time; absent for an org whose data lives on main. */
+  dataBranch?: string;
 }
 
 export interface SetupIntent {

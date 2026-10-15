@@ -1,5 +1,6 @@
 import { UserActionableError } from "../errors.ts";
 import type { InvitePointer } from "../setup/intent.ts";
+import { validBranch } from "./org-marker.ts";
 
 export const INVITE_ID_BYTES = 16;
 const KEY_BYTES = 32;
@@ -221,7 +222,8 @@ function assertInvitePointerShape(value: unknown): asserts value is InvitePointe
     p.remote.length > 0 &&
     typeof p.owner === "string" &&
     typeof p.forge === "string" &&
-    typeof p.createdAt === "string";
+    typeof p.createdAt === "string" &&
+    (p.dataBranch === undefined || (typeof p.dataBranch === "string" && validBranch(p.dataBranch)));
   if (!ok) {
     throw new UserActionableError("invite-unreadable", "invite pointer payload is malformed");
   }

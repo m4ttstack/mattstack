@@ -4,7 +4,9 @@ import { tmpdir } from "os";
 import { childEnv } from "../../subprocess.ts";
 import { createRealProbes } from "../../setup/probes.ts";
 import { teamLocalPath } from "../team-local.ts";
-import { describe, test, expect } from "bun:test";
+import { afterEach, describe, test, expect } from "bun:test";
+import { cleanupOrgWorlds } from "./org-world.ts";
+import { dataBranchWorld } from "./data-branch-world.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { UserActionableError } from "../../errors.ts";
 import type { Probes } from "../../setup/probes.ts";
@@ -113,7 +115,7 @@ function baseSeams(overrides: Partial<MintInviteSeams> = {}): { seams: MintInvit
     readTeamStore: () => ({ "mattstack.roster": [] }),
     writeSetting: spy,
     currentOrg: () => SLUG,
-    pullOrg: async () => {},
+    pullOrg: async () => ({ dataBranch: null }),
     publishRoster: async () => {},
     grantRead: async () => ({ access: "granted", manualSteps: [] }),
     // Default ON so the existing suite keeps exercising the grant path it was
@@ -815,7 +817,7 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
       const relay = fakeRelayClient();
       const order: string[] = [];
       const { seams } = baseSeams({
-        pullOrg: async () => { order.push("pull"); },
+        pullOrg: async () => { order.push("pull"); return { dataBranch: null }; },
         readTeamStore: () => { order.push("read roster"); return { "mattstack.roster": [] }; },
         writeSetting: (() => { order.push("write roster"); }) as unknown as MintInviteSeams["writeSetting"],
         publishRoster: async (_p, slug, handle) => { order.push(`publish ${slug} ${handle}, invites so far: ${relay.createCalls.length}`); },
@@ -912,7 +914,12 @@ describe("real invite git seams", () => {
 
   test("a never-published org has nothing to pull", async () => {
     const p = probesWithRemote(REMOTE);
-    p.exec = async (argv) => { p.calls.exec.push(argv); return argv.includes("symbolic-ref") ? { code: 0, stdout: "main\n", stderr: "" } : { code: 1, stdout: "", stderr: "" }; };
+    p.exec = async (argv) => {
+      p.calls.exec.push(argv);
+      if (argv.includes("symbolic-ref")) return { code: 0, stdout: "main\n", stderr: "" };
+      if (argv.includes("fetch")) return { code: 128, stdout: "", stderr: "fatal: couldn't find remote ref main" };
+      return argv.includes("rev-parse") ? { code: 1, stdout: "", stderr: "" } : { code: 0, stdout: "", stderr: "" };
+    };
     await realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null);
     expect(p.calls.exec).toContainEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
     expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
@@ -1144,4 +1151,94 @@ describe("roster publication in an existing clone", () => {
       } finally { rmSync(home, { recursive: true, force: true }); }
     });
   }
+});
+
+
+describe("invite and main's pointer", () => {
+  test("seals the data branch pullOrg found into the invite", async () => {
+    const relay = fakeRelayClient();
+    const { seams } = baseSeams({ pullOrg: async () => ({ dataBranch: "mattstack" }) });
+    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams);
+    const { idHex, key } = decodeCode(result.code);
+    const opened = await open(relay.createCalls[0]!.ciphertext, key, idHex);
+    expect(opened.dataBranch).toBe("mattstack");
+  });
+
+  test("an org whose data lives on main seals no data branch", async () => {
+    const relay = fakeRelayClient();
+    const { seams } = baseSeams();
+    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams);
+    const { idHex, key } = decodeCode(result.code);
+    expect(await open(relay.createCalls[0]!.ciphertext, key, idHex)).not.toHaveProperty("dataBranch");
+  });
+
+  test("a failed publish names the data branch to pull", async () => {
+    const relay = fakeRelayClient();
+    const { seams } = baseSeams({
+      pullOrg: async () => ({ dataBranch: "mattstack" }),
+      publishRoster: async () => { throw new UserActionableError("push-denied", "The org repo refused the push"); },
+    });
+    await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams)).rejects.toMatchObject({
+      code: "roster-not-published",
+      next: "git -C /home/.mattstack/orgs/acme pull --rebase --autostash origin mattstack",
+    });
+  });
+});
+
+describe("real invite seams against main's pointer", () => {
+  afterEach(() => cleanupOrgWorlds());
+
+  test("a clone on the data branch pulls it and reports the branch", async () => {
+    const w = dataBranchWorld();
+    w.pointMainAtData();
+    expect(await realMintInviteSeams().pullOrg(w.p, SLUG, w.remote, null)).toEqual({ dataBranch: "mattstack" });
+  });
+
+  test("a clone on main is refused once main points at a data branch", async () => {
+    const w = dataBranchWorld();
+    w.pointMainAtData();
+    w.git("checkout", "-q", "main");
+    await expect(realMintInviteSeams().pullOrg(w.p, SLUG, w.remote, null)).rejects.toMatchObject({
+      code: "invite-off-main",
+      message: "Your copy of the org is on main, so rt made no invite",
+      why: "The people you invite clone mattstack. Switch to it to invite.",
+      next: "rt team branch use mattstack",
+    });
+  });
+
+  test("a trial branch whose own marker names the trial is refused, since main's pointer decides", async () => {
+    const w = dataBranchWorld();
+    w.pointMainAtData();
+    w.git("checkout", "-q", "-b", "mattstack-trial");
+    writeFileSync(join(w.root, "mattstack", "mattstack.jsonc"), `${JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack-trial" })}\n`);
+    w.git("commit", "-q", "-am", "trial marker");
+    const err = await realMintInviteSeams().pullOrg(w.p, SLUG, w.remote, null).catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      code: "invite-off-main",
+      message: "Your copy of the org is on mattstack-trial, so rt made no invite",
+      why: "The people you invite clone mattstack. Switch to it to invite.",
+      next: "rt team branch use mattstack",
+    });
+  });
+
+  test("an org with no pointer on main keeps the rule: invite only from main", async () => {
+    const w = dataBranchWorld();
+    expect(await realMintInviteSeams().pullOrg(w.p, SLUG, w.remote, null).catch((e: unknown) => e)).toMatchObject({
+      code: "invite-off-main",
+      message: "Your copy of the org is on mattstack, so rt made no invite",
+      next: `git -C ${w.root} switch main`,
+    });
+    w.git("checkout", "-q", "main");
+    expect(await realMintInviteSeams().pullOrg(w.p, SLUG, w.remote, null)).toEqual({ dataBranch: null });
+  });
+
+  test("a main it cannot read is a failure, never a fall back to main", async () => {
+    const p = probesWithRemote(REMOTE);
+    p.exec = async (argv) => {
+      if (argv.includes("symbolic-ref")) return { code: 0, stdout: "main\n", stderr: "" };
+      if (argv.includes("fetch")) return { code: 128, stdout: "", stderr: "fatal: unable to access https://github.com/acme/widgets.git: could not resolve host" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({ code: "main-pointer-unreadable" });
+  });
 });

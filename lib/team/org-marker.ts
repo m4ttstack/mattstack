@@ -20,7 +20,7 @@ export type MarkerState = { kind: "none" } | { kind: "invalid"; why: string } | 
 const BRANCH_RE = /^(?![-/])(?!.*\.\.)(?!.*\/$)[A-Za-z0-9._/-]+$/;
 
 /** Git's per-component rules: non-empty, no leading ".", no trailing "." or ".lock". */
-const validBranch = (name: string): boolean => BRANCH_RE.test(name) && name.split("/").every((c) => c !== "" && !c.startsWith(".") && !c.endsWith(".") && !c.endsWith(".lock"));
+export const validBranch = (name: string): boolean => BRANCH_RE.test(name) && name.split("/").every((c) => c !== "" && !c.startsWith(".") && !c.endsWith(".") && !c.endsWith(".lock"));
 
 /**
  * An old clone may still carry a `role: "team"` marker with an `org` field; a

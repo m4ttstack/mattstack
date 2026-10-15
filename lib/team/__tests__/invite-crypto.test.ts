@@ -402,3 +402,12 @@ describe("extractInviteCode", () => {
     }
     await expect(open(await seal({ v: 3, ...base } as never, key, idHex), key, idHex)).rejects.toMatchObject({ code: "invite-unreadable" });
   });
+
+test("open carries a data branch and rejects one that is not a plain branch name", async () => {
+  const key = generateKey();
+  const idHex = SAMPLE_ID_HEX;
+  expect(await open(await seal({ ...samplePointer(), dataBranch: "mattstack" }, key, idHex), key, idHex)).toMatchObject({ dataBranch: "mattstack" });
+  for (const dataBranch of [5, "", "-x", "a..b", "has space", null]) {
+    await expect(open(await seal({ ...samplePointer(), dataBranch } as never, key, idHex), key, idHex)).rejects.toMatchObject({ code: "invite-unreadable" });
+  }
+});
