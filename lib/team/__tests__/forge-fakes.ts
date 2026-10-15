@@ -12,6 +12,8 @@ export interface FakeMember {
   level: AccessLevel;
   inherited?: boolean;
   pending?: boolean;
+  /** GitHub only: a custom repository role. The API then names the role, and only `permissions` and the coarse `permission` carry the level. */
+  roleName?: string;
 }
 
 export interface FakeForgeOpts {
@@ -61,15 +63,26 @@ export function parseApi(argv: string[], input?: string): { method: string; path
   return { method, path, fields, paginate, body: input ? JSON.parse(input) : undefined };
 }
 
+type MemberRow = { username: string; level: AccessLevel; inherited: boolean; pending: boolean; roleName?: string };
+
 function memberTable(opts: FakeForgeOpts) {
-  return new Map(
-    Object.entries(opts.members ?? {}).map(([username, m]) => [username.toLowerCase(), { username, level: m.level, inherited: m.inherited ?? false, pending: m.pending ?? false }]),
+  return new Map<string, MemberRow>(
+    Object.entries(opts.members ?? {}).map(([username, m]) => [username.toLowerCase(), { username, level: m.level, inherited: m.inherited ?? false, pending: m.pending ?? false, roleName: m.roleName }]),
   );
 }
 
 function snapshot(table: ReturnType<typeof memberTable>) {
   return () => Object.fromEntries([...table.values()].map((m) => [m.username, { level: m.level, inherited: m.inherited, pending: m.pending }]));
 }
+
+const githubPermissions = (level: AccessLevel) => ({
+  admin: level === "admin",
+  maintain: level === "admin",
+  push: LEVEL_RANK[level] >= LEVEL_RANK.write,
+  triage: LEVEL_RANK[level] >= LEVEL_RANK.read,
+  pull: LEVEL_RANK[level] >= LEVEL_RANK.read,
+});
+const githubRoleName = (level: AccessLevel) => (level === "admin" ? "admin" : level === "write" ? "write" : level === "read" ? "read" : "none");
 
 const okJson = (body?: unknown): ExecResult => ({ code: 0, stdout: body === undefined ? "" : JSON.stringify(body), stderr: "" });
 
@@ -92,8 +105,11 @@ export function fakeGitHub(opts: FakeForgeOpts): FakeForge {
     if (method === "GET" && route === base) return okJson({ default_branch: opts.defaultBranch ?? "main", owner: { type: opts.cannotNameUsers ? "User" : "Organization" } });
     if (method === "GET" && route === `${base}/collaborators`) {
       const directOnly = query.includes("affiliation=direct");
-      const roleName = (level: AccessLevel) => (level === "admin" ? "admin" : level === "write" ? "write" : level === "read" ? "read" : "none");
-      return page([...members.values()].filter((m) => !m.pending && (!directOnly || !m.inherited)).map((m) => ({ login: m.username, role_name: roleName(m.level) })));
+      return page(
+        [...members.values()]
+          .filter((m) => !m.pending && (!directOnly || !m.inherited))
+          .map((m) => (m.roleName ? { login: m.username, role_name: m.roleName, permissions: githubPermissions(m.level) } : { login: m.username, role_name: githubRoleName(m.level) })),
+      );
     }
     if (method === "GET" && route === `${base}/invitations`) {
       return page([...members.values()].filter((m) => m.pending).map((m) => ({ invitee: { login: m.username }, permissions: m.level === "write" ? "write" : "read" })));
@@ -103,7 +119,8 @@ export function fakeGitHub(opts: FakeForgeOpts): FakeForge {
     if (permission && method === "GET") {
       const m = members.get(decodeURIComponent(permission[1]!).toLowerCase());
       if (!m || m.pending) return fail(404, "Not Found");
-      return okJson({ role_name: m.level === "admin" ? "admin" : m.level === "write" ? "write" : m.level === "read" ? "read" : "none", permission: m.level });
+      if (m.roleName) return okJson({ role_name: m.roleName, permission: githubRoleName(m.level), user: { login: m.username, permissions: githubPermissions(m.level) } });
+      return okJson({ role_name: githubRoleName(m.level), permission: m.level });
     }
 
     const collaborator = /^\/repos\/acme\/widgets\/collaborators\/([^/]+)$/.exec(route);

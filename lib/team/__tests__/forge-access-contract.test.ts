@@ -112,6 +112,13 @@ for (const [name, world] of Object.entries(WORLDS)) {
       expect(await world({ users: USERS, defaultBranch: "trunk" }).access.defaultBranch()).toEqual({ ok: true, value: "trunk" });
     });
 
+    test.if(name === "github")("grant never lowers a custom repo role: its holder granted write gets no write call", async () => {
+      const { access, forge } = world({ users: USERS, members: { dev1: { level: "admin", roleName: "widgets-lead" }, dev2: { level: "write", roleName: "widgets-dev" } } });
+      expect(await access.grant("dev1", "write")).toEqual({ ok: true, value: "granted" });
+      expect(await access.grant("dev2", "write")).toEqual({ ok: true, value: "granted" });
+      expect(forge.writes).toEqual([]);
+    });
+
     test.if(name === "github")("a plan that cannot protect a private repo's branch reads as unavailable", async () => {
       const { access, forge } = world({ users: USERS, members: { dev1: { level: "admin" } }, cannotProtect: true });
       expect(valueOf(await access.readPushList("mattstack")).kind).toBe("unavailable");

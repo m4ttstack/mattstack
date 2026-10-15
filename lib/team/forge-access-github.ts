@@ -109,8 +109,11 @@ export function githubForgeAccess(p: Probes, remote: string, owner: string, repo
       }
       const current = await call({ method: "GET", path: `${base}/collaborators/${encodeURIComponent(username)}/permission` });
       if (current.code === 0) {
-        const held = parseJson(current.stdout) as Record<string, unknown> | null;
-        const heldLevel = levelOf({ role_name: held?.role_name ?? held?.permission });
+        const held = parseJson(current.stdout) as { role_name?: unknown; permission?: unknown; user?: { permissions?: unknown } } | null;
+        // A custom repo role's name says nothing about its level; the permissions and the coarse permission do.
+        const named = levelOf({ role_name: held?.role_name, permissions: held?.user?.permissions });
+        const coarse = inviteLevel(held?.permission);
+        const heldLevel = LEVEL_RANK[named] >= LEVEL_RANK[coarse] ? named : coarse;
         if (LEVEL_RANK[heldLevel] >= LEVEL_RANK[level]) return done("granted");
       } else if (httpStatus(current) !== 404) {
         return refusal(current, "gh", [`Open ${accessPage}`, `Give ${username} ${level === "write" ? "Write" : "Read"} access`]);
