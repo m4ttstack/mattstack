@@ -25,7 +25,6 @@ describe("team snapshot handlers", () => {
 
 describe("team:pull on a clone whose org moved its data", () => {
   const HOLD = { outcome: "skipped" as const, detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes.", hold: { moved: "mattstack" } };
-  const handle = { status: () => [{ slug: "acme", repoDir: "/h/.mattstack/orgs/acme" }], pullNow: async () => HOLD } as unknown as import("../team-snapshots.ts").TeamSnapshotsHandle;
   /** A clone on `branch`; `status` and `unpushed` answer git status and the unpushed-commit list. */
   const clone = (branch: string, opts: { status?: string; unpushed?: string; touched?: string } = {}) =>
     fakeProbes({
@@ -38,11 +37,16 @@ describe("team:pull on a clone whose org moved its data", () => {
         return ok("");
       },
     });
-  type MoveData = NonNullable<NonNullable<Parameters<typeof createTeamSnapshotHandlers>[1]>["moveData"]>;
-  const handlers = (probes: ReturnType<typeof clone>, moveData: MoveData) => {
+  type MoveNow = import("../team-snapshots.ts").TeamSnapshotsHandle["moveNow"];
+  /** The second try goes through the supervisor's `moveNow`, which runs the move under the clone's git lock; `dirs` records the slugs it was asked for. */
+  const handlers = (probes: ReturnType<typeof clone>, moveNow: () => ReturnType<MoveNow>) => {
     const dirs: string[] = [];
-    const h = createTeamSnapshotHandlers(handle, { probes, moveData: async (p, dir, opts) => { dirs.push(dir); return moveData(p, dir, opts); } });
-    return { h, dirs };
+    const handle = {
+      status: () => [{ slug: "acme", repoDir: "/h/.mattstack/orgs/acme" }],
+      pullNow: async () => HOLD,
+      moveNow: async (slug: string) => { dirs.push(slug); return moveNow(); },
+    } as unknown as import("../team-snapshots.ts").TeamSnapshotsHandle;
+    return { h: createTeamSnapshotHandlers(handle, { probes }), dirs };
   };
 
   test("a clone the pull's own hook already moved reads moved", async () => {
@@ -54,7 +58,7 @@ describe("team:pull on a clone whose org moved its data", () => {
   test("a clean clone still on main runs the move once more and reads moved, with the commits it carried", async () => {
     const { h, dirs } = handlers(clone("main"), async () => ({ kind: "moved", branch: "mattstack", carried: 2 }));
     expect(await h["team:pull"]({ slug: "acme" })).toEqual({ ok: true, data: { outcome: "moved", detail: "Moved your copy of the org to the mattstack branch, with your 2 unpublished commits" } });
-    expect(dirs).toEqual(["/h/.mattstack/orgs/acme"]);
+    expect(dirs).toEqual(["acme"]);
   });
 
   test("a dirty clone is explained without a second move: skipped with its files and the pull remedy", async () => {

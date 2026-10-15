@@ -8,7 +8,7 @@
 import { UserActionableError } from "../../errors.ts";
 import { createRealProbes, type Probes } from "../../setup/probes.ts";
 import { checkedOutBranch } from "../../team/org-branch.ts";
-import { convergeDataBranch, heldCopy, moveBlocker, MOVED_DONE, type HeldMove } from "../../team/org-data-branch.ts";
+import { heldCopy, moveBlocker, MOVED_DONE, type ConvergeResult, type HeldMove } from "../../team/org-data-branch.ts";
 import type { PullResult } from "../home-snapshot.ts";
 import type { TeamSnapshotsHandle } from "../team-snapshots.ts";
 import type { HandlerMap } from "./types.ts";
@@ -18,13 +18,14 @@ type PullReply = { ok: true; data: PullResult } | { ok: false; error: string; fa
 /**
  * The pull already ran the move under its own lock, so a clone that is not
  * on the data branch afterwards is first explained from a read-only check.
- * Only a clone nothing blocks gets one more try, which also names a clash.
+ * Only a clone nothing blocks gets one more try, under the same lock, which
+ * also names a clash.
  */
 async function afterMovedHold(
   result: PullResult & { hold: { moved: string } },
   dir: string,
   probes: Probes,
-  moveData: typeof convergeDataBranch,
+  moveNow: () => Promise<ConvergeResult | null>,
 ): Promise<PullReply> {
   const branch = result.hold.moved;
   const message = `rt could not move your copy of the org to the ${branch} branch`;
@@ -37,7 +38,7 @@ async function afterMovedHold(
   const blocker = await moveBlocker(probes, dir);
   if (blocker?.kind === "held") return held(blocker);
   if (blocker?.kind === "failed") return failed(blocker.log);
-  const move = await moveData(probes, dir);
+  const move = await moveNow();
   if (move === null || move.kind === "unchecked") return { ok: true, data: result };
   if (move.kind === "moved") return { ok: true, data: { outcome: "moved", detail: MOVED_DONE(move.branch, move.carried) } };
   if (move.kind === "already") return { ok: true, data: { outcome: "moved", detail: MOVED_DONE(move.branch) } };
@@ -47,7 +48,7 @@ async function afterMovedHold(
 
 export function createTeamSnapshotHandlers(
   teamSnapshots: TeamSnapshotsHandle,
-  deps: { probes?: Probes; moveData?: typeof convergeDataBranch } = {},
+  deps: { probes?: Probes } = {},
 ): Record<"team:snapshot-status" | "team:pull", (payload: any) => Promise<any>> & HandlerMap {
   return {
     "team:snapshot-status": async () => {
@@ -60,7 +61,7 @@ export function createTeamSnapshotHandlers(
         const result = await teamSnapshots.pullNow(slug);
         const dir = teamSnapshots.status().find((e) => e.slug === slug)?.repoDir;
         if (result.hold && "moved" in result.hold && dir !== undefined) {
-          return await afterMovedHold({ ...result, hold: result.hold }, dir, deps.probes ?? createRealProbes(), deps.moveData ?? convergeDataBranch);
+          return await afterMovedHold({ ...result, hold: result.hold }, dir, deps.probes ?? createRealProbes(), () => teamSnapshots.moveNow(slug));
         }
         return { ok: true, data: result };
       } catch (err) {

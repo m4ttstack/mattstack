@@ -785,6 +785,29 @@ describe("startHomeSnapshot — concurrency guard", () => {
     // second call reused the first's in-flight run instead of starting its own.
     expect(execCalls.filter((c) => c[1] === "status").length).toBe(1);
   });
+
+  test("locked work waits for a commit cycle already holding the git lock", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const order: string[] = [];
+    const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
+    const exec: typeof fn = async (argv, opts) => {
+      if (argv[1] === "status") { await gate; order.push("commit cycle"); }
+      return fn(argv, opts);
+    };
+    const { deps } = baseDeps({ exec });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    const run = handle.runNow("manual");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const locked = handle.locked(async () => { order.push("locked"); });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toEqual([]);
+    release();
+    await Promise.all([run, locked]);
+    expect(order).toEqual(["commit cycle", "locked"]);
+    handle.stop();
+  });
 });
 
 // ─── push scheduling ──────────────────────────────────────────────────────

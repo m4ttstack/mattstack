@@ -611,6 +611,36 @@ describe("a clone whose org moved its data to another branch", () => {
     h.cleanup();
   });
 
+  test("moveNow runs the data branch move inside the clone engine's git lock, with the token reader", async () => {
+    const h = harness();
+    const dir = clone(h.root, "acme");
+    let inLock = false;
+    const start = ((spec: SnapshotSpec) => ({
+      ...(h.deps.start as unknown as (s: SnapshotSpec) => object)(spec),
+      locked: async <T>(fn: () => Promise<T>): Promise<T> => {
+        inLock = true;
+        try { return await fn(); } finally { inLock = false; }
+      },
+    })) as unknown as typeof import("../home-snapshot.ts").startSnapshot;
+    const readToken = async () => "token";
+    const seen: { dir: string; inLock: boolean; readToken: boolean }[] = [];
+    const handle = startTeamSnapshots({
+      ...h.deps,
+      start,
+      readToken,
+      moveData: async (_p, d, opts) => {
+        seen.push({ dir: d, inLock, readToken: opts?.readToken === readToken });
+        return { kind: "moved", branch: "mattstack" };
+      },
+    });
+    await handle.ready;
+    expect(await handle.moveNow("acme")).toEqual({ kind: "moved", branch: "mattstack" });
+    expect(seen).toEqual([{ dir, inLock: true, readToken: true }]);
+    await expect(handle.moveNow("nope")).rejects.toThrow(/not cloned/);
+    handle.stop();
+    h.cleanup();
+  });
+
   test("createOnMoved logs a hold once until it changes", async () => {
     const log = fakeLog();
     let files = ["mattstack/org/settings.org.jsonc"];

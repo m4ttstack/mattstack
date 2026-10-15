@@ -134,6 +134,8 @@ export interface HomeSnapshotHandle {
   /** Fetch, then fast-forward or rebase. A spec without a `pull` policy always skips. `converge:false` keeps the post-pull hook out of the caller's own path; a pull that moved HEAD still converges, once the push settles. */
   pullNow(opts?: { converge?: boolean }): Promise<PullResult>;
   status(): SnapshotStatus;
+  /** Runs `fn` under the git lock the commit cycle, pull and push share, so work that checks out another branch never lands mid-commit. */
+  locked<T>(fn: () => Promise<T>): Promise<T>;
   /** Resolves once no commit cycle, pull, push or post-pull hook (and the git children they started) is in flight; at once when idle. `stop` keeps new timer-driven work from starting, not work already running. */
   settled(): Promise<void>;
   /** Resolves once startup arming (the enabled + is-a-repo checks) has settled. Not needed by the daemon (which just fires and forgets); tests await it so assertions don't race the async repo check. */
@@ -1687,5 +1689,5 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (gitProbeRetryTimer) deps.clearTimeout(gitProbeRetryTimer);
   }
 
-  return { stop, runNow, pullNow, status, settled, ready: readyPromise };
+  return { stop, runNow, pullNow, status, settled, locked: withGitLock, ready: readyPromise };
 }

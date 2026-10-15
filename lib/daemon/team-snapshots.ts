@@ -19,7 +19,7 @@ import { parseOriginUrl } from "../setup/team-settings.ts";
 import { UserActionableError } from "../errors.ts";
 import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { applyRoleCone } from "../team/org-cone.ts";
-import { convergeDataBranch } from "../team/org-data-branch.ts";
+import { convergeDataBranch, type ConvergeResult } from "../team/org-data-branch.ts";
 import { roleFor } from "../team/roles.ts";
 import {
   startSnapshot,
@@ -63,6 +63,8 @@ export interface TeamSnapshotsHandle {
   rescan(): Promise<void>;
   status(): TeamSnapshotEntry[];
   pullNow(slug: string): Promise<PullResult>;
+  /** The data branch move, under the clone engine's git lock so it never lands beside a commit cycle. */
+  moveNow(slug: string): Promise<ConvergeResult | null>;
   ready: Promise<void>;
   /** Stops these clones' engines, waits (up to `PAUSE_SETTLE_MS` each) for git work they already started, and keeps `rescan` from starting them until `resume`: `org:move` renames a clone's folder and must not race a pull into it. */
   pause(slugs: string[]): Promise<void>;
@@ -177,6 +179,11 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
   const instances = new Map<string, { handle: SnapshotHandle; dir: string; owned: string }>();
   const held = new Set<string>();
   const skippedNoRemote = new Set<string>();
+  const instanceOf = (slug: string) => {
+    const inst = instances.get(slug);
+    if (!inst) throw new UserActionableError("no-team", `team "${slug}" is not cloned locally (or has no origin)`);
+    return inst;
+  };
   let watcher: { close(): void } | null = null;
   let debounce: ReturnType<typeof setTimeout> | null = null;
   let interval: ReturnType<typeof setTimeout> | null = null;
@@ -372,9 +379,11 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
     },
     status: () => [...instances.entries()].map(([slug, inst]) => ({ slug, ...inst.handle.status() })),
     async pullNow(slug) {
-      const inst = instances.get(slug);
-      if (!inst) throw new UserActionableError("no-team", `team "${slug}" is not cloned locally (or has no origin)`);
-      return inst.handle.pullNow();
+      return instanceOf(slug).handle.pullNow();
+    },
+    async moveNow(slug) {
+      const inst = instanceOf(slug);
+      return inst.handle.locked(() => moveData(probes, inst.dir, rawDeps.readToken ? { readToken: rawDeps.readToken } : {}));
     },
   };
 }
