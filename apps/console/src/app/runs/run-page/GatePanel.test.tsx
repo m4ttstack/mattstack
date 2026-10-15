@@ -674,6 +674,105 @@ describe('GatePanel: answering', () => {
     resolve({ ok: true, status: 200, json: async () => ({ focused: true }) });
     await waitFor(() => expect(button).not.toHaveAttribute('data-loading'));
   });
+
+  const writeInGate = () =>
+    gateRow({
+      questions: [
+        { ...gateRow().questions[0]!, writeIn: true },
+        {
+          id: 'next',
+          label: 'Then?',
+          multi: false,
+          options: ['proceed', 'iterate', 'hold'],
+        },
+      ],
+    });
+
+  it('enables Next on a writeIn question from note text alone and submits it as a write-in', async () => {
+    answerPost.mockResolvedValue(ok());
+    renderPanel(writeInGate());
+    expect(screen.getByRole('button', { name: /Next/ })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: /note/i })).toHaveAttribute(
+      'placeholder',
+      'Write your own answer, or pick one above'
+    );
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /note/i }),
+      'split the migration out'
+    );
+    expect(screen.getByRole('button', { name: /Next/ })).toBeEnabled();
+    await userEvent.click(screen.getByRole('button', { name: /Next/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Submit/ }));
+    await waitFor(() =>
+      expect(answerPost).toHaveBeenCalledWith({
+        param: { id: 'g1' },
+        json: {
+          answers: {
+            approach: { writeIn: 'split the migration out' },
+            next: 'proceed',
+          },
+        },
+      })
+    );
+  });
+
+  it('keeps Next shut on a plain question with only a note', async () => {
+    renderPanel(gateRow());
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /note/i }),
+      'something else'
+    );
+    expect(screen.getByRole('button', { name: /Next/ })).toBeDisabled();
+  });
+
+  it('clears the picked option of a writeIn question when it is clicked again', async () => {
+    renderPanel(writeInGate());
+    await userEvent.click(radio(/Client-side filter/));
+    expect(radio(/Client-side filter/)).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(radio(/Client-side filter/));
+    expect(radio(/Client-side filter/)).toHaveAttribute(
+      'aria-checked',
+      'false'
+    );
+    await userEvent.click(radio(/Both, behind a flag/));
+    expect(radio(/Both, behind a flag/)).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+  });
+
+  it('opens with Proceed picked on next, without saving a draft', async () => {
+    renderPanel(writeInGate());
+    await userEvent.click(step(/Next/));
+    expect(
+      within(screen.getByRole('radiogroup', { name: /Then\?/ })).getByRole(
+        'radio',
+        { name: /proceed/i }
+      )
+    ).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByText('Draft saved')).toBeNull();
+    expect(localStorage.getItem(gateDraftKey('g1'))).toBeNull();
+  });
+
+  it('does not preselect Proceed over a restored draft', async () => {
+    localStorage.setItem(
+      gateDraftKey('g1'),
+      JSON.stringify({
+        selections: { approach: 'client' },
+        notes: {},
+        item: null,
+        skipped: [],
+      })
+    );
+    renderPanel(writeInGate());
+    await userEvent.click(step(/Next/));
+    expect(
+      within(screen.getByRole('radiogroup', { name: /Then\?/ })).getByRole(
+        'radio',
+        { name: /proceed/i }
+      )
+    ).toHaveAttribute('aria-checked', 'false');
+  });
 });
 
 describe('usePruneGateDrafts', () => {
