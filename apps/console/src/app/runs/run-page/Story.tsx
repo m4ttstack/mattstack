@@ -56,18 +56,14 @@ const useFitToWindow = (split: boolean) => {
     };
     fit();
     window.addEventListener('resize', fit);
-    // Anything above the split that grows or shrinks (the run header
-    // opening, say) moves its top, so every earlier sibling on the way up
-    // to the scroller is watched.
+    // Anything above the split that grows, shrinks, mounts or unmounts (the
+    // run header opening, a gate panel replacing the Now card) moves its
+    // top. Siblings come and go after this effect runs, so the ancestors
+    // are watched instead: each one resizes whenever any child does.
     const watcher = new ResizeObserver(fit);
     const { scroller } = frameOf(el);
-    for (let n: Element | null = el; n && n !== scroller; n = n.parentElement)
-      for (
-        let sib = n.previousElementSibling;
-        sib;
-        sib = sib.previousElementSibling
-      )
-        watcher.observe(sib);
+    for (let n = el.parentElement; n && n !== scroller; n = n.parentElement)
+      watcher.observe(n);
     return () => {
       window.removeEventListener('resize', fit);
       watcher.disconnect();
