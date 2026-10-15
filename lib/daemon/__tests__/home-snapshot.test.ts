@@ -3905,7 +3905,7 @@ describe("team snapshot scope follows the org store guard", () => {
   async function setup(user: string, working: string, workingProbeOrg: unknown = org) {
     const dir = tempDir();
     mkdirSync(join(dir, "mattstack", "org"), { recursive: true });
-    gitIn(dir, "init", "-q");
+    gitIn(dir, "init", "-q", "-b", "main");
     writeFileSync(join(dir, STORE), body(org));
     gitIn(dir, "add", "-A");
     gitIn(dir, "commit", "-q", "-m", "init");
@@ -3958,7 +3958,7 @@ describe("team snapshot scope follows the org store guard", () => {
     const unclaimed = { admins: [], teams: {} };
     const dir = tempDir();
     mkdirSync(join(dir, "mattstack", "org"), { recursive: true });
-    gitIn(dir, "init", "-q");
+    gitIn(dir, "init", "-q", "-b", "main");
     writeFileSync(join(dir, STORE), body(unclaimed, []));
     gitIn(dir, "add", "-A");
     gitIn(dir, "commit", "-q", "-m", "init");
@@ -3975,7 +3975,7 @@ describe("team snapshot scope follows the org store guard", () => {
   test("a malformed org store at HEAD is unreadable, never an unclaimed org", async () => {
     const dir = tempDir();
     mkdirSync(join(dir, "mattstack", "org"), { recursive: true });
-    gitIn(dir, "init", "-q");
+    gitIn(dir, "init", "-q", "-b", "main");
     writeFileSync(join(dir, STORE), "{ not json");
     gitIn(dir, "add", "-A");
     gitIn(dir, "commit", "-q", "-m", "init");
