@@ -976,6 +976,12 @@ test('Proceed opens picked on next, and reset brings it back', async () => {
   expect(($('input[value="hold"]') as HTMLInputElement).checked).toBe(false);
 });
 
+test('a review-post gate with no review context falls back to the stage sheet with nothing on next', async () => {
+  await render({ ...planGate(), kind: 'review-post', label: 'review-post' });
+  expect($('.tui-stage-sheet .tui-sheet-body')).not.toBeNull();
+  expect(($('input[value="proceed"]') as HTMLInputElement).checked).toBe(false);
+});
+
 test('an untouched fresh open saves no draft', async () => {
   await render(planGate());
   expect(localStorage.getItem('gate-kit:draft:g-ship')).toBeNull();

@@ -145,8 +145,8 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
   const mine = isMine(gate);
   const draft = useGateDraft(gate.id);
   const preset = useMemo(
-    () => presetSelections(gate.questions),
-    [gate.questions]
+    () => presetSelections(gate.questions, gate.kind),
+    [gate.questions, gate.kind]
   );
   const [selections, setSelections] = useState<GateSelections>(
     () => draft.initial?.selections ?? preset

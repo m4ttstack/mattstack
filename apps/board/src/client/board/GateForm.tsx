@@ -83,7 +83,7 @@ function AnsweredChip({
 function useGateForm(
   gate: GateRow,
   onAnswered?: () => void,
-  { presetProceed = false }: { presetProceed?: boolean } = {}
+  { readOnly = false }: { readOnly?: boolean } = {}
 ) {
   const actionable = gate.status === 'open' || gate.status === 'parked';
   const {
@@ -92,8 +92,11 @@ function useGateForm(
     clear: clearDraft,
   } = useGateDraft(gate.gateId, actionable);
   const preset = useMemo(
-    () => (presetProceed ? presetSelections(gate.questions) : {}),
-    [presetProceed, gate.questions]
+    () =>
+      actionable && !readOnly
+        ? presetSelections(gate.questions, gate.kind)
+        : {},
+    [actionable, readOnly, gate.questions, gate.kind]
   );
   const [selections, setSelections] = useState<GateSelections>(
     () => draft?.selections ?? preset

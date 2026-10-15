@@ -25,6 +25,7 @@ export type {
 } from './payload';
 export {
   NEXT_QUESTION_ID,
+  NO_PRESET_KINDS,
   presetSelections,
   PROCEED_VALUE,
   withoutPreset,

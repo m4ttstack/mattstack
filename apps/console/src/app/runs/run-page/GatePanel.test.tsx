@@ -754,6 +754,17 @@ describe('GatePanel: answering', () => {
     expect(localStorage.getItem(gateDraftKey('g1'))).toBeNull();
   });
 
+  it('opens a review-post gate with nothing picked on next', async () => {
+    renderPanel({ ...writeInGate(), kind: 'review-post' });
+    await userEvent.click(step(/Next/));
+    expect(
+      within(screen.getByRole('radiogroup', { name: /Then\?/ })).getByRole(
+        'radio',
+        { name: /proceed/i }
+      )
+    ).toHaveAttribute('aria-checked', 'false');
+  });
+
   it('keeps Proceed checked after a draft with another pick is restored', async () => {
     const gate = writeInGate();
     const first = renderPanel(gate);
