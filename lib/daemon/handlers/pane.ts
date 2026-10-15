@@ -84,8 +84,11 @@ const PROMPT_BUDGET_MS = 5_000;
 const SETTLED = ["idle", "done", "blocked"];
 
 export function launchCommand(a: { cwd: string; account?: string; model?: string; effort?: string }): string {
-  const claude = ["claude", ...(a.model ? ["--model", shellQuote(a.model)] : []), ...(a.effort ? ["--effort", shellQuote(a.effort)] : [])].join(" ");
-  const launch = a.account ? `cswap run ${shellQuote(a.account)} --share-history -- ${claude}` : claude;
+  const flags = [...(a.model ? ["--model", shellQuote(a.model)] : []), ...(a.effort ? ["--effort", shellQuote(a.effort)] : [])];
+  // cswap run starts claude itself and forwards everything after `--` to it as arguments.
+  const launch = a.account
+    ? ["cswap", "run", shellQuote(a.account), "--share-history", "--", ...flags].join(" ")
+    : ["claude", ...flags].join(" ");
   return `cd ${shellQuote(a.cwd)} && ${launch}`;
 }
 
