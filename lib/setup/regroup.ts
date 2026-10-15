@@ -32,6 +32,7 @@ const HOME: Record<string, GroupId> = {
   "team.one-per-machine": "team",
   "org.folder": "team",
   "org.layout": "team",
+  "org.sparse": "team",
   "tool.mission-control": "mac",
 };
 

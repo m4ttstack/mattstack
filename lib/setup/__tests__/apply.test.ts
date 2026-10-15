@@ -439,6 +439,15 @@ describe("runApplyWith: needs-you is non-fatal", () => {
     expect(events).toContainEqual({ event: "step", id: "verify", state: "needs-you", detail: "to connect: Slack" });
     expect(events.at(-1)).toEqual({ event: "done", ok: true });
   });
+
+  test("a needs-you step's remedy rides on its event", async () => {
+    const { ctx, events } = testCtx();
+    const steps: StepDef[] = [
+      fakeStep("org.folder", { state: "needs-you", detail: "Your copy of the org has unsaved changes: a.jsonc", remedy: "Save or discard those changes, then run rt team pull" }),
+    ];
+    expect(await runApplyWith(steps, ctx, {})).toEqual({ ok: true });
+    expect(events).toContainEqual({ event: "step", id: "org.folder", state: "needs-you", detail: "Your copy of the org has unsaved changes: a.jsonc", remedy: "Save or discard those changes, then run rt team pull" });
+  });
 });
 
 describe("runApplyWith: partial is non-fatal and carries its remedy", () => {

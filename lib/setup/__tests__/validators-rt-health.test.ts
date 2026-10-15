@@ -8,7 +8,7 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, ORG_SPARSE_ROW_ID, orgSparseRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
 import { fakeProbes, memberShell, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
@@ -1500,7 +1500,10 @@ describe("orgLayoutRow", () => {
   const legacy = JSON.stringify({ role: "team", namespace: "widgets", org: "acme" });
   const converted = JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT });
   const status = (hold: { layout: number; reads: number } | { moved: string } | null) => async () => [{ slug: "acme", layoutHold: hold } as unknown as TeamSnapshotEntry];
-  const at = (marker: string, store: boolean) =>
+  /** A clean clone on main with nothing unpushed, unless `git` answers otherwise. */
+  const cleanOnMain = (argv: string[]) =>
+    argv.includes("symbolic-ref") ? ok("main\n") : argv.includes("rev-list") ? ok("0\n") : ok("");
+  const at = (marker: string, store: boolean, git: (argv: string[]) => ReturnType<typeof ok> = cleanOnMain) =>
     fakeProbes({
       home: "/h",
       files: {
@@ -1509,6 +1512,7 @@ describe("orgLayoutRow", () => {
         ...(store ? { "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" } : {}),
       },
       dirs: { "/h/.mattstack/orgs": ["acme"] },
+      exec: (argv) => git(argv),
     });
 
   test("null with no clone", async () => {
@@ -1544,6 +1548,60 @@ describe("orgLayoutRow", () => {
   test("a daemon that is not running does not hide a ready clone", async () => {
     const r = await orgLayoutRow(at(converted, true), async () => null);
     expect(r?.status).toBe("ready");
+  });
+  test("a moved hold on a dirty clone is needs-you naming the files, with the rt team pull remedy", async () => {
+    const dirty = (argv: string[]) => (argv.includes("status") ? ok(" M mattstack/org/settings.org.jsonc\n") : cleanOnMain(argv));
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true, dirty), status({ moved: "mattstack" }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org's data moved to the mattstack branch. Your copy of the org has unsaved changes: mattstack/org/settings.org.jsonc" });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Save or discard those changes, then run rt team pull"] });
+  });
+  test("a moved hold with unpublished commits names rt team publish first", async () => {
+    const ahead = (argv: string[]) => (argv.includes("rev-list") ? ok("2\n") : cleanOnMain(argv));
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true, ahead), status({ moved: "mattstack" }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org's data moved to the mattstack branch. Your copy of the org has 2 commits that are not published yet" });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Run rt team publish first, then rt team pull"] });
+  });
+});
+
+describe("orgSparseRow", () => {
+  const STORE = JSON.stringify({
+    "mattstack.org": { admins: ["dev1"] },
+    "mattstack.roster": [{ username: "dev3", teams: ["widgets"] }],
+  });
+  const probes = (git: (argv: string[]) => ReturnType<typeof ok>) =>
+    fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/.git/config": "",
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": STORE,
+        "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev3" }),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"] },
+      exec: (argv) => git(argv),
+    });
+  const checkedOut = "H mattstack/teams/gadgets/settings.team.jsonc\nH mattstack/teams/widgets/settings.team.jsonc\n";
+  const git = (gadgetsDirty: boolean) => (argv: string[]) => {
+    if (argv.includes("ls-files")) return ok(checkedOut);
+    if (argv.includes("symbolic-ref")) return ok("main\n");
+    if (argv.includes("status")) return ok(gadgetsDirty && argv.includes("mattstack/teams/gadgets") ? " M mattstack/teams/gadgets/settings.team.jsonc\n" : "");
+    return ok("");
+  };
+
+  test("null with no clone", async () => {
+    expect(await orgSparseRow(fakeProbes({ home: "/h" }))).toBeNull();
+  });
+  test("ready when no team folder this Mac left holds changes", async () => {
+    const r = await orgSparseRow(probes(git(false)));
+    expect(r).toMatchObject({ id: ORG_SPARSE_ROW_ID, status: "ready", required: false });
+    expect(r?.finishGated ?? false).toBe(false);
+  });
+  test("needs-you naming a team this Mac left that still holds changes", async () => {
+    const r = await orgSparseRow(probes(git(true)));
+    expect(r).toMatchObject({
+      status: "needs-you",
+      detail: "You're no longer on gadgets, but your copy has changes there. Publish or discard them and rt removes the folder.",
+    });
   });
 });
 
@@ -1611,6 +1669,7 @@ describe("held layout and row position", () => {
     });
     const ids = (await rtHealthRows(p, { ci: false }, () => ({ enabled: false }) as never)).map((r) => r.id);
     expect(ids.indexOf("org.layout")).toBe(ids.indexOf("org.folder") + 1);
+    expect(ids.indexOf("org.sparse")).toBe(ids.indexOf("org.layout") + 1);
     expect(ids.indexOf("org.folder")).toBeGreaterThan(-1);
   });
 });

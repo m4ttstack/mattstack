@@ -78,7 +78,8 @@ const timedOut = (daemonSide: () => void = () => {}) => async () => {
   return null;
 };
 
-function seams(opts: { locate?: (newPath: string) => Promise<{ ok: boolean; error?: string }>; marketplace?: typeof orgFolderSeams.marketplace } = {}) {
+function seams(opts: { locate?: (newPath: string) => Promise<{ ok: boolean; error?: string }>; marketplace?: typeof orgFolderSeams.marketplace; dataBranch?: typeof orgFolderSeams.dataBranch } = {}) {
+  orgFolderSeams.dataBranch = opts.dataBranch ?? (async () => null);
   const located: { newPath: string; repo?: string }[] = [];
   const marketplaces: { dir: string; stalePaths: string[] }[] = [];
   orgFolderSeams.identity = async (dir) => `gitlab.example.com/acme/org@${dir}`;
@@ -519,5 +520,48 @@ describe("org.folder: the step", () => {
     expect(s.located.map((l) => l.newPath)).toEqual([`${ORGS}/acme`]);
     expect(p.exists(`${RT}/teams/widgets.json`)).toBe(false);
     expect(s.marketplaces).toEqual([{ dir: `${ORGS}/acme`, stalePaths: [] }]);
+  });
+});
+
+describe("org.folder: the data branch piece", () => {
+  const inPlace = () => fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed() });
+  const moving = (result: Awaited<ReturnType<typeof orgFolderSeams.dataBranch>>) => {
+    const dirs: string[] = [];
+    seams({ dataBranch: async (_p, dir) => { dirs.push(dir); return result; } });
+    return dirs;
+  };
+
+  test("a layout 3 clone whose origin main points at the data branch is moved, and the step says so", async () => {
+    const dirs = moving({ kind: "moved", branch: "mattstack" });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail?.split("; ")).toContain("Moved your copy of the org to the mattstack branch");
+    expect(dirs).toEqual([`${ORGS}/acme`]);
+  });
+
+  test("a dirty clone is not moved: needs-you naming the files, with the pull remedy", async () => {
+    moving({ kind: "held", why: "dirty", files: ["mattstack/org/settings.org.jsonc"] });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out).toMatchObject({ state: "needs-you", remedy: "Save or discard those changes, then run rt team pull" });
+    expect(out.detail).toContain("Your copy of the org has unsaved changes: mattstack/org/settings.org.jsonc");
+  });
+
+  test("unpublished commits name rt team publish first", async () => {
+    moving({ kind: "held", why: "unpushed", commits: 1 });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out).toMatchObject({ state: "needs-you", remedy: "Run rt team publish first, then rt team pull" });
+  });
+
+  test("a move that failed is the step's failed outcome with the log", async () => {
+    moving({ kind: "failed", log: "fatal: could not read from remote repository" });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out).toMatchObject({ state: "failed", remedy: ORG_FOLDER_REMEDY });
+    expect(out.detail).toContain("rt could not move your copy of the org to its data branch: fatal: could not read from remote repository");
+  });
+
+  test("nothing to move leaves the step as it was", async () => {
+    moving(null);
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out).toMatchObject({ state: "done", detail: "acme already in place" });
   });
 });

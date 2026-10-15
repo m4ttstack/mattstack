@@ -29,7 +29,7 @@ export type StepOutcome =
   | { state: "done"; detail?: string }
   | { state: "partial"; detail: string; remedy?: string }
   | { state: "skipped"; detail: string }
-  | { state: "needs-you"; detail: string }
+  | { state: "needs-you"; detail: string; remedy?: string }
   | { state: "failed"; detail: string; remedy?: string };
 
 export interface ApplyContext {
@@ -131,7 +131,7 @@ const INTERCEPTS_STEP: StepId = "intercepts.install";
 export { outcomeFromNeed } from "./need.ts";
 
 function stepEventFields(outcome: StepOutcome): { detail?: string; remedy?: string } {
-  if (outcome.state === "failed" || outcome.state === "partial") return { detail: outcome.detail, ...(outcome.remedy !== undefined ? { remedy: outcome.remedy } : {}) };
+  if (outcome.state === "failed" || outcome.state === "partial" || outcome.state === "needs-you") return { detail: outcome.detail, ...(outcome.remedy !== undefined ? { remedy: outcome.remedy } : {}) };
   return outcome.detail !== undefined ? { detail: outcome.detail } : {};
 }
 

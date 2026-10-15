@@ -23,6 +23,8 @@ import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, orgDirUnder
 import { getSetting } from "../../settings/resolve.ts";
 import { detectShellFrom, END_MARKER, MARKER, repairLegacyBlock, shellRcPathFor } from "../../shell-integration.ts";
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
+import { keptTeams } from "../../team/org-cone.ts";
+import { heldCopy, moveBlocker } from "../../team/org-data-branch.ts";
 import { holdSentence, layoutSentence, orgLayoutState } from "../../team/org-layout.ts";
 import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
@@ -740,7 +742,16 @@ export async function orgLayoutRow(p: Probes, readStatus: () => Promise<TeamSnap
     recheck: "on-activate" as const,
   };
   const hold = (await readStatus())?.find((e) => e.slug === state.slug)?.layoutHold ?? null;
-  if (hold && "moved" in hold) return row({ ...base, status: "skipped", detail: holdSentence(hold) });
+  if (hold && "moved" in hold) {
+    // The same check the move makes, so the row never says "rt will switch it" about a clone the move will hold.
+    const blocker = await moveBlocker(p, orgDirUnder(p.home, state.slug));
+    if (blocker?.kind === "held") {
+      const { detail, remedy } = heldCopy(blocker);
+      return row({ ...base, status: "needs-you", detail: `Your org's data moved to the ${hold.moved} branch. ${detail}`, action: { type: "steps", label: "Show steps…", steps: [remedy] } });
+    }
+    if (blocker?.kind === "failed") return row({ ...base, status: "error", detail: `Your org's data moved to the ${hold.moved} branch, but rt could not read your copy of the org: ${blocker.log}` });
+    return row({ ...base, status: "skipped", detail: holdSentence(hold) });
+  }
   if (hold) return row({ ...base, status: "needs-you", detail: holdSentence(hold), action: UPDATE_APP_ACTION });
   if (state.kind === "waiting") {
     return state.layout > ORG_LAYOUT
@@ -748,6 +759,36 @@ export async function orgLayoutRow(p: Probes, readStatus: () => Promise<TeamSnap
       : row({ ...base, status: "skipped", detail: layoutSentence(state) });
   }
   return row({ ...base, status: "ready", detail: `${state.slug} on layout ${state.layout}` });
+}
+
+export const ORG_SPARSE_ROW_ID = "org.sparse";
+
+function teamList(teams: string[]): string {
+  return teams.length === 1 ? teams[0]! : `${teams.slice(0, -1).join(", ")} and ${teams.at(-1)}`;
+}
+
+/** Team folders the clone still holds after this Mac's role left them, because they hold changes the narrowing would lose. */
+export async function orgSparseRow(p: Probes): Promise<Row | null> {
+  const state = orgLayoutState(p);
+  if (state.kind === "none") return null;
+  const base = {
+    id: ORG_SPARSE_ROW_ID,
+    kind: "tool" as const,
+    title: "Team folders",
+    why: "Your copy of the org holds only the team folders your role reaches. A folder you have left stays until its changes are published or discarded.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  let kept: string[];
+  try {
+    kept = await keptTeams(p, orgDirUnder(p.home, state.slug), state.slug);
+  } catch (err) {
+    return row({ ...base, status: "error", detail: `rt could not read which team folders your copy holds: ${err instanceof Error ? err.message : String(err)}` });
+  }
+  if (kept.length > 0) {
+    return row({ ...base, status: "needs-you", detail: `You're no longer on ${teamList(kept)}, but your copy has changes there. Publish or discard them and rt removes the folder.` });
+  }
+  return row({ ...base, status: "ready", detail: "Your copy holds only the teams you are on" });
 }
 
 // ─── entry point ────────────────────────────────────────────────────────────
@@ -790,6 +831,7 @@ export async function rtHealthRows(
   }
 
   const orgLayout = await orgLayoutRow(p, readStatus);
+  const orgSparse = await orgSparseRow(p);
 
   return [
     await rtRow(p),
@@ -807,5 +849,6 @@ export async function rtHealthRows(
     ...(oneTeam ? [oneTeam] : []),
     ...(orgFolder ? [orgFolder] : []),
     ...(orgLayout ? [orgLayout] : []),
+    ...(orgSparse ? [orgSparse] : []),
   ];
 }
