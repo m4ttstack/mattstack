@@ -134,6 +134,19 @@ describe("GitLab push list and lookups under failure", () => {
     expect((await access.setPushList("mattstack", ["dev1"])).ok).toBe(false);
   });
 
+  test("a 422 PATCH whose read-back still shows the Developer entry is cannot-name-users", async () => {
+    const forge = fakeGitLab({ users: USERS, members: { dev1: { level: "admin" } }, cannotNameUsers: true });
+    const access = gitlabForgeAccess(fakeProbes({ exec: forge.exec }), "https://gitlab.com/acme/widgets.git", "gitlab.com", "acme/widgets", "token");
+    await access.protect("mattstack");
+    expect(await access.setPushList("mattstack", ["dev1"])).toEqual({ ok: true, value: "cannot-name-users" });
+  });
+
+  test("a 500 PATCH stays a refusal", async () => {
+    const access = setup((argv) => (argv.includes("PATCH") ? { code: 1, stdout: "", stderr: "glab: boom (HTTP 500)" } : null));
+    await access.protect("mattstack");
+    expect((await access.setPushList("mattstack", ["dev1"])).ok).toBe(false);
+  });
+
   test("a failed read-back is a refusal", async () => {
     let gets = 0;
     const access = setup((argv) => (argv.some((a) => a.includes("protected_branches/mattstack")) && !argv.includes("PATCH") && !argv.includes("POST") && ++gets === 2 ? { code: 1, stdout: "", stderr: "HTTP 502" } : null));

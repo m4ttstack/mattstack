@@ -124,9 +124,12 @@ export function gitlabForgeAccess(p: Probes, remote: string, host: string, path:
         ...[...wanted.keys()].filter((id) => !entries.some((e) => e.user_id === id)).map((user_id) => ({ user_id })),
         ...entries.filter((e) => e.user_id !== null && !wanted.has(e.user_id)).map((e) => ({ id: e.id, _destroy: true })),
       ];
+      let rejected = false;
       if (changes.length > 0) {
         const r = await call({ method: "PATCH", path: rulePath(branch), body: { allowed_to_push: changes } });
-        if (r.code !== 0) {
+        const status = httpStatus(r);
+        rejected = r.code !== 0 && status !== null && status >= 400 && status < 500 && ![401, 403, 404].includes(status);
+        if (r.code !== 0 && !rejected) {
           return refusal(r, "glab", [`Open ${branchesPage}`, `In the protected branch rule for ${branch}, let only ${usernames.join(", ")} push`]);
         }
       }
@@ -134,6 +137,11 @@ export function gitlabForgeAccess(p: Probes, remote: string, host: string, path:
       const after = await call({ method: "GET", path: rulePath(branch) });
       if (after.code !== 0) return refusal(after, "glab", [`Open ${branchesPage}`, `Check who may push the ${branch} branch`]);
       const now = pushEntries(after.stdout);
+      if (rejected) {
+        return now.some(isDeveloperRole) && ![...wanted.keys()].some((id) => now.some((e) => e.user_id === id))
+          ? done("cannot-name-users")
+          : refusal({ code: 1, stdout: "", stderr: "" }, "glab", [`Open ${branchesPage}`, `In the protected branch rule for ${branch}, let only ${usernames.join(", ")} push`]);
+      }
       if ([...wanted.keys()].every((id) => now.some((e) => e.user_id === id))) {
         const developers = now.filter(isDeveloperRole).map((e) => ({ id: e.id, _destroy: true }));
         if (developers.length > 0) {

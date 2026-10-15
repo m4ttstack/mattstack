@@ -236,9 +236,11 @@ export function fakeGitLab(opts: FakeForgeOpts): FakeForge {
         rules.delete(name);
         return okJson();
       }
-      for (const change of (body as { allowed_to_push: Record<string, unknown>[] }).allowed_to_push) {
+      const allowed = (body as { allowed_to_push: Record<string, unknown>[] }).allowed_to_push;
+      if (opts.cannotNameUsers && allowed.some((c) => typeof c.user_id === "number")) return fail(422, "allowed_to_push user_id is not available on this plan");
+      for (const change of allowed) {
         if (change._destroy === true) rules.set(name, (rules.get(name) ?? []).filter((e) => e.id !== change.id));
-        else if (typeof change.user_id === "number" && !opts.cannotNameUsers) rules.get(name)!.push({ id: nextEntry++, access_level: 40, user_id: change.user_id, group_id: null });
+        else if (typeof change.user_id === "number") rules.get(name)!.push({ id: nextEntry++, access_level: 40, user_id: change.user_id, group_id: null });
         else if (typeof change.access_level === "number") rules.get(name)!.push({ id: nextEntry++, access_level: change.access_level, user_id: null, group_id: null });
       }
       return okJson({});
