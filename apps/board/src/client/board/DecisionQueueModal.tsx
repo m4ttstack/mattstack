@@ -99,7 +99,6 @@ function DecisionQueueModal({
       face shows the questions and says why, with no form to submit. */
   readOnly?: string | null;
 }) {
-  const form = useGateForm(gate, onAnswered);
   const paneGone = gate.executor === 'gone';
   const context = gateContext(gate);
   const headerCtx = useMemo((): PlanCtx | PostCtx | null => {
@@ -120,6 +119,16 @@ function DecisionQueueModal({
   const isReviewSheet = useMemo(() => isReviewSheetGate(gate), [gate]);
   const answered = gate.status === 'answered';
   const actionable = gate.status === 'open' || gate.status === 'parked';
+  // Only the stage sheet opens with Proceed picked; a respond or review
+  // Proceed posts to a forge.
+  const form = useGateForm(gate, onAnswered, {
+    presetProceed:
+      actionable &&
+      !readOnly &&
+      !isReviewSheet &&
+      !sheetCtx &&
+      gate.kind !== 'pane-attention',
+  });
   const deliveryStuck = answered && gate.delivery?.outcome === 'stuck';
   const executionUnassigned = answered && gate.execution === 'unassigned';
   const reason = gate.kind === 'pane-attention' ? paneReason(gate) : undefined;

@@ -80,7 +80,11 @@ function AnsweredChip({
     and the origin-focus call. The decision queue's sheets are the only
     hosts that mount it (a row's chip only opens the queue), and each reads
     `lost` for its own rail (the answered chip on a CAS loss). */
-function useGateForm(gate: GateRow, onAnswered?: () => void) {
+function useGateForm(
+  gate: GateRow,
+  onAnswered?: () => void,
+  { presetProceed = false }: { presetProceed?: boolean } = {}
+) {
   const actionable = gate.status === 'open' || gate.status === 'parked';
   const {
     initial: draft,
@@ -88,8 +92,8 @@ function useGateForm(gate: GateRow, onAnswered?: () => void) {
     clear: clearDraft,
   } = useGateDraft(gate.gateId, actionable);
   const preset = useMemo(
-    () => presetSelections(gate.questions),
-    [gate.questions]
+    () => (presetProceed ? presetSelections(gate.questions) : {}),
+    [presetProceed, gate.questions]
   );
   const [selections, setSelections] = useState<GateSelections>(
     () => draft?.selections ?? preset
