@@ -161,15 +161,37 @@ describe('GateCache.applyEvent', () => {
         subject: SUBJECT_A,
         kind: 'plan',
         questions: [
-          { id: 'approach', label: 'Which?', multi: false, options: ['x', 'y'], writeIn: true },
-          { id: 'next', label: 'Then?', multi: false, options: ['proceed', 'hold'] },
+          {
+            id: 'approach',
+            label: 'Which?',
+            multi: false,
+            options: ['x', 'y'],
+            writeIn: true,
+          },
+          {
+            id: 'next',
+            label: 'Then?',
+            multi: false,
+            options: ['proceed', 'hold'],
+          },
         ],
         meta: null,
       },
     });
     expect(cache.get(SUBJECT_A, 'plan')?.questions).toEqual([
-      { id: 'approach', label: 'Which?', multi: false, options: ['x', 'y'], writeIn: true },
-      { id: 'next', label: 'Then?', multi: false, options: ['proceed', 'hold'] },
+      {
+        id: 'approach',
+        label: 'Which?',
+        multi: false,
+        options: ['x', 'y'],
+        writeIn: true,
+      },
+      {
+        id: 'next',
+        label: 'Then?',
+        multi: false,
+        options: ['proceed', 'hold'],
+      },
     ]);
   });
 
