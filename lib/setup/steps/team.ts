@@ -12,7 +12,6 @@ import { personalStoreReady, writeSecret } from "../../secrets/store.ts";
 import { join } from "path";
 import { discoverOrgs, parseOriginUrl } from "../team-settings.ts";
 import { publishTeam } from "../../team/publish.ts";
-import { publishPointer } from "../../team/org-data-branch.ts";
 import { forgeTokenFor } from "./forge-token.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
@@ -81,9 +80,7 @@ async function teamCreateRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   try {
-    const token = await forgeTokenFor(ctx, created.remote);
-    const published = await publishTeam(ctx.p, created.slug, null, { token, tokenRemote: created.remote });
-    await publishPointer(ctx.p, created.dir, token, created.remote);
+    const published = await publishTeam(ctx.p, created.slug, null, { token: await forgeTokenFor(ctx, created.remote), tokenRemote: created.remote });
     return { state: "done", detail: published.detail };
   } catch (err) {
     if (err instanceof UserActionableError) {

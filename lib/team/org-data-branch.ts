@@ -16,6 +16,7 @@ import { applyRoleCone } from "./org-cone.ts";
 import { gateVerdict, markerAtRef } from "./org-layout.ts";
 import { markerState, ORG_MARKER_REL } from "./org-marker.ts";
 import { withoutUrls } from "./redact.ts";
+import { containsCommit } from "./remote-head.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 
 export type HeldMove =
@@ -204,10 +205,55 @@ export async function convergeDataBranch(
   return result;
 }
 
-/** Whether this clone's local `main` is the pointer `rt team create` built: the marker and nothing else. A converged clone's old `main` holds the org's data and is never pushed. */
-async function holdsPointer(p: Pick<Probes, "exec">, dir: string): Promise<boolean> {
-  const listed = await p.exec(["git", "ls-tree", "-r", "--name-only", `refs/heads/${POINTER_BRANCH}`], { cwd: dir, env: ENV });
-  return listed.code === 0 && listed.stdout.trim() === ORG_MARKER_REL;
+/** git's words for a push origin turned away because the branch there holds commits this one lacks. */
+const REJECTED_RE = /\[rejected\]|fetch first|non-fast-forward/i;
+
+export interface PendingPointer {
+  dataBranch: string;
+  sha: string;
+}
+
+/**
+ * The pointer `rt team create` built on a local `main` and not yet pushed,
+ * or null. Only a `main` holding the marker and nothing else counts: a
+ * converged clone's old `main` holds the org's data and is never pushed.
+ * `checkedOut` saves a git call when the caller already knows the branch.
+ */
+export async function pendingPointer(p: Pick<Probes, "exec" | "readFile">, dir: string, checkedOut?: string | null): Promise<PendingPointer | null> {
+  const own = markerState(p, dir);
+  if (own.kind !== "org" || own.dataBranch === null) return null;
+  if ((checkedOut === undefined ? await checkedOutBranch(p, dir) : checkedOut) !== own.dataBranch) return null;
+  const ref = `refs/heads/${POINTER_BRANCH}`;
+  const listed = await p.exec(["git", "ls-tree", "-r", "--name-only", ref], { cwd: dir, env: ENV });
+  if (listed.code !== 0 || listed.stdout.trim() !== ORG_MARKER_REL) return null;
+  const sha = await p.exec(["git", "rev-parse", "--verify", "-q", ref], { cwd: dir, env: ENV });
+  return sha.code === 0 && sha.stdout.trim() !== "" ? { dataBranch: own.dataBranch, sha: sha.stdout.trim() } : null;
+}
+
+const notEmpty = (log: string) => new UserActionableError("remote-not-empty", "The team repo already has commits", {}, {
+  why: "rt starts a team in an empty repo.",
+  log: `${log}; rt team create expects an existing EMPTY repository`,
+});
+
+/**
+ * Refuses a new org's first publish when origin already holds a `main` or a
+ * data branch this clone did not push there (a repo the forge seeded with a
+ * README, say), before anything is written to it. A branch this clone pushed
+ * on an earlier try passes, so a publish that stopped part way can finish.
+ */
+export async function assertOriginTakesNewOrg(p: Probes, dir: string, pointer: PendingPointer, target: string, token: string | null, remote: string | null): Promise<void> {
+  const heads = [`refs/heads/${POINTER_BRANCH}`, `refs/heads/${pointer.dataBranch}`];
+  const lookup = gitWithToken(["ls-remote", "--refs", "--", target, ...heads], token, ENV, { remote });
+  const listed = await p.exec(lookup.argv, { cwd: dir, env: lookup.env });
+  if (listed.code !== 0) {
+    throw new UserActionableError("push-failed", "rt could not check that the team repo is empty", {}, { log: withoutUrls(`${listed.stdout}\n${listed.stderr}`.trim()) });
+  }
+  for (const row of listed.stdout.split("\n").filter(Boolean)) {
+    const [sha = "", ref = ""] = row.split("\t");
+    if (ref === heads[0] && sha === pointer.sha) continue;
+    if (ref === heads[1] && (await containsCommit(p, dir, sha, `refs/heads/${pointer.dataBranch}`))) continue;
+    throw notEmpty(`origin already holds ${ref}`);
+  }
 }
 
 /**
@@ -217,20 +263,27 @@ async function holdsPointer(p: Pick<Probes, "exec">, dir: string): Promise<boole
  * before, or one whose pointer is already pushed.
  */
 export async function publishPointer(p: Pick<Probes, "exec" | "readFile">, dir: string, token: string | null, remote: string): Promise<boolean> {
-  const own = markerState(p, dir);
-  if (own.kind !== "org" || own.dataBranch === null) return false;
-  if ((await checkedOutBranch(p, dir)) !== own.dataBranch) return false;
-  if (!(await holdsPointer(p, dir))) return false;
+  const pointer = await pendingPointer(p, dir);
+  if (pointer === null) return false;
   const failed = (log: string) => new UserActionableError("pointer-push-failed", "rt pushed the org but not its main branch", {}, {
     why: "main tells the people you invite which branch holds the org. Retry to push it.",
     log: withoutUrls(log.trim()),
   });
   // Narrowed before the push, so the push leaves no tracking ref for main behind.
-  const narrowed = await p.exec(["git", "config", "--replace-all", "remote.origin.fetch", dataBranchRefspec(own.dataBranch)], { cwd: dir, env: ENV });
+  const narrowed = await p.exec(["git", "config", "--replace-all", "remote.origin.fetch", dataBranchRefspec(pointer.dataBranch)], { cwd: dir, env: ENV });
   if (narrowed.code !== 0) throw failed(narrowed.stderr);
   const push = gitWithToken(["push", "-q", "origin", `refs/heads/${POINTER_BRANCH}:refs/heads/${POINTER_BRANCH}`], token, ENV, { remote });
   const pushed = await p.exec(push.argv, { cwd: dir, env: push.env });
-  if (pushed.code !== 0) throw failed(`${pushed.stdout}\n${pushed.stderr}`);
+  if (pushed.code !== 0) {
+    const log = withoutUrls(`${pushed.stdout}\n${pushed.stderr}`.trim());
+    if (REJECTED_RE.test(log)) {
+      throw new UserActionableError("remote-not-empty", "The team repo's main branch already has commits", {}, {
+        why: "rt starts a team in an empty repo, so it left main as it is.",
+        log,
+      });
+    }
+    throw failed(log);
+  }
   const dropped = await p.exec(["git", "branch", "-q", "-D", POINTER_BRANCH], { cwd: dir, env: ENV });
   if (dropped.code !== 0) throw failed(dropped.stderr);
   return true;

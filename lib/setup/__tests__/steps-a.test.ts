@@ -507,6 +507,7 @@ describe("team.create", () => {
       if (argv[0] === "gh") return ok(JSON.stringify({ login: "dev1" }));
       if (argv[1] === "symbolic-ref") return ok("mattstack\n");
       if (argv[1] === "ls-tree" && argv.includes("refs/heads/main")) return ok("mattstack/mattstack.jsonc\n");
+      if (argv[1] === "rev-parse" && argv.includes("refs/heads/main")) return ok(`${"b".repeat(40)}\n`);
       if (argv.includes("push") && argv.includes("refs/heads/main:refs/heads/main")) return pointerPush;
       return base(argv, opts);
     };
@@ -543,6 +544,39 @@ describe("team.create", () => {
     const log = readdirSync(logsDir()).filter((f) => f.startsWith("cli.")).map((f) => readFileSync(join(logsDir(), f), "utf8")).join("");
     expect(log).toContain("marker-pointer-zz");
     expect(log).not.toContain("SECRET");
+  });
+
+  test("rerunning team.create after a failed pointer push ends with the pointer on origin (real git)", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-step-pointer-retry-")));
+    const originalHome = process.env.HOME;
+    const originalUser = process.env.USER;
+    process.env.HOME = join(root, "home");
+    process.env.USER = "dev1";
+    try {
+      const origin = join(root, "origin.git");
+      execSync(`git init -q --bare ${JSON.stringify(origin)}`);
+      let failing = true;
+      const p = createRealProbes();
+      const realExec = p.exec;
+      p.exec = async (argv, opts) => {
+        if (argv[0] === "xcode-select") return ok("/fake-clt");
+        if (failing && argv.includes("refs/heads/main:refs/heads/main")) return { code: 1, stdout: "", stderr: "fatal: network blip" };
+        return realExec(argv, opts);
+      };
+      const intent: SetupIntent = { v: 1, at: "", mode: "create", team: { slug: "acme", name: "Acme", remote: origin, others: false } };
+
+      expect(await teamCreateStep.run(makeCtx(p, { intent }).ctx)).toMatchObject({ state: "failed", detail: "rt pushed the org but not its main branch" });
+      failing = false;
+      expect(await teamCreateStep.run(makeCtx(p, { intent }).ctx)).toMatchObject({ state: "done" });
+
+      const show = (...args: string[]) => Bun.spawnSync(["git", "-C", origin, ...args]).stdout.toString().trim();
+      expect(show("for-each-ref", "--format=%(refname)", "refs/heads").split("\n")).toEqual(["refs/heads/main", "refs/heads/mattstack"]);
+      expect(show("ls-tree", "-r", "--name-only", "main")).toBe("mattstack/mattstack.jsonc");
+    } finally {
+      process.env.HOME = originalHome;
+      process.env.USER = originalUser;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("push-denied -> failed with a credentials remedy, from an explicit create intent", async () => {

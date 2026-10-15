@@ -500,12 +500,11 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
     expect(git(origin, "for-each-ref", "--format=%(refname)").out).toBe("");
   });
 
-  test("publishing the data branch then the pointer leaves origin with both and the clone on the data branch alone", async () => {
+  test("one publish pushes the data branch then the pointer, leaving the clone on the data branch alone", async () => {
     const { p, origin } = world();
     const created = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
 
     await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote });
-    expect(await publishPointer(p, created.dir, null, created.remote)).toBe(true);
 
     expect(git(origin, "for-each-ref", "--format=%(refname)", "refs/heads").out.split("\n")).toEqual(["refs/heads/main", "refs/heads/mattstack"]);
     expect(git(origin, "ls-tree", "-r", "--name-only", "mattstack").out.split("\n").sort()).toEqual(DATA_FILES);
@@ -524,7 +523,7 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
     expect(git(created.dir, "rev-parse", "--verify", "-q", "refs/heads/main").code).not.toBe(0);
   });
 
-  test("a pointer push that fails keeps the local main, says why with urls stripped, and a retry pushes it", async () => {
+  test("a pointer push that fails keeps the local main, says why with urls stripped, and the next publish pushes it", async () => {
     let failing = true;
     const { p, origin } = world((argv) =>
       failing && argv.includes("push") && argv.includes("refs/heads/main:refs/heads/main")
@@ -532,9 +531,8 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
         : undefined,
     );
     const created = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
-    await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote });
 
-    const err = await publishPointer(p, created.dir, null, created.remote).catch((e: unknown) => e);
+    const err = await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UserActionableError);
     expect(err).toMatchObject({ code: "pointer-push-failed" });
     expect((err as UserActionableError).log).toContain("unable to access");
@@ -543,9 +541,44 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
     expect(git(origin, "for-each-ref", "--format=%(refname)", "refs/heads").out).toBe("refs/heads/mattstack");
 
     failing = false;
-    expect(await publishPointer(p, created.dir, null, created.remote)).toBe(true);
+    await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote });
     expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(MARKER_PATH);
     expect(git(created.dir, "rev-parse", "--verify", "-q", "refs/heads/main").code).not.toBe(0);
+  });
+
+  function seedOrigin(origin: string, branch: string): string {
+    const seed = join(root, `seed-${branch}`);
+    for (const args of [["init", "-q", "-b", branch, seed], ["-C", seed, "commit", "-q", "--allow-empty", "-m", "README"], ["-C", seed, "push", "-q", origin, branch]]) {
+      expect(Bun.spawnSync(["git", ...args], { env: childEnv() }).exitCode).toBe(0);
+    }
+    return git(origin, "rev-parse", branch).out;
+  }
+
+  for (const branch of ["main", "mattstack"]) {
+    test(`an origin that already has a ${branch} branch is refused before anything is pushed`, async () => {
+      const { p, origin } = world();
+      const before = seedOrigin(origin, branch);
+      const created = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
+
+      const err = await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote }).catch((e: unknown) => e);
+      expect(err).toMatchObject({ code: "remote-not-empty", message: "The team repo already has commits", why: "rt starts a team in an empty repo." });
+      expect(git(origin, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads").out).toBe(`refs/heads/${branch} ${before}`);
+      expect(git(created.dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(MARKER_PATH);
+    });
+  }
+
+  test("a pointer push that main's own commits reject says so and never suggests a retry", async () => {
+    let failing = true;
+    const { p, origin } = world((argv) => (failing && argv.includes("refs/heads/main:refs/heads/main") ? { code: 1, stdout: "", stderr: "fatal: network blip" } : undefined));
+    const created = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
+    await expect(publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote })).rejects.toMatchObject({ code: "pointer-push-failed" });
+    failing = false;
+    const foreign = seedOrigin(origin, "main");
+
+    const err = await publishPointer(p, created.dir, null, created.remote).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "remote-not-empty", message: "The team repo's main branch already has commits" });
+    expect((err as UserActionableError).why).not.toMatch(/retry/i);
+    expect(git(origin, "rev-parse", "main").out).toBe(foreign);
   });
 
   test("building main fails part way: the data branch, index and files are as they were, and a rerun builds it", async () => {

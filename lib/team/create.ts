@@ -2,8 +2,8 @@
  * `rt team create` scaffolds the local team zone (~/.mattstack/orgs/<slug>)
  * as a fresh git repo whose data branch holds its starter settings, plus a
  * local `main` holding only the marker that points at it, but never pushes:
- * Install's `team.create` step owns the push, via `publishTeam` then
- * `publishPointer`.
+ * Install's `team.create` step owns the push, via `publishTeam`, which
+ * pushes the pointer after the data branch.
  *
  * Every step below checks whether a previous attempt already got that far
  * before doing it again, so a failure partway through (network blip on
@@ -15,7 +15,7 @@ import { applyEdits, modify, parse } from "jsonc-parser";
 import { orgStoreFile } from "./org-store.ts";
 import { markerState, ORG_LAYOUT, ORG_MARKER_REL } from "./org-marker.ts";
 import { checkedOutBranch } from "./org-branch.ts";
-import { dataBranchRefspec, DEFAULT_DATA_BRANCH, POINTER_BRANCH, publishPointer } from "./org-data-branch.ts";
+import { dataBranchRefspec, DEFAULT_DATA_BRANCH, POINTER_BRANCH } from "./org-data-branch.ts";
 import { publishTeam } from "./publish.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { basename, dirname, join } from "path";
@@ -151,7 +151,6 @@ export async function claimPendingAdmin(p: Probes, slug: string, username: strin
     await commitCreator(p, slug, username);
     updateTeamLocal(p, slug, { creatorPending: undefined });
     await publishTeam(p, slug, null, { token, tokenRemote: origin });
-    await publishPointer(p, orgDirUnder(p.home, slug), token, origin);
     return { claimed: true, published: true };
   } catch (err) {
     return { claimed: true, published: false, detail: err instanceof Error ? err.message : String(err) };
