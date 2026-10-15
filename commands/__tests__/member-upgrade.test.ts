@@ -303,7 +303,7 @@ describe("member upgrade: app first, org main converts later", () => {
     expect(installed.get("widgets@widgets")?.version).toBe("0.1.1");
     expectMaterialized(bindings);
     const after = await rtHealthRows(p, { ci: false });
-    expect(after.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 3" });
+    expect(after.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 4" });
 
     expect(getSetting("sdm.resources").value).toEqual(SDM_RESOURCES);
     const materialized = readFileSync(bindings, "utf8");
@@ -349,7 +349,7 @@ describe("member upgrade: org main converts first, app updates later", () => {
     expect(getSetting("sdm.resources").value).toEqual(SDM_RESOURCES);
 
     const rows = await rtHealthRows(p, { ci: false });
-    expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 3" });
+    expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 4" });
     expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
     expect(rows.find((r) => r.id === "team.sync")).toMatchObject({ status: "missing", detail: "The rt daemon is not running. Team clones sync once it is" });
     const drawn = (await composePlan({ p, secrets: { has: async () => null }, ci: false, mode: "status", orgs: ["acme"] })).groups.flatMap((g) => g.rows);
@@ -439,7 +439,7 @@ describe("member upgrade: v2.21.1 held the pull, then the app updates", () => {
     expect(getSetting("sdm.resources").value).toEqual(SDM_RESOURCES);
 
     const after = await rtHealthRows(p, { ci: false });
-    expect(after.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 3" });
+    expect(after.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 4" });
     expect(after.find((r) => r.id === "org.folder")?.status).toBe("ready");
     expect(after.find((r) => r.id === "team.sync")).toMatchObject({ status: "missing", detail: "The rt daemon is not running. Team clones sync once it is" });
 
@@ -500,7 +500,7 @@ describe("member upgrade: the member also has a working checkout of the org repo
     expect(existsSync(join(checkout, ".git"))).toBe(true);
 
     const rows = await rtHealthRows(p, { ci: false });
-    expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 3" });
+    expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 4" });
     expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
   });
 });

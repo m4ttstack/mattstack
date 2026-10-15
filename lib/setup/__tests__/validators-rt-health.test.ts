@@ -1516,7 +1516,7 @@ describe("orgLayoutRow", () => {
   });
   test("ready names the org and layout", async () => {
     const r = await orgLayoutRow(at(converted, true), status(null));
-    expect(r).toMatchObject({ id: ORG_LAYOUT_ROW_ID, status: "ready", detail: "acme on layout 3" });
+    expect(r).toMatchObject({ id: ORG_LAYOUT_ROW_ID, status: "ready", detail: `acme on layout ${ORG_LAYOUT}` });
   });
   test("a one-team clone is skipped with the waiting sentence and no action", async () => {
     const r = await orgLayoutRow(at(legacy, false), status(null));
@@ -1525,12 +1525,12 @@ describe("orgLayoutRow", () => {
   });
   test("a clone above ORG_LAYOUT is needs-you with the update step", async () => {
     const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT + 1 }), true), status(null));
-    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 4 and this app reads up to 3. Update the app." });
+    expect(r).toMatchObject({ status: "needs-you", detail: `Your org uses layout ${ORG_LAYOUT + 1} and this app reads up to ${ORG_LAYOUT}. Update the app.` });
     expect(r?.action).toMatchObject({ type: "steps", steps: ["Update mattstack from its menu bar icon, then reopen Setup status"] });
   });
   test("a daemon hold reads needs-you even though the clone itself is ready", async () => {
-    const r = await orgLayoutRow(at(converted, true), status({ layout: 4, reads: 3 }));
-    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 4 and this app reads up to 3. Update the app." });
+    const r = await orgLayoutRow(at(converted, true), status({ layout: ORG_LAYOUT + 1, reads: ORG_LAYOUT }));
+    expect(r).toMatchObject({ status: "needs-you", detail: `Your org uses layout ${ORG_LAYOUT + 1} and this app reads up to ${ORG_LAYOUT}. Update the app.` });
   });
   test("a daemon that is not running does not hide a ready clone", async () => {
     const r = await orgLayoutRow(at(converted, true), async () => null);

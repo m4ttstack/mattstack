@@ -1118,14 +1118,14 @@ describe("pull-pack in an org clone", () => {
     const { clone, pack } = orgClonePack();
     const engine = fixturePack("beacon", "local", "2.0.0");
     const calls: Call[] = [];
-    const deps = { ...makeDeps(pack, engine, { calls, originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 4 }` } }), orgsRoot: dirname(clone) };
+    const deps = { ...makeDeps(pack, engine, { calls, originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 5 }` } }), orgsRoot: dirname(clone) };
 
     const report = await syncPack(pack, engine, deps);
 
     const held = report.steps.find((s) => s.name === "pull-pack")!;
-    expect(held).toMatchObject({ name: "pull-pack", status: "refused", detail: "Your org uses layout 4 and this app reads up to 3. Update the app." });
+    expect(held).toMatchObject({ name: "pull-pack", status: "refused", detail: "Your org uses layout 5 and this app reads up to 4. Update the app." });
     expect(held[LAYOUT_HOLD]).toBe(true);
-    expect(JSON.parse(JSON.stringify(held))).toEqual({ name: "pull-pack", status: "refused", detail: "Your org uses layout 4 and this app reads up to 3. Update the app." });
+    expect(JSON.parse(JSON.stringify(held))).toEqual({ name: "pull-pack", status: "refused", detail: "Your org uses layout 5 and this app reads up to 4. Update the app." });
     expect(merges(calls)).toEqual([]);
     expect(calls.some((c) => c.args[0] === "fetch" && c.cwd === clone)).toBe(true);
     expect(calls.some((c) => c.args[0] === "show" && c.args[1] === "refs/remotes/origin/main:mattstack/mattstack.jsonc" && c.cwd === clone)).toBe(true);

@@ -9,7 +9,7 @@ import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { orgDirUnder, orgsDirUnder } from "../rt-paths.ts";
 import type { Probes } from "../setup/probes.ts";
-import { markerState, ORG_LAYOUT, ORG_MARKER_REL, parseMarker, type MarkerState } from "./org-marker.ts";
+import { markerState, ORG_LAYOUT, ORG_MARKER_REL, parseMarker, READABLE_LAYOUTS, type MarkerState } from "./org-marker.ts";
 
 export type OrgLayoutState =
   | { kind: "none" }
@@ -73,9 +73,9 @@ export function pickOrgClone(candidates: OrgCandidate[]): { slug: string; layout
   return fallback;
 }
 
-/** A picked clone is ready only on this rt's layout and with its org store; every reader asks this one rule. */
+/** A picked clone is ready only on a layout this rt reads and with its org store; every reader asks this one rule. */
 export function pickedCloneReady(picked: { layout: number; hasStore: boolean }): boolean {
-  return picked.hasStore && picked.layout === ORG_LAYOUT;
+  return picked.hasStore && READABLE_LAYOUTS.includes(picked.layout);
 }
 
 /** Classifies the clone pickOrgClone would pick. */

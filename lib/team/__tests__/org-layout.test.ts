@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { ORG_MARKER_REL } from "../org-marker.ts";
-import { layoutSentence, orgLayoutState, orgLayoutWaitingError, updateSentence, WAITING_SENTENCE } from "../org-layout.ts";
+import { layoutAbove, layoutSentence, orgLayoutState, pickedCloneReady, orgLayoutWaitingError, updateSentence, WAITING_SENTENCE } from "../org-layout.ts";
 
 const H = "/h";
 const orgs = `${H}/.mattstack/orgs`;
@@ -29,7 +29,7 @@ describe("orgLayoutState", () => {
     expect(orgLayoutState(home({ acme: { marker: marker("team", "acme") } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 1 });
   });
   test("waiting for a layout above ORG_LAYOUT", () => {
-    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 4), orgStore: true } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 4 });
+    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 5), orgStore: true } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 5 });
   });
   test("a layout 2 marker reads waiting, a layout 3 marker reads ready", () => {
     expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 2), orgStore: true } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 2 });
@@ -53,8 +53,8 @@ describe("orgLayoutState", () => {
     expect(orgLayoutState(p)).toEqual({ kind: "ready", slug: "bbb" });
   });
   test("a store-holding waiting clone sorting first wins over a later ready one", () => {
-    const p = home({ aaa: { marker: marker("org", "aaa", 4), orgStore: true }, bbb: { marker: marker("org", "bbb", 3), orgStore: true } });
-    expect(orgLayoutState(p)).toEqual({ kind: "waiting", slug: "aaa", dir: `${orgs}/aaa`, layout: 4 });
+    const p = home({ aaa: { marker: marker("org", "aaa", 5), orgStore: true }, bbb: { marker: marker("org", "bbb", 3), orgStore: true } });
+    expect(orgLayoutState(p)).toEqual({ kind: "waiting", slug: "aaa", dir: `${orgs}/aaa`, layout: 5 });
   });
   test("a folder without .git/config or without a marker is not a clone", () => {
     const p = fakeProbes({ home: H, dirs: { [orgs]: ["stray", "half"] }, files: { [`${orgs}/half/.git/config`]: "" } });
@@ -67,13 +67,27 @@ describe("sentences", () => {
     expect(layoutSentence({ kind: "waiting", slug: "acme", dir: "/x", layout: 1 })).toBe(WAITING_SENTENCE);
   });
   test("above names both numbers", () => {
-    expect(updateSentence(4)).toBe("Your org uses layout 4 and this app reads up to 3. Update the app.");
-    expect(layoutSentence({ kind: "waiting", slug: "acme", dir: "/x", layout: 4 })).toBe(updateSentence(4));
+    expect(updateSentence(5)).toBe("Your org uses layout 5 and this app reads up to 4. Update the app.");
+    expect(layoutSentence({ kind: "waiting", slug: "acme", dir: "/x", layout: 5 })).toBe(updateSentence(5));
   });
   test("the error carries the sentence and no next command", () => {
     const err = orgLayoutWaitingError({ kind: "waiting", slug: "acme", dir: "/x", layout: 1 });
     expect(err.code).toBe("org-layout-waiting");
     expect(err.message).toBe(WAITING_SENTENCE);
     expect(err.next).toBeUndefined();
+  });
+});
+
+describe("layout 4 with layout 3 readable", () => {
+  test("layouts 3 and 4 are both ready; 2 and 5 wait", () => {
+    expect(pickedCloneReady({ layout: 3, hasStore: true })).toBe(true);
+    expect(pickedCloneReady({ layout: 4, hasStore: true })).toBe(true);
+    expect(pickedCloneReady({ layout: 2, hasStore: true })).toBe(false);
+    expect(pickedCloneReady({ layout: 5, hasStore: true })).toBe(false);
+    expect(pickedCloneReady({ layout: 4, hasStore: false })).toBe(false);
+  });
+  test("a tip on layout 4 is not above this rt; 5 is", () => {
+    expect(layoutAbove({ code: 0, stdout: '{"role":"org","org":"acme","layout":4}', stderr: "" })).toBeNull();
+    expect(layoutAbove({ code: 0, stdout: '{"role":"org","org":"acme","layout":5}', stderr: "" })).toEqual({ layout: 5 });
   });
 });

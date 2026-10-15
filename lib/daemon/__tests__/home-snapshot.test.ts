@@ -2679,14 +2679,14 @@ describe("the layout gate", () => {
   };
 
   test("a hold: skipped with the update sentence, no merge, lastPullAt stamped, layoutHold set", async () => {
-    const { handle, execCalls, log } = start(async () => ({ layout: 4 }), 1);
+    const { handle, execCalls, log } = start(async () => ({ layout: 5 }), 1);
     await handle.ready;
     const result = await handle.pullNow();
-    expect(result).toEqual({ outcome: "skipped", detail: "Your org uses layout 4 and this app reads up to 3. Update the app.", hold: { layout: 4, reads: 3 } });
+    expect(result).toEqual({ outcome: "skipped", detail: "Your org uses layout 5 and this app reads up to 4. Update the app.", hold: { layout: 5, reads: 4 } });
     expect(execCalls.some((argv) => gitVerb(argv) === "merge")).toBe(false);
     const status = handle.status();
     expect(status.lastPullAt).toBe(1_000_000);
-    expect(status.layoutHold).toEqual({ layout: 4, reads: 3 });
+    expect(status.layoutHold).toEqual({ layout: 5, reads: 4 });
     expect(status.lastPullSkipped).toBe(result.detail);
     await handle.pullNow();
     expect(log.calls.filter((c) => c.level === "info" && JSON.stringify(c.args).includes("holding the pull")).length).toBe(1);
@@ -2694,11 +2694,11 @@ describe("the layout gate", () => {
   });
 
   test("a passing gate fast-forwards and clears an earlier hold", async () => {
-    let layout: number | null = 4;
+    let layout: number | null = 5;
     const { handle } = start(async () => (layout === null ? null : { layout }), 1);
     await handle.ready;
     await handle.pullNow();
-    expect(handle.status().layoutHold).toEqual({ layout: 4, reads: 3 });
+    expect(handle.status().layoutHold).toEqual({ layout: 5, reads: 4 });
     layout = null;
     const result = await handle.pullNow();
     expect(result.outcome).toBe("fast-forwarded");
@@ -2719,16 +2719,16 @@ describe("the layout gate", () => {
     let mode: "hold" | "throw" | "pass" = "hold";
     const { handle, execCalls, log } = start(async () => {
       if (mode === "throw") throw new Error("object corrupt");
-      return mode === "hold" ? { layout: 4 } : null;
+      return mode === "hold" ? { layout: 5 } : null;
     }, 1);
     await handle.ready;
     await handle.pullNow();
     mode = "throw";
     const held = await handle.pullNow();
-    expect(held).toEqual({ outcome: "skipped", detail: "Your org uses layout 4 and this app reads up to 3. Update the app.", hold: { layout: 4, reads: 3 } });
+    expect(held).toEqual({ outcome: "skipped", detail: "Your org uses layout 5 and this app reads up to 4. Update the app.", hold: { layout: 5, reads: 4 } });
     await handle.pullNow();
     expect(execCalls.some((argv) => gitVerb(argv) === "merge")).toBe(false);
-    expect(handle.status().layoutHold).toEqual({ layout: 4, reads: 3 });
+    expect(handle.status().layoutHold).toEqual({ layout: 5, reads: 4 });
     expect(log.calls.filter((c) => c.level === "warn" && JSON.stringify(c.args).includes("layout gate")).length).toBe(1);
     mode = "pass";
     expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
@@ -2759,7 +2759,7 @@ describe("the layout gate", () => {
     ]);
     const { deps, timers, broadcasts } = baseDeps({ exec: exec.fn });
     const { repoDir: _r, ...specDeps } = deps;
-    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? { layout: 4 } : null) } }, specDeps);
+    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? { layout: 5 } : null) } }, specDeps);
     await handle.ready;
     await flushAsync();
 
@@ -2800,7 +2800,7 @@ describe("the layout gate", () => {
     const exec = makeSwitchableExec([rejecting, ...pullResponders({ behind: 0, ahead: 1 }), ...defaultResponders({ statusZ: dirty })]);
     const { deps, timers, broadcasts } = baseDeps({ exec: exec.fn });
     const { repoDir: _r, ...specDeps } = deps;
-    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? { layout: 4 } : null) } }, specDeps);
+    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? { layout: 5 } : null) } }, specDeps);
     await handle.ready;
     await flushAsync();
 
@@ -2817,7 +2817,7 @@ describe("the layout gate", () => {
 
   test("nothing to pull runs no gate", async () => {
     let asked = 0;
-    const { handle } = start(async () => { asked++; return { layout: 4 }; }, 0);
+    const { handle } = start(async () => { asked++; return { layout: 5 }; }, 0);
     await handle.ready;
     expect((await handle.pullNow()).outcome).toBe("up-to-date");
     expect(asked).toBe(0);
@@ -2828,7 +2828,7 @@ describe("the layout gate", () => {
 describe("layoutGate", () => {
   const exec = (res: { code: number; stdout: string; stderr: string }) => (async () => res) as unknown as Probes["exec"];
   test("reads the marker at the ref through git show", async () => {
-    expect(await layoutGate(exec({ code: 0, stdout: '{ "role": "org", "org": "acme", "layout": 4 }', stderr: "" }), "/clone", "refs/remotes/origin/main")).toEqual({ layout: 4 });
+    expect(await layoutGate(exec({ code: 0, stdout: '{ "role": "org", "org": "acme", "layout": 5 }', stderr: "" }), "/clone", "refs/remotes/origin/main")).toEqual({ layout: 5 });
   });
   test("a one-team marker, an org marker at ORG_LAYOUT or with no layout, or an unparsable one passes", async () => {
     const atOrgLayout = JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT });
