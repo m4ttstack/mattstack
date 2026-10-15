@@ -238,3 +238,44 @@ test("a clone that differs from origin's main is refused", () => {
   expect(err(result)).toContain("does not match origin");
   expect(branches()).toEqual(["main"]);
 });
+
+test("a cone-sparse clone converts to a data branch without application code", () => {
+  const dir = org();
+  git(dir, "sparse-checkout", "set", "--cone", "mattstack", ".claude-plugin");
+  expect(existsSync(join(dir, "apps"))).toBe(false);
+  const before = state(dir);
+  const result = run(dir, "me", "--write");
+  expect(err(result)).not.toContain("refused");
+  expect(result.exitCode).toBe(0);
+  expect(files("mattstack").sort()).toEqual(DATA_FILES);
+  expect(files("main").sort()).toEqual([".gitignore", "apps/web/index.ts", MARKER]);
+  expect(state(dir)).toBe(before);
+  expect(git(dir, "config", "--get", "core.sparseCheckout").trim()).toBe("true");
+});
+
+test("a failure mid-run still removes the temp worktrees", () => {
+  const dir = org();
+  const hook = join(origin, "hooks", "pre-receive");
+  writeFileSync(hook, "#!/bin/sh\necho 'no pushes today' >&2\nexit 1\n");
+  chmodSync(hook, 0o755);
+  const before = state(dir);
+  const result = run(dir, "me", "--write");
+  expect(result.exitCode).toBe(1);
+  expect(err(result)).toContain("no pushes today");
+  expect(readdirSync(scratch())).toEqual([]);
+  expect(state(dir)).toBe(before);
+  expect(branches()).toEqual(["main"]);
+});
+
+test("a pointer push that fails after the data branch landed says the branch exists", () => {
+  const dir = org();
+  const hook = join(origin, "hooks", "pre-receive");
+  writeFileSync(hook, '#!/bin/sh\nwhile read old new ref; do case "$ref" in refs/heads/main|refs/heads/mattstack-pointer) echo "closed" >&2; exit 1;; esac; done\nexit 0\n');
+  chmodSync(hook, 0o755);
+  const result = run(dir, "me", "--write");
+  expect(result.exitCode).toBe(1);
+  expect(err(result)).toContain("mattstack branch is already on origin");
+  expect(err(result)).toContain("--no-pointer");
+  expect(branches()).toEqual(["main", "mattstack"]);
+  expect(readdirSync(scratch())).toEqual([]);
+});

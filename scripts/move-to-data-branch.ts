@@ -88,6 +88,9 @@ function gitIn(dir: string, ...argv: string[]): string {
   }
 }
 
+/** The temp worktrees inherit a cone-sparse clone's sparse state; the override makes them whole without writing the clone's shared config. */
+const wholeTree = (dir: string, ...argv: string[]): string => gitIn(dir, "-c", "core.sparseCheckout=false", "-c", "core.sparseCheckoutCone=false", ...argv);
+
 const succeeds = (dir: string, ...argv: string[]): boolean => {
   try {
     gitIn(dir, ...argv);
@@ -198,9 +201,10 @@ class Workspace {
 
 /** Replaces everything in `dir` with the data paths as `sha` holds them, plus the README and the layout 4 marker. */
 function populate(dir: string, sha: string, org: string, dataBranch: string): void {
-  gitIn(dir, "rm", "-rqf", "--ignore-unmatch", "--", ".");
+  wholeTree(dir, "read-tree", "--empty");
+  wholeTree(dir, "clean", "-fdxq");
   const present = gitIn(dir, "ls-tree", "--name-only", sha, "--", ...DATA_PATHS).trim().split("\n").filter(Boolean);
-  gitIn(dir, "checkout", sha, "--", ...present);
+  wholeTree(dir, "checkout", sha, "--", ...present);
   const ignorePath = join(dir, ".gitignore");
   let ignore = "";
   try {
@@ -210,17 +214,17 @@ function populate(dir: string, sha: string, org: string, dataBranch: string): vo
   mkdirSync(join(dir, "mattstack"), { recursive: true });
   writeFileSync(join(dir, ORG_MARKER_REL), pointerMarker(org, dataBranch));
   writeFileSync(join(dir, "README.md"), README);
-  gitIn(dir, "add", "-A", "-f");
+  wholeTree(dir, "add", "-A", "-f");
 }
 
 const sameWatched = (clone: string, a: string, b: string): boolean => succeeds(clone, "diff", "--quiet", a, b, "--", ...WATCHED_PATHS);
 
 function commitPointer(dir: string, org: string, dataBranch: string): void {
-  gitIn(dir, "rm", "-rq", "--ignore-unmatch", "--", ...WATCHED_PATHS);
+  wholeTree(dir, "rm", "-rq", "--ignore-unmatch", "--", ...WATCHED_PATHS);
   mkdirSync(join(dir, "mattstack"), { recursive: true });
   writeFileSync(join(dir, ORG_MARKER_REL), pointerMarker(org, dataBranch));
-  gitIn(dir, "add", "--", ORG_MARKER_REL);
-  gitIn(dir, "commit", "-q", "-m", `mattstack: org data lives on the ${dataBranch} branch`);
+  wholeTree(dir, "add", "--", ORG_MARKER_REL);
+  wholeTree(dir, "commit", "-q", "-m", `mattstack: org data lives on the ${dataBranch} branch`);
 }
 
 type PointerOutcome = { kind: "main" } | { kind: "branch"; branch: string; why: string };
@@ -230,6 +234,7 @@ function convert(opts: Options, checked: Checked): { pointer: PointerOutcome | n
   const { org } = checked;
   const { dataBranch } = opts;
   const work = new Workspace(clone);
+  let dataPushed = false;
   try {
     let base = checked.mainSha;
     const dataTree = work.tree("data", base);
@@ -237,6 +242,7 @@ function convert(opts: Options, checked: Checked): { pointer: PointerOutcome | n
     populate(dataTree, base, org, dataBranch);
     gitIn(dataTree, "commit", "-q", "-m", "org data moves to its own branch");
     gitIn(dataTree, "push", "-q", "origin", `HEAD:refs/heads/${dataBranch}`);
+    dataPushed = true;
     if (!opts.pointer) return { pointer: null };
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -264,6 +270,19 @@ function convert(opts: Options, checked: Checked): { pointer: PointerOutcome | n
       }
     }
     throw new UserActionableError("main-kept-moving", "Main kept changing while the pointer was being committed", {}, { log: `gave up after ${MAX_ATTEMPTS} attempts`, next: "Run the move again once main is quiet" });
+  } catch (err) {
+    if (!dataPushed) throw err;
+    const cause = errorText(err);
+    throw new UserActionableError(
+      "move-stopped-after-data-branch",
+      `The move stopped after the ${dataBranch} branch was created`,
+      {},
+      {
+        why: `The ${dataBranch} branch is already on origin, and main has no pointer yet, so nothing has moved. A rerun is refused until that branch is deleted; --no-pointer would stop at the same branch. Cause: ${cause}`,
+        next: `git -C ${clone} push origin --delete ${dataBranch}`,
+        log: cause,
+      },
+    );
   } finally {
     work.dispose();
   }
@@ -301,7 +320,7 @@ function main(): void {
 try {
   main();
 } catch (err) {
-  const failure = err instanceof UserActionableError ? err : new UserActionableError("move-failed", "The move could not continue", {}, { log: errorText(err) });
+  const failure = err instanceof UserActionableError ? err : new UserActionableError("move-failed", "The move could not continue", {}, { why: errorText(err), log: errorText(err) });
   logFailureDetail(failure);
   out.fail(failureFor(failure));
   process.exit(1);
