@@ -101,10 +101,14 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    run. Which team you work as is `rt team use <team>`, which also swaps
    the team pack and restarts the apps that read it; the org-only
    `mattstack.directory` holds each team's review channel and Linear key. Roles in the org's `mattstack.org` setting decide
-   who writes: an admin writes the org store and every team's, a team's
-   owner writes that team's store, and a member writes neither. A refused
+   who writes: an org owner writes anything (`owners` empty means the admins
+   are the org owners), an admin writes the org store except `owners` and
+   every team's, a team's owner writes that team's store and, in the org
+   store, only which of their own teams people are on (`rt team members add
+   <user> --to <team>`, `drop <user> --from <team>`), and a member writes
+   neither. `orgStoreChangeRefusal` judges every org store write. A refused
    team write names that team's owners, then the org's admins; a refused
-   org write names the admins.
+   org write names the org owners.
 5. A key's default lives in its registry row and nowhere else: `default:`
    for a key whose app falls back to a fixed value or to an empty `[]`/`{}`,
    and `defaultNote:` (one short plain sentence the console shows) for a key
