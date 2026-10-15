@@ -5,9 +5,9 @@
  * stands and does only what is off, so a run that stopped halfway finishes at
  * the next one. The folder piece runs in the daemon (`org:move`) when one is
  * up, because the daemon owns the registry the move rewrites; it never
- * renames beside a daemon that cannot do it. Last, the picked clone moves to
- * the branch its org's data lives on, once origin's copy of its branch
- * points there.
+ * renames beside a daemon that cannot do it. Last, on a Mac with no daemon,
+ * the picked clone moves to the branch its org's data lives on, once
+ * origin's copy of its branch points there; a daemon makes that move itself.
  */
 
 import { join } from "path";
@@ -250,7 +250,8 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
     if (market.state === "partial") partials.push({ detail: `${clone.org}: ${market.detail}`, commands, line });
   }
 
-  const data = await dataBranchPiece(p);
+  // A running daemon makes the same move under its git lock on org.pull's round trip; moving here too would race it.
+  const data = daemonUp ? null : await dataBranchPiece(p);
   if (moved || (data && "note" in data && data.log === undefined)) ctx.reloadTeam?.();
   if (data && "note" in data) notes.push(data.note);
   if (data && "note" in data && data.log !== undefined) ctx.log("org.folder", `data branch check: ${data.log}`);

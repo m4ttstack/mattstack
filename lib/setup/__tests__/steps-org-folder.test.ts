@@ -584,6 +584,21 @@ describe("org.folder: the data branch piece", () => {
     expect(out.detail).toContain("rt could not move your copy of the org to its data branch: fatal: could not read from remote repository");
   });
 
+  test("with a daemon present the step leaves the move to the daemon's pull, never racing it", async () => {
+    const dirs = moving({ kind: "failed", log: "fatal: Unable to create '.git/index.lock': File exists" });
+    const p = fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed(), dirs: { [RT]: ["rt.sock"] }, files: { [`${RT}/rt.sock`]: "" } });
+    const out = await convergeOrgFolder(makeCtx(p, { update: true }).ctx);
+    expect(out).toMatchObject({ state: "done", detail: "acme already in place" });
+    expect(dirs).toEqual([]);
+  });
+
+  test("with no daemon the step moves the clone itself", async () => {
+    const dirs = moving({ kind: "moved", branch: "mattstack" });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out.detail).toContain("Moved your copy of the org to the mattstack branch");
+    expect(dirs).toEqual([`${ORGS}/acme`]);
+  });
+
   test("nothing to move leaves the step as it was", async () => {
     moving(null);
     const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
