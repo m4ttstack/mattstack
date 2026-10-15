@@ -57,7 +57,7 @@ describe('GateQueueStrip', () => {
 
   it('counts the queue and links each gate to its panel', () => {
     const { getByText, getByRole } = strip(QUEUE);
-    expect(getByText('3 waiting on you')).toBeInTheDocument();
+    expect(getByText('3 waiting on other runs')).toBeInTheDocument();
     expect(
       getByRole('link', { name: /WEB-411.*plan gate · 3m/ })
     ).toHaveAttribute('href', '/runs/remote:acme%2Fweb/run-g2#gate-g2');
@@ -81,6 +81,21 @@ describe('GateQueueStrip', () => {
     expect(location.pathname + location.hash).toBe(
       '/runs/remote:acme%2Fweb/run-g1#gate-g1'
     );
+  });
+
+  it('leaves g to an open modal', () => {
+    strip(QUEUE);
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    document.body.append(dialog);
+    fireEvent.keyDown(document.documentElement, { key: 'g' });
+    dialog.remove();
+    expect(location.pathname).toBe('/');
+  });
+
+  it('shows no more link for exactly three gates', () => {
+    const { queryByRole } = strip(QUEUE);
+    expect(queryByRole('link', { name: /more/ })).toBeNull();
   });
 
   it('shows three gates and sends the rest to the waiting runs', () => {

@@ -6,6 +6,7 @@ import { countsForConsoleBadge } from '../../shared/gate-waiting';
 import { nowOf } from './derive/clock';
 import { useLinkedGates } from './runs-page/useLinkedGates';
 import { runsHomeHref } from './runs-page/useRunsUrl';
+import classes from './RunsRailEntry.module.css';
 import { useRunList } from './useRuns';
 
 const WAITING_HREF = '/?filter=waiting';
@@ -48,12 +49,7 @@ export function RunsRailEntry({ active }: { active: boolean }) {
           onClick={close}
           aria-label={`${count} waiting on you — show only those`}
           data-testid="waiting-badge"
-          style={{
-            color: 'inherit',
-            font: 'inherit',
-            textDecoration: 'none',
-            padding: '0 2px',
-          }}
+          className={classes.count}
         >
           {count}
         </Link>

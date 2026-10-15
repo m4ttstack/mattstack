@@ -51,7 +51,14 @@ function Strip({ queue, now }: GateQueueStripProps) {
   const nextHref = gateHref(next.run, next.gate);
   const nextTicket = ticketOf(next.run);
   const rest = queue.length - SHOWN;
-  useHotkeys([['g', () => navigate(nextHref)]]);
+  useHotkeys([
+    [
+      'g',
+      () => {
+        if (!document.querySelector('[role="dialog"]')) navigate(nextHref);
+      },
+    ],
+  ]);
 
   return (
     <StatusCard
@@ -64,7 +71,7 @@ function Strip({ queue, now }: GateQueueStripProps) {
         <>
           <Glyph name="hand" size={14} color="bad" />
           <Text fz="md" fw={700} lh="normal" c="bad">
-            {queue.length} waiting on you
+            {queue.length} waiting on other runs
           </Text>
           <Group gap={6} wrap="wrap" className={classes.chips}>
             {queue.slice(0, SHOWN).map(({ run, gate }) => {

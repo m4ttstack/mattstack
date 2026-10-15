@@ -144,6 +144,11 @@ describe('gateQueue', () => {
     ];
     expect(gateQueue(runs, gates, NOW, 'here')).toEqual([]);
   });
+
+  it('leaves out a gate whose run is not listed', () => {
+    const gates = [gate({ subject: 'run:gone' })];
+    expect(gateQueue([run({ id: 'a' })], gates, NOW, 'here')).toEqual([]);
+  });
 });
 
 describe('splitRuns', () => {
