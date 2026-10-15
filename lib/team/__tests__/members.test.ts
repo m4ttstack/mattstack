@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { join } from "path";
 import { fakeProbes as rawFakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
-import { readTeamRecipients, teamSecretsFile, writeTeamRecipients } from "../../secrets/team-store.ts";
+import { adminSecretsFile, readTeamRecipients, teamSecretsFile, teamSopsYamlPath, writeTeamRecipients } from "../../secrets/team-store.ts";
 import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
 import { UserActionableError } from "../../errors.ts";
 import { SettingsOwnershipRefusal } from "../../../packages/rt-client/src/settings/write.ts";
@@ -1165,5 +1165,80 @@ describe("membersRemove: the member's board on the switchboard", () => {
     expect(result.boardPeering).toBe("failed");
     expect(result.manualSteps.join(" ")).toContain("answered 500");
     expect(result.rosterRemoved).toBe(true);
+  });
+});
+
+describe("the admin-only secrets follow the roster", () => {
+  function storeSeams(initial: Record<string, unknown>) {
+    let store = initial;
+    return fakeMembersSeams({
+      readTeamStore: () => store,
+      writeSetting: ((key: string, value: unknown) => {
+        store = { ...store, [key]: value };
+      }) as MembersSeams["writeSetting"],
+    });
+  }
+
+  test("removing an admin locks the admin-only file away from them, though the admins list still names them", async () => {
+    const { execSeam, secrets } = seamsWithClone();
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets, "admins");
+    execSeam.writeFile(adminSecretsFile(SLUG, "rt"), JSON.stringify({ data: "opaque", sops: {} }));
+    const { seams } = storeSeams({
+      "mattstack.org": { owners: [], admins: ["dev1", "alice"], teams: {} },
+      "mattstack.roster": [{ username: "dev1", agePublicKey: OWNER_PUBLIC_KEY }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }],
+    });
+
+    const result = await membersRemove(fakeProbes({ home: HOME }), secrets, SLUG, "alice", undefined, seams);
+
+    expect(readTeamRecipients(SLUG, secrets, "admins")).toEqual([OWNER_PUBLIC_KEY]);
+    expect(result.reencrypted).toContain(adminSecretsFile(SLUG, "rt"));
+    expect(result.manualSteps.join(" ")).not.toContain("admin-only");
+  });
+
+  test("when that re-encryption fails, the removal still lands and says what is left to do", async () => {
+    const { execSeam, secrets } = seamsWithClone(SLUG, { failUpdatekeysOnCall: 1 });
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets, "admins");
+    execSeam.writeFile(adminSecretsFile(SLUG, "rt"), JSON.stringify({ data: "opaque", sops: {} }));
+    const { seams } = storeSeams({
+      "mattstack.org": { owners: [], admins: ["dev1", "alice"], teams: {} },
+      "mattstack.roster": [{ username: "dev1", agePublicKey: OWNER_PUBLIC_KEY }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }],
+    });
+
+    const result = await membersRemove(fakeProbes({ home: HOME }), secrets, SLUG, "alice", undefined, seams);
+
+    expect(result.rosterRemoved).toBe(true);
+    expect(readTeamRecipients(SLUG, secrets, "admins")).toEqual([OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY]);
+    expect(result.manualSteps.at(-1)).toBe("rt could not lock the org's admin-only secrets away from alice yet. Retry with rt team admin-secrets");
+  });
+
+  test("a sync that records an admin's key adds it to the admin-only file", async () => {
+    const p = fakeProbes({ home: HOME });
+    upsertInviteRecord(p, SLUG, "alice", aliceRecord());
+    const { execSeam, secrets } = seamsWithClone();
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY], secrets);
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY], secrets, "admins");
+    execSeam.writeFile(adminSecretsFile(SLUG, "rt"), JSON.stringify({ data: "opaque", sops: {} }));
+    const { seams } = storeSeams({
+      "mattstack.org": { owners: [], admins: ["dev1", "alice"], teams: {} },
+      "mattstack.roster": [{ username: "dev1", agePublicKey: OWNER_PUBLIC_KEY }],
+    });
+    const relay = fakeRelay({ readReply: async () => ({ blob: await replyBlob(ALICE_PUBLIC_KEY, "alice") }) });
+
+    const result = await membersSync(p, relay, secrets, SLUG, seams);
+
+    expect(readTeamRecipients(SLUG, secrets, "admins")).toEqual([OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY]);
+    expect(result.reencrypted).toContain(adminSecretsFile(SLUG, "rt"));
+  });
+
+  test("an org that keeps no admin-only secrets gets no admins rule from a sync", async () => {
+    const p = fakeProbes({ home: HOME });
+    const { execSeam, secrets } = seamsWithClone();
+    const { seams } = storeSeams({ "mattstack.org": { owners: [], admins: ["dev1"], teams: {} }, "mattstack.roster": [{ username: "dev1", agePublicKey: OWNER_PUBLIC_KEY }] });
+
+    await membersSync(p, fakeRelay(), secrets, SLUG, seams);
+
+    expect(execSeam.readFile(teamSopsYamlPath(SLUG))).not.toContain("admin-secrets");
   });
 });

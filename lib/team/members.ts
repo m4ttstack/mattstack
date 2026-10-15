@@ -43,6 +43,8 @@ import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
 import { assertMayWrite, roleFor, rolesFor } from "./roles.ts";
 import { orgOwnersAsk, writeRefusalFor } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { followRosterChange } from "./admin-secrets.ts";
+import * as out from "../ui/out.ts";
 import { assertTeamFolders } from "./team-names.ts";
 import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
@@ -393,6 +395,15 @@ export async function membersSync(
     throw new MembersSyncAbortedError(added, pending, err instanceof Error ? err.message : String(err));
   }
 
+  const admin = await followRosterChange(p, slug, seams.readTeamStore(slug), secrets);
+  for (const f of admin.reencrypted) reencrypted.add(f);
+  if (admin.failure) {
+    seams.warn(`rt team members sync: admin-only secrets: ${admin.failure}`, {
+      title: "rt could not lock the org's admin-only secrets to its owners and admins",
+      next: out.cmd("rt team admin-secrets"),
+    });
+  }
+
   return { added, addedHandles, pending, reencrypted: [...reencrypted].sort() };
 }
 
@@ -511,10 +522,16 @@ export async function membersRemove(
     reencrypted = [...new Set([...reencrypted, ...result.reencrypted])];
   }
 
+  // The roster no longer carries their key, so the admins rule loses it even while the admins list still names them.
+  const admin = await followRosterChange(p, slug, seams.readTeamStore(slug), secrets);
+  reencrypted = [...new Set([...reencrypted, ...admin.reencrypted])];
+  if (admin.failure) warnLine("team", `admin-only secrets after removing ${handle}: ${admin.failure}`);
+  const adminSteps = admin.failure ? [`rt could not lock the org's admin-only secrets away from ${handle} yet. Retry with rt team admin-secrets`] : [];
+
   return {
     forgeAccess: revoke.access,
     boardPeering,
-    manualSteps: [...revoke.manualSteps, ...boardSteps],
+    manualSteps: [...revoke.manualSteps, ...boardSteps, ...adminSteps],
     reencrypted,
     rosterRemoved,
     residueNote: RESIDUE_NOTE,
