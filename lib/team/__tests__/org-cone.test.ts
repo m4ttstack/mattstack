@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { execWithTimeout } from "../../setup/probes.ts";
-import { applyRoleCone, coneFor } from "../org-cone.ts";
+import { applyRoleCone, coneFor, keptTeams } from "../org-cone.ts";
 import { ORG_CLONE_FOLDERS } from "../org-clone.ts";
 import { teamLocalPath } from "../team-local.ts";
 
@@ -197,6 +197,30 @@ describe("applyRoleCone", () => {
     expect(present("mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
   });
 
+  test("a username the org does not know is a member with no teams, so it narrows", async () => {
+    whoAmI("stranger");
+    expect((await applyRoleCone(probes(), clone, ORG)).applied).toEqual([".claude-plugin", "mattstack/org"]);
+  });
+
+  test("an ignored file in a dropped team keeps the folder, since the narrowing would delete it", async () => {
+    put(clone, ".git/info/exclude", "*.local\n");
+    put(clone, "mattstack/teams/gadgets/secrets.local", "mine");
+    const result = await applyRoleCone(probes(), clone, ORG);
+    expect(result.kept).toEqual(["gadgets"]);
+    expect(present("mattstack/teams/gadgets/secrets.local")).toBe(true);
+  });
+
+  test("keptTeams names the dropped teams holding changes and changes nothing", async () => {
+    writeFileSync(join(clone, "mattstack/teams/gadgets/settings.team.jsonc"), '{"edited":true}');
+    expect(await keptTeams(probes(), clone, ORG)).toEqual(["gadgets"]);
+    expect(() => git(clone, "config", "--get", "core.sparseCheckout")).toThrow();
+    expect(present("mattstack/teams/gadgets/settings.team.jsonc")).toBe(true);
+  });
+
+  test("keptTeams is empty when nothing dropped holds changes", async () => {
+    expect(await keptTeams(probes(), clone, ORG)).toEqual([]);
+  });
+
   describe("never narrows on data it cannot trust", () => {
     const full = [...ORG_CLONE_FOLDERS];
 
@@ -204,11 +228,6 @@ describe("applyRoleCone", () => {
       whoAmI(null);
       expect((await applyRoleCone(probes(), clone, ORG)).applied).toEqual(full);
       expect(present("mattstack/teams/gadgets/settings.team.jsonc")).toBe(true);
-    });
-
-    test("a username the org does not know is a member with no teams, so it narrows", async () => {
-      whoAmI("stranger");
-      expect((await applyRoleCone(probes(), clone, ORG)).applied).toEqual([".claude-plugin", "mattstack/org"]);
     });
 
     test("an org store that is missing", async () => {
@@ -224,6 +243,16 @@ describe("applyRoleCone", () => {
 
     test("an org store whose roles block is malformed", async () => {
       writeFileSync(join(clone, "mattstack/org/settings.org.jsonc"), JSON.stringify({ "mattstack.org": { admins: "dev1" }, "mattstack.roster": STORE["mattstack.roster"] }));
+      expect((await applyRoleCone(probes(), clone, ORG)).applied).toEqual(full);
+    });
+
+    test("a roster that is not a list", async () => {
+      writeFileSync(join(clone, "mattstack/org/settings.org.jsonc"), JSON.stringify({ ...STORE, "mattstack.roster": { dev3: ["widgets"] } }));
+      expect((await applyRoleCone(probes(), clone, ORG)).applied).toEqual(full);
+    });
+
+    test("this user's roster entry with teams that are not a list", async () => {
+      writeFileSync(join(clone, "mattstack/org/settings.org.jsonc"), JSON.stringify({ ...STORE, "mattstack.roster": [{ username: "dev3", teams: "widgets" }] }));
       expect((await applyRoleCone(probes(), clone, ORG)).applied).toEqual(full);
     });
 

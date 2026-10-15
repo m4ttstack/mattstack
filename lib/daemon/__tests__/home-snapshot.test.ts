@@ -2851,10 +2851,47 @@ describe("the layout gate", () => {
     handle.stop();
   });
 
+  test("the move hook holds the git lock: a commit cycle started during it waits for it", async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const inHook = new Promise<void>((resolve) => { entered = resolve; });
+    const { handle } = start(async () => ({ kind: "moved", dataBranch: "mattstack" }), 1, async () => {
+      order.push("move started");
+      entered();
+      await released;
+      order.push("move ended");
+    });
+    await handle.ready;
+    const pulled = handle.pullNow();
+    await inHook;
+    const run = handle.runNow("manual").then(() => { order.push("commit cycle"); });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    await Promise.all([pulled, run]);
+    expect(order).toEqual(["move started", "move ended", "commit cycle"]);
+    handle.stop();
+  });
+
+  test("a push's own pull never runs the move hook; the next scheduled pull does", async () => {
+    const moves: string[] = [];
+    const { handle } = start(async () => ({ kind: "moved", dataBranch: "mattstack" }), 1, async (b) => { moves.push(b); });
+    await handle.ready;
+    await handle.settled();
+    moves.length = 0;
+    expect((await handle.pullNow({ converge: false })).hold).toEqual({ moved: "mattstack" });
+    expect(moves).toEqual([]);
+    await handle.pullNow();
+    expect(moves).toEqual(["mattstack"]);
+    handle.stop();
+  });
+
   test("a throwing onMoved does not fail the held pull", async () => {
     const { handle, log } = start(async () => ({ kind: "moved", dataBranch: "mattstack" }), 1, async () => { throw new Error("move failed"); });
     await handle.ready;
     expect((await handle.pullNow()).hold).toEqual({ moved: "mattstack" });
+    await handle.settled();
     expect(log.calls.some((c) => c.level === "warn" && JSON.stringify(c.args).includes("move hook"))).toBe(true);
     handle.stop();
   });

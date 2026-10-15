@@ -185,7 +185,7 @@ export interface SnapshotSpec {
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
     /** Runs after the fetch with the remote-tracking ref and the checked-out branch; a non-null answer holds the pull at the current commit. */
     gate?: (ref: string, branch: string) => Promise<GateVerdict | null>;
-    /** Fired after every pull the gate held with a moved verdict, outside the git lock. */
+    /** Fired under the git lock after every pull the gate held with a moved verdict, except a push's own pull (`converge:false`). */
     onMoved?: (dataBranch: string) => Promise<void>;
   };
   /** This Mac's role owns nothing in the clone, so the engine only fetches and fast-forwards. */
@@ -887,7 +887,13 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     } finally {
       pullInFlight = null;
     }
-    if (result.hold && "moved" in result.hold) await runMoveHook(result.hold.moved);
+    // A fresh hold on the lock, taken after the pull released its own, so the
+    // move never runs beside a commit cycle. A push's pull leaves it to the
+    // next scheduled pull: the push is waiting on this one.
+    if (result.hold && "moved" in result.hold && opts.converge !== false) {
+      const dataBranch = result.hold.moved;
+      await withGitLock(() => runMoveHook(dataBranch));
+    }
     const moved = result.outcome === "fast-forwarded" || result.outcome === "rebased";
     if (moved && spec.pull.onPulled) {
       const outcome = result.outcome as "fast-forwarded" | "rebased";
@@ -934,7 +940,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
   }
 
-  /** Outside the git lock, like the post-pull hook: the move runs git of its own. Never throws, so a failed move leaves the pull held, not failed. */
+  /** Under the git lock, unlike the post-pull hook: the move checks out another branch, which must not land mid-commit. Never throws, so a failed move leaves the pull held, not failed. */
   async function runMoveHook(dataBranch: string): Promise<void> {
     if (!spec.pull?.onMoved) return;
     try {

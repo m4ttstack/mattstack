@@ -7,6 +7,8 @@
 
 import { join } from "path";
 import { rosterFrom, sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
+import { readSection } from "../../packages/rt-client/src/settings/migrate.ts";
+import { getDef } from "../../packages/rt-client/src/settings/registry-machinery.ts";
 import { isOrgAdmin, roleOf, type OrgRole } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { TEAM_NAME_RE, parseStoreTextStrict } from "../../packages/rt-client/src/settings/stores.ts";
 import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
@@ -19,6 +21,7 @@ import { readTeamLocal } from "./team-local.ts";
 
 const ENV = { GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" };
 const TEAMS_REL = "mattstack/teams";
+const CHECKED_OUT_TEAM_RE = new RegExp(`^[^S] ${TEAMS_REL}/([^/]+)/`);
 
 export function coneFor(role: OrgRole, listedOn: string[]): string[] {
   if (isOrgAdmin(role)) return [...ORG_CLONE_FOLDERS];
@@ -38,8 +41,11 @@ function roleCone(p: Pick<Probes, "readFile" | "home">, dir: string, org: string
   if (store === null || roles === null || isUnclaimed(roles)) return null;
   const role = roleOf(username, roles);
   if (role.kind === "unknown") return null;
+  const roster = readSection(getDef("mattstack.roster")!, store.global, { layer: true });
+  if (!roster.present || !Array.isArray(roster.value)) return null;
   const entry = rosterFrom(store).find((e) => sameUser(e.username, username));
-  const listedOn = Array.isArray(entry?.teams) ? entry.teams.filter((t): t is string => typeof t === "string") : [];
+  if (entry !== undefined && !Array.isArray(entry.teams)) return null;
+  const listedOn = (entry?.teams ?? []).filter((t): t is string => typeof t === "string");
   return coneFor(role, listedOn);
 }
 
@@ -49,29 +55,24 @@ async function checkedOutTeams(p: Pick<Probes, "exec">, dir: string): Promise<st
   if (listed.code !== 0) throw new Error(withoutUrls(listed.stderr));
   const teams = new Set<string>();
   for (const line of listed.stdout.split("\n")) {
-    const team = new RegExp(`^[^S] ${TEAMS_REL}/([^/]+)/`).exec(line)?.[1];
+    const team = CHECKED_OUT_TEAM_RE.exec(line)?.[1];
     if (team !== undefined) teams.add(team);
   }
   return [...teams].sort();
 }
 
-/** Whether the team folder holds an unsaved change, or a commit not on the remote branch; a remote ref git cannot find counts as unpushed. */
+/** Whether the team folder holds an unsaved change (an ignored file included), or a commit not on the remote branch; a remote ref git cannot find counts as unpushed. */
 async function holdsChanges(p: Pick<Probes, "exec">, dir: string, team: string, branch: string | null): Promise<boolean> {
   const path = `${TEAMS_REL}/${team}`;
-  const status = await p.exec(["git", "status", "--porcelain", "--", path], { cwd: dir, env: ENV });
+  // Ignored files too: narrowing the cone deletes them along with the folder.
+  const status = await p.exec(["git", "status", "--porcelain", "--ignored=matching", "--", path], { cwd: dir, env: ENV });
   if (status.code !== 0 || status.stdout.trim() !== "") return true;
   if (branch === null) return true;
   const ahead = await p.exec(["git", "log", "--oneline", `refs/remotes/origin/${branch}..HEAD`, "--", path], { cwd: dir, env: ENV });
   return ahead.code !== 0 || ahead.stdout.trim() !== "";
 }
 
-/**
- * Narrows (or widens) the clone's sparse checkout to what this Mac's role
- * reaches. A team folder the new cone drops stays checked out while it holds
- * unsaved or unpushed work, and `kept` names those teams. An org store this
- * Mac cannot trust to narrow by gets the full cone.
- */
-export async function applyRoleCone(p: Pick<Probes, "exec" | "readFile" | "home">, dir: string, org: string): Promise<{ applied: string[]; kept: string[] }> {
+async function coneAndKept(p: Pick<Probes, "exec" | "readFile" | "home">, dir: string, org: string): Promise<{ wanted: string[]; kept: string[] }> {
   const wanted = roleCone(p, dir, org) ?? [...ORG_CLONE_FOLDERS];
   const kept: string[] = [];
   if (!wanted.includes("mattstack")) {
@@ -81,6 +82,22 @@ export async function applyRoleCone(p: Pick<Probes, "exec" | "readFile" | "home"
       if (await holdsChanges(p, dir, team, branch)) kept.push(team);
     }
   }
+  return { wanted, kept };
+}
+
+/** The checked-out team folders this Mac's role no longer reaches that hold unsaved or unpushed work; what `applyRoleCone` would keep, without applying anything. */
+export async function keptTeams(p: Pick<Probes, "exec" | "readFile" | "home">, dir: string, org: string): Promise<string[]> {
+  return (await coneAndKept(p, dir, org)).kept;
+}
+
+/**
+ * Narrows (or widens) the clone's sparse checkout to what this Mac's role
+ * reaches. A team folder the new cone drops stays checked out while it holds
+ * unsaved or unpushed work, and `kept` names those teams. An org store this
+ * Mac cannot trust to narrow by gets the full cone.
+ */
+export async function applyRoleCone(p: Pick<Probes, "exec" | "readFile" | "home">, dir: string, org: string): Promise<{ applied: string[]; kept: string[] }> {
+  const { wanted, kept } = await coneAndKept(p, dir, org);
   const applied = [...wanted, ...kept.map((t) => `${TEAMS_REL}/${t}`)].sort();
   const set = await p.exec(["git", "sparse-checkout", "set", "--cone", ...applied], { cwd: dir, env: ENV });
   if (set.code !== 0) throw new Error(withoutUrls(set.stderr));
