@@ -3,7 +3,7 @@ import { join } from "path";
 import { rolesFrom, type OrgRoles } from "../../packages/rt-client/src/settings/active-team.ts";
 import { orgStoreChangeRefusal } from "../../packages/rt-client/src/settings/org-store-guard.ts";
 import { roleOf, type OrgRole } from "../../packages/rt-client/src/settings/org-roles.ts";
-import { parseStoreText } from "../../packages/rt-client/src/settings/stores.ts";
+import { parseStoreTextStrict } from "../../packages/rt-client/src/settings/stores.ts";
 import { childEnv } from "../subprocess.ts";
 
 export const ORG_STORE_REL = "mattstack/org/settings.org.jsonc";
@@ -35,11 +35,13 @@ export function isUnclaimed(roles: OrgRoles): boolean {
   return roles.admins.length === 0 && roles.owners.length === 0;
 }
 
-/** The role the base org store gives this user, so an uncommitted or unpushed edit cannot grant itself the role that approves it. Absent or unclaimed base: the fallback; unreadable base: unknown. */
+/** The role the base org store gives this user, so an uncommitted or unpushed edit cannot grant itself the role that approves it. Absent or unclaimed base: the fallback; unreadable or malformed base: unknown. */
 export function roleFromBase(base: BaseStore, username: string | null, fallback: OrgRole): OrgRole {
   if (base.state === "absent") return fallback;
   if (base.state === "unreadable") return { kind: "unknown" };
-  const roles = rolesFrom(parseStoreText(ORG_STORE_REL, base.text));
+  const store = parseStoreTextStrict(ORG_STORE_REL, base.text);
+  if (store === null) return { kind: "unknown" };
+  const roles = rolesFrom(store);
   return isUnclaimed(roles) ? fallback : roleOf(username, roles);
 }
 
@@ -63,6 +65,8 @@ export function orgStoreInScope(repoDir: string, base: BaseStore, judge: OrgRole
     after = at.state === "text" ? at.text : "{}";
   }
   const before = base.state === "text" ? base.text : "{}";
+  const [was, now] = [parseStoreTextStrict(ORG_STORE_REL, before), parseStoreTextStrict(ORG_STORE_REL, after)];
+  if (was === null || now === null) return false;
   if (before === after) return true;
-  return orgStoreChangeRefusal(judge, parseStoreText(ORG_STORE_REL, before), parseStoreText(ORG_STORE_REL, after)) === null;
+  return orgStoreChangeRefusal(judge, was, now) === null;
 }

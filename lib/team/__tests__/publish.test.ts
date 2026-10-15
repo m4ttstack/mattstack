@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { childEnv, runCapture } from "../../subprocess.ts";
-import { afterEach, describe, test, expect } from "bun:test";
+import { afterEach, describe, spyOn, test, expect } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { publishTeam } from "../publish.ts";
 import { teamLocalPath } from "../team-local.ts";
@@ -548,6 +548,58 @@ describe("a pending org store change passes the org store guard", () => {
     (store["mattstack.org"] as { admins: string[] }).admins.push("dev2");
     writeFileSync(file, JSON.stringify(store, null, 2));
     await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an org store refusal says who can make the change", async () => {
+    const owner = worldWith("dev2", (s) => rosterTeams(s, "dev5", ["gadgets"]));
+    await expect(publishTeam(owner.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only", message: "You don't own gadgets, so you can't change who is on it", why: "Ask dev1 (an org admin) to make this change." });
+    cleanupOrgWorlds();
+    const admin = worldWith("dev1", (s) => { (s["mattstack.org"] as { owners: string[] }).owners = ["dev0", "dev7"]; }, { ...ROLES, owners: ["dev0"] });
+    await expect(publishTeam(admin.p, "acme", null)).rejects.toMatchObject({ message: "Only an org owner can change who the org owners are", why: "Ask dev0 (an org owner) to make this change." });
+  }, 15_000);
+
+  test("a base org store git cannot show is an inspection failure, not an unclaimed org", async () => {
+    const w = worldWith("dev1", (s) => { s["board.title"] = "renamed"; });
+    const realExec = w.p.exec.bind(w.p);
+    w.p.exec = async (argv, opts) => argv.includes("show") && argv.some((a) => a.endsWith(`:${STORE}`) && !a.startsWith("refs/"))
+      ? { code: 128, stdout: "", stderr: "fatal: bad object" }
+      : realExec(argv, opts);
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ message: "rt could not check your pending changes", next: "rt team pull" });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("a malformed base org store is an inspection failure, not an unclaimed org", async () => {
+    const w = orgWorld("dev2", { roles: ROLES, settings: { "mattstack.roster": ROSTER } });
+    const file = join(w.root, STORE);
+    const good = readFileSync(file, "utf8");
+    writeFileSync(file, "{ not json");
+    w.git("commit", "-q", "-am", "broken");
+    w.git("push", "-q", "origin", "main");
+    const promoted = JSON.parse(good) as Record<string, unknown>;
+    (promoted["mattstack.org"] as { admins: string[] }).admins.push("dev2");
+    writeFileSync(file, JSON.stringify(promoted, null, 2));
+    w.git("commit", "-q", "-am", "self-grant");
+    const warn = spyOn(console, "warn");
+    try {
+      await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ message: "rt could not check your pending changes" });
+      expect(warn).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("a malformed pending org store is refused, not read as everything deleted", async () => {
+    const w = orgWorld("dev1", { roles: ROLES, settings: { "mattstack.roster": ROSTER } });
+    const file = join(w.root, STORE);
+    const good = readFileSync(file, "utf8");
+    writeFileSync(file, "{ not json");
+    w.git("commit", "-q", "-am", "broken");
+    writeFileSync(file, good);
+    const warn = spyOn(console, "warn");
+    try {
+      await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "org-store-malformed" });
+      expect(warn).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
     expect(w.pushes).toHaveLength(0);
   }, 15_000);
 

@@ -11,14 +11,14 @@ import { orgStoreChangeRefusal } from "../../packages/rt-client/src/settings/org
 import { rolesFrom } from "../../packages/rt-client/src/settings/active-team.ts";
 import { readTeamLocal } from "./team-local.ts";
 import { isUnclaimed } from "./org-store-scope.ts";
-import { parseStoreText } from "../../packages/rt-client/src/settings/stores.ts";
+import { parseStoreTextStrict, type StoreFile } from "../../packages/rt-client/src/settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { UserActionableError } from "../errors.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
 import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
-import { assertMayWrite, roleFor } from "./roles.ts";
-import { isOrgAdmin, mayWritePath, ownedRoots, roleOf, writeRefusalFor } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { assertMayWrite, roleFor, rolesFor } from "./roles.ts";
+import { isOrgAdmin, mayWritePath, orgOwnersAsk, ownedRoots, roleOf, writeRefusalFor } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { unpublishedPaths } from "./publish-history.ts";
 import { containsCommit, remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { orgBranch } from "./org-branch.ts";
@@ -119,14 +119,20 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   if (pending === null) throw base.sha !== null && !(await containsCommit(p, dir, base.sha, ref)) ? orgMoved() : inspectionFailure();
   const cmd = gitWithToken(["push", "-u", "origin", `${ref}:${ref}`], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const current = roleFor(p, slug);
-  const show = async (rev: string | null) => {
-    if (rev === null) return parseStoreText(ORG_STORE_REL, "{}");
-    const r = await p.exec(["git", "show", `${rev}:${ORG_STORE_REL}`], { cwd: dir });
-    return parseStoreText(ORG_STORE_REL, r.code === 0 ? r.stdout : "{}");
+  // Only a commit without the store reads as empty, as in the daemon's readStoreAt; any git failure stops the publish. Null: malformed.
+  const show = async (rev: string | null): Promise<StoreFile | null> => {
+    if (rev === null) return parseStoreTextStrict(ORG_STORE_REL, "{}");
+    const listed = await p.exec(["git", "ls-tree", "--name-only", rev, "--", ORG_STORE_REL], { cwd: dir });
+    if (listed.code !== 0) throw inspectionFailure();
+    if (listed.stdout.trim() === "") return parseStoreTextStrict(ORG_STORE_REL, "{}");
+    const shown = await p.exec(["git", "show", `${rev}:${ORG_STORE_REL}`], { cwd: dir });
+    if (shown.code !== 0) throw inspectionFailure();
+    return parseStoreTextStrict(ORG_STORE_REL, shown.stdout);
   };
   if (base.sha !== null && pending.includes(ORG_STORE_REL) && !(await containsCommit(p, dir, base.sha, ref))) throw orgMoved();
   // Judged by the roles the remote already holds, so a pending or uncommitted edit cannot grant itself the role that approves it.
   const before = await show(base.sha);
+  if (before === null) throw inspectionFailure();
   const fromBase = base.sha === null ? null : rolesFrom(before);
   const baseRoles = fromBase !== null && !isUnclaimed(fromBase) ? fromBase : null;
   const judge = baseRoles === null ? current : roleOf(readTeamLocal(p, slug).forgeUsername ?? null, baseRoles);
@@ -142,8 +148,18 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   if (deferredRefusal !== null && !pending.includes(ORG_STORE_REL)) throw deferredRefusal;
   if ((ownedRoots(judge).length === 0 || ownedRoots(current).length === 0) && !pending.includes(ORG_STORE_REL)) refuse(ORG_STORE_REL);
   if (pending.includes(ORG_STORE_REL)) {
-    const refusal = orgStoreChangeRefusal(judge, before, await show(ref));
-    if (refusal) throw new UserActionableError("team-pull-only", refusal, {}, {});
+    const after = await show(ref);
+    if (after === null) {
+      throw new UserActionableError("org-store-malformed", "The org's settings file you are publishing can't be read", {}, {
+        why: `Fix the mistake in ${ORG_STORE_REL}, commit the fix, then publish again.`,
+      });
+    }
+    const refusal = orgStoreChangeRefusal(judge, before, after);
+    if (refusal) {
+      const roles = baseRoles ?? rolesFor(p, slug);
+      const why = writeRefusalFor(judge, roles, ORG_STORE_REL)?.why ?? orgOwnersAsk(roles);
+      throw new UserActionableError("team-pull-only", refusal.replace(/\.$/, ""), {}, { why });
+    }
   }
   for (const path of pending) {
     if (path === ORG_STORE_REL) continue;

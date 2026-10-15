@@ -91,6 +91,19 @@ describe("orgStoreInScope", () => {
     expect(roleFromBase(base("error"), "dev1", { kind: "org-owner" })).toEqual({ kind: "unknown" });
   });
 
+  test("a malformed base is unreadable, never an unclaimed org", () => {
+    write(withOrg({ admins: ["dev1", "dev2"] }));
+    expect(roleFromBase(base("{ not json"), "dev2", { kind: "admin" })).toEqual({ kind: "unknown" });
+    expect(orgStoreInScope(dir, base("{ not json"), { kind: "org-owner" })).toBe(false);
+  });
+
+  test("a malformed pending org store is out of scope, not read as everything deleted", () => {
+    write("{ not json");
+    expect(inScope(dir, "dev0", { kind: "member" }, headText)).toBe(false);
+    const b = base(headText);
+    expect(orgStoreInScope(dir, b, { kind: "org-owner" }, "HEAD", run("{ not json"))).toBe(false);
+  });
+
   test("a push compares the base with the committed file, not the working one", () => {
     write(headText);
     const b = base(headText);
