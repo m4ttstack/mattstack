@@ -7,6 +7,8 @@
 
 import { gitWithToken } from "./git-credential.ts";
 import { join } from "path";
+import { orgStoreChangeRefusal } from "../../packages/rt-client/src/settings/org-store-guard.ts";
+import { parseStoreText } from "../../packages/rt-client/src/settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { UserActionableError } from "../errors.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
@@ -18,6 +20,9 @@ import { unpublishedPaths } from "./publish-history.ts";
 import { remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { orgBranch } from "./org-branch.ts";
 import { orgDirUnder } from "../rt-paths.ts";
+
+/** The org store's path relative to the clone root, as git reports pending paths. */
+const ORG_STORE_REL = "mattstack/org/settings.org.jsonc";
 
 export interface PublishTeamResult {
   remote: string;
@@ -96,7 +101,17 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const cmd = gitWithToken(["push", "-u", "origin", `${ref}:${ref}`], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const current = roleFor(p, slug);
   if (ownedRoots(current).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  if (pending.includes(ORG_STORE_REL)) {
+    const show = async (rev: string | null) => {
+      if (rev === null) return parseStoreText(ORG_STORE_REL, "{}");
+      const r = await p.exec(["git", "show", `${rev}:${ORG_STORE_REL}`], { cwd: dir });
+      return parseStoreText(ORG_STORE_REL, r.code === 0 ? r.stdout : "{}");
+    };
+    const refusal = orgStoreChangeRefusal(current, await show(base.sha), await show(ref));
+    if (refusal) throw new UserActionableError("team-pull-only", refusal, {}, {});
+  }
   for (const path of pending) {
+    if (path === ORG_STORE_REL) continue;
     if (isOrgAdmin(current) && path === ".gitignore") continue;
     if (!mayWritePath(current, path)) assertMayWrite(p, slug, path);
   }

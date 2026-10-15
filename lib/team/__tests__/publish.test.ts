@@ -451,3 +451,55 @@ describe("a declined push is told apart from an org that moved", () => {
     expect(raced).toBe(true);
   }, 15_000);
 });
+
+describe("a pending org store change passes the org store guard", () => {
+  afterEach(cleanupOrgWorlds);
+  const STORE = "mattstack/org/settings.org.jsonc";
+  const ROSTER = [{ username: "dev3", teams: ["widgets"] }, { username: "dev4", teams: ["gadgets"] }, { username: "dev5", teams: [] }];
+  const ROLES = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev6"] } } };
+
+  /** Seeds the org, pushes it, then commits `change` applied to the org store as the pending work. */
+  function worldWith(username: string, change: (store: Record<string, unknown>) => void, roles: typeof ROLES & { owners?: string[] } = ROLES) {
+    const w = orgWorld(username, { roles, settings: { "mattstack.roster": ROSTER } });
+    const file = join(w.root, STORE);
+    const store = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    change(store);
+    writeFileSync(file, JSON.stringify(store, null, 2));
+    w.git("add", "--", STORE);
+    w.git("commit", "-q", "-m", "org store change");
+    return w;
+  }
+  const rosterTeams = (store: Record<string, unknown>, username: string, teams: string[]) => {
+    (store["mattstack.roster"] as { username: string; teams: string[] }[]).find((e) => e.username === username)!.teams = teams;
+  };
+
+  test("a team owner publishes a roster change to their own team", async () => {
+    const w = worldWith("dev2", (s) => rosterTeams(s, "dev5", ["widgets"]));
+    await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
+    expect(w.pushes).toHaveLength(1);
+  }, 15_000);
+
+  test("a team owner's publish is refused when the roster change reaches another team", async () => {
+    const w = worldWith("dev2", (s) => rosterTeams(s, "dev5", ["widgets", "gadgets"]));
+    await expect(publishTeam(w.p, "acme", null)).rejects.toThrow(/gadgets/);
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("a team owner's publish is refused when an unrelated org key changes with the roster", async () => {
+    const w = worldWith("dev2", (s) => { rosterTeams(s, "dev5", ["widgets"]); s["board.title"] = "renamed"; });
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an admin's publish is refused when it changes the owners list", async () => {
+    const w = worldWith("dev1", (s) => { (s["mattstack.org"] as { owners: string[] }).owners = ["dev0", "dev7"]; }, { ...ROLES, owners: ["dev0"] });
+    await expect(publishTeam(w.p, "acme", null)).rejects.toThrow(/org owner/);
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an org owner's publish may change the owners list", async () => {
+    const w = worldWith("dev0", (s) => { (s["mattstack.org"] as { owners: string[] }).owners = ["dev0", "dev7"]; }, { ...ROLES, owners: ["dev0"] });
+    await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
+    expect(w.pushes).toHaveLength(1);
+  }, 15_000);
+});
