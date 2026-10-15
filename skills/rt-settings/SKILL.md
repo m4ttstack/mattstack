@@ -193,7 +193,8 @@ From layout 4 the org's data lives on its own branch (`mattstack` by
 default), named by the marker's `dataBranch`, and `main` keeps only the
 marker as a pointer. The two branches share no history: the data branch is
 never merged into `main`, nor `main` into it. `rt team invite` reads
-`main`'s pointer and refuses unless the clone is on the branch it names;
+`main`'s pointer and refuses unless the clone is on the branch it names
+(`main` itself for a layout 3 org, whose `main` holds no pointer);
 the invite carries `dataBranch`, and a join clones that branch alone. An
 admin tries a change on a trial branch with `rt team branch use
 <name>` (org admins and owners): it switches the clone in place and
@@ -270,22 +271,26 @@ In this order:
 Layout 4's conversion has its own shape, so steps 2, 3 and 6 above do not
 apply to it. The script creates the data branch from scratch (`--data-branch
 <name>`, default `mattstack`) holding `mattstack/`, `.sops.yaml`,
-`.claude-plugin/` and `.gitignore`, then commits to `main` a pointer: the
-marker alone. A run refuses when origin already has either branch. When
+`.claude-plugin/`, `.gitignore` and a `README.md`, then commits to `main` a
+pointer: the marker alone. A run refuses when origin already has the data
+branch or, without `--no-pointer`, the `<data branch>-pointer` branch. When
 `main` refuses the push, the pointer goes to `<data branch>-pointer` and the
 script says to land it by the repo's own rules, for example a merge
 request. `--no-pointer` pushes only the data branch and leaves `main`
 untouched, so no Mac moves. To try the conversion first, run the script
 with `--data-branch <trial> --no-pointer --write`, then `rt team branch
-use <trial>` on the dev app's Mac; nobody else's Mac sees the branch. The script ends by printing the forge-access
-steps (`rt team manage-membership on`, then `rt team forge-access --apply`).
-Once the pointer is on `main`, each layout 3 clone on an updated app moves
+use <trial>` on the dev app's Mac; no other Mac switches to it. After
+pushing a pointer the script prints the forge-access steps (`rt team
+manage-membership on`, then `rt team forge-access --apply`); with
+`--no-pointer` it prints how to try the branch instead. Once the pointer is on `main`, each layout 3 clone on an updated app moves
 onto the data branch in place: the daemon's pull holds with a "moved"
 verdict and runs the move when the clone is clean, and `rt team pull` and
 the `org.folder` step of `rt setup update` run the same move. Unpublished
 org commits are carried across; a dirty clone, a detached HEAD, or commits
-that touch paths outside the org's data or clash hold the move, and the
-`org.layout` row says why.
+that touch paths outside the org's data or clash hold the move. The
+`org.layout` row names the dirty, detached and outside-the-data holds; a
+clash shows only when the move tries, in `rt team pull`, the setup update
+and the daemon log.
 
 The gate itself reached the old line as v2.21.1, a patch release tagged from
 `release/v2.21.x`, a branch cut from the v2.21.0 tag because main already

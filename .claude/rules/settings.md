@@ -57,7 +57,7 @@ the marker. `main` is named only where the pointer is read or written.
 `rt team create` starts a new org on its data branch and `publishTeam`
 pushes the pending pointer to `main`, refusing a non-empty origin. `rt team
 invite` reads `main`'s pointer and refuses unless the clone is on the
-branch it names; the invite seals `dataBranch`, and `rt team join` clones
+branch it names (`main` for a layout 3 org, which has no pointer); the invite seals `dataBranch`, and `rt team join` clones
 that branch alone, then narrows the cone after the redeem.
 `rt team branch use <name>` (`lib/team/trial-branch.ts`; org admins and
 owners) switches the clone in place to a trial branch and records it in
@@ -108,7 +108,9 @@ held with a `moved` verdict instead: `convergeDataBranch`
 it is clean, from the daemon, `rt team pull` and the `org.folder` step;
 unpublished org commits are cherry-picked across, and a dirty clone, a
 detached HEAD, or commits outside the data paths or that clash hold the
-move, with the `org.layout` row saying why. `team.sync` gives a held clone
+move. The `org.layout` row names the first three; a clash shows only when
+the move tries (`moveBlocker` cannot see it), in `rt team pull`, the setup
+update and the daemon log. `team.sync` gives a held clone
 no remedy. After every
 pull that moves a clone the daemon converges (`createOnPulled` in
 `lib/daemon/team-snapshots.ts`), then runs `composePullHooks` over the
@@ -121,8 +123,8 @@ An org's name is its marker's `org` (`mattstack/mattstack.jsonc`), and the
 clone's folder follows it: the `org.folder` step converges the folder, the
 `rt/teams` and `rt/invites` records, the repo index and the Claude
 marketplace on every `rt setup update` and full `rt setup apply`, and moves
-a layout 3 clone onto its data branch (`convergeDataBranch`) but writes
-nothing else into the clone. `rt team rename <name>` (admins only) commits and
+a layout 3 clone onto its data branch and narrows its sparse cone
+(`convergeDataBranch`) but writes nothing else into the clone. `rt team rename <name>` (admins only) commits and
 publishes the new marker and converges this Mac at once; a member's Mac
 follows at its next update. The `${org}` placeholder and its deprecated
 `${team:<name>}` alias are described in `docs/settings-architecture.md` and
