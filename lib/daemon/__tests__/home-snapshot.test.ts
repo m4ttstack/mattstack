@@ -14,7 +14,7 @@ import { rtDir } from "../../rt-paths.ts";
 import { ORG_LAYOUT } from "../../team/org-marker.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { Probes } from "../../setup/probes.ts";
-import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
+import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings, type SnapshotSpec } from "../home-snapshot.ts";
 import type { GateVerdict } from "../../team/org-layout.ts";
 
 // ─── test doubles ────────────────────────────────────────────────────────────
@@ -3965,11 +3965,11 @@ describe("snapshot authorization follows the checked-out branch", () => {
 });
 
 describe("current snapshot authorization", () => {
-  function world() {
+  function world(gitReads?: (argv: string[]) => { code: number; stdout: string; stderr: string }) {
     const p = fakeProbes({ home: "/h", files: {
       "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev2" }),
       "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
-    } });
+    }, ...(gitReads ? { exec: async (argv: string[]) => gitReads(argv) } : {}) });
     const revoke = () => p.writeFile("/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc", JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }));
     const spec = teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ["mattstack/teams/widgets"], probes: p, originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null });
     return { spec, revoke };
@@ -3993,8 +3993,74 @@ describe("current snapshot authorization", () => {
       timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
       await flushAsync();
       expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
-      expect(handle.status()).toMatchObject({ pullOnly: true, pushPending: true, unownedDirty: ["mattstack/teams/widgets/settings.team.jsonc"] });
+      expect(handle.status()).toMatchObject({ pullOnly: true, pushPending: true, lastPushError: expect.stringContaining("Your role no longer owns"), unownedDirty: ["mattstack/teams/widgets/settings.team.jsonc"] });
     } finally { handle.stop(); }
+  });
+
+  /** A round that commits one team edit, runs `beforePush`, then lets the push timer fire. */
+  async function pushRound(spec: SnapshotSpec, beforePush: () => void) {
+    const exec = makeFakeExec([
+      (argv) => gitVerb(argv) === "rev-list" && !argv.includes("--count") ? { stdout: `${"a".repeat(40)}\n`, stderr: "", exitCode: 0 } : gitVerb(argv) === "diff-tree" ? { stdout: "mattstack/teams/widgets/settings.team.jsonc\0", stderr: "", exitCode: 0 } : undefined,
+      ...pullResponders({ behind: 0, ahead: 1 }),
+      ...defaultResponders({ statusZ: " M mattstack/teams/widgets/settings.team.jsonc\0" }),
+    ]);
+    const { deps, timers } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(spec, rest);
+    try {
+      await handle.ready;
+      expect((await handle.runNow("watch")).committed).toBe(true);
+      beforePush();
+      timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+      await flushAsync();
+      return { pushes: exec.calls.filter((argv) => gitVerb(argv) === "push"), status: handle.status() };
+    } finally { handle.stop(); }
+  }
+  const UNREADABLE_SENTENCE = "rt could not read the org's shared settings this round, so it held your pending changes. It tries again at the next push.";
+
+  for (const failing of ["rev-parse", "ls-tree", "show"] as const) test(`an org store that cannot be read (${failing} fails) holds the push with its own sentence`, async () => {
+    let reading = false;
+    const { spec } = world((argv) => {
+      const verb = argv[3];
+      if (reading && verb === failing) return { code: 128, stdout: "", stderr: "fatal: timed out" };
+      if (verb === "rev-parse") return { code: 0, stdout: `${(reading ? "c" : "b").repeat(40)}\n`, stderr: "" };
+      if (verb === "ls-tree") return { code: 0, stdout: "mattstack/org/settings.org.jsonc\n", stderr: "" };
+      return { code: 0, stdout: "{}", stderr: "" };
+    });
+    const { pushes, status } = await pushRound(spec, () => { reading = true; });
+    expect(pushes).toEqual([]);
+    expect(status).toMatchObject({ pushPending: true, lastPushError: UNREADABLE_SENTENCE });
+  });
+
+  test("an org store that was read but is malformed keeps the role-loss refusal", async () => {
+    let reading = false;
+    const { spec } = world((argv) => {
+      const verb = argv[3];
+      if (!reading) return { code: 0, stdout: "", stderr: "" };
+      if (verb === "rev-parse") return { code: 0, stdout: `${"b".repeat(40)}\n`, stderr: "" };
+      if (verb === "ls-tree") return { code: 0, stdout: "mattstack/org/settings.org.jsonc\n", stderr: "" };
+      return { code: 0, stdout: "{ not json", stderr: "" };
+    });
+    const { pushes, status } = await pushRound(spec, () => { reading = true; });
+    expect(pushes).toEqual([]);
+    expect(status).toMatchObject({ pushPending: true, lastPushError: expect.stringContaining("Your role no longer owns") });
+  });
+
+  for (const [head, said] of [["ref: refs/heads/main\n", "is on main"], ["0123abcd\n", "has no branch checked out"]] as const) test(`auto-commit paused on an unapproved branch (${said}) holds the push with its own sentence`, async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-paused-")));
+    try {
+      mkdirSync(join(dir, ".git"));
+      writeFileSync(join(dir, ".git", "HEAD"), "ref: refs/heads/mattstack\n");
+      const p = fakeProbes({ home: "/h", files: {
+        "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"] } }),
+        [join(dir, "mattstack", "mattstack.jsonc")]: JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" }),
+      } });
+      const spec = teamSnapshotSpec("acme", dir, { ownedRoots: ["mattstack"], probes: p, originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null });
+      const { pushes, status } = await pushRound(spec, () => writeFileSync(join(dir, ".git", "HEAD"), head));
+      expect(pushes).toEqual([]);
+      expect(status).toMatchObject({ pushPending: true, lastPushError: `Auto-commit is paused: your copy of the org ${said}, so rt is holding these changes.` });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   for (const failure of ["history", "commit", "malformed-history", "malformed-paths"] as const) test(`${failure}: a pending-path read error keeps the pending work and does not report revoked ownership`, async () => {

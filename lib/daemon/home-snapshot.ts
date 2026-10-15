@@ -159,10 +159,18 @@ export interface HomeSnapshotDeps {
   db?: Database;
 }
 
+function pushRefusalSentence(refusal: Authorization["refusal"]): string {
+  if (refusal?.kind === "unreadable") return "rt could not read the org's shared settings this round, so it held your pending changes. It tries again at the next push.";
+  if (refusal?.kind === "paused") return `Auto-commit is paused: your copy of the org ${refusal.branch === null ? "has no branch checked out" : `is on ${refusal.branch}`}, so rt is holding these changes.`;
+  return "Your role no longer owns these pending changes. Ask an org admin before publishing them";
+}
+
 export interface Authorization {
   scope: (relPath: string) => boolean;
   pullOnly: boolean;
   held?: (relPath: string, dirty: readonly string[]) => boolean;
+  /** Why the gate refused without judging the role: the push error names this instead of a lost role. */
+  refusal?: { kind: "unreadable" } | { kind: "paused"; branch: string | null };
 }
 
 /** What distinguishes one snapshot instance from another. Everything else about a run is identical across instances. */
@@ -479,7 +487,7 @@ export function teamSnapshotSpec(
     // Commit time judges by HEAD; the push gate passes the remote-tracking ref so a hand-committed self-grant cannot approve itself.
     readAuthorization: async (pushBase) => {
       const branch = currentBranchSync(repoDir);
-      if (branch === null || !approvedBranches(opts.probes, slug, repoDir).includes(branch)) return { scope: () => false, pullOnly: true };
+      if (branch === null || !approvedBranches(opts.probes, slug, repoDir).includes(branch)) return { scope: () => false, pullOnly: true, refusal: { kind: "paused", branch } };
       const local = readTeamLocal(opts.probes, slug);
       const username = local.forgeUsername ?? null;
       const working = roleFor(opts.probes, slug);
@@ -495,6 +503,7 @@ export function teamSnapshotSpec(
       return {
         scope: (path) => teamScope(path) && (path === ORG_STORE_REL ? orgStore : inRoots(path)),
         pullOnly: headRoots.length === 0,
+        refusal: base.state === "unreadable" ? { kind: "unreadable" } : undefined,
         held: (path, dirty) => path === MARKETPLACE_PATH && marketplaceOwed(shares, repoDir, dirty),
       };
     },
@@ -1184,7 +1193,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     const current = await authorization({ ref: `refs/remotes/origin/${branch.stdout.trim()}` });
     if (current.pullOnly || [...paths].some((path) => !(current.scope?.(path) ?? true))) {
       pushPending = true;
-      lastPushError = "Your role no longer owns these pending changes. Ask an org admin before publishing them";
+      lastPushError = pushRefusalSentence(current.refusal);
       return false;
     }
     return true;
