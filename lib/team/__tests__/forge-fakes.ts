@@ -149,3 +149,87 @@ export function fakeGitHub(opts: FakeForgeOpts): FakeForge {
 
   return { exec, writes, members: snapshot(members) };
 }
+
+const GITLAB_LEVEL: Record<AccessLevel, number> = { none: 0, guest: 10, read: 20, write: 30, admin: 40 };
+const fromGitlab = (n: number): AccessLevel => (n >= 40 ? "admin" : n >= 30 ? "write" : n >= 20 ? "read" : n > 0 ? "guest" : "none");
+
+export function fakeGitLab(opts: FakeForgeOpts): FakeForge {
+  const members = memberTable(opts);
+  const branches = new Set(opts.branches ?? ["main", "mattstack"]);
+  const ids = new Map(opts.users.map((u, i) => [u.toLowerCase(), 101 + i]));
+  const nameOf = (id: number) => opts.users.find((u) => ids.get(u.toLowerCase()) === id);
+  const rules = new Map<string, { id: number; access_level: number; user_id: number | null; group_id: null }[]>();
+  let nextEntry = 1;
+  const writes: string[] = [];
+  const project = "projects/acme%2Fwidgets";
+  const fail = (status: number, message: string): ExecResult => ({ code: 1, stdout: JSON.stringify({ message }), stderr: `glab: ${status} ${message} (HTTP ${status})` });
+  const row = (m: { username: string; level: AccessLevel; pending: boolean }) => ({ id: ids.get(m.username.toLowerCase()), username: m.username, access_level: GITLAB_LEVEL[m.level], membership_state: m.pending ? "awaiting" : "active" });
+
+  const exec: Exec = (argv, o) => {
+    const { method, path, fields, body } = parseApi(argv, o?.input);
+    if (method !== "GET") writes.push(`${method} ${path}`);
+    if (method !== "GET" && opts.readOnly) return fail(403, "Forbidden");
+    const [route = "", query = ""] = path.split("?");
+
+    if (route === "users") {
+      const wanted = new URLSearchParams(query).get("username") ?? "";
+      const id = ids.get(wanted.toLowerCase());
+      return okJson(id === undefined ? [] : [{ id, username: nameOf(id) }]);
+    }
+    const user = /^users\/(\d+)$/.exec(route);
+    if (user) {
+      const name = nameOf(Number(user[1]));
+      return name ? okJson({ id: Number(user[1]), username: name }) : fail(404, "404 User Not Found");
+    }
+    if (route === project) return okJson({ default_branch: opts.defaultBranch ?? "main" });
+    if (method === "GET" && route === `${project}/members/all`) return okJson([...members.values()].map(row));
+    if (method === "GET" && route === `${project}/members`) return okJson([...members.values()].filter((m) => !m.inherited).map(row));
+    if (method === "POST" && route === `${project}/members`) {
+      const name = nameOf(Number(fields.user_id));
+      if (!name) return fail(404, "404 User Not Found");
+      const current = members.get(name.toLowerCase());
+      if (current && !current.inherited) return fail(409, "Member already exists");
+      members.set(name.toLowerCase(), { username: name, level: fromGitlab(Number(fields.access_level)), inherited: false, pending: false });
+      return okJson({});
+    }
+    const member = /^projects\/acme%2Fwidgets\/members\/(\d+)$/.exec(route);
+    if (member) {
+      const name = nameOf(Number(member[1]));
+      const current = name ? members.get(name.toLowerCase()) : undefined;
+      if (!name || !current || current.inherited) return fail(404, "404 Not found");
+      if (method === "DELETE") members.delete(name.toLowerCase());
+      else current.level = fromGitlab(Number(fields.access_level));
+      return okJson({});
+    }
+    const branchRoute = /^projects\/acme%2Fwidgets\/repository\/branches\/(.+)$/.exec(route);
+    if (branchRoute) return branches.has(decodeURIComponent(branchRoute[1]!)) ? okJson({}) : fail(404, "404 Branch Not Found");
+    if (method === "POST" && route === `${project}/protected_branches`) {
+      const b = body as { name?: string } | undefined;
+      const name = b?.name ?? fields.name ?? "";
+      if (rules.has(name)) return fail(409, "Protected branch already exists");
+      const level = Number((body as { push_access_level?: number } | undefined)?.push_access_level ?? fields.push_access_level ?? 40);
+      rules.set(name, [{ id: nextEntry++, access_level: level, user_id: null, group_id: null }]);
+      return okJson({});
+    }
+    const rule = /^projects\/acme%2Fwidgets\/protected_branches\/(.+)$/.exec(route);
+    if (rule) {
+      const name = decodeURIComponent(rule[1]!);
+      const entries = rules.get(name);
+      if (!entries) return fail(404, "404 Not found");
+      if (method === "GET") return okJson({ name, push_access_levels: entries });
+      if (method === "DELETE") {
+        rules.delete(name);
+        return okJson();
+      }
+      for (const change of (body as { allowed_to_push: Record<string, unknown>[] }).allowed_to_push) {
+        if (change._destroy === true) rules.set(name, (rules.get(name) ?? []).filter((e) => e.id !== change.id));
+        else if (typeof change.user_id === "number" && !opts.cannotNameUsers) rules.get(name)!.push({ id: nextEntry++, access_level: 40, user_id: change.user_id, group_id: null });
+        else if (typeof change.access_level === "number") rules.get(name)!.push({ id: nextEntry++, access_level: change.access_level, user_id: null, group_id: null });
+      }
+      return okJson({});
+    }
+    return fail(404, `fake glab has no route for ${method} ${path}`);
+  };
+
+  return { exec, writes, members: snapshot(members) };
+}

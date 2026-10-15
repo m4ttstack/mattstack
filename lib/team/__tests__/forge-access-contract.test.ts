@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { ForgeMember, ForgeResult, OrgForgeAccess } from "../forge-access.ts";
 import { githubForgeAccess } from "../forge-access-github.ts";
-import { fakeGitHub, type FakeForge, type FakeForgeOpts } from "./forge-fakes.ts";
+import { gitlabForgeAccess } from "../forge-access-gitlab.ts";
+import { fakeGitHub, fakeGitLab, type FakeForge, type FakeForgeOpts } from "./forge-fakes.ts";
 
 export type World = { forge: FakeForge; access: OrgForgeAccess };
 
@@ -11,6 +12,11 @@ export const WORLDS: Record<string, (opts: FakeForgeOpts) => World> = {
     const forge = fakeGitHub(opts);
     const p = fakeProbes({ exec: forge.exec });
     return { forge, access: githubForgeAccess(p, "git@github.com:acme/widgets.git", "acme", "widgets", "token") };
+  },
+  gitlab: (opts) => {
+    const forge = fakeGitLab(opts);
+    const p = fakeProbes({ exec: forge.exec });
+    return { forge, access: gitlabForgeAccess(p, "https://gitlab.com/acme/widgets.git", "gitlab.com", "acme/widgets", "token") };
   },
 };
 
