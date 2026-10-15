@@ -61,7 +61,7 @@ async function checkedOutTeams(p: Pick<Probes, "exec">, dir: string): Promise<st
   return [...teams].sort();
 }
 
-/** Whether the team folder holds an unsaved change (an ignored file included), or a commit not on the remote branch; a remote ref git cannot find counts as unpushed. */
+/** Whether the team folder holds an unsaved change, or a commit not on the remote branch; a remote ref git cannot find counts as unpushed. */
 async function holdsChanges(p: Pick<Probes, "exec">, dir: string, team: string, branch: string | null): Promise<boolean> {
   const path = `${TEAMS_REL}/${team}`;
   // Ignored files too: narrowing the cone deletes them along with the folder.
