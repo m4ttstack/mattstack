@@ -23,9 +23,7 @@ import { unpublishedPaths } from "./publish-history.ts";
 import { containsCommit, remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { orgBranch } from "./org-branch.ts";
 import { orgDirUnder } from "../rt-paths.ts";
-
-/** The org store's path relative to the clone root, as git reports pending paths. */
-const ORG_STORE_REL = "mattstack/org/settings.org.jsonc";
+import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
 
 export interface PublishTeamResult {
   remote: string;

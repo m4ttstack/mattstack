@@ -27,6 +27,7 @@
 import { join } from "path";
 import { ensureAgeKey, readAgeKey } from "../home/age-key.ts";
 import { orgDirUnder, orgSettingsPath } from "../rt-paths.ts";
+import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { addTeamRecipient, readTeamRecipients, removeTeamRecipient } from "../secrets/team-store.ts";
 import { currentOrg, parseStoreText, readStore } from "../settings/stores.ts";
@@ -213,8 +214,6 @@ export interface MembersSetResult {
   teams: string[];
   previous: string[];
 }
-
-const ORG_STORE_REL = "mattstack/org/settings.org.jsonc";
 
 function rosterOnlyStore(roster: unknown) {
   return parseStoreText("org.jsonc", JSON.stringify({ "mattstack.roster": roster }));
