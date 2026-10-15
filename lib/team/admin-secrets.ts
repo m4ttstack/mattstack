@@ -10,6 +10,7 @@ import { rolesFrom, rosterFrom, sameUser } from "../../packages/rt-client/src/se
 import { isOrgAdmin, roleOf } from "../../packages/rt-client/src/settings/org-roles.ts";
 import type { StoreFile } from "../../packages/rt-client/src/settings/stores.ts";
 import { UserActionableError } from "../errors.ts";
+import { readAgePublicKey } from "../home/age-key.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { listRuleFiles, readAdminSecret, readTeamRecipients, reencryptTeamSecrets, writeAdminSecret, writeTeamRecipients } from "../secrets/team-store.ts";
 import type { Probes } from "../setup/probes.ts";
@@ -82,6 +83,13 @@ function notReencrypted(slug: string, err: unknown): UserActionableError {
   });
 }
 
+function notThisMac(slug: string): UserActionableError {
+  return new UserActionableError("admin-secrets-not-this-mac", "This Mac's age key is not the one the roster holds for you, so it could not open the admin-only secrets after writing them", { team: slug }, {
+    why: "The roster records one age key per person, and the token is locked to those keys. Share it from the Mac whose key the roster holds for you, by running this there.",
+    next: "rt team admin-secrets",
+  });
+}
+
 async function placeToken(p: Pick<Probes, "readFile" | "home">, slug: string, secrets: SecretsSeams, token: string | null, replace: boolean): Promise<TokenOutcome> {
   if (token === null) return "none";
   const stored = await readAdminSecret(slug, ADMIN_TOKEN_DOMAIN, SWITCHBOARD_ADMIN_TOKEN, secrets);
@@ -95,6 +103,9 @@ async function placeToken(p: Pick<Probes, "readFile" | "home">, slug: string, se
  * Brings the admins rule to the owners' and admins' roster keys, re-encrypts
  * the admin-only files when that set changed (putting the rule back if sops
  * fails), then puts `opts.token` in. Writes nothing at all when nothing changed.
+ * A token is put in only from a Mac whose age key is a holder's roster key,
+ * checked before anything is written; with no token, any owner's or admin's
+ * Mac may bring the rule to the roles.
  */
 export async function syncAdminSecrets(
   p: Pick<Probes, "readFile" | "home">,
@@ -112,6 +123,10 @@ export async function syncAdminSecrets(
     return { ...base, state: "unused", added: [], removed: [], reencrypted: [], token: "none" };
   }
   if (want.keys.length === 0) throw noAdminKeys(slug);
+  if (token !== null) {
+    const own = await readAgePublicKey(secrets.ageKeySeam);
+    if (own === null || !want.keys.includes(own)) throw notThisMac(slug);
+  }
 
   const added = want.keys.filter((key) => !current.includes(key));
   const removed = current.filter((key) => !want.keys.includes(key));

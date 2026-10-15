@@ -5,7 +5,7 @@ import { closeStateDb } from "../../state/index.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { teamLocalPath } from "../team-local.ts";
 import { adminSecretsFile, readAdminSecret, readTeamRecipients, teamSecretsFile, teamSopsYamlPath, writeTeamRecipients } from "../../secrets/team-store.ts";
-import { FakeTeamExecSeam, fakeAgeKeySeamWithKey, seamsWithKey, teamCloneRootFor } from "../../secrets/__tests__/team-fakes.ts";
+import { FakeTeamExecSeam, fakeAgeKeySeamAbsent, fakeAgeKeySeamWithKey, seamsWithKey, teamCloneRootFor } from "../../secrets/__tests__/team-fakes.ts";
 import { adminKeysIn, followRosterChange, syncAdminSecrets } from "../admin-secrets.ts";
 
 let fixtureHome: string;
@@ -41,8 +41,8 @@ function probesAs(username: string) {
   });
 }
 
-function orgWithMembersRule() {
-  const made = seamsWithKey();
+function orgWithMembersRule(publicKey = "age1dev1") {
+  const made = seamsWithKey("AGE-TEAM-KEY", "acme", publicKey);
   made.execSeam.writeFile(teamSopsYamlPath("acme"), MEMBERS_RULE);
   return made;
 }
@@ -160,6 +160,42 @@ describe("syncAdminSecrets", () => {
     expect(await readAdminSecret("acme", "rt", "switchboardAdminToken", seams)).toBe("old");
     expect((await syncAdminSecrets(probesAs("dev1"), "acme", store, seams, { token: "new", replaceToken: true })).token).toBe("replaced");
     expect(await readAdminSecret("acme", "rt", "switchboardAdminToken", seams)).toBe("new");
+  });
+
+  test("a token is never shared from a Mac whose age key is not an owner's or admin's roster key, and nothing is written", async () => {
+    const { execSeam, seams } = orgWithMembersRule("age1dev3");
+
+    const err = await syncAdminSecrets(probesAs("dev1"), "acme", org({ owners: ["dev1"], admins: ["dev2"] }), seams, { token: "admin-1" }).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ code: "admin-secrets-not-this-mac" });
+    expect(execSeam.readFile(teamSopsYamlPath("acme"))).toBe(MEMBERS_RULE);
+    expect(execSeam.calls).toEqual([]);
+  });
+
+  test("a token is never shared from a Mac with no age key yet", async () => {
+    const { execSeam } = orgWithMembersRule();
+    const seams = { ageKeySeam: fakeAgeKeySeamAbsent(), execSeam };
+
+    await expect(syncAdminSecrets(probesAs("dev1"), "acme", org({ admins: ["dev1"] }), seams, { token: "admin-1" })).rejects.toMatchObject({ code: "admin-secrets-not-this-mac" });
+    expect(execSeam.readFile(teamSopsYamlPath("acme"))).toBe(MEMBERS_RULE);
+    expect(execSeam.calls).toEqual([]);
+  });
+
+  test("an admin whose Mac holds their roster key shares the token", async () => {
+    const { seams } = orgWithMembersRule("age1dev2");
+    const result = await syncAdminSecrets(probesAs("dev1"), "acme", org({ owners: ["dev1"], admins: ["dev2"] }), seams, { token: "admin-1" });
+    expect(result.token).toBe("seeded");
+    expect(await readAdminSecret("acme", "rt", "switchboardAdminToken", seams)).toBe("admin-1");
+  });
+
+  test("with no token, the rule follows the roles from a Mac whose key is not on the roster", async () => {
+    const { execSeam, seams } = orgWithMembersRule("age1dev9");
+    writeTeamRecipients("acme", ["age1dev1"], seams, "admins");
+    execSeam.writeFile(adminSecretsFile("acme", "rt"), "ciphertext");
+
+    const result = await syncAdminSecrets(probesAs("dev1"), "acme", org({ admins: ["dev1", "dev2"] }), seams);
+
+    expect(result).toMatchObject({ added: ["age1dev2"], reencrypted: [adminSecretsFile("acme", "rt")] });
   });
 
   test("a team owner's Mac is refused", async () => {

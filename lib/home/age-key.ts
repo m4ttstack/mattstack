@@ -116,6 +116,17 @@ function parseAgeKeygenOutput(output: string): { publicKey: string; privateKey: 
   return { publicKey: publicMatch[1]!, privateKey: privateMatch[1]! };
 }
 
+/** This Mac's public recipient, or null when the keychain holds no key. Never mints. */
+export async function readAgePublicKey(seams: AgeKeySeam): Promise<string | null> {
+  const existing = await readAgeKey(seams);
+  if (!("key" in existing)) return null;
+  const derived = await seams.run(["age-keygen", "-y"], { input: existing.key, sensitive: true });
+  if (derived.code !== 0) {
+    throw new Error(`age-keygen -y: could not derive the public key from the stored private key\n${derived.stderr}`);
+  }
+  return derived.stdout.trim();
+}
+
 /**
  * Mints and stores a new key ONLY on readAgeKey's provable `absent` —
  * anything else (including a keychain-access error) throws instead of

@@ -75,7 +75,10 @@ export class NoTeamCloneError extends Error {
   }
 }
 
-/** Thrown by `writeTeamRecipients` when `.sops.yaml` holds a creation rule this store did not write, so rewriting it would lose that rule. */
+/**
+ * Thrown by `writeTeamRecipients` when `.sops.yaml` holds a creation rule this store did not write, so rewriting it would lose that rule.
+ * Any entry rt cannot read refuses the same way, not only a foreign `path_regex`: a YAML-list `age:` block or an entry that starts with `age` is one too.
+ */
 export class TeamSopsYamlHandEditedError extends Error {
   constructor(slug: string) {
     super(
@@ -331,7 +334,7 @@ function adminLocation(slug: string, domain: string): SecretsLocation {
 
 export function adminSecretsUnreadable(slug: string, cause: SopsDecryptError): UserActionableError {
   return new UserActionableError("admin-secrets-unreadable", `This Mac cannot open the ${slug} org's admin-only secrets`, { team: slug }, {
-    why: "They are not locked to this Mac's age key. An org owner or admin whose Mac can open them adds yours by running rt team admin-secrets.",
+    why: "They are locked only to the age keys the roster holds for the org's owners and admins, and this Mac's key is not one of them. Open them from the Mac whose key the roster holds for you.",
     log: cause.message,
   });
 }

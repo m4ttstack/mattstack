@@ -3,16 +3,19 @@ import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { orgsDir } from "../../rt-paths.ts";
 import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../store.ts";
 
-
 export function teamCloneRootFor(slug: string): string {
   return join(orgsDir(), slug);
 }
 
-export function fakeAgeKeySeamWithKey(key: string): AgeKeySeam {
+/** `publicKey`, when given, is what `age-keygen -y` derives from `key`. */
+export function fakeAgeKeySeamWithKey(key: string, publicKey?: string): AgeKeySeam {
   return {
     async run(cmd): Promise<AgeExecResult> {
       if (cmd[0] === "security" && cmd[1] === "find-generic-password") {
         return { code: 0, stdout: `${key}\n`, stderr: "" };
+      }
+      if (publicKey !== undefined && cmd[0] === "age-keygen" && cmd[1] === "-y") {
+        return { code: 0, stdout: `${publicKey}\n`, stderr: "" };
       }
       throw new Error(`fakeAgeKeySeamWithKey: unexpected call ${cmd.join(" ")}`);
     },
@@ -32,7 +35,7 @@ type Call = { cmd: string[]; opts?: { env?: Record<string, string>; sensitive?: 
 /**
  * Same round-trippable-plaintext modeling as store.test.ts's own fake, plus
  * `listDir` (team-store's domain-file discovery) and `.sops.yaml` as just
- * another entry in the same `files` map — writeTeamRecipients/readTeamRecipients
+ * another entry in the same `files` map. writeTeamRecipients/readTeamRecipients
  * go through the plain fileExists/readFile/writeFile trio, no sops involved.
  */
 export class FakeTeamExecSeam implements SecretsExecSeam {
@@ -101,7 +104,7 @@ export class FakeTeamExecSeam implements SecretsExecSeam {
     }
     // A later plain `sops -d <to>` (readTeamSecret, or the next write's
     // read-existing-before-merge) must still resolve real plaintext after
-    // the rename — the round-trip map's key has to move with the file.
+    // the rename, so the round-trip map's key has to move with the file.
     const plaintext = this.roundTrippablePlaintext.get(from);
     if (plaintext !== undefined) {
       this.roundTrippablePlaintext.set(to, plaintext);
@@ -146,9 +149,9 @@ export class FakeTeamExecSeam implements SecretsExecSeam {
   }
 }
 
-/** Registers `slug`'s clone root as present in the fake — every test below operates against an already-cloned team unless it's specifically testing the no-clone refusal. */
-export function seamsWithKey(key = "AGE-TEAM-KEY", slug = "acme"): { execSeam: FakeTeamExecSeam; seams: SecretsSeams } {
+/** Registers `slug`'s clone root as present in the fake (every test below operates against an already-cloned team unless it's specifically testing the no-clone refusal). */
+export function seamsWithKey(key = "AGE-TEAM-KEY", slug = "acme", publicKey?: string): { execSeam: FakeTeamExecSeam; seams: SecretsSeams } {
   const execSeam = new FakeTeamExecSeam();
   execSeam.files.set(teamCloneRootFor(slug), "");
-  return { execSeam, seams: { ageKeySeam: fakeAgeKeySeamWithKey(key), execSeam } };
+  return { execSeam, seams: { ageKeySeam: fakeAgeKeySeamWithKey(key, publicKey), execSeam } };
 }
