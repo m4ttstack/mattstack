@@ -40,10 +40,13 @@ function pendingRolePublication(argv: string[]) {
   return null;
 }
 
+// The remote head's org store and the pending one are read before the push, so the pending edit is judged by the remote's roles.
+const PUBLICATION_INSPECTION = ["remote", "ls-remote", "rev-list", "diff-tree", "cat-file", "merge-base", "ls-tree", "ls-tree"];
+
 function expectPublicationInspection(calls: string[][]) {
   const pushIndex = calls.findIndex((argv) => argv.includes("push"));
-  expect(pushIndex).toBeGreaterThan(3);
-  expect(calls.slice(pushIndex - 4, pushIndex).map((argv) => argv.find((arg) => ["remote", "ls-remote", "rev-list", "diff-tree"].includes(arg)))).toEqual(["remote", "ls-remote", "rev-list", "diff-tree"]);
+  expect(pushIndex).toBeGreaterThanOrEqual(PUBLICATION_INSPECTION.length);
+  expect(calls.slice(pushIndex - PUBLICATION_INSPECTION.length, pushIndex).map((argv) => argv.find((arg) => PUBLICATION_INSPECTION.includes(arg)))).toEqual(PUBLICATION_INSPECTION);
 }
 
 function neverCalled<T extends unknown[], R>(name: string) {

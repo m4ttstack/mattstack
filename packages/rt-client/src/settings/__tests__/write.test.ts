@@ -614,7 +614,7 @@ describe("settings/write: write guard", () => {
     setSetting("board.title", "Widgets", "team");
     expect(readStore(teamSettingsPath("acme", "widgets")).global["board.title"]).toBe("Widgets");
     expect(() => setSetting("board.gitlabHost", "x", "org")).toThrow(
-      "The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change.",
+      "A team owner can only change which teams people are on in the org's settings. Ask dev1 (an org admin) to make this change.",
     );
     expect(() => setSetting("board.title", "x", "team", { team: "gadgets" })).toThrow(
       "The gadgets team's files belong to its owners. Ask dev3 (the team's owner) or dev1 (an org admin) to make this change.",

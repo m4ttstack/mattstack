@@ -27,6 +27,12 @@ refused unless this Mac's role owns the file
 `docs/superpowers/specs/2026-10-01-org-and-teams-design.md` for the layout,
 selection and ownership rules.
 
+The org store is guarded by `orgStoreChangeRefusal`
+(`packages/rt-client/src/settings/org-store-guard.ts`) in `setSetting`,
+`publishTeam` and the daemon's auto-commit scope: a team owner may change
+only which of their own teams people are on, and only an org owner may change
+`owners`.
+
 A team's pack is its Claude plugin at `mattstack/teams/<team>/plugin/`
 (`teamPackDir`, `lib/team/team-pack-path.ts`). The older layout, with the
 pack nested in a `packs/` folder inside the team folder, is read by

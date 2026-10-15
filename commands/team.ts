@@ -6,6 +6,7 @@ import { orgStoreFile } from "../lib/team/org-store.ts";
 import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { activeTeamFor } from "../lib/team/active-team.ts";
 import { roleFor, rolesFor } from "../lib/team/roles.ts";
+import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
 /**
  * rt team create|publish|rename|invite|join|members|status: the team-repo
  * lifecycle verbs.
@@ -56,7 +57,7 @@ import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeam
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { canonicalHandle, readPeeredBoards, realReadLocalSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
-import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDropFromTeam, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { renameOrg, type ConvergeOutcome, type RenameResult, type RenameSeams } from "../lib/team/rename.ts";
@@ -191,6 +192,7 @@ const REFUSAL_CODES = new Set([
   "org-uncommitted",
   "org-behind",
   "invite-stale",
+  "org-store-malformed",
 ]);
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */
@@ -555,10 +557,11 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
     const slug = resolveTeamSlug(args, "team invite");
 
     const local = readTeamLocal(deps.probes, slug);
-    if (roleFor(deps.probes, slug).kind !== "admin") {
-      const admins = rolesFor(deps.probes, slug).admins;
+    if (!isOrgAdmin(roleFor(deps.probes, slug))) {
+      const roles = rolesFor(deps.probes, slug);
+      const ask = roles.admins.length > 0 ? roles.admins : roles.owners;
       throw new UserActionableError("team-pull-only", "Only an org admin invites", {}, {
-        why: admins.length > 0 ? `Ask ${admins.join(" or ")} to invite ${handle}.` : "This org names no admins yet.",
+        why: ask.length > 0 ? `Ask ${ask.join(" or ")} to invite ${handle}.` : "This org names no admins yet.",
       });
     }
     const named = (flagValue(args, "--teams") ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
@@ -779,6 +782,66 @@ export async function teamMembersSet(args: string[], _ctx: CommandContext = {}, 
   }
 }
 
+export async function teamMembersAdd(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  let handle = positional(args, ["--to", "--team"])[0];
+  const teamFlag = flagValue(args, "--to")?.trim();
+  try {
+    const slug = resolveTeamSlug(args, "team members add");
+    if (!handle && process.stdin.isTTY && !json && !process.env.RT_BATCH) {
+      const candidates = readOrgRosterNames(deps.probes, slug);
+      if (candidates.length > 0) {
+        const { filterableSelect } = await import("../lib/pick-wrappers.ts");
+        const picked = await filterableSelect({ message: "Add which member?", options: candidates.map((name) => ({ value: name, label: name })), stderr: true });
+        if (!picked) process.exit(0);
+        handle = picked;
+      }
+    }
+    if (!handle || !teamFlag) {
+      usageError(deps, json, "Say who, and which team to put them on", "rt team members add <username> --to <team> [--team <org>] [--json]");
+    }
+    const result = membersAddToTeam(deps.probes, deps.membersSeams ?? realMembersSeams(), slug, handle, teamFlag);
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(out.line("done", `${result.username} is on ${result.teams.length > 0 ? result.teams.join(", ") : "no team"}`, result.previous.length > 0 ? `was on ${result.previous.join(", ")}` : undefined));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+export async function teamMembersDrop(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  let handle = positional(args, ["--from", "--team"])[0];
+  const teamFlag = flagValue(args, "--from")?.trim();
+  try {
+    const slug = resolveTeamSlug(args, "team members drop");
+    if (!handle && process.stdin.isTTY && !json && !process.env.RT_BATCH) {
+      const candidates = readOrgRosterNames(deps.probes, slug);
+      if (candidates.length > 0) {
+        const { filterableSelect } = await import("../lib/pick-wrappers.ts");
+        const picked = await filterableSelect({ message: "Take which member off?", options: candidates.map((name) => ({ value: name, label: name })), stderr: true });
+        if (!picked) process.exit(0);
+        handle = picked;
+      }
+    }
+    if (!handle || !teamFlag) {
+      usageError(deps, json, "Say who, and which team to take them off", "rt team members drop <username> --from <team> [--team <org>] [--json]");
+    }
+    const result = membersDropFromTeam(deps.probes, deps.membersSeams ?? realMembersSeams(), slug, handle, teamFlag);
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(out.line("done", `${result.username} is on ${result.teams.length > 0 ? result.teams.join(", ") : "no team"}`, result.previous.length > 0 ? `was on ${result.previous.join(", ")}` : undefined));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
 export async function teamMembersRemove(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
   let handle = positional(args, ["--team", "--key"])[0];
@@ -953,7 +1016,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         out.kv("last push", lastPush ?? "never"),
         out.kv("members", String(members.length), peeredBoards ? `${peeredCount} with a connected board` : undefined),
         out.kv("your team", active.team ?? "none"),
-        out.kv("your role", role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),
+        out.kv("your role", role === "org-owner" ? "org owner" : role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),
         out.kv("sync", syncState, syncNotes.length > 0 ? syncNotes.join("; ") : undefined),
         ...(sync.conflicted !== null ? [out.line("needs-you", "The team has changes that clash with yours", sync.conflicted.detail)] : []),
       ),

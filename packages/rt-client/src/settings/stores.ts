@@ -85,6 +85,17 @@ export function parseStoreText(file: string, raw: string): StoreFile {
   return { global, repos: reposValid, file, exists: true };
 }
 
+/** `parseStoreText` for a caller that must tell a malformed store from an empty one: null for any parse error, a root that is not an object, or a malformed `repos`. Never warns. */
+export function parseStoreTextStrict(file: string, raw: string): StoreFile | null {
+  if (raw.trim() === "") return EMPTY_STORE(file, true);
+  const errors: ParseError[] = [];
+  const root = parse(raw, errors, { allowTrailingComma: true });
+  if (errors.length > 0 || root === null || typeof root !== "object" || Array.isArray(root)) return null;
+  const { repos, ...global } = root as Record<string, unknown>;
+  if (repos !== undefined && (repos === null || typeof repos !== "object" || Array.isArray(repos))) return null;
+  return { global, repos: (repos ?? {}) as Record<string, Record<string, unknown>>, file, exists: true };
+}
+
 export const TEAM_NAME_RE = /^[a-z][a-z0-9-]*$/;
 
 /**

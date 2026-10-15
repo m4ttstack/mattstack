@@ -2,6 +2,7 @@ import {
   activeTeam,
   currentOrg,
   currentRole,
+  isOrgAdmin,
   type OrgRole,
 } from '@mattstack/rt-client';
 
@@ -13,7 +14,7 @@ export interface TeamMembership {
 export function standingOf(role: OrgRole, team: string | null): TeamMembership {
   return {
     seesTeam:
-      role.kind === 'admin' ||
+      isOrgAdmin(role) ||
       (role.kind === 'owner' && team !== null && role.teams.includes(team)),
   };
 }

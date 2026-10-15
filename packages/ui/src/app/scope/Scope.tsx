@@ -16,7 +16,7 @@ import classes from './Scope.module.css';
 export interface Viewer {
   username: string | null;
   name: string | null;
-  role: 'admin' | 'owner' | 'member' | 'unknown' | 'none';
+  role: 'org-owner' | 'admin' | 'owner' | 'member' | 'unknown' | 'none';
   team: string | null;
   teams: string[];
   /** Each reachable team's owners, by roster name. */
@@ -52,6 +52,7 @@ export function useViewer(
 }
 
 const ROLE_LABEL: Record<Exclude<Viewer['role'], 'none'>, string> = {
+  'org-owner': 'org owner',
   admin: 'org admin',
   owner: 'team owner',
   member: 'member',

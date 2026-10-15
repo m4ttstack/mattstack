@@ -11,6 +11,7 @@ import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { readTeamRecipients, teamSecretsFile, writeTeamRecipients } from "../../secrets/team-store.ts";
 import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
 import { UserActionableError } from "../../errors.ts";
+import { SettingsOwnershipRefusal } from "../../../packages/rt-client/src/settings/write.ts";
 import { orgsDir } from "../../rt-paths.ts";
 import { seal, sealReply } from "../invite-crypto.ts";
 import { upsertInviteRecord, type InviteRecord } from "../invite-records.ts";
@@ -960,9 +961,8 @@ describe("membersSetTeams", () => {
     expect(roster[1]!.teams).toEqual(["widgets"]);
   });
 
-  test.each(["dev2", "stranger", ""])("refuses non-admin %s before any roster read or write", (username) => {
+  test.each(["stranger", ""])("refuses non-admin %s before any write", (username) => {
     const { p, seams, writes } = world(username);
-    seams.readTeamStore = () => { throw new Error("must not read roster"); };
     expect(() => memberActions.membersSetTeams(p, seams, "acme", "dev1", ["gadgets"])).toThrow(UserActionableError);
     expect(writes).toEqual([]);
   });
@@ -990,13 +990,13 @@ describe("membersSetTeams", () => {
     expect(writes[0]!.value).toEqual([roster[0], { ...roster[1], teams: [] }]);
   });
 
-  test("checks admin ownership again immediately before writing", () => {
+  test("checks the role again after the roster is read", () => {
     const { p, seams, writes } = world();
     seams.readTeamStore = () => {
       p.writeFile(teamLocalPath(HOME, "acme"), JSON.stringify({ forgeUsername: "dev2" }));
       return { "mattstack.roster": roster };
     };
-    expect(() => memberActions.membersSetTeams(p, seams, "acme", "dev2", ["widgets"])).toThrow("The org's shared files belong to its admins");
+    expect(() => memberActions.membersSetTeams(p, seams, "acme", "dev2", ["gadgets"])).toThrow("You don't own gadgets");
     expect(writes).toEqual([]);
   });
 
@@ -1004,6 +1004,60 @@ describe("membersSetTeams", () => {
     const { p, seams } = world();
     seams.readTeamStore = () => ({ "mattstack.roster": [{ username: "dev2", name: "Dev Two" }] });
     expect(memberActions.membersSetTeams(p, seams, "acme", "dev2", ["widgets"])).toEqual({ username: "dev2", teams: ["widgets"], previous: [] });
+  });
+});
+
+describe("membersAddToTeam and membersDropFromTeam", () => {
+  const roster = [
+    { username: "dev1", teams: ["widgets"] },
+    { username: "dev4", teams: ["gadgets"] },
+  ];
+
+  function world(username = "dev2") {
+    const p = fakeProbes({ home: HOME, files: {
+      [teamLocalPath(HOME, "acme")]: JSON.stringify({ forgeUsername: username }),
+      [`${HOME}/.mattstack/orgs/acme/mattstack/teams/widgets/settings.team.jsonc`]: "{}",
+      [`${HOME}/.mattstack/orgs/acme/mattstack/teams/gadgets/settings.team.jsonc`]: "{}",
+    } });
+    return { p, ...fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": roster }) }) };
+  }
+
+  test("a team owner adds an existing member to their team", () => {
+    const { p, seams, writes } = world();
+    expect(memberActions.membersAddToTeam(p, seams, "acme", "dev4", "widgets")).toEqual({ username: "dev4", teams: ["gadgets", "widgets"], previous: ["gadgets"] });
+    expect(writes).toHaveLength(1);
+  });
+
+  test("adding someone not in the org points at an invite", () => {
+    const { p, seams } = world();
+    expect(() => memberActions.membersAddToTeam(p, seams, "acme", "dev9", "widgets")).toThrow(/not in this org/);
+  });
+
+  test("an admin drops someone from a team and only that team goes", () => {
+    const { p, seams } = world("dev1");
+    expect(memberActions.membersDropFromTeam(p, seams, "acme", "dev4", "gadgets").teams).toEqual([]);
+  });
+
+  test("an owner adding to a team they don't own is refused before any write", () => {
+    const { p, seams, writes } = world();
+    expect(() => memberActions.membersAddToTeam(p, seams, "acme", "dev1", "gadgets")).toThrow(/don't own gadgets/);
+    expect(writes).toEqual([]);
+  });
+
+  test("adding to a team they are already on changes nothing", () => {
+    const { p, seams } = world();
+    expect(memberActions.membersAddToTeam(p, seams, "acme", "dev1", "widgets")).toEqual({ username: "dev1", teams: ["widgets"], previous: ["widgets"] });
+  });
+
+  test("dropping from a team they are not on changes nothing", () => {
+    const { p, seams } = world("dev1");
+    expect(memberActions.membersDropFromTeam(p, seams, "acme", "dev4", "widgets")).toEqual({ username: "dev4", teams: ["gadgets"], previous: ["gadgets"] });
+  });
+
+  test("a write the real guard still refuses reads as the same team-pull-only refusal", () => {
+    const { p, seams } = world("dev1");
+    seams.writeSetting = (() => { throw new SettingsOwnershipRefusal({ kind: "member" }, { message: "nope", why: "Ask someone." }); }) as MembersSeams["writeSetting"];
+    expect(() => memberActions.membersAddToTeam(p, seams, "acme", "dev4", "widgets")).toThrow(UserActionableError);
   });
 });
 

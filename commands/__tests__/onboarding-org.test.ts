@@ -242,15 +242,15 @@ describe("onboarding in an org", () => {
     const result = await runApplyWith([teamCreateStep, orgPullStep, teamIdentityStep], await context(p, events));
     expect(result).toEqual({ ok: true });
     const pushIndex = execCalls.findIndex((argv) => argv.includes("push"));
-    expect(pushIndex).toBeGreaterThan(3);
-    expect(execCalls.slice(pushIndex - 4, pushIndex).map((argv) => argv[1])).toEqual(["remote", "ls-remote", "rev-list", "diff-tree"]);
+    expect(pushIndex).toBeGreaterThan(4);
+    expect(execCalls.slice(pushIndex - 5, pushIndex).map((argv) => argv[1])).toEqual(["remote", "ls-remote", "rev-list", "diff-tree", "ls-tree"]);
 
     const org = readStore(orgSettingsPath("acme")).global;
     expect(org["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { acme: { owners: ["dev1"] } } });
     expect(org["mattstack.roster"]).toEqual([{ username: "dev1", agePublicKey: FAKE_PUBLIC_KEY, teams: ["acme"] }]);
     expect(readForgeUsername("acme")).toBe("dev1");
     expect(activeTeam()).toMatchObject({ org: "acme", team: "acme", reason: "first-team" });
-    expect(currentRole("acme")).toEqual({ kind: "admin" });
+    expect(currentRole("acme")).toEqual({ kind: "org-owner" });
     expect(settled(events, "team.identity")).toEqual({ state: "skipped", detail: "Already recorded" });
     expect(settled(events, "org.pull")).toMatchObject({ state: "skipped" });
 
@@ -459,7 +459,7 @@ describe("onboarding in an org", () => {
     const events: ApplyEvent[] = [];
     await runApplyWith([teamIdentityStep], await context(p, events));
     expect(settled(events, "team.identity")).toEqual({ state: "done", detail: "You are dev1" });
-    expect(currentRole("acme")).toEqual({ kind: "admin" });
+    expect(currentRole("acme")).toEqual({ kind: "org-owner" });
     setSetting("board.gitlabHost", "gitlab.example.com", "org");
     expect(readStore(orgSettingsPath("acme")).global["board.gitlabHost"]).toBe("gitlab.example.com");
   });
@@ -476,7 +476,7 @@ describe("onboarding in an org", () => {
     expect((await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus })).map((r) => r.id)).toEqual(["team.identity"]);
     await recordForgeIdentity(p, "acme", GITHUB, "token", async () => "dev1");
     expect(await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus })).toEqual([]);
-    expect(currentRole("acme")).toEqual({ kind: "admin" });
+    expect(currentRole("acme")).toEqual({ kind: "org-owner" });
   });
   test("a recorded member without a team gets shared org settings until the pulled roster assigns a team", async () => {
     const p = probes();
