@@ -486,7 +486,7 @@ test('a write-in answer reads "wrote in: ..." on the card and the dock chip', as
     })
   );
   expect(text('.tui-sheet-main .tui-gate-question')).toContain(
-    'wrote in: split it'
+    'wrote in: "split it"'
   );
   expect(
     $$('.tui-sheet-dock .tui-sheet-card-row').map(r => [

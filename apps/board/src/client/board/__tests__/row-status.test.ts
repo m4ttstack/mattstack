@@ -764,7 +764,7 @@ describe('rowStatus: gates', () => {
     expect(line).toMatchObject({
       tone: 'quiet',
       word: 'answered',
-      detail: 'wrote in: split it, proceed',
+      detail: 'wrote in: "split it", proceed',
     });
   });
 });

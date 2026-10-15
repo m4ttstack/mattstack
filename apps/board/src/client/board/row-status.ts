@@ -273,7 +273,7 @@ function gateLines(mr: BoardMRWithReview): Candidate[] {
       .map(v => {
         const a = unwrapGateAnswer(v);
         return a.writeIn !== undefined
-          ? `wrote in: ${a.writeIn}`
+          ? `wrote in: "${a.writeIn}"`
           : (a.value ?? []);
       })
       .flatMap(v => (Array.isArray(v) ? v : [v]))

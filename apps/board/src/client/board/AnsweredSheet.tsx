@@ -181,7 +181,7 @@ function AnsweredSheetBody({
               <>
                 {a?.writeIn && (
                   <p className="tui-gate-summary-reply">
-                    wrote in: {a.writeIn}
+                    wrote in: "{a.writeIn}"
                   </p>
                 )}
                 {a?.note && (
