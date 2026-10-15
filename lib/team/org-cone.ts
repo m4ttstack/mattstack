@@ -61,32 +61,42 @@ async function checkedOutTeams(p: Pick<Probes, "exec">, dir: string): Promise<st
   return [...teams].sort();
 }
 
-/** Whether the team folder holds an unsaved change, or a commit not on the remote branch; a remote ref git cannot find counts as unpushed. */
-async function holdsChanges(p: Pick<Probes, "exec">, dir: string, team: string, branch: string | null): Promise<boolean> {
+/** What the team folder holds that narrowing would lose: an unsaved change or a commit not on the remote branch ("changes"; a remote ref git cannot find counts as unpushed), only ignored files ("ignored"), or nothing. */
+async function heldIn(p: Pick<Probes, "exec">, dir: string, team: string, branch: string | null): Promise<"changes" | "ignored" | null> {
   const path = `${TEAMS_REL}/${team}`;
   // Ignored files too: narrowing the cone deletes them along with the folder.
   const status = await p.exec(["git", "status", "--porcelain", "--ignored=matching", "--", path], { cwd: dir, env: ENV });
-  if (status.code !== 0 || status.stdout.trim() !== "") return true;
-  if (branch === null) return true;
+  if (status.code !== 0) return "changes";
+  const lines = status.stdout.split("\n").filter(Boolean);
+  if (lines.some((line) => !line.startsWith("!! "))) return "changes";
+  if (branch === null) return "changes";
   const ahead = await p.exec(["git", "log", "--oneline", `refs/remotes/origin/${branch}..HEAD`, "--", path], { cwd: dir, env: ENV });
-  return ahead.code !== 0 || ahead.stdout.trim() !== "";
+  if (ahead.code !== 0 || ahead.stdout.trim() !== "") return "changes";
+  return lines.length > 0 ? "ignored" : null;
 }
 
-async function coneAndKept(p: Pick<Probes, "exec" | "readFile" | "home">, dir: string, org: string): Promise<{ wanted: string[]; kept: string[] }> {
+export interface KeptTeam {
+  team: string;
+  /** Publishing cannot clear an ignored file, so the way out is moving or deleting it. */
+  onlyIgnored: boolean;
+}
+
+async function coneAndKept(p: Pick<Probes, "exec" | "readFile" | "home">, dir: string, org: string): Promise<{ wanted: string[]; kept: KeptTeam[] }> {
   const wanted = roleCone(p, dir, org) ?? [...ORG_CLONE_FOLDERS];
-  const kept: string[] = [];
+  const kept: KeptTeam[] = [];
   if (!wanted.includes("mattstack")) {
     const branch = await checkedOutBranch(p, dir);
     for (const team of await checkedOutTeams(p, dir)) {
       if (wanted.includes(`${TEAMS_REL}/${team}`)) continue;
-      if (await holdsChanges(p, dir, team, branch)) kept.push(team);
+      const held = await heldIn(p, dir, team, branch);
+      if (held !== null) kept.push({ team, onlyIgnored: held === "ignored" });
     }
   }
   return { wanted, kept };
 }
 
 /** The checked-out team folders this Mac's role no longer reaches that hold unsaved or unpushed work; what `applyRoleCone` would keep, without applying anything. */
-export async function keptTeams(p: Pick<Probes, "exec" | "readFile" | "home">, dir: string, org: string): Promise<string[]> {
+export async function keptTeams(p: Pick<Probes, "exec" | "readFile" | "home">, dir: string, org: string): Promise<KeptTeam[]> {
   return (await coneAndKept(p, dir, org)).kept;
 }
 
@@ -97,7 +107,8 @@ export async function keptTeams(p: Pick<Probes, "exec" | "readFile" | "home">, d
  * Mac cannot trust to narrow by gets the full cone.
  */
 export async function applyRoleCone(p: Pick<Probes, "exec" | "readFile" | "home">, dir: string, org: string): Promise<{ applied: string[]; kept: string[] }> {
-  const { wanted, kept } = await coneAndKept(p, dir, org);
+  const { wanted, kept: keptDetail } = await coneAndKept(p, dir, org);
+  const kept = keptDetail.map((k) => k.team);
   const applied = [...wanted, ...kept.map((t) => `${TEAMS_REL}/${t}`)].sort();
   const set = await p.exec(["git", "sparse-checkout", "set", "--cone", ...applied], { cwd: dir, env: ENV });
   if (set.code !== 0) throw new Error(withoutUrls(set.stderr));

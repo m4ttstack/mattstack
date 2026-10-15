@@ -68,6 +68,8 @@ beforeEach(() => {
   git(seed, "commit", "-q", "-m", "legacy main");
   git(seed, "push", "-q", "origin", "main");
   git(base, "clone", "-q", origin, clone);
+  git(clone, "config", "user.name", "dev1");
+  git(clone, "config", "user.email", "dev1@example.com");
 
   git(seed, "checkout", "-q", "--orphan", "mattstack");
   put(seed, ".mattstack-org.json", MARKER);
@@ -96,13 +98,44 @@ describe("moveCloneToDataBranch", () => {
     expect(await Bun.file(join(clone, TEAM_FILE)).text()).toBe("{ /* edit */ }");
   });
 
-  test("a clone with commits main never got is held", async () => {
-    put(clone, "mattstack/org/extra.jsonc", "{}");
-    git(clone, "add", "-A");
-    git(clone, "commit", "-q", "-m", "local only");
+  test("unpushed commits on the org store carry across and sit unpushed on the data branch with the same author", async () => {
+    put(clone, "mattstack/org/settings.org.jsonc", '{"carried":true}');
+    git(clone, "commit", "-aq", "--author", "dev2 <dev2@example.com>", "-m", "local only");
     const r = await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
-    expect(r).toEqual({ kind: "held", why: "unpushed", commits: 1 });
+    expect(r).toEqual({ kind: "moved", branch: "mattstack", carried: 1 });
+    expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("mattstack");
+    expect(git(clone, "log", "-1", "--format=%an %s")).toBe("dev2 local only");
+    expect(git(clone, "rev-list", "--count", "HEAD", "--not", "--remotes=origin")).toBe("1");
+    expect(await Bun.file(join(clone, "mattstack/org/settings.org.jsonc")).text()).toBe('{"carried":true}');
+    expect(git(clone, "config", "--get-all", "remote.origin.fetch")).toBe("+refs/heads/mattstack:refs/remotes/origin/mattstack");
+  });
+
+  test("a commit that changes files outside the org's data holds, and nothing moves", async () => {
+    put(clone, "apps/x/readme.md", "mine");
+    git(clone, "add", "-A");
+    git(clone, "commit", "-q", "-m", "outside");
+    const r = await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    expect(r).toEqual({ kind: "held", why: "uncarried", commits: 1, reason: "outside" });
     expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("main");
+    expect(git(clone, "log", "-1", "--format=%s")).toBe("outside");
+  });
+
+  test("a commit that clashes with the data branch holds, and leaves main, the commit and the refspec as they were", async () => {
+    git(seed, "checkout", "-q", "mattstack");
+    put(seed, TEAM_FILE, '{"data":true}');
+    git(seed, "commit", "-aq", "-m", "data edit");
+    git(seed, "push", "-q", "origin", "mattstack");
+    put(clone, TEAM_FILE, '{"mine":true}');
+    git(clone, "commit", "-aq", "-m", "local only");
+    const refspec = git(clone, "config", "--get-all", "remote.origin.fetch");
+    const r = await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    expect(r).toEqual({ kind: "held", why: "uncarried", commits: 1, reason: "clash" });
+    expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("main");
+    expect(git(clone, "log", "-1", "--format=%s")).toBe("local only");
+    expect(await Bun.file(join(clone, TEAM_FILE)).text()).toBe('{"mine":true}');
+    expect(git(clone, "status", "--porcelain")).toBe("");
+    expect(git(clone, "config", "--get-all", "remote.origin.fetch")).toBe(refspec);
+    expect(() => git(clone, "rev-parse", "--verify", "-q", "refs/heads/mattstack")).toThrow();
   });
 
   test("a clone already on the branch is left alone", async () => {
@@ -122,13 +155,13 @@ describe("moveCloneToDataBranch", () => {
     expect(() => git(clone, "symbolic-ref", "-q", "HEAD")).toThrow();
   });
 
-  test("local commits with no remote-tracking ref still count as unpushed", async () => {
+  test("local commits with no remote-tracking ref still count as unpushed, so they never vanish", async () => {
     put(clone, "mattstack/org/extra.jsonc", "{}");
     git(clone, "add", "-A");
     git(clone, "commit", "-q", "-m", "local only");
     git(clone, "update-ref", "-d", "refs/remotes/origin/main");
     const r = await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
-    expect(r).toMatchObject({ kind: "held", why: "unpushed" });
+    expect(r).toMatchObject({ kind: "held", why: "uncarried" });
     expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("main");
   });
 });
@@ -136,6 +169,20 @@ describe("moveCloneToDataBranch", () => {
 describe("moveBlocker", () => {
   test("a clean, pushed clone has nothing in the way", async () => {
     expect(await moveBlocker(p, clone)).toBeNull();
+  });
+
+  test("unpushed commits on the org's data alone do not block: the move carries them", async () => {
+    put(clone, "mattstack/org/extra.jsonc", "{}");
+    git(clone, "add", "-A");
+    git(clone, "commit", "-q", "-m", "local only");
+    expect(await moveBlocker(p, clone)).toBeNull();
+  });
+
+  test("an unpushed commit outside the org's data blocks", async () => {
+    put(clone, "apps/x/readme.md", "mine");
+    git(clone, "add", "-A");
+    git(clone, "commit", "-q", "-m", "outside");
+    expect(await moveBlocker(p, clone)).toEqual({ kind: "held", why: "uncarried", commits: 1, reason: "outside" });
   });
 
   test("names the same blocker the move would hold on", async () => {
@@ -157,12 +204,15 @@ describe("heldCopy", () => {
     expect(heldCopy({ kind: "held", why: "dirty", files }).detail).toBe("Your copy of the org has unsaved changes: a, b, c, d, e and 2 more");
   });
 
-  test("unpushed commits name rt team publish first", () => {
-    expect(heldCopy({ kind: "held", why: "unpushed", commits: 1 })).toEqual({
-      detail: "Your copy of the org has 1 commit that is not published yet",
-      remedy: "Run rt team publish first, then rt team pull",
+  test("commits rt could not carry say why and name an org admin, never rt team publish", () => {
+    expect(heldCopy({ kind: "held", why: "uncarried", commits: 1, reason: "outside" })).toEqual({
+      detail: "rt could not carry 1 unpublished commit to the org's data branch, because it changes files outside the org's data",
+      remedy: "Ask an org admin to help move it",
     });
-    expect(heldCopy({ kind: "held", why: "unpushed", commits: 2 }).detail).toBe("Your copy of the org has 2 commits that are not published yet");
+    expect(heldCopy({ kind: "held", why: "uncarried", commits: 2, reason: "clash" })).toEqual({
+      detail: "rt could not carry 2 unpublished commits to the org's data branch, because they clash with changes already there",
+      remedy: "Ask an org admin to help move them",
+    });
   });
 
   test("a detached copy asks for a branch", () => {
@@ -218,14 +268,16 @@ describe("convergeDataBranch", () => {
     expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("trial");
   });
 
-  test("a fetch that fails is a failed move and the clone stays put", async () => {
+  test("an origin it cannot reach is a check that did not happen, never a failed move", async () => {
     pointMain();
     git(clone, "remote", "set-url", "origin", join(root, "nowhere.git"));
-    expect((await convergeDataBranch(probes(), clone, noToken))?.kind).toBe("failed");
+    expect((await convergeDataBranch(probes(), clone, noToken))?.kind).toBe("unchecked");
     expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("main");
   });
 
   test("the moved sentence names the branch", () => {
     expect(MOVED_DONE("mattstack")).toBe("Moved your copy of the org to the mattstack branch");
+    expect(MOVED_DONE("mattstack", 2)).toBe("Moved your copy of the org to the mattstack branch, with your 2 unpublished commits");
+    expect(MOVED_DONE("mattstack", 1)).toBe("Moved your copy of the org to the mattstack branch, with your 1 unpublished commit");
   });
 });

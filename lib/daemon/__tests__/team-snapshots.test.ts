@@ -622,6 +622,15 @@ describe("a clone whose org moved its data to another branch", () => {
     expect(log.calls.filter((c) => c.level === "info" && JSON.stringify(c.args).includes("held")).length).toBe(2);
   });
 
+  test("createOnMoved logs an origin it could not ask once, calmly", async () => {
+    const log = fakeLog();
+    const onMoved = createOnMoved({ probes: fakeProbes({ home: "/h" }), dir: "/h/acme", log, moveData: async () => ({ kind: "unchecked", log: "fatal: unable to access" }) });
+    await onMoved();
+    await onMoved();
+    expect(log.calls.filter((c) => c.level === "info" && JSON.stringify(c.args).includes("could not ask origin")).length).toBe(1);
+    expect(log.calls.some((c) => c.level === "warn")).toBe(false);
+  });
+
   test("createOnMoved logs a move that failed or threw and never rejects", async () => {
     const log = fakeLog();
     let mode: "failed" | "throw" = "failed";

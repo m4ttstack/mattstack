@@ -1555,11 +1555,16 @@ describe("orgLayoutRow", () => {
     expect(r).toMatchObject({ status: "needs-you", detail: "Your org's data moved to the mattstack branch. Your copy of the org has unsaved changes: mattstack/org/settings.org.jsonc" });
     expect(r?.action).toMatchObject({ type: "steps", steps: ["Save or discard those changes, then run rt team pull"] });
   });
-  test("a moved hold with unpublished commits names rt team publish first", async () => {
-    const ahead = (argv: string[]) => (argv.includes("rev-list") ? ok("2\n") : cleanOnMain(argv));
+  test("a moved hold with unpublished commits on the org's data stays calm: the move carries them", async () => {
+    const ahead = (argv: string[]) => (argv.includes("rev-list") ? ok("abc\ndef\n") : argv.includes("diff-tree") ? ok("mattstack/org/settings.org.jsonc\n") : cleanOnMain(argv));
     const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true, ahead), status({ moved: "mattstack" }));
-    expect(r).toMatchObject({ status: "needs-you", detail: "Your org's data moved to the mattstack branch. Your copy of the org has 2 commits that are not published yet" });
-    expect(r?.action).toMatchObject({ type: "steps", steps: ["Run rt team publish first, then rt team pull"] });
+    expect(r).toMatchObject({ status: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes." });
+  });
+  test("a moved hold with commits outside the org's data names an org admin, never rt team publish", async () => {
+    const ahead = (argv: string[]) => (argv.includes("rev-list") ? ok("abc\n") : argv.includes("diff-tree") ? ok("apps/x/readme.md\n") : cleanOnMain(argv));
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true, ahead), status({ moved: "mattstack" }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org's data moved to the mattstack branch. rt could not carry 1 unpublished commit to the org's data branch, because it changes files outside the org's data" });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Ask an org admin to help move it"] });
   });
 });
 
@@ -1581,10 +1586,12 @@ describe("orgSparseRow", () => {
       exec: (argv) => git(argv),
     });
   const checkedOut = "H mattstack/teams/gadgets/settings.team.jsonc\nH mattstack/teams/widgets/settings.team.jsonc\n";
-  const git = (gadgetsDirty: boolean) => (argv: string[]) => {
+  const git = (gadgets: "clean" | "dirty" | "ignored") => (argv: string[]) => {
     if (argv.includes("ls-files")) return ok(checkedOut);
     if (argv.includes("symbolic-ref")) return ok("main\n");
-    if (argv.includes("status")) return ok(gadgetsDirty && argv.includes("mattstack/teams/gadgets") ? " M mattstack/teams/gadgets/settings.team.jsonc\n" : "");
+    if (argv.includes("status") && argv.includes("mattstack/teams/gadgets")) {
+      return ok(gadgets === "dirty" ? " M mattstack/teams/gadgets/settings.team.jsonc\n!! mattstack/teams/gadgets/x.local\n" : gadgets === "ignored" ? "!! mattstack/teams/gadgets/x.local\n" : "");
+    }
     return ok("");
   };
 
@@ -1592,15 +1599,22 @@ describe("orgSparseRow", () => {
     expect(await orgSparseRow(fakeProbes({ home: "/h" }))).toBeNull();
   });
   test("ready when no team folder this Mac left holds changes", async () => {
-    const r = await orgSparseRow(probes(git(false)));
+    const r = await orgSparseRow(probes(git("clean")));
     expect(r).toMatchObject({ id: ORG_SPARSE_ROW_ID, status: "ready", required: false });
     expect(r?.finishGated ?? false).toBe(false);
   });
   test("needs-you naming a team this Mac left that still holds changes", async () => {
-    const r = await orgSparseRow(probes(git(true)));
+    const r = await orgSparseRow(probes(git("dirty")));
     expect(r).toMatchObject({
       status: "needs-you",
       detail: "You're no longer on gadgets, but your copy has changes there. Publish or discard them and rt removes the folder.",
+    });
+  });
+  test("a team folder holding only ignored files asks to move or delete them, since publishing cannot clear them", async () => {
+    const r = await orgSparseRow(probes(git("ignored")));
+    expect(r).toMatchObject({
+      status: "needs-you",
+      detail: "You're no longer on gadgets, but your copy has files there rt would delete. Move or delete them and rt removes the folder.",
     });
   });
 });

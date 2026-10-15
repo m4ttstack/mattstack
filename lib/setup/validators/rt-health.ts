@@ -23,7 +23,7 @@ import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, orgDirUnder
 import { getSetting } from "../../settings/resolve.ts";
 import { detectShellFrom, END_MARKER, MARKER, repairLegacyBlock, shellRcPathFor } from "../../shell-integration.ts";
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
-import { keptTeams } from "../../team/org-cone.ts";
+import { keptTeams, type KeptTeam } from "../../team/org-cone.ts";
 import { heldCopy, moveBlocker } from "../../team/org-data-branch.ts";
 import { holdSentence, layoutSentence, orgLayoutState } from "../../team/org-layout.ts";
 import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
@@ -779,15 +779,19 @@ export async function orgSparseRow(p: Probes): Promise<Row | null> {
     required: false,
     recheck: "on-activate" as const,
   };
-  let kept: string[];
+  let kept: KeptTeam[];
   try {
     kept = await keptTeams(p, orgDirUnder(p.home, state.slug), state.slug);
   } catch (err) {
     return row({ ...base, status: "error", detail: `rt could not read which team folders your copy holds: ${err instanceof Error ? err.message : String(err)}` });
   }
-  if (kept.length > 0) {
-    return row({ ...base, status: "needs-you", detail: `You're no longer on ${teamList(kept)}, but your copy has changes there. Publish or discard them and rt removes the folder.` });
-  }
+  const changed = kept.filter((k) => !k.onlyIgnored).map((k) => k.team);
+  const ignored = kept.filter((k) => k.onlyIgnored).map((k) => k.team);
+  const sentences = [
+    ...(changed.length ? [`You're no longer on ${teamList(changed)}, but your copy has changes there. Publish or discard them and rt removes the folder.`] : []),
+    ...(ignored.length ? [`You're no longer on ${teamList(ignored)}, but your copy has files there rt would delete. Move or delete them and rt removes the folder.`] : []),
+  ];
+  if (sentences.length > 0) return row({ ...base, status: "needs-you", detail: sentences.join(" ") });
   return row({ ...base, status: "ready", detail: "Your copy holds only the teams you are on" });
 }
 

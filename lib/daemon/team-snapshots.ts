@@ -146,14 +146,17 @@ export function createOnMoved(opts: {
   return async () => {
     try {
       const result = await opts.moveData(opts.probes, opts.dir, opts.readToken ? { readToken: opts.readToken } : {});
-      if (result?.kind === "held") {
+      if (result?.kind === "held" || result?.kind === "unchecked") {
         const key = JSON.stringify(result);
-        if (key !== loggedHold) opts.log.info({ ...result }, "data branch: the move is held until the clone is clean and pushed");
+        if (key !== loggedHold) {
+          if (result.kind === "held") opts.log.info({ ...result }, "data branch: the move is held until the clone can move");
+          else opts.log.info({ log: result.log }, "data branch: could not ask origin whether the data moved; trying again next pull");
+        }
         loggedHold = key;
         return;
       }
       loggedHold = null;
-      if (result?.kind === "moved") opts.log.info({ branch: result.branch }, "data branch: moved the clone to the org's data branch");
+      if (result?.kind === "moved") opts.log.info({ branch: result.branch, carried: result.carried ?? 0 }, "data branch: moved the clone to the org's data branch");
       if (result?.kind === "failed") opts.log.warn({ log: result.log }, `data branch: could not move the clone: ${result.log}`);
     } catch (err) {
       opts.log.warn({ err }, `data branch: the move threw: ${err instanceof Error ? err.message : String(err)}`);

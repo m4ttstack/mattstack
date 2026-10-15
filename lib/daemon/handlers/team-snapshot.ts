@@ -8,7 +8,7 @@
 import { UserActionableError } from "../../errors.ts";
 import { createRealProbes, type Probes } from "../../setup/probes.ts";
 import { checkedOutBranch } from "../../team/org-branch.ts";
-import { convergeDataBranch, heldCopy, MOVED_DONE } from "../../team/org-data-branch.ts";
+import { convergeDataBranch, heldCopy, moveBlocker, MOVED_DONE, type HeldMove } from "../../team/org-data-branch.ts";
 import type { PullResult } from "../home-snapshot.ts";
 import type { TeamSnapshotsHandle } from "../team-snapshots.ts";
 import type { HandlerMap } from "./types.ts";
@@ -16,9 +16,9 @@ import type { HandlerMap } from "./types.ts";
 type PullReply = { ok: true; data: PullResult } | { ok: false; error: string; failure: { code: string; message: string } };
 
 /**
- * The pull already ran the move under its own lock; a clone that is not on
- * the data branch afterwards gets one more try here, so the reply says why
- * it stayed.
+ * The pull already ran the move under its own lock, so a clone that is not
+ * on the data branch afterwards is first explained from a read-only check.
+ * Only a clone nothing blocks gets one more try, which also names a clash.
  */
 async function afterMovedHold(
   result: PullResult & { hold: { moved: string } },
@@ -27,16 +27,22 @@ async function afterMovedHold(
   moveData: typeof convergeDataBranch,
 ): Promise<PullReply> {
   const branch = result.hold.moved;
-  if ((await checkedOutBranch(probes, dir)) === branch) return { ok: true, data: { outcome: "moved", detail: MOVED_DONE(branch) } };
-  const move = await moveData(probes, dir);
-  if (move === null) return { ok: true, data: result };
-  if (move.kind === "moved" || move.kind === "already") return { ok: true, data: { outcome: "moved", detail: MOVED_DONE(move.branch) } };
-  if (move.kind === "held") {
+  const message = `rt could not move your copy of the org to the ${branch} branch`;
+  const failed = (log: string): PullReply => ({ ok: false, error: `${message}: ${log}`, failure: { code: "data-branch-move-failed", message } });
+  const held = (move: HeldMove): PullReply => {
     const { detail, remedy } = heldCopy(move);
     return { ok: true, data: { outcome: "skipped", detail: `${detail}. ${remedy}`, hold: result.hold } };
-  }
-  const message = `rt could not move your copy of the org to the ${branch} branch`;
-  return { ok: false, error: `${message}: ${move.log}`, failure: { code: "data-branch-move-failed", message } };
+  };
+  if ((await checkedOutBranch(probes, dir)) === branch) return { ok: true, data: { outcome: "moved", detail: MOVED_DONE(branch) } };
+  const blocker = await moveBlocker(probes, dir);
+  if (blocker?.kind === "held") return held(blocker);
+  if (blocker?.kind === "failed") return failed(blocker.log);
+  const move = await moveData(probes, dir);
+  if (move === null || move.kind === "unchecked") return { ok: true, data: result };
+  if (move.kind === "moved") return { ok: true, data: { outcome: "moved", detail: MOVED_DONE(move.branch, move.carried) } };
+  if (move.kind === "already") return { ok: true, data: { outcome: "moved", detail: MOVED_DONE(move.branch) } };
+  if (move.kind === "held") return held(move);
+  return failed(move.log);
 }
 
 export function createTeamSnapshotHandlers(

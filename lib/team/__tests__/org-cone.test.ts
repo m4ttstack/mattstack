@@ -212,9 +212,15 @@ describe("applyRoleCone", () => {
 
   test("keptTeams names the dropped teams holding changes and changes nothing", async () => {
     writeFileSync(join(clone, "mattstack/teams/gadgets/settings.team.jsonc"), '{"edited":true}');
-    expect(await keptTeams(probes(), clone, ORG)).toEqual(["gadgets"]);
+    expect(await keptTeams(probes(), clone, ORG)).toEqual([{ team: "gadgets", onlyIgnored: false }]);
     expect(() => git(clone, "config", "--get", "core.sparseCheckout")).toThrow();
     expect(present("mattstack/teams/gadgets/settings.team.jsonc")).toBe(true);
+  });
+
+  test("keptTeams says when a dropped team holds only ignored files", async () => {
+    put(clone, ".git/info/exclude", "*.local\n");
+    put(clone, "mattstack/teams/gadgets/secrets.local", "mine");
+    expect(await keptTeams(probes(), clone, ORG)).toEqual([{ team: "gadgets", onlyIgnored: true }]);
   });
 
   test("keptTeams is empty when nothing dropped holds changes", async () => {

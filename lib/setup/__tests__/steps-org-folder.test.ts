@@ -546,10 +546,35 @@ describe("org.folder: the data branch piece", () => {
     expect(out.detail).toContain("Your copy of the org has unsaved changes: mattstack/org/settings.org.jsonc");
   });
 
-  test("unpublished commits name rt team publish first", async () => {
-    moving({ kind: "held", why: "unpushed", commits: 1 });
+  test("commits rt could not carry name an org admin, never rt team publish", async () => {
+    moving({ kind: "held", why: "uncarried", commits: 1, reason: "outside" });
     const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
-    expect(out).toMatchObject({ state: "needs-you", remedy: "Run rt team publish first, then rt team pull" });
+    expect(out).toMatchObject({ state: "needs-you", remedy: "Ask an org admin to help move it" });
+    expect(out.detail).toContain("rt could not carry 1 unpublished commit to the org's data branch, because it changes files outside the org's data");
+  });
+
+  test("a move that carried unpublished commits says so", async () => {
+    moving({ kind: "moved", branch: "mattstack", carried: 2 });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain("Moved your copy of the org to the mattstack branch, with your 2 unpublished commits");
+  });
+
+  test("an origin it cannot reach is not a failure: the step stays done and says rt checks again", async () => {
+    moving({ kind: "unchecked", log: "fatal: unable to access 'https://gitlab.example.com/acme/org.git/'" });
+    const { ctx, logs } = makeCtx(inPlace(), { update: true });
+    const out = await convergeOrgFolder(ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain("rt could not check whether your org's data moved, so it checks again next time");
+    expect(logs.some((l) => l.includes("unable to access"))).toBe(true);
+  });
+
+  test("a held move keeps its remedy when a folder piece failed too", async () => {
+    seams({ locate: async () => ({ ok: false, error: "identity-mismatch: another repo" }), dataBranch: async () => ({ kind: "held", why: "dirty", files: ["a.jsonc"] }) });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out.state).toBe("failed");
+    expect(out.detail).toContain("Your copy of the org has unsaved changes: a.jsonc");
+    expect((out as { remedy?: string }).remedy).toBe(`${ORG_FOLDER_REMEDY}. Save or discard those changes, then run rt team pull`);
   });
 
   test("a move that failed is the step's failed outcome with the log", async () => {
