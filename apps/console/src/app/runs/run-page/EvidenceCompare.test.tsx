@@ -271,6 +271,27 @@ describe('EvidenceCompare, several cases', () => {
     });
   });
 
+  it('steps through the cases with the arrow keys, stopping at each end', async () => {
+    open();
+    const picker = await screen.findByRole('combobox', { name: 'Case' });
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(picker).toHaveValue('Rush order, same-day window');
+    await userEvent.keyboard('{ArrowRight}');
+    expect(picker).toHaveValue('Order card in light and dark');
+    await userEvent.keyboard('{ArrowRight}{ArrowRight}');
+    expect(picker).toHaveValue('No delivery window yet');
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(picker).toHaveValue('Order card in light and dark');
+  });
+
+  it('leaves the arrow keys to a focused control', async () => {
+    open({ caseId: 'order-card-themes', mode: 'after' });
+    const picker = await screen.findByRole('combobox', { name: 'Case' });
+    await userEvent.click(screen.getByRole('radio', { name: 'Light' }));
+    await userEvent.keyboard('{ArrowRight}');
+    expect(picker).toHaveValue('Order card in light and dark');
+  });
+
   it('writes the caption under each frame side by side', async () => {
     open({ mode: 'side' });
     expect(await screen.findByText('Red box: no window')).toBeInTheDocument();
