@@ -318,7 +318,7 @@ Bracket with `run_field_set {key: gate, value: self-review, stage:
 list into another: a question over 4 options sends the whole gate to the
 wait queue):
 
-- `fix`: **Fix the blocking findings now** (recommended when any Critical
+- `fix` (write-in): **Fix the blocking findings now** (recommended when any Critical
   or Important exists) / **Fix the minors too** / **Ship as is**
 - `next`: **Proceed** (recommended) / **Iterate here** / **Hold** /
   **Abandon**
@@ -336,7 +336,7 @@ proceed, and asks nothing here.
 
 A new gate, never the old one reopened: the same bracket and kind
 `self-review`, with `context` quoting the failing test output and naming
-the finding. Questions, each its own: `finding`: **Try this finding
+the finding. Questions, each its own: `finding` (write-in): **Try this finding
 again** / **Leave it open and move on**; `next`: **Proceed** (recommended)
 / **Hold** / **Abandon**. `next: hold` is hold and `next: abandon` is
 abandon whatever `finding` says; otherwise the `finding` answer decides.

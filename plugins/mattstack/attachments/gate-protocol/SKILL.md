@@ -60,12 +60,15 @@ digraph gate_protocol {
     "Take the winning gate answer and its by" [shape=box];
     "Under a run: record the gate decision?" [shape=diamond];
     "run_decision {contract: gate@1, scope, selection, decidedBy}" [shape=plaintext];
+    "Any answer a write-in?" [shape=diamond];
+    "Act on a write-in" [shape=box];
     "STOP: never invent an answer or re-ask a closed gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Gate stage failed" [shape=doublecircle];
     "Verb ends at the gate, quoting the refusal" [shape=doublecircle];
     "No run: held at the open gate, turn ends" [shape=doublecircle];
     "Late gate signal discarded" [shape=doublecircle];
     "Gate path ended per the verb's policy" [shape=doublecircle];
+    "Write-in carried: a new gate at the site, or its Hold or Go back" [shape=doublecircle];
     "Act on the gate answer at the site" [shape=doublecircle style=filled fillcolor=lightgreen];
 
     "Trigger: a site reaches its gate" -> "Build the gate's questions and context";
@@ -133,8 +136,11 @@ digraph gate_protocol {
     "STOP: never invent an answer or re-ask a closed gate" -> "Gate path ended per the verb's policy";
     "Take the winning gate answer and its by" -> "Under a run: record the gate decision?";
     "Under a run: record the gate decision?" -> "run_decision {contract: gate@1, scope, selection, decidedBy}" [label="yes"];
-    "Under a run: record the gate decision?" -> "Act on the gate answer at the site" [label="no"];
-    "run_decision {contract: gate@1, scope, selection, decidedBy}" -> "Act on the gate answer at the site";
+    "Under a run: record the gate decision?" -> "Any answer a write-in?" [label="no"];
+    "run_decision {contract: gate@1, scope, selection, decidedBy}" -> "Any answer a write-in?";
+    "Any answer a write-in?" -> "Act on a write-in" [label="yes"];
+    "Any answer a write-in?" -> "Act on the gate answer at the site" [label="no"];
+    "Act on a write-in" -> "Write-in carried: a new gate at the site, or its Hold or Go back";
 }
 ```
 
@@ -143,7 +149,8 @@ digraph gate_protocol {
 Open before anything that depends on the answer. `gate_ask` owns the whole
 opening ceremony (subject resolution, presentation, nudge, origin, the
 context size cap): `questions` (each `{"id", "label", "multi",
-"options"}`), `kind` = the gate's scope, and optional `context` and
+"options"}`, plus `"writeIn": true` where the site table marks the
+question `(write-in)`), `kind` = the gate's scope, and optional `context` and
 `subject`. Success returns `id` (`gt-...`), `presentation` (`form` or
 `wait`), `subject`, and `supersededId` (null or the superseded gate's id).
 Keep `id` and `presentation`: every node after it acts on them.
@@ -191,6 +198,14 @@ Keep `id` and `presentation`: every node after it acts on them.
   (recommended first)`, mark the option the table writes with
   ` (Recommended)`; a row with none, such as the stage-end `next`, marks
   nothing.
+- **Write-ins.** `"writeIn": true` on a question lets the human answer it
+  in their own words instead of a pick; that answer arrives as
+  `{"writeIn": "<their words>"}` (the attribute allows one, the answer key
+  is the write-in itself). A site table marks such a question
+  `(write-in)` after its id. Set it only on a decision question whose
+  free-text answer you can act on; never on `next` (Iterate here carries
+  a change request) or on a review-post, respond, doctor or
+  pane-attention question.
 - **At most 4 options per question.** That is the native form's hard
   per-question limit, and the daemon presents the in-pane form only when
   EVERY question fits it, so one 5-option question sends the whole gate to
@@ -263,6 +278,12 @@ the human typed. An answer the human gave in words maps the same way, its
 nuance in `note`. A value the daemon refuses is remapped once; a second
 refusal leaves the gate open for another surface to answer.
 
+On a question opened with `writeIn`, "Other" text with nothing ticked is
+`{"writeIn": "<text>"}`, never the nearest option; "Other" text beside
+ticked options on a multi is `{"value": [<ticks>], "note": "<text>"}`.
+Words given at a held gate follow the same rule. On any other question
+"Other" keeps the rules above.
+
 ### Discard the form's gate answer; say which surface won
 
 A losing `gate_answer` is not an error: it returns a successful result
@@ -295,6 +316,25 @@ recorded) and the deciding surface at `row.answer.by`. `decidedBy` names
 the CAS WINNER, never `pane` when a different surface won, and a `gate@1`
 record's `decidedBy` is a surface (`pane`, `board`, `console`,
 `shepherd`), never a verb name.
+
+### Act on a write-in
+
+When any question came back `{"writeIn": ...}`, the gate is handled like
+Iterate here, whatever else was picked:
+
+1. Skip the site's own branch for this gate. A Proceed on `next` beside a
+   write-in is ignored (the form preselects it); a Hold or Go back is
+   deliberate and wins, carrying the write-in as that move's note, and
+   steps 2 and 3 do not run.
+2. Read the whole answer set with the write-in as the instruction and do
+   the work it asks for.
+3. Then open a NEW gate at the same site (never reuse the old one) so the
+   human sees the result before anything advances, closes or ships. A
+   write-in too unclear to act on skips step 2 and the new gate asks
+   about it; with no run, a prose question is fine instead.
+
+Under a run, `run_decision` records it in that question's slot as an
+object: `"<id>": {"writeIn": "<text>"}`.
 
 ## Attendance
 
@@ -435,6 +475,10 @@ in-pane form never sends `text`; a replacement for offered text that the
 human types in the form's free-text field rides as a note. What a note or
 `text` changes is each verb's own act step's call; the protocol swaps
 neither in for offered text by itself.
+
+The one exception is a question opened with `writeIn: true`: its answer
+may be `{"writeIn": "<the human's words>"}`, alone, with no value. The
+daemon refuses a write-in on any other question.
 
 ## Closed gates, Hold / Iterate
 
