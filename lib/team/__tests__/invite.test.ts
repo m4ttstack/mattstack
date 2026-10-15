@@ -1153,7 +1153,6 @@ describe("roster publication in an existing clone", () => {
   }
 });
 
-
 describe("invite and main's pointer", () => {
   test("seals the data branch pullOrg found into the invite", async () => {
     const relay = fakeRelayClient();

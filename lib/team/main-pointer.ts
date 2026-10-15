@@ -8,6 +8,7 @@ import { markerAtRef } from "./org-layout.ts";
 import { parseMarker } from "./org-marker.ts";
 import { withoutUrls } from "./redact.ts";
 
+// The filtered fetch leaves the marker blob on the remote, so `show` fetches it lazily and needs the same credentials as the fetch.
 const MISSING_REF = /couldn't find remote ref/i;
 const MISSING_PATH = /does not exist|exists on disk, but not in|not in the index/i;
 
@@ -43,7 +44,8 @@ export async function readMainPointer(
       if (MISSING_REF.test(output)) return null;
       throw unreadable(output);
     }
-    const shown = await p.exec(["git", "-C", scratch, "show", markerAtRef("FETCH_HEAD")], { env });
+    const show = gitWithToken(["-C", scratch, "show", markerAtRef("FETCH_HEAD")], token, env, { remote });
+    const shown = await p.exec(show.argv, { env: show.env });
     if (shown.code !== 0) {
       const output = withoutUrls(`${shown.stdout}\n${shown.stderr}`.trim());
       if (MISSING_PATH.test(output)) return null;

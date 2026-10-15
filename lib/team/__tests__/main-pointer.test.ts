@@ -73,6 +73,29 @@ describe("readMainPointer", () => {
     expect(`${err.message}${err.why ?? ""}${err.log ?? ""}`).not.toContain("topsecret");
   });
 
+  test("reads the marker through a filtered fetch from an origin that honors filters", async () => {
+    const origin = originWith('{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}');
+    git(origin, "config", "uploadpack.allowFilter", "true");
+    git(origin, "config", "uploadpack.allowAnySHA1InWant", "true");
+    expect(await readMainPointer(p, `file://${origin}`, null)).toEqual({ dataBranch: "mattstack", layout: 4 });
+  });
+
+  test("the show that lazily fetches the marker carries the same credentials as the fetch", async () => {
+    const remote = "https://github.com/acme/widgets.git";
+    const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+    const exec = async (argv: string[], opts?: { env?: Record<string, string> }) => {
+      seen.push({ argv, env: opts?.env });
+      return { code: 0, stdout: argv.includes("show") ? '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}' : "", stderr: "" };
+    };
+    expect(await readMainPointer({ exec }, remote, "private-token")).toEqual({ dataBranch: "mattstack", layout: 4 });
+    const fetch = seen.find((c) => c.argv.includes("fetch"))!;
+    const show = seen.find((c) => c.argv.includes("show"))!;
+    expect(show.argv.slice(0, 5)).toEqual(fetch.argv.slice(0, 5));
+    expect(show.argv.some((a) => a.startsWith("credential.https://github.com.helper="))).toBe(true);
+    expect(show.env).toMatchObject({ RT_GIT_TOKEN: "private-token", RT_GIT_HOST: "github.com", RT_GIT_USER: "x-access-token", GIT_TERMINAL_PROMPT: "0" });
+    expect(JSON.stringify(show.argv)).not.toContain("private-token");
+  });
+
   test("leaves no scratch folder behind", async () => {
     const before = readdirSync(tmpdir()).filter((n) => n.startsWith("rt-main-pointer-scratch-"));
     await readMainPointer(p, originWith('{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}'), null);
