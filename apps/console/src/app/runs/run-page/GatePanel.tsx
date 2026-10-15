@@ -175,12 +175,12 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
   const { save } = draft;
 
   useEffect(() => {
-    save({
-      selections: withoutPreset(selections, preset),
-      notes,
-      item,
-      skipped,
-    });
+    const bare = withoutPreset(selections, preset);
+    const other =
+      Object.keys(bare).length > 0 ||
+      Object.values(notes).some(n => n.trim()) ||
+      skipped.length > 0;
+    save({ selections: other ? selections : bare, notes, item, skipped });
   }, [save, selections, preset, notes, item, skipped]);
 
   const found = display.findIndex(d => d.name === item);

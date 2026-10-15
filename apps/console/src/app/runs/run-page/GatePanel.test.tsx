@@ -754,6 +754,44 @@ describe('GatePanel: answering', () => {
     expect(localStorage.getItem(gateDraftKey('g1'))).toBeNull();
   });
 
+  it('keeps Proceed checked after a draft with another pick is restored', async () => {
+    const gate = writeInGate();
+    const first = renderPanel(gate);
+    await userEvent.click(radio(/Client-side filter/));
+    first.unmount();
+    renderPanel(gate);
+    await userEvent.click(step(/Next/));
+    expect(
+      within(screen.getByRole('radiogroup', { name: /Then\?/ })).getByRole(
+        'radio',
+        { name: /proceed/i }
+      )
+    ).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('submits a pick plus a note on a writeIn question as value and note', async () => {
+    answerPost.mockResolvedValue(ok());
+    renderPanel(writeInGate());
+    await userEvent.click(radio(/Both, behind a flag/));
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /note/i }),
+      'flag it'
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Next/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Submit/ }));
+    await waitFor(() =>
+      expect(answerPost).toHaveBeenCalledWith({
+        param: { id: 'g1' },
+        json: {
+          answers: {
+            approach: { value: 'both', note: 'flag it' },
+            next: 'proceed',
+          },
+        },
+      })
+    );
+  });
+
   it('does not preselect Proceed over a restored draft', async () => {
     localStorage.setItem(
       gateDraftKey('g1'),
