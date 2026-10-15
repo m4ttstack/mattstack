@@ -11,7 +11,7 @@ type Reads = Pick<Probes, "readFile" | "home">;
 export function rolesFor(p: Reads, org: string): OrgRoles {
   const file = orgStoreFile(p.home, org);
   const raw = p.readFile(file);
-  return raw === null ? { admins: [], teams: {} } : rolesFrom(parseStoreText(file, raw));
+  return raw === null ? { owners: [], admins: [], teams: {} } : rolesFrom(parseStoreText(file, raw));
 }
 
 /** The org store's own `mattstack.org` value with every field kept, for a write that must not drop what the roles view ignores. */

@@ -20,7 +20,13 @@ const marker = (root: string) => JSON.parse(readFileSync(join(root, "mattstack",
 describe("renameOrg refusals", () => {
   test("a member who is not an admin is refused and nothing is written", async () => {
     const w = orgWorld("dev2");
-    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-not-admin", why: "Ask dev1 to rename it." });
+    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-not-admin", message: "Only an org owner renames the org", why: "Ask dev1 to rename it." });
+    expect(marker(w.root).org).toBe("acme");
+  });
+
+  test("an admin the owners list does not name is refused, and the refusal names the owners", async () => {
+    const w = orgWorld("dev1", { roles: { owners: ["dev0"], admins: ["dev1"], teams: {} } });
+    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-not-admin", message: "Only an org owner renames the org", why: "Ask dev0 to rename it." });
     expect(marker(w.root).org).toBe("acme");
   });
 

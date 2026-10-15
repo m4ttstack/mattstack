@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -185,6 +185,11 @@ const NO_OWNERS: Owners = { zones: {} };
 // the fixture repoDir the whole suite shares must actually exist on disk,
 // not just look plausible as a string.
 const FAKE_REPO_DIR = realpathSync(mkdtempSync(join(tmpdir(), "rt-home-snapshot-fakerepo-")));
+// The team authorization reads the org store at a ref with real git (and fails closed when it cannot), so the
+// directory is a repo whose commit holds no org store and whose origin ref points at it.
+for (const args of [["init", "-q", "-b", "main"], ["-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], ["update-ref", "refs/remotes/origin/main", "HEAD"]]) {
+  execFileSync("git", args, { cwd: FAKE_REPO_DIR, env: childEnv(), stdio: "pipe" });
+}
 afterAll(() => {
   try { rmSync(FAKE_REPO_DIR, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
 });
@@ -2233,14 +2238,13 @@ describe("teamSnapshotSpec", () => {
         await handle.ready;
         await handle.runNow("watch");
         expect(handle.status().heldBack).toEqual([MARKET]);
-        mkdirSync(join(FAKE_REPO_DIR, ".git"), { recursive: true });
         writeFileSync(join(FAKE_REPO_DIR, ".git", "MERGE_HEAD"), "");
         expect((await handle.runNow("watch")).skipped).toBe("merge-in-progress");
         expect(handle.status().heldBack).toEqual([]);
         handle.stop();
       } finally {
         rmSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true, force: true });
-        rmSync(join(FAKE_REPO_DIR, ".git"), { recursive: true, force: true });
+        rmSync(join(FAKE_REPO_DIR, ".git", "MERGE_HEAD"), { force: true });
       }
     });
   });
@@ -2402,7 +2406,7 @@ describe("teamSnapshotSpec", () => {
     mkdirSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true });
     if (shape === "a file") writeFileSync(join(FAKE_REPO_DIR, "mattstack", "teams"), "");
     try {
-      const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? mattstack/org/settings.org.jsonc\0" }));
+      const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? mattstack/mattstack.jsonc\0" }));
       const { deps } = baseDeps({ exec: fn });
       const { repoDir: _repoDir, ...specDeps } = deps;
       const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: adminProbes(), readToken: async () => "glpat-x" }), specDeps);
@@ -2567,7 +2571,7 @@ describe("teamSnapshotSpec", () => {
       git(root, "init", "-q", "-b", "main", full);
       for (const [rel, text] of Object.entries({
         "mattstack/mattstack.jsonc": `{ "role": "org", "org": "acme" }\n`,
-        "mattstack/org/settings.org.jsonc": "{}\n",
+        "mattstack/org/settings.org.jsonc": `{ "mattstack.org": { "admins": ["dev1"] } }\n`,
         "mattstack/teams/widgets/settings.team.jsonc": "{}\n",
         ".claude-plugin/marketplace.json": `{ "name": "acme", "plugins": [] }\n`,
         ".sops.yaml": "creation_rules: []\n",
@@ -3647,6 +3651,117 @@ describe("startSnapshot: pull", () => {
   });
 });
 
+describe("team snapshot scope follows the org store guard", () => {
+  const STORE = "mattstack/org/settings.org.jsonc";
+  const org = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev3"] } } };
+  const roster = [{ username: "dev4", name: "Dev Four", teams: ["gadgets"] }];
+  const body = (o: unknown, r: unknown = roster) => JSON.stringify({ "mattstack.org": o, "mattstack.roster": r });
+  const dirs: string[] = [];
+  afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+  const tempDir = () => { const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-scope-"))); dirs.push(dir); return dir; };
+  const realGit = async (argv: string[]) => {
+    const r = await runCapture(argv as [string, ...string[]], { stderr: "pipe" });
+    return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
+  };
+  const gitIn = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "commit.gpgsign=false", "-c", "user.email=t@example.com", "-c", "user.name=t", ...args], { cwd, env: childEnv(), stdio: "pipe" });
+
+  async function setup(user: string, working: string, workingProbeOrg: unknown = org) {
+    const dir = tempDir();
+    mkdirSync(join(dir, "mattstack", "org"), { recursive: true });
+    gitIn(dir, "init", "-q");
+    writeFileSync(join(dir, STORE), body(org));
+    gitIn(dir, "add", "-A");
+    gitIn(dir, "commit", "-q", "-m", "init");
+    writeFileSync(join(dir, STORE), working);
+    const p = fakeProbes({ home: "/h", exec: realGit, files: {
+      "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: user }),
+      "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": body(workingProbeOrg),
+    } });
+    const spec = teamSnapshotSpec("acme", dir, { ownedRoots: [], probes: p, originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null });
+    return { auth: await spec.readAuthorization!(), dir };
+  }
+
+  test("a team owner's own-team roster change is in scope, another team's is not", async () => {
+    const own = await setup("dev2", body(org, [{ ...roster[0], teams: ["gadgets", "widgets"] }]));
+    expect(own.auth.scope(STORE)).toBe(true);
+    expect(own.auth.pullOnly).toBe(false);
+    const other = await setup("dev2", body(org, [{ ...roster[0], teams: ["widgets"] }]));
+    expect(other.auth.scope(STORE)).toBe(false);
+  });
+
+  test("a team owner who adds themselves to the admins gains neither the org store nor other teams' folders", async () => {
+    const promoted = { ...org, admins: ["dev1", "dev2"] };
+    const { auth, dir } = await setup("dev2", body(promoted), promoted);
+    expect(auth.scope(STORE)).toBe(false);
+    expect(auth.scope("mattstack/teams/gadgets/settings.team.jsonc")).toBe(false);
+    expect(auth.scope("mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
+  });
+
+  test("a hand-committed self-grant is out of push scope, an admin's committed roster change is in", async () => {
+    const pushed = async (user: string, committed: string, probeOrg: unknown) => {
+      const { dir } = await setup(user, body(org), probeOrg);
+      gitIn(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+      writeFileSync(join(dir, STORE), committed);
+      gitIn(dir, "commit", "-q", "-am", "change");
+      const spec = teamSnapshotSpec("acme", dir, { ownedRoots: [], probes: fakeProbes({ home: "/h", exec: realGit, files: {
+        "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: user }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": body(probeOrg),
+      } }), originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null });
+      return { auth: await spec.readAuthorization!({ ref: "refs/remotes/origin/main" }), dir };
+    };
+    const promoted = { ...org, admins: ["dev1", "dev2"] };
+    const grant = await pushed("dev2", body(promoted), promoted);
+    expect(grant.auth.scope(STORE)).toBe(false);
+    expect(grant.auth.scope("mattstack/teams/gadgets/settings.team.jsonc")).toBe(false);
+    const rosterChange = await pushed("dev1", body(org, [{ ...roster[0], teams: ["gadgets", "widgets"] }]), org);
+    expect(rosterChange.auth.scope(STORE)).toBe(true);
+  });
+
+  test("a creator's claim of an unclaimed org is in scope for the daemon", async () => {
+    const unclaimed = { admins: [], teams: {} };
+    const dir = tempDir();
+    mkdirSync(join(dir, "mattstack", "org"), { recursive: true });
+    gitIn(dir, "init", "-q");
+    writeFileSync(join(dir, STORE), body(unclaimed, []));
+    gitIn(dir, "add", "-A");
+    gitIn(dir, "commit", "-q", "-m", "init");
+    const claimed = { admins: ["dev1"], teams: {} };
+    writeFileSync(join(dir, STORE), body(claimed, []));
+    const p = fakeProbes({ home: "/h", exec: realGit, files: {
+      "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
+      "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": body(claimed, []),
+    } });
+    const spec = teamSnapshotSpec("acme", dir, { ownedRoots: [], probes: p, originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null });
+    expect((await spec.readAuthorization!()).scope(STORE)).toBe(true);
+  });
+
+  test("a malformed org store at HEAD is unreadable, never an unclaimed org", async () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, "mattstack", "org"), { recursive: true });
+    gitIn(dir, "init", "-q");
+    writeFileSync(join(dir, STORE), "{ not json");
+    gitIn(dir, "add", "-A");
+    gitIn(dir, "commit", "-q", "-m", "init");
+    const promoted = { ...org, admins: ["dev1", "dev2"] };
+    writeFileSync(join(dir, STORE), body(promoted));
+    const p = fakeProbes({ home: "/h", exec: realGit, files: {
+      "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev2" }),
+      "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": body(promoted),
+    } });
+    const auth = await teamSnapshotSpec("acme", dir, { ownedRoots: [], probes: p, originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null }).readAuthorization!();
+    expect(auth.scope(STORE)).toBe(false);
+    expect(auth.scope("mattstack/teams/gadgets/settings.team.jsonc")).toBe(false);
+    expect(auth.pullOnly).toBe(true);
+  });
+
+  test("an admin who demotes themselves still has the org store change in scope", async () => {
+    const demoted = { ...org, admins: [] };
+    const { auth, dir } = await setup("dev1", body(demoted), demoted);
+    expect(auth.scope(STORE)).toBe(true);
+    expect(auth.pullOnly).toBe(false);
+  });
+});
+
 describe("current snapshot authorization", () => {
   function world() {
     const p = fakeProbes({ home: "/h", files: {
@@ -3730,6 +3845,20 @@ describe("current snapshot authorization", () => {
       await flushAsync();
       expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
       expect(handle.status()).toMatchObject({ pushPending: true, lastPushError: "This copy is on org-trial, which origin does not have yet. Push it once with git push -u origin org-trial" });
+    } finally { handle.stop(); }
+  });
+
+  test("until the first authorization read lands, a spec with readAuthorization reports pullOnly", async () => {
+    const { spec } = world();
+    spec.readAuthorization = () => ({ pullOnly: false, scope: () => true });
+    const { deps } = baseDeps({ exec: makeFakeExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders({})]).fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(spec, rest);
+    try {
+      expect(handle.status().pullOnly).toBe(true);
+      await handle.ready;
+      await handle.runNow("watch");
+      expect(handle.status().pullOnly).toBe(false);
     } finally { handle.stop(); }
   });
 

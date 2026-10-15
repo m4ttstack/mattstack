@@ -226,6 +226,7 @@ export const SCHEMAS = {
       .meta({ title: "Teams", description: "One entry per team, keyed by team name. A name matching a team folder is that mattstack team." }),
   }),
   "mattstack.org": z.looseObject({
+    owners: z.array(z.string()).optional(),
     admins: z.array(z.string()),
     teams: z.record(z.string(), z.looseObject({ owners: z.array(z.string()) })),
   }),

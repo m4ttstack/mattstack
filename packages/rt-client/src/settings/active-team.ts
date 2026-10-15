@@ -22,6 +22,7 @@ export interface RosterEntry {
 }
 
 export interface OrgRoles {
+  owners: string[];
   admins: string[];
   teams: Record<string, { owners: string[] }>;
 }
@@ -60,14 +61,14 @@ export function rosterFrom(orgStore: StoreFile): RosterEntry[] {
 }
 
 export function rolesFrom(orgStore: StoreFile): OrgRoles {
-  const raw = stored<{ admins?: unknown; teams?: unknown }>("mattstack.org", orgStore.global);
+  const raw = stored<{ owners?: unknown; admins?: unknown; teams?: unknown }>("mattstack.org", orgStore.global);
   const teams: OrgRoles["teams"] = {};
   if (raw?.teams !== null && typeof raw?.teams === "object" && !Array.isArray(raw.teams)) {
     for (const [name, value] of Object.entries(raw.teams as Record<string, { owners?: unknown } | null>)) {
       if (TEAM_NAME_RE.test(name)) teams[name] = { owners: strings(value?.owners) };
     }
   }
-  return { admins: strings(raw?.admins), teams };
+  return { owners: strings(raw?.owners), admins: strings(raw?.admins), teams };
 }
 
 export function decideActiveTeam(input: {

@@ -20,7 +20,7 @@ describe("forgeRole", () => {
   test("intent takes priority, otherwise recorded role decides", () => {
     expect(forgeRole({ intentMode: "create", role: "member", hasTeam: false })).toBe("owner");
     expect(forgeRole({ intentMode: "join", role: "admin", hasTeam: true })).toBe("member");
-    for (const role of ["admin", "owner"] as const) expect(forgeRole({ intentMode: null, role, hasTeam: true })).toBe("owner");
+    for (const role of ["org-owner", "admin", "owner"] as const) expect(forgeRole({ intentMode: null, role, hasTeam: true })).toBe("owner");
     for (const role of ["member", "unknown", null] as const) expect(forgeRole({ intentMode: null, role, hasTeam: true })).toBe("member");
     expect(forgeRole({ intentMode: null, role: null, hasTeam: false })).toBe("member");
     expect(forgeRole({ intentMode: null, role: "admin", hasTeam: false })).toBe("member");

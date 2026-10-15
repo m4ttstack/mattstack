@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { seedOrg } from "../../../test/org-fixture.ts";
-import { activeTeam, activeTeamPack, activeTeamRoster, decideActiveTeam, mergeTeamRoster, readOrgRoles, sameUser, type RosterEntry } from "../active-team.ts";
+import { activeTeam, activeTeamPack, activeTeamRoster, decideActiveTeam, mergeTeamRoster, readOrgRoles, rolesFrom, sameUser, type RosterEntry } from "../active-team.ts";
+import { parseStoreText } from "../stores.ts";
 import { orgSettingsPath, teamFolderDir, teamLocalPath, teamPackDir, userSettingsPath } from "../paths.ts";
 
 const ROSTER: RosterEntry[] = [
@@ -92,7 +93,7 @@ describe("activeTeam on disk", () => {
     write(userSettingsPath(), { "mattstack.activeTeam": "gadgets" });
     expect(activeTeam()).toEqual({ org: "acme", team: "gadgets", reason: "chosen", username: "dev2", listedOn: ["widgets", "gadgets"] });
     expect(activeTeamRoster().map((e) => e.username)).toEqual(["dev2"]);
-    expect(readOrgRoles("acme")).toEqual({ admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } });
+    expect(readOrgRoles("acme")).toEqual({ owners: [], admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } });
   });
 
   test("the stored username and the roster may differ in case", () => {
@@ -117,7 +118,7 @@ describe("activeTeam on disk", () => {
 
   test("malformed roles read as nobody", () => {
     write(orgSettingsPath("acme"), { "mattstack.org": { admins: "dev1", teams: [] } });
-    expect(readOrgRoles("acme")).toEqual({ admins: [], teams: {} });
+    expect(readOrgRoles("acme")).toEqual({ owners: [], admins: [], teams: {} });
   });
 });
 
@@ -206,5 +207,14 @@ describe("activeTeamPack", () => {
     expect(activeTeamPack()).toBeNull();
     seedOrg({ org: "acme", username: "stranger", teams: { widgets: {} } });
     expect(activeTeamPack()).toBeNull();
+  });
+});
+
+describe("rolesFrom", () => {
+  test("rolesFrom reads owners, and an absent or malformed list is empty", () => {
+    const store = (org: unknown) => parseStoreText("x.jsonc", JSON.stringify({ "mattstack.org": org }));
+    expect(rolesFrom(store({ owners: ["dev0"], admins: ["dev1"], teams: {} })).owners).toEqual(["dev0"]);
+    expect(rolesFrom(store({ admins: ["dev1"], teams: {} })).owners).toEqual([]);
+    expect(rolesFrom(store({ owners: "dev0", admins: [], teams: {} })).owners).toEqual([]);
   });
 });

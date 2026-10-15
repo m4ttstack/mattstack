@@ -138,7 +138,7 @@ describe("viewing another team", () => {
 });
 
 describe("viewerFrom", () => {
-  const roles = { admins: ["ada"], teams: { gadgets: { owners: ["sam"] }, sprockets: { owners: [] } } };
+  const roles = { owners: [], admins: ["ada"], teams: { gadgets: { owners: ["sam"] }, sprockets: { owners: [] } } };
   const roster = [{ username: "Sam", name: "Sam Rivera", teams: ["widgets"] }, { username: "ada", name: "Ada" }];
   const folders = ["gadgets", "sprockets", "widgets"];
   const active = { org: "acme", team: "widgets", reason: "first-team" as const, username: "sam", listedOn: ["widgets"] };
@@ -154,8 +154,12 @@ describe("viewerFrom", () => {
     });
   });
 
-  test("an admin may view every team folder", () => {
-    expect(viewerFrom({ active: { ...active, username: "ada" }, roles, roster, folders })).toMatchObject({ role: "admin", name: "Ada", teams: folders });
+  test("an org owner may view every team folder", () => {
+    expect(viewerFrom({ active: { ...active, username: "ada" }, roles, roster, folders })).toMatchObject({ role: "org-owner", name: "Ada", teams: folders });
+  });
+
+  test("an admin the owners list does not name may view every team folder", () => {
+    expect(viewerFrom({ active: { ...active, username: "ada" }, roles: { ...roles, owners: ["zed"] }, roster, folders })).toMatchObject({ role: "admin", name: "Ada", teams: folders });
   });
 
   test("a member sees only their own team", () => {

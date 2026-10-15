@@ -1,5 +1,6 @@
 import {
   activeTeam,
+  isOrgAdmin,
   activeTeamRoster,
   readForgeUsername,
   readOrgRoles,
@@ -42,7 +43,7 @@ function standing(
   role: OrgRole,
   team: string | null
 ): 'admin' | 'owner' | null {
-  if (role.kind === 'admin') return 'admin';
+  if (isOrgAdmin(role)) return 'admin';
   if (role.kind === 'owner' && team !== null && role.teams.includes(team))
     return 'owner';
   return null;

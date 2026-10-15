@@ -10,7 +10,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { userSettingsPath, orgSettingsPath, teamSettingsPath, orgsDir, machineSettingsPath } from "../paths.ts";
-import { currentOrg, listOrgs, listTeamFolders, parseStoreText, readStore, sharedStoreFiles } from "../stores.ts";
+import { currentOrg, listOrgs, listTeamFolders, parseStoreText, parseStoreTextStrict, readStore, sharedStoreFiles } from "../stores.ts";
 
 describe("settings/stores", () => {
   const origHome = process.env.HOME;
@@ -191,6 +191,18 @@ describe("settings/stores", () => {
       const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
       try {
         expect(parseStoreText("/x/s.jsonc", "{ not json").global).toEqual({});
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    test("parseStoreTextStrict tells a malformed store from an empty one, without a warning", () => {
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(parseStoreTextStrict("/x/s.jsonc", `{ "board.title": "Acme", }`)?.global).toEqual({ "board.title": "Acme" });
+        expect(parseStoreTextStrict("/x/s.jsonc", "")?.global).toEqual({});
+        for (const bad of ["{ not json", "[]", "null", `{ "repos": [] }`]) expect(parseStoreTextStrict("/x/s.jsonc", bad)).toBeNull();
+        expect(warnSpy).not.toHaveBeenCalled();
       } finally {
         warnSpy.mockRestore();
       }

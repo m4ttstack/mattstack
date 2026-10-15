@@ -490,14 +490,14 @@ describe("teamInvite", () => {
   describe("who may invite, and to which team", () => {
     const MINTED = { code: "C", expiresAt: "2026-01-08T00:00:00.000Z", pasteBlock: "x", forgeAccess: "skipped", manualSteps: [], link: "l", peering: "none" } as unknown as InviteResult;
 
-    function orgDeps(username: string, minted: MintInviteOpts[]): TeamDeps & { lines: string[]; exitCodes: number[] } {
+    function orgDeps(username: string, minted: MintInviteOpts[], org: Record<string, unknown> = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }): TeamDeps & { lines: string[]; exitCodes: number[] } {
       const probes = fakeProbes({
         home,
         dirs: { [join(teamDir, "mattstack", "teams")]: ["widgets", "gadgets"] },
         files: {
           [join(teamDir, ".git", "config")]: GIT_CONFIG,
           [join(teamDir, "mattstack", "org", "settings.org.jsonc")]: JSON.stringify({
-            "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
+            "mattstack.org": org,
             "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["widgets"] }],
           }),
           [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: username }),
@@ -505,6 +505,13 @@ describe("teamInvite", () => {
       });
       return baseDeps({ probes, mintInvite: async (_p, _relay, opts) => { minted.push(opts); return MINTED; } });
     }
+
+    test("an org owner invites", async () => {
+      const minted: MintInviteOpts[] = [];
+      const deps = orgDeps("dev1", minted, { owners: ["dev1"], admins: ["dev1"] });
+      await teamInvite(["--handle", "dev3", "--team", "acme", "--json"], {}, deps);
+      expect(minted).toHaveLength(1);
+    });
 
     test("only an org admin invites; an owner is told who can", async () => {
       const minted: MintInviteOpts[] = [];
@@ -537,6 +544,20 @@ describe("teamInvite", () => {
       expect(code).toBe(2);
       expect(io.stderr()).toBe("[refused] Only an org admin invites\n  why: Ask dev1 to invite dev3.\n");
       expect(io.stdout()).toBe("");
+    } finally { io.restore(); }
+  });
+
+  test("human mode: an org with owners and no admins names its owners", async () => {
+    const deps = inviteDeps({ record: { forgeUsername: "dev2" } });
+    deps.probes.writeFile(join(teamDir, "mattstack", "org", "settings.org.jsonc"), JSON.stringify({
+      "mattstack.org": { owners: ["dev0"], admins: [], teams: { widgets: { owners: ["dev2"] } } },
+    }));
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "dev3", "--team", "acme"], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toBe("[refused] Only an org admin invites\n  why: Ask dev0 to invite dev3.\n");
     } finally { io.restore(); }
   });
 
@@ -1134,6 +1155,68 @@ describe("teamMembersSet", () => {
       expect(captured.stderr()).toContain("[refused]");
       expect(captured.stderr()).not.toContain("[failed]");
     } finally { captured.restore(); }
+    expect(writes).toEqual([]);
+  });
+});
+
+describe("teamMembersAdd and teamMembersDrop", () => {
+  function world(username = "dev1") {
+    const roster = [{ username: "dev1", teams: ["widgets"] }, { username: "dev4", teams: ["gadgets"] }];
+    const writes: { key: string; value: unknown; scope: string }[] = [];
+    const membersSeams: MembersSeams = {
+      readTeamStore: () => ({ "mattstack.roster": roster }),
+      writeSetting: ((key: string, value: unknown, scope: string) => { writes.push({ key, value, scope }); }) as MembersSeams["writeSetting"],
+      currentOrg: () => "acme",
+      revokeRead: async () => { throw new Error("must not revoke access"); },
+      readTeamLocal: () => { throw new Error("must not read membership permissions"); },
+      forgeToken: async () => { throw new Error("must not read secrets"); },
+      warn: () => { throw new Error("must not warn"); },
+      readLocalSecret: async () => { throw new Error("must not read secrets"); },
+    };
+    const deps = baseDeps({ membersSeams, probes: fakeProbes({ home: "/home/x", files: {
+      ...adminFiles,
+      [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+      [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: username }),
+      [`${ZONE_DIR}/mattstack/teams/widgets/settings.team.jsonc`]: "{}",
+      [`${ZONE_DIR}/mattstack/teams/gadgets/settings.team.jsonc`]: "{}",
+    } }) });
+    return { deps, writes };
+  }
+
+  test("add prints the same envelope as set", async () => {
+    const { deps, writes } = world("dev2");
+    await teamActions.teamMembersAdd(["dev4", "--to", "widgets", "--team", "acme", "--json"], {}, deps);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(typeof at).toBe("string");
+    expect(body).toEqual({ contract: 1, username: "dev4", teams: ["gadgets", "widgets"], previous: ["gadgets"] });
+    expect(writes).toHaveLength(1);
+  });
+
+  test("drop takes only that team off and says so for a person", async () => {
+    const { deps } = world();
+    const captured = captureOut();
+    try {
+      await teamActions.teamMembersDrop(["dev4", "--from", "gadgets", "--team", "acme"], {}, deps);
+      expect(captured.stdout()).toContain("dev4 is on no team");
+      expect(captured.stdout()).toContain("was on gadgets");
+    } finally { captured.restore(); }
+  });
+
+  test.each([
+    ["add", ["dev4", "--team", "acme", "--json"]],
+    ["drop", ["--from", "gadgets", "--team", "acme", "--json"]],
+  ] as const)("%s without its arguments exits 2 without writing", async (verb, args) => {
+    const { deps, writes } = world();
+    const fn = verb === "add" ? teamActions.teamMembersAdd : teamActions.teamMembersDrop;
+    expect(await runExpectingProcessExit(() => fn([...args], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, error: { code: "usage" } });
+    expect(writes).toEqual([]);
+  });
+
+  test("an owner adding to a team they don't own gets the refusal envelope and no write", async () => {
+    const { deps, writes } = world("dev2");
+    expect(await runExpectingProcessExit(() => teamActions.teamMembersAdd(["dev1", "--to", "gadgets", "--team", "acme", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, error: { code: "team-pull-only" } });
     expect(writes).toEqual([]);
   });
 });

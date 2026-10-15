@@ -403,9 +403,9 @@ const ROWS: readonly SettingDef[] = [
     key: "mattstack.org",
     type: "object",
     scopes: ["org"],
-    default: { admins: [], teams: {} },
+    default: { owners: [], admins: [], teams: {} },
     merge: "replace",
-    description: "Who may change shared settings: the org's admins, and each team's owners, by forge username.",
+    description: "Who runs the org: its owners (who manage admins; with none listed, the admins are owners), its admins, and each team's owners, by forge username.",
   },
   {
     key: "mattstack.directory",

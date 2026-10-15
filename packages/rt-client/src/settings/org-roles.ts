@@ -10,12 +10,19 @@ import { TEAM_NAME_RE } from "./stores.ts";
 import { orgDir, orgSettingsPath } from "./paths.ts";
 import { readForgeUsername } from "./team-local-read.ts";
 
-export type OrgRole = { kind: "admin" } | { kind: "owner"; teams: string[] } | { kind: "member" } | { kind: "unknown" };
+export type OrgRole = { kind: "org-owner" } | { kind: "admin" } | { kind: "owner"; teams: string[] } | { kind: "member" } | { kind: "unknown" };
 
 export const ORG_MANAGED_ROOTS: readonly string[] = ["mattstack", ".sops.yaml", ".claude-plugin"];
 
+/** Admins and org owners: the roles that run the org. */
+export function isOrgAdmin(role: OrgRole): boolean {
+  return role.kind === "admin" || role.kind === "org-owner";
+}
+
 export function roleOf(username: string | null, roles: OrgRoles): OrgRole {
   if (username === null || username.trim() === "") return { kind: "unknown" };
+  const owners = roles.owners.length > 0 ? roles.owners : roles.admins;
+  if (owners.some((owner) => sameUser(owner, username))) return { kind: "org-owner" };
   if (roles.admins.some((admin) => sameUser(admin, username))) return { kind: "admin" };
   const teams = Object.entries(roles.teams)
     .filter(([name, team]) => TEAM_NAME_RE.test(name) && team.owners.some((owner) => sameUser(owner, username)))
@@ -25,7 +32,7 @@ export function roleOf(username: string | null, roles: OrgRoles): OrgRole {
 }
 
 export function ownedRoots(role: OrgRole): string[] {
-  if (role.kind === "admin") return [...ORG_MANAGED_ROOTS];
+  if (isOrgAdmin(role)) return [...ORG_MANAGED_ROOTS];
   if (role.kind === "owner") return role.teams.filter((team) => TEAM_NAME_RE.test(team)).map((team) => `mattstack/teams/${team}`);
   return [];
 }
@@ -45,8 +52,17 @@ function names(list: string[]): string {
   return list.length <= 1 ? (list[0] ?? "") : `${list.slice(0, -1).join(", ")} or ${list[list.length - 1]}`;
 }
 
-function adminsClause(admins: string[]): string {
-  return `${names(admins)} (${admins.length === 1 ? "an org admin" : "org admins"})`;
+/** The admins, or the org owners when the org names no admins; null when it names neither. */
+function adminsClause(roles: OrgRoles): string | null {
+  if (roles.admins.length > 0) return `${names(roles.admins)} (${roles.admins.length === 1 ? "an org admin" : "org admins"})`;
+  if (roles.owners.length > 0) return `${names(roles.owners)} (${roles.owners.length === 1 ? "an org owner" : "org owners"})`;
+  return null;
+}
+
+/** Who to ask for a change only an org owner may make. */
+export function orgOwnersAsk(roles: OrgRoles): string {
+  const owners = roles.owners.length > 0 ? roles.owners : roles.admins;
+  return `Ask ${names(owners)} (${owners.length === 1 ? "an org owner" : "org owners"}) to make this change.`;
 }
 
 export function writeRefusalFor(role: OrgRole, roles: OrgRoles, relPath: string): { message: string; why: string } | null {
@@ -54,16 +70,17 @@ export function writeRefusalFor(role: OrgRole, roles: OrgRoles, relPath: string)
   if (role.kind === "unknown") {
     return { message: "rt can't tell who you are, so it will not change the org's shared files", why: "Connect your forge account in Setup, then try again." };
   }
-  if (role.kind === "admin") {
+  if (isOrgAdmin(role)) {
     return { message: "rt does not change that file", why: "rt only changes the org's mattstack folder, .sops.yaml and .claude-plugin." };
   }
   const team = /^mattstack\/teams\/([^/]+)(\/|$)/.exec(posix.normalize(relPath))?.[1];
   const noAdmins = "This org names no admins yet. Its mattstack.org setting has to list one.";
+  const admins = adminsClause(roles);
   if (team !== undefined && TEAM_NAME_RE.test(team)) {
     const owners = roles.teams[team]?.owners ?? [];
     const ask = [
       ...(owners.length > 0 ? [`${names(owners)} (the team's ${owners.length === 1 ? "owner" : "owners"})`] : []),
-      ...(roles.admins.length > 0 ? [adminsClause(roles.admins)] : []),
+      ...(admins !== null ? [admins] : []),
     ];
     return {
       message: `The ${team} team's files belong to its owners`,
@@ -72,7 +89,7 @@ export function writeRefusalFor(role: OrgRole, roles: OrgRoles, relPath: string)
   }
   return {
     message: "The org's shared files belong to its admins",
-    why: roles.admins.length > 0 ? `Ask ${adminsClause(roles.admins)} to make this change.` : noAdmins,
+    why: admins !== null ? `Ask ${admins} to make this change.` : noAdmins,
   };
 }
 

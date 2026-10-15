@@ -89,8 +89,8 @@ describe("teamStatus", () => {
       return body;
     }
 
-    test("an admin sees active-team members and sorted valid team folders with settings", async () => {
-      expect(await status("dev1")).toMatchObject({ slug: "acme", name: "Acme Team", role: "admin", activeTeam: "widgets", teams: ["widgets"], orgTeams: ["gadgets", "widgets"], members: [{ username: "dev1" }, { username: "dev2" }] });
+    test("an org owner sees active-team members and sorted valid team folders with settings", async () => {
+      expect(await status("dev1")).toMatchObject({ slug: "acme", name: "Acme Team", role: "org-owner", activeTeam: "widgets", teams: ["widgets"], orgTeams: ["gadgets", "widgets"], members: [{ username: "dev1" }, { username: "dev2" }] });
     });
 
     test("an owner starts on their first roster team and preserves roster order", async () => {
@@ -116,7 +116,7 @@ describe("teamStatus", () => {
         await teamStatus(["--team", SLUG], {}, depsFor("dev1"));
         expect(io.stdout()).toContain("Acme Team (acme)\n");
         expect(io.stdout()).toContain("your team: widgets\n");
-        expect(io.stdout()).toContain("your role: org admin\n");
+        expect(io.stdout()).toContain("your role: org owner\n");
       } finally {
         io.restore();
       }

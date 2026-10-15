@@ -63,7 +63,7 @@ one team of it. A team is a folder under `mattstack/teams/` whose name matches
 `^[a-z][a-z0-9-]*$`.
 
 The org clone's folder is the org's name, the `org` field of its marker
-(`mattstack/mattstack.jsonc`). `rt team rename <name>` (admins only) commits
+(`mattstack/mattstack.jsonc`). `rt team rename <name>` (org owners only) commits
 and publishes a new marker; the `org.folder` step of `rt setup update` then
 moves each Mac's folder and its `~/.mattstack/rt/teams` and `rt/invites`
 records to match, and moves a clone still under the legacy `~/.mattstack/teams/` root.
@@ -102,7 +102,21 @@ never folded in; a caller that needs one reads it by name
 team })`, `rt settings set --scope team --team <name>`), and a team write
 with no name goes to the active team, or is refused when there is none. Every key that allows `team` also
 allows `org`; `mattstack.roster` (each entry's `teams`) and `mattstack.org`
-(`admins`, and `owners` per team) are org only.
+(`owners` and `admins`, and `owners` per team) are org only.
+
+Roles, highest first: org owner, admin, team owner, member. `mattstack.org.owners`
+lists the org owners; absent or empty, the admins are the org owners. A Mac
+running an older rt reads only `admins`, so list new owners in `admins` too
+until every Mac has updated. Only an
+org owner renames the org or changes `owners`; a plain admin changes anything
+else in the org store; a team owner changes only the `teams` array of existing
+roster entries, and only for their own teams (`rt team members add|drop`); a
+member changes nothing. `orgStoreChangeRefusal`
+(`packages/rt-client/src/settings/org-store-guard.ts`) compares the org store
+before and after a change and enforces this in `setSetting`/`unsetSetting`,
+`publishTeam` (which judges the change by the roles at the remote head) and the
+daemon's auto-commit scope (commits judged by the roles at HEAD, pushes by the
+remote-tracking ref, failing closed when the roles cannot be read).
 
 ## The resolver and registry
 

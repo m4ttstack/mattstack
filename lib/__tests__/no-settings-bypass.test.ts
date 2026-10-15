@@ -68,11 +68,9 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
   "store file": {
     "scripts/lib/move-team-packs.ts": { count: 2, reason: "plans the one-off move of each team pack to plugin/; it rewrites the org and team stores' path values by name, never through the resolver" },
     "commands/team.ts": { count: 1, reason: "lists valid team folders with settings through Probes for status; getSetting cannot enumerate org teams" },
-    "lib/team/members.ts": { count: 2, reason: "checks org roster ownership before validation and immediately before writing" },
     "lib/team/team-names.ts": { count: 1, reason: "checks named team folders exist before an org roster write" },
     "commands/home.ts": { count: 1, reason: "existence probe listing adoptable machine profiles" },
     "lib/home/init-exec.ts": { count: 1, reason: "assertNotRealStoreInTest guard before home init seeds the user store" },
-    "lib/team/publish.ts": { count: 2, reason: "names the org store for the initial and pre-push fresh-role refusals when the recorded role owns no managed root" },
     "lib/team/add.ts": { count: 1, reason: "bootstraps a new team store through Probes after admin authorization; existing org roles are written through setSetting" },
     "lib/team/create.ts": { count: 2, reason: "scaffolds the org and first team stores; creator edits and the isolation guard use orgStoreFile" },
     "lib/setup/team-settings.ts": { count: 3, reason: "discovers org clones, reads injected HOME user host confirmation for trusted forge tokens and creation links, and reads an unconverted clone's declared forge through Probes" },

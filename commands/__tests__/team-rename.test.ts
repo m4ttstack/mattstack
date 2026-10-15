@@ -71,13 +71,13 @@ describe("rt team rename", () => {
     } finally { captured.restore(); }
   });
 
-  test("a non-admin sees a refused note, exit 2", async () => {
+  test("a non-owner sees a refused note, exit 2", async () => {
     const w = orgWorld("dev2");
     const { deps } = depsFor(w.p);
     const captured = captureOut();
     try {
       expect(await exitCode(() => teamRename(["gadgets"], {}, deps))).toBe(2);
-      expect(captured.stderr()).toContain("[refused] Only an org admin can rename the org");
+      expect(captured.stderr()).toContain("[refused] Only an org owner renames the org\n  why: Ask dev1 to rename it.\n");
     } finally { captured.restore(); }
   });
 

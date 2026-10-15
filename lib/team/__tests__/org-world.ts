@@ -21,12 +21,12 @@ export function cleanupOrgWorlds(): void {
  * A real acme org clone under a temp HOME (HOME points at it until cleanup),
  * pushed once to a bare origin. dev1 is the admin and dev2 owns widgets.
  */
-export function orgWorld(username = "dev1", extra: { settings?: Record<string, unknown> } = {}) {
+export function orgWorld(username = "dev1", extra: { settings?: Record<string, unknown>; roles?: { owners?: string[]; admins: string[]; teams: Record<string, { owners: string[] }> } } = {}) {
   const prior = process.env.HOME;
   const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-org-world-")));
   worlds.push({ home, prior });
   process.env.HOME = home;
-  seedOrg({ org: "acme", layout: ORG_LAYOUT, username, settings: extra.settings, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: { "board.title": "widgets" } } });
+  seedOrg({ org: "acme", layout: ORG_LAYOUT, username, settings: extra.settings, roles: extra.roles ?? { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: { "board.title": "widgets" } } });
   const root = join(home, ".mattstack", "orgs", "acme");
   const remote = join(home, "origin.git");
   mkdirSync(join(root, ".claude-plugin"), { recursive: true });

@@ -43,7 +43,7 @@ const TOKEN_NAME = "mattstack";
 export function forgeRole(input: { intentMode: string | null; role: OrgRole["kind"] | null; hasTeam: boolean }): ForgeRole {
   if (input.intentMode === "create") return "owner";
   if (input.intentMode === "join") return "member";
-  return input.hasTeam && (input.role === "admin" || input.role === "owner") ? "owner" : "member";
+  return input.hasTeam && (input.role === "org-owner" || input.role === "admin" || input.role === "owner") ? "owner" : "member";
 }
 
 export function forgeScopes(provider: ForgeProvider, role: ForgeRole): string[] {

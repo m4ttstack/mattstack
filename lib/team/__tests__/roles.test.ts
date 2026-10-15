@@ -7,7 +7,7 @@ import { teamLocalPath } from "../team-local.ts";
 
 const HOME = "/fake-home";
 const ORG_STORE = orgStoreFile(HOME, "acme");
-const roles = { "mattstack.org": { admins: ["Dev1"], teams: { widgets: { owners: ["dev2"] } } } };
+const roles = { "mattstack.org": { owners: ["dev0"], admins: ["Dev1"], teams: { widgets: { owners: ["dev2"] } } } };
 
 function probes(username: string | null, orgStore: string | null = `// org\n${JSON.stringify(roles)}`) {
   return fakeProbes({
@@ -58,7 +58,7 @@ describe("an owner listed under a key that is not a plain team name", () => {
 
 describe("rolesFor", () => {
   test("names nobody when the org store is missing", () => {
-    expect(rolesFor(probes("dev1", null), "acme")).toEqual({ admins: [], teams: {} });
+    expect(rolesFor(probes("dev1", null), "acme")).toEqual({ owners: [], admins: [], teams: {} });
   });
 });
 

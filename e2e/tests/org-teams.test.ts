@@ -98,7 +98,7 @@ describe("an org with two teams", () => {
     expect(other.stderr).toContain("The widgets team's files belong to its owners");
     const shared = await rt(["settings", "set", "board.gitlabHost", '"x"', "--scope", "org"], { home });
     expect(shared.exitCode).not.toBe(0);
-    expect(shared.stderr).toContain("The org's shared files belong to its admins");
+    expect(shared.stderr).toContain("A team owner can only change which teams people are on in the org's settings");
 
     identifyAs("dev3");
     const member = await rt(["settings", "set", "board.title", '"x"', "--scope", "team"], { home });
@@ -119,7 +119,7 @@ describe("an org with two teams", () => {
     expect(await json(["team", "status"])).toMatchObject({
       contract: 1,
       slug: "acme",
-      role: "admin",
+      role: "org-owner",
       activeTeam: "widgets",
       teams: ["widgets"],
       orgTeams: ["gadgets", "widgets"],

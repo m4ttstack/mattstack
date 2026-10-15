@@ -37,7 +37,7 @@ type Write = Promise<string | null>;
 export interface Viewer {
   username: string | null;
   name: string | null;
-  role: 'admin' | 'owner' | 'member' | 'unknown' | 'none';
+  role: 'org-owner' | 'admin' | 'owner' | 'member' | 'unknown' | 'none';
   team: string | null;
   teams: string[];
   /** Each reachable team's owners, by roster name. */

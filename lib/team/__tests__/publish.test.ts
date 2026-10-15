@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { childEnv, runCapture } from "../../subprocess.ts";
-import { afterEach, describe, test, expect } from "bun:test";
+import { afterEach, describe, spyOn, test, expect } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { publishTeam } from "../publish.ts";
 import { teamLocalPath } from "../team-local.ts";
@@ -401,7 +401,7 @@ for (const blocked of ["commits", "paths", "multiple-urls", "missing-main", "mis
     if (blocked === "paths" && argv.includes("diff-tree")) return { code: 0, stdout: Array.from({ length: 10001 }, (_, i) => `mattstack/teams/gadgets/${i}\0`).join(""), stderr: "" };
     return exec(argv, opts);
   };
-  await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+  await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: blocked === "missing-object" ? "org-moved" : "team-pull-only" });
   expect(w.pushes()).toBe(0);
 });
 
@@ -449,5 +449,179 @@ describe("a declined push is told apart from an org that moved", () => {
     };
     await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "org-moved", next: "rt team pull --team acme", thenRun: "rt team publish --team acme" });
     expect(raced).toBe(true);
+  }, 15_000);
+});
+
+describe("a pending org store change passes the org store guard", () => {
+  afterEach(cleanupOrgWorlds);
+  const STORE = "mattstack/org/settings.org.jsonc";
+  const ROSTER = [{ username: "dev3", teams: ["widgets"] }, { username: "dev4", teams: ["gadgets"] }, { username: "dev5", teams: [] }];
+  const ROLES = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev6"] } } };
+
+  /** Seeds the org, pushes it, then commits `change` applied to the org store as the pending work. */
+  function worldWith(username: string, change: (store: Record<string, unknown>) => void, roles: typeof ROLES & { owners?: string[] } = ROLES) {
+    const w = orgWorld(username, { roles, settings: { "mattstack.roster": ROSTER } });
+    const file = join(w.root, STORE);
+    const store = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    change(store);
+    writeFileSync(file, JSON.stringify(store, null, 2));
+    w.git("add", "--", STORE);
+    w.git("commit", "-q", "-m", "org store change");
+    return w;
+  }
+  const rosterTeams = (store: Record<string, unknown>, username: string, teams: string[]) => {
+    (store["mattstack.roster"] as { username: string; teams: string[] }[]).find((e) => e.username === username)!.teams = teams;
+  };
+
+  test("a team owner publishes a roster change to their own team", async () => {
+    const w = worldWith("dev2", (s) => rosterTeams(s, "dev5", ["widgets"]));
+    await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
+    expect(w.pushes).toHaveLength(1);
+  }, 15_000);
+
+  test("a team owner's publish is refused when the roster change reaches another team", async () => {
+    const w = worldWith("dev2", (s) => rosterTeams(s, "dev5", ["widgets", "gadgets"]));
+    await expect(publishTeam(w.p, "acme", null)).rejects.toThrow(/gadgets/);
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("a team owner's publish is refused when an unrelated org key changes with the roster", async () => {
+    const w = worldWith("dev2", (s) => { rosterTeams(s, "dev5", ["widgets"]); s["board.title"] = "renamed"; });
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an admin's publish is refused when it changes the owners list", async () => {
+    const w = worldWith("dev1", (s) => { (s["mattstack.org"] as { owners: string[] }).owners = ["dev0", "dev7"]; }, { ...ROLES, owners: ["dev0"] });
+    await expect(publishTeam(w.p, "acme", null)).rejects.toThrow(/org owner/);
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an org owner's publish may change the owners list", async () => {
+    const w = worldWith("dev0", (s) => { (s["mattstack.org"] as { owners: string[] }).owners = ["dev0", "dev7"]; }, { ...ROLES, owners: ["dev0"] });
+    await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
+    expect(w.pushes).toHaveLength(1);
+  }, 15_000);
+
+  test("a team owner who adds themselves to admins in the pending change is refused", async () => {
+    const w = worldWith("dev2", (s) => { (s["mattstack.org"] as { admins: string[] }).admins.push("dev2"); s["board.title"] = "renamed"; });
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an admin who removes themselves from admins while editing another key is accepted", async () => {
+    const w = worldWith("dev1", (s) => { (s["mattstack.org"] as { admins: string[] }).admins = ["dev8"]; s["board.title"] = "renamed"; });
+    await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
+    expect(w.pushes).toHaveLength(1);
+  }, 15_000);
+
+  test("a refused member's clone keeps its origin when publish is given another remote", async () => {
+    const w = worldWith("dev9", (s) => { s["board.title"] = "renamed"; });
+    const origin = w.git("remote", "get-url", "origin").trim();
+    await expect(publishTeam(w.p, "acme", join(w.home, "elsewhere.git"))).rejects.toMatchObject({ code: "team-pull-only" });
+    expect(w.git("remote", "get-url", "origin").trim()).toBe(origin);
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an admin whose remote moved is told the org moved, not refused by policy", async () => {
+    const w = worldWith("dev1", (s) => { s["board.title"] = "renamed"; });
+    const other = join(w.home, "other");
+    execFileSync("git", ["clone", "-q", "-b", "main", w.remote, other], { env: childEnv() });
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=dev2", "-c", "user.email=dev2@example.test", "-c", "core.hooksPath=/dev/null", ...args], { cwd: other, env: childEnv() });
+    writeFileSync(join(other, "later.txt"), "x\n");
+    git("add", "later.txt");
+    git("commit", "-q", "-m", "later");
+    git("push", "-q", "origin", "main");
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "org-moved", next: "rt team pull --team acme" });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an uncommitted edit adding yourself to admins does not open committed team folders you do not own", async () => {
+    const w = worldWith("dev2", (s) => { s["board.title"] = "unused"; });
+    w.git("reset", "-q", "--hard", "origin/main");
+    mkdirSync(join(w.root, "mattstack", "teams", "gadgets"), { recursive: true });
+    writeFileSync(join(w.root, "mattstack", "teams", "gadgets", "x.txt"), "x\n");
+    w.git("add", "--", "mattstack/teams/gadgets/x.txt");
+    w.git("commit", "-q", "-m", "gadgets file");
+    const file = join(w.root, STORE);
+    const store = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    (store["mattstack.org"] as { admins: string[] }).admins.push("dev2");
+    writeFileSync(file, JSON.stringify(store, null, 2));
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("an org store refusal says who can make the change", async () => {
+    const owner = worldWith("dev2", (s) => rosterTeams(s, "dev5", ["gadgets"]));
+    await expect(publishTeam(owner.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only", message: "You don't own gadgets, so you can't change who is on it", why: "Ask dev1 (an org admin) to make this change." });
+    cleanupOrgWorlds();
+    const admin = worldWith("dev1", (s) => { (s["mattstack.org"] as { owners: string[] }).owners = ["dev0", "dev7"]; }, { ...ROLES, owners: ["dev0"] });
+    await expect(publishTeam(admin.p, "acme", null)).rejects.toMatchObject({ message: "Only an org owner can change who the org owners are", why: "Ask dev0 (an org owner) to make this change." });
+  }, 15_000);
+
+  test("a base org store git cannot show is an inspection failure, not an unclaimed org", async () => {
+    const w = worldWith("dev1", (s) => { s["board.title"] = "renamed"; });
+    const realExec = w.p.exec.bind(w.p);
+    w.p.exec = async (argv, opts) => argv.includes("show") && argv.some((a) => a.endsWith(`:${STORE}`) && !a.startsWith("refs/"))
+      ? { code: 128, stdout: "", stderr: "fatal: bad object" }
+      : realExec(argv, opts);
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ message: "rt could not check your pending changes", next: "rt team pull" });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("a malformed base org store is an inspection failure, not an unclaimed org", async () => {
+    const w = orgWorld("dev2", { roles: ROLES, settings: { "mattstack.roster": ROSTER } });
+    const file = join(w.root, STORE);
+    const good = readFileSync(file, "utf8");
+    writeFileSync(file, "{ not json");
+    w.git("commit", "-q", "-am", "broken");
+    w.git("push", "-q", "origin", "main");
+    const promoted = JSON.parse(good) as Record<string, unknown>;
+    (promoted["mattstack.org"] as { admins: string[] }).admins.push("dev2");
+    writeFileSync(file, JSON.stringify(promoted, null, 2));
+    w.git("commit", "-q", "-am", "self-grant");
+    const warn = spyOn(console, "warn");
+    try {
+      await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ message: "rt could not check your pending changes" });
+      expect(warn).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  for (const [name, block] of [["admins as a string", "dev1"], ["owners as a number", 7], ["admins holding a non-string", ["dev1", 3]]] as const) {
+    test(`a base org store with ${name} is an inspection failure, not an unclaimed org`, async () => {
+      const w = orgWorld("dev2", { roles: ROLES, settings: { "mattstack.roster": ROSTER } });
+      const file = join(w.root, STORE);
+      const good = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+      const key = name.startsWith("owners") ? "owners" : "admins";
+      writeFileSync(file, JSON.stringify({ ...good, "mattstack.org": { admins: [], teams: {}, [key]: block } }, null, 2));
+      w.git("commit", "-q", "-am", "broken roles");
+      w.git("push", "-q", "origin", "main");
+      writeFileSync(file, JSON.stringify({ ...good, "mattstack.org": { admins: ["dev2"], teams: {} } }, null, 2));
+      w.git("commit", "-q", "-am", "self-claim");
+      await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ message: "rt could not check your pending changes" });
+      expect(w.pushes).toHaveLength(0);
+    }, 15_000);
+  }
+
+  test("a malformed pending org store is refused, not read as everything deleted", async () => {
+    const w = orgWorld("dev1", { roles: ROLES, settings: { "mattstack.roster": ROSTER } });
+    const file = join(w.root, STORE);
+    const good = readFileSync(file, "utf8");
+    writeFileSync(file, "{ not json");
+    w.git("commit", "-q", "-am", "broken");
+    writeFileSync(file, good);
+    const warn = spyOn(console, "warn");
+    try {
+      await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "org-store-malformed" });
+      expect(warn).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
+  test("the creator's claim of an unclaimed org publishes, since the remote names no admins to judge by", async () => {
+    const w = worldWith("dev1", (s) => { (s["mattstack.org"] as { admins: string[] }).admins = ["dev1"]; }, { admins: [], teams: {} } as unknown as typeof ROLES);
+    await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
+    expect(w.pushes).toHaveLength(1);
   }, 15_000);
 });

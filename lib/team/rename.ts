@@ -80,10 +80,11 @@ async function prepare(p: Probes, from: string, to: string, seams: RenameSeams):
   } catch (err) {
     throw new UserActionableError("invalid-team-slug", "That is not a team name rt can use", {}, { log: err instanceof Error ? err.message : String(err) });
   }
-  if (roleFor(p, from).kind !== "admin") {
-    const admins = rolesFor(p, from).admins;
-    throw new UserActionableError("rename-not-admin", "Only an org admin can rename the org", {}, {
-      why: admins.length > 0 ? `Ask ${admins.join(" or ")} to rename it.` : "This org names no admins yet.",
+  if (roleFor(p, from).kind !== "org-owner") {
+    const { owners, admins } = rolesFor(p, from);
+    const named = owners.length > 0 ? owners : admins;
+    throw new UserActionableError("rename-not-admin", "Only an org owner renames the org", {}, {
+      why: named.length > 0 ? `Ask ${named.join(" or ")} to rename it.` : "This org names no owners yet.",
     });
   }
   try {

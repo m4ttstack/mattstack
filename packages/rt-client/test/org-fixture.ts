@@ -27,7 +27,7 @@ export interface SeedOrg {
   /** Stored as this Mac's forge username for the org. */
   username?: string;
   roster?: { username: string; teams?: string[]; [key: string]: unknown }[];
-  roles?: { admins: string[]; teams: Record<string, { owners: string[] }> };
+  roles?: { owners?: string[]; admins: string[]; teams: Record<string, { owners: string[] }> };
   /** The home the refusal guards; the account's real one unless a test of the guard names another. */
   account?: string;
 }

@@ -21,6 +21,7 @@ import {
   hasSchema,
   isMigrated,
   listStoreRepoIdentities,
+  isOrgAdmin,
   listOrgs,
   listTeamFolders,
   listUnregisteredSettings,
@@ -131,7 +132,7 @@ export interface EffectiveWire {
 export interface ViewerWire {
   username: string | null;
   name: string | null;
-  role: "admin" | "owner" | "member" | "unknown" | "none";
+  role: "org-owner" | "admin" | "owner" | "member" | "unknown" | "none";
   team: string | null;
   teams: string[];
   /** Each reachable team's owners, by roster name (username when the
@@ -146,7 +147,7 @@ export function viewerFrom(input: { active: ActiveTeam; roles: OrgRoles; roster:
   if (active.org === null) return { username: null, name: null, role: "none", team: null, teams: [], owners: {} };
   const role = roleOf(active.username, roles);
   const own = active.team === null ? [] : [active.team];
-  const reach = role.kind === "admin" ? folders : role.kind === "owner" ? role.teams.filter((t) => folders.includes(t)) : [];
+  const reach = isOrgAdmin(role) ? folders : role.kind === "owner" ? role.teams.filter((t) => folders.includes(t)) : [];
   const name = active.username === null ? null : (roster.find((r) => sameUser(r.username, active.username!))?.name ?? null);
   const teams = [...new Set([...reach, ...own])].sort();
   const display = (u: string) => roster.find((r) => sameUser(r.username, u))?.name ?? u;
@@ -156,7 +157,7 @@ export function viewerFrom(input: { active: ActiveTeam; roles: OrgRoles; roster:
 
 function readViewer(rt: Pick<RtSettingsApi, "activeTeam">): ViewerWire {
   const active = rt.activeTeam();
-  if (active.org === null) return viewerFrom({ active, roles: { admins: [], teams: {} }, roster: [], folders: [] });
+  if (active.org === null) return viewerFrom({ active, roles: { owners: [], admins: [], teams: {} }, roster: [], folders: [] });
   return viewerFrom({ active, roles: readOrgRoles(active.org), roster: readOrgRoster(active.org), folders: listTeamFolders(active.org) });
 }
 
