@@ -176,8 +176,9 @@ refspec), so it can also move a clone onto a branch with unrelated history,
 such as a trial data branch made by the conversion script. `rt team branch
 use <dataBranch>` returns. This is the supported way to try a new layout on
 the dev app without moving anyone else: the pointer on `main` never changes
-for a trial. `rt team invite` refuses while the clone is on a trial branch,
-since joiners clone `dataBranch`. Admins and org owners only.
+for a trial. `rt team invite` refuses while the clone is on a trial branch
+(see Create and join: it checks the branch against `main`'s pointer), since
+joiners must clone the real data branch. Admins and org owners only.
 
 ### Create and join
 
@@ -187,13 +188,20 @@ since joiners clone `dataBranch`. Admins and org owners only.
 - **Create** makes the data branch from scratch with the org's files and a
   marker, and commits the pointer to `main` (a new org's repo is empty, so
   `main` is writable).
-- **Invite** carries `dataBranch` in the sealed pointer, and refuses unless
-  the clone is on `dataBranch`, replacing today's refusal off `main`.
+- **Reading `main`'s pointer** (invite and an older invite's join): `git
+  fetch --depth 1 --filter=blob:none origin main` into a temporary bare
+  repo, then `git show FETCH_HEAD:mattstack/mattstack.jsonc`. It works on
+  both forges and fetches one commit and one file's blob.
+- **Invite** reads `main`'s pointer and refuses unless the clone is checked
+  out on the branch the pointer names, replacing today's refusal off `main`.
+  It keys on the pointer, never on the clone's own marker, because a trial
+  data branch's marker names the trial. The sealed pointer carries that
+  `dataBranch`.
 - **Join** clones `dataBranch` with `--single-branch` and extends today's
   sparse cone clone (`ORG_CLONE_FOLDERS`) with the role-based folders, never
   a second clone path. An invite from an older rt carries no `dataBranch`:
-  join then reads `main`'s marker with `git ls-remote` and a shallow fetch of
-  that one file, and clones `main` as today when the marker has none.
+  join then reads `main`'s pointer the same way, and clones `main` as today
+  when it names none.
 
 ## Forge access
 
@@ -300,8 +308,11 @@ narrows their checkout.
    out and sets the sparse cone. git's own refusal to check out over local
    changes is the safety: a clone with uncommitted edits stays on `main`,
    held, and the `org.layout` row names the files. `rt team pull` runs the
-   same move on demand. Older apps hold at their last readable commit until
-   updated.
+   same move on demand. Because `rt setup update` runs once per app version,
+   an app that updated before the pointer landed would otherwise wait for the
+   next release: the `org.layout` row's remedy for a held clone is `rt team
+   pull`, and the daemon runs that move itself once a held clone is clean.
+   Older apps hold at their last readable commit until updated.
 
 To try the conversion before the release, run the script with `--data-branch
 <trial> --no-pointer` against the real repo, then `rt team branch use
