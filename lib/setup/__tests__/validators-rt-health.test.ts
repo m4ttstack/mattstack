@@ -1620,18 +1620,21 @@ describe("orgSparseRow", () => {
 });
 
 describe("orgBranchRow", () => {
-  const probes = (branch: string | null, marker: Record<string, unknown>, local: Record<string, unknown> = {}) =>
-    fakeProbes({
-      home: "/h",
+  const ADMIN_STORE = JSON.stringify({ "mattstack.org": { admins: ["dev1"] } });
+  const probes = (branch: string | null, marker: Record<string, unknown>, local: Record<string, unknown> = { forgeUsername: "dev1" }, opts: { store?: string; home?: string } = {}) => {
+    const home = opts.home ?? "/h";
+    return fakeProbes({
+      home,
       files: {
-        "/h/.mattstack/orgs/acme/.git/config": "",
-        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT, ...marker }),
-        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}",
-        "/h/.mattstack/rt/teams/acme.json": JSON.stringify(local),
+        [`${home}/.mattstack/orgs/acme/.git/config`]: "",
+        [`${home}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT, ...marker }),
+        [`${home}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: opts.store ?? ADMIN_STORE,
+        [`${home}/.mattstack/rt/teams/acme.json`]: JSON.stringify(local),
       },
-      dirs: { "/h/.mattstack/orgs": ["acme"] },
+      dirs: { [`${home}/.mattstack/orgs`]: ["acme"] },
       exec: (argv) => (argv.includes("symbolic-ref") ? (branch === null ? { code: 1, stdout: "", stderr: "" } : ok(`${branch}\n`)) : ok("")),
     });
+  };
 
   test("null with no clone", async () => {
     expect(await orgBranchRow(fakeProbes({ home: "/h" }))).toBeNull();
@@ -1657,6 +1660,18 @@ describe("orgBranchRow", () => {
   });
   test("a pre-layout-4 clone on main is ready", async () => {
     expect(await orgBranchRow(probes("main", { layout: 3 }))).toMatchObject({ status: "ready" });
+  });
+  test("a member, who cannot run rt team branch use, is given the git switch back to the data branch", async () => {
+    const member = JSON.stringify({ "mattstack.org": { admins: ["dev9"] } });
+    const r = await orgBranchRow(probes("scratch", { dataBranch: "mattstack" }, { forgeUsername: "dev1" }, { store: member }));
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["git -C /h/.mattstack/orgs/acme switch mattstack"] });
+    const spaced = await orgBranchRow(probes("scratch", { dataBranch: "mattstack" }, { forgeUsername: "dev1" }, { store: member, home: "/Users/dev one" }));
+    expect(spaced?.action).toMatchObject({ type: "steps", steps: ["git -C '/Users/dev one/.mattstack/orgs/acme' switch mattstack"] });
+  });
+  test("an org owner keeps rt team branch use", async () => {
+    const owner = JSON.stringify({ "mattstack.org": { owners: ["dev1"] } });
+    const r = await orgBranchRow(probes("scratch", { dataBranch: "mattstack" }, { forgeUsername: "dev1" }, { store: owner }));
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["rt team branch use mattstack"] });
   });
 });
 

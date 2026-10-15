@@ -26,7 +26,9 @@ import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.
 import { keptTeams, type KeptTeam } from "../../team/org-cone.ts";
 import { heldCopy, moveBlocker } from "../../team/org-data-branch.ts";
 import { approvedBranches } from "../../team/approved-branch.ts";
-import { checkedOutBranch } from "../../team/org-branch.ts";
+import { isOrgAdmin } from "../../../packages/rt-client/src/settings/org-roles.ts";
+import { checkedOutBranch, shellQuote } from "../../team/org-branch.ts";
+import { roleFor } from "../../team/roles.ts";
 import { holdSentence, layoutSentence, orgLayoutState } from "../../team/org-layout.ts";
 import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
@@ -815,11 +817,13 @@ export async function orgBranchRow(p: Probes): Promise<Row | null> {
     recheck: "on-activate" as const,
   };
   if (branch !== null && approved.includes(branch)) return row({ ...base, status: "ready", detail: `Auto-commit follows ${branch}` });
+  // rt team branch use refuses anyone but an org admin or owner, so a member is handed git's own switch back.
+  const back = isOrgAdmin(roleFor(p, state.slug)) ? `rt team branch use ${approved[0]}` : `git -C ${shellQuote(dir)} switch ${shellQuote(approved[0]!)}`;
   return row({
     ...base,
     status: "needs-you",
     detail: `Auto-commit is paused: your copy of the org ${branch === null ? "has no branch checked out" : `is on ${branch}`}.`,
-    action: { type: "steps", label: "Show steps…", steps: [`rt team branch use ${approved[0]}`] },
+    action: { type: "steps", label: "Show steps…", steps: [back] },
   });
 }
 
