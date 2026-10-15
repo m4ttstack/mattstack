@@ -7,7 +7,12 @@ import type {
   GateSummaryDetailRow,
   GateSummaryInput,
 } from '@mattstack/gate-kit';
-import { answeredGateSummary, resolveAnswerOutcome } from '@mattstack/gate-kit';
+import {
+  answeredGateSummary,
+  presetSelections,
+  resolveAnswerOutcome,
+  withoutPreset,
+} from '@mattstack/gate-kit';
 import { gateItems, useGateDraft } from '@mattstack/gate-kit/react';
 import type { GateRow } from '../../gates/store.ts';
 import { gateOrigin } from '../../gates/wait-meta.ts';
@@ -82,8 +87,12 @@ function useGateForm(gate: GateRow, onAnswered?: () => void) {
     save: saveDraft,
     clear: clearDraft,
   } = useGateDraft(gate.gateId, actionable);
+  const preset = useMemo(
+    () => presetSelections(gate.questions),
+    [gate.questions]
+  );
   const [selections, setSelections] = useState<GateSelections>(
-    () => draft?.selections ?? {}
+    () => draft?.selections ?? preset
   );
   const [notes, setNotes] = useState<Record<string, string>>(
     () => draft?.notes ?? {}
@@ -106,8 +115,20 @@ function useGateForm(gate: GateRow, onAnswered?: () => void) {
   );
 
   useEffect(() => {
-    saveDraft({ selections, notes, texts, item: null });
-  }, [saveDraft, selections, notes, texts]);
+    // A draft holding only the preset saves as nothing, but once anything
+    // else is in it the preset rides along: a restored draft never re-seeds it.
+    const bare = withoutPreset(selections, preset);
+    const other =
+      Object.values(bare).some(v => Array.isArray(v) || v !== '') ||
+      Object.values(notes).some(n => n.trim() !== '') ||
+      Object.keys(texts).length > 0;
+    saveDraft({
+      selections: other ? selections : bare,
+      notes,
+      texts,
+      item: null,
+    });
+  }, [saveDraft, preset, selections, notes, texts]);
 
   const setSingle = (name: string, value: string) =>
     setSelections(prev => ({ ...prev, [name]: value }));
@@ -132,7 +153,7 @@ function useGateForm(gate: GateRow, onAnswered?: () => void) {
   // Keeping the texts keeps the draft too: the save effect rewrites it from
   // the reset state, and clearing it here would drop the kept texts on reload.
   const resetAll = ({ keepTexts = false }: { keepTexts?: boolean } = {}) => {
-    setSelections({});
+    setSelections(preset);
     setNotes({});
     if (keepTexts) return;
     setTexts({});

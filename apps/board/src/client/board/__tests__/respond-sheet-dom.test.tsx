@@ -794,7 +794,7 @@ test('each resolve checkbox is named by its thread', async () => {
   ).toEqual(['a.ts:1: resolve', 'b.ts:2: resolve']);
 });
 
-test('a dock question on a per-thread gate joins the submit label once picked', async () => {
+test('a dock question on a per-thread gate joins the submit label, Proceed preselected', async () => {
   const gate = perThreadPostGate();
   gate.questions = [
     ...gate.questions,
@@ -806,10 +806,10 @@ test('a dock question on a per-thread gate joins the submit label once picked', 
     },
   ];
   await render(gate, withFixPlan());
-  expect(submit().disabled).toBe(true);
-  await pick('proceed');
   expect(submit().textContent).toBe('post 3 · resolve 1 · proceed');
   expect(submit().disabled).toBe(false);
+  await pick('hold');
+  expect(submit().textContent).toBe('post 3 · resolve 1 · hold');
 });
 
 test('a held thread stays held after leaving the per-thread post step and coming back', async () => {

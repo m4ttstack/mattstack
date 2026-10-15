@@ -469,3 +469,29 @@ test('the answered dock and the lost panel each reserve their height on the scro
     restore();
   }
 });
+
+test('a write-in answer reads "wrote in: ..." on the card and the dock chip', async () => {
+  await render(
+    shipped({
+      questions: [
+        {
+          id: 'approach',
+          label: 'Which approach?',
+          multi: false,
+          options: ['server', 'client'],
+          writeIn: true,
+        },
+      ],
+      answers: { approach: { writeIn: 'split it' } },
+    })
+  );
+  expect(text('.tui-sheet-main .tui-gate-question')).toContain(
+    'wrote in: split it'
+  );
+  expect(
+    $$('.tui-sheet-dock .tui-sheet-card-row').map(r => [
+      r.querySelector('.tui-sheet-card-chip')?.textContent,
+      r.querySelector('.tui-sheet-card-text')?.textContent,
+    ])
+  ).toEqual([['wrote in', 'Which approach?']]);
+});

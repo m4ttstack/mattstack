@@ -894,3 +894,99 @@ test('the stage dock, the pane dock and the lost panel each reserve their height
     restore();
   }
 });
+
+const planGate = (): GateRow =>
+  ship({
+    kind: 'plan',
+    label: 'plan',
+    questions: [
+      {
+        id: 'approach',
+        label: 'Which approach?',
+        multi: false,
+        options: ['server', 'client'],
+        writeIn: true,
+      },
+      {
+        id: 'next',
+        label: 'Then?',
+        multi: false,
+        options: ['proceed', 'iterate', 'hold'],
+      },
+    ],
+  });
+
+test('a writeIn question answered with only a note submits a write-in', async () => {
+  await render(planGate());
+  expect(submit().disabled).toBe(true);
+  expect(
+    ($('input[aria-label="Note for Which approach?"]') as HTMLInputElement)
+      .placeholder
+  ).toBe('Write your own answer, or pick one above');
+  await type('Note for Which approach?', 'split the migration out');
+  expect(submit().disabled).toBe(false);
+  expect(text('.tui-sheet-list-tally')).toBe('2 of 2 answered');
+  expect(dockRows().map(([chip]) => chip)).toEqual(['wrote in', 'proceed']);
+  await click(submit());
+  expect(answerPosts()).toEqual([
+    {
+      url: '/gate/answer',
+      body: {
+        gateId: 'g-ship',
+        answers: {
+          approach: { writeIn: 'split the migration out' },
+          next: 'proceed',
+        },
+      },
+    },
+  ]);
+});
+
+test('a plain question with only a note still blocks submit', async () => {
+  await render(ship());
+  await pick('preview-a');
+  await pick('draft');
+  await type('Note for How do we hand off?', 'something else');
+  expect(submit().disabled).toBe(true);
+});
+
+test('clicking the picked option of a writeIn question clears it', async () => {
+  await render(planGate());
+  const server = () => $('input[value="server"]') as HTMLInputElement;
+  const client = () => $('input[value="client"]') as HTMLInputElement;
+  await pick('server');
+  expect(server().checked).toBe(true);
+  await pick('server');
+  expect(server().checked).toBe(false);
+  await pick('client');
+  expect(client().checked).toBe(true);
+  expect(server().checked).toBe(false);
+  await pick('server');
+  expect(server().checked).toBe(true);
+  expect(client().checked).toBe(false);
+});
+
+test('Proceed opens picked on next, and reset brings it back', async () => {
+  await render(planGate());
+  expect(($('input[value="proceed"]') as HTMLInputElement).checked).toBe(true);
+  await pick('hold');
+  expect(($('input[value="hold"]') as HTMLInputElement).checked).toBe(true);
+  await click($('.tui-sheet-reset'));
+  expect(($('input[value="proceed"]') as HTMLInputElement).checked).toBe(true);
+  expect(($('input[value="hold"]') as HTMLInputElement).checked).toBe(false);
+});
+
+test('an untouched fresh open saves no draft', async () => {
+  await render(planGate());
+  expect(localStorage.getItem('gate-kit:draft:g-ship')).toBeNull();
+});
+
+test('a restored draft keeps Proceed when only another question was picked', async () => {
+  await render(planGate());
+  await pick('server');
+  await React.act(async () => root.unmount());
+  root = createRoot(container);
+  await render(planGate());
+  expect(($('input[value="server"]') as HTMLInputElement).checked).toBe(true);
+  expect(($('input[value="proceed"]') as HTMLInputElement).checked).toBe(true);
+});

@@ -97,7 +97,8 @@ function AnsweredSheetBody({
   }, [gate.answers]);
   const picks = useMemo((): ChoiceState => {
     const selections: GateSelections = {};
-    for (const [id, a] of recorded) selections[id] = a.value;
+    for (const [id, a] of recorded)
+      if (a.value !== undefined) selections[id] = a.value;
     return { selections, setSingle: noop, toggleMulti: noop };
   }, [recorded]);
   const display = useMemo(
@@ -119,12 +120,16 @@ function AnsweredSheetBody({
       : null;
   const rows = gate.questions.map(q => {
     const d = display.get(q.id);
-    const value = recorded.get(q.id)?.value;
-    const chip: RowChip = d
-      ? pickChip(d, value)
-      : typeof value === 'string' && value
-        ? { text: 'answered', intent: 'accent', title: value }
-        : { text: 'none', intent: 'muted' };
+    const a = recorded.get(q.id);
+    const value = a?.value;
+    const chip: RowChip =
+      a?.writeIn !== undefined
+        ? { text: 'wrote in', intent: 'accent', title: a.writeIn }
+        : d
+          ? pickChip(d, value)
+          : typeof value === 'string' && value
+            ? { text: 'answered', intent: 'accent', title: value }
+            : { text: 'none', intent: 'muted' };
     return { key: q.id, text: q.label, title: q.label, chips: [chip] };
   });
 
@@ -174,6 +179,11 @@ function AnsweredSheetBody({
             const reply = qctx?.shape === 'reply@1';
             const lines = (
               <>
+                {a?.writeIn && (
+                  <p className="tui-gate-summary-reply">
+                    wrote in: {a.writeIn}
+                  </p>
+                )}
                 {a?.note && (
                   <p className="tui-gate-summary-reply">note: {a.note}</p>
                 )}
@@ -196,9 +206,10 @@ function AnsweredSheetBody({
                     <span className="tui-gate-question-label">{q.label}</span>
                   </div>
                   <p className="tui-sheet-context-reasoning">
-                    {typeof a?.value === 'string' && a.value
-                      ? a.value
-                      : 'No answer recorded.'}
+                    {a?.writeIn ??
+                      (typeof a?.value === 'string' && a.value
+                        ? a.value
+                        : 'No answer recorded.')}
                   </p>
                   {lines}
                 </section>
