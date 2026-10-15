@@ -5,7 +5,8 @@ import { UserActionableError } from "../../errors.ts";
 import { readTeamLocal } from "../team-local.ts";
 import { useBranch } from "../trial-branch.ts";
 import { cleanupOrgWorlds } from "./org-world.ts";
-import { dataBranchWorld } from "./data-branch-world.ts";
+import { approvedBranches } from "../approved-branch.ts";
+import { dataBranchWorld, layout3World } from "./data-branch-world.ts";
 
 afterEach(cleanupOrgWorlds);
 
@@ -135,15 +136,6 @@ describe("useBranch", () => {
     expect(err.code).toBe("no-team-zone");
   }, 30_000);
 
-  test("a clone whose marker names no data branch has nothing to branch from", async () => {
-    const w = dataBranchWorld();
-    writeFileSync(join(w.root, "mattstack", "mattstack.jsonc"), '{"role":"org","org":"acme","layout":3}\n');
-    w.git("commit", "-aq", "-m", "legacy marker");
-    const err = await refusal(useBranch(w.p, "acme", "try-it", noToken));
-    expect(err.code).toBe("trial-branch-not-moved");
-    expect(err.next).toBe("rt team pull --team acme");
-  }, 30_000);
-
   test("a name git does not accept as a branch is refused before anything runs", async () => {
     const w = dataBranchWorld();
     for (const name of ["a b", "-x", "a..b", "x.lock", "@{-1}", "a@{b"]) {
@@ -151,5 +143,52 @@ describe("useBranch", () => {
       expect(err.code).toBe("bad-branch-name");
     }
     expect(w.pushes).toEqual([]);
+  }, 30_000);
+});
+
+describe("useBranch on a layout 3 clone", () => {
+  test("switches to a script-made orphan trial, records it, and approves it", async () => {
+    const w = layout3World();
+    w.pushTrial("mattstack-trial");
+    const mainTip = w.atOrigin("rev-parse", "refs/heads/main").trim();
+    const result = await useBranch(w.p, "acme", "mattstack-trial", noToken);
+    expect(result).toEqual({ branch: "mattstack-trial", created: false, trial: true });
+    expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("mattstack-trial");
+    expect(w.git("log", "-1", "--format=%s").trim()).toBe("trial root");
+    expect(readTeamLocal(w.p, "acme").trialBranch).toBe("mattstack-trial");
+    expect(approvedBranches(w.p, "acme", w.root)).toContain("mattstack-trial");
+    expect(w.atOrigin("rev-parse", "refs/heads/main").trim()).toBe(mainTip);
+    expect(w.pushes).toEqual([]);
+  }, 30_000);
+
+  test("switching back to main restores the layout 3 clone and clears the trial", async () => {
+    const w = layout3World();
+    w.pushTrial("mattstack-trial");
+    const mainTip = w.git("rev-parse", "main").trim();
+    await useBranch(w.p, "acme", "mattstack-trial", noToken);
+    const back = await useBranch(w.p, "acme", "main", noToken);
+    expect(back).toEqual({ branch: "main", created: false, trial: false });
+    expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("main");
+    expect(w.git("rev-parse", "HEAD").trim()).toBe(mainTip);
+    expect(readTeamLocal(w.p, "acme").trialBranch).toBeUndefined();
+    expect(approvedBranches(w.p, "acme", w.root)).toEqual(["main"]);
+  }, 30_000);
+
+  test("creating a new branch is refused, because there is no data branch to start from", async () => {
+    const w = layout3World();
+    const err = await refusal(useBranch(w.p, "acme", "try-it", noToken));
+    expect(err.code).toBe("trial-branch-not-moved");
+    expect(err.message).toBe("The org has no data branch yet to start a new branch from");
+    expect(w.pushes).toEqual([]);
+    expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("main");
+  }, 30_000);
+
+  test("unpushed commits on main hold the switch onto the trial", async () => {
+    const w = layout3World();
+    w.pushTrial("mattstack-trial");
+    w.git("commit", "-q", "--allow-empty", "-m", "mine");
+    const err = await refusal(useBranch(w.p, "acme", "mattstack-trial", noToken));
+    expect(err.code).toBe("trial-branch-held");
+    expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("main");
   }, 30_000);
 });
