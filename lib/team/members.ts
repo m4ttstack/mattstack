@@ -3,8 +3,8 @@
  * turns each outstanding invite record with a posted reply into a sops
  * recipient and a roster entry; remove drops the roster entry and re-encrypts
  * every domain file without that member's key. It revokes forge access only
- * when this machine holds `rtMayManageMembership` for the team (MAT-387);
- * otherwise it says so, because removal fails OPEN.
+ * when this machine holds `rtMayManageMembership` for the org; otherwise it
+ * says so, because removal fails open.
  *
  * Every reply blob crossing `relay.readReply` is attacker-controlled (the
  * relay itself, or anyone who intercepted the invite code, could have
@@ -480,14 +480,11 @@ export async function membersRemove(
     }
   }
 
-  // Mirrors the mint side (MAT-387): rt does not administer membership on a
-  // repo it was merely pointed at. The asymmetry that matters is that removal
-  // FAILS OPEN — the person keeps their access — so when rt is not permitted to
-  // revoke, the caller is told plainly rather than in a footnote. Silence here
-  // would read as "removed", and they would still be able to clone.
+  // Removal fails open: the person keeps their access. So when rt does not
+  // manage it here, the caller is told plainly; silence would read as removed.
   const remote = teamRemote(p, slug);
   const local = seams.readTeamLocal(p, slug);
-  const mayManage = local.createdByRt && local.rtMayManageMembership;
+  const mayManage = local.rtMayManageMembership;
   const revoke =
     remote !== null && mayManage
       ? await seams.revokeRead(p, remote, handle, await seams.forgeToken(p, remote))
@@ -496,7 +493,7 @@ export async function membersRemove(
           manualSteps:
             remote === null
               ? ([] as string[])
-              : [`${handle} can still see the team repo. Remove them there too: mattstack does not manage who can see this repo.`],
+              : [`${handle} can still see the org's repo. Remove them there too, or let mattstack manage access: rt team manage-membership on --team ${slug}`],
         };
 
   // A removed member's board must not keep receiving the org's peer traffic.

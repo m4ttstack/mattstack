@@ -79,7 +79,7 @@ export async function orgRows(
         ...base,
         id: "team.push-access",
         title: "Push access",
-        why: "An org admin grants write access on the forge; rt never changes access on a repo it did not create.",
+        why: "An org admin grants write access on the forge, or lets rt manage it.",
         status: "needs-you",
         detail: `Your changes to ${what} are saved on this Mac, but the org repo refused the push. Ask ${adminsNote(roles.admins)} for write access`,
         action: opts.forge ? connect(p, opts.forge, "owner") : steps([`Ask ${adminsNote(roles.admins)} for write access to the org repo`, "Then run: rt team publish"]),

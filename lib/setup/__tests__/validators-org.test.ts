@@ -101,6 +101,7 @@ describe("orgRows", () => {
   test("an owner gets owner token scopes when its push was refused", async () => {
     const [row] = await orgRows(probes({ username: "dev2", roster: [{ username: "dev2", teams: ["widgets"] }] }), "acme", { forge: GITHUB, readStatus: status("remote: Permission to acme/org.git denied to dev2.") });
     expect(row).toMatchObject({ id: "team.push-access", kind: "access", required: false, status: "needs-you" });
+    expect(row!.why).toBe("An org admin grants write access on the forge, or lets rt manage it.");
     expect(row!.detail).toBe("Your changes to the widgets team are saved on this Mac, but the org repo refused the push. Ask an org admin (dev1) for write access");
     expect(row!.action).toMatchObject({ type: "connect", integration: "github", create: { url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg" } });
     expect(row!.finishGated).toBeUndefined();

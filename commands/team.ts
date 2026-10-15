@@ -658,9 +658,9 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
     const teams = named.length > 0 ? named : own ? [own] : [];
 
     const gate = deps.interactive ?? (await import("../lib/ui/gate.ts")).interactive;
-    if (!json && local.createdByRt && !local.rtMayManageMembership && gate()) {
+    if (!json && !local.rtMayManageMembership && gate()) {
       const ask = deps.confirm ?? (async (message: string) => (await import("../lib/ui/prompts.ts")).confirm({ message }));
-      if (await ask(`mattstack created this repo. Let it give ${handle} read access on the forge, and manage access for future invites?`)) {
+      if (await ask(`Let mattstack manage who can reach this org's repo on the forge? It gives ${handle} read access now and follows the org's roles from then on.`)) {
         updateTeamLocal(deps.probes, slug, { rtMayManageMembership: true });
       }
     }
@@ -687,8 +687,8 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
 
 /**
  * The permission is machine-local and never synced, so this is the only
- * non-interactive door to it. `on` is refused rather than ignored where rt did
- * not create the repo: rt does not administer a repo it was pointed at.
+ * non-interactive door to it. Only a Mac whose role runs the org may turn it
+ * on: the forge would refuse anyone else's changes anyway.
  */
 export async function teamManageMembership(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
@@ -699,33 +699,38 @@ export async function teamManageMembership(args: string[], _ctx: CommandContext 
 
   try {
     const slug = resolveTeamSlug(args, "team manage-membership");
-    const before = readTeamLocal(deps.probes, slug);
-    if (state === "on" && !before.createdByRt) {
-      throw new UserActionableError("not-rt-created", `mattstack did not create the ${slug} team's repo, so it will not manage who can see it`, {}, {
-        why: "Whoever runs that repo gives people access.",
+    const runsOrg = isOrgAdmin(roleFor(deps.probes, slug));
+    if (state === "on" && !runsOrg) {
+      const admins = rolesFor(deps.probes, slug).admins;
+      throw new UserActionableError("team-pull-only", "Only an org admin can let mattstack manage forge access", {}, {
+        why: admins.length > 0 ? `Ask ${admins.join(" or ")} to turn it on from their Mac.` : "This org names no admins yet.",
       });
     }
-
-    const record = state === undefined ? before : updateTeamLocal(deps.probes, slug, { rtMayManageMembership: state === "on" });
+    const record = state === undefined ? readTeamLocal(deps.probes, slug) : updateTeamLocal(deps.probes, slug, { rtMayManageMembership: state === "on" });
 
     if (json) {
-      deps.print(JSON.stringify(envelope({ slug, mayManage: record.rtMayManageMembership, offerable: record.createdByRt })));
+      deps.print(JSON.stringify(envelope({ slug, mayManage: record.rtMayManageMembership, offerable: runsOrg })));
       return;
     }
-    out.print(
-      ...(record.rtMayManageMembership
-        ? [out.line("done", `Invites to ${slug} give read access on the forge`, "membership management is on")]
-        : [
-            out.line("off", `Invites to ${slug} leave forge access to you`, "membership management is off"),
-            record.createdByRt
-              ? out.callout("next", out.cmd("rt team manage-membership on"))
-              : out.callout("note", "mattstack did not create this repo, so this cannot be turned on"),
-          ]),
-    );
+    out.print(...manageMembershipBlocks(slug, record.rtMayManageMembership, runsOrg));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
+}
+
+export function manageMembershipBlocks(slug: string, on: boolean, runsOrg: boolean): Block[] {
+  if (on) {
+    return [
+      out.line("done", `mattstack manages who can reach ${slug} on the forge`, "membership management is on"),
+      out.callout("note", "It follows the org's roles within a few minutes, and again at each app update."),
+      out.callout("next", out.cmd(`rt team forge-access --team ${slug}`)),
+    ];
+  }
+  return [
+    out.line("off", `You manage who can reach ${slug} on the forge`, "membership management is off"),
+    runsOrg ? out.callout("next", out.cmd("rt team manage-membership on")) : out.callout("note", "Only an org admin can turn this on"),
+  ];
 }
 
 export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
