@@ -24,6 +24,7 @@ function withoutKeys(store: StoreFile, keys: string[]): unknown {
 }
 
 const OWNER_REFUSAL = "A team owner can only change which teams people are on in the org's settings.";
+const ORDER_REFUSAL = "A team owner can add or remove their own team on someone's list, but not change its order: the first team is where that person starts.";
 const ADD_REMOVE_REFUSAL = "A team owner can't add people to the org or remove them from it. An org admin does that.";
 
 interface RawRoster {
@@ -52,6 +53,16 @@ function uniqueUsers(entries: RosterEntry[]): boolean {
   return entries.every((e, i) => entries.findIndex((o) => sameUser(o.username, e.username)) === i);
 }
 
+/** The old list minus some of the owner's teams, then some of the owner's teams not on it appended. */
+function ownTeamsOnlyAddedOrRemoved(ownTeams: string[], was: string[], now: string[]): boolean {
+  const kept = was.filter((t) => !ownTeams.includes(t) || now.includes(t));
+  const appended = now.slice(kept.length);
+  return (
+    isDeepStrictEqual(now.slice(0, kept.length), kept) &&
+    appended.every((t, i) => ownTeams.includes(t) && !was.includes(t) && appended.indexOf(t) === i)
+  );
+}
+
 function rosterRefusal(ownTeams: string[], before: RawRoster, after: RawRoster): string | null {
   if (isDeepStrictEqual(before, after)) return null;
   const spelling = before.flat !== undefined ? "flat" : "nested";
@@ -76,6 +87,7 @@ function rosterRefusal(ownTeams: string[], before: RawRoster, after: RawRoster):
       const foreign = moved.length > 0 ? moved : all;
       return `You don't own ${foreign.join(" or ")}, so you can't change who is on it.`;
     }
+    if (!ownTeamsOnlyAddedOrRemoved(ownTeams, a ?? [], b ?? [])) return ORDER_REFUSAL;
   }
   return null;
 }

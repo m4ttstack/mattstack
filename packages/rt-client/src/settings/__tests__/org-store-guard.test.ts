@@ -95,6 +95,31 @@ describe("roster bypasses", () => {
     expect(orgStoreChangeRefusal(OWNER, before, after)).toBeNull();
     expect(orgStoreChangeRefusal(OWNER, after, before)).toBeNull();
   });
+  describe("the order of a member's teams", () => {
+    const change = (owner: string[], from: string[], to: string[]) =>
+      orgStoreChangeRefusal({ kind: "owner", teams: owner }, withRoster([{ ...roster[0], teams: from }, roster[1]]), withRoster([{ ...roster[0], teams: to }, roster[1]]));
+    test("an owner may not move their own team to the front", () => {
+      expect(change(["widgets"], ["gadgets", "widgets"], ["widgets", "gadgets"])).toMatch(/order/);
+    });
+    test("an owner may append their own team", () => {
+      expect(change(["widgets"], ["gadgets"], ["gadgets", "widgets"])).toBeNull();
+    });
+    test("an owner may remove their own team from the front", () => {
+      expect(change(["widgets"], ["widgets", "gadgets"], ["gadgets"])).toBeNull();
+    });
+    test("an owner may not insert their own team at the front", () => {
+      expect(change(["widgets"], ["gadgets"], ["widgets", "gadgets"])).toMatch(/order/);
+    });
+    test("an owner of two teams may not reorder them among the rest", () => {
+      expect(change(["widgets", "tools"], ["widgets", "gadgets", "tools"], ["tools", "widgets", "gadgets"])).toMatch(/order/);
+    });
+    test("an owner of two teams may remove one and keep the rest in place", () => {
+      expect(change(["widgets", "tools"], ["gadgets", "widgets", "tools"], ["gadgets", "tools"])).toBeNull();
+    });
+    test("an owner may not duplicate their own team", () => {
+      expect(change(["widgets"], ["gadgets", "widgets"], ["gadgets", "widgets", "widgets"])).toMatch(/order/);
+    });
+  });
   test("an owner may reorder entries", () => {
     expect(orgStoreChangeRefusal(OWNER, store(), withRoster([roster[1], roster[0]]))).toBeNull();
   });
