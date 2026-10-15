@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ForgeAccessReport } from "../../team/forge-access-apply.ts";
-import { forgeAccessRow } from "../validators/org-forge-access.ts";
+import { FORGE_ACCESS_ROW_DEADLINE_MS, forgeAccessRow } from "../validators/org-forge-access.ts";
 import { fakeProbes } from "./fakes.ts";
 
 const p = fakeProbes({ home: "/h" });
@@ -47,5 +47,12 @@ describe("forgeAccessRow", () => {
   test("a read that throws is one error row, never a throw", async () => {
     const r = await forgeAccessRow(p, "acme", async () => { throw new Error("timed out"); });
     expect(r).toMatchObject({ status: "error", action: { type: "run", verb: ["setup", "status"] } });
+  });
+  test("a forge that never answers is one error row once the deadline passes", async () => {
+    const r = await forgeAccessRow(p, "acme", () => new Promise<ForgeAccessReport>(() => {}), 20);
+    expect(r).toMatchObject({ status: "error", detail: "rt could not check forge access: the forge did not answer in time", action: { type: "run", label: "Re-check", verb: ["setup", "status"] } });
+  });
+  test("the row's deadline is one overall cap of 20 seconds", () => {
+    expect(FORGE_ACCESS_ROW_DEADLINE_MS).toBe(20_000);
   });
 });

@@ -14,14 +14,31 @@ const BASE = {
   recheck: "on-activate" as const,
 };
 
+/** One cap on the whole read: each forge call has its own timeout, but a read makes several of them. */
+export const FORGE_ACCESS_ROW_DEADLINE_MS = 20_000;
+
+const errorRow = (why: string) => row({ ...BASE, status: "error", detail: `rt could not check forge access: ${why}`, action: { type: "run", label: "Re-check", verb: ["setup", "status"] } });
+
 /** Shown on Macs whose role runs the org. A forge that cannot be read turns into one row, so the accounts group never fails over it. */
-export async function forgeAccessRow(p: Probes, org: string, read: (p: Probes, org: string) => Promise<ForgeAccessReport> = readForgeAccess): Promise<Row | null> {
-  let report: ForgeAccessReport;
+export async function forgeAccessRow(
+  p: Probes,
+  org: string,
+  read: (p: Probes, org: string) => Promise<ForgeAccessReport> = readForgeAccess,
+  deadlineMs: number = FORGE_ACCESS_ROW_DEADLINE_MS,
+): Promise<Row | null> {
+  let report: ForgeAccessReport | "late";
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    report = await read(p, org);
+    const late = new Promise<"late">((resolve) => {
+      timer = setTimeout(() => resolve("late"), deadlineMs);
+    });
+    report = await Promise.race([read(p, org), late]);
   } catch (err) {
-    return row({ ...BASE, status: "error", detail: `rt could not check forge access: ${err instanceof Error ? err.message : String(err)}`, action: { type: "run", label: "Re-check", verb: ["setup", "status"] } });
+    return errorRow(err instanceof Error ? err.message : String(err));
+  } finally {
+    clearTimeout(timer);
   }
+  if (report === "late") return errorRow("the forge did not answer in time");
   switch (report.kind) {
     case "not-admin":
     case "no-forge":
