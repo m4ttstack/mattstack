@@ -108,7 +108,8 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    <user> --to <team>`, `drop <user> --from <team>`), and a member writes
    neither. `orgStoreChangeRefusal` judges every org store write. A refused
    team write names that team's owners, then the org's admins; a refused
-   org write names the org owners.
+   org write names the admins, or the org owners when an admin tries to
+   change `owners`.
 5. A key's default lives in its registry row and nowhere else: `default:`
    for a key whose app falls back to a fixed value or to an empty `[]`/`{}`,
    and `defaultNote:` (one short plain sentence the console shows) for a key

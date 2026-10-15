@@ -102,7 +102,7 @@ never folded in; a caller that needs one reads it by name
 team })`, `rt settings set --scope team --team <name>`), and a team write
 with no name goes to the active team, or is refused when there is none. Every key that allows `team` also
 allows `org`; `mattstack.roster` (each entry's `teams`) and `mattstack.org`
-(`owners`, `admins`, and `owners` per team) are org only.
+(`owners` and `admins`, and `owners` per team) are org only.
 
 Roles, highest first: org owner, admin, team owner, member. `mattstack.org.owners`
 lists the org owners; absent or empty, the admins are the org owners. Only an
