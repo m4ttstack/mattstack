@@ -17,6 +17,7 @@ import { Link } from 'wouter';
 import { formatClock } from './derive/clock';
 import { repoLabel } from './repoLabel';
 import { Dot } from './run-page/Dot';
+import { RunGateQueue } from './run-page/GateQueueStrip';
 import { RecordPage } from './run-page/RecordPage';
 import { RunLoadError } from './run-page/RunLoadError';
 import { RunPage, type RunPageData } from './run-page/RunPage';
@@ -169,6 +170,7 @@ export function RunDetail({ repo, runId }: { repo: string; runId: string }) {
           contentContainerProps={{ maw: 1680, my: 0, px: 40, py: 28 }}
         >
           <div className={classes.page}>
+            <RunGateQueue runId={runId} />
             <RunDetailBody repo={repo} runId={runId} />
           </div>
         </PageShell.Content>

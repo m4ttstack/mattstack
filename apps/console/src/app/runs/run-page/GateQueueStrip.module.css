@@ -1,0 +1,23 @@
+.strip {
+  margin-bottom: 20px;
+}
+
+.head {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  padding: 8px 10px 8px 18px;
+}
+
+.chips {
+  flex: 1;
+  min-width: 0;
+}
+
+.chip {
+  flex: none;
+  white-space: nowrap;
+}
+
+.next {
+  margin-left: auto;
+}

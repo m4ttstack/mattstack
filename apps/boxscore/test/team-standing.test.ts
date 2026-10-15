@@ -8,7 +8,11 @@ describe('standingOf', () => {
     expect(standingOf({ kind: 'admin' }, null).seesTeam).toBe(true);
   });
   it('lets an owner see only the teams they own', () => {
-    expect(standingOf({ kind: 'owner', teams: ['widgets'] }, 'widgets').seesTeam).toBe(true);
-    expect(standingOf({ kind: 'owner', teams: ['widgets'] }, 'gadgets').seesTeam).toBe(false);
+    expect(
+      standingOf({ kind: 'owner', teams: ['widgets'] }, 'widgets').seesTeam
+    ).toBe(true);
+    expect(
+      standingOf({ kind: 'owner', teams: ['widgets'] }, 'gadgets').seesTeam
+    ).toBe(false);
   });
 });
