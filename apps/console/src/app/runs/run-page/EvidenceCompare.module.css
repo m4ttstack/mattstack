@@ -1,7 +1,30 @@
+/* The modal leaves 5dvh above and below. The head, its divider and the footer
+   take the rest of the stage's share; the stage's padding, and a caption with
+   its gap, come off a shot's height. */
+.body {
+  --stage-h: calc(90dvh - 112px);
+  --shot-max: calc(var(--stage-h) - 40px);
+  --shot-max-captioned: calc(var(--shot-max) - 58px);
+  padding: 0;
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: var(--stage-h);
+  min-height: 280px;
+  padding: 20px;
+  background: var(--tk-inset);
+  overflow: hidden;
+}
+
 .images {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
 }
 
 .images[data-side='true'] {
@@ -9,18 +32,45 @@
 }
 
 .column {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   min-width: 0;
+  min-height: 0;
 }
 
-/* The modal leaves 5dvh above and below; the head, the body's padding and the
-   caption take the rest of the frame's share. */
-.frame {
+/* As wide as its shot, so the caption lines up under the image's own edge. */
+.figure {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  height: calc(90dvh - 150px);
-  min-height: 200px;
+  flex-direction: column;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.shot {
+  min-width: min(240px, 100%);
+  border: 1px solid var(--tk-border);
+  border-radius: 4px;
+  box-shadow: var(--tk-shadow-card);
   overflow: hidden;
+}
+
+.shot img {
+  width: auto;
+  max-width: 100%;
+}
+
+/* Takes no width of its own: it wraps to the shot's. */
+.caption {
+  width: 0;
+  min-width: 100%;
+  padding-inline: 2px;
+}
+
+.footer {
+  padding: 8px 20px;
 }
 
 .caseSelect {
