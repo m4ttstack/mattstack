@@ -1217,6 +1217,29 @@ export const shipWinningAnswer: GateAnswers = {
   next: 'proceed',
 };
 
+export const planWriteIn = runGate(OWNER_RUN, 'maple', 'w29:p5', {
+  gateId: 'gallery-plan-write-in',
+  kind: 'plan',
+  openedAt: minutesAgo(9),
+  context:
+    'ACME-3510: the station list loads every station, then filters in the browser. Two ways to add an owner filter, and a third the plan has not weighed: a saved filter per operator.',
+  questions: [
+    {
+      ...question('approach', 'Which approach should the plan take?', false, [
+        opt('server', 'Server-side filter (Recommended)', 'add an owner param'),
+        opt('client', 'Client-side filter', 'filter the loaded page only'),
+        opt('both', 'Both, behind a flag'),
+      ]),
+      writeIn: true,
+    },
+    question('next', 'Next?', false, [
+      NEXT_OPTIONS.proceed,
+      NEXT_OPTIONS.iterate,
+      NEXT_OPTIONS.hold,
+    ]),
+  ],
+});
+
 export const selfReview = runGate(FRONT_RUN, 'cedar', 'w27:p3', {
   gateId: 'gallery-self-review',
   kind: 'self-review',
@@ -2189,6 +2212,24 @@ export const answeredMilestoneNote: GalleryGate = {
     answeredBy: 'shepherd',
     answeredAt: minutesAgo(6),
     delivery: { outcome: 'confirmed', at: minutesAgo(5) },
+  },
+};
+
+export const answeredPlanWriteIn: GalleryGate = {
+  gate: {
+    ...planWriteIn.gate,
+    gateId: 'gallery-answered-plan-write-in',
+    status: 'answered',
+    answers: {
+      approach: {
+        writeIn:
+          'Saved filter per operator, server-side, with the owner param as a follow-up',
+      },
+      next: 'proceed',
+    },
+    answeredBy: 'board',
+    answeredAt: minutesAgo(2),
+    delivery: { outcome: 'confirmed', at: minutesAgo(1) },
   },
 };
 
