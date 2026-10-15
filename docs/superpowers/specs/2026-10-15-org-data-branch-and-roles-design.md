@@ -80,12 +80,22 @@ The roster rule is field-level: a team owner's edit to the org store is
 accepted only when the before and after differ solely in `teams` arrays, and
 only by adding or removing their own team names. The guard lives beside
 `writeRefusalFor` in `org-roles.ts`, so the settings writer and the CLI share
-it. The daemon's folder-based auto-commit (`readAuthorization`,
-`lib/daemon/home-snapshot.ts`) never commits an owner's roster edit. Instead a
-new daemon handler, `team:members-teams`, takes the member, the team and add
-or remove, runs the guard, writes the org store, commits that one file and
-pushes it. `rt team members` and the console (through rt-client) both call it,
-so the console never needs a git path of its own.
+it. Roster edits today come from the board's members screen
+(`saveRosterMembers`, `apps/board/src/config.ts`) and `rt team members`, both
+through `setSetting`. So the guard runs in three places, and no new daemon
+verb is needed:
+
+- **`setSetting`** (`packages/rt-client/src/settings/write.ts`): a write to
+  the org store is accepted when the guard passes for this Mac's role.
+- **The daemon's auto-commit** (`readAuthorization`,
+  `lib/daemon/home-snapshot.ts`): the org store is in an owner's scope only
+  while its working change passes the guard, and out of an admin's scope
+  while it changes `owners`.
+- **`publishTeam`** (`lib/team/publish.ts`): a pending org store change is
+  accepted when the guard passes on the published and the local versions.
+
+(Amended while planning: the console has no roster editor of its own, so the
+earlier `team:members-teams` handler had no caller.)
 
 `rt team members` gains add and remove for an existing org member on a team
 the caller owns. Inviting someone new into the org stays admin-only.
