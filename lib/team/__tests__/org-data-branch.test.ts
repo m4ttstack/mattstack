@@ -189,6 +189,17 @@ describe("moveBlocker", () => {
     writeFileSync(join(clone, TEAM_FILE), "{ /* edit */ }");
     expect(await moveBlocker(p, clone)).toEqual({ kind: "held", why: "dirty", files: [TEAM_FILE] });
   });
+
+  test("with carry off, an unpushed commit holds the switch whatever it touches, and the move leaves it alone", async () => {
+    put(clone, "mattstack/org/settings.org.jsonc", '{"mine":true}');
+    git(clone, "commit", "-aq", "-m", "local only");
+    const held = { kind: "held", why: "unpushed", commits: 1, branch: "main" } as const;
+    expect(await moveBlocker(p, clone, { carry: false })).toEqual(held);
+    expect(await moveCloneToDataBranch(p, clone, "mattstack", null, origin, { carry: false })).toEqual(held);
+    expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("main");
+    expect(git(clone, "log", "-1", "--format=%s")).toBe("local only");
+    expect(heldCopy(held).detail).toBe("Your copy of the org has 1 commit on main that is not pushed yet, so rt did not switch");
+  });
 });
 
 describe("heldCopy", () => {

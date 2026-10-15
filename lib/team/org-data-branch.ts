@@ -20,6 +20,7 @@ import { storedForgeToken } from "./stored-forge-token.ts";
 export type HeldMove =
   | { kind: "held"; why: "dirty"; files: string[] }
   | { kind: "held"; why: "uncarried"; commits: number; reason: "outside" | "clash" }
+  | { kind: "held"; why: "unpushed"; commits: number; branch: string }
   | { kind: "held"; why: "detached" };
 
 export type MoveResult =
@@ -31,7 +32,7 @@ export type MoveResult =
 /** What a convergence may also end in: origin could not be asked, so whether the data moved is unknown until the next try. */
 export type ConvergeResult = MoveResult | { kind: "unchecked"; log: string };
 
-const ENV = { GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" };
+export const ENV = { GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" };
 const FILES_SHOWN = 5;
 /** Every path the org's data branch holds; a commit touching anything else is not the org's data and is never carried. */
 const DATA_PATH = (path: string): boolean =>
@@ -48,6 +49,13 @@ export function heldCopy(held: HeldMove): { detail: string; remedy: string } {
     const shown = held.files.slice(0, FILES_SHOWN).join(", ");
     const more = held.files.length > FILES_SHOWN ? ` and ${held.files.length - FILES_SHOWN} more` : "";
     return { detail: `Your copy of the org has unsaved changes: ${shown}${more}`, remedy: "Save or discard those changes, then run rt team pull" };
+  }
+  if (held.why === "unpushed") {
+    const one = held.commits === 1;
+    return {
+      detail: `Your copy of the org has ${held.commits} ${one ? "commit" : "commits"} on ${held.branch} that ${one ? "is" : "are"} not pushed yet, so rt did not switch`,
+      remedy: "Push them first, then try again",
+    };
   }
   if (held.why === "uncarried") {
     const one = held.commits === 1;
@@ -67,11 +75,12 @@ type Blocker = HeldMove | { kind: "failed"; log: string };
 /** The commits origin has none of, oldest first, or what holds them back from the move. */
 type Ready = { kind: "ready"; commits: string[] };
 
-async function unpushed(p: Pick<Probes, "exec">, dir: string): Promise<Ready | Blocker> {
+async function unpushed(p: Pick<Probes, "exec">, dir: string, current: string, carry: boolean): Promise<Ready | Blocker> {
   // Against every origin ref, not the branch's own: a missing tracking ref must not make local commits look pushed.
   const listed = await p.exec(["git", "rev-list", "--reverse", "HEAD", "--not", "--remotes=origin"], { cwd: dir, env: ENV });
   if (listed.code !== 0) return { kind: "failed", log: withoutUrls(listed.stderr) };
   const commits = listed.stdout.split("\n").filter(Boolean);
+  if (!carry && commits.length > 0) return { kind: "held", why: "unpushed", commits: commits.length, branch: current };
   for (const commit of commits) {
     const touched = await p.exec(["git", "diff-tree", "-r", "--root", "--no-commit-id", "--name-only", commit], { cwd: dir, env: ENV });
     if (touched.code !== 0) return { kind: "failed", log: withoutUrls(touched.stderr) };
@@ -82,19 +91,24 @@ async function unpushed(p: Pick<Probes, "exec">, dir: string): Promise<Ready | B
   return { kind: "ready", commits };
 }
 
-async function blockerOn(p: Pick<Probes, "exec">, dir: string, current: string | null): Promise<Ready | Blocker> {
+async function blockerOn(p: Pick<Probes, "exec">, dir: string, current: string | null, carry: boolean): Promise<Ready | Blocker> {
   const status = await p.exec(["git", "status", "--porcelain=v1", "--untracked-files=no"], { cwd: dir, env: ENV });
   if (status.code !== 0) return { kind: "failed", log: withoutUrls(status.stderr) };
   const files = status.stdout.split("\n").filter(Boolean).map((line) => line.slice(3));
   if (files.length > 0) return { kind: "held", why: "dirty", files };
   if (current === null) return { kind: "held", why: "detached" };
-  return unpushed(p, dir);
+  return unpushed(p, dir, current, carry);
 }
 
 /** What keeps the clone from moving now: unsaved changes, no branch checked out, or unpushed commits the move cannot carry. Null when nothing does; a clash with the data branch shows only when the move tries. */
-export async function moveBlocker(p: Pick<Probes, "exec">, dir: string): Promise<Blocker | null> {
-  const blocker = await blockerOn(p, dir, await checkedOutBranch(p, dir));
+export async function moveBlocker(p: Pick<Probes, "exec">, dir: string, opts: MoveOptions = {}): Promise<Blocker | null> {
+  const blocker = await blockerOn(p, dir, await checkedOutBranch(p, dir), opts.carry ?? true);
   return blocker.kind === "ready" ? null : blocker;
+}
+
+export interface MoveOptions {
+  /** Replay unpushed commits onto the target (the one-time convergence). A switch the person chose passes false and holds instead: commits on a branch they were trying stay there. */
+  carry?: boolean;
 }
 
 const CLASH_RE = /conflict|could not apply|after resolving|is a merge/i;
@@ -105,10 +119,10 @@ const CLASH_RE = /conflict|could not apply|after resolving|is a merge/i;
  * branch checked out with its commits, the refspec untouched, and no data
  * branch left behind that was not there before.
  */
-export async function moveCloneToDataBranch(p: Pick<Probes, "exec">, dir: string, branch: string, token: string | null, remote: string): Promise<MoveResult> {
+export async function moveCloneToDataBranch(p: Pick<Probes, "exec">, dir: string, branch: string, token: string | null, remote: string, opts: MoveOptions = {}): Promise<MoveResult> {
   const current = await checkedOutBranch(p, dir);
   if (current === branch) return { kind: "already", branch };
-  const ready = await blockerOn(p, dir, current);
+  const ready = await blockerOn(p, dir, current, opts.carry ?? true);
   if (ready.kind !== "ready") return ready;
   const refspec = `+refs/heads/${branch}:refs/remotes/origin/${branch}`;
   const fetch = gitWithToken(["fetch", "-q", "origin", refspec], token, ENV, { remote });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { writeFileSync } from "fs";
+import { rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { UserActionableError } from "../../errors.ts";
 import { readTeamLocal } from "../team-local.ts";
@@ -56,6 +56,7 @@ describe("useBranch", () => {
     await useBranch(w.p, "acme", "first", noToken);
     writeFileSync(join(w.root, "mattstack/teams/widgets/settings.team.jsonc"), '{"board.title":"trial"}');
     w.git("commit", "-aq", "-m", "trial only");
+    w.git("push", "-q", "origin", "first");
     const second = await useBranch(w.p, "acme", "second", noToken);
     expect(second.created).toBe(true);
     expect(w.atOrigin("rev-parse", "refs/heads/second").trim()).toBe(w.atOrigin("rev-parse", "refs/heads/mattstack").trim());
@@ -77,7 +78,7 @@ describe("useBranch", () => {
     expect(() => w.atOrigin("rev-parse", "--verify", "-q", "refs/heads/try-it")).toThrow();
   }, 30_000);
 
-  test("a clone with an unsaved edit is held with the file named, and nothing is pushed", async () => {
+  test("a clone with an unsaved edit is held with the file named, and nothing is pushed or recorded", async () => {
     const w = dataBranchWorld();
     const file = "mattstack/teams/widgets/settings.team.jsonc";
     writeFileSync(join(w.root, file), "{ /* edit */ }");
@@ -85,7 +86,53 @@ describe("useBranch", () => {
     expect(err.code).toBe("trial-branch-held");
     expect(err.message).toContain(file);
     expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("mattstack");
+    expect(w.pushes).toEqual([]);
+    expect(() => w.atOrigin("rev-parse", "--verify", "-q", "refs/heads/try-it")).toThrow();
     expect(readTeamLocal(w.p, "acme").trialBranch).toBeUndefined();
+  }, 30_000);
+
+  test("a detached clone is held before anything is pushed", async () => {
+    const w = dataBranchWorld();
+    w.git("checkout", "-q", "--detach");
+    const err = await refusal(useBranch(w.p, "acme", "try-it", noToken));
+    expect(err.code).toBe("trial-branch-held");
+    expect(w.pushes).toEqual([]);
+    expect(() => w.atOrigin("rev-parse", "--verify", "-q", "refs/heads/try-it")).toThrow();
+  }, 30_000);
+
+  test("unpushed trial commits hold the switch back to the data branch, and stay where they are", async () => {
+    const w = dataBranchWorld();
+    await useBranch(w.p, "acme", "try-it", noToken);
+    writeFileSync(join(w.root, "mattstack/teams/widgets/settings.team.jsonc"), '{"board.title":"trial"}');
+    w.git("commit", "-aq", "-m", "trial only");
+    const trialTip = w.git("rev-parse", "HEAD").trim();
+    const dataTip = w.atOrigin("rev-parse", "refs/heads/mattstack").trim();
+    const err = await refusal(useBranch(w.p, "acme", "mattstack", noToken));
+    expect(err.code).toBe("trial-branch-held");
+    expect(err.message).toBe("Your copy of the org has 1 commit on try-it that is not pushed yet, so rt did not switch");
+    expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("try-it");
+    expect(w.git("rev-parse", "HEAD").trim()).toBe(trialTip);
+    expect(w.atOrigin("rev-parse", "refs/heads/mattstack").trim()).toBe(dataTip);
+    expect(w.git("rev-parse", "mattstack").trim()).toBe(dataTip);
+    expect(readTeamLocal(w.p, "acme").trialBranch).toBe("try-it");
+  }, 30_000);
+
+  test("a branch that holds no org data (main's pointer) is refused and nothing changes", async () => {
+    const w = dataBranchWorld();
+    await useBranch(w.p, "acme", "try-it", noToken);
+    w.pointMainAtData();
+    const err = await refusal(useBranch(w.p, "acme", "main", noToken));
+    expect(err.code).toBe("trial-branch-no-org-data");
+    expect(err.message).toBe("The main branch holds no org data, so rt did not switch");
+    expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("try-it");
+    expect(readTeamLocal(w.p, "acme").trialBranch).toBe("try-it");
+  }, 30_000);
+
+  test("a missing clone is not called admin-only", async () => {
+    const w = dataBranchWorld();
+    rmSync(w.root, { recursive: true, force: true });
+    const err = await refusal(useBranch(w.p, "acme", "try-it", noToken));
+    expect(err.code).toBe("no-team-zone");
   }, 30_000);
 
   test("a clone whose marker names no data branch has nothing to branch from", async () => {
@@ -99,7 +146,7 @@ describe("useBranch", () => {
 
   test("a name git does not accept as a branch is refused before anything runs", async () => {
     const w = dataBranchWorld();
-    for (const name of ["a b", "-x", "a..b", "x.lock"]) {
+    for (const name of ["a b", "-x", "a..b", "x.lock", "@{-1}", "a@{b"]) {
       const err = await refusal(useBranch(w.p, "acme", name, noToken));
       expect(err.code).toBe("bad-branch-name");
     }
