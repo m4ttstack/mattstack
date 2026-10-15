@@ -548,7 +548,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.4 path=attachments/gate-protocol/SKILL.md lines=7-519 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.4 path=attachments/gate-protocol/SKILL.md lines=7-521 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -606,7 +606,7 @@ digraph gate_protocol {
     "Under a run: record the gate decision?" [shape=diamond];
     "run_decision {contract: gate@1, scope, selection, decidedBy}" [shape=plaintext];
     "Any answer a write-in?" [shape=diamond];
-    "Hold or Go back on next beside the write-in?" [shape=diamond];
+    "A deliberate next pick beside the write-in?" [shape=diamond];
     "Act on a write-in" [shape=box];
     "STOP: never invent an answer or re-ask a closed gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Gate stage failed" [shape=doublecircle];
@@ -684,9 +684,9 @@ digraph gate_protocol {
     "Under a run: record the gate decision?" -> "run_decision {contract: gate@1, scope, selection, decidedBy}" [label="yes"];
     "Under a run: record the gate decision?" -> "Any answer a write-in?" [label="no"];
     "run_decision {contract: gate@1, scope, selection, decidedBy}" -> "Any answer a write-in?";
-    "Any answer a write-in?" -> "Hold or Go back on next beside the write-in?" [label="yes"];
-    "Hold or Go back on next beside the write-in?" -> "Act on the gate answer at the site" [label="yes: the write-in rides as that move's note"];
-    "Hold or Go back on next beside the write-in?" -> "Act on a write-in" [label="no"];
+    "Any answer a write-in?" -> "A deliberate next pick beside the write-in?" [label="yes"];
+    "A deliberate next pick beside the write-in?" -> "Act on the gate answer at the site" [label="yes: any pick but Proceed or Iterate here; the write-in rides as that move's note"];
+    "A deliberate next pick beside the write-in?" -> "Act on a write-in" [label="no: Proceed, Iterate here or nothing"];
     "Any answer a write-in?" -> "Act on the gate answer at the site" [label="no"];
     "Act on a write-in" -> "Write-in acted on: a new gate opens at the site";
 }
@@ -867,9 +867,11 @@ record's `decidedBy` is a surface (`pane`, `board`, `console`,
 
 ### Act on a write-in
 
-A question came back `{"writeIn": ...}` and `next` is not Hold or Go
-back (those are deliberate: the site takes that move as usual, with the
-write-in as the move's note, and never reaches this step). The gate is
+A question came back `{"writeIn": ...}` and `next` is Proceed, Iterate
+here or unanswered. Any other `next` pick (Hold, Go back, Abandon, Hand
+back and the like) was chosen on purpose, since the form only ever
+preselects Proceed: it wins, the site takes that move as usual with the
+write-in as the move's note, and this step never runs. Here the gate is
 handled like Iterate here, whatever else was picked:
 
 1. Skip the site's own branch for this gate. A Proceed on `next` beside a

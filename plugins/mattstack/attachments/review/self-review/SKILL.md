@@ -344,7 +344,10 @@ A new gate, never the old one reopened: the same bracket and kind
 the finding. Questions, each its own: `finding` (write-in): **Try this finding
 again** / **Leave it open and move on**; `next`: **Proceed** (recommended)
 / **Hold** / **Abandon**. `next: hold` is hold and `next: abandon` is
-abandon whatever `finding` says; otherwise the `finding` answer decides.
+abandon whatever `finding` says, a `finding` write-in riding as that
+move's note (gate-protocol's deliberate-pick rule); otherwise the
+`finding` answer decides, and a `finding` write-in goes through
+gate-protocol's Act on a write-in.
 Record `run_decision {contract: gate@1, scope: self-review, selection:
 {"finding": "<its id or file:line>", "retry": true|false, "note": "<their
 words or null>"}, decidedBy: <the answer's by>}`. A `finding` write-in
