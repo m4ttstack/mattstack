@@ -5,6 +5,7 @@ import {
   dayGroups,
   earlierPage,
   filterView,
+  gateQueue,
   laneFacts,
   laneMrLine,
   latestField,
@@ -119,6 +120,29 @@ describe('waitingBanner', () => {
       runsStats({ runs: [run({ id: 'a' })], gates, lanes: [], now: NOW })
         .waiting.count
     ).toBe(0);
+  });
+});
+
+describe('gateQueue', () => {
+  it('lists my waiting gates on other runs, oldest first', () => {
+    const runs = [run({ id: 'here' }), run({ id: 'a' }), run({ id: 'b' })];
+    const gates = [
+      gate({ id: 'gb', subject: 'run:b', openedAt: TODAY(16, 20) }),
+      gate({ id: 'here', subject: 'run:here', openedAt: TODAY(16, 1) }),
+      gate({ id: 'ga', subject: 'run:a', openedAt: TODAY(16, 10) }),
+    ];
+    expect(
+      gateQueue(runs, gates, NOW, 'here').map(entry => entry.gate.id)
+    ).toEqual(['ga', 'gb']);
+  });
+
+  it('leaves out what the badge leaves out: herd gates and answered ones', () => {
+    const runs = [run({ id: 'a' })];
+    const gates = [
+      gate({ id: 'herd', subject: 'run:a', owner: 'herd:acme-web' }),
+      gate({ id: 'done', subject: 'run:a', status: 'answered' }),
+    ];
+    expect(gateQueue(runs, gates, NOW, 'here')).toEqual([]);
   });
 });
 
